@@ -56,5 +56,5 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "dnd_heroes.sln"
+    "dotnet.defaultSolution": "heroes_journey.sln"
 }
