@@ -18,11 +18,11 @@ namespace Abilities.EnemyAbilities
             set
             {
                 enable = value;
-                OnEnable?.Invoke(enable);
+                // OnEnable?.Invoke(enable);
             }
         }
 
-        public Action<bool> OnEnable;
+        // public Action<bool> OnEnable;
 
         public abstract Tween Execute();
         

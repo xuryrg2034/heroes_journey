@@ -10,7 +10,7 @@ namespace Grid
 {
     public class BossSpawner : MonoBehaviour
     {
-        [SerializeField] private Enemy bossPrefab;
+        // [SerializeField] private Enemy bossPrefab;
         [SerializeField] private Cell cellPrefab;
         [SerializeField] private List<QuestItem> activationQuests; 
 
@@ -30,7 +30,7 @@ namespace Grid
 
             if (!allQuestsComplete) return;
             
-            _gridService.SpawnEntity(bossPrefab, cellPrefab);
+            // _gridService.SpawnEntity(bossPrefab, cellPrefab);
             GameService.OnGameStateChange.AddListener(_spawn);
         }
     }

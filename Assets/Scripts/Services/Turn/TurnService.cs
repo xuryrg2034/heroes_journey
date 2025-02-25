@@ -19,8 +19,8 @@ namespace Services.Turn
 
         private void OnDisable()
         {
-            _playerTurnPhase.OnTurnCompleted -= _updateGrid;
-            _enemyTurnPhase.OnTurnCompleted -= _updateGrid;
+            // _playerTurnPhase.OnTurnCompleted -= _updateGrid;
+            // _enemyTurnPhase.OnTurnCompleted -= _updateGrid;
         }
 
         private void OnEnable()
@@ -59,10 +59,7 @@ namespace Services.Turn
         
         private async void _updateGrid()
         {
-            GameService.SetGameState(GameState.UpdateGrid);
-
-            await GridService.Instance.ApplyGravity();
-            GridService.Instance.SpawnEntitiesOnGrid();
+            await GridService.Instance.UpdateGrid();
             
             GameService.SetGameState(GameState.WaitingForInput);
         }

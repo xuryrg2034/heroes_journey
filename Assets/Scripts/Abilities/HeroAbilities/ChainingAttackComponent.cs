@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Core.Entities;
+using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Services.Grid;
 using Services.Selection;
@@ -11,32 +12,36 @@ namespace Abilities.HeroAbilities
 {
     public class ChainingAttackComponent : BaseAbility
     {
-        private Hero _hero;
+        private GameObject _hero;
         private Entity _lastSelectedTarget;
         private readonly List<Entity> _selectedEntities = new();
         private Sequence _executeSequence;
 
-        public override string Title { get; } = "Chaining";
+        // public override string Title { get; } = "Chaining";
 
         private void Start()
         {
-            _hero = GetComponent<Hero>();
-            _lastSelectedTarget = _hero;
+            // _hero = GetComponent<Hero>();
+            // _lastSelectedTarget = _hero;
+        }
+        
+        public ChainingAttackComponent(Hero owner, string title) : base(owner, title)
+        {
         }
         
         public override void Activate()
         {
-            EntityClickHandler.OnEntityClicked += HandleClick;
+            EntityClickHandler.OnEntityClicked += SelectTarget;
         }
 
         public override void Deactivate()
         {
-            EntityClickHandler.OnEntityClicked -= HandleClick;
+            EntityClickHandler.OnEntityClicked -= SelectTarget;
             
             _resetSelection();
         }
         
-        public override void HandleClick(Entity entity)
+        public override void SelectTarget(Entity entity)
         {
             if (entity == _hero)
             {
@@ -50,48 +55,48 @@ namespace Abilities.HeroAbilities
                 return;
             }
              
-            if (_isInRange(_lastSelectedTarget.Cell.Position, entity.Cell.Position, _hero.AttackRange))
-            {
-                if (!_canSelectionTypeByType(entity)) return;
-
-                var canDestroy = DamageCalculationService.CanDestroyEntity(_hero, entity);
-
-                if (canDestroy)
-                {
-                    _selectEnemy(entity);
-                    DamageCalculationService.RecalculateDamage(_hero, _selectedEntities); // Обновляем урон 
-                }
-                else
-                {
-                    Debug.LogWarning("Not enough damage to destroy this enemy!");
-                }
-            }
-            else
-            {
-                Debug.LogWarning("Target out of range!");
-            }
+            // if (_isInRange(_lastSelectedTarget.Cell.Position, entity.Cell.Position, _hero.AttackRange))
+            // {
+            //     if (!_canSelectionTypeByType(entity)) return;
+            //
+            //     var canDestroy = DamageCalculationService.CanDestroyEntity(_hero, entity);
+            //
+            //     if (canDestroy)
+            //     {
+            //         _selectEnemy(entity);
+            //         DamageCalculationService.RecalculateDamage(_hero, _selectedEntities); // Обновляем урон 
+            //     }
+            //     else
+            //     {
+            //         Debug.LogWarning("Not enough damage to destroy this enemy!");
+            //     }
+            // }
+            // else
+            // {
+            //     Debug.LogWarning("Target out of range!");
+            // }
         }
 
-        public override Tween Execute()
+        public override async UniTask Execute()
         {
-            if (_selectedEntities.Count == 0) return default;
+            // if (_selectedEntities.Count == 0) return default;
 
             _executeSequence = DOTween.Sequence();
             foreach (var entity in _selectedEntities)
             {
-                var heroMove = _hero.Move(entity.Cell);
-                var entityTakeDamage = entity.TakeDamage(_hero.RemainingDamage);
+                // var heroMove = _hero.Move(entity.Cell);
+                // var entityTakeDamage = entity.TakeDamage(_hero.RemainingDamage);
 
-                _executeSequence.Append(entityTakeDamage);
-                _executeSequence.Append(heroMove);
+                // _executeSequence.Append(entityTakeDamage);
+                // _executeSequence.Append(heroMove);
             }
 
-            _executeSequence.OnComplete(_resetSelection);
+            await _executeSequence.OnComplete(_resetSelection).ToUniTask();
 
-            return _executeSequence;
+            // return _executeSequence;
         }
 
-        public override void Interrupt()
+        public override void Cancel()
         {
             _executeSequence?.Kill();
             _resetSelection();
@@ -105,8 +110,9 @@ namespace Abilities.HeroAbilities
             }
 
             if (entity.Type != EntityType.Enemy) return false;
-            
-            return ((Enemy)entity).Color == ((Enemy)_lastSelectedTarget).Color;
+
+            return false;
+            // return ((Enemy)entity).Color == ((Enemy)_lastSelectedTarget).Color;
         }
         
         private void _removeEnemiesAfter(Entity target)
@@ -138,7 +144,7 @@ namespace Abilities.HeroAbilities
                 _highlightEnemy(enemy, false);
             }
             _selectedEntities.Clear();
-            _lastSelectedTarget = _hero;
+            // _lastSelectedTarget = _hero;
              
             // Сброс урона героя
             DamageCalculationService.Reset(_hero);

@@ -13,7 +13,7 @@ namespace Core.Quest
 
         private void OnDisable()
         {
-            _quest.OnUpdate -= _updateStatus;
+            // _quest.OnUpdate -= _updateStatus;
         }
 
         public void Init(QuestItem quest)

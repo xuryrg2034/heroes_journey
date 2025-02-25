@@ -64,7 +64,7 @@ namespace Grid
         [CanBeNull]
         public Entity GetEntity()
         {
-            return GridService.Instance.GetEntityAt(Position);
+            return null; //GridService.Instance.GetEntityAt(Position);
         }
     }
 

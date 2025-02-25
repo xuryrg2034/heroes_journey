@@ -1,30 +1,32 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using Core.Entities;
+using UnityEngine;
 
 namespace Services.Selection
 {
     public static class DamageCalculationService
     {
         // Проверяет, достаточно ли урона для уничтожения сущности
-        public static bool CanDestroyEntity(Hero hero, Entity entity)
+        public static bool CanDestroyEntity(GameObject hero, Entity entity)
         {
-            return hero.RemainingDamage >= entity.Health;
+
+            return false;  // return hero.RemainingDamage >= entity.Health;
         }
 
-        public static void Reset(Hero hero)
+        public static void Reset(GameObject hero)
         {
-            hero.ResetDamage();
+            // hero.ResetDamage();
         }
 
         // Пересчитывает урон на основе текущей очереди
-        public static void RecalculateDamage(Hero hero, List<Entity> selectedEntities)
+        public static void RecalculateDamage(GameObject hero, List<Entity> selectedEntities)
         {
-            Reset(hero);
+            // Reset(hero);
 
-            var enemiesHealth = selectedEntities.Sum(entity => entity.Health);
-
-            hero.SetDamage(hero.AttackDamage + selectedEntities.Count - enemiesHealth);
+            // var enemiesHealth = selectedEntities.Sum(entity => entity.Health);
+            //
+            // hero.SetDamage(hero.AttackDamage + selectedEntities.Count - enemiesHealth);
         }
     }
 }

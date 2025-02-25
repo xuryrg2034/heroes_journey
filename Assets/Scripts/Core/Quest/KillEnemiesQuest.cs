@@ -11,12 +11,12 @@ namespace Core.Quest
 
         private void OnEnable()
         {
-            Enemy.OnEnemyDeath += OnCheckCondition;
+            // Enemy.OnEnemyDeath += OnCheckCondition;
         }
 
         private void OnDisable()
         {
-            Enemy.OnEnemyDeath -= OnCheckCondition;
+            // Enemy.OnEnemyDeath -= OnCheckCondition;
         }
         
         public override void OnCheckCondition<T>(T input = default)

@@ -21,11 +21,10 @@ namespace Services.Turn
             _turnPhases.Enqueue(_removeEnemiesPhase);
         }
         
-        private void _removeEnemiesPhase()
+        private async void _removeEnemiesPhase()
         {
-            _abilitiesService
-                .Execute()
-                .OnComplete(_processNextPhase);
+            await _abilitiesService.Execute();
+            _processNextPhase();
         }
     }
 }

@@ -9,17 +9,17 @@ namespace Core.Quest
 {
     public class KillThisEnemyQuest : QuestItem
     {
-        [SerializeField] private EnemyColor targetColor;
-        [SerializeField] private EnemyType targetType;
+        // [SerializeField] private EnemyColor targetColor;
+        // [SerializeField] private EnemyType targetType;
 
         private void OnEnable()
         {
-            Enemy.OnEnemyDeath += OnCheckCondition;
+            // Enemy.OnEnemyDeath += OnCheckCondition;
         }
 
         private void OnDisable()
         {
-            Enemy.OnEnemyDeath -= OnCheckCondition;
+            // Enemy.OnEnemyDeath -= OnCheckCondition;
         }
 
         public override void OnCheckCondition<T>(T input = default)
@@ -27,8 +27,9 @@ namespace Core.Quest
             if (IsCompleted)
                 return;
             
-            if (input is Enemy enemy == false) return;
-            if (enemy.Rank != targetType || enemy.Color != targetColor) return;
+            //
+            // if (input is Enemy enemy == false) return;
+            // if (enemy.Rank != targetType || enemy.Color != targetColor) return;
 
             OnUpdate?.Invoke();
             

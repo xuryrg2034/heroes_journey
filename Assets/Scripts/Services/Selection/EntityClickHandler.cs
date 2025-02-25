@@ -4,6 +4,7 @@ using Core.Entities;
 
 namespace Services.Selection
 {
+    [RequireComponent(typeof(BoxCollider2D))]
     public class EntityClickHandler : MonoBehaviour, IPointerClickHandler
     {
         public static event System.Action<Entity> OnEntityClicked;

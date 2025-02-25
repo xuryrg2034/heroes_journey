@@ -1,5 +1,6 @@
 ﻿using System;
 using Core.Entities;
+using Grid;
 using Services.Abilities;
 using Services.Grid;
 using Services.Quest;
@@ -25,8 +26,11 @@ namespace Services
         [SerializeField] private GridService gridService;
         [SerializeField] private GameObject abilitiesService;
         [SerializeField] private GameObject questService;
-        [SerializeField] private Hero selectedHero;
+        [SerializeField] private Hero heroPrefab;
+        [SerializeField] private Cell heroCellSpawn;
 
+        private Hero _heroEntity;
+        
         public static UnityEvent<GameState> OnGameStateChange = new();
         public static GameState CurrentState { get; private set; } = GameState.WaitingForInput;
         public static GameService Instance;
@@ -42,16 +46,14 @@ namespace Services
 
         private void Start()
         {
-            gridService.Init();
-            
+            _prepareGrid();
             _prepareAbilities();
-            _prepareQuests();
+            // _prepareQuests();
         }
 
         public static void SetGameState(GameState state)
         {
             CurrentState = state;
-            Debug.Log(CurrentState);
             OnGameStateChange?.Invoke(CurrentState);
         }
 
@@ -60,7 +62,7 @@ namespace Services
             var service = abilitiesService.GetComponent<AbilitiesService>();
             var ui = abilitiesService.GetComponent<AbilitiesUIService>();
 
-            service.Init(selectedHero.GetAbilities());
+            service.Init(_heroEntity.Abilities);
             ui.Init(service);
         }
         
@@ -71,6 +73,15 @@ namespace Services
 
             service.Init();
             ui.Init(service);
+        }
+
+        private void _prepareGrid()
+        {
+            gridService.Init();
+            gridService.SpawnEntity(heroPrefab, heroCellSpawn);
+            gridService.SpawnEntitiesOnGrid();
+
+            _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
         }
     }
 }

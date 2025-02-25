@@ -1,4 +1,5 @@
 ﻿using Abilities.HeroAbilities;
+using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using UnityEngine;
 
@@ -24,6 +25,7 @@ namespace Services.Abilities
         public void Init(BaseAbility[] abilitiesList)
         {
             AbilitiesList = abilitiesList;
+            // abilitiesList[0].Activate();
         }
         
         public void SelectAbility(BaseAbility ability)
@@ -40,13 +42,14 @@ namespace Services.Abilities
             _selectedAbility = null;
         }
 
-        public Tween Execute()
+        public async UniTask Execute()
         {
             if (_selectedAbility == null)
             {
-                return default;
+                return ;
             }
-            return _selectedAbility?.Execute();
+            
+            await _selectedAbility.Execute();
         }
     }
 }

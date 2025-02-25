@@ -1,18 +1,21 @@
 ﻿using System;
 using System.Collections.Generic;
 using Core.Entities;
+using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Services.Grid;
 using Services.Selection;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Abilities.HeroAbilities
 {
     public class SlashAttack : BaseAbility
     {
-        private Hero _hero;
+        private int _damage = 0;
+
         private List<Entity> _selectedTargets = new();
-        private int _baseDamage = 1;
+
         private static List<Vector2Int> _directions = new()
         {
             new Vector2Int(1, 0), // 0° - вправо
@@ -24,72 +27,72 @@ namespace Abilities.HeroAbilities
             new Vector2Int(0, -1), // 270° - вниз
             new Vector2Int(1, -1), // 315° - вниз-вправо
         };
-        
-        public override string Title { get; } = "Slash";
 
-        private void Start()
+        public SlashAttack(Hero owner, string title) : base(owner, title)
         {
-            _hero = GetComponent<Hero>();
+            _damage = owner.Damage.Value;
         }
         
         public override void Activate()
         {
-            EntityClickHandler.OnEntityClicked += HandleClick;
+            EntityClickHandler.OnEntityClicked += SelectTarget;
         }
 
         public override void Deactivate()
         {
-            EntityClickHandler.OnEntityClicked -= HandleClick;
+            EntityClickHandler.OnEntityClicked -= SelectTarget;
 
             _resetSelection();
         }
         
-        public override void HandleClick(Entity entity)
+        public override void SelectTarget(Entity entity)
         {
-            if (entity == _hero)
+            var isHero = entity == Owner;
+            
+            if (isHero)
             {
                 _resetSelection();
                 return;
             }
 
-            if (_isInRange(_hero.Cell.Position, entity.Cell.Position, 1))
+            var isInRange = _isInRange(Owner.Cell.Position, entity.Cell.Position, 1);
+
+            if (!isInRange) return;
+
+            _resetSelection();
+            
+            var targetPositions = _getEntitiesCoords(Owner.Cell.Position, entity.Cell.Position);
+            
+            foreach (var position in targetPositions)
             {
-                _resetSelection();
-
-                var targetPositions = _getEntitiesCoords(_hero.Cell.Position, entity.Cell.Position);
-
-                foreach (var position in targetPositions)
-                {
-                    var target = GridService.Instance.GetEntityAt(position);
+                var target = GridService.Instance.GetEntityAt(position);
                     
-                    if (target)
-                    {
-                        _selectEnemy(target);   
-                    }
+                if (target)
+                {
+                    _selectEnemy(target);   
                 }
             }
         }
 
-        public override Tween Execute()
+        public override async UniTask Execute()
         {
-            if (_selectedTargets.Count == 0)
-            {
-                return default;
-            };
-
             var sequence = DOTween.Sequence(null);
+            var tasks = new List<UniTask>();
             
             foreach (var target in _selectedTargets)
             {
-                sequence.Join(target.TakeDamage(_hero.RemainingDamage + _baseDamage));
+                var task = target.Health.TakeDamage(0 + _damage);
+                
+                tasks.Add(task);
             }
 
-            sequence.OnComplete(_resetSelection);
-
-            return sequence;
+            // return sequence.ToUniTask();
+            
+            await UniTask.WhenAll(tasks);
+            _resetSelection();
         }
         
-        public override void Interrupt()
+        public override void Cancel()
         {
             // throw new NotImplementedException();
         }
@@ -97,14 +100,14 @@ namespace Abilities.HeroAbilities
         private void _selectEnemy(Entity entity)
         {
             _selectedTargets.Add(entity);
-            _highlightEnemy(entity, true);
+            // _highlightEnemy(entity, true);
         }
 
         private void _resetSelection()
         {
             foreach (var target in _selectedTargets)
             {
-                _highlightEnemy(target, false);
+                // _highlightEnemy(target, false);
             }
             
             _selectedTargets.Clear();

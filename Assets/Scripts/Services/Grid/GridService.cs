@@ -1,4 +1,4 @@
-﻿using System;
+﻿
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -6,7 +6,6 @@ using Core.Entities;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Grid;
-using NUnit.Framework;
 using Random = UnityEngine.Random;
 
 namespace Services.Grid
@@ -17,25 +16,19 @@ namespace Services.Grid
     /// </summary>
     public class GridService : MonoBehaviour
     {
+        [Header("Gizmo Settings")]
+        [SerializeField] private Color gridColor = Color.gray;
+        [SerializeField] private float cellSize = 1f;
+
         [Header("Grid Settings")]
         [SerializeField] private int width = 9;
         [SerializeField] private int height = 9;
-        [SerializeField] private float cellSize = 1f;
-        [SerializeField] private Color gridColor = Color.gray;
-        [SerializeField] private List<Entity> availableEntitiesList;
+        [SerializeField] private List<Entity> availableEntitiesList = new();
 
         public static GridService Instance { get; private set; }
-        public Hero Hero => FindFirstObjectByType<Hero>();
 
-        /// <summary>
-        /// Список всех сущностей на поле (герой, враги, препятствия).
-        /// Можно разделить на несколько списков при необходимости.
-        /// </summary>
-        private readonly List<Entity> _entities = new();
+        private List<Entity> _entities;
 
-        /// <summary>
-        /// Массив клеток. Размер width x height.
-        /// </summary>
         private Cell[,] _cells;
 
         private void Awake() {
@@ -49,12 +42,12 @@ namespace Services.Grid
         
         private void OnEnable()
         {
-            Entity.OnDie += RemoveEntity;
+            Entity.OnBeforeDestroy.AddListener(RemoveEntity);
         }
-
+        
         private void OnDisable()
         {
-            Entity.OnDie -= RemoveEntity;
+            Entity.OnBeforeDestroy.RemoveListener(RemoveEntity);
         }
 
         private void OnDrawGizmos()
@@ -80,52 +73,30 @@ namespace Services.Grid
             }
         }
         
-        private void PopulateCellsFromScene()
-        {
-            // Ищем все объекты типа Entity в сцене
-            var foundCells = FindObjectsByType<Cell>(FindObjectsSortMode.None);
-
-            foreach (var cell in foundCells)
-            {
-                _cells[cell.Position.x, cell.Position.y] = cell;
-            }
-        }
-        
-        private void PopulateEntitiesFromScene()
-        {
-            // Ищем все объекты типа Entity в сцене
-            var foundEntities = FindObjectsByType<Entity>(FindObjectsSortMode.None);
-
-            foreach (var entity in foundEntities)
-            {
-                if (IsInsideGrid(entity.Cell.Position))
-                {
-                    _entities.Add(entity);
-                }
-                else
-                {
-                    Debug.LogWarning($"Entity {entity.name} is outside the grid bounds!");
-                }
-            }
-        }
-        
         
         public void Init()
         {
             _cells = new Cell[width, height];
 
-            PopulateCellsFromScene();
-            PopulateEntitiesFromScene();
-            SpawnEntitiesOnGrid();
+            _populateCellsFromScene();
+            _populateEntitiesFromScene();
         }
 
+        public List<T> GetEntitiesOfType<T>() where T : Entity
+        {
+            return _entities.OfType<T>().ToList();
+        }
+        
         public Enemy[] GetEnemies()
         {
             return _entities.OfType<Enemy>().ToArray();
         }
         
+        // TODO: Нужна более мудренная логика спавна. Что бы не получалось, что на арене только красные например
         public void SpawnEntitiesOnGrid()
         {
+            if (availableEntitiesList.Count == 0) return;
+
             foreach (var cell in _cells)
             {
                 // Выбираем случайного противника из entitiesList
@@ -133,11 +104,10 @@ namespace Services.Grid
                 var isCellEmpty = GetEntityAt(cell.Position) == null;
                 
                 // Проверяем, что ячейка не заблокирована и не занята
-                if (cell == null || !cell.IsAvailableForEntity() || !isCellEmpty) continue;
+                if (!cell.IsAvailableForEntity() || !isCellEmpty) continue;
                 
                 var newEntity = Instantiate(randomEnemy);
-
-                newEntity.SetCell(cell, true);
+                newEntity.SetCell(cell);
 
                 _entities.Add(newEntity);
             }
@@ -178,6 +148,22 @@ namespace Services.Grid
             }
         }
         
+        public void SpawnEntity(Entity entity, Cell cell)
+        {
+            // var entityOnCell = GetEntityAt(cell.Position);
+            
+            // if (entityOnCell)
+            // {
+            //     entityOnCell.Die();
+            // }
+            //
+            var newEntity = Instantiate(entity);
+            newEntity.Init();
+            _entities.Add(newEntity);
+
+            newEntity.SetCell(cell);
+        }
+        
         public async UniTask ApplyGravity()
         {
             var tasks = new List<UniTask>();
@@ -193,7 +179,10 @@ namespace Services.Grid
                     var targetCell = _getLowestAvailableCell(cell);
                     if (targetCell == null) continue;
 
-                    var move = entity.Move(targetCell).ToUniTask();
+                    Debug.Log($"INIT {entity.Cell.Position}");
+                    var move = entity.Move(targetCell);
+                    Debug.Log($"AFTER {entity.Cell.Position}");
+                    Debug.Log("----------------");
 
                     // Добавляем анимацию в последовательность
                     tasks.Add(move);
@@ -202,46 +191,13 @@ namespace Services.Grid
 
             await UniTask.WhenAll(tasks);
         }
-        
-        public List<Cell> GetNeighborsCell(Cell cell) {
-            var neighbors = new List<Cell>();
 
-            // Проходим по всем 8 направлениям
-            for (var x = -1; x <= 1; x++) {
-                for (var y = -1; y <= 1; y++) {
-                    if (x == 0 && y == 0)
-                        continue; // пропускаем саму клетку
-
-                    var neighborCell = GetCell(cell.Position.x + x, cell.Position.y + y);
-
-                    if (neighborCell == null) continue;
-
-                    // Проверяем, что сосед в пределах поля
-                    if (neighborCell.Position.x >= 0 && neighborCell.Position.x < width && neighborCell.Position.y >= 0 && neighborCell.Position.y < height) {
-                        if (neighborCell.Type == CellType.Blocked) continue;
-
-                        neighbors.Add(neighborCell);
-                    }
-                }
-            }
-
-            return neighbors;
-        }
-
-        public void SpawnEntity(Entity entity, Cell cell)
+        public async UniTask UpdateGrid()
         {
-            var entityOnCell = GetEntityAt(cell.Position);
-
-            if (entityOnCell)
-            {
-                entityOnCell.Die();
-            }
-
-            var newEntity = Instantiate(entity);
-            _entities.Add(newEntity);
-            newEntity.SetCell(cell, true);
+            await ApplyGravity();
+            SpawnEntitiesOnGrid();
         }
-
+        
         private Cell _getLowestAvailableCell(Cell startCell)
         {
             for (var y = 0; y < startCell.Position.y; y++) // Проходим снизу вверх до текущей ячейки
@@ -259,13 +215,20 @@ namespace Services.Grid
 
             return null; // Если доступных ячеек нет, возвращаем null
         }
-
-        private void _updateGrid(GameState gameState)
+        
+        private void _populateCellsFromScene()
         {
-            if (gameState == GameState.UpdateGrid)
+            var foundCells = FindObjectsByType<Cell>(FindObjectsSortMode.None);
+
+            foreach (var cell in foundCells)
             {
-                
+                _cells[cell.Position.x, cell.Position.y] = cell;
             }
+        }
+        
+        private void _populateEntitiesFromScene()
+        {
+            _entities = FindObjectsByType<Entity>(FindObjectsSortMode.None).ToList();
         }
     }
 }
