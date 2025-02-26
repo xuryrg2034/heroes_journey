@@ -26,7 +26,6 @@ namespace Services.Abilities
         public void Init(List<BaseAbility> abilitiesList)
         {
             AbilitiesList = abilitiesList;
-            // abilitiesList[0].Activate();
         }
         
         public void SelectAbility(BaseAbility ability)

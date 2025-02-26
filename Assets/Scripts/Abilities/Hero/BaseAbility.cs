@@ -11,6 +11,8 @@ namespace Abilities.Hero
     public abstract class BaseAbility
     {
         [SerializeField] private string title;
+        [SerializeField] private int energyCost;
+        [SerializeField] private int cooldown;
 
         public string Title => title;
         
