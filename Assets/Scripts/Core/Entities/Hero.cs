@@ -1,4 +1,5 @@
-﻿using Abilities.HeroAbilities;
+﻿using System.Collections.Generic;
+using Abilities.Hero;
 using Components.Entity;
 using UnityEngine;
 
@@ -8,26 +9,25 @@ namespace Core.Entities
     {
         [SerializeField] private int damage;
         [SerializeField] private int energy;
-        
-        public BaseAbility[] Abilities { get; private set; }
+
+        [SerializeReference, SubclassSelector]
+        private List<BaseAbility> abilities = new();
+
+        public List<BaseAbility> Abilities => abilities;
         
         public Damage Damage { get; private set; }
 
         public Energy Energy { get; private set; }
-        
-        // protected override void Start()
-        // {
-        //     base.Start();
-        // }
 
         public override void Init()
         {
             Damage = new Damage(damage);
             Energy = new Energy(energy);
-            Abilities = new BaseAbility[]
+
+            foreach (var ability in abilities)
             {
-                new SlashAttack(this, "Slash")
-            };
+                ability.Init(this);
+            }
         }
     }
 }

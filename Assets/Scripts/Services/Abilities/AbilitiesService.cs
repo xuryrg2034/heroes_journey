@@ -1,4 +1,5 @@
-﻿using Abilities.HeroAbilities;
+﻿using System.Collections.Generic;
+using Abilities.Hero;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using UnityEngine;
@@ -7,7 +8,7 @@ namespace Services.Abilities
 {
     public class AbilitiesService : MonoBehaviour
     {
-        public BaseAbility[] AbilitiesList { get; private set; }
+        public List<BaseAbility> AbilitiesList { get; private set; }
 
         public static AbilitiesService Instance;
         
@@ -22,7 +23,7 @@ namespace Services.Abilities
             }
         }
         
-        public void Init(BaseAbility[] abilitiesList)
+        public void Init(List<BaseAbility> abilitiesList)
         {
             AbilitiesList = abilitiesList;
             // abilitiesList[0].Activate();

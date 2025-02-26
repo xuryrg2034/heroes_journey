@@ -1,3 +1,4 @@
+using System;
 using Abilities.EnemyAbilities;
 using DG.Tweening;
 using TMPro;
@@ -14,12 +15,10 @@ namespace Core.Entities
         
         [Header("Enemy Settings")]
         [SerializeField] private EnemyRank rank;
-        [SerializeField] private EnemyFraction fraction;
         [SerializeField] private TextMeshPro healthUI;
         
         public BaseAbility[] Abilities { get; private set; }
-
-        public EnemyFraction Fraction => fraction;
+        
 
         public EnemyRank Rank => rank;
 
@@ -74,12 +73,6 @@ namespace Core.Entities
         // {
         //     healthUI.text = Health.ToString();
         // }
-    }
-    
-    public enum EnemyFraction
-    {
-        Red,
-        Green,
     }
     
     public enum EnemyRank

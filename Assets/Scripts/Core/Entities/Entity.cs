@@ -5,13 +5,15 @@ using DG.Tweening;
 using Grid;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.Serialization;
+using UnityEngine.UIElements;
 
 namespace Core.Entities
 {
     public abstract class Entity : MonoBehaviour
     {
         [SerializeField] private Cell cell;
-        [SerializeField] private EntityType type;
+        [SerializeField] private EntitySelectionType selectionType;
 
         [Header("Characteristics")]
         [SerializeField] private int health;
@@ -20,7 +22,7 @@ namespace Core.Entities
         
         public Health Health { get; private set; }
 
-        public EntityType Type => type;
+        public EntitySelectionType SelectionType => selectionType;
 
         public Cell Cell => cell;
 
@@ -62,5 +64,12 @@ namespace Core.Entities
     {
         Enemy,
         Hero,
+    }
+    
+    public enum EntitySelectionType
+    {
+        Red,
+        Green,
+        Neutral,
     }
 }

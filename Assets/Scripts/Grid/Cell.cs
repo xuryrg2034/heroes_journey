@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Core;
 using Core.Entities;
 using JetBrains.Annotations;
@@ -17,6 +18,8 @@ namespace Grid
         [SerializeField] private Vector2Int position;
         [SerializeField] private CellType cellType;
 
+        private SpriteRenderer _sr;
+        private Color _initColor;
         private static List<Vector2Int> _directions = new()
         {
 
@@ -37,7 +40,13 @@ namespace Grid
             get => cellType;
             set => cellType = value;
         }
-        
+
+        private void Start()
+        {
+            _sr = GetComponent<SpriteRenderer>();
+            _initColor = _sr.color;
+        }
+
         public bool IsAvailableForEntity()
         {
             return Type != CellType.Blocked;
@@ -64,7 +73,12 @@ namespace Grid
         [CanBeNull]
         public Entity GetEntity()
         {
-            return null; //GridService.Instance.GetEntityAt(Position);
+            return GridService.Instance.GetEntityAt(Position);
+        }
+
+        public void Highlite(bool value)
+        {
+            _sr.color = value ? Color.yellow : _initColor;
         }
     }
 

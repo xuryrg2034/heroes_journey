@@ -1950,6 +1950,7 @@ MonoBehaviour:
   width: 4
   height: 4
   availableEntitiesList:
+  - {fileID: -9152101009826336401, guid: 5cb8764a309121e4aa0136c2ee898bea, type: 3}
   - {fileID: -9152101009826336401, guid: 4c2eb518bdf882d43a6a695e683ac660, type: 3}
 --- !u!4 &1524337974
 Transform:

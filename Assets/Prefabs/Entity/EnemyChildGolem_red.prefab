@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: -7327794819446795399}
   - component: {fileID: -2109020731990752305}
   m_Layer: 0
-  m_Name: EnemyChildGolem
+  m_Name: EnemyChildGolem_red
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

@@ -8,8 +8,9 @@ using Services.Selection;
 using UnityEngine;
 using UnityEngine.Serialization;
 
-namespace Abilities.HeroAbilities
+namespace Abilities.Hero
 {
+    [Serializable]
     public class SlashAttack : BaseAbility
     {
         private int _damage = 0;
@@ -28,9 +29,10 @@ namespace Abilities.HeroAbilities
             new Vector2Int(1, -1), // 315° - вниз-вправо
         };
 
-        public SlashAttack(Hero owner, string title) : base(owner, title)
+        public override void Init(Core.Entities.Hero hero)
         {
-            _damage = owner.Damage.Value;
+            base.Init(hero);
+            _damage = Hero.Damage.Value;
         }
         
         public override void Activate()
@@ -47,30 +49,28 @@ namespace Abilities.HeroAbilities
         
         public override void SelectTarget(Entity entity)
         {
-            var isHero = entity == Owner;
-            
-            if (isHero)
+            if (entity == Hero)
             {
                 _resetSelection();
                 return;
             }
 
-            var isInRange = _isInRange(Owner.Cell.Position, entity.Cell.Position, 1);
+            var isInRange = _isInRange(Hero.Cell.Position, entity.Cell.Position, 1);
 
             if (!isInRange) return;
 
             _resetSelection();
             
-            var targetPositions = _getEntitiesCoords(Owner.Cell.Position, entity.Cell.Position);
+            var targetPositions = _getEntitiesCoords(Hero.Cell.Position, entity.Cell.Position);
             
             foreach (var position in targetPositions)
             {
                 var target = GridService.Instance.GetEntityAt(position);
-                    
-                if (target)
-                {
-                    _selectEnemy(target);   
-                }
+
+                if (!target) continue;
+                
+                _selectedTargets.Add(target);
+                _highlightTarget(target.Cell, true);
             }
         }
 
@@ -97,17 +97,11 @@ namespace Abilities.HeroAbilities
             // throw new NotImplementedException();
         }
 
-        private void _selectEnemy(Entity entity)
-        {
-            _selectedTargets.Add(entity);
-            // _highlightEnemy(entity, true);
-        }
-
         private void _resetSelection()
         {
             foreach (var target in _selectedTargets)
             {
-                // _highlightEnemy(target, false);
+                _highlightTarget(target.Cell, false);
             }
             
             _selectedTargets.Clear();

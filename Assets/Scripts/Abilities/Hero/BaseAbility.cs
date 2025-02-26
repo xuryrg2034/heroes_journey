@@ -2,20 +2,25 @@
 using Core.Entities;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
+using Grid;
 using UnityEngine;
 
-namespace Abilities.HeroAbilities
+namespace Abilities.Hero
 {
+    [Serializable]
     public abstract class BaseAbility
     {
-        public string Title { get; private set; }
-        
-        public Entity Owner { get; private set; }
+        [SerializeField] private string title;
 
-        protected BaseAbility(Hero owner, string title)
+        public string Title => title;
+        
+        public Core.Entities.Hero Hero { get; private set; }
+
+        protected BaseAbility() {}
+
+        public virtual void Init(Core.Entities.Hero hero)
         {
-            Title = title;
-            Owner = owner;
+            Hero = hero;
         }
         
         public abstract void SelectTarget(Entity entity);
@@ -28,9 +33,9 @@ namespace Abilities.HeroAbilities
 
         public abstract void Cancel();
         
-        protected void _highlightEnemy(Entity entity, bool highlight)
+        protected void _highlightTarget(Cell cell, bool highlight)
         {
-            // entity.IsSelected = highlight; // Подсветка
+            cell.Highlite(highlight);
         }
         
         protected bool _isInRange(Vector2Int origin, Vector2Int target, int range)

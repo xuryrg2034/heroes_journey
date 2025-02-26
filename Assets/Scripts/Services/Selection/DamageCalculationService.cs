@@ -8,25 +8,25 @@ namespace Services.Selection
     public static class DamageCalculationService
     {
         // Проверяет, достаточно ли урона для уничтожения сущности
-        public static bool CanDestroyEntity(GameObject hero, Entity entity)
+        public static bool CanDestroyEntity(Hero hero, Entity entity)
         {
 
-            return false;  // return hero.RemainingDamage >= entity.Health;
+            return hero.Damage.Value >= entity.Health.Value;
         }
 
-        public static void Reset(GameObject hero)
+        public static void Reset(Hero hero)
         {
-            // hero.ResetDamage();
+            hero.Damage.Reset();
         }
 
         // Пересчитывает урон на основе текущей очереди
-        public static void RecalculateDamage(GameObject hero, List<Entity> selectedEntities)
+        public static void RecalculateDamage(Hero hero, List<Entity> selectedEntities)
         {
-            // Reset(hero);
+            Reset(hero);
 
-            // var enemiesHealth = selectedEntities.Sum(entity => entity.Health);
-            //
-            // hero.SetDamage(hero.AttackDamage + selectedEntities.Count - enemiesHealth);
+            var enemiesHealth = selectedEntities.Sum(entity => entity.Health.Value);
+            
+            hero.Damage.SetValue(hero.Damage.Value + selectedEntities.Count - enemiesHealth);
         }
     }
 }

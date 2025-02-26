@@ -1,10 +1,8 @@
-﻿
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using Core.Entities;
 using Cysharp.Threading.Tasks;
-using DG.Tweening;
 using Grid;
 using Random = UnityEngine.Random;
 
@@ -23,7 +21,7 @@ namespace Services.Grid
         [Header("Grid Settings")]
         [SerializeField] private int width = 9;
         [SerializeField] private int height = 9;
-        [SerializeField] private List<Entity> availableEntitiesList = new();
+        [SerializeField]private List<Entity> availableEntitiesList = new();
 
         public static GridService Instance { get; private set; }
 
@@ -174,15 +172,12 @@ namespace Services.Grid
                 {
                     var cell = _cells[x, y];
                     var entity = GetEntityAt(cell.Position);
-                    if (!entity || entity.Type == EntityType.Hero) continue; // Герой не падает
+                    if (!entity || entity.GetComponent<Hero>() != null) continue; // Герой не падает
                     
                     var targetCell = _getLowestAvailableCell(cell);
                     if (targetCell == null) continue;
 
-                    Debug.Log($"INIT {entity.Cell.Position}");
                     var move = entity.Move(targetCell);
-                    Debug.Log($"AFTER {entity.Cell.Position}");
-                    Debug.Log("----------------");
 
                     // Добавляем анимацию в последовательность
                     tasks.Add(move);
@@ -229,6 +224,11 @@ namespace Services.Grid
         private void _populateEntitiesFromScene()
         {
             _entities = FindObjectsByType<Entity>(FindObjectsSortMode.None).ToList();
+
+            foreach (var entity in _entities)
+            {
+                entity.SetCell(entity.Cell);
+            }
         }
     }
 }
