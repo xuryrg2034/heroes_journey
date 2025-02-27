@@ -32,17 +32,13 @@ namespace Core.Entities
         //     OnHealthChange -= _healthUpdateUI;
         // }
         
-        protected override void Start()
+        protected void Start()
         {
-            base.Start();
             // Abilities = GetComponents<BaseAbility>()
             //     .OrderBy(item => item.Order)
             //     .ToArray();
             // _prepareHealth();
         }
-
-        public override void Init()
-        { }
 
         public Tween ExecuteAbilities()
         {

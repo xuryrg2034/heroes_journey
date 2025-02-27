@@ -1,9 +1,9 @@
 ﻿using System;
 using Core.Entities;
 using Cysharp.Threading.Tasks;
-using DG.Tweening;
 using Grid;
 using UnityEngine;
+using UnityEngine.Events;
 
 namespace Abilities.Hero
 {
@@ -14,6 +14,20 @@ namespace Abilities.Hero
         [SerializeField] private int energyCost;
         [SerializeField] private int cooldown;
 
+        private bool _enable;
+
+        public UnityEvent<bool> OnEnableChanged = new();
+        
+        public bool Enable
+        {
+            get => _enable;
+            private set
+            {
+                _enable = value;
+                OnEnableChanged.Invoke(_enable);
+            }
+        }
+
         public string Title => title;
         
         public Core.Entities.Hero Hero { get; private set; }
@@ -23,13 +37,29 @@ namespace Abilities.Hero
         public virtual void Init(Core.Entities.Hero hero)
         {
             Hero = hero;
+
+            CheckEnable(Hero.Energy.Value);
+            Hero.Energy.OnValueChanged.AddListener(CheckEnable);
+        }
+        
+        private void CheckEnable(int energy)
+        {
+            var isEnoughEnergy = energy >= energyCost;
+
+            Enable = isEnoughEnergy;
         }
         
         public abstract void SelectTarget(Entity entity);
 
-        public abstract void Activate();
-        
-        public abstract void Deactivate();
+        public virtual void Activate()
+        {
+            Hero.Energy.SetReserve(energyCost);
+        }
+
+        public virtual void Deactivate()
+        {
+            Hero.Energy.SetReserve(0);
+        }
 
         public abstract UniTask Execute();
 

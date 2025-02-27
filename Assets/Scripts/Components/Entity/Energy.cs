@@ -6,7 +6,33 @@ namespace Components.Entity
 {
     public class Energy
     {
-        public int Value { get; private set; }
+        private int _value;
+
+        private int _reserved;
+        
+        public UnityEvent<int> OnValueChanged = new();
+        
+        public UnityEvent<int> OnReservedChanged = new();
+
+        public int Value
+        {
+            get => _value;
+            private set
+            {
+                _value = value;
+                OnValueChanged.Invoke(_value);
+            }
+        }
+        
+        public int Reserved
+        {
+            get => _reserved;
+            private set
+            {
+                _reserved = value;
+                OnReservedChanged.Invoke(_reserved);
+            }
+        }
 
         private int _initValue;
 
@@ -21,19 +47,24 @@ namespace Components.Entity
             Value = _initValue;
         }
 
-        public void SetValue(int target)
+        public void SetValue(int value)
         {
-            Value = target;
+            Value = value;
         }
 
-        public void Increase(int data)
+        public void Increase(int value)
         {
-            Value -= data;
+            Value -= value;
         }
         
-        public void Decrease(int data)
+        public void Decrease(int value)
         {
-            Value -= data;
+            Value -= value;
+        }
+
+        public void SetReserve(int value)
+        {
+            Reserved = value;
         }
     }
 }

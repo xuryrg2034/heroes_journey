@@ -26,6 +26,7 @@ namespace Services
         [SerializeField] private GridService gridService;
         [SerializeField] private GameObject abilitiesService;
         [SerializeField] private GameObject questService;
+        [SerializeField] private HeroUIService heroUIService;
         [SerializeField] private Hero heroPrefab;
         [SerializeField] private Cell heroCellSpawn;
 
@@ -48,6 +49,7 @@ namespace Services
         {
             _prepareGrid();
             _prepareAbilities();
+            _prepareHeroUI();
             // _prepareQuests();
         }
 
@@ -82,6 +84,11 @@ namespace Services
             gridService.SpawnEntitiesOnGrid();
 
             _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
+        }
+
+        private void _prepareHeroUI()
+        {
+            heroUIService.Init(_heroEntity);
         }
     }
 }

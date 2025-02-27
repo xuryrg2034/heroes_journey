@@ -9,11 +9,25 @@ namespace Components.Entity
 {
     public class Health
     {
+        private int _value;
+
+        public bool IsDead { get; private set; }
+
         public UnityEvent OnDie = new();
 
         public UnityEvent OnDamageTaken = new();
 
-        public int Value { get; private set; }
+        public UnityEvent<int> OnValueChanged = new();
+        
+        public int Value
+        {
+            get => _value;
+            private set
+            {
+                _value = value;
+                OnValueChanged.Invoke(_value);
+            }
+        }
 
         private Transform _transform;
 
@@ -30,23 +44,28 @@ namespace Components.Entity
 
         public async UniTask TakeDamage(int damage)
         {
-            if (Value <= 0) return;
+            Debug.Log($"takenDamage: {damage}");
+            if (Value < 0) return;
             
             Value -= damage;
             
             OnDamageTaken.Invoke();
-            await DamageAnimation();
             
-            if (Value <= 0)
+            if (Value < 0)
             {
                 await DieAnimation();
                 Die();
+            }
+            else
+            {
+                await DamageAnimation();
             }
         }
         
         public void Die()
         {
-            OnDie?.Invoke();
+            IsDead = true;
+            OnDie.Invoke();
         }
 
         private UniTask DamageAnimation()
@@ -58,5 +77,11 @@ namespace Components.Entity
         {
             return _transform.DOScale(0, 0.3f).ToUniTask();
         }
+    }
+    
+    public enum DieReason
+    {
+        Undefined,
+        Hero,
     }
 }

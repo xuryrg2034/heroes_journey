@@ -102,11 +102,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: abe3cebbe75d474a81a9046aa6c3a0cb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  health: 1
   cell: {fileID: 0}
-  type: 0
+  selectionType: 0
+  health: 0
   rank: 1
-  fraction: 0
   healthUI: {fileID: 0}
 --- !u!61 &-7327794819446795399
 BoxCollider2D:

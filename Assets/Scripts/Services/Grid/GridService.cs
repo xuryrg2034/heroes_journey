@@ -71,7 +71,6 @@ namespace Services.Grid
             }
         }
         
-        
         public void Init()
         {
             _cells = new Cell[width, height];
@@ -105,13 +104,11 @@ namespace Services.Grid
                 if (!cell.IsAvailableForEntity() || !isCellEmpty) continue;
                 
                 var newEntity = Instantiate(randomEnemy);
+                newEntity.Init();
                 newEntity.SetCell(cell);
 
                 _entities.Add(newEntity);
             }
-
-            
-            Debug.Log($"Field populated with enemies: {_entities.Count}");
         }
 
         public bool IsInsideGrid(Vector2Int position)
@@ -148,13 +145,6 @@ namespace Services.Grid
         
         public void SpawnEntity(Entity entity, Cell cell)
         {
-            // var entityOnCell = GetEntityAt(cell.Position);
-            
-            // if (entityOnCell)
-            // {
-            //     entityOnCell.Die();
-            // }
-            //
             var newEntity = Instantiate(entity);
             newEntity.Init();
             _entities.Add(newEntity);

@@ -104,7 +104,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   cell: {fileID: 0}
   selectionType: 1
-  health: 1
+  health: 0
   rank: 1
   healthUI: {fileID: 0}
 --- !u!61 &-7327794819446795399

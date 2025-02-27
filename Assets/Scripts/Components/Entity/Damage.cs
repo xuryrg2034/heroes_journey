@@ -6,7 +6,19 @@ namespace Components.Entity
 {
     public class Damage
     {
-        public int Value { get; private set; }
+        private int _value;
+
+        public UnityEvent<int> OnValueChanged = new();
+        
+        public int Value
+        {
+            get => _value;
+            private set
+            {
+                _value = value;
+                OnValueChanged.Invoke(_value);
+            }
+        }
         
         private int _initValue;
 

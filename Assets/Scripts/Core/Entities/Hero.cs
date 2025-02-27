@@ -21,6 +21,8 @@ namespace Core.Entities
 
         public override void Init()
         {
+            base.Init();
+
             Damage = new Damage(damage);
             Energy = new Energy(energy);
 

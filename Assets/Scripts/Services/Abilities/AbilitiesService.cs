@@ -3,14 +3,17 @@ using Abilities.Hero;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using UnityEngine;
+using UnityEngine.Events;
 
 namespace Services.Abilities
 {
     public class AbilitiesService : MonoBehaviour
     {
-        public List<BaseAbility> AbilitiesList { get; private set; }
-
         public static AbilitiesService Instance;
+     
+        private List<BaseAbility> _abilitiesList;
+
+        public List<BaseAbility> AbilitiesList => _abilitiesList;
         
         private BaseAbility _selectedAbility;
 
@@ -25,7 +28,7 @@ namespace Services.Abilities
         
         public void Init(List<BaseAbility> abilitiesList)
         {
-            AbilitiesList = abilitiesList;
+            _abilitiesList = abilitiesList;
         }
         
         public void SelectAbility(BaseAbility ability)
@@ -46,7 +49,7 @@ namespace Services.Abilities
         {
             if (_selectedAbility == null)
             {
-                return ;
+                return;
             }
             
             await _selectedAbility.Execute();

@@ -13,16 +13,27 @@ namespace Abilities.Hero
     public class ChainingAttack : BaseAbility
     {
         private readonly List<Entity> _selectedEntities = new();
+
         private Sequence _executeSequence;
+
         private EntitySelectionType _availableSelectionType = EntitySelectionType.Neutral;
+
+        private int _totalDamage;
+        
+        private bool _selectionLocked;
         
         public override void Activate()
         {
+            base.Activate();
+
             EntityClickHandler.OnEntityClicked += SelectTarget;
         }
+        
 
         public override void Deactivate()
         {
+            base.Deactivate();
+
             EntityClickHandler.OnEntityClicked -= SelectTarget;
             
             _resetSelection();
@@ -33,47 +44,81 @@ namespace Abilities.Hero
             if (entity == Hero)
             {
                 _resetSelection();
+                _totalDamage = 0;
+                _updateHeroPower();
                 return;
             }
 
             if (_selectedEntities.Contains(entity))
             {
                 _removeEnemiesAfter(entity);
+                _totalDamage = _selectedEntities.Sum(item =>
+                {
+                    if (item.Health.Value == 0)
+                    {
+                        return 1;
+                    }
+
+                    return -item.Health.Value;
+                });
+
+                _selectionLocked = _totalDamage < 0;
+                _updateHeroPower();
                 return;
             }
 
             var originPosition = _selectedEntities.Count > 0 ? _selectedEntities.Last().Cell.Position : Hero.Cell.Position;
             var isInRange = _isInRange(originPosition, entity.Cell.Position, 1);
-            
-            if (!isInRange) return;
-
             var canSelection = _canSelectionTypeByType(entity);
             
-            if (!canSelection) return;
-
-            var canDestroy = DamageCalculationService.CanDestroyEntity(Hero, entity);
+            if (!isInRange || !canSelection || _selectionLocked) return;
             
-            if (canDestroy)
+            // Проверка. что бы нельзя было добавить в цепочку противка у которого больше 0 здоровья, когда нет урона
+            if (entity.Health.Value > 0 && _totalDamage <= 0) return;
+            
+            _selectedEntities.Add(entity);
+            _availableSelectionType = entity.SelectionType;
+            _highlightTarget(entity.Cell, true);
+
+            if (entity.Health.Value == 0)
             {
-                _availableSelectionType = entity.SelectionType;
-                _selectedEntities.Add(entity);
-                _highlightTarget(entity.Cell, true);
-                DamageCalculationService.RecalculateDamage(Hero, _selectedEntities); // Обновляем урон 
+                _totalDamage += 1;
+                _selectionLocked = false;
             }
             else
             {
-                Debug.LogWarning("Not enough damage to destroy this enemy!");
+                _totalDamage -= entity.Health.Value;
+                _selectionLocked = _totalDamage < 0;
             }
+
+            _updateHeroPower();
         }
 
         public override async UniTask Execute()
         {
+            var damage = 0;
             foreach (var entity in _selectedEntities)
             {
-                await entity.Health.TakeDamage(Hero.Damage.Value);
-                await Hero.Move(entity.Cell);
+                if (entity.Health.Value == 0)
+                {
+                    damage += 1;
+                }
+                else
+                {
+                    damage -= entity.Health.Value;
+                }
+
+                damage = damage < 0 ? 1 : damage;
+
+                await entity.Health.TakeDamage(damage);
+                if (entity.Health.IsDead)
+                {
+                    await Hero.Move(entity.Cell); 
+                }
                 _highlightTarget(entity.Cell, false);
             }
+
+            _resetSelection();
         }
 
         public override void Cancel()
@@ -104,7 +149,6 @@ namespace Abilities.Hero
             }
             
             _availableSelectionType = _selectedEntities.Last().SelectionType;
-            DamageCalculationService.RecalculateDamage(Hero, _selectedEntities);
         }
         
         private void _resetSelection()
@@ -116,9 +160,15 @@ namespace Abilities.Hero
 
             _selectedEntities.Clear();
             _availableSelectionType = EntitySelectionType.Neutral;
-             
-            // Сброс урона героя
-            DamageCalculationService.Reset(Hero);
+            _selectionLocked = false;
+
+            _totalDamage = 0;
+            _updateHeroPower();
+        }
+
+        private void _updateHeroPower()
+        {
+            Hero.Damage.SetValue(_totalDamage < 0 ? 0 : _totalDamage);;
         }
     }
 }

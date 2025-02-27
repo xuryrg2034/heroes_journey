@@ -13,6 +13,7 @@ namespace Abilities.Hero
     [Serializable]
     public class SlashAttack : BaseAbility
     {
+        [SerializeField] private int baseDamage; 
         private int _damage = 0;
 
         private List<Entity> _selectedTargets = new();
@@ -37,11 +38,15 @@ namespace Abilities.Hero
         
         public override void Activate()
         {
+            base.Activate();
+
             EntityClickHandler.OnEntityClicked += SelectTarget;
         }
 
         public override void Deactivate()
         {
+            base.Deactivate();
+            
             EntityClickHandler.OnEntityClicked -= SelectTarget;
 
             _resetSelection();
@@ -76,17 +81,14 @@ namespace Abilities.Hero
 
         public override async UniTask Execute()
         {
-            var sequence = DOTween.Sequence(null);
             var tasks = new List<UniTask>();
             
             foreach (var target in _selectedTargets)
             {
-                var task = target.Health.TakeDamage(0 + _damage);
+                var task = target.Health.TakeDamage(baseDamage + _damage);
                 
                 tasks.Add(task);
             }
-
-            // return sequence.ToUniTask();
             
             await UniTask.WhenAll(tasks);
             _resetSelection();

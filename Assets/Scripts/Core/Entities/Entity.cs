@@ -26,14 +26,12 @@ namespace Core.Entities
 
         public Cell Cell => cell;
 
-        protected virtual void Start()
+        public virtual void Init()
         {
             Health = new Health(health, transform);
 
             _subscriptionsOnEvent();
         }
-        
-        public abstract void Init();
         
         public void SetCell(Cell value)
         {
