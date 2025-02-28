@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: -7327794819446795399}
   - component: {fileID: -2109020731990752305}
   m_Layer: 0
-  m_Name: EnemyChildGolem_red 1
+  m_Name: EnemyGolem_red
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -107,6 +107,17 @@ MonoBehaviour:
   health: 5
   rank: 1
   healthUI: {fileID: 0}
+  abilities:
+  - rid: 5789429648715939911
+  references:
+    version: 2
+    RefIds:
+    - rid: 5789429648715939911
+      type: {class: MassAttackAbility, ns: Abilities.EnemyAbilities, asm: Assembly-CSharp}
+      data:
+        enable: 1
+        order: 100
+        Owner: {fileID: 0}
 --- !u!61 &-7327794819446795399
 BoxCollider2D:
   m_ObjectHideFlags: 0

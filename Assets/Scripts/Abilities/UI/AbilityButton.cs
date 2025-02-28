@@ -19,6 +19,12 @@ namespace Abilities.UI
 
         private TMP_Text _tmp;
 
+        private void OnDisable()
+        {
+            _ability.OnEnableChanged.RemoveListener(_handleChangeAbilityEnabled);
+            _button.onClick.RemoveListener(_callbackInvoke);
+        }
+
         public void Init(BaseAbility ability, Action<BaseAbility> callback)
         {
             _ability = ability;
@@ -30,7 +36,7 @@ namespace Abilities.UI
             _prepareButton();
             _prepareText();
 
-            ability.OnEnableChanged.AddListener(_handleChangeAbilityEnabled);
+            _ability.OnEnableChanged.AddListener(_handleChangeAbilityEnabled);
         }
 
         // Попытка поменять состоянии извне
@@ -42,10 +48,12 @@ namespace Abilities.UI
         private void _prepareButton()
         {
             _button.interactable = _interactable;
-            _button.onClick.AddListener(() =>
-            {
-                _callback.Invoke(_ability);
-            });
+            _button.onClick.AddListener(_callbackInvoke);
+        }
+
+        private void _callbackInvoke()
+        {
+            _callback.Invoke(_ability);
         }
         
         private void _prepareText()

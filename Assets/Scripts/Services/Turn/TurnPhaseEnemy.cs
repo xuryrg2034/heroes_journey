@@ -7,21 +7,20 @@ namespace Services.Turn
     {
         private GridService _gridService = GridService.Instance;
 
-        public override void StartPhase()
+        public override void Prepare()
         {
             _preparePhase();
-            _processNextPhase();
         }
         
         protected override void _preparePhase()
         {
             base._preparePhase();
 
-            _turnPhases.Clear();
-            _turnPhases.Enqueue(_enemiesActionPhase);
+            _phases.Clear();
+            _phases.Enqueue(_enemiesActionPhase);
         }
         
-        private void _enemiesActionPhase()
+        private async void _enemiesActionPhase()
         {
             var enemies = _gridService.GetEnemies();
             if (enemies == null || enemies.Length == 0)
@@ -30,29 +29,15 @@ namespace Services.Turn
                 return;
             }
 
-            var index = 0;
-
-            ExecuteNext();
-            return;
-
-            void ExecuteNext()
+            foreach (var enemy in enemies)
             {
-                if (index >= enemies.Length)
-                {
-                    _processNextPhase();
-                    return;
-                }
+                // Есть вероятность, что цель будет уничтожена раньше
+                if (enemy == null) continue;
 
-                var enemy = enemies[index++];
-                if (enemy == null)
-                {
-                    ExecuteNext(); // Пропускаем null-объекты
-                    return;
-                }
-
-                var tween = enemy.ExecuteAbilities();
-                tween.OnComplete(ExecuteNext);
+                await enemy.ExecuteAbilities();
             }
+            
+            _processNextPhase();
         }
     }
 }

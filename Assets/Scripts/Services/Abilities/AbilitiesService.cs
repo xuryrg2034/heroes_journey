@@ -1,9 +1,7 @@
 ﻿using System.Collections.Generic;
 using Abilities.Hero;
 using Cysharp.Threading.Tasks;
-using DG.Tweening;
 using UnityEngine;
-using UnityEngine.Events;
 
 namespace Services.Abilities
 {

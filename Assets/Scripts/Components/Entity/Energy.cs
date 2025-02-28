@@ -1,11 +1,13 @@
-﻿using System;
-using UnityEngine;
-using UnityEngine.Events;
+﻿using UnityEngine.Events;
 
 namespace Components.Entity
 {
     public class Energy
     {
+        private int _max;
+
+        private int _min;
+        
         private int _value;
 
         private int _reserved;
@@ -36,9 +38,10 @@ namespace Components.Entity
 
         private int _initValue;
 
-        public Energy(int energy)
+        public Energy(int energy, int max)
         {
             _initValue = energy;
+            _max = max;
             Value = energy;
         }
 
@@ -52,13 +55,17 @@ namespace Components.Entity
             Value = value;
         }
 
-        public void Increase(int value)
+        public void Increase(int value = 1)
         {
-            Value -= value;
+            if (Value + value > _max) return;
+            
+            Value += value;
         }
         
-        public void Decrease(int value)
+        public void Decrease(int value = 1)
         {
+            if (Value - value < _min) return;
+
             Value -= value;
         }
 

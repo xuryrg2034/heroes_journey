@@ -104,34 +104,45 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   cell: {fileID: 0}
   selectionType: 2
-  health: 3
+  health: 100
   damage: 0
   energy: 3
   abilities:
-  - rid: 5789429592725389386
-  - rid: 5789429592725389387
+  - rid: 5789429592725389388
+  - rid: 5789429592725389389
+  - rid: 5789429648715939912
   references:
     version: 2
     RefIds:
-    - rid: 5789429592725389386
-      type: {class: SlashAttack, ns: Abilities.Hero, asm: Assembly-CSharp}
+    - rid: 5789429592725389388
+      type: {class: ChainingAttack, ns: Abilities.Hero, asm: Assembly-CSharp}
       data:
-        title: Slash
+        title: Chaining
         energyCost: 2
         cooldown: 0
         OnEnableChanged:
           m_PersistentCalls:
             m_Calls: []
-        baseDamage: 1
-    - rid: 5789429592725389387
-      type: {class: ChainingAttack, ns: Abilities.Hero, asm: Assembly-CSharp}
+    - rid: 5789429592725389389
+      type: {class: SlashAttack, ns: Abilities.Hero, asm: Assembly-CSharp}
       data:
-        title: Chaining
+        title: Slash
         energyCost: 1
         cooldown: 0
         OnEnableChanged:
           m_PersistentCalls:
             m_Calls: []
+        baseDamage: 1
+    - rid: 5789429648715939912
+      type: {class: JumpAttack, ns: Abilities.Hero, asm: Assembly-CSharp}
+      data:
+        title: Jump
+        energyCost: 1
+        cooldown: 0
+        OnEnableChanged:
+          m_PersistentCalls:
+            m_Calls: []
+        damage: 1
 --- !u!61 &426220746719684042
 BoxCollider2D:
   m_ObjectHideFlags: 0

@@ -1,11 +1,5 @@
-﻿using DG.Tweening;
-using Services.Grid;
-using Services.Abilities;
-using Services.Quest;
-using Services.UI;
+﻿using Services.Grid;
 using UnityEngine;
-using UnityEngine.Events;
-using UnityEngine.Serialization;
 
 
 namespace Services.Turn
@@ -19,49 +13,45 @@ namespace Services.Turn
 
         private void OnDisable()
         {
-            // _playerTurnPhase.OnTurnCompleted -= _updateGrid;
-            // _enemyTurnPhase.OnTurnCompleted -= _updateGrid;
-        }
-
-        private void OnEnable()
-        {
-            // TurnPhase.OnSomeTurnStart += _disablePlayerUI;
-            // TurnPhase.OnSomeTurnCompleted += _updateGrid;
+            _playerTurnPhase.OnChangeState.RemoveListener(_playerTurnEnd);
+            _enemyTurnPhase.OnChangeState.RemoveListener(_enemyTurnEnd);
         }
 
         private void Start()
         {
             _playerTurnPhase = new TurnPhasePlayer();
             _enemyTurnPhase = new TurnPhaseEnemy();
-            // _questTurnPhase = new TurnPhaseCheckQuests();
 
-            _playerTurnPhase.OnTurnCompleted += _updateGrid;
-            _enemyTurnPhase.OnTurnCompleted += _updateGrid;
+            _playerTurnPhase.OnChangeState.AddListener(_playerTurnEnd);
+            _enemyTurnPhase.OnChangeState.AddListener(_enemyTurnEnd);
         }
         
         public void StartPlayerTurn()
         {
             GameService.SetGameState(GameState.PlayerTurn);
+            _playerTurnPhase.Prepare();
             _playerTurnPhase.StartPhase();
         }
 
-        public void StartEnemyTurn()
+        private async void _playerTurnEnd(TurnState state)
         {
-            GameService.SetGameState(GameState.EnemyTurn);
-            _enemyTurnPhase.StartPhase();
-        }
-
-        // public void StartQuestService()
-        // {
-        //     GameService.SetGameState(GameState.QuestCheck);
-        //     _questTurnPhase.StartPhase();
-        // }
-        
-        private async void _updateGrid()
-        {
+            if (state != TurnState.Completed) return;
+            
             await GridService.Instance.UpdateGrid();
             
+            GameService.SetGameState(GameState.EnemyTurn);
+            _enemyTurnPhase.Prepare();
+            _enemyTurnPhase.StartPhase();
+        }
+        
+        private async void _enemyTurnEnd(TurnState state)
+        {
+            if (state != TurnState.Completed) return;
+            
+            await GridService.Instance.UpdateGrid();
+
+            // Заменить на EventBus
             GameService.SetGameState(GameState.WaitingForInput);
         }
     }
-}
+}   

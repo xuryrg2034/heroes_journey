@@ -11,18 +11,11 @@ namespace Services.UI
     public class HeroUIService : MonoBehaviour
     {
         [Header("UI Elements")]
-        [SerializeField] private Button executeButton;
-        [SerializeField] private Button endTurnButton;
         [SerializeField] private TextMeshProUGUI power;
         [SerializeField] private TextMeshProUGUI energy;
         [SerializeField] private TextMeshProUGUI health;
         
         private Hero _hero;
-
-        private void Start()
-        {
-            GameService.OnGameStateChange.AddListener(_toggleButtonInteractable);
-        }
 
         public void Init(Hero hero)
         {
@@ -56,11 +49,5 @@ namespace Services.UI
         // {
         //     heroPower.text = $"Power: {value}";
         // }
-        
-        private void _toggleButtonInteractable(GameState state)
-        {
-            executeButton.interactable = state == GameState.WaitingForInput;
-            endTurnButton.interactable = state == GameState.WaitingForInput;
-        }
     }
 }

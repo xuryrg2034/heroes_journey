@@ -1,12 +1,9 @@
-﻿using System;
-using Components.Entity;
+﻿using Components.Entity;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Grid;
 using UnityEngine;
 using UnityEngine.Events;
-using UnityEngine.Serialization;
-using UnityEngine.UIElements;
 
 namespace Core.Entities
 {

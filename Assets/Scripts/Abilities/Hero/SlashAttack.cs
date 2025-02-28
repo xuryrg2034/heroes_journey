@@ -81,6 +81,8 @@ namespace Abilities.Hero
 
         public override async UniTask Execute()
         {
+            await base.Execute();
+            
             var tasks = new List<UniTask>();
             
             foreach (var target in _selectedTargets)

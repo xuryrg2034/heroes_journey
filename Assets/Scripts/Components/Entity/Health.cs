@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using Cysharp.Threading.Tasks;
+﻿using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using UnityEngine;
 using UnityEngine.Events;
@@ -44,7 +42,6 @@ namespace Components.Entity
 
         public async UniTask TakeDamage(int damage)
         {
-            Debug.Log($"takenDamage: {damage}");
             if (Value < 0) return;
             
             Value -= damage;
@@ -70,12 +67,12 @@ namespace Components.Entity
 
         private UniTask DamageAnimation()
         {
-            return _transform.DOShakePosition(0.5f, 0.3f).ToUniTask();
+            return _transform.DOShakePosition(0.2f, 0.4f).ToUniTask();
         }
         
         private UniTask DieAnimation()
         {
-            return _transform.DOScale(0, 0.3f).ToUniTask();
+            return _transform.DOScale(0, 0.1f).ToUniTask();
         }
     }
     

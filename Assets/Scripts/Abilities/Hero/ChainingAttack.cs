@@ -73,7 +73,7 @@ namespace Abilities.Hero
             
             if (!isInRange || !canSelection || _selectionLocked) return;
             
-            // Проверка. что бы нельзя было добавить в цепочку противка у которого больше 0 здоровья, когда нет урона
+            // Проверка, что бы нельзя было добавить в цепочку противка у которого больше 0 здоровья, когда нет урона
             if (entity.Health.Value > 0 && _totalDamage <= 0) return;
             
             _selectedEntities.Add(entity);
@@ -96,6 +96,8 @@ namespace Abilities.Hero
 
         public override async UniTask Execute()
         {
+            await base.Execute();
+
             var damage = 0;
             foreach (var entity in _selectedEntities)
             {
@@ -113,7 +115,7 @@ namespace Abilities.Hero
                 await entity.Health.TakeDamage(damage);
                 if (entity.Health.IsDead)
                 {
-                    await Hero.Move(entity.Cell); 
+                    await Hero.Move(entity.Cell, 0.2f); 
                 }
                 _highlightTarget(entity.Cell, false);
             }

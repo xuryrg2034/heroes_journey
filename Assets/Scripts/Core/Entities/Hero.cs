@@ -2,6 +2,7 @@
 using Abilities.Hero;
 using Components.Entity;
 using UnityEngine;
+using Services.EventBus;
 
 namespace Core.Entities
 {
@@ -19,17 +20,39 @@ namespace Core.Entities
 
         public Energy Energy { get; private set; }
 
+        private void OnDisable()
+        {
+            _unsubscribeOnEvents();
+        }
+
         public override void Init()
         {
             base.Init();
 
             Damage = new Damage(damage);
-            Energy = new Energy(energy);
+            Energy = new Energy(energy, energy);
 
             foreach (var ability in abilities)
             {
                 ability.Init(this);
             }
+
+            _subscribeOnEvents();
+        }
+
+        private void _subscribeOnEvents()
+        {
+            EventBusService.Subscribe(Actions.PlayerTurnStart, _turnStart);
+        }
+        
+        private void _unsubscribeOnEvents()
+        {
+            EventBusService.Unsubscribe(Actions.PlayerTurnStart, _turnStart);
+        }
+
+        private void _turnStart()
+        {
+            Energy.Increase();
         }
     }
 }

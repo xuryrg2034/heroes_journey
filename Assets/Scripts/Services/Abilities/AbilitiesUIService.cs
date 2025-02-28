@@ -1,17 +1,13 @@
-using System;
 using System.Collections.Generic;
-using Abilities.Hero;
 using Abilities.UI;
-using Services.Abilities;
-using TMPro;
 using UnityEngine;
-using UnityEngine.Events;
 using UnityEngine.UI;
 
 namespace Services.Abilities
 {
     public class AbilitiesUIService : MonoBehaviour
     {
+        [SerializeField] private Button executeButton;
         [SerializeField] private Transform containerPrefab;
         [SerializeField] private AbilityButton itemPrefab;
 
@@ -48,6 +44,8 @@ namespace Services.Abilities
             {
                 button.TryToggleInteractable(state == GameState.WaitingForInput);
             }
+            
+            executeButton.interactable = state == GameState.WaitingForInput;
         }
     }
 }

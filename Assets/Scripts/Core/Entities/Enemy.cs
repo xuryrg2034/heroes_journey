@@ -1,6 +1,5 @@
-using System;
+using System.Collections.Generic;
 using Abilities.EnemyAbilities;
-using DG.Tweening;
 using TMPro;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
@@ -17,58 +16,29 @@ namespace Core.Entities
         [SerializeField] private EnemyRank rank;
         [SerializeField] private TextMeshPro healthUI;
         
-        public BaseAbility[] Abilities { get; private set; }
+        [SerializeReference, SubclassSelector]
+        private List<BaseAbility> abilities = new();
         
 
         public EnemyRank Rank => rank;
-
-        // private void OnEnable()
-        // {
-        //     OnHealthChange += _healthUpdateUI;
-        // }
-        //
-        // private void OnDisable()
-        // {
-        //     OnHealthChange -= _healthUpdateUI;
-        // }
         
         protected void Start()
         {
-            // Abilities = GetComponents<BaseAbility>()
-            //     .OrderBy(item => item.Order)
-            //     .ToArray();
-            // _prepareHealth();
+            foreach (var ability in abilities)
+            {
+                ability.Init(this);
+            }
         }
 
-        public Tween ExecuteAbilities()
+        public async UniTask ExecuteAbilities()
         {
-            var sequence = DOTween.Sequence(null);
-
-            // foreach (var ability in Abilities)
-            // {
-            //     if (!ability.Enable) continue;
-            //
-            //     var executionAbility = ability.Execute();
-            //     sequence.Append(executionAbility);
-            // }
-            //
-            // sequence.OnComplete(() =>
-            // {
-            //     Debug.Log("End executing abilities");
-            // });   
-
-            return sequence;
+            foreach (var ability in abilities)
+            {
+                if (!ability.Enable) continue;
+            
+                await ability.Execute();
+            }
         }
-
-        // private void _prepareHealth()
-        // {
-        //     _healthUpdateUI();
-        // }
-        //
-        // private void _healthUpdateUI()
-        // {
-        //     healthUI.text = Health.ToString();
-        // }
     }
     
     public enum EnemyRank

@@ -107,6 +107,17 @@ MonoBehaviour:
   health: 0
   rank: 1
   healthUI: {fileID: 0}
+  abilities:
+  - rid: 5789429592725389390
+  references:
+    version: 2
+    RefIds:
+    - rid: 5789429592725389390
+      type: {class: MoveAbility, ns: Abilities.EnemyAbilities, asm: Assembly-CSharp}
+      data:
+        enable: 1
+        order: 100
+        Owner: {fileID: 0}
 --- !u!61 &-7327794819446795399
 BoxCollider2D:
   m_ObjectHideFlags: 0

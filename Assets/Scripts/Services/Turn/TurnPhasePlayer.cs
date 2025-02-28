@@ -1,26 +1,34 @@
 ﻿using DG.Tweening;
 using Services.Abilities;
+using Services.EventBus;
 
 namespace Services.Turn
 {
     public class TurnPhasePlayer : TurnPhase 
     {
         private AbilitiesService _abilitiesService = AbilitiesService.Instance;
-
-        public override void StartPhase()
+        public override void Prepare()
         {
             _preparePhase();
-            _processNextPhase();
+            EventBusService.Trigger(Actions.PlayerTurnStart);
+            GameService.SetGameState(GameState.WaitingForInput);
         }
 
         protected override void _preparePhase()
         {
             base._preparePhase();
 
-            _turnPhases.Clear();
-            _turnPhases.Enqueue(_removeEnemiesPhase);
+            _phases.Clear();
+            _phases.Enqueue(_removeEnemiesPhase);
+            _phases.Enqueue(_endTurn);
         }
-        
+
+        private void _endTurn()
+        {
+            _abilitiesService.ResetAbilities();
+            _processNextPhase();
+        }
+
         private async void _removeEnemiesPhase()
         {
             await _abilitiesService.Execute();

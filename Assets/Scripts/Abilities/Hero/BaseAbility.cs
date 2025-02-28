@@ -15,7 +15,8 @@ namespace Abilities.Hero
         [SerializeField] private int cooldown;
 
         private bool _enable;
-
+        
+        [HideInInspector]
         public UnityEvent<bool> OnEnableChanged = new();
         
         public bool Enable
@@ -61,7 +62,11 @@ namespace Abilities.Hero
             Hero.Energy.SetReserve(0);
         }
 
-        public abstract UniTask Execute();
+        public virtual UniTask Execute()
+        {
+            Hero.Energy.Decrease(Hero.Energy.Reserved);
+            return default;
+        }
 
         public abstract void Cancel();
         
