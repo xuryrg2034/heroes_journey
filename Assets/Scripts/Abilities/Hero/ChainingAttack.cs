@@ -113,6 +113,7 @@ namespace Abilities.Hero
                 damage = damage < 0 ? 1 : damage;
 
                 await entity.Health.TakeDamage(damage);
+
                 if (entity.Health.IsDead)
                 {
                     await Hero.Move(entity.Cell, 0.2f); 

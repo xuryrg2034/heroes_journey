@@ -42,27 +42,22 @@ namespace Components.Entity
 
         public async UniTask TakeDamage(int damage)
         {
-            if (Value < 0) return;
-            
             Value -= damage;
             
             OnDamageTaken.Invoke();
             
             if (Value < 0)
             {
+                IsDead = true;
+
                 await DieAnimation();
-                Die();
+
+                OnDie.Invoke();
             }
             else
             {
                 await DamageAnimation();
             }
-        }
-        
-        public void Die()
-        {
-            IsDead = true;
-            OnDie.Invoke();
         }
 
         private UniTask DamageAnimation()

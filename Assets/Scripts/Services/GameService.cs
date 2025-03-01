@@ -82,7 +82,7 @@ namespace Services
         {
             gridService.Init();
             gridService.SpawnEntity(heroPrefab, heroCellSpawn);
-            gridService.SpawnEntitiesOnGrid().Forget();
+            gridService.SpawnEntitiesOnGrid();
 
             _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
         }

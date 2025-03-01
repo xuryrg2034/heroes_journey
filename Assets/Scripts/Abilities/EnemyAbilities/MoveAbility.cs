@@ -16,18 +16,26 @@ namespace Abilities.EnemyAbilities
         {
             if (_tryToExecute())
             {
-                _castCounter = 0;
-
                 await _execute();
+                _reset();
             }
-            else
+            else if (_state != State.Preparing)
             {
                 _prepare();   
             }
         }
 
+        public override void Cancel()
+        {
+            if (_state != State.Preparing) return;
+
+            _reset();
+        }
+
         private void _prepare()
         {
+            _state = State.Preparing;
+
             var notEmptyCells = Owner.Cell
                 .GetNeighbors()
                 .Where((item) => item.Type != CellType.Blocked)
@@ -39,6 +47,8 @@ namespace Abilities.EnemyAbilities
 
         private async UniTask _execute()
         {
+            _state = State.Execute;
+
             var entityOnCell = _cellToMove.GetEntity();
             var tasks = new List<UniTask>();
             
@@ -46,12 +56,18 @@ namespace Abilities.EnemyAbilities
             {
                 tasks.Add(entityOnCell.Move(Owner.Cell));
             }
-
+            
             tasks.Add(Owner.Move(_cellToMove));
 
-            _cellToMove.Highlite(false);
-
             await UniTask.WhenAll(tasks);
+        }
+
+        private void _reset()
+        {
+            _cellToMove.Highlite(false);
+            _cellToMove = null;
+            _castCounter = 0;
+            _state = State.Pending;
         }
     }
 }

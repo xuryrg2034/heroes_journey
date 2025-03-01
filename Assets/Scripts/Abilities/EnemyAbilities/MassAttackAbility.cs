@@ -17,38 +17,47 @@ namespace Abilities.EnemyAbilities
         {
             if (_tryToExecute())
             {
-                _castCounter = 0;
-
                 await _execute();
+                _reset();
             }
-            else
+            else if (_state != State.Preparing)
             {
                 await _prepare();   
             }
         }
+        
+        public override void Cancel()
+        {
+            if (_state != State.Preparing) return;
+
+            _reset();
+        }
 
         private UniTask _prepare()
         {
-            Debug.Log(Owner.IsDestroyed());
-            
-            if (Owner.IsDestroyed()) return default;
-            
+            _state = State.Preparing;
+
             _targetCells = Owner.Cell
                 .GetNeighbors()
-                // .Where((item) => item.Type != CellType.Blocked)
+                .Where((item) => item.Type != CellType.Blocked)
                 .ToList();
 
-            // foreach (var cell in _targetCells)
-            // {
-            //     cell.Highlite(true);
-            // }
+            foreach (var cell in _targetCells)
+            {
+                cell.Highlite(true);
+            }
 
             return default;
         }
 
         private async UniTask _execute()
         {
-            var entityList = _targetCells.Select(cell => cell.GetEntity()).Where(entity => entity).ToList();
+            _state = State.Execute;
+
+            var entityList = _targetCells
+                .Select(cell => cell.GetEntity())
+                .Where(e => e != null && e.Health.IsDead == false)
+                .ToList();
 
             var task = new List<UniTask>();
             
@@ -59,12 +68,19 @@ namespace Abilities.EnemyAbilities
                 task.Add(tween);
             }
 
+            await UniTask.WhenAll(task);
+        }
+
+        private void _reset()
+        {
             foreach (var cell in _targetCells)
             {
                 cell.Highlite(false);
             }
 
-            await UniTask.WhenAll(task);
+            _targetCells = null;
+            _castCounter = 0;
+            _state = State.Pending;
         }
     }
 }

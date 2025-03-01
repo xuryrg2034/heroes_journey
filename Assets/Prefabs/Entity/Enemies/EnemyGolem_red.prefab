@@ -109,15 +109,23 @@ MonoBehaviour:
   healthUI: {fileID: 0}
   abilities:
   - rid: 5789429648715939911
+  - rid: 1614106198620766283
   references:
     version: 2
     RefIds:
-    - rid: 5789429648715939911
-      type: {class: MassAttackAbility, ns: Abilities.EnemyAbilities, asm: Assembly-CSharp}
+    - rid: 1614106198620766283
+      type: {class: MoveAbility, ns: Abilities.EnemyAbilities, asm: Assembly-CSharp}
       data:
         enable: 0
         order: 100
-        castTime: 2
+        castTime: 1
+        Owner: {fileID: 0}
+    - rid: 5789429648715939911
+      type: {class: MassAttackAbility, ns: Abilities.EnemyAbilities, asm: Assembly-CSharp}
+      data:
+        enable: 1
+        order: 200
+        castTime: 1
         Owner: {fileID: 0}
 --- !u!61 &-7327794819446795399
 BoxCollider2D:
