@@ -1,4 +1,5 @@
-﻿using Components.Entity;
+﻿using System;
+using Components.Entity;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Grid;
@@ -14,8 +15,6 @@ namespace Core.Entities
 
         [Header("Characteristics")]
         [SerializeField] private int health;
-
-        public static readonly UnityEvent<Entity> OnBeforeDestroy = new();
         
         public Health Health { get; private set; }
 
@@ -26,14 +25,18 @@ namespace Core.Entities
         public virtual void Init()
         {
             Health = new Health(health, transform);
-
-            _subscriptionsOnEvent();
+            
+            Health.OnDie.AddListener(_handleDie);
         }
         
         public void SetCell(Cell value)
         {
             cell = value;
-            transform.position = value.transform.position;
+
+            if (value != null)
+            {
+                transform.position = value.transform.position;   
+            }
         }
 
         public UniTask Move(Cell targetCell, float duration = 0.3f)
@@ -42,16 +45,20 @@ namespace Core.Entities
             
             return transform.DOMove(targetCell.transform.position, duration).ToUniTask();
         }
-        
-        private void _beforeDestroy()
+
+        private void _handleDie()
         {
-            OnBeforeDestroy.Invoke(this);
-            Destroy(this);
+            var sr = GetComponent<SpriteRenderer>();
+                
+            sr.color = Color.white;
         }
-        
-        private void _subscriptionsOnEvent()
+
+        public void Dispose()
         {
-            Health.OnDie.AddListener(_beforeDestroy);
+            cell = null;
+
+            Destroy(gameObject);
+            Health.OnDie.RemoveAllListeners();
         }
     }
 

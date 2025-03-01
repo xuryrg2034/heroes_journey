@@ -11,10 +11,11 @@ namespace Abilities.EnemyAbilities
     {
         [SerializeField] private bool enable = false;
         [SerializeField] private int order = 100;
-        [SerializeField] protected int castTime;
+        [SerializeField][Min(1)] protected int castTime;
         [HideInInspector] public Enemy Owner;
 
         protected  int _castCounter;
+        protected State _state = State.Pending;
         
         public int Order => order;
         
@@ -26,17 +27,20 @@ namespace Abilities.EnemyAbilities
                 enable = value;
             }
         }
+        
+        protected BaseAbility() {}
 
         protected bool _tryToExecute()
         {
             _castCounter += 1;
+            var isReady = _castCounter > castTime;
 
-            return _castCounter >= castTime;
+            return isReady;
         }
         
         public abstract UniTask Execute();
-        
-        protected BaseAbility() {}
+
+        public abstract void Cancel();
         
         public virtual void Init(Enemy owner)
         {
@@ -53,10 +57,10 @@ namespace Abilities.EnemyAbilities
         }
     }
 
-    enum State
+    public enum State
     {
         Pending,
         Preparing,
-        Exectute,
+        Execute,
     }
 }

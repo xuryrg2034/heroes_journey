@@ -6,6 +6,7 @@ using UnityEngine;
 using Core.Entities;
 using Cysharp.Threading.Tasks;
 using Grid;
+using JetBrains.Annotations;
 using Unity.VisualScripting;
 using Random = UnityEngine.Random;
 
@@ -28,7 +29,7 @@ namespace Services.Grid
 
         public static GridService Instance { get; private set; }
 
-        private List<Entity> _entities;
+        private List<Entity> _entities = new();
 
         private Cell[,] _cells;
 
@@ -39,16 +40,6 @@ namespace Services.Grid
             } else {
                 Destroy(gameObject);
             }
-        }
-        
-        private void OnEnable()
-        {
-            Entity.OnBeforeDestroy.AddListener(RemoveEntity);
-        }
-        
-        private void OnDisable()
-        {
-            Entity.OnBeforeDestroy.RemoveListener(RemoveEntity);
         }
 
         private void OnDrawGizmos()
@@ -87,16 +78,15 @@ namespace Services.Grid
             return _entities.OfType<T>().ToList();
         }
         
-        public Enemy[] GetEnemies()
+        public List<Enemy> GetEnemies()
         {
-            return _entities.OfType<Enemy>().ToArray();
+            return _entities.OfType<Enemy>().ToList();
         }
         
         // TODO: Нужна более мудренная логика спавна. Что бы не получалось, что на арене только красные например
         // TODO: Подумать как избавиться от асинхронного костыля (вероятно поможет обжект пул)
-        public async UniTask SpawnEntitiesOnGrid()
+        public void SpawnEntitiesOnGrid()
         {
-            var tasksCheckObjectIsInHierarchy = new List<UniTask>();
             foreach (var cell in _cells)
             {
                 // Выбираем случайного противника из entitiesList
@@ -110,14 +100,8 @@ namespace Services.Grid
                 newEntity.Init();
                 newEntity.SetCell(cell);
 
-                tasksCheckObjectIsInHierarchy.Add(UniTask.WaitUntil(() => newEntity.gameObject != null && newEntity.gameObject.activeInHierarchy));
                 _entities.Add(newEntity);
             }
-            
-            await UniTask.WhenAll(tasksCheckObjectIsInHierarchy); // Ждем когда все сущности попадут в иерархию юнити
-            
-            // await UniTask.NextFrame(); // Ждём 1 кадр
-            tasksCheckObjectIsInHierarchy.Clear();
         }
 
         public bool IsInsideGrid(Vector2Int position)
@@ -130,35 +114,18 @@ namespace Services.Grid
             return IsInsideGrid(new Vector2Int(x, y)) ? _cells[x, y] : null;
         }
         
-        public bool IsCellWalkable(int x, int y)
-        {
-            if (!IsInsideGrid(new Vector2Int(x, y))) return false;
-
-            var cell = _cells[x, y];
-            // Ловушка (Trap) может быть проходимой, а Blocked — нет, Destructible — на усмотрение
-            return (cell.Type != CellType.Blocked);
-        }
-        
         public Entity GetEntityAt(Vector2Int position)
         {
-            return _entities.FirstOrDefault(e => e.Cell.Position == position);
-        }
-
-        public void RemoveEntity(Entity entity)
-        {
-            if (_entities.Contains(entity))
-            {
-                _entities.Remove(entity);
-            }
+            return _entities.Where(e => e.Health.IsDead == false).FirstOrDefault(e => e.Cell.Position == position);
         }
         
         public void SpawnEntity(Entity entity, Cell cell)
         {
             var newEntity = Instantiate(entity);
             newEntity.Init();
-            _entities.Add(newEntity);
-
             newEntity.SetCell(cell);
+            
+            _entities.Add(newEntity);
         }
         
         public async UniTask ApplyGravity()
@@ -188,9 +155,22 @@ namespace Services.Grid
 
         public async UniTask UpdateGrid()
         {
-            await ApplyGravity();
+            _removeAllDeadEntity();
 
-            await SpawnEntitiesOnGrid();
+            await ApplyGravity();
+         
+            SpawnEntitiesOnGrid();
+        }
+
+        private void _removeAllDeadEntity()
+        {
+            _entities.RemoveAll(e =>
+            {
+                if (!e.Health.IsDead) return false;
+                
+                e.Dispose();
+                return true;
+            });
         }
         
         private Cell _getLowestAvailableCell(Cell startCell)
@@ -227,6 +207,7 @@ namespace Services.Grid
 
             foreach (var entity in _entities)
             {
+                entity.Init();
                 entity.SetCell(entity.Cell);
             }
         }

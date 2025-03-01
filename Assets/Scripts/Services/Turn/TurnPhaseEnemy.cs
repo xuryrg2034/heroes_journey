@@ -1,12 +1,9 @@
-﻿using DG.Tweening;
-using Services.Grid;
+﻿using Services.Grid;
 
 namespace Services.Turn
 {
     public class TurnPhaseEnemy : TurnPhase 
     {
-        private GridService _gridService = GridService.Instance;
-
         public override void Prepare()
         {
             _preparePhase();
@@ -22,8 +19,8 @@ namespace Services.Turn
         
         private async void _enemiesActionPhase()
         {
-            var enemies = _gridService.GetEnemies();
-            if (enemies == null || enemies.Length == 0)
+            var enemies = GridService.Instance.GetEnemies();
+            if (enemies == null)
             {
                 _processNextPhase();
                 return;
@@ -32,7 +29,7 @@ namespace Services.Turn
             foreach (var enemy in enemies)
             {
                 // Есть вероятность, что цель будет уничтожена раньше
-                if (enemy == null) continue;
+                if (enemy.Health.IsDead) continue;
 
                 await enemy.ExecuteAbilities();
             }

@@ -18,16 +18,19 @@ namespace Core.Entities
         
         [SerializeReference, SubclassSelector]
         private List<BaseAbility> abilities = new();
-        
 
         public EnemyRank Rank => rank;
-        
-        protected void Start()
+
+        public override void Init()
         {
+            base.Init();
+            
             foreach (var ability in abilities)
             {
                 ability.Init(this);
             }
+            
+            Health.OnDie.AddListener(_cancelAbilities);
         }
 
         public async UniTask ExecuteAbilities()
@@ -37,6 +40,16 @@ namespace Core.Entities
                 if (!ability.Enable) continue;
             
                 await ability.Execute();
+            }
+        }
+
+        private void _cancelAbilities()
+        {
+            foreach (var ability in abilities)
+            {
+                if (!ability.Enable) continue;
+            
+                ability.Cancel();
             }
         }
     }

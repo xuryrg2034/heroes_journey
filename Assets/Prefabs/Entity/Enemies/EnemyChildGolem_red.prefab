@@ -117,7 +117,7 @@ MonoBehaviour:
       data:
         enable: 1
         order: 100
-        castTime: 2
+        castTime: 1
         Owner: {fileID: 0}
 --- !u!61 &-7327794819446795399
 BoxCollider2D:
