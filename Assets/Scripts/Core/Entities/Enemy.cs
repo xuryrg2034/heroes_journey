@@ -29,7 +29,7 @@ namespace Core.Entities
             
             foreach (var ability in abilities)
             {
-                ability.Init(this);
+                ability?.Init(this);
             }
 
             if (Health.Value > 0)
@@ -43,7 +43,7 @@ namespace Core.Entities
         {
             foreach (var ability in abilities)
             {
-                if (!ability.Enable) continue;
+                if (ability == null || !ability.Enable) continue;
             
                 await ability.Execute();
             }
@@ -53,7 +53,7 @@ namespace Core.Entities
         {
             foreach (var ability in abilities)
             {
-                if (!ability.Enable) continue;
+                if (ability == null || !ability.Enable) continue;
             
                 ability.Cancel();
             }

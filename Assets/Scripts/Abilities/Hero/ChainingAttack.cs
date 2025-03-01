@@ -102,6 +102,7 @@ namespace Abilities.Hero
             var damage = 0;
             foreach (var entity in _selectedEntities)
             {
+                var entityHealth = entity.Health.Value;
                 if (entity.Health.Value == 0)
                 {
                     damage += 1;
@@ -111,9 +112,9 @@ namespace Abilities.Hero
 
                 await entity.Health.TakeDamage(damage);
 
-                if (entity.Health.Value > 0)
+                if (entityHealth > 0)
                 {
-                    damage -= entity.Health.Value;
+                    damage -= entityHealth;
                 }
 
                 if (entity.Health.IsDead)

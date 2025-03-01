@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: -7327794819446795399}
   - component: {fileID: -2109020731990752305}
   m_Layer: 0
-  m_Name: EnemyChildGolem_green
+  m_Name: EnemyChildGolem_blue
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -80,7 +80,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 100
   m_Sprite: {fileID: 21300400, guid: 872dba149c5addb49ac3649c5b9247d6, type: 3}
-  m_Color: {r: 0.5475143, g: 0.8862745, b: 0.25098044, a: 1}
+  m_Color: {r: 0.09411765, g: 0.42745098, b: 0.972549, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
@@ -103,7 +103,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   cell: {fileID: 0}
-  selectionType: 1
+  selectionType: 2
   health: 0
   rank: 1
   abilities:

@@ -72,6 +72,7 @@ namespace Core.Entities
     {
         Red,
         Green,
+        Blue,
         Neutral,
     }
 }
