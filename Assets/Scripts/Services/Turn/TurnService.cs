@@ -1,4 +1,5 @@
-﻿using Services.Grid;
+﻿using Cysharp.Threading.Tasks;
+using Services.Grid;
 using UnityEngine;
 
 
@@ -41,6 +42,7 @@ namespace Services.Turn
             
             GameService.SetGameState(GameState.EnemyTurn);
             _enemyTurnPhase.Prepare();
+            
             _enemyTurnPhase.StartPhase();
         }
         

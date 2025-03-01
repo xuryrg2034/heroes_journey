@@ -1,9 +1,12 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using UnityEngine;
 using Core.Entities;
 using Cysharp.Threading.Tasks;
 using Grid;
+using Unity.VisualScripting;
 using Random = UnityEngine.Random;
 
 namespace Services.Grid
@@ -90,10 +93,10 @@ namespace Services.Grid
         }
         
         // TODO: Нужна более мудренная логика спавна. Что бы не получалось, что на арене только красные например
-        public void SpawnEntitiesOnGrid()
+        // TODO: Подумать как избавиться от асинхронного костыля (вероятно поможет обжект пул)
+        public async UniTask SpawnEntitiesOnGrid()
         {
-            if (availableEntitiesList.Count == 0) return;
-
+            var tasksCheckObjectIsInHierarchy = new List<UniTask>();
             foreach (var cell in _cells)
             {
                 // Выбираем случайного противника из entitiesList
@@ -107,8 +110,14 @@ namespace Services.Grid
                 newEntity.Init();
                 newEntity.SetCell(cell);
 
+                tasksCheckObjectIsInHierarchy.Add(UniTask.WaitUntil(() => newEntity.gameObject != null && newEntity.gameObject.activeInHierarchy));
                 _entities.Add(newEntity);
             }
+            
+            await UniTask.WhenAll(tasksCheckObjectIsInHierarchy); // Ждем когда все сущности попадут в иерархию юнити
+            
+            // await UniTask.NextFrame(); // Ждём 1 кадр
+            tasksCheckObjectIsInHierarchy.Clear();
         }
 
         public bool IsInsideGrid(Vector2Int position)
@@ -179,8 +188,10 @@ namespace Services.Grid
 
         public async UniTask UpdateGrid()
         {
+            _entities = _entities.Where((item) => item.IsDestroyed() == false).ToList();
             await ApplyGravity();
-            SpawnEntitiesOnGrid();
+
+            await SpawnEntitiesOnGrid();
         }
         
         private Cell _getLowestAvailableCell(Cell startCell)

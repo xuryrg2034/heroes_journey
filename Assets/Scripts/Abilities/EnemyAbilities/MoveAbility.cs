@@ -10,14 +10,36 @@ namespace Abilities.EnemyAbilities
     [Serializable]
     public class MoveAbility : BaseAbility
     {
+        private Cell _cellToMove;
+        
         public override async UniTask Execute()
+        {
+            if (_tryToExecute())
+            {
+                _castCounter = 0;
+
+                await _execute();
+            }
+            else
+            {
+                _prepare();   
+            }
+        }
+
+        private void _prepare()
         {
             var notEmptyCells = Owner.Cell
                 .GetNeighbors()
                 .Where((item) => item.Type != CellType.Blocked)
                 .ToList();
-            var randomCell = notEmptyCells[Random.Range(0, notEmptyCells.Count)];
-            var entityOnCell = randomCell.GetEntity();
+            
+            _cellToMove = notEmptyCells[Random.Range(0, notEmptyCells.Count)];
+            _cellToMove.Highlite(true);
+        }
+
+        private async UniTask _execute()
+        {
+            var entityOnCell = _cellToMove.GetEntity();
             var tasks = new List<UniTask>();
             
             if (entityOnCell)
@@ -25,7 +47,9 @@ namespace Abilities.EnemyAbilities
                 tasks.Add(entityOnCell.Move(Owner.Cell));
             }
 
-            tasks.Add(Owner.Move(randomCell));
+            tasks.Add(Owner.Move(_cellToMove));
+
+            _cellToMove.Highlite(false);
 
             await UniTask.WhenAll(tasks);
         }

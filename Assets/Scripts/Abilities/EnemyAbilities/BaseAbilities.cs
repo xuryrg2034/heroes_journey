@@ -11,9 +11,10 @@ namespace Abilities.EnemyAbilities
     {
         [SerializeField] private bool enable = false;
         [SerializeField] private int order = 100;
+        [SerializeField] protected int castTime;
         [HideInInspector] public Enemy Owner;
 
-        private State _state = State.Preparing; 
+        protected  int _castCounter;
         
         public int Order => order;
         
@@ -23,12 +24,16 @@ namespace Abilities.EnemyAbilities
             set
             {
                 enable = value;
-                // OnEnable?.Invoke(enable);
             }
         }
 
-        // public Action<bool> OnEnable;
+        protected bool _tryToExecute()
+        {
+            _castCounter += 1;
 
+            return _castCounter >= castTime;
+        }
+        
         public abstract UniTask Execute();
         
         protected BaseAbility() {}

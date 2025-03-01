@@ -1,5 +1,6 @@
 ﻿using System;
 using Core.Entities;
+using Cysharp.Threading.Tasks;
 using Grid;
 using Services.Abilities;
 using Services.Grid;
@@ -81,7 +82,7 @@ namespace Services
         {
             gridService.Init();
             gridService.SpawnEntity(heroPrefab, heroCellSpawn);
-            gridService.SpawnEntitiesOnGrid();
+            gridService.SpawnEntitiesOnGrid().Forget();
 
             _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
         }

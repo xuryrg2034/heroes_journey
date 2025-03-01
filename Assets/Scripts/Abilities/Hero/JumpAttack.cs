@@ -51,6 +51,12 @@ namespace Abilities.Hero
 
         public override async UniTask Execute()
         {
+            if (!_selectTarget)
+            {
+                _resetSelection();
+                return;
+            };
+
             await base.Execute();
 
             
