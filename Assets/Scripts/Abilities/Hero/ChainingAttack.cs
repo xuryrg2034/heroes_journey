@@ -94,6 +94,7 @@ namespace Abilities.Hero
             _updateHeroPower();
         }
 
+        // Вся калькуляция урона отстой
         public override async UniTask Execute()
         {
             await base.Execute();
@@ -105,14 +106,15 @@ namespace Abilities.Hero
                 {
                     damage += 1;
                 }
-                else
-                {
-                    damage -= entity.Health.Value;
-                }
 
                 damage = damage < 0 ? 1 : damage;
 
                 await entity.Health.TakeDamage(damage);
+
+                if (entity.Health.Value > 0)
+                {
+                    damage -= entity.Health.Value;
+                }
 
                 if (entity.Health.IsDead)
                 {
