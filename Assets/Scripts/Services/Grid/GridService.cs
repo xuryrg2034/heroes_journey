@@ -188,7 +188,6 @@ namespace Services.Grid
 
         public async UniTask UpdateGrid()
         {
-            _entities = _entities.Where((item) => item.IsDestroyed() == false).ToList();
             await ApplyGravity();
 
             await SpawnEntitiesOnGrid();
