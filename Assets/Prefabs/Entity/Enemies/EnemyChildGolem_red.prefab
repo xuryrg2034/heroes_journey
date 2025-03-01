@@ -106,7 +106,7 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
+  healthUI: {fileID: 6670676235544806079, guid: 77654490f965c37459da7e4e33aaa8df, type: 3}
   abilities:
   - rid: 5789429592725389390
   references:

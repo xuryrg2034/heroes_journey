@@ -213,7 +213,6 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429648715939911
   references:
@@ -524,7 +523,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -1475,7 +1473,6 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429648715939911
   references:
@@ -1657,7 +1654,6 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429648715939911
   references:
@@ -1839,7 +1835,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -2494,7 +2489,6 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429648715939911
   references:
@@ -2762,7 +2756,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -2999,7 +2992,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -3356,7 +3348,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -4108,7 +4099,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -4466,7 +4456,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -4704,7 +4693,6 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429648715939911
   references:
@@ -5017,7 +5005,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
@@ -5194,7 +5181,6 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429648715939911
   references:
@@ -5660,7 +5646,6 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
-  healthUI: {fileID: 0}
   abilities:
   - rid: 5789429592725389390
   references:
