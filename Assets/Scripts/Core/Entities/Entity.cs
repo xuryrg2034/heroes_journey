@@ -53,7 +53,7 @@ namespace Core.Entities
             sr.color = Color.white;
         }
 
-        public void Dispose()
+        public virtual void Dispose()
         {
             cell = null;
 

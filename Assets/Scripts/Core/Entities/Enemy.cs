@@ -4,7 +4,6 @@ using TMPro;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 using UnityEngine.Events;
-using UnityEngine.Serialization;
 
 namespace Core.Entities
 {
