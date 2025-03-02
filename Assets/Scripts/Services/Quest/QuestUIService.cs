@@ -20,7 +20,7 @@ namespace Services.Quest
             _updateUI(_service.GetQuests());
         }
 
-        private void _updateUI(List<QuestItem> questsList)
+        private void _updateUI(List<BaseQuestItem> questsList)
         {
             // Очистим контейнер
             foreach (Transform child in containerPrefab)

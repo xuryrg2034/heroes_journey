@@ -1,26 +1,31 @@
 ﻿using System;
 using Services.Quest;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.Serialization;
 
 namespace Core.Quest
 {
-    public abstract class QuestItem : MonoBehaviour
+    [Serializable]
+    public abstract class BaseQuestItem
     {
+        [SerializeField] private string title;
         [SerializeField] private string description;
      
-        public Action OnUpdate;
-        public Action OnComplete;
-        public bool Enable { get; protected set; }
+        [HideInInspector]
+        public UnityEvent OnUpdate;
+        
+        [HideInInspector]
+        public UnityEvent OnComplete;
 
         public bool IsCompleted { get; private set; }
 
+        public string Title => title;
+        
         public string Description => description;
 
         public virtual void Init()
-        {
-            Enable = true;
-        }
+        { }
 
         public abstract string GetProgress();
         

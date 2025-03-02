@@ -7,22 +7,11 @@ namespace Services.Abilities
 {
     public class AbilitiesService : MonoBehaviour
     {
-        public static AbilitiesService Instance;
-     
         private List<BaseAbility> _abilitiesList;
 
         public List<BaseAbility> AbilitiesList => _abilitiesList;
         
         private BaseAbility _selectedAbility;
-
-        private void Awake() {
-            if (Instance == null) {
-                Instance = this;
-                DontDestroyOnLoad(gameObject);
-            } else {
-                Destroy(gameObject);
-            }
-        }
         
         public void Init(List<BaseAbility> abilitiesList)
         {

@@ -6,7 +6,8 @@ namespace Services.Turn
 {
     public class TurnPhasePlayer : TurnPhase 
     {
-        private AbilitiesService _abilitiesService = AbilitiesService.Instance;
+        private AbilitiesService _abilitiesService = ServiceLocator.Get<AbilitiesService>();
+
         public override void Prepare()
         {
             _preparePhase();

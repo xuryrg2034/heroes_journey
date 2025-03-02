@@ -4,6 +4,8 @@ namespace Services.Turn
 {
     public class TurnPhaseEnemy : TurnPhase 
     {
+        private GridService _gridService = ServiceLocator.Get<GridService>();
+
         public override void Prepare()
         {
             _preparePhase();
@@ -19,7 +21,7 @@ namespace Services.Turn
         
         private async void _enemiesActionPhase()
         {
-            var enemies = GridService.Instance.GetEnemies();
+            var enemies = _gridService.GetEnemies();
             if (enemies == null)
             {
                 _processNextPhase();

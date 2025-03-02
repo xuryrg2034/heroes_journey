@@ -4,6 +4,7 @@ using Core;
 using Core.Entities;
 using JetBrains.Annotations;
 using NUnit.Framework;
+using Services;
 using UnityEngine;
 using Services.Grid;
 
@@ -18,8 +19,12 @@ namespace Grid
         [SerializeField] private Vector2Int position;
         [SerializeField] private CellType cellType;
 
+        private GridService _gridService;
+        
         private SpriteRenderer _sr;
+        
         private Color _initColor;
+        
         private static List<Vector2Int> _directions = new()
         {
 
@@ -40,9 +45,9 @@ namespace Grid
             get => cellType;
             set => cellType = value;
         }
-
-        private void Start()
+        public void Init()
         {
+            _gridService = ServiceLocator.Get<GridService>();
             _sr = GetComponent<SpriteRenderer>();
             _initColor = _sr.color;
         }
@@ -59,7 +64,7 @@ namespace Grid
             foreach (var direction in _directions)
             {
                 var nextPosition = Position + direction;
-                var cell = GridService.Instance.GetCell(nextPosition.x, nextPosition.y);
+                var cell = _gridService.GetCell(nextPosition.x, nextPosition.y);
 
                 if (cell)
                 {
@@ -73,7 +78,7 @@ namespace Grid
         [CanBeNull]
         public Entity GetEntity()
         {
-            return GridService.Instance.GetEntityAt(Position);
+            return _gridService.GetEntityAt(Position);
         }
 
         public void Highlite(bool value)

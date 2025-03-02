@@ -9,17 +9,12 @@ namespace Core.Quest
         [SerializeField] private TMP_Text description;
         [SerializeField] private TMP_Text progress;
 
-        private QuestItem _quest;
+        private BaseQuestItem _baseQuest;
 
-        private void OnDisable()
+        public void Init(BaseQuestItem baseQuest)
         {
-            // _quest.OnUpdate -= _updateStatus;
-        }
-
-        public void Init(QuestItem quest)
-        {
-            _quest = quest;
-            _quest.OnUpdate += _updateStatus;
+            _baseQuest = baseQuest;
+            _baseQuest.OnUpdate.AddListener(_updateStatus);
             
             _updateStatus();
         }
@@ -36,8 +31,8 @@ namespace Core.Quest
 
         private void _updateStatus()
         {
-            SetDescription(_quest.Description);
-            SetProgress(_quest.GetProgress());
+            SetDescription(_baseQuest.Title);
+            SetProgress(_baseQuest.GetProgress());
         }
     }
 }

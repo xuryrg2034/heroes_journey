@@ -8,19 +8,9 @@ namespace Services.Quest
 {
     public class QuestService : MonoBehaviour
     {
-        [SerializeField] private List<QuestItem> questsList;
+        [SerializeReference, SubclassSelector]
+        private List<BaseQuestItem> questsList;
         private bool _questsCompleted;
-        
-        public static QuestService Instance;
-
-        private void Awake() {
-            if (Instance == null) {
-                Instance = this;
-                DontDestroyOnLoad(gameObject);
-            } else {
-                Destroy(gameObject);
-            }
-        }
 
         public void Init()
         {
@@ -30,7 +20,7 @@ namespace Services.Quest
             }
         }
 
-        public List<QuestItem> GetQuests()
+        public List<BaseQuestItem> GetQuests()
         {
             return questsList;
         }

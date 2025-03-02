@@ -12,7 +12,7 @@ namespace Grid
     {
         // [SerializeField] private Enemy bossPrefab;
         [SerializeField] private Cell cellPrefab;
-        [SerializeField] private List<QuestItem> activationQuests; 
+        [SerializeField] private List<BaseQuestItem> activationQuests; 
 
         private GridService _gridService;
 

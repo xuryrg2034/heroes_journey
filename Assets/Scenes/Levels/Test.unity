@@ -369,7 +369,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 25804667}
-  - component: {fileID: 25804666}
   - component: {fileID: 25804668}
   m_Layer: 0
   m_Name: GameService
@@ -378,18 +377,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &25804666
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 25804665}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 6c59ef323fc94c928c467aa186d19e68, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!4 &25804667
 Transform:
   m_ObjectHideFlags: 0
@@ -421,6 +408,7 @@ MonoBehaviour:
   abilitiesService: {fileID: 1006610935}
   questService: {fileID: 156452667}
   heroUIService: {fileID: 443725304}
+  turnService: {fileID: 1474472036}
   heroPrefab: {fileID: 4958044900380387369, guid: 4e00b135b6f74f5449c2d5b3689c9be4, type: 3}
   heroCellSpawn: {fileID: 892293350}
 --- !u!4 &50781878 stripped
@@ -897,7 +885,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &156452668
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -911,8 +899,22 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   questsList:
-  - {fileID: 763818034}
-  - {fileID: 1715995981}
+  - rid: 1614106211564912711
+  references:
+    version: 2
+    RefIds:
+    - rid: 1614106211564912711
+      type: {class: TotalKillEnemiesQuest, ns: Core.Quest, asm: Assembly-CSharp}
+      data:
+        title: "\u041F\u043E\u0431\u0435\u0434\u0438\u0442\u044C \u043F\u0440\u043E\u0442\u0438\u0432\u043D\u0438\u043A\u043E\u0432"
+        description: '-'
+        OnUpdate:
+          m_PersistentCalls:
+            m_Calls: []
+        OnComplete:
+          m_PersistentCalls:
+            m_Calls: []
+        targetCount: 50
 --- !u!4 &156452669
 Transform:
   m_ObjectHideFlags: 0
@@ -925,9 +927,7 @@ Transform:
   m_LocalPosition: {x: 2, y: 2, z: 0.000000059604645}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 763818033}
-  - {fileID: 1715995980}
+  m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &156452670
@@ -2484,52 +2484,6 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 6551474544724621577, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
   m_PrefabInstance: {fileID: 1579936767}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &763818032
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 763818033}
-  - component: {fileID: 763818034}
-  m_Layer: 0
-  m_Name: KillEnimies
-  m_TagString: Quest
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &763818033
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 763818032}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 156452669}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &763818034
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 763818032}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2bfe8dfc72aa4fafa72ce6d6b5c67cad, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  description: "\u0423\u0431\u0438\u0442\u044C \u043F\u0440\u043E\u0442\u0438\u0432\u043D\u0438\u043A\u043E\u0432"
-  target: 2
 --- !u!114 &784086106 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 8679180365867499682, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
@@ -2624,7 +2578,7 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 25804666}
+      - m_Target: {fileID: 1474472036}
         m_TargetAssemblyTypeName: Services.Turn.TurnService, Assembly-CSharp
         m_MethodName: StartPlayerTurn
         m_Mode: 1
@@ -4440,6 +4394,50 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
+--- !u!1 &1474472035
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1474472037}
+  - component: {fileID: 1474472036}
+  m_Layer: 0
+  m_Name: TurnService
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1474472036
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1474472035}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6c59ef323fc94c928c467aa186d19e68, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!4 &1474472037
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1474472035}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.68082166, y: 2.5671194, z: -0.004123823}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1481828860
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4879,51 +4877,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2432f08997d945888d6c38f880bb0372, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
---- !u!1 &1715995979
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1715995980}
-  - component: {fileID: 1715995981}
-  m_Layer: 0
-  m_Name: KillCurrentEnimy
-  m_TagString: Quest
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1715995980
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1715995979}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 156452669}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1715995981
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1715995979}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: dbb5060a777542f88a6220d3870b2619, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  description: "\u041F\u043E\u0431\u0435\u0434\u0438\u0442\u044C \u0431\u043E\u0441\u0441\u0430"
 --- !u!1001 &1718277968
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -7384,6 +7337,7 @@ SceneRoots:
   - {fileID: 1006610936}
   - {fileID: 443725305}
   - {fileID: 156452669}
+  - {fileID: 1474472037}
   - {fileID: 1849866063}
   - {fileID: 1524337974}
   - {fileID: 1043312408}

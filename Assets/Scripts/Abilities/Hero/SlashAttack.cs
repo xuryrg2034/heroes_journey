@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Core.Entities;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
+using Services;
 using Services.Grid;
 using Services.Selection;
 using UnityEngine;
@@ -17,6 +18,8 @@ namespace Abilities.Hero
         private int _damage = 0;
 
         private List<Entity> _selectedTargets = new();
+
+        private GridService _gridService;
 
         private static List<Vector2Int> _directions = new()
         {
@@ -33,6 +36,8 @@ namespace Abilities.Hero
         public override void Init(Core.Entities.Hero hero)
         {
             base.Init(hero);
+
+            _gridService = ServiceLocator.Get<GridService>();
             _damage = Hero.Damage.Value;
         }
         
@@ -70,7 +75,7 @@ namespace Abilities.Hero
             
             foreach (var position in targetPositions)
             {
-                var target = GridService.Instance.GetEntityAt(position);
+                var target = _gridService.GetEntityAt(position);
 
                 if (!target) continue;
                 

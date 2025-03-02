@@ -5,21 +5,19 @@ using UnityEngine;
 
 namespace Services.Turn
 {
+    // TODO: По итогам стоит отказаться от монобеха и вызов старта хода делать через систему событий
     public class TurnService : MonoBehaviour
     {
         private TurnPhase _playerTurnPhase;
         private TurnPhase _enemyTurnPhase;
         private TurnPhase _allQuestsCompleteTurnPhase;
-        // private TurnPhase _questTurnPhase;
 
-        private void OnDisable()
-        {
-            _playerTurnPhase.OnChangeState.RemoveListener(_playerTurnEnd);
-            _enemyTurnPhase.OnChangeState.RemoveListener(_enemyTurnEnd);
-        }
+        private GridService _gridService;
 
-        private void Start()
+        public void Init()
         {
+            _gridService = ServiceLocator.Get<GridService>();
+
             _playerTurnPhase = new TurnPhasePlayer();
             _enemyTurnPhase = new TurnPhaseEnemy();
 
@@ -38,7 +36,7 @@ namespace Services.Turn
         {
             if (state != TurnState.Completed) return;
             
-            await GridService.Instance.UpdateGrid();
+            await _gridService.UpdateGrid();
             
             GameService.SetGameState(GameState.EnemyTurn);
             _enemyTurnPhase.Prepare();
@@ -50,7 +48,7 @@ namespace Services.Turn
         {
             if (state != TurnState.Completed) return;
             
-            await GridService.Instance.UpdateGrid();
+            await _gridService.UpdateGrid();
 
             // Заменить на EventBus
             GameService.SetGameState(GameState.WaitingForInput);

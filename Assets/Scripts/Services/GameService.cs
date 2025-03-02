@@ -5,6 +5,7 @@ using Grid;
 using Services.Abilities;
 using Services.Grid;
 using Services.Quest;
+using Services.Turn;
 using Services.UI;
 using UnityEngine;
 using UnityEngine.Events;
@@ -28,30 +29,24 @@ namespace Services
         [SerializeField] private GameObject abilitiesService;
         [SerializeField] private GameObject questService;
         [SerializeField] private HeroUIService heroUIService;
+        [SerializeField] private TurnService turnService;
         [SerializeField] private Hero heroPrefab;
         [SerializeField] private Cell heroCellSpawn;
+        
 
         private Hero _heroEntity;
         
         public static UnityEvent<GameState> OnGameStateChange = new();
         public static GameState CurrentState { get; private set; } = GameState.WaitingForInput;
-        public static GameService Instance;
-        
-        private void Awake() {
-            if (Instance == null) {
-                Instance = this;
-                DontDestroyOnLoad(gameObject);
-            } else {
-                Destroy(gameObject);
-            }
-        }
 
+        // FIXME: Порядок вызова важен. Происходит решистрация классов в сервис локаторе
         private void Start()
         {
             _prepareGrid();
+            _prepareHero();
             _prepareAbilities();
-            _prepareHeroUI();
-            // _prepareQuests();
+            _prepareQuests();
+            _prepareTurnService();
         }
 
         public static void SetGameState(GameState state)
@@ -64,6 +59,8 @@ namespace Services
         {
             var service = abilitiesService.GetComponent<AbilitiesService>();
             var ui = abilitiesService.GetComponent<AbilitiesUIService>();
+            
+            ServiceLocator.Register(service);
 
             service.Init(_heroEntity.Abilities);
             ui.Init(service);
@@ -80,16 +77,22 @@ namespace Services
 
         private void _prepareGrid()
         {
+            ServiceLocator.Register(gridService);
+
             gridService.Init();
             gridService.SpawnEntity(heroPrefab, heroCellSpawn);
             gridService.SpawnEntitiesOnGrid();
-
-            _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
         }
 
-        private void _prepareHeroUI()
+        private void _prepareHero()
         {
+            _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
             heroUIService.Init(_heroEntity);
+        }
+
+        private void _prepareTurnService()
+        {
+            turnService.Init();
         }
     }
 }

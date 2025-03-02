@@ -27,20 +27,9 @@ namespace Services.Grid
         [SerializeField] private int height = 9;
         [SerializeField]private List<Entity> availableEntitiesList = new();
 
-        public static GridService Instance { get; private set; }
-
         private List<Entity> _entities = new();
 
         private Cell[,] _cells;
-
-        private void Awake() {
-            if (Instance == null) {
-                Instance = this;
-                DontDestroyOnLoad(gameObject);
-            } else {
-                Destroy(gameObject);
-            }
-        }
 
         private void OnDrawGizmos()
         {
@@ -198,6 +187,7 @@ namespace Services.Grid
             foreach (var cell in foundCells)
             {
                 _cells[cell.Position.x, cell.Position.y] = cell;
+                cell.Init();
             }
         }
         
