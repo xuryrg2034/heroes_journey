@@ -25,8 +25,6 @@ namespace Core.Entities
         public virtual void Init()
         {
             Health = new Health(health, transform);
-            
-            Health.OnDie.AddListener(_handleDie);
         }
         
         public void SetCell(Cell value)
@@ -44,13 +42,6 @@ namespace Core.Entities
             cell = targetCell;
             
             return transform.DOMove(targetCell.transform.position, duration).ToUniTask();
-        }
-
-        private void _handleDie()
-        {
-            var sr = GetComponent<SpriteRenderer>();
-                
-            sr.color = Color.white;
         }
 
         public virtual void Dispose()

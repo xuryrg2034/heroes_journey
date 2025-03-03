@@ -6,20 +6,26 @@ namespace Services.EventBus
     public static class EventBusService
     {
         private static readonly Dictionary<Actions, Delegate> Events = new();
+        private static readonly Dictionary<Actions, Dictionary<Delegate, Delegate>> Wrappers = new(); // Храним оригинальные ссылки
 
-        // Универсальная подписка (без аргументов и с аргументами)
+        // Универсальная подписка (работает и с аргументами, и без)
         public static void Subscribe<T>(Actions eventName, Action<T> callback)
         {
-            if (Events.ContainsKey(eventName))
-                Events[eventName] = Delegate.Combine(Events[eventName], callback);
-            else
+            if (!Events.ContainsKey(eventName))
                 Events[eventName] = callback;
+            else
+                Events[eventName] = Delegate.Combine(Events[eventName], callback);
         }
 
-        // Перегрузка для событий без аргументов
         public static void Subscribe(Actions eventName, Action callback)
         {
-            Subscribe<object>(eventName, _ => callback());
+            Action<object> wrapper = _ => callback();
+
+            if (!Wrappers.ContainsKey(eventName))
+                Wrappers[eventName] = new Dictionary<Delegate, Delegate>();
+
+            Wrappers[eventName][callback] = wrapper; // Сохраняем связь оригинала и обёртки
+            Subscribe(eventName, wrapper);
         }
 
         // Универсальная отписка
@@ -32,20 +38,25 @@ namespace Services.EventBus
                 Events.Remove(eventName);
         }
 
-        // Перегрузка для отписки без аргументов
         public static void Unsubscribe(Actions eventName, Action callback)
         {
-            Unsubscribe<object>(eventName, _ => callback());
+            if (!Wrappers.ContainsKey(eventName) || !Wrappers[eventName].ContainsKey(callback)) return;
+
+            var wrapper = Wrappers[eventName][callback];
+            Unsubscribe(eventName, (Action<object>)wrapper);
+
+            Wrappers[eventName].Remove(callback);
+            if (Wrappers[eventName].Count == 0)
+                Wrappers.Remove(eventName);
         }
 
-        // Универсальный вызов события с аргументами
+        // Универсальный вызов события
         public static void Trigger<T>(Actions eventName, T param = default)
         {
-            if (Events.ContainsKey(eventName) && Events[eventName] is Action<T> action)
+            if (Events.TryGetValue(eventName, out var del) && del is Action<T> action)
                 action.Invoke(param);
         }
 
-        // Перегрузка для вызова событий без аргументов
         public static void Trigger(Actions eventName)
         {
             Trigger<object>(eventName, null);

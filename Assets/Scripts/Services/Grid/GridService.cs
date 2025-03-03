@@ -151,6 +151,38 @@ namespace Services.Grid
             SpawnEntitiesOnGrid();
         }
 
+        public void AddEntity(Entity entity)
+        {
+            _entities.Add(entity);
+        }
+
+        public Cell GetRandomCell(List<Cell> excludedCells = default)
+        {
+            var availableCells = new List<Cell>();
+
+            for (var x = 0; x < _cells.GetLength(0); x++)
+            {
+                for (var y = 0; y < _cells.GetLength(1); y++)
+                {
+                    var cell = _cells[x, y];
+                    if (!cell.IsAvailableForEntity()) continue;
+                    
+                    if (excludedCells == null)
+                    {
+                        availableCells.Add(cell);
+                    }
+                    else if (!excludedCells.Contains(cell))
+                    {
+                        availableCells.Add(cell); 
+                    }
+                }
+            }
+
+            var randomCell = availableCells[Random.Range(0, availableCells.Count)];
+
+            return randomCell;
+        }
+
         private void _removeAllDeadEntity()
         {
             _entities.RemoveAll(e =>

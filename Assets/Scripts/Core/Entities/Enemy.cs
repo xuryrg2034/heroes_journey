@@ -3,6 +3,7 @@ using Abilities.EnemyAbilities;
 using TMPro;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
+using Services.EventBus;
 using UnityEngine.Events;
 
 namespace Core.Entities
@@ -14,6 +15,10 @@ namespace Core.Entities
         
         [Header("Enemy Settings")]
         [SerializeField] private EnemyRank rank;
+        [SerializeField] private bool isAggressive; // Готов ли противник проявить агрессию
+        [SerializeField] private int aggressionLimit; // Порог после которого будет пробрасываться шанс стать агрессивным
+        
+        private int _turnsInIdleState; // То сколько проитвник находится в состоянии покоя
         
         [SerializeReference, SubclassSelector]
         private List<BaseAbility> abilities = new();
@@ -35,16 +40,28 @@ namespace Core.Entities
             {
                 _initHealthUI();   
             }
+
             Health.OnDie.AddListener(_cancelAbilities);
+            Health.OnDie.AddListener(_updateStatistics);
+            Health.OnValueChanged.AddListener(_checkAggressionAfterTakeDamage);
+            EventBusService.Subscribe(Actions.StatisticsUpdateTurnCounter, _onCheckAggressionAfterTurnPassed);
         }
 
         public async UniTask ExecuteAbilities()
         {
+            if (!isAggressive) return;
+
             foreach (var ability in abilities)
             {
                 if (ability == null || !ability.Enable) continue;
             
                 await ability.Execute();
+
+                if (ability.State == State.Completed)
+                {
+                    isAggressive = false;
+                    _turnsInIdleState = 0;
+                }
             }
         }
 
@@ -81,6 +98,38 @@ namespace Core.Entities
         private void _updateHealthUI(int value)
         {
             _healthUI.text = value.ToString();
+        }
+
+        private void _checkAggressionAfterTakeDamage(int value)
+        {
+            isAggressive = !Health.IsDead;
+        }
+        
+        public void _onCheckAggressionAfterTurnPassed()
+        {
+            if (isAggressive) return;
+
+            _turnsInIdleState++;
+            
+            var requiredTurns = aggressionLimit * 1.5f;
+            var chance = Mathf.Clamp01((_turnsInIdleState - 5) / requiredTurns);
+            
+            Debug.Log($"Random: {Random.value} Chance: {chance}");
+            if (Random.value < chance)
+            {
+                isAggressive = true;
+            }
+        }
+        
+        private void _updateStatistics()
+        {
+            EventBusService.Trigger(Actions.EnemyDied);
+        }
+
+        public override void Dispose()
+        {
+            base.Dispose();
+            EventBusService.Unsubscribe(Actions.StatisticsUpdateTurnCounter, _onCheckAggressionAfterTurnPassed);
         }
     }
     

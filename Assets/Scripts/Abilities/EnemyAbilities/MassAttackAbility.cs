@@ -18,24 +18,24 @@ namespace Abilities.EnemyAbilities
             if (_tryToExecute())
             {
                 await _execute();
-                _reset();
+                _reset(State.Completed);
             }
-            else if (_state != State.Preparing)
+            else if (State != State.Preparing)
             {
-                await _prepare();   
+                _prepare();   
             }
         }
         
         public override void Cancel()
         {
-            if (_state != State.Preparing) return;
+            if (State != State.Preparing) return;
 
             _reset();
         }
 
-        private UniTask _prepare()
+        private void _prepare()
         {
-            _state = State.Preparing;
+            State = State.Preparing;
 
             _targetCells = Owner.Cell
                 .GetNeighbors()
@@ -46,13 +46,11 @@ namespace Abilities.EnemyAbilities
             {
                 cell.Highlite(true);
             }
-
-            return default;
         }
 
         private async UniTask _execute()
         {
-            _state = State.Execute;
+            State = State.Execute;
 
             var entityList = _targetCells
                 .Select(cell => cell.GetEntity())
@@ -71,7 +69,7 @@ namespace Abilities.EnemyAbilities
             await UniTask.WhenAll(task);
         }
 
-        private void _reset()
+        private void _reset(State state = State.Pending)
         {
             foreach (var cell in _targetCells)
             {
@@ -80,7 +78,7 @@ namespace Abilities.EnemyAbilities
 
             _targetCells = null;
             _castCounter = 0;
-            _state = State.Pending;
+            State = state;
         }
     }
 }

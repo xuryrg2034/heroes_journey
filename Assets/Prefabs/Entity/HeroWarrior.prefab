@@ -106,7 +106,7 @@ MonoBehaviour:
   selectionType: 2
   health: 100
   damage: 0
-  energy: 3
+  energy: 100
   abilities:
   - rid: 5789429592725389388
   - rid: 5789429592725389389
@@ -123,6 +123,7 @@ MonoBehaviour:
         OnEnableChanged:
           m_PersistentCalls:
             m_Calls: []
+        killsToReward: 3
     - rid: 5789429592725389389
       type: {class: SlashAttack, ns: Abilities.Hero, asm: Assembly-CSharp}
       data:

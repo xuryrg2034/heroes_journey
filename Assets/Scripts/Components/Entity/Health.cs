@@ -48,16 +48,20 @@ namespace Components.Entity
             
             if (Value < 0)
             {
-                IsDead = true;
-
-                await DieAnimation();
-
-                OnDie.Invoke();
+                await Die();
             }
             else
             {
                 await DamageAnimation();
             }
+        }
+
+        public async UniTask Die()
+        {
+            IsDead = true;
+            OnDie.Invoke();
+                
+            await DieAnimation();
         }
 
         private UniTask DamageAnimation()

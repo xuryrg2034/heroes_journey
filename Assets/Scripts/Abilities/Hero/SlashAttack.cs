@@ -1,13 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Core.Entities;
 using Cysharp.Threading.Tasks;
-using DG.Tweening;
 using Services;
+using Services.EventBus;
 using Services.Grid;
 using Services.Selection;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 namespace Abilities.Hero
 {
@@ -98,6 +98,8 @@ namespace Abilities.Hero
             }
             
             await UniTask.WhenAll(tasks);
+
+            _checkComboReward(_selectedTargets);
             _resetSelection();
         }
         
@@ -159,6 +161,17 @@ namespace Abilities.Hero
             targets.Add(rightCell);
             
             return targets;
+        }
+        
+        private void _checkComboReward(List<Entity> entities)
+        {
+            if (entities.Count < 3) return;
+            var isCompleteCondition = entities.All(e => e.Health.IsDead && e.SelectionType == entities[0].SelectionType);
+
+            if (isCompleteCondition)
+            {
+                EventBusService.Trigger(Actions.PlayerRestoreEnergy, 1);
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using Services.EventBus;
 using UnityEngine;
 
 namespace Core.Quest
@@ -9,24 +10,31 @@ namespace Core.Quest
         [SerializeField] private int targetCount = 5;
 
         private int _currentCount;
-        
-        public override void OnCheckCondition<T>(T input = default)
+
+        public override void Init()
+        {
+            base.Init();
+            
+            EventBusService.Subscribe(Actions.StatisticsUpdateKillCounter, OnCheckCondition);
+        }
+
+        public override void OnCheckCondition()
         {
             if (IsCompleted)
+            {
+                EventBusService.Unsubscribe(Actions.StatisticsUpdateKillCounter, OnCheckCondition);
                 return;
+            }
             
-            _currentCount++;
+            _currentCount = LevelStatistics.Kills;
             
             OnUpdate?.Invoke();
-            
-            Debug.Log($"Убито врагов: {_currentCount}/{targetCount}");
             
             if (_currentCount < targetCount) return;
             
             _setIsComplete(true);
             
             OnComplete?.Invoke();
-            Debug.Log("Квест 'убить врагов' выполнен!");
         }
 
         public override string GetProgress()

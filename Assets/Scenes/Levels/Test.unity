@@ -172,6 +172,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8679180365867499682, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
+      propertyPath: cellType
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8679180365867499682, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
       propertyPath: position.x
       value: 3
       objectReference: {fileID: 0}
@@ -278,6 +282,8 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429648715939911
   references:
@@ -409,6 +415,7 @@ MonoBehaviour:
   questService: {fileID: 156452667}
   heroUIService: {fileID: 443725304}
   turnService: {fileID: 1474472036}
+  spawnerService: {fileID: 623849130}
   heroPrefab: {fileID: 4958044900380387369, guid: 4e00b135b6f74f5449c2d5b3689c9be4, type: 3}
   heroCellSpawn: {fileID: 892293350}
 --- !u!4 &50781878 stripped
@@ -581,6 +588,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -1010,6 +1019,10 @@ PrefabInstance:
     - target: {fileID: 6551474544724621577, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8679180365867499682, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
+      propertyPath: cellType
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8679180365867499682, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
       propertyPath: position.x
@@ -1870,6 +1883,51 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &623849129
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 623849131}
+  - component: {fileID: 623849130}
+  m_Layer: 0
+  m_Name: SpawnerService
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &623849130
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 623849129}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc90b757daea467cb7aec68ef2f36bc5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  rainbowEntity: {fileID: -4238328791742050952, guid: 833494377f388db4b94402efedec400d, type: 3}
+--- !u!4 &623849131
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 623849129}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 2.187386, y: 3.2134745, z: -0.04316207}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &631030094
 GameObject:
   m_ObjectHideFlags: 0
@@ -1964,6 +2022,8 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429648715939911
   references:
@@ -2150,6 +2210,8 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429648715939911
   references:
@@ -2331,6 +2393,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -2944,6 +3008,8 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429648715939911
   references:
@@ -3276,6 +3342,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -3522,6 +3590,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -3883,6 +3953,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -4540,8 +4612,6 @@ MonoBehaviour:
   availableEntitiesList:
   - {fileID: -9152101009826336401, guid: 4c2eb518bdf882d43a6a695e683ac660, type: 3}
   - {fileID: -9152101009826336401, guid: 75869511b68be2e4c8a2d7adf1424bf4, type: 3}
-  - {fileID: -9152101009826336401, guid: 5cb8764a309121e4aa0136c2ee898bea, type: 3}
-  - {fileID: -9152101009826336401, guid: 411c49d48cc44ff42a41a97532c34286, type: 3}
 --- !u!4 &1524337974
 Transform:
   m_ObjectHideFlags: 0
@@ -5000,6 +5070,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8679180365867499682, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
+      propertyPath: cellType
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8679180365867499682, guid: 08ffd5df36c22654d98158a666b6eec3, type: 3}
       propertyPath: position.x
       value: 5
       objectReference: {fileID: 0}
@@ -5117,6 +5191,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -5665,6 +5741,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -5907,6 +5985,8 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429648715939911
   references:
@@ -6284,6 +6364,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -6460,6 +6542,8 @@ MonoBehaviour:
   selectionType: 0
   health: 5
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429648715939911
   references:
@@ -6925,6 +7009,8 @@ MonoBehaviour:
   selectionType: 0
   health: 0
   rank: 1
+  isAggressive: 0
+  aggressionLimit: 0
   abilities:
   - rid: 5789429592725389390
   references:
@@ -7338,6 +7424,7 @@ SceneRoots:
   - {fileID: 443725305}
   - {fileID: 156452669}
   - {fileID: 1474472037}
-  - {fileID: 1849866063}
   - {fileID: 1524337974}
   - {fileID: 1043312408}
+  - {fileID: 623849131}
+  - {fileID: 1849866063}

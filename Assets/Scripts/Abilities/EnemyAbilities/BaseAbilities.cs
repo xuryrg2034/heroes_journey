@@ -3,6 +3,7 @@ using Core.Entities;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Abilities.EnemyAbilities
 {
@@ -15,8 +16,8 @@ namespace Abilities.EnemyAbilities
         [HideInInspector] public Enemy Owner;
 
         protected  int _castCounter;
-        protected State _state = State.Pending;
-        
+        public State State { get; protected set; } = State.Pending;
+
         public int Order => order;
         
         public bool Enable
@@ -62,5 +63,6 @@ namespace Abilities.EnemyAbilities
         Pending,
         Preparing,
         Execute,
+        Completed,
     }
 }

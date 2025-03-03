@@ -4,6 +4,9 @@ using System.Linq;
 using Core.Entities;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
+using Services;
+using Services.EventBus;
+using Services.Grid;
 using Services.Selection;
 using UnityEngine;
 
@@ -12,6 +15,7 @@ namespace Abilities.Hero
     [Serializable]
     public class ChainingAttack : BaseAbility
     {
+        [SerializeField] private int killsToReward;
         private readonly List<Entity> _selectedEntities = new();
 
         private Sequence _executeSequence;
@@ -100,6 +104,8 @@ namespace Abilities.Hero
             await base.Execute();
 
             var damage = 0;
+            var killedEntity = 0;
+            var isRewardGiven = false;
             foreach (var entity in _selectedEntities)
             {
                 var entityHealth = entity.Health.Value;
@@ -119,9 +125,16 @@ namespace Abilities.Hero
 
                 if (entity.Health.IsDead)
                 {
-                    await Hero.Move(entity.Cell, 0.2f); 
+                    await Hero.Move(entity.Cell, 0.2f);
+                    killedEntity += 1;
                 }
                 _highlightTarget(entity.Cell, false);
+                
+                if (killedEntity >= killsToReward && !isRewardGiven)
+                {
+                    isRewardGiven = true;
+                    _checkComboReward();   
+                }
             }
 
             _resetSelection();
@@ -174,7 +187,14 @@ namespace Abilities.Hero
 
         private void _updateHeroPower()
         {
-            Hero.Damage.SetValue(_totalDamage < 0 ? 0 : _totalDamage);;
+            Hero.Damage.SetValue(_totalDamage < 0 ? 0 : _totalDamage);
+        }
+        
+        private void _checkComboReward()
+        {
+            var excludeCells = _selectedEntities.Select(e => e.Cell).ToList();
+                
+            EventBusService.Trigger(Actions.PlayerChainingAttackCombo, excludeCells);
         }
     }
 }

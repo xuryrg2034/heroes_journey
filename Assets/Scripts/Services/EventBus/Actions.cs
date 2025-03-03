@@ -2,6 +2,16 @@
 {
     public enum Actions
     {
-        PlayerTurnStart
+        // Player events
+        PlayerTurnStart,
+        PlayerRestoreEnergy,
+        PlayerChainingAttackCombo,
+
+        // Enemy events
+        EnemyDied,
+        
+        // Statistics events
+        StatisticsUpdateTurnCounter,
+        StatisticsUpdateKillCounter,
     }
 }

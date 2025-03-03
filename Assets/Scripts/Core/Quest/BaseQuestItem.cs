@@ -1,8 +1,7 @@
 ﻿using System;
-using Services.Quest;
+using Services;
 using UnityEngine;
 using UnityEngine.Events;
-using UnityEngine.Serialization;
 
 namespace Core.Quest
 {
@@ -11,6 +10,8 @@ namespace Core.Quest
     {
         [SerializeField] private string title;
         [SerializeField] private string description;
+
+        protected LevelStatistics LevelStatistics;
      
         [HideInInspector]
         public UnityEvent OnUpdate;
@@ -25,11 +26,13 @@ namespace Core.Quest
         public string Description => description;
 
         public virtual void Init()
-        { }
+        {
+            LevelStatistics = ServiceLocator.Get<LevelStatistics>();
+        }
 
         public abstract string GetProgress();
         
-        public abstract void OnCheckCondition<T>(T input = default);
+        public abstract void OnCheckCondition();
         
         protected void _setIsComplete(bool value)
         {

@@ -19,7 +19,7 @@ namespace Abilities.EnemyAbilities
                 await _execute();
                 _reset();
             }
-            else if (_state != State.Preparing)
+            else if (State != State.Preparing)
             {
                 _prepare();   
             }
@@ -27,14 +27,14 @@ namespace Abilities.EnemyAbilities
 
         public override void Cancel()
         {
-            if (_state != State.Preparing) return;
+            if (State != State.Preparing) return;
 
             _reset();
         }
 
         private void _prepare()
         {
-            _state = State.Preparing;
+            State = State.Preparing;
 
             var notEmptyCells = Owner.Cell
                 .GetNeighbors()
@@ -47,7 +47,7 @@ namespace Abilities.EnemyAbilities
 
         private async UniTask _execute()
         {
-            _state = State.Execute;
+            State = State.Execute;
 
             var entityOnCell = _cellToMove.GetEntity();
             var tasks = new List<UniTask>();
@@ -67,7 +67,7 @@ namespace Abilities.EnemyAbilities
             _cellToMove.Highlite(false);
             _cellToMove = null;
             _castCounter = 0;
-            _state = State.Pending;
+            State = State.Pending;
         }
     }
 }
