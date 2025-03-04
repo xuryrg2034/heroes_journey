@@ -46,7 +46,7 @@ namespace Components.Entity
             
             OnDamageTaken.Invoke();
             
-            if (Value < 0)
+            if (Value <= 0)
             {
                 await Die();
             }

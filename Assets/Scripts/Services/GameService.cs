@@ -30,7 +30,6 @@ namespace Services
         [SerializeField] private GameObject questService;
         [SerializeField] private HeroUIService heroUIService;
         [SerializeField] private TurnService turnService;
-        [SerializeField] private SpawnerService spawnerService;
         [SerializeField] private Hero heroPrefab;
         [SerializeField] private Cell heroCellSpawn;
         
@@ -49,7 +48,6 @@ namespace Services
             _prepareAbilities();
             _prepareQuests();
             _prepareTurnService();
-            _prepareSpawnerService();
         }
 
         public static void SetGameState(GameState state)
@@ -96,11 +94,6 @@ namespace Services
         private void _prepareTurnService()
         {
             turnService.Init();
-        }
-
-        private void _prepareSpawnerService()
-        {
-            spawnerService.Init();
         }
 
         private void _prepareLevelStatistics()

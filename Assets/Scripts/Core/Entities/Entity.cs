@@ -22,6 +22,8 @@ namespace Core.Entities
 
         public Cell Cell => cell;
 
+        public int MaxHealth => health;
+
         public virtual void Init()
         {
             Health = new Health(health, transform);

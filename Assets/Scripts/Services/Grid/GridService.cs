@@ -25,9 +25,9 @@ namespace Services.Grid
         [Header("Grid Settings")]
         [SerializeField] private int width = 9;
         [SerializeField] private int height = 9;
-        [SerializeField]private List<Entity> availableEntitiesList = new();
-
-        private List<Entity> _entities = new();
+        [SerializeField] private List<Entity> availableEntitiesList = new();
+        
+        private SpawnService _spawnService;
 
         private Cell[,] _cells;
 
@@ -57,39 +57,31 @@ namespace Services.Grid
         public void Init()
         {
             _cells = new Cell[width, height];
+            _spawnService = new SpawnService(availableEntitiesList);
 
             _populateCellsFromScene();
-            _populateEntitiesFromScene();
         }
 
         public List<T> GetEntitiesOfType<T>() where T : Entity
         {
-            return _entities.OfType<T>().ToList();
+            return _spawnService.GetSpawnedEntities().OfType<T>().ToList();
         }
         
         public List<Enemy> GetEnemies()
         {
-            return _entities.OfType<Enemy>().ToList();
+            return GetEntitiesOfType<Enemy>();
         }
-        
-        // TODO: Нужна более мудренная логика спавна. Что бы не получалось, что на арене только красные например
-        // TODO: Подумать как избавиться от асинхронного костыля (вероятно поможет обжект пул)
+
         public void SpawnEntitiesOnGrid()
         {
             foreach (var cell in _cells)
             {
-                // Выбираем случайного противника из entitiesList
-                var randomEnemy = availableEntitiesList[Random.Range(0, availableEntitiesList.Count)];
                 var isCellEmpty = GetEntityAt(cell.Position) == null;
                 
                 // Проверяем, что ячейка не заблокирована и не занята
                 if (!cell.IsAvailableForEntity() || !isCellEmpty) continue;
                 
-                var newEntity = Instantiate(randomEnemy);
-                newEntity.Init();
-                newEntity.SetCell(cell);
-
-                _entities.Add(newEntity);
+                _spawnService.SpawnEntity(cell);
             }
         }
 
@@ -105,16 +97,12 @@ namespace Services.Grid
         
         public Entity GetEntityAt(Vector2Int position)
         {
-            return _entities.Where(e => e.Health.IsDead == false).FirstOrDefault(e => e.Cell.Position == position);
+            return _spawnService.GetSpawnedEntities().Where(e => !e.Health.IsDead).FirstOrDefault(e => e.Cell.Position == position);
         }
         
         public void SpawnEntity(Entity entity, Cell cell)
         {
-            var newEntity = Instantiate(entity);
-            newEntity.Init();
-            newEntity.SetCell(cell);
-            
-            _entities.Add(newEntity);
+            _spawnService.SpawnEntityOnCell(entity, cell);
         }
         
         public async UniTask ApplyGravity()
@@ -144,16 +132,11 @@ namespace Services.Grid
 
         public async UniTask UpdateGrid()
         {
-            _removeAllDeadEntity();
+            _spawnService.ClearDeadEntities();
 
             await ApplyGravity();
          
             SpawnEntitiesOnGrid();
-        }
-
-        public void AddEntity(Entity entity)
-        {
-            _entities.Add(entity);
         }
 
         public Cell GetRandomCell(List<Cell> excludedCells = default)
@@ -182,17 +165,6 @@ namespace Services.Grid
 
             return randomCell;
         }
-
-        private void _removeAllDeadEntity()
-        {
-            _entities.RemoveAll(e =>
-            {
-                if (!e.Health.IsDead) return false;
-                
-                e.Dispose();
-                return true;
-            });
-        }
         
         private Cell _getLowestAvailableCell(Cell startCell)
         {
@@ -220,17 +192,6 @@ namespace Services.Grid
             {
                 _cells[cell.Position.x, cell.Position.y] = cell;
                 cell.Init();
-            }
-        }
-        
-        private void _populateEntitiesFromScene()
-        {
-            _entities = FindObjectsByType<Entity>(FindObjectsSortMode.None).ToList();
-
-            foreach (var entity in _entities)
-            {
-                entity.Init();
-                entity.SetCell(entity.Cell);
             }
         }
     }
