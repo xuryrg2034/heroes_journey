@@ -17,8 +17,7 @@ namespace Services.Grid
         private readonly List<Entity> _availableEntitiesList;
         private readonly List<Entity> _spawnedEntities;
         
-        private const int MaxOfficers = 5;  // Максимум офицеров на поле
-        private const int MinBasicEnemies = 10; // Минимум базовых врагов
+        private const int MaxStrengthEnemies = 5;  // Максимум офицеров на поле
         
         public SpawnService(List<Entity> availableEntities)
         {
@@ -77,13 +76,12 @@ namespace Services.Grid
         private Entity GetEntityWithBalance()
         {
             var enemies = _spawnedEntities.OfType<Enemy>().ToList();
-            var basicEnemies = enemies.Count(e => e.MaxHealth == 0);
-            var officers = enemies.Count(e => e.MaxHealth == 5);
+            var strengthEnemies = enemies.Count(e => e.MaxHealth >= 5);
 
-            // TODO: Нужна какая то другая логика спавна. Сейчас дичь.
-            if (officers >= MaxOfficers || basicEnemies < MinBasicEnemies) return GetRandomEnemyOfType(0);
+            // TODO: Нужна какая то другая логика спавна. Сейчас это не весело.
+            if (strengthEnemies >= MaxStrengthEnemies) return GetRandomEnemyOfType(0);
 
-            return GetRandomEnemyOfType(0, 5, 20);
+            return GetRandomEnemyOfType(0, 5);
         }
         
         private Entity GetRandomEnemyOfType(params int[] allowedHp)
