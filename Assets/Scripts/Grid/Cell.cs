@@ -23,7 +23,6 @@ namespace Grid
         
         private static List<Vector2Int> _directions = new()
         {
-
             new Vector2Int(1, 0), // 0° - вправо
             new Vector2Int(1, 1), // 45° - вверх-вправо
             new Vector2Int(0, 1), // 90° - вверх

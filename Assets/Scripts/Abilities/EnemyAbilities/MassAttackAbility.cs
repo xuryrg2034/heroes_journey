@@ -3,15 +3,29 @@ using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
 using Grid;
-using Unity.VisualScripting;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Abilities.EnemyAbilities
 {
     [Serializable]
     public class MassAttackAbility : BaseAbility
     {
-        private List<Cell> _targetCells;
+        [SerializeField] private TargetZone targetZonePrefab;
+        
+        // private static List<Vector3Int> _directions = new()
+        // {
+        //     new Vector3Int(1, 0, 0), // 0° - вправо
+        //     // new Vector3Int(1, 1, 0), // 45° - вверх-вправо
+        //     new Vector3Int(0, 1, 0), // 90° - вверх
+        //     // new Vector3Int(-1, 1, 0), // 135° - вверх-влево
+        //     new Vector3Int(-1, 0, 0), // 180° - влево
+        //     // new Vector3Int(-1, -1, 0), // 225° - вниз-влево
+        //     new Vector3Int(0, -1, 0), // 270° - вниз
+        //     // new Vector3Int(1, -1, 0), // 315° - вниз-вправо
+        // };
+
+        private List<TargetZone> _targets = new();
 
         public override async UniTask Execute()
         {
@@ -37,46 +51,59 @@ namespace Abilities.EnemyAbilities
         {
             State = State.Preparing;
 
-            _targetCells = Owner.Cell
+            var aroundCells = Owner.Cell
                 .GetNeighbors()
                 .Where((item) => item.Type != CellType.Blocked)
                 .ToList();
 
-            foreach (var cell in _targetCells)
+            // foreach (var direction in _directions)
+            // {
+            //     _targets.Add(_createTargetZone(Owner.transform.position + direction));
+            // }
+            
+            foreach (var cell in aroundCells)
             {
-                cell.Highlite(true);
+                _targets.Add(_createTargetZone(cell.transform.position));
             }
+        }
+        
+        private TargetZone _createTargetZone(Vector3 position)
+        {
+            var targetObj = Object.Instantiate(targetZonePrefab, position, Quaternion.identity, Owner.transform);
+            var sr = targetObj.GetComponent<SpriteRenderer>();
+            
+            sr.sortingOrder = 90;
+
+            return targetObj;
         }
 
         private async UniTask _execute()
         {
             State = State.Execute;
 
-            var entityList = _targetCells
-                .Select(cell => cell.GetEntity())
-                .Where(e => e != null && e.Health.IsDead == false)
-                .ToList();
-
-            var task = new List<UniTask>();
+            var tasks = new List<UniTask>();
             
-            foreach (var entity in entityList)
+            foreach (var target in _targets)
             {
-                var tween = entity.Health.TakeDamage(1);
-            
-                task.Add(tween);
+                var zone = target.GetComponent<TargetZone>();
+                var entity = zone.Target;
+
+                if (entity)
+                {
+                    tasks.Add(entity.Health.TakeDamage(1));
+                }
             }
 
-            await UniTask.WhenAll(task);
+            await UniTask.WhenAll(tasks);
         }
 
         private void _reset(State state = State.Pending)
         {
-            foreach (var cell in _targetCells)
+            foreach (var target in _targets)
             {
-                cell.Highlite(false);
+                Object.Destroy(target.gameObject);
             }
-
-            _targetCells = null;
+            _targets.Clear();
             _castCounter = 0;
             State = state;
         }

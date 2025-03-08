@@ -16,6 +16,7 @@ namespace Abilities.EnemyAbilities
         [HideInInspector] public Enemy Owner;
 
         protected  int _castCounter;
+        
         public State State { get; protected set; } = State.Pending;
 
         public int Order => order;
