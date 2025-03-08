@@ -100,9 +100,9 @@ namespace Services.Grid
             return _spawnService.GetSpawnedEntities().Where(e => !e.Health.IsDead).FirstOrDefault(e => e.Cell.Position == position);
         }
         
-        public void SpawnEntity(Entity entity, Cell cell)
+        public Entity SpawnEntity(Entity entity, Cell cell)
         {
-            _spawnService.SpawnEntityOnCell(entity, cell);
+            return _spawnService.SpawnEntityOnCell(entity, cell);
         }
         
         public async UniTask ApplyGravity()
@@ -115,7 +115,7 @@ namespace Services.Grid
                 {
                     var cell = _cells[x, y];
                     var entity = GetEntityAt(cell.Position);
-                    if (!entity || entity.GetComponent<Hero>() != null) continue; // Герой не падает
+                    if (!entity || entity.gameObject == null || entity.GetComponent<Hero>() != null) continue; // Герой не падает
                     
                     var targetCell = _getLowestAvailableCell(cell);
                     if (targetCell == null) continue;
@@ -132,7 +132,7 @@ namespace Services.Grid
 
         public async UniTask UpdateGrid()
         {
-            _spawnService.ClearDeadEntities();
+            // _spawnService.ClearDeadEntities();
 
             await ApplyGravity();
          

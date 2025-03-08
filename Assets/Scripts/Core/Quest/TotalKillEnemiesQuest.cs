@@ -28,13 +28,13 @@ namespace Core.Quest
             
             _currentCount = LevelStatistics.Kills;
             
-            OnUpdate?.Invoke();
+            OnUpdate.Invoke();
             
             if (_currentCount < targetCount) return;
             
             _setIsComplete(true);
             
-            OnComplete?.Invoke();
+            OnComplete.Invoke();
         }
 
         public override string GetProgress()

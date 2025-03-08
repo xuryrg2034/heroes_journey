@@ -14,10 +14,10 @@ namespace Core.Quest
         protected LevelStatistics LevelStatistics;
      
         [HideInInspector]
-        public UnityEvent OnUpdate;
+        public UnityEvent OnUpdate = new();
         
         [HideInInspector]
-        public UnityEvent OnComplete;
+        public UnityEvent OnComplete = new();
 
         public bool IsCompleted { get; private set; }
 

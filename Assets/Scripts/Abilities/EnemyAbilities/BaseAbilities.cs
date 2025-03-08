@@ -10,9 +10,9 @@ namespace Abilities.EnemyAbilities
     [Serializable]
     public abstract class BaseAbility
     {
-        [SerializeField] private bool enable = false;
+        [SerializeField] private bool enable;
         [SerializeField] private int order = 100;
-        [SerializeField][Min(1)] protected int castTime;
+        [SerializeField][Min(1)] protected int castTime = 1;
         [HideInInspector] public Enemy Owner;
 
         protected  int _castCounter;

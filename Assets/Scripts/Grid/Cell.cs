@@ -10,10 +10,6 @@ using Services.Grid;
 
 namespace Grid
 {
-    /// <summary>
-    /// Клетка на игровом поле.
-    /// </summary>
-    [System.Serializable]
     public class Cell : MonoBehaviour
     {
         [SerializeField] private Vector2Int position;
@@ -45,10 +41,17 @@ namespace Grid
             get => cellType;
             set => cellType = value;
         }
+
         public void Init()
         {
             _gridService = ServiceLocator.Get<GridService>();
             _sr = GetComponent<SpriteRenderer>();
+            
+            if (cellType == CellType.Blocked)
+            {
+                _sr.color = Color.white;   
+            }
+            
             _initColor = _sr.color;
         }
 
@@ -85,6 +88,17 @@ namespace Grid
         {
             _sr.color = value ? Color.yellow : _initColor;
         }
+
+        public void SetType(CellType type)
+        {
+            cellType = type;
+
+            if (cellType == CellType.Movable)
+            {
+                var a = new Color(72, 72, 72, 0);
+                _sr.color = a;
+            }
+        }
     }
 
     /// <summary>
@@ -92,7 +106,7 @@ namespace Grid
     /// </summary>
     public enum CellType
     {
-        Empty,
+        Movable,
         Blocked,
     }
 }

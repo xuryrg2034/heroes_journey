@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Core.Quest;
+using Services.EventBus;
 using UnityEngine;
 
 namespace Services.Quest
@@ -17,6 +18,7 @@ namespace Services.Quest
             foreach (var questItem in questsList)
             {
                 questItem.Init();
+                questItem.OnComplete.AddListener(_checkIsCompletedActiveQuest);
             }
         }
 
@@ -25,9 +27,14 @@ namespace Services.Quest
             return questsList;
         }
 
-        public bool CheckIsCompletedActiveQuest()
+        private void _checkIsCompletedActiveQuest()
         {
-            return questsList.All(item => item.IsCompleted);
+            var isAllQuestsCompleted = questsList.All(item => item.IsCompleted);
+
+            if (isAllQuestsCompleted)
+            {
+                EventBusService.Trigger(Actions.AllQuestCompleted);
+            }
         }
     }
 }

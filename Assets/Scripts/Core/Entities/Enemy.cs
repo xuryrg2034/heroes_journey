@@ -113,8 +113,7 @@ namespace Core.Entities
             
             var requiredTurns = aggressionLimit * 1.5f;
             var chance = Mathf.Clamp01((_turnsInIdleState - 5) / requiredTurns);
-            
-            Debug.Log($"Random: {Random.value} Chance: {chance}");
+
             if (Random.value < chance)
             {
                 isAggressive = true;

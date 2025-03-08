@@ -59,9 +59,10 @@ namespace Components.Entity
         public async UniTask Die()
         {
             IsDead = true;
-            OnDie.Invoke();
                 
             await DieAnimation();
+            
+            OnDie.Invoke();
         }
 
         private UniTask DamageAnimation()

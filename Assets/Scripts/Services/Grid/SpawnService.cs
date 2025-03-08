@@ -16,6 +16,7 @@ namespace Services.Grid
     {
         private readonly List<Entity> _availableEntitiesList;
         private readonly List<Entity> _spawnedEntities;
+        private readonly List<Entity> _ensuringDestructionEntities;
         
         private const int MaxStrengthEnemies = 5;  // Максимум офицеров на поле
         
@@ -23,10 +24,9 @@ namespace Services.Grid
         {
             _availableEntitiesList = availableEntities;
             _spawnedEntities = _populateEntitiesFromScene();
-            _subscribeEvents();
         }
         
-        public void SpawnEntityOnCell(Entity spawnEntity, Cell cell = default)
+        public Entity SpawnEntityOnCell(Entity spawnEntity, Cell cell = default)
         {
 
             if (cell != null)
@@ -35,7 +35,7 @@ namespace Services.Grid
 
                 if (entityOnCell != null)
                 {
-                    _disposeEntityOnCell(entityOnCell).Forget();
+                    _disposeEntityOnCell(entityOnCell);
                 }
             }
             
@@ -45,13 +45,15 @@ namespace Services.Grid
             newEntity.SetCell(cell);
             
             _spawnedEntities.Add(newEntity);
+
+            return newEntity;
         }
         
         public Entity SpawnEntity(Cell cell)
         {
             if (!cell.IsAvailableForEntity()) return null;
 
-            var entityToSpawn = GetEntityWithBalance();
+            var entityToSpawn = _getEntityWithBalance();
             var newEntity = Object.Instantiate(entityToSpawn);
             newEntity.Init();
             newEntity.SetCell(cell);
@@ -66,25 +68,26 @@ namespace Services.Grid
             _spawnedEntities.RemoveAll(e =>
             {
                 if (!e.Health.IsDead) return false;
-                e.Dispose();
+                
+                // _ensuringDestructionEntities.Add(e);
                 return true;
             });
         }
 
-        public List<Entity> GetSpawnedEntities() => _spawnedEntities;
+        public List<Entity> GetSpawnedEntities() => _spawnedEntities.Where(e => !e.Health.IsDead).ToList();
 
-        private Entity GetEntityWithBalance()
+        private Entity _getEntityWithBalance()
         {
-            var enemies = _spawnedEntities.OfType<Enemy>().ToList();
+            var enemies = GetSpawnedEntities().OfType<Enemy>().ToList();
             var strengthEnemies = enemies.Count(e => e.MaxHealth >= 5);
 
             // TODO: Нужна какая то другая логика спавна. Сейчас это не весело.
-            if (strengthEnemies >= MaxStrengthEnemies) return GetRandomEnemyOfType(0);
+            if (strengthEnemies >= MaxStrengthEnemies) return _getRandomEnemyOfType(0);
 
-            return GetRandomEnemyOfType(0, 5);
+            return _getRandomEnemyOfType(0, 5);
         }
         
-        private Entity GetRandomEnemyOfType(params int[] allowedHp)
+        private Entity _getRandomEnemyOfType(params int[] allowedHp)
         {
             var possibleEnemies = _availableEntitiesList.Where(e => allowedHp.Contains(e.MaxHealth)).ToList();
             return possibleEnemies[Random.Range(0, possibleEnemies.Count)];
@@ -103,22 +106,9 @@ namespace Services.Grid
             return entities;
         }
         
-        private async UniTask _disposeEntityOnCell(Entity entity)
+        private void _disposeEntityOnCell(Entity entity)
         {
-            await entity.Health.Die();
-        }
-
-        private void _playerChainingAttackCombo(List<Cell> excludeCells)
-        {
-            var gridService = ServiceLocator.Get<GridService>();
-            var cell = gridService.GetRandomCell(excludeCells);
-
-            // SpawnEntityOnCell(rainbowEntity, cell);
-        }
-
-        private void _subscribeEvents()
-        {
-            EventBusService.Subscribe<List<Cell>>(Actions.PlayerChainingAttackCombo, _playerChainingAttackCombo);
+            entity.Health.Die().Forget();
         }
     }
 }

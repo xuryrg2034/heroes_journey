@@ -1,37 +1,47 @@
-using System.Collections.Generic;
-using System.Linq;
 using Core.Entities;
-using Core.Quest;
 using Services;
+using Services.EventBus;
 using Services.Grid;
 using UnityEngine;
 
 namespace Grid
 {
+    [RequireComponent(typeof(Cell))]
     public class BossSpawner : MonoBehaviour
     {
-        // [SerializeField] private Enemy bossPrefab;
-        [SerializeField] private Cell cellPrefab;
-        [SerializeField] private List<BaseQuestItem> activationQuests; 
+        [SerializeField] private Entity entityPrefab;
 
         private GridService _gridService;
 
-        private void Start()
+        private Cell _cell;
+
+        private void OnEnable()
         {
-            _gridService = GetComponent<GridService>();
-            GameService.OnGameStateChange.AddListener(_spawn);
+            EventBusService.Subscribe(Actions.AllQuestCompleted, _spawn);
         }
 
-        private void _spawn(GameState state)
+        private void OnDisable()
         {
-            if (state != GameState.QuestCheck) return;
+            EventBusService.Unsubscribe(Actions.AllQuestCompleted, _spawn);
+        }
 
-            var allQuestsComplete = activationQuests.All(item => item.IsCompleted);
+        private void Start()
+        {
+            _cell = GetComponent<Cell>();
+        }
 
-            if (!allQuestsComplete) return;
+        private void _spawn()
+        {
+            var gridService = ServiceLocator.Get<GridService>();
             
-            // _gridService.SpawnEntity(bossPrefab, cellPrefab);
-            GameService.OnGameStateChange.AddListener(_spawn);
+            _cell.SetType(CellType.Movable);
+
+            var boss = gridService.SpawnEntity(entityPrefab, _cell);
+            
+            boss.Health.OnDie.AddListener(() =>
+            {
+                EventBusService.Trigger(Actions.BossDied);
+            });
         }
     }
 }

@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: -7327794819446795399}
   - component: {fileID: -2109020731990752305}
   m_Layer: 0
-  m_Name: EnemyBigGolem_red
+  m_Name: EnemyBigGolem_neutral
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -80,7 +80,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 100
   m_Sprite: {fileID: 21300750, guid: 872dba149c5addb49ac3649c5b9247d6, type: 3}
-  m_Color: {r: 1, g: 0.034234144, b: 0, a: 1}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
@@ -103,15 +103,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   cell: {fileID: 0}
-  selectionType: 0
+  selectionType: 3
   health: 20
-  rank: 1
-  isAggressive: 0
+  rank: 0
+  isAggressive: 1
   aggressionLimit: 4
-  abilities: []
+  abilities:
+  - rid: 1614106258977587271
+  - rid: 1614106258977587272
   references:
     version: 2
-    RefIds: []
+    RefIds:
+    - rid: 1614106258977587271
+      type: {class: MassAttackAbility, ns: Abilities.EnemyAbilities, asm: Assembly-CSharp}
+      data:
+        enable: 1
+        order: 200
+        castTime: 1
+        Owner: {fileID: 0}
+    - rid: 1614106258977587272
+      type: {class: MoveAbility, ns: Abilities.EnemyAbilities, asm: Assembly-CSharp}
+      data:
+        enable: 1
+        order: 100
+        castTime: 1
+        Owner: {fileID: 0}
 --- !u!61 &-7327794819446795399
 BoxCollider2D:
   m_ObjectHideFlags: 0

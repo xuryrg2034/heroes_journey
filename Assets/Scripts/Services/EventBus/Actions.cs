@@ -5,13 +5,17 @@
         // Player events
         PlayerTurnStart,
         PlayerRestoreEnergy,
-        PlayerChainingAttackCombo,
 
         // Enemy events
         EnemyDied,
+        BossDied,
         
         // Statistics events
         StatisticsUpdateTurnCounter,
         StatisticsUpdateKillCounter,
+        
+        
+        //Quests
+        AllQuestCompleted,
     }
 }

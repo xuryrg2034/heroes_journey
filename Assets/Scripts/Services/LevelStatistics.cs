@@ -9,8 +9,6 @@ namespace Services
         
         public int Turn { get; private set; }
 
-        public int ItemsCollected { get; private set; }
-
         public LevelStatistics()
         {
             Reset();
@@ -20,26 +18,18 @@ namespace Services
         public void RegisterKill()
         {
             Kills++;
-            Log();
             EventBusService.Trigger(Actions.StatisticsUpdateKillCounter);
         }
         
         public void IncreaseTurnCounter()
         {
             Turn++;
-            Log();
             EventBusService.Trigger(Actions.StatisticsUpdateTurnCounter);
-        }
-
-        public void RegisterItemCollected()
-        {
-            ItemsCollected++;
         }
 
         public void Reset()
         {
             Kills = 0;
-            ItemsCollected = 0;
         }
 
         public void Log()
@@ -52,10 +42,5 @@ namespace Services
             EventBusService.Subscribe(Actions.EnemyDied, RegisterKill);
             EventBusService.Subscribe(Actions.PlayerTurnStart, IncreaseTurnCounter);
         }
-        
-        // private void _unsubscribeEvents()
-        // {
-        //     EventBusService.Unsubscribe(Actions.EnemyDied, RegisterKill);
-        // }
      }
 }

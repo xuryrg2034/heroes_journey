@@ -44,7 +44,6 @@ namespace Services
         {
             _prepareLevelStatistics();
             _prepareGrid();
-            _prepareHero();
             _prepareAbilities();
             _prepareQuests();
             _prepareTurnService();
@@ -83,10 +82,7 @@ namespace Services
             gridService.Init();
             gridService.SpawnEntity(heroPrefab, heroCellSpawn);
             gridService.SpawnEntitiesOnGrid();
-        }
-
-        private void _prepareHero()
-        {
+            
             _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
             heroUIService.Init(_heroEntity);
         }

@@ -27,6 +27,8 @@ namespace Core.Entities
         public virtual void Init()
         {
             Health = new Health(health, transform);
+            
+            // Health.OnDie.AddListener(Dispose);
         }
         
         public void SetCell(Cell value)
@@ -42,6 +44,8 @@ namespace Core.Entities
         public UniTask Move(Cell targetCell, float duration = 0.3f)
         {
             cell = targetCell;
+
+            if (Health.IsDead) return default;
             
             return transform.DOMove(targetCell.transform.position, duration).ToUniTask();
         }
@@ -50,7 +54,7 @@ namespace Core.Entities
         {
             cell = null;
 
-            Destroy(gameObject);
+            // Destroy(gameObject);
             Health.OnDie.RemoveAllListeners();
         }
     }

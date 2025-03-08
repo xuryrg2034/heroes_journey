@@ -16,9 +16,8 @@ namespace Abilities.Hero
     public class ChainingAttack : BaseAbility
     {
         [SerializeField] private int killsToReward;
+        [SerializeField] private Entity rainbowCoinPrefab;
         private readonly List<Entity> _selectedEntities = new();
-
-        private Sequence _executeSequence;
 
         private EntitySelectionType _availableSelectionType = EntitySelectionType.Neutral;
 
@@ -32,7 +31,6 @@ namespace Abilities.Hero
 
             EntityClickHandler.OnEntityClicked += SelectTarget;
         }
-        
 
         public override void Deactivate()
         {
@@ -43,6 +41,7 @@ namespace Abilities.Hero
             _resetSelection();
         }
         
+        // Вся логика выделения противников мутная, стоит потом пройтись свежим взглядом
         public override void SelectTarget(Entity entity)
         {
             if (entity == Hero)
@@ -105,34 +104,30 @@ namespace Abilities.Hero
 
             var damage = 0;
             var killedEntity = 0;
-            var isRewardGiven = false;
+
             foreach (var entity in _selectedEntities)
             {
                 var entityHealth = entity.Health.Value;
-                if (entity.Health.Value == 0)
+                var targetCell = entity.Cell;
+
+                await entity.Health.TakeDamage(damage);
+
+                if (entityHealth == 0)
                 {
                     damage += 1;
                 }
 
-                damage = damage < 0 ? 1 : damage;
-
-                await entity.Health.TakeDamage(damage);
-
-                if (entityHealth > 0)
-                {
-                    damage -= entityHealth;
-                }
+                damage -= entityHealth;
 
                 if (entity.Health.IsDead)
                 {
-                    await Hero.Move(entity.Cell, 0.2f);
+                    await Hero.Move(targetCell, 0.2f);
                     killedEntity += 1;
                 }
-                _highlightTarget(entity.Cell, false);
+
+                _highlightTarget(targetCell, false);
                 
-                if (killedEntity >= killsToReward && !isRewardGiven)
-                {
-                    isRewardGiven = true;
+                if (killedEntity == killsToReward) {
                     _checkComboReward();   
                 }
             }
@@ -142,7 +137,6 @@ namespace Abilities.Hero
 
         public override void Cancel()
         {
-            _executeSequence?.Kill();
             _resetSelection();
         }
 
@@ -193,8 +187,10 @@ namespace Abilities.Hero
         private void _checkComboReward()
         {
             var excludeCells = _selectedEntities.Select(e => e.Cell).ToList();
-                
-            EventBusService.Trigger(Actions.PlayerChainingAttackCombo, excludeCells);
+            var gridService = ServiceLocator.Get<GridService>();
+            var cell = gridService.GetRandomCell(excludeCells);
+            
+            gridService.SpawnEntity(rainbowCoinPrefab, cell);
         }
     }
 }
