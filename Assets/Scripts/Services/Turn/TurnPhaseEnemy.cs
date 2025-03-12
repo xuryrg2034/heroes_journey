@@ -1,4 +1,4 @@
-﻿using Services.Grid;
+﻿using Grid;
 
 namespace Services.Turn
 {

@@ -1,12 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using Core;
-using Core.Entities;
+using Entities;
 using JetBrains.Annotations;
-using NUnit.Framework;
 using Services;
 using UnityEngine;
-using Services.Grid;
 
 namespace Grid
 {
@@ -78,7 +75,7 @@ namespace Grid
         }
 
         [CanBeNull]
-        public Entity GetEntity()
+        public BaseEntity GetEntity()
         {
             return _gridService.GetEntityAt(Position);
         }

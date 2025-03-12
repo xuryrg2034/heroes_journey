@@ -1,14 +1,10 @@
-﻿using System;
-using Core.Entities;
-using Cysharp.Threading.Tasks;
+﻿using Entities.Player;
 using Grid;
-using Services.Abilities;
-using Services.Grid;
 using Services.Quest;
 using Services.Turn;
-using Services.UI;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.Serialization;
 
 namespace Services
 {
@@ -28,7 +24,7 @@ namespace Services
         [SerializeField] private GridService gridService;
         [SerializeField] private GameObject abilitiesService;
         [SerializeField] private GameObject questService;
-        [SerializeField] private HeroUIService heroUIService;
+        [FormerlySerializedAs("heroUIService")] [SerializeField] private UIService uiService;
         [SerializeField] private TurnService turnService;
         [SerializeField] private Hero heroPrefab;
         [SerializeField] private Cell heroCellSpawn;
@@ -84,7 +80,7 @@ namespace Services
             gridService.SpawnEntitiesOnGrid();
             
             _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
-            heroUIService.Init(_heroEntity);
+            uiService.Init(_heroEntity);
         }
 
         private void _prepareTurnService()
