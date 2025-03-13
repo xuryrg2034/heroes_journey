@@ -74,7 +74,7 @@ namespace Entities.Player
             cell.Highlite(highlight);
         }
         
-        protected bool _isInRange(Vector2Int origin, Vector2Int target, int range)
+        protected bool _isInRange(Vector3 origin, Vector3 target, int range)
         {
             var dx = Mathf.Abs(origin.x - target.x);
             var dy = Mathf.Abs(origin.y - target.y);

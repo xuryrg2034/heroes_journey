@@ -65,10 +65,10 @@ namespace Grid
                 var nextPosition = Position + direction;
                 var cell = _gridService.GetCell(nextPosition.x, nextPosition.y);
 
-                if (cell)
-                {
-                    neighbors.Add(cell);
-                }
+                // if (cell)
+                // {
+                //     // neighbors.Add(cell);
+                // }
             }
 
             return neighbors;
@@ -77,7 +77,8 @@ namespace Grid
         [CanBeNull]
         public BaseEntity GetEntity()
         {
-            return _gridService.GetEntityAt(Position);
+            return null;
+            // return _gridService.GetEntityAt(Position);
         }
 
         public void Highlite(bool value)

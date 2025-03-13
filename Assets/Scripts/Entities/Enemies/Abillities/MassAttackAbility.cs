@@ -14,17 +14,17 @@ namespace Entities.Enemies
     {
         [FormerlySerializedAs("targetZonePrefab")] [SerializeField] private HitBox hitBoxPrefab;
         
-        // private static List<Vector3Int> _directions = new()
-        // {
-        //     new Vector3Int(1, 0, 0), // 0° - вправо
-        //     // new Vector3Int(1, 1, 0), // 45° - вверх-вправо
-        //     new Vector3Int(0, 1, 0), // 90° - вверх
-        //     // new Vector3Int(-1, 1, 0), // 135° - вверх-влево
-        //     new Vector3Int(-1, 0, 0), // 180° - влево
-        //     // new Vector3Int(-1, -1, 0), // 225° - вниз-влево
-        //     new Vector3Int(0, -1, 0), // 270° - вниз
-        //     // new Vector3Int(1, -1, 0), // 315° - вниз-вправо
-        // };
+        private static List<Vector3Int> _directions = new()
+        {
+            new Vector3Int(1, 0, 0), // 0° - вправо
+            // new Vector3Int(1, 1, 0), // 45° - вверх-вправо
+            new Vector3Int(0, 1, 0), // 90° - вверх
+            // new Vector3Int(-1, 1, 0), // 135° - вверх-влево
+            new Vector3Int(-1, 0, 0), // 180° - влево
+            // new Vector3Int(-1, -1, 0), // 225° - вниз-влево
+            new Vector3Int(0, -1, 0), // 270° - вниз
+            // new Vector3Int(1, -1, 0), // 315° - вниз-вправо
+        };
 
         private List<HitBox> _targets = new();
 
@@ -52,20 +52,15 @@ namespace Entities.Enemies
         {
             State = State.Preparing;
 
-            var aroundCells = Owner.Cell
-                .GetNeighbors()
-                .Where((item) => item.Type != CellType.Blocked)
-                .ToList();
-
-            // foreach (var direction in _directions)
-            // {
-            //     _targets.Add(_createTargetZone(Owner.transform.position + direction));
-            // }
-            
-            foreach (var cell in aroundCells)
+            foreach (var direction in _directions)
             {
-                _targets.Add(_createTargetZone(cell.transform.position));
+                _targets.Add(_createTargetZone(Owner.transform.position + direction));
             }
+            
+            // foreach (var cell in aroundCells)
+            // {
+            //     _targets.Add(_createTargetZone(cell.transform.position));
+            // }
         }
         
         private HitBox _createTargetZone(Vector3 position)

@@ -20,16 +20,16 @@ namespace Entities.Player
 
         private GridService _gridService;
 
-        private static List<Vector2Int> _directions = new()
+        private static List<Vector3> _directions = new()
         {
-            new Vector2Int(1, 0), // 0° - вправо
-            new Vector2Int(1, 1), // 45° - вверх-вправо
-            new Vector2Int(0, 1), // 90° - вверх
-            new Vector2Int(-1, 1), // 135° - вверх-влево
-            new Vector2Int(-1, 0), // 180° - влево
-            new Vector2Int(-1, -1), // 225° - вниз-влево
-            new Vector2Int(0, -1), // 270° - вниз
-            new Vector2Int(1, -1), // 315° - вниз-вправо
+            new Vector3(1, 0, 0), // 0° - вправо
+            new Vector3(1, 1, 0), // 45° - вверх-вправо
+            new Vector3(0, 1, 0), // 90° - вверх
+            new Vector3(-1, 1, 0), // 135° - вверх-влево
+            new Vector3(-1, 0, 0), // 180° - влево
+            new Vector3(-1, -1, 0), // 225° - вниз-влево
+            new Vector3(0, -1, 0), // 270° - вниз
+            new Vector3(1, -1, 0), // 315° - вниз-вправо
         };
 
         public override void Init(Hero hero)
@@ -64,22 +64,22 @@ namespace Entities.Player
                 return;
             }
 
-            var isInRange = _isInRange(Hero.Cell.Position, baseEntity.Cell.Position, 1);
+            var isInRange = _isInRange(Hero.transform.position, baseEntity.transform.position, 1);
 
             if (!isInRange) return;
 
             _resetSelection();
             
-            var targetPositions = _getEntitiesCoords(Hero.Cell.Position, baseEntity.Cell.Position);
+            var targetPositions = _getEntitiesCoords(Hero.transform.position, baseEntity.transform.position);
             
             foreach (var position in targetPositions)
             {
                 var target = _gridService.GetEntityAt(position);
-
+            
                 if (!target) continue;
                 
                 _selectedTargets.Add(target);
-                _highlightTarget(target.Cell, true);
+                // _highlightTarget(target.Cell, true);
             }
         }
 
@@ -109,17 +109,17 @@ namespace Entities.Player
 
         private void _resetSelection()
         {
-            foreach (var target in _selectedTargets)
-            {
-                _highlightTarget(target.Cell, false);
-            }
+            // foreach (var target in _selectedTargets)
+            // {
+            //     _highlightTarget(target.Cell, false);
+            // }
             
             _selectedTargets.Clear();
         }
 
-        private List<Vector2Int> _getEntitiesCoords(Vector2Int originPos, Vector2Int targetPos)
+        private List<Vector3> _getEntitiesCoords(Vector3 originPos, Vector3 targetPos)
         {
-            var targets = new List<Vector2Int>();
+            var targets = new List<Vector3>();
             // Вектор от героя до клика
             var attackVec = targetPos - originPos;
             var angle = Mathf.Atan2(attackVec.y, attackVec.x) * Mathf.Rad2Deg;
@@ -133,25 +133,25 @@ namespace Entities.Player
 
             // Центральная ячейка атаки
             var centerCell = originPos + attackDir;
-            Vector2Int leftCell, rightCell;
+            Vector3 leftCell, rightCell;
 
             // Для диагональных направлений берем соседей так, чтобы они вместе с центром формировали "треугольник"
             if (attackDir.x != 0 && attackDir.y != 0)
             {
-                leftCell = new Vector2Int(originPos.x + attackDir.x, originPos.y);
-                rightCell = new Vector2Int(originPos.x, originPos.y + attackDir.y);
+                leftCell = new Vector3(originPos.x + attackDir.x, originPos.y, 0);
+                rightCell = new Vector3(originPos.x, originPos.y + attackDir.y, 0);
             }
             else // для кардинальных направлений – берём ячейки по перпендикуляру от направления
             {
                 if (attackDir.x == 0) // вверх или вниз
                 {
-                    leftCell = centerCell + Vector2Int.left;
-                    rightCell = centerCell + Vector2Int.right;
+                    leftCell = centerCell + Vector3.left;
+                    rightCell = centerCell + Vector3.right;
                 }
                 else // влево или вправо
                 {
-                    leftCell = centerCell + Vector2Int.up;
-                    rightCell = centerCell + Vector2Int.down;
+                    leftCell = centerCell + Vector3.up;
+                    rightCell = centerCell + Vector3.down;
                 }
             }
 

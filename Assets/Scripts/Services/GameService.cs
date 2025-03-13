@@ -27,7 +27,7 @@ namespace Services
         [FormerlySerializedAs("heroUIService")] [SerializeField] private UIService uiService;
         [SerializeField] private TurnService turnService;
         [SerializeField] private Hero heroPrefab;
-        [SerializeField] private Cell heroCellSpawn;
+        [SerializeField] private Vector3Int heroPositionSpawn;
         
 
         private Hero _heroEntity;
@@ -76,7 +76,7 @@ namespace Services
             ServiceLocator.Register(gridService);
 
             gridService.Init();
-            gridService.SpawnEntity(heroPrefab, heroCellSpawn);
+            gridService.SpawnEntity(heroPrefab, heroPositionSpawn);
             gridService.SpawnEntitiesOnGrid();
             
             _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];

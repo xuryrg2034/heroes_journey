@@ -24,41 +24,37 @@ namespace Grid
             _spawnedEntities = _populateEntitiesFromScene();
         }
         
-        public BaseEntity SpawnEntityOnCell(BaseEntity spawnBaseEntity, Cell cell = default)
+        public BaseEntity SpawnEntityOnCell(BaseEntity spawnBaseEntity, Vector3 position = default)
         {
 
-            if (cell != null)
-            {
-                var entityOnCell = cell.GetEntity();
-
-                if (entityOnCell != null)
-                {
-                    _disposeEntityOnCell(entityOnCell);
-                }
-            }
+            // if (position != null)
+            // {
+            //     // TODO: Переписать
+            //     // var entityOnCell = cell.GetEntity();
+            //     //
+            //     // if (entityOnCell != null)
+            //     // {
+            //     //     _disposeEntityOnCell(entityOnCell);
+            //     // }
+            // }
             
             
             var newEntity = Object.Instantiate(spawnBaseEntity);
             newEntity.Init();
-            newEntity.SetCell(cell);
+            newEntity.SetCell(position);
             
             _spawnedEntities.Add(newEntity);
 
             return newEntity;
         }
         
-        public BaseEntity SpawnEntity(Cell cell)
+        public BaseEntity SpawnEntity(Vector3 position)
         {
-            if (!cell.IsAvailableForEntity()) return null;
+            // if (!cell.IsAvailableForEntity()) return null;
 
             var entityToSpawn = _getEntityWithBalance();
-            var newEntity = Object.Instantiate(entityToSpawn);
-            newEntity.Init();
-            newEntity.SetCell(cell);
 
-            _spawnedEntities.Add(newEntity);
-
-            return newEntity;
+            return SpawnEntityOnCell(entityToSpawn, position);
         }
 
         public void ClearDeadEntities()
@@ -98,7 +94,7 @@ namespace Grid
             foreach (var entity in entities)
             {
                 entity.Init();
-                entity.SetCell(entity.Cell);
+                entity.SetCell(entity.SpawnPosition);
             }
 
             return entities;

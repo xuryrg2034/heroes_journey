@@ -67,8 +67,8 @@ namespace Entities.Player
                 return;
             }
 
-            var originPosition = _selectedEntities.Count > 0 ? _selectedEntities.Last().Cell.Position : Hero.Cell.Position;
-            var isInRange = _isInRange(originPosition, baseEntity.Cell.Position, 1);
+            var originPosition = _selectedEntities.Count > 0 ? _selectedEntities.Last().transform.position : Hero.transform.position;
+            var isInRange = _isInRange(originPosition, baseEntity.transform.position, 1);
             var canSelection = _canSelectionTypeByType(baseEntity);
             
             if (!isInRange || !canSelection || _selectionLocked) return;
@@ -78,7 +78,7 @@ namespace Entities.Player
             
             _selectedEntities.Add(baseEntity);
             _availableSelectionType = baseEntity.SelectionType;
-            _highlightTarget(baseEntity.Cell, true);
+            // _highlightTarget(baseEntity.Cell, true);
 
             if (baseEntity.Health.Value == 0)
             {
@@ -105,7 +105,7 @@ namespace Entities.Player
             foreach (var entity in _selectedEntities)
             {
                 var entityHealth = entity.Health.Value;
-                var targetCell = entity.Cell;
+                var targetCell = entity.GridPosition;
 
                 await entity.Health.TakeDamage(damage);
 
@@ -122,7 +122,7 @@ namespace Entities.Player
                     killedEntity += 1;
                 }
 
-                _highlightTarget(targetCell, false);
+                // _highlightTarget(targetCell, false);
                 
                 if (killedEntity == killsToReward) {
                     _checkComboReward();   
@@ -154,7 +154,7 @@ namespace Entities.Player
 
             for (var i = _selectedEntities.Count - 1; i > index; i--)
             {
-                _highlightTarget(_selectedEntities[i].Cell, false);
+                // _highlightTarget(_selectedEntities[i].Cell, false);
                 _selectedEntities.RemoveAt(i);
             }
             
@@ -165,7 +165,7 @@ namespace Entities.Player
         {
             foreach (var entity in _selectedEntities)
             {
-                _highlightTarget(entity.Cell, false);
+                // _highlightTarget(entity.Cell, false);
             }
 
             _selectedEntities.Clear();
@@ -183,11 +183,11 @@ namespace Entities.Player
         
         private void _checkComboReward()
         {
-            var excludeCells = _selectedEntities.Select(e => e.Cell).ToList();
-            var gridService = ServiceLocator.Get<GridService>();
-            var cell = gridService.GetRandomCell(excludeCells);
+            // var excludeCells = _selectedEntities.Select(e => e.Cell).ToList();
+            // var gridService = ServiceLocator.Get<GridService>();
+            // var cell = gridService.GetRandomCell(excludeCells);
             
-            gridService.SpawnEntity(rainbowCoinPrefab, cell);
+            // gridService.SpawnEntity(rainbowCoinPrefab, cell);
         }
     }
 }

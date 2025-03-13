@@ -37,12 +37,12 @@ namespace Grid.Components
             
             _cell.SetType(CellType.Movable);
 
-            var boss = gridService.SpawnEntity(baseEntityPrefab, _cell);
-            
-            boss.Health.OnDie.AddListener(() =>
-            {
-                EventBusService.Trigger(Actions.BossDied);
-            });
+            // var boss = gridService.SpawnEntity(baseEntityPrefab, _cell);
+            //
+            // boss.Health.OnDie.AddListener(() =>
+            // {
+            //     EventBusService.Trigger(Actions.BossDied);
+            // });
         }
     }
 }

@@ -12,7 +12,7 @@ namespace Entities.Enemies
             if (entity != null)
             {
                 Target = entity;
-                Debug.Log($"Это target: {entity.transform.position}");
+                // Debug.Log($"Это target: {entity.transform.position}");
             }
         }
         

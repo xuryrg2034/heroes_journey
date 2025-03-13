@@ -36,13 +36,13 @@ namespace Entities.Enemies
         {
             State = State.Preparing;
 
-            var notEmptyCells = Owner.Cell
-                .GetNeighbors()
-                .Where((item) => item.Type != CellType.Blocked)
-                .ToList();
-            
-            _cellToMove = notEmptyCells[Random.Range(0, notEmptyCells.Count)];
-            _cellToMove.Highlite(true);
+            // var notEmptyCells = Owner.Cell
+            //     .GetNeighbors()
+            //     .Where((item) => item.Type != CellType.Blocked)
+            //     .ToList();
+            //
+            // _cellToMove = notEmptyCells[Random.Range(0, notEmptyCells.Count)];
+            // _cellToMove.Highlite(true);
         }
 
         private async UniTask _execute()
@@ -54,10 +54,10 @@ namespace Entities.Enemies
             
             if (entityOnCell)
             {
-                tasks.Add(entityOnCell.Move(Owner.Cell));
+                // tasks.Add(entityOnCell.Move(Owner.Cell));
             }
             
-            tasks.Add(Owner.Move(_cellToMove));
+            // tasks.Add(Owner.Move(_cellToMove));
 
             await UniTask.WhenAll(tasks);
         }

@@ -1,4 +1,5 @@
-﻿using Entities.Components;
+﻿using System;
+using Entities.Components;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Grid;
@@ -8,17 +9,21 @@ namespace Entities
 {
     public abstract class BaseEntity : MonoBehaviour
     {
-        [SerializeField] private Cell cell;
+        [SerializeField] private Vector3 spawnPosition;
         [SerializeField] private EntitySelectionType selectionType;
 
         [Header("Characteristics")]
         [SerializeField] private int health;
+
+        private readonly Vector3 _offsetToTileCenter = new Vector3(0.5f, 0.5f, 0);
+
+        public Vector3 GridPosition { get; private set; }
         
         public Health Health { get; private set; }
 
         public EntitySelectionType SelectionType => selectionType;
 
-        public Cell Cell => cell;
+        public Vector3 SpawnPosition => spawnPosition;
 
         public int MaxHealth => health;
 
@@ -29,28 +34,30 @@ namespace Entities
             // Health.OnDie.AddListener(Dispose);
         }
         
-        public void SetCell(Cell value)
+        public void SetCell(Vector3 position)
         {
-            cell = value;
-
-            if (value != null)
-            {
-                transform.position = value.transform.position;   
-            }
+            transform.position = position + _offsetToTileCenter;
+            
+            GridPosition = position;
         }
 
-        public UniTask Move(Cell targetCell, float duration = 0.3f)
+        public Vector3 GetTilePosition()
         {
-            cell = targetCell;
+            return transform.position - _offsetToTileCenter;
+        }
 
-            if (Health.IsDead) return default;
+        public UniTask Move(Vector3 position, float duration = 0.3f)
+        {
+            // if (Health.IsDead) return default;
+
+            GridPosition = position;
             
-            return transform.DOMove(targetCell.transform.position, duration).ToUniTask();
+            return transform.DOMove(position + _offsetToTileCenter, duration).ToUniTask();
         }
 
         public virtual void Dispose()
         {
-            cell = null;
+            // cell = null;
 
             // Destroy(gameObject);
             Health.OnDie.RemoveAllListeners();

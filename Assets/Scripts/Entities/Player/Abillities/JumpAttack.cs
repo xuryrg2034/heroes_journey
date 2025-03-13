@@ -41,7 +41,7 @@ namespace Entities.Player
             if (baseEntity.Health.Value - damage > 0) return;
             
             _selectTarget = baseEntity;
-            _highlightTarget(baseEntity.Cell, true);
+            // _highlightTarget(baseEntity.Cell, true);
         }
 
         public override async UniTask Execute()
@@ -55,7 +55,7 @@ namespace Entities.Player
             await base.Execute();
 
             
-            await Hero.Move(_selectTarget.Cell, 0.1f);
+            await Hero.Move(_selectTarget.GridPosition, 0.1f);
             await _selectTarget.Health.TakeDamage(damage);
             
             _resetSelection();
@@ -70,7 +70,7 @@ namespace Entities.Player
         {
             if (_selectTarget == null) return;
 
-            _highlightTarget(_selectTarget.Cell, false);
+            // _highlightTarget(_selectTarget.Cell, false);
             _selectTarget = null;
         }
     }
