@@ -18,7 +18,6 @@ namespace Entities.Enemies
         [SerializeField] private EnemyRank rank;
         [SerializeField] private bool isAggressive; // Готов ли противник проявить агрессию
         [SerializeField] private int aggressionLimit; // Порог после которого будет пробрасываться шанс стать агрессивным
-        
         private int _turnsInIdleState; // То сколько проитвник находится в состоянии покоя
         
         [SerializeReference, SubclassSelector]

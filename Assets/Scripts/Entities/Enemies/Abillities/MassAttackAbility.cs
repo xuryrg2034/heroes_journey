@@ -12,18 +12,19 @@ namespace Entities.Enemies
     [Serializable]
     public class MassAttackAbility : BaseAbility
     {
-        [FormerlySerializedAs("targetZonePrefab")] [SerializeField] private HitBox hitBoxPrefab;
+        public float attackDistance = 1.0f;
+        [SerializeField] public LayerMask targetLayer;
         
-        private static List<Vector3Int> _directions = new()
+        private static List<Vector2> _directions = new()
         {
-            new Vector3Int(1, 0, 0), // 0° - вправо
-            // new Vector3Int(1, 1, 0), // 45° - вверх-вправо
-            new Vector3Int(0, 1, 0), // 90° - вверх
-            // new Vector3Int(-1, 1, 0), // 135° - вверх-влево
-            new Vector3Int(-1, 0, 0), // 180° - влево
-            // new Vector3Int(-1, -1, 0), // 225° - вниз-влево
-            new Vector3Int(0, -1, 0), // 270° - вниз
-            // new Vector3Int(1, -1, 0), // 315° - вниз-вправо
+            new Vector2(1, 0), // 0° - вправо
+            new Vector2(1, 1), // 45° - вверх-вправо
+            new Vector2(0, 1), // 90° - вверх
+            new Vector2(-1, 1), // 135° - вверх-влево
+            new Vector2(-1, 0), // 180° - влево
+            new Vector2(-1, -1), // 225° - вниз-влево
+            new Vector2(0, -1), // 270° - вниз
+            new Vector2(1, -1), // 315° - вниз-вправо
         };
 
         private List<HitBox> _targets = new();
@@ -51,42 +52,31 @@ namespace Entities.Enemies
         private void _prepare()
         {
             State = State.Preparing;
-
+            
             foreach (var direction in _directions)
             {
-                _targets.Add(_createTargetZone(Owner.transform.position + direction));
+                Debug.DrawRay(Owner.transform.position, direction * attackDistance, Color.red, 5f, true);
             }
-            
-            // foreach (var cell in aroundCells)
-            // {
-            //     _targets.Add(_createTargetZone(cell.transform.position));
-            // }
-        }
-        
-        private HitBox _createTargetZone(Vector3 position)
-        {
-            var targetObj = Object.Instantiate(hitBoxPrefab, position, Quaternion.identity, Owner.transform);
-            var sr = targetObj.GetComponent<SpriteRenderer>();
-            
-            sr.sortingOrder = 90;
-
-            return targetObj;
         }
 
         private async UniTask _execute()
         {
             State = State.Execute;
-
-            var tasks = new List<UniTask>();
             
-            foreach (var target in _targets)
-            {
-                var zone = target.GetComponent<HitBox>();
-                var entity = zone.Target;
+            var tasks = new List<UniTask>();
 
-                if (entity)
+            foreach (var direction in _directions)
+            {
+                var hit = Physics2D.Raycast(Owner.transform.position, direction, attackDistance, targetLayer);
+                
+                if (hit.collider != null)
                 {
-                    tasks.Add(entity.Health.TakeDamage(1));
+                    var entity = hit.collider.GetComponent<BaseEntity>();
+
+                    if (entity)
+                    {
+                        tasks.Add(entity.Health.TakeDamage(1));
+                    }
                 }
             }
 

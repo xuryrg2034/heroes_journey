@@ -14,7 +14,7 @@ GameObject:
   - component: {fileID: 426220746719684042}
   - component: {fileID: 4958044900380387369}
   - component: {fileID: 3859156347508742352}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: HeroWarrior
   m_TagString: Player
   m_Icon: {fileID: 0}

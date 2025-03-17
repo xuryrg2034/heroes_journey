@@ -647,7 +647,7 @@ Camera:
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 31
+    m_Bits: 95
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
@@ -688,7 +688,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_EventMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 95
   m_MaxRayIntersections: 0
 --- !u!1 &525766581
 GameObject:
@@ -1094,11 +1094,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1273177892368256002, guid: 3f9c56e3517c5e941a2e77f847c11627, type: 3}
       propertyPath: m_SizeDelta.x
-      value: 207.0068
+      value: 191.36
       objectReference: {fileID: 0}
     - target: {fileID: 1273177892368256002, guid: 3f9c56e3517c5e941a2e77f847c11627, type: 3}
       propertyPath: m_SizeDelta.y
-      value: 187.1542
+      value: 182.21
       objectReference: {fileID: 0}
     - target: {fileID: 1273177892368256002, guid: 3f9c56e3517c5e941a2e77f847c11627, type: 3}
       propertyPath: m_LocalPosition.x
@@ -1130,11 +1130,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1273177892368256002, guid: 3f9c56e3517c5e941a2e77f847c11627, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: -263.5
+      value: -304.32
       objectReference: {fileID: 0}
     - target: {fileID: 1273177892368256002, guid: 3f9c56e3517c5e941a2e77f847c11627, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 0
+      value: 106.55
       objectReference: {fileID: 0}
     - target: {fileID: 1273177892368256002, guid: 3f9c56e3517c5e941a2e77f847c11627, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
