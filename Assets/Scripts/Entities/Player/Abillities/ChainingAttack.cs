@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
 using Entities.Components;
-using Grid;
-using Services;
 using UnityEngine;
 
 namespace Entities.Player
@@ -105,7 +103,6 @@ namespace Entities.Player
             foreach (var entity in _selectedEntities)
             {
                 var entityHealth = entity.Health.Value;
-                var targetCell = entity.GridPosition;
 
                 await entity.Health.TakeDamage(damage);
 
@@ -118,7 +115,7 @@ namespace Entities.Player
 
                 if (entity.Health.IsDead)
                 {
-                    await Hero.Move(targetCell, 0.2f);
+                    await Hero.Move(entity.GridPosition, 0.2f);
                     killedEntity += 1;
                 }
 

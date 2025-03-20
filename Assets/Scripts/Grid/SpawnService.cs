@@ -24,7 +24,7 @@ namespace Grid
             _spawnedEntities = _populateEntitiesFromScene();
         }
         
-        public BaseEntity SpawnEntityOnCell(BaseEntity spawnBaseEntity, Vector3 position = default)
+        public BaseEntity SpawnEntityOnCell(BaseEntity spawnBaseEntity, Vector3Int gridPosition = default)
         {
 
             // if (position != null)
@@ -41,20 +41,20 @@ namespace Grid
             
             var newEntity = Object.Instantiate(spawnBaseEntity);
             newEntity.Init();
-            newEntity.SetCell(position);
+            newEntity.Move(gridPosition, 0).Forget();
             
             _spawnedEntities.Add(newEntity);
 
             return newEntity;
         }
         
-        public BaseEntity SpawnEntity(Vector3 position)
+        public BaseEntity SpawnEntity(Vector3Int gridPosition)
         {
             // if (!cell.IsAvailableForEntity()) return null;
 
             var entityToSpawn = _getEntityWithBalance();
 
-            return SpawnEntityOnCell(entityToSpawn, position);
+            return SpawnEntityOnCell(entityToSpawn, gridPosition);
         }
 
         public void ClearDeadEntities()
@@ -94,7 +94,7 @@ namespace Grid
             foreach (var entity in entities)
             {
                 entity.Init();
-                entity.SetCell(entity.SpawnPosition);
+                entity.Move(entity.SpawnPosition, 0).Forget();
             }
 
             return entities;

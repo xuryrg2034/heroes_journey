@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: -5271346730229606642}
   - component: {fileID: -9152101009826336401}
   - component: {fileID: -2109020731990752305}
+  - component: {fileID: 1759567743473965026}
   m_Layer: 3
   m_Name: Golem
   m_TagString: Untagged
@@ -126,24 +127,24 @@ MonoBehaviour:
   selectionType: 3
   health: 0
   rank: 1
-  isAggressive: 1
+  isAggressive: 0
   aggressionLimit: 4
   abilities:
-  - rid: 1614106436220485705
+  - rid: 3283534691141681223
   references:
     version: 2
     RefIds:
-    - rid: 1614106436220485705
-      type: {class: MassAttackAbility, ns: Entities.Enemies, asm: Assembly-CSharp}
+    - rid: 3283534691141681223
+      type: {class: MoveAbility, ns: Entities.Enemies, asm: Assembly-CSharp}
       data:
-        enable: 1
+        enable: 0
         order: 100
         castTime: 1
         Owner: {fileID: 0}
-        attackDistance: 1
+        moveDistance: 1
         targetLayer:
           serializedVersion: 2
-          m_Bits: 64
+          m_Bits: 0
 --- !u!114 &-2109020731990752305
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -156,6 +157,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9a994140d1bb4e3fad021873d8e99162, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1759567743473965026
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 32920870007475787}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93fdc620e98e4590a04030fe9be5d78f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  textPrefab: {fileID: 2392061861069326331}
 --- !u!1 &1792637630632990995
 GameObject:
   m_ObjectHideFlags: 0

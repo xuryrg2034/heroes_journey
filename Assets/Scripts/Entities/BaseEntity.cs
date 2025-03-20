@@ -1,5 +1,4 @@
-﻿using System;
-using Entities.Components;
+﻿using Entities.Components;
 using Cysharp.Threading.Tasks;
 using DG.Tweening;
 using Grid;
@@ -9,21 +8,21 @@ namespace Entities
 {
     public abstract class BaseEntity : MonoBehaviour
     {
-        [SerializeField] private Vector3 spawnPosition;
+        [SerializeField] private Vector3Int spawnPosition;
         [SerializeField] private EntitySelectionType selectionType;
 
         [Header("Characteristics")]
         [SerializeField] private int health;
 
-        private readonly Vector3 _offsetToTileCenter = new Vector3(0.5f, 0.5f, 0);
+        public readonly Vector3 OffsetToTileCenter = new Vector3(0.5f, 0.5f, 0);
 
-        public Vector3 GridPosition { get; private set; }
+        public Vector3Int GridPosition { get; private set; }
         
         public Health Health { get; private set; }
 
         public EntitySelectionType SelectionType => selectionType;
 
-        public Vector3 SpawnPosition => spawnPosition;
+        public Vector3Int SpawnPosition => spawnPosition;
 
         public int MaxHealth => health;
 
@@ -33,26 +32,14 @@ namespace Entities
             
             // Health.OnDie.AddListener(Dispose);
         }
-        
-        public void SetCell(Vector3 position)
-        {
-            transform.position = position + _offsetToTileCenter;
-            
-            GridPosition = position;
-        }
 
-        public Vector3 GetTilePosition()
-        {
-            return transform.position - _offsetToTileCenter;
-        }
-
-        public UniTask Move(Vector3 position, float duration = 0.3f)
+        public UniTask Move(Vector3Int gridPosition, float duration = 0.3f)
         {
             // if (Health.IsDead) return default;
 
-            GridPosition = position;
+            GridPosition = gridPosition;
             
-            return transform.DOMove(position + _offsetToTileCenter, duration).ToUniTask();
+            return transform.DOMove(GridService.GridPositionToTileCenter(gridPosition), duration).ToUniTask();
         }
 
         public virtual void Dispose()

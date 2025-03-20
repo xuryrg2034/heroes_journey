@@ -54,6 +54,14 @@ namespace Entities.Enemies
             // Используем челночное расстояние
             return Mathf.Max(dx, dy) <= range;
         }
+        
+        protected void _drawDebugPoint(Vector3 point, Color color, float duration = 1)
+        {
+            var size = 0.3f;
+
+            Debug.DrawLine(point + Vector3.left * size, point + Vector3.right * size, color, duration);
+            Debug.DrawLine(point + Vector3.up * size, point + Vector3.down * size, color, duration);
+        }
     }
 
     public enum State

@@ -1,14 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using Entities;
 using Cysharp.Threading.Tasks;
 using Entities.Enemies;
 using Entities.Player;
-using Unity.VisualScripting;
 using UnityEngine.Tilemaps;
-using Random = UnityEngine.Random;
 
 namespace Grid
 { 
@@ -23,22 +20,17 @@ namespace Grid
         [SerializeField] private Tilemap obstacleTilemap;
         [SerializeField] private List<BaseEntity> availableEntitiesList = new();
         
-        // private int width;
-        // private int height;
-        
         private SpawnService _spawnService;
 
-        // private Cell[,] _cells;
+        private static Vector3 _offsetToTileCenter = new(0.5f, 0.5f, 0); 
+        public static Vector3 GridPositionToTileCenter(Vector3Int gridPosition)
+        {
+            return gridPosition + _offsetToTileCenter;
+        }
         
         public void Init()
         {
-            // var bounds = groundTilemap.cellBounds;
-            // width = bounds.xMax;
-            // height = bounds.yMax;
-            // _cells = new Cell[width, height];
             _spawnService = new SpawnService(availableEntitiesList);
-
-            // _populateCellsFromScene();
         }
 
         public List<T> GetEntitiesOfType<T>() where T : BaseEntity
@@ -66,15 +58,10 @@ namespace Grid
 
                     if (!isCellEmpty) continue;
                     
-                    _spawnService.SpawnEntity(worldPosition);
+                    _spawnService.SpawnEntity(cellPos);
                 }
             }
         }
-
-        // public bool IsInsideGrid(Vector2Int position)
-        // {
-        //     return (position.x >= 0 && position.x < width && position.y >= 0 && position.y < height);
-        // }
 
         public Vector3? GetCell(int x, int y)
         {
@@ -112,8 +99,9 @@ namespace Grid
                     if (!entity || entity.gameObject == null || entity.GetComponent<Hero>() != null) continue; // Герой не падает
         
                     var targetCell = _getLowestAvailableCell(cellPosition);
+                    
                     if (!targetCell.HasValue) continue;
-        
+                    
                     var move = entity.Move(targetCell.Value);
                     
                     // Добавляем анимацию в последовательность
@@ -133,35 +121,39 @@ namespace Grid
             SpawnEntitiesOnGrid();
         }
 
-        public Cell GetRandomCell(List<Cell> excludedCells = default)
+        public Vector3Int GetRandomAdjacentCell(Vector3Int centerCell)
         {
-            return null;
-            // var availableCells = new List<Cell>();
-            //
-            // for (var x = 0; x < _cells.GetLength(0); x++)
-            // {
-            //     for (var y = 0; y < _cells.GetLength(1); y++)
-            //     {
-            //         var cell = _cells[x, y];
-            //         if (!cell.IsAvailableForEntity()) continue;
-            //         
-            //         if (excludedCells == null)
-            //         {
-            //             availableCells.Add(cell);
-            //         }
-            //         else if (!excludedCells.Contains(cell))
-            //         {
-            //             availableCells.Add(cell); 
-            //         }
-            //     }
-            // }
-            //
-            // var randomCell = availableCells[Random.Range(0, availableCells.Count)];
-            //
-            // return randomCell;
+            // Смещения по соседним ячейкам (восьминаправленные)
+            var directions = new []
+            {
+                new Vector3Int(0, 1, 0),   // Вверх
+                new Vector3Int(1, 0, 0),   // Вправо
+                new Vector3Int(0, -1, 0),  // Вниз
+                new Vector3Int(-1, 0, 0),  // Влево
+                new Vector3Int(1, 1, 0),   // Вверх-вправо
+                new Vector3Int(1, -1, 0),  // Вниз-вправо
+                new Vector3Int(-1, -1, 0), // Вниз-влево
+                new Vector3Int(-1, 1, 0)   // Вверх-влево
+            };
+
+            // Перемешиваем направления (чтобы было более случайно)
+            var rng = new System.Random();
+            directions = directions.OrderBy(x => rng.Next()).ToArray();
+
+            // Проверяем соседние ячейки
+            foreach (var dir in directions)
+            {
+                var targetCell = centerCell + dir;
+                // Проверяем, есть ли тайл на groundTilemap И НЕТ ли препятствия на obstacleTilemap
+                if (!groundTilemap.HasTile(targetCell) || obstacleTilemap.HasTile(targetCell)) continue;
+
+                return targetCell;
+            }
+
+            return centerCell; // Если нет доступных ячеек — возвращаем исходную
         }
         
-        private Vector3? _getLowestAvailableCell(Vector3Int startCell)
+        private Vector3Int? _getLowestAvailableCell(Vector3Int startCell)
         {
             for (var y = 0; y < startCell.y; y++) // Проходим снизу вверх до текущей ячейки
             {
@@ -179,16 +171,5 @@ namespace Grid
 
             return null; // Если доступных ячеек нет, возвращаем null
         }
-        
-        // private void _populateCellsFromScene()
-        // {
-            // var foundCells = FindObjectsByType<Cell>(FindObjectsSortMode.None);
-            //
-            // foreach (var cell in foundCells)
-            // {
-            //     _cells[cell.Position.x, cell.Position.y] = cell;
-            //     cell.Init();
-            // }
-        // }
     }
 }

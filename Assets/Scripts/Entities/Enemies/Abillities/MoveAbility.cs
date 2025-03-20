@@ -1,17 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using Cysharp.Threading.Tasks;
 using Grid;
-using Random = UnityEngine.Random;
+using Services;
+using UnityEngine;
 
 namespace Entities.Enemies
 {
     [Serializable]
     public class MoveAbility : BaseAbility
     {
-        private Cell _cellToMove;
-        
+        [SerializeField] public LayerMask targetLayer;
+
+        private GridService _gridService;
+
         public override async UniTask Execute()
         {
             if (_tryToExecute())
@@ -36,36 +38,47 @@ namespace Entities.Enemies
         {
             State = State.Preparing;
 
-            // var notEmptyCells = Owner.Cell
-            //     .GetNeighbors()
-            //     .Where((item) => item.Type != CellType.Blocked)
-            //     .ToList();
-            //
-            // _cellToMove = notEmptyCells[Random.Range(0, notEmptyCells.Count)];
-            // _cellToMove.Highlite(true);
+            /* FIXME: Костыль, что бы получить грид сервис. Стадия _prepare обязательна.
+             * Поэтому мы сюда всегда заходим хотя бы раз.
+             */ 
+            if (_gridService == null)
+            {
+                _gridService = ServiceLocator.Get<GridService>();   
+            }
         }
 
         private async UniTask _execute()
         {
             State = State.Execute;
-
-            var entityOnCell = _cellToMove.GetEntity();
+            
             var tasks = new List<UniTask>();
+            var randomCell = _gridService.GetRandomAdjacentCell(Owner.GridPosition);
             
-            if (entityOnCell)
-            {
-                // tasks.Add(entityOnCell.Move(Owner.Cell));
-            }
-            
-            // tasks.Add(Owner.Move(_cellToMove));
+            // Если вдруг так получилось, что нет доступных ячеек
+            if (randomCell == Owner.GridPosition) return;
 
+            var tileCenter = GridService.GridPositionToTileCenter(randomCell);
+            var hit = Physics2D.OverlapPoint(new Vector2(tileCenter.x, tileCenter.y), targetLayer);
+
+            if (hit != null)
+            {
+                var targetEntity = hit.GetComponent<BaseEntity>();
+                var targetMoveTask = targetEntity.Move(Owner.GridPosition);
+                tasks.Add(targetMoveTask);
+            } 
+            
+            var ownerMoveTask = Owner.Move(randomCell);
+            _drawDebugPoint(randomCell, Color.red);
+            
+            tasks.Add(ownerMoveTask);
+            
             await UniTask.WhenAll(tasks);
         }
 
         private void _reset()
         {
-            _cellToMove.Highlite(false);
-            _cellToMove = null;
+            // _cellToMove.Highlite(false);
+            // _cellToMove = null;
             _castCounter = 0;
             State = State.Pending;
         }
