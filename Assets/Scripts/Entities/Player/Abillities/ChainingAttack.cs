@@ -20,6 +20,8 @@ namespace Entities.Player
         
         private bool _selectionLocked;
         
+        private Animator _animator;
+        
         public override void Activate()
         {
             base.Activate();
@@ -35,7 +37,7 @@ namespace Entities.Player
             
             _resetSelection();
         }
-        
+
         // Вся логика выделения противников мутная, стоит потом пройтись свежим взглядом
         public override void SelectTarget(BaseEntity baseEntity)
         {
@@ -104,6 +106,7 @@ namespace Entities.Player
             {
                 var entityHealth = entity.Health.Value;
 
+                await PlayAnimation("Side Attack");
                 await entity.Health.TakeDamage(damage);
 
                 if (entityHealth == 0)
@@ -115,7 +118,7 @@ namespace Entities.Player
 
                 if (entity.Health.IsDead)
                 {
-                    await Hero.Move(entity.GridPosition, 0.2f);
+                    await Hero.Move(entity.GridPosition, 0.1f);
                     killedEntity += 1;
                 }
 
@@ -126,7 +129,20 @@ namespace Entities.Player
                 }
             }
 
+            await PlayAnimation("Idle");
             _resetSelection();
+        }
+        
+        public async UniTask PlayAnimation(string animationName)
+        {
+            Hero.Animator.SetTrigger(animationName);
+            
+            // Ждём завершения анимации
+            await UniTask.WaitUntil(() =>
+            {
+                var state = Hero.Animator.GetCurrentAnimatorStateInfo(0);
+                return state.normalizedTime >= 1.0f;
+            });
         }
 
         public override void Cancel()
