@@ -31,7 +31,7 @@ namespace Entities.Enemies
             
             foreach (var ability in abilities)
             {
-                ability?.Init(this);
+                ability.Init(this);
             }
 
             Health.OnDie.AddListener(_cancelAbilities);

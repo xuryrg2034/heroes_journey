@@ -14,6 +14,14 @@ namespace Entities.Enemies
 
         private GridService _gridService;
 
+
+        public override void Init(Enemy owner)
+        {
+            base.Init(owner);
+            
+            _gridService = ServiceLocator.Get<GridService>();
+        }
+
         public override async UniTask Execute()
         {
             if (_tryToExecute())
@@ -37,14 +45,6 @@ namespace Entities.Enemies
         private void _prepare()
         {
             State = State.Preparing;
-
-            /* FIXME: Костыль, что бы получить грид сервис. Стадия _prepare обязательна.
-             * Поэтому мы сюда всегда заходим хотя бы раз.
-             */ 
-            if (_gridService == null)
-            {
-                _gridService = ServiceLocator.Get<GridService>();   
-            }
         }
 
         private async UniTask _execute()
