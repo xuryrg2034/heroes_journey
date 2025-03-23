@@ -8,11 +8,15 @@ using UnityEngine;
 namespace Entities.Player
 {
     [Serializable]
-    public class ChainingAttack : BaseAbility
+    public class ChainingAttackSelection : BaseAbility
     {
         [SerializeField] private int killsToReward;
+        
         [SerializeField] private BaseEntity rainbowCoinPrefab;
-        private readonly List<BaseEntity> _selectedEntities = new();
+        
+        public readonly List<BaseEntity> SelectedEntities = new();
+        
+        private ChainingAttackState _currentState = ChainingAttackState.Pending;
 
         private EntitySelectionType _availableSelectionType = EntitySelectionType.Neutral;
 
@@ -21,6 +25,10 @@ namespace Entities.Player
         private bool _selectionLocked;
         
         private Animator _animator;
+
+        private int _nextIndex;
+
+        public int Damage { get; private set; }
         
         public override void Activate()
         {
@@ -39,9 +47,9 @@ namespace Entities.Player
         }
 
         // Вся логика выделения противников мутная, стоит потом пройтись свежим взглядом
-        public override void SelectTarget(BaseEntity baseEntity)
+        public override void SelectTarget(BaseEntity entity)
         {
-            if (baseEntity == Hero)
+            if (entity.GridPosition == Hero.GridPosition)
             {
                 _resetSelection();
                 _totalDamage = 0;
@@ -49,10 +57,10 @@ namespace Entities.Player
                 return;
             }
 
-            if (_selectedEntities.Contains(baseEntity))
+            if (SelectedEntities.Contains(entity))
             {
-                _removeEnemiesAfter(baseEntity);
-                _totalDamage = _selectedEntities.Sum(item =>
+                _removeEnemiesAfter(entity);
+                _totalDamage = SelectedEntities.Sum(item =>
                 {
                     if (item.Health.Value == 0)
                     {
@@ -67,27 +75,28 @@ namespace Entities.Player
                 return;
             }
 
-            var originPosition = _selectedEntities.Count > 0 ? _selectedEntities.Last().transform.position : Hero.transform.position;
-            var isInRange = _isInRange(originPosition, baseEntity.transform.position, 1);
-            var canSelection = _canSelectionTypeByType(baseEntity);
+            var originPosition = SelectedEntities.Count > 0 ? SelectedEntities.Last().GridPosition : Hero.GridPosition;
+            var isInRange = _isInRange(originPosition, entity.GridPosition);
+            var canSelection = _canSelectionTypeByType(entity);
             
             if (!isInRange || !canSelection || _selectionLocked) return;
             
             // Проверка, что бы нельзя было добавить в цепочку противка у которого больше 0 здоровья, когда нет урона
-            if (baseEntity.Health.Value > 0 && _totalDamage <= 0) return;
+            if (entity.Health.Value > 0 && _totalDamage <= 0) return;
             
-            _selectedEntities.Add(baseEntity);
-            _availableSelectionType = baseEntity.SelectionType;
+            SelectedEntities.Add(entity);
+            
+            _availableSelectionType = entity.SelectionType;
             // _highlightTarget(baseEntity.Cell, true);
 
-            if (baseEntity.Health.Value == 0)
+            if (entity.Health.Value == 0)
             {
                 _totalDamage += 1;
                 _selectionLocked = false;
             }
             else
             {
-                _totalDamage -= baseEntity.Health.Value;
+                _totalDamage -= entity.Health.Value;
                 _selectionLocked = _totalDamage < 0;
             }
 
@@ -99,55 +108,71 @@ namespace Entities.Player
         {
             await base.Execute();
 
-            var damage = 0;
-            var killedEntity = 0;
+            _currentState = ChainingAttackState.Process;
+            Next();
 
-            foreach (var entity in _selectedEntities)
-            {
-                var entityHealth = entity.Health.Value;
-
-                await PlayAnimation("Side Attack");
-                await entity.Health.TakeDamage(damage);
-
-                if (entityHealth == 0)
-                {
-                    damage += 1;
-                }
-
-                damage -= entityHealth;
-
-                if (entity.Health.IsDead)
-                {
-                    await Hero.Move(entity.GridPosition, 0.1f);
-                    killedEntity += 1;
-                }
-
-                // _highlightTarget(targetCell, false);
-                
-                if (killedEntity == killsToReward) {
-                    _checkComboReward();   
-                }
-            }
-
-            await PlayAnimation("Idle");
+            await UniTask.WaitUntil(() => _currentState == ChainingAttackState.End);
+             
             _resetSelection();
-        }
-        
-        public async UniTask PlayAnimation(string animationName)
-        {
-            Hero.Animator.SetTrigger(animationName);
             
-            // Ждём завершения анимации
-            await UniTask.WaitUntil(() =>
+            _currentState = ChainingAttackState.Pending;
+        }
+
+        public void Next()
+        {
+            var entity = SelectedEntities[_nextIndex];
+            var animation = _nextAnimationName(entity.GridPosition);
+            
+            Hero.Animator.SetTrigger(animation);
+        }
+
+        public async UniTask AnimationEnd()
+        {
+            var entity = SelectedEntities[_nextIndex];
+            var entityHealth = entity.Health.Value;
+
+            if (entityHealth == 0)
             {
-                var state = Hero.Animator.GetCurrentAnimatorStateInfo(0);
-                return state.normalizedTime >= 1.0f;
-            });
+                Damage += 1;
+            }
+            
+            Damage -= entityHealth;
+            
+            if (entity.Health.IsDead)
+            {
+                await Hero.Move(entity.GridPosition, 0.1f);
+                
+                _nextIndex++;
+            }
+            
+            if (_nextIndex >= SelectedEntities.Count)
+            {
+                _currentState = ChainingAttackState.End;
+            }
+            else
+            {
+                Next();    
+            }
         }
 
         public override void Cancel()
         {
             _resetSelection();
+        }
+
+        private string _nextAnimationName(Vector3Int entityPosition)
+        {
+            var start = Hero.GridPosition;
+            var delta = entityPosition - start;
+
+            if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y))
+            {
+                return delta.x > 0 ? "Side Attack Right" : "Side Attack Left";
+            }
+            else
+            {
+                return delta.y > 0 ? "Top Attack" : "Down Attack";
+            }
         }
 
         private bool _canSelectionTypeByType(BaseEntity baseEntity)
@@ -162,33 +187,29 @@ namespace Entities.Player
         
         private void _removeEnemiesAfter(BaseEntity target)
         {
-            var index = _selectedEntities.IndexOf(target);
+            var index = SelectedEntities.IndexOf(target);
             if (index < 0) return;
 
-            for (var i = _selectedEntities.Count - 1; i > index; i--)
+            for (var i = SelectedEntities.Count - 1; i > index; i--)
             {
-                // _highlightTarget(_selectedEntities[i].Cell, false);
-                _selectedEntities.RemoveAt(i);
+                SelectedEntities.RemoveAt(i);
             }
             
-            _availableSelectionType = _selectedEntities.Last().SelectionType;
+            _availableSelectionType = SelectedEntities.Last().SelectionType;
         }
         
         private void _resetSelection()
         {
-            foreach (var entity in _selectedEntities)
-            {
-                // _highlightTarget(entity.Cell, false);
-            }
-
-            _selectedEntities.Clear();
+            SelectedEntities.Clear();
             _availableSelectionType = EntitySelectionType.Neutral;
             _selectionLocked = false;
-
+            _nextIndex = 0;
             _totalDamage = 0;
             _updateHeroPower();
         }
 
+        // TODO: Надо удалить. Нет смысла изменять силу героя. Сила этой абилки, копится внутри нее самой
+        // TODO: Выводить счетчик накопленной силы
         private void _updateHeroPower()
         {
             Hero.Damage.SetValue(_totalDamage < 0 ? 0 : _totalDamage);
@@ -201,6 +222,15 @@ namespace Entities.Player
             // var cell = gridService.GetRandomCell(excludeCells);
             
             // gridService.SpawnEntity(rainbowCoinPrefab, cell);
+        }
+
+        protected bool _isInRange(Vector3Int origin, Vector3Int target)
+        {
+            // Вычисляем разницу по X и Y
+            var deltaX = Math.Abs(origin.x - target.x);
+            var deltaY = Math.Abs(origin.y - target.y);
+
+            return (deltaX == 1 && deltaY == 0) || (deltaX == 0 && deltaY == 1);
         }
     }
 }

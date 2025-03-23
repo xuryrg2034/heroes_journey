@@ -12,6 +12,8 @@ namespace Entities.Player
         
         private BaseAbility _selectedAbility;
         
+        public BaseAbility SelectedAbility => _selectedAbility;
+        
         public void Init(List<BaseAbility> abilitiesList)
         {
             _abilitiesList = abilitiesList;

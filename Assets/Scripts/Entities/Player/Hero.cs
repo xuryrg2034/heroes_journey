@@ -9,11 +9,11 @@ namespace Entities.Player
     {
         [SerializeField] private int damage;
         [SerializeField] private int energy;
-        [SerializeField] private GameObject animationPrefab;
+        [SerializeField] private Animator animator;
         [SerializeReference, SubclassSelector]
         private List<BaseAbility> abilities = new();
-        
-        public Animator Animator { get; private set; }
+
+        public Animator Animator => animator;
 
         public List<BaseAbility> Abilities => abilities;
         
@@ -32,7 +32,6 @@ namespace Entities.Player
 
             Damage = new Damage(damage);
             Energy = new Energy(energy, energy);
-            Animator = animationPrefab.GetComponent<Animator>();
 
             foreach (var ability in abilities)
             {

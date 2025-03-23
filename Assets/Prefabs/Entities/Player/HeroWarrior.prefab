@@ -121,31 +121,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bff659566d95403baa09b8548da27b14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnPosition: {x: 0, y: 0, z: 0}
+  spawnPosition: {x: 3, y: 0, z: 0}
   selectionType: 2
   health: 100
   damage: 0
   energy: 100
-  animationPrefab: {fileID: 7431215449899010737}
+  animator: {fileID: 5007144192083671867}
   abilities:
-  - rid: 1614106436220485706
-  - rid: 1614106463713361991
-  - rid: 1614106463713361992
+  - rid: 3283534738998427861
   references:
     version: 2
     RefIds:
-    - rid: 1614106436220485706
-      type: {class: JumpAttack, ns: Entities.Player, asm: Assembly-CSharp}
-      data:
-        title: Jump
-        energyCost: 0
-        cooldown: 0
-        OnEnableChanged:
-          m_PersistentCalls:
-            m_Calls: []
-        damage: 1
-    - rid: 1614106463713361991
-      type: {class: ChainingAttack, ns: Entities.Player, asm: Assembly-CSharp}
+    - rid: 3283534738998427861
+      type: {class: ChainingAttackSelection, ns: Entities.Player, asm: Assembly-CSharp}
       data:
         title: Chaining
         energyCost: 0
@@ -155,16 +143,6 @@ MonoBehaviour:
             m_Calls: []
         killsToReward: 0
         rainbowCoinPrefab: {fileID: 0}
-    - rid: 1614106463713361992
-      type: {class: SlashAttack, ns: Entities.Player, asm: Assembly-CSharp}
-      data:
-        title: Slash
-        energyCost: 0
-        cooldown: 0
-        OnEnableChanged:
-          m_PersistentCalls:
-            m_Calls: []
-        baseDamage: 1
 --- !u!114 &3859156347508742352
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -188,6 +166,7 @@ GameObject:
   - component: {fileID: 1670684776658606280}
   - component: {fileID: 5007144192083671867}
   - component: {fileID: 4669737855505808603}
+  - component: {fileID: 3521918192112866130}
   m_Layer: 6
   m_Name: Animation
   m_TagString: Untagged
@@ -287,3 +266,19 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
+--- !u!114 &3521918192112866130
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7431215449899010737}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0dca8008e87f4c759a696f019ceef560, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hero: {fileID: 4958044900380387369}
+  targetLayer:
+    serializedVersion: 2
+    m_Bits: 8

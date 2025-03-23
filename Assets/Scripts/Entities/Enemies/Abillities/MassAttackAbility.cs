@@ -63,7 +63,7 @@ namespace Entities.Enemies
             foreach (var direction in _directions)
             {
                 var tileCenter = GridService.GridPositionToTileCenter(Owner.GridPosition + direction);
-                var hit = Physics2D.OverlapPoint(new Vector2(tileCenter.x, tileCenter.y), targetLayer);
+                var hit = Physics2D.OverlapPoint(tileCenter, targetLayer);
 
                 if (hit == null) continue;
                 

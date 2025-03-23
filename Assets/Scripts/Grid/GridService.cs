@@ -8,7 +8,7 @@ using Entities.Player;
 using UnityEngine.Tilemaps;
 
 namespace Grid
-{ 
+{
     /// <summary>
     /// Отвечает за создание и управление игровым полем (сеткой),
     /// а также за объекты, размещенные на этой сетке.

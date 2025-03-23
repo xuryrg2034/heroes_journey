@@ -27,7 +27,6 @@ namespace Services
         [FormerlySerializedAs("heroUIService")] [SerializeField] private UIService uiService;
         [SerializeField] private TurnService turnService;
         [SerializeField] private Hero heroPrefab;
-        [SerializeField] private Vector3Int heroPositionSpawn;
         
 
         private Hero _heroEntity;
@@ -36,7 +35,7 @@ namespace Services
         public static GameState CurrentState { get; private set; } = GameState.WaitingForInput;
 
         // FIXME: Порядок вызова важен. Происходит решистрация классов в сервис локаторе
-        private void Start()
+        private void Awake()
         {
             _prepareLevelStatistics();
             _prepareGrid();
@@ -76,7 +75,7 @@ namespace Services
             ServiceLocator.Register(gridService);
 
             gridService.Init();
-            gridService.SpawnEntity(heroPrefab, heroPositionSpawn);
+            gridService.SpawnEntity(heroPrefab, heroPrefab.SpawnPosition);
             gridService.SpawnEntitiesOnGrid();
             
             _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];

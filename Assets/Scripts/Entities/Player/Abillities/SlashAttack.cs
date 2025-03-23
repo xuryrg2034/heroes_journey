@@ -95,7 +95,8 @@ namespace Entities.Player
                 
                 tasks.Add(task);
             }
-            
+
+            await PlayAnimation("Slash Attack Top");
             await UniTask.WhenAll(tasks);
 
             _checkComboReward(_selectedTargets);
@@ -107,6 +108,18 @@ namespace Entities.Player
             // throw new NotImplementedException();
         }
 
+        public async UniTask PlayAnimation(string animationName)
+        {
+            Hero.Animator.SetTrigger(animationName);
+            
+            // Ждём завершения анимации
+            await UniTask.WaitUntil(() =>
+            {
+                var state = Hero.Animator.GetCurrentAnimatorStateInfo(0);
+                return state.normalizedTime >= 1.0f;
+            });
+        }
+        
         private void _resetSelection()
         {
             // foreach (var target in _selectedTargets)
