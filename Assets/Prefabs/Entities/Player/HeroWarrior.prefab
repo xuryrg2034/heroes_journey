@@ -121,18 +121,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bff659566d95403baa09b8548da27b14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnPosition: {x: 3, y: 0, z: 0}
+  spawnPosition: {x: 3, y: 3, z: 0}
   selectionType: 2
   health: 100
   damage: 0
   energy: 100
   animator: {fileID: 5007144192083671867}
   abilities:
-  - rid: 3283534738998427861
+  - rid: 3283534790896648269
   references:
     version: 2
     RefIds:
-    - rid: 3283534738998427861
+    - rid: 3283534790896648269
       type: {class: ChainingAttackSelection, ns: Entities.Player, asm: Assembly-CSharp}
       data:
         title: Chaining

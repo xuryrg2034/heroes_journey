@@ -103,7 +103,6 @@ namespace Entities.Player
             _updateHeroPower();
         }
 
-        // Вся калькуляция урона отстой
         public override async UniTask Execute()
         {
             await base.Execute();
@@ -121,13 +120,15 @@ namespace Entities.Player
         public void Next()
         {
             var entity = SelectedEntities[_nextIndex];
-            var animation = _nextAnimationName(entity.GridPosition);
+            var animationDirection = _nextAnimationName(entity.GridPosition);
             
-            Hero.Animator.SetTrigger(animation);
+            Hero.Animator.SetInteger("Side Attack", animationDirection);
         }
 
+        // Вся калькуляция урона отстой
         public async UniTask AnimationEnd()
         {
+            Hero.Animator.SetInteger("Side Attack", -1);
             var entity = SelectedEntities[_nextIndex];
             var entityHealth = entity.Health.Value;
 
@@ -141,7 +142,7 @@ namespace Entities.Player
             if (entity.Health.IsDead)
             {
                 await Hero.Move(entity.GridPosition, 0.1f);
-                
+
                 _nextIndex++;
             }
             
@@ -160,18 +161,20 @@ namespace Entities.Player
             _resetSelection();
         }
 
-        private string _nextAnimationName(Vector3Int entityPosition)
+        private int _nextAnimationName(Vector3Int entityPosition)
         {
             var start = Hero.GridPosition;
             var delta = entityPosition - start;
 
             if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y))
             {
-                return delta.x > 0 ? "Side Attack Right" : "Side Attack Left";
+                // Right / Left
+                return delta.x > 0 ? 1 : 3;
             }
             else
             {
-                return delta.y > 0 ? "Top Attack" : "Down Attack";
+                // Top / Down
+                return delta.y > 0 ? 0 : 2;
             }
         }
 
