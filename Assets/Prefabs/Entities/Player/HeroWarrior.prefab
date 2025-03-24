@@ -128,11 +128,11 @@ MonoBehaviour:
   energy: 100
   animator: {fileID: 5007144192083671867}
   abilities:
-  - rid: 3283534790896648269
+  - rid: 3283534796043845719
   references:
     version: 2
     RefIds:
-    - rid: 3283534790896648269
+    - rid: 3283534796043845719
       type: {class: ChainingAttackSelection, ns: Entities.Player, asm: Assembly-CSharp}
       data:
         title: Chaining

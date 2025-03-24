@@ -28,6 +28,8 @@ namespace Entities.Player
 
         private int _nextIndex;
 
+        private readonly string _animationName = "Attack";
+
         public int Damage { get; private set; }
         
         public override void Activate()
@@ -120,15 +122,14 @@ namespace Entities.Player
         public void Next()
         {
             var entity = SelectedEntities[_nextIndex];
-            var animationDirection = _nextAnimationName(entity.GridPosition);
-            
-            Hero.Animator.SetInteger("Side Attack", animationDirection);
+            var animationDirection = _nextAnimationDirection(entity.GridPosition);
+
+            Hero.Animator.SetTrigger($"{_animationName}{animationDirection}");
         }
 
         // Вся калькуляция урона отстой
         public async UniTask AnimationEnd()
         {
-            Hero.Animator.SetInteger("Side Attack", -1);
             var entity = SelectedEntities[_nextIndex];
             var entityHealth = entity.Health.Value;
 
@@ -161,7 +162,7 @@ namespace Entities.Player
             _resetSelection();
         }
 
-        private int _nextAnimationName(Vector3Int entityPosition)
+        private int _nextAnimationDirection(Vector3Int entityPosition)
         {
             var start = Hero.GridPosition;
             var delta = entityPosition - start;

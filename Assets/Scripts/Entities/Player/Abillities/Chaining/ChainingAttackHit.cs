@@ -35,14 +35,13 @@ namespace Entities.Player
             
             if (entity != null)
             {
-                _entityTakeDamage = entity.Health.TakeDamage(ability.Damage);
+                entity.Health.TakeDamage(ability.Damage).Forget();
             }
         }
 
-        public async UniTask End()
+        public void End()
         {
             var ability = (ChainingAttackSelection)_abilitiesService.SelectedAbility;
-            await _entityTakeDamage;
             ability.AnimationEnd().Forget();
         }
 
