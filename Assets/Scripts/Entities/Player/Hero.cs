@@ -50,11 +50,6 @@ namespace Entities.Player
                     _abilityStateMachine.SetNextState(_abilitiesService.SelectedAbility.InitState);
                 }
             }
-            // if (Input.GetMouseButton(0) && _actionStateMachine.CurrentState.GetType() == typeof(IdleState))
-            // {
-            //     // var activeAbility = abilities.
-            //     // _actionStateMachine.SetNextState(new GroundEntryState());
-            // }
         }
 
         public override void Init()
