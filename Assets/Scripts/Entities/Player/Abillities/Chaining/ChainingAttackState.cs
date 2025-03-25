@@ -11,12 +11,13 @@ namespace Entities.Player
         private List<BaseEntity> _selectedEntities;
         private Hero _owner;
         private Animator _animator;
-        private readonly string _animationName = "Attack";
         private int _animationDirection;
         private int _nextIndex;
         private int _damage;
         private bool _isHit;
         private bool _isEnd;
+        private readonly string _animationName = "Attack";
+        private float _minAnimationTrigger = 0.95f;
 
         public ChainingBaseAttackState(ChainingAbility ability, Hero owner)
         {
@@ -30,18 +31,31 @@ namespace Entities.Player
         {
             base.OnEnter(_stateMachine);
 
-            _animationStart();
+            AnimationStart();
         }
         
         public override void OnUpdate()
         {
             base.OnUpdate();
 
-            if (_animator.GetFloat("Attack.Hit") >= 1f && !_isHit)
-            {
-                _isHit = true;
+            TryToAttack();
+            TryToEnd().Forget();
+        }
+        
+        public override void OnExit()
+        {
+            base.OnExit();
 
-                var direction = _attackDirection(_animationDirection);
+            _nextIndex = 0;
+        }
+
+        private void TryToAttack()
+        {
+            var attackTrigger = _animator.GetFloat("Attack.Hit");
+
+            if (attackTrigger >= _minAnimationTrigger && !_isHit)
+            {
+                var direction = AttackDirection(_animationDirection);
 
                 if (direction == Vector3Int.zero)
                 {
@@ -52,65 +66,59 @@ namespace Entities.Player
                     return;
                 }
                 
+                _isHit = true;
                 _ability.Attack(direction, _damage);
             }
+        }
+
+        private async UniTask TryToEnd()
+        {
+            var endTrigger = _animator.GetFloat("Attack.End");
             
-            if (_animator.GetFloat("Attack.End") >= 1f && !_isEnd)
+            if (endTrigger >= _minAnimationTrigger && !_isEnd)
             {
                 _isEnd = true;
-                _animationEnd().Forget();
+                
+                var entity = _selectedEntities[_nextIndex];
+                var entityHealth = entity.Health.Value;
+
+                if (entityHealth == 0)
+                {
+                    _damage += 1;
+                }
+            
+                _damage -= entityHealth;
+            
+                if (entity.Health.IsDead)
+                {
+                    await _owner.Move(entity.GridPosition, 0.1f);
+
+                    _nextIndex++;
+                }
+            
+                if (_nextIndex >= _selectedEntities.Count)
+                {
+                    stateMachine.SetNextStateToMain();
+                }
+                else
+                {
+                    AnimationStart();
+                }
             }
         }
-        
-        public override void OnExit()
-        {
-            base.OnExit();
 
-            _nextIndex = 0;
-        }
-
-        private void _animationStart()
+        private void AnimationStart()
         {
             var entity = _selectedEntities[_nextIndex];
-            _animationDirection = _nextAnimationDirection(entity.GridPosition);
-            
+            _animationDirection = NextAnimationDirection(entity.GridPosition);
 
             _animator.SetTrigger($"{_animationName}{_animationDirection}");
             
             _isEnd = false;
             _isHit = false;
         }
-
-        private async UniTask _animationEnd()
-        {
-            var entity = _selectedEntities[_nextIndex];
-            var entityHealth = entity.Health.Value;
-
-            if (entityHealth == 0)
-            {
-                _damage += 1;
-            }
-            
-            _damage -= entityHealth;
-            
-            if (entity.Health.IsDead)
-            {
-                await _owner.Move(entity.GridPosition, 0.1f);
-
-                _nextIndex++;
-            }
-            
-            if (_nextIndex >= _selectedEntities.Count)
-            {
-                stateMachine.SetNextStateToMain();
-            }
-            else
-            {
-                _animationStart();
-            }
-        }
         
-        private int _nextAnimationDirection(Vector3Int entityPosition)
+        private int NextAnimationDirection(Vector3Int entityPosition)
         {
             var start = _ability.OriginGridPosition;
             var delta = entityPosition - start;
@@ -127,7 +135,7 @@ namespace Entities.Player
             }
         }
 
-        private Vector3Int _attackDirection(int attackNumber)
+        private Vector3Int AttackDirection(int attackNumber)
         {
             return attackNumber switch
             {
