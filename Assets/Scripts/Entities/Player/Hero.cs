@@ -1,6 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
-using Core;
 using Entities.Components;
 using UnityEngine;
 using Services.EventBus;
@@ -17,7 +17,7 @@ namespace Entities.Player
 
         private bool _isInit;
         
-        private StateMachine _actionStateMachine;
+        private AbilityStateMachine _abilityStateMachine;
 
         private AbilitiesService _abilitiesService;
         
@@ -34,15 +34,20 @@ namespace Entities.Player
             _unsubscribeOnEvents();
         }
 
+        public void Start()
+        {
+            _abilityStateMachine = GetComponent<AbilityStateMachine>();
+        }
+
         private void Update()
         {
             if (!_isInit) return;
 
-            if (_actionStateMachine.CurrentState.GetType() == typeof(IdleState))
+            if (_abilityStateMachine.CurrentState.GetType() == typeof(AbilityIdleState))
             {
                 if (_abilitiesService.SelectedAbility)
                 {
-                    _actionStateMachine.SetNextState(_abilitiesService.SelectedAbility.InitState);
+                    _abilityStateMachine.SetNextState(_abilitiesService.SelectedAbility.InitState);
                 }
             }
             // if (Input.GetMouseButton(0) && _actionStateMachine.CurrentState.GetType() == typeof(IdleState))
@@ -58,9 +63,7 @@ namespace Entities.Player
 
             _abilitiesService = GetComponent<AbilitiesService>();
             _abilities = GetComponents<BaseAbility>().ToList();
-            _actionStateMachine = GetComponent<StateMachine>();
             
-            _actionStateMachine.Init();
             _abilitiesService.Init(_abilities);
 
             Damage = new Damage(damage);

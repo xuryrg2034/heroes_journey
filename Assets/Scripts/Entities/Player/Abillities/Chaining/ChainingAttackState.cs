@@ -112,7 +112,7 @@ namespace Entities.Player
         
         private int _nextAnimationDirection(Vector3Int entityPosition)
         {
-            var start = _owner.GridPosition;
+            var start = _ability.OriginGridPosition;
             var delta = entityPosition - start;
 
             if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y))

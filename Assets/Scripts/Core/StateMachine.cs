@@ -1,14 +1,26 @@
+using System;
 using UnityEngine;
 
 namespace Core
 {
      public class StateMachine : MonoBehaviour
      {
-         private State mainStateType = new IdleState();
+         protected State mainStateType;
      
-         public State CurrentState { get; private set; }
+         public State CurrentState { get; protected set; }
+         
          private State nextState;
-     
+         
+         private void Awake()
+         {
+             mainStateType = new IdleState();
+         }
+
+         private void Start()
+         {
+             CurrentState = mainStateType;
+         }
+
          // Update is called once per frame
          private void Update()
          {
@@ -30,11 +42,6 @@ namespace Core
              }
              CurrentState = _newState;
              CurrentState.OnEnter(this);
-         }
-
-         public void Init()
-         {
-             CurrentState = mainStateType;
          }
          
          public void SetNextState(State _newState)

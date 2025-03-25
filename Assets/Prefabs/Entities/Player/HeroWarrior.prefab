@@ -12,9 +12,9 @@ GameObject:
   - component: {fileID: -2614704007233598948}
   - component: {fileID: 426220746719684042}
   - component: {fileID: 4958044900380387369}
-  - component: {fileID: 2953188225446188996}
   - component: {fileID: 3103615436690136008}
   - component: {fileID: 1537629032947359943}
+  - component: {fileID: 7037304468570232516}
   m_Layer: 6
   m_Name: HeroWarrior
   m_TagString: Player
@@ -129,18 +129,6 @@ MonoBehaviour:
   damage: 0
   energy: 100
   animator: {fileID: 5007144192083671867}
---- !u!114 &2953188225446188996
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 32920870007475787}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 59a4b5a0391c4527a6581815ff315975, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &3103615436690136008
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -165,12 +153,25 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5da3528c1b9c42c4abce93e43efd4c75, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  damage: 0
   title: Chaining
   energyCost: 0
   cooldown: 0
   tilemapLayer:
     serializedVersion: 2
     m_Bits: 72
+--- !u!114 &7037304468570232516
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 32920870007475787}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 024ac6fb80b049ed94ebbd456a9c9484, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &7431215449899010737
 GameObject:
   m_ObjectHideFlags: 0
