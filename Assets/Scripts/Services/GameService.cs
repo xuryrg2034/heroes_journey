@@ -22,19 +22,18 @@ namespace Services
     public class GameService : MonoBehaviour
     {
         [SerializeField] private GridService gridService;
-        [SerializeField] private GameObject abilitiesService;
+        [SerializeField] private AbilitiesUIService abilitiesUIService;
         [SerializeField] private GameObject questService;
-        [FormerlySerializedAs("heroUIService")] [SerializeField] private UIService uiService;
+        [SerializeField] private UIService uiService;
         [SerializeField] private TurnService turnService;
         [SerializeField] private Hero heroPrefab;
-        
 
         private Hero _heroEntity;
         
         public static UnityEvent<GameState> OnGameStateChange = new();
         public static GameState CurrentState { get; private set; } = GameState.WaitingForInput;
 
-        // FIXME: Порядок вызова важен. Происходит решистрация классов в сервис локаторе
+        // FIXME: Порядок вызова важен. Происходит регистрация классов в сервис локаторе
         private void Awake()
         {
             _prepareLevelStatistics();
@@ -52,13 +51,9 @@ namespace Services
 
         private void _prepareAbilities()
         {
-            var service = abilitiesService.GetComponent<AbilitiesService>();
-            var ui = abilitiesService.GetComponent<AbilitiesUIService>();
-            
-            ServiceLocator.Register(service);
+            ServiceLocator.Register(_heroEntity.AbilitiesService);
 
-            service.Init(_heroEntity.Abilities);
-            ui.Init(service);
+            abilitiesUIService.Init(_heroEntity.AbilitiesService);
         }
         
         private void _prepareQuests()
@@ -75,10 +70,9 @@ namespace Services
             ServiceLocator.Register(gridService);
 
             gridService.Init();
-            gridService.SpawnEntity(heroPrefab, heroPrefab.SpawnPosition);
+            _heroEntity = (Hero)gridService.SpawnEntity(heroPrefab, heroPrefab.SpawnPosition);
             gridService.SpawnEntitiesOnGrid();
             
-            _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
             uiService.Init(_heroEntity);
         }
 

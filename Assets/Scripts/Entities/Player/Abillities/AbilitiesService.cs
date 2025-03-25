@@ -24,12 +24,10 @@ namespace Entities.Player
             ResetAbilities();
 
             _selectedAbility = ability;
-            _selectedAbility.Activate();
         }
 
         public void ResetAbilities()
         {
-            _selectedAbility?.Deactivate();
             _selectedAbility = null;
         }
 

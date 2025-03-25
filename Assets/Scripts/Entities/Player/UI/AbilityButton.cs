@@ -9,7 +9,7 @@ namespace Entities.Player
     {
         private BaseAbility _ability;
         
-        private bool _interactable;
+        private bool _interactable = true;
 
         private Button _button;
 
@@ -19,29 +19,29 @@ namespace Entities.Player
 
         private void OnDisable()
         {
-            _ability.OnEnableChanged.RemoveListener(_handleChangeAbilityEnabled);
             _button.onClick.RemoveListener(_callbackInvoke);
+        }
+
+        private void Update()
+        {
         }
 
         public void Init(BaseAbility ability, Action<BaseAbility> callback)
         {
             _ability = ability;
             _callback = callback;
-            _interactable = _ability.Enable;
             _button = GetComponent<Button>();
             _tmp = GetComponentInChildren<TMP_Text>();
 
             _prepareButton();
             _prepareText();
-
-            _ability.OnEnableChanged.AddListener(_handleChangeAbilityEnabled);
         }
 
         // Попытка поменять состоянии извне
-        public void TryToggleInteractable(bool state)
-        {
-            _button.interactable = state && _ability.Enable;
-        }
+        // public void TryToggleInteractable(bool state)
+        // {
+        //     _button.interactable = state && _ability.Enable;
+        // }
 
         private void _prepareButton()
         {
@@ -57,11 +57,6 @@ namespace Entities.Player
         private void _prepareText()
         {
             _tmp.text = _ability.Title;
-        }
-        
-        private void _handleChangeAbilityEnabled(bool state)
-        {
-            _interactable = state;
         }
     }
 }

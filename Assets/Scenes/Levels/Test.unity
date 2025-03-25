@@ -164,7 +164,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   gridService: {fileID: 1524337973}
-  abilitiesService: {fileID: 1006610935}
+  abilitiesUIService: {fileID: 1006610938}
   questService: {fileID: 156452667}
   uiService: {fileID: 443725304}
   turnService: {fileID: 1474472036}
@@ -1288,9 +1288,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1006610936}
   - component: {fileID: 1006610938}
-  - component: {fileID: 1006610939}
   m_Layer: 0
-  m_Name: AbilitiesService
+  m_Name: AbilitiesUIService
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1326,18 +1325,6 @@ MonoBehaviour:
   executeButton: {fileID: 789642669}
   containerPrefab: {fileID: 591160939}
   itemPrefab: {fileID: 6442123144796837361, guid: b116bb4278f86264da11011ccfc8c62e, type: 3}
---- !u!114 &1006610939
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1006610935}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f12de5498d414d35a4a3fc61956dfe4a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &1386378507
 GameObject:
   m_ObjectHideFlags: 0

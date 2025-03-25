@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Services;
 using UnityEngine;
@@ -13,10 +14,18 @@ namespace Entities.Player
 
         private List<AbilityButton> _buttonList = new();
         private AbilitiesService _abilitiesService;
+        private bool _isInit;
 
         private void Start()
         {
-            GameService.OnGameStateChange.AddListener(_toggleButtonInteractable);
+            // GameService.OnGameStateChange.AddListener(_toggleButtonInteractable);
+        }
+
+        private void Update()
+        {
+            if (!_isInit) return;
+
+            _toggleExecuteButtonInteractable();
         }
 
         public void Init(AbilitiesService service)
@@ -36,17 +45,27 @@ namespace Entities.Player
                 
                 _buttonList.Add(button);
             }
+
+            _isInit = true;
         }
 
-        private void _toggleButtonInteractable(GameState state)
+
+        private void _toggleExecuteButtonInteractable()
         {
-            foreach (var button in _buttonList)
-            {
-                button.TryToggleInteractable(state == GameState.WaitingForInput);
-            }
-            
-            executeButton.interactable = state == GameState.WaitingForInput;
+            var interactable =
+                GameService.CurrentState == GameState.WaitingForInput &&
+                _abilitiesService.SelectedAbility != null;
+
+            executeButton.interactable = interactable;
         }
+
+        // private void _toggleButtonInteractable(GameState state)
+        // {
+        //     foreach (var button in _buttonList)
+        //     {
+        //         button.TryToggleInteractable(state == GameState.WaitingForInput);
+        //     }
+        // }
     }
 }
 

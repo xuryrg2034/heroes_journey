@@ -12,7 +12,9 @@ GameObject:
   - component: {fileID: -2614704007233598948}
   - component: {fileID: 426220746719684042}
   - component: {fileID: 4958044900380387369}
-  - component: {fileID: 3859156347508742352}
+  - component: {fileID: 2953188225446188996}
+  - component: {fileID: 3103615436690136008}
+  - component: {fileID: 1537629032947359943}
   m_Layer: 6
   m_Name: HeroWarrior
   m_TagString: Player
@@ -127,23 +129,7 @@ MonoBehaviour:
   damage: 0
   energy: 100
   animator: {fileID: 5007144192083671867}
-  abilities:
-  - rid: 3283534796043845719
-  references:
-    version: 2
-    RefIds:
-    - rid: 3283534796043845719
-      type: {class: ChainingAttackSelection, ns: Entities.Player, asm: Assembly-CSharp}
-      data:
-        title: Chaining
-        energyCost: 0
-        cooldown: 0
-        OnEnableChanged:
-          m_PersistentCalls:
-            m_Calls: []
-        killsToReward: 0
-        rainbowCoinPrefab: {fileID: 0}
---- !u!114 &3859156347508742352
+--- !u!114 &2953188225446188996
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -152,9 +138,39 @@ MonoBehaviour:
   m_GameObject: {fileID: 32920870007475787}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9a994140d1bb4e3fad021873d8e99162, type: 3}
+  m_Script: {fileID: 11500000, guid: 59a4b5a0391c4527a6581815ff315975, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &3103615436690136008
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 32920870007475787}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f12de5498d414d35a4a3fc61956dfe4a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &1537629032947359943
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 32920870007475787}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5da3528c1b9c42c4abce93e43efd4c75, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  title: Chaining
+  energyCost: 0
+  cooldown: 0
+  tilemapLayer:
+    serializedVersion: 2
+    m_Bits: 72
 --- !u!1 &7431215449899010737
 GameObject:
   m_ObjectHideFlags: 0
@@ -166,7 +182,6 @@ GameObject:
   - component: {fileID: 1670684776658606280}
   - component: {fileID: 5007144192083671867}
   - component: {fileID: 4669737855505808603}
-  - component: {fileID: 3521918192112866130}
   m_Layer: 6
   m_Name: Animation
   m_TagString: Untagged
@@ -266,19 +281,3 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
---- !u!114 &3521918192112866130
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7431215449899010737}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0dca8008e87f4c759a696f019ceef560, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  hero: {fileID: 4958044900380387369}
-  targetLayer:
-    serializedVersion: 2
-    m_Bits: 8
