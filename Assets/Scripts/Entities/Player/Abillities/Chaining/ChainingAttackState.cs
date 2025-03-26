@@ -49,7 +49,7 @@ namespace Entities.Player
             _nextIndex = 0;
         }
 
-        private void TryToAttack()
+        void TryToAttack()
         {
             var attackTrigger = _animator.GetFloat("Attack.Hit");
 
@@ -71,7 +71,7 @@ namespace Entities.Player
             }
         }
 
-        private async UniTask TryToEnd()
+        async UniTask TryToEnd()
         {
             var endTrigger = _animator.GetFloat("Attack.End");
             
@@ -107,7 +107,7 @@ namespace Entities.Player
             }
         }
 
-        private void AnimationStart()
+        void AnimationStart()
         {
             var entity = _selectedEntities[_nextIndex];
             _animationDirection = NextAnimationDirection(entity.GridPosition);
@@ -117,8 +117,8 @@ namespace Entities.Player
             _isEnd = false;
             _isHit = false;
         }
-        
-        private int NextAnimationDirection(Vector3Int entityPosition)
+
+        int NextAnimationDirection(Vector3Int entityPosition)
         {
             var start = _ability.OriginGridPosition;
             var delta = entityPosition - start;
@@ -135,7 +135,7 @@ namespace Entities.Player
             }
         }
 
-        private Vector3Int AttackDirection(int attackNumber)
+        Vector3Int AttackDirection(int attackNumber)
         {
             return attackNumber switch
             {

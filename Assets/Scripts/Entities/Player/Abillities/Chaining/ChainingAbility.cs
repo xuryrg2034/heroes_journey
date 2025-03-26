@@ -28,7 +28,7 @@ namespace Entities.Player
             InitState.stateMachine.SetNextState(new ChainingBaseAttackState(this, Owner));
 
             // Не уверен, что хороший план
-            await UniTask.WaitUntil(() => InitState.stateMachine.CurrentState.GetType() == typeof(AbilityIdleState));
+            await UniTask.WaitUntil(() => InitState.stateMachine.CurrentState is AbilityIdleState);
         }
         
         public void Attack(Vector3Int direction, int damage)

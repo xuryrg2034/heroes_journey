@@ -9,17 +9,17 @@ namespace Entities.Player
 {
     public class Hero : BaseEntity
     {
-        [SerializeField] private int damage;
-        [SerializeField] private int energy;
-        [SerializeField] private Animator animator;
+        [SerializeField] int damage;
+        [SerializeField] int energy;
+        [SerializeField] Animator animator;
         
-        private List<BaseAbility> _abilities = new();
+        List<BaseAbility> _abilities = new();
 
-        private bool _isInit;
+        bool _isInit;
         
-        private AbilityStateMachine _abilityStateMachine;
+        AbilityStateMachine _abilityStateMachine;
 
-        private AbilitiesService _abilitiesService;
+        AbilitiesService _abilitiesService;
         
         public Animator Animator => animator;
         
@@ -31,7 +31,7 @@ namespace Entities.Player
 
         private void OnDisable()
         {
-            _unsubscribeOnEvents();
+            UnsubscribeOnEvents();
         }
 
         public void Start()
@@ -43,7 +43,7 @@ namespace Entities.Player
         {
             if (!_isInit) return;
 
-            if (_abilityStateMachine.CurrentState.GetType() == typeof(AbilityIdleState))
+            if (_abilityStateMachine.CurrentState is AbilityIdleState)
             {
                 if (_abilitiesService.SelectedAbility)
                 {
@@ -69,29 +69,29 @@ namespace Entities.Player
                 ability.Init(this);
             }
 
-            _subscribeOnEvents();
+            SubscribeOnEvents();
 
             _isInit = true;
         }
         
-        private void _restoreEnergy(int value = 1)
+        void RestoreEnergy(int value = 1)
         {
             Energy.Increase(value);
         }
 
-        private void _subscribeOnEvents()
+        void SubscribeOnEvents()
         {
-            EventBusService.Subscribe(Actions.PlayerTurnStart, _turnStart);
-            EventBusService.Subscribe<int>(Actions.PlayerRestoreEnergy, _restoreEnergy);
+            EventBusService.Subscribe(Actions.PlayerTurnStart, TurnStart);
+            EventBusService.Subscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
         }
         
-        private void _unsubscribeOnEvents()
+        void UnsubscribeOnEvents()
         {
-            EventBusService.Unsubscribe(Actions.PlayerTurnStart, _turnStart);
-            EventBusService.Unsubscribe<int>(Actions.PlayerRestoreEnergy, _restoreEnergy);
+            EventBusService.Unsubscribe(Actions.PlayerTurnStart, TurnStart);
+            EventBusService.Unsubscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
         }
 
-        private void _turnStart()
+        void TurnStart()
         {
             Energy.Increase();
         }
