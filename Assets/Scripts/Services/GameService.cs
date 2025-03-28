@@ -51,9 +51,10 @@ namespace Services
 
         private void _prepareAbilities()
         {
-            ServiceLocator.Register(_heroEntity.AbilitiesService);
+            var abilityService = new AbilitiesService(_heroEntity);
 
-            abilitiesUIService.Init(_heroEntity.AbilitiesService);
+            ServiceLocator.Register(abilityService);
+            abilitiesUIService.Init(abilityService);
         }
         
         private void _prepareQuests()

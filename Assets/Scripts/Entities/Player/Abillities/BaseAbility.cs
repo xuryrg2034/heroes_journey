@@ -7,9 +7,9 @@ namespace Entities.Player
 {
     public abstract class BaseAbility : MonoBehaviour
     {
-        [SerializeField] private string title;
-        [SerializeField] private int energyCost;
-        [SerializeField] private int cooldown;
+        [SerializeField] string title;
+        [SerializeField] int energyCost;
+        [SerializeField] int cooldown;
         [SerializeField] protected LayerMask tilemapLayer;
 
         protected Hero Owner;

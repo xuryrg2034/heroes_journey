@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using Entities.Components;
 using UnityEngine;
@@ -18,16 +17,18 @@ namespace Entities.Player
         bool _isInit;
         
         AbilityStateMachine _abilityStateMachine;
-
-        AbilitiesService _abilitiesService;
+        
+        BaseAbility _selectedAbility;
         
         public Animator Animator => animator;
-        
-        public AbilitiesService AbilitiesService => _abilitiesService;
         
         public Damage Damage { get; private set; }
 
         public Energy Energy { get; private set; }
+
+        public List<BaseAbility> Abilities => _abilities;
+        
+        public BaseAbility SelectedAbility => _selectedAbility;
 
         private void OnDisable()
         {
@@ -45,9 +46,9 @@ namespace Entities.Player
 
             if (_abilityStateMachine.CurrentState is AbilityIdleState)
             {
-                if (_abilitiesService.SelectedAbility)
+                if (_selectedAbility != null)
                 {
-                    _abilityStateMachine.SetNextState(_abilitiesService.SelectedAbility.InitState);
+                    _abilityStateMachine.SetNextState(_selectedAbility.InitState);
                 }
             }
         }
@@ -56,10 +57,7 @@ namespace Entities.Player
         {
             base.Init();
 
-            _abilitiesService = GetComponent<AbilitiesService>();
             _abilities = GetComponents<BaseAbility>().ToList();
-            
-            _abilitiesService.Init(_abilities);
 
             Damage = new Damage(damage);
             Energy = new Energy(energy, energy);
@@ -72,6 +70,12 @@ namespace Entities.Player
             SubscribeOnEvents();
 
             _isInit = true;
+        }
+
+        public void SelectAbility(BaseAbility ability)
+        {
+            _abilityStateMachine.SetNextStateToMain();
+            _selectedAbility = ability;
         }
         
         void RestoreEnergy(int value = 1)

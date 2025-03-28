@@ -8,20 +8,15 @@ namespace Entities.Player
 {
     public class AbilitiesUIService : MonoBehaviour
     {
-        [SerializeField] private Button executeButton;
-        [SerializeField] private Transform containerPrefab;
-        [SerializeField] private AbilityButton itemPrefab;
+        [SerializeField] Button executeButton;
+        [SerializeField] Transform containerPrefab;
+        [SerializeField] AbilityButton itemPrefab;
 
-        private List<AbilityButton> _buttonList = new();
-        private AbilitiesService _abilitiesService;
-        private bool _isInit;
+        List<AbilityButton> _buttonList = new();
+        AbilitiesService _abilitiesService;
+        bool _isInit;
 
-        private void Start()
-        {
-            // GameService.OnGameStateChange.AddListener(_toggleButtonInteractable);
-        }
-
-        private void Update()
+        void Update()
         {
             if (!_isInit) return;
 
@@ -37,7 +32,7 @@ namespace Entities.Player
                 Destroy(child.gameObject);
             }
 
-            foreach (var ability in _abilitiesService.AbilitiesList)
+            foreach (var ability in _abilitiesService.Abilities)
             {
                 var button = Instantiate(itemPrefab, containerPrefab);
                 
@@ -50,7 +45,7 @@ namespace Entities.Player
         }
 
 
-        private void _toggleExecuteButtonInteractable()
+        void _toggleExecuteButtonInteractable()
         {
             var interactable =
                 GameService.CurrentState == GameState.WaitingForInput &&
@@ -58,14 +53,6 @@ namespace Entities.Player
 
             executeButton.interactable = interactable;
         }
-
-        // private void _toggleButtonInteractable(GameState state)
-        // {
-        //     foreach (var button in _buttonList)
-        //     {
-        //         button.TryToggleInteractable(state == GameState.WaitingForInput);
-        //     }
-        // }
     }
 }
 

@@ -9,20 +9,20 @@ namespace Core
      
          public State CurrentState { get; protected set; }
          
-         private State nextState;
+         State nextState;
          
-         private void Awake()
+         void Awake()
          {
              mainStateType = new IdleState();
          }
 
-         private void Start()
+         void Start()
          {
              CurrentState = mainStateType;
          }
 
          // Update is called once per frame
-         private void Update()
+         void Update()
          {
              if (nextState != null)
              {
@@ -32,8 +32,21 @@ namespace Core
              if (CurrentState != null)
                  CurrentState.OnUpdate();
          }
+         
+         public void SetNextState(State _newState)
+         {
+             if (_newState != null)
+             {
+                 nextState = _newState;
+             }
+         }
+         
+         public void SetNextStateToMain()
+         {
+             nextState = mainStateType;
+         }
      
-         private void SetState(State _newState)
+         void SetState(State _newState)
          {
              nextState = null;
              if (CurrentState != null)
@@ -43,30 +56,17 @@ namespace Core
              CurrentState = _newState;
              CurrentState.OnEnter(this);
          }
-         
-         public void SetNextState(State _newState)
-         {
-             if (_newState != null)
-             {
-                 nextState = _newState;
-             }
-         }
      
-         private void LateUpdate()
+         void LateUpdate()
          {
              if (CurrentState != null)
                  CurrentState.OnLateUpdate();
          }
      
-         private void FixedUpdate()
+         void FixedUpdate()
          {
              if (CurrentState != null)
                  CurrentState.OnFixedUpdate();
-         }
-     
-         public void SetNextStateToMain()
-         {
-             nextState = mainStateType;
          }
      }   
 }
