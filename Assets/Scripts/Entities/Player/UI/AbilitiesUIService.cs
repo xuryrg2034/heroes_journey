@@ -13,20 +13,13 @@ namespace Entities.Player
         [SerializeField] AbilityButton itemPrefab;
 
         List<AbilityButton> _buttonList = new();
+        
         AbilitiesService _abilitiesService;
-        bool _isInit;
 
-        void Update()
+        void Start()
         {
-            if (!_isInit) return;
-
-            _toggleExecuteButtonInteractable();
-        }
-
-        public void Init(AbilitiesService service)
-        {
-            _abilitiesService = service;
-
+            _abilitiesService = ServiceLocator.Get<AbilitiesService>();
+            
             foreach (Transform child in containerPrefab)
             {
                 Destroy(child.gameObject);
@@ -40,10 +33,12 @@ namespace Entities.Player
                 
                 _buttonList.Add(button);
             }
-
-            _isInit = true;
         }
-
+        
+        void Update()
+        {
+            _toggleExecuteButtonInteractable();
+        }
 
         void _toggleExecuteButtonInteractable()
         {

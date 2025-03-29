@@ -7,22 +7,22 @@ namespace Entities.Player
 {
     public class AbilityButton : MonoBehaviour
     {
-        private BaseAbility _ability;
+        BaseAbility _ability;
         
-        private bool _interactable = true;
+        bool _interactable = true;
 
-        private Button _button;
+        Button _button;
 
-        private Action<BaseAbility> _callback;
+        Action<BaseAbility> _callback;
 
-        private TMP_Text _tmp;
+        TMP_Text _tmp;
 
-        private void OnDisable()
+        void OnDisable()
         {
             _button.onClick.RemoveListener(_callbackInvoke);
         }
 
-        private void Update()
+        void Update()
         {
         }
 
@@ -37,24 +37,18 @@ namespace Entities.Player
             _prepareText();
         }
 
-        // Попытка поменять состоянии извне
-        // public void TryToggleInteractable(bool state)
-        // {
-        //     _button.interactable = state && _ability.Enable;
-        // }
-
-        private void _prepareButton()
+        void _prepareButton()
         {
             _button.interactable = _interactable;
             _button.onClick.AddListener(_callbackInvoke);
         }
 
-        private void _callbackInvoke()
+        void _callbackInvoke()
         {
             _callback.Invoke(_ability);
         }
         
-        private void _prepareText()
+        void _prepareText()
         {
             _tmp.text = _ability.Title;
         }

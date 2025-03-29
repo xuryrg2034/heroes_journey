@@ -34,7 +34,7 @@ namespace Services
         public static GameState CurrentState { get; private set; } = GameState.WaitingForInput;
 
         // FIXME: Порядок вызова важен. Происходит регистрация классов в сервис локаторе
-        private void Awake()
+        void Awake()
         {
             _prepareLevelStatistics();
             _prepareGrid();
@@ -49,15 +49,12 @@ namespace Services
             OnGameStateChange?.Invoke(CurrentState);
         }
 
-        private void _prepareAbilities()
+        void _prepareAbilities()
         {
-            var abilityService = new AbilitiesService(_heroEntity);
-
-            ServiceLocator.Register(abilityService);
-            abilitiesUIService.Init(abilityService);
+            ServiceLocator.Register(new AbilitiesService(_heroEntity));
         }
         
-        private void _prepareQuests()
+        void _prepareQuests()
         {
             var service = questService.GetComponent<QuestService>();
             var ui = questService.GetComponent<QuestUIService>();
@@ -66,7 +63,7 @@ namespace Services
             ui.Init(service);
         }
 
-        private void _prepareGrid()
+        void _prepareGrid()
         {
             ServiceLocator.Register(gridService);
 
@@ -77,12 +74,12 @@ namespace Services
             uiService.Init(_heroEntity);
         }
 
-        private void _prepareTurnService()
+        void _prepareTurnService()
         {
             turnService.Init();
         }
 
-        private void _prepareLevelStatistics()
+        void _prepareLevelStatistics()
         {
             ServiceLocator.Register(new LevelStatistics());
         }

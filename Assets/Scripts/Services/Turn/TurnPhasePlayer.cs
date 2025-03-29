@@ -25,7 +25,7 @@ namespace Services.Turn
 
         private void _endTurn()
         {
-            _abilitiesService.ResetAbilities();
+            _abilitiesService.ResetAbility();
             _processNextPhase();
         }
 

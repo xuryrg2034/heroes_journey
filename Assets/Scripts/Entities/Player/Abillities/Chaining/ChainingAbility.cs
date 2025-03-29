@@ -16,19 +16,20 @@ namespace Entities.Player
 
         public Vector3Int OriginGridPosition => Owner.GridPosition;
         
-        private void Start()
+        void Start()
         {
-            InitState = new ChainingSelectionState(this);
+            SelectionState = new ChainingSelectionState(this);
+            ExecuteState = new ChainingBaseAttackState(this, Owner);
         }
 
         public override async UniTask Execute()
         {
             await base.Execute();
             
-            InitState.stateMachine.SetNextState(new ChainingBaseAttackState(this, Owner));
+            StateMachine.SetNextState(ExecuteState);
 
             // Не уверен, что хороший план
-            await UniTask.WaitUntil(() => InitState.stateMachine.CurrentState is AbilityIdleState);
+            await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
         }
         
         public void Attack(Vector3Int direction, int damage)

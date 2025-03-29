@@ -6,7 +6,7 @@ namespace Entities.Player
 {
     public class AbilitiesService
     {
-        Hero _owner;
+        readonly Hero _owner;
         
         public AbilitiesService(Hero hero)
         {
@@ -19,12 +19,10 @@ namespace Entities.Player
         
         public void SelectAbility(BaseAbility ability)
         {
-            ResetAbilities();
-
             _owner.SelectAbility(ability);
         }
 
-        public void ResetAbilities()
+        public void ResetAbility()
         {
             _owner.SelectAbility(null);
         }

@@ -9,9 +9,9 @@ namespace Entities.Player
 {
     public class ChainingSelectionState : State
     {
-        private ChainingAbility _ability;
-        private List<BaseEntity> _selectedEntities;
-        private bool _selectionLocked;
+        ChainingAbility _ability;
+        List<BaseEntity> _selectedEntities;
+        bool _selectionLocked;
 
         public ChainingSelectionState(ChainingAbility ability)
         {
@@ -45,7 +45,14 @@ namespace Entities.Player
             _ability.ResetSelection();
         }
 
-        private void _selectEntity(BaseEntity entity)
+        public override void OnExit()
+        {
+            base.OnExit();
+            
+            _selectionLocked = false;
+        }
+
+        void _selectEntity(BaseEntity entity)
         {
             // Проверка, что бы нельзя было добавить в цепочку противка у которого больше 0 здоровья, когда нет урона
             if (entity.Health.Value > 0 && _ability.TotalDamage <= 0) return;
@@ -77,14 +84,14 @@ namespace Entities.Player
             _ability.SelectEntity(entity);
         }
 
-        private void _removeEnemiesAfter(BaseEntity target)
+        void _removeEnemiesAfter(BaseEntity target)
         {
             var index = _selectedEntities.IndexOf(target);
 
             _ability.RemoveAtIndex(index);
         }
 
-        private void _recalculateTotalDamage()
+        void _recalculateTotalDamage()
         {
             var totalDamage = _selectedEntities.Sum(item =>
             {
@@ -100,7 +107,7 @@ namespace Entities.Player
             _selectionLocked = totalDamage < 0;
         }
         
-        private bool _canSelectionTypeByType(EntitySelectionType type)
+        bool _canSelectionTypeByType(EntitySelectionType type)
         {
             if (
                 type == EntitySelectionType.Neutral
@@ -110,7 +117,7 @@ namespace Entities.Player
             return type == _ability.AvailableType;
         }
         
-        private bool _isInRange(Vector3Int origin, Vector3Int target)
+        bool _isInRange(Vector3Int origin, Vector3Int target)
         {
             // Вычисляем разницу по X и Y
             var deltaX = Math.Abs(origin.x - target.x);

@@ -14,15 +14,20 @@ namespace Entities.Player
 
         protected Hero Owner;
 
+        public AbilityStateMachine StateMachine { get; private set; }
+
         public LayerMask TilemapLayer => tilemapLayer;
         
-        public State InitState { get; protected set; }
+        public State SelectionState { get; protected set; }
+        
+        public State ExecuteState { get; protected set; }
 
         public string Title => title;
 
-        public void Init(Hero owner)
+        public virtual void Init(Hero owner, AbilityStateMachine stateMachine)
         {
             Owner = owner;
+            StateMachine =  stateMachine;
         }
 
         public virtual UniTask Execute()

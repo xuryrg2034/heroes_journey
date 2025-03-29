@@ -26,17 +26,18 @@ namespace Entities.Player.Slash
         
         void Start()
         {
-            InitState = new SlashSelectionState(this);
+            SelectionState = new SlashSelectionState(this);
+            ExecuteState = new SlashAttackState(this, Owner);
         }
         
         public override async UniTask Execute()
         {
             await base.Execute();
             
-            InitState.stateMachine.SetNextState(new SlashAttackState(this, Owner));
+            StateMachine.SetNextState(ExecuteState);
 
             // Не уверен, что хороший план
-            await UniTask.WaitUntil(() => InitState.stateMachine.CurrentState is AbilityIdleState);
+            await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
         }
 
         public void SelectTarget(BaseEntity entity)

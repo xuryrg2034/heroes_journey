@@ -30,41 +30,29 @@ namespace Entities.Player
         
         public BaseAbility SelectedAbility => _selectedAbility;
 
-        private void OnDisable()
+        void OnDisable()
         {
             UnsubscribeOnEvents();
         }
 
-        public void Start()
-        {
-            _abilityStateMachine = GetComponent<AbilityStateMachine>();
-        }
-
-        private void Update()
+        void Update()
         {
             if (!_isInit) return;
-
-            if (_abilityStateMachine.CurrentState is AbilityIdleState)
-            {
-                if (_selectedAbility != null)
-                {
-                    _abilityStateMachine.SetNextState(_selectedAbility.InitState);
-                }
-            }
         }
 
         public override void Init()
         {
-            base.Init();
-
+            _abilityStateMachine = GetComponent<AbilityStateMachine>();
             _abilities = GetComponents<BaseAbility>().ToList();
+
+            base.Init();
 
             Damage = new Damage(damage);
             Energy = new Energy(energy, energy);
 
             foreach (var ability in _abilities)
             {
-                ability.Init(this);
+                ability.Init(this, _abilityStateMachine);
             }
 
             SubscribeOnEvents();
@@ -74,8 +62,12 @@ namespace Entities.Player
 
         public void SelectAbility(BaseAbility ability)
         {
-            _abilityStateMachine.SetNextStateToMain();
             _selectedAbility = ability;
+
+            if (_selectedAbility)
+            {
+                _abilityStateMachine.SetNextState(_selectedAbility.SelectionState);
+            }
         }
         
         void RestoreEnergy(int value = 1)
@@ -85,17 +77,17 @@ namespace Entities.Player
 
         void SubscribeOnEvents()
         {
-            EventBusService.Subscribe(Actions.PlayerTurnStart, TurnStart);
+            EventBusService.Subscribe(Actions.PlayerTurnStart, TurnStartEvent);
             EventBusService.Subscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
         }
         
         void UnsubscribeOnEvents()
         {
-            EventBusService.Unsubscribe(Actions.PlayerTurnStart, TurnStart);
+            EventBusService.Unsubscribe(Actions.PlayerTurnStart, TurnStartEvent);
             EventBusService.Unsubscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
         }
 
-        void TurnStart()
+        void TurnStartEvent()
         {
             Energy.Increase();
         }

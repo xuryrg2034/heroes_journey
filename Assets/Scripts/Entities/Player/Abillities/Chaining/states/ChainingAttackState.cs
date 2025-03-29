@@ -7,26 +7,26 @@ namespace Entities.Player
 {
     public class ChainingBaseAttackState : State
     {
-        private ChainingAbility _ability;
-        private List<BaseEntity> _selectedEntities;
-        private Hero _owner;
-        private Animator _animator;
-        private int _animationDirection;
-        private int _nextIndex;
-        private int _damage;
-        private bool _isHit;
-        private bool _isEnd;
-        private readonly string _animationName = "Attack";
-        private float _minAnimationTrigger = 0.95f;
+        ChainingAbility _ability;
+        Hero _owner;
+        int _animationDirection;
+        int _nextIndex;
+        int _damage;
+        bool _isHit;
+        bool _isEnd;
+        readonly string _animationName = "Attack";
+        float _minAnimationTrigger = 0.95f;
 
         public ChainingBaseAttackState(ChainingAbility ability, Hero owner)
         {
             _ability = ability;
             _owner = owner;
-
-            _selectedEntities = _ability.SelectedEntities;
-            _animator = _owner.Animator;
         }
+        
+        Animator Animator => _owner.Animator; 
+
+        List<BaseEntity> SelectedEntities => _ability.SelectedEntities;
+        
         public override void OnEnter(StateMachine _stateMachine)
         {
             base.OnEnter(_stateMachine);
@@ -47,11 +47,15 @@ namespace Entities.Player
             base.OnExit();
 
             _nextIndex = 0;
+            _isHit = false;
+            _isEnd = false;
+            _damage = 0;
+            _animationDirection = -1;
         }
 
         void TryToAttack()
         {
-            var attackTrigger = _animator.GetFloat("Attack.Hit");
+            var attackTrigger = Animator.GetFloat("Attack.Hit");
 
             if (attackTrigger >= _minAnimationTrigger && !_isHit)
             {
@@ -73,13 +77,13 @@ namespace Entities.Player
 
         async UniTask TryToEnd()
         {
-            var endTrigger = _animator.GetFloat("Attack.End");
+            var endTrigger = Animator.GetFloat("Attack.End");
             
             if (endTrigger >= _minAnimationTrigger && !_isEnd)
             {
                 _isEnd = true;
                 
-                var entity = _selectedEntities[_nextIndex];
+                var entity = SelectedEntities[_nextIndex];
                 var entityHealth = entity.Health.Value;
 
                 if (entityHealth == 0)
@@ -96,7 +100,7 @@ namespace Entities.Player
                     _nextIndex++;
                 }
             
-                if (_nextIndex >= _selectedEntities.Count)
+                if (_nextIndex >= SelectedEntities.Count)
                 {
                     stateMachine.SetNextStateToMain();
                 }
@@ -109,10 +113,10 @@ namespace Entities.Player
 
         void AnimationStart()
         {
-            var entity = _selectedEntities[_nextIndex];
+            var entity = SelectedEntities[_nextIndex];
             _animationDirection = NextAnimationDirection(entity.GridPosition);
 
-            _animator.SetTrigger($"{_animationName}{_animationDirection}");
+            Animator.SetTrigger($"{_animationName}{_animationDirection}");
             
             _isEnd = false;
             _isHit = false;
