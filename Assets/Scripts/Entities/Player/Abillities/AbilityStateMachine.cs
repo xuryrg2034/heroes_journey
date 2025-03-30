@@ -4,7 +4,7 @@ namespace Entities.Player
 {
     public class AbilityStateMachine : StateMachine
     {
-        private void Awake()
+        void Awake()
         {
             mainStateType = new AbilityIdleState();
         }
