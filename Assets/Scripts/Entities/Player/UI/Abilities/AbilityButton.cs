@@ -7,6 +7,9 @@ namespace Entities.Player
 {
     public class AbilityButton : MonoBehaviour
     {
+        [SerializeField] GameObject selection;
+        [SerializeField] GameObject icon;
+
         BaseAbility _ability;
         
         bool _interactable = true;
@@ -15,11 +18,10 @@ namespace Entities.Player
 
         Action<BaseAbility> _callback;
 
-        TMP_Text _tmp;
-
         void OnDisable()
         {
-            _button.onClick.RemoveListener(_callbackInvoke);
+            _button.onClick.RemoveListener(CallbackInvoke);
+            _ability.OnSelected.RemoveListener(ToggleSelection);
         }
 
         void Update()
@@ -31,26 +33,31 @@ namespace Entities.Player
             _ability = ability;
             _callback = callback;
             _button = GetComponent<Button>();
-            _tmp = GetComponentInChildren<TMP_Text>();
 
-            _prepareButton();
-            _prepareText();
+            PrepareButton();
+            PrepareIcon();
         }
 
-        void _prepareButton()
+        void PrepareButton()
         {
             _button.interactable = _interactable;
-            _button.onClick.AddListener(_callbackInvoke);
+            _button.onClick.AddListener(CallbackInvoke);
+            _ability.OnSelected.AddListener(ToggleSelection);
         }
 
-        void _callbackInvoke()
+        void PrepareIcon()
+        {
+            icon.GetComponent<Image>().sprite = _ability.Icon;
+        }
+
+        void CallbackInvoke()
         {
             _callback.Invoke(_ability);
         }
-        
-        void _prepareText()
+
+        void ToggleSelection(bool value)
         {
-            _tmp.text = _ability.Title;
+            selection.gameObject.SetActive(value);
         }
     }
 }

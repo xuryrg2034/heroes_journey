@@ -62,11 +62,13 @@ namespace Entities.Player
 
         public void SelectAbility(BaseAbility ability)
         {
+            _selectedAbility?.SetSelect(false);
             _selectedAbility = ability;
 
             if (_selectedAbility)
             {
                 _abilityStateMachine.SetNextState(_selectedAbility.SelectionState);
+                _selectedAbility.SetSelect(true);
             }
         }
         

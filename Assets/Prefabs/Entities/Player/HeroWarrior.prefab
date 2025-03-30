@@ -154,6 +154,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   title: Chaining
+  icon: {fileID: 306795661003847172, guid: 00cd6b249b061bd488613615cd03ea27, type: 3}
   energyCost: 0
   cooldown: 0
   tilemapLayer:
@@ -172,6 +173,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   title: Slash
+  icon: {fileID: -8162836879882174333, guid: 9932400102614e246bdf2653eae6f2c7, type: 3}
   energyCost: 0
   cooldown: 0
   tilemapLayer:

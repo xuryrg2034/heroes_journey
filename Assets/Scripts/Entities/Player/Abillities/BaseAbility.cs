@@ -2,19 +2,17 @@
 using Core;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Events;
 
 namespace Entities.Player
 {
     public abstract class BaseAbility : MonoBehaviour
     {
         [SerializeField] string title;
+        [SerializeField] Sprite icon;
         [SerializeField] int energyCost;
         [SerializeField] int cooldown;
         [SerializeField] protected LayerMask tilemapLayer;
-
-        protected Hero Owner;
-
-        public AbilityStateMachine StateMachine { get; private set; }
 
         public LayerMask TilemapLayer => tilemapLayer;
         
@@ -23,6 +21,17 @@ namespace Entities.Player
         public State ExecuteState { get; protected set; }
 
         public string Title => title;
+        
+        public Sprite Icon => icon;
+
+        public bool IsSelected { get; private set; }
+        
+        public readonly UnityEvent<bool> OnSelected = new();
+        
+        protected Hero Owner;
+
+        protected AbilityStateMachine StateMachine { get; private set; }
+        
 
         public virtual void Init(Hero owner, AbilityStateMachine stateMachine)
         {
@@ -33,6 +42,12 @@ namespace Entities.Player
         public virtual UniTask Execute()
         {
             return default;
+        }
+
+        public void SetSelect(bool value)
+        {
+            IsSelected = value;
+            OnSelected.Invoke(IsSelected);
         }
     }
 }
