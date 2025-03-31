@@ -13,8 +13,6 @@ namespace Entities.Player
         [SerializeField] Animator animator;
         
         List<BaseAbility> _abilities = new();
-
-        bool _isInit;
         
         AbilityStateMachine _abilityStateMachine;
         
@@ -35,11 +33,6 @@ namespace Entities.Player
             UnsubscribeOnEvents();
         }
 
-        void Update()
-        {
-            if (!_isInit) return;
-        }
-
         public override void Init()
         {
             _abilityStateMachine = GetComponent<AbilityStateMachine>();
@@ -56,20 +49,20 @@ namespace Entities.Player
             }
 
             SubscribeOnEvents();
-
-            _isInit = true;
         }
 
         public void SelectAbility(BaseAbility ability)
         {
-            _selectedAbility?.SetSelect(false);
             _selectedAbility = ability;
 
-            if (_selectedAbility)
-            {
-                _abilityStateMachine.SetNextState(_selectedAbility.SelectionState);
-                _selectedAbility.SetSelect(true);
-            }
+            _abilityStateMachine.SetNextState(_selectedAbility.SelectionState);
+            _selectedAbility.SetSelect(true);
+        }
+
+        public void DeselectAbility()
+        {
+            _selectedAbility?.SetSelect(false);
+            _selectedAbility = null;
         }
         
         void RestoreEnergy(int value = 1)

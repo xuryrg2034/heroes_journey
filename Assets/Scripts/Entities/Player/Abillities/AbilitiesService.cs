@@ -19,12 +19,13 @@ namespace Entities.Player
         
         public void SelectAbility(BaseAbility ability)
         {
+            DeselectAbility();
             _owner.SelectAbility(ability);
         }
 
-        public void ResetAbility()
+        public void DeselectAbility()
         {
-            _owner.SelectAbility(null);
+            _owner.DeselectAbility();
         }
 
         public async UniTask Execute()
