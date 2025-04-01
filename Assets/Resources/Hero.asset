@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 283d42b6cbcd4742a97f3ff2671cd285, type: 3}
   m_Name: Hero
   m_EditorClassIdentifier: 
-  <MaxHealth>k__BackingField: 0
+  <MaxHealth>k__BackingField: 100
   <Damage>k__BackingField: 0
-  <Energy>k__BackingField: 0
+  <Energy>k__BackingField: 100

@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3e9ea37c03c24d759a0da3a6bbb57720, type: 3}
   m_Name: SmallEnemyGreen
   m_EditorClassIdentifier: 
-  maxHealth: 0
-  aggressionLimit: 4
-  prefab: {fileID: 0}
-  selectionType: 1
+  <MaxHealth>k__BackingField: 0
+  <AggressionLimit>k__BackingField: 0
+  <Prefab>k__BackingField: {fileID: -9152101009826336401, guid: b7edb057598fa2d41b4f7271cef8d1b1, type: 3}
+  <SelectionType>k__BackingField: 1
