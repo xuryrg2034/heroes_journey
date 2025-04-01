@@ -1408,8 +1408,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   groundTilemap: {fileID: 1915841448}
   obstacleTilemap: {fileID: 1743637939}
-  availableEntitiesList:
-  - {fileID: -9152101009826336401, guid: 4599ab83634ae534b8b56b69320eff6d, type: 3}
 --- !u!4 &1524337974
 Transform:
   m_ObjectHideFlags: 0
