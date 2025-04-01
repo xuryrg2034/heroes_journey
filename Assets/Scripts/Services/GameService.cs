@@ -22,20 +22,19 @@ namespace Services
     public class GameService : MonoBehaviour
     {
         [SerializeField] private GridService gridService;
-        [SerializeField] private GameObject abilitiesService;
+        [SerializeField] private AbilitiesUIService abilitiesUIService;
         [SerializeField] private GameObject questService;
-        [FormerlySerializedAs("heroUIService")] [SerializeField] private UIService uiService;
+        [SerializeField] private UIService uiService;
         [SerializeField] private TurnService turnService;
         [SerializeField] private Hero heroPrefab;
-        
 
         private Hero _heroEntity;
         
         public static UnityEvent<GameState> OnGameStateChange = new();
         public static GameState CurrentState { get; private set; } = GameState.WaitingForInput;
 
-        // FIXME: Порядок вызова важен. Происходит решистрация классов в сервис локаторе
-        private void Awake()
+        // FIXME: Порядок вызова важен. Происходит регистрация классов в сервис локаторе
+        void Awake()
         {
             _prepareLevelStatistics();
             _prepareGrid();
@@ -50,18 +49,12 @@ namespace Services
             OnGameStateChange?.Invoke(CurrentState);
         }
 
-        private void _prepareAbilities()
+        void _prepareAbilities()
         {
-            var service = abilitiesService.GetComponent<AbilitiesService>();
-            var ui = abilitiesService.GetComponent<AbilitiesUIService>();
-            
-            ServiceLocator.Register(service);
-
-            service.Init(_heroEntity.Abilities);
-            ui.Init(service);
+            ServiceLocator.Register(new AbilitiesService(_heroEntity));
         }
         
-        private void _prepareQuests()
+        void _prepareQuests()
         {
             var service = questService.GetComponent<QuestService>();
             var ui = questService.GetComponent<QuestUIService>();
@@ -70,24 +63,23 @@ namespace Services
             ui.Init(service);
         }
 
-        private void _prepareGrid()
+        void _prepareGrid()
         {
             ServiceLocator.Register(gridService);
 
             gridService.Init();
-            gridService.SpawnEntity(heroPrefab, heroPrefab.SpawnPosition);
+            _heroEntity = (Hero)gridService.SpawnEntity(heroPrefab, heroPrefab.SpawnPosition);
             gridService.SpawnEntitiesOnGrid();
             
-            _heroEntity = gridService.GetEntitiesOfType<Hero>()[0];
             uiService.Init(_heroEntity);
         }
 
-        private void _prepareTurnService()
+        void _prepareTurnService()
         {
             turnService.Init();
         }
 
-        private void _prepareLevelStatistics()
+        void _prepareLevelStatistics()
         {
             ServiceLocator.Register(new LevelStatistics());
         }

@@ -4,7 +4,6 @@ using UnityEngine;
 
 namespace Services.Turn
 {
-    // TODO: По итогам стоит отказаться от монобеха и вызов старта хода делать через систему событий
     public class TurnService : MonoBehaviour
     {
         private TurnPhase _playerTurnPhase;

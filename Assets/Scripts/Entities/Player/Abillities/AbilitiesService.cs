@@ -4,43 +4,38 @@ using UnityEngine;
 
 namespace Entities.Player
 {
-    public class AbilitiesService : MonoBehaviour
+    public class AbilitiesService
     {
-        private List<BaseAbility> _abilitiesList;
-
-        public List<BaseAbility> AbilitiesList => _abilitiesList;
+        readonly Hero _owner;
         
-        private BaseAbility _selectedAbility;
-        
-        public BaseAbility SelectedAbility => _selectedAbility;
-        
-        public void Init(List<BaseAbility> abilitiesList)
+        public AbilitiesService(Hero hero)
         {
-            _abilitiesList = abilitiesList;
+            _owner = hero;
         }
+        
+        public List<BaseAbility> Abilities => _owner.Abilities;
+        
+        public BaseAbility SelectedAbility => _owner.SelectedAbility;
         
         public void SelectAbility(BaseAbility ability)
         {
-            ResetAbilities();
-
-            _selectedAbility = ability;
-            _selectedAbility.Activate();
+            DeselectAbility();
+            _owner.SelectAbility(ability);
         }
 
-        public void ResetAbilities()
+        public void DeselectAbility()
         {
-            _selectedAbility?.Deactivate();
-            _selectedAbility = null;
+            _owner.DeselectAbility();
         }
 
         public async UniTask Execute()
         {
-            if (_selectedAbility == null)
+            if (SelectedAbility == null)
             {
                 return;
             }
             
-            await _selectedAbility.Execute();
+            await SelectedAbility.Execute();
         }
     }
 }

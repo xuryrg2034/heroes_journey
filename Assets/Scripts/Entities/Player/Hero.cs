@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using Entities.Components;
 using UnityEngine;
 using Services.EventBus;
@@ -7,58 +8,81 @@ namespace Entities.Player
 {
     public class Hero : BaseEntity
     {
-        [SerializeField] private int damage;
-        [SerializeField] private int energy;
-        [SerializeField] private Animator animator;
-        [SerializeReference, SubclassSelector]
-        private List<BaseAbility> abilities = new();
-
+        [SerializeField] int damage;
+        [SerializeField] int energy;
+        [SerializeField] Animator animator;
+        
+        List<BaseAbility> _abilities = new();
+        
+        AbilityStateMachine _abilityStateMachine;
+        
+        BaseAbility _selectedAbility;
+        
         public Animator Animator => animator;
-
-        public List<BaseAbility> Abilities => abilities;
         
         public Damage Damage { get; private set; }
 
         public Energy Energy { get; private set; }
 
-        private void OnDisable()
+        public List<BaseAbility> Abilities => _abilities;
+        
+        public BaseAbility SelectedAbility => _selectedAbility;
+
+        void OnDisable()
         {
-            _unsubscribeOnEvents();
+            UnsubscribeOnEvents();
         }
 
         public override void Init()
         {
+            _abilityStateMachine = GetComponent<AbilityStateMachine>();
+            _abilities = GetComponents<BaseAbility>().ToList();
+
             base.Init();
 
             Damage = new Damage(damage);
             Energy = new Energy(energy, energy);
 
-            foreach (var ability in abilities)
+            foreach (var ability in _abilities)
             {
-                ability.Init(this);
+                ability.Init(this, _abilityStateMachine);
             }
 
-            _subscribeOnEvents();
+            SubscribeOnEvents();
+        }
+
+        public void SelectAbility(BaseAbility ability)
+        {
+            _selectedAbility = ability;
+
+            _abilityStateMachine.SetNextState(_selectedAbility.SelectionState);
+            _selectedAbility.SetSelect(true);
+        }
+
+        public void DeselectAbility()
+        {
+            _selectedAbility?.SetSelect(false);
+            _selectedAbility = null;
         }
         
-        private void _restoreEnergy(int value = 1)
+        void RestoreEnergy(int value = 1)
         {
             Energy.Increase(value);
         }
 
-        private void _subscribeOnEvents()
+        void SubscribeOnEvents()
         {
-            EventBusService.Subscribe(Actions.PlayerTurnStart, _turnStart);
-            EventBusService.Subscribe<int>(Actions.PlayerRestoreEnergy, _restoreEnergy);
+            EventBusService.Subscribe(Actions.PlayerTurnStart, TurnStartEvent);
+            EventBusService.Subscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
         }
         
-        private void _unsubscribeOnEvents()
+        void UnsubscribeOnEvents()
         {
-            EventBusService.Unsubscribe(Actions.PlayerTurnStart, _turnStart);
-            EventBusService.Unsubscribe<int>(Actions.PlayerRestoreEnergy, _restoreEnergy);
+            EventBusService.Unsubscribe(Actions.PlayerTurnStart, TurnStartEvent);
+            EventBusService.Unsubscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
         }
 
-        private void _turnStart()
+        void TurnStartEvent()
         {
             Energy.Increase();
         }

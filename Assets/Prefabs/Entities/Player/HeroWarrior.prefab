@@ -12,7 +12,9 @@ GameObject:
   - component: {fileID: -2614704007233598948}
   - component: {fileID: 426220746719684042}
   - component: {fileID: 4958044900380387369}
-  - component: {fileID: 3859156347508742352}
+  - component: {fileID: 7037304468570232516}
+  - component: {fileID: 1537629032947359943}
+  - component: {fileID: -3623085816627778339}
   m_Layer: 6
   m_Name: HeroWarrior
   m_TagString: Player
@@ -127,23 +129,7 @@ MonoBehaviour:
   damage: 0
   energy: 100
   animator: {fileID: 5007144192083671867}
-  abilities:
-  - rid: 3283534796043845719
-  references:
-    version: 2
-    RefIds:
-    - rid: 3283534796043845719
-      type: {class: ChainingAttackSelection, ns: Entities.Player, asm: Assembly-CSharp}
-      data:
-        title: Chaining
-        energyCost: 0
-        cooldown: 0
-        OnEnableChanged:
-          m_PersistentCalls:
-            m_Calls: []
-        killsToReward: 0
-        rainbowCoinPrefab: {fileID: 0}
---- !u!114 &3859156347508742352
+--- !u!114 &7037304468570232516
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -152,9 +138,48 @@ MonoBehaviour:
   m_GameObject: {fileID: 32920870007475787}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9a994140d1bb4e3fad021873d8e99162, type: 3}
+  m_Script: {fileID: 11500000, guid: 024ac6fb80b049ed94ebbd456a9c9484, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1537629032947359943
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 32920870007475787}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5da3528c1b9c42c4abce93e43efd4c75, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  title: Chaining
+  icon: {fileID: 306795661003847172, guid: 00cd6b249b061bd488613615cd03ea27, type: 3}
+  energyCost: 0
+  cooldown: 0
+  tilemapLayer:
+    serializedVersion: 2
+    m_Bits: 72
+--- !u!114 &-3623085816627778339
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 32920870007475787}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b414d456294c4277b807ae3e384e6894, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  title: Slash
+  icon: {fileID: -8162836879882174333, guid: 9932400102614e246bdf2653eae6f2c7, type: 3}
+  energyCost: 0
+  cooldown: 0
+  tilemapLayer:
+    serializedVersion: 2
+    m_Bits: 8
+  baseDamage: 1
 --- !u!1 &7431215449899010737
 GameObject:
   m_ObjectHideFlags: 0
@@ -166,7 +191,6 @@ GameObject:
   - component: {fileID: 1670684776658606280}
   - component: {fileID: 5007144192083671867}
   - component: {fileID: 4669737855505808603}
-  - component: {fileID: 3521918192112866130}
   m_Layer: 6
   m_Name: Animation
   m_TagString: Untagged
@@ -266,19 +290,3 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
---- !u!114 &3521918192112866130
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7431215449899010737}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0dca8008e87f4c759a696f019ceef560, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  hero: {fileID: 4958044900380387369}
-  targetLayer:
-    serializedVersion: 2
-    m_Bits: 8

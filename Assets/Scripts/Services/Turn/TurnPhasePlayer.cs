@@ -5,7 +5,7 @@ namespace Services.Turn
 {
     public class TurnPhasePlayer : TurnPhase 
     {
-        private AbilitiesService _abilitiesService = ServiceLocator.Get<AbilitiesService>();
+        AbilitiesService _abilitiesService = ServiceLocator.Get<AbilitiesService>();
 
         public override void Prepare()
         {
@@ -23,13 +23,13 @@ namespace Services.Turn
             _phases.Enqueue(_endTurn);
         }
 
-        private void _endTurn()
+        void _endTurn()
         {
-            _abilitiesService.ResetAbilities();
+            _abilitiesService.DeselectAbility();
             _processNextPhase();
         }
 
-        private async void _removeEnemiesPhase()
+        async void _removeEnemiesPhase()
         {
             await _abilitiesService.Execute();
             _processNextPhase();

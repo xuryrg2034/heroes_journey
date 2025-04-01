@@ -1,86 +1,53 @@
 ﻿using System;
+using Core;
 using Cysharp.Threading.Tasks;
-using Grid;
 using UnityEngine;
 using UnityEngine.Events;
 
 namespace Entities.Player
 {
-    [Serializable]
-    public abstract class BaseAbility
+    public abstract class BaseAbility : MonoBehaviour
     {
-        [SerializeField] private string title;
-        [SerializeField] private int energyCost;
-        [SerializeField] private int cooldown;
+        [SerializeField] string title;
+        [SerializeField] Sprite icon;
+        [SerializeField] int energyCost;
+        [SerializeField] int cooldown;
+        [SerializeField] protected LayerMask tilemapLayer;
 
-        private bool _enable;
+        public LayerMask TilemapLayer => tilemapLayer;
         
-        [HideInInspector]
-        public UnityEvent<bool> OnEnableChanged = new();
+        public State SelectionState { get; protected set; }
         
-        public bool Enable
-        {
-            get => _enable;
-            private set
-            {
-                _enable = value;
-                OnEnableChanged.Invoke(_enable);
-            }
-        }
+        public State ExecuteState { get; protected set; }
 
         public string Title => title;
         
-        public Hero Hero { get; private set; }
+        public Sprite Icon => icon;
 
-        protected BaseAbility() {}
-
-        public virtual void Init(Hero hero)
-        {
-            Hero = hero;
-
-            CheckEnable(Hero.Energy.Value);
-            Hero.Energy.OnValueChanged.AddListener(CheckEnable);
-        }
+        public bool IsSelected { get; private set; }
         
-        private void CheckEnable(int energy)
-        {
-            var isEnoughEnergy = energy >= energyCost;
-
-            Enable = isEnoughEnergy;
-        }
+        public readonly UnityEvent<bool> OnSelected = new();
         
-        public abstract void SelectTarget(BaseEntity baseEntity);
+        protected Hero Owner;
 
-        public virtual void Activate()
-        {
-            Hero.Energy.SetReserve(energyCost);
-        }
+        protected AbilityStateMachine StateMachine { get; private set; }
+        
 
-        public virtual void Deactivate()
+        public virtual void Init(Hero owner, AbilityStateMachine stateMachine)
         {
-            Hero.Energy.SetReserve(0);
+            Owner = owner;
+            StateMachine =  stateMachine;
         }
 
         public virtual UniTask Execute()
         {
-            Hero.Energy.Decrease(Hero.Energy.Reserved);
             return default;
         }
 
-        public abstract void Cancel();
-        
-        protected void _highlightTarget(Cell cell, bool highlight)
+        public void SetSelect(bool value)
         {
-            cell.Highlite(highlight);
-        }
-        
-        protected bool _isInRange(Vector3 origin, Vector3 target, int range)
-        {
-            var dx = Mathf.Abs(origin.x - target.x);
-            var dy = Mathf.Abs(origin.y - target.y);
-
-            // Используем челночное расстояние
-            return Mathf.Max(dx, dy) <= range;
+            IsSelected = value;
+            OnSelected.Invoke(IsSelected);
         }
     }
 }

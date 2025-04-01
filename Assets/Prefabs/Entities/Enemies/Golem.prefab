@@ -141,7 +141,6 @@ MonoBehaviour:
         order: 100
         castTime: 1
         Owner: {fileID: 0}
-        moveDistance: 1
         targetLayer:
           serializedVersion: 2
           m_Bits: 0
@@ -152,7 +151,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 32920870007475787}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9a994140d1bb4e3fad021873d8e99162, type: 3}
   m_Name: 
