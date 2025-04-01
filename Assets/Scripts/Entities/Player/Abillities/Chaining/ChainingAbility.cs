@@ -30,12 +30,17 @@ namespace Entities.Player
 
         public override async UniTask Execute()
         {
+            IsInProcess = true;
+
             await base.Execute();
             
             StateMachine.SetNextState(ExecuteState);
 
             // Не уверен, что хороший план
             await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
+            
+            Debug.Log(111);
+            IsInProcess = false;
         }
         
         public void Attack(Vector3Int direction, int damage)

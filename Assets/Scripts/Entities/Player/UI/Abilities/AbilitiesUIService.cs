@@ -29,26 +29,33 @@ namespace Entities.Player
             {
                 var button = Instantiate(itemPrefab, containerPrefab);
                 
-                button.Init(ability, _abilitiesService.SelectAbility);
+                button.Init(ability, HandleClickAbilityButton);
                 
                 _buttonList.Add(button);
             }
         }
         
+        BaseAbility SelectedAbility => _abilitiesService.SelectedAbility;
+        
         void Update()
         {
-            _toggleExecuteButtonInteractable();
+            ToggleExecuteButtonInteractable();
         }
 
-        void _toggleExecuteButtonInteractable()
+        void ToggleExecuteButtonInteractable()
         {
-            var ability = _abilitiesService.SelectedAbility;
             var interactable =
-                GameService.CurrentState == GameState.WaitingForInput &&
-                ability != null &&
-                ability.CanBeExecute;
+                SelectedAbility != null &&
+                SelectedAbility.CanBeExecute;
 
             executeButton.interactable = interactable;
+        }
+
+        void HandleClickAbilityButton(BaseAbility ability)
+        {
+            if (SelectedAbility?.IsInProcess == true) return;
+
+            _abilitiesService.SelectAbility(ability);
         }
     }
 }

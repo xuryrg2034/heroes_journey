@@ -11,7 +11,6 @@ namespace Services.Turn
         {
             _preparePhase();
             EventBusService.Trigger(Actions.PlayerTurnStart);
-            GameService.SetGameState(GameState.WaitingForInput);
         }
 
         protected override void _preparePhase()

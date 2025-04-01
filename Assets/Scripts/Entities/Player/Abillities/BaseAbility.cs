@@ -30,6 +30,8 @@ namespace Entities.Player
 
         public bool CanBeExecute { get; protected set; }
         
+        public bool IsInProcess { get; protected set; }
+        
         protected Hero Owner;
 
         protected AbilityStateMachine StateMachine { get; private set; }

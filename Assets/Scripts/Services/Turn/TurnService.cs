@@ -6,11 +6,11 @@ namespace Services.Turn
 {
     public class TurnService : MonoBehaviour
     {
-        private TurnPhase _playerTurnPhase;
-        private TurnPhase _enemyTurnPhase;
-        private TurnPhase _allQuestsCompleteTurnPhase;
+        TurnPhase _playerTurnPhase;
+        TurnPhase _enemyTurnPhase;
+        TurnPhase _allQuestsCompleteTurnPhase;
 
-        private GridService _gridService;
+        GridService _gridService;
 
         public void Init()
         {
@@ -19,37 +19,32 @@ namespace Services.Turn
             _playerTurnPhase = new TurnPhasePlayer();
             _enemyTurnPhase = new TurnPhaseEnemy();
 
-            _playerTurnPhase.OnChangeState.AddListener(_playerTurnEnd);
-            _enemyTurnPhase.OnChangeState.AddListener(_enemyTurnEnd);
+            _playerTurnPhase.OnChangeState.AddListener(PlayerTurnEnd);
+            _enemyTurnPhase.OnChangeState.AddListener(EnemyTurnEnd);
         }
         
         public void StartPlayerTurn()
         {
-            GameService.SetGameState(GameState.PlayerTurn);
             _playerTurnPhase.Prepare();
             _playerTurnPhase.StartPhase();
         }
 
-        private async void _playerTurnEnd(TurnState state)
+        async void PlayerTurnEnd(TurnState state)
         {
             if (state != TurnState.Completed) return;
             
             await _gridService.UpdateGrid();
-            
-            GameService.SetGameState(GameState.EnemyTurn);
+
             _enemyTurnPhase.Prepare();
             
             _enemyTurnPhase.StartPhase();
         }
         
-        private async void _enemyTurnEnd(TurnState state)
+        async void EnemyTurnEnd(TurnState state)
         {
             if (state != TurnState.Completed) return;
             
             await _gridService.UpdateGrid();
-
-            // Заменить на EventBus
-            GameService.SetGameState(GameState.WaitingForInput);
         }
     }
 }   

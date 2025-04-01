@@ -29,9 +29,6 @@ namespace Services
         [SerializeField] Hero heroPrefab;
 
         Hero _heroEntity;
-        
-        public static UnityEvent<GameState> OnGameStateChange = new();
-        public static GameState CurrentState { get; set; } = GameState.WaitingForInput;
 
         // FIXME: Порядок вызова важен. Происходит регистрация классов в сервис локаторе
         void Awake()
@@ -41,12 +38,6 @@ namespace Services
             _prepareAbilities();
             _prepareQuests();
             _prepareTurnService();
-        }
-
-        public static void SetGameState(GameState state)
-        {
-            CurrentState = state;
-            OnGameStateChange?.Invoke(CurrentState);
         }
 
         void _prepareAbilities()

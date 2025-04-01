@@ -37,12 +37,16 @@ namespace Entities.Player.Slash
         
         public override async UniTask Execute()
         {
+            IsInProcess = true;
+
             await base.Execute();
             
             StateMachine.SetNextState(ExecuteState);
 
             // Не уверен, что хороший план
             await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
+            
+            IsInProcess = false;
         }
 
         public void SelectEntity(BaseEntity entity)

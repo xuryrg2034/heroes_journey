@@ -30,11 +30,6 @@ namespace Entities.Player
 
         public async UniTask Execute()
         {
-            if (SelectedAbility == null)
-            {
-                return;
-            }
-            
             await SelectedAbility.Execute();
         }
     }
