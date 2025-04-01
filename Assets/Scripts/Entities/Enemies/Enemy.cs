@@ -10,9 +10,6 @@ namespace Entities.Enemies
 {
     public class Enemy : BaseEntity
     {
-        // Событие смерти, подписывайся на него в сервисе
-        public static UnityEvent<Enemy> OnEnemyDeath = new();
-        
         [Header("Enemy Settings")]
         
         [SerializeField] bool isAggressive; // Готов ли противник проявить агрессию
@@ -36,10 +33,10 @@ namespace Entities.Enemies
                 ability.Init(this);
             }
 
-            Health.OnDie.AddListener(_cancelAbilities);
-            Health.OnDie.AddListener(_updateStatistics);
-            Health.OnValueChanged.AddListener(_checkAggressionAfterTakeDamage);
-            EventBusService.Subscribe(Actions.StatisticsUpdateTurnCounter, _onCheckAggressionAfterTurnPassed);
+            Health.OnDie.AddListener(CancelAbilities);
+            Health.OnDie.AddListener(UpdateStatistics);
+            Health.OnValueChanged.AddListener(CheckAggressionAfterTakeDamage);
+            EventBusService.Subscribe(Actions.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
         }
 
         public async UniTask ExecuteAbilities()
@@ -60,7 +57,7 @@ namespace Entities.Enemies
             }
         }
 
-        void _cancelAbilities()
+        void CancelAbilities()
         {
             foreach (var ability in abilities)
             {
@@ -70,12 +67,12 @@ namespace Entities.Enemies
             }
         }
 
-        void _checkAggressionAfterTakeDamage(int value)
+        void CheckAggressionAfterTakeDamage(int value)
         {
             isAggressive = !Health.IsDead;
         }
         
-        public void _onCheckAggressionAfterTurnPassed()
+        void OnCheckAggressionAfterTurnPassed()
         {
             if (isAggressive) return;
 
@@ -90,7 +87,7 @@ namespace Entities.Enemies
             }
         }
         
-        void _updateStatistics()
+        void UpdateStatistics()
         {
             EventBusService.Trigger(Actions.EnemyDied);
         }
@@ -98,7 +95,7 @@ namespace Entities.Enemies
         public override void Dispose()
         {
             base.Dispose();
-            EventBusService.Unsubscribe(Actions.StatisticsUpdateTurnCounter, _onCheckAggressionAfterTurnPassed);
+            EventBusService.Unsubscribe(Actions.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
         }
     }
 }
