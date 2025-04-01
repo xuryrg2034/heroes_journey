@@ -10,7 +10,9 @@ namespace Entities
     public abstract class BaseEntity : MonoBehaviour, IBaseEntity
     {
         public Vector3Int GridPosition { get; private set; }
-        
+
+        public EntitySelectionType SelectionType { get; protected set; } = EntitySelectionType.None;
+
         public Health Health { get; private set; }
 
         public void Init<T>(T config) where T : IBaseEntityConfig
@@ -39,5 +41,6 @@ namespace Entities
         Green,
         Blue,
         Neutral,
+        None,
     }
 }

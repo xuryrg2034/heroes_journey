@@ -26,7 +26,7 @@ namespace Entities.Player
         
         Animator Animator => _owner.Animator; 
 
-        List<ISelectableEntity> SelectedEntities => _ability.SelectedEntities;
+        List<IBaseEntity> SelectedEntities => _ability.SelectedEntities;
         
         public override void OnEnter(StateMachine _stateMachine)
         {

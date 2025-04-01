@@ -10,7 +10,7 @@ namespace Entities.Player
     public class ChainingSelectionState : State
     {
         ChainingAbility _ability;
-        List<ISelectableEntity> _selectedEntities;
+        List<IBaseEntity> _selectedEntities;
         bool _selectionLocked;
 
         public ChainingSelectionState(ChainingAbility ability)
@@ -29,7 +29,7 @@ namespace Entities.Player
                 var mousePosition = Camera.main.ScreenToWorldPoint(Input.mousePosition);
 
                 var hit = Physics2D.OverlapPoint(mousePosition, _ability.TilemapLayer);
-                var entity = hit?.GetComponent<ISelectableEntity>();
+                var entity = hit?.GetComponent<IBaseEntity>();
 
                 if (entity != null)
                 {
@@ -52,8 +52,7 @@ namespace Entities.Player
             _selectionLocked = false;
         }
 
-        // TODO: Дописать сброс цели при клике на героя
-        void _selectEntity(ISelectableEntity entity)
+        void _selectEntity(IBaseEntity entity)
         {
             // Клик произошел в начальную точку (героя)
             // Сбрасываем все к дефолту
@@ -85,7 +84,7 @@ namespace Entities.Player
             _ability.SelectEntity(entity);
         }
 
-        void _removeEnemiesAfter(ISelectableEntity target)
+        void _removeEnemiesAfter(IBaseEntity target)
         {
             var index = _selectedEntities.IndexOf(target);
 

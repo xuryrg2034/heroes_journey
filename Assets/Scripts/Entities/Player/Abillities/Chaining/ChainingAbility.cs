@@ -9,7 +9,7 @@ namespace Entities.Player
 {
     public class ChainingAbility : BaseAbility
     {
-        public readonly List<ISelectableEntity> SelectedEntities = new();
+        public readonly List<IBaseEntity> SelectedEntities = new();
         
         public EntitySelectionType AvailableType { get; private set; } = EntitySelectionType.Neutral;
         
@@ -53,7 +53,7 @@ namespace Entities.Player
             }
         }
 
-        public void SelectEntity(ISelectableEntity entity)
+        public void SelectEntity(IBaseEntity entity)
         {
             SelectedEntities.Add(entity);
 

@@ -8,7 +8,7 @@ using Services.EventBus;
 
 namespace Entities.Player
 {
-    public class Hero : BaseEntity, ISelectableEntity
+    public class Hero : BaseEntity
     {
         [SerializeField] HeroConfig config;
         
@@ -34,8 +34,6 @@ namespace Entities.Player
         
         public Vector3Int SpawnPosition => spawnPosition;
 
-        public EntitySelectionType SelectionType { get; } = EntitySelectionType.Neutral;
-
         void OnDisable()
         {
             UnsubscribeOnEvents();
@@ -43,10 +41,11 @@ namespace Entities.Player
 
         public void Init()
         {
+            base.Init(config);
+
             _abilityStateMachine = GetComponent<AbilityStateMachine>();
             _abilities = GetComponents<BaseAbility>().ToList();
-
-            base.Init(config);
+            SelectionType = EntitySelectionType.Neutral;
 
             Damage = new Damage(config.Damage);
             Energy = new Energy(config.Energy);

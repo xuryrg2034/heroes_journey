@@ -1,4 +1,5 @@
-﻿using Entities.Components;
+﻿using Entities;
+using Entities.Components;
 using UnityEngine;
 
 namespace Interfaces
@@ -8,5 +9,7 @@ namespace Interfaces
         public Health Health { get; }
         
         public Vector3Int GridPosition { get; }
+        
+        public EntitySelectionType SelectionType { get; }
     }
 }

@@ -8,7 +8,7 @@ using Random = UnityEngine.Random;
 
 namespace Entities.Enemies
 {
-    public class Enemy : BaseEntity, ISelectableEntity
+    public class Enemy : BaseEntity
     {
         // Событие смерти, подписывайся на него в сервисе
         public static UnityEvent<Enemy> OnEnemyDeath = new();
@@ -19,8 +19,6 @@ namespace Entities.Enemies
         
         [SerializeReference, SubclassSelector]
         List<BaseAbility> abilities = new();
-        
-        public EntitySelectionType SelectionType { get; private set; }
         
         int _turnsInIdleState; // Сколько ходов проитвник находится в состоянии покоя
         

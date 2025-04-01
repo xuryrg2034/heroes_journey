@@ -1,6 +1,6 @@
 ﻿namespace Interfaces
 {
-    public interface IEnemy : ISelectableEntity
+    public interface IEnemy : IBaseEntity
     {
         public int AggressionLimit { get; }
     }
