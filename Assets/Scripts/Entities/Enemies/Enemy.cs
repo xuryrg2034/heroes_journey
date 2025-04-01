@@ -1,8 +1,7 @@
-using System;
 using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
+using Interfaces;
 using Services.EventBus;
 using UnityEngine.Events;
 using Random = UnityEngine.Random;
@@ -11,33 +10,33 @@ namespace Entities.Enemies
 {
     public class Enemy : BaseEntity
     {
-        // Событие смерти, подписывайся на него в сервисе
-        public static UnityEvent<Enemy> OnEnemyDeath = new();
-        
         [Header("Enemy Settings")]
-        [SerializeField] private EnemyRank rank;
-        [SerializeField] private bool isAggressive; // Готов ли противник проявить агрессию
-        [SerializeField] private int aggressionLimit; // Порог после которого будет пробрасываться шанс стать агрессивным
-        private int _turnsInIdleState; // То сколько проитвник находится в состоянии покоя
+        
+        [SerializeField] bool isAggressive; // Готов ли противник проявить агрессию
         
         [SerializeReference, SubclassSelector]
-        private List<BaseAbility> abilities = new();
+        List<BaseAbility> abilities = new();
+        
+        int _turnsInIdleState; // Сколько ходов проитвник находится в состоянии покоя
+        
+        int _aggressionLimit; // Порог после которого будет пробрасываться шанс стать агрессивным
 
-        public EnemyRank Rank => rank;
-
-        public override void Init()
+        public void Init(IEnemyConfig config)
         {
-            base.Init();
+            base.Init(config);
+            
+            SelectionType = config.SelectionType;
+            _aggressionLimit = config.AggressionLimit;
             
             foreach (var ability in abilities)
             {
                 ability.Init(this);
             }
 
-            Health.OnDie.AddListener(_cancelAbilities);
-            Health.OnDie.AddListener(_updateStatistics);
-            Health.OnValueChanged.AddListener(_checkAggressionAfterTakeDamage);
-            EventBusService.Subscribe(Actions.StatisticsUpdateTurnCounter, _onCheckAggressionAfterTurnPassed);
+            Health.OnDie.AddListener(CancelAbilities);
+            Health.OnDie.AddListener(UpdateStatistics);
+            Health.OnValueChanged.AddListener(CheckAggressionAfterTakeDamage);
+            EventBusService.Subscribe(Actions.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
         }
 
         public async UniTask ExecuteAbilities()
@@ -58,7 +57,7 @@ namespace Entities.Enemies
             }
         }
 
-        private void _cancelAbilities()
+        void CancelAbilities()
         {
             foreach (var ability in abilities)
             {
@@ -68,18 +67,18 @@ namespace Entities.Enemies
             }
         }
 
-        private void _checkAggressionAfterTakeDamage(int value)
+        void CheckAggressionAfterTakeDamage(int value)
         {
             isAggressive = !Health.IsDead;
         }
         
-        public void _onCheckAggressionAfterTurnPassed()
+        void OnCheckAggressionAfterTurnPassed()
         {
             if (isAggressive) return;
 
             _turnsInIdleState++;
             
-            var requiredTurns = aggressionLimit * 1.5f;
+            var requiredTurns = _aggressionLimit * 1.5f;
             var chance = Mathf.Clamp01((_turnsInIdleState - 5) / requiredTurns);
 
             if (Random.value < chance)
@@ -88,7 +87,7 @@ namespace Entities.Enemies
             }
         }
         
-        private void _updateStatistics()
+        void UpdateStatistics()
         {
             EventBusService.Trigger(Actions.EnemyDied);
         }
@@ -96,13 +95,7 @@ namespace Entities.Enemies
         public override void Dispose()
         {
             base.Dispose();
-            EventBusService.Unsubscribe(Actions.StatisticsUpdateTurnCounter, _onCheckAggressionAfterTurnPassed);
+            EventBusService.Unsubscribe(Actions.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
         }
-    }
-    
-    public enum EnemyRank
-    {
-        Boss,
-        Common
     }
 }

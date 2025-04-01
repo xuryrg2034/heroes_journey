@@ -2,15 +2,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using Core;
+using Interfaces;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 namespace Entities.Player
 {
     public class ChainingSelectionState : State
     {
         ChainingAbility _ability;
-        List<BaseEntity> _selectedEntities;
+        List<IBaseEntity> _selectedEntities;
         bool _selectionLocked;
 
         public ChainingSelectionState(ChainingAbility ability)
@@ -29,7 +29,7 @@ namespace Entities.Player
                 var mousePosition = Camera.main.ScreenToWorldPoint(Input.mousePosition);
 
                 var hit = Physics2D.OverlapPoint(mousePosition, _ability.TilemapLayer);
-                var entity = hit?.GetComponent<BaseEntity>();
+                var entity = hit?.GetComponent<IBaseEntity>();
 
                 if (entity != null)
                 {
@@ -52,11 +52,8 @@ namespace Entities.Player
             _selectionLocked = false;
         }
 
-        void _selectEntity(BaseEntity entity)
+        void _selectEntity(IBaseEntity entity)
         {
-            // Проверка, что бы нельзя было добавить в цепочку противка у которого больше 0 здоровья, когда нет урона
-            if (entity.Health.Value > 0 && _ability.TotalDamage <= 0) return;
-
             // Клик произошел в начальную точку (героя)
             // Сбрасываем все к дефолту
             if (entity.GridPosition == _ability.OriginGridPosition)
@@ -64,6 +61,9 @@ namespace Entities.Player
                 _ability.ResetSelection();
                 return;
             }
+
+            // Проверка, что бы нельзя было добавить в цепочку противка у которого больше 0 здоровья, когда нет урона
+            if (entity.Health.Value > 0 && _ability.TotalDamage <= 0) return;
 
             // Клик произошел в сущность, что уже добавлена в список.
             // Удаляем все элементы из списка, что идут после этой сущности
@@ -84,7 +84,7 @@ namespace Entities.Player
             _ability.SelectEntity(entity);
         }
 
-        void _removeEnemiesAfter(BaseEntity target)
+        void _removeEnemiesAfter(IBaseEntity target)
         {
             var index = _selectedEntities.IndexOf(target);
 

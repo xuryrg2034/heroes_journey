@@ -17,6 +17,8 @@ namespace Entities.Components
 
         public UnityEvent<int> OnValueChanged = new();
         
+        public int MaxHealth { get; private set; }
+        
         public int Value
         {
             get => _value;
@@ -31,7 +33,7 @@ namespace Entities.Components
 
         public Health(int health, Transform transform)
         {
-            Value = health;
+            MaxHealth = Value = health;
             _transform = transform;
         }
 

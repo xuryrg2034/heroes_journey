@@ -149,7 +149,7 @@ GameObject:
   - component: {fileID: 453129852075166017}
   - component: {fileID: 8419094075955354768}
   m_Layer: 5
-  m_Name: Button
+  m_Name: ExecuteButton
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -245,7 +245,7 @@ MonoBehaviour:
     m_HighlightedSprite: {fileID: 0}
     m_PressedSprite: {fileID: 3119133901303084364, guid: a50f6af2ebfe45242957af2667003529, type: 3}
     m_SelectedSprite: {fileID: 0}
-    m_DisabledSprite: {fileID: 0}
+    m_DisabledSprite: {fileID: -5071898027277727972, guid: d666a6f425c1530468728b4de5c1b98e, type: 3}
   m_AnimationTriggers:
     m_NormalTrigger: Normal
     m_HighlightedTrigger: Highlighted

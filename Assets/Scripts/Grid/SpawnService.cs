@@ -1,106 +1,49 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Core.Factories;
 using Entities;
 using Cysharp.Threading.Tasks;
-using Entities.Enemies;
+using Entities.Player;
 using UnityEngine;
-using Object = UnityEngine.Object;
-using Random = UnityEngine.Random;
 
 namespace Grid
 {
     // TODO: Нужна более мудренная логика спавна. Что бы не получалось, что на арене только красные например
     public class SpawnService
     {
-        private readonly List<BaseEntity> _availableEntitiesList;
-        private readonly List<BaseEntity> _spawnedEntities;
-        private readonly List<BaseEntity> _ensuringDestructionEntities;
+        readonly List<BaseEntity> _spawnedEntities = new();
         
-        private const int MaxStrengthEnemies = 5;  // Максимум офицеров на поле
+        readonly List<BaseEntity> _ensuringDestructionEntities;
         
-        public SpawnService(List<BaseEntity> availableEntities)
+        readonly EnemyFactory _enemyFactory;
+        
+        public SpawnService()
         {
-            _availableEntitiesList = availableEntities;
-            _spawnedEntities = _populateEntitiesFromScene();
+            _enemyFactory = new EnemyFactory();
         }
         
-        public BaseEntity SpawnEntityOnCell(BaseEntity spawnBaseEntity, Vector3Int gridPosition = default)
+        public void SpawnSmallEnemy(Vector3Int gridPosition)
         {
+            var entity = _enemyFactory.GetRandomSmallEnemy();
+            entity.Move(gridPosition, 0).Forget();
 
-            // if (position != null)
-            // {
-            //     // TODO: Переписать
-            //     // var entityOnCell = cell.GetEntity();
-            //     //
-            //     // if (entityOnCell != null)
-            //     // {
-            //     //     _disposeEntityOnCell(entityOnCell);
-            //     // }
-            // }
-            
-            
-            var newEntity = Object.Instantiate(spawnBaseEntity);
-            newEntity.Init();
-            newEntity.Move(gridPosition, 0).Forget();
-            
-            _spawnedEntities.Add(newEntity);
-
-            return newEntity;
-        }
-        
-        public BaseEntity SpawnEntity(Vector3Int gridPosition)
-        {
-            // if (!cell.IsAvailableForEntity()) return null;
-
-            var entityToSpawn = _getEntityWithBalance();
-
-            return SpawnEntityOnCell(entityToSpawn, gridPosition);
+            _spawnedEntities.Add(entity);
         }
 
-        public void ClearDeadEntities()
+        public Hero SpawnHero(Hero heroPrefab)
         {
-            _spawnedEntities.RemoveAll(e =>
-            {
-                if (!e.Health.IsDead) return false;
-                
-                // _ensuringDestructionEntities.Add(e);
-                return true;
-            });
+            var hero = Object.Instantiate(heroPrefab);
+            
+            hero.Init();
+            hero.Move(heroPrefab.SpawnPosition, 0).Forget();
+            _spawnedEntities.Add(hero);
+            
+            return hero;
         }
 
         public List<BaseEntity> GetSpawnedEntities() => _spawnedEntities.Where(e => !e.Health.IsDead).ToList();
-
-        private BaseEntity _getEntityWithBalance()
-        {
-            var enemies = GetSpawnedEntities().OfType<Enemy>().ToList();
-            var strengthEnemies = enemies.Count(e => e.MaxHealth >= 5);
-
-            // TODO: Нужна какая то другая логика спавна. Сейчас это не весело.
-            if (strengthEnemies >= MaxStrengthEnemies) return _getRandomEnemyOfType(0);
-
-            return _getRandomEnemyOfType(0, 5);
-        }
         
-        private BaseEntity _getRandomEnemyOfType(params int[] allowedHp)
-        {
-            var possibleEnemies = _availableEntitiesList.Where(e => allowedHp.Contains(e.MaxHealth)).ToList();
-            return possibleEnemies[Random.Range(0, possibleEnemies.Count)];
-        }
-
-        private List<BaseEntity> _populateEntitiesFromScene()
-        {
-            var entities = Object.FindObjectsByType<BaseEntity>(FindObjectsSortMode.None).ToList();
-
-            foreach (var entity in entities)
-            {
-                entity.Init();
-                entity.Move(entity.SpawnPosition, 0).Forget();
-            }
-
-            return entities;
-        }
-        
-        private void _disposeEntityOnCell(BaseEntity baseEntity)
+        void _disposeEntityOnCell(BaseEntity baseEntity)
         {
             baseEntity.Health.Die().Forget();
         }

@@ -123,12 +123,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bff659566d95403baa09b8548da27b14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnPosition: {x: 3, y: 3, z: 0}
-  selectionType: 2
-  health: 100
-  damage: 0
-  energy: 100
+  config: {fileID: 11400000, guid: bb9ed0c7a2c30414ea0440fd61e48c75, type: 2}
   animator: {fileID: 5007144192083671867}
+  spawnPosition: {x: 3, y: 3, z: 0}
 --- !u!114 &7037304468570232516
 MonoBehaviour:
   m_ObjectHideFlags: 0

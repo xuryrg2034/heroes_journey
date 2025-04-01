@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
+using Interfaces;
 using Grid;
 using UnityEngine;
 
@@ -8,7 +9,7 @@ namespace Entities.Player
 {
     public class ChainingAbility : BaseAbility
     {
-        public readonly List<BaseEntity> SelectedEntities = new();
+        public readonly List<IBaseEntity> SelectedEntities = new();
         
         public EntitySelectionType AvailableType { get; private set; } = EntitySelectionType.Neutral;
         
@@ -20,6 +21,11 @@ namespace Entities.Player
         {
             SelectionState = new ChainingSelectionState(this);
             ExecuteState = new ChainingBaseAttackState(this, Owner);
+        }
+
+        void Update()
+        {
+            CheckCanBeExecute();
         }
 
         public override async UniTask Execute()
@@ -47,7 +53,7 @@ namespace Entities.Player
             }
         }
 
-        public void SelectEntity(BaseEntity entity)
+        public void SelectEntity(IBaseEntity entity)
         {
             SelectedEntities.Add(entity);
 
@@ -73,8 +79,14 @@ namespace Entities.Player
         
         public void ResetSelection()
         {
+            AvailableType= EntitySelectionType.Neutral;
             SelectedEntities.Clear();
             TotalDamage = 0;
+        }
+
+        void CheckCanBeExecute()
+        {
+            CanBeExecute = SelectedEntities.Count > 0;
         }
     }
 }

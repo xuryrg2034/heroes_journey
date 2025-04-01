@@ -7,8 +7,8 @@ namespace Entities.Enemies
     [Serializable]
     public abstract class BaseAbility
     {
-        [SerializeField] private bool enable;
-        [SerializeField] private int order = 100;
+        [SerializeField] bool enable;
+        [SerializeField] int order = 100;
         [SerializeField][Min(1)] protected int castTime = 1;
         [HideInInspector] public Enemy Owner;
 

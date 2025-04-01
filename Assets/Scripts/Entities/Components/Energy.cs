@@ -4,13 +4,13 @@ namespace Entities.Components
 {
     public class Energy
     {
-        private int _max;
+        public int MaxEnergy { get; private set; }
 
-        private int _min;
+        int _min;
         
-        private int _value;
+        int _value;
 
-        private int _reserved;
+        int _reserved;
         
         public UnityEvent<int> OnValueChanged = new();
         
@@ -19,7 +19,7 @@ namespace Entities.Components
         public int Value
         {
             get => _value;
-            private set
+            set
             {
                 _value = value;
                 OnValueChanged.Invoke(_value);
@@ -29,25 +29,23 @@ namespace Entities.Components
         public int Reserved
         {
             get => _reserved;
-            private set
+            set
             {
                 _reserved = value;
                 OnReservedChanged.Invoke(_reserved);
             }
         }
 
-        private int _initValue;
+        int _initValue;
 
-        public Energy(int energy, int max)
+        public Energy(int energy)
         {
-            _initValue = energy;
-            _max = max;
-            Value = energy;
+            MaxEnergy = Value = energy;
         }
 
         public void Reset()
         {
-            Value = _initValue;
+            Value = MaxEnergy;
         }
 
         public void SetValue(int value)
@@ -57,7 +55,7 @@ namespace Entities.Components
 
         public void Increase(int value = 1)
         {
-            if (Value + value > _max) return;
+            if (Value + value > MaxEnergy) return;
             
             Value += value;
         }

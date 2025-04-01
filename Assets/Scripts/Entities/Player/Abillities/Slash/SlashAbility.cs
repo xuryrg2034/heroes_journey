@@ -29,6 +29,11 @@ namespace Entities.Player.Slash
             SelectionState = new SlashSelectionState(this);
             ExecuteState = new SlashAttackState(this, Owner);
         }
+
+        void Update()
+        {
+            CheckCanBeExecute();
+        }
         
         public override async UniTask Execute()
         {
@@ -40,12 +45,12 @@ namespace Entities.Player.Slash
             await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
         }
 
-        public void SelectTarget(BaseEntity entity)
+        public void SelectEntity(BaseEntity entity)
         {
             _selectedTargets.Add(entity);
         }
 
-        public void ResetTargets()
+        public void ResetSelection()
         {
             _selectedTargets.Clear();
         }
@@ -56,6 +61,11 @@ namespace Entities.Player.Slash
             {
                 target.Health.TakeDamage(Owner.Damage.Value +  baseDamage).Forget();
             }
+        }
+        
+        void CheckCanBeExecute()
+        {
+            CanBeExecute = _selectedTargets.Count > 0;
         }
     }
 }

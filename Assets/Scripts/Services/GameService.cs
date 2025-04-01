@@ -21,17 +21,17 @@ namespace Services
     
     public class GameService : MonoBehaviour
     {
-        [SerializeField] private GridService gridService;
-        [SerializeField] private AbilitiesUIService abilitiesUIService;
-        [SerializeField] private GameObject questService;
-        [SerializeField] private UIService uiService;
-        [SerializeField] private TurnService turnService;
-        [SerializeField] private Hero heroPrefab;
+        [SerializeField] GridService gridService;
+        [SerializeField] AbilitiesUIService abilitiesUIService;
+        [SerializeField] GameObject questService;
+        [SerializeField] UIService uiService;
+        [SerializeField] TurnService turnService;
+        [SerializeField] Hero heroPrefab;
 
-        private Hero _heroEntity;
+        Hero _heroEntity;
         
         public static UnityEvent<GameState> OnGameStateChange = new();
-        public static GameState CurrentState { get; private set; } = GameState.WaitingForInput;
+        public static GameState CurrentState { get; set; } = GameState.WaitingForInput;
 
         // FIXME: Порядок вызова важен. Происходит регистрация классов в сервис локаторе
         void Awake()
@@ -52,6 +52,8 @@ namespace Services
         void _prepareAbilities()
         {
             ServiceLocator.Register(new AbilitiesService(_heroEntity));
+
+            abilitiesUIService.Init();
         }
         
         void _prepareQuests()
@@ -68,7 +70,8 @@ namespace Services
             ServiceLocator.Register(gridService);
 
             gridService.Init();
-            _heroEntity = (Hero)gridService.SpawnEntity(heroPrefab, heroPrefab.SpawnPosition);
+
+            _heroEntity = gridService.SpawnHero(heroPrefab);
             gridService.SpawnEntitiesOnGrid();
             
             uiService.Init(_heroEntity);

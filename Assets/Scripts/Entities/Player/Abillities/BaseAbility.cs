@@ -27,6 +27,8 @@ namespace Entities.Player
         public bool IsSelected { get; private set; }
         
         public readonly UnityEvent<bool> OnSelected = new();
+
+        public bool CanBeExecute { get; protected set; }
         
         protected Hero Owner;
 
