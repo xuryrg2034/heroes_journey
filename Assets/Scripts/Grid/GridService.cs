@@ -16,13 +16,15 @@ namespace Grid
     public class GridService : MonoBehaviour
     {
         [Header("Grid Settings")]
-        [SerializeField] private Tilemap groundTilemap;
-        [SerializeField] private Tilemap obstacleTilemap;
-        [SerializeField] private List<BaseEntity> availableEntitiesList = new();
         
-        private SpawnService _spawnService;
+        [SerializeField] Tilemap groundTilemap;
 
-        private static Vector3 _offsetToTileCenter = new(0.5f, 0.5f, 0); 
+        [SerializeField] Tilemap obstacleTilemap;
+        
+        SpawnService _spawnService;
+
+        static Vector3 _offsetToTileCenter = new(0.5f, 0.5f, 0); 
+
         public static Vector3 GridPositionToTileCenter(Vector3Int gridPosition)
         {
             return gridPosition + _offsetToTileCenter;
@@ -30,7 +32,7 @@ namespace Grid
         
         public void Init()
         {
-            _spawnService = new SpawnService(availableEntitiesList);
+            _spawnService = new SpawnService();
         }
 
         public List<T> GetEntitiesOfType<T>() where T : BaseEntity
@@ -58,9 +60,14 @@ namespace Grid
 
                     if (!isCellEmpty) continue;
                     
-                    _spawnService.SpawnEntity(cellPos);
+                    _spawnService.SpawnSmallEnemy(cellPos);
                 }
             }
+        }
+
+        public Hero SpawnHero(Hero heroPrefab)
+        {
+            return _spawnService.SpawnHero(heroPrefab);
         }
 
         public Vector3? GetCell(int x, int y)
@@ -74,11 +81,6 @@ namespace Grid
         public BaseEntity GetEntityAt(Vector3 position)
         {
             return _spawnService.GetSpawnedEntities().Where(e => !e.Health.IsDead).FirstOrDefault(e => e.GridPosition == position);
-        }
-        
-        public BaseEntity SpawnEntity(BaseEntity baseEntity, Vector3Int position)
-        {
-            return _spawnService.SpawnEntityOnCell(baseEntity, position);
         }
         
         public async UniTask ApplyGravity()
@@ -153,7 +155,7 @@ namespace Grid
             return centerCell; // Если нет доступных ячеек — возвращаем исходную
         }
         
-        private Vector3Int? _getLowestAvailableCell(Vector3Int startCell)
+        Vector3Int? _getLowestAvailableCell(Vector3Int startCell)
         {
             for (var y = 0; y < startCell.y; y++) // Проходим снизу вверх до текущей ячейки
             {

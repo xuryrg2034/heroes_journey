@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using Core;
 using Cysharp.Threading.Tasks;
+using Interfaces;
 using UnityEngine;
 
 namespace Entities.Player
@@ -25,7 +26,7 @@ namespace Entities.Player
         
         Animator Animator => _owner.Animator; 
 
-        List<BaseEntity> SelectedEntities => _ability.SelectedEntities;
+        List<ISelectableEntity> SelectedEntities => _ability.SelectedEntities;
         
         public override void OnEnter(StateMachine _stateMachine)
         {
@@ -51,6 +52,7 @@ namespace Entities.Player
             _isEnd = false;
             _damage = 0;
             _animationDirection = -1;
+            _ability.ResetSelection();
         }
 
         void TryToAttack()

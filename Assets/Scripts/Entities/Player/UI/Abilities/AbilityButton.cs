@@ -1,5 +1,4 @@
 ﻿using System;
-using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -22,10 +21,6 @@ namespace Entities.Player
         {
             _button.onClick.RemoveListener(CallbackInvoke);
             _ability.OnSelected.RemoveListener(ToggleSelection);
-        }
-
-        void Update()
-        {
         }
 
         public void Init(BaseAbility ability, Action<BaseAbility> callback)

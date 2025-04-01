@@ -84,6 +84,7 @@ namespace Entities.Player.Slash
             
             _isHit = false;
             _isEnd = false;
+            _ability.ResetSelection();
         }
     }
 }

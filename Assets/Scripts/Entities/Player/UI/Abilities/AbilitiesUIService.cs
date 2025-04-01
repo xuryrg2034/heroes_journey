@@ -16,7 +16,7 @@ namespace Entities.Player
         
         AbilitiesService _abilitiesService;
 
-        void Start()
+        public void Init()
         {
             _abilitiesService = ServiceLocator.Get<AbilitiesService>();
             
@@ -42,9 +42,11 @@ namespace Entities.Player
 
         void _toggleExecuteButtonInteractable()
         {
+            var ability = _abilitiesService.SelectedAbility;
             var interactable =
                 GameService.CurrentState == GameState.WaitingForInput &&
-                _abilitiesService.SelectedAbility != null;
+                ability != null &&
+                ability.CanBeExecute;
 
             executeButton.interactable = interactable;
         }

@@ -44,7 +44,7 @@ namespace Entities.Player.Slash
         {
             if (entity.GridPosition == OriginPosition)
             {
-                _ability.ResetTargets();
+                _ability.ResetSelection();
                 return;
             }
 
@@ -52,7 +52,7 @@ namespace Entities.Player.Slash
 
             if (!isInRange) return;
 
-            _ability.ResetTargets();
+            _ability.ResetSelection();
             
             var targetPositions = GetEntitiesCoords(OriginPosition, entity.GridPosition);
             
@@ -62,7 +62,7 @@ namespace Entities.Player.Slash
 
                 if (entityAtGrid != null)
                 {
-                    _ability.SelectTarget(entityAtGrid);
+                    _ability.SelectEntity(entityAtGrid);
                 }
             }
         }

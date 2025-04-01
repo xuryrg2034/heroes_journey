@@ -1,16 +1,20 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Configs.Entities;
 using Entities.Components;
+using Interfaces;
 using UnityEngine;
 using Services.EventBus;
 
 namespace Entities.Player
 {
-    public class Hero : BaseEntity
+    public class Hero : BaseEntity, ISelectableEntity
     {
-        [SerializeField] int damage;
-        [SerializeField] int energy;
+        [SerializeField] HeroConfig config;
+        
         [SerializeField] Animator animator;
+        
+        [SerializeField] Vector3Int spawnPosition;
         
         List<BaseAbility> _abilities = new();
         
@@ -27,21 +31,25 @@ namespace Entities.Player
         public List<BaseAbility> Abilities => _abilities;
         
         public BaseAbility SelectedAbility => _selectedAbility;
+        
+        public Vector3Int SpawnPosition => spawnPosition;
+
+        public EntitySelectionType SelectionType { get; } = EntitySelectionType.Neutral;
 
         void OnDisable()
         {
             UnsubscribeOnEvents();
         }
 
-        public override void Init()
+        public void Init()
         {
             _abilityStateMachine = GetComponent<AbilityStateMachine>();
             _abilities = GetComponents<BaseAbility>().ToList();
 
-            base.Init();
+            base.Init(config);
 
-            Damage = new Damage(damage);
-            Energy = new Energy(energy, energy);
+            Damage = new Damage(config.Damage);
+            Energy = new Energy(config.Energy);
 
             foreach (var ability in _abilities)
             {
