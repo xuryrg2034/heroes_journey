@@ -4,7 +4,7 @@ namespace Services.Turn
 {
     public class TurnPhaseEnemy : TurnPhase 
     {
-        private GridService _gridService = ServiceLocator.Get<GridService>();
+        GridService _gridService = ServiceLocator.Get<GridService>();
 
         public override void Prepare()
         {
@@ -19,7 +19,7 @@ namespace Services.Turn
             _phases.Enqueue(_enemiesActionPhase);
         }
         
-        private async void _enemiesActionPhase()
+        async void _enemiesActionPhase()
         {
             var enemies = _gridService.GetEnemies();
             if (enemies == null)

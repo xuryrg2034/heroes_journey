@@ -13,13 +13,11 @@ namespace Grid
     /// Отвечает за создание и управление игровым полем (сеткой),
     /// а также за объекты, размещенные на этой сетке.
     /// </summary>
-    public class GridService : MonoBehaviour
+    public class GridService
     {
-        [Header("Grid Settings")]
-        
-        [SerializeField] Tilemap groundTilemap;
+        Tilemap _groundTilemap;
 
-        [SerializeField] Tilemap obstacleTilemap;
+        Tilemap _obstacleTilemap;
         
         SpawnService _spawnService;
 
@@ -30,9 +28,11 @@ namespace Grid
             return gridPosition + _offsetToTileCenter;
         }
         
-        public void Init()
+        public GridService(Tilemap groundTilemap, Tilemap obstacleTilemap, SpawnService spawnService)
         {
-            _spawnService = new SpawnService();
+            _spawnService = spawnService;
+            _groundTilemap = groundTilemap;
+            _obstacleTilemap = obstacleTilemap;
         }
 
         public List<T> GetEntitiesOfType<T>() where T : BaseEntity
@@ -47,15 +47,15 @@ namespace Grid
 
         public void SpawnEntitiesOnGrid()
         {
-            var bounds = groundTilemap.cellBounds;
+            var bounds = _groundTilemap.cellBounds;
 
             foreach (var cellPos in bounds.allPositionsWithin)
             {
                 // Проверяем, что в клетке есть земля И нет препятствия
-                if (groundTilemap.HasTile(cellPos) && !obstacleTilemap.HasTile(cellPos))
+                if (_groundTilemap.HasTile(cellPos) && !_obstacleTilemap.HasTile(cellPos))
                 {
                     // Переводим координаты сетки в координаты мира
-                    var worldPosition = groundTilemap.CellToWorld(cellPos);
+                    var worldPosition = _groundTilemap.CellToWorld(cellPos);
                     var isCellEmpty = GetEntityAt(worldPosition) == null;
 
                     if (!isCellEmpty) continue;
@@ -72,8 +72,8 @@ namespace Grid
 
         public Vector3? GetCell(int x, int y)
         {
-            var cellPosition = groundTilemap.WorldToCell(new Vector3Int(x, y, 0));
-            var tile = groundTilemap.GetTile(cellPosition);
+            var cellPosition = _groundTilemap.WorldToCell(new Vector3Int(x, y, 0));
+            var tile = _groundTilemap.GetTile(cellPosition);
             
             return tile ? cellPosition : null;
         }
@@ -85,7 +85,7 @@ namespace Grid
         
         public async UniTask ApplyGravity()
         {
-            var bounds = groundTilemap.cellBounds;
+            var bounds = _groundTilemap.cellBounds;
             var width = bounds.xMax;
             var height = bounds.yMax;
             var tasks = new List<UniTask>();
@@ -147,7 +147,7 @@ namespace Grid
             {
                 var targetCell = centerCell + dir;
                 // Проверяем, есть ли тайл на groundTilemap И НЕТ ли препятствия на obstacleTilemap
-                if (!groundTilemap.HasTile(targetCell) || obstacleTilemap.HasTile(targetCell)) continue;
+                if (!_groundTilemap.HasTile(targetCell) || _obstacleTilemap.HasTile(targetCell)) continue;
 
                 return targetCell;
             }
@@ -160,12 +160,12 @@ namespace Grid
             for (var y = 0; y < startCell.y; y++) // Проходим снизу вверх до текущей ячейки
             {
                 var potentialCellPosition = new Vector3Int(startCell.x, y, 0);
-                var tile = groundTilemap.GetTile(potentialCellPosition);
+                var tile = _groundTilemap.GetTile(potentialCellPosition);
                 if (tile == null) continue;
             
                 var entityInPotentialCell = GetEntityAt(potentialCellPosition);
 
-                if (entityInPotentialCell == null && !obstacleTilemap.HasTile(potentialCellPosition))
+                if (entityInPotentialCell == null && !_obstacleTilemap.HasTile(potentialCellPosition))
                 {
                     return potentialCellPosition; // Возвращаем самую нижнюю доступную ячейку
                 }

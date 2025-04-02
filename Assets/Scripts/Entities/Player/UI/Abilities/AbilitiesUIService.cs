@@ -16,6 +16,9 @@ namespace Entities.Player
         
         AbilitiesService _abilitiesService;
 
+
+        bool _isInit;
+
         public void Init()
         {
             _abilitiesService = ServiceLocator.Get<AbilitiesService>();
@@ -33,12 +36,16 @@ namespace Entities.Player
                 
                 _buttonList.Add(button);
             }
+            
+            _isInit = true;
         }
         
         BaseAbility SelectedAbility => _abilitiesService.SelectedAbility;
         
         void Update()
         {
+            if (_isInit == false) return;
+
             ToggleExecuteButtonInteractable();
         }
 

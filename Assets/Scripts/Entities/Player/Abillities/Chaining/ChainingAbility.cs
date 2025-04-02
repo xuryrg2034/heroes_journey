@@ -38,8 +38,7 @@ namespace Entities.Player
 
             // Не уверен, что хороший план
             await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
-            
-            Debug.Log(111);
+
             IsInProcess = false;
         }
         

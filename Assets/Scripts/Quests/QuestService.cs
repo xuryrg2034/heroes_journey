@@ -10,15 +10,15 @@ namespace Services.Quest
     public class QuestService : MonoBehaviour
     {
         [SerializeReference, SubclassSelector]
-        private List<BaseQuestItem> questsList;
-        private bool _questsCompleted;
+        List<BaseQuestItem> questsList;
+        bool _questsCompleted;
 
         public void Init()
         {
             foreach (var questItem in questsList)
             {
                 questItem.Init();
-                questItem.OnComplete.AddListener(_checkIsCompletedActiveQuest);
+                questItem.OnComplete.AddListener(CheckIsCompletedActiveQuest);
             }
         }
 
@@ -27,7 +27,7 @@ namespace Services.Quest
             return questsList;
         }
 
-        private void _checkIsCompletedActiveQuest()
+        void CheckIsCompletedActiveQuest()
         {
             var isAllQuestsCompleted = questsList.All(item => item.IsCompleted);
 
