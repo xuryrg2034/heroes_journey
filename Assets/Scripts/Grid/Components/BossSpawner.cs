@@ -1,48 +1,52 @@
-using Entities;
+using Configs.Entities.Enemies;
+using Cysharp.Threading.Tasks;
+using Entities.Enemies;
 using Services;
 using Services.EventBus;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 namespace Grid.Components
-
 {
-    [RequireComponent(typeof(Cell))]
     public class BossSpawner : MonoBehaviour
     {
-        [FormerlySerializedAs("entityPrefab")] [SerializeField] private BaseEntity baseEntityPrefab;
+        [SerializeField] Vector3Int spawnerPosition;
+        [SerializeField] Enemy bossPrefab;
+        [SerializeField] BossConfig bossConfig;
 
-        private GridService _gridService;
+        SpawnService _spawnService;
+        GridService _gridService;
 
-        private Cell _cell;
-
-        private void OnEnable()
+        void OnEnable()
         {
-            EventBusService.Subscribe(Actions.AllQuestCompleted, _spawn);
+            EventBusService.Subscribe(Actions.AllQuestCompleted, Spawn);
         }
 
-        private void OnDisable()
+        void OnDisable()
         {
-            EventBusService.Unsubscribe(Actions.AllQuestCompleted, _spawn);
+            EventBusService.Unsubscribe(Actions.AllQuestCompleted, Spawn);
         }
 
-        private void Start()
+        void Start()
         {
-            _cell = GetComponent<Cell>();
+            _spawnService = ServiceLocator.Get<SpawnService>();
+            _gridService = ServiceLocator.Get<GridService>();
         }
 
-        private void _spawn()
+        void Spawn()
         {
-            var gridService = ServiceLocator.Get<GridService>();
+            var boss = _spawnService.SpawnEnemy(bossPrefab, bossConfig);
+            var entityOnGrid = _gridService.GetEntityAt(spawnerPosition);
+
+            if (entityOnGrid)
+            {
+                _spawnService.DisposeEntity(entityOnGrid);
+            }
             
-            _cell.SetType(CellType.Movable);
-
-            // var boss = gridService.SpawnEntity(baseEntityPrefab, _cell);
-            //
-            // boss.Health.OnDie.AddListener(() =>
-            // {
-            //     EventBusService.Trigger(Actions.BossDied);
-            // });
+            boss.Move(spawnerPosition, 0).Forget();
+            boss.Health.OnDie.AddListener(() =>
+            {
+                EventBusService.Trigger(Actions.BossDied);
+            });
         }
     }
 }

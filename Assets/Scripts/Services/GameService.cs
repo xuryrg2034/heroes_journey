@@ -1,10 +1,8 @@
 ﻿using Entities.Player;
 using Grid;
-using Services.Quest;
+using Quests;
 using Services.Turn;
 using UnityEngine;
-using UnityEngine.Events;
-using UnityEngine.Serialization;
 using UnityEngine.Tilemaps;
 
 namespace Services

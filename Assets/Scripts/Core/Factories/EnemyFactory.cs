@@ -5,7 +5,8 @@ namespace Core.Factories
 {
     public class EnemyFactory
     {
-        const string SmallEnemyPath = "Enemies";
+        const string EnemiesPath = "Enemies";
+
         SmallEnemyConfig[] _smallEnemiesList;
         
         public EnemyFactory()
@@ -25,7 +26,7 @@ namespace Core.Factories
 
         void LoadSmallEnemiesConfig()
         {
-            _smallEnemiesList = Resources.LoadAll<SmallEnemyConfig>(SmallEnemyPath);
+            _smallEnemiesList = Resources.LoadAll<SmallEnemyConfig>(EnemiesPath);
         }
     }
 }

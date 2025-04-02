@@ -3,7 +3,9 @@ using System.Linq;
 using Core.Factories;
 using Entities;
 using Cysharp.Threading.Tasks;
+using Entities.Enemies;
 using Entities.Player;
+using Interfaces;
 using UnityEngine;
 
 namespace Grid
@@ -24,10 +26,11 @@ namespace Grid
         
         public void SpawnSmallEnemy(Vector3Int gridPosition)
         {
-            var entity = _enemyFactory.GetRandomSmallEnemy();
-            entity.Move(gridPosition, 0).Forget();
+            var enemy = _enemyFactory.GetRandomSmallEnemy();
+            
+            enemy.Move(gridPosition, 0).Forget();
 
-            _spawnedEntities.Add(entity);
+            _spawnedEntities.Add(enemy);
         }
 
         public Hero SpawnHero(Hero heroPrefab)
@@ -41,9 +44,20 @@ namespace Grid
             return hero;
         }
 
+        public Enemy SpawnEnemy(Enemy entityPrefab, IEnemyConfig config)
+        {
+            var enemy = Object.Instantiate(entityPrefab);
+
+            enemy.Init(config);
+            
+            _spawnedEntities.Add(enemy);
+            
+            return enemy;
+        }
+
         public List<BaseEntity> GetSpawnedEntities() => _spawnedEntities.Where(e => !e.Health.IsDead).ToList();
         
-        void _disposeEntityOnCell(BaseEntity baseEntity)
+        public void DisposeEntity(BaseEntity baseEntity)
         {
             baseEntity.Health.Die().Forget();
         }

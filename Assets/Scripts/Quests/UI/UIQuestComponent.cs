@@ -1,15 +1,14 @@
-﻿using System;
-using TMPro;
+﻿using TMPro;
 using UnityEngine;
 
-namespace Core.Quest
+namespace Quests
 {
     public class UIQuestComponent : MonoBehaviour
     {
-        [SerializeField] private TMP_Text description;
-        [SerializeField] private TMP_Text progress;
+        [SerializeField] TMP_Text description;
+        [SerializeField] TMP_Text progress;
 
-        private BaseQuestItem _baseQuest;
+        BaseQuestItem _baseQuest;
 
         public void Init(BaseQuestItem baseQuest)
         {
@@ -29,7 +28,7 @@ namespace Core.Quest
             progress.text = value;
         }
 
-        private void _updateStatus()
+        void _updateStatus()
         {
             SetDescription(_baseQuest.Title);
             SetProgress(_baseQuest.GetProgress());

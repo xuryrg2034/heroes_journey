@@ -1,11 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Core.Quest;
 using Services.EventBus;
 using UnityEngine;
 
-namespace Services.Quest
+namespace Quests
 {
     public class QuestService : MonoBehaviour
     {

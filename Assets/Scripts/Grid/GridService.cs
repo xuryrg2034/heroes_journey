@@ -65,11 +65,6 @@ namespace Grid
             }
         }
 
-        public Hero SpawnHero(Hero heroPrefab)
-        {
-            return _spawnService.SpawnHero(heroPrefab);
-        }
-
         public Vector3? GetCell(int x, int y)
         {
             var cellPosition = _groundTilemap.WorldToCell(new Vector3Int(x, y, 0));

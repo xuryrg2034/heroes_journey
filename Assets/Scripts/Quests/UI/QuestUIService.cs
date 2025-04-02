@@ -1,17 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
-using Services.Quest;
-using Core.Quest;
 
-namespace Services.Quest
+namespace Quests
 {
     public class QuestUIService : MonoBehaviour
     {
-        [SerializeField] private Transform containerPrefab;
-        [SerializeField] private GameObject itemPrefab;
+        [SerializeField] Transform containerPrefab;
+        [SerializeField] GameObject itemPrefab;
 
-        private QuestService _service;
+        QuestService _service;
         
         public void Init(QuestService service)
         {
@@ -20,7 +17,7 @@ namespace Services.Quest
             _updateUI(_service.GetQuests());
         }
 
-        private void _updateUI(List<BaseQuestItem> questsList)
+        void _updateUI(List<BaseQuestItem> questsList)
         {
             // Очистим контейнер
             foreach (Transform child in containerPrefab)

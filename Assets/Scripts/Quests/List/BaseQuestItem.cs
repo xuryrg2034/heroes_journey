@@ -3,13 +3,13 @@ using Services;
 using UnityEngine;
 using UnityEngine.Events;
 
-namespace Core.Quest
+namespace Quests
 {
     [Serializable]
     public abstract class BaseQuestItem
     {
-        [SerializeField] private string title;
-        [SerializeField] private string description;
+        [SerializeField] string title;
+        [SerializeField] string description;
 
         protected LevelStatistics LevelStatistics;
      
@@ -19,7 +19,7 @@ namespace Core.Quest
         [HideInInspector]
         public UnityEvent OnComplete = new();
 
-        public bool IsCompleted { get; private set; }
+        public bool IsCompleted { get; set; }
 
         public string Title => title;
         

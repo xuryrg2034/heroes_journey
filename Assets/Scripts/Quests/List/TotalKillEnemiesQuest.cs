@@ -2,7 +2,7 @@
 using Services.EventBus;
 using UnityEngine;
 
-namespace Core.Quest
+namespace Quests
 {
     [Serializable]
     public class TotalKillEnemiesQuest : BaseQuestItem

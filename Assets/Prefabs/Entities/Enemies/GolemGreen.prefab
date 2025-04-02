@@ -12,7 +12,6 @@ GameObject:
   - component: {fileID: -7327794819446795399}
   - component: {fileID: -5271346730229606642}
   - component: {fileID: -9152101009826336401}
-  - component: {fileID: -2109020731990752305}
   - component: {fileID: 1759567743473965026}
   m_Layer: 3
   m_Name: GolemGreen
@@ -123,11 +122,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: abe3cebbe75d474a81a9046aa6c3a0cb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnPosition: {x: 0, y: 0, z: 0}
-  selectionType: 3
-  health: 0
   isAggressive: 0
-  aggressionLimit: 4
   abilities:
   - rid: 3283534691141681223
   references:
@@ -143,18 +138,6 @@ MonoBehaviour:
         targetLayer:
           serializedVersion: 2
           m_Bits: 0
---- !u!114 &-2109020731990752305
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 32920870007475787}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9a994140d1bb4e3fad021873d8e99162, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &1759567743473965026
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -185,7 +168,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &434657497881353963
 RectTransform:
   m_ObjectHideFlags: 0
