@@ -5,5 +5,6 @@
         Idle,
         PlayerTurn,
         EnemyTurn,
+        Finish
     }
 }

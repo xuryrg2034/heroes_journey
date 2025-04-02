@@ -1,5 +1,6 @@
 ﻿using System;
 using Entities.Player;
+using Services;
 using Services.EventBus;
 using UnityEngine;
 
@@ -12,6 +13,8 @@ namespace Grid.Components
         BoxCollider2D _boxCollider;
         
         Vector3Int _gridPosition;
+        
+        UiStateService _uiStateService;
         
         void OnDrawGizmos()
         {
@@ -31,6 +34,7 @@ namespace Grid.Components
 
         void Start()
         {
+            _uiStateService = ServiceLocator.Get<UiStateService>();
             _gridPosition = grid.WorldToCell(transform.position);
             _boxCollider =  GetComponent<BoxCollider2D>();
             
@@ -51,6 +55,7 @@ namespace Grid.Components
             if (_gridPosition == hero.GridPosition)
             {
                 Debug.Log("Уровень завершен!");   
+                _uiStateService.SetState(UiGameState.Finish);
             }
         }
     }
