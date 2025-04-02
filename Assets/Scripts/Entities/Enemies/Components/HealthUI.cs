@@ -13,7 +13,7 @@ namespace Entities.Enemies.Components
         void Start()
         {
             _health = GetComponent<BaseEntity>().Health;
-            
+
             _updateUI(_health.Value);
             _health.OnValueChanged.AddListener(_updateUI);
         }

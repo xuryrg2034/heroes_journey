@@ -9,14 +9,24 @@ namespace Entities.Player
     public class ChainingBaseAttackState : State
     {
         ChainingAbility _ability;
+        
         Hero _owner;
+        
         int _animationDirection;
+        
         int _nextIndex;
+        
         int _damage;
+        
+        int _entityHealthBeforeTakeDamage;
+        
         bool _isHit;
+        
         bool _isEnd;
+        
         readonly string _animationName = "Attack";
-        float _minAnimationTrigger = 0.95f;
+        
+        readonly float _minAnimationTrigger = 0.95f;
 
         public ChainingBaseAttackState(ChainingAbility ability, Hero owner)
         {
@@ -61,6 +71,7 @@ namespace Entities.Player
 
             if (attackTrigger >= _minAnimationTrigger && !_isHit)
             {
+                _isHit = true;
                 var direction = AttackDirection(_animationDirection);
 
                 if (direction == Vector3Int.zero)
@@ -72,7 +83,8 @@ namespace Entities.Player
                     return;
                 }
                 
-                _isHit = true;
+                _entityHealthBeforeTakeDamage = SelectedEntities[_nextIndex].Health.Value;
+
                 _ability.Attack(direction, _damage);
             }
         }
@@ -86,29 +98,30 @@ namespace Entities.Player
                 _isEnd = true;
                 
                 var entity = SelectedEntities[_nextIndex];
-                var entityHealth = entity.Health.Value;
 
-                if (entityHealth == 0)
-                {
-                    _damage += 1;
-                }
-            
-                _damage -= entityHealth;
+                _damage -= _entityHealthBeforeTakeDamage;
             
                 if (entity.Health.IsDead)
                 {
+                    _damage += 1;
+
                     await _owner.Move(entity.GridPosition, 0.1f);
 
                     _nextIndex++;
-                }
-            
-                if (_nextIndex >= SelectedEntities.Count)
-                {
-                    stateMachine.SetNextStateToMain();
+                    
+                    if (_nextIndex >= SelectedEntities.Count)
+                    {
+                        stateMachine.SetNextStateToMain();
+                    }
+                    else
+                    {
+                        AnimationStart();
+                    }
+                    
                 }
                 else
                 {
-                    AnimationStart();
+                    stateMachine.SetNextStateToMain();
                 }
             }
         }

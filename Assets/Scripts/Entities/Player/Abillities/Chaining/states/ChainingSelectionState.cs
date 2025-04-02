@@ -50,6 +50,7 @@ namespace Entities.Player
             base.OnExit();
             
             _selectionLocked = false;
+            _ability.SetTotalDamage(0);
         }
 
         void _selectEntity(IBaseEntity entity)
@@ -82,6 +83,7 @@ namespace Entities.Player
             if (!isInRange || !canSelection || _selectionLocked) return;
             
             _ability.SelectEntity(entity);
+            _recalculateTotalDamage();
         }
 
         void _removeEnemiesAfter(IBaseEntity target)
