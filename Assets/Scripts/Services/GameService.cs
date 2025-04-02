@@ -24,15 +24,13 @@ namespace Services
 
         Hero _hero;
 
-        // Порядок вызова важен. Происходит регистрация классов в сервис локаторе
         void Awake()
         {
             RegisterServices();
-
-            PrepareGrid();
-            PrepareAbilities();
-            PrepareQuests();
-            PrepareTurnService();
+            GridInitialize();
+            AbilitiesInitialize();
+            QuestsInitialize();
+            TurnServiceInitialize();
         }
 
         void RegisterServices()
@@ -48,15 +46,13 @@ namespace Services
             ServiceLocator.Register(gridService);
         }
 
-        void PrepareAbilities()
+        void AbilitiesInitialize()
         {
             var abilitiesService = new AbilitiesService(_hero);
             ServiceLocator.Register(abilitiesService);
-
-            abilitiesUIService.Init();
         }
         
-        void PrepareQuests()
+        void QuestsInitialize()
         {
             var service = questService.GetComponent<QuestService>();
             var ui = questService.GetComponent<QuestUIService>();
@@ -65,7 +61,7 @@ namespace Services
             ui.Init(service);
         }
 
-        void PrepareGrid()
+        void GridInitialize()
         {
             var spawnService = ServiceLocator.Get<SpawnService>();
             var gridService = ServiceLocator.Get<GridService>();
@@ -76,7 +72,7 @@ namespace Services
             heroUIService.Init(_hero);
         }
 
-        void PrepareTurnService()
+        void TurnServiceInitialize()
         {
             turnService.Init();
         }

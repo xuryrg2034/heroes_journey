@@ -9,20 +9,32 @@ namespace Entities.Player
     public class AbilitiesUIService : MonoBehaviour
     {
         [SerializeField] Button executeButton;
+        
         [SerializeField] Transform containerPrefab;
+        
         [SerializeField] AbilityButton itemPrefab;
-
-        List<AbilityButton> _buttonList = new();
         
         AbilitiesService _abilitiesService;
+        
+        UiStateService _uiStateService;
+        
+        BaseAbility SelectedAbility => _abilitiesService.SelectedAbility;
 
-
-        bool _isInit;
-
-        public void Init()
+        void Start()
         {
             _abilitiesService = ServiceLocator.Get<AbilitiesService>();
-            
+            _uiStateService = ServiceLocator.Get<UiStateService>();
+
+            CreateAbilityButtons();
+        }
+        
+        void Update()
+        {
+            ToggleExecuteButtonInteractable();
+        }
+
+        void CreateAbilityButtons()
+        {
             foreach (Transform child in containerPrefab)
             {
                 Destroy(child.gameObject);
@@ -33,34 +45,23 @@ namespace Entities.Player
                 var button = Instantiate(itemPrefab, containerPrefab);
                 
                 button.Init(ability, HandleClickAbilityButton);
-                
-                _buttonList.Add(button);
             }
-            
-            _isInit = true;
-        }
-        
-        BaseAbility SelectedAbility => _abilitiesService.SelectedAbility;
-        
-        void Update()
-        {
-            if (_isInit == false) return;
-
-            ToggleExecuteButtonInteractable();
         }
 
         void ToggleExecuteButtonInteractable()
         {
             var interactable =
-                SelectedAbility != null &&
-                SelectedAbility.CanBeExecute;
+                SelectedAbility &&
+                SelectedAbility.CanBeExecute &&
+                _uiStateService.CurrentState == UiGameState.Idle;
 
             executeButton.interactable = interactable;
         }
 
         void HandleClickAbilityButton(BaseAbility ability)
         {
-            if (SelectedAbility?.IsInProcess == true) return;
+            // Запрет на смену абилки, пока игра не в состоянии Idle
+            if (_uiStateService.CurrentState != UiGameState.Idle) return;
 
             _abilitiesService.SelectAbility(ability);
         }

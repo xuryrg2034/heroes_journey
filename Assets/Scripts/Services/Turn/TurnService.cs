@@ -10,11 +10,13 @@ namespace Services.Turn
         TurnPhase _enemyTurnPhase;
         TurnPhase _allQuestsCompleteTurnPhase;
 
+        UiStateService _uiStateService;
         GridService _gridService;
 
         public void Init()
         {
             _gridService = ServiceLocator.Get<GridService>();
+            _uiStateService = ServiceLocator.Get<UiStateService>();
 
             _playerTurnPhase = new TurnPhasePlayer();
             _enemyTurnPhase = new TurnPhaseEnemy();
@@ -23,10 +25,18 @@ namespace Services.Turn
             _enemyTurnPhase.OnChangeState.AddListener(EnemyTurnEnd);
         }
         
-        public void StartPlayerTurn()
+        public void PlayerTurnStart()
         {
+            _uiStateService.SetState(UiGameState.PlayerTurn);
             _playerTurnPhase.Prepare();
             _playerTurnPhase.StartPhase();
+        }
+        
+        void EnemyTurnStart()
+        {
+            _uiStateService.SetState(UiGameState.EnemyTurn);
+            _enemyTurnPhase.Prepare();
+            _enemyTurnPhase.StartPhase();
         }
 
         async void PlayerTurnEnd(TurnState state)
@@ -34,10 +44,7 @@ namespace Services.Turn
             if (state != TurnState.Completed) return;
             
             await _gridService.UpdateGrid();
-
-            _enemyTurnPhase.Prepare();
-            
-            _enemyTurnPhase.StartPhase();
+            EnemyTurnStart();
         }
         
         async void EnemyTurnEnd(TurnState state)
@@ -45,6 +52,7 @@ namespace Services.Turn
             if (state != TurnState.Completed) return;
             
             await _gridService.UpdateGrid();
+            _uiStateService.SetState(UiGameState.Idle);
         }
     }
 }   
