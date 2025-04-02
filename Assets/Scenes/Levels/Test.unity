@@ -3130,7 +3130,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8419094075955354768, guid: fd24d59f8c34cf64ea8c533f805f6de0, type: 3}
       propertyPath: m_OnClick.m_PersistentCalls.m_Calls.Array.data[0].m_MethodName
-      value: StartPlayerTurn
+      value: PlayerTurnStart
       objectReference: {fileID: 0}
     - target: {fileID: 8419094075955354768, guid: fd24d59f8c34cf64ea8c533f805f6de0, type: 3}
       propertyPath: m_OnClick.m_PersistentCalls.m_Calls.Array.data[0].m_TargetAssemblyTypeName
