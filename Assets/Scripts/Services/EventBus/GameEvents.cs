@@ -1,7 +1,10 @@
 ﻿namespace Services.EventBus
 {
-    public enum Actions
+    public enum GameEvents
     {
+        // Gane events
+        GameStateChanged,
+        
         // Player events
         PlayerTurnStart,
         PlayerRestoreEnergy,

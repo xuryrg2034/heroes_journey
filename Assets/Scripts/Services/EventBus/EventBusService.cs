@@ -5,61 +5,55 @@ namespace Services.EventBus
 {
     public static class EventBusService
     {
-        private static readonly Dictionary<Actions, Delegate> Events = new();
-        private static readonly Dictionary<Actions, Dictionary<Delegate, Delegate>> Wrappers = new(); // Храним оригинальные ссылки
+        static readonly Dictionary<GameEvents, Delegate> Events = new();
 
-        // Универсальная подписка (работает и с аргументами, и без)
-        public static void Subscribe<T>(Actions eventName, Action<T> callback)
+        public static void Subscribe(GameEvents evt, Action callback)
         {
-            if (!Events.ContainsKey(eventName))
-                Events[eventName] = callback;
+            Add(evt, callback);
+        }
+
+        public static void Subscribe<T>(GameEvents evt, Action<T> callback)
+        {
+            Add(evt, callback);
+        }
+
+        public static void Unsubscribe(GameEvents evt, Action callback)
+        {
+            Remove(evt, callback);
+        }
+
+        public static void Unsubscribe<T>(GameEvents evt, Action<T> callback)
+        {
+            Remove(evt, callback);
+        }
+
+        public static void Trigger(GameEvents evt)
+        {
+            if (Events.TryGetValue(evt, out var del) && del is Action action)
+                action.Invoke();
+        }
+
+        public static void Trigger<T>(GameEvents evt, T arg)
+        {
+            if (Events.TryGetValue(evt, out var del) && del is Action<T> action)
+                action.Invoke(arg);
+        }
+
+        static void Add(GameEvents evt, Delegate callback)
+        {
+            if (Events.TryGetValue(evt, out var existing))
+                Events[evt] = Delegate.Combine(existing, callback);
             else
-                Events[eventName] = Delegate.Combine(Events[eventName], callback);
+                Events[evt] = callback;
         }
 
-        public static void Subscribe(Actions eventName, Action callback)
+        static void Remove(GameEvents evt, Delegate callback)
         {
-            Action<object> wrapper = _ => callback();
+            if (!Events.ContainsKey(evt)) return;
 
-            if (!Wrappers.ContainsKey(eventName))
-                Wrappers[eventName] = new Dictionary<Delegate, Delegate>();
-
-            Wrappers[eventName][callback] = wrapper; // Сохраняем связь оригинала и обёртки
-            Subscribe(eventName, wrapper);
-        }
-
-        // Универсальная отписка
-        public static void Unsubscribe<T>(Actions eventName, Action<T> callback)
-        {
-            if (!Events.ContainsKey(eventName)) return;
-
-            Events[eventName] = Delegate.Remove(Events[eventName], callback);
-            if (Events[eventName] == null)
-                Events.Remove(eventName);
-        }
-
-        public static void Unsubscribe(Actions eventName, Action callback)
-        {
-            if (!Wrappers.ContainsKey(eventName) || !Wrappers[eventName].ContainsKey(callback)) return;
-
-            var wrapper = Wrappers[eventName][callback];
-            Unsubscribe(eventName, (Action<object>)wrapper);
-
-            Wrappers[eventName].Remove(callback);
-            if (Wrappers[eventName].Count == 0)
-                Wrappers.Remove(eventName);
-        }
-
-        // Универсальный вызов события
-        public static void Trigger<T>(Actions eventName, T param = default)
-        {
-            if (Events.TryGetValue(eventName, out var del) && del is Action<T> action)
-                action.Invoke(param);
-        }
-
-        public static void Trigger(Actions eventName)
-        {
-            Trigger<object>(eventName, null);
+            Events[evt] = Delegate.Remove(Events[evt], callback);
+            if (Events[evt] == null)
+                Events.Remove(evt);
         }
     }
 }

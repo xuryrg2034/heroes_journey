@@ -1,6 +1,8 @@
-﻿using Entities.Player;
+﻿using System;
+using Entities.Player;
 using Grid;
 using Quests;
+using Services.EventBus;
 using Services.Turn;
 using UnityEngine;
 using UnityEngine.Tilemaps;
@@ -21,25 +23,33 @@ namespace Services
         [SerializeField] Hero heroPrefab;
 
         Hero _hero;
+        
+        public static GameState GameState { get; private set; }
+
+        void OnDisable()
+        {
+            UnsubscribeEvents();
+        }
 
         void Awake()
         {
+            SubscribeEvents();
             RegisterServices();
             GridInitialize();
             AbilitiesInitialize();
             QuestsInitialize();
             TurnServiceInitialize();
+            
+            GameState = GameState.Idle;
         }
 
         void RegisterServices()
         {
             var spawnService = new SpawnService();
-            var uiStateService = new UiStateService();
             var levelStatistics = new LevelStatistics();
             var gridService = new GridService(groundTilemap, obstacleTilemap, spawnService);
             
             ServiceLocator.Register(spawnService);
-            ServiceLocator.Register(uiStateService);
             ServiceLocator.Register(levelStatistics);
             ServiceLocator.Register(gridService);
         }
@@ -73,6 +83,21 @@ namespace Services
         void TurnServiceInitialize()
         {
             turnService.Init();
+        }
+
+        void SubscribeEvents()
+        {
+            EventBusService.Subscribe<GameState>(GameEvents.GameStateChanged, ChangeGameState);
+        }
+
+        void UnsubscribeEvents()
+        {
+            EventBusService.Unsubscribe<GameState>(GameEvents.GameStateChanged, ChangeGameState);
+        }
+
+        void ChangeGameState(GameState newState)
+        {
+            GameState = newState;
         }
     }
 }

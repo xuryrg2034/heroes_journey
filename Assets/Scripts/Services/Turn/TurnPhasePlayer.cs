@@ -10,7 +10,7 @@ namespace Services.Turn
         public override void Prepare()
         {
             _preparePhase();
-            EventBusService.Trigger(Actions.PlayerTurnStart);
+            EventBusService.Trigger(GameEvents.PlayerTurnStart);
         }
 
         protected override void _preparePhase()

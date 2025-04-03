@@ -4,7 +4,7 @@ namespace Entities.Components
 {
     public class Energy
     {
-        public int MaxEnergy { get; private set; }
+        public int MaxEnergy { get; }
 
         int _min;
         
@@ -55,7 +55,11 @@ namespace Entities.Components
 
         public void Increase(int value = 1)
         {
-            if (Value + value > MaxEnergy) return;
+            if (Value + value > MaxEnergy)
+            {
+                Value = MaxEnergy;
+                return;
+            };
             
             Value += value;
         }
@@ -70,6 +74,11 @@ namespace Entities.Components
         public void SetReserve(int value)
         {
             Reserved = value;
+        }
+
+        public void ResetReserve()
+        {
+            Reserved = 0;
         }
     }
 }

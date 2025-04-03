@@ -1,14 +1,11 @@
-using System;
-using System.Collections.Generic;
 using Services;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Entities.Player
 {
     public class AbilitiesUIService : MonoBehaviour
     {
-        [SerializeField] Button executeButton;
+        [SerializeField] ExecuteAbilityButton executeButton;
         
         [SerializeField] Transform containerPrefab;
         
@@ -16,21 +13,19 @@ namespace Entities.Player
         
         AbilitiesService _abilitiesService;
         
-        UiStateService _uiStateService;
-        
         BaseAbility SelectedAbility => _abilitiesService.SelectedAbility;
 
         void Start()
         {
             _abilitiesService = ServiceLocator.Get<AbilitiesService>();
-            _uiStateService = ServiceLocator.Get<UiStateService>();
-
+            executeButton.Initialize(_abilitiesService);
+            
             CreateAbilityButtons();
         }
         
         void Update()
         {
-            ToggleExecuteButtonInteractable();
+            CheckExecuteButtonInteractable();
         }
 
         void CreateAbilityButtons()
@@ -48,20 +43,20 @@ namespace Entities.Player
             }
         }
 
-        void ToggleExecuteButtonInteractable()
+        void CheckExecuteButtonInteractable()
         {
             var interactable =
                 SelectedAbility &&
                 SelectedAbility.CanBeExecute &&
-                _uiStateService.CurrentState == UiGameState.Idle;
+                GameService.GameState == GameState.Idle;
 
-            executeButton.interactable = interactable;
+            executeButton.ToggleInteractable(interactable);
         }
 
         void HandleClickAbilityButton(BaseAbility ability)
         {
             // Запрет на смену абилки, пока игра не в состоянии Idle
-            if (_uiStateService.CurrentState != UiGameState.Idle) return;
+            if (GameService.GameState != GameState.Idle) return;
 
             _abilitiesService.SelectAbility(ability);
         }

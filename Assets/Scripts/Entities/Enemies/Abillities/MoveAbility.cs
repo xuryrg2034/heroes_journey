@@ -12,12 +12,12 @@ namespace Entities.Enemies
     {
         [SerializeField] public LayerMask targetLayer;
 
-        private GridService _gridService;
+        GridService _gridService;
 
 
-        public override void Init(Enemy owner)
+        public override void Initialize(Enemy owner)
         {
-            base.Init(owner);
+            base.Initialize(owner);
             
             _gridService = ServiceLocator.Get<GridService>();
         }
@@ -42,12 +42,12 @@ namespace Entities.Enemies
             _reset();
         }
 
-        private void _prepare()
+        void _prepare()
         {
             State = State.Preparing;
         }
 
-        private async UniTask _execute()
+        async UniTask _execute()
         {
             State = State.Execute;
             
@@ -75,10 +75,8 @@ namespace Entities.Enemies
             await UniTask.WhenAll(tasks);
         }
 
-        private void _reset()
+        void _reset()
         {
-            // _cellToMove.Highlite(false);
-            // _cellToMove = null;
             _castCounter = 0;
             State = State.Pending;
         }

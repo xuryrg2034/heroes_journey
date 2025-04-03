@@ -15,14 +15,14 @@ namespace Quests
         {
             base.Init();
             
-            EventBusService.Subscribe(Actions.StatisticsUpdateKillCounter, OnCheckCondition);
+            EventBusService.Subscribe(GameEvents.StatisticsUpdateKillCounter, OnCheckCondition);
         }
 
         public override void OnCheckCondition()
         {
             if (IsCompleted)
             {
-                EventBusService.Unsubscribe(Actions.StatisticsUpdateKillCounter, OnCheckCondition);
+                EventBusService.Unsubscribe(GameEvents.StatisticsUpdateKillCounter, OnCheckCondition);
                 return;
             }
             

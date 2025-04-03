@@ -11,7 +11,6 @@ namespace Entities.Enemies
     public class Enemy : BaseEntity
     {
         [Header("Enemy Settings")]
-        
         [SerializeField] bool isAggressive; // Готов ли противник проявить агрессию
         
         [SerializeReference, SubclassSelector]
@@ -30,13 +29,10 @@ namespace Entities.Enemies
             
             foreach (var ability in abilities)
             {
-                ability.Init(this);
+                ability.Initialize(this);
             }
 
-            Health.OnDie.AddListener(CancelAbilities);
-            Health.OnDie.AddListener(UpdateStatistics);
-            Health.OnValueChanged.AddListener(CheckAggressionAfterTakeDamage);
-            EventBusService.Subscribe(Actions.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
+            SubscribeEvents();
         }
 
         public async UniTask ExecuteAbilities()
@@ -89,13 +85,31 @@ namespace Entities.Enemies
         
         void UpdateStatistics()
         {
-            EventBusService.Trigger(Actions.EnemyDied);
+            EventBusService.Trigger(GameEvents.EnemyDied);
         }
 
+        void SubscribeEvents()
+        {
+            Health.OnDie.AddListener(CancelAbilities);
+            Health.OnDie.AddListener(UpdateStatistics);
+            Health.OnValueChanged.AddListener(CheckAggressionAfterTakeDamage);
+
+            EventBusService.Subscribe(GameEvents.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
+        }
+
+        void UnsubscribeEvents()
+        {
+            Health.OnDie.RemoveListener(CancelAbilities);
+            Health.OnDie.RemoveListener(UpdateStatistics);
+            Health.OnValueChanged.RemoveListener(CheckAggressionAfterTakeDamage);
+
+            EventBusService.Unsubscribe(GameEvents.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
+        }
+        
         public override void Dispose()
         {
             base.Dispose();
-            EventBusService.Unsubscribe(Actions.StatisticsUpdateTurnCounter, OnCheckAggressionAfterTurnPassed);
+            UnsubscribeEvents();
         }
     }
 }

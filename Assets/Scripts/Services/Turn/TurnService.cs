@@ -1,4 +1,5 @@
 ﻿using Grid;
+using Services.EventBus;
 using UnityEngine;
 
 
@@ -10,13 +11,11 @@ namespace Services.Turn
         TurnPhase _enemyTurnPhase;
         TurnPhase _allQuestsCompleteTurnPhase;
 
-        UiStateService _uiStateService;
         GridService _gridService;
 
         public void Init()
         {
             _gridService = ServiceLocator.Get<GridService>();
-            _uiStateService = ServiceLocator.Get<UiStateService>();
 
             _playerTurnPhase = new TurnPhasePlayer();
             _enemyTurnPhase = new TurnPhaseEnemy();
@@ -27,14 +26,14 @@ namespace Services.Turn
         
         public void PlayerTurnStart()
         {
-            _uiStateService.SetState(UiGameState.PlayerTurn);
+            EventBusService.Trigger(GameEvents.GameStateChanged, GameState.PlayerTurn);
             _playerTurnPhase.Prepare();
             _playerTurnPhase.StartPhase();
         }
         
         void EnemyTurnStart()
         {
-            _uiStateService.SetState(UiGameState.EnemyTurn);
+            EventBusService.Trigger(GameEvents.GameStateChanged, GameState.EnemyTurn);
             _enemyTurnPhase.Prepare();
             _enemyTurnPhase.StartPhase();
         }
@@ -52,7 +51,7 @@ namespace Services.Turn
             if (state != TurnState.Completed) return;
             
             await _gridService.UpdateGrid();
-            _uiStateService.SetState(UiGameState.Idle);
+            EventBusService.Trigger(GameEvents.GameStateChanged, GameState.Idle);
         }
     }
 }   

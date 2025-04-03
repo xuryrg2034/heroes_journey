@@ -1,6 +1,6 @@
 ﻿namespace Services
 {
-    public enum UiGameState
+    public enum GameState
     {
         Idle,
         PlayerTurn,

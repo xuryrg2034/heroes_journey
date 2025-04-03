@@ -14,8 +14,6 @@ namespace Grid.Components
         
         Vector3Int _gridPosition;
         
-        UiStateService _uiStateService;
-        
         void OnDrawGizmos()
         {
             Gizmos.color = Color.magenta;
@@ -24,17 +22,16 @@ namespace Grid.Components
 
         void OnEnable()
         {
-            EventBusService.Subscribe(Actions.BossDied, Activate);
+            EventBusService.Subscribe(GameEvents.BossDied, Activate);
         }
 
         void OnDisable()
         {
-            EventBusService.Unsubscribe(Actions.BossDied, Activate);
+            EventBusService.Unsubscribe(GameEvents.BossDied, Activate);
         }
 
         void Start()
         {
-            _uiStateService = ServiceLocator.Get<UiStateService>();
             _gridPosition = grid.WorldToCell(transform.position);
             _boxCollider =  GetComponent<BoxCollider2D>();
             
@@ -54,8 +51,8 @@ namespace Grid.Components
 
             if (_gridPosition == hero.GridPosition)
             {
-                Debug.Log("Уровень завершен!");   
-                _uiStateService.SetState(UiGameState.Finish);
+                Debug.Log("Уровень завершен!");
+                EventBusService.Trigger(GameEvents.GameStateChanged, GameState.Finish);
             }
         }
     }

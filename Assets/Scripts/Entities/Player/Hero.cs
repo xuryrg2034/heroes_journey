@@ -3,6 +3,7 @@ using System.Linq;
 using Configs.Entities;
 using Entities.Components;
 using Interfaces;
+using Services;
 using UnityEngine;
 using Services.EventBus;
 
@@ -64,12 +65,14 @@ namespace Entities.Player
 
             _abilityStateMachine.SetNextState(_selectedAbility.SelectionState);
             _selectedAbility.SetSelect(true);
+            Energy.SetReserve(_selectedAbility.EnergyCost);
         }
 
         public void DeselectAbility()
         {
             _selectedAbility?.SetSelect(false);
             _selectedAbility = null;
+            Energy.ResetReserve();
         }
         
         void RestoreEnergy(int value = 1)
@@ -79,19 +82,19 @@ namespace Entities.Player
 
         void SubscribeOnEvents()
         {
-            EventBusService.Subscribe(Actions.PlayerTurnStart, TurnStartEvent);
-            EventBusService.Subscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
+            EventBusService.Subscribe<GameState>(GameEvents.GameStateChanged, IdleGameStateReaction);
         }
         
         void UnsubscribeOnEvents()
         {
-            EventBusService.Unsubscribe(Actions.PlayerTurnStart, TurnStartEvent);
-            EventBusService.Unsubscribe<int>(Actions.PlayerRestoreEnergy, RestoreEnergy);
+            EventBusService.Unsubscribe<GameState>(GameEvents.GameStateChanged, IdleGameStateReaction);
         }
 
-        void TurnStartEvent()
+        void IdleGameStateReaction(GameState state)
         {
-            Energy.Increase();
+            if (state != GameState.Idle) return;
+
+            RestoreEnergy();
         }
     }
 }

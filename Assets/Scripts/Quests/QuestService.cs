@@ -32,7 +32,7 @@ namespace Quests
 
             if (isAllQuestsCompleted)
             {
-                EventBusService.Trigger(Actions.AllQuestCompleted);
+                EventBusService.Trigger(GameEvents.AllQuestCompleted);
             }
         }
     }

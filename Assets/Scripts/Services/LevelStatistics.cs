@@ -18,13 +18,13 @@ namespace Services
         public void RegisterKill()
         {
             Kills++;
-            EventBusService.Trigger(Actions.StatisticsUpdateKillCounter);
+            EventBusService.Trigger(GameEvents.StatisticsUpdateKillCounter);
         }
         
         public void IncreaseTurnCounter()
         {
             Turn++;
-            EventBusService.Trigger(Actions.StatisticsUpdateTurnCounter);
+            EventBusService.Trigger(GameEvents.StatisticsUpdateTurnCounter);
         }
 
         public void Reset()
@@ -39,8 +39,8 @@ namespace Services
 
         private void _subscribeEvents()
         {
-            EventBusService.Subscribe(Actions.EnemyDied, RegisterKill);
-            EventBusService.Subscribe(Actions.PlayerTurnStart, IncreaseTurnCounter);
+            EventBusService.Subscribe(GameEvents.EnemyDied, RegisterKill);
+            EventBusService.Subscribe(GameEvents.PlayerTurnStart, IncreaseTurnCounter);
         }
      }
 }

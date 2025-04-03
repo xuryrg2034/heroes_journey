@@ -23,6 +23,8 @@ namespace Entities.Player
         public string Title => title;
         
         public Sprite Icon => icon;
+        
+        public int EnergyCost => energyCost;
 
         public bool IsSelected { get; private set; }
         
@@ -35,7 +37,6 @@ namespace Entities.Player
         protected Hero Owner;
 
         protected AbilityStateMachine StateMachine { get; private set; }
-        
 
         public virtual void Init(Hero owner, AbilityStateMachine stateMachine)
         {
@@ -45,6 +46,7 @@ namespace Entities.Player
 
         public virtual UniTask Execute()
         {
+            Owner.Energy.Decrease(energyCost); 
             return default;
         }
 

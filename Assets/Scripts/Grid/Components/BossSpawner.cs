@@ -30,12 +30,12 @@ namespace Grid.Components
 
         void OnEnable()
         {
-            EventBusService.Subscribe(Actions.AllQuestCompleted, Spawn);
+            EventBusService.Subscribe(GameEvents.AllQuestCompleted, Spawn);
         }
 
         void OnDisable()
         {
-            EventBusService.Unsubscribe(Actions.AllQuestCompleted, Spawn);
+            EventBusService.Unsubscribe(GameEvents.AllQuestCompleted, Spawn);
         }
 
         void Start()
@@ -58,7 +58,7 @@ namespace Grid.Components
             boss.Move(_gridPosition, 0).Forget();
             boss.Health.OnDie.AddListener(() =>
             {
-                EventBusService.Trigger(Actions.BossDied);
+                EventBusService.Trigger(GameEvents.BossDied);
             });
         }
     }

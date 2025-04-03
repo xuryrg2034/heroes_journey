@@ -41,7 +41,7 @@ namespace Entities.Enemies
 
         public abstract void Cancel();
         
-        public virtual void Init(Enemy owner)
+        public virtual void Initialize(Enemy owner)
         {
             Owner = owner;
         }
