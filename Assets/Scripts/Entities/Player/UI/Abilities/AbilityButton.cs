@@ -10,8 +10,6 @@ namespace Entities.Player
         [SerializeField] GameObject icon;
 
         BaseAbility _ability;
-        
-        bool _interactable = true;
 
         Button _button;
 
@@ -20,7 +18,7 @@ namespace Entities.Player
         void OnDisable()
         {
             _button.onClick.RemoveListener(CallbackInvoke);
-            _ability.OnSelected.RemoveListener(ToggleSelection);
+            _ability.OnSelected.RemoveListener(HandleAbilitySelection);
         }
 
         public void Init(BaseAbility ability, Action<BaseAbility> callback)
@@ -35,9 +33,8 @@ namespace Entities.Player
 
         void PrepareButton()
         {
-            _button.interactable = _interactable;
             _button.onClick.AddListener(CallbackInvoke);
-            _ability.OnSelected.AddListener(ToggleSelection);
+            _ability.OnSelected.AddListener(HandleAbilitySelection);
         }
 
         void PrepareIcon()
@@ -50,7 +47,7 @@ namespace Entities.Player
             _callback.Invoke(_ability);
         }
 
-        void ToggleSelection(bool value)
+        void HandleAbilitySelection(bool value)
         {
             selection.gameObject.SetActive(value);
         }

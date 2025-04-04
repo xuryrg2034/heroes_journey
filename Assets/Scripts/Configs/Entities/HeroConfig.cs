@@ -1,4 +1,5 @@
 ﻿using Interfaces;
+using Unity.VisualScripting.Dependencies.Sqlite;
 using UnityEngine;
 namespace Configs.Entities
 {
@@ -9,6 +10,6 @@ namespace Configs.Entities
         
         [field: SerializeField] public int Damage { get; private set; }
         
-        [field: SerializeField] public int Energy { get; private set; }
+        [field: SerializeField, Range(0, 10)] public int Energy { get; private set; }
     }
 }

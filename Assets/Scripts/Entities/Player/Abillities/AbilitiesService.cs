@@ -19,6 +19,8 @@ namespace Entities.Player
         
         public void SelectAbility(BaseAbility ability)
         {
+            if (_owner.Energy.Value < ability.EnergyCost) return;
+
             DeselectAbility();
             _owner.SelectAbility(ability);
         }
