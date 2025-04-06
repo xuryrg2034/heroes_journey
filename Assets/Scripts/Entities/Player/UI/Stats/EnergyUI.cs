@@ -11,6 +11,8 @@ namespace Entities.Player
         [SerializeField] GameObject containerObject;
 
         Energy _energy;
+
+        string _reservedAnimation = "Reserved";
         
         GameObject[] _energyList;
 
@@ -50,21 +52,18 @@ namespace Entities.Player
 
             for (var i = 0; i < activeEnergy; i++)
             {
-                var sr = _energyList[i].GetComponent<SpriteRenderer>();
-                var color = sr.color;
+                var animator = _energyList[i].GetComponent<Animator>();
 
                 // Резервирование энергии
                 if (i >= threshold)
                 {
-                    color.a = 0.5f;
+                    animator.SetBool(_reservedAnimation, true);
                 }
                 // Освобождение от резервирования энергии
                 else
                 {
-                    color.a = 1;
+                    animator.SetBool(_reservedAnimation, false);
                 }
-                
-                sr.color = color;
             }
         }
 
@@ -76,7 +75,9 @@ namespace Entities.Player
 
             for (var i = 0; i < arrayLength; i++)
             {
-                var sr = _energyList[i].GetComponent<SpriteRenderer>();
+                var energy = _energyList[i];
+                var sr = energy.GetComponent<SpriteRenderer>();
+                var animator = energy.GetComponent<Animator>();
                 var color = sr.color;
 
                 if (i > threshold)
@@ -89,6 +90,7 @@ namespace Entities.Player
                 }
                 
                 sr.color = color;
+                animator.SetBool(_reservedAnimation, false);
             }
         }
     }

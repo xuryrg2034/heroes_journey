@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace Entities.Player
 {
+    // TODO: Прикинуть как избавиться от сервиса. По сути это просто прокся для методов героя
     public class AbilitiesService
     {
         readonly Hero _owner;
@@ -19,9 +20,6 @@ namespace Entities.Player
         
         public void SelectAbility(BaseAbility ability)
         {
-            if (_owner.Energy.Value < ability.EnergyCost) return;
-
-            DeselectAbility();
             _owner.SelectAbility(ability);
         }
 
@@ -32,7 +30,7 @@ namespace Entities.Player
 
         public async UniTask Execute()
         {
-            await SelectedAbility.Execute();
+            await _owner.ExecuteAbility();
         }
     }
 }

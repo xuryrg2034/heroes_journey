@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using Configs.Entities;
+using Cysharp.Threading.Tasks;
 using Entities.Components;
 using Interfaces;
 using Services;
@@ -59,8 +60,15 @@ namespace Entities.Player
             SubscribeOnEvents();
         }
 
+        public async UniTask ExecuteAbility()
+        {
+            await _selectedAbility.Execute();
+        } 
+
         public void SelectAbility(BaseAbility ability)
         {
+            if (Energy.Value < ability.EnergyCost) return;
+
             _selectedAbility = ability;
 
             _abilityStateMachine.SetNextState(_selectedAbility.SelectionState);

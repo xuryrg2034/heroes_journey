@@ -58,6 +58,7 @@ namespace Entities.Player
             // Запрет на смену абилки, пока игра не в состоянии Idle
             if (GameService.GameState != GameState.Idle) return;
 
+            _abilitiesService.DeselectAbility();
             _abilitiesService.SelectAbility(ability);
         }
     }
