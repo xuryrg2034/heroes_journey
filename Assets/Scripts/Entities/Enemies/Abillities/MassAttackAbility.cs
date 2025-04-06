@@ -11,7 +11,7 @@ namespace Entities.Enemies
     {
         [SerializeField] public LayerMask targetLayer;
 
-        private static List<Vector3Int> _directions = new()
+        static List<Vector3Int> _directions = new()
         {
             new Vector3Int(1, 0), // 0° - вправо
             new Vector3Int(1, 1), // 45° - вверх-вправо
@@ -25,14 +25,14 @@ namespace Entities.Enemies
 
         public override async UniTask Execute()
         {
-            if (_tryToExecute())
+            if (TryToExecute())
             {
-                await _execute();
-                _reset(State.Completed);
+                await Attack();
+                Reset(State.Completed);
             }
             else if (State != State.Preparing)
             {
-                _prepare();   
+                Prepare();   
             }
         }
         
@@ -40,10 +40,10 @@ namespace Entities.Enemies
         {
             if (State != State.Preparing) return;
 
-            _reset();
+            Reset();
         }
 
-        private void _prepare()
+        void Prepare()
         {
             State = State.Preparing;
             
@@ -54,7 +54,7 @@ namespace Entities.Enemies
             }
         }
 
-        private async UniTask _execute()
+        async UniTask Attack()
         {
             State = State.Execute;
             
@@ -79,7 +79,7 @@ namespace Entities.Enemies
             await UniTask.WhenAll(tasks);
         }
 
-        private void _reset(State state = State.Pending)
+        void Reset(State state = State.Pending)
         {
             _castCounter = 0;
             State = state;

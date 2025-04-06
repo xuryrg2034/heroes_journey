@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 using Interfaces;
+using Services;
 using Services.EventBus;
 using UnityEngine.Events;
 using Random = UnityEngine.Random;
@@ -15,6 +16,10 @@ namespace Entities.Enemies
         
         [SerializeReference, SubclassSelector]
         List<BaseAbility> abilities = new();
+
+        EnemyRank _rank;
+
+        public EnemyRank  Rank => _rank;
         
         int _turnsInIdleState; // Сколько ходов проитвник находится в состоянии покоя
         
@@ -26,6 +31,7 @@ namespace Entities.Enemies
             
             SelectionType = config.SelectionType;
             _aggressionLimit = config.AggressionLimit;
+            _rank = config.Rank;
             
             foreach (var ability in abilities)
             {

@@ -1,6 +1,7 @@
 ﻿using Entities;
 using Entities.Enemies;
 using Interfaces;
+using Services;
 using UnityEngine;
 namespace Configs.Entities.Enemies
 {
@@ -14,5 +15,7 @@ namespace Configs.Entities.Enemies
         [field: SerializeField] public Enemy Prefab { get; private set; }
 
         [field: SerializeField] public EntitySelectionType SelectionType { get; private set; }
+        
+        [field: SerializeField] public EnemyRank Rank { get; private set; }
     }
 }

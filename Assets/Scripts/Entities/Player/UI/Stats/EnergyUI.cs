@@ -44,7 +44,6 @@ namespace Entities.Player
         
         void UpdateReserved(int value)
         {
-            Debug.Log($"Reserved {value}");
             if (value <= 0) return;
             
             var activeEnergy = CurrentValue;
@@ -69,7 +68,6 @@ namespace Entities.Player
 
         void UpdateCurrentEnergy(int value)
         {
-            Debug.Log($"CurrentEnergy {value}");
             var arrayLength = _energyList.Length;
             var threshold = value - 1;
 

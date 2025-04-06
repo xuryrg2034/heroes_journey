@@ -3,6 +3,7 @@ using System.Linq;
 using Cysharp.Threading.Tasks;
 using Interfaces;
 using Grid;
+using Services;
 using UnityEngine;
 
 namespace Entities.Player
@@ -16,11 +17,18 @@ namespace Entities.Player
         public int TotalDamage { get; private set; }
 
         public Vector3Int OriginGridPosition => Owner.GridPosition;
+
+        GridService _gridService;
+        
+        int _killCounter = 0;
+            
+        int _totalKillToReward = 3;
         
         void Start()
         {
             SelectionState = new ChainingSelectionState(this);
             ExecuteState = new ChainingBaseAttackState(this, Owner);
+            _gridService = ServiceLocator.Get<GridService>();
         }
 
         void Update()
@@ -30,16 +38,13 @@ namespace Entities.Player
 
         public override async UniTask Execute()
         {
-            IsInProcess = true;
-
             await base.Execute();
             
             StateMachine.SetNextState(ExecuteState);
-
-            // Не уверен, что хороший план
+            
             await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
-
-            IsInProcess = false;
+            
+            _killCounter = 0;
         }
         
         public void Attack(Vector3Int direction, int damage)
@@ -54,8 +59,18 @@ namespace Entities.Player
             if (entity != null)
             {
                 entity.Health.TakeDamage(damage).Forget();
+
+                if (entity.Health.IsDead)
+                {
+                    _killCounter++;
+                } 
             }
-        }
+
+            if (_killCounter == _totalKillToReward)
+            {
+                ComboReward();
+            }
+        }   
 
         public void SelectEntity(IBaseEntity entity)
         {
@@ -88,6 +103,14 @@ namespace Entities.Player
             TotalDamage = 0;
         }
 
+        void ComboReward()
+        {
+            Debug.Log("Chaining reward");
+            var position = _gridService.GetRandomFreeCell();
+            
+            Debug.Log(position);
+        }
+        
         void CheckCanBeExecute()
         {
             CanBeExecute = SelectedEntities.Count > 0;

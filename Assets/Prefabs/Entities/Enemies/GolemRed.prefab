@@ -131,13 +131,13 @@ MonoBehaviour:
     - rid: 3283534691141681223
       type: {class: MoveAbility, ns: Entities.Enemies, asm: Assembly-CSharp}
       data:
-        enable: 0
+        enable: 1
         order: 100
         castTime: 1
         Owner: {fileID: 0}
         targetLayer:
           serializedVersion: 2
-          m_Bits: 0
+          m_Bits: 72
 --- !u!114 &1759567743473965026
 MonoBehaviour:
   m_ObjectHideFlags: 0

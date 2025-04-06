@@ -5,6 +5,7 @@ using Entities;
 using Cysharp.Threading.Tasks;
 using Entities.Enemies;
 using Entities.Player;
+using Services;
 using UnityEngine.Tilemaps;
 
 namespace Grid
@@ -64,14 +65,6 @@ namespace Grid
                 }
             }
         }
-
-        public Vector3? GetCell(int x, int y)
-        {
-            var cellPosition = _groundTilemap.WorldToCell(new Vector3Int(x, y, 0));
-            var tile = _groundTilemap.GetTile(cellPosition);
-            
-            return tile ? cellPosition : null;
-        }
         
         public BaseEntity GetEntityAt(Vector3 position)
         {
@@ -118,6 +111,47 @@ namespace Grid
             SpawnEntitiesOnGrid();
         }
 
+        public void SpawnGem()
+        {
+            
+        }
+        
+        // Вернет ячейку на которой нет босса или игрока
+        public Vector3? GetRandomFreeCell()
+        {
+            var bounds = _groundTilemap.cellBounds;
+            List<Vector3Int> validCells = new();
+
+            foreach (var pos in bounds.allPositionsWithin)
+            {
+                if (!_groundTilemap.HasTile(pos))
+                    continue;
+
+                if (_obstacleTilemap.HasTile(pos))
+                    continue;
+
+                var entityAtPosition = GetEntityAt(pos);
+                if (entityAtPosition)
+                {
+                    var isHero = entityAtPosition?.GetComponent<Hero>();
+                    var isBoss = entityAtPosition?.GetComponent<Enemy>()?.Rank == EnemyRank.Boss;
+                    if (isHero ||  isBoss)
+                        continue;   
+                }
+                
+                validCells.Add(pos);
+            }
+
+            if (validCells.Count == 0)
+                return null;
+
+            var validCell = validCells[Random.Range(0, validCells.Count)];
+            var worldPosition = _groundTilemap.CellToWorld(validCell);
+
+            return worldPosition;
+        }
+
+        
         public Vector3Int GetRandomAdjacentCell(Vector3Int centerCell)
         {
             // Смещения по соседним ячейкам (восьминаправленные)

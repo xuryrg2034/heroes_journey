@@ -24,14 +24,14 @@ namespace Entities.Enemies
 
         public override async UniTask Execute()
         {
-            if (_tryToExecute())
+            if (TryToExecute())
             {
-                await _execute();
-                _reset();
+                await Attack();
+                Reset();
             }
             else if (State != State.Preparing)
             {
-                _prepare();   
+                Prepare();   
             }
         }
 
@@ -39,15 +39,15 @@ namespace Entities.Enemies
         {
             if (State != State.Preparing) return;
 
-            _reset();
+            Reset();
         }
 
-        void _prepare()
+        void Prepare()
         {
             State = State.Preparing;
         }
 
-        async UniTask _execute()
+        async UniTask Attack()
         {
             State = State.Execute;
             
@@ -58,7 +58,7 @@ namespace Entities.Enemies
             if (randomCell == Owner.GridPosition) return;
 
             var tileCenter = GridService.GridPositionToTileCenter(randomCell);
-            var hit = Physics2D.OverlapPoint(new Vector2(tileCenter.x, tileCenter.y), targetLayer);
+            var hit = Physics2D.OverlapPoint(tileCenter, targetLayer);
 
             if (hit != null)
             {
@@ -68,14 +68,14 @@ namespace Entities.Enemies
             } 
             
             var ownerMoveTask = Owner.Move(randomCell);
-            _drawDebugPoint(randomCell, Color.red);
+            _drawDebugPoint(tileCenter, Color.red);
             
             tasks.Add(ownerMoveTask);
             
             await UniTask.WhenAll(tasks);
         }
 
-        void _reset()
+        void Reset()
         {
             _castCounter = 0;
             State = State.Pending;

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 namespace Entities.Player.Slash
@@ -37,16 +38,12 @@ namespace Entities.Player.Slash
         
         public override async UniTask Execute()
         {
-            IsInProcess = true;
-
             await base.Execute();
             
             StateMachine.SetNextState(ExecuteState);
 
             // Не уверен, что хороший план
             await UniTask.WaitUntil(() => StateMachine.CurrentState is AbilityIdleState);
-            
-            IsInProcess = false;
         }
 
         public void SelectEntity(BaseEntity entity)
@@ -65,6 +62,18 @@ namespace Entities.Player.Slash
             {
                 target.Health.TakeDamage(Owner.Damage.Value +  baseDamage).Forget();
             }
+            
+            var isTakeReward = _selectedTargets.All(target => target.Health.IsDead);   
+            
+            if (isTakeReward)
+            {
+                ComboReward();
+            }
+        }
+
+        void ComboReward()
+        {
+            Owner.Energy.Increase();
         }
         
         void CheckCanBeExecute()

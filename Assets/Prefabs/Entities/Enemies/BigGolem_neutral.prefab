@@ -123,10 +123,21 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   isAggressive: 1
-  abilities: []
+  abilities:
+  - rid: 3447240674599239765
   references:
     version: 2
-    RefIds: []
+    RefIds:
+    - rid: 3447240674599239765
+      type: {class: MassAttackAbility, ns: Entities.Enemies, asm: Assembly-CSharp}
+      data:
+        enable: 1
+        order: 100
+        castTime: 1
+        Owner: {fileID: 0}
+        targetLayer:
+          serializedVersion: 2
+          m_Bits: 72
 --- !u!114 &8062115748503188859
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -117,7 +117,6 @@ namespace Entities.Player
                     {
                         AnimationStart();
                     }
-                    
                 }
                 else
                 {

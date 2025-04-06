@@ -29,7 +29,7 @@ namespace Entities.Enemies
         
         protected BaseAbility() {}
 
-        protected bool _tryToExecute()
+        protected bool TryToExecute()
         {
             _castCounter += 1;
             var isReady = _castCounter > castTime;

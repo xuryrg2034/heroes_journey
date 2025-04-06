@@ -1,4 +1,5 @@
 ﻿using Entities;
+using Services;
 
 namespace Interfaces
 {
@@ -7,5 +8,7 @@ namespace Interfaces
         public int AggressionLimit { get; }
         
         public EntitySelectionType SelectionType { get; }
+        
+        public EnemyRank Rank { get; }
     }
 }
