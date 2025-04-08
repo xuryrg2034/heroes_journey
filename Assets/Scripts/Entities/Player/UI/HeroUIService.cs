@@ -7,22 +7,16 @@ namespace Entities.Player
     {
         [Header("UI Elements")]
         [SerializeField] EnergyUI energy;
-        [SerializeField] TextMeshProUGUI health;
+        [SerializeField] HealthUI health;
         
         Hero _hero;
 
         public void Init(Hero hero)
         {
             _hero = hero;
-            
+
             energy.Initialize(_hero.Energy);
-            _updateHealth(_hero.Health.Value);
-            _hero.Health.OnValueChanged.AddListener(_updateHealth);
-        }
-        
-        void _updateHealth(int value)
-        {
-            health.text = $"Health: {value}";
+            health.Initialize(_hero.Health);
         }
     }
 }

@@ -29,7 +29,6 @@ namespace Core.Factories
         void LoadSmallEnemiesConfig()
         {
             _gemConfig = Resources.Load<GemConfig>(GemPath);
-            Debug.Log(_gemConfig);
         }
     }
 }

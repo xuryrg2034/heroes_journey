@@ -8,7 +8,7 @@ namespace Entities.Player
     public class EnergyUI : MonoBehaviour
     {
         [SerializeField] GameObject energyPrefab;
-        [SerializeField] GameObject containerObject;
+        [SerializeField] Transform containerObject;
 
         Energy _energy;
 
@@ -21,13 +21,13 @@ namespace Entities.Player
         int CurrentValue => _energy.Value;
         
         int Reserved => _energy.Reserved;
-        
         public void Initialize(Energy energy)
         {
            _energy = energy;
            _energyList = new GameObject[MaxValue];
            
 
+           ClearContainer();
            InitEnergiesObject();
 
            _energy.OnReservedChanged.AddListener(UpdateReserved);
@@ -89,6 +89,14 @@ namespace Entities.Player
                 
                 sr.color = color;
                 animator.SetBool(_reservedAnimation, false);
+            }
+        }
+
+        void ClearContainer()
+        {
+            foreach (Transform child in containerObject)
+            {
+                Destroy(child.gameObject);
             }
         }
     }

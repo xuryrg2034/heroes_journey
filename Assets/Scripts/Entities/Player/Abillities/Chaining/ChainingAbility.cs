@@ -28,7 +28,7 @@ namespace Entities.Player
         
         SpawnService _spawnService;
         
-        int _killCounter = 0;
+        int _killCounter;
         
         void Start()
         {
@@ -127,8 +127,6 @@ namespace Entities.Player
             }
             
             _spawnService.SpawnGem(position.Value);
-            
-            Debug.Log(position);
         }
         
         void CheckCanBeExecute()
