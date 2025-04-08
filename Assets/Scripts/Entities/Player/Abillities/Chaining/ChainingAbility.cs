@@ -6,12 +6,15 @@ using Interfaces;
 using Grid;
 using Services;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Entities.Player
 {
     public class ChainingAbility : BaseAbility
     {
         [SerializeField] GemConfig rewardConfig;
+        
+        [SerializeField] int totalKillToReward;
         
         public readonly List<IBaseEntity> SelectedEntities = new();
         
@@ -26,8 +29,6 @@ namespace Entities.Player
         SpawnService _spawnService;
         
         int _killCounter = 0;
-            
-        int _totalKillToReward = 3;
         
         void Start()
         {
@@ -72,7 +73,7 @@ namespace Entities.Player
                 } 
             }
 
-            if (_killCounter == _totalKillToReward)
+            if (_killCounter == totalKillToReward)
             {
                 ComboReward();
             }
