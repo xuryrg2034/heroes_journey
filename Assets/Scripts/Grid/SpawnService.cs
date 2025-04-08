@@ -19,9 +19,12 @@ namespace Grid
         
         readonly EnemyFactory _enemyFactory;
         
+        readonly NeutralFactory _neutralFactory;
+        
         public SpawnService()
         {
             _enemyFactory = new EnemyFactory();
+            _neutralFactory = new NeutralFactory();
         }
         
         public void SpawnSmallEnemy(Vector3Int gridPosition)
@@ -31,6 +34,15 @@ namespace Grid
             enemy.Move(gridPosition, 0).Forget();
 
             _spawnedEntities.Add(enemy);
+        }
+        
+        public void SpawnGem(Vector3Int gridPosition)
+        {
+            var entity = _neutralFactory.GetGem();
+            
+            entity.Move(gridPosition, 0).Forget();
+
+            _spawnedEntities.Add(entity);
         }
 
         public Hero SpawnHero(Hero heroPrefab)

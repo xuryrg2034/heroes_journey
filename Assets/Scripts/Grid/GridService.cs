@@ -110,34 +110,31 @@ namespace Grid
          
             SpawnEntitiesOnGrid();
         }
-
-        public void SpawnGem()
-        {
-            
-        }
         
         // Вернет ячейку на которой нет босса или игрока
-        public Vector3? GetRandomFreeCell()
+        public Vector3Int? GetRandomFreeCell(IEnumerable<Vector3Int> excludesPositions = null)
         {
             var bounds = _groundTilemap.cellBounds;
             List<Vector3Int> validCells = new();
 
             foreach (var pos in bounds.allPositionsWithin)
-            {
-                if (!_groundTilemap.HasTile(pos))
-                    continue;
+            {   
+                var isExcluded = excludesPositions?.Contains(pos) ?? false;
+                
+                if (isExcluded) continue;
+                
+                var isObstacle = _obstacleTilemap.HasTile(pos);
+                
+                if (isObstacle) continue;
+                
+                var isNotGround = _groundTilemap.HasTile(pos) == false;
 
-                if (_obstacleTilemap.HasTile(pos))
-                    continue;
+                if (isNotGround) continue;
 
+                // Скипаем позицию, если на ней находится не Rank.Common противник или герой
                 var entityAtPosition = GetEntityAt(pos);
-                if (entityAtPosition)
-                {
-                    var isHero = entityAtPosition?.GetComponent<Hero>();
-                    var isBoss = entityAtPosition?.GetComponent<Enemy>()?.Rank == EnemyRank.Boss;
-                    if (isHero ||  isBoss)
-                        continue;   
-                }
+                if (entityAtPosition && IsNotCommonEnemy(entityAtPosition))
+                    continue;
                 
                 validCells.Add(pos);
             }
@@ -146,9 +143,8 @@ namespace Grid
                 return null;
 
             var validCell = validCells[Random.Range(0, validCells.Count)];
-            var worldPosition = _groundTilemap.CellToWorld(validCell);
 
-            return worldPosition;
+            return validCell;
         }
 
         
@@ -182,6 +178,14 @@ namespace Grid
             }
 
             return centerCell; // Если нет доступных ячеек — возвращаем исходную
+        }
+
+        bool IsNotCommonEnemy(BaseEntity entity)
+        {
+            var isHero = entity?.GetComponent<Hero>() != null;
+            var isBoss = entity?.GetComponent<Enemy>()?.Rank == EnemyRank.Boss;
+
+            return isBoss || isHero;
         }
         
         Vector3Int? _getLowestAvailableCell(Vector3Int startCell)

@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Configs.Entities.Neutral;
 using Cysharp.Threading.Tasks;
 using Interfaces;
 using Grid;
@@ -10,6 +11,8 @@ namespace Entities.Player
 {
     public class ChainingAbility : BaseAbility
     {
+        [SerializeField] GemConfig rewardConfig;
+        
         public readonly List<IBaseEntity> SelectedEntities = new();
         
         public EntitySelectionType AvailableType { get; private set; } = EntitySelectionType.Neutral;
@@ -20,6 +23,8 @@ namespace Entities.Player
 
         GridService _gridService;
         
+        SpawnService _spawnService;
+        
         int _killCounter = 0;
             
         int _totalKillToReward = 3;
@@ -29,6 +34,7 @@ namespace Entities.Player
             SelectionState = new ChainingSelectionState(this);
             ExecuteState = new ChainingBaseAttackState(this, Owner);
             _gridService = ServiceLocator.Get<GridService>();
+            _spawnService = ServiceLocator.Get<SpawnService>();
         }
 
         void Update()
@@ -105,8 +111,21 @@ namespace Entities.Player
 
         void ComboReward()
         {
-            Debug.Log("Chaining reward");
-            var position = _gridService.GetRandomFreeCell();
+            var excludedPositions = SelectedEntities
+                .Where(entity => !entity.Health.IsDead)
+                .Select(entity => entity.GridPosition);
+
+            var position = _gridService.GetRandomFreeCell(excludedPositions);
+            if (position.HasValue == false) return;
+            
+            var entityOnGrid = _gridService.GetEntityAt(position.Value);
+
+            if (entityOnGrid)
+            {
+                _spawnService.DisposeEntity(entityOnGrid);
+            }
+            
+            _spawnService.SpawnGem(position.Value);
             
             Debug.Log(position);
         }

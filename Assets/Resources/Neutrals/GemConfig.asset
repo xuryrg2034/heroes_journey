@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7cacfe80b2bd1494cbea5206c18701fa, type: 3}
+  m_Name: GemConfig
+  m_EditorClassIdentifier: 
+  <MaxHealth>k__BackingField: 0
+  <Prefab>k__BackingField: {fileID: 7980369699106500072, guid: 833494377f388db4b94402efedec400d, type: 3}
+  <SelectionType>k__BackingField: 3

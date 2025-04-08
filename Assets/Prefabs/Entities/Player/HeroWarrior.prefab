@@ -157,6 +157,7 @@ MonoBehaviour:
   tilemapLayer:
     serializedVersion: 2
     m_Bits: 72
+  rewardConfig: {fileID: 11400000, guid: 5a9b7e464eab61449af68d3d40cde4a5, type: 2}
 --- !u!114 &-3623085816627778339
 MonoBehaviour:
   m_ObjectHideFlags: 0
