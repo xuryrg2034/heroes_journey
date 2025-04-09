@@ -1,5 +1,7 @@
 ﻿using Entities.Components;
 using UnityEngine;
+using UnityEngine.UI;
+
 namespace Entities.Player
 {
     public class HealthUI : MonoBehaviour
@@ -19,7 +21,6 @@ namespace Entities.Player
         {
             _health = health;
            _healthList = new GameObject[MaxValue];
-
 
            ClearContainer();
            InitHeartsObject();
@@ -43,8 +44,7 @@ namespace Entities.Player
             for (var i = 0; i < arrayLength; i++)
             {
                 var energy = _healthList[i];
-                var sr = energy.GetComponent<SpriteRenderer>();
-                var animator = energy.GetComponent<Animator>();
+                var sr = energy.GetComponent<Image>();
                 var color = sr.color;
 
                 if (i > threshold)

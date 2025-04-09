@@ -1,8 +1,7 @@
-﻿using System;
-using Entities.Components;
-using TMPro;
-using UnityEditor;
+﻿using Entities.Components;
 using UnityEngine;
+using UnityEngine.UI;
+
 namespace Entities.Player
 {
     public class EnergyUI : MonoBehaviour
@@ -74,7 +73,7 @@ namespace Entities.Player
             for (var i = 0; i < arrayLength; i++)
             {
                 var energy = _energyList[i];
-                var sr = energy.GetComponent<SpriteRenderer>();
+                var sr = energy.GetComponent<Image>();
                 var animator = energy.GetComponent<Animator>();
                 var color = sr.color;
 
