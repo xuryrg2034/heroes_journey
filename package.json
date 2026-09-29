@@ -1,0 +1,44 @@
+{
+  "name": "ashen-oath",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "playwright test",
+    "test:rules": "tsx src/game/forest.spec.ts",
+    "test:campaign": "tsx src/game/campaign.spec.ts",
+    "test:abilities": "tsx src/game/abilities.spec.ts",
+    "test:recovery": "tsx src/game/recovery.spec.ts",
+    "test:recovered-rules": "tsx src/game/recoveredRules.spec.ts",
+    "test:recovered-enemies": "tsx src/game/recoveredEnemies.spec.ts",
+    "test:footprint": "tsx src/game/footprint.spec.ts",
+    "test:enemy-lifecycle": "tsx src/game/enemyLifecycle.spec.ts",
+    "test:custom": "tsx src/game/customLevel.spec.ts",
+    "test:generation": "tsx src/game/generation.spec.ts",
+    "test:turn-pipeline": "tsx src/game/turnPipeline.spec.ts",
+    "test:damage-effects": "tsx src/game/damageEffects.spec.ts && tsx src/game/damageEffectsIntegration.spec.ts",
+    "test:tutorial": "tsx src/game/tutorial.spec.ts",
+    "test:chain-budget": "tsx src/game/chainBudget.spec.ts",
+    "test:devices": "tsx src/game/devices.spec.ts",
+    "test:tutorial-capabilities": "tsx src/game/tutorialCapabilities.spec.ts",
+    "test:advanced-tutorial": "tsx src/game/advancedTutorial.spec.ts",
+    "test:pits": "tsx src/game/pits.spec.ts",
+    "test:pit-lessons": "tsx src/game/pitLessons.spec.ts",
+    "test:jailer-rules": "tsx src/game/jailerRules.spec.ts",
+    "test:chapter-finale": "tsx src/game/chapterFinale.spec.ts",
+    "test:palette-generation": "tsx src/game/palette-generation.spec.ts",
+    "test:refill-randomness": "tsx src/game/refill-randomness.spec.ts"
+  },
+  "dependencies": {
+    "pixi.js": "^8.14.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.6",
+    "tsx": "^4.20.6"
+  }
+}

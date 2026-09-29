@@ -1,0 +1,1409 @@
+{
+  "theme": "chess",
+  "seed": 32,
+  "turn": 17,
+  "hp": 1,
+  "energy": 0,
+  "hero": 14,
+  "inventory": {
+    "frost": 1,
+    "bomb": 1,
+    "healing": 1,
+    "fire": 0
+  },
+  "history": [
+    {
+      "kind": "chain",
+      "path": [
+        38,
+        39
+      ]
+    },
+    {
+      "kind": "chain",
+      "path": [
+        40,
+        41,
+        34,
+        33
+      ]
+    },
+    {
+      "kind": "spin"
+    },
+    {
+      "kind": "chain",
+      "path": [
+        32,
+        39
+      ]
+    },
+    {
+      "kind": "chain",
+      "path": [
+        38,
+        37,
+        30,
+        23
+      ]
+    },
+    {
+      "kind": "spin"
+    },
+    {
+      "kind": "chain",
+      "path": [
+        30,
+        31,
+        38,
+        39
+      ]
+    },
+    {
+      "kind": "chain",
+      "path": [
+        32,
+        25,
+        18,
+        17,
+        24
+      ]
+    },
+    {
+      "kind": "chain",
+      "path": [
+        23,
+        22
+      ]
+    },
+    {
+      "kind": "rage",
+      "path": [
+        30,
+        24,
+        25
+      ]
+    },
+    {
+      "kind": "jump",
+      "index": 34
+    },
+    {
+      "kind": "chain",
+      "path": [
+        33,
+        26
+      ]
+    },
+    {
+      "kind": "chain",
+      "path": [
+        25,
+        18
+      ]
+    },
+    {
+      "kind": "jump",
+      "index": 33
+    },
+    {
+      "kind": "chain",
+      "path": [
+        32,
+        25,
+        24,
+        23,
+        30
+      ]
+    },
+    {
+      "kind": "chain",
+      "path": [
+        37,
+        38
+      ]
+    },
+    {
+      "kind": "rage",
+      "path": [
+        30,
+        23,
+        22,
+        14
+      ]
+    }
+  ],
+  "state": {
+    "phase": "PLAYER_INPUT",
+    "levelIndex": 2,
+    "level": {
+      "name": "Шахматный зал",
+      "subtitle": "Замок · Зал 1 из 3",
+      "description": "Найди носителя ключа. Ударь выбранную дверь и двигайся только вперёд.",
+      "tutorial": "Ладья — прямые, слон — диагонали, конь — буква Г. Намерения уже отмечены.",
+      "seed": 969030173,
+      "map": [
+        "###D###",
+        "RBBRRGG",
+        "BBGRRBG",
+        "DRGBBGD",
+        "BBGRRBB",
+        "RGGRRBB",
+        "#RBHBG#"
+      ],
+      "objectives": [
+        {
+          "key": "bossKills",
+          "target": 1,
+          "label": "Забери ключ"
+        }
+      ],
+      "turnLimit": 0
+    },
+    "cols": 7,
+    "rows": 7,
+    "board": [
+      null,
+      null,
+      null,
+      {
+        "id": 45,
+        "kind": "door",
+        "color": null,
+        "hp": 1,
+        "maxHp": 1,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Нужен ключ или бомба"
+        },
+        "door": {
+          "branch": "forward",
+          "label": "Запретная библиотека",
+          "destination": "library",
+          "magic": true,
+          "breached": false,
+          "footprint": [
+            3
+          ]
+        }
+      },
+      null,
+      null,
+      null,
+      {
+        "id": 11,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            8,
+            14
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 41,
+        "kind": "ranged",
+        "color": 0,
+        "hp": 7,
+        "maxHp": 7,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 1,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Отдых · ротация",
+          "moveTo": 7,
+          "swapWithId": 11
+        },
+        "variant": "rook",
+        "carriesKey": false
+      },
+      {
+        "id": 3,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 14,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 6,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            10,
+            12,
+            18
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 7,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 8,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      null,
+      {
+        "id": 47,
+        "kind": "boss",
+        "color": null,
+        "hp": 12,
+        "maxHp": 16,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            7,
+            14,
+            21
+          ],
+          "damage": 1,
+          "label": "Удар командира"
+        },
+        "variant": "commander",
+        "carriesKey": true
+      },
+      {
+        "id": 68,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            9,
+            15,
+            17,
+            23
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 77,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 92,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 43,
+        "kind": "ranged",
+        "color": 0,
+        "hp": 3,
+        "maxHp": 7,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 1,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Отдых · ротация",
+          "moveTo": 10,
+          "swapWithId": 14
+        },
+        "variant": "knight",
+        "carriesKey": false
+      },
+      {
+        "id": 15,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            13,
+            19,
+            27
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 44,
+        "kind": "door",
+        "color": null,
+        "hp": 1,
+        "maxHp": 1,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Нужен ключ или бомба"
+        },
+        "door": {
+          "branch": "left",
+          "label": "Караульная",
+          "destination": "barracks",
+          "magic": true,
+          "breached": false,
+          "footprint": [
+            21
+          ]
+        }
+      },
+      {
+        "id": 100,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 101,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 94,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 95,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 91,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 46,
+        "kind": "door",
+        "color": null,
+        "hp": 1,
+        "maxHp": 1,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Нужен ключ или бомба"
+        },
+        "door": {
+          "branch": "right",
+          "label": "Оживший пир",
+          "destination": "banquet",
+          "magic": true,
+          "breached": false,
+          "footprint": [
+            27
+          ]
+        }
+      },
+      {
+        "id": 23,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 70,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 102,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 75,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": true,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 96,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 97,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 89,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 30,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 31,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            29,
+            35,
+            37,
+            43
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 99,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 103,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 81,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 59,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            33,
+            39,
+            41,
+            47
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 60,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      null,
+      {
+        "id": 37,
+        "kind": "melee",
+        "color": 0,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 38,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            37,
+            43,
+            45
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 49,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 39,
+        "kind": "melee",
+        "color": 2,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 2,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": false,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [],
+          "damage": 1,
+          "label": "Спокоен"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      {
+        "id": 40,
+        "kind": "melee",
+        "color": 1,
+        "hp": 4,
+        "maxHp": 4,
+        "armor": 0,
+        "countdown": 1,
+        "status": {
+          "wet": false,
+          "frozen": 0,
+          "brittle": false
+        },
+        "behavior": {
+          "aggressive": true,
+          "restTurns": 0,
+          "cycle": 0
+        },
+        "intent": {
+          "cells": [
+            40,
+            46
+          ],
+          "damage": 1,
+          "label": "Замах"
+        },
+        "variant": "chair",
+        "carriesKey": false
+      },
+      null
+    ],
+    "terrain": [
+      "wall",
+      "wall",
+      "wall",
+      "floor",
+      "wall",
+      "wall",
+      "wall",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "puddle",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "wall",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "floor",
+      "wall"
+    ],
+    "player": {
+      "index": 14,
+      "hp": 1,
+      "maxHp": 5,
+      "energy": 0
+    },
+    "chain": [],
+    "chosenAbility": null,
+    "wave": 1,
+    "waveLabel": "Замок · Зал 1 из 3",
+    "inventory": {
+      "frost": 1,
+      "bomb": 1,
+      "healing": 1,
+      "fire": 0
+    },
+    "itemPrepared": false,
+    "objective": {
+      "kills": 55,
+      "rangedKills": 1,
+      "bossKills": 0,
+      "turns": 17,
+      "armorKills": 0,
+      "prisms": 0,
+      "bossHits": 1
+    },
+    "turn": 17,
+    "score": 2284,
+    "message": "Хранитель несёт ключ. Магическую дверь также можно взломать бомбой.",
+    "bossWarning": [
+      7,
+      14,
+      21
+    ],
+    "lastDamage": 0,
+    "spawnCounts": {
+      "archers": 2,
+      "boss": 1
+    },
+    "room": {
+      "kind": "castle",
+      "theme": "chess",
+      "depth": 1,
+      "combatKills": 56,
+      "key": {
+        "held": false,
+        "droppedAt": null
+      },
+      "commanderSpawned": true
+    },
+    "run": {
+      "active": true,
+      "seed": 32,
+      "path": [],
+      "completedRooms": 0
+    },
+    "hazard": {
+      "cells": [],
+      "turnsUntil": 0,
+      "damage": 2
+    },
+    "rewards": [],
+    "selectedExit": null,
+    "rotations": [
+      {
+        "from": 8,
+        "to": 7,
+        "sourceId": 41,
+        "targetId": 11,
+        "geometry": "rook"
+      },
+      {
+        "from": 19,
+        "to": 10,
+        "sourceId": 43,
+        "targetId": 14,
+        "geometry": "knight"
+      }
+    ]
+  }
+}

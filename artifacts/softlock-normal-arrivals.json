@@ -1,0 +1,220 @@
+{
+  "theme": "forest",
+  "seed": 984,
+  "history": [
+    [
+      38,
+      39,
+      40,
+      33
+    ],
+    [
+      26,
+      19,
+      20,
+      13
+    ]
+  ],
+  "stages": [
+    {
+      "label": "spawn",
+      "phase": "BOARD_UPDATE",
+      "turn": 2,
+      "player": {
+        "index": 13,
+        "hp": 5,
+        "maxHp": 5,
+        "energy": 4
+      },
+      "moves": 8,
+      "neighbors": [
+        {
+          "index": 12,
+          "id": 11,
+          "kind": "melee",
+          "hp": 4
+        },
+        {
+          "index": 20,
+          "id": 45,
+          "kind": "melee",
+          "hp": 4
+        }
+      ],
+      "rotations": [],
+      "event": {
+        "type": "spawn",
+        "indices": [
+          19,
+          20,
+          26,
+          33
+        ]
+      }
+    },
+    {
+      "label": "special-arrival",
+      "phase": "BOARD_UPDATE",
+      "turn": 2,
+      "player": {
+        "index": 13,
+        "hp": 5,
+        "maxHp": 5,
+        "energy": 4
+      },
+      "moves": 4,
+      "neighbors": [
+        {
+          "index": 12,
+          "id": 11,
+          "kind": "melee",
+          "hp": 4
+        },
+        {
+          "index": 20,
+          "id": 48,
+          "kind": "ranged",
+          "hp": 7
+        }
+      ],
+      "rotations": [],
+      "event": {
+        "type": "special-arrival",
+        "index": 20,
+        "oldId": 45,
+        "newId": 48,
+        "text": "СТРЕЛОК"
+      }
+    },
+    {
+      "label": "special-arrival",
+      "phase": "BOARD_UPDATE",
+      "turn": 2,
+      "player": {
+        "index": 13,
+        "hp": 5,
+        "maxHp": 5,
+        "energy": 4
+      },
+      "moves": 0,
+      "neighbors": [
+        {
+          "index": 12,
+          "id": 49,
+          "kind": "ranged",
+          "hp": 7
+        },
+        {
+          "index": 20,
+          "id": 48,
+          "kind": "ranged",
+          "hp": 7
+        }
+      ],
+      "rotations": [],
+      "event": {
+        "type": "special-arrival",
+        "index": 12,
+        "oldId": 11,
+        "newId": 49,
+        "text": "СТРЕЛОК"
+      }
+    },
+    {
+      "label": "player-input",
+      "phase": "PLAYER_INPUT",
+      "turn": 2,
+      "player": {
+        "index": 13,
+        "hp": 5,
+        "maxHp": 5,
+        "energy": 4
+      },
+      "moves": 0,
+      "neighbors": [
+        {
+          "index": 12,
+          "id": 49,
+          "kind": "ranged",
+          "hp": 7
+        },
+        {
+          "index": 20,
+          "id": 48,
+          "kind": "ranged",
+          "hp": 7
+        }
+      ],
+      "rotations": []
+    },
+    {
+      "label": "rest-one",
+      "phase": "PLAYER_INPUT",
+      "turn": 3,
+      "player": {
+        "index": 13,
+        "hp": 3,
+        "maxHp": 5,
+        "energy": 4.5
+      },
+      "moves": 0,
+      "neighbors": [
+        {
+          "index": 12,
+          "id": 49,
+          "kind": "ranged",
+          "hp": 7
+        },
+        {
+          "index": 20,
+          "id": 48,
+          "kind": "ranged",
+          "hp": 7
+        }
+      ],
+      "rotations": [
+        {
+          "from": 12,
+          "to": 5,
+          "sourceId": 49,
+          "targetId": 5,
+          "geometry": "cardinal"
+        },
+        {
+          "from": 20,
+          "to": 19,
+          "sourceId": 48,
+          "targetId": 44,
+          "geometry": "cardinal"
+        }
+      ]
+    },
+    {
+      "label": "rest-two",
+      "phase": "PLAYER_INPUT",
+      "turn": 4,
+      "player": {
+        "index": 13,
+        "hp": 3,
+        "maxHp": 5,
+        "energy": 5
+      },
+      "moves": 1,
+      "neighbors": [
+        {
+          "index": 12,
+          "id": 5,
+          "kind": "melee",
+          "hp": 4
+        },
+        {
+          "index": 20,
+          "id": 44,
+          "kind": "melee",
+          "hp": 4
+        }
+      ],
+      "rotations": []
+    }
+  ]
+}
