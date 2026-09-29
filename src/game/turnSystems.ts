@@ -243,6 +243,9 @@ export function* resolveHazard(ctx: TurnContext): TurnSequence {
       if (index === ctx.state.player.index) {
         const damage = damageHero(ctx.state, ctx.state.hazard.damage);
         yield { event: { type: 'damage', index, amount: damage } };
+        if (!ctx.current()) return false;
+        // Lethal volley damage ends the turn: later arrows neither kill nor credit anything.
+        if (ctx.state.player.hp === 0) return true;
       } else {
         const cell = ctx.state.board[index];
         if (cell && cell.kind !== 'door' && cell.kind !== 'prism' && !volleyHit.has(cell.id)) {

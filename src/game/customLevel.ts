@@ -22,6 +22,8 @@ const ITEMS = ['frost', 'bomb', 'healing', 'fire'];
 const ATTACK_EFFECTS: DamageEffectKind[] = ['fire', 'poison', 'bleeding', 'wind'];
 const validAttackEffect = (value: unknown): value is DamageEffectKind => typeof value === 'string' && ATTACK_EFFECTS.includes(value as DamageEffectKind);
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+/** Strict enum membership: arrays and other objects never pass through string coercion. */
+const oneOf = (value: unknown, allowed: readonly string[]): value is string => typeof value === 'string' && allowed.includes(value);
 const integer = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
 export function validateCustomLevel(value: unknown): { valid: boolean; errors: string[]; definition?: CustomLevelDefinition } {
   const errors: string[] = [];
@@ -33,7 +35,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
   if (!integer(value.cols, 4, 12) || !integer(value.rows, 4, 12)) errors.push('Размер поля: от 4×4 до 12×12.');
   const size = integer(value.cols, 4, 12) && integer(value.rows, 4, 12) ? value.cols * value.rows : 0;
   const terrain = Array.isArray(value.terrain) ? value.terrain : [];
-  if (terrain.length !== size || terrain.some(cell => !TERRAINS.includes(cell))) errors.push('Нужен допустимый тип местности для каждой клетки.');
+  if (terrain.length !== size || terrain.some(cell => !oneOf(cell, TERRAINS))) errors.push('Нужен допустимый тип местности для каждой клетки.');
   const walkable = (index: number) => terrain[index] === 'floor' || terrain[index] === 'puddle';
   if (!integer(value.heroIndex, 0, size - 1) || !walkable(value.heroIndex)) errors.push('Кот должен стоять на полу или луже.');
   if (!Array.isArray(value.paletteWeights) || value.paletteWeights.length !== 5 || value.paletteWeights.some(weight => !integer(weight, 0, 10000)) || !value.paletteWeights.some(weight => typeof weight === 'number' && weight > 0)) errors.push('Палитра: пять весов 0–10000, хотя бы один положительный.');
@@ -42,7 +44,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
   if (value.playerHp !== undefined && !integer(value.playerHp, 1, 20)) errors.push('Здоровье кота: 1–20.');
   if (value.playerAttackEffect !== undefined && !validAttackEffect(value.playerAttackEffect)) errors.push('Эффект удара кота: fire, poison, bleeding или wind.');
   if (value.inventory !== undefined && (!record(value.inventory) || Object.entries(value.inventory).some(([key, amount]) => !ITEMS.includes(key) || !integer(amount, 0, 99)))) errors.push('Количество предметов: 0–99.');
-  if (!Array.isArray(value.goals) || !value.goals.length || value.goals.length > 4 || value.goals.some(goal => !record(goal) || !GOALS.includes(String(goal.key)) || !integer(goal.target, 1, 10000))) errors.push('Нужны 1–4 цели с положительным количеством.');
+  if (!Array.isArray(value.goals) || !value.goals.length || value.goals.length > 4 || value.goals.some(goal => !record(goal) || !oneOf(goal.key, GOALS) || !integer(goal.target, 1, 10000))) errors.push('Нужны 1–4 цели с положительным количеством.');
   else if (new Set(value.goals.map(goal => goal.key)).size !== value.goals.length) errors.push('Каждый вид цели задаётся один раз.');
   const occupied = new Set<number>();
   const placement = (entry: Record<string, unknown>, label: string) => {
@@ -65,10 +67,12 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
   else value.enemies.forEach((enemy, n) => {
     if (!record(enemy)) { errors.push(`Враг ${n + 1}: нужен объект.`); return; }
     placement(enemy, `Враг ${n + 1}`);
-    if (!['melee', 'ranged', 'boss', 'prism'].includes(String(enemy.kind)) || !integer(enemy.hp, 0, 10000) || enemy.color !== null && !integer(enemy.color, 0, 4)) errors.push(`Враг ${n + 1}: неверный тип, цвет или здоровье.`);
+    if (!oneOf(enemy.kind, ['melee', 'ranged', 'boss', 'prism']) || !integer(enemy.hp, 0, 10000) || enemy.color !== null && !integer(enemy.color, 0, 4)) errors.push(`Враг ${n + 1}: неверный тип, цвет или здоровье.`);
     if (enemy.variant !== undefined) {
-      const expected = ['rook', 'bishop', 'knight'].includes(String(enemy.variant)) ? 'ranged' : ['commander', 'wizard', 'jailer', 'beacon'].includes(String(enemy.variant)) ? 'boss' : 'melee';
-      if (!VARIANTS.includes(String(enemy.variant)) || enemy.kind !== expected) errors.push(`Враг ${n + 1}: вариант не соответствует типу.`);
+      const expected = oneOf(enemy.variant, ['rook', 'bishop', 'knight']) ? 'ranged' : oneOf(enemy.variant, ['commander', 'wizard', 'jailer', 'beacon']) ? 'boss' : 'melee';
+      if (!oneOf(enemy.variant, VARIANTS) || enemy.kind !== expected) errors.push(`Враг ${n + 1}: вариант не соответствует типу.`);
+      // A shield faces from one square; a multi-square sentinel has no defined facing.
+      if (enemy.variant === 'sentinel' && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: страж со щитом занимает одну клетку.`);
     }
     if ((enemy.kind === 'boss' || enemy.kind === 'prism') && enemy.color !== null) errors.push(`Враг ${n + 1}: босс и огонёк бесцветны.`);
     if (Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && enemy.kind !== 'melee') errors.push(`Враг ${n + 1}: большая форма доступна ближнему врагу.`);
@@ -87,7 +91,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
       if (!record(device)) { errors.push(`${label}: нужен объект.`); return; }
       placement(device, label);
       if (device.footprint !== undefined) errors.push(`${label}: устройство занимает одну клетку.`);
-      if (!['arrows', 'fire', 'pits'].includes(String(device.kind)) || !integer(device.charges, 0, 99)) errors.push(`${label}: тип arrows/fire/pits, заряд 0–99.`);
+      if (!oneOf(device.kind, ['arrows', 'fire', 'pits']) || !integer(device.charges, 0, 99)) errors.push(`${label}: тип arrows/fire/pits, заряд 0–99.`);
       if (device.closesAfterTurn !== undefined) errors.push(`${label}: время закрытия ям задаёт движок.`);
       if (!Array.isArray(device.targets) || device.targets.some(index => !integer(index, 0, size - 1)) || new Set(device.targets).size !== device.targets.length
         || (device.kind === 'arrows' || device.kind === 'pits') && !device.targets.length || device.kind === 'fire' && device.targets.length) errors.push(`${label}: задайте уникальные клетки стрел/ям или пустой список для жаровни.`);

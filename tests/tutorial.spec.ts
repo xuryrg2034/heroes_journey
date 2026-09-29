@@ -267,3 +267,43 @@ test('mobile jump lesson shows energy and accepts a touch chain then targeted ju
   expect((await state(page)).phase).toBe('WIN');
   expect(errors).toEqual([]); await context.close();
 });
+
+test('starting the next fight from a result does not replay the previous outcome', async ({ page }) => {
+  // Record the first frequency of every synthesized tone: 280 click, 590 reward, 72 damage, 520 win.
+  await page.addInitScript(() => {
+    (window as any).__tones = [];
+    const original = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function (this: AudioContext) {
+      const oscillator = original.call(this), set = oscillator.frequency.setValueAtTime.bind(oscillator.frequency);
+      let first = true;
+      oscillator.frequency.setValueAtTime = (value: number, time: number) => { if (first) { (window as any).__tones.push(Math.round(value)); first = false; } return set(value, time); };
+      return oscillator;
+    };
+  });
+  const tones = () => page.evaluate(() => (window as any).__tones as number[]);
+  const clear = () => page.evaluate(() => { (window as any).__tones = []; });
+  await page.goto('/');
+  await page.locator('#tutorial-begin-button').click(); await settled(page);
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
+  await expect(page.locator('#modal-title')).toHaveText('Приём освоен');
+  await expect.poll(tones).toContain(590);
+  await clear();
+  await page.locator('#modal [data-action="next-tutorial"]').click(); await settled(page);
+  expect((await state(page)).tutorial.index).toBe(1);
+  await expect(page.locator('#modal-layer')).toBeHidden();
+  expect(await tones()).not.toContain(590);
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.damagePlayer(10));
+  await expect(page.locator('#modal-title')).toHaveText('Попробуй другой путь');
+  await clear();
+  await page.locator('#modal [data-action="retry"]').click(); await settled(page);
+  expect(await tones()).not.toContain(72);
+  // Forest: «ещё один завтрак» must not replay the victory fanfare (and re-save the record) on start.
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.loadScenario('forest')); await settled(page);
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
+  await expect(page.locator('#modal [data-action="retry"]')).toBeVisible();
+  await expect.poll(tones).toContain(520);
+  await clear();
+  await page.locator('#modal [data-action="retry"]').click(); await settled(page);
+  await expect(page.locator('#modal-layer')).toBeHidden();
+  expect(await tones()).not.toContain(520);
+});

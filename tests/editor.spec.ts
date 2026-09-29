@@ -165,3 +165,62 @@ test('editor authors arrow rays and braziers, persists them and executes a devic
   expect(await exportDraft(page)).toEqual(draft);
   expect(errors).toEqual([]);
 });
+
+test('editor applies typed values when painting right away, keeps keyboard focus and a valid cell detail', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/'); await page.locator('#editor-button').click();
+  await page.locator('#editor-brush').selectOption('enemy');
+  // pointerdown on a cell suppresses blur/change: the typed value must still reach the brush and the draft.
+  await page.locator('#editor-enemy-hp').fill('3'); await page.locator('[data-cell="8"]').click();
+  await expect(page.locator('#editor-enemy-hp')).toHaveValue('3');
+  await page.locator('#editor-name').fill('Свежее имя'); await page.locator('[data-cell="9"]').click();
+  await expect(page.locator('#editor-name')).toHaveValue('Свежее имя');
+  await page.locator('#editor-seed').fill('4294967295'); await page.locator('[data-cell="10"]').click();
+  await page.locator('#editor-goal-target').fill('5'); await page.locator('[data-cell="11"]').click();
+  let draft = await exportDraft(page);
+  expect(draft.enemies.find((e: any) => e.index === 8).hp).toBe(3);
+  expect(draft.name).toBe('Свежее имя'); expect(draft.seed).toBe(4294967295); expect(draft.goals[0].target).toBe(5);
+  // Field limits follow validateCustomLevel.
+  await expect(page.locator('#editor-name')).toHaveAttribute('maxlength', '100');
+  await expect(page.locator('#editor-seed')).toHaveAttribute('min', '0');
+  await expect(page.locator('#editor-seed')).toHaveAttribute('max', '4294967295');
+  await field(page, '#editor-seed', '0'); draft = await exportDraft(page); expect(draft.seed).toBe(0);
+  await expect(page.locator('#editor-errors')).toBeHidden();
+  // Keyboard: painting a cell and committing a field keep focus inside the editor.
+  await page.locator('[data-cell="0"]').focus(); await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.cell)).toBe('0');
+  await page.locator('#editor-name').evaluate((input: HTMLInputElement) => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }); await page.keyboard.type('!'); await page.keyboard.press('Tab');
+  await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe('editor-cols');
+  expect((await exportDraft(page)).name).toBe('Свежее имя!');
+  // Undo across a resize must not leave a selection outside the smaller field.
+  await field(page, '#editor-cols', '12'); await page.locator('[data-cell="80"]').click();
+  await page.locator('[data-editor="undo"]').click(); await page.locator('[data-editor="undo"]').click();
+  await expect(page.locator('#editor-cols')).toHaveValue('7');
+  await expect(page.locator('#editor-cell-detail')).not.toContainText('undefined');
+  expect(errors).toEqual([]);
+});
+
+test('editor lists every saved level and refuses a new name past the limit instead of losing it', async ({ page }) => {
+  await page.goto('/'); await page.locator('#editor-button').click();
+  const base = await exportDraft(page);
+  const seed = (count: number) => page.evaluate(([base, count]) => localStorage.setItem('ashen-oath-editor-maps-v1',
+    JSON.stringify(Array.from({ length: count }, (_, i) => ({ name: `Карта ${i}`, definition: { ...base, name: `Карта ${i}` } })))), [base, count] as const);
+  const storedNames = () => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-editor-maps-v1') ?? '[]').map((m: any) => m.name));
+  // Older saves beyond the limit stay visible.
+  await seed(55); await page.reload(); await page.locator('#editor-button').click();
+  await expect(page.locator('#editor-saved option')).toHaveCount(56);
+  await seed(50); await page.reload(); await page.locator('#editor-button').click();
+  await field(page, '#editor-name', 'Новая карта'); await page.locator('[data-editor="save"]').click();
+  await expect(page.locator('#editor-notice')).toContainText('предел');
+  await expect(page.locator('#editor-notice')).toContainText('Удалить сохранение');
+  expect(await storedNames()).toHaveLength(50); expect(await storedNames()).not.toContain('Новая карта');
+  // Overwriting an existing name is still allowed at the limit.
+  await field(page, '#editor-name', 'Карта 3'); await page.locator('[data-editor="save"]').click();
+  await expect(page.locator('#editor-notice')).toContainText('Сохранено');
+  expect(await storedNames()).toHaveLength(50);
+  // After deleting one save, the new name fits and appears in the list.
+  await page.locator('#editor-saved').selectOption({ label: 'Карта 0' }); await page.locator('[data-editor="delete"]').click();
+  await field(page, '#editor-name', 'Новая карта'); await page.locator('[data-editor="save"]').click();
+  await expect(page.locator('#editor-notice')).toContainText('Сохранено');
+  await expect(page.locator('#editor-saved option', { hasText: 'Новая карта' })).toHaveCount(1);
+});

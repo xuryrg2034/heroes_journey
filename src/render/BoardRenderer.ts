@@ -3,6 +3,7 @@ import type { ForestEngine } from '../game/forestEngine';
 import { JUMP_RANGE } from '../game/forestSystems';
 import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
+import { evaluateEnemyAttack } from '../game/enemyPhase';
 import type { EngineEvent as ForestEvent, ForestState, ForestCell, ItemKind, AbilityKind } from '../game/forestTypes';
 import { COLORS, PALE, makeEnemy, makePlayer, drawTerrain } from './art';
 import { drawKey } from './castleArt';
@@ -20,6 +21,11 @@ interface Particle { view: Graphics; vx: number; vy: number; life: number; max: 
 interface Popup { view: Text; life: number }
 interface ArrivalVictim { view:Container; life:number }
 interface ArrowProjectile { view:Graphics; startX:number; startY:number; targetX:number; targetY:number; life:number; max:number }
+
+/** An announced attack the engine would carry out against a hero standing on one of its cells. */
+export function enemyReadyToAttack(cell: ForestCell | null | undefined, index: number): boolean {
+  return !!cell && cell.intent.cells.some(target => evaluateEnemyAttack(cell, index, target) !== null);
+}
 
 /** Pixi is presentation only; all selections and turn rules stay in ForestEngine. */
 export class BoardRenderer {
@@ -70,12 +76,16 @@ export class BoardRenderer {
   private targetHover = -1;
   private doorFocus:number|null=null;
   private terrainSignature = '';
+  private active = true;
   onFrostTargetingChange?: (active: boolean) => void;
   onItemTargetingChange?: (item:ItemKind|null)=>void;
   onDoorFocus?: (index:number|null)=>void;
   get frostTargeting() { return this.targetingItem==='frost'; }
   get itemTargeting(){return this.targetingItem;}
   get focusedDoor(){return this.doorFocus;}
+  /** Read-only snapshot of the chain-end label for tests (canvas text is not in the DOM). */
+  get endpointLabel(){return{visible:this.endpoint.visible,text:this.endpointText.text,textWidth:this.endpointText.width,plateWidth:this.endpointBack.width};}
+  get ticking(){return this.initialized&&this.app.ticker.started;}
   private get boardWidth() { return this.engine.state.cols*TILE; }
   private get boardHeight() { return this.engine.state.rows*TILE; }
 
@@ -130,6 +140,14 @@ export class BoardRenderer {
     this.unsubscribe = this.engine.subscribe((state,event) => this.sync(state,event));
     this.sync(this.engine.state,{type:'state'});
     this.app.ticker.add(ticker => this.tick(ticker.deltaMS));
+    this.setActive(this.active);
+  }
+
+  /** Stop drawing while the board is hidden (title, editor); state still syncs from engine events. */
+  setActive(active: boolean) {
+    this.active = active;
+    if (!this.initialized || this.disposed) return;
+    if (active) this.app.start(); else this.app.stop();
   }
 
   gridToScreen(x: number, y: number): { x: number; y: number } {
@@ -302,7 +320,8 @@ export class BoardRenderer {
     const chain=state.chain;
     const preview=this.engine.preview();
     const killed=new Set([...preview.hits, ...(preview.trapHits ?? [])].filter(hit=>hit.killed).map(hit=>hit.index));
-    const endsEncounter=preview.valid && (preview.completesRoom || preview.damage>=state.player.hp || (state.room.kind==='forest'&&preview.hits.some(hit=>hit.killed&&state.board[hit.index]?.kind==='boss')));
+    // The engine already folds a room-boss kill into completesRoom and lethal damage into playerDies.
+    const endsEncounter=preview.valid && (preview.completesRoom || !!preview.playerDies);
     const loot=this.floorLoot.clear();
     if(state.room.key.droppedAt!==null){
       const at=this.center(state.room.key.droppedAt);
@@ -475,9 +494,11 @@ export class BoardRenderer {
         d.roundRect(from.x-35,from.y-35,70,70,6).stroke({color:0xf58a78,width:2,alpha:0.8});
       }
       this.endpoint.visible=state.phase==='PLAYER_INPUT';
-      this.endpoint.position.set(Math.min(this.boardWidth-53,Math.max(53,end.x)),Math.max(12,end.y-35));
-      this.endpointBack.clear().roundRect(-49,-10,98,20,4).fill(!preview.valid?0x3c3530:preview.damage?0x742e30:0x263b31).stroke({color:!preview.valid?0xc4a775:preview.damage?0xe49681:0x9aa982,width:1});
-      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.completesRoom?'В СЛЕДУЮЩИЙ ЗАЛ':preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
+      // Same wording as the chain panel: a door entry is not a victory.
+      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.opensDoor!==undefined?'В СЛЕДУЮЩИЙ ЗАЛ':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
+      const half=Math.ceil(this.endpointText.width/2)+10;
+      this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,end.x)),Math.max(12,end.y-35));
+      this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!preview.valid?0x3c3530:preview.damage?0x742e30:0x263b31).stroke({color:!preview.valid?0xc4a775:preview.damage?0xe49681:0x9aa982,width:1});
     } else {
       const door=this.doorFocus===null?null:state.board[this.doorFocus];
       this.endpoint.visible=Boolean(door?.door)&&state.phase==='PLAYER_INPUT';
@@ -636,7 +657,7 @@ export class BoardRenderer {
     const state=this.engine.state,now=performance.now();
     for(const piece of this.views.values()) {
       const cell=state.board[piece.index],selected=occupiedIndices(cell,piece.index).some(i=>state.chain.includes(i)),pos=this.entityCenter(cell,piece.index);
-      const ready=cell && cell.intent.cells.length>0 && (cell.kind==='melee'?meleeCanAttack(cell):!cell.status.frozen&&cell.behavior.restTurns===0);
+      const ready=enemyReadyToAttack(cell,piece.index);
       const birth=Math.min(1,(now-piece.born)/170);
       const bounce=selected?1.055+Math.sin(this.elapsed*0.011+piece.index)*0.025:1;
       const arrival=piece.arrivalUntil?Math.max(0,(piece.arrivalUntil-now)/650):0;
@@ -764,10 +785,11 @@ export class BoardRenderer {
   private pointerLeave = () => {if(this.targetHover!==-1){this.targetHover=-1;this.drawOverlays(this.engine.state);}this.focusDoor(null);};
   private keyDown = (event: KeyboardEvent) => { if(event.key==='Escape') {if(this.targetingItem)this.setItemTargeting(null);else if(this.engine.state.chosenAbility){this.pointerCancel();this.engine.setAbility(null);}else this.pointerCancel();} };
 
+  /** Safe after a failed init(): Pixi may have no renderer or canvas yet. */
   destroy() {
     this.disposed=true;this.unsubscribe?.();this.resizeObserver?.disconnect();
     window.removeEventListener('blur',this.pointerCancel);window.removeEventListener('keydown',this.keyDown);
-    this.app.canvas.removeEventListener('pointerdown',this.pointerDown);this.app.canvas.removeEventListener('pointermove',this.pointerMove);this.app.canvas.removeEventListener('pointerup',this.pointerUp);this.app.canvas.removeEventListener('pointercancel',this.pointerCancel);this.app.canvas.removeEventListener('pointerleave',this.pointerLeave);this.app.canvas.removeEventListener('lostpointercapture',this.pointerCancel);
-    this.app.destroy(true,{children:true});
+    if(this.initialized){this.app.canvas.removeEventListener('pointerdown',this.pointerDown);this.app.canvas.removeEventListener('pointermove',this.pointerMove);this.app.canvas.removeEventListener('pointerup',this.pointerUp);this.app.canvas.removeEventListener('pointercancel',this.pointerCancel);this.app.canvas.removeEventListener('pointerleave',this.pointerLeave);this.app.canvas.removeEventListener('lostpointercapture',this.pointerCancel);}
+    try{this.app.destroy(true,{children:true});}catch{/* init failed before Pixi built its renderer */}
   }
 }

@@ -2,7 +2,7 @@ import type { PlannedSummon } from './enemyPhase';
 import { isCellAlive } from './cellLife';
 import { TUTORIAL_LESSONS } from './tutorialLevels';
 import { COLOR_FROM_SYMBOL, FOREST_LEVEL, WAVE_LABELS, WAVE_OBJECTIVES } from './forestLevel';
-import { ABILITY_COST, chainNeighbors, cloneBoard, isWalkable, neighbors, prepareIntents, simulateAbility, simulateChain } from './forestSystems';
+import { ABILITY_COST, canReplaceWithArrival, chainNeighbors, cloneBoard, isWalkable, neighbors, prepareIntents, simulateAbility, simulateChain } from './forestSystems';
 import { canHeal } from './recovered/combat';
 import { canPlaceFootprint, uniqueEntities } from './entityFootprint';
 import { animationWait, playTurn, type TurnSequence } from './turnRuntime';
@@ -237,9 +237,7 @@ export class ForestEngine {
     cell.carriesKey = variant === 'commander'; return cell;
   }
   private normalArrivalCells(board = this.state.board) {
-    return board.flatMap((cell, index) => cell?.kind === 'melee' && (!cell.variant || cell.variant === 'chair')
-      && !cell.shield && !cell.carriesKey && (cell.footprint?.length ?? 1) === 1
-      && isCellAlive(cell) && index !== this.state.player.index && isWalkable(this.state, index) ? [index] : []);
+    return board.flatMap((_cell, index) => canReplaceWithArrival(this.state, board, index) ? [index] : []);
   }
   private createRoomMelee(color: EnemyColor, index: number): ForestCell {
     if (this.state.tutorial) { const cell = this.createCell('melee', color, index); cell.behavior.passive = true; return cell; }

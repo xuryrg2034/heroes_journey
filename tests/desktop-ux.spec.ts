@@ -17,7 +17,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720
       await page.goto('/');
       await expect(page.locator('.tutorial-select [data-tutorial]')).toHaveCount(16);
       await expect(page.locator('#title-screen [data-scenario]')).toHaveCount(7);
-      for (const selector of ['#tutorial-begin-button', '[data-tutorial="15"]', '#begin-button', '#campaign-button']) {
+      for (const selector of ['#tutorial-begin-button', '[data-tutorial="15"]', '#begin-button', '#campaign-button', '#editor-button', '.title-links [data-action="help"]']) {
         const box = await rect(page, selector);
         expect(box.top).toBeGreaterThanOrEqual(0);
         expect(box.bottom).toBeLessThanOrEqual(viewport.height);
@@ -44,7 +44,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720
         await expect(page.locator('.room-details')).not.toHaveAttribute('open');
         await expect(page.locator('.field-details')).not.toHaveAttribute('open');
         expect(await page.locator('.action-dock').evaluate(element => element.parentElement?.className)).toBe('guide-panel');
-        for (const element of ['#board-host', '.objective-card', '.combat-hud', '#wait-button']) {
+        if (name === 'castle gate') await expect(page.locator('#hazard-card')).toBeVisible();
+        for (const element of ['#board-host', '.board-status', '.objective-card', '.combat-hud', '#wait-button']) {
           const box = await rect(page, element);
           expect(box.top, `${element} starts inside the viewport`).toBeGreaterThanOrEqual(0);
           expect(box.bottom, `${element} fits inside the viewport`).toBeLessThanOrEqual(viewport.height);
@@ -53,8 +54,51 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720
         expect(errors).toEqual([]);
       });
     }
+
+    test('editor grid and an authored 7×7 fight with its way back fit the first screen', async ({ page }) => {
+      await page.goto('/');
+      await page.locator('#editor-button').click();
+      await expect(page.locator('[data-cell="48"]')).toBeVisible();
+      for (const element of ['#editor-grid', '#editor-play']) {
+        const box = await rect(page, element);
+        expect(box.bottom, `${element} fits inside the viewport`).toBeLessThanOrEqual(viewport.height);
+      }
+      await page.locator('#editor-play').click();
+      await expect(page.locator('#board-host canvas')).toBeVisible();
+      for (const element of ['#board-host', '.board-status', '#return-editor', '#wait-button']) {
+        const box = await rect(page, element);
+        expect(box.top, `${element} starts inside the viewport`).toBeGreaterThanOrEqual(0);
+        expect(box.bottom, `${element} fits inside the viewport`).toBeLessThanOrEqual(viewport.height);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    });
   });
 }
+
+test('chain end label matches the chain panel: victory is not a next hall, and the plate fits the text', async ({ page }) => {
+  const game = (script: string) => page.evaluate(script);
+  const label = () => page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel);
+  await page.goto('/');
+  await page.locator('#tutorial-begin-button').click();
+  await expect(page.locator('#board-host canvas')).toBeVisible();
+  await game('(() => { const g = window.__PUZZLE_GAME; g.beginChain(16); for (const i of [11, 6, 7, 12, 17, 22]) g.extendChain(i); })()');
+  await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.preview().completesRoom)).toBe(true);
+  await expect(page.locator('#chain-rank')).toHaveText('ПОБЕДНЫЙ УДАР');
+  let end = await label();
+  expect(end.visible).toBe(true); expect(end.text).toBe('ПОБЕДНЫЙ УДАР');
+  expect(end.plateWidth).toBeGreaterThanOrEqual(end.textWidth);
+  await game('window.__PUZZLE_GAME.cancelChain()');
+  // A castle hall with the key: the chain enters a door instead of winning the fight.
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.loadScenario('banquet'));
+  await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.phase)).toBe('PLAYER_INPUT');
+  const path = await page.evaluate(() => { const g = (window as any).__PUZZLE_GAME; g.engine.state.room.key.held = true; return g.availableMoves().find((m: number[]) => g.preview(m).opensDoor !== undefined); });
+  expect(path).toBeTruthy();
+  await page.evaluate(path => { const g = (window as any).__PUZZLE_GAME; g.beginChain(path[0]); for (const i of path.slice(1)) g.extendChain(i); }, path);
+  await expect(page.locator('#chain-rank')).toHaveText('ДВЕРЬ В СЛЕДУЮЩИЙ ЗАЛ');
+  end = await label();
+  expect(end.text).toBe('В СЛЕДУЮЩИЙ ЗАЛ');
+  expect(end.plateWidth).toBeGreaterThanOrEqual(end.textWidth);
+});
 
 test('chain forecast stays visible and drawing does not move the board', async ({ page }) => {
   await page.goto('/');

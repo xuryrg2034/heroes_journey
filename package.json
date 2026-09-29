@@ -30,7 +30,8 @@
     "test:jailer-rules": "tsx src/game/jailerRules.spec.ts",
     "test:chapter-finale": "tsx src/game/chapterFinale.spec.ts",
     "test:palette-generation": "tsx src/game/palette-generation.spec.ts",
-    "test:refill-randomness": "tsx src/game/refill-randomness.spec.ts"
+    "test:refill-randomness": "tsx src/game/refill-randomness.spec.ts",
+    "test:review-fixes": "tsx src/game/reviewFixes.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"

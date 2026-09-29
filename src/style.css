@@ -266,3 +266,21 @@ body:before{opacity:.055}
 @media(min-width:981px){.guide-panel{display:flex;grid-column:auto;flex-direction:column;gap:0}.guide-panel .action-dock{padding:0 0 10px}.guide-panel .ability-toolbar{grid-template-columns:1fr 1fr;margin:0 0 7px}.guide-panel .ability-button{min-height:42px;padding:5px;font-size:11px}.guide-panel .item-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.guide-panel .item-toolbar .item-button{min-width:0;flex-direction:row;justify-content:flex-start;font-size:11px}.guide-panel .item-toolbar .wait-button{grid-column:1/-1;width:100%;max-width:none;margin:0}.guide-panel .item-toolbar .cancel-item:not([hidden]){grid-column:1/-1}.guide-panel .intent-summary,.guide-panel .device-summary{font-size:11px}.guide-panel .field-details{margin-top:4px}.guide-panel .action-dock .ability-hint,.guide-panel .action-dock .item-hint{font-size:11px}}
 
 .modal.branch-outcome{padding:24px;max-width:520px}.branch-outcome .outcome-symbol{font-size:36px;margin-top:12px}.branch-outcome h2{font-size:30px;margin:12px 0}.branch-outcome .result-stats{margin:16px 0;padding:12px 0}.branch-outcome .reward-options{margin:16px 0}.branch-outcome .reward-choice{padding:12px;min-height:72px}
+/* 1280×720 fit: key controls stay in the first screen. */
+.chapter-panel .editor-return{display:flex;justify-content:flex-start;margin:0;padding:6px 0 0;font-size:11px;letter-spacing:1px;color:#c8d4cd;text-align:left}
+@media(min-width:701px){
+.game-screen.hazard-active .board-column{width:min(100%,calc((100dvh - 285px)*var(--board-ratio,1)))}
+.title-content.scenario-title{grid-template-rows:auto auto 1fr auto}
+.title-content.scenario-title .tutorial-select{grid-row:2/span 2}
+.title-content.scenario-title .scenario-list{grid-column:2;grid-row:2}
+.title-content.scenario-title .title-links{grid-column:2;grid-row:3;align-self:start;padding-left:0;gap:10px}
+.title-content.scenario-title .title-best{grid-row:4}
+}
+@media(min-width:1001px){
+.editor-screen{padding-top:14px}
+.editor-heading{margin-bottom:6px}
+.editor-heading h1{font-size:30px;margin:2px 0}
+.editor-heading p{margin:0}
+.editor-notice{margin:8px 0;padding:7px 12px}
+.editor-grid{grid-template-columns:repeat(var(--cols),minmax(28px,1fr));min-width:calc(var(--cols)*31px);max-width:min(calc(var(--cols)*76px),calc((100dvh - 300px)*var(--cols)/var(--rows)))}
+}

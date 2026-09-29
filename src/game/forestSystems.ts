@@ -54,6 +54,25 @@ export function chainAdjacent(state: ForestState, from: number, to: number): boo
   return adjacent(state, from, to);
 }
 export function chainNeighbors(state: ForestState, index: number): number[] { return neighbors(state, index).filter(target => chainAdjacent(state, index, target)); }
+/**
+ * One replacement rule for announced summons and special arrivals: a living,
+ * unshielded, keyless single-cell ordinary enemy (no variant or a chair) on
+ * open floor, never under the cat or a device. The beacon further limits this
+ * to calm weak enemies; execution rechecks the same predicate.
+ */
+export function canReplaceWithArrival(state: Pick<ForestState, 'cols' | 'rows' | 'terrain' | 'pits' | 'devices' | 'player'>, board: readonly (ForestCell | null)[], index: number): boolean {
+  const cell = board[index];
+  return !!cell && cell.kind === 'melee' && (!cell.variant || cell.variant === 'chair') && isCellAlive(cell)
+    && !cell.shield && !cell.carriesKey && (cell.footprint?.length ?? 1) === 1
+    && index !== state.player.index && isWalkable(state as ForestState, index) && !deviceAt(state as ForestState, index);
+}
+/** Shared by the chain evaluator and the generation search: an active shield rejects entry from its facing side. */
+export function shieldBlocksEntry(state: Pick<ForestState, 'cols'>, cell: ForestCell, from: number, to: number): boolean {
+  if (!shieldIsActive(cell) || !cell.shield) return false;
+  const properties: Record<number, number> = {};
+  if (cell.shield.dx) properties[249] = cell.shield.dx; if (cell.shield.dy) properties[250] = cell.shield.dy;
+  return shieldBlocksApproach(from % state.cols, Math.floor(from / state.cols), to % state.cols, Math.floor(to / state.cols), properties);
+}
 function meleeTargets(state: ForestState, index: number): number[] {
   const footprint = state.board[index]?.footprint;
   if (footprint && footprint.length > 1) return footprintPerimeter(footprint, state.cols, state.rows).filter(target => isWalkable(state, target));
@@ -160,11 +179,7 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
     } else {
       if (!cell || cell.kind !== 'door' && !isCellAlive(cell) || !chainAdjacent(state, previous, index) || seen.has(cell.id)) { reject('Выбирай соседние цели, включая диагонали. Одну сущность нельзя ударить дважды.'); break; }
       if (!step && cell.kind === 'prism') { reject('Начни с противника, а не с огонька.'); break; }
-      if (shieldIsActive(cell) && cell.shield) {
-        const properties: Record<number, number> = {};
-        if (cell.shield.dx) properties[249] = cell.shield.dx; if (cell.shield.dy) properties[250] = cell.shield.dy;
-        if (shieldBlocksApproach(previous % state.cols, Math.floor(previous / state.cols), index % state.cols, Math.floor(index / state.cols), properties)) { reject('Щит закрывает этот подход. Обойди сбоку или сзади либо заморозь стража.'); break; }
-      }
+      if (shieldBlocksEntry(state, cell, previous, index)) { reject('Щит закрывает этот подход. Обойди сбоку или сзади либо заморозь стража.'); break; }
       if (cell.color !== null && color !== null && cell.color !== color) { reject('Соединяй один цвет; бесцветная цель связывает любые цвета.'); break; }
       if (state.customLevel && cell.kind === 'door' && !customGoalsMet(state, customProgress)) { reject('Выход закрыт: сначала выполни все цели.'); break; }
       if (cell.kind === 'prism') {
@@ -370,7 +385,10 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
       cell.shield = { dx: actor.properties[249] ?? 0, dy: actor.properties[250] ?? 0 };
     }
     if (cell.variant === 'cabinet') {
-      cell.supportTargetId = neighbors(state, index).map(target => state.board[target]).find(target => target && isCellAlive(target) && target.id !== cell.id && target.kind !== 'door' && target.kind !== 'prism' && target.variant !== 'cabinet')?.id;
+      // Every square of a large cabinet guards its surroundings, not only the first scanned square.
+      const parts = state.board.flatMap((part, partIndex) => part?.id === cell.id ? [partIndex] : []);
+      const around = [...new Set(parts.flatMap(part => neighbors(state, part)))].filter(target => !parts.includes(target)).sort((a, b) => a - b);
+      cell.supportTargetId = around.map(target => state.board[target]).find(target => target && isCellAlive(target) && target.id !== cell.id && target.kind !== 'door' && target.kind !== 'prism' && target.variant !== 'cabinet')?.id;
     }
     if (cell.kind === 'door') { cell.intent.label = state.customLevel ? customGoalsMet(state) ? 'Выход открыт' : 'Выполни цели' : cell.door?.breached ? 'Проход открыт' : cell.door?.magic ? 'Нужен ключ или бомба' : 'Ключ или 200 урона'; return; }
     if (cell.kind === 'melee') {
@@ -428,11 +446,9 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
         cell.intent = { cells: [], damage: 0, label: 'Призыв через 2 хода' };
         if (cell.status.frozen > 0) { cell.intent.label = 'Заморожен'; return; }
         if ((cell.behavior.cycle ?? 0) % 2 === 1) {
-          const targets = state.board.flatMap((target, targetIndex) => target && isCellAlive(target)
-            && target.kind === 'melee' && !target.behavior.aggressive && target.maxHp === 0
-            && !target.shield && !target.carriesKey && (target.footprint?.length ?? 1) === 1
-            && targetIndex !== state.player.index && isWalkable(state, targetIndex)
-            && !deviceAt(state, targetIndex) ? [{ index: targetIndex, id: target.id }] : []).slice(0, 2);
+          // Calm weak enemies that the arrival step will actually replace.
+          const targets = state.board.flatMap((target, targetIndex) => target && canReplaceWithArrival(state, state.board, targetIndex)
+            && !target.behavior.aggressive && target.maxHp === 0 ? [{ index: targetIndex, id: target.id }] : []).slice(0, 2);
           cell.intent = { cells: [], damage: 0, label: 'Призыв подкреплений',
             summonCells: targets.map(target => target.index), summonIds: targets.map(target => target.id) };
           cell.countdown = 1;
@@ -452,10 +468,8 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
           const summonCells: number[] = [];
           const eligible = (x: number, y: number) => {
             if (x < 0 || x >= state.cols || y < 0 || y >= state.rows) return false;
-            const targetIndex = y * state.cols + x, target = state.board[targetIndex];
-            return targetIndex !== state.player.index && isWalkable(state, targetIndex) && !summonCells.includes(targetIndex)
-              && !!target && isCellAlive(target) && target.kind === 'melee' && (!target.variant || target.variant === 'chair')
-              && !target.shield && !target.carriesKey && (target.footprint?.length ?? 1) === 1;
+            const targetIndex = y * state.cols + x;
+            return !summonCells.includes(targetIndex) && canReplaceWithArrival(state, state.board, targetIndex);
           };
           for (let summon = 0; summon < 2; summon++) {
             // Native cyclic board scan; our eligibility requires an occupied ordinary chair.

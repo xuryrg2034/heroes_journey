@@ -25,7 +25,7 @@ const TILE_COLORS: Partial<Record<Tile, EnemyColor>> = { R: 0, X: 0, G: 1, B: 2,
  * marked targets of their respective colors. Only the initial layout is authored;
  * later replacements use the seeded, weighted palette of the level.
  */
-function lesson(
+export function lesson(
   id: TutorialLesson['id'], name: string, description: string, hint: string,
   rows: string[], seed: number, goal: number,
   armedTargets = false,
@@ -37,7 +37,9 @@ function lesson(
   if (heroIndex < 0 || tiles.filter(tile => tile === 'H').length !== 1) throw new Error(`Нужен один кот в уроке ${id}.`);
   const terrain: TerrainKind[] = tiles.map(tile => tile === '#' ? 'wall' : 'floor');
   const initialColors: EnemyColor[] = tiles.map(tile => TILE_COLORS[tile] ?? 0);
-  const palette = ([0, 2, 1, 3, 4] as EnemyColor[]).filter(color => initialColors.includes(color));
+  // Walls and the cat have no colour: only enemy squares define the refill palette.
+  const enemyColors = tiles.flatMap((tile, index) => tile === '#' || tile === 'H' ? [] : [initialColors[index]]);
+  const palette = ([0, 2, 1, 3, 4] as EnemyColor[]).filter(color => enemyColors.includes(color));
   const targetIndices: number[] = [];
   const enemies = tiles.flatMap((tile, index) => {
     if (tile === '#' || tile === 'H') return [];
