@@ -1,5 +1,6 @@
 import { isCellAlive } from './cellLife';
 import type { ForestCell, ForestState } from './forestTypes';
+import { walkableTerrain } from './terrain';
 
 type Footprinted = Pick<ForestCell, 'door'> & { footprint?: readonly number[] };
 type SpatialState = Pick<ForestState, 'cols' | 'rows' | 'terrain' | 'board' | 'player'>;
@@ -42,7 +43,7 @@ export function canPlaceFootprint(state: SpatialState, indices: readonly number[
   const target = new Set(indices), occupants = uniqueEntities(state.board);
   for (const index of indices) {
     if (!Number.isInteger(index) || index < 0 || index >= state.cols * state.rows || index === state.player.index
-      || !['floor', 'puddle'].includes(state.terrain[index])) return false;
+      || !walkableTerrain(state.terrain[index])) return false;
     const cell = state.board[index];
     if (!cell || cell.id === options.ignoreId) continue;
     if (!options.replaceOrdinary || cell.kind !== 'melee' || !isCellAlive(cell) || cell.carriesKey || cell.shield

@@ -7,7 +7,7 @@ import { validateCustomLevel, type CustomLevelDefinition } from './customLevel';
 import { planEnemyPhase } from './enemyPhase';
 import { ForestEngine } from './forestEngine';
 import type { ForestEvent } from './forestTypes';
-import { lesson } from './tutorialLevels';
+import { authoredLesson } from './tutorialLevels';
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -159,7 +159,7 @@ function strictEnumerations() {
 
 /** 7. Walls and the cat do not add red to a lesson palette; refill then never produces red. */
 async function lessonPaletteFromEnemiesOnly() {
-  const blueGreen = lesson('chain', 'Без красного', '', '', ['#BBGG', '#BBGG', '#HBGG', '#BBGG'], 11, 99);
+  const blueGreen = authoredLesson({ id: 'chain', name: 'Без красного', description: '', hint: '', rows: ['#BBGG', '#BBGG', '#HBGG', '#BBGG'], seed: 11, goals: [{ key: 'kills', target: 99 }] });
   assert(blueGreen.definition.paletteWeights[0] === 0, 'red is absent from a map without red enemies');
   let refilled = 0;
   for (const seed of [11, 83, 701, 4242]) {

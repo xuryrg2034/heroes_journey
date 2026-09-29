@@ -5,7 +5,7 @@ import { TUTORIAL_LESSONS } from './tutorialLevels';
 import type { EnemyColor } from './forestTypes';
 
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
-const opening = [16, 17, 12];
+const opening = [8, 13, 17];
 async function commit(g: ForestEngine, path: number[]) {
   assert(g.beginChain(path[0]), 'refill route starts');
   for (const index of path.slice(1)) assert(g.extendChain(index), 'refill route extends');

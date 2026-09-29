@@ -1,6 +1,7 @@
 import { clearEntity } from './entityFootprint';
 import type { ForestCell, ForestState } from './forestTypes';
 import { isCellAlive } from './cellLife';
+import { shieldBlocksApproach } from './recovered/core';
 
 export type DamageSource = 'physical' | 'item' | 'hazard' | 'effect';
 export function physicalDamage(board: (ForestCell | null)[], cell: ForestCell, base: number): number {
@@ -50,4 +51,11 @@ export function defeatsRoomBoss(state: ForestState, cell: ForestCell): boolean {
 /** Jailer keeps a fixed shield facing, but lowers it while recovering or frozen. */
 export function shieldIsActive(cell: ForestCell): boolean {
   return !!cell.shield && cell.status.frozen === 0 && (cell.variant !== 'jailer' || cell.behavior.restTurns === 0);
+}
+/** Shared by chains, generation and boar pushes: an active shield rejects entry from its facing side. */
+export function shieldBlocksEntry(state: Pick<ForestState, 'cols'>, cell: ForestCell, from: number, to: number): boolean {
+  if (!shieldIsActive(cell) || !cell.shield) return false;
+  const properties: Record<number, number> = {};
+  if (cell.shield.dx) properties[249] = cell.shield.dx; if (cell.shield.dy) properties[250] = cell.shield.dy;
+  return shieldBlocksApproach(from % state.cols, Math.floor(from / state.cols), to % state.cols, Math.floor(to / state.cols), properties);
 }

@@ -22,7 +22,7 @@ test('a long tutorial chain refills with mixed palette colors and retries the ex
   await page.goto('/');
   await page.locator('#tutorial-begin-button').click(); await ready(page);
   const opening = await state(page);
-  const path = [16, 17, 12, 11, 6, 7];
+  const path = [8, 13, 17, 11, 5, 10];
   expect(path.map(index => opening.board[index].color)).toEqual(Array(path.length).fill(0));
   await draw(page, path);
   const after = await state(page);

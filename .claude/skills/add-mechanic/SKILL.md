@@ -26,7 +26,7 @@ argument-hint: "<описание механики>"
 | Ожидание, отмена | `turnRuntime.ts` | Проверка поколения сцены после каждого ожидания |
 | Прогноз | `forestSystems.ts` | Считается на копии поля, без RNG и событий; раздельные поля урона |
 | Генерация | `boardGeneration.ts`, `forestEngine.ts` | Новые клетки исключены из пополнения, если это нужно; выжившие не перекрашиваются |
-| Уроки | `tutorialLevels.ts` | Разрешения `allowedItems`/`allowedAbilities` проверяются движком |
+| Уроки | `lessons/*.ts`, `lessonBuilder.ts` | Разрешения `allowedItems`/`allowedAbilities` проверяются движком |
 | Редактор, JSON | `customLevel.ts`, `editor/LevelEditor.ts` | Валидация, обратная совместимость старого JSON, UI выбора |
 | Рендер, звук | `render/*.ts`, `audio.ts` | Реагируют на события и не влияют на результат; многоклеточные фигуры через `uniqueEntities` |
 | Арт | `characterAssets.ts` | Новый `kind`/`variant` → `CHARACTER_ART_IDS`, процедурный резерв (скилл `character-art`) |

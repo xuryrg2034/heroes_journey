@@ -5,7 +5,10 @@ import { rotationPreview } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { customGoalsMet } from './customLevel';
 import { damageCell, damageHero, removeDefeated, defeatsRoomBoss } from './combatRules';
-import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack, type PlannedSummon } from './enemyPhase';
+import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase, type EnemyAttack, type PlannedSummon } from './enemyPhase';
+import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
+import { THORN_DAMAGE } from './terrain';
+import { shamanActive, shamanRites } from './forestBeasts';
 import { updateBasicAttack, type BasicAttackOps, type EnemyActor } from './recovered/enemies';
 import type { EngineEvent } from './forestTypes';
 import { stepBleeding, tickDamageEffects } from './damageEffects';
@@ -96,6 +99,14 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
       && (attackEffect !== 'wind' || original.damageEffects?.burning)) {
       yield { event: { type: 'status', index: hit.index, effect: attackEffect, amount: 1 } };
     }
+    // Porcupine quills (same amount as simulateChain): at the hit, before any later step or victory.
+    if (hit.spikeDamage) {
+      if (!ctx.current()) return false;
+      const damage = damageHero(ctx.state, hit.spikeDamage);
+      yield { event: { type: 'damage', index: ctx.state.player.index, from: hit.index, amount: damage, text: 'quills' } };
+      if (!ctx.current()) return false;
+      if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
+    }
     if (hit.killed && !ability && ctx.state.player.damageEffects?.bleeding) {
       yield* resolveMovementBleeding(ctx);
       if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
@@ -111,6 +122,13 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
     if (simulation.preview.keyCollected) { ctx.state.room.key = { held: true, droppedAt: null }; yield { event: { type: 'key-collect', index: simulation.preview.endIndex } }; if (!ctx.current()) return false; }
   }
   ctx.state.chain = [];
+  // Same rule as simulateChain: an ordinary chain that stops on thorns costs the cat HP before any lever.
+  if (!ability && ctx.state.terrain[ctx.state.player.index] === 'thorns') {
+    const damage = damageHero(ctx.state, THORN_DAMAGE);
+    yield { event: { type: 'damage', index: ctx.state.player.index, amount: damage, text: 'thorns' } };
+    if (!ctx.current()) return false;
+    if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
+  }
   for (const device of simulation.queuedDevices ?? []) {
     yield { event: { type: 'trap', index: device.index, text: device.kind, indices: deviceTargets(ctx.state, device), amount: device.kind === 'pits' ? undefined : device.damage ?? 4 } };
     if (!ctx.current()) return false;
@@ -155,7 +173,7 @@ function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number):
     animDone: () => animationDone,
     idle: () => {},
     meleeDamage: () => {
-      if (impacted || ctx.state.player.index !== target || !evaluateEnemyAttack(cell, index, target)?.hitsHero) return;
+      if (impacted || ctx.state.player.index !== target || !evaluateEnemyAttack(cell, index, target, ctx.state)?.hitsHero) return;
       impacted = true;
       cell.behavior.aggressive = false; cell.behavior.restTurns = 1;
       const damage = damageHero(ctx.state, cell.intent.damage);
@@ -185,9 +203,10 @@ function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number):
 }
 
 export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack, 'cell' | 'index'>[]): TurnSequence {
+  let bossKilled = false;
   for (const { cell, index } of actors) {
     // Keep actor membership fixed, but honour status/intent edits made by synchronous subscribers.
-    const attack = evaluateEnemyAttack(cell, index, ctx.state.player.index);
+    const attack = evaluateEnemyAttack(cell, index, ctx.state.player.index, ctx.state);
     if (!attack) continue;
     const { target, hitsHero } = attack;
     if (cell.kind === 'melee') {
@@ -204,16 +223,71 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
           yield { event: { type: 'status', index: ctx.state.player.index, from: index, effect: cell.attackEffect, amount: 1 } };
         }
       }
+      // Forest arrows strike every creature on the announced cells; kills are credited to the player.
+      if (ctx.state.player.hp > 0 && archerStrikesCreatures(cell)) for (const impact of archerVolley(ctx.state.board, cell)) {
+        yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage } };
+        if (!ctx.current()) return false;
+        if (!impact.killed) continue;
+        ctx.recordDefeat(impact.cell, impact.index, true);
+        if (!ctx.current()) return false;
+        yield { event: { type: 'kill', index: impact.index } };
+        bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
+      }
       yield { delay: 115 };
     }
     if (ctx.state.player.hp === 0) return true;
   }
+  if (bossKilled) { ctx.state.objective.turns++; ctx.finish(true); }
+  return true;
+}
+
+/**
+ * Boar charges at the start of the enemy phase (shared rule: boarCharge.ts). Pushed entities are added
+ * to `displaced`: they skip their action and their announced swaps this phase.
+ */
+export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): TurnSequence {
+  let bossKilled = false, boarIndex = -1;
+  for (const impact of resolveCharges(ctx.state, displaced)) {
+    if (!ctx.current()) return false;
+    if (impact.kind === 'start') {
+      boarIndex = impact.index;
+      yield { event: { type: 'charge', index: impact.index, from: impact.index, indices: impact.lane, amount: impact.boar.intent.damage } };
+    } else if (impact.kind === 'ram' || impact.kind === 'crush') {
+      const text = impact.kind === 'ram' ? 'ram' : impact.cause;
+      if (impact.heroDamage !== undefined) {
+        yield { event: { type: 'damage', index: ctx.state.player.index, from: impact.kind === 'ram' ? boarIndex : undefined, amount: impact.heroDamage, text } };
+        if (!ctx.current()) return false;
+        if (impact.kind === 'ram' && impact.effect) yield { event: { type: 'status', index: ctx.state.player.index, from: boarIndex, effect: ctx.state.board[boarIndex]?.attackEffect, amount: 1 } };
+        if (ctx.state.player.hp === 0) return true;
+        continue;
+      }
+      yield { event: { type: 'hit', index: impact.index, from: boarIndex, amount: impact.damage, text: impact.kind === 'ram' && impact.shielded ? 'ЩИТ' : text } };
+      if (!ctx.current()) return false;
+      if (impact.killed && impact.cell) {
+        ctx.recordDefeat(impact.cell, impact.index, true);
+        if (!ctx.current()) return false;
+        yield { event: { type: 'kill', index: impact.index, text } };
+        bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
+      }
+    } else if (impact.kind === 'shift') {
+      boarIndex = impact.to;
+      const hero = impact.moves.find(move => move.id === HERO_MOVE_ID);
+      yield { event: { type: 'push', index: impact.to, from: impact.from, to: impact.to, indices: impact.moves.map(move => move.to) } };
+      if (!ctx.current()) return false;
+      if (hero) { yield { event: { type: 'move', from: hero.from, to: hero.to, index: hero.to, text: 'push' } }; if (!ctx.current()) return false; }
+      yield { delay: 90 };
+    } else if (impact.kind === 'stun') {
+      yield { event: { type: 'status', index: impact.index, text: 'ОГЛУШЁН' } };
+    } else yield { delay: 60 };
+    if (!ctx.current()) return false;
+  }
+  if (bossKilled && ctx.state.player.hp > 0) { ctx.state.objective.turns++; ctx.finish(true); }
   return true;
 }
 
 /** Apply every announced exchange after attacks; replacements never act in this phase. */
-export function* resolveRotations(ctx: TurnContext): TurnSequence {
-  const rotations = rotationPreview(ctx.state), replacements = ctx.planRotationReplacements(rotations);
+export function* resolveRotations(ctx: TurnContext, displaced: ReadonlySet<number> = new Set()): TurnSequence {
+  const rotations = rotationPreview(ctx.state, ctx.state.board, ctx.state.player.index, displaced), replacements = ctx.planRotationReplacements(rotations);
   for (const plan of rotations) {
     if (!ctx.current()) return false;
     if (!plan.active) continue;
@@ -345,14 +419,24 @@ export function* resolveEnemyTurn(ctx: TurnContext): TurnSequence {
   ctx.state.phase = 'ENEMY_RESOLVE';
   yield { event: { type: 'enemy-turn' } };
   yield { delay: 140 };
-  const plan = planEnemyPhase(ctx.state.board, ctx.state.player.index);
+  // Rest counts down only for entities already resting at the start; a stun earned in this phase is kept.
+  // Summon victims are fixed by ID on the board at the start, before any boar push (the beacon's rule).
+  const opening = planEnemyPhase(ctx.state.board, ctx.state.player.index), resting = opening.resting, summons = opening.summons;
+  const displaced = new Set<number>();
+  if (!(yield* resolveBoarCharges(ctx, displaced))) return false;
+  if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
+  if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
+  // Attackers, the pushed cat's cell and knocked-down entities are read after the charges.
+  const plan = planEnemyPhase(ctx.state.board, ctx.state.player.index, displaced);
   if (!(yield* resolveEnemyAttacks(ctx, plan.actors))) return false;
   if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
-  for (const { cell } of plan.actors) if (cell.variant === 'beacon' && isCellAlive(cell)
+  if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
+  if (!(yield* resolveShamanRites(ctx, plan.actors))) return false;
+  for (const { cell } of plan.actors) if ((cell.variant === 'beacon' || cell.variant === 'shaman') && isCellAlive(cell)
     && !cell.behavior.passive && cell.status.frozen === 0) cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
   ctx.refreshCustomProgress();
-  if (!(yield* resolveRotations(ctx))) return false;
-  for (const { cell } of plan.resting) cell.behavior.restTurns--;
+  if (!(yield* resolveRotations(ctx, displaced))) return false;
+  for (const { cell } of resting) cell.behavior.restTurns--;
   if (!(yield* resolveHazard(ctx))) return false;
   if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
   if (!(yield* resolveDamageEffects(ctx))) return false;
@@ -360,5 +444,20 @@ export function* resolveEnemyTurn(ctx: TurnContext): TurnSequence {
   const closed = closeExpiredPits(ctx.state);
   if (closed.length) { yield { event: { type: 'pit-close', indices: closed } }; if (!ctx.current()) return false; }
   if (settleTurn(ctx)) return true;
-  return yield* updateBoard(ctx, plan.summons);
+  return yield* updateBoard(ctx, summons);
+}
+
+/**
+ * Shaman rites after the attacks (shared rule: forestBeasts.ts). Knocked-down shamans are not actors and skip
+ * their rite; the event is published once the goblin already has its new step.
+ */
+export function* resolveShamanRites(ctx: TurnContext, actors: { cell: ForestCell; index: number }[]): TurnSequence {
+  if (!actors.some(({ cell }) => cell.intent.empowerIds?.length && shamanActive(ctx.state.board, cell))) return true;
+  for (const rite of shamanRites(ctx.state.board, actors)) {
+    yield { event: { type: 'empower', index: rite.index, from: rite.shamanIndex, amount: rite.cell.hp, text: rite.tier } };
+    if (!ctx.current()) return false;
+    yield { delay: 90 };
+    if (!ctx.current()) return false;
+  }
+  return true;
 }

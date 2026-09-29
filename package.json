@@ -31,7 +31,13 @@
     "test:chapter-finale": "tsx src/game/chapterFinale.spec.ts",
     "test:palette-generation": "tsx src/game/palette-generation.spec.ts",
     "test:refill-randomness": "tsx src/game/refill-randomness.spec.ts",
-    "test:review-fixes": "tsx src/game/reviewFixes.spec.ts"
+    "test:review-fixes": "tsx src/game/reviewFixes.spec.ts",
+    "test:level-analysis": "tsx src/game/levelAnalysis.spec.ts",
+    "test:boar": "tsx src/game/boar.spec.ts",
+    "test:forest-beasts": "tsx src/game/forestBeasts.spec.ts",
+    "test:damage-breakdown": "tsx src/game/damageBreakdown.spec.ts",
+    "test:forest-run": "tsx src/game/forestRun.spec.ts",
+    "analyze:levels": "tsx scripts/analyze-levels.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"

@@ -5,6 +5,8 @@ import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
 import { shieldIsActive } from '../game/combatRules';
 import { addDamageEffectBadges } from './damageEffectBadges';
+import { makeBoar } from './boarArt';
+import { makePorcupine, makeShaman, makeWolf } from './beastArt';
 import { characterArtId, characterSprite } from './characterAssets';
 export const COLORS = [0xca7970, 0x9fba7c, 0x79b0c4, 0xd8b66a, 0xb69ad2];
 export const PALE = 0xf2dfb4;
@@ -89,6 +91,10 @@ export function makeEnemy(cell: ForestCell,index=0,cols=7,customLevel=false,tuto
   const bounds=footprintBounds(occupiedIndices(cell,index),cols);
   const illustrated=makeIllustratedEnemy(cell,(bounds?.width??1)*80,(bounds?.height??1)*80,tutorialTarget);
   if(illustrated)return illustrated;
+  if(cell.variant==='boar')return makeBoar(cell,tutorialTarget);
+  if(cell.variant==='wolf')return makeWolf(cell,index,cols,tutorialTarget);
+  if(cell.variant==='porcupine')return makePorcupine(cell,tutorialTarget);
+  if(cell.variant==='shaman')return makeShaman(cell,tutorialTarget);
   if(cell.variant==='wardrobe'){const bounds=footprintBounds(occupiedIndices(cell,index),cols);return makeWardrobe(cell,(bounds?.width??1)*80,(bounds?.height??1)*80);}
   if(cell.variant)return makeCastleEnemy(cell);
   const c=new Container(),g=new Graphics();
@@ -210,6 +216,17 @@ export function makePlayer(): Container {
   g.poly([23,-19,36,-20,37,-7,27,-6,20,-10,12,-6,11,-18]).fill(0xc0c8b6).stroke({color:0x334139,width:2});
   g.moveTo(35,-18).lineTo(35,-9).stroke({color:0xf0ead0,width:2});return c;
 }
+/** Spikes along the tile rim, pointing inward. Also drawn above an occupant so the thorns stay visible without hiding its color. */
+export function drawThornRim(g:Graphics,x:number,y:number,alpha:number){
+  const half=34,len=8;
+  for(let n=0;n<5;n++){
+    const t=-27+n*13.5;
+    g.poly([x+t-4,y-half,x+t+4,y-half,x+t,y-half+len]).fill({color:0xd6bb7a,alpha}).stroke({color:0x2a2415,width:1,alpha});
+    g.poly([x+t-4,y+half,x+t+4,y+half,x+t,y+half-len]).fill({color:0xd6bb7a,alpha}).stroke({color:0x2a2415,width:1,alpha});
+    g.poly([x-half,y+t-4,x-half,y+t+4,x-half+len,y+t]).fill({color:0xd6bb7a,alpha}).stroke({color:0x2a2415,width:1,alpha});
+    g.poly([x+half,y+t-4,x+half,y+t+4,x+half-len,y+t]).fill({color:0xd6bb7a,alpha}).stroke({color:0x2a2415,width:1,alpha});
+  }
+}
 export function drawTerrain(g:Graphics,kind:TerrainKind,x:number,y:number) {
   if(kind==='wall'){
     g.roundRect(x-36,y-35,72,70,4).fill(0x515b61).stroke({color:0x252f35,width:2});
@@ -226,6 +243,12 @@ export function drawTerrain(g:Graphics,kind:TerrainKind,x:number,y:number) {
     g.ellipse(x+3,y+4,deep?24:23,deep?18:10).fill({color:0x548b88,alpha:0.3});
     g.moveTo(x-19,y+3).quadraticCurveTo(x-8,y-1,x+3,y+3).moveTo(x-6,y+12).quadraticCurveTo(x+4,y+9,x+17,y+12).stroke({color:0x91b7ac,width:1,alpha:0.6});
     if(deep) for(let n=0;n<4;n++)g.ellipse(x-29+n*18,y+26-(n%2)*3,7,4).fill(0x78806b);
+  } else if(kind==='thorns') {
+    // Bramble ground: a dark bed, a vine along the rim and spikes; the middle stays quiet for an occupant.
+    g.roundRect(x-34,y-34,68,68,6).fill({color:0x2a2415,alpha:.55});
+    g.moveTo(x-33,y-20).quadraticCurveTo(x-20,y-38,x-4,y-31).quadraticCurveTo(x+16,y-25,x+33,y-33).moveTo(x-33,y+22).quadraticCurveTo(x-14,y+38,x+6,y+31).quadraticCurveTo(x+24,y+26,x+33,y+34).stroke({color:0x4f3d22,width:3});
+    drawThornRim(g,x,y,1);
+    for(const [ox,oy] of [[-9,-4],[8,-8],[3,9]])g.poly([x+ox-4,y+oy+4,x+ox,y+oy-7,x+ox+4,y+oy+4]).fill({color:0xc9ad6e,alpha:.7}).stroke({color:0x2a2415,width:1});
   } else if(kind==='campfire') {
     g.ellipse(x,y+17,31,13).fill(0x2a2f21);
     for(let n=0;n<7;n++) {const a=n/7*Math.PI*2;g.ellipse(x+Math.cos(a)*25,y+17+Math.sin(a)*9,7,5).fill(0x777764);}

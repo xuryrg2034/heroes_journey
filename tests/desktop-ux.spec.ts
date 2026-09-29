@@ -81,7 +81,7 @@ test('chain end label matches the chain panel: victory is not a next hall, and t
   await page.goto('/');
   await page.locator('#tutorial-begin-button').click();
   await expect(page.locator('#board-host canvas')).toBeVisible();
-  await game('(() => { const g = window.__PUZZLE_GAME; g.beginChain(16); for (const i of [11, 6, 7, 12, 17, 22]) g.extendChain(i); })()');
+  await game('(() => { const g = window.__PUZZLE_GAME; g.beginChain(8); for (const i of [13, 17, 11, 5, 10, 16, 22]) g.extendChain(i); })()');
   await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.preview().completesRoom)).toBe(true);
   await expect(page.locator('#chain-rank')).toHaveText('ПОБЕДНЫЙ УДАР');
   let end = await label();
@@ -106,14 +106,14 @@ test('chain forecast stays visible and drawing does not move the board', async (
   await expect(page.locator('#board-host canvas')).toBeVisible();
   const boardTop = (await rect(page, '#board-host')).top;
   const at = (index: number) => page.evaluate(i => (window as any).__PUZZLE_GAME.gridToScreen(i), index);
-  const first = await at(16);
+  const first = await at(8);
   await page.mouse.move(first.x, first.y);
   await page.mouse.down();
-  for (const index of [17, 12]) {
+  for (const index of [13, 17]) {
     const point = await at(index);
     await page.mouse.move(point.x, point.y, { steps: 4 });
   }
-  await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.state.chain)).toEqual([16, 17, 12]);
+  await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.state.chain)).toEqual([8, 13, 17]);
   await expect(page.locator('.chain-card')).toBeVisible();
   await expect(page.locator('#chain-reward')).toContainText('Запас:');
   await expect(page.locator('#risk-preview')).toContainText('безопасен');

@@ -29,7 +29,10 @@ export async function loadCharacterArt(): Promise<void> {
 }
 
 export function characterArtId(cell: ForestCell): CharacterArtId | null {
-  return cell.kind==='door'?null:cell.variant ?? cell.kind;
+  // Variants without an illustration (boar, forest beasts) use the procedural fallback.
+  if(cell.kind==='door')return null;
+  const id = cell.variant ?? cell.kind;
+  return (CHARACTER_ART_IDS as readonly string[]).includes(id) ? id as CharacterArtId : null;
 }
 
 /** Fit the full silhouette without changing its aspect ratio or chain color. */

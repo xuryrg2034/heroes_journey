@@ -1,5 +1,6 @@
 import { damageCell, damageHero, removeDefeated } from './combatRules';
 import type { ChainHit, ForestCell, ForestState, InteractionDevice } from './forestTypes';
+import { walkableTerrain } from './terrain';
 
 export const deviceAt = (state: ForestState, index: number) => state.devices.find(device => device.index === index);
 export const pitAt = (state: Pick<ForestState, 'pits'>, index: number) => state.pits.find(pit => pit.index === index);
@@ -8,10 +9,10 @@ export const pitImmune = (cell: ForestCell | null | undefined): boolean => !!cel
   (cell.kind === 'door' || cell.kind === 'boss' || (cell.footprint?.length ?? 1) > 1);
 /** Targets are ordered from the emitter. Walls stop the authored ray, creatures do not. */
 export function deviceTargets(state: Pick<ForestState, 'terrain'>, device: InteractionDevice): number[] {
-  if (device.kind === 'pits') return device.targets.filter(index => ['floor', 'puddle'].includes(state.terrain[index]));
+  if (device.kind === 'pits') return device.targets.filter(index => walkableTerrain(state.terrain[index]));
   const result: number[] = [];
   for (const index of device.targets) {
-    if (!['floor', 'puddle'].includes(state.terrain[index])) break;
+    if (!walkableTerrain(state.terrain[index])) break;
     result.push(index);
   }
   return result;

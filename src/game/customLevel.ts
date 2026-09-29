@@ -1,9 +1,13 @@
 import type { CellKind, EnemyColor, EnemyVariant, ForestState, ItemKind, InteractionDevice, ObjectiveProgress, TerrainKind } from './forestTypes';
 import type { DamageEffectKind } from './damageEffects';
 import { ENEMY_COLORS } from './enemyPalette';
+import { walkableTerrain } from './terrain';
 
 export type PaletteWeights = [number, number, number, number, number];
 export type CustomGoalKey = 'kills' | 'rangedKills' | 'bossKills' | 'turns';
+/** Board sides lined with spikes: a creature pushed off such a side dies, the cat is hurt and holds. */
+export type EdgeSide = 'top' | 'right' | 'bottom' | 'left';
+export const EDGE_SIDES: readonly EdgeSide[] = ['top', 'right', 'bottom', 'left'];
 export interface CustomEnemy { index: number; kind: Exclude<CellKind, 'door'>; color: EnemyColor | null; hp: number; variant?: EnemyVariant; footprint?: number[]; aggressive?: boolean; attackEffect?: DamageEffectKind }
 export interface CustomDoor { index: number; footprint?: number[] }
 export interface CustomLevelDefinition {
@@ -12,11 +16,12 @@ export interface CustomLevelDefinition {
   completion: 'exit' | 'direct'; paletteWeights: PaletteWeights;
   extraColors: { color: EnemyColor; weight: number; afterGoalTurns: number }[];
   devices?: InteractionDevice[];
+  spikedEdges?: EdgeSide[];
   playerHp?: number; playerAttackEffect?: DamageEffectKind; inventory?: Partial<Record<ItemKind, number>>;
 }
 export interface CustomLevelRuntime { definition: CustomLevelDefinition; goalCompletedTurn: number | null; paletteWeights: PaletteWeights }
-const TERRAINS = ['floor', 'puddle', 'wall', 'tree', 'pond', 'campfire'];
-const VARIANTS = ['chair', 'stool', 'cabinet', 'elite', 'sentinel', 'wardrobe', 'rook', 'bishop', 'knight', 'commander', 'wizard', 'jailer', 'beacon'];
+const TERRAINS = ['floor', 'puddle', 'wall', 'tree', 'pond', 'campfire', 'thorns'];
+const VARIANTS = ['chair', 'stool', 'cabinet', 'elite', 'sentinel', 'wardrobe', 'rook', 'bishop', 'knight', 'commander', 'wizard', 'jailer', 'beacon', 'boar', 'wolf', 'porcupine', 'shaman'];
 const GOALS = ['kills', 'rangedKills', 'bossKills', 'turns'];
 const ITEMS = ['frost', 'bomb', 'healing', 'fire'];
 const ATTACK_EFFECTS: DamageEffectKind[] = ['fire', 'poison', 'bleeding', 'wind'];
@@ -36,8 +41,9 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
   const size = integer(value.cols, 4, 12) && integer(value.rows, 4, 12) ? value.cols * value.rows : 0;
   const terrain = Array.isArray(value.terrain) ? value.terrain : [];
   if (terrain.length !== size || terrain.some(cell => !oneOf(cell, TERRAINS))) errors.push('Нужен допустимый тип местности для каждой клетки.');
-  const walkable = (index: number) => terrain[index] === 'floor' || terrain[index] === 'puddle';
-  if (!integer(value.heroIndex, 0, size - 1) || !walkable(value.heroIndex)) errors.push('Кот должен стоять на полу или луже.');
+  const walkable = (index: number) => walkableTerrain(terrain[index]);
+  if (!integer(value.heroIndex, 0, size - 1) || !walkable(value.heroIndex)) errors.push('Кот должен стоять на полу, луже или колючках.');
+  if (value.spikedEdges !== undefined && (!Array.isArray(value.spikedEdges) || value.spikedEdges.some(side => !oneOf(side, EDGE_SIDES)) || new Set(value.spikedEdges).size !== value.spikedEdges.length)) errors.push('Шипы по краю: уникальные стороны top, right, bottom, left.');
   if (!Array.isArray(value.paletteWeights) || value.paletteWeights.length !== 5 || value.paletteWeights.some(weight => !integer(weight, 0, 10000)) || !value.paletteWeights.some(weight => typeof weight === 'number' && weight > 0)) errors.push('Палитра: пять весов 0–10000, хотя бы один положительный.');
   if (value.completion !== 'exit' && value.completion !== 'direct') errors.push('Завершение: exit или direct.');
   if (!integer(value.turnLimit, 0, 1000)) errors.push('Лимит ходов: 0–1000; 0 отключает лимит.');
@@ -73,6 +79,10 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
       if (!oneOf(enemy.variant, VARIANTS) || enemy.kind !== expected) errors.push(`Враг ${n + 1}: вариант не соответствует типу.`);
       // A shield faces from one square; a multi-square sentinel has no defined facing.
       if (enemy.variant === 'sentinel' && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: страж со щитом занимает одну клетку.`);
+      // A charge pushes single squares; a large boar would have no single lane.
+      if (enemy.variant === 'boar' && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: кабан занимает одну клетку.`);
+      // Pack adjacency, quills and rites are defined for single squares.
+      if ((enemy.variant === 'wolf' || enemy.variant === 'porcupine' || enemy.variant === 'shaman') && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: волк, дикобраз и шаман занимают одну клетку.`);
     }
     if ((enemy.kind === 'boss' || enemy.kind === 'prism') && enemy.color !== null) errors.push(`Враг ${n + 1}: босс и огонёк бесцветны.`);
     if (Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && enemy.kind !== 'melee') errors.push(`Враг ${n + 1}: большая форма доступна ближнему врагу.`);
@@ -95,7 +105,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
       if (device.closesAfterTurn !== undefined) errors.push(`${label}: время закрытия ям задаёт движок.`);
       if (!Array.isArray(device.targets) || device.targets.some(index => !integer(index, 0, size - 1)) || new Set(device.targets).size !== device.targets.length
         || (device.kind === 'arrows' || device.kind === 'pits') && !device.targets.length || device.kind === 'fire' && device.targets.length) errors.push(`${label}: задайте уникальные клетки стрел/ям или пустой список для жаровни.`);
-      if (device.kind === 'pits' && Array.isArray(device.targets) && device.targets.some(index => typeof index !== 'number' || !walkable(index))) errors.push(`${label}: ямы открываются только на полу или луже.`);
+      if (device.kind === 'pits' && Array.isArray(device.targets) && device.targets.some(index => typeof index !== 'number' || !walkable(index))) errors.push(`${label}: ямы открываются только на проходимой клетке: пол, лужа, колючки.`);
       if (device.kind === 'arrows' && Array.isArray(device.targets) && device.targets.length > 1 && typeof value.cols === 'number') {
         const cols = value.cols, targets = device.targets;
         const dx = Number(targets[1]) % cols - Number(targets[0]) % cols;

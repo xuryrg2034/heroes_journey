@@ -13,6 +13,11 @@ import { summarizeDamageEffects } from './game/damageEffects';
 import { TUTORIAL_LESSONS } from './game/tutorialLevels';
 import { deviceTargets } from './game/devices';
 import { shieldIsActive } from './game/combatRules';
+import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, forestRunView, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { createForestRunStore } from './game/run/forestRunStorage';
+import { forestNode } from './game/run/forestMap';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
+import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled } from './telemetry';
 
 const SAVE_KEY = 'ashen-oath-campaign-v1';
 const VERIFIED_RUN_SEED = 701;
@@ -29,10 +34,13 @@ function readSave(): Save {
 const save = readSave();
 const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* Storage is optional. */ } };
 const engine = new ForestEngine();
+applyTelemetryQuery();
+const telemetry = installTelemetry(engine);
+const quietCancel = () => telemetry.quiet(() => engine.cancelChain());
 const audio = new GameAudio();
 audio.enabled = save.sound;
 let renderer: BoardRenderer | null = null;
-let screen: 'title' | 'game' | 'editor' = 'title';
+let screen: 'title' | 'game' | 'editor' | 'map' = 'title';
 let paused = false, starting = false, outcomeShown = '', previousChain = 0;
 let focusedDoor: number | null = null;
 let selectedDestination = '';
@@ -65,18 +73,19 @@ el('app').innerHTML = `
     <aside class="guide-panel"><section class="chain-card"><p class="panel-label">ЦЕПОЧКА</p><div class="chain-total"><strong id="chain-number">0</strong><span id="chain-rank">НАЧНИ РЯДОМ С КОТОМ</span></div><div class="chain-meter"><span id="chain-meter-fill"></span></div><p id="chain-reward">Запас силы: <b>+1 за врага · −HP цели</b></p><div id="risk-preview" class="risk-preview">Выбери безопасный последний шаг.</div></section><section class="field-guide"><p class="panel-label">КТО ПРИШЁЛ НА ЗАВТРАК</p><div class="guide-row"><span class="enemy-glyph melee-glyph">◇</span><div><b>Гоблин · слабый, 0 HP</b><p>Бьёт только по сторонам. Злится до попадания, затем ход спокоен.</p></div></div><div class="guide-row"><span class="enemy-glyph ranged-glyph">⌖</span><div><b>Лучник · 7 HP</b><p>Стреляет в отмеченную линию, затем ход отдыхает. На отдыхе может поменяться местами с соседом.</p></div></div><div class="guide-row"><span class="enemy-glyph boss-glyph">♛</span><div><b>Главарь · 20 HP</b><p>Бесцветный: подходит любая цепь. Пока жив, дальше пройти нельзя.</p></div></div></section><div class="sigil-key"><span class="sigil red">▲</span><span class="sigil green">✚</span><span class="sigil blue">□</span><span class="sigil gold">●</span><span class="sigil purple">✕</span><span>ЦВЕТ + ЗНАК</span></div><div class="guide-tip"><b>ПОСЛЕДНЯЯ КЛЕТКА РЕШАЕТ</b><p>Последнего врага можно ранить. Проверь, где закончится цепь и кто сможет ответить.</p></div></aside>
   </section>
 </main>
-<footer class="site-footer"><span>ASHEN OATH <i>•</i> ДОРОГА К БАШНЕ</span><span>ПОСЛЕДНИЙ ШАГ РЕШАЕТ.</span></footer>
+<footer class="site-footer"><span>ASHEN OATH <i>•</i> ДОРОГА К БАШНЕ</span><span>ПОСЛЕДНИЙ ШАГ РЕШАЕТ.</span><button class="text-button playtest-link" data-action="playtest">ПЛЕЙТЕСТ</button></footer>
 <div id="modal-layer" class="modal-layer" hidden><section id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"></section></div>`;
 
 el('item-hint').insertAdjacentHTML('afterend', '<div class="intent-legend" aria-label="Обозначения намерений"><span class="intent-attack">! Атака</span><span class="intent-move">⇄ Обмен</span><span class="intent-rest">… Отдых</span></div><p id="intent-summary" class="intent-summary" aria-live="polite"></p>');
 el('intent-summary').insertAdjacentHTML('afterend', '<p id="shield-summary" class="intent-summary" hidden></p>');
 el('intent-summary').insertAdjacentHTML('afterend', '<p id="device-summary" class="device-summary" aria-live="polite" hidden></p>');
 el('shield-summary').insertAdjacentHTML('afterend', '<p id="palette-summary" class="intent-summary" hidden></p>');
-el('title-screen').insertAdjacentHTML('afterend', '<section id="editor-screen" class="editor-screen" hidden></section>');
+el('title-screen').insertAdjacentHTML('afterend', '<section id="editor-screen" class="editor-screen" hidden></section><section id="map-screen" class="map-screen" hidden></section>');
 document.querySelector('.title-links')!.insertAdjacentHTML('afterbegin', '<button class="text-button" id="editor-button" data-action="editor">СОЗДАТЬ УРОВЕНЬ <span>✎</span></button>');
 const titleHero = document.createElement('div');
 titleHero.className = 'title-hero';
 document.querySelector('.title-content')!.prepend(titleHero);
+titleHero.insertAdjacentHTML('beforeend', '<div id="run-entry" class="run-entry"></div>');
 for (const selector of ['.title-content > .eyebrow', '.title-cat', '.title-content > h1', '.title-tagline', '.title-description']) titleHero.append(document.querySelector(selector)!);
 document.querySelector('.title-description')!.textContent = 'Освой цепи и ловушки, победи тюремщика и выбери путь дальше.';
 document.querySelectorAll<HTMLButtonElement>('.tutorial-choice').forEach((choice, index) => {
@@ -132,10 +141,14 @@ function placeActionDock() {
 window.addEventListener('resize', placeActionDock);
 
 function showScreen(next: typeof screen) {
+  if (screen === 'game' && next !== 'game') telemetry.leave();
   screen = next;
   el('title-screen').hidden = next !== 'title';
   el('game-screen').hidden = next !== 'game';
   el('editor-screen').hidden = next !== 'editor';
+  el('map-screen').hidden = next !== 'map';
+  if (next === 'title') renderRunEntry();
+  if (next === 'map') renderMap();
   if (next === 'editor') editor.show();
   el('app').classList.toggle('playing', next === 'game');
   renderer?.setActive(next === 'game');
@@ -172,6 +185,86 @@ async function openScene(action: () => unknown | Promise<unknown>) {
 const startGame = (scenario: RoomTheme, seed = VERIFIED_RUN_SEED) => openScene(() => engine.startScenario(scenario, seed));
 const startTutorial = (index = 0) => openScene(() => engine.startTutorial(index));
 const startLevel = (index = 0) => startGame(index === 0 ? 'forest' : index === 1 ? 'gate' : 'banquet');
+// Forest map run (src/game/run): the model owns the rules; here we only switch screens, hand battles to the engine and save.
+const runStore = createForestRunStore();
+let forestRun: ForestRunState | null = runStore.load();
+let mapConfirmReset = false, mapNotice = '';
+const renderRunEntry = () => { el('run-entry').innerHTML = runEntryHtml(forestRun, mapConfirmReset); };
+function renderMap() { if (forestRun) el('map-screen').innerHTML = mapScreenHtml(forestRun, { notice: mapNotice, confirmReset: mapConfirmReset }); }
+const refreshRunViews = () => { renderRunEntry(); renderMap(); };
+function commitRun(step: ForestRunStep): ForestRunStep {
+  if (step.ok) { forestRun = step.run; runStore.save(step.run); }
+  return step;
+}
+function newRun(seed?: number) {
+  const random = new Uint32Array(1); crypto.getRandomValues(random);
+  forestRun = createForestRun(seed ?? random[0]); runStore.save(forestRun);
+  mapConfirmReset = false; mapNotice = ''; audio.unlock(); audio.play('click'); showScreen('map');
+}
+async function playRunBattle() {
+  const setup = forestRun && battleSetup(forestRun);
+  if (!setup) { mapNotice = 'Бой этого узла не удалось подготовить.'; showScreen('map'); return; }
+  await openScene(() => { if (!engine.startRunBattle(setup)) throw new Error('Бой узла не запустился.'); });
+}
+function showFind() {
+  const pending = forestRun?.pending;
+  if (pending?.kind === 'find') showModal(findModalHtml(pending.nodeId, pending.options));
+}
+/** Where the player goes after any run step: map, result, battle or find. */
+function routeRun() {
+  if (!forestRun) return;
+  if (forestRun.pending?.kind === 'battle') { void playRunBattle(); return; }
+  showScreen('map');
+  if (forestRun.result) showModal(runResultHtml(forestRun));
+  else showFind();
+}
+function resumeRun() { if (forestRun) { mapNotice = ''; audio.unlock(); audio.play('click'); routeRun(); } else newRun(); }
+function enterMapNode(id: string) {
+  if (!forestRun) return;
+  const step = commitRun(enterNode(forestRun, id));
+  if (!step.ok) { mapNotice = step.reason; renderMap(); return; }
+  mapNotice = ''; audio.unlock(); audio.play('click');
+  routeRun();
+  const healed = step.events.find(event => event.type === 'healed');
+  if (healed?.type === 'healed') {
+    const { hp, maxHp } = step.run.resources.player;
+    audio.play('item'); showModal(restModalHtml(healed.nodeId, healed.amount, hp, maxHp, step.events.some(event => event.type === 'effects-cleared')));
+  }
+}
+function chooseFind(item: ItemKind) {
+  const pending = forestRun?.pending;
+  if (!forestRun || pending?.kind !== 'find') return;
+  const step = commitRun(chooseFindItem(forestRun, item));
+  if (!step.ok) return;
+  const opened = forestNode(pending.nodeId), grants = [opened ? grantText(opened) : '', unlockedText(step.events)].filter(Boolean).join('; ');
+  mapNotice = `Взято: ${itemNames[item]} +1. ${itemNames[item]} открыт для следующих боёв.${grants ? ` Также открыто: ${grants}.` : ''}`;
+  audio.play('reward'); showScreen('map');
+}
+/** A finished node battle goes to the model exactly once; the modal offers the map (and a retry after a defeat). */
+function showRunOutcome(won: boolean) {
+  const outcome = engine.runBattleOutcome(), node = engine.state.runNode;
+  audio.play(won ? 'win' : 'lose');
+  if (!forestRun || !outcome || !node) {
+    showModal('<h2 id="modal-title">Бой узла завершён</h2><button class="button primary" data-action="run-map">К КАРТЕ</button>'); return;
+  }
+  const step = forestRun.pending?.kind === 'battle' && forestRun.pending.nodeId === outcome.nodeId ? commitRun(resolveBattle(forestRun, outcome)) : null;
+  const run = forestRun, pending = run.pending, opened = forestNode(node.nodeId);
+  const grants = won ? [opened ? grantText(opened) : '', step?.ok ? unlockedText(step.events) : ''].filter(Boolean).join('; ') : '';
+  if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}`;
+  if (won && run.result) { showModal(runResultHtml(run)); return; }
+  showModal(nodeBattleModalHtml({ won, name: node.label, turns: engine.state.turn, hp: outcome.player.hp, maxHp: outcome.player.maxHp,
+    defeats: pending?.kind === 'battle' ? pending.defeats : 0, battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find' }));
+}
+/** The pause dialog of a node battle offers the map instead of the lesson list. */
+function decorateRunPause() {
+  if (!engine.state.runNode) return;
+  const modal = el('modal');
+  modal.querySelector('.eyebrow')!.textContent = 'БОЙ УЗЛА';
+  modal.querySelector('.modal-copy')!.textContent = 'Повтор вернёт поле, здоровье и запас как на входе в узел. Прогресс похода сохранён.';
+  const retry = modal.querySelector('[data-action="retry"]');
+  if (retry) { retry.textContent = 'ПОВТОРИТЬ УЗЕЛ'; retry.insertAdjacentHTML('afterend', '<button class="button secondary" data-action="run-map">К КАРТЕ</button>'); }
+  modal.querySelectorAll('[data-action="new-run"]').forEach(button => button.remove());
+}
 function uniqueDoors() {
   const seen = new Set<number>();
   return engine.state.board.flatMap((cell, index) => {
@@ -202,7 +295,11 @@ function updateGuide() {
   const state = engine.state;
   const sentinelPresent=state.board.some(cell=>cell?.variant==='sentinel');
   const wardrobePresent=state.board.some(cell=>cell?.variant==='wardrobe');
-  const guideKey=`${state.room.theme}/${state.tutorial?.index ?? 'none'}/${!!state.customLevel}/${sentinelPresent}/${wardrobePresent}`;
+  const boarPresent = state.board.some(cell => cell?.variant === 'boar');
+  const wolfPresent = state.board.some(cell => cell?.variant === 'wolf'), porcupinePresent = state.board.some(cell => cell?.variant === 'porcupine'), shamanPresent = state.board.some(cell => cell?.variant === 'shaman');
+  const spikedSides = state.customLevel?.definition.spikedEdges ?? [];
+  const thornsPresent = state.terrain.includes('thorns');
+  const guideKey=`${state.room.theme}/${state.tutorial?.index ?? 'none'}/${!!state.customLevel}/${sentinelPresent}/${wardrobePresent}/${boarPresent}/${wolfPresent}/${porcupinePresent}/${shamanPresent}/${spikedSides.join(',')}/${thornsPresent}`;
   if (guideTheme === guideKey) return;
   guideTheme = guideKey;
   const rows: [string, string, string][] = state.tutorial ? [
@@ -215,7 +312,7 @@ function updateGuide() {
     ['●', 'Палитра пополнения', 'Новые цвета могут вступать после цели. Уже стоящие враги не перекрашиваются.'],
   ] : state.room.kind === 'forest' ? [
     ['◇', 'Гоблин · слабый, 0 HP', 'Гибнет от удара, не тратит запас силы. Бьёт только по сторонам.'],
-    ['⌖', 'Лучник · 7 HP', 'После выстрела отдыхает и может обменяться местами с соседом.'],
+    ['⌖', 'Лучник · 7 HP', 'Стрела бьёт всех на отмеченной линии, врагов тоже. После выстрела отдыхает и может обменяться местами с соседом.'],
     ['♛', 'Главарь · 20 HP', 'Бесцветный: подходит любая цепь. Через живого пройти нельзя.'],
   ] : state.room.kind === 'gate' ? [
     ['⚿', 'Ключ командира', 'После 12 боевых убийств прибывает командир. Забери его ключ.'],
@@ -244,7 +341,13 @@ function updateGuide() {
   if (lesson?.allowedItems?.includes('frost')) rows.push(['❄', 'Холод и вода', 'Выбери холод, затем мокрую цель. Она пропустит действие и получит двойной следующий физический удар. После этого проведи цепь.']);
   if (lesson?.allowedAbilities?.includes('jump')) rows.push(['↗', 'Прыжок · 2 энергии', 'Каждый атакованный враг даёт 0,5 энергии. Прыжок наносит 4 урона и переносит кота на выбранную клетку.']);
   if (state.tutorial && state.tutorial.index >= 8) rows.push(['✦', 'Огонёк меняет цвет', 'Начни с врага. Пройди через огонёк и продолжи любым цветом, сохранив накопленную силу.']);
-  if (state.tutorial && state.board.some(cell => cell?.kind === 'ranged')) rows.push(['⌖', 'Стрелок и обмен', 'Лучник стреляет по отмеченной линии, затем отдыхает. Знак ⇄ показывает будущий обмен: учитывай его при выборе позиции.']);
+  if (state.tutorial && state.board.some(cell => cell?.kind === 'ranged')) rows.push(['⌖', 'Стрелок и обмен', 'Лучник стреляет по отмеченной линии и задевает всех на ней, врагов тоже, затем отдыхает. Знак ⇄ показывает будущий обмен: учитывай его при выборе позиции.']);
+  if (boarPresent) rows.push(['⇶', 'Кабан', 'Янтарный коридор — рывок до 3 клеток по прямой. Кабан бьёт первого и толкает ряд; клетки, освобождённые цепью, решают, кто уцелеет. Упёрся — оглушён, следующий удар по нему двойной.']);
+  if (wolfPresent) rows.push(['≽', 'Волк · стая', 'Волк с соседом-волком вооружён и бьёт по сторонам; линия связывает пару. Одинокий волк пассивен. Убери соседа цепью, стрелой или рывком — удар отменится («СТАЯ РАЗБИТА»).']);
+  if (porcupinePresent) rows.push(['✳', 'Дикобраз · иглы', 'Каждый удар обычной цепи по нему ранит кота на 1 HP, даже добивающий. Метка «−1 ИГЛЫ» видна при выборе цепи. Прыжок, круговой удар, предметы и стрелы игл не вызывают; холод их выключает.']);
+  if (shamanPresent) rows.push(['☥', 'Шаман · камлание', 'Каждый второй ход поднимает до двух соседних гоблинов: слабый → вооружённый → крепкий (2 HP). Цели отмечены ↑. Убей шамана или цель, заморозь шамана — камлание отменится. Сам он не бьёт.']);
+  if (spikedSides.length) rows.push(['▲', 'Шипы по краю', 'Врага, вытолкнутого на шипы, ждёт гибель. Кота — 1 урон, и он упирает ряд. Прогноз при выборе цепи показывает крестики.']);
+  if (thornsPresent) rows.push(['⁂', 'Колючки', 'Проходимы. Ранят 1 HP того, кого вдавили на них, и кота, закончившего цепь на такой клетке.']);
   if (state.devices?.some(device => device.kind === 'arrows')) rows.push(['⌁', 'Рычаг стрел', 'Включи его по пути после врага. После цепи залп ранит всех на отмеченной линии, включая кота. Устройство сохраняет цвет и не добавляет силу.']);
   if (state.devices?.some(device => device.kind === 'pits')) rows.push(['▱', 'Рычаг провалов', 'Люки открываются после цепи: обычные враги падают, для кота падение смертельно. Закончишь на люке — погибнешь. Следующий ход они непроходимы, затем закрываются. Под боссами, дверями и крупными врагами люк заклинивает.']);
   if (state.devices?.some(device => device.kind === 'fire')) rows.push(['♨', 'Жаровня', 'После неё каждый следующий удар этой цепи добавляет 1 горение выжившему врагу. Горение ранит в конце хода. На следующую цепь усиление не переносится.']);
@@ -327,6 +430,12 @@ function updateHUD() {
     el('route-map').hidden = true;
     el('door-guide').hidden = true;
   }
+  const back = document.querySelector<HTMLButtonElement>('.chapter-select')!;
+  back.dataset.action = state.runNode ? 'run-map' : 'title'; back.textContent = state.runNode ? '← К КАРТЕ' : '← В МЕНЮ';
+  if (state.runNode) {
+    el('chapter-number').textContent = forest ? `ПОХОД · ${state.runNode.label.toUpperCase()} · ВОЛНА ${state.wave} / 3` : `ПОХОД · ${state.runNode.label.toUpperCase()}`;
+    el('compact-room-goal').textContent = state.runNode.label;
+  }
   el('tutorial-message').textContent = forest ? state.wave === 1
     ? state.turn === 0 ? 'Начни рядом с котом. Соедини ещё хотя бы одного врага.' : 'Разозлённый гоблин не успокоится от промаха. Устрани его или держись вне замаха.'
     : state.wave === 2 ? 'Лучники раздавили обычных гоблинов. Ищи их прицелы и обмены местами.' : 'Главарь бесцветный. Разгони удар или рани и вернись.'
@@ -397,12 +506,33 @@ function updateHUD() {
   const activations = preview.deviceActivations ?? [];
   if (activations.length) el('chain-reward').innerHTML += `<br>${activations.map(device => device.kind === 'fire' ? '♨ Огонь: +1 горение после жаровни' : device.kind === 'pits' ? '▱ Провалы после цепи' : '⌁ Залп после цепи').join('<br>')}`;
   if (preview.trapHits?.length) el('chain-reward').innerHTML += `<br>Ловушка: <b>${preview.trapKills ?? 0}</b> повержено · ${preview.trapHits.filter(hit => !hit.killed).length} ранено`;
-  const forecastParts = [preview.trapDamage ? `ловушка ${preview.trapDamage}` : '', preview.volleyDamage ? `залп ${preview.volleyDamage}` : '', preview.movementDamage ? `кровотечение при шагах ${preview.movementDamage}` : '', preview.effectDamage ? `горение/яд ${preview.effectDamage}` : ''].filter(Boolean);
+  // Every source of cat damage comes from the engine's forecast (`damageBySource`, `chargeBreakdown`); nothing is derived by subtraction.
+  const bySource = preview.damageBySource, charge = preview.chargeBreakdown;
+  const chargeText = charge ? ([['удар', charge.ram], ['шипы', charge.spikes], ['колючки', charge.thorns], ['провал', charge.pit]] as const).filter(([, amount]) => amount > 0).map(([name, amount]) => `${name} ${amount}`).join(', ') : '';
+  const forecastParts = [bySource.quills ? `иглы ${bySource.quills}` : '', bySource.charge ? `кабан: ${chargeText || bySource.charge}` : '', bySource.thorns ? `колючки в конце цепи ${bySource.thorns}` : '',
+    bySource.melee ? `враги ${bySource.melee}` : '', bySource.ranged ? `лучник ${bySource.ranged}` : '', bySource.boss ? `босс ${bySource.boss}` : '', bySource.trap ? `ловушка ${bySource.trap}` : '',
+    bySource.volley ? `залп ${bySource.volley}` : '', bySource.bleeding ? `кровотечение при шагах ${bySource.bleeding}` : '', bySource.burning ? `горение ${bySource.burning}` : '', bySource.poison ? `яд ${bySource.poison}` : ''].filter(Boolean);
+  const quillHits = preview.hits.filter(hit => state.board[hit.index]?.variant === 'porcupine');
+  if (quillHits.some(hit => hit.spikeDamage)) el('chain-reward').innerHTML += `<br>Иглы дикобраза: <b>−${bySource.quills} HP</b> · ударов по дикобразам: ${quillHits.filter(hit => hit.spikeDamage).length}`;
+  if (quillHits.some(hit => !hit.spikeDamage && state.board[hit.index]?.status.frozen)) el('chain-reward').innerHTML += '<br>Дикобраз заморожен: <b>без игл</b>';
+  const phaseForecast = preview.enemyPhase;
+  if (phaseForecast && preview.valid) {
+    const causeNames: Record<string, string> = { ram: 'удар кабана', spikes: 'шипы', thorns: 'колючки', pit: 'провал', arrow: 'стрела' };
+    const byCause = new Map<string, number>();
+    for (const death of phaseForecast.deaths) byCause.set(death.cause, (byCause.get(death.cause) ?? 0) + 1);
+    if (byCause.size) el('chain-reward').innerHTML += `<br>После цепи погибнут: ${[...byCause].map(([cause, n]) => `${causeNames[cause] ?? cause} ×${n}`).join(', ')}`;
+    if (phaseForecast.heroIndex !== preview.endIndex) el('chain-reward').innerHTML += `<br>Кота сдвинут: ${gridLabel(phaseForecast.heroIndex)}`;
+    if (phaseForecast.charges.some(charge => charge.stunned)) el('chain-reward').innerHTML += '<br>Кабан упрётся и оглушится';
+    if (phaseForecast.packBroken.length) el('chain-reward').innerHTML += `<br><b>Стая разбита</b>: удар ${phaseForecast.packBroken.length === 1 ? 'волка отменится' : `${phaseForecast.packBroken.length} волков отменится`}`;
+    const announced = state.board.reduce((sum, cell) => sum + (cell?.variant === 'shaman' ? cell.intent.empowerIds?.length ?? 0 : 0), 0);
+    if (phaseForecast.empowered.length) el('chain-reward').innerHTML += `<br>Камлание: станут опаснее — ${phaseForecast.empowered.length} (${phaseForecast.empowered.map(rite => rite.tier === 'sturdy' ? '↑ крепкий' : '↑ вооружён').join(', ')})`;
+    if (announced > phaseForecast.empowered.length) el('chain-reward').innerHTML += `<br>Камлание отменено: ${announced - phaseForecast.empowered.length}`;
+  }
   el('risk-preview').textContent = count === 0 ? 'Выбери безопасный последний шаг.' : !preview.valid ? preview.reason : preview.damage > 0 ? `⚠ После цепи: −${preview.damage} HP${forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${preview.playerDies ? ' · смертельно' : ''}${pendingEffects.length ? `. Останется: ${pendingEffects.join(', ')}` : ''}` : pendingEffects.length ? `⚠ После хода: ${pendingEffects.join(', ')}` : '✓ Конец цепи безопасен';
   el('risk-preview').classList.toggle('danger', count > 0 && (!preview.valid || preview.damage > 0 || pendingEffects.length > 0));
   el('status-message').textContent = targeting ? `${ITEMS[targeting].label}: выбери цель на поле.` : chosenAbility === 'jump' ? `Прыжок: выбери клетку приземления в пределах ${JUMP_RANGE}.` : count > 0 ? preview.valid ? `Целей: ${count} · кот остановится: ${gridLabel(preview.endIndex)}` : preview.reason : focusedDoor !== null ? el('door-detail').textContent ?? '' : state.message || 'Начни цепочку рядом с котом.';
   const actors = uniqueEntities(state.board);
-  const ready = actors.filter(({cell, index}) => enemyReadyToAttack(cell, index)).length;
+  const ready = actors.filter(({cell, index}) => enemyReadyToAttack(cell, index, state)).length;
   const resting = planEnemyPhase(state.board, state.player.index).resting.length;
   const frozen = actors.filter(({cell}) => cell.status.frozen > 0).length;
   const swaps = engine.previewRotations().filter(rotation => rotation.active)
@@ -412,7 +542,9 @@ function updateHUD() {
   const devices = state.devices ?? [];
   el('device-summary').hidden = !devices.length;
   el('device-summary').textContent = devices.map(device => device.kind === 'pits' ? `▱ ${gridLabel(device.index)} · ${device.charges} зар. · люки: ${device.targets.map(gridLabel).join(', ')}${state.pits?.length ? ' · открыты на этот ход' : ''}` : device.kind === 'fire' ? `♨ ${gridLabel(device.index)}: жаровня · зарядов ${device.charges}. +1 горение ударам после неё в этой цепи.` : `⌁ ${gridLabel(device.index)}: рычаг · зарядов ${device.charges}. Залп ${device.damage ?? 4} после цепи: ${deviceTargets(state, device).map(gridLabel).join(', ')}. Уведи кота с линии.`).join(' · ');
-  el('intent-summary').textContent = `Готовы атаковать: ${ready} · Отдыхают: ${resting}${frozen ? ` · Во льду: ${frozen}` : ''}${swaps.length ? `. Обмен: ${swaps.join('; ')}.` : ''}`;
+  const riteTargets = actors.reduce((sum, { cell }) => sum + (cell.variant === 'shaman' && cell.status.frozen === 0 ? cell.intent.empowerIds?.length ?? 0 : 0), 0);
+  const loneWolves = actors.filter(({ cell }) => cell.variant === 'wolf' && cell.intent.label === 'Одинок').length;
+  el('intent-summary').textContent = `Готовы атаковать: ${ready} · Отдыхают: ${resting}${frozen ? ` · Во льду: ${frozen}` : ''}${riteTargets ? ` · Камлание: ${riteTargets}` : ''}${loneWolves ? ` · Одиноких волков: ${loneWolves}` : ''}${swaps.length ? `. Обмен: ${swaps.join('; ')}.` : ''}`;
   const summonCount = state.board.reduce((sum, cell) => sum + (cell?.variant === 'beacon' ? cell.intent?.summonCells?.length ?? 0 : 0), 0);
   if (summonCount) el('intent-summary').textContent += ` · Подкрепления: ${summonCount}`;
   const shields = state.board.flatMap((cell, index) => (cell?.variant === 'sentinel' || cell?.variant === 'jailer') && cell.shield
@@ -444,7 +576,7 @@ function updateHUD() {
   waitButton.setAttribute('aria-label', tutorial && !allowedAbilities.length ? 'Пропустить ход. Враги действуют.' : 'Отдых: плюс 0,5 энергии. Враги и события поля действуют.');
   el('item-hint').textContent = targeting ? `${ITEMS[targeting].description} Esc — отменить выбор.` : state.itemPrepared ? 'Средство применено. Проведи цепь или отдохни; затем действуют враги.' : tutorial ? state.inventory.frost > 0 ? 'Холод действует на мокрую цель. Один флакон перед цепью; повтор восстановит запас.' : 'Холод: нет флаконов. Продолжай цепью или доступной способностью.' : forest ? state.inventory.frost ? 'Мокрый + холод: пропуск действия и двойной следующий удар.' : 'Флакон холода появится с лучниками.' : 'Один расходник перед цепью. Запасы переходят в следующий зал.';
   el('item-hint').hidden = !targeting && !state.itemPrepared;
-  document.querySelectorAll<HTMLButtonElement>('[data-action="title"], [data-action="help"], [data-action="pause"], [data-action="editor"]').forEach(button => { button.disabled = Boolean(phases[state.phase]) && screen === 'game'; });
+  document.querySelectorAll<HTMLButtonElement>('[data-action="title"], [data-action="run-map"], [data-action="help"], [data-action="pause"], [data-action="editor"]').forEach(button => { button.disabled = Boolean(phases[state.phase]) && screen === 'game'; });
   if (count > previousChain) audio.play('select', count);
   previousChain = count;
   if (input && outcomeShown) { outcomeShown = ''; hideModal(); }
@@ -455,12 +587,36 @@ function updateHUD() {
 }
 function showModal(html: string) {
   el('modal').classList.toggle('branch-outcome', html.includes('data-action="tutorial-choice"'));
+  el('modal').classList.remove('playtest-modal');
   el('modal').innerHTML = html; el('modal-layer').hidden = false;
   document.querySelectorAll<HTMLElement>('.site-header, main, .site-footer').forEach(background => { background.inert = true; });
   requestAnimationFrame(() => el('modal').querySelector<HTMLButtonElement>('button')?.focus());
 }
+// Playtest screen: opened from the title link or the pause dialog; the game itself never depends on it.
+let playtestFrom: 'title' | 'pause' | null = null;
+function renderPlaytest(options: { confirmClear?: boolean; notice?: string } = {}) {
+  showModal(playtestHtml(options));
+  el('modal').classList.add('playtest-modal');
+}
+function openPlaytest() { playtestFrom = paused ? 'pause' : 'title'; renderPlaytest(); }
+function closePlaytest() {
+  const from = playtestFrom; playtestFrom = null; hideModal();
+  if (from === 'pause') document.querySelector<HTMLButtonElement>('[data-action="pause"]')?.click();
+}
+function downloadPlaytest() {
+  try {
+    const url = URL.createObjectURL(new Blob([exportJson()], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = `ashen-oath-playtest-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    renderPlaytest({ notice: 'Файл сохранён.' });
+  } catch { renderPlaytest({ notice: 'Не удалось скачать файл.' }); }
+}
+async function copyPlaytest() {
+  try { await navigator.clipboard.writeText(exportJson()); renderPlaytest({ notice: 'JSON скопирован в буфер обмена.' }); }
+  catch { renderPlaytest({ notice: 'Буфер обмена недоступен: используйте «Скачать JSON».' }); }
+}
 function hideModal() {
-  el('modal-layer').hidden = true; paused = false;
+  el('modal-layer').hidden = true; paused = false; playtestFrom = null;
   document.querySelectorAll<HTMLElement>('.site-header, main, .site-footer').forEach(background => { background.inert = false; });
 }
 function showRewards() {
@@ -474,6 +630,7 @@ function showRewards() {
 function showOutcome(won: boolean) {
   const state = engine.state, forest = state.room.kind === 'forest';
   renderer?.setItemTargeting(null);
+  if (state.runNode) { showRunOutcome(won); return; }
   if (state.tutorial) {
     const index = state.tutorial.index;
     const lesson = TUTORIAL_LESSONS[index];
@@ -503,7 +660,7 @@ function showOutcome(won: boolean) {
   showModal(`<p class="eyebrow">${won ? forest ? 'ЛАГЕРЬ СНОВА ТВОЙ' : 'ПОХОД ЗАВЕРШЁН' : 'ПОСЛЕДНИЙ ШАГ БЫЛ ОПАСНЫМ'}</p><div class="outcome-symbol ${won ? '' : 'defeat'}">${won ? '✦' : '✕'}</div><h2 id="modal-title">${title}</h2><p class="modal-copy">${copy}</p>${won ? `<div class="reward-stars" aria-label="Награда: ${stars} из 3">${'✦'.repeat(stars)}<span>${'✦'.repeat(3 - stars)}</span></div>` : ''}<div class="result-stats"><span><b>${state.score.toLocaleString('ru-RU')}</b>ОЧКИ</span><span><b>${state.turn}</b>ХОДЫ</span><span><b>${state.player.hp}/${state.player.maxHp}</b>ЗДОРОВЬЕ</span></div><button class="button primary" data-action="${won ? forest ? 'continue' : 'new-run' : 'retry'}">${won ? forest ? 'К ВОРОТАМ ЗАМКА →' : 'ПРОЙТИ ПОХОД ЗАНОВО' : 'ПОВТОРИТЬ КОМНАТУ'}</button>${won && forest ? '<button class="button secondary" data-action="retry">ЕЩЁ ОДИН ЗАВТРАК</button>' : ''}<button class="text-button" data-action="title">В МЕНЮ</button>`);
 }
 function showHelp() {
-  engine.cancelChain(); renderer?.setItemTargeting(null); paused = true;
+  quietCancel(); renderer?.setItemTargeting(null); paused = true;
   if (screen === 'game' && engine.state.tutorial) {
     const lesson = TUTORIAL_LESSONS[engine.state.tutorial.index];
     showModal(`<p class="eyebrow">БОЙ ${engine.state.tutorial.index + 1} / ${TUTORIAL_LESSONS.length}</p><h2 id="modal-title">${lesson.name}</h2><p class="modal-copy">${lesson.hint} Веди цепь через соседние клетки одного цвета. Отпусти мышь или палец после двух целей. Вернись на предыдущую клетку, чтобы убрать последний шаг.</p><button class="button primary" data-action="resume">ВЕРНУТЬСЯ В БОЙ</button>`);
@@ -516,6 +673,7 @@ document.addEventListener('click', event => {
   if (!target || target.disabled) return;
   if (!el('modal-layer').hidden && !el('modal').contains(target)) return;
   audio.unlock();
+  if (target.dataset.find && itemKeys.includes(target.dataset.find as ItemKind)) { chooseFind(target.dataset.find as ItemKind); return; }
   if (target.dataset.reward && itemKeys.includes(target.dataset.reward as ItemKind)) {
     void openScene(() => engine.chooseReward(target.dataset.reward as ItemKind)); return;
   }
@@ -548,8 +706,8 @@ document.addEventListener('click', event => {
     case 'continue': void openScene(() => engine.continueCampaign()); break;
     case 'retry': void openScene(() => engine.restartLevel()); break;
     case 'new-run': void openScene(() => engine.restartRun()); break;
-    case 'title': engine.cancelChain(); showScreen('title'); break;
-    case 'editor': engine.cancelChain(); showScreen('editor'); break;
+    case 'title': quietCancel(); showScreen('title'); break;
+    case 'editor': quietCancel(); showScreen('editor'); break;
     case 'resume': hideModal(); break;
     case 'sound': audio.enabled = !audio.enabled; save.sound = audio.enabled; persist(); updateSound(); if (audio.enabled) { audio.unlock(); audio.play('click'); } break;
     case 'help': showHelp(); break;
@@ -564,20 +722,43 @@ document.addEventListener('click', event => {
     case 'frost': case 'item': {
       const item = (target.dataset.item ?? 'frost') as ItemKind;
       engine.setAbility(null);
-      engine.cancelChain();
+      quietCancel();
       if (item === 'healing') { renderer?.setItemTargeting(null); engine.useItem(item); }
       else renderer?.setItemTargeting(renderer?.itemTargeting === item ? null : item);
       updateHUD(); break;
     }
     case 'cancel-frost': renderer?.setItemTargeting(null); updateHUD(); break;
-    case 'wait': engine.cancelChain(); void engine.waitTurn(); break;
-    case 'pause': engine.setAbility(null); engine.cancelChain(); renderer?.setItemTargeting(null); paused = true;
-      showModal(`<p class="eyebrow">${engine.state.tutorial ? 'УЧЕБНЫЙ БОЙ' : 'МИНУТКА ПЕРЕД ДВЕРЬЮ'}</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">${engine.state.tutorial ? 'Повтор восстановит стартовое поле и 5 HP.' : 'Повтор вернёт здоровье и предметы к состоянию на входе в комнату.'}</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">${engine.state.tutorial ? 'ПОВТОРИТЬ БОЙ' : 'ПОВТОРИТЬ КОМНАТУ'}</button>${engine.state.run.active ? '<button class="text-button" data-action="new-run">ПОХОД СНАЧАЛА</button>' : ''}${engine.state.customLevel && !engine.state.tutorial ? '<button class="button secondary" data-action="editor">В РЕДАКТОР</button>' : ''}<button class="text-button" data-action="title">В МЕНЮ</button>`); break;
+    case 'wait': quietCancel(); void engine.waitTurn(); break;
+    case 'pause': engine.setAbility(null); quietCancel(); renderer?.setItemTargeting(null); paused = true;
+      showModal(`<p class="eyebrow">${engine.state.tutorial ? 'УЧЕБНЫЙ БОЙ' : 'МИНУТКА ПЕРЕД ДВЕРЬЮ'}</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">${engine.state.tutorial ? 'Повтор восстановит стартовое поле и 5 HP.' : 'Повтор вернёт здоровье и предметы к состоянию на входе в комнату.'}</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">${engine.state.tutorial ? 'ПОВТОРИТЬ БОЙ' : 'ПОВТОРИТЬ КОМНАТУ'}</button>${engine.state.run.active ? '<button class="text-button" data-action="new-run">ПОХОД СНАЧАЛА</button>' : ''}${engine.state.customLevel && !engine.state.tutorial ? '<button class="button secondary" data-action="editor">В РЕДАКТОР</button>' : ''}<details class="playtest-details"><summary>Плейтест</summary><button class="text-button" data-action="playtest">ОТКРЫТЬ ЖУРНАЛ ПОПЫТОК</button></details><button class="text-button" data-action="title">В МЕНЮ</button>`); decorateRunPause(); break;
+    case 'run-start': resumeRun(); break;
+    case 'run-new': case 'run-reset-yes': newRun(); break;
+    case 'run-reset': mapConfirmReset = true; refreshRunViews(); break;
+    case 'run-reset-no': mapConfirmReset = false; refreshRunViews(); break;
+    case 'map-node': if (target.getAttribute('aria-disabled') !== 'true' && target.dataset.node) enterMapNode(target.dataset.node); break;
+    case 'run-battle': void playRunBattle(); break;
+    case 'run-find': showFind(); break;
+    case 'run-map': quietCancel(); showScreen('map'); break;
+    case 'playtest': openPlaytest(); break;
+    case 'playtest-close': closePlaytest(); break;
+    case 'playtest-clear': renderPlaytest({ confirmClear: true }); break;
+    case 'playtest-clear-no': renderPlaytest(); break;
+    case 'playtest-clear-yes': clearTelemetry(); renderPlaytest({ notice: 'Журнал очищен.' }); break;
+    case 'playtest-toggle': setTelemetryEnabled(!telemetryEnabled()); renderPlaytest({ notice: telemetryEnabled() ? 'Журнал включён.' : 'Журнал выключен: новые попытки не записываются.' }); break;
+    case 'playtest-download': downloadPlaytest(); break;
+    case 'playtest-copy': void copyPlaytest(); break;
   }
 });
+const mapDetail = (id: string | null) => { const detail = document.getElementById('map-detail'); if (detail && forestRun) detail.innerHTML = nodeDetailHtml(forestRun, id); };
+const mapNodeId = (event: Event) => (event.target as HTMLElement).closest<HTMLElement>('.map-node')?.dataset.node ?? null;
+el('map-screen').addEventListener('mouseover', event => { const id = mapNodeId(event); if (id) mapDetail(id); });
+el('map-screen').addEventListener('focusin', event => { const id = mapNodeId(event); if (id) mapDetail(id); });
+el('map-screen').addEventListener('mouseout', event => { if (mapNodeId(event)) mapDetail(null); });
+el('map-screen').addEventListener('focusout', event => { if (mapNodeId(event)) mapDetail(null); });
 function updateSound() { el('sound-button').textContent = audio.enabled ? '♫' : '♪̸'; el('sound-button').setAttribute('aria-pressed', String(audio.enabled)); el('sound-button').setAttribute('aria-label', audio.enabled ? 'Выключить звук' : 'Включить звук'); }
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  if (playtestFrom && !el('modal-layer').hidden) { closePlaytest(); return; }
   if (renderer?.itemTargeting) { renderer.setItemTargeting(null); updateHUD(); return; }
   if (engine.state.chosenAbility) { engine.setAbility(null); updateHUD(); return; }
   if (engine.state.chain.length) { engine.cancelChain(); return; }
@@ -608,8 +789,9 @@ const debug = {
   get player() { return engine.state.player; }, get board() { return engine.getBoardState(); }, get selectedPath() { return engine.state.chain; },
   get energy() { return engine.state.player.energy; }, get chosenAbility() { return engine.state.chosenAbility; },
   get objective() { return engine.state.objective; }, get turn() { return engine.state.turn; }, get score() { return engine.state.score; },
+  get forestRun() { return forestRun; }, startForestRun: (seed?: number) => newRun(seed), openMap: () => showScreen('map'), forestRunStore: runStore,
   get screen() { return screen; }, get frostTargeting() { return renderer?.frostTargeting ?? false; }, get itemTargeting() { return renderer?.itemTargeting ?? null; },
-  get endpointLabel() { return renderer?.endpointLabel ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
+  get endpointLabel() { return renderer?.endpointLabel ?? null; }, get forecastMarks() { return renderer?.forecastMarks ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
   getBoardState: () => engine.getBoardState(), availableMoves: () => engine.availableMoves(), validStarts: () => engine.validStarts(),
   preview: (path?: number[]) => engine.preview(path), previewFrost: (index: number) => engine.previewFrost(index),
   previewRotations: (path?: number[]) => engine.previewRotations(path),

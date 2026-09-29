@@ -1,0 +1,379 @@
+{
+  "version": 1,
+  "name": "Лесные звери",
+  "seed": 6100,
+  "cols": 7,
+  "rows": 7,
+  "terrain": [
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor",
+    "floor"
+  ],
+  "heroIndex": 45,
+  "enemies": [
+    {
+      "index": 0,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 1,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 2,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 3,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 4,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 5,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 6,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 7,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 8,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 9,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 10,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 11,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 12,
+      "kind": "melee",
+      "variant": "wolf",
+      "color": 0,
+      "hp": 1
+    },
+    {
+      "index": 13,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 14,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 15,
+      "kind": "melee",
+      "variant": "wolf",
+      "color": 0,
+      "hp": 1
+    },
+    {
+      "index": 16,
+      "kind": "melee",
+      "variant": "wolf",
+      "color": 1,
+      "hp": 1
+    },
+    {
+      "index": 17,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 18,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 19,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 20,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 21,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 22,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 23,
+      "kind": "melee",
+      "variant": "wolf",
+      "color": 1,
+      "hp": 1
+    },
+    {
+      "index": 24,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 25,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 26,
+      "kind": "melee",
+      "variant": "shaman",
+      "color": 0,
+      "hp": 2
+    },
+    {
+      "index": 27,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 28,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 29,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 30,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 31,
+      "kind": "melee",
+      "variant": "porcupine",
+      "color": 1,
+      "hp": 2
+    },
+    {
+      "index": 32,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 33,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 34,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 35,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 36,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 37,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 38,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 39,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 40,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 41,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 42,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    },
+    {
+      "index": 43,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 44,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 46,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 47,
+      "kind": "melee",
+      "color": 1,
+      "hp": 0
+    },
+    {
+      "index": 48,
+      "kind": "melee",
+      "color": 0,
+      "hp": 0
+    }
+  ],
+  "doors": [],
+  "goals": [
+    {
+      "key": "kills",
+      "target": 14
+    }
+  ],
+  "turnLimit": 0,
+  "completion": "direct",
+  "paletteWeights": [
+    100,
+    100,
+    0,
+    0,
+    0
+  ],
+  "extraColors": [],
+  "playerHp": 6,
+  "inventory": {
+    "frost": 1,
+    "bomb": 0,
+    "healing": 1,
+    "fire": 0
+  }
+}

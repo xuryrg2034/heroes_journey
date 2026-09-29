@@ -121,9 +121,11 @@ async function alternatePolicies() {
       const p = g.preview(path), oldBoard = g.getBoardState(), oldHp = g.state.player.hp;
       const moved = new Map<number, number>();
       const replaced = new Set<number>();
-      const unsubscribe = g.subscribe((_state, event) => {
+      const unsubscribe = g.subscribe((state, event) => {
         if (event.type === 'enemy-swap') { moved.set(event.from!, event.to!); moved.set(event.to!, event.from!); }
         if (event.type === 'special-arrival') replaced.add(event.oldId!);
+        // Archer arrows strike every creature on the announced line (positions are unchanged before swaps).
+        if (event.type === 'hit' && state.phase === 'ENEMY_RESOLVE' && oldBoard[event.index!]) replaced.add(oldBoard[event.index!]!.id);
       });
       await commit(g, path);
       visits.set(p.endIndex, (visits.get(p.endIndex) ?? 0) + 1);

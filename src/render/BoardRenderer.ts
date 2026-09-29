@@ -3,14 +3,22 @@ import type { ForestEngine } from '../game/forestEngine';
 import { JUMP_RANGE } from '../game/forestSystems';
 import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
-import { evaluateEnemyAttack } from '../game/enemyPhase';
+import { archerStrikesCreatures, evaluateEnemyAttack } from '../game/enemyPhase';
+import { chargeReady } from '../game/boarCharge';
+import { isCellAlive } from '../game/cellLife';
 import type { EngineEvent as ForestEvent, ForestState, ForestCell, ItemKind, AbilityKind } from '../game/forestTypes';
 import { COLORS, PALE, makeEnemy, makePlayer, drawTerrain } from './art';
 import { drawKey } from './castleArt';
 import { loadCharacterArt } from './characterAssets';
 import { deviceTargets } from '../game/devices';
+import { drawStunStars } from './boarArt';
+import { CAUSE_LABEL, DEATH_COLOR, PUSH_COLOR, drawArrowMark, drawBoarLane, drawChevron, drawDashedTile, drawDeathCross, drawSpikedEdge } from './forecastArt';
+import { drawThornRim } from './art';
+import { goblinTier, wolfHasPack, type BeastWorld } from '../game/forestBeasts';
+import { QUILL, RITE } from './beastArt';
 
 const TILE = 80;
+const INK_RING = 0x172024;
 interface Piece {
   view: Container; signature: string; index: number; born: number;
   motion?: { x:number; y:number; started:number; duration:number; curve?:number };
@@ -20,11 +28,13 @@ interface Piece {
 interface Particle { view: Graphics; vx: number; vy: number; life: number; max: number; stationary?: boolean; angular?:number }
 interface Popup { view: Text; life: number }
 interface ArrivalVictim { view:Container; life:number }
+interface Dying { view:Container; life:number; max:number; kind:string; dx:number; dy:number; bx:number; by:number }
 interface ArrowProjectile { view:Graphics; startX:number; startY:number; targetX:number; targetY:number; life:number; max:number }
 
-/** An announced attack the engine would carry out against a hero standing on one of its cells. */
-export function enemyReadyToAttack(cell: ForestCell | null | undefined, index: number): boolean {
-  return !!cell && cell.intent.cells.some(target => evaluateEnemyAttack(cell, index, target) !== null);
+const NO_DISPLACED: ReadonlySet<number> = new Set();
+/** An announced attack (or a boar charge) the engine would carry out against a hero standing on one of its cells. */
+export function enemyReadyToAttack(cell: ForestCell | null | undefined, index: number, world?: BeastWorld): boolean {
+  return !!cell && (chargeReady(cell, NO_DISPLACED) || cell.intent.cells.some(target => evaluateEnemyAttack(cell, index, target, world) !== null));
 }
 
 /** Pixi is presentation only; all selections and turn rules stay in ForestEngine. */
@@ -44,6 +54,10 @@ export class BoardRenderer {
   private hitLabels = new Container();
   private heroRing = new Graphics();
   private floorLoot = new Graphics();
+  private thornFrames = new Graphics();
+  private edgeSpikes = new Graphics();
+  private telegraph = new Graphics();
+  private forecast = new Graphics();
   private endpointBack = new Graphics();
   private endpointText = new Text({text:'',style:{fontFamily:'Georgia, serif',fontSize:13,fontWeight:'bold',fill:PALE}});
   private views = new Map<number, Piece>();
@@ -51,6 +65,7 @@ export class BoardRenderer {
   private popups: Popup[] = [];
   private arrivalVictims: ArrivalVictim[] = [];
   private arrowProjectiles:ArrowProjectile[]=[];
+  private dying:Dying[]=[];
   private unsubscribe?: () => void;
   private resizeObserver?: ResizeObserver;
   private dragging = false;
@@ -85,6 +100,9 @@ export class BoardRenderer {
   get focusedDoor(){return this.doorFocus;}
   /** Read-only snapshot of the chain-end label for tests (canvas text is not in the DOM). */
   get endpointLabel(){return{visible:this.endpoint.visible,text:this.endpointText.text,textWidth:this.endpointText.width,plateWidth:this.endpointBack.width};}
+  /** Read-only snapshot of what the push forecast drew last time (canvas content is not in the DOM). */
+  get forecastMarks(){return{...this.forecastDrawn,labels:[...this.forecastDrawn.labels]};}
+  private forecastDrawn:{ghosts:number;chevrons:number;crosses:number;heroGhost:boolean;labels:string[]}={ghosts:0,chevrons:0,crosses:0,heroGhost:false,labels:[]};
   get ticking(){return this.initialized&&this.app.ticker.started;}
   private get boardWidth() { return this.engine.state.cols*TILE; }
   private get boardHeight() { return this.engine.state.rows*TILE; }
@@ -123,7 +141,7 @@ export class BoardRenderer {
     this.app.canvas.style.height = '100%';
     this.mount.appendChild(this.app.canvas);
     this.app.stage.addChild(this.world);
-    this.world.addChild(this.ground, this.deviceTargets, this.danger, this.movement, this.path, this.deviceViews, this.heroRing, this.pieces, this.floorLoot, this.player, this.hitLabels, this.effects, this.endpoint);
+    this.world.addChild(this.ground, this.deviceTargets, this.danger, this.movement, this.path, this.deviceViews, this.heroRing, this.pieces, this.thornFrames, this.edgeSpikes, this.telegraph, this.floorLoot, this.player, this.forecast, this.hitLabels, this.effects, this.endpoint);
     this.endpoint.addChild(this.endpointBack,this.endpointText);
     this.endpointText.anchor.set(0.5);
     this.drawGround();
@@ -169,6 +187,8 @@ export class BoardRenderer {
     this.world.scale.set(this.scale); this.world.position.set(this.offset.x,this.offset.y);
   }
 
+  /** Presentation timing follows the engine's animation scale (never below a short beat), and is never awaited. */
+  private dur(milliseconds:number){return milliseconds*Math.max(.25,this.engine.animationScale);}
   private center(index: number) { return {x:(index%this.engine.state.cols+0.5)*TILE,y:(Math.floor(index/this.engine.state.cols)+0.5)*TILE}; }
   private entityCenter(cell:ForestCell|null|undefined,index:number){
     if(!cell)return this.center(index);
@@ -197,6 +217,9 @@ export class BoardRenderer {
       if(!forest&&!gate&&(x+y*2)%5===0)g.poly([px+34,py+36,px+40,py+30,px+46,py+36,px+40,py+43]).stroke({color:state.room.theme==='wizard'?0xa790ca:0x8c9aab,width:1,alpha:.18});
     }
     g.roundRect(1,1,this.boardWidth-2,this.boardHeight-2,7).stroke({color:0xb9a270,alpha:0.4,width:2});
+    // Spiked board sides are drawn above the pieces so an occupied edge cell still shows them.
+    const teeth=this.edgeSpikes.clear();
+    for(const side of state.customLevel?.definition.spikedEdges??[])drawSpikedEdge(teeth,side,this.boardWidth,this.boardHeight,TILE);
   }
 
   private sync(state: ForestState,event: ForestEvent) {
@@ -218,16 +241,16 @@ export class BoardRenderer {
         this.arrivalVictims.push({view:victim.view,life:240});
       }
     }
-    const terrainKey=`${state.cols}/${state.rows}/${state.room.theme}/${state.terrain.join(',')}`;
+    const terrainKey=`${state.cols}/${state.rows}/${state.room.theme}/${state.terrain.join(',')}/${state.customLevel?.definition.spikedEdges?.join(',')??''}`;
     if(terrainKey!==this.terrainSignature) {this.terrainSignature=terrainKey;this.drawGround();this.resize();}
     const alive=new Set<number>();
     state.board.forEach((cell,index) => {
       if(!cell || alive.has(cell.id)) return;
       alive.add(cell.id);
       const tutorialTarget=state.tutorial?.targetIds.includes(cell.id) ?? false;
-      const signature=`${index}/${cell.kind}/${cell.variant}/${cell.footprint}/${cell.bossStage}/${cell.carriesKey}/${cell.supportTargetId}/${JSON.stringify(cell.shield)}/${JSON.stringify(cell.door)}/${cell.color}/${cell.hp}/${cell.maxHp}/${cell.defeated}/${cell.countdown}/${cell.intent.cells.join('.')}/${cell.intent.summonCells?.join('.')}/${cell.intent.moveTo}/${cell.intent.swapWithId}/${cell.behavior.aggressive}/${cell.behavior.passive}/${cell.behavior.restTurns}/${tutorialTarget}/${cell.status.wet}/${cell.status.frozen}/${cell.status.brittle}/${cell.attackEffect}/${JSON.stringify(cell.damageEffects)}`;
+      const signature=`${index}/${cell.kind}/${cell.variant}/${cell.footprint}/${cell.bossStage}/${cell.carriesKey}/${cell.supportTargetId}/${JSON.stringify(cell.shield)}/${JSON.stringify(cell.door)}/${cell.color}/${cell.hp}/${cell.maxHp}/${cell.defeated}/${cell.countdown}/${cell.intent.cells.join('.')}/${cell.intent.summonCells?.join('.')}/${cell.intent.moveTo}/${cell.intent.swapWithId}/${cell.behavior.aggressive}/${cell.behavior.passive}/${cell.behavior.restTurns}/${tutorialTarget}/${cell.status.wet}/${cell.status.frozen}/${cell.status.brittle}/${cell.attackEffect}/${JSON.stringify(cell.damageEffects)}/${cell.variant==='wolf'||cell.variant==='shaman'||cell.variant==='porcupine'?`${cell.intent.label}/${cell.intent.empowerCells?.join('.')}`:''}`;
       let piece=this.views.get(cell.id);
-      const oldMotion=piece?.motion;
+      const oldMotion=piece?.motion,oldIndex=piece?.index;
       const oldBorn=piece?.born;
       const oldArrival=piece?.arrivalUntil;
       if(piece && piece.signature!==signature) { piece.view.destroy({children:true}); this.views.delete(cell.id); piece=undefined; }
@@ -236,6 +259,10 @@ export class BoardRenderer {
         piece={view,signature,index,born:oldBorn??now,motion:oldMotion,arrivalUntil:oldArrival}; this.views.set(cell.id,piece);
       }
       piece.index=index;
+      // A boar shift moves whole rows one cell: each pushed body slides from its previous cell.
+      if(event.type==='push'&&oldIndex!==undefined&&oldIndex!==index&&!cell.footprint){
+        const from=this.center(oldIndex);piece.motion={x:from.x,y:from.y,started:now,duration:this.dur(85)};piece.view.position.set(from.x,from.y);
+      }
       if(event.type==='special-arrival' && event.newId===cell.id) piece.arrivalUntil=now+650;
       if(event.type==='enemy-swap' && event.from!==undefined && event.to!==undefined && (event.to===index || event.from===index)) {
         // Both identities have already exchanged grid positions atomically.
@@ -245,7 +272,12 @@ export class BoardRenderer {
         piece.view.position.set(from.x,from.y);
       } else if(!piece.motion) {const pos=this.entityCenter(cell,index);piece.view.position.set(pos.x,pos.y);}
     });
-    for(const [id,piece] of this.views) if(!alive.has(id)) {piece.view.destroy({children:true});this.views.delete(id);}
+    for(const [id,piece] of this.views) if(!alive.has(id)) {
+      const cause=this.deathCause(event,state);
+      // Boar rams, spikes, thorns, pits and arrows show the victim's last moments instead of a silent removal.
+      if(cause&&event.index===piece.index)this.startDying(piece,cause,event,state);else piece.view.destroy({children:true});
+      this.views.delete(id);
+    }
     const target=this.center(state.player.index); this.playerTarget=target;
     if(this.lastLevel!==state.levelIndex || (state.turn===0 && this.lastTurn>0) || event.type==='start' || event.type==='restart') {
       this.player.position.set(target.x,target.y);
@@ -255,6 +287,7 @@ export class BoardRenderer {
       if(pointer!==null && this.app.canvas.hasPointerCapture(pointer)) this.app.canvas.releasePointerCapture(pointer);
       this.targetingItem=null;this.targetHover=-1;this.onFrostTargetingChange?.(false);this.onItemTargetingChange?.(null);this.focusDoor(null);
       for(const victim of this.arrivalVictims)victim.view.destroy({children:true});this.arrivalVictims=[];
+      for(const victim of this.dying)victim.view.destroy({children:true});this.dying=[];
     }
     this.lastLevel=state.levelIndex;this.lastTurn=state.turn;
     if((state.phase!=='PLAYER_INPUT'||state.chosenAbility) && this.targetingItem) {this.targetingItem=null;this.targetHover=-1;this.onFrostTargetingChange?.(false);this.onItemTargetingChange?.(null);}
@@ -263,6 +296,27 @@ export class BoardRenderer {
     this.drawOverlays(state);
     this.app.canvas.style.cursor=this.targetingItem||state.chosenAbility==='jump'?'cell':state.phase==='PLAYER_INPUT'?'crosshair':'default';
     this.react(event,state);
+  }
+
+  private deathCause(event:ForestEvent,state:ForestState):string|null{
+    if(event.type!=='hit'&&event.type!=='kill')return null;
+    if(event.text&&['ram','spikes','thorns','pit'].includes(event.text))return event.text;
+    const source=event.from!==undefined?state.board[event.from]:null;
+    return event.type==='hit'&&source&&archerStrikesCreatures(source)?'arrow':null;
+  }
+  private startDying(piece:Piece,kind:string,event:ForestEvent,state:ForestState){
+    let dx=0,dy=0;const index=piece.index,cols=state.cols,x=index%cols,y=Math.floor(index/cols);
+    if(kind==='spikes'){
+      const sides=state.customLevel?.definition.spikedEdges??[];
+      if(y===0&&sides.includes('top'))dy=-1;else if(y===state.rows-1&&sides.includes('bottom'))dy=1;else if(x===0&&sides.includes('left'))dx=-1;else if(x===cols-1&&sides.includes('right'))dx=1;else dy=1;
+    }else if(kind==='ram'&&event.from!==undefined){
+      const a=this.center(event.from),b=this.center(index),len=Math.max(1,Math.hypot(b.x-a.x,b.y-a.y));dx=(b.x-a.x)/len;dy=(b.y-a.y)/len;
+    }
+    const view=piece.view,max=this.dur(kind==='pit'?380:340);
+    this.effects.addChild(view);
+    this.dying.push({view,life:max,max,kind,dx,dy,bx:view.x,by:view.y});
+    if(kind==='spikes'){this.burst(index,0xd6503f,10);this.burst(index,0xd8d2c0,6);}
+    if(kind==='arrow')this.burst(index,0xe8c888,10);
   }
 
   private drawDevices(state: ForestState) {
@@ -314,8 +368,12 @@ export class BoardRenderer {
   }
 
   private drawOverlays(state: ForestState) {
-    const d=this.danger.clear(),m=this.movement.clear(),p=this.path.clear();
+    const d=this.danger.clear(),m=this.movement.clear(),p=this.path.clear(),tg=this.telegraph.clear(),fc=this.forecast.clear();
+    this.forecastDrawn={ghosts:0,chevrons:0,crosses:0,heroGhost:false,labels:[]};
     this.heroRing.clear();
+    // Thorns under an occupant stay visible as a rim above it: the shape marks the ground, the fill color stays the enemy's.
+    const rim=this.thornFrames.clear();
+    state.terrain.forEach((kind,index)=>{if(kind==='thorns'&&(state.board[index]||index===state.player.index)){const at=this.center(index);drawThornRim(rim,at.x,at.y,.95);}});
     this.hitLabels.removeChildren().forEach(child=>child.destroy());
     const chain=state.chain;
     const preview=this.engine.preview();
@@ -363,17 +421,59 @@ export class BoardRenderer {
           this.label(at.x,at.y+28,'ПРИЗЫВ',0xd3b5ef,9);
         }
       }
+      if(cell.variant==='shaman'&&cell.intent.empowerIds?.length){
+        // Announced rite: the goblins it will raise one step. IDs were fixed at the announcement; a target the chain kills is dropped.
+        for(const id of cell.intent.empowerIds){
+          const target=state.board.findIndex(other=>other?.id===id);
+          if(target<0||killed.has(target))continue;
+          const at=this.center(target),tier=goblinTier(state.board[target]);
+          tg.moveTo(origin.x,origin.y).lineTo(at.x,at.y).stroke({color:RITE,width:2.5,alpha:.6});
+          tg.roundRect(at.x-35,at.y-35,70,70,8).stroke({color:INK_RING,width:6,alpha:.6});
+          tg.roundRect(at.x-35,at.y-35,70,70,8).stroke({color:RITE,width:3});
+          tg.poly([at.x+26,at.y-18,at.x+33,at.y-8,at.x+29,at.y-8,at.x+29,at.y-1,at.x+23,at.y-1,at.x+23,at.y-8,at.x+19,at.y-8]).fill(0xe6d0ff).stroke({color:0x2c1d45,width:1.5});
+          if(!chain.length)this.label(at.x,at.y-29,tier==='weak'?'↑ ВООРУЖЁН':'↑ КРЕПКИЙ',0xe6d0ff,9);
+        }
+        return;
+      }
+      if(cell.variant==='boar'){
+        // Charge lane: a heavy amber corridor above the pieces. The archer's line is a thin arrow with corner brackets.
+        if(cell.intent.charge&&chargeReady(cell,NO_DISPLACED)){
+          const {dx,dy}=cell.intent.charge;
+          drawBoarLane(tg,origin,cell.intent.cells.map(target=>this.center(target)),dx,dy);
+        }
+        return;
+      }
       for(const target of cell.intent.cells) {
         if(cell.kind==='melee'&&!meleeCanAttack(cell))continue;
         const at=this.center(target),heavy=cell.kind==='boss';
         d.roundRect(at.x-36,at.y-36,72,72,4).fill({color:heavy?0xcd6b44:0xc36b48,alpha:heavy?0.2:0.12});
         d.moveTo(at.x-33,at.y-22).lineTo(at.x-33,at.y-33).lineTo(at.x-22,at.y-33).moveTo(at.x+33,at.y+22).lineTo(at.x+33,at.y+33).lineTo(at.x+22,at.y+33).stroke({color:0xf1aa73,width:2,alpha:0.85});
+        if(archerStrikesCreatures(cell)&&!cell.behavior.restTurns){
+          // The arrow strikes every creature on the announced cells, not only the cat.
+          const occupant=state.board[target];
+          if(occupant&&occupant!==cell&&occupant.kind!=='door'&&occupant.kind!=='prism'&&isCellAlive(occupant)&&!killed.has(target))drawArrowMark(tg,{x:at.x+29,y:at.y});
+        }
         if(cell.variant==='knight')this.knightArrow(d,origin,at,0xe7a36a,.65);
         else if(cell.kind==='ranged'||['rook','bishop','wizard'].includes(cell.variant??'')) this.arrow(d,origin,at,0xe7a36a,0.75,2);
         if(heavy) d.moveTo(at.x-22,at.y-22).lineTo(at.x+22,at.y+22).moveTo(at.x+22,at.y-22).lineTo(at.x-22,at.y+22).stroke({color:0xecaa87,width:1,alpha:0.2});
         if(cell.variant==='jailer')this.label(at.x+25,at.y-25,'2',0xffd5ae,11);
       }
     });
+    // Wolf pack: a link between neighbouring wolves that arm each other. The engine's own wolfHasPack decides on a board with just the pair.
+    if(!endsEncounter){
+      const wolves=state.board.flatMap((cell,index)=>cell?.variant==='wolf'&&isCellAlive(cell)&&!cell.behavior.passive&&!killed.has(index)?[{cell,index}]:[]);
+      for(let a=0;a<wolves.length;a++)for(let b=a+1;b<wolves.length;b++){
+        const first=wolves[a],second=wolves[b];
+        if(Math.abs(first.index%state.cols-second.index%state.cols)>1||Math.abs(Math.floor(first.index/state.cols)-Math.floor(second.index/state.cols))>1)continue;
+        const board=state.board.map(()=>null) as (ForestCell|null)[];board[first.index]=first.cell;board[second.index]=second.cell;
+        const world:BeastWorld={cols:state.cols,rows:state.rows,terrain:state.terrain,pits:state.pits,board};
+        if(!wolfHasPack(world,first.index))continue;
+        const from=this.center(first.index),to=this.center(second.index),mid={x:(from.x+to.x)/2,y:(from.y+to.y)/2};
+        tg.moveTo(from.x,from.y).lineTo(to.x,to.y).stroke({color:INK_RING,width:8,alpha:.7,cap:'round'});
+        tg.moveTo(from.x,from.y).lineTo(to.x,to.y).stroke({color:0xf0b56a,width:4,cap:'round'});
+        tg.poly([mid.x,mid.y-7,mid.x+7,mid.y,mid.x,mid.y+7,mid.x-7,mid.y]).fill(0xf0b56a).stroke({color:INK_RING,width:2});
+      }
+    }
     // The engine forecasts declared cell pairs, including replacement residents.
     // A killed initiator or partner therefore keeps its announced exchange.
     for(const rotation of preview.rotations) {
@@ -469,8 +569,14 @@ export class BoardRenderer {
         const text=new Text({text:`${activation.kind==='pits'?'ПРОВАЛЫ':arrow?'СТРЕЛЫ':'ОГОНЬ'} · ${activation.chargesAfter}`,style:{fontFamily:'Arial, sans-serif',fontSize:9,fontWeight:'bold',fill:PALE}});
         text.anchor.set(.5);text.position.set(at.x,at.y+25);this.hitLabels.addChild(badge,text);
       }
+      const quillLabels:string[]=[];
       if(state.phase==='PLAYER_INPUT') for(const hit of preview.hits) {
         const at=this.center(hit.index);
+        const struck=state.board[hit.index];
+        if(struck?.variant==='porcupine'){
+          const text=hit.spikeDamage?`−${hit.spikeDamage} ИГЛЫ`:struck.status.frozen>0?'БЕЗ ИГЛ':'';
+          if(text){this.label(at.x,at.y-4,text,hit.spikeDamage?0xffb3a6:0xd7ffff,11);quillLabels.push(text);}
+        }
         const bridge=state.board[hit.index]?.kind==='prism';
         const special=bridge||hit.doorOpened||hit.phaseChanged;
         const badge=new Graphics().roundRect(at.x-39,at.y+(special?17:11),78,special?18:29,3).fill(hit.killed?0x283d2b:0x663e31).stroke({color:hit.killed?0xbac799:0xe8b38b,width:1});
@@ -487,6 +593,8 @@ export class BoardRenderer {
           text.anchor.set(.5);text.position.set(at.x,at.y+26);this.hitLabels.addChild(badge,text);
         }
       }
+      if(state.phase==='PLAYER_INPUT'&&preview.valid&&preview.enemyPhase)this.drawPushForecast(state,preview,fc);
+      this.forecastDrawn.labels.push(...quillLabels);
       const end=this.center(preview.valid?preview.endIndex:chain[chain.length-1]);
       for(const i of preview.threats) {
         const from=this.center(i);
@@ -503,6 +611,56 @@ export class BoardRenderer {
       const door=this.doorFocus===null?null:state.board[this.doorFocus];
       this.endpoint.visible=Boolean(door?.door)&&state.phase==='PLAYER_INPUT';
       if(door?.door){const at=this.entityCenter(door,this.doorFocus!);this.endpoint.position.set(Math.max(87,Math.min(this.boardWidth-87,at.x)),Math.max(12,at.y-37));this.endpointBack.clear().roundRect(-85,-11,170,22,4).fill(0x26313b).stroke({color:0xe8c77c,width:1});this.endpointText.text=door.door.label;}
+    }
+  }
+
+  /** Enemy-phase forecast from the engine: pushes, forced deaths and the cat's final cell. Shown only while a chain is being built. */
+  private drawPushForecast(state:ForestState,preview:ReturnType<ForestEngine['preview']>,g:Graphics){
+    const phase=preview.enemyPhase;if(!phase)return;
+    const drawn:BoardRenderer['forecastDrawn']=this.forecastDrawn={ghosts:0,chevrons:0,crosses:0,heroGhost:false,labels:[]};
+    const cellOf=(id:number)=>state.board.find(cell=>cell?.id===id)??null;
+    for(const move of phase.moves){
+      const from=this.center(move.from),to=this.center(move.to),dx=to.x-from.x,dy=to.y-from.y,steps=Math.max(1,Math.round(Math.hypot(dx,dy)/TILE));
+      // One chevron per crossed cell border: the middle of each tile keeps its color and sigil readable.
+      for(let n=0;n<steps;n++,drawn.chevrons++)drawChevron(g,{x:from.x+dx*(n+.5)/steps,y:from.y+dy*(n+.5)/steps},dx,dy,PUSH_COLOR,10);
+      if(move.id===0)continue;
+      const cell=cellOf(move.id);drawn.ghosts++;
+      drawDashedTile(g,to,cell?.variant==='boar'?0xe8963a:cell?.color!==null&&cell?.color!==undefined?COLORS[cell.color]:PALE);
+    }
+    if(phase.heroIndex!==preview.endIndex){
+      const at=this.center(phase.heroIndex);
+      g.circle(at.x,at.y,31).stroke({color:0x172024,width:6,alpha:.7});
+      g.circle(at.x,at.y,31).stroke({color:0xf1d99b,width:3});
+      this.label(at.x,at.y-27,'КОТ ЗДЕСЬ',0xf9e7b3,10);drawn.heroGhost=true;drawn.labels.push('КОТ ЗДЕСЬ');
+    }
+    for(const death of phase.deaths){
+      const at=this.center(death.index);
+      drawDeathCross(g,at);drawn.crosses++;drawn.labels.push(CAUSE_LABEL[death.cause]??'');
+      this.label(at.x,at.y-29,CAUSE_LABEL[death.cause]??'',0xffb3a6,9);
+    }
+    const seat=(id:number)=>{const now=state.board.findIndex(cell=>cell?.id===id),move=phase.moves.find(entry=>entry.id===id);return now<0?-1:move?move.to:now;};
+    for(const id of phase.packBroken){
+      const index=seat(id);if(index<0)continue;const at=this.center(index);
+      drawDashedTile(g,at,DEATH_COLOR);this.label(at.x,at.y-4,'СТАЯ РАЗБИТА',0xffb3a6,9);drawn.labels.push('СТАЯ РАЗБИТА');
+    }
+    // Announced rites: raised at the end of the phase, or cancelled (shaman or target gone, or the shaman is frozen).
+    state.board.forEach(shaman=>{
+      if(shaman?.variant!=='shaman'||!shaman.intent.empowerIds?.length)return;
+      for(const id of shaman.intent.empowerIds){
+        const index=seat(id);if(index<0)continue;
+        const at=this.center(index),done=phase.empowered.find(rite=>rite.id===id&&rite.shamanId===shaman.id);
+        if(done){const text=done.tier==='sturdy'?'↑ КРЕПКИЙ':'↑ ВООРУЖЁН';this.label(at.x,at.y-29,text,0xe6d0ff,9);drawn.labels.push(text);}
+        else{
+          for(const [w,color] of [[7,0x2c1d45],[3.5,0xb7a6d0]] as const)g.moveTo(at.x-12,at.y-12).lineTo(at.x+12,at.y+12).moveTo(at.x+12,at.y-12).lineTo(at.x-12,at.y+12).stroke({color,width:w,cap:'round'});
+          this.label(at.x,at.y-29,'КАМЛАНИЕ ОТМЕНЕНО',0xcdbfe6,8);drawn.labels.push('КАМЛАНИЕ ОТМЕНЕНО');
+        }
+      }
+    });
+    for(const charge of phase.charges)if(charge.stunned){this.label(this.center(charge.to).x,this.center(charge.to).y-29,'ОГЛУШИТСЯ',0xffe08a,9);drawn.labels.push('ОГЛУШИТСЯ');}
+    for(const id of phase.knockedDown){
+      // Only a knocked-down attacker matters to the plan; other pushed bodies would only add noise.
+      const now=state.board.findIndex(cell=>cell?.id===id),move=phase.moves.find(entry=>entry.id===id),index=move?move.to:now;
+      if(index>=0&&now>=0&&enemyReadyToAttack(state.board[now],now,state)){this.label(this.center(index).x,this.center(index).y-29,'СБИТ · ПРОПУСК',0xd6efff,8);drawn.labels.push('СБИТ');}
     }
   }
 
@@ -559,7 +717,11 @@ export class BoardRenderer {
     if((event.type==='kill'||event.type==='hit') && i!==undefined) {
       this.burst(i,event.type==='kill'?COLORS[state.board[i]?.color??1]:PALE,event.type==='kill'?13:7);
       this.shake=Math.max(this.shake,2);
-      if(event.type==='hit') this.popup(i,event.amount?`−${event.amount}`:event.text??'УДАР',PALE);
+      if(event.type==='hit') this.popup(i,event.amount?`−${event.amount}${event.text&&CAUSE_LABEL[event.text]?` ${CAUSE_LABEL[event.text]}`:''}`:event.text??'УДАР',PALE);
+    }
+    if(event.type==='empower'&&i!==undefined){
+      this.burst(i,RITE,24);if(event.from!==undefined)this.burst(event.from,RITE,10);
+      this.popup(i,event.text==='sturdy'?'↑ КРЕПКИЙ':'↑ ВООРУЖЁН',0xe6d0ff);
     }
     if(event.type==='prism' && i!==undefined) { this.burst(i,0xf7d990,26);this.popup(i,'ОГОНЁК',PALE); }
     if(event.type==='spawn')for(const index of event.indices??[])if(state.board[index]?.kind==='prism'){this.burst(index,0xc8eacb,22);this.popup(index,'+ ОГОНЁК',PALE);}
@@ -584,7 +746,8 @@ export class BoardRenderer {
     }
     if(event.type==='collect' && i!==undefined) {this.burst(i,PALE,24);this.popup(i,'СМЕНА ЦВЕТА',PALE);}
     if(event.type==='damage') {
-      this.shake=8;this.burst(state.player.index,0xdf695d,20);this.popup(state.player.index,`−${event.amount??1} HP`,0xffad98);
+      if(event.text==='quills'&&event.from!==undefined)this.burst(event.from,QUILL,14);
+      this.shake=8;this.burst(state.player.index,0xdf695d,20);this.popup(state.player.index,`−${event.amount??1} HP${event.text&&CAUSE_LABEL[event.text]?` · ${CAUSE_LABEL[event.text]}`:''}`,0xffad98);
       this.mount.classList.remove('board-damaged');void this.mount.offsetWidth;this.mount.classList.add('board-damaged');
     }
     if(event.type==='status' && i!==undefined && (event.text || event.effect && event.amount!==undefined)) {
@@ -624,6 +787,39 @@ export class BoardRenderer {
         this.arrowProjectiles.push({view,startX,startY,targetX:at.x,targetY:at.y,life:max,max});
       }
     }
+    if(event.type==='charge'&&event.index!==undefined){
+      // Wind-up: the boar rears back, the announced lane flashes.
+      const boar=state.board[event.index],piece=boar?this.views.get(boar.id):undefined,lane=(event.indices??[]).map(index=>this.center(index));
+      if(lane.length){
+        const a=this.center(event.index),dx=Math.sign(lane[0].x-a.x),dy=Math.sign(lane[0].y-a.y);
+        if(piece)piece.strike={started:performance.now(),dx:-dx*7,dy:-dy*7};
+        const flash=new Graphics(),minX=Math.min(...lane.map(c=>c.x))-36,maxX=Math.max(...lane.map(c=>c.x))+36,minY=Math.min(...lane.map(c=>c.y))-36,maxY=Math.max(...lane.map(c=>c.y))+36;
+        flash.roundRect(minX,minY,maxX-minX,maxY-minY,6).fill({color:0xe8963a,alpha:.3}).stroke({color:0xffc173,width:4});
+        this.effects.addChild(flash);const life=this.dur(420);this.particles.push({view:flash,vx:0,vy:0,life,max:life,stationary:true});
+      }
+      this.burst(event.index,0xc8b08a,7);
+    }
+    if((event.type==='hit'||event.type==='damage')&&event.text==='ram'&&event.from!==undefined&&i!==undefined){
+      const boar=state.board[event.from],piece=boar?this.views.get(boar.id):undefined,a=this.center(event.from),b=this.center(i),len=Math.max(1,Math.hypot(b.x-a.x,b.y-a.y));
+      if(piece)piece.strike={started:performance.now(),dx:(b.x-a.x)/len*12,dy:(b.y-a.y)/len*12};
+      const ring=new Graphics().circle(b.x,b.y,34).stroke({color:0xffc173,width:4,alpha:.9});
+      this.effects.addChild(ring);const life=this.dur(220);this.particles.push({view:ring,vx:0,vy:0,life,max:life,stationary:true});
+      this.burst(i,0xe8963a,10);this.shake=Math.max(this.shake,4);
+    }
+    if(event.type==='hit'&&event.from!==undefined&&i!==undefined&&state.board[event.from]&&archerStrikesCreatures(state.board[event.from]!)){
+      // An arrow that hits a creature other than the cat.
+      const origin=this.center(event.from),at=this.center(i),view=new Graphics();
+      view.moveTo(0,-13).lineTo(0,12).stroke({color:0xe9c37c,width:3});view.poly([-5,4,0,14,5,4]).fill(0xf5ead4);
+      view.rotation=Math.atan2(at.y-origin.y,at.x-origin.x)+Math.PI/2;view.position.set(origin.x,origin.y);this.effects.addChild(view);
+      const life=this.dur(200);this.arrowProjectiles.push({view,startX:origin.x,startY:origin.y,targetX:at.x,targetY:at.y,life,max:life});
+    }
+    if(event.type==='push'&&event.from!==undefined){this.burst(event.from,0xc8b08a,5);this.shake=Math.max(this.shake,2);}
+    if(event.type==='move'&&event.text==='push'&&event.to!==undefined)this.burst(event.to,0xf1d99b,6);
+    if(event.type==='status'&&event.text==='ОГЛУШЁН'&&i!==undefined){
+      const at=this.center(i),stars=new Graphics();drawStunStars(stars,22);stars.position.set(at.x,at.y-30);
+      this.effects.addChild(stars);const life=this.dur(900);this.particles.push({view:stars,vx:0,vy:0,life,max:life,stationary:true,angular:.004});
+      this.shake=Math.max(this.shake,4);this.burst(i,0xffe08a,10);
+    }
     if(event.type==='special-arrival' && i!==undefined) {
       const at=this.center(i),boss=state.board[i]?.kind==='boss';
       const impact=new Graphics().circle(at.x,at.y,35).stroke({color:boss?0xefc98a:0xc9df9c,width:4,alpha:0.95});
@@ -657,7 +853,7 @@ export class BoardRenderer {
     const state=this.engine.state,now=performance.now();
     for(const piece of this.views.values()) {
       const cell=state.board[piece.index],selected=occupiedIndices(cell,piece.index).some(i=>state.chain.includes(i)),pos=this.entityCenter(cell,piece.index);
-      const ready=enemyReadyToAttack(cell,piece.index);
+      const ready=enemyReadyToAttack(cell,piece.index,this.engine.state);
       const birth=Math.min(1,(now-piece.born)/170);
       const bounce=selected?1.055+Math.sin(this.elapsed*0.011+piece.index)*0.025:1;
       const arrival=piece.arrivalUntil?Math.max(0,(piece.arrivalUntil-now)/650):0;
@@ -679,6 +875,7 @@ export class BoardRenderer {
       piece.view.rotation=selected?Math.sin(this.elapsed*0.007+piece.index)*0.025:ready?Math.sin(this.elapsed*0.005+piece.index)*0.013:0;
       const aura=piece.view.getChildByLabel('attack-aura');
       if(aura) aura.alpha=0.55+0.35*(0.5+0.5*Math.sin(this.elapsed*0.006+piece.index));
+      const stars=piece.view.getChildByLabel('stun-stars');if(stars)stars.rotation=Math.sin(this.elapsed*.006)*.4;
       const runes=piece.view.getChildByLabel('wizard-runes');if(runes)runes.rotation=this.elapsed*.0005;
       const glow=piece.view.getChildByLabel('prism-aura');if(glow){glow.alpha=.6+.35*Math.sin(this.elapsed*.004+piece.index);glow.scale.set(1+.07*Math.sin(this.elapsed*.004));}
     }
@@ -701,6 +898,16 @@ export class BoardRenderer {
       const victim=this.arrivalVictims[i];victim.life-=dt;const t=Math.max(0,victim.life/240);
       victim.view.scale.set(1+(1-t)*0.45,Math.max(0.08,t));victim.view.y+=dt*0.045;victim.view.alpha=t*0.7;
       if(victim.life<=0){victim.view.destroy({children:true});this.arrivalVictims.splice(i,1);}
+    }
+    for(let i=this.dying.length-1;i>=0;i--){
+      const d=this.dying[i];d.life-=dt;const t=Math.min(1,1-d.life/d.max),ease=1-Math.pow(1-t,2);
+      d.view.tint=d.kind==='arrow'?0xffffff:0xff9a88;
+      if(d.kind==='spikes'){d.view.position.set(d.bx+d.dx*34*ease,d.by+d.dy*34*ease);d.view.scale.set(1-.35*t);d.view.alpha=1-t*t;}
+      else if(d.kind==='pit'){d.view.position.set(d.bx,d.by+16*ease);d.view.scale.set(Math.max(.05,1-t));d.view.rotation=t*.9;d.view.alpha=1-t*.6;}
+      else if(d.kind==='ram'){d.view.position.set(d.bx+d.dx*30*ease,d.by+d.dy*30*ease);d.view.rotation=t*1.6*(d.dx>=0?1:-1);d.view.scale.set(1-.3*t);d.view.alpha=1-t*t;}
+      else if(d.kind==='thorns'){d.view.position.set(d.bx+Math.sin(t*40)*3*(1-t),d.by);d.view.alpha=1-t*t;d.view.scale.set(1-.2*t);}
+      else{d.view.position.set(d.bx,d.by-8*ease);d.view.scale.set(1+.12*Math.sin(t*Math.PI));d.view.alpha=1-t;}
+      if(d.life<=0){d.view.destroy({children:true});this.dying.splice(i,1);}
     }
     for(let i=this.arrowProjectiles.length-1;i>=0;i--){
       const arrow=this.arrowProjectiles[i];arrow.life-=dt;const t=Math.min(1,1-arrow.life/arrow.max);

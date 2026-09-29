@@ -38,6 +38,11 @@ export interface CellBehavior {
   passive?: boolean;
   restTurns: number;
   cycle?: number;
+  /**
+   * Shaman step of an ordinary goblin, set only by a rite and independent of anger: an `armed` or `sturdy`
+   * goblin is permanently armed (angry again after its rest). Absent: weak, or sturdy when maxHp > 0.
+   */
+  tier?: 'armed' | 'sturdy';
 }
 
 export interface CellBehaviorComponent {
@@ -55,6 +60,11 @@ export interface CellIntent {
   summonCells?: number[];
   /** IDs announced with summonCells; replacement never retargets a new occupant. */
   summonIds?: number[];
+  /** Shaman rite announced at the end of a turn: fixed goblin IDs and their cells at the announcement. */
+  empowerIds?: number[];
+  empowerCells?: number[];
+  /** Boar ram announced at the end of a turn: orthogonal direction and maximum cells to advance. */
+  charge?: { dx: number; dy: number; length: number };
 }
 
 export interface CellIntentComponent {

@@ -16,8 +16,15 @@ import { campaignBlueprint, ITEMS, mixSeed, rewardChoices } from './campaignCont
 import { chooseGeneratedColors, hasOrdinaryChain } from './boardGeneration';
 import { ENEMY_COLORS } from './enemyPalette';
 import type { AbilityKind, CellKind, ChainPreview, DoorData, EnemyColor, EnemyVariant, EngineEvent, ForestCell, ForestState, FrostPreview, ItemKind, ItemPreview, RoomTheme, RotationPreview, TerrainKind } from './forestTypes';
+import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
+import { FOREST_BEAST_HP } from './forestBeasts';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
+/** Complete replayable position for offline analysis (`levelAnalysis.ts`); not a save format. */
+export interface AnalysisSnapshot {
+  state: ForestState; rng: number; nextId: number; seed: number; pendingPrism: number | null;
+  pendingRoom: { theme: RoomTheme; depth: number } | null; entry: { state: ForestState; rng: number; nextId: number } | null;
+}
 interface ArrivalRequest { kind: 'ranged' | 'boss'; key?: 'archers' | 'boss'; commander?: boolean; hp?: number }
 interface GeneratedBoard { state: ForestState; generatedIds: Set<number>; spawned: number[]; events: EngineEvent[]; nextId: number }
 export class ForestEngine {
@@ -57,16 +64,50 @@ export class ForestEngine {
   }
   startLevel(_index = 0, seed = this.seed) {
     if (_index > 0) { this.startCampaign(seed); return; }
+    this.beginForestTrial(seed);
+  }
+  private beginForestTrial(seed: number, run?: RunBattleSetup) {
     this.generation++; this.seed = seed; this.rng = seed; this.nextId = 1; this.state = this.initialState();
     this.entrySnapshot = null; this.pendingRoom = null; this.pendingPrism = null;
     const symbols = FOREST_LEVEL.map.join('').split('');
     this.state.terrain = symbols.map((symbol, index): TerrainKind => index === 11 ? 'puddle' : symbol === '#' ? 'tree' : symbol === '~' ? 'pond' : symbol === 'F' ? 'campfire' : 'floor');
     this.state.board = symbols.map((symbol, index) => symbol in COLOR_FROM_SYMBOL ? this.createCell('melee', COLOR_FROM_SYMBOL[symbol as keyof typeof COLOR_FROM_SYMBOL], index) : null);
-    this.prepareInitialBoard(); this.emit({ type: 'start' });
+    if (run) this.applyRunSetup(run);
+    this.prepareInitialBoard();
+    if (run) this.entrySnapshot = { state: structuredClone(this.state), rng: this.rng, nextId: this.nextId };
+    this.emit({ type: 'start' });
   }
+  /** Start a forest-map node battle with the run's carried resources and opened tools (src/game/run). */
+  startRunBattle(setup: RunBattleSetup): boolean {
+    if (setup.template.kind === 'forest-trial') { this.beginForestTrial(setup.seed, setup); return true; }
+    const lesson = TUTORIAL_LESSONS[setup.template.index];
+    if (!Number.isInteger(setup.template.index) || !lesson) return false;
+    return this.loadCustomLevel({ ...lesson.definition, seed: setup.seed, paletteWeights: [...setup.paletteWeights ?? lesson.definition.paletteWeights] }, setup.template.index, setup);
+  }
+  /** Result of a finished map-node battle for the run model; null outside a node or before WIN/LOSE. */
+  runBattleOutcome(): RunBattleOutcome | null {
+    const node = this.state.runNode, phase = this.state.phase;
+    if (!node || phase !== 'WIN' && phase !== 'LOSE') return null;
+    const { hp, maxHp, energy, damageEffects } = this.state.player;
+    return { nodeId: node.nodeId, won: phase === 'WIN', inventory: { ...this.state.inventory },
+      player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
+  }
+  private applyRunSetup(setup: RunBattleSetup) {
+    const { player } = setup, state = this.state;
+    state.player = { index: state.player.index, hp: Math.min(player.hp, player.maxHp), maxHp: player.maxHp, energy: player.energy,
+      ...(player.damageEffects ? { damageEffects: { ...player.damageEffects } } : {}) };
+    state.inventory = { ...setup.inventory };
+    state.runNode = { nodeId: setup.nodeId, label: setup.label, allowedItems: [...setup.allowedItems], allowedAbilities: [...setup.allowedAbilities] };
+    if (state.tutorial) {
+      state.tutorial.allowedItems = [...setup.allowedItems]; state.tutorial.allowedAbilities = [...setup.allowedAbilities];
+      state.waveLabel = setup.label;
+    }
+  }
+  /** Tool permissions of an authored lesson or a map-node battle; null means every tool is allowed. */
+  private toolRules() { return this.state.tutorial ?? this.state.runNode ?? null; }
   loadLevel(index = 0) { this.startLevel(index); }
   restartLevel() {
-    if (this.state.customLevel && this.entrySnapshot) {
+    if ((this.state.customLevel || this.state.runNode) && this.entrySnapshot) {
       this.generation++; this.state = structuredClone(this.entrySnapshot.state); this.rng = this.entrySnapshot.rng; this.nextId = this.entrySnapshot.nextId;
       this.pendingRoom = null; this.pendingPrism = null; this.emit({ type: 'start' }); return;
     }
@@ -74,26 +115,26 @@ export class ForestEngine {
     this.generation++; this.state = structuredClone(this.entrySnapshot.state); this.rng = this.entrySnapshot.rng;
     this.nextId = this.entrySnapshot.nextId; this.pendingRoom = null; this.pendingPrism = null; this.emit({ type: 'start' });
   }
-  restartRun() { if (this.state.customLevel) this.restartLevel(); else if (this.state.run.active) this.startCampaign(this.state.run.seed); else this.startLevel(); }
+  restartRun() { if (this.state.customLevel || this.state.runNode) this.restartLevel(); else if (this.state.run.active) this.startCampaign(this.state.run.seed); else this.startLevel(); }
   startTutorial(index = 0): boolean {
     const lesson = TUTORIAL_LESSONS[index];
     if (!Number.isInteger(index) || !lesson) return false;
     return this.loadCustomLevel(lesson.definition, index);
   }
   nextTutorial(): boolean {
-    if (!this.state.tutorial || this.state.phase !== 'WIN') return false;
+    if (!this.state.tutorial || this.state.runNode || this.state.phase !== 'WIN') return false;
     const choices = TUTORIAL_LESSONS[this.state.tutorial.index].nextLessonIndices;
     if (choices) return choices.length === 1 ? this.startTutorialChoice(choices[0]) : false;
     return this.startTutorial(this.state.tutorial.index + 1);
   }
   startTutorialChoice(index: number): boolean {
-    if (!this.state.tutorial || this.state.phase !== 'WIN' || !Number.isInteger(index)) return false;
+    if (!this.state.tutorial || this.state.runNode || this.state.phase !== 'WIN' || !Number.isInteger(index)) return false;
     const lesson = TUTORIAL_LESSONS[this.state.tutorial.index];
     const choices = lesson.nextLessonIndices ?? [this.state.tutorial.index + 1];
     return choices.includes(index) && this.startTutorial(index);
   }
   startCustomLevel(value: unknown): boolean { return this.loadCustomLevel(value); }
-  private loadCustomLevel(value: unknown, tutorialIndex?: number): boolean {
+  private loadCustomLevel(value: unknown, tutorialIndex?: number, run?: RunBattleSetup): boolean {
     const validation = validateCustomLevel(value);
     if (!validation.valid || !validation.definition) { this.emit({ type: 'invalid', text: validation.errors.join(' ') }); return false; }
     const definition = validation.definition;
@@ -119,10 +160,11 @@ export class ForestEngine {
         state.objective.tutorialTargets = 0;
         state.waveLabel = `Урок ${tutorialIndex! + 1} / ${TUTORIAL_LESSONS.length}`;
       }
+      if (run) this.applyRunSetup(run);
       const labels = { kills: 'Противники', rangedKills: 'Стрелки', bossKills: 'Боссы', turns: 'Выдержать ходов' };
       state.level = { name: definition.name, subtitle: 'Авторский уровень', description: 'Выполни заданные цели.',
         tutorial: definition.completion === 'exit' ? 'Выполни все цели, затем ударь выход цепочкой. Дополнительные цвета появятся после цели.' : 'Выполни все цели для победы.',
-        seed: definition.seed, map: Array.from({ length: state.rows }, (_, y) => state.terrain.slice(y * state.cols, (y + 1) * state.cols).map(terrain => terrain === 'floor' || terrain === 'puddle' ? 'R' : '#').join('')),
+        seed: definition.seed, map: Array.from({ length: state.rows }, (_, y) => state.terrain.slice(y * state.cols, (y + 1) * state.cols).map(terrain => terrain === 'floor' || terrain === 'puddle' || terrain === 'thorns' ? 'R' : '#').join('')),
         objectives: definition.goals.map(goal => ({ ...goal, label: labels[goal.key] })), turnLimit: definition.turnLimit };
       if (lesson) {
         state.level.subtitle = state.waveLabel; state.level.description = lesson.description; state.level.tutorial = lesson.hint;
@@ -179,7 +221,7 @@ export class ForestEngine {
     this.enterCampaignRoom(theme, theme === 'wizard' ? 4 : 1);
   }
   continueCampaign() {
-    if (this.state.phase !== 'WIN' || this.state.room.kind !== 'forest') return false;
+    if (this.state.phase !== 'WIN' || this.state.room.kind !== 'forest' || this.state.runNode) return false;
     this.beginCampaign(this.seed, this.state.player.energy); return true;
   }
   chooseReward(item: ItemKind) {
@@ -230,6 +272,7 @@ export class ForestEngine {
     const boss = ['commander', 'wizard', 'jailer', 'beacon'].includes(variant), chess = ['rook', 'bishop', 'knight'].includes(variant);
     const cell = this.createCell(boss ? 'boss' : chess ? 'ranged' : 'melee', boss ? null : color, index);
     cell.variant = variant; cell.hp = cell.maxHp = variant === 'chair' ? 0 : variant === 'stool' ? 2 : variant === 'cabinet' ? 4 : variant === 'elite' || variant === 'wardrobe' ? 10 : variant === 'commander' ? 28 : variant === 'wizard' ? 18 : 7;
+    if (variant in FOREST_BEAST_HP) cell.hp = cell.maxHp = FOREST_BEAST_HP[variant as keyof typeof FOREST_BEAST_HP];
     if (variant === 'wizard') cell.bossStage = 1;
     if (variant === 'jailer') cell.shield = { dx: 0, dy: 1 };
     if (variant === 'jailer' || variant === 'beacon') cell.hp = cell.maxHp = 8;
@@ -254,19 +297,37 @@ export class ForestEngine {
     }
     this.state.hazard = { cells, turnsUntil, damage: 2 };
   }
+  /** Deep copy of the position, RNG and ID allocator. Reads only: the live game is not advanced. */
+  captureAnalysisSnapshot(): AnalysisSnapshot {
+    return structuredClone({ state: this.state, rng: this.rng, nextId: this.nextId, seed: this.seed, pendingPrism: this.pendingPrism,
+      pendingRoom: this.pendingRoom, entry: this.entrySnapshot });
+  }
+  /** Load a copied position into this engine, cancelling any pending turn. No event is emitted. */
+  restoreAnalysisSnapshot(snapshot: AnalysisSnapshot) {
+    const copy = structuredClone(snapshot);
+    this.generation++; this.state = copy.state; this.rng = copy.rng; this.nextId = copy.nextId; this.seed = copy.seed;
+    this.pendingPrism = copy.pendingPrism; this.pendingRoom = copy.pendingRoom; this.entrySnapshot = copy.entry;
+  }
   getBoardState() { return cloneBoard(this.state.board); }
   neighbors(index: number) { return neighbors(this.state, index); }
   chainNeighbors(index: number) { return chainNeighbors(this.state, index); }
   validStarts() { return this.chainNeighbors(this.state.player.index).filter(index => this.state.board[index] && this.state.board[index]?.kind !== 'prism' && simulateChain(this.state, [index], true).preview.valid); }
   setAbility(ability: AbilityKind | null): boolean {
-    if (this.state.tutorial && ability !== null && !this.state.tutorial.allowedAbilities.includes(ability)) return false;
+    if (ability !== null && this.abilityLocked(ability)) return false;
     if (this.state.phase !== 'PLAYER_INPUT' || ability !== null && (!Object.hasOwn(ABILITY_COST, ability) || this.state.player.energy < ABILITY_COST[ability])) return false;
     this.state.chain = []; this.state.chosenAbility = this.state.chosenAbility === ability ? null : ability;
     this.emit({ type: 'ability-select', text: this.state.chosenAbility ?? '' }); return true;
   }
-  previewAbility(ability: AbilityKind, targetIndex?: number) { return simulateAbility(this.state, ability, targetIndex).preview; }
+  private abilityLocked(ability: AbilityKind) { const rules = this.toolRules(); return !!rules && !rules.allowedAbilities.includes(ability); }
+  private itemLocked(item: ItemKind) { const rules = this.toolRules(); return !!rules && !rules.allowedItems.includes(item); }
+  previewAbility(ability: AbilityKind, targetIndex?: number) {
+    const preview = simulateAbility(this.state, ability, targetIndex).preview;
+    // Lessons are rejected inside simulateAbility; a forest-trial map node carries its rules only in runNode.
+    return this.abilityLocked(ability) && preview.valid ? { ...preview, valid: false, reason: 'Эта способность ещё не открыта.' } : preview;
+  }
   async useAbility(ability: AbilityKind, targetIndex?: number): Promise<boolean> {
     if (this.state.phase !== 'PLAYER_INPUT' || !Object.hasOwn(ABILITY_COST, ability)) return false;
+    if (this.abilityLocked(ability)) { this.emit({ type: 'invalid', text: 'Эта способность ещё не открыта.' }); return false; }
     const simulation = simulateAbility(this.state, ability, targetIndex);
     if (!simulation.preview.valid) { this.state.message = simulation.preview.reason; this.emit({ type: 'invalid', text: simulation.preview.reason }); return false; }
     return this.commitSimulation(simulation, ability);
@@ -293,7 +354,7 @@ export class ForestEngine {
   previewFrost(index: number): FrostPreview {
     const cell = this.state.board[index];
     let reason = '';
-    if (this.state.tutorial && !this.state.tutorial.allowedItems.includes('frost')) reason = 'Этот расходник ещё не открыт.';
+    if (this.itemLocked('frost')) reason = 'Этот расходник ещё не открыт.';
     else if (this.state.phase !== 'PLAYER_INPUT') reason = 'Подожди окончания хода.';
     else if (this.state.itemPrepared) reason = 'Один расходник за ход.';
     else if (this.state.inventory.frost < 1) reason = 'Холодный настой закончился.';
@@ -314,7 +375,7 @@ export class ForestEngine {
   useFrost(index: number) { return this.prepareFrost(index); }
   previewItem(item: ItemKind, index = this.state.player.index): ItemPreview {
     let reason = '';
-    if (this.state.tutorial && !this.state.tutorial.allowedItems.includes(item)) reason = 'Этот расходник ещё не открыт.';
+    if (this.itemLocked(item)) reason = 'Этот расходник ещё не открыт.';
     else if (this.state.phase !== 'PLAYER_INPUT') reason = 'Подожди окончания хода.';
     else if (this.state.itemPrepared) reason = 'Один расходник за ход.';
     else if (this.state.inventory[item] < 1) reason = 'Этот расходник закончился.';
@@ -455,7 +516,8 @@ export class ForestEngine {
   private advanceWave() {
     if (this.state.room.kind !== 'forest') return;
     const wave = this.state.wave;
-    if (wave === 1 && this.state.objective.kills >= 8) { this.state.wave = 2; this.state.inventory.frost = 1; }
+    // A map-run boss keeps carried frost; the standalone trial starts empty, so it always had exactly 1 here.
+    if (wave === 1 && this.state.objective.kills >= 8) { this.state.wave = 2; this.state.inventory.frost = this.state.runNode ? Math.max(1, this.state.inventory.frost) : 1; }
     else if (wave === 2 && this.state.objective.rangedKills >= 2) this.state.wave = 3;
     if (this.state.wave !== wave) {
       this.state.waveLabel = WAVE_LABELS[this.state.wave]; this.state.level = { ...this.state.level, objectives: WAVE_OBJECTIVES[this.state.wave] };
@@ -649,7 +711,7 @@ export class ForestEngine {
   }
   private finish(won: boolean, message?: string) {
     this.state.phase = won ? 'WIN' : 'LOSE'; this.state.chain = []; this.state.chosenAbility = null;
-    this.state.message = message ?? (this.state.tutorial ? won ? 'Урок пройден!' : 'Попробуй ещё раз: та же расстановка, 5 HP.' : won ? this.state.customLevel ? 'Цели выполнены. Авторский уровень пройден!' : this.state.room.kind === 'wizard' ? 'Колдун повержен. Замок свободен!' : 'Котелок спасён. Завтрак ещё тёплый!' : 'Кот отступил. Повтори комнату с теми же расходниками на входе.');
+    this.state.message = message ?? (this.state.runNode ? won ? 'Узел пройден.' : 'Кот отступил. Повтори узел: запас восстановится как на входе.' : this.state.tutorial ? won ? 'Урок пройден!' : 'Попробуй ещё раз: та же расстановка, 5 HP.' : won ? this.state.customLevel ? 'Цели выполнены. Авторский уровень пройден!' : this.state.room.kind === 'wizard' ? 'Колдун повержен. Замок свободен!' : 'Котелок спасён. Завтрак ещё тёплый!' : 'Кот отступил. Повтори комнату с теми же расходниками на входе.');
     if (won && this.state.room.kind === 'wizard') this.state.run.completedRooms++;
     if (won) this.state.score += this.state.player.hp * 150 + Math.max(0, 12 - this.state.turn) * 70;
     this.emit({ type: won ? 'win' : 'lose', text: this.state.message });

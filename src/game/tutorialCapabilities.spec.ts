@@ -78,17 +78,20 @@ async function jumpIsGatedByEnergyAndRestart() {
   assert(!game.setAbility('jump') && !game.previewAbility('jump', target).valid && !await game.useAbility('jump', target),
     'unlocked jump still fails at zero energy');
   assert(game.state.player.energy === 0 && game.state.turn === 0, 'failed jump spends no energy or turn');
-  const earningPath = [18, 12, 13, 19];
-  assert(game.preview(earningPath).valid, 'authored opening provides a four-enemy energy route');
+  // Battle 8 (5×7): C6 → D5 → C5 (near guard) → B6 → A5 attacks five enemies.
+  const cell = (label: string) => (Number(label.slice(1)) - 1) * game.state.cols + label.charCodeAt(0) - 65;
+  const earningPath = ['C6', 'D5', 'C5', 'B6', 'A5'].map(cell);
+  assert(game.preview(earningPath).valid, 'authored opening provides a five-enemy energy route');
   assert(game.beginChain(earningPath[0]), 'energy route starts');
   for (const step of earningPath.slice(1)) assert(game.extendChain(step), 'energy route extends');
-  assert(await game.releaseChain() && Number(game.state.player.energy) === 2, 'ordinary chain earns two energy for jump');
-  const landing = 22;
+  assert(await game.releaseChain() && Number(game.state.player.energy) === 2.5, 'ordinary chain earns 2.5 energy for jump');
+  const landing = cell('C3');
+  assert(game.state.terrain[cell('C4')] === 'wall', 'the landing lies across a real wall');
   assert(game.previewAbility('jump', landing).valid, 'authored guard is a legal landing across the wall');
   const before = JSON.stringify(game.state), preview = game.previewAbility('jump', landing);
   assert(preview.valid && JSON.stringify(game.state) === before, 'jump preview is pure');
   assert(game.setAbility('jump') && await game.useAbility('jump', landing), 'jump selection and live command succeed');
-  assert(game.state.player.index === landing && game.state.player.energy === 0 && Number(game.state.turn) === 2,
+  assert(game.state.player.index === landing && Number(game.state.player.energy) === 0.5 && Number(game.state.turn) === 2,
     'jump lands, spends two energy and resolves a turn');
 
   const interrupted = start(7);

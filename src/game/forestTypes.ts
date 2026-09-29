@@ -3,9 +3,9 @@ import type { CustomLevelRuntime } from './customLevel';
 import type { CellBehaviorComponent, CellFootprintComponent, CellHealthComponent, CellIdentityComponent,
   CellIntentComponent, CellLinkComponent, CellShieldComponent, CellStatusComponent, DamageEffectComponent } from './components';
 export type EnemyColor = 0 | 1 | 2 | 3 | 4;
-export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'wall';
+export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'wall' | 'thorns';
 export type CellKind = 'melee' | 'ranged' | 'boss' | 'prism' | 'door';
-export type EnemyVariant = 'chair' | 'stool' | 'cabinet' | 'elite' | 'sentinel' | 'wardrobe' | 'rook' | 'bishop' | 'knight' | 'commander' | 'wizard' | 'jailer' | 'beacon';
+export type EnemyVariant = 'chair' | 'stool' | 'cabinet' | 'elite' | 'sentinel' | 'wardrobe' | 'rook' | 'bishop' | 'knight' | 'commander' | 'wizard' | 'jailer' | 'beacon' | 'boar' | 'wolf' | 'porcupine' | 'shaman';
 export type RoomTheme = 'forest' | 'gate' | 'banquet' | 'barracks' | 'chess' | 'library' | 'wizard';
 export type ExitDirection = 'left' | 'forward' | 'right';
 export type ItemKind = 'frost' | 'bomb' | 'healing' | 'fire';
@@ -47,6 +47,8 @@ export interface ForestState {
   customLevel?: CustomLevelRuntime;
   tutorial?: { index: number; targetIds: number[]; hintDismissed: boolean;
     allowedItems: ItemKind[]; allowedAbilities: AbilityKind[] };
+  /** Forest-map run battle (src/game/run): tools opened by the run, which replace lesson permissions. */
+  runNode?: { nodeId: string; label: string; allowedItems: ItemKind[]; allowedAbilities: AbilityKind[] };
 }
 export type GameState = ForestState;
 export interface EngineEvent { type: string; effect?: DamageEffectKind; index?: number; from?: number; to?: number; amount?: number; text?: string; indices?: number[]; oldId?: number; newId?: number; geometry?: RotationGeometry }
@@ -54,11 +56,23 @@ export type ForestEvent = EngineEvent;
 export interface ChainHit {
   index: number; damage: number; hpBefore: number; hpAfter: number; killed: boolean; physical: boolean;
   attackEffect?: DamageEffectKind; doorOpened?: boolean; keyCollected?: boolean; phaseChanged?: boolean;
+  /** Porcupine quills that wound the cat at this ordinary chain hit (before HP clamping). */
+  spikeDamage?: number;
   /** Ordinary chain budget: available includes this enemy's +1; abilities omit these fields. */
   availablePower?: number; powerSpent?: number; remainingPower?: number;
 }
+/**
+ * Sources of cat damage in a forecast, as the engine applies them: porcupine quills, bleeding steps, thorns at the
+ * chain end, traps (levers), boar charges, enemy attacks by attacker kind, the gate volley and end-of-turn ticks.
+ */
+export type HeroDamageSource = 'quills' | 'bleeding' | 'thorns' | 'trap' | 'charge' | 'melee' | 'ranged' | 'boss' | 'volley' | 'burning' | 'poison';
+export type ChargeDamageCause = 'ram' | 'spikes' | 'thorns' | 'pit';
 export interface ChainPreview {
   valid: boolean; length: number; enemies: number; power: number; endIndex: number; damage: number;
+  /** `damage` split by source; the values always sum to `damage` exactly. */
+  damageBySource: Record<HeroDamageSource, number>;
+  /** `charge` split by cause (boar ram, spiked edge, pushed onto thorns, pushed into a pit); sums to `chargeDamage`. */
+  chargeBreakdown?: Record<ChargeDamageCause, number>;
   threats: number[]; createsPrism: boolean; reason: string; hits: ChainHit[]; kills: number; endsOnSurvivor: boolean;
   keyCollected?: boolean; opensDoor?: number; completesRoom?: boolean; volleyDamage?: number; prismIndex?: number;
   rotations: RotationPreview[];
@@ -66,6 +80,31 @@ export interface ChainPreview {
   deviceActivations?: DeviceActivation[]; trapHits?: ChainHit[]; trapDamage?: number; trapKills?: number;
   pitCells?: number[]; pitImmuneCells?: number[];
   movementDamage?: number; effectDamage?: number; playerDies?: boolean; endEffects?: DamageEffects;
+  /** Chain ended on thorns (ordinary chains only). */
+  thornDamage?: number;
+  /** Cat damage during boar charges: ram, spiked edge, thorns, open pit. Included in `damage`. */
+  chargeDamage?: number;
+  /** Porcupine quills: cat damage from ordinary chain hits on porcupines, applied at each hit. Included in `damage`. */
+  spikeDamage?: number;
+  /** Positions after the enemy phase that follows this action (absent when the battle ends first). */
+  enemyPhase?: EnemyPhaseForecast;
+}
+export type ForcedDeathCause = 'ram' | 'spikes' | 'thorns' | 'pit' | 'arrow';
+/** UI data for the enemy phase: the same rules as execution, computed on a copy. */
+export interface EnemyPhaseForecast {
+  /** Cat cell after every charge; enemy attacks, the volley and swaps use it. */
+  heroIndex: number;
+  charges: { boarId: number; from: number; to: number; stunned: boolean }[];
+  /** Net displacement of pushed entities (the charging boar included); the cat has id 0. */
+  moves: { id: number; from: number; to: number }[];
+  /** Entities that die in the enemy phase from rams, spikes, thorns, pits and archer arrows. */
+  deaths: { id: number; index: number; cause: ForcedDeathCause }[];
+  /** Pushed entities that skip their action in this phase. */
+  knockedDown: number[];
+  /** Wolves whose announced attack is cancelled because no living packmate stands next to them any more. */
+  packBroken: number[];
+  /** Goblins a shaman raises one step in this phase (after attacks): `armed` or `sturdy`. */
+  empowered: { shamanId: number; id: number; index: number; tier: 'armed' | 'sturdy' }[];
 }
 export interface AbilityPreview extends ChainPreview { ability: AbilityKind; cost: number; indices: number[]; targetIndex?: number }
 export interface FrostPreview { valid: boolean; reason: string; targetIndex: number; freezes: boolean; skippedCells: number[] }
