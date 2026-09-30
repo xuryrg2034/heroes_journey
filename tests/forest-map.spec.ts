@@ -361,7 +361,12 @@ test('Jailer victory reports the opened spin; an elite victory leads to a find o
   await node(page, 'den-elite').hover();
   await expect(page.locator('#map-detail')).toContainText('находка');
   await node(page, 'den-elite').click(); await settled(page);
+  // A wounded cat gets +1 HP for the elite (FOREST_ELITE_HEAL): shown in the result and kept by the run.
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.damagePlayer(2));
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
+  await expect(page.locator('#elite-heal')).toContainText('+1 HP за элиту');
+  await expect(page.locator('#modal .result-stats')).toContainText('4/5');
+  expect((await savedRun(page)).resources.player.hp).toBe(4);
   await expect(page.locator('#modal [data-action="run-find"]')).toContainText('ВЫБРАТЬ НАХОДКУ');
   expect((await savedRun(page)).pending).toMatchObject({ kind: 'find', nodeId: 'den-elite' });
   await page.locator('#modal [data-action="run-find"]').click();
@@ -418,7 +423,7 @@ test('a registry battle (tutorial index -1): help opens, marked targets are coun
   await expect(page.locator('#objectives')).toContainText('0 / 4');
   await expect(page.locator('#tutorial-message')).toContainText('Волк рядом с живым волком');
   await expect(page.locator('.field-guide')).toContainText('Прыжок');
-  await expect(page.locator('.field-guide')).toContainText('Холод и вода');
+  await expect(page.locator('.field-guide')).toContainText('Холод');
   await page.screenshot({ path: 'artifacts/forest-map-registry-battle.png' });
   await page.locator('[data-action="help"]').first().click();
   await expect(page.locator('#modal')).toContainText('Вожак у брода');

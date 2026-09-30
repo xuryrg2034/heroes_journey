@@ -49,7 +49,9 @@ function settle(e: ForestEngine, run: ForestRunState): ForestRunState {
   const outcome = e.runBattleOutcome(); assert(outcome, 'finished map battle reports an outcome');
   const next = ok(resolveBattle(run, outcome!), `resolve ${outcome!.nodeId}`);
   if (outcome!.won) {
-    assert(next.resources.player.hp === e.state.player.hp && next.resources.player.energy === e.state.player.energy,
+    // An elite victory adds its heart (+1 HP up to the maximum) on top of the carried HP.
+    const heart = forestNode(outcome!.nodeId)!.type === 'elite' ? Math.min(1, e.state.player.maxHp - e.state.player.hp) : 0;
+    assert(next.resources.player.hp === e.state.player.hp + heart && next.resources.player.energy === e.state.player.energy,
       `${outcome!.nodeId}: HP and energy carried out of the battle`);
     assert(json(next.resources.inventory) === json(e.state.inventory), `${outcome!.nodeId}: items carried out of the battle`);
     assert(json(next.resources.player.damageEffects ?? null) === json(e.state.player.damageEffects ?? null), `${outcome!.nodeId}: effects carried out`);
@@ -308,6 +310,35 @@ async function realEffects() {
   assert(!rested.resources.player.damageEffects && step.ok && step.events.some(event => event.type === 'effects-cleared'), 'the rest clears the carried poison');
 }
 
+/** An elite victory gives +1 HP (up to the maximum) together with the find; the saved run keeps it. */
+async function eliteHeart() {
+  let run = createForestRun(77);
+  const e = engine();
+  for (const id of ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4', 'goblin-archer', 'goblin-shield', 'trail-find', 'trail-banners', 'jailer', 'camp-battle', 'camp-rest']) {
+    run = ok(enterNode(run, id), `enter ${id}`);
+    if (run.pending?.kind === 'battle') { launch(e, run); e.winLevel(); run = settle(e, run); }
+    if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+  }
+  run = ok(enterNode(run, 'camp-elite'), 'enter the elite');
+  for (const wound of [2, 0]) {
+    const fight = engine(); launch(fight, run);
+    assert(fight.state.runNode?.nodeId === 'camp-elite', 'the elite battle really starts');
+    await realMove(fight);
+    if (fight.state.phase !== 'PLAYER_INPUT') fight.restartLevel();
+    // Only to set up both cases: wounded, and already at full HP.
+    fight.state.player.hp = wound ? Math.max(1, fight.state.player.maxHp - wound) : fight.state.player.maxHp;
+    fight.winLevel();
+    const before = fight.state.player.hp, step = resolveBattle(run, fight.runBattleOutcome()!), won = ok(step, 'elite victory');
+    const expected = Math.min(won.resources.player.maxHp, before + 1);
+    assert(won.resources.player.hp === expected, `elite victory from ${before} HP gives ${expected} HP, never above the maximum`);
+    assert(step.ok && step.events.some(event => event.type === 'healed' && event.nodeId === 'camp-elite' && event.amount === expected - before), 'the heal is reported to the map screen');
+    assert(won.pending?.kind === 'find', 'the find still follows the elite victory');
+    assert(json(parseForestRun(serializeForestRun(won))) === json(won), 'the healed run round-trips through the save');
+    const picked = ok(chooseFindItem(won, (won.pending as { options: ItemKind[] }).options[0]), 'elite find');
+    assert(picked.resources.player.hp === expected && json(parseForestRun(serializeForestRun(picked))) === json(picked), 'the heal stays after the find and in the save');
+  }
+}
+
 async function determinism() {
   const a: string[] = [], b: string[] = [];
   const first = await campRoute(701, a), second = await campRoute(701, b);
@@ -459,6 +490,7 @@ lessonsUnchanged();
 await paletteByRow();
 await registryBattles();
 await realEffects();
+await eliteHeart();
 await denRoute();
 await determinism();
 console.log('forest run: map, carry-over, rest, find, both bosses, retry, determinism and storage passed');

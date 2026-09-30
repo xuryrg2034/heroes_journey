@@ -6,7 +6,7 @@ export interface RoomBlueprint {
   doors: DoorData[]; actors: { index: number; variant: EnemyVariant; footprint?: number[] }[];
 }
 export const ITEMS: Record<ItemKind, RewardOption> = {
-  frost: { item: 'frost', label: 'Холодный настой', description: 'Мокрый враг пропустит фазу; следующий удар по нему ×2.' },
+  frost: { item: 'frost', label: 'Холодный настой', description: 'Враг пропустит фазу; следующий удар по нему ×2.' },
   bomb: { item: 'bomb', label: 'Бомба', description: '6 урона одному врагу. Магическую дверь взламывает; войди цепочкой.' },
   healing: { item: 'healing', label: 'Лечебный эликсир', description: 'Восстанавливает 3 HP, полностью снимает яд и кровотечение. Горение остаётся.' },
   fire: { item: 'fire', label: 'Огненная склянка', description: '+1 горение выбранному врагу и соседям по стороне. Урон — в конце хода; кота не задевает.' },

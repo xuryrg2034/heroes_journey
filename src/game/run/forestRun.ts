@@ -6,7 +6,7 @@
  */
 import { mixSeed, rewardChoices } from '../campaignContent';
 import type { AbilityKind, ItemKind } from '../forestTypes';
-import { FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, lessonIndex, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant } from './forestMap';
+import { FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, lessonIndex, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_ELITE_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
 
@@ -51,6 +51,7 @@ export type ForestRunEvent =
   | { type: 'items-granted'; items: Partial<Record<ItemKind, number>> }
   | { type: 'battle-ready'; nodeId: string }
   | { type: 'battle-lost'; nodeId: string; defeats: number }
+  /** Rest heal, or the elite victory heart (+1 HP); `amount` is 0 at full HP. */
   | { type: 'healed'; nodeId: string; amount: number }
   /** Rest removed burning, poison and bleeding from the cat. */
   | { type: 'effects-cleared'; nodeId: string }
@@ -185,6 +186,11 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
   };
   const node = forestNode(battle.nodeId)!;
   if (node.rewardGrants) applyGrant(run, node.rewardGrants, events);
+  if (node.type === 'elite') {
+    // The elite battle ends when its targets fall, so the heart is given with the victory, not picked up on a cell.
+    const player = run.resources.player, amount = Math.max(0, Math.min(FOREST_ELITE_HEAL, player.maxHp - player.hp));
+    player.hp += amount; events.push({ type: 'healed', nodeId: node.id, amount });
+  }
   if (hasVictoryFind(node)) { offerFind(run, node.id, events); return { ok: true, run, events }; }
   completeNode(run, node, events); return { ok: true, run, events };
 }

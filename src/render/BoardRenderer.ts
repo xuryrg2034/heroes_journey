@@ -305,7 +305,7 @@ export class BoardRenderer {
     this.player.visible=state.phase!=='TITLE';
     this.drawDevices(state);
     this.drawOverlays(state);
-    this.app.canvas.style.cursor=this.targetingItem||state.chosenAbility==='jump'?'cell':state.phase==='PLAYER_INPUT'?'crosshair':'default';
+    this.app.canvas.style.cursor=this.targetingItem||state.chosenAbility==='jump'?'cell':state.chosenAbility==='spin'?'pointer':state.phase==='PLAYER_INPUT'?'crosshair':'default';
     this.react(event,state);
   }
 
@@ -591,6 +591,24 @@ export class BoardRenderer {
         this.endpointBack.clear().roundRect(-78,-11,156,22,4).fill(landing.valid?landing.damage?0x673b36:0x294540:0x4c3330).stroke({color,width:1});
         this.endpointText.text=!landing.valid?'НЕЛЬЗЯ ПРИЗЕМЛИТЬСЯ':landing.damage?`ПРЫЖОК · −${landing.damage} HP`:'ПРЫЖОК · БЕЗОПАСНО';
       }
+      return;
+    }
+    if(state.phase==='PLAYER_INPUT'&&state.chosenAbility==='spin'){
+      // Two-step spin: the zone (8 neighbours), the damage to every target, who dies and the enemy answer; the cat confirms.
+      const tint=0xf2c46f,spin=this.engine.previewAbility('spin'),zone=this.engine.neighbors(state.player.index);
+      p.circle(hero.x,hero.y,TILE*1.42).stroke({color:tint,width:3,alpha:.75});
+      for(const index of zone){const at=this.center(index);p.roundRect(at.x-34,at.y-34,68,68,6).fill({color:tint,alpha:.07}).stroke({color:tint,width:1.5,alpha:.55});}
+      for(const hit of spin.hits){
+        const at=this.center(hit.index);
+        p.roundRect(at.x-35,at.y-35,70,70,6).fill({color:hit.killed?0xe9a06f:tint,alpha:.2}).stroke({color:hit.killed?0xf0b08a:tint,width:3});
+        this.plate(at.x,at.y+26,hit.killed?`−${hit.damage} · ПОВЕРЖЕН`:`−${hit.damage} → ${hit.hpAfter}♥`,hit.killed?0x283d2b:0x663e31,hit.killed?0xbac799:0xe8b38b,9);
+      }
+      if(spin.valid&&spin.enemyPhase)this.drawPushForecast(state,spin,fc);
+      this.endpoint.visible=true;
+      this.endpointText.text=!spin.valid?'КРУГОВОЙ · НЕЛЬЗЯ':spin.damage?`КРУГОВОЙ · −${spin.damage} HP КОТУ · ЕЩЁ РАЗ`:'КРУГОВОЙ · БЕЗОПАСНО · ЕЩЁ РАЗ';
+      const half=Math.ceil(this.endpointText.width/2)+10;
+      this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,hero.x)),Math.max(12,hero.y-40));
+      this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!spin.valid?0x3c3530:spin.damage?0x742e30:0x263b31).stroke({color:!spin.valid?0xc4a775:spin.damage?0xe49681:tint,width:1});
       return;
     }
     if(state.phase==='PLAYER_INPUT' && !chain.length && !this.targetingItem) {
@@ -1084,6 +1102,12 @@ export class BoardRenderer {
     if(this.activePointer!==null||this.engine.state.phase!=='PLAYER_INPUT'||event.button!==0) return;
     event.preventDefault();
     const point=this.eventPoint(event),index=this.indexAt(point);
+    if(this.engine.state.chosenAbility==='spin'){
+      // Confirm the spin by clicking the cat; any other cell only flashes.
+      if(index===this.engine.state.player.index)void this.engine.useAbility('spin');
+      else {this.invalidIndex=index;this.invalidUntil=performance.now()+230;}
+      return;
+    }
     if(this.engine.state.chosenAbility==='jump'){
       this.targetHover=index;
       if(index>=0&&this.engine.previewAbility('jump',index).valid){this.jumpPress=index;this.activePointer=event.pointerId;this.app.canvas.setPointerCapture(event.pointerId);}

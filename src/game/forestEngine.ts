@@ -377,18 +377,18 @@ export class ForestEngine {
     else if (this.state.itemPrepared) reason = 'Один расходник за ход.';
     else if (this.state.inventory.frost < 1) reason = 'Холодный настой закончился.';
     else if (!cell || cell.kind === 'prism' || cell.kind === 'door') reason = 'Выбери противника.';
-    else if (!cell.status.wet) reason = 'Для заморозки нужна мокрая цель: ищи лужу.';
-    return { valid: !reason, reason, targetIndex: index, freezes: !!cell?.status.wet,
-      skippedCells: !reason && cell?.status.wet ? [...cell.intent.cells] : [] };
+    // Since 30.09.2026 frost freezes any enemy, wet or dry (bosses included, as before); doors, prisms and crystals never.
+    return { valid: !reason, reason, targetIndex: index, freezes: !reason,
+      skippedCells: !reason && cell ? [...cell.intent.cells] : [] };
   }
   prepareFrost(index: number) {
     const preview = this.previewFrost(index);
     if (!preview.valid) { this.emit({ type: 'invalid', index, text: preview.reason }); return false; }
     const cell = this.state.board[index]!;
     this.state.inventory.frost--; this.state.itemPrepared = true;
-    if (cell.status.wet) { cell.status.frozen = Math.max(1, cell.status.frozen); cell.status.brittle = true; }
-    this.state.message = cell.status.wet ? 'Мокрая цель замёрзла: пропустит атаку, следующий удар ×2.' : 'На сухой цели настой не замораживает. Ищи лужу.';
-    this.emit({ type: 'frost', index, text: cell.status.wet ? 'ЗАМОРОЖЕН · ×2' : 'СУХАЯ ЦЕЛЬ' }); return true;
+    cell.status.frozen = Math.max(1, cell.status.frozen); cell.status.brittle = true;
+    this.state.message = 'Цель замёрзла: пропустит действие, следующий удар ×2.';
+    this.emit({ type: 'frost', index, text: 'ЗАМОРОЖЕН · ×2' }); return true;
   }
   useFrost(index: number) { return this.prepareFrost(index); }
   previewItem(item: ItemKind, index = this.state.player.index): ItemPreview {
@@ -724,7 +724,7 @@ export class ForestEngine {
     if (this.state.room.kind === 'castle') return this.state.room.key.held ? 'Выбери дверь положением цепочки. Ключ откроет только выбранный проход.' : 'Хранитель несёт ключ. Магическую дверь также можно взломать бомбой.';
     if (this.state.room.kind === 'wizard') return 'Колдун чередует заклинания и призыв. Намеченные клетки не меняются после твоего хода.';
     if (this.state.wave === 1) return this.state.turn === 1 ? 'Каждый враг даёт +1 силы. Слабые цели копят запас, HP крепких врагов расходуют его.' : 'Начинай рядом с котом. Красные клетки — уже намеченные удары.';
-    if (this.state.wave === 2) return 'У стрелков 7 HP: накопи силу на слабых целях. Холод + мокрая цель = заморозка.';
+    if (this.state.wave === 2) return 'У стрелков 7 HP: накопи силу на слабых целях. Холод замораживает любого врага.';
     return 'Главарь бесцветный. Разгони удар на слабых; живую цель нельзя пройти насквозь.';
   }
   private finish(won: boolean, message?: string) {

@@ -411,7 +411,8 @@ test('ordinary chains earn energy while jump and spin spend energy without earni
     for(const i of g.engine.neighbors(19)){s.board[i].hp=i===11?6:4;s.board[i].maxHp=s.board[i].hp;}g.engine.cancelChain();return {survivor:s.board[11].id,preview:g.engine.previewAbility('spin')};
   });
   expect(spinFixture.preview.hits).toHaveLength(8);expect(spinFixture.preview.energyGain).toBe(0);for(const h of spinFixture.preview.hits)expect(h.damage).toBe(4);
-  await page.locator('#spin-ability').click();await ready(page);const spun=await game(page);expect(spun.player.energy).toBe(4);expect(spun.player.index).toBe(19);expect(spun.board[11]).toMatchObject({id:spinFixture.survivor,hp:2});dense(spun);
+  // Two steps (council item 21): the first press only shows the forecast, the second confirms.
+  await page.locator('#spin-ability').click();expect((await game(page)).chosenAbility).toBe('spin');expect((await game(page)).player.energy).toBe(7);await page.locator('#spin-ability').click();await ready(page);const spun=await game(page);expect(spun.player.energy).toBe(4);expect(spun.player.index).toBe(19);expect(spun.board[11]).toMatchObject({id:spinFixture.survivor,hp:2});dense(spun);
   await page.evaluate(()=>{const g=(window as any).__PUZZLE_GAME;g.state.player.energy=6.5;g.engine.cancelChain();});
   const capPath=await chooseMove(page);await draw(page,capPath);await ready(page);expect((await game(page)).player.energy).toBe(7);expect(errors).toEqual([]);
 });

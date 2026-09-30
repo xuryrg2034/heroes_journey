@@ -183,10 +183,10 @@ test('cold and jump encounters unlock only their tools and advance through autho
   await expect(page.locator('.energy-hud')).toBeHidden();
   await expect(page.locator('#bomb-button')).toBeHidden();
   await page.locator('#frost-button').click();
-  // A dry target is refused and keeps the flask; the wet guard on the ford accepts it.
-  let at=await center(page,15); await page.mouse.click(at.x,at.y);
+  // Frost works on any enemy since 30.09.2026: the dry target 15 is a valid choice too; the route freezes the ford guard.
+  expect(await page.evaluate(()=>{const e=(window as any).__PUZZLE_GAME.engine;const p=e.previewFrost(15);return p.valid&&p.freezes;})).toBe(true);
   expect((await state(page)).inventory.frost).toBe(1);
-  at=await center(page,14); await page.mouse.click(at.x,at.y);
+  let at=await center(page,14); await page.mouse.click(at.x,at.y);
   expect((await state(page)).inventory.frost).toBe(0);
   expect((await state(page)).board[14].status.brittle).toBe(true);
   await draw(page,[10,9,14,13],async()=>{

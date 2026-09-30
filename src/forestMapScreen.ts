@@ -186,11 +186,11 @@ export function findModalHtml(nodeId: string, options: ItemKind[]): string {
 }
 
 /** Result of a battle in a map node: victory goes back to the map, defeat retries the node. */
-export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; defeats: number; battlesWon: number; grants: string; find?: boolean }): string {
-  const { won, name, turns, hp, maxHp, defeats, battlesWon, grants, find } = options;
+export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; defeats: number; battlesWon: number; grants: string; find?: boolean; healed?: number }): string {
+  const { won, name, turns, hp, maxHp, defeats, battlesWon, grants, find, healed } = options;
   const stats = `<div class="result-stats"><span><b>${turns}</b>ХОДЫ</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${battlesWon}</b>БОЁВ ПРОЙДЕНО</span></div>`;
   return won
-    ? `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol">✦</div><h2 id="modal-title">Узел пройден</h2><p class="modal-copy">Здоровье, энергия и предметы уходят с тобой на карту.${grants ? ` Открыто: ${grants}.` : ''}${find ? ' За победу — находка: выбери один предмет из трёх.' : ''}</p>${stats}${find ? '<button class="button primary" data-action="run-find">ВЫБРАТЬ НАХОДКУ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>' : '<button class="button primary" data-action="run-map">К КАРТЕ</button>'}`
+    ? `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol">✦</div><h2 id="modal-title">Узел пройден</h2><p class="modal-copy">Здоровье, энергия и предметы уходят с тобой на карту.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` <b id="elite-heal">+${healed} HP за элиту.</b>` : ''}${find ? ' За победу — находка: выбери один предмет из трёх.' : ''}</p>${stats}${find ? '<button class="button primary" data-action="run-find">ВЫБРАТЬ НАХОДКУ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>' : '<button class="button primary" data-action="run-map">К КАРТЕ</button>'}`
     : `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот отступил</h2><p class="modal-copy">Поход продолжается: узел остаётся текущим, поражений в нём — ${defeats}. Повтор вернёт поле, здоровье и запас как на входе.</p>${stats}<button class="button primary" data-action="retry">ПОВТОРИТЬ УЗЕЛ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`;
 }
 

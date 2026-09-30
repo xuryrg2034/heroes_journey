@@ -50,6 +50,8 @@ export interface ForestMapNode {
 
 /** Rest heal, HP up to the maximum. TEMPORARY balance parameter, not a tuned value. */
 export const FOREST_REST_HEAL = 2;
+/** Elite victory heal, HP up to the maximum, given together with the find (council review, item 6/9). */
+export const FOREST_ELITE_HEAL = 1;
 export const FOREST_MAP_START = 'trunk-1';
 /** Colors are added in the same order as in the lessons: red, blue, green, ochre, amethyst. */
 export const FOREST_COLOR_ORDER: readonly EnemyColor[] = [0, 2, 1, 3, 4];

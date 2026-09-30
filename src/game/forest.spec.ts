@@ -65,7 +65,11 @@ async function regressions() {
 
   const f = fixture(); f.state.inventory.frost = 1; f.state.board[44] = cell(); f.state.board[37] = cell('boss', null, 20);
   f.state.board[37]!.status.wet = true; f.state.board[37]!.intent.cells = [44];
-  assert(!f.previewFrost(44).valid && !f.prepareFrost(44) && f.state.inventory.frost === 1, 'dry target never consumes frost');
+  // Since 30.09.2026 frost works on any enemy: a dry target is accepted and frozen exactly like a wet one.
+  const dry = fixture(); dry.state.inventory.frost = 1; dry.state.board[44] = cell(); dry.state.board[44]!.intent.cells = [45];
+  const dryPreview = dry.previewFrost(44);
+  assert(!dry.state.board[44]!.status.wet && dryPreview.valid && dryPreview.freezes && dryPreview.skippedCells.join() === '45', 'dry target is accepted and its attack is shown as skipped');
+  assert(dry.prepareFrost(44) && dry.state.board[44]!.status.frozen > 0 && dry.state.board[44]!.status.brittle && dry.state.inventory.frost === 0, 'dry target freezes and becomes brittle');
   assert(!f.prepareFrost(0) && f.state.inventory.frost === 1, 'empty target never consumes frost');
   const before = JSON.stringify(f.state);
   assert(f.previewFrost(37).valid && JSON.stringify(f.state) === before, 'frost targeting is dry run');
