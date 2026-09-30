@@ -29,3 +29,25 @@ export async function playTurn(sequence: TurnSequence, playback: TurnPlayback): 
 export function animationWait(milliseconds: number, scale: number): Promise<void> {
   return scale > 0 ? new Promise(resolve => setTimeout(resolve, milliseconds * scale)) : Promise.resolve();
 }
+
+/**
+ * Run a turn sequence to its end synchronously, without clocks: yielded events are collected (and passed to
+ * `onEvent`), delays skipped. For forecasts and tests that need the same systems without playback (ECS plan §3.8).
+ * `isCurrent` may stop it early. Events that engine services publish directly (the refill `spawn`) do not pass
+ * through the sequence until the command executor of stage 3; subscribe to the engine to see them.
+ */
+export function drainSync(sequence: TurnSequence, isCurrent: () => boolean = () => true, onEvent?: (event: EngineEvent) => void): { result: boolean; events: EngineEvent[] } {
+  const events: EngineEvent[] = [];
+  try {
+    // Same checks as playTurn: a step that cancelled the scene is not published.
+    while (isCurrent()) {
+      const step = sequence.next();
+      if (!isCurrent()) return { result: false, events };
+      if (step.done) return { result: step.value, events };
+      if ('event' in step.value) { events.push(step.value.event); onEvent?.(step.value.event); }
+    }
+    return { result: false, events };
+  } finally {
+    sequence.return(false);
+  }
+}

@@ -4,7 +4,7 @@ import { canHeal } from './recovered/combat';
 import { uniqueEntities } from './entityFootprint';
 import { applyRefillTier, nextRandom, refillTier, runPressureActive } from './mapBattleRules';
 import { animationWait, playTurn, type TurnSequence } from './turnRuntime';
-import { resolveEnemyTurn, resolvePlayerTurn, type TurnContext } from './turnSystems';
+import { resolvePlayerTurn, resolveRestTurn, type TurnContext } from './turnSystems';
 import { cleanseDamageEffects } from './damageEffects';
 import { applyAttackEffect, assignDamageEffects, projectEnemyEffects } from './effectRules';
 import { creditDefeat, damageCell, removeDefeated, type DefeatCredit } from './combatRules';
@@ -357,7 +357,9 @@ export class ForestEngine {
   private turnContext(): TurnContext {
     const generation = this.generation;
     return {
+      world: this.world,
       state: this.state,
+      scratch: {},
       current: () => generation === this.generation,
       drawRandom: () => this.random(),
       createCrystal: (index, value) => { const crystal = this.createCell('prism', null, index); crystal.crystalChain = value; return crystal; },
@@ -376,10 +378,7 @@ export class ForestEngine {
   async waitTurn(): Promise<boolean> {
     if (this.state.phase !== 'PLAYER_INPUT') return false;
     const context = this.turnContext();
-    this.state.chain = []; this.state.chosenAbility = null; this.state.turn++; this.state.lastDamage = 0;
-    this.state.player.energy = Math.min(7, this.state.player.energy + 0.5);
-    this.state.message = 'Кот отдыхает: +0,5 энергии. Противники действуют.';
-    return this.play(resolveEnemyTurn(context), context);
+    return this.play(resolveRestTurn(context), context);
   }
   private planRotationReplacements(rotations: RotationPreview[]): Map<number, ForestCell> {
     const replacements = new Map<number, ForestCell>();

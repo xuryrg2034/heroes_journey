@@ -17,10 +17,24 @@ import { stepBleeding, tickDamageEffects } from './damageEffects';
 import { applyAttackEffect, assignDamageEffects, canReceiveDamageEffects, hasDamageEffects } from './effectRules';
 import { applyDeviceVolley, closeExpiredPits, deviceAt, deviceTargets } from './devices';
 import type { TurnSequence } from './turnRuntime';
+import type { World } from './ecs/world';
+import { instant, runSchedule, type ScheduleVerdict, type SystemSet, type TurnSystem } from './ecs/schedule';
 
-/** World services used by the synchronous turn systems. No clocks or animation promises. */
+/**
+ * Per-turn data handed between the systems of one schedule (ECS plan §3.4): the action being resolved and the
+ * snapshots of the enemy phase. Created empty for every turn.
+ */
+export interface TurnScratch {
+  action?: { simulation: ChainSimulation; ability?: AbilityKind; startIndex: number; doorOpened: boolean };
+  enemyPhase?: { resting: { cell: ForestCell; index: number }[]; displaced: Set<number>; actors: { cell: ForestCell; index: number }[] };
+}
+
+/** The world and its services used by the synchronous turn systems. No clocks or animation promises. */
 export interface TurnContext {
+  /** The battle world (state and resources); `state` is `world.state`. */
+  readonly world: World;
   readonly state: ForestState;
+  readonly scratch: TurnScratch;
   current(): boolean;
   /** One draw of the live battle RNG: a crystal falling during the chain consumes exactly what the forecast drew. */
   drawRandom(): number;
@@ -34,8 +48,10 @@ export interface TurnContext {
   hint(): string;
 }
 
-export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation, ability?: AbilityKind): TurnSequence {
-  const startIndex = ctx.state.player.index;
+/** PlayerAction: the chain or ability hits, moves, crystals, devices on the path, quills and bleeding steps. */
+const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) {
+  const turn = ctx.scratch.action!, { simulation, ability } = turn;
+  const startIndex = turn.startIndex;
   ctx.state.player.energy = Math.min(7, Math.max(0, ctx.state.player.energy - simulation.preview.energyCost + simulation.preview.energyGain));
   ctx.state.chosenAbility = null;
   if (ctx.state.tutorial) ctx.state.tutorial.hintDismissed = true;
@@ -44,7 +60,6 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
   if (!ctx.current()) return false;
   if (ability) { yield { event: { type: 'ability', text: ability, from: startIndex, to: simulation.preview.endIndex, indices: simulation.preview.hits.map(hit => hit.index) } }; if (!ctx.current()) return false; }
   const delay = Math.max(35, Math.min(90, 700 / Math.max(1, simulation.preview.hits.length)));
-  let doorOpened = false;
   const steps = simulation.steps ?? simulation.preview.hits.map(hit => ({ kind: 'hit' as const, hit }));
   for (const action of steps) {
     if (!ctx.current()) return false;
@@ -120,7 +135,7 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
       yield* resolveMovementBleeding(ctx);
       if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
     }
-    if (hit.doorOpened) doorOpened = true;
+    if (hit.doorOpened) turn.doorOpened = true;
     yield { delay };
   }
   if (!ctx.current()) return false;
@@ -130,13 +145,22 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
     if (!ctx.current()) return false;
   }
   ctx.state.chain = [];
-  // Same rule as simulateChain: an ordinary chain that stops on thorns costs the cat HP before any lever.
+  return true;
+} };
+/** PlayerAction: an ordinary chain that stops on thorns costs the cat HP before any lever (as simulateChain). */
+const ChainEndTerrain: TurnSystem<TurnContext> = { name: 'ChainEndTerrain', *run(ctx) {
+  const { ability } = ctx.scratch.action!;
   if (!ability && ctx.state.terrain[ctx.state.player.index] === 'thorns') {
     const damage = damageHero(ctx.state, THORN_DAMAGE);
     yield { event: { type: 'damage', index: ctx.state.player.index, amount: damage, text: 'thorns' } };
     if (!ctx.current()) return false;
     if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
   }
+  return true;
+} };
+/** PlayerAction: levers visited by the chain fire after it, in the visiting order. */
+const DeviceVolleys: TurnSystem<TurnContext> = { name: 'DeviceVolleys', *run(ctx) {
+  const { simulation } = ctx.scratch.action!;
   for (const device of simulation.queuedDevices ?? []) {
     yield { event: { type: 'trap', index: device.index, text: device.kind, indices: deviceTargets(ctx.state, device), amount: device.kind === 'pits' ? undefined : device.damage ?? 4 } };
     if (!ctx.current()) return false;
@@ -159,10 +183,12 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
     yield { delay: 160 };
     if (!ctx.current()) return false;
   }
-  // Entering the opened authored exit, or meeting direct goals, ends the battle before any enemy answers.
-  if (doorOpened || ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.state.objective.turns++; ctx.finish(true); return true; }
-  return yield* resolveEnemyTurn(ctx);
-}
+  return true;
+} };
+/** PlayerAction: entering the opened authored exit, or meeting direct goals, ends the battle before any enemy answers. */
+const PlayerVictory = instant<TurnContext>('PlayerVictory', ctx => {
+  if (ctx.scratch.action!.doorOpened || ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.state.objective.turns++; ctx.finish(true); }
+});
 
 /**
  * Common death path of a creature already out of HP: removal of all its cells, defeat record (key drop, goal refresh,
@@ -377,56 +403,102 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
   return true;
 }
 
+/** RestAction: the cat skips its hits, gains 0.5 energy and the enemy phase follows. */
+const RestStart = instant<TurnContext>('RestStart', ctx => {
+  ctx.state.chain = []; ctx.state.chosenAbility = null; ctx.state.turn++; ctx.state.lastDamage = 0;
+  ctx.state.player.energy = Math.min(7, ctx.state.player.energy + 0.5);
+  ctx.state.message = 'Кот отдыхает: +0,5 энергии. Противники действуют.';
+});
+
+const EnemyPhaseStart: TurnSystem<TurnContext> = { name: 'EnemyPhaseStart', *run(ctx) {
+  ctx.state.phase = 'ENEMY_RESOLVE';
+  yield { event: { type: 'enemy-turn' } };
+  yield { delay: 140 };
+  return true;
+} };
+/** Rest counts down only for entities already resting at the start; a stun earned in this phase is kept. */
+const PhaseSnapshot = instant<TurnContext>('PhaseSnapshot', ctx => {
+  ctx.scratch.enemyPhase = { resting: planEnemyPhase(ctx.state.board, ctx.state.player.index).resting, displaced: new Set(), actors: [] };
+});
+const BoarCharges: TurnSystem<TurnContext> = { name: 'BoarCharges', run: ctx => resolveBoarCharges(ctx, ctx.scratch.enemyPhase!.displaced) };
+/** Attackers, the pushed cat's cell and knocked-down entities are read after the charges. */
+const EnemyAttacks: TurnSystem<TurnContext> = { name: 'EnemyAttacks', run(ctx) {
+  const phase = ctx.scratch.enemyPhase!;
+  phase.actors = planEnemyPhase(ctx.state.board, ctx.state.player.index, phase.displaced).actors;
+  return resolveEnemyAttacks(ctx, phase.actors);
+} };
+const ShamanRites: TurnSystem<TurnContext> = { name: 'ShamanRites', run: ctx => resolveShamanRites(ctx, ctx.scratch.enemyPhase!.actors) };
+const CycleCounters = instant<TurnContext>('CycleCounters', ctx => {
+  for (const { cell } of ctx.scratch.enemyPhase!.actors) if (cell.variant === 'shaman' && isCellAlive(cell)
+    && !cell.behavior.passive && cell.status.frozen === 0) cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
+});
+const TrollWindups: TurnSystem<TurnContext> = { name: 'TrollWindups', run: ctx => resolveTrollWindups(ctx, ctx.scratch.enemyPhase!.actors) };
+const GoalRefresh = instant<TurnContext>('GoalRefresh', ctx => ctx.refreshCustomProgress());
+const Rotations: TurnSystem<TurnContext> = { name: 'Rotations', run: ctx => resolveRotations(ctx, ctx.scratch.enemyPhase!.displaced) };
+const RestCountdown = instant<TurnContext>('RestCountdown', ctx => { for (const { cell } of ctx.scratch.enemyPhase!.resting) cell.behavior.restTurns--; });
+const DamageEffectTicks: TurnSystem<TurnContext> = { name: 'DamageEffectTicks', run: resolveDamageEffects };
+const TrollRegen: TurnSystem<TurnContext> = { name: 'TrollRegen', run: resolveTrollRegeneration };
+const ClosePits: TurnSystem<TurnContext> = { name: 'ClosePits', *run(ctx) {
+  const closed = closeExpiredPits(ctx.state);
+  if (closed.length) { yield { event: { type: 'pit-close', indices: closed } }; if (!ctx.current()) return false; }
+  return true;
+} };
+
 /** Status expiry and turn objectives happen after the effect ticks and before generation. */
-function settleTurn(ctx: TurnContext): boolean {
+const SettleTurn = instant<TurnContext>('SettleTurn', ctx => {
   uniqueEntities(ctx.state.board).forEach(({ cell }) => { if (cell.status.frozen > 0) cell.status.frozen--; });
   ctx.state.objective.turns++; if (!ctx.state.lastDamage) ctx.state.score += 30;
   ctx.refreshCustomProgress();
-  if (ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.finish(true); return true; }
-  if (ctx.state.customLevel && ctx.state.level.turnLimit > 0 && ctx.state.turn >= ctx.state.level.turnLimit) { ctx.finish(false, 'Лимит ходов исчерпан. Попробуй другой маршрут.'); return true; }
-  return false;
-}
+  if (ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.finish(true); return; }
+  if (ctx.state.customLevel && ctx.state.level.turnLimit > 0 && ctx.state.turn >= ctx.state.level.turnLimit) ctx.finish(false, 'Лимит ходов исчерпан. Попробуй другой маршрут.');
+});
 
-export function* updateBoard(ctx: TurnContext): TurnSequence {
+/** Refill (with the chain witness), fresh intents and the return to player input. */
+const Generation: TurnSystem<TurnContext> = { name: 'Generation', *run(ctx) {
   ctx.state.phase = 'BOARD_UPDATE'; yield { event: { type: 'state' } };
   if (!ctx.current()) return false;
   if (!ctx.generateBoard()) return false;
   ctx.state.itemPrepared = false;
   yield { event: { type: 'refill' } }; yield { delay: 180 };
-  if (!ctx.current()) return false;
+  return ctx.current();
+} };
+const ReturnToInput: TurnSystem<TurnContext> = { name: 'ReturnToInput', *run(ctx) {
   ctx.state.phase = 'PLAYER_INPUT'; ctx.state.message = ctx.hint(); yield { event: { type: 'state' } }; return true;
+} };
+
+// ---------------------------------------------------------------- schedule (ECS plan §3.4)
+
+export const PLAYER_ACTION: SystemSet<TurnContext> = { name: 'PlayerAction', systems: [ChainResolve, ChainEndTerrain, DeviceVolleys, PlayerVictory] };
+export const REST_ACTION: SystemSet<TurnContext> = { name: 'RestAction', systems: [RestStart] };
+export const ENEMY_PHASE: SystemSet<TurnContext> = { name: 'EnemyPhase', systems: [EnemyPhaseStart, PhaseSnapshot, BoarCharges, EnemyAttacks,
+  ShamanRites, CycleCounters, TrollWindups, GoalRefresh, Rotations, RestCountdown, DamageEffectTicks, TrollRegen, ClosePits] };
+export const END_OF_TURN: SystemSet<TurnContext> = { name: 'EndOfTurn', systems: [SettleTurn] };
+export const BOARD_UPDATE: SystemSet<TurnContext> = { name: 'BoardUpdate', systems: [Generation, ReturnToInput] };
+/** Everything after the player's own action. */
+export const ENEMY_TURN: readonly SystemSet<TurnContext>[] = [ENEMY_PHASE, END_OF_TURN, BOARD_UPDATE];
+
+/**
+ * After every system: a restarted scene cancels the turn; a cat at 0 HP loses (if its system did not already
+ * finish the battle); a finished battle stops the schedule before any later system.
+ */
+function turnVerdict(ctx: TurnContext): ScheduleVerdict {
+  if (!ctx.current()) return 'cancelled';
+  if (ctx.state.player.hp === 0 && ctx.state.phase !== 'WIN' && ctx.state.phase !== 'LOSE') ctx.finish(false);
+  return ctx.state.phase === 'WIN' || ctx.state.phase === 'LOSE' ? 'finished' : 'continue';
 }
 
-/** The phase order is explicit; each system can be stepped synchronously without a clock. */
-export function* resolveEnemyTurn(ctx: TurnContext): TurnSequence {
-  ctx.state.phase = 'ENEMY_RESOLVE';
-  yield { event: { type: 'enemy-turn' } };
-  yield { delay: 140 };
-  // Rest counts down only for entities already resting at the start; a stun earned in this phase is kept.
-  const resting = planEnemyPhase(ctx.state.board, ctx.state.player.index).resting;
-  const displaced = new Set<number>();
-  if (!(yield* resolveBoarCharges(ctx, displaced))) return false;
-  if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
-  if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
-  // Attackers, the pushed cat's cell and knocked-down entities are read after the charges.
-  const plan = planEnemyPhase(ctx.state.board, ctx.state.player.index, displaced);
-  if (!(yield* resolveEnemyAttacks(ctx, plan.actors))) return false;
-  if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
-  if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
-  if (!(yield* resolveShamanRites(ctx, plan.actors))) return false;
-  for (const { cell } of plan.actors) if (cell.variant === 'shaman' && isCellAlive(cell)
-    && !cell.behavior.passive && cell.status.frozen === 0) cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
-  if (!(yield* resolveTrollWindups(ctx, plan.actors))) return false;
-  ctx.refreshCustomProgress();
-  if (!(yield* resolveRotations(ctx, displaced))) return false;
-  for (const { cell } of resting) cell.behavior.restTurns--;
-  if (!(yield* resolveDamageEffects(ctx))) return false;
-  if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
-  if (!(yield* resolveTrollRegeneration(ctx))) return false;
-  const closed = closeExpiredPits(ctx.state);
-  if (closed.length) { yield { event: { type: 'pit-close', indices: closed } }; if (!ctx.current()) return false; }
-  if (settleTurn(ctx)) return true;
-  return yield* updateBoard(ctx);
+/** A chain or an ability: PlayerAction, then the enemy phase, the end of the turn and the board update. */
+export function resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation, ability?: AbilityKind): TurnSequence {
+  ctx.scratch.action = { simulation, ability, startIndex: ctx.state.player.index, doorOpened: false };
+  return runSchedule(ctx, [PLAYER_ACTION, ...ENEMY_TURN], turnVerdict);
+}
+/** Rest: RestAction, then the same enemy phase, end of turn and board update. */
+export function resolveRestTurn(ctx: TurnContext): TurnSequence {
+  return runSchedule(ctx, [REST_ACTION, ...ENEMY_TURN], turnVerdict);
+}
+/** The enemy answer alone (after a player action already resolved on this context). */
+export function resolveEnemyTurn(ctx: TurnContext): TurnSequence {
+  return runSchedule(ctx, ENEMY_TURN, turnVerdict);
 }
 
 /**

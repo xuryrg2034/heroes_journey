@@ -44,7 +44,8 @@
     "analyze:levels": "tsx scripts/analyze-levels.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",
-    "test:ecs-world": "tsx src/game/ecsWorld.spec.ts"
+    "test:ecs-world": "tsx src/game/ecsWorld.spec.ts",
+    "test:ecs-schedule": "tsx src/game/ecsSchedule.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"
