@@ -94,8 +94,10 @@ export interface ChainPreview {
   /** Positions after the enemy phase that follows this action (absent when the battle ends first). */
   enemyPhase?: EnemyPhaseForecast;
   /**
-   * Crystals this chain creates, in every mode (one per CRYSTAL_KILLS chain-hit kills). They appear at the next
-   * refill on seeded random cells, so the forecast gives the number, never the cells. `createsPrism` mirrors `> 0`.
+   * Crystals this chain creates, in every mode (one per CRYSTAL_KILLS chain-hit kills). They fall during the chain, at
+   * the 6th, 12th… kill, on cells drawn from a copy of the battle RNG; the forecast gives only the number (a surprise:
+   * the cell and the crushed enemy are never exposed), but its damage, deaths and outcome already include them.
+   * `createsPrism` mirrors `> 0`.
    */
   crystals?: number;
   /** Score for the crystals this chain breaks (sum of `hits[].crystalScore`). */

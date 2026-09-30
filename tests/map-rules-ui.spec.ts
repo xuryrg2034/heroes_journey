@@ -113,7 +113,7 @@ test('crystals: the forecast counts them, one appears after the turn with its va
   const forecast = await preview(page);
   expect(forecast.crystals).toBe(Math.floor(forecast.kills / CRYSTAL_KILLS));
   await expect(page.locator('#chain-reward')).toContainText(`+${forecast.crystals} кристалл`);
-  await expect(page.locator('#chain-reward')).toContainText('после хода');
+  await expect(page.locator('#chain-reward')).toContainText('по ходу цепи');
   await expect(page.locator('#chain-reward')).toContainText(`До кристалла: ${forecast.kills % CRYSTAL_KILLS} / ${CRYSTAL_KILLS}`);
   await shot(page, 'rules-crystal-forecast');
   await page.evaluate(() => {

@@ -16,7 +16,7 @@ test('level list opens seven distinct scenarios, retries the selected room, and 
     }
     await page.locator('.brand[data-action="title"]').click();await expect(page.locator('#title-screen')).toBeVisible();
   }
-  const context=await browser.newContext({baseURL:'http://127.0.0.1:4173',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}),mobile=await context.newPage();mobile.on('pageerror',e=>errors.push(e.message));mobile.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+  const context=await browser.newContext({baseURL:`http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? 4173}`,viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}),mobile=await context.newPage();mobile.on('pageerror',e=>errors.push(e.message));mobile.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
   await mobile.goto('/');const entries=mobile.locator('#title-screen [data-scenario]');await expect(entries).toHaveCount(7);
   expect(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   for(const entry of await entries.all()){await expect(entry).toBeVisible();const box=await entry.boundingBox();expect(box!.width).toBeGreaterThan(200);expect(box!.height).toBeGreaterThanOrEqual(40);expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(390);}
@@ -99,7 +99,7 @@ test('natural campaign: key and door contact, rewards and exact damage across re
 
 test('gate mobile touch uses the full dynamic board with no horizontal overflow',async({browser})=>{
   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1}),page=await context.newPage();const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('http://127.0.0.1:4173/');await page.locator('#campaign-button').tap();await settled(page);await page.locator('#board-host').scrollIntoViewIfNeeded();
+  await page.goto(`http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? 4173}/`);await page.locator('#campaign-button').tap();await settled(page);await page.locator('#board-host').scrollIntoViewIfNeeded();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const path=await selectMove(page);expect(path.length).toBeGreaterThan(1);const points=[];for(const index of path)points.push(await center(page,index));
   const cdp=await context.newCDPSession(page);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...points[0],id:1}]});
@@ -110,7 +110,7 @@ test('gate mobile touch uses the full dynamic board with no horizontal overflow'
 
 test('a natural six-kill chain earns a crystal, then touch crosses it into another color',async({browser})=>{
   test.setTimeout(60_000);
-  const context=await browser.newContext({baseURL:'http://127.0.0.1:4173',viewport:{width:1440,height:1000},hasTouch:true,deviceScaleFactor:1}),page=await context.newPage(),errors:string[]=[];
+  const context=await browser.newContext({baseURL:`http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? 4173}`,viewport:{width:1440,height:1000},hasTouch:true,deviceScaleFactor:1}),page=await context.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));await start(page);
   // Find an ordinary chain of six or more kills using public moves; no injected energy or board edits.
   for(let turn=0;turn<12&&!(await page.evaluate(()=>{const g=(window as any).__PUZZLE_GAME;return g.availableMoves().some((p:number[])=>g.preview(p).createsPrism);}));turn++){

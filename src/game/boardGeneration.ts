@@ -92,7 +92,8 @@ export function chooseGeneratedColors(state: ForestState, generatedIds: Readonly
   };
   for (const start of chainNeighbors(ordinary, ordinary.player.index)) {
     const cell = ordinary.board[start];
-    if (cell && cell.kind !== 'prism' && visit([start])) return true;
+    // A chain may start on a crystal or authored prism (30.09.2026); its colour comes from the first coloured target.
+    if (cell && visit([start])) return true;
   }
   return false;
 }

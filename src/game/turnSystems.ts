@@ -4,7 +4,8 @@ import type { ChainSimulation } from './forestSystems';
 import { rotationPreview } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { customGoalsMet } from './customLevel';
-import { damageCell, damageHero, removeDefeated, defeatsRoomBoss, type DefeatCredit } from './combatRules';
+import { damageCell, damageHero, defeatOutright, removeDefeated, defeatsRoomBoss, type DefeatCredit } from './combatRules';
+import { crystalScore } from './mapBattleRules';
 import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase, type EnemyAttack, type PlannedSummon } from './enemyPhase';
 import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
@@ -21,8 +22,10 @@ import type { TurnSequence } from './turnRuntime';
 export interface TurnContext {
   readonly state: ForestState;
   current(): boolean;
-  /** Colour-change crystals created by the committed chain, placed at this turn's refill (mapBattleRules.ts). */
-  setPendingCrystals(crystals: { count: number; chainKills: number } | null): void;
+  /** One draw of the live battle RNG: a crystal falling during the chain consumes exactly what the forecast drew. */
+  drawRandom(): number;
+  /** A new colour-change crystal entity (fresh ID) holding the chain length `value`; the caller puts it on the board. */
+  createCrystal(index: number, value: number): ForestCell;
   recordDefeat(cell: ForestCell, index: number, credit: DefeatCredit): void;
   completeRoom(door: DoorData, index: number): void;
   finish(won: boolean, message?: string): void;
@@ -39,7 +42,6 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
   ctx.state.player.energy = Math.min(7, Math.max(0, ctx.state.player.energy - simulation.preview.energyCost + simulation.preview.energyGain));
   ctx.state.chosenAbility = null;
   if (ctx.state.tutorial) ctx.state.tutorial.hintDismissed = true;
-  ctx.setPendingCrystals(simulation.preview.crystals ? { count: simulation.preview.crystals, chainKills: simulation.preview.kills } : null);
   ctx.state.phase = 'PLAYER_RESOLVE'; ctx.state.turn++; ctx.state.lastDamage = 0;
   ctx.state.message = 'Каждый враг даёт +1 силы, его HP расходуют запас.'; yield { event: { type: 'state' } };
   if (!ctx.current()) return false;
@@ -49,6 +51,22 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
   const steps = simulation.steps ?? simulation.preview.hits.map(hit => ({ kind: 'hit' as const, hit }));
   for (const action of steps) {
     if (!ctx.current()) return false;
+    if (action.kind === 'crystal') {
+      // A crystal falls where the forecast drew it (same RNG draw), crushing the enemy there through the common death
+      // path without credit; the kill is published once it is gone, the crystal once it stands on the board.
+      ctx.drawRandom();
+      const victim = ctx.state.board[action.index];
+      if (victim && victim.id === action.victimId) {
+        defeatOutright(victim);
+        if (!(yield* defeatCreature(ctx, victim, action.index, 'none', 'crystal'))) return false;
+      }
+      const crystal = ctx.createCrystal(action.index, action.value);
+      ctx.state.board[action.index] = crystal;
+      yield { event: { type: 'crystal', index: action.index, newId: crystal.id, amount: crystalScore(crystal), ...(action.victimId !== undefined ? { oldId: action.victimId } : {}) } };
+      if (!ctx.current()) return false;
+      yield { delay };
+      continue;
+    }
     if (action.kind === 'device') {
       const device = deviceAt(ctx.state, action.index)!;
       const from = ctx.state.player.index; ctx.state.player.index = action.index;
@@ -74,7 +92,8 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
     const hit = action.hit;
     if (!ctx.current()) return false;
     const original = ctx.state.board[hit.index]!;
-    ctx.state.board.forEach((cell, index) => { if (cell?.id === original.id) ctx.state.board[index] = simulation.board[index]; });
+    // The hit entity's cells take its state after this hit (a crystal may fall on them later in the forecast board).
+    ctx.state.board.forEach((cell, index) => { if (cell?.id === original.id) ctx.state.board[index] = hit.killed ? null : simulation.board[index]; });
     if (hit.killed) {
       if (ability !== 'spin') {
         const from = ctx.state.player.index; ctx.state.player.index = hit.index;
@@ -161,6 +180,18 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
   if (pendingDoor) { ctx.state.objective.turns++; ctx.completeRoom(pendingDoor.door, pendingDoor.index); return true; }
   if (simulation.bossKilled || ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.state.objective.turns++; ctx.finish(true); return true; }
   return yield* resolveEnemyTurn(ctx);
+}
+
+/**
+ * Common death path of a creature already out of HP: removal of all its cells, defeat record (key drop, goal refresh,
+ * credit by `credit`) and the `kill` event once it is gone. Returns false when a subscriber restarted the scene.
+ */
+function* defeatCreature(ctx: TurnContext, cell: ForestCell, index: number, credit: DefeatCredit, text?: string): TurnSequence {
+  removeDefeated(ctx.state.board, cell);
+  ctx.recordDefeat(cell, index, credit);
+  if (!ctx.current()) return false;
+  yield { event: { type: 'kill', index, ...(text ? { text } : {}) } };
+  return ctx.current();
 }
 
 /** Preserve the recovered windup → impact → recovery machine without wall-clock waits. */

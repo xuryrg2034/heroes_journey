@@ -30,6 +30,9 @@ function door(g: ForestEngine, magic = false, hp = 200) {
 async function gateAndRewardRules() {
   for (const access of ['key', 'breached', 'physical'] as const) {
     const single = fixture(); single.state.player.index = 38; single.state.board[38] = null;
+    // The fixture's prism filler is no longer inert: a chain may start on a prism (30.09.2026). Clear it here so the
+    // move search sees only the door contact.
+    single.state.board = single.state.board.map(cell => cell?.kind === 'prism' ? null : cell);
     const exit = door(single, access !== 'physical', access === 'physical' ? 0 : 200);
     if (access === 'key') single.state.room.key.held = true;
     if (access === 'breached') exit.door!.breached = true;
@@ -128,7 +131,11 @@ async function enemyAndItemRules() {
   corner.state.board[8] = unit('melee', 4); corner.state.board[14] = unit('prism', 1, null); corner.state.board[15] = unit('boss', 16, null);
   const guard = unit(); guard.variant = 'cabinet'; guard.supportTargetId = corner.state.board[8]!.id; corner.state.board[9] = guard;
   corner.state.board[10] = unit(); corner.state.board[16] = unit(); corner.state.board[17] = unit();
-  assert(corner.availableMoves().length === 0, 'guarded first chair, prism and living commander form a genuine no-move corner');
+  // A chain may start on the prism (30.09.2026), so the fixture's prism filler becomes wall (refill cannot fill it):
+  // from the prism only the guarded chair and the commander are reachable, and both survive the first hit.
+  corner.state.board.forEach((cell, index) => { if (cell?.kind === 'prism' && index !== 14) { corner.state.board[index] = null; corner.state.terrain[index] = 'wall'; } });
+  assert(corner.validStarts().includes(14), 'the prism beside the cat is a valid start');
+  assert(corner.availableMoves().length === 0, 'guarded first chair, a prism start and the living commander form a genuine no-move corner');
   const cornerBoard = corner.getBoardState(); await corner.waitTurn();
   assert(corner.availableMoves().length === 0 && guard.supportTargetId === corner.state.board[8]?.id, 'generation does not retarget an existing cabinet to rescue a trapped position');
   cornerBoard.forEach((cell, index) => { if (cell) assert(corner.state.board[index]?.id === cell.id && corner.state.board[index]?.hp === cell.hp, 'support repair preserves all entities and HP'); });
@@ -184,7 +191,8 @@ async function prismRules() {
   assert(capped.preview(route).crystals === 1, 'the forest trial creates crystals too');
   capped.state.run.active = true; capped.state.room.key.held = true;
   const exit = unit('door', 200, null); exit.door = { branch: 'forward', label: 'Выход', destination: 'banquet', magic: false, breached: false, footprint: [0] }; capped.state.board[0] = exit;
-  assert(capped.preview([...route, 0]).completesRoom && !capped.preview([...route, 0]).createsPrism, 'completed room does not create an unused crystal');
+  // Crystals fall during the chain (30.09.2026): the sixth kill drops one before the chain goes on into the door.
+  assert(capped.preview([...route, 0]).completesRoom && capped.preview([...route, 0]).crystals === 1, 'a crystal falls at the sixth kill even when the chain then leaves the room');
 
   const bridge = fixture(); bridge.state.board[44] = unit('melee', 0, 0); bridge.state.board[37] = unit('prism', 1, null); bridge.state.board[30] = unit('melee', 0, 2);
   const linked = bridge.preview([44, 37, 30]); assert(linked.valid && linked.enemies === 2 && linked.hits.map(hit => hit.availablePower).join() === '1,1,2', 'prism changes color without adding to the budget');

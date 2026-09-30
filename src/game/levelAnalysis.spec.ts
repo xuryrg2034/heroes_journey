@@ -73,10 +73,10 @@ async function trapsAndBurnWins() {
 
 // P(O) and P(S) share one resolution rule: a budget-cut "no win" is unresolved in both, never a loss in one only.
 async function unresolvedLuck() {
-  // Level seed 1 and three evaluation seeds (chosen after crystals became a rule of every mode, 30.09.2026, which changed
-  // the refills of the seed-12345 pocket): one seed finds its win within the budget, two are cut short. P(O) = 1 over
-  // the one resolved seed (not 1/3), and the gap is paired on that seed only (the earlier asymmetric count gave FG < 0).
-  const starved = (await analyzeEngine(start({ ...pocket, seed: 1 }), { ...quick, seeds: 3, nodeBudget: 1, agents: false, restricted: false })).planner!;
+  // Level seed 2 and three evaluation seeds (chosen after crystals started to fall during the chain, 30.09.2026, which
+  // changed the refill stream): one seed finds its win within the budget, two are cut short. P(O) = 1 over the one
+  // resolved seed (not 1/3), and the gap is paired on that seed only (the earlier asymmetric count gave FG < 0).
+  const starved = (await analyzeEngine(start({ ...pocket, seed: 2 }), { ...quick, seeds: 3, nodeBudget: 1, agents: false, restricted: false })).planner!;
   assert(starved.oracleUnresolved === 2 && starved.pOracle === 1, `a budget-cut oracle seed is unresolved, not lost: ${JSON.stringify(starved)}`);
   assert(starved.fortuneGapSeeds === 1 && starved.fortuneGap === 0, `the gap uses only seeds resolved for both O and S: ${JSON.stringify(starved)}`);
   const fed = (await analyzeEngine(start(pocket), { ...quick, seeds: 2, agents: false, restricted: false })).planner!;

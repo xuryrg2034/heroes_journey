@@ -91,6 +91,15 @@ export const CRYSTAL_PROTECTED_VARIANTS: readonly EnemyVariant[] = ['troll', 'ja
 /** Crystals are one rule for every mode since 30.09.2026; kept for callers (UI) written against the map-only version. */
 export const crystalsActive = (_state?: Pick<ForestState, 'runNode'>): boolean => true;
 
+/**
+ * One step of the battle RNG (the engine's linear congruential generator). The chain forecast runs it on a copy of
+ * the live state, so crystal cells drawn during a forecast never advance the live RNG; execution draws the same values.
+ */
+export function nextRandom(state: number): { value: number; state: number } {
+  const next = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+  return { value: next / 4294967296, state: next };
+}
+
 /** Crystals an ordinary chain creates from its chain-hit kills (prisms, doors, devices and later deaths never count). */
 export function crystalsForKills(kills: number): number {
   return Math.floor(Math.max(0, kills) / CRYSTAL_KILLS);
@@ -105,6 +114,7 @@ export function crystalScore(cell: ForestCell | null | undefined): number {
  * A crystal may land here: walkable open cell (no open pit), not the cat, a device, a door or a crystal, and
  * either empty or an ordinary living single-cell enemy that is neither a boss, a protected variant, a key carrier
  * nor a marked goal target (crushing a target would make the battle unwinnable). An enemy there dies uncredited.
+ * The chain also keeps the cells still ahead of the cat free (`simulateChain`); freed cells behind it are allowed.
  */
 export function crystalCellAllowed(state: Pick<ForestState, 'cols' | 'rows' | 'terrain' | 'pits' | 'devices' | 'player' | 'tutorial'>,
   board: readonly (ForestCell | null)[], index: number): boolean {

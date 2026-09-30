@@ -226,7 +226,7 @@ interface ActionInfo {
 function makeNode(snap: AnalysisSnapshot): AnalysisNode {
   snap.entry = null;
   const text = stateText(snap.state);
-  return { snap, hash: hashString(`${text}|${snap.rng}|${snap.nextId}|${JSON.stringify(snap.pendingCrystals ?? null)}`), movesKey: hashString(text),
+  return { snap, hash: hashString(`${text}|${snap.rng}|${snap.nextId}`), movesKey: hashString(text),
     phase: snap.state.phase, hp: snap.state.player.hp, maxHp: snap.state.player.maxHp, turn: snap.state.turn };
 }
 

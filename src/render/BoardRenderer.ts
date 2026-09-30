@@ -25,11 +25,13 @@ interface Piece {
   motion?: { x:number; y:number; started:number; duration:number; curve?:number };
   strike?: { started:number; dx:number; dy:number };
   arrivalUntil?:number;
+  /** A crystal falling from above onto its cell in the middle of a chain; `crushed` when an enemy stood there. */
+  drop?: { started:number; duration:number; crushed:boolean };
 }
 interface Particle { view: Graphics; vx: number; vy: number; life: number; max: number; stationary?: boolean; angular?:number }
 interface Popup { view: Text; life: number }
 interface ArrivalVictim { view:Container; life:number }
-interface Dying { view:Container; life:number; max:number; kind:string; dx:number; dy:number; bx:number; by:number }
+interface Dying { view:Container; life:number; max:number; kind:string; dx:number; dy:number; bx:number; by:number; wait?:number }
 interface ArrowProjectile { view:Graphics; startX:number; startY:number; targetX:number; targetY:number; life:number; max:number }
 
 const NO_DISPLACED: ReadonlySet<number> = new Set();
@@ -267,6 +269,7 @@ export class BoardRenderer {
         piece={view,signature,index,born:oldBorn??now,motion:oldMotion,arrivalUntil:oldArrival}; this.views.set(cell.id,piece);
       }
       piece.index=index;
+      if(event.type==='crystal'&&event.newId===cell.id&&!piece.drop){const pos=this.entityCenter(cell,index);piece.view.position.set(pos.x,pos.y-240);piece.drop={started:now,duration:this.dur(240),crushed:event.oldId!==undefined};}
       // A boar shift moves whole rows one cell: each pushed body slides from its previous cell.
       if(event.type==='push'&&oldIndex!==undefined&&oldIndex!==index&&!cell.footprint){
         const from=this.center(oldIndex);piece.motion={x:from.x,y:from.y,started:now,duration:this.dur(85)};piece.view.position.set(from.x,from.y);
@@ -308,6 +311,7 @@ export class BoardRenderer {
 
   private deathCause(event:ForestEvent,state:ForestState):string|null{
     if(event.type!=='hit'&&event.type!=='kill')return null;
+    if(event.type==='kill'&&event.text==='crystal')return 'crystal';
     if(event.text&&['ram','spikes','thorns','pit'].includes(event.text))return event.text;
     const source=event.from!==undefined?state.board[event.from]:null;
     return event.type==='hit'&&source&&archerStrikesCreatures(source)?'arrow':null;
@@ -320,9 +324,10 @@ export class BoardRenderer {
     }else if(kind==='ram'&&event.from!==undefined){
       const a=this.center(event.from),b=this.center(index),len=Math.max(1,Math.hypot(b.x-a.x,b.y-a.y));dx=(b.x-a.x)/len;dy=(b.y-a.y)/len;
     }
-    const view=piece.view,max=this.dur(kind==='pit'?380:340);
+    const view=piece.view,max=this.dur(kind==='pit'?380:kind==='crystal'?200:340);
     this.effects.addChild(view);
-    this.dying.push({view,life:max,max,kind,dx,dy,bx:view.x,by:view.y});
+    // The crystal is still falling when the engine publishes the kill: the victim stands until it lands.
+    this.dying.push({view,life:max,max,kind,dx,dy,bx:view.x,by:view.y,...(kind==='crystal'?{wait:this.dur(240)}:{})});
     if(kind==='spikes'){this.burst(index,0xd6503f,10);this.burst(index,0xd8d2c0,6);}
     if(kind==='arrow')this.burst(index,0xe8c888,10);
   }
@@ -821,8 +826,8 @@ export class BoardRenderer {
       if(event.type==='hit') this.popup(i,event.amount?`−${event.amount}${event.text&&CAUSE_LABEL[event.text]?` ${CAUSE_LABEL[event.text]}`:''}`:event.text??'УДАР',PALE);
     }
     if(event.type==='crystal'&&i!==undefined){
-      this.burst(i,0xf3d98a,22);this.popup(i,`КРИСТАЛЛ · ${event.amount??0}`,0xffeaa8);
-      if(event.oldId!==undefined){this.burst(i,0xdf695d,12);this.shake=Math.max(this.shake,4);this.popupAt(this.center(i).x,this.center(i).y+14,'РАЗДАВЛЕН · не засчитано',0xf0d9a0);}
+      // The fall itself (and the crush) plays from the piece's drop animation; here only the score label.
+      this.popupAt(this.center(i).x,this.center(i).y-40,`КРИСТАЛЛ · ${event.amount??0}`,0xffeaa8);
     }
     if(event.type==='windup'&&event.text==='club'&&i!==undefined){
       const cell=state.board[i],piece=cell?this.views.get(cell.id):undefined,at=this.entityCenter(cell,i);
@@ -960,6 +965,14 @@ export class BoardRenderer {
     if(event.type==='reshuffle') this.popup(state.player.index,'НОВЫЙ ПУТЬ',PALE);
   }
 
+  /** A crystal has landed: dust, a ring and a small shake; heavier when it crushed an enemy. */
+  private crystalImpact(index:number,crushed:boolean){
+    const at=this.center(index),ring=new Graphics().circle(at.x,at.y,26).stroke({color:0xf3d98a,width:4,alpha:.95});
+    this.effects.addChild(ring);this.particles.push({view:ring,vx:0,vy:0,life:280,max:280,stationary:true,angular:0});
+    this.burst(index,0xf3d98a,crushed?18:12);
+    if(crushed){this.burst(index,0xdf695d,10);this.popupAt(at.x,at.y+14,'РАЗДАВЛЕН · не засчитано',0xf0d9a0);}
+    this.shake=Math.max(this.shake,crushed?6:3);
+  }
   private burst(index: number,color: number,count: number) {
     const c=this.center(index);
     for(let i=0;i<count;i++) {
@@ -996,6 +1009,11 @@ export class BoardRenderer {
         x=piece.motion.x+dx*eased-dy/length*arc;y=piece.motion.y+dy*eased+dx/length*arc;
         if(progress===1)piece.motion=undefined;
       }
+      if(piece.drop){
+        const t=Math.min(1,(now-piece.drop.started)/piece.drop.duration);
+        y-=(1-t*t)*240;
+        if(t===1){const crushed=piece.drop.crushed;piece.drop=undefined;this.crystalImpact(piece.index,crushed);}
+      }
       if(piece.strike) {
         const progress=Math.min(1,(now-piece.strike.started)/220),lunge=Math.sin(progress*Math.PI);
         x+=piece.strike.dx*lunge;y+=piece.strike.dy*lunge;if(progress===1)piece.strike=undefined;
@@ -1030,9 +1048,12 @@ export class BoardRenderer {
       if(victim.life<=0){victim.view.destroy({children:true});this.arrivalVictims.splice(i,1);}
     }
     for(let i=this.dying.length-1;i>=0;i--){
-      const d=this.dying[i];d.life-=dt;const t=Math.min(1,1-d.life/d.max),ease=1-Math.pow(1-t,2);
+      const d=this.dying[i];
+      if(d.wait!==undefined&&d.wait>0){d.wait-=dt;continue;}
+      d.life-=dt;const t=Math.min(1,1-d.life/d.max),ease=1-Math.pow(1-t,2);
       d.view.tint=d.kind==='arrow'?0xffffff:0xff9a88;
-      if(d.kind==='spikes'){d.view.position.set(d.bx+d.dx*34*ease,d.by+d.dy*34*ease);d.view.scale.set(1-.35*t);d.view.alpha=1-t*t;}
+      if(d.kind==='crystal'){d.view.position.set(d.bx,d.by+22*ease);d.view.scale.set(1+.35*t,Math.max(.06,1-.94*ease));d.view.alpha=1-t*t;}
+      else if(d.kind==='spikes'){d.view.position.set(d.bx+d.dx*34*ease,d.by+d.dy*34*ease);d.view.scale.set(1-.35*t);d.view.alpha=1-t*t;}
       else if(d.kind==='pit'){d.view.position.set(d.bx,d.by+16*ease);d.view.scale.set(Math.max(.05,1-t));d.view.rotation=t*.9;d.view.alpha=1-t*.6;}
       else if(d.kind==='ram'){d.view.position.set(d.bx+d.dx*30*ease,d.by+d.dy*30*ease);d.view.rotation=t*1.6*(d.dx>=0?1:-1);d.view.scale.set(1-.3*t);d.view.alpha=1-t*t;}
       else if(d.kind==='thorns'){d.view.position.set(d.bx+Math.sin(t*40)*3*(1-t),d.by);d.view.alpha=1-t*t;d.view.scale.set(1-.2*t);}

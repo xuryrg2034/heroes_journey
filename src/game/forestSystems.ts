@@ -9,7 +9,7 @@ import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPha
 import { BOAR_CHARGE_LENGTH, BOAR_DAMAGE, chargeDirection, chargeLane, HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE, walkableTerrain } from './terrain';
 import { chainSpikeDamage, SHAMAN_PERIOD, shamanRites, shamanTargets, wolfHasPack, WOLF_DAMAGE } from './forestBeasts';
-import { creditDefeat, damageCell, defeatsRoomBoss, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
+import { creditDefeat, damageCell, defeatOutright, defeatsRoomBoss, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
 export { physicalDamage, shieldBlocksEntry } from './combatRules';
 import { MELEE_AGGRESSION_START_TURN, meleeCanAttack } from './enemyLifecycle';
 import { applyDamageEffect, stepBleeding, tickDamageEffects, type DamageEffects } from './damageEffects';
@@ -17,7 +17,7 @@ import { assignDamageEffects, applyAttackEffect, hasDamageEffects } from './effe
 import { customGoalsMet } from './customLevel';
 import { applyDeviceVolley, deviceAt, pitAt } from './devices';
 import { clubImpacts, clubZone, effectTickHurts, isTroll, swingClub, TROLL_CLUB_DAMAGE, trollBody, trollRegeneration } from './troll';
-import { angerPerTurn, crystalScore, crystalsForKills } from './mapBattleRules';
+import { angerPerTurn, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
 export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, volley: 0, burning: 0, poison: 0 });
@@ -145,10 +145,25 @@ function rotationGeometryClear(state: ForestState, plan: RotationPlan, board: (F
   }
   return true;
 }
-export type ChainStep = { kind: 'hit'; hit: ChainHit } | { kind: 'device'; index: number; activated: boolean };
+/**
+ * `crystal`: a colour-change crystal falls on `index` after the preceding step (one battle-RNG draw), crushing the
+ * enemy `victimId` there; `value` is the chain's final kill count. Internal: never part of the public forecast.
+ */
+export type ChainStep = { kind: 'hit'; hit: ChainHit } | { kind: 'device'; index: number; activated: boolean }
+  | { kind: 'crystal'; index: number; victimId?: number; value: number };
 export interface ChainSimulation { steps?: ChainStep[]; queuedDevices?: InteractionDevice[]; preview: ChainPreview; board: (ForestCell | null)[]; bossKilled: boolean }
-/** Shared pure combat evaluator: preview and the committed turn consume this exact result. */
-export function simulateChain(state: ForestState, path: number[], allowIncomplete = false): ChainSimulation {
+/** Stand-in for a fallen crystal on the forecast board (the engine gives the real one its ID at execution). */
+function crystalStandIn(state: ForestState, index: number, id: number): ForestCell {
+  return { id, kind: 'prism', color: null, hp: 1, maxHp: 1, armor: 0, countdown: 2, crystalChain: 0,
+    status: { wet: state.terrain[index] === 'puddle', frozen: 0, brittle: false }, behavior: { aggressive: false, restTurns: 0 },
+    intent: { cells: [], damage: 1, label: 'Готовится' } };
+}
+/**
+ * Shared pure combat evaluator: preview and the committed turn consume this exact result. `rng` is a copy of the live
+ * battle RNG state: with it the crystals falling during the chain are drawn exactly as execution will draw them; without
+ * it (validity checks, witness search) no crystal falls.
+ */
+export function simulateChain(state: ForestState, path: number[], allowIncomplete = false, rng?: number): ChainSimulation {
   // Validate the submitted path independently from a lethal movement prefix.
   let plannedPathValid = false;
   // Porcupine quills can kill the cat mid-chain as bleeding can; validate the path as if the cat survived.
@@ -173,6 +188,24 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
   const seen = new Set<number>();
   const reject = (reason: string) => { preview.valid = false; preview.reason = reason; };
   if (!path.length) reject('Начни цепочку рядом с котом.');
+  // Crystals fall during the chain (mapBattleRules.ts): one per CRYSTAL_KILLS chain-hit kills, on a cell drawn from the
+  // RNG copy among the allowed ones that the rest of this path does not use. Without a cell it waits for a later step.
+  let pendingCrystals = 0, rngState = rng;
+  const crystalSteps: Extract<ChainStep, { kind: 'crystal' }>[] = [], standIns: ForestCell[] = [];
+  const dropCrystals = () => {
+    while (pendingCrystals > 0 && rngState !== undefined) {
+      const view = { ...state, player: { ...state.player, index: preview.endIndex } };
+      // Never on a path cell still occupied: the targets ahead of the cat and the last, wounded one. Freed cells behind are allowed.
+      const pool = board.flatMap((_cell, index) => !(board[index] && path.includes(index)) && crystalCellAllowed(view, board, index) ? [index] : []);
+      if (!pool.length) return;
+      const draw = nextRandom(rngState); rngState = draw.state;
+      const index = pool[Math.floor(draw.value * pool.length)], victim = board[index];
+      if (victim) { defeatOutright(victim); removeDefeated(board, victim); }
+      const standIn = crystalStandIn(state, index, -1 - standIns.length); standIns.push(standIn); board[index] = standIn;
+      const step = { kind: 'crystal' as const, index, value: 0, ...(victim ? { victimId: victim.id } : {}) };
+      crystalSteps.push(step); steps.push(step); pendingCrystals--;
+    }
+  };
   for (let step = 0; preview.valid && step < path.length; step++) {
     const index = path[step], cell = board[index];
     const device = deviceAt(state, index);
@@ -187,7 +220,6 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
       }
     } else {
       if (!cell || cell.kind !== 'door' && !isCellAlive(cell) || !chainAdjacent(state, previous, index) || seen.has(cell.id)) { reject('Выбирай соседние цели, включая диагонали. Одну сущность нельзя ударить дважды.'); break; }
-      if (!step && cell.kind === 'prism') { reject('Начни с противника, а не с огонька.'); break; }
       if (shieldBlocksEntry(state, cell, previous, index)) { reject('Щит закрывает этот подход. Обойди сбоку или сзади либо заморозь стража.'); break; }
       if (cell.color !== null && color !== null && cell.color !== color) { reject('Соединяй один цвет; бесцветная цель связывает любые цвета.'); break; }
       if (state.customLevel && cell.kind === 'door' && !customGoalsMet(state, customProgress)) { reject('Выход закрыт: сначала выполни все цели.'); break; }
@@ -218,7 +250,7 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
         if (killed) {
           removeDefeated(board, cell);
           preview.endIndex = index;
-          if (cell.kind !== 'door') preview.kills++;
+          if (cell.kind !== 'door') { preview.kills++; if (preview.kills % CRYSTAL_KILLS === 0) pendingCrystals++; }
           if (state.customLevel && cell.kind !== 'door') {
             creditDefeat(state, cell, customProgress);
           }
@@ -264,7 +296,15 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
     previous = index;
     if (!state.devices.length && preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
     if (bossKilled || preview.completesRoom) break;
+    // After this step the crystal falls (never on the path still ahead); a victory step ends the battle first.
+    if (pendingCrystals) dropCrystals();
   }
+  // A crystal that found no cell during the chain tries once more at its end; still none — it is not created.
+  if (preview.valid && !preview.playerDies && !bossKilled && !preview.completesRoom) dropCrystals();
+  pendingCrystals = 0;
+  // Its value is the chain's final length (kills), fixed once the chain is over.
+  for (const crystal of crystalSteps) crystal.value = preview.kills;
+  for (const standIn of standIns) standIn.crystalChain = preview.kills;
   if (preview.valid && !allowIncomplete && preview.enemies < 2 && preview.opensDoor === undefined && !plannedPathValid) reject('Нужны хотя бы два противника в цепочке.');
   if (!preview.valid) { preview.endIndex = state.player.index; return { preview, board, bossKilled: false }; }
   preview.energyGain = Math.min(7 - state.player.energy, preview.hits.filter(hit => { const cell = state.board[hit.index]; return cell && cell.kind !== 'door' && cell.kind !== 'prism'; }).length * 0.5);
@@ -293,12 +333,9 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
   }
   if (!preview.playerDies && (bossKilled || preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress))) preview.completesRoom = true;
   if (preview.playerDies) { preview.completesRoom = false; delete preview.opensDoor; bossKilled = false; }
-  const diesInAction = !!preview.playerDies;
   forecastEnemyPhase(state, forecastState, preview, movingPlayer.damageEffects, customProgress);
-  // Colour-change crystals (every mode, mapBattleRules.ts): one per CRYSTAL_KILLS chain-hit kills (prisms and doors are
-  // not kills, lever kills are trapKills). The cells are drawn at the refill with the battle RNG: only the number is forecast.
-  const crystals = !diesInAction && !preview.completesRoom ? crystalsForKills(preview.kills) : 0;
-  if (crystals) { preview.crystals = crystals; preview.createsPrism = true; }
+  // Only the number of fallen crystals is public; their cells and the crushed enemies stay in the internal steps.
+  if (crystalSteps.length) { preview.crystals = crystalSteps.length; preview.createsPrism = true; }
   return { preview, board, bossKilled, steps, queuedDevices };
 }
 /**

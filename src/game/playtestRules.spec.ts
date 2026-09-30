@@ -94,7 +94,9 @@ function node(id: string, row: number, options: { refill?: number; hp?: number; 
 }
 const field = (row = 5, refill = 0) => node(FIELD, row, { refill, palette: RED_ONLY });
 
-interface Played { preview: ChainPreview; events: EngineEvent[]; scoreDelta: number; killsDelta: number; combatDelta: number }
+/** A published event with the cat's cell and the phase at that moment. */
+type Seen = EngineEvent & { cat: number; phase: string };
+interface Played { preview: ChainPreview; events: Seen[]; scoreDelta: number; killsDelta: number; combatDelta: number }
 /** One real chain: a pure forecast (no state, RNG or ID change), then real input; damage and the outcome match it. */
 async function chain(g: ForestEngine, path: number[], where: string): Promise<Played> {
   const before = json(g.state), snap = g.captureAnalysisSnapshot();
@@ -103,8 +105,8 @@ async function chain(g: ForestEngine, path: number[], where: string): Promise<Pl
   assert(json(g.state) === before && after.rng === snap.rng && after.nextId === snap.nextId, `${where}: the forecast spends no state, RNG or IDs`);
   assert(preview.valid, `${where}: ${preview.reason}`);
   const hp = g.state.player.hp, score = g.state.score, kills = g.state.objective.kills, combat = g.state.room.combatKills;
-  const events: EngineEvent[] = [];
-  const off = g.subscribe((_state, event) => { events.push({ ...event, ...(event.indices ? { indices: [...event.indices] } : {}) }); });
+  const events: Seen[] = [];
+  const off = g.subscribe((state, event) => { events.push({ ...event, ...(event.indices ? { indices: [...event.indices] } : {}), cat: state.player.index, phase: state.phase }); });
   assert(g.beginChain(path[0]), `${where}: chain starts`);
   for (const step of path.slice(1)) assert(g.extendChain(step), `${where}: chain reaches ${step}`);
   assert(await g.releaseChain(), `${where}: chain resolves`);
@@ -245,7 +247,11 @@ async function crystalCounts() {
   equal(placed.map(({ cell }) => cell.crystalChain), [6], 'one crystal holding the chain length 6');
   const events = one.events.filter(event => event.type === 'crystal');
   equal(events.map(event => [event.index, event.newId, event.amount]), placed.map(({ index, cell }) => [index, cell.id, CRYSTAL_SCORE_PER_KILL * 6]), 'one crystal event with its value');
-  assert(one.events.findIndex(event => event.type === 'crystal') > one.events.findIndex(event => event.type === 'enemy-turn'), 'the crystal appears at the refill after the enemy phase');
+  // It falls during the chain, right after the sixth kill and before the enemy phase (30.09.2026).
+  const chainKills = one.events.flatMap((event, n) => event.type === 'kill' && !event.text && event.phase === 'PLAYER_RESOLVE' ? [n] : []);
+  const fall = one.events.findIndex(event => event.type === 'crystal');
+  assert(chainKills.length === 6 && fall > chainKills[5] && fall < one.events.findIndex(event => event.type === 'enemy-turn') && one.events[fall].phase === 'PLAYER_RESOLVE',
+    'the crystal falls in the step of the sixth kill, before the enemy phase');
   assert(placed.every(({ cell }) => !known.has(cell.id) && cell.color === null && cell.kind === 'prism'), 'a crystal is a new colourless prism');
 
   const twelve = field();
@@ -278,8 +284,19 @@ async function crystalPlacement() {
     equal(json(twin.captureAnalysisSnapshot()), json(g.captureAnalysisSnapshot()), `seed ${k}: the same seed and chain repeat the crystals exactly`);
     const placed = crystalsOf(g);
     positions.add(placed.map(({ index }) => index).sort((a, b) => a - b).join());
+    const path = cells(g, TWELVE), falls = played.events.filter(event => event.type === 'crystal');
+    for (const event of falls) {
+      // Never on the cat, the path still ahead of it or another crystal; freed cells behind the cat are allowed.
+      const kills = played.events.slice(0, played.events.indexOf(event)).filter(entry => entry.type === 'kill' && !entry.text).length;
+      assert(event.index !== event.cat, `seed ${k}: never on the cat`);
+      assert(!path.slice(kills).includes(event.index!), `seed ${k}: never on the path ahead of the cat`);
+      assert(falls.filter(other => other.index === event.index).length === 1, `seed ${k}: never on another crystal`);
+      if (event.oldId !== undefined) {
+        const crush = played.events[played.events.indexOf(event) - 1];
+        assert(crush.type === 'kill' && crush.text === 'crystal' && crush.index === event.index, `seed ${k}: the crushed enemy dies through the common death path first`);
+      }
+    }
     for (const { index } of placed) {
-      assert(index !== g.state.player.index, `seed ${k}: never on the cat`);
       assert(!protectedLabels.map(label => at(g, label)).includes(index) && index !== at(g, 'D5'), `seed ${k}: never on a boss, guard, target, device or door`);
     }
     assert(guarded.every(id => id === undefined || g.state.board.some(cell => cell?.id === id)), `seed ${k}: protected enemies survive`);
@@ -293,16 +310,33 @@ async function crystalPlacement() {
     const hitScore = played.preview.hits.reduce((sum, hit) => sum + (hit.crystalScore ?? (hit.killed ? 20 + 2 * hit.damage : hit.damage)), 0);
     equal(played.scoreDelta, hitScore + (g.state.lastDamage ? 0 : 30), `seed ${k}: crushing scores nothing`);
   }
+  // Many more seeds for the rarer cases: the first crystal never lands on the six cells still ahead, nor on the cat.
+  for (let k = 10; k < 60; k++) {
+    const g = field(5, k), path = cells(g, TWELVE);
+    const events: Seen[] = [];
+    g.subscribe((state, event) => { events.push({ ...event, cat: state.player.index, phase: state.phase }); });
+    g.state.chain = [...path]; await g.releaseChain();
+    for (const event of events.filter(entry => entry.type === 'crystal')) {
+      const kills = events.slice(0, events.indexOf(event)).filter(entry => entry.type === 'kill' && !entry.text).length;
+      assert(event.index !== event.cat && !path.slice(kills).includes(event.index!), `seed ${k}: the crystal keeps off the cat and the path ahead`);
+    }
+  }
   assert(positions.size >= 5, `crystal cells vary with the seed, got ${positions.size} layouts`);
   assert(crushed > 0, 'some crystals landed on a living enemy');
 
-  // Open pits (the lever opens row 2 for the next turn) never receive a crystal; lever kills do not count.
+  // Open pits (the lever opens row 2 for the whole next turn) never receive a crystal; lever kills do not count.
+  let overPits = 0;
   for (let k = 0; k < 6; k++) {
     const g = node(PITS, 5, { refill: k, palette: RED_ONLY });
     const played = await chain(g, cells(g, ['A6', 'B6', 'C6', 'D6', 'E6', 'F6', 'G6']), `pits seed ${k}`);
-    equal([played.preview.kills, played.preview.trapKills, played.preview.crystals], [6, 7, 1], `pits seed ${k}: six chain kills, seven lever kills, one crystal`);
-    assert(g.state.pits.length === 7 && crystalsOf(g).every(({ index }) => !g.state.pits.some(pit => pit.index === index)), `pits seed ${k}: no crystal on an open pit`);
+    equal([played.preview.kills, played.preview.crystals], [6, 1], `pits seed ${k}: six chain kills (lever kills apart), one crystal`);
+    assert(g.state.pits.length === 7, `pits seed ${k}: row 2 is open`);
+    const path = redPath(g, CRYSTAL_KILLS);
+    if (!path) continue;
+    const next = await chain(g, path, `pits seed ${k} next turn`);
+    for (const event of next.events.filter(entry => entry.type === 'crystal')) { overPits++; assert(!g.state.pits.some(pit => pit.index === event.index), `pits seed ${k}: no crystal on an open pit`); }
   }
+  assert(overPits > 0, 'crystals fell while pits were open');
 
   // Protected list: bosses of every kind and the named variants.
   for (const variant of ['troll', 'jailer', 'beacon', 'commander', 'wizard', 'sentinel', 'elite', 'wardrobe']) {
@@ -339,7 +373,7 @@ async function crystalValue() {
     const candidate = crystalsOf(h).map(({ index }) => redPath(h, CRYSTAL_KILLS - 1, index)).find(found => !!found);
     if (!candidate) continue;
     const forecast = h.preview(candidate);
-    equal([forecast.kills, forecast.hits.length, forecast.crystals ?? 0], [CRYSTAL_KILLS - 1, CRYSTAL_KILLS, 0], `seed ${k}: five kills and a crystal forecast no crystal`);
+    equal([forecast.kills, forecast.hits.length > forecast.kills, forecast.crystals ?? 0], [CRYSTAL_KILLS - 1, true, 0], `seed ${k}: five kills and a crystal forecast no crystal`);
     const known = new Set(crystalsOf(h).map(({ cell }) => cell.id));
     await chain(h, candidate, `seed ${k}: five kills and a crystal`);
     assert(!crystalsOf(h).some(({ cell }) => !known.has(cell.id)), `seed ${k}: no new crystal is placed`);
@@ -355,6 +389,35 @@ async function crystalValue() {
   const known = idsOf(editor);
   await chain(editor, cells(editor, TWELVE), 'editor twelve kills');
   equal(crystalsOf(editor).filter(({ cell }) => !known.has(cell.id)).map(({ cell }) => cell.crystalChain), [12, 12], 'editor: two crystals of length 12');
+}
+
+/** A chain may start on a crystal or prism (30.09.2026): the first coloured target sets the colour, two enemies are still needed. */
+const START = register(authoredLesson<string>({
+  id: 'spec-prism-start', name: 'Старт с огонька', description: 'Проверочный бой.', hint: 'Проверка.', seed: 9905,
+  rows: ['RRBB', 'RRBB', 'RRBB', 'HPBB'], legend: { P: { kind: 'prism' } }, goals: [{ key: 'kills', target: 999 }],
+}));
+async function chainFromCrystal() {
+  const g = node(START, 5, { palette: [100, 0, 100, 0, 0] });
+  const prism = at(g, 'B4');
+  assert(g.validStarts().includes(prism) && g.beginChain(prism), 'the prism beside the cat starts a chain');
+  g.cancelChain();
+  assert(!g.preview(cells(g, ['B4', 'C4'])).valid, 'a prism and one enemy are not enough');
+  assert(!g.preview(cells(g, ['B4', 'C4', 'B3'])).valid, 'the first coloured target (blue) sets the colour');
+  const played = await chain(g, cells(g, ['B4', 'C4', 'C3']), 'prism start');
+  equal([played.preview.enemies, played.preview.kills, played.preview.hits.map(hit => hit.availablePower)], [2, 2, [0, 1, 2]], 'the prism gives no power and is not a kill');
+  // A crystal made by a chain works the same: find one beside the cat and start from it.
+  let started = 0;
+  for (let k = 0; k < 10 && !started; k++) {
+    const h = field(5, k);
+    await chain(h, cells(h, TWELVE), `seed ${k}: make crystals`);
+    for (let turn = 0; turn < 3 && !started && h.state.phase === 'PLAYER_INPUT'; turn++) {
+      const crystal = crystalsOf(h).find(({ index }) => h.validStarts().includes(index));
+      const path = crystal ? h.availableMoves(8).find(candidate => candidate[0] === crystal.index) : undefined;
+      if (path) { await chain(h, path, `seed ${k}: start on a crystal`); started++; break; }
+      await h.waitTurn();
+    }
+  }
+  assert(started, 'a chain started on a crystal made by an earlier chain');
 }
 
 // ---------------------------------------------------------------- 3. kill credit
@@ -441,6 +504,15 @@ async function replayAndCancel() {
   const again = await chain(g, cells(g, TWELVE), 'after restart');
   equal(again.preview.crystals, 2, 'the next turn creates crystals normally');
 
+  // A restart while the crystal is falling (during its animation) cancels the turn as well.
+  const falling = field(5, 1); falling.animationScale = 0.02;
+  const fallingEntry = json(falling.state);
+  let dropped = false;
+  falling.subscribe((_state, event) => { if (event.type === 'crystal' && !dropped) { dropped = true; setTimeout(() => falling.restartLevel(), 0); } });
+  falling.state.chain = cells(falling, TWELVE);
+  equal(await falling.releaseChain(), false, 'a restart during the crystal fall cancels the turn');
+  equal(json(falling.state), fallingEntry, 'entry restored after the fall');
+
   // A restart during the animation before the refill also leaves no pending crystal behind.
   const slow = field(5, 1); slow.animationScale = 0.02;
   const slowEntry = json(slow.state);
@@ -518,9 +590,10 @@ async function main() {
   await crystalCounts();
   await crystalPlacement();
   await crystalValue();
+  await chainFromCrystal();
   await killCredit();
   await replayAndCancel();
   await forecastExtras();
-  console.log('PASS playtest rules: growing anger on rows ≥ 5 only, stronger refills, crystals (6/12 kills, seeded cells, uncredited crushing, protected cells, pits, no limit, value, no power), kill credit (archer, boar, club, devices, targets), forecast = execution, replay, cancellation; UI forecasts enemyPhase.rams and previewRest = execution');
+  console.log('PASS playtest rules: growing anger on rows ≥ 5 only, stronger refills, crystals (fall at the 6th/12th kill during the chain, seeded cells, not ahead on the path, prism start, uncredited crushing, protected cells, pits, no limit, value, no power), kill credit (archer, boar, club, devices, targets), forecast = execution, replay, cancellation; UI forecasts enemyPhase.rams and previewRest = execution');
 }
 void main();

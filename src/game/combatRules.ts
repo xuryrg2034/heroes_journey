@@ -32,6 +32,11 @@ export function damageHero(state: ForestState, amount: number): number {
   return damage;
 }
 
+/** Death without damage (a crystal lands on it): any HP, weak or sturdy; the caller removes it and records the defeat. */
+export function defeatOutright(cell: ForestCell): void {
+  cell.hp = 0; cell.defeated = true;
+}
+
 /** Removal is separate from damage so hit callbacks still observe the dying entity. */
 export function removeDefeated(board: (ForestCell | null)[], cell: ForestCell): void {
   clearEntity(board, cell.id);
@@ -43,13 +48,15 @@ export function removeDefeated(board: (ForestCell | null)[], cell: ForestCell): 
  * - `enemy` — enemy abilities striking other creatures (archer arrows, boar ram and push onto spikes, thorns or a
  *   pit, troll club, any future enemy attack on its own side): only goal targets — marked lesson/node targets and
  *   bosses — count toward the task; no kill counters, no `combatKills`, no score;
- * - `environment` — the gate volley and uncredited effect ticks: `combatKills` only, as before.
+ * - `environment` — the gate volley and uncredited effect ticks: `combatKills` only, as before;
+ * - `none` — an enemy crushed by a falling crystal: the common death path (removal, key drop, goal refresh, `kill`
+ *   event) without any counter or score.
  */
-export type DefeatCredit = 'player' | 'enemy' | 'environment';
+export type DefeatCredit = 'player' | 'enemy' | 'environment' | 'none';
 
 /** Both preview progress and live defeat accounting use the same credit rules. */
 export function creditDefeat(state: ForestState, cell: ForestCell, progress = state.objective, credit: DefeatCredit = 'player'): void {
-  if (cell.kind === 'door' || cell.kind === 'prism' || credit === 'environment') return;
+  if (cell.kind === 'door' || cell.kind === 'prism' || credit === 'environment' || credit === 'none') return;
   if (credit === 'player') {
     if (cell.kind === 'melee' || state.customLevel) progress.kills++;
     if (cell.kind === 'ranged') progress.rangedKills++;
