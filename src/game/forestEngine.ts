@@ -106,7 +106,8 @@ export class ForestEngine {
   /** Replay the battle from its entry snapshot: same layout, RNG and carried resources. */
   restartLevel() {
     if (!this.entrySnapshot) return;
-    this.generation++; this.state = cloneState(this.entrySnapshot.state); this.rng = this.entrySnapshot.rng; this.nextId = this.entrySnapshot.nextId;
+    // A new World: a stale turn generator keeps its own world and can only change that abandoned copy (ECS plan §3.8).
+    this.generation++; this.world = { state: cloneState(this.entrySnapshot.state), res: { rng: this.entrySnapshot.rng, nextId: this.entrySnapshot.nextId } };
     this.emit({ type: 'start' });
   }
   startCustomLevel(value: unknown): boolean { return this.loadCustomLevel(value); }
@@ -118,11 +119,10 @@ export class ForestEngine {
     const validation = validateCustomLevel(value);
     if (!validation.valid || !validation.definition) { this.emit({ type: 'invalid', text: validation.errors.join(' ') }); return false; }
     const definition = validation.definition;
-    const previous = { state: this.state, seed: this.seed, rng: this.rng, nextId: this.nextId, generation: this.generation,
-      entrySnapshot: this.entrySnapshot };
+    const previous = { world: this.world, seed: this.seed, generation: this.generation, entrySnapshot: this.entrySnapshot };
     try {
-      this.generation++; this.seed = definition.seed; this.rng = definition.seed; this.nextId = 1;
-      this.state = this.initialState(); this.entrySnapshot = null;
+      this.generation++; this.seed = definition.seed;
+      this.world = { state: this.initialState(), res: { rng: definition.seed, nextId: 1 } }; this.entrySnapshot = null;
       const state = this.state; state.cols = definition.cols; state.rows = definition.rows;
       state.devices = structuredClone(definition.devices ?? []);
       state.terrain = [...definition.terrain]; state.board = Array.from({ length: state.cols * state.rows }, () => null);
@@ -198,7 +198,7 @@ export class ForestEngine {
   /** Load a copied position into this engine, cancelling any pending turn. No event is emitted. */
   restoreAnalysisSnapshot(snapshot: AnalysisSnapshot) {
     const copy = cloneAnalysisSnapshot(snapshot);
-    this.generation++; this.state = copy.state; this.rng = copy.rng; this.nextId = copy.nextId; this.seed = copy.seed;
+    this.generation++; this.world = { state: copy.state, res: { rng: copy.rng, nextId: copy.nextId } }; this.seed = copy.seed;
     this.entrySnapshot = copy.entry;
   }
   getBoardState() { return cloneBoard(this.state.board); }
@@ -341,18 +341,19 @@ export class ForestEngine {
     return this.play(resolvePlayerTurn(context, simulation, ability), context);
   }
   private turnContext(): TurnContext {
-    const generation = this.generation;
+    // Commands and the systems act on the world of this turn; the facade services check the scene generation.
+    const generation = this.generation, world = this.world, state = world.state;
     return {
-      world: this.world,
-      state: this.state,
+      world,
+      state,
       scratch: {},
       current: () => generation === this.generation,
       drawRandom: () => this.random(),
       cmd: {
-        kill: (cell, index, credit) => killCreature(this.state, cell, index, credit),
+        kill: (cell, index, credit) => killCreature(state, cell, index, credit),
         placeCrystal: (index, value) => {
           const crystal = this.createCell('prism', null, index); crystal.crystalChain = value;
-          this.state.board[index] = crystal; return crystal;
+          state.board[index] = crystal; return crystal;
         },
       },
       finish: (won, message) => this.finish(won, message),

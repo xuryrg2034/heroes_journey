@@ -10,6 +10,7 @@
  *   npx tsx scripts/golden/golden.ts --ref <dir>      detailed diff against the engine in <dir> (a copy of the repo,
  *                                                     e.g. `git worktree add .scratch/ref <commit>`)
  *   --only <text>                                     only scenes whose name contains <text>
+ *   --stats                                           print how often each event type and cancellation point occurs
  *
  * The baseline stores one short hash per step (an action with its previews and events), so a mismatch names the
  * first diverging scene and step; `--ref` prints the differing records themselves. Scenes and records are the contract: change them only together with
@@ -36,6 +37,8 @@ type Policy = 'first' | 'longest' | 'random';
 const here = dirname(fileURLToPath(import.meta.url));
 const BASELINE = resolve(here, 'baseline.json');
 const SEEDS = [1, 83, 701, 987654321];
+/** Cancellation is exercised on two seeds per scene (every action kind, 6 event positions, sync and during a wait). */
+const CANCEL_SEEDS = [1, 701];
 const POLICIES: Policy[] = ['first', 'longest', 'random'];
 const ACTIONS = 10;
 const PREVIEW_CAP = 12;
@@ -81,6 +84,31 @@ function devicesLab(seed: number) {
     inventory: { frost: 2, bomb: 2, healing: 2, fire: 2 } };
 }
 
+/** Editor level where a pit lever, burning and poison, a troll and archers meet in the same turns (end-of-phase order). */
+function trollPitLab(seed: number) {
+  const cols = 7, rows = 7, at = (x: number, y: number) => y * cols + x;
+  const terrain = Array.from({ length: cols * rows }, () => 'floor');
+  const heroIndex = at(3, 6), body = [at(2, 0), at(3, 0), at(2, 1), at(3, 1)];
+  const devices = [
+    { index: at(3, 5), kind: 'pits', charges: 2, targets: [at(1, 3), at(4, 3), at(5, 4)] },
+    { index: at(2, 5), kind: 'fire', charges: 2, targets: [] },
+  ];
+  const taken = new Set([heroIndex, ...body, ...devices.map(device => device.index)]);
+  const enemies: Any[] = [{ index: body[0], kind: 'boss', variant: 'troll', color: null, hp: 30, aggressive: true, footprint: body,
+    attackEffect: 'poison' }];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const index = at(x, y); if (taken.has(index)) continue;
+    const color = (x + y) % 3 === 0 ? 0 : 1;
+    if (index === at(6, 2)) enemies.push({ index, kind: 'ranged', color: 1, hp: 2, aggressive: true });
+    else if (index === at(0, 4)) enemies.push({ index, kind: 'ranged', color: 0, hp: 2, aggressive: true });
+    else if (index === at(4, 4)) enemies.push({ index, kind: 'melee', color, hp: 1, aggressive: true, attackEffect: 'fire' });
+    else enemies.push({ index, kind: 'melee', color, hp: 0 });
+  }
+  return { version: 1, name: 'Тролль над люками', seed, cols, rows, terrain, heroIndex, enemies, doors: [], devices,
+    goals: [{ key: 'bossKills', target: 1 }], turnLimit: 0, completion: 'direct', paletteWeights: [100, 100, 0, 0, 0], extraColors: [],
+    playerHp: 20, inventory: { frost: 1, bomb: 1, healing: 2, fire: 2 } };
+}
+
 function scenes(lib: Lib): Scene[] {
   const fresh = () => { const g = new lib.ForestEngine(); g.animationScale = 0; return g; };
   const nodes = lib.FOREST_MAP.filter(node => node.content.kind === 'battle');
@@ -97,6 +125,7 @@ function scenes(lib: Lib): Scene[] {
     editor('camp', seed => lib.forestFixtureLevel(seed)),
     editor('boar', seed => lib.demos[0](seed)), editor('beasts', seed => lib.demos[1](seed)), editor('troll', seed => lib.demos[2](seed)),
     editor('devices-lab', devicesLab),
+    editor('troll-pit-lab', trollPitLab),
   ];
 }
 
@@ -132,12 +161,13 @@ function survey(g: Any, freeTools: boolean, log: string[]): Action[] {
   return actions;
 }
 
-async function act(g: Any, action: Action): Promise<void> {
-  if (action.kind === 'rest') { await g.waitTurn(); return; }
-  if (action.kind === 'ability') { await g.useAbility(action.ability, action.target); return; }
-  if (action.kind === 'item') { g.useItem(action.item, action.target); return; }
+/** Perform one action; returns the engine's result (false when rejected or cancelled by a restart). */
+async function act(g: Any, action: Action): Promise<boolean> {
+  if (action.kind === 'rest') return g.waitTurn();
+  if (action.kind === 'ability') return g.useAbility(action.ability, action.target);
+  if (action.kind === 'item') return g.useItem(action.item, action.target);
   g.beginChain(action.path[0]); for (const index of action.path.slice(1)) g.extendChain(index);
-  await g.releaseChain();
+  return g.releaseChain();
 }
 
 function choose(actions: Action[], policy: Policy, step: number, pick: () => number): Action {
@@ -153,7 +183,7 @@ function choose(actions: Action[], policy: Policy, step: number, pick: () => num
 /** One run: a list of records (text). Records are what the baseline hashes. */
 async function run(lib: Lib, scene: Scene, seed: number, policy: Policy): Promise<string[]> {
   const g = scene.start(lib, seed);
-  if (!g) return ['start rejected'];
+  if (!g) throw new Error(`${scene.name} seed ${seed}: the engine rejected the scene`);
   const log: string[] = [`start ${snapshot(g)}`];
   const events: string[] = [];
   g.subscribe((state: Any, event: Any) => events.push(`event ${JSON.stringify(event)} @${hash(JSON.stringify({ state, ...runtime(g) }))}`));
@@ -173,20 +203,48 @@ async function run(lib: Lib, scene: Scene, seed: number, policy: Policy): Promis
   return log;
 }
 
-/** Cancellation: a subscriber restarts the scene at the k-th event of a turn; the next turn must be unaffected. */
+/**
+ * Cancellation: a subscriber restarts the scene at the k-th event of a turn (counted from the start of the action,
+ * not from chain selection), either at once or from a microtask while the turn awaits its playback; the replayed
+ * action must behave as on a fresh start. For every kind of action the scene allows (chain, Rest, ability, item)
+ * and every event position of its turn (all of the first 12, then every second and the last four).
+ */
+/** Event positions of a turn with `n` events: every one of the first 12, every second after, and the last four. */
+function cancelPoints(n: number): number[] {
+  const points = new Set<number>();
+  for (let k = 1; k <= n; k++) if (k <= 12 || k % 2 === 0 || k > n - 4) points.add(k);
+  return [...points];
+}
 async function cancellation(lib: Lib, scene: Scene, seed: number): Promise<string[]> {
   const log: string[] = [];
-  for (const k of [2, 7]) {
-    const g = scene.start(lib, seed); if (!g) return ['start rejected'];
-    const entry = snapshot(g);
-    let count = 0, armed = true;
-    g.subscribe(() => { if (armed && ++count === k) { armed = false; g.restartLevel(); } });
-    const moves: number[][] = g.availableMoves(6);
-    const action: Action = moves[0] ? { kind: 'chain', path: moves[0] } : { kind: 'rest' };
-    await act(g, action);
-    log.push(`cancel k=${k} restarted=${!armed} same-as-entry=${snapshot(g) === entry}`, `after ${snapshot(g)}`);
+  const probe = scene.start(lib, seed); if (!probe) throw new Error(`${scene.name} seed ${seed}: the engine rejected the scene`);
+  const kinds = survey(probe, scene.freeTools, []);
+  // One action of every kind and variant: a chain, Rest, each ability and each item the scene allows.
+  const key = (action: Action) => action.kind === 'ability' ? `ability:${action.ability}` : action.kind === 'item' ? `item:${action.item}` : action.kind;
+  const actions = [...new Map(kinds.map(action => [key(action), action] as const)).values()];
+  for (const action of actions) {
+    // A dry run counts the events of this action's turn (chain selection excluded).
+    const dry = scene.start(lib, seed)!; let total = 0;
+    dry.subscribe(() => { total++; });
+    await act(dry, action);
+    for (const k of cancelPoints(total)) for (const mode of ['sync', 'wait'] as const) {
+    const g = scene.start(lib, seed); if (!g) throw new Error(`${scene.name} seed ${seed}: the engine rejected the scene`);
+    let count = 0, armed = false, restarted = false;
+    const late: string[] = [];
+    g.subscribe((_state: Any, event: Any) => {
+      // Events after the restart: the restart's own `start`, then nothing from the stale turn.
+      if (restarted) { late.push(event.type); return; }
+      if (!armed || ++count !== k) return;
+      armed = false;
+      if (mode === 'sync') { restarted = true; g.restartLevel(); } else queueMicrotask(() => { restarted = true; g.restartLevel(); });
+    });
+    armed = true;
+    const result = await act(g, action);
+    await Promise.resolve();
+    log.push(`cancel ${key(action)} k=${k} ${mode} restarted=${restarted} result=${result} late=${late.join(',')}`, `after ${snapshot(g)}`);
     await act(g, action);
     log.push(`replay ${snapshot(g)}`);
+    }
   }
   return log;
 }
@@ -197,7 +255,7 @@ async function record(lib: Lib, only?: string): Promise<Record<string, string[]>
     if (only && !scene.name.includes(only)) continue;
     for (const seed of SEEDS) {
       for (const policy of POLICIES) result[`${scene.name} seed=${seed} ${policy}`] = await run(lib, scene, seed, policy);
-      result[`${scene.name} seed=${seed} cancel`] = await cancellation(lib, scene, seed);
+      if (CANCEL_SEEDS.includes(seed)) result[`${scene.name} seed=${seed} cancel`] = await cancellation(lib, scene, seed);
     }
   }
   return result;
@@ -219,6 +277,15 @@ async function main() {
   const current = await record(await loadLib(resolve(here, '../..')), only);
   const hashes = Object.fromEntries(Object.entries(current).map(([key, lines]) => [key, steps(lines).map(hash).join(' ')]));
   const runs = Object.keys(hashes).length, records = Object.values(current).reduce((sum, lines) => sum + lines.length, 0);
+  if (args.includes('--stats')) {
+    // Coverage view: how often each event type and cancellation point occurs in the recorded runs.
+    const counts = new Map<string, number>();
+    for (const lines of Object.values(current)) for (const line of lines) {
+      const match = /^event \{"type":"([a-z-]+)"/.exec(line) ?? /^(cancel [a-z:]+) k=\d+ [a-z]+/.exec(line);
+      if (match) counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
+    }
+    console.log([...counts].sort((x, y) => y[1] - x[1]).map(([type, n]) => `${type} ${n}`).join('\n'));
+  }
   if (args.includes('--update')) {
     if (only) throw new Error('--update rewrites the whole baseline; drop --only.');
     writeFileSync(BASELINE, JSON.stringify({ note: 'Golden engine baseline, see scripts/golden/golden.ts', runs: hashes }, null, 0) + '\n');
