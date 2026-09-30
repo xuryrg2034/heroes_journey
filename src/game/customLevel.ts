@@ -2,6 +2,7 @@ import type { CellKind, EnemyColor, EnemyVariant, ForestState, ItemKind, Interac
 import type { DamageEffectKind } from './damageEffects';
 import { ENEMY_COLORS } from './enemyPalette';
 import { walkableTerrain } from './terrain';
+import { uniqueEntities } from './entityFootprint';
 
 export type PaletteWeights = [number, number, number, number, number];
 export type CustomGoalKey = 'kills' | 'rangedKills' | 'bossKills' | 'turns';
@@ -165,4 +166,17 @@ export function createCustomLevelDemo(seed = 701): CustomLevelDefinition {
     doors: [{ index: 3 }], goals: [{ key: 'kills', target: 6 }], turnLimit: 0, completion: 'exit', paletteWeights: [100, 100, 20, 0, 0],
     extraColors: [{ color: 3, weight: 100, afterGoalTurns: 2 }, { color: 4, weight: 100, afterGoalTurns: 4 }], playerHp: 5,
     inventory: { frost: 1, bomb: 1, healing: 1, fire: 1 } };
+}
+
+/**
+ * Goal progress of an authored battle after a death or at the end of a turn: the turn the goals were first met,
+ * the extra refill colors that open after it and the authored exit, which opens with the goals.
+ */
+export function refreshCustomProgress(state: ForestState): void {
+  const runtime = state.customLevel; if (!runtime) return;
+  if (runtime.goalCompletedTurn === null && customGoalsMet(state)) runtime.goalCompletedTurn = state.turn;
+  if (runtime.goalCompletedTurn === null) return;
+  runtime.paletteWeights = [...runtime.definition.paletteWeights];
+  for (const extra of runtime.definition.extraColors) if (state.turn - runtime.goalCompletedTurn >= extra.afterGoalTurns) runtime.paletteWeights[extra.color] = extra.weight;
+  for (const { cell } of uniqueEntities(state.board)) if (cell.kind === 'door' && cell.door) cell.door.breached = true;
 }

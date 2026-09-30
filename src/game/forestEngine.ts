@@ -7,8 +7,8 @@ import { animationWait, playTurn, type TurnSequence } from './turnRuntime';
 import { resolvePlayerTurn, resolveRestTurn, type TurnContext } from './turnSystems';
 import { cleanseDamageEffects } from './damageEffects';
 import { applyAttackEffect, assignDamageEffects, projectEnemyEffects } from './effectRules';
-import { creditDefeat, damageCell, removeDefeated, type DefeatCredit } from './combatRules';
-import { allowedSpawnColors, customGoalsMet, validateCustomLevel, weightedColor } from './customLevel';
+import { applyDamage, killCreature } from './combatRules';
+import { allowedSpawnColors, customGoalsMet, refreshCustomProgress, validateCustomLevel, weightedColor } from './customLevel';
 import type { ChainSimulation } from './forestSystems';
 import { ITEMS } from './items';
 import { chooseGeneratedColors, hasOrdinaryChain } from './boardGeneration';
@@ -310,11 +310,11 @@ export class ForestEngine {
         if (generation !== this.generation) return false;
         continue;
       }
-      const outcome = damageCell(cell, preview.damage, 'item');
+      const outcome = applyDamage(cell, preview.damage, 'item');
       this.emit({ type: 'hit', index: targetIndex, amount: preview.damage });
       if (generation !== this.generation) return false;
       if (outcome.killed) {
-        removeDefeated(this.state.board, cell); this.recordDefeat(cell, targetIndex, 'player');
+        killCreature(this.state, cell, targetIndex, 'player');
         if (generation !== this.generation) return false;
         this.emit({ type: 'kill', index: targetIndex });
         if (generation !== this.generation) return false;
@@ -323,23 +323,9 @@ export class ForestEngine {
     this.emit({ type: 'item', index, indices: preview.indices, amount: preview.damage || preview.healing, text: ITEMS[item].label });
     if (generation !== this.generation) return false;
     if (this.state.customLevel?.definition.completion === 'direct' && customGoalsMet(this.state)) { this.finish(true); return true; }
-    if (!this.generateAndPublish(generation, false)) return false;
-    if (generation !== this.generation) return false;
+    const spawned = this.generateBoard(false);
+    if (spawned.length) { this.emit({ type: 'spawn', indices: spawned }); if (generation !== this.generation) return false; }
     this.emit(); return true;
-  }
-  private recordDefeat(cell: ForestCell, _index: number, credit: DefeatCredit) {
-    if (cell.kind === 'door' || cell.kind === 'prism') return;
-    // An enemy's ability killing its own side, or a crystal crushing it, is not the player's kill (combatRules.DefeatCredit).
-    creditDefeat(this.state, cell, this.state.objective, credit);
-    this.refreshCustomProgress();
-  }
-  private refreshCustomProgress(state = this.state) {
-    const runtime = state.customLevel; if (!runtime) return;
-    if (runtime.goalCompletedTurn === null && customGoalsMet(state)) runtime.goalCompletedTurn = state.turn;
-    if (runtime.goalCompletedTurn === null) return;
-    runtime.paletteWeights = [...runtime.definition.paletteWeights];
-    for (const extra of runtime.definition.extraColors) if (state.turn - runtime.goalCompletedTurn >= extra.afterGoalTurns) runtime.paletteWeights[extra.color] = extra.weight;
-    for (const { cell } of uniqueEntities(state.board)) if (cell.kind === 'door' && cell.door) cell.door.breached = true;
   }
   async releaseChain(): Promise<boolean> {
     if (this.state.phase !== 'PLAYER_INPUT') return false;
@@ -362,12 +348,16 @@ export class ForestEngine {
       scratch: {},
       current: () => generation === this.generation,
       drawRandom: () => this.random(),
-      createCrystal: (index, value) => { const crystal = this.createCell('prism', null, index); crystal.crystalChain = value; return crystal; },
-      recordDefeat: (cell, index, credit) => this.recordDefeat(cell, index, credit),
+      cmd: {
+        kill: (cell, index, credit) => killCreature(this.state, cell, index, credit),
+        placeCrystal: (index, value) => {
+          const crystal = this.createCell('prism', null, index); crystal.crystalChain = value;
+          this.state.board[index] = crystal; return crystal;
+        },
+      },
       finish: (won, message) => this.finish(won, message),
-      refreshCustomProgress: () => this.refreshCustomProgress(),
       planRotationReplacements: rotations => this.planRotationReplacements(rotations),
-      generateBoard: () => this.generateAndPublish(generation, true),
+      generateBoard: () => this.generateBoard(true),
       hint: () => this.hint(),
     };
   }
@@ -396,7 +386,7 @@ export class ForestEngine {
     }
     projectEnemyEffects(projected);
     uniqueEntities(projected.board).forEach(({ cell }) => { if (cell.status.frozen > 0) cell.status.frozen--; });
-    if (projected.customLevel) { projected.objective.turns++; this.refreshCustomProgress(projected); }
+    if (projected.customLevel) { projected.objective.turns++; refreshCustomProgress(projected); }
     const generatedIds = new Set([...replacements.values()].map(cell => cell.id));
     // Early replacements cannot borrow a colour that activates only after this enemy phase.
     const colorLimits = new Map([...generatedIds].map(id => [id, allowedSpawnColors(this.state)]));
@@ -438,7 +428,8 @@ export class ForestEngine {
     chooseGeneratedColors(candidate.state, candidate.generatedIds, colorLimits);
     return candidate;
   }
-  private generateAndPublish(generation: number, prepare: boolean): boolean {
+  /** Refill the board (and prepare intents between turns); returns the cells that received a new enemy. The caller publishes `spawn`. */
+  private generateBoard(prepare: boolean): number[] {
     const result = this.selectGeneratedBoard(prepare), previous = new Map(this.state.board.flatMap(cell => cell ? [[cell.id, cell] as const] : []));
     this.state.board = result.state.board.map(cell => {
       if (!cell) return null;
@@ -448,8 +439,7 @@ export class ForestEngine {
     });
     if (prepare) { this.state.rotations = result.state.rotations; this.state.bossWarning = result.state.bossWarning; }
     this.nextId = result.nextId;
-    if (result.spawned.length) { this.emit({ type: 'spawn', indices: result.spawned }); if (generation !== this.generation) return false; }
-    return true;
+    return result.spawned;
   }
   /** Refill color: one weighted draw from the battle's palette (map row plus authored colors, or the editor weights). */
   private refillColor(state = this.state): EnemyColor {

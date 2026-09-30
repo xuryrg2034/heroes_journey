@@ -33,8 +33,7 @@ export function animationWait(milliseconds: number, scale: number): Promise<void
 /**
  * Run a turn sequence to its end synchronously, without clocks: yielded events are collected (and passed to
  * `onEvent`), delays skipped. For forecasts and tests that need the same systems without playback (ECS plan §3.8).
- * `isCurrent` may stop it early. Events that engine services publish directly (the refill `spawn`) do not pass
- * through the sequence until the command executor of stage 3; subscribe to the engine to see them.
+ * `isCurrent` may stop it early. Every event of a chain, ability or Rest turn passes through the sequence.
  */
 export function drainSync(sequence: TurnSequence, isCurrent: () => boolean = () => true, onEvent?: (event: EngineEvent) => void): { result: boolean; events: EngineEvent[] } {
   const events: EngineEvent[] = [];

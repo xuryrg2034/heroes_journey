@@ -53,11 +53,13 @@ async function drainEqualsPlayback() {
       const events: EngineEvent[] = [];
       live.subscribe((_state, event) => events.push({ ...event }));
       await live.waitTurn();
-      // Services publish the refill directly (not through the sequence): the drained engine's listener sees those.
-      const drainedEvents: EngineEvent[] = [];
-      drained.subscribe((_state, event) => drainedEvents.push({ ...event }));
+      // Since stage 3 every event of a turn passes through the sequence (the refill `spawn` included): no subscription needed.
+      let published = 0;
+      drained.subscribe(() => { published++; });
       const context = (drained as unknown as { turnContext(): TurnContext }).turnContext();
-      const result = drainSync(resolveRestTurn(context), () => true, event => drainedEvents.push({ ...event }));
+      const result = drainSync(resolveRestTurn(context));
+      const drainedEvents = result.events.map(event => ({ ...event }));
+      assert(published === 0, `${name} turn ${turns + 1}: a drained turn publishes nothing directly`);
       const view = (g: ForestEngine) => JSON.stringify({ state: g.state, rng: (g as unknown as { rng: number }).rng, nextId: (g as unknown as { nextId: number }).nextId });
       assert(result.result && JSON.stringify(drainedEvents) === JSON.stringify(events), `${name} turn ${turns + 1}: drained events equal the published ones`);
       assert(view(drained) === view(live), `${name} turn ${turns + 1}: drained world equals the played one`);

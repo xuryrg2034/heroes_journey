@@ -4,7 +4,7 @@
  * every observable impact; the live runner turns impacts into events and cancellation barriers.
  */
 import { isCellAlive } from './cellLife';
-import { damageCell, damageHero, removeDefeated, shieldBlocksEntry } from './combatRules';
+import { applyDamage, heroTarget, removeDefeated, shieldBlocksEntry } from './combatRules';
 import type { EdgeSide } from './customLevel';
 import { deviceAt, pitAt } from './devices';
 import { applyAttackEffect } from './effectRules';
@@ -108,14 +108,14 @@ export function* resolveBoarCharge(state: ForestState, boar: ForestCell, start: 
       rammed = true;
       const first = bodies[0];
       if (!first.cell) {
-        const heroDamage = damageHero(state, boar.intent.damage);
+        const heroDamage = applyDamage(heroTarget(state), boar.intent.damage, 'charge').damage;
         const effect = state.player.hp > 0 && applyAttackEffect(state.player, boar.attackEffect, false);
         yield { kind: 'ram', index: first.index, heroDamage, damage: heroDamage, killed: state.player.hp === 0, shielded: false, effect };
         if (state.player.hp === 0) return;
       } else {
         const cell = first.cell;
         const shielded = cell.kind === 'door' || cell.kind === 'prism' || shieldBlocksEntry(state, cell, at, first.index);
-        const outcome = shielded ? null : damageCell(cell, boar.intent.damage, 'hazard');
+        const outcome = shielded ? null : applyDamage(cell, boar.intent.damage, 'hazard');
         if (outcome?.killed) removeDefeated(state.board, cell);
         yield { kind: 'ram', index: first.index, cell, damage: outcome?.damage ?? 0, killed: !!outcome?.killed, shielded };
         // A weak victim leaves a gap: the boar advances into it on this step.
@@ -134,7 +134,7 @@ export function* resolveBoarCharge(state: ForestState, boar: ForestCell, start: 
         const cause = end.kind === 'pit' ? 'pit' : 'spikes';
         if (!front.cell) {
           // Spikes hurt the cat, which then holds the row; an open pit is fatal as always.
-          const heroDamage = damageHero(state, cause === 'pit' ? state.player.hp : SPIKE_HERO_DAMAGE);
+          const heroDamage = applyDamage(heroTarget(state), cause === 'pit' ? state.player.hp : SPIKE_HERO_DAMAGE, 'charge').damage;
           yield { kind: 'crush', index: front.index, cause, heroDamage, damage: heroDamage, killed: state.player.hp === 0 };
           if (state.player.hp === 0) return;
           break;
@@ -151,14 +151,14 @@ export function* resolveBoarCharge(state: ForestState, boar: ForestCell, start: 
     for (const move of shift.moves) {
       if (state.terrain[move.to] !== 'thorns') continue;
       if (move.id === HERO_MOVE_ID) {
-        const heroDamage = damageHero(state, THORN_DAMAGE);
+        const heroDamage = applyDamage(heroTarget(state), THORN_DAMAGE, 'charge').damage;
         yield { kind: 'crush', index: move.to, cause: 'thorns', heroDamage, damage: heroDamage, killed: state.player.hp === 0 };
         if (state.player.hp === 0) return;
         continue;
       }
       const cell = state.board[move.to];
       if (!cell || !isCellAlive(cell)) continue;
-      const outcome = damageCell(cell, THORN_DAMAGE, 'hazard');
+      const outcome = applyDamage(cell, THORN_DAMAGE, 'hazard');
       if (outcome.killed) removeDefeated(state.board, cell);
       yield { kind: 'crush', index: move.to, cause: 'thorns', cell, damage: outcome.damage, killed: outcome.killed };
     }

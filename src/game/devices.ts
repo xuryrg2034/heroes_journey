@@ -1,4 +1,4 @@
-import { damageCell, damageHero, removeDefeated } from './combatRules';
+import { applyDamage, heroTarget, removeDefeated } from './combatRules';
 import type { ChainHit, ForestCell, ForestState, InteractionDevice } from './forestTypes';
 import { walkableTerrain } from './terrain';
 
@@ -32,7 +32,7 @@ function* openPits(state: ForestState, device: InteractionDevice): Generator<Tra
     else state.pits.push({ index, closesAfterTurn: state.turn + 1 });
     yield { index, pitOpened: true };
     if (index === state.player.index) {
-      yield { index, heroDamage: damageHero(state, state.player.hp) };
+      yield { index, heroDamage: applyDamage(heroTarget(state), state.player.hp, 'trap').damage };
       return;
     }
     if (!cell) continue;
@@ -48,14 +48,14 @@ export function* applyDeviceVolley(state: ForestState, device: InteractionDevice
   const seen = new Set<number>();
   for (const index of deviceTargets(state, device)) {
     if (index === state.player.index) {
-      yield { index, heroDamage: damageHero(state, device.damage ?? 4) };
+      yield { index, heroDamage: applyDamage(heroTarget(state), device.damage ?? 4, 'trap').damage };
       if (state.player.hp <= 0) return;
       continue;
     }
     const cell = state.board[index];
     if (!cell || cell.kind === 'door' || cell.kind === 'prism' || seen.has(cell.id)) continue;
     seen.add(cell.id);
-    const outcome = damageCell(cell, device.damage ?? 4, 'item');
+    const outcome = applyDamage(cell, device.damage ?? 4, 'item');
     if (outcome.killed) removeDefeated(state.board, cell);
     yield { index, cell, hit: { index, damage: outcome.damage, hpBefore: outcome.hpBefore, hpAfter: outcome.hpAfter,
       killed: outcome.killed, physical: false } };

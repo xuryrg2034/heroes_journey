@@ -1,5 +1,5 @@
 import { isCellAlive } from './cellLife';
-import { damageCell, removeDefeated } from './combatRules';
+import { applyDamage, removeDefeated } from './combatRules';
 import { uniqueEntities } from './entityFootprint';
 import { meleeCanAttack } from './enemyLifecycle';
 import { wolfHasPack, type BeastWorld } from './forestBeasts';
@@ -55,7 +55,7 @@ export function* archerVolley(board: (ForestCell | null)[], archer: ForestCell):
     const cell = board[index];
     if (!cell || cell === archer || cell.kind === 'door' || cell.kind === 'prism' || struck.has(cell.id) || !isCellAlive(cell)) continue;
     struck.add(cell.id);
-    const outcome = damageCell(cell, archer.intent.damage, 'hazard');
+    const outcome = applyDamage(cell, archer.intent.damage, 'hazard');
     if (outcome.killed) removeDefeated(board, cell);
     yield { index, cell, damage: outcome.damage, killed: outcome.killed };
   }

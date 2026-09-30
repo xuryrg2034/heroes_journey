@@ -1,10 +1,10 @@
 import { isCellAlive } from './cellLife';
-import type { AbilityKind, ForestCell, ForestState, RotationPreview } from './forestTypes';
+import type { AbilityKind, ChainHit, ForestCell, ForestState, HeroDamageSource, RotationPreview } from './forestTypes';
 import type { ChainSimulation } from './forestSystems';
 import { rotationPreview } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
-import { customGoalsMet } from './customLevel';
-import { damageCell, damageHero, defeatOutright, removeDefeated, type DefeatCredit } from './combatRules';
+import { customGoalsMet, refreshCustomProgress } from './customLevel';
+import { applyDamage, heroTarget, defeatOutright, type DefeatCredit } from './combatRules';
 import { crystalScore } from './mapBattleRules';
 import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
 import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
@@ -17,6 +17,8 @@ import { stepBleeding, tickDamageEffects } from './damageEffects';
 import { applyAttackEffect, assignDamageEffects, canReceiveDamageEffects, hasDamageEffects } from './effectRules';
 import { applyDeviceVolley, closeExpiredPits, deviceAt, deviceTargets } from './devices';
 import type { TurnSequence } from './turnRuntime';
+/** Cat damage cause of a periodic effect hit, as in the forecast breakdown. */
+const heroTickCause = (kind: 'fire' | 'poison' | 'bleeding'): HeroDamageSource => kind === 'fire' ? 'burning' : kind;
 import type { World } from './ecs/world';
 import { instant, runSchedule, type ScheduleVerdict, type SystemSet, type TurnSystem } from './ecs/schedule';
 
@@ -38,15 +40,47 @@ export interface TurnContext {
   current(): boolean;
   /** One draw of the live battle RNG: a crystal falling during the chain consumes exactly what the forecast drew. */
   drawRandom(): number;
-  /** A new colour-change crystal entity (fresh ID) holding the chain length `value`; the caller puts it on the board. */
-  createCrystal(index: number, value: number): ForestCell;
-  recordDefeat(cell: ForestCell, index: number, credit: DefeatCredit): void;
+  /** Structural changes of the world (ECS plan §3.6). */
+  readonly cmd: Commands;
   finish(won: boolean, message?: string): void;
-  refreshCustomProgress(): void;
   planRotationReplacements(rotations: RotationPreview[]): Map<number, ForestCell>;
-  generateBoard(): boolean;
+  /** Refill and fresh intents; returns the cells that received a new enemy. */
+  generateBoard(): number[];
   hint(): string;
 }
+
+/** Commands of the turn systems: the one path of structural changes that notify observers. */
+export interface Commands {
+  /** Common death path (combatRules.killCreature): removal, then death observers with `credit`. */
+  kill(cell: ForestCell, index: number, credit: DefeatCredit): void;
+  /** A new colour-change crystal (fresh ID) holding the chain length `value`, placed on `index`. */
+  placeCrystal(index: number, value: number): ForestCell;
+}
+
+/**
+ * Turn observers with events (ECS plan §3.5): they run inside the chain system at a fixed point and yield their
+ * events there. Registration order is call order.
+ * - chain hit: after a chain hit is published (porcupine quills);
+ * - hero step: after an ordinary step of the cat (bleeding).
+ * Each returns false when a restart cancelled it; the chain system then stops a dead cat's turn.
+ */
+export interface ChainHitObserver { readonly name: string; run(ctx: TurnContext, hit: ChainHit): TurnSequence }
+export interface HeroStepObserver { readonly name: string; run(ctx: TurnContext): TurnSequence }
+/** Porcupine quills (same amount as simulateChain): at the hit, before any later step or victory. */
+const Quills: ChainHitObserver = { name: 'quills', *run(ctx, hit) {
+  if (!hit.spikeDamage) return true;
+  if (!ctx.current()) return false;
+  const damage = applyDamage(heroTarget(ctx.state), hit.spikeDamage, 'quills').damage;
+  yield { event: { type: 'damage', index: ctx.state.player.index, from: hit.index, amount: damage, text: 'quills' } };
+  return ctx.current();
+} };
+/** Bleeding: one ordinary step of the cat advances its step counter and may hurt. */
+const BleedingStep: HeroStepObserver = { name: 'bleeding-step', *run(ctx) {
+  if (!ctx.state.player.damageEffects?.bleeding) return true;
+  return yield* resolveMovementBleeding(ctx);
+} };
+export const CHAIN_HIT_OBSERVERS: readonly ChainHitObserver[] = [Quills];
+export const HERO_STEP_OBSERVERS: readonly HeroStepObserver[] = [BleedingStep];
 
 /** PlayerAction: the chain or ability hits, moves, crystals, devices on the path, quills and bleeding steps. */
 const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) {
@@ -72,8 +106,7 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
         defeatOutright(victim);
         if (!(yield* defeatCreature(ctx, victim, action.index, 'none', 'crystal'))) return false;
       }
-      const crystal = ctx.createCrystal(action.index, action.value);
-      ctx.state.board[action.index] = crystal;
+      const crystal = ctx.cmd.placeCrystal(action.index, action.value);
       yield { event: { type: 'crystal', index: action.index, newId: crystal.id, amount: crystalScore(crystal), ...(action.victimId !== undefined ? { oldId: action.victimId } : {}) } };
       if (!ctx.current()) return false;
       yield { delay };
@@ -89,8 +122,8 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
         yield { event: { type: 'device', index: action.index, text: device.kind, amount: device.charges } };
         if (!ctx.current()) return false;
       }
-      if (ctx.state.player.damageEffects?.bleeding) {
-        yield* resolveMovementBleeding(ctx);
+      for (const observer of HERO_STEP_OBSERVERS) {
+        if (!(yield* observer.run(ctx))) return false;
         if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
       }
       yield { delay };
@@ -108,7 +141,7 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
         if (!ctx.current()) return false;
       }
       if (original.kind === 'prism') ctx.state.objective.prisms++;
-      else ctx.recordDefeat(original, hit.index, 'player');
+      else ctx.cmd.kill(original, hit.index, 'player');
       if (!ctx.current()) return false;
     }
     if (original.kind === 'boss') ctx.state.objective.bossHits++;
@@ -123,16 +156,12 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
       && (attackEffect !== 'wind' || original.damageEffects?.burning)) {
       yield { event: { type: 'status', index: hit.index, effect: attackEffect, amount: 1 } };
     }
-    // Porcupine quills (same amount as simulateChain): at the hit, before any later step or victory.
-    if (hit.spikeDamage) {
-      if (!ctx.current()) return false;
-      const damage = damageHero(ctx.state, hit.spikeDamage);
-      yield { event: { type: 'damage', index: ctx.state.player.index, from: hit.index, amount: damage, text: 'quills' } };
-      if (!ctx.current()) return false;
+    for (const observer of CHAIN_HIT_OBSERVERS) {
+      if (!(yield* observer.run(ctx, hit))) return false;
       if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
     }
-    if (hit.killed && !ability && ctx.state.player.damageEffects?.bleeding) {
-      yield* resolveMovementBleeding(ctx);
+    if (hit.killed && !ability) for (const observer of HERO_STEP_OBSERVERS) {
+      if (!(yield* observer.run(ctx))) return false;
       if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
     }
     if (hit.doorOpened) turn.doorOpened = true;
@@ -151,7 +180,7 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
 const ChainEndTerrain: TurnSystem<TurnContext> = { name: 'ChainEndTerrain', *run(ctx) {
   const { ability } = ctx.scratch.action!;
   if (!ability && ctx.state.terrain[ctx.state.player.index] === 'thorns') {
-    const damage = damageHero(ctx.state, THORN_DAMAGE);
+    const damage = applyDamage(heroTarget(ctx.state), THORN_DAMAGE, 'thorns').damage;
     yield { event: { type: 'damage', index: ctx.state.player.index, amount: damage, text: 'thorns' } };
     if (!ctx.current()) return false;
     if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
@@ -172,7 +201,7 @@ const DeviceVolleys: TurnSystem<TurnContext> = { name: 'DeviceVolleys', *run(ctx
         yield { event: { type: 'hit', index: impact.index, amount: impact.hit.damage } };
         if (!ctx.current()) return false;
         if (impact.hit.killed) {
-          ctx.recordDefeat(impact.cell!, impact.index, 'player');
+          ctx.cmd.kill(impact.cell!, impact.index, 'player');
           if (!ctx.current()) return false;
           yield { event: { type: 'kill', index: impact.index } };
         }
@@ -195,8 +224,7 @@ const PlayerVictory = instant<TurnContext>('PlayerVictory', ctx => {
  * credit by `credit`) and the `kill` event once it is gone. Returns false when a subscriber restarted the scene.
  */
 function* defeatCreature(ctx: TurnContext, cell: ForestCell, index: number, credit: DefeatCredit, text?: string): TurnSequence {
-  removeDefeated(ctx.state.board, cell);
-  ctx.recordDefeat(cell, index, credit);
+  ctx.cmd.kill(cell, index, credit);
   if (!ctx.current()) return false;
   yield { event: { type: 'kill', index, ...(text ? { text } : {}) } };
   return ctx.current();
@@ -218,7 +246,7 @@ function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number):
       if (impacted || ctx.state.player.index !== target || !evaluateEnemyAttack(cell, index, target, ctx.state)?.hitsHero) return;
       impacted = true;
       cell.behavior.aggressive = false; cell.behavior.restTurns = 1;
-      const damage = damageHero(ctx.state, cell.intent.damage);
+      const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, 'melee').damage;
       events.push({ type: 'damage', index: target, from: index, amount: damage });
     },
     nextState: (_enemy, state) => {
@@ -260,7 +288,7 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
         ...(cell.variant === 'jailer' ? { indices: [...cell.intent.cells] } : {}),
         ...(club ? { indices: [...club.zone], amount: club.damage, text: 'club' } : {}) } };
       if (hitsHero) {
-        const damage = damageHero(ctx.state, cell.intent.damage);
+        const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, cell.kind === 'ranged' ? 'ranged' : club ? 'troll' : 'boss').damage;
         yield { event: { type: 'damage', index: ctx.state.player.index, from: index, amount: damage, ...(club ? { text: 'club' } : {}) } };
         if (ctx.state.player.hp > 0 && applyAttackEffect(ctx.state.player, cell.attackEffect, false)) {
           yield { event: { type: 'status', index: ctx.state.player.index, from: index, effect: cell.attackEffect, amount: 1 } };
@@ -271,7 +299,7 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
         yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage } };
         if (!ctx.current()) return false;
         if (!impact.killed) continue;
-        ctx.recordDefeat(impact.cell, impact.index, 'enemy');
+        ctx.cmd.kill(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index } };
       }
@@ -280,7 +308,7 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
         yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage, text: 'club' } };
         if (!ctx.current()) return false;
         if (!impact.killed) continue;
-        ctx.recordDefeat(impact.cell, impact.index, 'enemy');
+        ctx.cmd.kill(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index, text: 'club' } };
       }
@@ -315,7 +343,7 @@ export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): T
       if (!ctx.current()) return false;
       if (impact.killed && impact.cell) {
         // A boar's ram and push are an enemy ability: the kill counts only for goal targets.
-        ctx.recordDefeat(impact.cell, impact.index, 'enemy');
+        ctx.cmd.kill(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index, text } };
       }
@@ -362,7 +390,7 @@ function* resolveMovementBleeding(ctx: TurnContext): TurnSequence {
   assignDamageEffects(ctx.state.player, step.effects);
   yield { event: { type: 'status', index: ctx.state.player.index, effect: 'bleeding' } };
   for (const hit of step.hits) {
-    const damage = damageHero(ctx.state, hit.damage);
+    const damage = applyDamage(heroTarget(ctx.state), hit.damage, heroTickCause(hit.kind)).damage;
     yield { event: { type: 'damage', index: ctx.state.player.index, amount: damage, effect: hit.kind } };
     if (ctx.state.player.hp === 0) break;
   }
@@ -374,7 +402,7 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
   if (hasDamageEffects(ctx.state.player)) {
     const tick = tickDamageEffects(ctx.state.player.damageEffects);
     for (const hit of tick.hits) {
-      const damage = damageHero(ctx.state, hit.damage);
+      const damage = applyDamage(heroTarget(ctx.state), hit.damage, heroTickCause(hit.kind)).damage;
       yield { event: { type: 'damage', index: ctx.state.player.index, amount: damage, effect: hit.kind } };
       if (ctx.state.player.hp === 0) break;
     }
@@ -386,10 +414,10 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
     if (!canReceiveDamageEffects(cell) || !hasDamageEffects(cell)) continue;
     const tick = tickDamageEffects(cell.damageEffects);
     for (const hit of tick.hits) {
-      const outcome = damageCell(cell, hit.damage, 'effect');
+      const outcome = applyDamage(cell, hit.damage, 'effect');
       yield { event: { type: 'hit', index, amount: hit.damage, effect: hit.kind } };
       if (outcome.killed) {
-        removeDefeated(ctx.state.board, cell); ctx.recordDefeat(cell, index, hit.playerCredit ? 'player' : 'environment');
+        ctx.cmd.kill(cell, index, hit.playerCredit ? 'player' : 'environment');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index, effect: hit.kind } };
         break;
@@ -433,7 +461,7 @@ const CycleCounters = instant<TurnContext>('CycleCounters', ctx => {
     && !cell.behavior.passive && cell.status.frozen === 0) cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
 });
 const TrollWindups: TurnSystem<TurnContext> = { name: 'TrollWindups', run: ctx => resolveTrollWindups(ctx, ctx.scratch.enemyPhase!.actors) };
-const GoalRefresh = instant<TurnContext>('GoalRefresh', ctx => ctx.refreshCustomProgress());
+const GoalRefresh = instant<TurnContext>('GoalRefresh', ctx => refreshCustomProgress(ctx.state));
 const Rotations: TurnSystem<TurnContext> = { name: 'Rotations', run: ctx => resolveRotations(ctx, ctx.scratch.enemyPhase!.displaced) };
 const RestCountdown = instant<TurnContext>('RestCountdown', ctx => { for (const { cell } of ctx.scratch.enemyPhase!.resting) cell.behavior.restTurns--; });
 const DamageEffectTicks: TurnSystem<TurnContext> = { name: 'DamageEffectTicks', run: resolveDamageEffects };
@@ -448,7 +476,7 @@ const ClosePits: TurnSystem<TurnContext> = { name: 'ClosePits', *run(ctx) {
 const SettleTurn = instant<TurnContext>('SettleTurn', ctx => {
   uniqueEntities(ctx.state.board).forEach(({ cell }) => { if (cell.status.frozen > 0) cell.status.frozen--; });
   ctx.state.objective.turns++; if (!ctx.state.lastDamage) ctx.state.score += 30;
-  ctx.refreshCustomProgress();
+  refreshCustomProgress(ctx.state);
   if (ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.finish(true); return; }
   if (ctx.state.customLevel && ctx.state.level.turnLimit > 0 && ctx.state.turn >= ctx.state.level.turnLimit) ctx.finish(false, 'Лимит ходов исчерпан. Попробуй другой маршрут.');
 });
@@ -457,7 +485,9 @@ const SettleTurn = instant<TurnContext>('SettleTurn', ctx => {
 const Generation: TurnSystem<TurnContext> = { name: 'Generation', *run(ctx) {
   ctx.state.phase = 'BOARD_UPDATE'; yield { event: { type: 'state' } };
   if (!ctx.current()) return false;
-  if (!ctx.generateBoard()) return false;
+  // The refill is published through the sequence (the command path), not by the facade.
+  const spawned = ctx.generateBoard();
+  if (spawned.length) { yield { event: { type: 'spawn', indices: spawned } }; if (!ctx.current()) return false; }
   ctx.state.itemPrepared = false;
   yield { event: { type: 'refill' } }; yield { delay: 180 };
   return ctx.current();

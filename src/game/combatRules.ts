@@ -1,5 +1,7 @@
 import { clearEntity } from './entityFootprint';
-import type { ForestCell, ForestState } from './forestTypes';
+import type { ForestCell, ForestState, HeroDamageSource } from './forestTypes';
+import { notifyDamaged, notifyDeath, onDeath } from './ecs/observers';
+import { refreshCustomProgress } from './customLevel';
 import { isCellAlive } from './cellLife';
 import { shieldBlocksApproach } from './recovered/core';
 
@@ -10,29 +12,51 @@ export function physicalDamage(cell: ForestCell, base: number): number {
   return base * (cell.status.brittle ? 2 : 1);
 }
 
-/** Apply an already evaluated amount. */
-export function damageCell(cell: ForestCell, damage: number, source: DamageSource) {
-  const hpBefore = cell.hp;
-  damage = Math.max(0, damage);
+/** The cat as a damage target (it is not a board entity). */
+export interface HeroTarget { readonly hero: Pick<ForestState, 'player' | 'lastDamage'> }
+export const heroTarget = (state: Pick<ForestState, 'player' | 'lastDamage'>): HeroTarget => ({ hero: state });
+export interface DamageOutcome { damage: number; hpBefore: number; hpAfter: number; hpRemoved: number; killed: boolean }
+
+/**
+ * The single damage function (ECS plan §3.7), for creatures and the cat, forecast copies and the live world alike.
+ * A creature: an already evaluated amount; a 0-HP enemy is marked defeated by any positive hit; physical damage clears
+ * brittleness; `onDamaged` observers run after positive damage to a living creature. The cat: the amount is capped
+ * by its HP and counted in the turn's `lastDamage`; `cause` is the damage source shown by the forecast breakdown.
+ * Removal of a dead creature is separate (`removeDefeated` / the `kill` command), so hit handlers still see it.
+ */
+export function applyDamage(target: ForestCell, amount: number, source: DamageSource): DamageOutcome;
+export function applyDamage(target: HeroTarget, amount: number, cause: HeroDamageSource): DamageOutcome;
+export function applyDamage(target: ForestCell | HeroTarget, amount: number, source: DamageSource | HeroDamageSource): DamageOutcome {
+  if ('hero' in target) {
+    const state = target.hero, hpBefore = state.player.hp;
+    const damage = Math.min(state.player.hp, amount);
+    state.player.hp -= damage; state.lastDamage += damage;
+    return { damage, hpBefore, hpAfter: state.player.hp, hpRemoved: damage, killed: state.player.hp === 0 };
+  }
+  const cell = target, hpBefore = cell.hp;
+  const damage = Math.max(0, amount);
   const wasAlive = isCellAlive(cell);
   if (wasAlive && cell.maxHp === 0 && damage > 0) cell.defeated = true;
-  // Every damage source passes here: the troll regenerates only after a turn without it (troll.ts).
-  if (wasAlive && damage > 0 && cell.variant === 'troll') cell.behavior.hurtThisTurn = true;
   cell.hp = Math.max(0, cell.hp - damage);
   if (source === 'physical') cell.status.brittle = false;
+  if (wasAlive && damage > 0) notifyDamaged(cell, damage, source);
   const hpRemoved = Math.min(hpBefore, damage);
   return { damage, hpBefore, hpAfter: cell.hp, hpRemoved, killed: !isCellAlive(cell) };
-}
-
-export function damageHero(state: ForestState, amount: number): number {
-  const damage = Math.min(state.player.hp, amount);
-  state.player.hp -= damage; state.lastDamage += damage;
-  return damage;
 }
 
 /** Death without damage (a crystal lands on it): any HP, weak or sturdy; the caller removes it and records the defeat. */
 export function defeatOutright(cell: ForestCell): void {
   cell.hp = 0; cell.defeated = true;
+}
+
+/**
+ * The common death path of a creature out of HP (the `kill` command): removal of all its cells, then the death
+ * observers with its credit. Idempotent removal: a kernel may have cleared the board already. Doors and prisms are
+ * removed without observers.
+ */
+export function killCreature(state: ForestState, cell: ForestCell, index: number, credit: DefeatCredit): void {
+  clearEntity(state.board, cell.id);
+  if (cell.kind !== 'door' && cell.kind !== 'prism') notifyDeath(state, cell, index, credit);
 }
 
 /** Removal is separate from damage so hit callbacks still observe the dying entity. */
@@ -62,6 +86,9 @@ export function creditDefeat(state: ForestState, cell: ForestCell, progress = st
   if (cell.kind === 'boss') progress.bossKills++;
   if (state.tutorial?.targetIds.includes(cell.id)) progress.tutorialTargets = (progress.tutorialTargets ?? 0) + 1;
 }
+
+// Kill counters and goal targets by the credit rules, then the goal progress of the authored battle.
+onDeath('goal-progress', (state, cell, _index, credit) => { creditDefeat(state, cell, state.objective, credit); refreshCustomProgress(state); });
 
 /** An enemy-caused death still moves the task forward: a marked target or a boss. */
 export function enemyDefeatCountsForGoal(state: ForestState, cell: ForestCell | null | undefined): boolean {

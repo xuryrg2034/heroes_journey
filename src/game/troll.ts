@@ -4,12 +4,17 @@
  * numbers or emits events; callers turn the yielded impacts into events.
  */
 import { isCellAlive } from './cellLife';
-import { damageCell, removeDefeated } from './combatRules';
+import { applyDamage, removeDefeated } from './combatRules';
+import { onDamaged } from './ecs/observers';
 import { tickDamageEffects } from './damageEffects';
 import type { ForestCell, ForestState } from './forestTypes';
 import { walkableTerrain } from './terrain';
 
+// Every damage source passes applyDamage: the troll regenerates only after a turn without damage.
+onDamaged('troll-hurt-mark', cell => { if (cell.variant === 'troll') cell.behavior.hurtThisTurn = true; });
+
 /** Balance defaults of the prototype (30.09.2026); an authored level sets the troll's HP. */
+
 export const TROLL_HP = 24;
 /** Club damage to every creature (the cat included) standing in the announced zone. */
 export const TROLL_CLUB_DAMAGE = 2;
@@ -81,7 +86,7 @@ export function* clubImpacts(board: (ForestCell | null)[], troll: ForestCell, zo
     const cell = board[index];
     if (!cell || cell === troll || cell.kind === 'door' || cell.kind === 'prism' || struck.has(cell.id) || !isCellAlive(cell)) continue;
     struck.add(cell.id);
-    const outcome = damageCell(cell, damage, 'hazard');
+    const outcome = applyDamage(cell, damage, 'hazard');
     if (outcome.killed) removeDefeated(board, cell);
     yield { index, cell, damage: outcome.damage, killed: outcome.killed };
   }

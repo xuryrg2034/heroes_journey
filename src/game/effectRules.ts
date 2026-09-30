@@ -1,7 +1,7 @@
 import { isCellAlive } from './cellLife';
 import { applyDamageEffect, summarizeDamageEffects, tickDamageEffects, type DamageEffects, type DamageEffectKind } from './damageEffects';
 import type { DamageEffectComponent } from './components';
-import { damageCell, removeDefeated, creditDefeat } from './combatRules';
+import { applyDamage, removeDefeated, creditDefeat } from './combatRules';
 import { uniqueEntities } from './entityFootprint';
 import type { ForestCell, ForestState } from './forestTypes';
 
@@ -30,7 +30,7 @@ export function projectEnemyEffects(state: ForestState): void {
     const tick = tickDamageEffects(cell.damageEffects);
     assignDamageEffects(cell, tick.effects);
     for (const hit of tick.hits) {
-      if (!damageCell(cell, hit.damage, 'effect').killed) continue;
+      if (!applyDamage(cell, hit.damage, 'effect').killed) continue;
       removeDefeated(state.board, cell);
       if (hit.playerCredit) creditDefeat(state, cell);
       break;

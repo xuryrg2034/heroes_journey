@@ -11,7 +11,7 @@ import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPha
 import { BOAR_CHARGE_LENGTH, BOAR_DAMAGE, chargeDirection, chargeLane, HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE, walkableTerrain } from './terrain';
 import { chainSpikeDamage, SHAMAN_PERIOD, shamanRites, shamanTargets, wolfHasPack, WOLF_DAMAGE } from './forestBeasts';
-import { creditDefeat, damageCell, defeatOutright, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
+import { creditDefeat, applyDamage, defeatOutright, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
 export { physicalDamage, shieldBlocksEntry } from './combatRules';
 import { MELEE_AGGRESSION_START_TURN, meleeCanAttack } from './enemyLifecycle';
 import { applyDamageEffect, stepBleeding, tickDamageEffects, type DamageEffects } from './damageEffects';
@@ -196,7 +196,7 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
         // An authored exit opens once every goal is met; the chain never damages it.
         const opensDoor = cell.kind === 'door' && customGoalsMet(state, customProgress);
         const damage = cell.kind === 'door' ? 0 : physicalDamage(cell, chainPower);
-        const outcome = damageCell(cell, damage, 'physical');
+        const outcome = applyDamage(cell, damage, 'physical');
         const { hpBefore } = outcome;
         const killed = opensDoor || outcome.killed;
         // Modifiers affect damage; expenditure never exceeds available power or HP actually removed.
@@ -455,7 +455,7 @@ export function simulateAbility(state: ForestState, ability: AbilityKind, target
   for (const index of indices) {
     const cell = board[index]; if (!cell || seen.has(cell.id)) continue; seen.add(cell.id);
     const damage = physicalDamage(cell, 4);
-    const { hpBefore, killed } = damageCell(cell, damage, 'physical');
+    const { hpBefore, killed } = applyDamage(cell, damage, 'physical');
     if (!killed) applyAttackEffect(cell, state.player.attackEffect, true);
     preview.enemies++; preview.hits.push({ index, damage, hpBefore, hpAfter: cell.hp, killed, physical: true });
     if (killed) {

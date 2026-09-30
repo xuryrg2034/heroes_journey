@@ -1,6 +1,6 @@
 import type { ForestEngine } from './forestEngine';
 import { startForestFixture } from './testing/fixtures';
-import { damageCell, physicalDamage } from './combatRules';
+import { applyDamage, physicalDamage } from './combatRules';
 import { planEnemyPhase } from './enemyPhase';
 import { simulateChain } from './forestSystems';
 import { playTurn, type TurnStep } from './turnRuntime';
@@ -184,14 +184,14 @@ function damageSources(): void {
   const physical = cell('boss', 12);
   physical.status.brittle = true;
   const physicalAmount = physicalDamage(physical, 4);
-  const physicalHit = damageCell(physical, physicalAmount, 'physical');
+  const physicalHit = applyDamage(physical, physicalAmount, 'physical');
   assert(physicalAmount === 8 && physicalHit.hpAfter === 4 && !physical.status.brittle,
     'physical hit doubles brittle damage and consumes the status');
 
   for (const source of ['item', 'hazard'] as const) {
     const target = cell('boss', 12);
     target.status.brittle = true;
-    const outcome = damageCell(target, source === 'item' ? 6 : 2, source);
+    const outcome = applyDamage(target, source === 'item' ? 6 : 2, source);
     assert(outcome.hpAfter === (source === 'item' ? 6 : 10) && target.status.brittle,
       `${source} damage leaves brittle for a later physical hit`);
   }

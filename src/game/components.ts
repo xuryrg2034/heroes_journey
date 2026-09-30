@@ -51,7 +51,7 @@ export interface CellBehavior {
    * windup phase has passed, so the next enemy phase strikes. Replaced, never mutated in place.
    */
   club?: { cells: number[]; dx: number; dy: number; raised: boolean };
-  /** Troll only: damaged this turn (set by `damageCell`), cleared by the end-of-phase regeneration step. */
+  /** Troll only: damaged this turn (set by the `troll-hurt-mark` damage observer), cleared by the end-of-phase regeneration step. */
   hurtThisTurn?: boolean;
 }
 
