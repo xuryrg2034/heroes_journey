@@ -42,7 +42,8 @@
     "test:troll-arena": "tsx src/game/trollArena.spec.ts",
     "test:playtest-rules": "tsx src/game/playtestRules.spec.ts",
     "analyze:levels": "tsx scripts/analyze-levels.ts",
-    "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts"
+    "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
+    "test:golden": "tsx scripts/golden/golden.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"
