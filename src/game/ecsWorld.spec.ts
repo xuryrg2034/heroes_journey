@@ -66,6 +66,31 @@ async function positions(): Promise<ForestEngine[]> {
   return engines;
 }
 
+/**
+ * Paths of objects the copy shares with the original. A generic walk over the whole state graph (not a list of
+ * hand-picked fields): only the authored definition may be shared.
+ */
+function sharedObjects(original: unknown, copy: unknown): string[] {
+  const seen = new Set<object>();
+  const collect = (value: unknown, path: string) => {
+    if (!value || typeof value !== 'object' || seen.has(value)) return;
+    if (path === '$.customLevel.definition') return;
+    seen.add(value);
+    for (const [key, child] of Object.entries(value)) collect(child, `${path}.${key}`);
+  };
+  collect(original, '$');
+  const shared: string[] = [], visited = new Set<object>();
+  const walk = (value: unknown, path: string) => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return;
+    if (path === '$.customLevel.definition') return;
+    visited.add(value);
+    if (seen.has(value)) { shared.push(path); return; }
+    for (const [key, child] of Object.entries(value)) walk(child, `${path}.${key}`);
+  };
+  walk(copy, '$');
+  return shared;
+}
+
 async function stateCopies() {
   for (const g of await positions()) {
     const state = g.state, before = json(state);
@@ -83,6 +108,11 @@ async function stateCopies() {
     copy.terrain[0] = 'wall'; copy.level.objectives.push({ key: 'kills', target: 1, label: 'x' });
     assert(json(state) === before, `${state.level.name}: terrain and level texts are copied too`);
     assert(copy.customLevel?.definition === state.customLevel?.definition, 'only the authored definition is shared, not copied');
+    assert(sharedObjects(state, { ...state, pits: [...state.pits] }).includes('$.board'), 'the walk detects a shallow copy');
+    const shared = sharedObjects(state, cloneState(state));
+    assert(!shared.length, `${state.level.name}: the copy shares ${shared.slice(0, 3).join(', ')}`);
+    const snapshot0 = g.captureAnalysisSnapshot(), snapshotShared = sharedObjects(snapshot0, cloneAnalysisSnapshot(snapshot0));
+    assert(snapshotShared.every(path => path.endsWith('.customLevel.definition')), `${state.level.name}: the snapshot copy shares ${snapshotShared.slice(0, 3).join(', ')}`);
     const snapshot = g.captureAnalysisSnapshot();
     assert(json(cloneAnalysisSnapshot(snapshot)) === json(structuredClone(snapshot)), `${state.level.name}: analysis snapshot copy equals a structured clone`);
     assert(checkWorldIndex(state).length === 0, `${state.level.name}: ${checkWorldIndex(state).join('; ')}`);

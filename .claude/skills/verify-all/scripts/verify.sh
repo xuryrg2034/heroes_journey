@@ -25,7 +25,7 @@ for s in $(node -e 'console.log(Object.keys(require("./package.json").scripts).f
   step "$s" npm run -s "$s"
 done
 [ -z "$ONLY" ] && step build npm run -s build
-[ "$BROWSER" = 1 ] && step playwright npx playwright test
+[ "$BROWSER" = 1 ] && step playwright env NO_PROXY=127.0.0.1,localhost npx playwright test
 echo "----"
 echo "$(date '+%Y-%m-%d %H:%M') verify: $pass passed, $fail failed${failed:+: ${failed[*]}}"
 echo "logs: $LOG_DIR"

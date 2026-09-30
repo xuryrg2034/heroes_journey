@@ -1,8 +1,9 @@
 /**
  * Component registry (ECS plan, stage 1: docs/ecs-architecture.md §3.2). Storage is «variant A»: an entity record is
  * the flat `ForestCell`, whose fields are grouped into registered components. The registry is the single place that
- * knows how to copy an entity: a new nested field must be registered here, or `unregisteredFields` reports it
- * (otherwise a forecast copy would silently share it with the live board).
+ * knows how to copy an entity. A new top-level field must be registered here, or `unregisteredFields` reports it;
+ * a new nested object inside a registered field (e.g. in `behavior` or `intent`) needs its copier extended here —
+ * nothing reports it automatically, `test:ecs-world` walks the whole state graph for shared objects instead.
  */
 import type { ForestCell } from '../forestTypes';
 

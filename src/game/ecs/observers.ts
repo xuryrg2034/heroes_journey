@@ -1,8 +1,11 @@
 /**
  * Rule observers (ECS plan, stage 3: docs/ecs-architecture.md §3.5): synchronous hooks called inside the current
- * step, identically in the forecast and in execution. They change only the entity they are given; events for
- * rendering stay with the systems. Rule modules register their observers once, at module load; the list keeps
- * registration order.
+ * step. They change only the entity or state they are given; events for rendering stay with the systems. Rule
+ * modules register their observers once, at module load; the list keeps registration order.
+ *
+ * `onDamaged` runs wherever `applyDamage` runs — forecast copies and execution alike. `onDeath` runs only in
+ * execution (the `kill` command) until the one-simulation forecast of stage 6: the forecast still credits deaths
+ * directly with `creditDefeat`. A new death rule that must show in the forecast needs its forecast twin until then.
  *
  * - `onDamaged` — after positive damage to a creature (not the cat), before removal: e.g. the troll's per-turn mark.
  * - `onDeath` — after a dead creature is removed from the board (`killCreature`), with the credit of its death:
