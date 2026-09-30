@@ -116,12 +116,13 @@ test('regeneration: a wounded troll that takes no damage is forecast to heal, an
   expect(errors).toEqual([]);
 });
 
-test('a club that finishes the goals is announced as «ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ»', async ({ page }) => {
+test('goals met during the enemy phase are announced as «ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ»', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  // The demo field with the goal "defeat 8": the troll's club kills six goblins in its zone, credited to the player.
+  // The demo field with the goal "hold out 2 turns": the second turn finishes during the enemy phase (forced deaths of
+  // the club are no longer credited to the player, so the goal is a turn count).
   const definition = JSON.parse(await readFile('docs/examples/troll-den-demo.json', 'utf8'));
-  definition.goals = [{ key: 'kills', target: 8 }];
+  definition.goals = [{ key: 'turns', target: 2 }];
   await page.goto('/');
   await page.locator('#editor-button').click();
   await page.locator('#editor-json').fill(JSON.stringify(definition));
@@ -145,7 +146,7 @@ test('a club that finishes the goals is announced as «ПОБЕДА ПОСЛЕ �
   await expect(page.locator('#chain-reward')).toContainText('Победа после ответа врагов');
   const plate = await page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel);
   expect(plate.text).toBe('ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ'); expect(plate.plateWidth).toBeGreaterThan(plate.textWidth);
-  await shot(page, 'troll-victory-after-club');
+  await shot(page, 'troll-victory-after-enemy-phase');
   await finishTurn(page);
   expect((await state(page)).phase).toBe('WIN');
   expect(errors).toEqual([]);

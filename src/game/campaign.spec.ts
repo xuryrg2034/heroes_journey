@@ -166,31 +166,25 @@ async function enemyAndItemRules() {
   cancelFire.subscribe((_state, event) => { if (event.type === 'status') cancelFire.startLevel(); });
   assert(!cancelFire.useItem('fire', 7) && JSON.stringify(cancelFire.getBoardState()) === JSON.stringify(cleanForest.getBoardState()), 'restart on first burning application cancels remaining area effects against the fresh board');
 }
+/** Colour-change crystals, one rule for every mode since 30.09.2026 (mapBattleRules.ts), here in the castle campaign. */
 async function prismRules() {
+  const crystals = (g: ForestEngine) => g.state.board.filter(cell => cell?.kind === 'prism' && cell.crystalChain);
   const g = fixture(); g.state.board = Array.from({ length: 49 }, (_, index) => index === 45 ? null : unit());
   const route = [44, 37, 30, 23, 16, 9, 2, 1], preview = g.preview(route);
-  assert(preview.valid && preview.kills === 8 && preview.createsPrism && preview.prismIndex !== undefined, 'eight campaign kills announce a prism reward');
-  assert(!g.neighbors(preview.endIndex).includes(preview.prismIndex!), 'new prism never takes a neighboring start cell');
+  assert(preview.valid && preview.kills === 8 && preview.crystals === 1 && preview.createsPrism, 'eight campaign kills forecast one crystal, not its cell');
+  assert(g.preview(route.slice(0, 5)).crystals === undefined && g.preview(route.slice(0, 6)).crystals === 1, 'the crystal needs six chain kills');
   await commit(g, route);
-  assert(g.state.board[preview.prismIndex!]?.kind === 'prism' && g.state.room.combatKills === 8 && g.availableMoves().length > 0, 'announced prism appears on cleared floor without extra combat credit or blocking starts');
-
-  const rotating = fixture(); rotating.state.board = Array.from({ length: 49 }, (_, index) => index === 45 ? null : unit());
-  rotating.state.board[44] = unit('ranged', 1); rotating.state.board[44]!.behavior.restTurns = 1;
-  rotating.state.rotations = [{ from: 44, to: 37, sourceId: rotating.state.board[44]!.id, targetId: rotating.state.board[37]!.id, geometry: 'cardinal' }];
-  const reward = rotating.preview(route);
-  assert(reward.createsPrism && reward.rotations[0].active && reward.prismIndex !== 44 && reward.prismIndex !== 37, 'prism reward avoids active exchange endpoints even when both participants die');
-  let swapped = false; rotating.subscribe((_state, event) => { if (event.type === 'enemy-swap') swapped = true; });
-  await commit(rotating, route);
-  assert(swapped && rotating.state.board[44]?.kind === 'melee' && rotating.state.board[37]?.kind === 'melee' && rotating.state.board[reward.prismIndex!]?.kind === 'prism', 'fresh ordinary pair exchanges while promised prism appears separately');
+  assert(crystals(g).length === 1 && crystals(g)[0]!.crystalChain === 8 && g.state.room.combatKills === 8 && g.availableMoves().length > 0,
+    'one crystal of length 8 appears without extra combat credit and keeps a move');
 
   const capped = fixture(); capped.state.board = Array.from({ length: 49 }, (_, index) => index === 45 ? null : unit());
   capped.state.board[46] = unit('prism', 1, null); capped.state.board[47] = unit('prism', 1, null);
-  assert(!capped.preview(route).createsPrism, 'two surviving prisms cap further rewards');
+  assert(capped.preview(route).crystals === 1, 'standing prisms do not cap crystals');
   capped.state.board[46] = capped.state.board[47] = null; capped.state.run.active = false;
-  assert(!capped.preview(route).createsPrism, 'forest tutorial keeps its original reward behavior');
+  assert(capped.preview(route).crystals === 1, 'the forest trial creates crystals too');
   capped.state.run.active = true; capped.state.room.key.held = true;
   const exit = unit('door', 200, null); exit.door = { branch: 'forward', label: 'Выход', destination: 'banquet', magic: false, breached: false, footprint: [0] }; capped.state.board[0] = exit;
-  assert(capped.preview([...route, 0]).completesRoom && !capped.preview([...route, 0]).createsPrism, 'completed room does not spawn an unused prism');
+  assert(capped.preview([...route, 0]).completesRoom && !capped.preview([...route, 0]).createsPrism, 'completed room does not create an unused crystal');
 
   const bridge = fixture(); bridge.state.board[44] = unit('melee', 0, 0); bridge.state.board[37] = unit('prism', 1, null); bridge.state.board[30] = unit('melee', 0, 2);
   const linked = bridge.preview([44, 37, 30]); assert(linked.valid && linked.enemies === 2 && linked.hits.map(hit => hit.availablePower).join() === '1,1,2', 'prism changes color without adding to the budget');
@@ -200,7 +194,7 @@ async function prismRules() {
   tight.state.terrain = Array.from({ length: 12 }, (_, index) => [3, 7].includes(index) ? 'wall' : 'floor');
   tight.state.board = Array.from({ length: 12 }, (_, index) => [3, 7, 11].includes(index) ? null : unit());
   const cramped = tight.preview([10, 9, 8, 4, 0, 1, 2, 6, 5]);
-  assert(cramped.valid && cramped.kills === 9 && !cramped.createsPrism, 'when every cleared square borders final position, reward is skipped to preserve starts');
+  assert(cramped.valid && cramped.kills === 9 && cramped.crystals === 1, 'a crystal does not need a cell away from the cat');
 }
 function contentRules() {
   const furniture = new ForestEngine(); furniture.animationScale = 0; furniture.startCastle();

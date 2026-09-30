@@ -41,6 +41,7 @@
     "test:goblin-battles": "tsx src/game/goblinBattles.spec.ts",
     "test:beast-battles": "tsx src/game/beastBattles.spec.ts",
     "test:troll-arena": "tsx src/game/trollArena.spec.ts",
+    "test:playtest-rules": "tsx src/game/playtestRules.spec.ts",
     "analyze:levels": "tsx scripts/analyze-levels.ts"
   },
   "dependencies": {

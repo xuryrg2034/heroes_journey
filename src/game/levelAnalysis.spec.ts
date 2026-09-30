@@ -73,10 +73,11 @@ async function trapsAndBurnWins() {
 
 // P(O) and P(S) share one resolution rule: a budget-cut "no win" is unresolved in both, never a loss in one only.
 async function unresolvedLuck() {
-  const starved = (await analyzeEngine(start(pocket), { ...quick, seeds: 2, nodeBudget: 1, agents: false, restricted: false })).planner!;
-  // Seed 0 finds its win within the budget, seed 1 is cut short: P(O) = 1 over one resolved seed (not 0.5), and
-  // the gap is paired on that seed only (the earlier asymmetric count gave FG = -0.5).
-  assert(starved.oracleUnresolved === 1 && starved.pOracle === 1, `a budget-cut oracle seed is unresolved, not lost: ${JSON.stringify(starved)}`);
+  // Level seed 1 and three evaluation seeds (chosen after crystals became a rule of every mode, 30.09.2026, which changed
+  // the refills of the seed-12345 pocket): one seed finds its win within the budget, two are cut short. P(O) = 1 over
+  // the one resolved seed (not 1/3), and the gap is paired on that seed only (the earlier asymmetric count gave FG < 0).
+  const starved = (await analyzeEngine(start({ ...pocket, seed: 1 }), { ...quick, seeds: 3, nodeBudget: 1, agents: false, restricted: false })).planner!;
+  assert(starved.oracleUnresolved === 2 && starved.pOracle === 1, `a budget-cut oracle seed is unresolved, not lost: ${JSON.stringify(starved)}`);
   assert(starved.fortuneGapSeeds === 1 && starved.fortuneGap === 0, `the gap uses only seeds resolved for both O and S: ${JSON.stringify(starved)}`);
   const fed = (await analyzeEngine(start(pocket), { ...quick, seeds: 2, agents: false, restricted: false })).planner!;
   assert(fed.pOracle === 1 && fed.oracleUnresolved === 0 && fed.fortuneGapSeeds === 2 && fed.fortuneGap !== null && fed.fortuneGap >= 0,
@@ -115,33 +116,43 @@ async function layoutMetrics() {
   assert(stripes.safeFirstChainShare === 1, 'no armed enemy at start: every first chain ends safely');
 }
 
-// The analyzer runs ordinary commands, so enemy-phase effects count: here only the boar's spike kills can
-// complete the kill goal on the first turn (the walled cat reaches two enemies at most).
+// The analyzer runs ordinary commands, so enemy-phase effects count as the engine counts them (playtest 1,
+// 30.09.2026): the boar's spike kills are an enemy ability and no longer complete a kill goal, while its ram on a
+// boss completes a bossKills goal (bosses and marked targets still count). The walled cat reaches two enemies at most.
 async function boarSpikes() {
   const rows = ['11K11', '#1H11', '1#111', '0#111', '0#111', '@#111'];
+  const options = { ...quick, agents: false, restricted: false, plannerResamples: 0 } as const;
   const withSpikes = level(rows, [{ key: 'kills', target: 5 }], [1, 1, 0, 0, 0]);
   // `K` boar at C1, `H` sturdy goblin (3 HP) at C2: the fixture helper only knows digits.
   withSpikes.enemies.push({ index: 2, kind: 'melee', color: 1, hp: 3, variant: 'boar' }, { index: 7, kind: 'melee', color: 1, hp: 3 });
-  const spiked = { ...withSpikes, spikedEdges: ['bottom' as const] };
-  const search = (await analyzeEngine(start(spiked), { ...quick, agents: false, restricted: false, plannerResamples: 0 })).search![0];
-  assert(search.winnable && search.minTurns === 1, `chain plus three spike kills wins on turn 1, got ${search.minTurns}`);
-  assert(search.stats.previewMismatches === 0, 'no chain forecast claims the enemy-phase win');
-  const plain = (await analyzeEngine(start(withSpikes), { ...quick, agents: false, restricted: false, plannerResamples: 0 })).search![0];
-  assert(plain.minTurns !== 1, 'without spikes the same board cannot be won on turn 1');
+  const spiked = (await analyzeEngine(start({ ...withSpikes, spikedEdges: ['bottom' as const] }), options)).search![0];
+  assert(spiked.minTurns !== 1, `three spike kills no longer complete the kill goal on turn 1, got ${spiked.minTurns}`);
+  assert(spiked.stats.previewMismatches === 0, 'no chain forecast claims a win the execution does not give');
+  // The same lane with a 2 HP boss at C2 instead of the sturdy goblin: the ram kills it in the enemy phase.
+  const bossLane = level(rows, [{ key: 'bossKills', target: 1 }], [1, 1, 0, 0, 0]);
+  bossLane.enemies.push({ index: 2, kind: 'melee', color: 1, hp: 3, variant: 'boar' }, { index: 7, kind: 'boss', color: null, hp: 2 });
+  const rammed = (await analyzeEngine(start(bossLane), options)).search![0];
+  assert(rammed.winnable && rammed.minTurns === 1, `the boar's ram on the boss wins on turn 1, got ${rammed.minTurns}`);
+  assert(rammed.stats.previewMismatches === 0, 'the enemy-phase boss kill is forecast');
+  const noBoar = level(rows, [{ key: 'bossKills', target: 1 }], [1, 1, 0, 0, 0]);
+  noBoar.enemies.push({ index: 7, kind: 'boss', color: null, hp: 2 });
+  const plain = (await analyzeEngine(start(noBoar), options)).search![0];
+  assert(plain.minTurns !== 1, 'without the boar the same board cannot be won on turn 1');
 }
 
-// A win that comes from the enemy phase (spike deaths completing the goal) is forecast by the engine
+// A win that comes from the enemy phase (the boar's ram killing the boss) is forecast by the engine
 // (`enemyPhase.completesObjective`) and must be found on the horizon leaf, not only at the root.
-function pushBoard(kills: number): CustomLevelDefinition {
-  const board = level(['#1.1#', '#0.0#', '#101#', '#010#', '#101#', '#0@0#'], [{ key: 'kills', target: kills }], [100, 100, 0, 0, 0]);
-  // `.` squares hold the boar (C1) and a sturdy 3 HP goblin (C2); enemies stay in board order for stable IDs.
-  board.enemies.push({ index: 2, kind: 'melee', color: 1, hp: 3, variant: 'boar' }, { index: 7, kind: 'melee', color: 1, hp: 3 });
+function pushBoard(): CustomLevelDefinition {
+  const board = level(['#1.1#', '#0.0#', '#1.1#', '#010#', '#101#', '#0@0#'], [{ key: 'bossKills', target: 1 }], [100, 100, 0, 0, 0]);
+  // `.` squares hold the boar (C1), a weak goblin (C2) and a 2 HP boss (C3). On turn 1 the ram kills the goblin and
+  // the boss holds the row, so the boar ends at C2; on turn 2 its ram falls on the boss. Enemies stay in board order.
+  board.enemies.push({ index: 2, kind: 'melee', color: 1, hp: 3, variant: 'boar' }, { index: 7, kind: 'melee', color: 1, hp: 0 }, { index: 12, kind: 'boss', color: null, hp: 2 });
   board.enemies.sort((a, b) => a.index - b.index);
-  return { ...board, seed: 4242, spikedEdges: ['bottom'] };
+  return { ...board, seed: 4242 };
 }
 async function pushWins() {
   // Forecast contract on turn 2: every chain that forecasts an enemy-phase win (and no chain win) wins when played.
-  const g = start(pushBoard(6));
+  const g = start(pushBoard());
   g.state.chain = [26, 22]; await g.releaseChain(); // B6-C5
   assert(g.state.turn === 1 && g.state.phase === 'PLAYER_INPUT', 'first chain B6-C5 does not win');
   const after = g.captureAnalysisSnapshot();
@@ -154,9 +165,9 @@ async function pushWins() {
     assert(!!preview.enemyPhase?.completesObjective === (replay.state.phase === 'WIN'), `enemy-phase win forecast matches execution for ${path.join('-')}`);
     if (preview.enemyPhase?.completesObjective) phaseWins++;
   }
-  assert(phaseWins > 0, 'some turn-2 chains win only through the spike push');
+  assert(phaseWins > 0, 'some turn-2 chains win only through the ram on the boss');
   // The analyzer sees that turn-2 win after B6-C5 (before the fix it counted this first action as a trap).
-  const search = (await analyzeEngine(start(pushBoard(6)), { ...quick, beam: 3, nodeBudget: 300, agents: false, restricted: false, plannerResamples: 0 })).search![0];
+  const search = (await analyzeEngine(start(pushBoard()), { ...quick, beam: 3, nodeBudget: 300, agents: false, restricted: false, plannerResamples: 0 })).search![0];
   const opening = search.outcomes!.find(outcome => outcome.action === 'chain B6-C5' || outcome.aliases?.includes('chain B6-C5'))!;
   assert(opening.winTurns === 2 && opening.trap === false, `the push win on the horizon leaf is found, got ${JSON.stringify(opening)}`);
   assert(search.stats.previewMismatches === 0, 'every forecast win (chain or enemy phase) happened on execution');

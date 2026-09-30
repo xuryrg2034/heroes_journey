@@ -48,7 +48,9 @@ export interface ForestState {
   tutorial?: { index: number; targetIds: number[]; hintDismissed: boolean;
     allowedItems: ItemKind[]; allowedAbilities: AbilityKind[] };
   /** Forest-map run battle (src/game/run): tools opened by the run, which replace lesson permissions. */
-  runNode?: { nodeId: string; label: string; allowedItems: ItemKind[]; allowedAbilities: AbilityKind[] };
+  runNode?: { nodeId: string; label: string; allowedItems: ItemKind[]; allowedAbilities: AbilityKind[];
+    /** Map row of the node (1 = first trunk battle); growing anger applies from RUN_PRESSURE_FIRST_ROW (mapBattleRules.ts). */
+    row: number };
 }
 export type GameState = ForestState;
 export interface EngineEvent { type: string; effect?: DamageEffectKind; index?: number; from?: number; to?: number; amount?: number; text?: string; indices?: number[]; oldId?: number; newId?: number; geometry?: RotationGeometry }
@@ -58,6 +60,8 @@ export interface ChainHit {
   attackEffect?: DamageEffectKind; doorOpened?: boolean; keyCollected?: boolean; phaseChanged?: boolean;
   /** Porcupine quills that wound the cat at this ordinary chain hit (before HP clamping). */
   spikeDamage?: number;
+  /** Score for breaking a crystal at this hit (CRYSTAL_SCORE_PER_KILL × its chain kills). */
+  crystalScore?: number;
   /** Ordinary chain budget: available includes this enemy's +1; abilities omit these fields. */
   availablePower?: number; powerSpent?: number; remainingPower?: number;
 }
@@ -75,7 +79,7 @@ export interface ChainPreview {
   /** `charge` split by cause (boar ram, spiked edge, pushed onto thorns, pushed into a pit); sums to `chargeDamage`. */
   chargeBreakdown?: Record<ChargeDamageCause, number>;
   threats: number[]; createsPrism: boolean; reason: string; hits: ChainHit[]; kills: number; endsOnSurvivor: boolean;
-  keyCollected?: boolean; opensDoor?: number; completesRoom?: boolean; volleyDamage?: number; prismIndex?: number;
+  keyCollected?: boolean; opensDoor?: number; completesRoom?: boolean; volleyDamage?: number;
   rotations: RotationPreview[];
   energyCost: number; energyGain: number;
   deviceActivations?: DeviceActivation[]; trapHits?: ChainHit[]; trapDamage?: number; trapKills?: number;
@@ -89,6 +93,13 @@ export interface ChainPreview {
   spikeDamage?: number;
   /** Positions after the enemy phase that follows this action (absent when the battle ends first). */
   enemyPhase?: EnemyPhaseForecast;
+  /**
+   * Crystals this chain creates, in every mode (one per CRYSTAL_KILLS chain-hit kills). They appear at the next
+   * refill on seeded random cells, so the forecast gives the number, never the cells. `createsPrism` mirrors `> 0`.
+   */
+  crystals?: number;
+  /** Score for the crystals this chain breaks (sum of `hits[].crystalScore`). */
+  crystalScore?: number;
 }
 export type ForcedDeathCause = 'ram' | 'spikes' | 'thorns' | 'pit' | 'arrow' | 'club';
 /** UI data for the enemy phase: the same rules as execution, computed on a copy. */
@@ -96,6 +107,12 @@ export interface EnemyPhaseForecast {
   /** Cat cell after every charge; enemy attacks, the volley and swaps use it. */
   heroIndex: number;
   charges: { boarId: number; from: number; to: number; stunned: boolean }[];
+  /**
+   * Bodies each boar actually rams, in order (the cat has id 0): the first body of its row, once per charge, as the
+   * live charge resolves it — none when the boar hits a void, the edge or a device first. `shielded`: a shield facing
+   * the boar held the ram (0 damage). `damage` is applied damage (to the cat before HP clamping in a raw forecast).
+   */
+  rams: { boarId: number; id: number; index: number; damage: number; killed: boolean; shielded: boolean }[];
   /** Net displacement of pushed entities (the charging boar included); the cat has id 0. */
   moves: { id: number; from: number; to: number }[];
   /** Entities that die in the enemy phase from rams, spikes, thorns, pits, archer arrows and the troll's club. */

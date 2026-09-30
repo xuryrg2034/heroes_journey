@@ -100,7 +100,8 @@ async function compression() {
   dense(g, 'compression');
 }
 
-// Spiked edge: the front enemy dies and the kill is credited; without spikes the edge holds and the boar is stunned.
+// Spiked edge: the front enemy dies, not credited to the player (an enemy ability, playtest 1); without spikes the
+// edge holds and the boar is stunned.
 async function edges() {
   const rows = ['11K11', '11H11', '11111', '11111', '01111', '0@111'];
   const g = start(level(rows, {}, { spikedEdges: ['bottom'] }));
@@ -108,7 +109,7 @@ async function edges() {
   const prediction = await commit(g, [at(0, 5), at(0, 4)], 'spiked edge');
   equal(prediction.enemyPhase!.deaths.map(death => [death.id, death.cause]), doomed.map(id => [id, 'spikes']), 'forecast names the enemies pushed onto the spikes');
   assert(doomed.every(id => !cellById(g, id)), 'three enemies die on the spikes');
-  equal(g.state.objective.kills, 2 + 3, 'spike deaths are credited to the player');
+  equal([g.state.objective.kills, g.state.room.combatKills], [2, 2], 'spike deaths are not the player’s kills');
   equal([indexOf(g, boar), indexOf(g, sturdy), indexOf(g, second)], [at(2, 3), at(2, 4), at(2, 5)], 'the boar advances its full length');
   movesMatch(g, prediction, 'spiked edge');
   dense(g, 'spiked edge');
@@ -139,7 +140,7 @@ async function heroOnSpikes() {
   equal(g.state.objective.kills, 3, 'the held row loses nobody');
 }
 
-// A push onto thorns: weak dies (credited), sturdy is wounded, standing on thorns is harmless; a chain end on thorns costs 1.
+// A push onto thorns: weak dies (not credited), sturdy is wounded, standing on thorns is harmless; a chain end on thorns costs 1.
 async function thorns() {
   const g = start(level(['11K11', '11H11', '11011', '10001', '10T01', '11@11'], {
     H: { enemy: { kind: 'melee', color: 1, hp: 4 } }, T: { enemy: { kind: 'melee', color: 0, hp: 0 }, terrain: 'thorns' },
@@ -150,7 +151,7 @@ async function thorns() {
   assert(!cellById(g, weak), 'a weak enemy pushed onto thorns dies');
   equal([indexOf(g, sturdy), cellById(g, sturdy)!.hp], [at(2, 4), 4 - BOAR_DAMAGE - THORN_DAMAGE], 'a sturdy enemy pushed onto thorns is wounded');
   assert(cellById(g, standing), 'the goblin that merely stood on thorns was unharmed');
-  equal(g.state.objective.kills, 3 + 1, 'the thorn death is credited');
+  equal(g.state.objective.kills, 3, 'the thorn death from a push is not the player’s kill');
 
   const end = start(level(['11K11', '11111', '11111', '11111', '0T111', '0@111'], { T: { enemy: { kind: 'melee', color: 0, hp: 0 }, terrain: 'thorns' } }));
   const onThorns = await commit(end, [at(0, 5), at(1, 4)], 'chain end on thorns');
@@ -233,7 +234,7 @@ async function pit() {
   equal(prediction.pitCells, [at(2, 5)], 'the lever opens the pit behind the row');
   equal(prediction.enemyPhase!.deaths.map(death => [death.id, death.cause]), doomed.map(id => [id, 'pit']), 'forecast: three enemies fall');
   assert(doomed.every(id => !cellById(g, id)), 'pushed enemies fall into the open pit');
-  equal(g.state.objective.kills, 2 + 1 + 3, 'chain, lever and pit falls are credited');
+  equal(g.state.objective.kills, 2 + 1, 'chain and lever kills are credited, falls pushed by the boar are not');
   movesMatch(g, prediction, 'pit');
 }
 
@@ -248,7 +249,7 @@ async function orthogonal() {
   assert(await diagonal.waitTurn() && diagonal.state.player.hp === 5 && diagonal.state.player.index === at(1, 1), 'a diagonal cat is never rammed or pushed');
 }
 
-// Archer: every creature on the announced cells is struck, kills are credited, doors and prisms are untouched,
+// Archer: every creature on the announced cells is struck, kills are not the player's, doors and prisms are untouched,
 // and an attacker killed by an earlier arrow no longer attacks.
 async function archer() {
   const g = start(level(['A111A', '0111D', 'P111h', 'a0110', '00111', '@1111'], {
@@ -264,7 +265,7 @@ async function archer() {
   assert(!cellById(g, weak) && !cellById(g, armed.id) && !cellById(g, far), 'weak creatures on the lines die');
   equal(sturdy.hp, 2, 'a sturdy creature on the line is wounded');
   assert(cellById(g, prism.id) && cellById(g, door.id) && door.hp === 1 && !door.door?.breached, 'prisms and doors are not struck');
-  equal(g.state.objective.kills, 2 + 3, 'arrow kills are credited to the player');
+  equal([g.state.objective.kills, g.state.room.combatKills], [2, 2], 'arrow kills are not credited to the player');
 }
 
 // Seeded replay, forecast purity and cancellation of a stale turn during a charge.

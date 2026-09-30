@@ -159,7 +159,7 @@ export function battleSetup(run: ForestRunState): RunBattleSetup | null {
   if (!template) return null;
   const entry = structuredClone(pending.entry);
   const paletteWeights = nodeRefillPalette(node);
-  return { nodeId: node.id, label: node.name, seed: pending.seed, template, player: entry.player, inventory: entry.inventory,
+  return { nodeId: node.id, label: node.name, seed: pending.seed, template, row: node.row, player: entry.player, inventory: entry.inventory,
     allowedItems: [...pending.tools.items], allowedAbilities: [...pending.tools.abilities], ...(paletteWeights ? { paletteWeights } : {}) };
 }
 

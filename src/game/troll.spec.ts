@@ -94,7 +94,7 @@ function dense(g: ForestEngine, label: string) {
   });
 }
 
-// Windup announces the zone, the next phase strikes everyone in it (enemies included, kills credited), then one rest.
+// Windup announces the zone, the next phase strikes everyone in it (enemies included, kills not the player's), then one rest.
 async function cycle() {
   const g = start(level(['11Tt111', '11tt111', '111OD11', '11H1111', '1111111', '111@111']));
   const troll = trollOf(g)!, zone = [at(2, 2), at(3, 2), at(4, 2), at(2, 3), at(3, 3), at(4, 3)];
@@ -117,7 +117,7 @@ async function cycle() {
   assert(doomed.every(id => !g.state.board.some(cell => cell?.id === id)), 'the club victims are gone');
   equal(g.state.board.find(cell => cell?.id === sturdy)?.hp, 3 - TROLL_CLUB_DAMAGE, 'the sturdy goblin in the zone takes the club');
   assert(g.state.board.some(cell => cell?.id === door) && g.state.board.some(cell => cell?.id === prism), 'doors and prisms are untouched');
-  equal(g.state.objective.kills - killsBefore, 2 + doomed.length, 'chain kills and club kills are credited to the player');
+  equal(g.state.objective.kills - killsBefore, 2, 'chain kills are credited, club kills are not (an enemy ability, playtest 1)');
   equal(events.filter(event => event.type === 'kill' && event.text === 'club').length, doomed.length, 'one kill event per club victim');
   equal([troll.behavior.restTurns, troll.behavior.club, troll.intent.label], [1, undefined, 'Отдых'], 'after the strike the troll rests');
   dense(g, 'after the strike');
@@ -436,6 +436,6 @@ async function main() {
   validation();
   await determinism();
   await cancellation();
-  console.log('PASS troll: windup → strike → rest, club on enemies with credited kills, doors and prisms spared, cat in/out of the zone, orthogonal zone and tie rule, walls, frost pause and brittleness, boar holds, pit jams, chain hits once, kill/jump/refill/bossKills victory, regeneration with cap, damage and burning, beacon never targets the troll, validation, forecast = execution (damageBySource.troll, club deaths, regeneration), seeded replay, cancellation');
+  console.log('PASS troll: windup → strike → rest, club on enemies (kills not credited to the player), doors and prisms spared, cat in/out of the zone, orthogonal zone and tie rule, walls, frost pause and brittleness, boar holds, pit jams, chain hits once, kill/jump/refill/bossKills victory, regeneration with cap, damage and burning, beacon never targets the troll, validation, forecast = execution (damageBySource.troll, club deaths, regeneration), seeded replay, cancellation');
 }
 main().catch(error => { console.error(error); throw error; });

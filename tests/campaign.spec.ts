@@ -108,20 +108,21 @@ test('gate mobile touch uses the full dynamic board with no horizontal overflow'
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await settled(page);expect((await state(page)).turn).toBe(1);expect(errors).toEqual([]);await context.close();
 });
 
-test('a natural eight-kill chain earns a light, then touch crosses it into another color',async({browser})=>{
+test('a natural six-kill chain earns a crystal, then touch crosses it into another color',async({browser})=>{
   test.setTimeout(60_000);
   const context=await browser.newContext({baseURL:'http://127.0.0.1:4173',viewport:{width:1440,height:1000},hasTouch:true,deviceScaleFactor:1}),page=await context.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));await start(page);
-  // Find an ordinary eight-kill chain using public moves; no injected energy or board edits.
+  // Find an ordinary chain of six or more kills using public moves; no injected energy or board edits.
   for(let turn=0;turn<12&&!(await page.evaluate(()=>{const g=(window as any).__PUZZLE_GAME;return g.availableMoves().some((p:number[])=>g.preview(p).createsPrism);}));turn++){
     const charge=await page.evaluate(()=>{const g=(window as any).__PUZZLE_GAME;return g.availableMoves().map((path:number[])=>({path,p:g.preview(path)})).filter((a:any)=>!a.p.completesRoom).sort((a:any,b:any)=>(b.p.kills-b.p.damage*80)-(a.p.kills-a.p.damage*80))[0]?.path;});
     expect(charge).toBeTruthy();await drag(page,charge);
   }
   const beforeReward=await state(page);
   const rewardPath=await page.evaluate(()=>{const g=(window as any).__PUZZLE_GAME;return g.availableMoves().map((path:number[])=>({path,p:g.preview(path)})).filter((v:any)=>v.p.createsPrism).sort((a:any,b:any)=>a.p.damage-b.p.damage||a.path.length-b.path.length)[0]?.path;});expect(rewardPath).toBeTruthy();
-  await drag(page,rewardPath,false);const preview=await page.evaluate(()=>(window as any).__PUZZLE_GAME.preview());expect(preview.kills).toBeGreaterThanOrEqual(8);expect(preview.createsPrism).toBe(true);
+  await drag(page,rewardPath,false);const preview=await page.evaluate(()=>(window as any).__PUZZLE_GAME.preview());expect(preview.kills).toBeGreaterThanOrEqual(6);expect(preview.crystals).toBe(Math.floor(preview.kills/6));expect(preview.createsPrism).toBe(true);
   await page.screenshot({path:'artifacts/campaign-prism-reward-preview.png',fullPage:true});await page.mouse.up();await settled(page);
-  const earned=await state(page),prism=earned.board.findIndex((c:any)=>c?.kind==='prism');expect(prism).toBe(preview.prismIndex);expect(earned.board.filter((c:any)=>c?.kind==='prism')).toHaveLength(1);
+  // Crystals land on seeded random cells: find the ones this chain created (earlier chains may have left crystals too).
+  const earned=await state(page),oldPrisms=new Set(beforeReward.board.filter((c:any)=>c?.kind==='prism').map((c:any)=>c.id)),fresh=earned.board.map((c:any,i:number)=>c?.kind==='prism'&&!oldPrisms.has(c.id)?i:-1).filter((i:number)=>i>=0);expect(fresh).toHaveLength(preview.crystals);const prism=fresh[0];
   const prismId=earned.board[prism].id;expect(earned.player.energy).toBe(Math.min(7,beforeReward.player.energy+preview.energyGain));await page.screenshot({path:'artifacts/campaign-prism-created.png',fullPage:true});
   const target=await center(page,prism);await page.mouse.click(target.x,target.y);expect((await state(page)).chain).toEqual([]);expect((await state(page)).turn).toBe(earned.turn);
   const bridge=await page.evaluate(index=>{

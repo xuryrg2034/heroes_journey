@@ -270,7 +270,7 @@ test('defeat keeps the node current: retry restores the entry, map offers to ret
 test('the Troll is a real battle node; beating him wins the run; reset asks for confirmation on the page', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
-  await seedRun(page, walk([...TO_JAILER, 'den-battle', 'den-elite', 'den-rest', 'den-breakthrough'], 4));
+  await seedRun(page, walk([...TO_JAILER, 'den-battle', 'den-rest', 'den-elite', 'den-breakthrough'], 4));
   await page.goto('/'); await page.locator('#run-start-button').click();
   await expect(node(page, 'den-troll')).toHaveAttribute('data-status', 'available');
   await expect(node(page, 'den-troll')).not.toContainText('в разработке');
@@ -318,7 +318,7 @@ test('the Troll is a real battle node; beating him wins the run; reset asks for 
 test('the Chief is a real battle node; beating him ends the run with a victory', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await seedRun(page, walk([...TO_JAILER, 'camp-battle', 'camp-elite', 'camp-rest', 'camp-breakthrough']));
+  await seedRun(page, walk([...TO_JAILER, 'camp-battle', 'camp-rest', 'camp-elite', 'camp-breakthrough']));
   await page.goto('/'); await page.locator('#run-start-button').click();
   await node(page, 'camp-chief').click(); await settled(page);
   const battle = await state(page);
@@ -354,6 +354,10 @@ test('Jailer victory reports the opened spin; an elite victory leads to a find o
   await node(page, 'den-battle').click(); await settled(page);
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
   await page.locator('#modal [data-action="run-map"]').click();
+  // A rest always comes right before an elite.
+  await expect(node(page, 'den-elite')).toHaveAttribute('data-status', 'locked');
+  await node(page, 'den-rest').click();
+  await page.locator('#modal [data-action="resume"]').click();
   await node(page, 'den-elite').hover();
   await expect(page.locator('#map-detail')).toContainText('находка');
   await node(page, 'den-elite').click(); await settled(page);
@@ -365,7 +369,7 @@ test('Jailer victory reports the opened spin; an elite victory leads to a find o
   await page.locator('#modal [data-find]').first().click();
   await expect(page.locator('#map-screen')).toBeVisible();
   await expect(node(page, 'den-elite')).toHaveAttribute('data-status', 'current');
-  await expect(node(page, 'den-rest')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'den-breakthrough')).toHaveAttribute('data-status', 'available');
   expect((await savedRun(page)).pending).toBeNull();
   expect(errors).toEqual([]);
 });

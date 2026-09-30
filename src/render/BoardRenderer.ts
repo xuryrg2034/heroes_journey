@@ -5,6 +5,7 @@ import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
 import { archerStrikesCreatures, evaluateEnemyAttack } from '../game/enemyPhase';
 import { chargeReady } from '../game/boarCharge';
+import { enemyDefeatCountsForGoal, shieldBlocksEntry, shieldIsActive } from '../game/combatRules';
 import { isCellAlive } from '../game/cellLife';
 import type { EngineEvent as ForestEvent, ForestState, ForestCell, ItemKind, AbilityKind } from '../game/forestTypes';
 import { COLORS, PALE, makeEnemy, makePlayer, drawTerrain } from './art';
@@ -14,7 +15,7 @@ import { deviceTargets } from '../game/devices';
 import { drawStunStars } from './boarArt';
 import { CAUSE_LABEL, DEATH_COLOR, PUSH_COLOR, drawArrowMark, drawBoarLane, drawChevron, drawClubZone, drawDashedTile, drawDeathCross, drawSpikedEdge } from './forecastArt';
 import { drawThornRim } from './art';
-import { goblinTier, wolfHasPack, type BeastWorld } from '../game/forestBeasts';
+import { SHAMAN_PERIOD, goblinTier, wolfHasPack, type BeastWorld } from '../game/forestBeasts';
 import { QUILL, RITE } from './beastArt';
 
 const TILE = 80;
@@ -102,6 +103,9 @@ export class BoardRenderer {
   get endpointLabel(){return{visible:this.endpoint.visible,text:this.endpointText.text,textWidth:this.endpointText.width,plateWidth:this.endpointBack.width};}
   /** Read-only snapshot of what the push forecast drew last time (canvas content is not in the DOM). */
   get forecastMarks(){return{...this.forecastDrawn,labels:[...this.forecastDrawn.labels]};}
+  /** Captions drawn on the board by the last overlay pass (plates and labels); canvas text is not in the DOM. */
+  get telegraphMarks(){return[...this.captions];}
+  private captions:string[]=[];
   private forecastDrawn:{ghosts:number;chevrons:number;crosses:number;heroGhost:boolean;labels:string[]}={ghosts:0,chevrons:0,crosses:0,heroGhost:false,labels:[]};
   get ticking(){return this.initialized&&this.app.ticker.started;}
   private get boardWidth() { return this.engine.state.cols*TILE; }
@@ -110,6 +114,10 @@ export class BoardRenderer {
   setFrostTargeting(active:boolean) {
     this.setItemTargeting(active?'frost':null);
   }
+  /** Show the engine's forecast of resting on the field while the pointer is over «Отдых». */
+  setRestPreview(active:boolean){if(this.restPreviewOn!==active){this.restPreviewOn=active;if(this.initialized)this.drawOverlays(this.engine.state);}}
+  private restPreviewOn=false;
+  private scoreSeen=0;
   setItemTargeting(item:ItemKind|null){
     this.pointerCancel();
     if(item&&this.engine.state.chosenAbility)this.engine.setAbility(null);
@@ -375,6 +383,7 @@ export class BoardRenderer {
     const rim=this.thornFrames.clear();
     state.terrain.forEach((kind,index)=>{if(kind==='thorns'&&(state.board[index]||index===state.player.index)){const at=this.center(index);drawThornRim(rim,at.x,at.y,.95);}});
     this.hitLabels.removeChildren().forEach(child=>child.destroy());
+    this.captions=[];
     const chain=state.chain;
     const preview=this.engine.preview();
     const killed=new Set([...preview.hits, ...(preview.trapHits ?? [])].filter(hit=>hit.killed).map(hit=>hit.index));
@@ -386,10 +395,6 @@ export class BoardRenderer {
       loot.circle(at.x+23,at.y+20,15).fill(0x29271d).stroke({color:0xe9c77c,width:2});
       drawKey(loot,at.x+23,at.y+20,.72);
     }
-    if(preview.valid&&preview.createsPrism&&preview.prismIndex!==undefined){
-      const at=this.center(preview.prismIndex);loot.circle(at.x+22,at.y-21,12).fill(0x364646).stroke({color:0xeae8bb,width:1});
-      loot.poly([at.x+22,at.y-29,at.x+28,at.y-21,at.x+22,at.y-13,at.x+16,at.y-21]).fill(0xc9e9d8);
-    }
     if(!endsEncounter) for(const index of state.hazard.cells){
       const at=this.center(index),imminent=state.hazard.turnsUntil===1;
       d.roundRect(at.x-37,at.y-37,74,74,5).fill({color:0xe2c16a,alpha:imminent?.16:.05}).stroke({color:0xe2c16a,width:imminent?2:1,alpha:.8});
@@ -397,6 +402,7 @@ export class BoardRenderer {
       this.label(at.x-24,at.y+27,`↓${state.hazard.turnsUntil}`,0xf3d696,10);
     }
     // These are engine-authored fixed intent cells, never a guessed new target.
+    let restForecast:ReturnType<ForestEngine['previewRest']>|undefined;
     const telegraphed=new Set<number>();
     state.board.forEach((cell,i)=>{
       if(!cell || telegraphed.has(cell.id) || cell.status.frozen || occupiedIndices(cell,i).some(part=>killed.has(part)) || endsEncounter) return;
@@ -431,7 +437,7 @@ export class BoardRenderer {
           tg.roundRect(at.x-35,at.y-35,70,70,8).stroke({color:INK_RING,width:6,alpha:.6});
           tg.roundRect(at.x-35,at.y-35,70,70,8).stroke({color:RITE,width:3});
           tg.poly([at.x+26,at.y-18,at.x+33,at.y-8,at.x+29,at.y-8,at.x+29,at.y-1,at.x+23,at.y-1,at.x+23,at.y-8,at.x+19,at.y-8]).fill(0xe6d0ff).stroke({color:0x2c1d45,width:1.5});
-          if(!chain.length)this.label(at.x,at.y-29,tier==='weak'?'↑ ВООРУЖЁН':'↑ КРЕПКИЙ',0xe6d0ff,9);
+          if(!chain.length)this.label(at.x,at.y-25,tier==='weak'?'↑ СТАНЕТ\nВООРУЖЁН':'↑ СТАНЕТ\nКРЕПКИМ',0xe6d0ff,9);
         }
         return;
       }
@@ -450,6 +456,16 @@ export class BoardRenderer {
         if(cell.intent.charge&&chargeReady(cell,NO_DISPLACED)){
           const {dx,dy}=cell.intent.charge;
           drawBoarLane(tg,origin,cell.intent.cells.map(target=>this.center(target)),dx,dy);
+          // Two different things in one ram, from the engine's forecast of doing nothing (previewRest): the body the boar
+          // actually rams takes «УДАР», the bodies it pushes get «ТОЛЧОК».
+          if(!chain.length){
+            const phase=(restForecast??=this.engine.previewRest()).enemyPhase,ram=phase?.rams.find(entry=>entry.boarId===cell.id);
+            if(ram){const head=this.center(ram.index);this.plate(head.x,head.y-27,ram.shielded?'ЩИТ ДЕРЖИТ':`УДАР ${ram.damage||cell.intent.damage}`,ram.shielded?0x27435f:0x742e30,ram.shielded?0x9cc3ec:0xf0a082,10);}
+            for(const move of phase?.moves??[]){
+              if(move.id===0||move.id===cell.id||move.id===ram?.id)continue;
+              const spot=this.center(move.from);this.plate(spot.x,spot.y-27,'ТОЛЧОК',0x2b4a5a,0xa9d4e8,9);
+            }
+          }
         }
         return;
       }
@@ -466,7 +482,7 @@ export class BoardRenderer {
         if(cell.variant==='knight')this.knightArrow(d,origin,at,0xe7a36a,.65);
         else if(cell.kind==='ranged'||['rook','bishop','wizard'].includes(cell.variant??'')) this.arrow(d,origin,at,0xe7a36a,0.75,2);
         if(heavy) d.moveTo(at.x-22,at.y-22).lineTo(at.x+22,at.y+22).moveTo(at.x+22,at.y-22).lineTo(at.x-22,at.y+22).stroke({color:0xecaa87,width:1,alpha:0.2});
-        if(cell.variant==='jailer')this.label(at.x+25,at.y-25,'2',0xffd5ae,11);
+        if(cell.variant==='jailer')this.label(at.x,at.y,`УДАР ${cell.intent.damage}`,0xffe2c4,11);
       }
     });
     // Wolf pack: a link between neighbouring wolves that arm each other. The engine's own wolfHasPack decides on a board with just the pair.
@@ -483,6 +499,42 @@ export class BoardRenderer {
         tg.moveTo(from.x,from.y).lineTo(to.x,to.y).stroke({color:0xf0b56a,width:4,cap:'round'});
         tg.poly([mid.x,mid.y-7,mid.x+7,mid.y,mid.x,mid.y+7,mid.x-7,mid.y]).fill(0xf0b56a).stroke({color:INK_RING,width:2});
       }
+    }
+    // Jailer and shaman timers in words: which entry is shut, when the blow or the rite comes, when to strike.
+    if(!endsEncounter){
+      const shown=new Set<number>();
+      state.board.forEach((cell,index)=>{
+        if(!cell||shown.has(cell.id)||killed.has(index)||!isCellAlive(cell))return;
+        if(cell.variant==='jailer'&&cell.shield){
+          shown.add(cell.id);
+          const at=this.entityCenter(cell,index);
+          if(shieldIsActive(cell)){
+            const {dx,dy}=cell.shield;
+            // Entries the engine rejects (shieldBlocksEntry) are hatched; the shield itself is a heavy bar on the jailer's edge.
+            for(let y=-1;y<=1;y++)for(let x=-1;x<=1;x++){
+              const fx=index%state.cols+x,fy=Math.floor(index/state.cols)+y;
+              if((!x&&!y)||fx<0||fx>=state.cols||fy<0||fy>=state.rows)continue;
+              const from=fy*state.cols+fx;
+              if(!shieldBlocksEntry(state,cell,from,index))continue;
+              const spot=this.center(from);
+              tg.roundRect(spot.x-34,spot.y-34,68,68,6).fill({color:0x6f9fd0,alpha:.16}).stroke({color:0x9cc3ec,width:2,alpha:.85});
+              for(let n=-1;n<=1;n++)tg.moveTo(spot.x-28+n*20,spot.y+28).lineTo(spot.x+8+n*20,spot.y-28).stroke({color:0xc7defa,width:2,alpha:.4});
+              this.label(spot.x,spot.y+27,'ВХОД ЗАКРЫТ',0xcfe4fb,8);
+            }
+            const bx=at.x+dx*36,by=at.y+dy*36,px=dy?18:0,py=dx?18:0;
+            tg.moveTo(bx-px*1.8,by-py*1.8).lineTo(bx+px*1.8,by+py*1.8).stroke({color:INK_RING,width:11,cap:'round',alpha:.8});
+            tg.moveTo(bx-px*1.8,by-py*1.8).lineTo(bx+px*1.8,by+py*1.8).stroke({color:0x9cc3ec,width:6,cap:'round'});
+            this.plate(at.x,at.y-42,`ЩИТ ${dy>0?'СНИЗУ':dy<0?'СВЕРХУ':dx>0?'СПРАВА':'СЛЕВА'} · ${cell.intent.cells.length?'УДАР ПОСЛЕ ХОДА':'ЖДЁТ'}`,0x27435f,0x9cc3ec,9);
+          }else{
+            this.plate(at.x,at.y-42,cell.status.frozen?'ЗАМОРОЖЕН · ЩИТ ОПУЩЕН':`ЩИТ ОПУЩЕН · БЕЙ СЕЙЧАС${cell.behavior.restTurns>1?` (ещё ${cell.behavior.restTurns})`:''}`,0x2e5a3a,0xb6e5a0,9,0xe4ffd8);
+          }
+        }
+        if(cell.variant==='shaman'&&!chain.length){
+          shown.add(cell.id);
+          const at=this.center(index),announced=cell.intent.empowerIds?.length??0;
+          this.plate(at.x,at.y+30,cell.status.frozen?'КАМЛАНИЯ НЕТ · ЛЁД':announced?'КАМЛАНИЕ ПОСЛЕ ХОДА':`КАМЛАНИЕ ЧЕРЕЗ ${SHAMAN_PERIOD-(cell.behavior.cycle??0)%SHAMAN_PERIOD} ХОД.`,0x3d2c5a,RITE,8,0xeadfff);
+        }
+      });
     }
     // The engine forecasts declared cell pairs, including replacement residents.
     // A killed initiator or partner therefore keeps its announced exchange.
@@ -588,10 +640,10 @@ export class BoardRenderer {
           if(text){this.label(at.x,at.y-4,text,hit.spikeDamage?0xffb3a6:0xd7ffff,11);quillLabels.push(text);}
         }
         const bridge=state.board[hit.index]?.kind==='prism';
-        const special=bridge||hit.doorOpened||hit.phaseChanged;
+        const special=(bridge&&!hit.crystalScore)||hit.doorOpened||hit.phaseChanged;
         const badge=new Graphics().roundRect(at.x-39,at.y+(special?17:11),78,special?18:29,3).fill(hit.killed?0x283d2b:0x663e31).stroke({color:hit.killed?0xbac799:0xe8b38b,width:1});
         const weak=state.board[hit.index]?.maxHp===0;
-        const text=new Text({text:bridge?'СМЕНА ЦВЕТА':hit.doorOpened?'ВХОД ОТКРЫТ':hit.phaseChanged?'ПЕЧАТЬ → II':`${hit.availablePower} − ${hit.powerSpent} = ${hit.remainingPower}\n${weak?'СЛАБ · ':''}${hit.killed?'ПОВЕРЖЕН':`${hit.hpAfter} HP${hit.attackEffect === 'fire' ? ' · +ОГОНЬ' : ''}`}`,style:{fontFamily:'Arial, sans-serif',fontSize:bridge?9:weak?8:9,fontWeight:'bold',fill:PALE,align:'center'}});
+        const text=new Text({text:bridge?(hit.crystalScore?`СМЕНА ЦВЕТА\n+${hit.crystalScore} ОЧКОВ`:'СМЕНА ЦВЕТА'):hit.doorOpened?'ВХОД ОТКРЫТ':hit.phaseChanged?'ПЕЧАТЬ → II':`${hit.availablePower} − ${hit.powerSpent} = ${hit.remainingPower}\n${weak?'СЛАБ · ':''}${hit.killed?'ПОВЕРЖЕН':`${hit.hpAfter} HP${hit.attackEffect === 'fire' ? ' · +ОГОНЬ' : ''}`}`,style:{fontFamily:'Arial, sans-serif',fontSize:bridge?9:weak?8:9,fontWeight:'bold',fill:PALE,align:'center'}});
         text.anchor.set(0.5);text.position.set(at.x,at.y+26);this.hitLabels.addChild(badge,text);
       }
       if(state.phase==='PLAYER_INPUT') {
@@ -620,6 +672,18 @@ export class BoardRenderer {
     } else {
       const door=this.doorFocus===null?null:state.board[this.doorFocus];
       this.endpoint.visible=Boolean(door?.door)&&state.phase==='PLAYER_INPUT';
+      if(this.restPreviewOn&&!door?.door&&state.phase==='PLAYER_INPUT'&&!this.targetingItem){
+        // Hover over «Отдых»: the engine's forecast of resting, drawn like the forecast of a chain.
+        const rest=restForecast??this.engine.previewRest();
+        if(rest.valid&&rest.enemyPhase){
+          this.drawPushForecast(state,rest,fc);
+          const at=this.center(rest.enemyPhase.heroIndex);
+          this.endpointText.text=rest.damage?`ОТДЫХ: −${rest.damage} HP КОТУ`:'ОТДЫХ: БЕЗОПАСНО';
+          const half=Math.ceil(this.endpointText.width/2)+10;
+          this.endpoint.visible=true;this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,at.x)),Math.max(12,at.y-35));
+          this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(rest.damage?0x742e30:0x263b31).stroke({color:rest.damage?0xe49681:0x9aa982,width:1});
+        }
+      }
       if(door?.door){const at=this.entityCenter(door,this.doorFocus!);this.endpoint.position.set(Math.max(87,Math.min(this.boardWidth-87,at.x)),Math.max(12,at.y-37));this.endpointBack.clear().roundRect(-85,-11,170,22,4).fill(0x26313b).stroke({color:0xe8c77c,width:1});this.endpointText.text=door.door.label;}
     }
   }
@@ -647,6 +711,18 @@ export class BoardRenderer {
       const at=this.center(death.index);
       drawDeathCross(g,at);drawn.crosses++;drawn.labels.push(CAUSE_LABEL[death.cause]??'');
       this.label(at.x,at.y-29,CAUSE_LABEL[death.cause]??'',0xffb3a6,9);
+      // Enemy abilities do not score for the player; only goal targets and bosses count toward the task (combatRules).
+      const victim=cellOf(death.id),counts=enemyDefeatCountsForGoal(state,victim),note=counts?'В ЗАДАНИЕ':'НЕ ЗАСЧИТАНО';
+      this.label(at.x,at.y+9,note,counts?0xc4f0ae:0xf0d9a0,7);drawn.labels.push(note);
+    }
+    // Who each boar really rams: the body that takes the damage (the cat has id 0); the ones it pushes are marked at their new cell.
+    for(const ram of phase.rams){
+      const at=this.center(ram.index);
+      this.plate(at.x,at.y-27,ram.shielded?'ЩИТ ДЕРЖИТ':`УДАР ${ram.damage}`,ram.shielded?0x27435f:0x742e30,ram.shielded?0x9cc3ec:0xf0a082,10);
+    }
+    for(const move of phase.moves){
+      if(move.id===0||phase.rams.some(ram=>ram.id===move.id||ram.boarId===move.id))continue;
+      const at=this.center(move.to);this.plate(at.x,at.y+27,'ТОЛЧОК',0x2b4a5a,0xa9d4e8,8);
     }
     const seat=(id:number)=>{const now=state.board.findIndex(cell=>cell?.id===id),move=phase.moves.find(entry=>entry.id===id);return now<0?-1:move?move.to:now;};
     for(const id of phase.packBroken){
@@ -680,9 +756,18 @@ export class BoardRenderer {
     }
   }
 
+  /** Caption on a dark plate, kept inside the board. */
+  private plate(x:number,y:number,text:string,fill:number,stroke:number,size=10,color=PALE){
+    const label=new Text({text,style:{fontFamily:'Arial, sans-serif',fontSize:size,fontWeight:'bold',fill:color,align:'center'}});
+    label.anchor.set(.5);this.captions.push(text);
+    const w=Math.ceil(label.width)+12,h=Math.ceil(label.height)+6;
+    const cx=Math.min(this.boardWidth-w/2-2,Math.max(w/2+2,x)),cy=Math.min(this.boardHeight-h/2-2,Math.max(h/2+2,y));
+    label.position.set(cx,cy);
+    this.hitLabels.addChild(new Graphics().roundRect(cx-w/2,cy-h/2,w,h,4).fill({color:fill,alpha:.95}).stroke({color:stroke,width:1.5}),label);
+  }
   private label(x:number,y:number,text:string,color:number,size=11){
     const view=new Text({text,style:{fontFamily:'Arial, sans-serif',fontSize:size,fontWeight:'bold',fill:color,stroke:{color:0x1a2228,width:3}}});
-    view.anchor.set(.5);view.position.set(x,y);this.hitLabels.addChild(view);
+    view.anchor.set(.5);view.position.set(x,y);this.hitLabels.addChild(view);this.captions.push(text);
   }
 
   private arrow(g:Graphics,from:{x:number;y:number},to:{x:number;y:number},color:number,alpha:number,width:number) {
@@ -735,6 +820,10 @@ export class BoardRenderer {
       this.shake=Math.max(this.shake,2);
       if(event.type==='hit') this.popup(i,event.amount?`−${event.amount}${event.text&&CAUSE_LABEL[event.text]?` ${CAUSE_LABEL[event.text]}`:''}`:event.text??'УДАР',PALE);
     }
+    if(event.type==='crystal'&&i!==undefined){
+      this.burst(i,0xf3d98a,22);this.popup(i,`КРИСТАЛЛ · ${event.amount??0}`,0xffeaa8);
+      if(event.oldId!==undefined){this.burst(i,0xdf695d,12);this.shake=Math.max(this.shake,4);this.popupAt(this.center(i).x,this.center(i).y+14,'РАЗДАВЛЕН · не засчитано',0xf0d9a0);}
+    }
     if(event.type==='windup'&&event.text==='club'&&i!==undefined){
       const cell=state.board[i],piece=cell?this.views.get(cell.id):undefined,at=this.entityCenter(cell,i);
       if(piece)piece.strike={started:performance.now(),dx:0,dy:-9};
@@ -757,8 +846,8 @@ export class BoardRenderer {
       this.burst(i,RITE,24);if(event.from!==undefined)this.burst(event.from,RITE,10);
       this.popup(i,event.text==='sturdy'?'↑ КРЕПКИЙ':'↑ ВООРУЖЁН',0xe6d0ff);
     }
-    if(event.type==='prism' && i!==undefined) { this.burst(i,0xf7d990,26);this.popup(i,'ОГОНЁК',PALE); }
-    if(event.type==='spawn')for(const index of event.indices??[])if(state.board[index]?.kind==='prism'){this.burst(index,0xc8eacb,22);this.popup(index,'+ ОГОНЁК',PALE);}
+    if(event.type==='prism' && i!==undefined) { this.burst(i,0xf7d990,26);this.popup(i,'КРИСТАЛЛ',PALE); }
+    if(event.type==='spawn')for(const index of event.indices??[])if(state.board[index]?.kind==='prism'){this.burst(index,0xc8eacb,22);this.popup(index,'+ КРИСТАЛЛ',PALE);}
     if(event.type==='attack' && i!==undefined && state.board[i]?.kind==='melee'){
       const cell=state.board[i]!,piece=this.views.get(cell.id),at=this.entityCenter(cell,i),to=this.center(event.to??state.player.index);
       const distance=Math.max(1,Math.hypot(to.x-at.x,to.y-at.y));
@@ -779,7 +868,11 @@ export class BoardRenderer {
       view.circle(from.x,from.y,34).stroke({color:0xf6b870,width:3,alpha:0.85});
       this.effects.addChild(view);this.particles.push({view,vx:0,vy:0,life:210,max:210,stationary:true});
     }
-    if(event.type==='collect' && i!==undefined) {this.burst(i,PALE,24);this.popup(i,'СМЕНА ЦВЕТА',PALE);}
+    if(event.type==='collect' && i!==undefined) {
+      this.burst(i,PALE,24);this.popup(i,'СМЕНА ЦВЕТА',PALE);
+      const gained=state.score-this.scoreSeen;if(gained>0)this.popupAt(this.center(i).x,this.center(i).y+12,`+${gained}`,0xffeaa8);
+    }
+    this.scoreSeen=state.score;
     if(event.type==='damage') {
       if(event.text==='quills'&&event.from!==undefined)this.burst(event.from,QUILL,14);
       this.shake=8;this.burst(state.player.index,0xdf695d,20);this.popup(state.player.index,`−${event.amount??1} HP${event.text&&CAUSE_LABEL[event.text]?` · ${CAUSE_LABEL[event.text]}`:''}`,0xffad98);

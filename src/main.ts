@@ -12,7 +12,11 @@ import { validateCustomLevel } from './game/customLevel';
 import { summarizeDamageEffects } from './game/damageEffects';
 import { TUTORIAL_LESSONS } from './game/tutorialLevels';
 import { deviceTargets } from './game/devices';
-import { shieldIsActive } from './game/combatRules';
+import { enemyDefeatCountsForGoal, shieldIsActive } from './game/combatRules';
+import { isCellAlive } from './game/cellLife';
+import { SHAMAN_PERIOD } from './game/forestBeasts';
+import { chargeReady } from './game/boarCharge';
+import { CRYSTAL_KILLS, CRYSTAL_SCORE_PER_KILL, RUN_ANGER_STEPS, crystalsActive, RUN_ARMED_REFILL_TURN, runPressureInfo } from './game/mapBattleRules';
 import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, forestRunView, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { forestNode } from './game/run/forestMap';
@@ -41,6 +45,7 @@ const audio = new GameAudio();
 audio.enabled = save.sound;
 let renderer: BoardRenderer | null = null;
 let screen: 'title' | 'game' | 'editor' | 'map' = 'title';
+let hintTurn: number | null = 0, restHover = false;
 let paused = false, starting = false, outcomeShown = '', previousChain = 0;
 let focusedDoor: number | null = null;
 let selectedDestination = '';
@@ -119,7 +124,8 @@ const editor = new LevelEditor(el('editor-screen'), async definition => {
   await openScene(() => {}); return true;
 });
 el('wave-steps').insertAdjacentHTML('afterend', '<nav id="route-map" class="route-map" aria-label="Путь к колдуну" hidden></nav><section id="door-guide" class="door-guide" hidden><p class="panel-label">ВЫХОДЫ НА ПОЛЕ</p><div id="door-options"></div><p id="door-detail">Наведи на дверь, чтобы увидеть следующий зал.</p></section>');
-el('board-host').closest('.board-frame')!.insertAdjacentHTML('beforebegin', '<section id="hazard-card" class="hazard-card" hidden aria-live="polite"><span class="hazard-mark">⌖</span><div><strong id="hazard-title"></strong><p id="hazard-detail"></p></div></section>');
+el('board-host').closest('.board-frame')!.insertAdjacentHTML('beforebegin', '<button id="battle-hint" class="battle-hint" data-action="hint-close" hidden aria-label="Скрыть подсказку боя"><span class="hint-goal" id="hint-goal"></span><span class="hint-rule" id="hint-rule"></span><span class="hint-close" aria-hidden="true">✕</span></button><section id="hazard-card" class="hazard-card" hidden aria-live="polite"><span class="hazard-mark">⌖</span><div><strong id="hazard-title"></strong><p id="hazard-detail"></p></div></section>');
+el('objectives').closest('.objective-card')!.insertAdjacentHTML('afterend', '<div id="pressure-chip" class="pressure-chip" hidden aria-live="polite"><span class="hud-label">НАРАСТАНИЕ ЗЛОСТИ</span><b id="pressure-anger"></b><span id="pressure-refill"></span></div>');
 document.querySelector('.combat-hud')!.insertAdjacentHTML('beforebegin', '<div id="compact-room-heading"><b id="compact-room-name"></b><span id="compact-room-goal"></span></div>');
 document.querySelector('.combat-hud')!.insertAdjacentHTML('beforeend', '<div id="mobile-chain-readout" hidden aria-live="polite"><span><small>ЦЕПОЧКА</small><b id="mobile-chain-count">0</b></span><span><small>СИЛА</small><b id="mobile-chain-power">0</b></span><span><small id="mobile-chain-status">ОТВЕТ</small><b id="mobile-chain-damage">0 HP</b></span></div>');
 el('frost-button').closest('.item-toolbar')!.innerHTML = itemKeys.map(item => `<button class="item-button" data-action="item" data-item="${item}" id="${item}-button" title="${ITEMS[item].description}"><span class="frost-icon">${itemIcons[item]}</span><span id="${item}-label">${itemNames[item]} · 0</span></button>`).join('') + '<button class="text-button cancel-item" data-action="cancel-frost" id="cancel-frost" hidden>Отмена</button><button class="wait-button" data-action="wait" id="wait-button" title="+0,5 энергии, максимум 7. Враги атакуют, события поля выполняются." aria-label="Отдых: плюс 0,5 энергии. Враги и события поля действуют.">Отдых · +0,5 энергии</button>';
@@ -160,7 +166,7 @@ function showScreen(next: typeof screen) {
 async function openScene(action: () => unknown | Promise<unknown>) {
   if (starting) return;
   // While starting, updateHUD must not treat the previous fight's WIN/LOSE as a fresh outcome.
-  starting = true; audio.unlock(); audio.play('click'); outcomeShown = ''; previousChain = 0; focusedDoor = null; selectedDestination = '';
+  starting = true; audio.unlock(); audio.play('click'); hintTurn = 0; outcomeShown = ''; previousChain = 0; focusedDoor = null; selectedDestination = '';
   let opened = false;
   showScreen('game');
   try {
@@ -340,7 +346,7 @@ function updateGuide() {
   if (state.board.some(cell => cell?.variant === 'beacon')) rows.push(['♧', 'Колокол подкреплений', 'Каждый второй активный ход вызывает до двух вооружённых гоблинов на отмеченные клетки. Уничтожь колокол, чтобы прекратить подкрепления.']);
   if (state.tutorial && tools.items.includes('frost')) rows.push(['❄', 'Холод и вода', 'Выбери холод, затем мокрую цель. Она пропустит действие и получит двойной следующий физический удар. После этого проведи цепь.']);
   if (state.tutorial && tools.abilities.includes('jump')) rows.push(['↗', 'Прыжок · 2 энергии', 'Каждый атакованный враг даёт 0,5 энергии. Прыжок наносит 4 урона и переносит кота на выбранную клетку.']);
-  if (state.tutorial && (state.tutorial.index >= 8 || state.board.some(cell => cell?.kind === 'prism'))) rows.push(['✦', 'Огонёк меняет цвет', 'Начни с врага. Пройди через огонёк и продолжи любым цветом, сохранив накопленную силу.']);
+  if (state.tutorial && (state.tutorial.index >= 8 || state.board.some(cell => cell?.kind === 'prism'))) rows.push(['✦', 'Кристалл меняет цвет', 'Начни с врага. Пройди через кристалл и продолжи любым цветом, сохранив накопленную силу. Число на нём — очки за разрушение цепью; новый появляется за каждые 6 убийств одной цепью.']);
   if (state.tutorial && state.board.some(cell => cell?.kind === 'ranged')) rows.push(['⌖', 'Стрелок и обмен', 'Лучник стреляет по отмеченной линии и задевает всех на ней, врагов тоже, затем отдыхает. Знак ⇄ показывает будущий обмен: учитывай его при выборе позиции.']);
   if (boarPresent) rows.push(['⇶', 'Кабан', 'Янтарный коридор — рывок до 3 клеток по прямой. Кабан бьёт первого и толкает ряд; клетки, освобождённые цепью, решают, кто уцелеет. Упёрся — оглушён, следующий удар по нему двойной.']);
   if (trollPresent) rows.push(['♞', 'Тролль · дубина', 'Замах объявлен на ход раньше: пунктирная зона. Затем удар бьёт всех в залитой зоне, врагов тоже, «УДАР 2», и тролль отдыхает. Регенерация: без урона и горения за ход он лечится. Ранение или горение её останавливают.']);
@@ -360,6 +366,56 @@ function lessonOf(tutorial: { index: number } | undefined) { return tutorial && 
 function toolRules(state: typeof engine.state) {
   const rules = state.runNode ?? state.tutorial;
   return { items: rules?.allowedItems ?? [], abilities: rules?.allowedAbilities ?? [] };
+}
+/** Main hint of the battle, big above the field: the goal and one sentence of the rule. Gone after the first turn or a click; «?» brings it back. */
+function updateBattleHint(state: typeof engine.state, lesson: (typeof TUTORIAL_LESSONS)[number] | undefined, tutorial: typeof engine.state.tutorial, custom: typeof engine.state.customLevel, boss: unknown) {
+  if (hintTurn !== null && state.turn > hintTurn) hintTurn = null;
+  const visible = hintTurn !== null && screen === 'game' && state.phase === 'PLAYER_INPUT';
+  const labels = { kills: 'Победи врагов', rangedKills: 'Победи стрелков', bossKills: 'Победи главаря', turns: 'Продержись ходов' } as const;
+  const goal = tutorial && lesson
+    ? lesson.definition.completion === 'exit' ? 'Доберись до выхода' : tutorial.index === 0 ? `Победи ${lesson.definition.goals.find(entry => entry.key === 'kills')?.target ?? 7} гоблинов` : `Победи отмеченных: ${tutorial.targetIds.length}`
+    : custom ? custom.definition.goals.map(entry => `${labels[entry.key]}: ${entry.target}`).join(' · ')
+    : el('wave-label').textContent ?? '';
+  const rule = (tutorial && lesson ? lesson.hint : el('tutorial-message').textContent) || '';
+  el('battle-hint').hidden = !visible || !goal;
+  el('game-screen').classList.toggle('hint-active', !el('battle-hint').hidden);
+  // One phrase only: the rest of the lesson text stays in «О бое и пути» and in the right panel.
+  const phrase = rule.split(/(?<=[.!?])\s+/)[0] ?? rule;
+  el('hint-goal').textContent = goal; el('hint-rule').textContent = phrase;
+  void boss;
+}
+const sideName = (dx: number, dy: number) => dx > 0 ? 'справа' : dx < 0 ? 'слева' : dy > 0 ? 'снизу' : 'сверху';
+/** Short plain-language notes about the telegraphs on the field (shown under it while no chain is held): jailer, shaman, boar. */
+function telegraphNotes(state: typeof engine.state): string[] {
+  const notes: string[] = [], seen = new Set<number>();
+  for (const cell of state.board) {
+    if (!cell || seen.has(cell.id)) continue; seen.add(cell.id);
+    if (cell.variant === 'jailer' && cell.shield) {
+      notes.push(shieldIsActive(cell)
+        ? `Тюремщик: щит ${sideName(cell.shield.dx, cell.shield.dy)} — вход цепи с этой стороны закрыт${cell.intent.cells.length ? `; после хода удар ${cell.intent.damage} по отмеченным клеткам, затем отдых` : ''}.`
+        : cell.status.frozen ? 'Тюремщик заморожен: щит опущен, бей сейчас.' : 'Тюремщик отдыхает: щит опущен — бей сейчас!');
+    } else if (cell.variant === 'shaman' && isCellAlive(cell)) {
+      const ids = cell.intent.empowerIds ?? [];
+      notes.push(cell.status.frozen ? 'Шаман заморожен: камлания не будет.'
+        : ids.length ? `Шаман: после этого хода ${ids.length === 1 ? 'гоблин с ↑ станет' : `гоблины с ↑ (${ids.length}) станут`} опаснее (вооружён → крепкий). Убей шамана или цель — камлание сорвётся.`
+        : `Шаман: камлание через ${SHAMAN_PERIOD - (cell.behavior.cycle ?? 0) % SHAMAN_PERIOD} ход. Цели получат ↑; убей шамана или цель — не сработает.`);
+    } else if (cell.variant === 'boar' && cell.intent.charge && chargeReady(cell, new Set())) {
+      notes.push(`Кабан: «УДАР ${cell.intent.damage}» — только первому в ряду. Остальных он «ТОЛКАЕТ» (без урона); вытолкнутый на шипы или в провал гибнет.`);
+    }
+  }
+  return notes.slice(0, 2);
+}
+const refillNames = { weak: 'слабые', armed: 'вооружённые', sturdy: 'крепкие' } as const;
+/** Growing anger of a map battle in one compact HUD chip (numbers from runPressureInfo, no rule here). */
+function updatePressureChip(state: typeof engine.state) {
+  const chip = el('pressure-chip'), info = runPressureInfo(state);
+  chip.hidden = !info.active || !state.runNode;
+  if (chip.hidden) return;
+  // Steps that change nothing (1 → 1) are not worth announcing.
+  const nextStep = RUN_ANGER_STEPS.find(step => step.fromTurn > state.turn && step.count > info.angerPerTurn);
+  const nextTier = info.nextRefillTurn === RUN_ARMED_REFILL_TURN ? 'armed' : 'sturdy';
+  el('pressure-anger').textContent = `Злость: ${info.angerPerTurn} за ход${nextStep ? ` → ${nextStep.count} после хода ${nextStep.fromTurn}` : ' (предел)'}`;
+  el('pressure-refill').textContent = `Пополнение: ${refillNames[info.refillTier]}${info.nextRefillTurn !== undefined ? ` → ${refillNames[nextTier]} после хода ${info.nextRefillTurn}` : ''}`;
 }
 function updateHUD() {
   const state = engine.state;
@@ -494,7 +550,10 @@ function updateHUD() {
       ? `<div class="objective"><div><span>${boss?.bossStage === 1 ? 'Печать колдуна' : 'Колдун'} · HP</span><strong>${boss?.hp ?? 0}<small> / ${boss?.maxHp ?? 1}</small></strong></div><div class="objective-track"><span style="width:${boss ? (1 - boss.hp / boss.maxHp) * 100 : 100}%"></span></div></div>`
       : `<p class="key-status ${state.room.key.held ? 'held' : ''}">${keyText}</p><p class="objective-note">${gate ? 'Ключ или 200 урона воротам. Войди цепочкой.' : 'Ключ или бомба. Заверши цепь на выбранной двери.'}</p>`;
   }
-  const preview = engine.preview(), count = state.chain.length;
+  const count = state.chain.length;
+  // Hovering «Отдых» shows what resting would do, in the same forecast format (engine.previewRest).
+  const restMode = restHover && count === 0 && input;
+  const preview = restMode ? engine.previewRest() : engine.preview();
   document.querySelector('.chain-card')!.classList.toggle('active', count > 0);
   const forecastEffects = summarizeDamageEffects(preview.endEffects);
   const pendingEffects = [forecastEffects.burning ? `горение ×${forecastEffects.burning}` : '', forecastEffects.poison ? `яд ×${forecastEffects.poison}` : '', forecastEffects.bleeding ? `кровотечение ×${forecastEffects.bleeding}` : ''].filter(Boolean);
@@ -509,10 +568,12 @@ function updateHUD() {
   el('chain-number').classList.toggle('powered', preview.power >= 5);
   el('chain-rank').textContent = preview.opensDoor !== undefined ? 'ДВЕРЬ В СЛЕДУЮЩИЙ ЗАЛ' : preview.completesRoom ? 'ПОБЕДНЫЙ УДАР' : preview.valid && preview.enemyPhase?.completesObjective ? 'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ' : count >= 2 ? 'ОТПУСТИ ДЛЯ УДАРА' : count === 1 ? 'ПРОДОЛЖАЙ ЦЕПЬ' : 'НАЧНИ РЯДОМ С КОТОМ';
   el('chain-meter-fill').style.width = `${Math.min(100, preview.power / 7 * 100)}%`;
-  const budgetLine = lastHit ? `Запас: <b>${lastHit.availablePower}</b> · потрачено: <b>${lastHit.powerSpent}</b> · осталось: <b>${lastHit.remainingPower}</b>` : 'Каждый враг: <b>+1 к силе</b>. Слабый (0 HP) тратит 0.';
+  const budgetLine = restMode ? 'Отдых: <b>+0,5 энергии</b>. Враги и события поля действуют.' : lastHit ? `Запас: <b>${lastHit.availablePower}</b> · потрачено: <b>${lastHit.powerSpent}</b> · осталось: <b>${lastHit.remainingPower}</b>` : 'Каждый враг: <b>+1 к силе</b>. Слабый (0 HP) тратит 0.';
   el('chain-reward').innerHTML = preview.opensDoor !== undefined ? '<b>Вход в выбранную дверь</b><br>Затем выбери одну награду.' : preview.completesRoom ? '<b>Противник будет повержен</b><br>Бой завершится до ответа врагов.' : `${budgetLine}${lastHit ? preview.endsOnSurvivor ? `<br>После удара: ${lastHit.hpAfter} HP` : `<br>Побеждено: ${preview.kills}` : ''}`;
   if (lastHit?.attackEffect === 'fire' && !lastHit.killed) el('chain-reward').innerHTML += '<br>+1 горение · урон в конце хода, после ответа врагов.';
-  if (preview.createsPrism) el('chain-reward').innerHTML += '<br><b>+ ОГОНЁК · смена цвета</b>';
+  if (preview.crystals) el('chain-reward').innerHTML += `<br><b>+${preview.crystals} ${preview.crystals === 1 ? 'кристалл' : 'кристалла'} после хода</b> · смена цвета, очков за него: ${CRYSTAL_SCORE_PER_KILL * preview.kills}`;
+  if (crystalsActive(state) && !restMode && count > 0 && preview.valid) el('chain-reward').innerHTML += `<br>До кристалла: <b>${preview.kills % CRYSTAL_KILLS} / ${CRYSTAL_KILLS}</b> убийств цепью`;
+  if (preview.crystalScore) el('chain-reward').innerHTML += `<br>Кристаллы разрушены: <b>+${preview.crystalScore} очков</b>`;
   if ((!tutorial || allowedAbilities.length) && preview.valid && preview.energyGain > 0) el('chain-reward').innerHTML += `<br>Энергия: <b>+${energyText(preview.energyGain)}</b>`;
   const activations = preview.deviceActivations ?? [];
   if (activations.length) el('chain-reward').innerHTML += `<br>${activations.map(device => device.kind === 'fire' ? '♨ Огонь: +1 горение после жаровни' : device.kind === 'pits' ? '▱ Провалы после цепи' : '⌁ Залп после цепи').join('<br>')}`;
@@ -531,7 +592,10 @@ function updateHUD() {
     const causeNames: Record<string, string> = { ram: 'удар кабана', spikes: 'шипы', thorns: 'колючки', pit: 'провал', arrow: 'стрела', club: 'дубина тролля' };
     const byCause = new Map<string, number>();
     for (const death of phaseForecast.deaths) byCause.set(death.cause, (byCause.get(death.cause) ?? 0) + 1);
-    if (byCause.size) el('chain-reward').innerHTML += `<br>После цепи погибнут: ${[...byCause].map(([cause, n]) => `${causeNames[cause] ?? cause} ×${n}`).join(', ')}`;
+    if (byCause.size) {
+      const goalDeaths = phaseForecast.deaths.filter(death => enemyDefeatCountsForGoal(state, state.board.find(cell => cell?.id === death.id))).length;
+      el('chain-reward').innerHTML += `<br>После цепи погибнут: ${[...byCause].map(([cause, n]) => `${causeNames[cause] ?? cause} ×${n}`).join(', ')} · <b>не засчитано игроку</b>: ${phaseForecast.deaths.length - goalDeaths}${goalDeaths ? `, в задание: ${goalDeaths}` : ''}`;
+    }
     if (phaseForecast.heroIndex !== preview.endIndex) el('chain-reward').innerHTML += `<br>Кота сдвинут: ${gridLabel(phaseForecast.heroIndex)}`;
     if (phaseForecast.completesObjective) el('chain-reward').innerHTML += '<br><b>Победа после ответа врагов</b> · если кот переживёт ответ';
     if (phaseForecast.charges.some(charge => charge.stunned)) el('chain-reward').innerHTML += '<br>Кабан упрётся и оглушится';
@@ -541,9 +605,17 @@ function updateHUD() {
     if (phaseForecast.empowered.length) el('chain-reward').innerHTML += `<br>Камлание: станут опаснее — ${phaseForecast.empowered.length} (${phaseForecast.empowered.map(rite => rite.tier === 'sturdy' ? '↑ крепкий' : '↑ вооружён').join(', ')})`;
     if (announced > phaseForecast.empowered.length) el('chain-reward').innerHTML += `<br>Камлание отменено: ${announced - phaseForecast.empowered.length}`;
   }
-  el('risk-preview').textContent = count === 0 ? 'Выбери безопасный последний шаг.' : !preview.valid ? preview.reason : preview.damage > 0 ? `⚠ После цепи: −${preview.damage} HP${forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${preview.playerDies ? ' · смертельно' : ''}${pendingEffects.length ? `. Останется: ${pendingEffects.join(', ')}` : ''}` : pendingEffects.length ? `⚠ После хода: ${pendingEffects.join(', ')}` : '✓ Конец цепи безопасен';
-  el('risk-preview').classList.toggle('danger', count > 0 && (!preview.valid || preview.damage > 0 || pendingEffects.length > 0));
-  el('status-message').textContent = targeting ? `${ITEMS[targeting].label}: выбери цель на поле.` : chosenAbility === 'jump' ? `Прыжок: выбери клетку приземления в пределах ${JUMP_RANGE}.` : count > 0 ? preview.valid ? `Целей: ${count} · кот остановится: ${gridLabel(preview.endIndex)}` : preview.reason : focusedDoor !== null ? el('door-detail').textContent ?? '' : state.message || 'Начни цепочку рядом с котом.';
+  // The panel must not change height while the pointer rests on the button (it would move away): the details go under the field.
+  let restText = '';
+  if (restMode) {
+    const extras = el('chain-reward').innerHTML.split('<br>').slice(1).map(part => part.replace(/<[^>]+>/g, '')).filter(part => part && !part.startsWith('Энергия'));
+    restText = `Отдых: ${preview.damage > 0 ? `−${preview.damage} HP${forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${preview.playerDies ? ' · смертельно' : ''}` : 'безопасно'}${extras.length ? ` · ${extras.join(' · ')}` : ''}.`;
+    el('chain-reward').innerHTML = 'Каждый враг: <b>+1 к силе</b>. Слабый (0 HP) тратит 0.';
+  }
+  el('risk-preview').textContent = restMode ? (preview.damage > 0 ? `⚠ Отдых: −${preview.damage} HP` : '✓ Отдых безопасен') : count === 0 ? 'Выбери безопасный последний шаг.' : !preview.valid ? preview.reason : preview.damage > 0 ? `⚠ После цепи: −${preview.damage} HP${forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${preview.playerDies ? ' · смертельно' : ''}${pendingEffects.length ? `. Останется: ${pendingEffects.join(', ')}` : ''}` : pendingEffects.length ? `⚠ После хода: ${pendingEffects.join(', ')}` : '✓ Конец цепи безопасен';
+  el('risk-preview').classList.toggle('danger', (count > 0 || restMode) && (!preview.valid || preview.damage > 0 || pendingEffects.length > 0));
+  el('status-message').textContent = targeting ? `${ITEMS[targeting].label}: выбери цель на поле.` : chosenAbility === 'jump' ? `Прыжок: выбери клетку приземления в пределах ${JUMP_RANGE}.` : count > 0 ? preview.valid ? `Целей: ${count} · кот остановится: ${gridLabel(preview.endIndex)}` : preview.reason : focusedDoor !== null ? el('door-detail').textContent ?? '' : restMode ? restText : telegraphNotes(state).join(' ') || state.message || 'Начни цепочку рядом с котом.';
+  el('status-message').classList.toggle('telegraph', !targeting && !chosenAbility && count === 0 && focusedDoor === null && telegraphNotes(state).length > 0);
   const actors = uniqueEntities(state.board);
   const ready = actors.filter(({cell, index}) => enemyReadyToAttack(cell, index, state)).length;
   const resting = planEnemyPhase(state.board, state.player.index).resting.length;
@@ -585,6 +657,7 @@ function updateHUD() {
   el('cancel-frost').hidden = !targeting;
   const waitButton = el<HTMLButtonElement>('wait-button');
   waitButton.disabled = !input || !!targeting || !!chosenAbility;
+  renderer?.setRestPreview(restHover && !waitButton.disabled && count === 0);
   waitButton.textContent = tutorial && !allowedAbilities.length ? 'Пропустить ход' : 'Отдых · +0,5 энергии';
   waitButton.setAttribute('aria-label', tutorial && !allowedAbilities.length ? 'Пропустить ход. Враги действуют.' : 'Отдых: плюс 0,5 энергии. Враги и события поля действуют.');
   el('item-hint').textContent = targeting ? `${ITEMS[targeting].description} Esc — отменить выбор.` : state.itemPrepared ? 'Средство применено. Проведи цепь или отдохни; затем действуют враги.' : tutorial ? state.inventory.frost > 0 ? 'Холод действует на мокрую цель. Один флакон перед цепью; повтор восстановит запас.' : 'Холод: нет флаконов. Продолжай цепью или доступной способностью.' : forest ? state.inventory.frost ? 'Мокрый + холод: пропуск действия и двойной следующий удар.' : 'Флакон холода появится с лучниками.' : 'Один расходник перед цепью. Запасы переходят в следующий зал.';
@@ -592,6 +665,8 @@ function updateHUD() {
   document.querySelectorAll<HTMLButtonElement>('[data-action="title"], [data-action="run-map"], [data-action="help"], [data-action="pause"], [data-action="editor"]').forEach(button => { button.disabled = Boolean(phases[state.phase]) && screen === 'game'; });
   if (count > previousChain) audio.play('select', count);
   previousChain = count;
+  updateBattleHint(state, lesson, tutorial, custom, boss);
+  updatePressureChip(state);
   if (input && outcomeShown) { outcomeShown = ''; hideModal(); }
   if (!starting && ['REWARD', 'WIN', 'LOSE'].includes(state.phase) && outcomeShown !== state.phase && screen === 'game') {
     outcomeShown = state.phase;
@@ -680,7 +755,7 @@ function showHelp() {
     showModal(`<p class="eyebrow">${eyebrow}</p><h2 id="modal-title">${lesson?.name ?? level.name}</h2><p class="modal-copy">${lesson?.hint ?? level.tutorial} Веди цепь через соседние клетки одного цвета. Отпусти мышь или палец после двух целей. Вернись на предыдущую клетку, чтобы убрать последний шаг.</p><button class="button primary" data-action="resume">ВЕРНУТЬСЯ В БОЙ</button>`);
     return;
   }
-  showModal(`<p class="eyebrow">НАСТАВЛЕНИЕ КОТУ-ВАРВАРУ</p><h2 id="modal-title">Один топор. Много дверей.</h2><div class="help-rules"><p><b>Цепочка и последний шаг</b>Начни рядом с котом и проведи через цели одного цвета по горизонтали, вертикали или диагонали. Диагональ закрыта, только если обе боковые клетки непроходимы. Каждый враг добавляет 1 к бюджету удара. Враг с 0 HP слабый: гибнет от удара и ничего не тратит. Остальные тратят своё HP из бюджета; если бюджета не хватило, последний враг выживет с раной. Последнего врага можно ранить, но пройти через живого нельзя. Кот остаётся на последней освобождённой клетке. Бесцветные цели подходят к любому цвету. Вернись на шаг назад, чтобы сократить цепь. В походе и авторских уровнях 8 убийств за цепь оставляют огонёк, если есть место и на поле меньше двух. Через него можно сменить цвет внутри следующей цепи; начать с огонька нельзя.</p><p><b>Красные клетки — будущая атака</b>Разозлённый гоблин бьёт только четырёх соседей по сторонам и остаётся опасным до попадания по коту. Лучник стреляет в отмеченную линию, затем отдыхает. Знак ⇄ связывает две клетки. Гибель врага не отменяет обмен: его место займёт пополнение. Кот на любом конце или живой враг во льду остановят обмен. Во дворе замка каждые три хода приходит залп; отсчёт и опасные клетки показаны заранее.</p><p><b>Ключ, ворота и три направления</b>У ворот 12 убийств вызовут командира с ключом. Можно открыть створки ключом или нанести им 200 урона. Внутри замка ищи хранителя ключа: магические двери не берутся обычным ударом. Бомба снимет печать с одной двери. В доступную соседнюю дверь можно войти одним выбором: выбери её и отпусти. Для боя по-прежнему нужны две цели. Наведи на выход, чтобы увидеть следующий зал; дороги назад нет.</p><p><b>Энергия и способности</b>Обычная цепь даёт +0,5 энергии за каждого атакованного врага, максимум 7. Прыжок стоит 2: дальность ${JUMP_RANGE}, физический удар 4, приземление только на пустой пол или убитого врага. Круговой удар стоит 3 и сразу бьёт всех восьмерых соседей на 4, оставляя кота на месте. Выбор прыжка отменяется повторным нажатием либо Esc. Энергия переносится между комнатами. Отдых даёт +0,5 энергии до предела 7 и запускает обычный ход врагов со всеми событиями поля.</p><p><b>Направленный щит</b>Железный страж закрывает золотой гранью переднюю сторону. Вход цепи с этой стороны запрещён; направление подхода считается от предыдущей цели. Обойди сбоку. Лёд отключает щит мокрого стража. Прыжок, круговой удар и предметы игнорируют направление щита, но сохраняют обычные требования урона и приземления.</p><p><b>Один предмет перед цепью</b>Холод замораживает мокрого врага и даёт хрупкость. Бомба повреждает выбранного врага или снимает печать двери. Огонь накладывает горение на выбранную и соседние клетки без мгновенного урона; горение и яд ранят в конце хода. Кровотечение ранит после каждых трёх обычных шагов, а ветер усиливает уже горящую цель. Лечение возвращает здоровье и снимает яд и кровотечение даже при полном HP, но не тушит огонь. Выбери предмет и цель, затем проведи цепь или выбери отдых. Esc отменит выбор цели. Лёд приостанавливает действия и отдых врага.</p><p><b>Комнаты и награды</b>За дверью выбери одну из трёх наград. Инвентарь переносится дальше; повтор комнаты восстанавливает запас на входе, а не дублирует добычу. В шахматном зале ладья действует по прямой, слон — по диагонали, конь — буквой Г; обмен фигур следует той же геометрии. Живой шкаф может защищать связанного соседа: убей или заморозь шкаф, чтобы снять защиту.</p><p><b>Лесное обучение</b>Сначала 8 гоблинов, затем 2 лучника и главарь. Подкрепление раздавливает случайного обычного гоблина; это не твоё убийство. Мокрую цель для холода можно найти в луже E2. Лимита ходов нет.</p></div><button class="button primary" data-action="resume">${screen === 'game' ? 'ВЕРНУТЬСЯ В БОЙ' : 'ПОНЯТНО'}</button>`);
+  showModal(`<p class="eyebrow">НАСТАВЛЕНИЕ КОТУ-ВАРВАРУ</p><h2 id="modal-title">Один топор. Много дверей.</h2><div class="help-rules"><p><b>Цепочка и последний шаг</b>Начни рядом с котом и проведи через цели одного цвета по горизонтали, вертикали или диагонали. Диагональ закрыта, только если обе боковые клетки непроходимы. Каждый враг добавляет 1 к бюджету удара. Враг с 0 HP слабый: гибнет от удара и ничего не тратит. Остальные тратят своё HP из бюджета; если бюджета не хватило, последний враг выживет с раной. Последнего врага можно ранить, но пройти через живого нельзя. Кот остаётся на последней освобождённой клетке. Бесцветные цели подходят к любому цвету. Вернись на шаг назад, чтобы сократить цепь. Каждые 6 убийств одной цепью оставляют кристалл на случайной клетке: он даёт очки, когда цепь его разрушит. Через кристалл можно сменить цвет внутри следующей цепи; начать с кристалла нельзя, силы он не даёт.</p><p><b>Красные клетки — будущая атака</b>Разозлённый гоблин бьёт только четырёх соседей по сторонам и остаётся опасным до попадания по коту. Лучник стреляет в отмеченную линию, затем отдыхает. Знак ⇄ связывает две клетки. Гибель врага не отменяет обмен: его место займёт пополнение. Кот на любом конце или живой враг во льду остановят обмен. Во дворе замка каждые три хода приходит залп; отсчёт и опасные клетки показаны заранее.</p><p><b>Ключ, ворота и три направления</b>У ворот 12 убийств вызовут командира с ключом. Можно открыть створки ключом или нанести им 200 урона. Внутри замка ищи хранителя ключа: магические двери не берутся обычным ударом. Бомба снимет печать с одной двери. В доступную соседнюю дверь можно войти одним выбором: выбери её и отпусти. Для боя по-прежнему нужны две цели. Наведи на выход, чтобы увидеть следующий зал; дороги назад нет.</p><p><b>Энергия и способности</b>Обычная цепь даёт +0,5 энергии за каждого атакованного врага, максимум 7. Прыжок стоит 2: дальность ${JUMP_RANGE}, физический удар 4, приземление только на пустой пол или убитого врага. Круговой удар стоит 3 и сразу бьёт всех восьмерых соседей на 4, оставляя кота на месте. Выбор прыжка отменяется повторным нажатием либо Esc. Энергия переносится между комнатами. Отдых даёт +0,5 энергии до предела 7 и запускает обычный ход врагов со всеми событиями поля.</p><p><b>Направленный щит</b>Железный страж закрывает золотой гранью переднюю сторону. Вход цепи с этой стороны запрещён; направление подхода считается от предыдущей цели. Обойди сбоку. Лёд отключает щит мокрого стража. Прыжок, круговой удар и предметы игнорируют направление щита, но сохраняют обычные требования урона и приземления.</p><p><b>Один предмет перед цепью</b>Холод замораживает мокрого врага и даёт хрупкость. Бомба повреждает выбранного врага или снимает печать двери. Огонь накладывает горение на выбранную и соседние клетки без мгновенного урона; горение и яд ранят в конце хода. Кровотечение ранит после каждых трёх обычных шагов, а ветер усиливает уже горящую цель. Лечение возвращает здоровье и снимает яд и кровотечение даже при полном HP, но не тушит огонь. Выбери предмет и цель, затем проведи цепь или выбери отдых. Esc отменит выбор цели. Лёд приостанавливает действия и отдых врага.</p><p><b>Комнаты и награды</b>За дверью выбери одну из трёх наград. Инвентарь переносится дальше; повтор комнаты восстанавливает запас на входе, а не дублирует добычу. В шахматном зале ладья действует по прямой, слон — по диагонали, конь — буквой Г; обмен фигур следует той же геометрии. Живой шкаф может защищать связанного соседа: убей или заморозь шкаф, чтобы снять защиту.</p><p><b>Лесное обучение</b>Сначала 8 гоблинов, затем 2 лучника и главарь. Подкрепление раздавливает случайного обычного гоблина; это не твоё убийство. Мокрую цель для холода можно найти в луже E2. Лимита ходов нет.</p></div><button class="button primary" data-action="resume">${screen === 'game' ? 'ВЕРНУТЬСЯ В БОЙ' : 'ПОНЯТНО'}</button>`);
 }
 document.addEventListener('click', event => {
   const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
@@ -724,7 +799,11 @@ document.addEventListener('click', event => {
     case 'editor': quietCancel(); showScreen('editor'); break;
     case 'resume': hideModal(); break;
     case 'sound': audio.enabled = !audio.enabled; save.sound = audio.enabled; persist(); updateSound(); if (audio.enabled) { audio.unlock(); audio.play('click'); } break;
-    case 'help': showHelp(); break;
+    case 'help':
+      // In a battle the first «?» calls the big hint back; with the hint on screen it opens the full rules.
+      if (screen === 'game' && hintTurn === null && engine.state.phase === 'PLAYER_INPUT') { hintTurn = engine.state.turn; updateHUD(); break; }
+      showHelp(); break;
+    case 'hint-close': hintTurn = null; updateHUD(); break;
     case 'ability': {
       const kind = target.dataset.ability as AbilityKind;
       renderer?.setItemTargeting(null);
@@ -763,6 +842,10 @@ document.addEventListener('click', event => {
     case 'playtest-copy': void copyPlaytest(); break;
   }
 });
+const restTarget = (event: Event) => (event.target as HTMLElement | null)?.closest?.('#wait-button');
+for (const [type, on] of [['mouseover', true], ['mouseout', false], ['focusin', true], ['focusout', false]] as const) {
+  document.addEventListener(type, event => { if (restTarget(event) && restHover !== on) { restHover = on; updateHUD(); } });
+}
 const mapDetail = (id: string | null) => { const detail = document.getElementById('map-detail'); if (detail && forestRun) detail.innerHTML = nodeDetailHtml(forestRun, id); };
 const mapNodeId = (event: Event) => (event.target as HTMLElement).closest<HTMLElement>('.map-node')?.dataset.node ?? null;
 el('map-screen').addEventListener('mouseover', event => { const id = mapNodeId(event); if (id) mapDetail(id); });
@@ -780,6 +863,7 @@ document.addEventListener('keydown', event => {
   else if (screen === 'game' && engine.state.phase === 'PLAYER_INPUT') document.querySelector<HTMLButtonElement>('[data-action="pause"]')?.click();
 });
 engine.subscribe((_state, event) => {
+  if (event.type === 'start') hintTurn = 0;
   if (['hit', 'kill'].includes(event.type) || event.type === 'attack' && engine.state.board[event.index??-1]?.kind !== 'melee') audio.play('hit', event.amount);
   if (event.type === 'damage') { audio.play('damage'); el('game-screen').classList.remove('damage-flash'); void el('game-screen').offsetWidth; el('game-screen').classList.add('damage-flash'); }
   if (event.type === 'frost') audio.play('frost');
@@ -805,7 +889,7 @@ const debug = {
   get objective() { return engine.state.objective; }, get turn() { return engine.state.turn; }, get score() { return engine.state.score; },
   get forestRun() { return forestRun; }, startForestRun: (seed?: number) => newRun(seed), openMap: () => showScreen('map'), forestRunStore: runStore,
   get screen() { return screen; }, get frostTargeting() { return renderer?.frostTargeting ?? false; }, get itemTargeting() { return renderer?.itemTargeting ?? null; },
-  get endpointLabel() { return renderer?.endpointLabel ?? null; }, get forecastMarks() { return renderer?.forecastMarks ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
+  get endpointLabel() { return renderer?.endpointLabel ?? null; }, get telegraphMarks() { return renderer?.telegraphMarks ?? []; }, get forecastMarks() { return renderer?.forecastMarks ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
   getBoardState: () => engine.getBoardState(), availableMoves: () => engine.availableMoves(), validStarts: () => engine.validStarts(),
   preview: (path?: number[]) => engine.preview(path), previewFrost: (index: number) => engine.previewFrost(index),
   previewRotations: (path?: number[]) => engine.previewRotations(path),

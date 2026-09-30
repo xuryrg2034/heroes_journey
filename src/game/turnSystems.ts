@@ -4,7 +4,7 @@ import type { ChainSimulation } from './forestSystems';
 import { rotationPreview } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { customGoalsMet } from './customLevel';
-import { damageCell, damageHero, removeDefeated, defeatsRoomBoss } from './combatRules';
+import { damageCell, damageHero, removeDefeated, defeatsRoomBoss, type DefeatCredit } from './combatRules';
 import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase, type EnemyAttack, type PlannedSummon } from './enemyPhase';
 import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
@@ -21,8 +21,9 @@ import type { TurnSequence } from './turnRuntime';
 export interface TurnContext {
   readonly state: ForestState;
   current(): boolean;
-  setPendingPrism(index: number | null): void;
-  recordDefeat(cell: ForestCell, index: number, playerCredit: boolean): void;
+  /** Colour-change crystals created by the committed chain, placed at this turn's refill (mapBattleRules.ts). */
+  setPendingCrystals(crystals: { count: number; chainKills: number } | null): void;
+  recordDefeat(cell: ForestCell, index: number, credit: DefeatCredit): void;
   completeRoom(door: DoorData, index: number): void;
   finish(won: boolean, message?: string): void;
   refreshCustomProgress(): void;
@@ -38,7 +39,7 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
   ctx.state.player.energy = Math.min(7, Math.max(0, ctx.state.player.energy - simulation.preview.energyCost + simulation.preview.energyGain));
   ctx.state.chosenAbility = null;
   if (ctx.state.tutorial) ctx.state.tutorial.hintDismissed = true;
-  ctx.setPendingPrism(simulation.preview.prismIndex ?? null);
+  ctx.setPendingCrystals(simulation.preview.crystals ? { count: simulation.preview.crystals, chainKills: simulation.preview.kills } : null);
   ctx.state.phase = 'PLAYER_RESOLVE'; ctx.state.turn++; ctx.state.lastDamage = 0;
   ctx.state.message = 'Каждый враг даёт +1 силы, его HP расходуют запас.'; yield { event: { type: 'state' } };
   if (!ctx.current()) return false;
@@ -81,7 +82,7 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
         if (!ctx.current()) return false;
       }
       if (original.kind === 'prism') ctx.state.objective.prisms++;
-      else ctx.recordDefeat(original, hit.index, true);
+      else ctx.recordDefeat(original, hit.index, 'player');
       if (!ctx.current()) return false;
     }
     if (hit.keyCollected) {
@@ -90,7 +91,8 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
     }
     if (original.kind === 'boss') ctx.state.objective.bossHits++;
     if (hit.phaseChanged) { yield { event: { type: 'boss-phase', index: hit.index, text: 'ПЕЧАТЬ РАЗРУШЕНА · 24 HP' } }; if (!ctx.current()) return false; }
-    ctx.state.score += hit.killed ? 20 + hit.damage * 2 : hit.damage;
+    // A map-battle crystal scores by the chain that created it (same number as the forecast's hits[].crystalScore).
+    ctx.state.score += hit.crystalScore ?? (hit.killed ? 20 + hit.damage * 2 : hit.damage);
     yield { event: { type: hit.physical ? 'hit' : 'collect', index: hit.index, amount: hit.damage, text: hit.killed ? undefined : `${hit.hpAfter} HP` } };
     if (!ctx.current()) return false;
     if (hit.killed) yield { event: { type: 'kill', index: hit.index } };
@@ -145,7 +147,7 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
         yield { event: { type: 'hit', index: impact.index, amount: impact.hit.damage } };
         if (!ctx.current()) return false;
         if (impact.hit.killed) {
-          ctx.recordDefeat(impact.cell!, impact.index, true);
+          ctx.recordDefeat(impact.cell!, impact.index, 'player');
           if (!ctx.current()) return false;
           yield { event: { type: 'kill', index: impact.index } };
         }
@@ -227,22 +229,22 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
           yield { event: { type: 'status', index: ctx.state.player.index, from: index, effect: cell.attackEffect, amount: 1 } };
         }
       }
-      // Forest arrows strike every creature on the announced cells; kills are credited to the player.
+      // Forest arrows strike every creature on the announced cells; an enemy's kill counts only for goal targets.
       if (ctx.state.player.hp > 0 && archerStrikesCreatures(cell)) for (const impact of archerVolley(ctx.state.board, cell)) {
         yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage } };
         if (!ctx.current()) return false;
         if (!impact.killed) continue;
-        ctx.recordDefeat(impact.cell, impact.index, true);
+        ctx.recordDefeat(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index } };
         bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
       }
-      // The club falls on every creature in the zone, enemies included; kills are credited to the player.
+      // The club falls on every creature in the zone, enemies included; an enemy's kill counts only for goal targets.
       if (ctx.state.player.hp > 0 && club) for (const impact of clubImpacts(ctx.state.board, cell, club.zone, club.damage)) {
         yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage, text: 'club' } };
         if (!ctx.current()) return false;
         if (!impact.killed) continue;
-        ctx.recordDefeat(impact.cell, impact.index, true);
+        ctx.recordDefeat(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index, text: 'club' } };
         bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
@@ -278,7 +280,8 @@ export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): T
       yield { event: { type: 'hit', index: impact.index, from: boarIndex, amount: impact.damage, text: impact.kind === 'ram' && impact.shielded ? 'ЩИТ' : text } };
       if (!ctx.current()) return false;
       if (impact.killed && impact.cell) {
-        ctx.recordDefeat(impact.cell, impact.index, true);
+        // A boar's ram and push are an enemy ability: the kill counts only for goal targets.
+        ctx.recordDefeat(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index, text } };
         bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
@@ -321,7 +324,7 @@ export function* resolveRotations(ctx: TurnContext, displaced: ReadonlySet<numbe
   return true;
 }
 
-/** Volley damage is uncredited and keeps its original hit → removal → kill barriers. */
+/** Volley damage is uncredited (environment: `combatKills` only) and keeps its original hit → removal → kill barriers. */
 export function* resolveHazard(ctx: TurnContext): TurnSequence {
   if (ctx.state.hazard.turnsUntil === 1 && ctx.state.hazard.cells.length) {
     yield { event: { type: 'arrow-volley', indices: [...ctx.state.hazard.cells], amount: ctx.state.hazard.damage } };
@@ -342,7 +345,7 @@ export function* resolveHazard(ctx: TurnContext): TurnSequence {
           yield { event: { type: 'hit', index, amount: ctx.state.hazard.damage } };
           if (!ctx.current()) return false;
           if (outcome.killed) {
-            removeDefeated(ctx.state.board, cell); ctx.recordDefeat(cell, index, false);
+            removeDefeated(ctx.state.board, cell); ctx.recordDefeat(cell, index, 'environment');
             if (!ctx.current()) return false;
             yield { event: { type: 'kill', index } };
           }
@@ -390,7 +393,7 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
       if (outcome.phaseChanged) yield { event: { type: 'boss-phase', index, text: 'ПЕЧАТЬ РАЗРУШЕНА · 24 HP' } };
       yield { event: { type: 'hit', index, amount: hit.damage, effect: hit.kind } };
       if (outcome.killed) {
-        removeDefeated(ctx.state.board, cell); ctx.recordDefeat(cell, index, hit.playerCredit);
+        removeDefeated(ctx.state.board, cell); ctx.recordDefeat(cell, index, hit.playerCredit ? 'player' : 'environment');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index, effect: hit.kind } };
         bossKilled ||= defeatsRoomBoss(ctx.state, cell);

@@ -29,8 +29,12 @@ test('a long tutorial chain refills with mixed palette colors and retries the ex
   expect(after.turn).toBe(opening.turn + 1);
   expect(after.objective.kills).toBe(path.length);
   const initialIds = new Set(opening.board.filter(Boolean).map((cell: any) => cell.id));
-  const arrivals = after.board.filter((cell: any) => cell && !initialIds.has(cell.id));
-  expect(arrivals).toHaveLength(path.length);
+  // Six kills also create one crystal on a seeded random cell (it may crush a survivor or take a freed square).
+  const crystals = after.board.filter((cell: any) => cell?.kind === 'prism' && !initialIds.has(cell.id));
+  expect(crystals).toHaveLength(1);
+  const arrivals = after.board.filter((cell: any) => cell && cell.kind !== 'prism' && !initialIds.has(cell.id));
+  expect(arrivals.length).toBeGreaterThanOrEqual(path.length - 1);
+  expect(arrivals.length).toBeLessThanOrEqual(path.length);
   expect(new Set(arrivals.map((cell: any) => cell.color))).toEqual(new Set([0, 2]));
   for (const cell of after.board.filter(Boolean)) {
     const previous = opening.board.find((old: any) => old?.id === cell.id);

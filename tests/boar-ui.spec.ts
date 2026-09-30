@@ -108,7 +108,8 @@ test('spiked side: the forecast crosses the victim and the cat, the risk line na
   await finishTurn(page);
   await ready(page);
   const after = await state(page);
-  expect(after.objective.kills).toBeGreaterThanOrEqual(kills + 2 + spiked.length);
+  // Deaths on the spikes are the boar's, not the player's (playtest 1 rule): only the two chain kills are credited.
+  expect(after.objective.kills).toBe(kills + 2);
   expect(after.player.hp).toBe(6 - forecast.damage);
   expect(errors).toEqual([]);
 });

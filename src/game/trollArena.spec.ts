@@ -40,7 +40,7 @@ const troll = (g: ForestEngine) => g.state.board.find(cell => cell?.variant === 
 
 function setup(seed?: number, player = { hp: 5, maxHp: 5, energy: 0 }, frost = 0): RunBattleSetup {
   const battle = forestBattle(ID)!, tools = guaranteedRowTools(ROW)!;
-  return { nodeId: NODE, label: battle.name, seed: seed ?? battle.definition.seed, template: { kind: 'battle', id: ID }, player,
+  return { nodeId: NODE, label: battle.name, seed: seed ?? battle.definition.seed, template: { kind: 'battle', id: ID }, row: ROW, player,
     inventory: { frost, bomb: 0, healing: 0, fire: 0 }, allowedItems: [...tools.items], allowedAbilities: [...tools.abilities],
     paletteWeights: authoredRefillPalette(battle, ROW) };
 }
@@ -83,7 +83,7 @@ async function act(g: ForestEngine, step: Step, where: string): Promise<ChainPre
     if (!cell) continue;
     const old = colors.get(cell.id);
     if (old !== undefined) assert(cell.color === old, `${where}: survivor keeps its color`);
-    else if (cell.kind === 'melee' && !cell.variant) assert(cell.behavior.passive && cell.color !== null && state.customLevel!.paletteWeights[cell.color] > 0, `${where}: refill is a passive filler of the node palette`);
+    else if (cell.kind === 'melee' && !cell.variant) assert(!cell.behavior.passive && cell.color !== null && state.customLevel!.paletteWeights[cell.color] > 0, `${where}: refill joins the growing anger (row 14) and uses the node palette`);
   }
   if (state.phase === 'PLAYER_INPUT') assert(hasOrdinaryChain(state), `${where}: the next turn has an ordinary chain`);
   return preview;
@@ -124,7 +124,8 @@ async function routes() {
     const g = start(k), where = `refill ${k}`;
     await playRoute(g, where);
     assert(g.state.phase === 'WIN' && g.state.turn === ROUTE.length, `${where}: the authored route wins in ${ROUTE.length} turns (${g.state.phase}, turn ${g.state.turn})`);
-    assert(g.state.player.hp === 5 && g.runBattleOutcome()?.won === true, `${where}: 5 HP left and the run sees the victory`);
+    // Growing anger on row 14 (playtest 1): the third turn now takes one melee hit from a goblin of the growing anger.
+    assert(g.state.player.hp === 4 && g.runBattleOutcome()?.won === true, `${where}: 4 HP left and the run sees the victory, got ${g.state.player.hp}`);
   }
   for (const runSeed of [1, 2]) {
     const g = start(0, forestNodeSeed(runSeed, NODE));

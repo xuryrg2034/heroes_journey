@@ -124,6 +124,8 @@ async function alternatePolicies() {
       const unsubscribe = g.subscribe((state, event) => {
         if (event.type === 'enemy-swap') { moved.set(event.from!, event.to!); moved.set(event.to!, event.from!); }
         if (event.type === 'special-arrival') replaced.add(event.oldId!);
+        // A colour-change crystal crushes the enemy on its seeded cell (every mode since 30.09.2026).
+        if (event.type === 'crystal' && event.oldId !== undefined) replaced.add(event.oldId);
         // Archer arrows strike every creature on the announced line (positions are unchanged before swaps).
         if (event.type === 'hit' && state.phase === 'ENEMY_RESOLVE' && oldBoard[event.index!]) replaced.add(oldBoard[event.index!]!.id);
       });

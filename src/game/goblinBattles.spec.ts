@@ -29,7 +29,7 @@ const SEEDS = [9601, 17, 4242, 777001, 31337];
 
 function setupFor(id: string, seed: number, player: RunPlayerResources = { hp: 5, maxHp: 5, energy: 0 }, frost = 0): RunBattleSetup {
   const battle = forestBattle(id)!, row = ROWS[id], tools = guaranteedRowTools(row)!;
-  return { nodeId: `spec-${id}`, label: battle.name, seed, template: { kind: 'battle', id }, player,
+  return { nodeId: `spec-${id}`, label: battle.name, seed, template: { kind: 'battle', id }, row, player,
     inventory: { frost, bomb: 0, healing: 0, fire: 0 }, allowedItems: [...tools.items], allowedAbilities: [...tools.abilities],
     paletteWeights: authoredRefillPalette(battle, row) };
 }

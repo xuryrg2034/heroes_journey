@@ -15,6 +15,7 @@ import { TUTORIAL_LESSONS } from './tutorialLevels';
 import { chainAdjacent, isWalkable, JUMP_RANGE } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { isCellAlive } from './cellLife';
+import { enemyDefeatCountsForGoal } from './combatRules';
 import { planEnemyPhase } from './enemyPhase';
 import { applyDamageEffect, tickDamageEffects } from './damageEffects';
 import type { ChainPreview, ForestCell, ForestState, ItemKind } from './forestTypes';
@@ -225,7 +226,7 @@ interface ActionInfo {
 function makeNode(snap: AnalysisSnapshot): AnalysisNode {
   snap.entry = null;
   const text = stateText(snap.state);
-  return { snap, hash: hashString(`${text}|${snap.rng}|${snap.nextId}|${snap.pendingPrism}`), movesKey: hashString(text),
+  return { snap, hash: hashString(`${text}|${snap.rng}|${snap.nextId}|${JSON.stringify(snap.pendingCrystals ?? null)}`), movesKey: hashString(text),
     phase: snap.state.phase, hp: snap.state.player.hp, maxHp: snap.state.player.maxHp, turn: snap.state.turn };
 }
 
@@ -237,13 +238,14 @@ function describePreview(state: ForestState, preview: ChainPreview) {
     dealt += removed;
     goal += weight * (removed + (hit.killed ? 50 : 0));
   }
-  // Forced deaths in the following enemy phase (ram, spikes, thorns, pit, arrow, club) are credited to the player.
+  // Forced deaths in the following enemy phase (ram, spikes, thorns, pit, arrow, club) are enemy abilities: since
+  // 30.09.2026 they advance only marked targets and bosses (combatRules.enemyDefeatCountsForGoal), not kill counts.
   const deaths = preview.enemyPhase?.deaths ?? [];
   for (const death of deaths) {
     const cell = state.board.find(candidate => candidate?.id === death.id);
-    goal += goalWeight(state, cell) * ((cell?.hp ?? 0) + 50);
+    if (enemyDefeatCountsForGoal(state, cell)) goal += goalWeight(state, cell) * ((cell?.hp ?? 0) + 50);
   }
-  const kills = preview.kills + (preview.trapKills ?? 0) + deaths.length;
+  const kills = preview.kills + (preview.trapKills ?? 0);
   return { goal, dealt, kills };
 }
 /**

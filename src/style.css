@@ -363,3 +363,18 @@ body:before{opacity:.055}
 .map-legend{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:6px;font:11px/1.4 Arial,sans-serif;color:#9fb0ad}.map-legend i{font-style:normal;margin-right:5px;color:#d3aa62}
 .outcome-symbol.pending{color:#e5a27f}
 .map-notice{margin:0}
+
+/* Readability: the main hint of a battle is big above the field; telegraph notes sit right under it. */
+.battle-hint{display:flex;align-items:center;gap:14px;width:100%;margin:0 0 8px;padding:7px 12px;border:1px solid #d3aa62;border-left-width:4px;background:#3c33208c;color:#f4e6c2;text-align:left;cursor:pointer;min-height:46px}
+.battle-hint[hidden]{display:none}
+.battle-hint:hover{background:#4a3f27a8}
+.hint-goal{flex:none;max-width:44%;font:700 15px/1.25 Georgia,serif;color:#ffe3a0}
+.hint-rule{flex:1;font:14px/1.35 Arial,sans-serif;color:#f1e6cc;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hint-close{flex:none;font-size:13px;color:#c9b98f}
+@media(min-width:701px){.game-screen.hint-active .board-column,.game-screen.hint-active.tall-room .board-column{width:min(100%,calc((100dvh - 275px)*var(--board-ratio,1)))}.game-screen.hint-active.hazard-active .board-column{width:min(100%,calc((100dvh - 355px)*var(--board-ratio,1)))}}
+@media(max-width:700px){.hint-rule{-webkit-line-clamp:3;font-size:13px}.battle-hint{flex-wrap:wrap}.hint-goal{max-width:100%}}
+.board-status.telegraph{font-size:13.5px;line-height:1.4;color:#f3dfae}
+
+/* Growing anger chip in the battle HUD; crystals and rest forecast need no extra chrome. */
+.pressure-chip{display:flex;flex-direction:column;gap:2px;margin-top:10px;min-width:0;padding:7px 10px;border-left:3px solid #d9744a;background:#4a2f2440;font:12px/1.3 Arial,sans-serif;color:#efd9c2}
+.pressure-chip[hidden]{display:none}.pressure-chip .hud-label{font-size:9px;letter-spacing:1px;margin:0;color:#e5a27f}.pressure-chip b{font-size:12.5px;color:#ffe2c4}

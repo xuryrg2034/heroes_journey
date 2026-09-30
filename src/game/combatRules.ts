@@ -37,13 +37,30 @@ export function removeDefeated(board: (ForestCell | null)[], cell: ForestCell): 
   clearEntity(board, cell.id);
 }
 
-/** Both preview progress and live defeat accounting use the same player-credit rules. */
-export function creditDefeat(state: ForestState, cell: ForestCell, progress = state.objective): void {
-  if (cell.kind === 'door' || cell.kind === 'prism') return;
-  if (cell.kind === 'melee' || state.customLevel) progress.kills++;
-  if (cell.kind === 'ranged') progress.rangedKills++;
+/**
+ * Who a death is credited to (playtest 1, 30.09.2026):
+ * - `player` — chain, ability, item, the player's devices and the player's burning/poison: every counter;
+ * - `enemy` — enemy abilities striking other creatures (archer arrows, boar ram and push onto spikes, thorns or a
+ *   pit, troll club, any future enemy attack on its own side): only goal targets — marked lesson/node targets and
+ *   bosses — count toward the task; no kill counters, no `combatKills`, no score;
+ * - `environment` — the gate volley and uncredited effect ticks: `combatKills` only, as before.
+ */
+export type DefeatCredit = 'player' | 'enemy' | 'environment';
+
+/** Both preview progress and live defeat accounting use the same credit rules. */
+export function creditDefeat(state: ForestState, cell: ForestCell, progress = state.objective, credit: DefeatCredit = 'player'): void {
+  if (cell.kind === 'door' || cell.kind === 'prism' || credit === 'environment') return;
+  if (credit === 'player') {
+    if (cell.kind === 'melee' || state.customLevel) progress.kills++;
+    if (cell.kind === 'ranged') progress.rangedKills++;
+  }
   if (cell.kind === 'boss') progress.bossKills++;
   if (state.tutorial?.targetIds.includes(cell.id)) progress.tutorialTargets = (progress.tutorialTargets ?? 0) + 1;
+}
+
+/** An enemy-caused death still moves the task forward: a marked target or a boss. */
+export function enemyDefeatCountsForGoal(state: ForestState, cell: ForestCell | null | undefined): boolean {
+  return !!cell && cell.kind !== 'door' && cell.kind !== 'prism' && (cell.kind === 'boss' || !!state.tutorial?.targetIds.includes(cell.id));
 }
 
 export function defeatsRoomBoss(state: ForestState, cell: ForestCell): boolean {

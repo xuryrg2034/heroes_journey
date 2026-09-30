@@ -20,6 +20,11 @@ export interface CellHealthComponent {
 export interface CellLinkComponent {
   carriesKey?: boolean;
   supportTargetId?: number;
+  /**
+   * Colour-change crystal (a `prism` cell, mapBattleRules.ts): kills of the ordinary chain that
+   * created it. Breaking it with a chain scores CRYSTAL_SCORE_PER_KILL × this value. Absent on authored prisms.
+   */
+  crystalChain?: number;
 }
 
 export interface CellStatus {

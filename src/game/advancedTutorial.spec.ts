@@ -27,6 +27,8 @@ async function commit(g: ForestEngine, ...labels: string[]) {
   for (const cell of g.state.board) {
     if (!cell) continue;
     if (colors.has(cell.id)) assert(cell.color === colors.get(cell.id), 'survivors keep their colors');
+    // A long chain leaves colour-change crystals (every mode since 30.09.2026): colourless, not enemies.
+    else if (cell.crystalChain) assert(cell.kind === 'prism' && cell.color === null, 'a new crystal is a colourless prism');
     else assert(cell.behavior.passive && cell.color !== null && g.state.customLevel!.paletteWeights[cell.color] > 0,
       'new tutorial enemies remain passive and use the current palette');
   }
@@ -134,9 +136,10 @@ async function archer(g: ForestEngine) {
   assert(greedy.valid && greedy.damage > 0 && source.intent.cells.includes(greedy.endIndex), 'forecast warns that the longest chain stops in the line of fire');
   const first = await commit(g, 'F4', 'F3', 'G3', 'G2', 'G1');
   assert(first.damage === 0 && g.state.objective.tutorialTargets === 1, 'the corner guard falls and the cat stops in a safe pocket');
-  // The missed shot still strikes every creature on the line: three weak goblins fall, credited to the player.
+  // The missed shot still strikes every creature on the line: three weak goblins fall, not credited to the player
+  // (enemy abilities never count as the player's kills since playtest 1, 30.09.2026).
   assert(first.enemyPhase?.deaths.filter(death => death.cause === 'arrow').map(death => death.id).join() === lineIds.join(), 'forecast lists the goblins the arrow kills');
-  assert(!g.state.board.some(cell => cell && lineIds.includes(cell.id)) && g.state.objective.kills === first.kills + 3, 'arrow kills on the line count for the player');
+  assert(!g.state.board.some(cell => cell && lineIds.includes(cell.id)) && g.state.objective.kills === first.kills, 'arrow kills on the line are not the player’s kills');
   const plan = g.state.rotations[0], partnerId = g.state.board[at(g, 'C2')]!.id;
   assert(source.behavior.restTurns === 1 && source.intent.cells.length === 0, 'missed shot leads to a harmless rest turn');
   assert(plan?.from === at(g, 'B2') && plan.to === at(g, 'C2') && plan.sourceId === source.id && plan.targetId === partnerId, 'rest announces the only exit from the niche with the refilled C2 occupant');

@@ -4,7 +4,7 @@ import { authoredRefillPalette, battle, FOREST_MAP, FOREST_MAP_START, FOREST_RES
   validateForestMap, type ForestMapNode } from './run/forestMap';
 import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestNodeSeed, forestRunView, nodeRunTemplate, parseForestRun,
   resolveBattle, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
-import { buildNodeBattleRegistry, FOREST_NODE_BATTLES, validateForestBattles, validateNodeBattle, type NodeBattle } from './run/forestBattles';
+import { buildNodeBattleRegistry, FOREST_NODE_BATTLES, forestBattle, validateForestBattles, validateNodeBattle, type NodeBattle } from './run/forestBattles';
 import { createForestRunStore, FOREST_RUN_STORAGE_KEY, type RunStorage } from './run/forestRunStorage';
 import type { ItemKind } from './forestTypes';
 
@@ -79,6 +79,15 @@ function mapStructure() {
   assert(chief.content.kind === 'forest-trial', 'the Chief is the existing forest trial');
   assert(forestNode('jailer')!.content.kind === 'lesson' && FOREST_MAP.some(node => node.type === 'breakthrough'), 'Jailer checkpoint and breakthrough nodes exist');
   assert(FOREST_MAP.some(node => node.placeholder), 'temporary template nodes are marked');
+  for (const path of paths) path.forEach((id, n) => {
+    if (forestNode(id)!.type === 'elite') assert(forestNode(path[n - 1])!.type === 'rest', `${path.join('>')}: a rest right before the elite ${id}`);
+  });
+  for (const node of FOREST_MAP) {
+    const battle = node.content.kind === 'battle' ? forestBattle(node.content.battleId) : undefined; if (!battle) continue;
+    const row = forestRowPalette(node.row);
+    for (const enemy of battle.definition.enemies) if (enemy.color !== null)
+      assert(row.includes(enemy.color), `${node.id}: opening color ${enemy.color} of ${battle.id} fits the row ${node.row} palette`);
+  }
 }
 
 /** Real run along the goblin barricade to the Chief, with losses, rest, tools and a boss victory. */
@@ -89,7 +98,7 @@ async function campRoute(seed: number, trace?: string[]) {
   let run = createForestRun(seed);
   assert(json(availableNodes(run).map(node => node.id)) === json(['trunk-1']), 'a new run offers only the first trunk battle');
   const route = ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4', 'goblin-archer', 'trail-rest', 'goblin-shaman', 'trail-banners', 'jailer',
-    'camp-battle', 'camp-elite', 'camp-rest', 'camp-breakthrough', 'camp-chief'];
+    'camp-battle', 'camp-rest', 'camp-elite', 'camp-breakthrough', 'camp-chief'];
   for (const id of route) {
     assert(availableNodes(run).some(node => node.id === id), `${id} is an available transition`);
     const hpBefore = run.resources.player.hp;
@@ -149,7 +158,7 @@ async function campRoute(seed: number, trace?: string[]) {
       assert(options.length === 3 && run.pending?.nodeId === id && !availableNodes(run).length, 'an elite victory offers a find before moving on');
       const count = run.resources.inventory[options[0]];
       run = ok(chooseFindItem(run, options[0]), 'elite reward'); log(run); saved(run);
-      assert(run.resources.inventory[options[0]] === count + 1 && run.currentNodeId === id && availableNodes(run)[0]?.id === 'camp-rest', 'the reward completes the elite node');
+      assert(run.resources.inventory[options[0]] === count + 1 && run.currentNodeId === id && availableNodes(run)[0]?.id === 'camp-breakthrough', 'the reward completes the elite node');
     }
   }
   assert(run.result?.outcome === 'victory' && run.result.nodeId === 'camp-chief' && !availableNodes(run).length, 'the Chief ends the run in victory');
@@ -185,10 +194,11 @@ async function denRoute() {
   assert(e.useItem('bomb', target) && e.state.inventory.bomb === bombs, 'real bomb use spends it');
   e.winLevel(); run = settle(e, run);
   assert(run.resources.inventory.bomb === bombs, 'the spent bomb stays spent');
-  for (const id of ['jailer', 'den-battle', 'den-elite']) { run = ok(enterNode(run, id), `enter ${id}`); launch(e, run); e.winLevel(); run = settle(e, run); }
+  for (const id of ['jailer', 'den-battle']) { run = ok(enterNode(run, id), `enter ${id}`); launch(e, run); e.winLevel(); run = settle(e, run); }
+  run = ok(enterNode(run, 'den-rest'), 'den rest');
+  run = ok(enterNode(run, 'den-elite'), 'enter den-elite'); launch(e, run); e.winLevel(); run = settle(e, run);
   assert(run.pending?.kind === 'find' && json(parseForestRun(serializeForestRun(run))) === json(run), 'the elite reward survives serialization');
   run = ok(chooseFindItem(run, (run.pending as { options: ItemKind[] }).options[1]), 'den elite reward');
-  run = ok(enterNode(run, 'den-rest'), 'den rest');
   run = ok(enterNode(run, 'den-breakthrough'), 'enter breakthrough'); launch(e, run);
   assert(e.state.customLevel?.definition.completion === 'exit', 'the breakthrough node is won through the exit');
   e.winLevel(); run = settle(e, run);
@@ -207,7 +217,7 @@ async function denRoute() {
 /** Forest-trial boss: carried tools replace the trial's free abilities. */
 function chiefToolLock() {
   const run = createForestRun(5), e = engine();
-  assert(e.startRunBattle({ nodeId: 'camp-chief', label: 'Главарь', seed: 9, template: { kind: 'forest-trial' },
+  assert(e.startRunBattle({ nodeId: 'camp-chief', label: 'Главарь', seed: 9, template: { kind: 'forest-trial' }, row: 14,
     player: { hp: 3, maxHp: 5, energy: 7 }, inventory: { ...run.resources.inventory, frost: 2 }, allowedItems: ['frost'], allowedAbilities: ['jump'] }), 'chief node starts');
   assert(e.state.player.hp === 3 && e.state.inventory.frost === 2, 'the Chief node keeps carried HP and items');
   assert(!e.setAbility('spin') && !e.previewAbility('spin').valid && e.setAbility('jump'), 'spin stays locked, jump is open');
@@ -234,7 +244,7 @@ async function paletteByRow() {
   for (const node of FOREST_MAP) {
     if (!isBattleNode(node)) continue;
     const e = engine(), template = nodeRunTemplate(node); assert(template, `${node.id} has a battle template`);
-    assert(e.startRunBattle({ nodeId: node.id, label: node.name, seed: forestNodeSeed(1, node.id), player: { hp: 5, maxHp: 5, energy: 0 },
+    assert(e.startRunBattle({ nodeId: node.id, label: node.name, seed: forestNodeSeed(1, node.id), row: node.row, player: { hp: 5, maxHp: 5, energy: 0 },
       template: template!, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [], ...(nodeRefillPalette(node) ? { paletteWeights: nodeRefillPalette(node)! } : {}) }), `${node.id} starts`);
     const colors = new Set(e.state.customLevel ? e.state.customLevel.paletteWeights.flatMap((weight, color) => weight > 0 ? [color] : []) : [0, 1, 2, 3, 4]);
     for (const color of forestRowPalette(node.row)) assert(colors.has(color), `${node.id}: row ${node.row} palette is available in the refill`);
@@ -388,7 +398,7 @@ async function registryBattles() {
     const bound = FOREST_MAP.filter(node => node.content.kind === 'battle' && node.content.battleId === entry.id).map(node => node.row);
     for (const row of bound.length ? bound : [1, 5, 10, 14]) {
       const e = engine(), paletteWeights = authoredRefillPalette(entry, row);
-      assert(e.startRunBattle({ nodeId: `check-${entry.id}`, label: entry.name, seed: forestNodeSeed(7, entry.id), template: { kind: 'battle', id: entry.id },
+      assert(e.startRunBattle({ nodeId: `check-${entry.id}`, label: entry.name, seed: forestNodeSeed(7, entry.id), template: { kind: 'battle', id: entry.id }, row,
         player: { hp: 4, maxHp: 5, energy: 1 }, inventory: { frost: 1, bomb: 0, healing: 0, fire: 0 }, allowedItems: ['frost'], allowedAbilities: ['jump'], paletteWeights }),
       `${entry.id}: starts as a node battle on row ${row}`);
       const { state } = e, definition = entry.definition;
@@ -401,7 +411,8 @@ async function registryBattles() {
       for (const enemy of definition.enemies) {
         const cell = state.board[enemy.index]!;
         assert(cell.color === enemy.color && cell.hp === enemy.hp && cell.variant === enemy.variant, `${entry.id}: authored layout kept at ${enemy.index}`);
-        if (enemy.variant !== 'jailer' && enemy.variant !== 'beacon') assert(!!cell.behavior.passive === !enemy.aggressive, `${entry.id}: passivity kept at ${enemy.index}`);
+        // Lesson passivity holds on the trunk (rows 1–4) only; from row 5 every enemy follows the growing anger.
+        if (enemy.variant !== 'jailer' && enemy.variant !== 'beacon') assert(!!cell.behavior.passive === (!enemy.aggressive && row < 5), `${entry.id}: passivity on row ${row} at ${enemy.index}`);
       }
       assert(json(state.devices.map(device => device.index)) === json((definition.devices ?? []).map(device => device.index))
         && json(state.customLevel!.definition.spikedEdges ?? []) === json(definition.spikedEdges ?? []), `${entry.id}: devices and spiked edges kept`);

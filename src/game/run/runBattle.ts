@@ -22,6 +22,8 @@ export interface RunBattleSetup {
   /** Derived from the run seed and the node id; replaces the template's own seed. */
   seed: number;
   template: RunBattleTemplate;
+  /** Map row of the node: from row 5 the battle uses growing anger (src/game/mapBattleRules.ts). */
+  row: number;
   player: RunPlayerResources;
   inventory: Record<ItemKind, number>;
   /** Tools opened by the run so far; they replace the lesson's own permissions. */

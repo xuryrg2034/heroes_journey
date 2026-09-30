@@ -2,14 +2,15 @@ import type { PlannedSummon } from './enemyPhase';
 import { isCellAlive } from './cellLife';
 import { TUTORIAL_LESSONS, type AuthoredLesson } from './tutorialLevels';
 import { COLOR_FROM_SYMBOL, FOREST_LEVEL, WAVE_LABELS, WAVE_OBJECTIVES } from './forestLevel';
-import { ABILITY_COST, canReplaceWithArrival, chainNeighbors, cloneBoard, isWalkable, neighbors, prepareIntents, simulateAbility, simulateChain } from './forestSystems';
+import { ABILITY_COST, canReplaceWithArrival, chainNeighbors, cloneBoard, isWalkable, neighbors, prepareIntents, simulateAbility, simulateChain, simulateRest } from './forestSystems';
 import { canHeal } from './recovered/combat';
 import { canPlaceFootprint, uniqueEntities } from './entityFootprint';
+import { applyRefillTier, crystalCellAllowed, crystalScore, refillTier, runPressureActive } from './mapBattleRules';
 import { animationWait, playTurn, type TurnSequence } from './turnRuntime';
 import { resolveEnemyTurn, resolvePlayerTurn, type TurnContext } from './turnSystems';
 import { cleanseDamageEffects } from './damageEffects';
 import { applyAttackEffect, assignDamageEffects, projectEnemyEffects } from './effectRules';
-import { creditDefeat, damageCell, defeatsRoomBoss, removeDefeated } from './combatRules';
+import { creditDefeat, damageCell, defeatsRoomBoss, removeDefeated, type DefeatCredit } from './combatRules';
 import { allowedSpawnColors, customGoalsMet, validateCustomLevel, weightedColor } from './customLevel';
 import type { ChainSimulation } from './forestSystems';
 import { campaignBlueprint, ITEMS, mixSeed, rewardChoices } from './campaignContent';
@@ -24,10 +25,14 @@ import { TROLL_HP } from './troll';
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Complete replayable position for offline analysis (`levelAnalysis.ts`); not a save format. */
 export interface AnalysisSnapshot {
-  state: ForestState; rng: number; nextId: number; seed: number; pendingPrism: number | null;
+  state: ForestState; rng: number; nextId: number; seed: number;
+  /** Crystals waiting for this turn's refill (absent in snapshots of older builds). */
+  pendingCrystals?: PendingCrystals | null;
   pendingRoom: { theme: RoomTheme; depth: number } | null; entry: { state: ForestState; rng: number; nextId: number } | null;
 }
 interface ArrivalRequest { kind: 'ranged' | 'boss'; key?: 'archers' | 'boss'; commander?: boolean; hp?: number }
+/** Crystals created by the committed chain, placed at this turn's refill (mapBattleRules.ts). */
+interface PendingCrystals { count: number; chainKills: number }
 interface GeneratedBoard { state: ForestState; generatedIds: Set<number>; spawned: number[]; events: EngineEvent[]; nextId: number }
 export class ForestEngine {
   state: ForestState;
@@ -39,7 +44,7 @@ export class ForestEngine {
   private seed = FOREST_LEVEL.seed;
   private entrySnapshot: { state: ForestState; rng: number; nextId: number } | null = null;
   private pendingRoom: { theme: RoomTheme; depth: number } | null = null;
-  private pendingPrism: number | null = null;
+  private pendingCrystals: PendingCrystals | null = null;
 
   constructor(seed = FOREST_LEVEL.seed) {
     this.seed = seed;
@@ -70,7 +75,7 @@ export class ForestEngine {
   }
   private beginForestTrial(seed: number, run?: RunBattleSetup) {
     this.generation++; this.seed = seed; this.rng = seed; this.nextId = 1; this.state = this.initialState();
-    this.entrySnapshot = null; this.pendingRoom = null; this.pendingPrism = null;
+    this.entrySnapshot = null; this.pendingRoom = null; this.pendingCrystals = null;
     const symbols = FOREST_LEVEL.map.join('').split('');
     this.state.terrain = symbols.map((symbol, index): TerrainKind => index === 11 ? 'puddle' : symbol === '#' ? 'tree' : symbol === '~' ? 'pond' : symbol === 'F' ? 'campfire' : 'floor');
     this.state.board = symbols.map((symbol, index) => symbol in COLOR_FROM_SYMBOL ? this.createCell('melee', COLOR_FROM_SYMBOL[symbol as keyof typeof COLOR_FROM_SYMBOL], index) : null);
@@ -104,7 +109,7 @@ export class ForestEngine {
     state.player = { index: state.player.index, hp: Math.min(player.hp, player.maxHp), maxHp: player.maxHp, energy: player.energy,
       ...(player.damageEffects ? { damageEffects: { ...player.damageEffects } } : {}) };
     state.inventory = { ...setup.inventory };
-    state.runNode = { nodeId: setup.nodeId, label: setup.label, allowedItems: [...setup.allowedItems], allowedAbilities: [...setup.allowedAbilities] };
+    state.runNode = { nodeId: setup.nodeId, label: setup.label, row: setup.row, allowedItems: [...setup.allowedItems], allowedAbilities: [...setup.allowedAbilities] };
     if (state.tutorial) {
       state.tutorial.allowedItems = [...setup.allowedItems]; state.tutorial.allowedAbilities = [...setup.allowedAbilities];
       state.waveLabel = setup.label;
@@ -116,11 +121,11 @@ export class ForestEngine {
   restartLevel() {
     if ((this.state.customLevel || this.state.runNode) && this.entrySnapshot) {
       this.generation++; this.state = structuredClone(this.entrySnapshot.state); this.rng = this.entrySnapshot.rng; this.nextId = this.entrySnapshot.nextId;
-      this.pendingRoom = null; this.pendingPrism = null; this.emit({ type: 'start' }); return;
+      this.pendingRoom = null; this.pendingCrystals = null; this.emit({ type: 'start' }); return;
     }
     if (!this.state.run.active || !this.entrySnapshot) { this.startLevel(); return; }
     this.generation++; this.state = structuredClone(this.entrySnapshot.state); this.rng = this.entrySnapshot.rng;
-    this.nextId = this.entrySnapshot.nextId; this.pendingRoom = null; this.pendingPrism = null; this.emit({ type: 'start' });
+    this.nextId = this.entrySnapshot.nextId; this.pendingRoom = null; this.pendingCrystals = null; this.emit({ type: 'start' });
   }
   restartRun() { if (this.state.customLevel || this.state.runNode) this.restartLevel(); else if (this.state.run.active) this.startCampaign(this.state.run.seed); else this.startLevel(); }
   startTutorial(index = 0): boolean {
@@ -151,10 +156,10 @@ export class ForestEngine {
     const definition = validation.definition;
     const lesson = authored?.lesson, tutorialIndex = authored?.index ?? -1;
     const previous = { state: this.state, seed: this.seed, rng: this.rng, nextId: this.nextId, generation: this.generation,
-      entrySnapshot: this.entrySnapshot, pendingRoom: this.pendingRoom, pendingPrism: this.pendingPrism };
+      entrySnapshot: this.entrySnapshot, pendingRoom: this.pendingRoom, pendingCrystals: this.pendingCrystals };
     try {
       this.generation++; this.seed = definition.seed; this.rng = definition.seed; this.nextId = 1;
-      this.state = this.initialState(); this.pendingRoom = null; this.pendingPrism = null; this.entrySnapshot = null;
+      this.state = this.initialState(); this.pendingRoom = null; this.pendingCrystals = null; this.entrySnapshot = null;
       const state = this.state; state.cols = definition.cols; state.rows = definition.rows;
       state.devices = structuredClone(definition.devices ?? []);
       state.terrain = [...definition.terrain]; state.board = Array.from({ length: state.cols * state.rows }, () => null);
@@ -185,7 +190,8 @@ export class ForestEngine {
         const cell = enemy.variant ? this.createVariant(enemy.variant, enemy.index, enemy.color) : this.createCell(enemy.kind, enemy.color, enemy.index);
         cell.hp = cell.maxHp = enemy.hp; cell.behavior.aggressive = enemy.aggressive ?? false;
         if (lesson) {
-          cell.behavior.passive = !enemy.aggressive && enemy.variant !== 'jailer' && enemy.variant !== 'beacon';
+          // Map rows ≥ 5 drop lesson passivity: goblins join the growing anger, beasts follow their own rules.
+          cell.behavior.passive = !runPressureActive(state) && !enemy.aggressive && enemy.variant !== 'jailer' && enemy.variant !== 'beacon';
           if (lesson.targetIndices.includes(enemy.index)) state.tutorial!.targetIds.push(cell.id);
         }
         if (enemy.attackEffect) cell.attackEffect = enemy.attackEffect;
@@ -243,7 +249,7 @@ export class ForestEngine {
     this.enterCampaignRoom(next.theme, next.depth); return true;
   }
   private enterCampaignRoom(theme: RoomTheme, depth: number) {
-    this.generation++; this.pendingPrism = null;
+    this.generation++; this.pendingCrystals = null;
     const run = structuredClone(this.state.run), inventory = { ...this.state.inventory }, player = { ...this.state.player,
       ...(this.state.player.damageEffects ? { damageEffects: { ...this.state.player.damageEffects } } : {}) }, score = this.state.score;
     const roomSeed = mixSeed(run.seed, depth * 13 + run.path.reduce((sum, step) => sum * 3 + ['left', 'forward', 'right'].indexOf(step) + 1, 0));
@@ -295,6 +301,8 @@ export class ForestEngine {
     return board.flatMap((_cell, index) => canReplaceWithArrival(this.state, board, index) ? [index] : []);
   }
   private createRoomMelee(color: EnemyColor, index: number): ForestCell {
+    // Map rows ≥ 5: refills are never passive and grow stronger with the turn number (mapBattleRules.ts).
+    if (runPressureActive(this.state)) return applyRefillTier(this.createCell('melee', color, index), refillTier(this.state));
     if (this.state.tutorial) { const cell = this.createCell('melee', color, index); cell.behavior.passive = true; return cell; }
     return this.state.room.kind === 'castle' || this.state.room.kind === 'wizard' ? this.createVariant('chair', index, color) : this.createCell('melee', color, index);
   }
@@ -311,14 +319,14 @@ export class ForestEngine {
   }
   /** Deep copy of the position, RNG and ID allocator. Reads only: the live game is not advanced. */
   captureAnalysisSnapshot(): AnalysisSnapshot {
-    return structuredClone({ state: this.state, rng: this.rng, nextId: this.nextId, seed: this.seed, pendingPrism: this.pendingPrism,
-      pendingRoom: this.pendingRoom, entry: this.entrySnapshot });
+    return structuredClone({ state: this.state, rng: this.rng, nextId: this.nextId, seed: this.seed,
+      pendingCrystals: this.pendingCrystals, pendingRoom: this.pendingRoom, entry: this.entrySnapshot });
   }
   /** Load a copied position into this engine, cancelling any pending turn. No event is emitted. */
   restoreAnalysisSnapshot(snapshot: AnalysisSnapshot) {
     const copy = structuredClone(snapshot);
     this.generation++; this.state = copy.state; this.rng = copy.rng; this.nextId = copy.nextId; this.seed = copy.seed;
-    this.pendingPrism = copy.pendingPrism; this.pendingRoom = copy.pendingRoom; this.entrySnapshot = copy.entry;
+    this.pendingCrystals = copy.pendingCrystals ?? null; this.pendingRoom = copy.pendingRoom; this.entrySnapshot = copy.entry;
   }
   getBoardState() { return cloneBoard(this.state.board); }
   neighbors(index: number) { return neighbors(this.state, index); }
@@ -362,6 +370,8 @@ export class ForestEngine {
   }
   cancelChain() { if (this.state.phase === 'PLAYER_INPUT') { this.state.chain = []; this.state.chosenAbility = null; this.emit({ type: 'chain' }); } }
   preview(path = this.state.chain): ChainPreview { return simulateChain(this.state, path).preview; }
+  /** Forecast of Rest: the enemy phase that `waitTurn` would run now (pure: no state, RNG or ID change). */
+  previewRest(): ChainPreview { return simulateRest(this.state); }
   previewRotations(path = this.state.chain) { return this.preview(path).rotations; }
   previewFrost(index: number): FrostPreview {
     const cell = this.state.board[index];
@@ -442,7 +452,7 @@ export class ForestEngine {
       this.emit({ type: 'hit', index: targetIndex, amount: preview.damage });
       if (generation !== this.generation) return false;
       if (outcome.killed) {
-        removeDefeated(this.state.board, cell); this.recordDefeat(cell, targetIndex, true);
+        removeDefeated(this.state.board, cell); this.recordDefeat(cell, targetIndex, 'player');
         if (generation !== this.generation) return false;
         this.emit({ type: 'kill', index: targetIndex });
         if (generation !== this.generation) return false;
@@ -456,10 +466,11 @@ export class ForestEngine {
     if (generation !== this.generation) return false;
     this.emit(); return true;
   }
-  private recordDefeat(cell: ForestCell, index: number, playerCredit: boolean) {
+  private recordDefeat(cell: ForestCell, index: number, credit: DefeatCredit) {
     if (cell.kind === 'door' || cell.kind === 'prism') return;
-    this.state.room.combatKills++;
-    if (playerCredit) creditDefeat(this.state, cell);
+    // An enemy's ability killing its own side is not the player's kill (combatRules.DefeatCredit).
+    if (credit !== 'enemy') this.state.room.combatKills++;
+    creditDefeat(this.state, cell, this.state.objective, credit);
     this.refreshCustomProgress();
     if (cell.carriesKey) { this.state.room.key.droppedAt = index; this.emit({ type: 'key-drop', index }); }
   }
@@ -501,14 +512,14 @@ export class ForestEngine {
     return {
       state: this.state,
       current: () => generation === this.generation,
-      setPendingPrism: index => { this.pendingPrism = index; },
-      recordDefeat: (cell, index, playerCredit) => this.recordDefeat(cell, index, playerCredit),
+      setPendingCrystals: crystals => { this.pendingCrystals = crystals; },
+      recordDefeat: (cell, index, credit) => this.recordDefeat(cell, index, credit),
       completeRoom: (door, index) => this.completeRoom(door, index),
       finish: (won, message) => this.finish(won, message),
       refreshCustomProgress: () => this.refreshCustomProgress(),
       planRotationReplacements: rotations => this.planRotationReplacements(rotations),
       advanceWave: () => this.advanceWave(),
-      generateBoard: summons => this.generateAndPublish(generation, true, this.pendingArrivals(), summons),
+      generateBoard: summons => this.generateAndPublish(generation, true, this.pendingArrivals(), summons, this.pendingCrystals),
       prepareHazard: () => this.prepareHazard(),
       hint: () => this.hint(),
     };
@@ -586,17 +597,24 @@ export class ForestEngine {
     return this.normalArrivalCells(state.board);
   }
   private generationCandidate(prepare: boolean, requests: ArrivalRequest[], forced: number[] | undefined,
-    summons: PlannedSummon[], baseline: ForestState, initialIds: ReadonlySet<number>): GeneratedBoard {
+    summons: PlannedSummon[], baseline: ForestState, initialIds: ReadonlySet<number>, crystals: PendingCrystals | null = null): GeneratedBoard {
     const state: ForestState = { ...baseline, board: cloneBoard(baseline.board), chosenAbility: null,
       spawnCounts: { ...baseline.spawnCounts }, room: { ...baseline.room, key: { ...baseline.room.key } },
       rotations: baseline.rotations.map(plan => ({ ...plan })), bossWarning: [...baseline.bossWarning] };
     const result: GeneratedBoard = { state, generatedIds: new Set(initialIds), spawned: [], events: [], nextId: 0 };
+    // Crystals land before the refill on seeded random allowed cells; an enemy there dies uncredited.
+    if (crystals) for (let n = 0; n < crystals.count; n++) {
+      const pool = state.board.flatMap((_cell, index) => crystalCellAllowed(state, state.board, index) ? [index] : []);
+      if (!pool.length) break;
+      const index = pool[Math.floor(this.random() * pool.length)], victim = state.board[index];
+      const crystal = this.createCell('prism', null, index); crystal.crystalChain = crystals.chainKills;
+      state.board[index] = crystal; result.spawned.push(index);
+      result.events.push({ type: 'crystal', index, newId: crystal.id, amount: crystalScore(crystal), ...(victim ? { oldId: victim.id } : {}) });
+    }
     for (let index = 0; index < state.board.length; index++) {
       if (!isWalkable(state, index) || state.board[index] || index === state.player.index || state.devices.some(device => device.index === index)) continue;
-      const prism = this.pendingPrism === index && index !== state.room.key.droppedAt && !neighbors(state, state.player.index).includes(index)
-        && state.board.filter(cell => cell?.kind === 'prism').length < 2;
-      const cell = prism ? this.createCell('prism', null, index) : this.createRoomMelee(this.refillColor(index, state.board, state), index);
-      state.board[index] = cell; result.spawned.push(index); if (!prism) result.generatedIds.add(cell.id);
+      const cell = this.createRoomMelee(this.refillColor(index, state.board, state), index);
+      state.board[index] = cell; result.spawned.push(index); result.generatedIds.add(cell.id);
     }
     for (const summon of summons) {
       if (summon.sourceId !== undefined && !state.board.some(cell => cell && cell.id === summon.sourceId && isCellAlive(cell)
@@ -627,11 +645,12 @@ export class ForestEngine {
     result.nextId = this.nextId; return result;
   }
   private selectGeneratedBoard(prepare: boolean, requests: ArrivalRequest[] = [], summons: PlannedSummon[] = [],
-    baseline = this.state, initialIds: ReadonlySet<number> = new Set(), colorLimits: ReadonlyMap<number, readonly EnemyColor[]> = new Map()): GeneratedBoard {
+    baseline = this.state, initialIds: ReadonlySet<number> = new Set(), colorLimits: ReadonlyMap<number, readonly EnemyColor[]> = new Map(),
+    crystals: PendingCrystals | null = null): GeneratedBoard {
     const firstId = this.nextId;
     const make = (selected: ArrivalRequest[], forced?: number[]) => {
       this.nextId = firstId;
-      return this.generationCandidate(prepare, selected, forced, summons, baseline, initialIds);
+      return this.generationCandidate(prepare, selected, forced, summons, baseline, initialIds, crystals);
     };
     let candidate = make(requests);
     for (let attempt = 0; attempt < 32; attempt++) {
@@ -661,8 +680,9 @@ export class ForestEngine {
     this.state.board = result.state.board; this.state.room = result.state.room; this.state.rotations = result.state.rotations;
     this.state.bossWarning = result.state.bossWarning; this.nextId = result.nextId;
   }
-  private generateAndPublish(generation: number, prepare: boolean, requests: ArrivalRequest[] = [], summons: PlannedSummon[] = []): boolean {
-    const result = this.selectGeneratedBoard(prepare, requests, summons), previous = new Map(this.state.board.flatMap(cell => cell ? [[cell.id, cell] as const] : []));
+  private generateAndPublish(generation: number, prepare: boolean, requests: ArrivalRequest[] = [], summons: PlannedSummon[] = [],
+    crystals: PendingCrystals | null = null): boolean {
+    const result = this.selectGeneratedBoard(prepare, requests, summons, this.state, new Set(), new Map(), crystals), previous = new Map(this.state.board.flatMap(cell => cell ? [[cell.id, cell] as const] : []));
     this.state.board = result.state.board.map(cell => {
       if (!cell) return null;
       const living = previous.get(cell.id); if (!living) return cell;
@@ -671,7 +691,7 @@ export class ForestEngine {
     });
     this.state.spawnCounts = result.state.spawnCounts; this.state.room.commanderSpawned = result.state.room.commanderSpawned;
     if (prepare) { this.state.rotations = result.state.rotations; this.state.bossWarning = result.state.bossWarning; }
-    this.nextId = result.nextId; this.pendingPrism = null;
+    this.nextId = result.nextId; this.pendingCrystals = null;
     if (result.spawned.length) { this.emit({ type: 'spawn', indices: result.spawned }); if (generation !== this.generation) return false; }
     for (const event of result.events) { this.emit(event); if (generation !== this.generation) return false; }
     return true;

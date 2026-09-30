@@ -43,6 +43,8 @@ async function commit(engine: ForestEngine, route: string): Promise<ChainPreview
   for (const cell of engine.state.board) {
     if (!cell) continue;
     if (colors.has(cell.id)) assert(cell.color === colors.get(cell.id), 'survivors keep their colors');
+    // A long chain leaves colour-change crystals (every mode since 30.09.2026): colourless, not enemies.
+    else if (cell.crystalChain) assert(cell.kind === 'prism' && cell.color === null, 'a new crystal is a colourless prism');
     else assert(cell.behavior.passive && cell.color !== null && engine.state.customLevel!.paletteWeights[cell.color] > 0,
       'new tutorial enemies remain passive and use the current palette');
   }
@@ -201,11 +203,17 @@ async function lessonSix() {
   assert(g.availableMoves(16).every(steps => !steps.some(cell => palisade.includes(cell))), 'the palisade is out of reach on the first turn');
   const volley = 'G6-G5-G4-F3-E3-E4-E5-F5-F6', gateLane = 'E7-E6-E5-D5-D4-C3-C2-C1', last = 'B2-A2';
   // The solution rests on authored survivors and the cat's stop, not on refill colors: replay it on several refill streams.
+  // The nine-kill volley leaves a colour-change crystal on a seeded cell (every mode since 30.09.2026); a stream whose
+  // crystal takes a cell of the fixed route is reported, not played (the map is not re-planned).
+  let clean = 0;
   for (let k = 0; k < 5; k++) {
     const r = start(5), snapshot = r.captureAnalysisSnapshot();
     snapshot.rng = variantSeed(snapshot.rng, k); r.restoreAnalysisSnapshot(snapshot);
     await commit(r, volley);
     assert(r.state.player.index === at(r, 'F6') && r.state.board[at(r, 'A2')]?.hp === 5, `refill stream ${k}: first volley 9 → 5, cat on F6`);
+    const crystal = [gateLane, last].join('-').split('-').find(label => r.state.board[at(r, label)]?.crystalChain);
+    if (crystal) { console.log(`NOTE lesson 6 refill stream ${k}: a crystal took ${crystal} on the authored route`); continue; }
+    clean++;
     const moves = r.availableMoves(16);
     assert(moves.filter(steps => steps.some(cell => palisade.includes(cell))).every(steps => steps.includes(gate)), 'every way into the palisade passes the brazier');
     const hurt = preview(r, 'E7-E6-E5-D5-D4-C3-C2');
@@ -216,6 +224,7 @@ async function lessonSix() {
     await commit(r, last);
     assert(r.state.phase === 'WIN' && r.state.turn === 3 && r.state.player.hp === 5, `refill stream ${k}: lesson 6 won in three turns`);
   }
+  assert(clean * 2 > 5, `lesson 6: the authored route is checked on most refill streams, got ${clean}`);
 }
 
 async function replayIsExact() {

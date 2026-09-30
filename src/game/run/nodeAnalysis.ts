@@ -14,7 +14,7 @@ import type { RunBattleSetup, RunBattleTemplate } from './runBattle';
 export interface NodeAnalysisTarget { id: string; row: number; tools: GuaranteedTools; setup: RunBattleSetup }
 
 function setupFor(nodeId: string, label: string, template: RunBattleTemplate, authored: AuthoredLesson, row: number, tools: GuaranteedTools): RunBattleSetup {
-  return { nodeId, label, seed: authored.definition.seed, template,
+  return { nodeId, label, seed: authored.definition.seed, template, row,
     player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 },
     allowedItems: [...tools.items], allowedAbilities: [...tools.abilities], paletteWeights: authoredRefillPalette(authored, row) };
 }

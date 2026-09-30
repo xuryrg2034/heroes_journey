@@ -6,6 +6,7 @@ import { meleeCanAttack } from '../game/enemyLifecycle';
 import { shieldIsActive } from '../game/combatRules';
 import { addDamageEffectBadges } from './damageEffectBadges';
 import { makeBoar } from './boarArt';
+import { crystalScore } from '../game/mapBattleRules';
 import { makePorcupine, makeShaman, makeWolf } from './beastArt';
 import { makeTroll } from './trollArt';
 import { characterArtId, characterSprite } from './characterAssets';
@@ -123,6 +124,13 @@ export function makeEnemy(cell: ForestCell,index=0,cols=7,customLevel=false,tuto
     g.poly([0,-25,18,-2,0,23,-18,-2]).fill(0xc8e8d9).stroke({color:PALE,width:2});
     g.poly([0,-25,0,-2,-18,-2]).fill(COLORS[0]);g.poly([0,-25,18,-2,0,-2]).fill(COLORS[1]);g.poly([-18,-2,0,-2,0,23]).fill(COLORS[2]);
     g.poly([0,-8,5,-2,0,4,-5,-2]).fill(0xfff8d7);g.moveTo(-29,-4).lineTo(-23,-4).moveTo(23,-4).lineTo(29,-4).stroke({color:PALE,width:2});
+    // A map-battle crystal carries its value (breaking it with a chain scores that many points).
+    if(cell.crystalChain){
+      const value=crystalScore(cell);
+      glow.roundRect(-34,-34,68,68,8).stroke({color:0xf3d98a,width:3,alpha:.9});
+      g.roundRect(-19,14,38,15,5).fill(0x3b3220).stroke({color:0xf3d98a,width:1.5});
+      label(c,`+${value}`,0,21.5,11,0xffeaa8);
+    }
     return c;
   }
   // Long ears and tusks identify goblins; cloth sigils identify matching chains.
