@@ -27,6 +27,8 @@ interface Lib {
   nodeBattleSetup: (battleId: string, overrides?: Any) => Any;
   forestFixtureLevel: (seed?: number) => Any;
   demos: ((seed: number) => Any)[];
+  /** Cell-index invariant (ECS stage 1 and later); absent in older engine copies. */
+  checkWorldIndex?: (state: Any) => string[];
 }
 interface Scene { name: string; start: (lib: Lib, seed: number) => Any | null; freeTools: boolean }
 type Policy = 'first' | 'longest' | 'random';
@@ -44,8 +46,10 @@ async function loadLib(root: string): Promise<Lib> {
   const [engine, map, fixtures, boar, beasts, troll] = await Promise.all([
     at('src/game/forestEngine.ts'), at('src/game/run/forestMap.ts'), at('src/game/testing/fixtures.ts'),
     at('src/editor/boarDemo.ts'), at('src/editor/beastsDemo.ts'), at('src/editor/trollDemo.ts')]);
+  const world = await at('src/game/ecs/world.ts').catch(() => null);
   return { ForestEngine: engine.ForestEngine, FOREST_MAP: map.FOREST_MAP, nodeBattleSetup: fixtures.nodeBattleSetup,
-    forestFixtureLevel: fixtures.forestFixtureLevel, demos: [boar.createBoarDemo, beasts.createBeastsDemo, troll.createTrollDemo] };
+    forestFixtureLevel: fixtures.forestFixtureLevel, demos: [boar.createBoarDemo, beasts.createBeastsDemo, troll.createTrollDemo],
+    checkWorldIndex: world?.checkWorldIndex };
 }
 
 /** Editor level with every device, an exit door, attack effects, thorns, a puddle and a spiked edge. */
@@ -162,6 +166,9 @@ async function run(lib: Lib, scene: Scene, seed: number, policy: Policy): Promis
     events.length = 0;
     await act(g, action);
     log.push(...events, `after ${snapshot(g)}`);
+    // A violated invariant adds a record, so the run no longer matches the baseline.
+    const violations = lib.checkWorldIndex?.(g.state) ?? [];
+    if (violations.length) log.push(`invariant ${violations.join('; ')}`);
   }
   return log;
 }

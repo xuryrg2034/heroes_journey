@@ -16,6 +16,7 @@ import type { AbilityKind, CellKind, ChainPreview, EnemyColor, EnemyVariant, Eng
 import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
 import { forestBattle } from './run/forestBattles';
 import { FOREST_BEAST_HP } from './forestBeasts';
+import { cloneState, type World } from './ecs/world';
 import { TROLL_HP } from './troll';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
@@ -26,26 +27,38 @@ export interface AnalysisSnapshot {
   state: ForestState; rng: number; nextId: number; seed: number;
   entry: { state: ForestState; rng: number; nextId: number } | null;
 }
+/** Independent copy of an analysis snapshot by the component registry (immutable battle data is shared). */
+export function cloneAnalysisSnapshot(snapshot: AnalysisSnapshot): AnalysisSnapshot {
+  const { entry } = snapshot;
+  return { state: cloneState(snapshot.state), rng: snapshot.rng, nextId: snapshot.nextId, seed: snapshot.seed,
+    entry: entry ? { state: cloneState(entry.state), rng: entry.rng, nextId: entry.nextId } : null };
+}
 interface GeneratedBoard { state: ForestState; generatedIds: Set<number>; spawned: number[]; nextId: number }
 /**
  * Battle facade. The only game mode is the forest-map run: a node battle starts with `startRunBattle`; the level
  * editor starts its own authored level with `startCustomLevel`. Both load through `loadCustomLevel`.
  */
 export class ForestEngine {
-  state: ForestState;
   animationScale = 1;
+  /** The battle world: state (entity records and singletons) plus the RNG and ID allocator resources (ecs/world.ts). */
+  private world: World;
   private listeners = new Set<(state: ForestState, event: EngineEvent) => void>();
   private generation = 0;
-  private nextId = 1;
-  private rng = IDLE_SEED;
   private seed = IDLE_SEED;
   private entrySnapshot: { state: ForestState; rng: number; nextId: number } | null = null;
 
   constructor(seed = IDLE_SEED) {
-    this.seed = seed; this.rng = seed;
-    this.state = this.initialState();
+    this.seed = seed;
+    this.world = { state: this.initialState(), res: { rng: seed, nextId: 1 } };
     this.state.phase = 'TITLE';
   }
+  /** Current battle state; rendering, the editor and tests read it as before. */
+  get state(): ForestState { return this.world.state; }
+  set state(value: ForestState) { this.world.state = value; }
+  private get rng(): number { return this.world.res.rng; }
+  private set rng(value: number) { this.world.res.rng = value; }
+  private get nextId(): number { return this.world.res.nextId; }
+  private set nextId(value: number) { this.world.res.nextId = value; }
   private initialState(): ForestState {
     return { phase: 'PLAYER_INPUT', level: { name: '', subtitle: '', description: '', tutorial: '', seed: this.seed, map: [], objectives: [], turnLimit: 0 },
       cols: 7, rows: 7, board: Array.from({ length: 49 }, () => null), terrain: [], devices: [], pits: [], player: { index: 0, hp: 5, maxHp: 5, energy: 0 },
@@ -93,7 +106,7 @@ export class ForestEngine {
   /** Replay the battle from its entry snapshot: same layout, RNG and carried resources. */
   restartLevel() {
     if (!this.entrySnapshot) return;
-    this.generation++; this.state = structuredClone(this.entrySnapshot.state); this.rng = this.entrySnapshot.rng; this.nextId = this.entrySnapshot.nextId;
+    this.generation++; this.state = cloneState(this.entrySnapshot.state); this.rng = this.entrySnapshot.rng; this.nextId = this.entrySnapshot.nextId;
     this.emit({ type: 'start' });
   }
   startCustomLevel(value: unknown): boolean { return this.loadCustomLevel(value); }
@@ -156,7 +169,7 @@ export class ForestEngine {
       const result = this.selectGeneratedBoard(true);
       if (!hasOrdinaryChain(result.state)) throw new Error('Нет начальной цепочки: измени расстановку или палитру.');
       this.state = result.state; this.nextId = result.nextId; this.state.message = this.state.level.tutorial;
-      this.entrySnapshot = { state: structuredClone(this.state), rng: this.rng, nextId: this.nextId };
+      this.entrySnapshot = { state: cloneState(this.state), rng: this.rng, nextId: this.nextId };
     } catch (error) {
       Object.assign(this, previous); this.emit({ type: 'invalid', text: error instanceof Error ? error.message : 'Уровень не удалось создать.' }); return false;
     }
@@ -180,11 +193,11 @@ export class ForestEngine {
   }
   /** Deep copy of the position, RNG and ID allocator. Reads only: the live game is not advanced. */
   captureAnalysisSnapshot(): AnalysisSnapshot {
-    return structuredClone({ state: this.state, rng: this.rng, nextId: this.nextId, seed: this.seed, entry: this.entrySnapshot });
+    return cloneAnalysisSnapshot({ state: this.state, rng: this.rng, nextId: this.nextId, seed: this.seed, entry: this.entrySnapshot });
   }
   /** Load a copied position into this engine, cancelling any pending turn. No event is emitted. */
   restoreAnalysisSnapshot(snapshot: AnalysisSnapshot) {
-    const copy = structuredClone(snapshot);
+    const copy = cloneAnalysisSnapshot(snapshot);
     this.generation++; this.state = copy.state; this.rng = copy.rng; this.nextId = copy.nextId; this.seed = copy.seed;
     this.entrySnapshot = copy.entry;
   }
@@ -377,7 +390,7 @@ export class ForestEngine {
     if (!replacements.size) return replacements;
     const nextId = this.nextId;
     const projected: ForestState = { ...this.state, board: cloneBoard(board), objective: { ...this.state.objective },
-      ...(this.state.customLevel ? { customLevel: structuredClone(this.state.customLevel) } : {}) };
+      ...(this.state.customLevel ? { customLevel: { ...this.state.customLevel, paletteWeights: [...this.state.customLevel.paletteWeights] } } : {}) };
     for (const plan of rotations.filter(plan => plan.active)) {
       [projected.board[plan.from], projected.board[plan.to]] = [projected.board[plan.to], projected.board[plan.from]];
       for (const index of [plan.from, plan.to]) projected.board[index]!.status.wet = projected.terrain[index] === 'puddle';

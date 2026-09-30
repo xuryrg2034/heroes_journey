@@ -1,4 +1,6 @@
 import { isCellAlive } from './cellLife';
+import { cloneEntity } from './ecs/components';
+import { cloneEntities } from './ecs/world';
 import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, ChargeDamageCause, EnemyPhaseForecast, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ObjectiveProgress, RotationPlan, RotationPreview } from './forestTypes';
 import { recoveredMoveTowards } from './recoveredEnemyMovement';
 import { canMoveTo, updateShieldDir, type EnemyActor } from './recovered/enemies';
@@ -28,18 +30,10 @@ function hurt(preview: ChainPreview, source: HeroDamageSource, amount: number) {
 const tickSource = (kind: 'fire' | 'poison' | 'bleeding'): HeroDamageSource => kind === 'fire' ? 'burning' : kind;
 export const JUMP_RANGE = 3;
 
-export const cloneCell = (cell: ForestCell): ForestCell => ({ ...cell, status: { ...cell.status }, behavior: { ...cell.behavior, ...(cell.behavior.club ? { club: { ...cell.behavior.club, cells: [...cell.behavior.club.cells] } } : {}) },
-  ...(cell.damageEffects ? { damageEffects: { ...cell.damageEffects } } : {}),
-  ...(cell.shield ? { shield: { ...cell.shield } } : {}),
-  ...(cell.footprint ? { footprint: [...cell.footprint] } : {}),
-  ...(cell.door ? { door: { ...cell.door, footprint: [...cell.door.footprint] } } : {}),
-  intent: { ...cell.intent, cells: [...cell.intent.cells],
-    ...(cell.intent.charge ? { charge: { ...cell.intent.charge } } : {}),
-    ...(cell.intent.empowerIds ? { empowerIds: [...cell.intent.empowerIds] } : {}), ...(cell.intent.empowerCells ? { empowerCells: [...cell.intent.empowerCells] } : {}) } });
-export function cloneBoard(board: (ForestCell | null)[]): (ForestCell | null)[] {
-  const entities = new Map<number, ForestCell>();
-  return board.map(cell => { if (!cell) return null; if (!entities.has(cell.id)) entities.set(cell.id, cloneCell(cell)); return entities.get(cell.id)!; });
-}
+/** Entity copy by the component registry (ecs/components.ts). */
+export const cloneCell = (cell: ForestCell): ForestCell => cloneEntity(cell);
+/** Board copy by the registry; a multi-cell entity stays one shared record across its cells. */
+export const cloneBoard = (board: (ForestCell | null)[]): (ForestCell | null)[] => cloneEntities(board);
 export function isWalkable(state: ForestState, index: number): boolean {
   return index >= 0 && index < state.cols * state.rows && !pitAt(state, index) && walkableTerrain(state.terrain[index]);
 }

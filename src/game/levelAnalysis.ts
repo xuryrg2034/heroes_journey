@@ -10,7 +10,7 @@
  * The numbers are estimates bounded by depth, beam and node budget; see
  * docs/level-metrics.md for definitions and limits.
  */
-import { ForestEngine, type AnalysisSnapshot } from './forestEngine';
+import { cloneAnalysisSnapshot, ForestEngine, type AnalysisSnapshot } from './forestEngine';
 import { chainAdjacent, isWalkable, JUMP_RANGE } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { isCellAlive } from './cellLife';
@@ -726,7 +726,7 @@ async function fragileCells(analyzer: Analyzer, base: AnalysisSnapshot, seeds: n
       if (color === cell.color) continue;
       let wins = 0;
       for (const seed of seeds) {
-        const snap = structuredClone(base); snap.rng = seed;
+        const snap = cloneAnalysisSnapshot(base); snap.rng = seed;
         const target = snap.state.board[index]!; target.color = color as typeof target.color;
         if ((await runAgent(analyzer, makeNode(snap), 'greedy', 0, options.agentTurnLimit)).won) wins++;
       }
@@ -765,13 +765,13 @@ export async function analyzeEngine(engine: ForestEngine, partial: Partial<Analy
   const options: AnalysisOptions = { ...DEFAULT_ANALYSIS_OPTIONS, ...partial };
   const analyzer = new Analyzer(options);
   const base = engine.captureAnalysisSnapshot();
-  const root = makeNode(structuredClone(base));
+  const root = makeNode(cloneAnalysisSnapshot(base));
   const notes: string[] = [];
   const state = root.snap.state;
   const rootActions = analyzer.computeActions(root);
   const metrics = staticMetrics(state, rootActions);
   const seeds = Array.from({ length: Math.max(1, options.seeds) }, (_, k) => variantSeed(base.rng, k));
-  const rootFor = (seed: number) => { const snap = structuredClone(base); snap.rng = seed; return makeNode(snap); };
+  const rootFor = (seed: number) => { const snap = cloneAnalysisSnapshot(base); snap.rng = seed; return makeNode(snap); };
   if (state.phase !== 'PLAYER_INPUT') notes.push(`Position is not awaiting input (${state.phase}).`);
 
   let search: SearchResult[] | null = null, restricted: LevelAnalysis['restricted'] = null, sensitivity: SeedSensitivity | null = null;
