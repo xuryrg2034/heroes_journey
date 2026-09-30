@@ -18,8 +18,6 @@ export interface CellHealthComponent {
 }
 
 export interface CellLinkComponent {
-  carriesKey?: boolean;
-  supportTargetId?: number;
   /**
    * Colour-change crystal (a `prism` cell, mapBattleRules.ts): kills of the ordinary chain that
    * created it. Breaking it with a chain scores CRYSTAL_SCORE_PER_KILL × this value. Absent on authored prisms.
@@ -59,7 +57,6 @@ export interface CellBehavior {
 
 export interface CellBehaviorComponent {
   countdown: number;
-  bossStage?: 1 | 2;
   behavior: CellBehavior;
 }
 
@@ -69,9 +66,6 @@ export interface CellIntent {
   label: string;
   moveTo?: number;
   swapWithId?: number;
-  summonCells?: number[];
-  /** IDs announced with summonCells; replacement never retargets a new occupant. */
-  summonIds?: number[];
   /** Shaman rite announced at the end of a turn: fixed goblin IDs and their cells at the announcement. */
   empowerIds?: number[];
   empowerCells?: number[];

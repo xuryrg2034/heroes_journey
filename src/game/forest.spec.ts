@@ -1,5 +1,5 @@
-import { ForestEngine } from './forestEngine';
-import { DEMONSTRATION_OPENING } from './forestLevel';
+import type { ForestEngine } from './forestEngine';
+import { FOREST_FIXTURE_OPENING, startForestFixture } from './testing/fixtures';
 import { adjacent, isWalkable, prepareIntents, simulateChain } from './forestSystems';
 import type { CellKind, EnemyColor, ForestCell, RotationGeometry } from './forestTypes';
 
@@ -9,10 +9,11 @@ function cell(kind: CellKind = 'melee', color: EnemyColor | null = 0, hp = kind 
   return { id: id++, kind, color, hp, maxHp: hp, armor: 0, countdown: 1,
     status: { wet: false, frozen: 0, brittle: false }, behavior: { aggressive: false, restTurns: 0 }, intent: { cells: [], damage: 1, label: 'Test' } };
 }
+/** Blank floor on the camp fixture (editor level, no run pressure); refill fills emptied cells after a turn. */
 function fixture() {
-  const g = new ForestEngine(); g.animationScale = 0; g.startLevel();
+  const g = startForestFixture();
   g.state.board.fill(null); g.state.terrain.fill('floor');
-  g.state.wave = 3; g.state.spawnCounts = { archers: 2, boss: 1 }; return g;
+  return g;
 }
 function rotation(g: ForestEngine, from: number, to: number, geometry: RotationGeometry = 'cardinal') {
   const source = g.state.board[from]!, target = g.state.board[to]!;
@@ -25,21 +26,21 @@ async function commit(g: ForestEngine, path: number[]) {
   return g.releaseChain();
 }
 async function demonstration() {
-  const g = new ForestEngine(); g.animationScale = 0; g.startLevel();
+  const g = startForestFixture();
   assert(g.state.board.filter(Boolean).length === 39, 'all 39 walkable non-hero cells start occupied');
-  assert(g.state.board[10]?.kind === 'melee' && g.state.board[11]?.status.wet && g.state.board[20]?.kind === 'melee', 'former spawn holes start with ordinary goblins');
-  const log: string[] = [];
-  for (const path of DEMONSTRATION_OPENING) {
+  assert(g.state.board[10]?.kind === 'melee' && g.state.board[11]?.status.wet && g.state.board[20]?.kind === 'melee', 'camp cells start with ordinary goblins, the puddle one wet');
+  const log: string[] = []; let credited = 0;
+  for (const path of FOREST_FIXTURE_OPENING.map(route => [...route])) {
     const preview = g.preview(path); assert(preview.valid, `authored route valid: ${preview.reason}`);
     const expectedKills = preview.hits.filter(hit => hit.killed).length;
     assert(await commit(g, path), 'authored route resolves');
     assert(g.state.lastDamage === preview.damage, 'authored preview/commit damage parity');
     assertDense(g);
-    log.push(`${g.state.turn}:wave${g.state.wave}/hp${g.state.player.hp}/kills${expectedKills}`);
+    credited += expectedKills; assert(g.state.objective.kills === credited, 'every forecast kill is credited to the player');
+    log.push(`${g.state.turn}:hp${g.state.player.hp}/kills${expectedKills}`);
   }
-  assert(g.state.phase === 'PLAYER_INPUT' && g.state.turn === 2 && g.state.wave === 2, 'documented opening reaches random archer wave');
-  assert(g.state.inventory.frost === 1, 'wave two grants one optional frost');
-  console.log('PASS tutorial opening', log.join(' '));
+  assert(g.state.phase === 'PLAYER_INPUT' && g.state.turn === 2, 'the camp opening leaves the battle running after two turns');
+  console.log('PASS camp opening', log.join(' '));
 }
 function assertDense(g: ForestEngine) {
   g.state.board.forEach((target, index) => {
@@ -83,7 +84,9 @@ async function regressions() {
   w.prepareFrost(44); assert(await w.waitTurn() && w.state.player.hp === 5 && w.state.turn === 1, 'item-only wait resolves exactly one skipped enemy phase');
   assert(w.state.board[44]!.status.brittle && w.state.board[44]!.status.frozen === 0, 'unconsumed brittle survives freeze expiry');
 
-  const v = fixture(); v.state.board[44] = cell(); v.state.board[37] = cell('boss', null, 2);
+  // The fixture wins by its goals: a boss-kill goal (set on the running battle — the editor rejects it without an
+  // authored boss) makes the boss death the victory, as the old trial's last wave did.
+  const v = fixture(); v.state.customLevel!.definition.goals = [{ key: 'bossKills', target: 1 }]; v.state.board[44] = cell(); v.state.board[37] = cell('boss', null, 2);
   v.state.board[36] = cell(); v.state.board[36]!.intent.cells = [37];
   assert(v.preview([44, 37]).damage === 0, 'boss lethal preview omits canceled enemy phase');
   const afterBoss = simulateChain(v.state, [44, 37, 36]);
@@ -95,8 +98,8 @@ async function regressions() {
   c.state.board[9] = cell('melee', null); c.state.board[10] = cell('melee', 2);
   assert(simulateChain(c.state, [9, 10]).preview.valid, 'killed colorless target allows arbitrary outgoing color');
 
-  const r = new ForestEngine(); r.animationScale = 0.2; r.startLevel();
-  const pending = commit(r, DEMONSTRATION_OPENING[0]); r.restartLevel(); await pending;
+  const r = startForestFixture(); r.animationScale = 0.2;
+  const pending = commit(r, [...FOREST_FIXTURE_OPENING[0]]); r.restartLevel(); await pending;
   assert(r.state.turn === 0 && r.state.objective.kills === 0 && r.state.player.index === 45, 'restart cancels pending resolution');
   r.damagePlayer(5); assert(r.state.phase === 'LOSE', 'damage can lose'); r.restartLevel(); assert(r.state.player.hp === 5, 'retry restores health');
 
@@ -109,29 +112,23 @@ async function regressions() {
 }
 async function alternatePolicies() {
   for (const seed of [701, 29, 83, 705, 719]) {
-    const g = new ForestEngine(seed); g.animationScale = 0; g.startLevel();
+    const g = startForestFixture(seed);
     const visits = new Map<number, number>();
     for (let step = 0; step < 40 && g.state.phase === 'PLAYER_INPUT'; step++) {
       const paths = g.availableMoves(); assert(paths.length > 0, `reachable move exists seed${seed} turn${step}`);
       assert(paths.some(path => g.preview(path).damage < g.state.player.hp), `nonfatal chain available seed${seed} turn${step}`);
-      const targets = g.state.board.flatMap((target, index) => target?.kind === (g.state.wave === 3 ? 'boss' : 'ranged') ? [index] : []);
       const score = (path: number[]) => {
         const p = g.preview(path);
-        const distance = targets.length ? Math.min(...targets.map(index => Math.abs(index % 7 - p.endIndex % 7) + Math.abs(Math.floor(index / 7) - Math.floor(p.endIndex / 7)))) : 0;
-        return p.hits.reduce((sum, hit) => sum + (g.state.board[hit.index]?.kind === 'boss' ? hit.damage * 12 : g.state.board[hit.index]?.kind === 'ranged' ? hit.damage * 8 : 0), 0)
-          + p.kills * 2 - p.damage * 50 - distance * 2 - (p.damage >= g.state.player.hp ? 10000 : 0) - (visits.get(p.endIndex) ?? 0) * 0.5;
+        return p.kills * 2 - p.damage * 50 - (p.damage >= g.state.player.hp ? 10000 : 0) - (visits.get(p.endIndex) ?? 0) * 0.5;
       };
       const path = paths.sort((a, b) => score(b) - score(a))[0];
       const p = g.preview(path), oldBoard = g.getBoardState(), oldHp = g.state.player.hp;
       const moved = new Map<number, number>();
       const replaced = new Set<number>();
-      const unsubscribe = g.subscribe((state, event) => {
+      const unsubscribe = g.subscribe((_state, event) => {
         if (event.type === 'enemy-swap') { moved.set(event.from!, event.to!); moved.set(event.to!, event.from!); }
-        if (event.type === 'special-arrival') replaced.add(event.oldId!);
         // A colour-change crystal crushes the enemy on its seeded cell (every mode since 30.09.2026).
         if (event.type === 'crystal' && event.oldId !== undefined) replaced.add(event.oldId);
-        // Archer arrows strike every creature on the announced line (positions are unchanged before swaps).
-        if (event.type === 'hit' && state.phase === 'ENEMY_RESOLVE' && oldBoard[event.index!]) replaced.add(oldBoard[event.index!]!.id);
       });
       await commit(g, path);
       visits.set(p.endIndex, (visits.get(p.endIndex) ?? 0) + 1);
@@ -144,97 +141,27 @@ async function alternatePolicies() {
       });
     }
     // Only per-turn invariants are asserted; whether this heuristic bot wins is balance, not a rule.
-    console.log(`POLICY seed=${seed} ${g.state.phase} turns=${g.state.turn} HP=${g.state.player.hp} wave=${g.state.wave}`);
+    console.log(`POLICY seed=${seed} ${g.state.phase} turns=${g.state.turn} HP=${g.state.player.hp} kills=${g.state.objective.kills}`);
   }
 }
-async function arrivalRegressions() {
-  const openExit = (g: ForestEngine) => {
-    const exit = cell('door', null, 1); exit.door = { branch: 'forward', label: 'Fixture exit', destination: 'banquet', magic: true, breached: true, footprint: [44] };
-    g.state.board[44] = exit;
-  };
-  const firstPositions = new Set<number>();
-  for (const seed of [0, 1, 29, 83, 701, 7010, 123456, 987654, 0x12345678, 0x7fffffff, 0xdeadbeef, 0xffffffff]) {
-    const g = new ForestEngine(seed); g.animationScale = 0; g.startLevel();
-    const pool = g.state.board.flatMap((target, index) => target?.kind === 'melee' ? [index] : []);
-    const original = g.getBoardState(), expected: number[] = [], actual: number[] = [];
-    let random = seed;
-    for (let draw = 0; draw < 2; draw++) {
-      random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
-      expected.push(pool.splice(Math.floor(random / 4294967296 * pool.length), 1)[0]);
-    }
-    // Frozen ordinary goblins are still valid victims; the replacement has fresh state.
-    g.state.board.forEach(target => { if (target) { target.status.frozen = 2; target.status.brittle = true; target.behavior.aggressive = true; } });
-    g.state.objective.kills = 8;
-    g.subscribe((state, event) => {
-      if (event.type !== 'special-arrival') return;
-      const index = event.index!, replacement = state.board[index]!;
-      actual.push(index);
-      assert(original[index]?.id === event.oldId && replacement.id === event.newId && event.oldId !== event.newId, 'arrival announces exact victim and replacement identity');
-      assert(state.phase === 'BOARD_UPDATE' && replacement.kind === 'ranged' && replacement.behavior.restTurns === 0, 'arrival publishes the validated next-turn intent after all enemy actions');
-      assert(replacement.color === original[index]!.color && replacement.hp === 7, 'archer keeps the randomly selected victim color with fresh health');
-      assert(replacement.status.frozen === 0 && !replacement.status.brittle && !replacement.behavior.aggressive && replacement.behavior.restTurns === 0, 'fresh special does not inherit victim combat status');
-      assert(replacement.status.wet === (state.terrain[index] === 'puddle'), 'new special gets wet only from current terrain');
-      assert(state.objective.kills === 8 && state.objective.rangedKills === 0 && state.score === 30, 'NPC replacement grants no kill objective or score credit');
-      assertDense(g);
-    });
-    await g.waitTurn();
-    assert(JSON.stringify(actual) === JSON.stringify(expected), `uniform full melee pool selection without fixed positions or color filters seed${seed}`);
-    assert(g.state.spawnCounts.archers === 2 && new Set(actual).size === 2 && g.state.player.hp === 5, 'exact unique archer quota and no arrival-turn attack');
-    firstPositions.add(actual[0]);
-  }
-  assert(firstPositions.size >= 6, 'different seeds vary arrival locations throughout the board');
-
-  const protectedBoard = intentFixture(); protectedBoard.state.wave = 2; protectedBoard.state.spawnCounts = { archers: 0, boss: 0 };
-  openExit(protectedBoard);
-  protectedBoard.state.board[0] = cell('boss', null, 20); protectedBoard.state.board[1] = cell('ranged', 1, 7);
-  protectedBoard.state.board[0]!.status.frozen = 2; protectedBoard.state.board[1]!.status.frozen = 2;
-  protectedBoard.state.board[11] = cell(); protectedBoard.state.board[20] = cell();
-  const protectedIds = protectedBoard.getBoardState();
-  await protectedBoard.waitTurn();
-  assert(protectedBoard.state.board[11]?.kind === 'ranged' && protectedBoard.state.board[20]?.kind === 'ranged', 'only occupied normal goblins qualify when other types fill the board');
-  protectedIds.forEach((target, index) => {
-    if (target && target.kind !== 'melee') assert(protectedBoard.state.board[index]?.id === target.id, 'boss, existing archer and prisms are never arrival victims');
-  });
-  assertDense(protectedBoard);
-
-  const pending = intentFixture(); pending.state.wave = 2; pending.state.spawnCounts = { archers: 0, boss: 0 };
-  openExit(pending);
-  let arrivals = 0; pending.subscribe((_state, event) => { if (event.type === 'special-arrival') arrivals++; });
-  await pending.waitTurn(); assert(arrivals === 0 && pending.state.spawnCounts.archers === 0, 'zero eligible victims leaves all arrivals pending');
-  pending.state.board[11] = cell(); pending.state.terrain[11] = 'puddle'; pending.state.board[11]!.status.frozen = 2;
-  await pending.waitTurn(); assert(arrivals === 1 && pending.state.spawnCounts.archers === 1, 'one available victim fulfills only one archer arrival');
-  await pending.waitTurn(); assert(arrivals === 1 && pending.state.spawnCounts.archers === 1, 'pending quota cannot duplicate existing specials');
-  pending.state.board[20] = cell(); await pending.waitTurn();
-  assert(arrivals === 2 && pending.state.spawnCounts.archers === 2, 'later ordinary goblin fulfills remaining quota');
-  pending.state.board[11] = cell('prism', null, 1); await pending.waitTurn();
-  assert(arrivals === 2, 'removing an arrived archer does not reopen its quota');
-  pending.state.wave = 3; await pending.waitTurn();
-  assert(pending.state.spawnCounts.boss === 0, 'boss also waits when no normal victim exists');
-  pending.state.board[11] = cell(); await pending.waitTurn();
-  assert(pending.state.spawnCounts.boss === 1 && pending.state.board[11]?.kind === 'boss' && pending.state.board[11]?.color === null && arrivals === 3, 'boss arrives once by replacing a later available normal goblin');
-  assertDense(pending);
-
-  const refilled = new ForestEngine(); refilled.animationScale = 0; refilled.startLevel();
+async function refillRegressions() {
+  // Emptied cells of the camp refill densely on the next board update, with fresh ordinary goblins.
+  const refilled = startForestFixture();
+  const emptied = [10, 11, 20].map(index => refilled.state.board[index]!.id);
   refilled.state.board[10] = null; refilled.state.board[11] = null; refilled.state.board[20] = null;
-  refilled.state.objective.kills = 8;
-  refilled.subscribe((_state, event) => { if (event.type === 'special-arrival') assertDense(refilled); });
   await refilled.waitTurn(); assertDense(refilled);
-  assert(refilled.state.board[10] && refilled.state.board[11] && refilled.state.board[20], 'former reserved positions refill normally before special arrivals');
+  assert([10, 11, 20].every(index => refilled.state.board[index]?.kind === 'melee' && !emptied.includes(refilled.state.board[index]!.id)), 'emptied cells refill with new ordinary goblins');
+  assert(refilled.state.board[11]!.status.wet && !refilled.state.board[10]!.status.wet, 'a refilled goblin is wet only on the puddle');
 
-  const replay = new ForestEngine(701); replay.animationScale = 0;
+  const replay = startForestFixture(701);
   const records: string[] = [];
   for (let run = 0; run < 2; run++) {
     replay.restartLevel();
-    for (const path of DEMONSTRATION_OPENING) await commit(replay, path);
-    records.push(JSON.stringify({ board: replay.getBoardState(), player: replay.state.player, counts: replay.state.spawnCounts }));
+    for (const path of FOREST_FIXTURE_OPENING) await commit(replay, [...path]);
+    records.push(JSON.stringify({ board: replay.getBoardState(), player: replay.state.player, rotations: replay.state.rotations, score: replay.state.score }));
   }
-  assert(records[0] === records[1], 'same seed and player actions reproduce arrivals, IDs and subsequent intents');
-
-  const cancel = new ForestEngine(); cancel.animationScale = 0; cancel.startLevel(); cancel.state.objective.kills = 8;
-  cancel.subscribe((_state, event) => { if (event.type === 'special-arrival') cancel.restartLevel(); });
-  assert(!await cancel.waitTurn() && cancel.state.turn === 0 && cancel.state.spawnCounts.archers === 0 && cancel.state.board.every(target => !target || target.kind === 'melee'), 'restart on arrival cancels the old quota loop and leaves fresh board intact');
-  assertDense(cancel);
-  console.log('PASS dense start/refill, uniform seeded occupied replacements, protected victim pool, no NPC kill credit, fresh status, deferred quotas, replay, arrival restart');
+  assert(records[0] === records[1], 'same seed and player actions reproduce refills, IDs and subsequent intents');
+  console.log('PASS dense refill of emptied cells, puddle status, replay');
 }
 function intentFixture() {
   const g = fixture();
@@ -361,7 +288,7 @@ async function intentRegressions() {
   cancel.subscribe((_state, event) => { if (event.type === 'enemy-swap') cancel.restartLevel(); });
   assert(!await cancel.waitTurn() && cancel.state.turn === 0 && cancel.state.player.index === 45, 'restart during rotation cancels remaining phase');
 
-  const idle = new ForestEngine(); idle.animationScale = 0; idle.startLevel();
+  const idle = startForestFixture();
   for (let turn = 0; turn < 12 && idle.state.phase === 'PLAYER_INPUT'; turn++) await idle.waitTurn();
   assert(idle.state.phase === 'LOSE', 'repeated waiting lets persistent aggression become lethal');
   console.log('PASS persistent anger, calm grace, fixed missed shots, archer rest, frozen phases, atomic occupied rotation, cancellation, conflicts, preserved entities, fixed attack preview, restored map, restart, idle pressure');
@@ -374,7 +301,7 @@ function pairFixture() {
 async function refillAndPairRegressions() {
   const distributions = new Set<string>();
   for (const seed of [701, 29, 83, 705, 719, 101]) {
-    const g = new ForestEngine(seed); g.animationScale = 0; g.startLevel();
+    const g = startForestFixture(seed);
     const initial = JSON.stringify(g.getBoardState()), replay: string[] = [];
     for (let run = 0; run < 2; run++) {
       if (run) { g.restartLevel(); assert(JSON.stringify(g.getBoardState()) === initial, 'restart preserves authored start'); }
@@ -428,26 +355,6 @@ async function refillAndPairRegressions() {
   assert(!victims.includes(replacements[0]) && replacements[1] === victims[1], 'item replaces killed endpoint and preserves surviving partner');
   await item.waitTurn(); assert(item.state.board[20]!.id === replacements[1] && item.state.board[13]!.id === replacements[0], 'item replacements execute existing exchange');
 
-  const arrows = pairFixture(); arrows.state.hazard = { cells: [20], turnsUntil: 1, damage: 2 };
-  const events: string[] = []; let replacementAtTarget = 0, volleyOccupant = 0, volleyKilled = false;
-  arrows.subscribe((state, event) => {
-    events.push(event.type);
-    if (event.type === 'spawn' && state.phase === 'ENEMY_RESOLVE') replacementAtTarget = state.board[13]!.id;
-    if (event.type === 'arrow-volley') volleyOccupant = state.board[20]?.id ?? 0;
-    if (event.type === 'kill' && event.index === 20) volleyKilled = true;
-  });
-  await commit(arrows, [19, 20, 13, 12]);
-  assert(events.indexOf('enemy-swap') < events.indexOf('arrow-volley') && volleyOccupant === replacementAtTarget && volleyKilled,
-    'arrows hit and defeat swapped zero-HP replacement after atomic exchange');
-
-  const knight = intentFixture(); knight.state.player.index = 16; knight.state.board[16] = null; knight.state.board[45] = cell('prism', null, 1);
-  for (const index of [9, 23, 25]) knight.state.board[index] = cell();
-  knight.state.board[24] = cell('ranged', 0, 2); knight.state.board[24]!.variant = 'knight'; rotation(knight, 24, 9, 'knight');
-  const knightPartner = knight.state.board[9]!.id;
-  assert(knight.preview([23, 24, 25]).rotations[0].active, 'dead knight preserves original jump over occupied blockers');
-  await commit(knight, [23, 24, 25]);
-  assert(knight.state.board[24]!.id === knightPartner && knight.state.board[9]!.kind === 'melee', 'ordinary replacement follows stored knight geometry');
-
   const cancel = pairFixture(); let oldSwap = false;
   cancel.subscribe((state, event) => {
     if (event.type === 'spawn' && state.phase === 'ENEMY_RESOLVE') cancel.restartLevel();
@@ -455,16 +362,15 @@ async function refillAndPairRegressions() {
   });
   assert(!await commit(cancel, [19, 20, 13, 12]) && !oldSwap && cancel.state.turn === 0 && cancel.state.player.index === 45, 'restart on pair reinforcement cancels stale swap and remaining phase'); assertDense(cancel);
 
-  for (const lethal of ['attack', 'volley'] as const) {
+  {
     const g = pairFixture();
-    if (lethal === 'attack') { g.state.board[0] = cell(); g.state.board[0]!.behavior.aggressive = true; g.state.board[0]!.intent = { cells: [12], damage: 5, label: 'Lethal' }; }
-    else g.state.hazard = { cells: [12], turnsUntil: 1, damage: 5 };
+    g.state.board[0] = cell(); g.state.board[0]!.behavior.aggressive = true; g.state.board[0]!.intent = { cells: [12], damage: 5, label: 'Lethal' };
     const preview = g.preview([19, 20, 13, 12]);
-    assert(preview.damage === 5 && preview.rotations[0].active === (lethal === 'volley'), 'forecast distinguishes death before rotation from later volley death');
+    assert(preview.damage === 5 && !preview.rotations[0].active, 'forecast: a lethal attack ends the battle before the rotation');
     let swaps = 0; g.subscribe((_state, event) => { if (event.type === 'enemy-swap') swaps++; });
     await commit(g, [19, 20, 13, 12]);
-    assert(g.state.phase === 'LOSE' && swaps === (lethal === 'volley' ? 1 : 0), 'lethal phase order agrees with common preview');
+    assert(g.state.phase === 'LOSE' && swaps === 0, 'lethal phase order agrees with common preview');
   }
-  console.log('PASS seeded varied refill/replay, dead source/partner/both rotations, fresh nonattacking replacements, freeze, items, original chess geometry, arrow order, death phase and restart');
+  console.log('PASS seeded varied refill/replay, dead source/partner/both rotations, fresh nonattacking replacements, freeze, items, death phase and restart');
 }
-void demonstration().then(regressions).then(intentRegressions).then(refillAndPairRegressions).then(arrivalRegressions).then(alternatePolicies).catch(error => { console.error(error); throw error; });
+void demonstration().then(regressions).then(intentRegressions).then(refillAndPairRegressions).then(refillRegressions).then(alternatePolicies).catch(error => { console.error(error); throw error; });

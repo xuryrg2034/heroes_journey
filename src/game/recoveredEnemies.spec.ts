@@ -1,9 +1,9 @@
 import oracleData from '../../tests/fixtures/recovered-enemies.json';
 import * as rules from './recovered/enemies';
 import { ForestEngine } from './forestEngine';
-import { canSwapEnemies, cloneCell, prepareIntents, rotationPreview } from './forestSystems';
+import { cloneCell, prepareIntents } from './forestSystems';
 import { hasOrdinaryChain } from './boardGeneration';
-import { campaignBlueprint } from './campaignContent';
+import { startForestFixture, startNodeBattle } from './testing/fixtures';
 import type { ForestCell } from './forestTypes';
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 function equal(actual: unknown, expected: unknown, message: string) { assert(JSON.stringify(actual) === JSON.stringify(expected), `${message}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`); }
@@ -54,8 +54,9 @@ let nextId = 80000;
 function unit(kind: ForestCell['kind'] = 'melee', hp = kind === 'melee' ? 0 : 4): ForestCell { return { id: nextId++, kind, color: 0, hp, maxHp: hp, armor: 0, countdown: 1,
   status: { frozen: 0, brittle: false, wet: false }, behavior: { aggressive: false, restTurns: 0 }, intent: { cells: [], damage: 1, label: '' } }; }
 function fixture() {
-  const g = new ForestEngine(701); g.animationScale = 0; g.startLevel(); g.state.terrain.fill('floor'); g.state.board.fill(null);
-  g.state.player.index = 31; g.state.wave = 3; g.state.spawnCounts = { archers: 2, boss: 1 };
+  // The camp fixture as a blank floor: the removed forest trial is no longer the generic board.
+  const g = startForestFixture(701); g.state.terrain.fill('floor'); g.state.board.fill(null);
+  g.state.player.index = 31;
   g.state.board[24] = unit('melee', 3); g.state.board[24]!.variant = 'sentinel';
   for (const index of [17, 18, 23, 25, 30, 32]) g.state.board[index] = unit(); prepareIntents(g.state); return g;
 }
@@ -78,75 +79,10 @@ async function shields() {
   const abilities = fixture(); abilities.state.player.energy = 7; abilities.state.board[24]!.hp = abilities.state.board[24]!.maxHp = 4;
   assert(abilities.previewAbility('jump', 24).valid && abilities.previewAbility('spin').hits.some(hit => hit.index === 24 && hit.damage === 4), 'jump/spin ignore directional shield');
   abilities.state.inventory.bomb = 1; assert(abilities.previewItem('bomb', 24).damage === 6 && abilities.useItem('bomb', 24), 'bomb ignores directional shield');
-  assert(campaignBlueprint('barracks', 2, 701).actors.some(actor => actor.variant === 'sentinel'), 'later barracks introduces sentinel without changing first-room tutorial trap');
-  for (const theme of ['library'] as const) {
-    const g = new ForestEngine(701); g.animationScale = 0; g.startScenario(theme);
-    const guard = g.state.board.find(cell => cell?.variant === 'sentinel')!; assert(guard?.hp === 7 && !!guard.shield && hasOrdinaryChain(g.state), 'authored sentinel room has a validated ordinary opening');
-    const initial = JSON.stringify(g.state); await g.waitTurn(); const after = JSON.stringify(g.state); g.restartLevel(); equal(JSON.stringify(g.state), initial, 'entry snapshot restores guard and resources'); await g.waitTurn(); equal(JSON.stringify(g.state), after, 'sentinel preparation seeded replay');
-  }
+  // The removed castle rooms (barracks, library) no longer host the sentinel: the forest-map shield battle does.
+  const g = startNodeBattle('goblin-shield-flank');
+  const guard = g.state.board.find(cell => cell?.variant === 'sentinel')!; assert(guard?.hp === 3 && !!guard.shield && hasOrdinaryChain(g.state), 'authored sentinel battle has a validated ordinary opening');
+  const initial = JSON.stringify(g.state); await g.waitTurn(); const after = JSON.stringify(g.state); g.restartLevel(); equal(JSON.stringify(g.state), initial, 'entry snapshot restores guard and resources'); await g.waitTurn(); equal(JSON.stringify(g.state), after, 'sentinel preparation seeded replay');
   console.log('PASS runtime sentinel front/flank/rear/diagonal, freeze, ability exceptions, shared preview/commit, cloning, validated scenes and restart');
 }
-async function summons() {
-  const g = fixture(); g.state.board[3] = unit('boss', 18); const wizard = g.state.board[3]!; wizard.variant = 'wizard'; wizard.behavior.cycle = 2;
-  for (const index of [0, 1, 2, 4, 5]) { g.state.board[index] = unit(); g.state.board[index]!.variant = 'chair'; }
-  let draws = 0; prepareIntents(g.state, () => { draws++; return 0; });
-  equal(wizard.intent.summonCells, [0, 1], 'seeded cyclic launch search chooses two distinct occupied normals'); assert(draws === 4, 'each target draws start column and row once');
-  assert(!wizard.intent.summonCells!.includes(24), 'summon never replaces sentinel');
-  const warning = [...wizard.intent.summonCells!]; g.preview([30, 23]); equal(wizard.intent.summonCells, warning, 'preview never rerolls warning');
-  const firstId = g.state.board[0]!.id; g.state.board[0] = null;
-  const events: number[] = []; g.subscribe((_state, event) => { if (event.type === 'special-arrival' && event.text === 'ПРИЗЫВ') events.push(event.index!); });
-  await g.waitTurn(); assert(events.includes(1) && !events.includes(0) && !g.state.board.some(cell => cell?.id === firstId), 'dead warning target canceled without replacement retarget; second target summons');
-  assert(g.state.board[1]?.variant === 'stool' && g.state.board[1]!.hp === 2 && g.state.board[1]!.behavior.aggressive, 'summoned stool preserves existing HP/aggression rules');
-  console.log('PASS wizard fixed seeded distinct summon targets, protected roles, death cancellation and unchanged summoned enemy');
-}
-function wardrobeFixture(hp = 10) {
-  const g = fixture(); g.state.board.fill(null); g.state.player.index = 38; g.state.player.energy = 7;
-  const wardrobe = unit('melee', hp); wardrobe.variant = 'wardrobe'; wardrobe.footprint = [16, 17, 23, 24];
-  for (const index of wardrobe.footprint) g.state.board[index] = wardrobe;
-  for (const index of [30, 31]) g.state.board[index] = unit();
-  prepareIntents(g.state); return { g, wardrobe };
-}
-async function wardrobes() {
-  const { g, wardrobe } = wardrobeFixture(3); g.state.player.energy = 0;
-  assert(!g.preview([31, 24, 23]).valid, 'shared footprint cannot supply repeated chain hits');
-  const p = g.preview([31, 30, 23]); assert(p.valid && p.kills === 3 && p.energyGain === 1.5 && p.hits.at(-1)?.availablePower === 3, 'wardrobe contributes one enemy, kill and energy increment');
-  const oldScore = g.state.score; await commit(g, [31, 30, 23]);
-  assert(g.state.objective.kills === 3 && g.state.score > oldScore && g.state.player.energy === 1.5, 'score/objective/energy once per actual enemy');
-  assert(!g.state.board.some(cell => cell?.id === wardrobe.id) && g.state.player.index === 23 && g.state.board[23] === null, 'kill clears all four parts and lands at contacted part');
-  assert([16, 17, 24].every(index => !!g.state.board[index]), 'remaining freed footprint cells refill densely');
-  const attack = wardrobeFixture(); attack.wardrobe.behavior.aggressive = true; attack.g.state.board[30]!.hp = attack.g.state.board[30]!.maxHp = 20; prepareIntents(attack.g.state);
-  const incoming = attack.g.preview([31, 30]); assert(incoming.valid && incoming.damage === 1 && incoming.threats.filter(index => attack.g.state.board[index]?.id === attack.wardrobe.id).length === 1, 'perimeter threat forecasts one attack despite four aliases');
-  await commit(attack.g, [31, 30]); assert(attack.g.state.lastDamage === 1 && !attack.wardrobe.behavior.aggressive, 'wardrobe attacks and calms once');
-  const frozen = wardrobeFixture(); frozen.wardrobe.status.frozen = 2; await frozen.g.waitTurn(); assert(frozen.wardrobe.status.frozen === 1, 'status ticks once for shared entity');
-  const spin = wardrobeFixture(); spin.g.state.player.index = 31; spin.g.state.board[31] = null;
-  assert(spin.g.previewAbility('spin').hits.filter(hit => [16, 17, 23, 24].includes(hit.index)).length === 1, 'spin deduplicates footprint');
-  await spin.g.useAbility('spin'); assert(spin.g.state.board.find(cell => cell?.id === spin.wardrobe.id)?.hp === 6, 'spin applies one physical hit');
-  const fire = wardrobeFixture(); fire.g.state.inventory.fire = 1; fire.g.useItem('fire', 23);
-  assert(fire.wardrobe.hp === 10 && fire.wardrobe.damageEffects?.burning === 1, 'fire cross adds one burning stack to shared wardrobe without impact damage');
-  await fire.g.waitTurn(); assert(Number(fire.wardrobe.hp) === 9, 'burning ticks once across all four parts');
-  const killsBeforeBomb = fire.g.state.objective.kills;
-  fire.wardrobe.hp = 6;
-  fire.g.state.itemPrepared = false; fire.g.state.inventory.bomb = 1; fire.g.useItem('bomb', 24);
-  assert(!fire.g.state.board.some(cell => cell?.id === fire.wardrobe.id) && fire.g.state.objective.kills === killsBeforeBomb + 1, 'bomb clears all parts and credits one defeat');
-  for (const lethal of [false, true]) {
-    const arrows = wardrobeFixture(); arrows.wardrobe.hp = lethal ? 2 : 10;
-    arrows.g.state.hazard = { cells: [16, 17, 23, 24], turnsUntil: 1, damage: 2 }; await arrows.g.waitTurn();
-    assert(lethal ? !arrows.g.state.board.some(cell => cell?.id === arrows.wardrobe.id) : arrows.wardrobe.hp === 8, 'one global volley hits one entity once');
-    assert(arrows.g.state.room.combatKills === (lethal ? 1 : 0) && arrows.g.state.objective.kills === 0, 'environment kill counted once without player credit');
-  }
-  const rotate = wardrobeFixture(); rotate.g.state.board[15] = unit('ranged');
-  assert(!canSwapEnemies(rotate.g.state, 15, 16), 'large enemy cannot be selected as rotation partner');
-  rotate.g.state.rotations = [{ from: 15, to: 16, sourceId: rotate.g.state.board[15]!.id, targetId: rotate.wardrobe.id, geometry: 'cardinal' }];
-  assert(!rotationPreview(rotate.g.state)[0].active, 'defensive execution cancels any stale pair touching wardrobe');
-  const arrival = wardrobeFixture(); arrival.g.state.wave = 2; arrival.g.state.spawnCounts = { archers: 0, boss: 0 };
-  await arrival.g.waitTurn();
-  assert(arrival.g.state.spawnCounts.archers === 2 && arrival.wardrobe.footprint!.every(index => arrival.g.state.board[index] === arrival.wardrobe), 'forest arrival batch cannot partially replace shared wardrobe');
-  for (const seed of [21, 83, 701, 984]) {
-    const natural = new ForestEngine(seed); natural.startScenario('banquet');
-    const large = natural.state.board.find(cell => cell?.variant === 'wardrobe')!;
-    assert(large.footprint?.length === 4 && large.footprint.every(index => natural.state.board[index] === large) && hasOrdinaryChain(natural.state), 'authored/mirrored wardrobe has shared identity and validated opening');
-    const entry = JSON.stringify(natural.state); natural.restartLevel(); equal(JSON.stringify(natural.state), entry, 'wardrobe entry restart replay');
-  }
-  console.log('PASS shared 2x2 wardrobe chain/energy/score, perimeter preview/attack, status, spin/fire/bomb/volley dedupe, full clearing/refill, immobility and authored replay');
-}
-references(); await shields(); await summons(); await wardrobes();
+references(); await shields();

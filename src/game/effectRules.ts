@@ -25,16 +25,14 @@ export function canReceiveDamageEffects(cell: ForestCell): boolean {
 
 /** Generation projection consumes the same damage/decay kernel without publishing events. */
 export function projectEnemyEffects(state: ForestState): void {
-  for (const { cell, index } of uniqueEntities(state.board)) {
+  for (const { cell } of uniqueEntities(state.board)) {
     if (!canReceiveDamageEffects(cell) || !hasDamageEffects(cell)) continue;
     const tick = tickDamageEffects(cell.damageEffects);
     assignDamageEffects(cell, tick.effects);
     for (const hit of tick.hits) {
       if (!damageCell(cell, hit.damage, 'effect').killed) continue;
       removeDefeated(state.board, cell);
-      state.room.combatKills++;
       if (hit.playerCredit) creditDefeat(state, cell);
-      if (cell.carriesKey) state.room.key.droppedAt = index;
       break;
     }
   }

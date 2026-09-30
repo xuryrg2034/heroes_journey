@@ -4,13 +4,13 @@ import { isCellAlive } from './cellLife';
 import { shieldBlocksApproach } from './recovered/core';
 
 export type DamageSource = 'physical' | 'item' | 'hazard' | 'effect';
-export function physicalDamage(board: (ForestCell | null)[], cell: ForestCell, base: number): number {
+/** Physical damage of a chain or ability hit: frost brittleness doubles it. */
+export function physicalDamage(cell: ForestCell, base: number): number {
   if (base <= 0) return 0;
-  const protectedTarget = board.some(source => source?.variant === 'cabinet' && source.id !== cell.id && source.supportTargetId === cell.id && source.status.frozen === 0 && isCellAlive(source));
-  return Math.max(1, base * (cell.status.brittle ? 2 : 1) - (protectedTarget ? 1 : 0));
+  return base * (cell.status.brittle ? 2 : 1);
 }
 
-/** Apply an already evaluated amount. Hazards deliberately bypass wizard phase protection. */
+/** Apply an already evaluated amount. */
 export function damageCell(cell: ForestCell, damage: number, source: DamageSource) {
   const hpBefore = cell.hp;
   damage = Math.max(0, damage);
@@ -21,9 +21,7 @@ export function damageCell(cell: ForestCell, damage: number, source: DamageSourc
   cell.hp = Math.max(0, cell.hp - damage);
   if (source === 'physical') cell.status.brittle = false;
   const hpRemoved = Math.min(hpBefore, damage);
-  const phaseChanged = wasAlive && damage > 0 && source !== 'hazard' && cell.variant === 'wizard' && cell.bossStage === 1 && !isCellAlive(cell);
-  if (phaseChanged) { cell.bossStage = 2; cell.hp = cell.maxHp = 24; delete cell.defeated; }
-  return { damage, hpBefore, hpAfter: cell.hp, hpRemoved, killed: !isCellAlive(cell), phaseChanged };
+  return { damage, hpBefore, hpAfter: cell.hp, hpRemoved, killed: !isCellAlive(cell) };
 }
 
 export function damageHero(state: ForestState, amount: number): number {
@@ -47,10 +45,10 @@ export function removeDefeated(board: (ForestCell | null)[], cell: ForestCell): 
  * - `player` — chain, ability, item, the player's devices and the player's burning/poison: every counter;
  * - `enemy` — enemy abilities striking other creatures (archer arrows, boar ram and push onto spikes, thorns or a
  *   pit, troll club, any future enemy attack on its own side): only goal targets — marked lesson/node targets and
- *   bosses — count toward the task; no kill counters, no `combatKills`, no score;
- * - `environment` — the gate volley and uncredited effect ticks: `combatKills` only, as before;
- * - `none` — an enemy crushed by a falling crystal: the common death path (removal, key drop, goal refresh, `kill`
- *   event) without any counter or score.
+ *   bosses — count toward the task; no kill counters, no score;
+ * - `environment` — effect ticks from stacks the player did not apply: no counter;
+ * - `none` — an enemy crushed by a falling crystal: the common death path (removal, goal refresh, `kill` event)
+ *   without any counter or score.
  */
 export type DefeatCredit = 'player' | 'enemy' | 'environment' | 'none';
 
@@ -58,7 +56,7 @@ export type DefeatCredit = 'player' | 'enemy' | 'environment' | 'none';
 export function creditDefeat(state: ForestState, cell: ForestCell, progress = state.objective, credit: DefeatCredit = 'player'): void {
   if (cell.kind === 'door' || cell.kind === 'prism' || credit === 'environment' || credit === 'none') return;
   if (credit === 'player') {
-    if (cell.kind === 'melee' || state.customLevel) progress.kills++;
+    progress.kills++;
     if (cell.kind === 'ranged') progress.rangedKills++;
   }
   if (cell.kind === 'boss') progress.bossKills++;
@@ -68,10 +66,6 @@ export function creditDefeat(state: ForestState, cell: ForestCell, progress = st
 /** An enemy-caused death still moves the task forward: a marked target or a boss. */
 export function enemyDefeatCountsForGoal(state: ForestState, cell: ForestCell | null | undefined): boolean {
   return !!cell && cell.kind !== 'door' && cell.kind !== 'prism' && (cell.kind === 'boss' || !!state.tutorial?.targetIds.includes(cell.id));
-}
-
-export function defeatsRoomBoss(state: ForestState, cell: ForestCell): boolean {
-  return !state.customLevel && cell.kind === 'boss' && (state.room.kind === 'forest' || cell.variant === 'wizard');
 }
 
 /** Jailer keeps a fixed shield facing, but lowers it while recovering or frozen. */

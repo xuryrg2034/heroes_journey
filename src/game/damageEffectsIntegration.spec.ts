@@ -1,4 +1,5 @@
 import { ForestEngine } from './forestEngine';
+import { forestFixtureLevel, startForestFixture } from './testing/fixtures';
 import { applyDamageEffect, summarizeDamageEffects } from './damageEffects';
 import type { CustomLevelDefinition } from './customLevel';
 import type { ForestCell } from './forestTypes';
@@ -17,15 +18,15 @@ function cell(kind: ForestCell['kind'] = 'melee', hp = kind === 'melee' ? 0 : 4)
     status: { wet: false, frozen: 0, brittle: false }, behavior: { aggressive: false, restTurns: 0 },
     intent: { cells: [], damage: 1, label: 'Fixture' } };
 }
-function fixture(): ForestEngine {
-  const game = new ForestEngine(701);
-  game.animationScale = 0;
-  game.startLevel();
+/** Camp patch whose goal is one boss kill (validation wants an authored boss; the tests rebuild the board anyway). */
+const BOSS_GOAL: Partial<CustomLevelDefinition> = { goals: [{ key: 'bossKills', target: 1 }],
+  enemies: forestFixtureLevel().enemies.map(enemy => enemy.index === 1 ? { index: 1, kind: 'boss', color: null, hp: 20 } : enemy) };
+/** The camp fixture (hero entry 45) rebuilt as an open floor of inert prisms around the cat on 24. */
+function fixture(patch: Partial<CustomLevelDefinition> = {}): ForestEngine {
+  const game = startForestFixture(701, patch);
   game.state.player.index = 24;
   game.state.terrain.fill('floor');
   game.state.board = Array.from({ length: 49 }, (_, index) => index === 24 ? null : cell('prism', 1));
-  game.state.wave = 3;
-  game.state.spawnCounts = { archers: 2, boss: 1 };
   return game;
 }
 async function chain(game: ForestEngine, path: number[]): Promise<boolean> {
@@ -167,14 +168,12 @@ async function bleedingMovement(): Promise<void> {
 }
 
 async function delayedDefeatAndRestart(): Promise<void> {
-  const game = fixture(), carrier = cell('melee', 1);
-  carrier.carriesKey = true;
-  carrier.damageEffects = applyDamageEffect(undefined, 'poison', true);
-  game.state.board[30] = carrier;
+  const game = fixture(), victim = cell('melee', 1);
+  victim.damageEffects = applyDamageEffect(undefined, 'poison', true);
+  game.state.board[30] = victim;
   assert(await game.waitTurn(), 'credited poison defeat resolves');
-  assert(game.state.room.combatKills === 1 && game.state.objective.kills === 1
-    && game.state.room.key.droppedAt === 30 && !game.state.board.some(target => target?.id === carrier.id),
-  'credited delayed kill counts once, removes the carrier, and drops its key');
+  assert(game.state.objective.kills === 1 && !game.state.board.some(target => target?.id === victim.id),
+    'credited delayed kill counts once and removes the victim');
 
   const pending = fixture(); pending.animationScale = 0.2;
   pending.state.player.damageEffects = applyDamageEffect(undefined, 'poison');
@@ -199,17 +198,16 @@ async function swapsAndDelayedWins(): Promise<void> {
   equal([swaps, swap.state.player.hp, swap.state.player.damageEffects?.bleedingSteps], [1, 5, 2],
     'enemy swap does not count as hero movement or trigger bleeding');
 
-  const wizard = fixture(), boss = cell('boss', 1);
-  boss.color = null; boss.variant = 'wizard'; boss.bossStage = 1; boss.maxHp = 18; boss.status.frozen = 2;
+  const bossGame = fixture(BOSS_GOAL), boss = cell('boss', 2);
+  boss.color = null; boss.status.frozen = 2;
   boss.damageEffects = applyDamageEffect(undefined, 'poison', true);
-  wizard.state.board[30] = boss;
-  assert(await wizard.waitTurn(), 'wizard first-stage poison tick resolves');
-  equal([boss.bossStage, boss.hp, wizard.state.phase, wizard.state.objective.bossKills],
-    [2, 24, 'PLAYER_INPUT', 0], 'credited DOT opens wizard second stage without ending the room');
-  boss.hp = 1;
-  assert(await wizard.waitTurn(), 'wizard final-stage poison tick resolves');
-  equal([wizard.state.phase, wizard.state.objective.bossKills], [ 'WIN', 1 ],
-    'credited DOT final-stage boss defeat wins and credits exactly once');
+  bossGame.state.board[30] = boss;
+  assert(await bossGame.waitTurn(), 'first boss poison tick resolves');
+  equal([boss.hp, bossGame.state.phase, bossGame.state.objective.bossKills], [1, 'PLAYER_INPUT', 0],
+    'a surviving boss keeps the battle going');
+  assert(await bossGame.waitTurn(), 'final boss poison tick resolves');
+  equal([bossGame.state.phase, bossGame.state.objective.bossKills], ['WIN', 1],
+    'credited DOT boss defeat wins and credits exactly once');
 
   const definition: CustomLevelDefinition = {
     version: 1, name: 'Delayed goal', seed: 701, cols: 4, rows: 4,
@@ -260,9 +258,9 @@ async function restartAtEffectCallbacks(): Promise<void> {
 }
 
 async function roomReplayAndClone(): Promise<void> {
-  const game = new ForestEngine(701); game.animationScale = 0; game.startScenario('banquet', 701);
-  const targetIndex = game.state.board.findIndex(target => target?.kind === 'melee' && target.variant === 'chair');
-  assert(targetIndex >= 0, 'campaign room contains a delayed-damage target');
+  const game = startForestFixture(701);
+  const targetIndex = game.state.board.findIndex(target => target?.kind === 'melee');
+  assert(targetIndex >= 0, 'camp contains a delayed-damage target');
   const run = async () => {
     for (const target of game.state.board) if (target) target.status.frozen = 2;
     const victim = game.state.board[targetIndex]!;
@@ -270,13 +268,13 @@ async function roomReplayAndClone(): Promise<void> {
     const copied = game.getBoardState();
     copied[targetIndex]!.damageEffects!.poison = 99;
     assert(victim.damageEffects?.poison === 1, 'board snapshot owns its own damage-effect counters');
-    assert(await game.waitTurn(), 'campaign DOT turn completes');
-    return JSON.stringify({ board: game.getBoardState(), player: game.state.player,
-      objective: game.state.objective, room: game.state.room });
+    assert(await game.waitTurn(), 'DOT turn completes');
+    assert(game.state.objective.kills === 1 && game.state.board[targetIndex]?.id !== victim.id, 'the poisoned goblin dies and is credited');
+    return JSON.stringify({ board: game.getBoardState(), player: game.state.player, objective: game.state.objective });
   };
   const first = await run();
   game.restartLevel();
-  equal(await run(), first, 'room restart replays credited DOT, refill and RNG-dependent state exactly');
+  equal(await run(), first, 'battle restart replays credited DOT, refill and RNG-dependent state exactly');
 }
 
 void fireAndPoison().then(attackForecastAndHealing).then(bleedingMovement).then(delayedDefeatAndRestart)

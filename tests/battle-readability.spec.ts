@@ -26,7 +26,7 @@ const shot = async (page: Page, name: string) => { await page.waitForTimeout(250
 test('the main hint: goal and one phrase above the field, gone after a click or the first turn, kept while a chain is held, back with «?»', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await page.locator('#tutorial-begin-button').click();
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-wake', { seed: 7101 }));
   await ready(page);
   const hint = page.locator('#battle-hint');
   await expect(hint).toBeVisible();
@@ -65,7 +65,7 @@ test('jailer: the closed entry, the strike cells with the damage and the counter
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await page.locator('[data-tutorial="13"]').click();
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('jailer-gate', { row: 9, seed: 7114 }));
   await ready(page);
   const before = await state(page);
   const jailer = before.board.find((cell: any) => cell?.variant === 'jailer');

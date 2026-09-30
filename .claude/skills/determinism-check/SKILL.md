@@ -13,7 +13,7 @@ allowed-tools: Bash, Read, Grep, Glob
 npx tsx .claude/skills/determinism-check/scripts/determinism.ts $ARGUMENTS
 ```
 
-По умолчанию 6 ходов, seed `1 83 701 987654321`, все 16 уроков, поход (`startCampaign`) и замок (`startCastle`). На каждом ходу скрипт:
+По умолчанию 6 ходов, seed `1 83 701 987654321`, все боевые узлы карты леса (как в походе, через `startRunBattle`) и фикстура-лагерь уровня редактора. На каждом ходу скрипт:
 
 - берёт первый маршрут из `availableMoves(6)`, вызывает `preview`, проверяет, что `state`, `rng` и `nextId` не изменились;
 - проигрывает ход через `beginChain`/`extendChain`/`releaseChain` (`animationScale = 0`);
@@ -21,7 +21,7 @@ npx tsx .claude/skills/determinism-check/scripts/determinism.ts $ARGUMENTS
 
 `NOTE ... all seeds ended in the same state` значит, что seed в этой сцене ни на что не повлиял. Это подозрительно для сцен с пополнением.
 
-Скрипт использует только цепи. Если изменение касается предметов, способностей, отдыха (`waitTurn`), мороза или развилок уроков, нужна отдельная проверка этих действий в профильном `*.spec.ts`.
+Скрипт использует только цепи. Если изменение касается предметов, способностей, отдыха (`waitTurn`), мороза или переходов похода, нужна отдельная проверка этих действий в профильном `*.spec.ts`.
 
 ## 2. Профильные наборы
 

@@ -1,6 +1,5 @@
 import type { ForestEngine } from './game/forestEngine';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
-import { TUTORIAL_LESSONS } from './game/tutorialLevels';
 import { forestNode } from './game/run/forestMap';
 
 /**
@@ -13,16 +12,17 @@ export const TELEMETRY_KEY = 'ashen-oath-playtest-v1';
 export const MAX_ATTEMPTS = 500;
 
 export type Outcome = 'win' | 'lose' | 'restart' | 'quit';
-export type BattleMode = 'tutorial' | 'forest' | 'campaign' | 'custom' | 'run';
+export type BattleMode = 'custom' | 'run';
 
 export interface AttemptRecord {
-  /** Stable aggregation key: `tutorial:<index>`, `forest`, `campaign:<theme>:<depth>`, `custom:<name>`, `run:<nodeId>` (a forest-map node). */
+  /**
+   * Stable aggregation key: `run:<nodeId>` (a forest-map node) or `custom:<name>` (an editor level). Journals written
+   * before the old modes were removed may still hold other keys; they are shown under their raw key.
+   */
   key: string;
   mode: BattleMode;
-  /** Tutorial lesson id, forest-map node id, or level name for forest, campaign and custom levels. */
+  /** Forest-map node id or the editor level name. */
   id: string;
-  /** Tutorial lesson index (tutorial mode only). */
-  index?: number;
   seed: number;
   /** Start time, ms since the Unix epoch. */
   startedAt: number;
@@ -99,13 +99,12 @@ const median = (values: number[]): number | null => {
 };
 const round = (value: number, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 
-export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'index' | 'key'>): string {
+export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'key'>): string {
   switch (record.mode) {
-    case 'tutorial': return `Бой ${(record.index ?? 0) + 1} · ${record.id}`;
-    case 'forest': return 'Лес';
     case 'run': return `Карта леса · ${forestNode(record.id)?.name ?? record.id}`;
-    case 'campaign': return `Поход · ${record.key.split(':').slice(1).join(' · ')}`;
-    default: return `Свой · ${record.id}`;
+    case 'custom': return `Свой · ${record.id}`;
+    // A record of a removed mode from an older journal.
+    default: return `Старый режим · ${record.key}`;
   }
 }
 
@@ -154,7 +153,7 @@ export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
 // ---------- Live tracking ----------
 
 interface Open {
-  key: string; mode: BattleMode; id: string; index?: number; seed: number;
+  key: string; mode: BattleMode; id: string; seed: number;
   startedAt: number; t0: number; visit: number; attemptInVisit: number;
   turns: number; hp: number; maxHp: number; damage: number; chainLengths: number[]; cancelled: number;
   abilities: Partial<Record<AbilityKind, number>>; items: Partial<Record<ItemKind, number>>; firstMoveMs: number | null;
@@ -167,20 +166,13 @@ export interface TelemetryController {
   leave(): void;
 }
 
-function describe(engine: ForestEngine): Pick<Open, 'key' | 'mode' | 'id' | 'index' | 'seed'> {
+function describe(engine: ForestEngine): Pick<Open, 'key' | 'mode' | 'id' | 'seed'> {
   const state = engine.state;
-  // A forest-map node reuses lesson or forest-trial templates: its key must not merge with the plain lesson's attempts.
-  if (state.runNode) return { key: `run:${state.runNode.nodeId}`, mode: 'run', id: state.runNode.nodeId, seed: state.customLevel?.definition.seed ?? state.run.seed };
-  if (state.tutorial) {
-    const lesson = TUTORIAL_LESSONS[state.tutorial.index];
-    return { key: `tutorial:${state.tutorial.index}`, mode: 'tutorial', id: lesson?.id ?? String(state.tutorial.index), index: state.tutorial.index, seed: state.run.seed };
-  }
-  if (state.customLevel) {
-    const name = state.customLevel.definition.name || 'без названия';
-    return { key: `custom:${name}`, mode: 'custom', id: name, seed: state.customLevel.definition.seed };
-  }
-  if (state.room.kind === 'forest') return { key: 'forest', mode: 'forest', id: 'forest', seed: state.run.seed };
-  return { key: `campaign:${state.room.theme}:${state.room.depth}`, mode: 'campaign', id: `${state.room.theme}#${state.room.depth}`, seed: state.run.seed };
+  // Every battle is a custom-level definition: a map node (its seed derives from the run seed) or an editor level.
+  const seed = state.customLevel?.definition.seed ?? 0;
+  if (state.runNode) return { key: `run:${state.runNode.nodeId}`, mode: 'run', id: state.runNode.nodeId, seed };
+  const name = state.customLevel?.definition.name || 'без названия';
+  return { key: `custom:${name}`, mode: 'custom', id: name, seed };
 }
 
 export function installTelemetry(engine: ForestEngine): TelemetryController {
@@ -194,7 +186,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     if (!load().enabled) return;
     const lengths = current.chainLengths;
     const record: AttemptRecord = {
-      key: current.key, mode: current.mode, id: current.id, ...(current.index !== undefined ? { index: current.index } : {}), seed: current.seed,
+      key: current.key, mode: current.mode, id: current.id, seed: current.seed,
       startedAt: current.startedAt, durationMs: Math.round(performance.now() - current.t0), outcome, left,
       visit: current.visit, attemptInVisit: current.attemptInVisit, turns: current.turns,
       hpEnd: current.hp, maxHp: current.maxHp, damageTaken: current.damage,
@@ -234,7 +226,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     if (event.type !== 'start') sync();
     switch (event.type) {
       case 'start': if (open) finish(open.key === describe(engine).key ? 'restart' : 'quit', open.key !== describe(engine).key); begin(); break;
-      case 'win': case 'room-complete': if (open) finish('win', false); break;
+      case 'win': if (open) finish('win', false); break;
       case 'lose': if (open) finish('lose', false); break;
       case 'damage': if (open && event.index === engine.state.player.index) open.damage += event.amount ?? 0; break;
     }

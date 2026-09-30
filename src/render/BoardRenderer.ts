@@ -9,7 +9,6 @@ import { enemyDefeatCountsForGoal, shieldBlocksEntry, shieldIsActive } from '../
 import { isCellAlive } from '../game/cellLife';
 import type { EngineEvent as ForestEvent, ForestState, ForestCell, ItemKind, AbilityKind } from '../game/forestTypes';
 import { COLORS, PALE, makeEnemy, makePlayer, drawTerrain } from './art';
-import { drawKey } from './castleArt';
 import { loadCharacterArt } from './characterAssets';
 import { deviceTargets } from '../game/devices';
 import { drawStunStars } from './boarArt';
@@ -24,13 +23,11 @@ interface Piece {
   view: Container; signature: string; index: number; born: number;
   motion?: { x:number; y:number; started:number; duration:number; curve?:number };
   strike?: { started:number; dx:number; dy:number };
-  arrivalUntil?:number;
   /** A crystal falling from above onto its cell in the middle of a chain; `crushed` when an enemy stood there. */
   drop?: { started:number; duration:number; crushed:boolean };
 }
 interface Particle { view: Graphics; vx: number; vy: number; life: number; max: number; stationary?: boolean; angular?:number }
 interface Popup { view: Text; life: number }
-interface ArrivalVictim { view:Container; life:number }
 interface Dying { view:Container; life:number; max:number; kind:string; dx:number; dy:number; bx:number; by:number; wait?:number }
 interface ArrowProjectile { view:Graphics; startX:number; startY:number; targetX:number; targetY:number; life:number; max:number }
 
@@ -56,7 +53,6 @@ export class BoardRenderer {
   private endpoint = new Container();
   private hitLabels = new Container();
   private heroRing = new Graphics();
-  private floorLoot = new Graphics();
   private thornFrames = new Graphics();
   private edgeSpikes = new Graphics();
   private telegraph = new Graphics();
@@ -66,7 +62,6 @@ export class BoardRenderer {
   private views = new Map<number, Piece>();
   private particles: Particle[] = [];
   private popups: Popup[] = [];
-  private arrivalVictims: ArrivalVictim[] = [];
   private arrowProjectiles:ArrowProjectile[]=[];
   private dying:Dying[]=[];
   private unsubscribe?: () => void;
@@ -83,7 +78,6 @@ export class BoardRenderer {
   private playerTarget = { x: 0, y: 0 };
   private jumpMotion?:{from:{x:number;y:number};to:{x:number;y:number};started:number;duration:number};
   private spinUntil=0;
-  private lastLevel = -1;
   private lastTurn = -1;
   private scale = 1;
   private offset = { x: 0, y: 0 };
@@ -151,7 +145,7 @@ export class BoardRenderer {
     this.app.canvas.style.height = '100%';
     this.mount.appendChild(this.app.canvas);
     this.app.stage.addChild(this.world);
-    this.world.addChild(this.ground, this.deviceTargets, this.danger, this.movement, this.path, this.deviceViews, this.heroRing, this.pieces, this.thornFrames, this.edgeSpikes, this.telegraph, this.floorLoot, this.player, this.forecast, this.hitLabels, this.effects, this.endpoint);
+    this.world.addChild(this.ground, this.deviceTargets, this.danger, this.movement, this.path, this.deviceViews, this.heroRing, this.pieces, this.thornFrames, this.edgeSpikes, this.telegraph, this.player, this.forecast, this.hitLabels, this.effects, this.endpoint);
     this.endpoint.addChild(this.endpointBack,this.endpointText);
     this.endpointText.anchor.set(0.5);
     this.drawGround();
@@ -208,12 +202,11 @@ export class BoardRenderer {
 
   private drawGround() {
     const g = this.ground.clear(),state=this.engine.state;
-    const forest=state.room.theme==='forest',gate=state.room.theme==='gate',chess=state.room.theme==='chess';
-    g.roundRect(0,0,this.boardWidth,this.boardHeight,8).fill(forest?0x203025:0x20272f);
+    g.roundRect(0,0,this.boardWidth,this.boardHeight,8).fill(0x203025);
     for(let y=0;y<state.rows;y++) for(let x=0;x<state.cols;x++) {
       const px=x*TILE,py=y*TILE;
-      const shade=forest?((x+y)%2===0?0x394234:0x333d30):chess?((x+y)%2===0?0x535b65:0x303b47):gate?((x+y)%2===0?0x424849:0x393f40):((x+y)%2===0?0x3d4652:0x35404b);
-      g.roundRect(px+3,py+4,74,74,5).fill(forest?0x17251d:0x1b2630);
+      const shade=(x+y)%2===0?0x394234:0x333d30;
+      g.roundRect(px+3,py+4,74,74,5).fill(0x17251d);
       g.poly([px+5,py+5,px+73,py+5,px+76,py+10,px+75,py+69,px+69,py+75,px+5,py+74]).fill(shade);
       g.moveTo(px+7,py+73).lineTo(px+6,py+7).lineTo(px+71,py+7).stroke({color:0x647070,alpha:0.17,width:1});
       g.moveTo(px+73,py+13).lineTo(px+73,py+70).lineTo(px+14,py+72).stroke({color:0x101719,alpha:0.45,width:2});
@@ -224,7 +217,6 @@ export class BoardRenderer {
       }
       if((x*3+y)%5===0) g.moveTo(px+5,py+48).lineTo(px+13,py+43).lineTo(px+12,py+34).stroke({color:0x111819,alpha:0.5,width:1});
       drawTerrain(g,state.terrain[x+y*state.cols]??'floor',px+TILE/2,py+TILE/2);
-      if(!forest&&!gate&&(x+y*2)%5===0)g.poly([px+34,py+36,px+40,py+30,px+46,py+36,px+40,py+43]).stroke({color:state.room.theme==='wizard'?0xa790ca:0x8c9aab,width:1,alpha:.18});
     }
     g.roundRect(1,1,this.boardWidth-2,this.boardHeight-2,7).stroke({color:0xb9a270,alpha:0.4,width:2});
     // Spiked board sides are drawn above the pieces so an occupied edge cell still shows them.
@@ -236,37 +228,21 @@ export class BoardRenderer {
     if(this.disposed) return;
     if(state.chosenAbility!==this.lastAbility){this.lastAbility=state.chosenAbility;this.pointerCancel();this.targetHover=-1;}
     const now=performance.now();
-    const arrivalVictimIds=new Set<number>();
-    if(event.type==='special-arrival' && event.oldId!==undefined)arrivalVictimIds.add(event.oldId);
-    if(state.phase==='BOARD_UPDATE'&&event.type!=='start'&&event.type!=='restart'){
-      // A validated batch is already fully committed at its first spawn event.
-      // Retain every visible replaced resident before ordinary sync removes it.
-      const livingIds=new Set(state.board.filter(cell=>cell!==null).map(cell=>cell.id));
-      for(const [id,piece] of this.views){const replacement=state.board[piece.index];if(!livingIds.has(id)&&replacement&&(replacement.kind==='ranged'||replacement.kind==='boss'||replacement.variant==='stool'))arrivalVictimIds.add(id);}
-    }
-    for(const id of arrivalVictimIds) {
-      const victim=this.views.get(id);
-      if(victim) {
-        this.views.delete(id);this.effects.addChild(victim.view);
-        this.arrivalVictims.push({view:victim.view,life:240});
-      }
-    }
-    const terrainKey=`${state.cols}/${state.rows}/${state.room.theme}/${state.terrain.join(',')}/${state.customLevel?.definition.spikedEdges?.join(',')??''}`;
+    const terrainKey=`${state.cols}/${state.rows}/${state.terrain.join(',')}/${state.customLevel?.definition.spikedEdges?.join(',')??''}`;
     if(terrainKey!==this.terrainSignature) {this.terrainSignature=terrainKey;this.drawGround();this.resize();}
     const alive=new Set<number>();
     state.board.forEach((cell,index) => {
       if(!cell || alive.has(cell.id)) return;
       alive.add(cell.id);
       const tutorialTarget=state.tutorial?.targetIds.includes(cell.id) ?? false;
-      const signature=`${index}/${cell.kind}/${cell.variant}/${cell.footprint}/${cell.bossStage}/${cell.carriesKey}/${cell.supportTargetId}/${JSON.stringify(cell.shield)}/${JSON.stringify(cell.door)}/${cell.color}/${cell.hp}/${cell.maxHp}/${cell.defeated}/${cell.countdown}/${cell.intent.cells.join('.')}/${cell.intent.summonCells?.join('.')}/${cell.intent.moveTo}/${cell.intent.swapWithId}/${cell.behavior.aggressive}/${cell.behavior.passive}/${cell.behavior.restTurns}/${tutorialTarget}/${cell.status.wet}/${cell.status.frozen}/${cell.status.brittle}/${cell.attackEffect}/${JSON.stringify(cell.damageEffects)}/${cell.variant==='wolf'||cell.variant==='shaman'||cell.variant==='porcupine'||cell.variant==='troll'?`${cell.intent.label}/${cell.intent.empowerCells?.join('.')}`:''}`;
+      const signature=`${index}/${cell.kind}/${cell.variant}/${cell.footprint}/${JSON.stringify(cell.shield)}/${JSON.stringify(cell.door)}/${cell.color}/${cell.hp}/${cell.maxHp}/${cell.defeated}/${cell.countdown}/${cell.intent.cells.join('.')}/${cell.intent.moveTo}/${cell.intent.swapWithId}/${cell.behavior.aggressive}/${cell.behavior.passive}/${cell.behavior.restTurns}/${tutorialTarget}/${cell.status.wet}/${cell.status.frozen}/${cell.status.brittle}/${cell.attackEffect}/${JSON.stringify(cell.damageEffects)}/${cell.variant==='wolf'||cell.variant==='shaman'||cell.variant==='porcupine'||cell.variant==='troll'?`${cell.intent.label}/${cell.intent.empowerCells?.join('.')}`:''}`;
       let piece=this.views.get(cell.id);
       const oldMotion=piece?.motion,oldIndex=piece?.index;
       const oldBorn=piece?.born;
-      const oldArrival=piece?.arrivalUntil;
       if(piece && piece.signature!==signature) { piece.view.destroy({children:true}); this.views.delete(cell.id); piece=undefined; }
       if(!piece) {
-        const view=makeEnemy(cell,index,state.cols,!!state.customLevel && !state.tutorial,tutorialTarget); this.pieces.addChild(view);
-        piece={view,signature,index,born:oldBorn??now,motion:oldMotion,arrivalUntil:oldArrival}; this.views.set(cell.id,piece);
+        const view=makeEnemy(cell,index,state.cols,tutorialTarget); this.pieces.addChild(view);
+        piece={view,signature,index,born:oldBorn??now,motion:oldMotion}; this.views.set(cell.id,piece);
       }
       piece.index=index;
       if(event.type==='crystal'&&event.newId===cell.id&&!piece.drop){const pos=this.entityCenter(cell,index);piece.view.position.set(pos.x,pos.y-240);piece.drop={started:now,duration:this.dur(240),crushed:event.oldId!==undefined};}
@@ -274,12 +250,11 @@ export class BoardRenderer {
       if(event.type==='push'&&oldIndex!==undefined&&oldIndex!==index&&!cell.footprint){
         const from=this.center(oldIndex);piece.motion={x:from.x,y:from.y,started:now,duration:this.dur(85)};piece.view.position.set(from.x,from.y);
       }
-      if(event.type==='special-arrival' && event.newId===cell.id) piece.arrivalUntil=now+650;
       if(event.type==='enemy-swap' && event.from!==undefined && event.to!==undefined && (event.to===index || event.from===index)) {
         // Both identities have already exchanged grid positions atomically.
         // Animate reciprocal arcs together, keeping each enemy's original art/HP.
         const from=this.center(index===event.to?event.from:event.to);
-        piece.motion={x:from.x,y:from.y,started:now,duration:280,curve:event.geometry==='knight'?48:16};
+        piece.motion={x:from.x,y:from.y,started:now,duration:280,curve:16};
         piece.view.position.set(from.x,from.y);
       } else if(!piece.motion) {const pos=this.entityCenter(cell,index);piece.view.position.set(pos.x,pos.y);}
     });
@@ -290,17 +265,16 @@ export class BoardRenderer {
       this.views.delete(id);
     }
     const target=this.center(state.player.index); this.playerTarget=target;
-    if(this.lastLevel!==state.levelIndex || (state.turn===0 && this.lastTurn>0) || event.type==='start' || event.type==='restart') {
+    if((state.turn===0 && this.lastTurn>0) || event.type==='start' || event.type==='restart') {
       this.player.position.set(target.x,target.y);
       this.jumpMotion=undefined;this.spinUntil=0;this.player.scale.set(1);
       const pointer=this.activePointer;
       this.dragging=false;this.activePointer=null;this.lastPointer=null;
       if(pointer!==null && this.app.canvas.hasPointerCapture(pointer)) this.app.canvas.releasePointerCapture(pointer);
       this.targetingItem=null;this.targetHover=-1;this.onFrostTargetingChange?.(false);this.onItemTargetingChange?.(null);this.focusDoor(null);
-      for(const victim of this.arrivalVictims)victim.view.destroy({children:true});this.arrivalVictims=[];
       for(const victim of this.dying)victim.view.destroy({children:true});this.dying=[];
     }
-    this.lastLevel=state.levelIndex;this.lastTurn=state.turn;
+    this.lastTurn=state.turn;
     if((state.phase!=='PLAYER_INPUT'||state.chosenAbility) && this.targetingItem) {this.targetingItem=null;this.targetHover=-1;this.onFrostTargetingChange?.(false);this.onItemTargetingChange?.(null);}
     this.player.visible=state.phase!=='TITLE';
     this.drawDevices(state);
@@ -392,20 +366,8 @@ export class BoardRenderer {
     const chain=state.chain;
     const preview=this.engine.preview();
     const killed=new Set([...preview.hits, ...(preview.trapHits ?? [])].filter(hit=>hit.killed).map(hit=>hit.index));
-    // The engine already folds a room-boss kill into completesRoom and lethal damage into playerDies.
+    // The engine already folds a winning blow into completesRoom and lethal damage into playerDies.
     const endsEncounter=preview.valid && (preview.completesRoom || !!preview.playerDies);
-    const loot=this.floorLoot.clear();
-    if(state.room.key.droppedAt!==null){
-      const at=this.center(state.room.key.droppedAt);
-      loot.circle(at.x+23,at.y+20,15).fill(0x29271d).stroke({color:0xe9c77c,width:2});
-      drawKey(loot,at.x+23,at.y+20,.72);
-    }
-    if(!endsEncounter) for(const index of state.hazard.cells){
-      const at=this.center(index),imminent=state.hazard.turnsUntil===1;
-      d.roundRect(at.x-37,at.y-37,74,74,5).fill({color:0xe2c16a,alpha:imminent?.16:.05}).stroke({color:0xe2c16a,width:imminent?2:1,alpha:.8});
-      d.moveTo(at.x-27,at.y-29).lineTo(at.x-27,at.y-11).moveTo(at.x-31,at.y-17).lineTo(at.x-27,at.y-11).lineTo(at.x-23,at.y-17).stroke({color:0xffe2a0,width:2});
-      this.label(at.x-24,at.y+27,`↓${state.hazard.turnsUntil}`,0xf3d696,10);
-    }
     // These are engine-authored fixed intent cells, never a guessed new target.
     let restForecast:ReturnType<ForestEngine['previewRest']>|undefined;
     const telegraphed=new Set<number>();
@@ -413,25 +375,6 @@ export class BoardRenderer {
       if(!cell || telegraphed.has(cell.id) || cell.status.frozen || occupiedIndices(cell,i).some(part=>killed.has(part)) || endsEncounter) return;
       telegraphed.add(cell.id);
       const origin=this.entityCenter(cell,i);
-      if(cell.supportTargetId!==undefined){
-        const target=state.board.findIndex(ally=>ally?.id===cell.supportTargetId);
-        if(target>=0&&!killed.has(target)){
-          const at=this.center(target);
-          m.moveTo(origin.x,origin.y).lineTo(at.x,at.y).stroke({color:0xa0b9df,width:2,alpha:.45});
-          m.poly([at.x+23,at.y-12,at.x+34,at.y-12,at.x+33,at.y-1,at.x+28,at.y+5,at.x+23,at.y-1]).fill(0x334969).stroke({color:0xc2d3eb,width:1});
-        }
-      }
-      for(const target of cell.intent.summonCells??[]){
-        const at=this.center(target);
-        if(cell.variant==='beacon'){
-          d.roundRect(at.x-34,at.y-34,68,68,8).fill({color:0x73cfc1,alpha:.11}).stroke({color:0x9de3d3,width:2,alpha:.9});
-          d.poly([at.x,at.y-16,at.x+13,at.y,at.x,at.y+16,at.x-13,at.y]).stroke({color:0xc9f4e5,width:2});
-          d.circle(at.x,at.y,3).fill(0xf2dfa8);
-        }else{
-          d.circle(at.x,at.y,29).stroke({color:0xbc8dec,width:2,alpha:.8});
-          this.label(at.x,at.y+28,'ПРИЗЫВ',0xd3b5ef,9);
-        }
-      }
       if(cell.variant==='shaman'&&cell.intent.empowerIds?.length){
         // Announced rite: the goblins it will raise one step. IDs were fixed at the announcement; a target the chain kills is dropped.
         for(const id of cell.intent.empowerIds){
@@ -484,8 +427,7 @@ export class BoardRenderer {
           const occupant=state.board[target];
           if(occupant&&occupant!==cell&&occupant.kind!=='door'&&occupant.kind!=='prism'&&isCellAlive(occupant)&&!killed.has(target))drawArrowMark(tg,{x:at.x+29,y:at.y});
         }
-        if(cell.variant==='knight')this.knightArrow(d,origin,at,0xe7a36a,.65);
-        else if(cell.kind==='ranged'||['rook','bishop','wizard'].includes(cell.variant??'')) this.arrow(d,origin,at,0xe7a36a,0.75,2);
+        if(cell.kind==='ranged') this.arrow(d,origin,at,0xe7a36a,0.75,2);
         if(heavy) d.moveTo(at.x-22,at.y-22).lineTo(at.x+22,at.y+22).moveTo(at.x+22,at.y-22).lineTo(at.x-22,at.y+22).stroke({color:0xecaa87,width:1,alpha:0.2});
         if(cell.variant==='jailer')this.label(at.x,at.y,`УДАР ${cell.intent.damage}`,0xffe2c4,11);
       }
@@ -556,10 +498,7 @@ export class BoardRenderer {
           }
           m.stroke({color:teal,width:1.5,alpha:0.8});
         }
-        if(rotation.geometry==='knight'){
-          this.knightArrow(m,origin,destination,teal,.9);
-          this.knightArrow(m,destination,origin,teal,.65);
-        }else {this.swapArrow(m,origin,destination,teal);this.swapArrow(m,destination,origin,teal);}
+        this.swapArrow(m,origin,destination,teal);this.swapArrow(m,destination,origin,teal);
         const labelX=(origin.x+destination.x)/2,labelY=(origin.y+destination.y)/2+(origin.y===destination.y?31:0);
         const badge=new Graphics().roundRect(labelX-27,labelY-8,54,16,3).fill(0x203c36).stroke({color:teal,width:1});
         const text=new Text({text:'ОБМЕН',style:{fontFamily:'Arial, sans-serif',fontSize:10,fontWeight:'bold',fill:teal}});
@@ -636,7 +575,7 @@ export class BoardRenderer {
         for(const index of target.indices){const pos=this.center(index);p.roundRect(pos.x-34,pos.y-34,68,68,5).fill({color:tint,alpha:.17}).stroke({color:tint,width:2});}
         this.endpoint.position.set(Math.min(this.boardWidth-80,Math.max(80,at.x)),Math.min(this.boardHeight-12,at.y+31));
         this.endpointBack.clear().roundRect(-78,-10,156,20,4).fill(0x293b3f).stroke({color:tint,width:1});
-        this.endpointText.text=!target.valid?'НЕТ ЦЕЛИ':target.breachesDoor?'СНЯТЬ ПЕЧАТЬ':item==='frost'?'МОКРЫЙ → ЛЁД':item==='healing'?(target.healing?`+${target.healing} HP · ОЧИСТИТЬ`:'СНЯТЬ ЯД/КРОВЬ'):item==='fire'?`+1 ГОРЕНИЕ · ${affected} ЦЕЛ.`:`−${target.damage} HP · ${target.indices.length} КЛ.`;
+        this.endpointText.text=!target.valid?'НЕТ ЦЕЛИ':item==='frost'?'МОКРЫЙ → ЛЁД':item==='healing'?(target.healing?`+${target.healing} HP · ОЧИСТИТЬ`:'СНЯТЬ ЯД/КРОВЬ'):item==='fire'?`+1 ГОРЕНИЕ · ${affected} ЦЕЛ.`:`−${target.damage} HP · ${target.indices.length} КЛ.`;
       }
       return;
     }
@@ -663,10 +602,10 @@ export class BoardRenderer {
           if(text){this.label(at.x,at.y-4,text,hit.spikeDamage?0xffb3a6:0xd7ffff,11);quillLabels.push(text);}
         }
         const bridge=state.board[hit.index]?.kind==='prism';
-        const special=(bridge&&!hit.crystalScore)||hit.doorOpened||hit.phaseChanged;
+        const special=(bridge&&!hit.crystalScore)||hit.doorOpened;
         const badge=new Graphics().roundRect(at.x-39,at.y+(special?17:11),78,special?18:29,3).fill(hit.killed?0x283d2b:0x663e31).stroke({color:hit.killed?0xbac799:0xe8b38b,width:1});
         const weak=state.board[hit.index]?.maxHp===0;
-        const text=new Text({text:bridge?(hit.crystalScore?`СМЕНА ЦВЕТА\n+${hit.crystalScore} ОЧКОВ`:'СМЕНА ЦВЕТА'):hit.doorOpened?'ВХОД ОТКРЫТ':hit.phaseChanged?'ПЕЧАТЬ → II':`${hit.availablePower} − ${hit.powerSpent} = ${hit.remainingPower}\n${weak?'СЛАБ · ':''}${hit.killed?'ПОВЕРЖЕН':`${hit.hpAfter} HP${hit.attackEffect === 'fire' ? ' · +ОГОНЬ' : ''}`}`,style:{fontFamily:'Arial, sans-serif',fontSize:bridge?9:weak?8:9,fontWeight:'bold',fill:PALE,align:'center'}});
+        const text=new Text({text:bridge?(hit.crystalScore?`СМЕНА ЦВЕТА\n+${hit.crystalScore} ОЧКОВ`:'СМЕНА ЦВЕТА'):hit.doorOpened?'ВХОД ОТКРЫТ':`${hit.availablePower} − ${hit.powerSpent} = ${hit.remainingPower}\n${weak?'СЛАБ · ':''}${hit.killed?'ПОВЕРЖЕН':`${hit.hpAfter} HP${hit.attackEffect === 'fire' ? ' · +ОГОНЬ' : ''}`}`,style:{fontFamily:'Arial, sans-serif',fontSize:bridge?9:weak?8:9,fontWeight:'bold',fill:PALE,align:'center'}});
         text.anchor.set(0.5);text.position.set(at.x,at.y+26);this.hitLabels.addChild(badge,text);
       }
       if(state.phase==='PLAYER_INPUT') {
@@ -687,8 +626,8 @@ export class BoardRenderer {
         d.roundRect(from.x-35,from.y-35,70,70,6).stroke({color:0xf58a78,width:2,alpha:0.8});
       }
       this.endpoint.visible=state.phase==='PLAYER_INPUT';
-      // Same wording as the chain panel: a door entry is not a victory.
-      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.opensDoor!==undefined?'В СЛЕДУЮЩИЙ ЗАЛ':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
+      // Same wording as the chain panel.
+      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.opensDoor!==undefined?'ВЫХОД · ПОБЕДА':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
       const half=Math.ceil(this.endpointText.width/2)+10;
       this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,end.x)),Math.max(12,end.y-35));
       this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!preview.valid?0x3c3530:preview.damage?0x742e30:0x263b31).stroke({color:!preview.valid?0xc4a775:preview.damage?0xe49681:0x9aa982,width:1});
@@ -801,16 +740,6 @@ export class BoardRenderer {
     g.poly([end.x,end.y,end.x-ux*11-uy*5,end.y-uy*11+ux*5,end.x-ux*11+uy*5,end.y-uy*11-ux*5]).fill({color,alpha});
   }
 
-  private knightArrow(g:Graphics,from:{x:number;y:number},to:{x:number;y:number},color:number,alpha:number){
-    const dx=to.x-from.x,dy=to.y-from.y,horizontal=Math.abs(dx)>Math.abs(dy);
-    const bend=horizontal?{x:to.x,y:from.y}:{x:from.x,y:to.y};
-    const segments=[[from,bend],[bend,to]];
-    for(const[a,b]of segments){const length=Math.max(1,Math.hypot(b.x-a.x,b.y-a.y));for(let at=24;at<length-10;at+=13){const end=Math.min(length-10,at+7);g.moveTo(a.x+(b.x-a.x)*at/length,a.y+(b.y-a.y)*at/length).lineTo(a.x+(b.x-a.x)*end/length,a.y+(b.y-a.y)*end/length);}g.stroke({color,width:2,alpha});}
-    g.circle(bend.x,bend.y,4).stroke({color,width:1.5,alpha});
-    const len=Math.max(1,Math.hypot(to.x-bend.x,to.y-bend.y)),ux=(to.x-bend.x)/len,uy=(to.y-bend.y)/len;
-    g.poly([to.x-ux*13,to.y-uy*13,to.x-ux*23-uy*4,to.y-uy*23+ux*4,to.x-ux*23+uy*4,to.y-uy*23-ux*4]).fill({color,alpha});
-  }
-
   private swapArrow(g:Graphics,from:{x:number;y:number},to:{x:number;y:number},color:number) {
     const dx=to.x-from.x,dy=to.y-from.y,length=Math.hypot(dx,dy);
     if(length<1) return;
@@ -908,10 +837,6 @@ export class BoardRenderer {
     }
     if(event.type==='invalid') {if(i!==undefined&&event.text?.toLowerCase().includes('щит')&&(this.invalidIndex!==i||performance.now()>this.invalidUntil))this.popup(i,'ЩИТ · ОБОЙДИ',0xf3d695);this.invalidIndex=i??state.chain[state.chain.length-1]??-1;this.invalidUntil=performance.now()+230;}
     if(event.type==='frost' && i!==undefined) {this.burst(i,0xb5eeee,24);this.popup(i,'ХОЛОД',0xd4ffff);}
-    if(event.type==='key-drop'&&i!==undefined){this.burst(i,0xf8d98d,18);this.popup(i,'КЛЮЧ УПАЛ',0xffdc92);}
-    if(event.type==='key-collect'&&i!==undefined){this.burst(i,0xf8d98d,22);this.popup(i,'КЛЮЧ НАЙДЕН',0xffdc92);}
-    if(event.type==='door-open'&&i!==undefined){this.burst(i,0xc5e8d5,28);this.popup(i,'ПУТЬ ОТКРЫТ',0xe2ffe7);}
-    if(event.type==='boss-phase'&&i!==undefined){this.burst(i,0xb8ecff,36);this.popup(i,'ПЕЧАТЬ РАЗБИТА',0xd4bfff);this.shake=Math.max(this.shake,5);}
     if(event.type==='item'&&i!==undefined){this.burst(i,event.text?.includes('ог')?0xf0a065:0xebd09c,20);this.popup(i,event.text??'ПРЕДМЕТ',PALE);}
     if(event.type==='device'&&i!==undefined){const fire=event.text==='fire';this.burst(i,fire?0xf3a25f:0xe9c37c,fire?19:13);this.popup(i,fire?'ЖАРОВНЯ':'РЫЧАГ',fire?0xffbc7d:0xf9dfa0);}
     if(event.type==='pit-open'&&i!==undefined){this.burst(i,0xb9a6e3,8);this.shake=Math.max(this.shake,3);}
@@ -926,16 +851,6 @@ export class BoardRenderer {
         const angle=Math.atan2(at.y-origin.y,at.x-origin.x)+Math.PI/2;
         view.rotation=angle;view.position.set(origin.x,origin.y);this.effects.addChild(view);
         this.arrowProjectiles.push({view,startX:origin.x,startY:origin.y,targetX:at.x,targetY:at.y,life:240+n*25,max:240+n*25});
-      }
-    }
-    if(event.type==='arrow-volley'){
-      for(const [n,index]of(event.indices??[]).entries()){
-        const at=this.center(index),view=new Graphics();
-        view.moveTo(0,-28).lineTo(0,2).stroke({color:0xd8bf8e,width:3});
-        view.poly([-4,-4,0,6,4,-4]).fill(0xe8e8df);view.moveTo(-4,-23).lineTo(0,-18).lineTo(4,-23).stroke({color:0x777a78,width:2});
-        const startX=at.x+36,startY=Math.max(-50,at.y-220),max=240+n*24;
-        view.position.set(startX,startY);view.rotation=.16;this.effects.addChild(view);
-        this.arrowProjectiles.push({view,startX,startY,targetX:at.x,targetY:at.y,life:max,max});
       }
     }
     if(event.type==='charge'&&event.index!==undefined){
@@ -970,15 +885,6 @@ export class BoardRenderer {
       const at=this.center(i),stars=new Graphics();drawStunStars(stars,22);stars.position.set(at.x,at.y-30);
       this.effects.addChild(stars);const life=this.dur(900);this.particles.push({view:stars,vx:0,vy:0,life,max:life,stationary:true,angular:.004});
       this.shake=Math.max(this.shake,4);this.burst(i,0xffe08a,10);
-    }
-    if(event.type==='special-arrival' && i!==undefined) {
-      const at=this.center(i),boss=state.board[i]?.kind==='boss';
-      const impact=new Graphics().circle(at.x,at.y,35).stroke({color:boss?0xefc98a:0xc9df9c,width:4,alpha:0.95});
-      for(let ray=0;ray<8;ray++) {const a=ray*Math.PI/4;impact.moveTo(at.x+Math.cos(a)*24,at.y+Math.sin(a)*24).lineTo(at.x+Math.cos(a)*39,at.y+Math.sin(a)*39);}
-      impact.stroke({color:PALE,width:2,alpha:0.8});this.effects.addChild(impact);
-      this.particles.push({view:impact,vx:0,vy:0,life:420,max:420,stationary:true});
-      this.burst(i,boss?0xb8a47b:0x9fae7b,18);this.shake=Math.max(this.shake,3);
-      this.popup(i,event.text??(boss?'ГЛАВАРЬ ПРИШЁЛ':'ЛУЧНИК ПРИШЁЛ'),boss?0xffd595:0xd9efb7);
     }
     if(event.type==='reshuffle') this.popup(state.player.index,'НОВЫЙ ПУТЬ',PALE);
   }
@@ -1017,8 +923,7 @@ export class BoardRenderer {
       const ready=enemyReadyToAttack(cell,piece.index,this.engine.state);
       const birth=Math.min(1,(now-piece.born)/170);
       const bounce=selected?1.055+Math.sin(this.elapsed*0.011+piece.index)*0.025:1;
-      const arrival=piece.arrivalUntil?Math.max(0,(piece.arrivalUntil-now)/650):0;
-      const size=(0.84+birth*0.16)*bounce*(1+Math.sin(arrival*Math.PI)*0.13);
+      const size=(0.84+birth*0.16)*bounce;
       piece.view.scale.set(size*(ready?1.025:1),size*(ready?0.985:1));piece.view.alpha=0.4+birth*0.6;
       let x=pos.x,y=pos.y;
       if(piece.motion) {
@@ -1042,7 +947,6 @@ export class BoardRenderer {
       const aura=piece.view.getChildByLabel('attack-aura');
       if(aura) aura.alpha=0.55+0.35*(0.5+0.5*Math.sin(this.elapsed*0.006+piece.index));
       const stars=piece.view.getChildByLabel('stun-stars');if(stars)stars.rotation=Math.sin(this.elapsed*.006)*.4;
-      const runes=piece.view.getChildByLabel('wizard-runes');if(runes)runes.rotation=this.elapsed*.0005;
       const glow=piece.view.getChildByLabel('prism-aura');if(glow){glow.alpha=.6+.35*Math.sin(this.elapsed*.004+piece.index);glow.scale.set(1+.07*Math.sin(this.elapsed*.004));}
     }
     const smoothing=1-Math.exp(-dt/28);
@@ -1060,11 +964,6 @@ export class BoardRenderer {
       if(p.life<=0) {p.view.destroy();this.particles.splice(i,1);}
     }
     for(let i=this.popups.length-1;i>=0;i--) {const p=this.popups[i];p.life-=dt;p.view.y-=dt*0.032;p.view.alpha=Math.min(1,Math.max(0,p.life/300));if(p.life<=0){p.view.destroy();this.popups.splice(i,1);}}
-    for(let i=this.arrivalVictims.length-1;i>=0;i--) {
-      const victim=this.arrivalVictims[i];victim.life-=dt;const t=Math.max(0,victim.life/240);
-      victim.view.scale.set(1+(1-t)*0.45,Math.max(0.08,t));victim.view.y+=dt*0.045;victim.view.alpha=t*0.7;
-      if(victim.life<=0){victim.view.destroy({children:true});this.arrivalVictims.splice(i,1);}
-    }
     for(let i=this.dying.length-1;i>=0;i--){
       const d=this.dying[i];
       if(d.wait!==undefined&&d.wait>0){d.wait-=dt;continue;}

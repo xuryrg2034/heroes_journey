@@ -1,29 +1,20 @@
-/** Lesson data format and builders shared by the authored opening battles (src/game/lessons/*). */
+/** Authored battle format and builder of the forest-map node battles (src/game/run/battles/*). */
 import type { CustomLevelDefinition, PaletteWeights } from './customLevel';
-import type { AbilityKind, EnemyColor, ItemKind, TerrainKind } from './forestTypes';
-
-/** Ids of the 16 opening battles in TUTORIAL_LESSONS. */
-export type TutorialLessonId = 'chain' | 'power' | 'position' | 'arrows' | 'fire' | 'crossroads' | 'frost' | 'jump' | 'prism' | 'archer'
-  | 'pit-crossing' | 'pit-choice' | 'pit-embers' | 'jailer' | 'escape' | 'beacon';
+import type { EnemyColor, TerrainKind } from './forestTypes';
+import { walkableTerrain } from './terrain';
 
 /**
- * Authored battle built by `authoredLesson`. The opening lessons use `TutorialLesson` (a closed id union);
- * forest-map node battles (src/game/run/forestBattles.ts) use the same format with a free string id.
+ * Authored battle built by `authoredLesson`: the opening layout, marked targets and texts. The run supplies the rest
+ * (refill seed and palette, the cat's resources, opened tools), see src/game/run/forestBattles.ts.
  */
-export interface AuthoredLesson<Id extends string = string> {
-  id: Id;
+export interface AuthoredLesson {
+  id: string;
   name: string;
   description: string;
   hint: string;
   definition: CustomLevelDefinition;
   targetIndices: number[];
-  allowedItems?: ItemKind[];
-  allowedAbilities?: AbilityKind[];
-  initialEnergy?: number;
-  /** Explicit campaign branches; an empty list continues to the forest trial. */
-  nextLessonIndices?: number[];
 }
-export type TutorialLesson = AuthoredLesson<TutorialLessonId>;
 
 /** One map character of an authored lesson. Coordinates in `device.targets` use UI labels such as `C4`. */
 export interface LessonTile {
@@ -39,13 +30,14 @@ export interface LessonTile {
   /** Marked objective; its ID must be defeated. */
   target?: boolean;
   variant?: NonNullable<CustomLevelDefinition['enemies'][number]['variant']>;
-  terrain?: 'puddle' | 'thorns';
+  /** Walkable ground under an entity (`puddle`, `thorns`) or impassable scenery with no entity (`tree`, `pond`, `campfire`). */
+  terrain?: 'puddle' | 'thorns' | 'tree' | 'pond' | 'campfire';
   device?: { kind: 'arrows' | 'fire' | 'pits'; charges: number; targets?: string[]; damage?: number };
   door?: boolean;
 }
 
-export interface LessonSpec<Id extends string = TutorialLessonId> {
-  id: Id; name: string; description: string; hint: string;
+export interface LessonSpec {
+  id: string; name: string; description: string; hint: string;
   rows: string[]; seed: number;
   /** Extra or overriding characters; see DEFAULT_TILES. */
   legend?: Record<string, LessonTile>;
@@ -53,9 +45,6 @@ export interface LessonSpec<Id extends string = TutorialLessonId> {
   palette?: EnemyColor[];
   goals?: CustomLevelDefinition['goals'];
   completion?: CustomLevelDefinition['completion'];
-  inventory?: CustomLevelDefinition['inventory'];
-  allowedItems?: ItemKind[]; allowedAbilities?: AbilityKind[]; initialEnergy?: number;
-  nextLessonIndices?: number[];
   /** Board sides lined with spikes (see `CustomLevelDefinition.spikedEdges`). */
   spikedEdges?: CustomLevelDefinition['spikedEdges'];
 }
@@ -76,7 +65,7 @@ export function cellIndex(label: string, cols: number, rows = 12): number {
 }
 
 /** General authored lesson: every walkable square except the cat is occupied by an enemy, device or door. */
-export function authoredLesson<Id extends string = TutorialLessonId>(spec: LessonSpec<Id>): AuthoredLesson<Id> {
+export function authoredLesson(spec: LessonSpec): AuthoredLesson {
   const { rows } = spec, cols = rows[0].length;
   if (rows.some(row => row.length !== cols)) throw new Error(`Неровная карта урока ${spec.id}.`);
   const tiles = rows.join('').split('');
@@ -90,6 +79,7 @@ export function authoredLesson<Id extends string = TutorialLessonId>(spec: Lesso
     if (tile === '#' || tile === 'H') return;
     const entry = legend[tile];
     if (!entry) throw new Error(`Неизвестный символ «${tile}» в уроке ${spec.id}.`);
+    if (entry.terrain && !walkableTerrain(entry.terrain)) return;
     if (entry.device) {
       devices.push({ index, kind: entry.device.kind, charges: entry.device.charges,
         targets: (entry.device.targets ?? []).map(label => cellIndex(label, cols, rows.length)),
@@ -111,17 +101,13 @@ export function authoredLesson<Id extends string = TutorialLessonId>(spec: Lesso
   const palette = spec.palette ?? ([0, 2, 1, 3, 4] as EnemyColor[]).filter(color => present.includes(color));
   return {
     id: spec.id, name: spec.name, description: spec.description, hint: spec.hint, targetIndices,
-    ...(spec.allowedItems ? { allowedItems: spec.allowedItems } : {}),
-    ...(spec.allowedAbilities ? { allowedAbilities: spec.allowedAbilities } : {}),
-    ...(spec.initialEnergy === undefined ? {} : { initialEnergy: spec.initialEnergy }),
-    ...(spec.nextLessonIndices ? { nextLessonIndices: spec.nextLessonIndices } : {}),
     definition: {
       version: 1, name: spec.name, seed: spec.seed, cols, rows: rows.length, terrain, heroIndex, enemies, doors,
       goals: spec.goals ?? [{ key: 'kills', target: targetIndices.length }], turnLimit: 0,
       completion: spec.completion ?? 'direct',
       paletteWeights: [0, 1, 2, 3, 4].map(color => palette.includes(color as EnemyColor) ? 100 : 0) as PaletteWeights,
       extraColors: [], ...(devices.length ? { devices } : {}), ...(spec.spikedEdges?.length ? { spikedEdges: [...spec.spikedEdges] } : {}),
-      playerHp: 5, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0, ...spec.inventory },
+      playerHp: 5, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 },
     },
   };
 }

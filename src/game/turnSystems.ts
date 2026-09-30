@@ -1,12 +1,12 @@
 import { isCellAlive } from './cellLife';
-import type { AbilityKind, DoorData, ForestCell, ForestState, RotationPreview } from './forestTypes';
+import type { AbilityKind, ForestCell, ForestState, RotationPreview } from './forestTypes';
 import type { ChainSimulation } from './forestSystems';
 import { rotationPreview } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { customGoalsMet } from './customLevel';
-import { damageCell, damageHero, defeatOutright, removeDefeated, defeatsRoomBoss, type DefeatCredit } from './combatRules';
+import { damageCell, damageHero, defeatOutright, removeDefeated, type DefeatCredit } from './combatRules';
 import { crystalScore } from './mapBattleRules';
-import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase, type EnemyAttack, type PlannedSummon } from './enemyPhase';
+import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
 import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
@@ -27,13 +27,10 @@ export interface TurnContext {
   /** A new colour-change crystal entity (fresh ID) holding the chain length `value`; the caller puts it on the board. */
   createCrystal(index: number, value: number): ForestCell;
   recordDefeat(cell: ForestCell, index: number, credit: DefeatCredit): void;
-  completeRoom(door: DoorData, index: number): void;
   finish(won: boolean, message?: string): void;
   refreshCustomProgress(): void;
   planRotationReplacements(rotations: RotationPreview[]): Map<number, ForestCell>;
-  advanceWave(): void;
-  generateBoard(summons: PlannedSummon[]): boolean;
-  prepareHazard(): void;
+  generateBoard(): boolean;
   hint(): string;
 }
 
@@ -47,7 +44,7 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
   if (!ctx.current()) return false;
   if (ability) { yield { event: { type: 'ability', text: ability, from: startIndex, to: simulation.preview.endIndex, indices: simulation.preview.hits.map(hit => hit.index) } }; if (!ctx.current()) return false; }
   const delay = Math.max(35, Math.min(90, 700 / Math.max(1, simulation.preview.hits.length)));
-  let pendingDoor: { door: DoorData; index: number } | undefined;
+  let doorOpened = false;
   const steps = simulation.steps ?? simulation.preview.hits.map(hit => ({ kind: 'hit' as const, hit }));
   for (const action of steps) {
     if (!ctx.current()) return false;
@@ -77,11 +74,6 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
         yield { event: { type: 'device', index: action.index, text: device.kind, amount: device.charges } };
         if (!ctx.current()) return false;
       }
-      if (ctx.state.room.key.droppedAt === action.index) {
-        ctx.state.room.key = { held: true, droppedAt: null };
-        yield { event: { type: 'key-collect', index: action.index } };
-        if (!ctx.current()) return false;
-      }
       if (ctx.state.player.damageEffects?.bleeding) {
         yield* resolveMovementBleeding(ctx);
         if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
@@ -104,12 +96,7 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
       else ctx.recordDefeat(original, hit.index, 'player');
       if (!ctx.current()) return false;
     }
-    if (hit.keyCollected) {
-      ctx.state.room.key = { held: true, droppedAt: null }; yield { event: { type: 'key-collect', index: hit.index } };
-      if (!ctx.current()) return false;
-    }
     if (original.kind === 'boss') ctx.state.objective.bossHits++;
-    if (hit.phaseChanged) { yield { event: { type: 'boss-phase', index: hit.index, text: 'ПЕЧАТЬ РАЗРУШЕНА · 24 HP' } }; if (!ctx.current()) return false; }
     // A map-battle crystal scores by the chain that created it (same number as the forecast's hits[].crystalScore).
     ctx.state.score += hit.crystalScore ?? (hit.killed ? 20 + hit.damage * 2 : hit.damage);
     yield { event: { type: hit.physical ? 'hit' : 'collect', index: hit.index, amount: hit.damage, text: hit.killed ? undefined : `${hit.hpAfter} HP` } };
@@ -133,7 +120,7 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
       yield* resolveMovementBleeding(ctx);
       if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
     }
-    if (hit.doorOpened && original.door) pendingDoor = { door: original.door, index: hit.index };
+    if (hit.doorOpened) doorOpened = true;
     yield { delay };
   }
   if (!ctx.current()) return false;
@@ -141,7 +128,6 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
     ctx.state.player.index = simulation.preview.endIndex;
     yield { event: { type: 'move', from: startIndex, to: simulation.preview.endIndex, index: simulation.preview.endIndex } };
     if (!ctx.current()) return false;
-    if (simulation.preview.keyCollected) { ctx.state.room.key = { held: true, droppedAt: null }; yield { event: { type: 'key-collect', index: simulation.preview.endIndex } }; if (!ctx.current()) return false; }
   }
   ctx.state.chain = [];
   // Same rule as simulateChain: an ordinary chain that stops on thorns costs the cat HP before any lever.
@@ -159,10 +145,6 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
       else if (impact.pitImmune) yield { event: { type: 'pit-immune', index: impact.index, indices: [impact.index] } };
       else if (impact.heroDamage !== undefined) yield { event: { type: 'damage', index: impact.index, amount: impact.heroDamage } };
       else if (impact.hit) {
-        if (impact.hit.phaseChanged) {
-          yield { event: { type: 'boss-phase', index: impact.index, text: 'ПЕЧАТЬ РАЗРУШЕНА · 24 HP' } };
-          if (!ctx.current()) return false;
-        }
         yield { event: { type: 'hit', index: impact.index, amount: impact.hit.damage } };
         if (!ctx.current()) return false;
         if (impact.hit.killed) {
@@ -177,8 +159,8 @@ export function* resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation
     yield { delay: 160 };
     if (!ctx.current()) return false;
   }
-  if (pendingDoor) { ctx.state.objective.turns++; ctx.completeRoom(pendingDoor.door, pendingDoor.index); return true; }
-  if (simulation.bossKilled || ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.state.objective.turns++; ctx.finish(true); return true; }
+  // Entering the opened authored exit, or meeting direct goals, ends the battle before any enemy answers.
+  if (doorOpened || ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) { ctx.state.objective.turns++; ctx.finish(true); return true; }
   return yield* resolveEnemyTurn(ctx);
 }
 
@@ -237,7 +219,6 @@ function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number):
 }
 
 export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack, 'cell' | 'index'>[]): TurnSequence {
-  let bossKilled = false;
   for (const { cell, index } of actors) {
     // Keep actor membership fixed, but honour status/intent edits made by synchronous subscribers.
     const attack = evaluateEnemyAttack(cell, index, ctx.state.player.index, ctx.state);
@@ -246,12 +227,11 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
     if (cell.kind === 'melee') {
       if (!(yield* resolveMeleeAttack(ctx, cell, index))) return false;
     } else {
-      if (cell.variant === 'wizard') cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
       if (cell.kind === 'ranged' || cell.variant === 'jailer') cell.behavior.restTurns = 1;
       // The troll's club (troll.ts): it rests and its zone is spent before the swing is published.
       const club = isTroll(cell) ? swingClub(cell) : null;
       yield { event: { type: 'attack', index, from: index, to: target,
-        ...(['wizard', 'jailer'].includes(cell.variant ?? '') ? { indices: [...cell.intent.cells] } : {}),
+        ...(cell.variant === 'jailer' ? { indices: [...cell.intent.cells] } : {}),
         ...(club ? { indices: [...club.zone], amount: club.damage, text: 'club' } : {}) } };
       if (hitsHero) {
         const damage = damageHero(ctx.state, cell.intent.damage);
@@ -268,7 +248,6 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
         ctx.recordDefeat(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index } };
-        bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
       }
       // The club falls on every creature in the zone, enemies included; an enemy's kill counts only for goal targets.
       if (ctx.state.player.hp > 0 && club) for (const impact of clubImpacts(ctx.state.board, cell, club.zone, club.damage)) {
@@ -278,13 +257,11 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
         ctx.recordDefeat(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index, text: 'club' } };
-        bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
       }
       yield { delay: 115 };
     }
     if (ctx.state.player.hp === 0) return true;
   }
-  if (bossKilled) { ctx.state.objective.turns++; ctx.finish(true); }
   return true;
 }
 
@@ -293,7 +270,7 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
  * to `displaced`: they skip their action and their announced swaps this phase.
  */
 export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): TurnSequence {
-  let bossKilled = false, boarIndex = -1;
+  let boarIndex = -1;
   for (const impact of resolveCharges(ctx.state, displaced)) {
     if (!ctx.current()) return false;
     if (impact.kind === 'start') {
@@ -315,7 +292,6 @@ export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): T
         ctx.recordDefeat(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index, text } };
-        bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
       }
     } else if (impact.kind === 'shift') {
       boarIndex = impact.to;
@@ -329,7 +305,6 @@ export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): T
     } else yield { delay: 60 };
     if (!ctx.current()) return false;
   }
-  if (bossKilled && ctx.state.player.hp > 0) { ctx.state.objective.turns++; ctx.finish(true); }
   return true;
 }
 
@@ -351,40 +326,6 @@ export function* resolveRotations(ctx: TurnContext, displaced: ReadonlySet<numbe
     yield { event: { type: 'enemy-swap', index: plan.to, from: plan.from, to: plan.to, geometry: plan.geometry } };
     if (!ctx.current()) return false;
     yield { delay: 115 }; if (!ctx.current()) return false;
-  }
-  return true;
-}
-
-/** Volley damage is uncredited (environment: `combatKills` only) and keeps its original hit → removal → kill barriers. */
-export function* resolveHazard(ctx: TurnContext): TurnSequence {
-  if (ctx.state.hazard.turnsUntil === 1 && ctx.state.hazard.cells.length) {
-    yield { event: { type: 'arrow-volley', indices: [...ctx.state.hazard.cells], amount: ctx.state.hazard.damage } };
-    if (!ctx.current()) return false;
-    const volleyHit = new Set<number>();
-    for (const index of ctx.state.hazard.cells) {
-      if (index === ctx.state.player.index) {
-        const damage = damageHero(ctx.state, ctx.state.hazard.damage);
-        yield { event: { type: 'damage', index, amount: damage } };
-        if (!ctx.current()) return false;
-        // Lethal volley damage ends the turn: later arrows neither kill nor credit anything.
-        if (ctx.state.player.hp === 0) return true;
-      } else {
-        const cell = ctx.state.board[index];
-        if (cell && cell.kind !== 'door' && cell.kind !== 'prism' && !volleyHit.has(cell.id)) {
-          volleyHit.add(cell.id);
-          const outcome = damageCell(cell, ctx.state.hazard.damage, 'hazard');
-          yield { event: { type: 'hit', index, amount: ctx.state.hazard.damage } };
-          if (!ctx.current()) return false;
-          if (outcome.killed) {
-            removeDefeated(ctx.state.board, cell); ctx.recordDefeat(cell, index, 'environment');
-            if (!ctx.current()) return false;
-            yield { event: { type: 'kill', index } };
-          }
-        }
-      }
-      if (!ctx.current()) return false;
-    }
-    yield { delay: 160 }; if (!ctx.current()) return false;
   }
   return true;
 }
@@ -415,19 +356,16 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
     yield { event: { type: 'status', index: ctx.state.player.index } };
     if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
   }
-  let bossKilled = false;
   for (const { cell, index } of uniqueEntities(ctx.state.board)) {
     if (!canReceiveDamageEffects(cell) || !hasDamageEffects(cell)) continue;
     const tick = tickDamageEffects(cell.damageEffects);
     for (const hit of tick.hits) {
       const outcome = damageCell(cell, hit.damage, 'effect');
-      if (outcome.phaseChanged) yield { event: { type: 'boss-phase', index, text: 'ПЕЧАТЬ РАЗРУШЕНА · 24 HP' } };
       yield { event: { type: 'hit', index, amount: hit.damage, effect: hit.kind } };
       if (outcome.killed) {
         removeDefeated(ctx.state.board, cell); ctx.recordDefeat(cell, index, hit.playerCredit ? 'player' : 'environment');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index, effect: hit.kind } };
-        bossKilled ||= defeatsRoomBoss(ctx.state, cell);
         break;
       }
     }
@@ -436,11 +374,10 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
       yield { event: { type: 'status', index } };
     }
   }
-  if (bossKilled) { ctx.state.objective.turns++; ctx.finish(true); }
   return true;
 }
 
-/** Status expiry and turn objectives happen after the hazard and before generation. */
+/** Status expiry and turn objectives happen after the effect ticks and before generation. */
 function settleTurn(ctx: TurnContext): boolean {
   uniqueEntities(ctx.state.board).forEach(({ cell }) => { if (cell.status.frozen > 0) cell.status.frozen--; });
   ctx.state.objective.turns++; if (!ctx.state.lastDamage) ctx.state.score += 30;
@@ -450,13 +387,11 @@ function settleTurn(ctx: TurnContext): boolean {
   return false;
 }
 
-export function* updateBoard(ctx: TurnContext, summons: PlannedSummon[]): TurnSequence {
+export function* updateBoard(ctx: TurnContext): TurnSequence {
   ctx.state.phase = 'BOARD_UPDATE'; yield { event: { type: 'state' } };
   if (!ctx.current()) return false;
-  ctx.advanceWave();
-  if (!ctx.current()) return false;
-  if (!ctx.generateBoard(summons)) return false;
-  ctx.prepareHazard(); ctx.state.itemPrepared = false;
+  if (!ctx.generateBoard()) return false;
+  ctx.state.itemPrepared = false;
   yield { event: { type: 'refill' } }; yield { delay: 180 };
   if (!ctx.current()) return false;
   ctx.state.phase = 'PLAYER_INPUT'; ctx.state.message = ctx.hint(); yield { event: { type: 'state' } }; return true;
@@ -468,8 +403,7 @@ export function* resolveEnemyTurn(ctx: TurnContext): TurnSequence {
   yield { event: { type: 'enemy-turn' } };
   yield { delay: 140 };
   // Rest counts down only for entities already resting at the start; a stun earned in this phase is kept.
-  // Summon victims are fixed by ID on the board at the start, before any boar push (the beacon's rule).
-  const opening = planEnemyPhase(ctx.state.board, ctx.state.player.index), resting = opening.resting, summons = opening.summons;
+  const resting = planEnemyPhase(ctx.state.board, ctx.state.player.index).resting;
   const displaced = new Set<number>();
   if (!(yield* resolveBoarCharges(ctx, displaced))) return false;
   if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
@@ -480,21 +414,19 @@ export function* resolveEnemyTurn(ctx: TurnContext): TurnSequence {
   if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
   if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
   if (!(yield* resolveShamanRites(ctx, plan.actors))) return false;
-  for (const { cell } of plan.actors) if ((cell.variant === 'beacon' || cell.variant === 'shaman') && isCellAlive(cell)
+  for (const { cell } of plan.actors) if (cell.variant === 'shaman' && isCellAlive(cell)
     && !cell.behavior.passive && cell.status.frozen === 0) cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
   if (!(yield* resolveTrollWindups(ctx, plan.actors))) return false;
   ctx.refreshCustomProgress();
   if (!(yield* resolveRotations(ctx, displaced))) return false;
   for (const { cell } of resting) cell.behavior.restTurns--;
-  if (!(yield* resolveHazard(ctx))) return false;
-  if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
   if (!(yield* resolveDamageEffects(ctx))) return false;
   if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
   if (!(yield* resolveTrollRegeneration(ctx))) return false;
   const closed = closeExpiredPits(ctx.state);
   if (closed.length) { yield { event: { type: 'pit-close', indices: closed } }; if (!ctx.current()) return false; }
   if (settleTurn(ctx)) return true;
-  return yield* updateBoard(ctx, summons);
+  return yield* updateBoard(ctx);
 }
 
 /**

@@ -30,8 +30,8 @@ async function rest(page: Page) {
   await ready(page);
 }
 function ok(step: ForestRunStep): ForestRunState { if (!step.ok) throw new Error(step.reason); return step.run; }
-/** A run at the fork with a healthy cat, then a map battle of the given lesson started on the engine at the given map row. */
-async function mapBattle(page: Page, row: number, lessonIndex: number) {
+/** A run at the fork with a healthy cat, then a registered map battle started on the engine at the given map row. */
+async function mapBattle(page: Page, row: number, battleId: string) {
   let run = createForestRun(1);
   for (const id of ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4']) {
     run = ok(enterNode(run, id));
@@ -41,18 +41,18 @@ async function mapBattle(page: Page, row: number, lessonIndex: number) {
     ['ashen-oath-forest-run-v1', serializeForestRun(run)]);
   await page.goto('/'); await page.locator('#run-start-button').click();
   await page.locator('.map-node[data-node="beast-wolf"]').click(); await ready(page);
-  await startTemplate(page, row, lessonIndex);
+  await startTemplate(page, row, battleId);
 }
-async function startTemplate(page: Page, row: number, lessonIndex: number | string) {
-  await page.evaluate(([row, index]) => {
+async function startTemplate(page: Page, row: number, battleId: string) {
+  await page.evaluate(([row, id]) => {
     const engine = (window as any).__PUZZLE_GAME.engine;
-    if (!engine.startRunBattle({ nodeId: 'beast-wolf', label: 'Проба', row, seed: 4242, template: typeof index === 'string' ? { kind: 'battle', id: index } : { kind: 'lesson', index }, player: { hp: 40, maxHp: 40, energy: 0 },
+    if (!engine.startRunBattle({ nodeId: 'beast-wolf', label: 'Проба', row, seed: 4242, template: { kind: 'battle', id }, player: { hp: 40, maxHp: 40, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] })) throw new Error('startRunBattle failed');
-  }, [row, lessonIndex] as const);
+  }, [row, battleId] as const);
   await ready(page);
 }
 
-const FIELDS = ['den-watch', 'camp-cauldron-ring', 'goblin-archer-watch', 'goblin-shield-flank', 'goblin-shaman-rite', 'boar-garden', 'porcupine-thicket', 'wolf-ford', 3, 4, 5, 6, 7];
+const FIELDS = ['den-watch', 'camp-cauldron-ring', 'goblin-archer-watch', 'goblin-shield-flank', 'goblin-shaman-rite', 'boar-garden', 'porcupine-thicket', 'wolf-ford', 'trunk-arrows', 'three-banners', 'den-nest', 'camp-shield-wall', 'den-breakout'];
 
 test('a crystal falls between two steps of a long chain; the forecast gives the number, never the place', async ({ page }) => {
   test.setTimeout(180_000);
@@ -109,7 +109,7 @@ test('a crystal falls between two steps of a long chain; the forecast gives the 
 test('a chain can start on a crystal, drawn with the mouse', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await mapBattle(page, 5, 0);
+  await mapBattle(page, 5, 'trunk-wake');
   // Put a crystal on a cell next to the cat (the fall itself is covered above).
   const index: number = await page.evaluate(() => {
     const game = (window as any).__PUZZLE_GAME, at = game.validStarts()[0], cell = game.state.board[at];

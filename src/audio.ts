@@ -23,7 +23,6 @@ export class GameAudio {
       prism: [660, 0.28, 'sine'],
       frost: [790, 0.32, 'sine'],
       reward: [590, 0.35, 'triangle'],
-      door: [165, 0.35, 'triangle'],
       item: [430, 0.18, 'sine'],
       win: [520, 0.5, 'triangle'],
       lose: [95, 0.6, 'triangle'],

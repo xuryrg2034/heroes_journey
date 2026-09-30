@@ -29,10 +29,10 @@ async function rest(page: Page) {
   await ready(page);
 }
 function ok(step: ForestRunStep): ForestRunState { if (!step.ok) throw new Error(step.reason); return step.run; }
-/** A run at the fork with a healthy cat, then a map battle of the given lesson started on the engine at the given map row. */
-async function mapBattle(page: Page, row: number, lessonIndex: number) {
+/** A run at the fork with a healthy cat, then a registered map battle started on the engine at the given map row. */
+async function mapBattle(page: Page, row: number, battleId: string) {
   await openMapRun(page);
-  await startSpinBattle(page, row, lessonIndex);
+  await startSpinBattle(page, row, battleId);
 }
 async function openMapRun(page: Page) {
   let run = createForestRun(1);
@@ -45,12 +45,12 @@ async function openMapRun(page: Page) {
   await page.goto('/'); await page.locator('#run-start-button').click();
   await page.locator('.map-node[data-node="beast-wolf"]').click(); await ready(page);
 }
-async function startSpinBattle(page: Page, row: number, lessonIndex: number) {
-  await page.evaluate(([row, index]) => {
+async function startSpinBattle(page: Page, row: number, battleId: string) {
+  await page.evaluate(([row, id]) => {
     const engine = (window as any).__PUZZLE_GAME.engine;
-    if (!engine.startRunBattle({ nodeId: 'beast-wolf', label: 'Проба', row, seed: 4242, template: { kind: 'lesson', index }, player: { hp: 40, maxHp: 40, energy: 7 },
+    if (!engine.startRunBattle({ nodeId: 'beast-wolf', label: 'Проба', row, seed: 4242, template: { kind: 'battle', id }, player: { hp: 40, maxHp: 40, energy: 7 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: ['spin'] })) throw new Error('startRunBattle failed');
-  }, [row, lessonIndex] as const);
+  }, [row, battleId] as const);
   await ready(page);
 }
 async function openPreset(page: Page, preset: string) {
@@ -67,7 +67,7 @@ const settle = async (page: Page) => { await expect.poll(async () => (await stat
 test('spin: the first press shows zone, damage, deaths and the answer; nothing is spent until it is confirmed; Esc cancels', async ({ page }) => {
   test.setTimeout(90_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await mapBattle(page, 5, 0);
+  await mapBattle(page, 5, 'trunk-wake');
   const before = await state(page);
   await page.locator('#spin-ability').click();
   await expect.poll(async () => (await state(page)).chosenAbility).toBe('spin');
@@ -96,7 +96,7 @@ for (const way of ['the button again', 'a click on the cat', 'Enter'] as const) 
   test(`spin is confirmed by ${way}, and the result equals the forecast`, async ({ page }) => {
     test.setTimeout(90_000);
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-    await mapBattle(page, 5, 0);
+    await mapBattle(page, 5, 'trunk-wake');
     const before = await state(page);
     await page.locator('#spin-ability').click();
     await expect.poll(async () => (await state(page)).chosenAbility).toBe('spin');

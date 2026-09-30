@@ -83,10 +83,10 @@ export const CRYSTAL_KILLS = 6;
 /** Баланс: score for breaking a crystal with a chain = CRYSTAL_SCORE_PER_KILL × kills of the chain that created it. */
 export const CRYSTAL_SCORE_PER_KILL = 20;
 /**
- * Enemies a crystal never lands on (besides every `kind: 'boss'` — the forest chief, commander, wizard, jailer,
- * beacon and troll): sturdy guards and large figures. Kept explicit so a new variant is a deliberate decision.
+ * Enemies a crystal never lands on (besides every `kind: 'boss'` — the Chief, the Jailer and the Troll): the
+ * shield-bearer and the bosses by variant. Kept explicit so a new variant is a deliberate decision.
  */
-export const CRYSTAL_PROTECTED_VARIANTS: readonly EnemyVariant[] = ['troll', 'jailer', 'beacon', 'commander', 'wizard', 'sentinel', 'elite', 'wardrobe'];
+export const CRYSTAL_PROTECTED_VARIANTS: readonly EnemyVariant[] = ['troll', 'jailer', 'sentinel'];
 
 /** Crystals are one rule for every mode since 30.09.2026; kept for callers (UI) written against the map-only version. */
 export const crystalsActive = (_state?: Pick<ForestState, 'runNode'>): boolean => true;
@@ -112,8 +112,8 @@ export function crystalScore(cell: ForestCell | null | undefined): number {
 
 /**
  * A crystal may land here: walkable open cell (no open pit), not the cat, a device, a door or a crystal, and
- * either empty or an ordinary living single-cell enemy that is neither a boss, a protected variant, a key carrier
- * nor a marked goal target (crushing a target would make the battle unwinnable). An enemy there dies uncredited.
+ * either empty or an ordinary living single-cell enemy that is neither a boss, a protected variant nor a marked goal
+ * target (crushing a target would make the battle unwinnable). An enemy there dies uncredited.
  * The chain also keeps the cells still ahead of the cat free (`simulateChain`); freed cells behind it are allowed.
  */
 export function crystalCellAllowed(state: Pick<ForestState, 'cols' | 'rows' | 'terrain' | 'pits' | 'devices' | 'player' | 'tutorial'>,
@@ -124,5 +124,5 @@ export function crystalCellAllowed(state: Pick<ForestState, 'cols' | 'rows' | 't
   if (!cell) return true;
   return cell.kind !== 'door' && cell.kind !== 'prism' && cell.kind !== 'boss' && isCellAlive(cell)
     && !(cell.variant && CRYSTAL_PROTECTED_VARIANTS.includes(cell.variant)) && (cell.footprint?.length ?? 1) === 1
-    && !cell.carriesKey && !state.tutorial?.targetIds.includes(cell.id);
+    && !state.tutorial?.targetIds.includes(cell.id);
 }

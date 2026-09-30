@@ -21,7 +21,7 @@ function setupFor(nodeId: string, label: string, template: RunBattleTemplate, au
 
 function fromNode(node: ForestMapNode, id = node.id): NodeAnalysisTarget {
   const template = nodeRunTemplate(node), authored = nodeBattleTemplate(node);
-  if (!template || !authored) throw new Error(`Узел ${node.id}: нет авторского боя (лесное испытание анализируется флагом --forest).`);
+  if (!template || !authored) throw new Error(`Узел ${node.id}: нет авторского боя (привал, находка или заглушка).`);
   const tools = guaranteedNodeTools(node.id);
   return { id, row: node.row, tools, setup: setupFor(node.id, node.name, template, authored, node.row, tools) };
 }

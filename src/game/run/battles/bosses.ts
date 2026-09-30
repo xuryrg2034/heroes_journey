@@ -2,8 +2,8 @@ import { authoredLesson, cellIndex } from '../../lessonBuilder';
 import type { NodeBattle } from '../forestBattles';
 
 /**
- * Boss node battles (the Troll of the den branch). Format and checks: docs/biomes/forest-map.md,
- * «Как добавить бой узла»; cards, routes and metrics: docs/levels/forest-nodes-beasts.md.
+ * Boss node battles: the Troll of the den branch and the Chief of the camp branch. Format and checks: docs/biomes/forest-map.md,
+ * «Как добавить бой узла»; cards, routes and metrics: docs/levels/forest-nodes-beasts.md (Troll), docs/levels/chief.md (Chief).
  * Ids are unique across battles/*.ts.
  */
 
@@ -27,6 +27,8 @@ function withTrollBody(battle: NodeBattle, anchor: string): NodeBattle {
 }
 
 const TROLL_HP = 30;
+/** The Chief's HP, as in the removed forest trial where he arrived in the third wave. */
+const CHIEF_HP = 20;
 
 export const BOSS_BATTLES: NodeBattle[] = [
   withTrollBody(authoredLesson({
@@ -52,4 +54,30 @@ export const BOSS_BATTLES: NodeBattle[] = [
     goals: [{ key: 'bossKills', target: 1 }],
     seed: 9520,
   }), 'C3'),
+  /**
+   * The Chief. Replaces the standalone forest trial (30.09.2026): the same camp map with trees, the pond, the campfire
+   * and the puddle, but without waves — the Chief stands on the board from the start. His behaviour is unchanged:
+   * colourless, 20 HP, a sweep of the three squares on the side facing the cat every turn.
+   */
+  authoredLesson({
+    id: 'chief-breakfast', name: 'Главарь с котелком',
+    description: 'Главарь утащил котелок с завтраком. Гоблины лагеря встали вокруг костра.',
+    hint: 'Главарь бесцветный: он входит в цепь любого цвета. Разгони силу на слабых — его HP тратят запас. Живую цель нельзя пройти насквозь.',
+    rows: [
+      '^OOKVB^',
+      'OOVVwBR',
+      'OGG^BRR',
+      'GG~FBRG',
+      'RBBGGBG',
+      '^RRBBBG',
+      '^BRHG^^',
+    ],
+    legend: {
+      K: { kind: 'boss', hp: CHIEF_HP },
+      w: { color: 4, terrain: 'puddle' },
+      '^': { terrain: 'tree' }, '~': { terrain: 'pond' }, F: { terrain: 'campfire' },
+    },
+    goals: [{ key: 'bossKills', target: 1 }],
+    seed: 701,
+  }),
 ];

@@ -2,12 +2,9 @@
  * Regressions for the September 2026 core review. Every case plays the engine
  * through its public commands and fails on the defect that was reported.
  */
-import { isCellAlive } from './cellLife';
 import { validateCustomLevel, type CustomLevelDefinition } from './customLevel';
-import { planEnemyPhase } from './enemyPhase';
 import { ForestEngine } from './forestEngine';
-import type { ForestEvent } from './forestTypes';
-import { authoredLesson } from './tutorialLevels';
+import { authoredLesson } from './lessonBuilder';
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -62,78 +59,13 @@ async function prismCorridorOpens() {
   console.log('PASS long prism chains count as openings');
 }
 
-/** 3. A lethal gate volley ends the turn before later arrows hit, kill or credit enemies. */
-async function volleyStopsAtCatDeath() {
-  let checked = 0;
-  for (const seed of [55, 701, 83]) {
-    const g = fresh(seed); g.startCampaign(seed);
-    g.state.player.hp = g.state.player.maxHp = 99;
-    for (let turn = 0; turn < 6 && g.state.hazard.turnsUntil !== 1; turn++) await g.waitTurn();
-    const { cells } = g.state.hazard;
-    assert(g.state.phase === 'PLAYER_INPUT' && g.state.hazard.turnsUntil === 1 && cells[0] === g.state.player.index, 'volley is announced on the resting cat');
-    if (!cells.slice(1).some(index => { const cell = g.state.board[index]; return cell && cell.kind !== 'door' && cell.kind !== 'prism'; })) continue;
-    // Survive the ordinary attacks exactly; the arrows then deal the last points.
-    const attacks = planEnemyPhase(g.state.board, g.state.player.index).attacks.filter(attack => attack.hitsHero);
-    g.state.player.hp = g.state.hazard.damage + attacks.reduce((sum, attack) => sum + attack.cell.intent.damage, 0);
-    const kills = g.state.room.combatKills, objective = g.state.objective.kills;
-    const living = new Set(g.state.board.flatMap(cell => cell && cell.kind !== 'door' ? [cell.id] : []));
-    const events: ForestEvent[] = [];
-    g.subscribe((_state, event) => events.push({ ...event }));
-    await g.waitTurn();
-    const lethal = events.findIndex(event => event.type === 'damage' && event.index === cells[0] && g.state.player.hp === 0);
-    assert(g.state.phase === 'LOSE' && g.state.player.hp === 0, 'the volley kills the cat');
-    assert(lethal >= 0 && !events.slice(lethal + 1).some(event => event.type === 'hit' || event.type === 'kill'), 'no arrow lands after the lethal one');
-    assert(g.state.room.combatKills === kills && g.state.objective.kills === objective, 'no kill is credited after the cat dies');
-    assert([...living].every(id => g.state.board.some(cell => cell?.id === id)), 'every enemy survives the unfinished volley');
-    checked++;
-  }
-  assert(checked > 0, 'at least one volley also targeted enemies');
-  console.log(`PASS lethal volley stops immediately (${checked} seeds)`);
-}
-
-/** 4. The beacon only announces replacements that the arrival step performs. */
-async function beaconAnnouncementsArrive() {
-  const enemies: CustomLevelDefinition['enemies'] = [{ index: 3, kind: 'boss', variant: 'beacon', color: null, hp: 8 }];
-  for (let index = 0; index < 49; index++) if (index !== 3 && index !== 45) enemies.push(index >= 35
-    ? { index, kind: 'melee', color: 1, hp: 0 } : { index, kind: 'melee', variant: 'stool', color: 0, hp: 0 });
-  const g = fresh();
-  assert(g.startCustomLevel(level(7, 7, { heroIndex: 45, enemies, goals: [{ key: 'bossKills', target: 1 }], playerHp: 20 })), 'beacon field starts');
-  const arrivals: number[] = [];
-  g.subscribe((_state, event) => { if (event.type === 'special-arrival') arrivals.push(event.index!); });
-  let announced: { index: number; id: number }[] = [];
-  for (let turn = 0; turn < 4 && !announced.length; turn++) {
-    await g.waitTurn();
-    const beacon = g.state.board[3]!;
-    announced = (beacon.intent.summonCells ?? []).map((index, n) => ({ index, id: beacon.intent.summonIds![n] }));
-  }
-  assert(announced.length === 2, 'beacon announces two calm weak targets');
-  assert(announced.every(({ index }) => !g.state.board[index]!.variant), 'stools are never announced');
-  await g.waitTurn();
-  assert(JSON.stringify(arrivals) === JSON.stringify(announced.map(target => target.index)), `announced ${announced.map(target => target.index)} arrived at ${arrivals}`);
-  assert(announced.every(({ index, id }) => g.state.board[index]!.id !== id && g.state.board[index]!.behavior.aggressive), 'armed goblins replaced every announced enemy');
-  console.log('PASS beacon announcements match arrivals');
-}
-
-/** 5. A large cabinet guards an ally next to any of its squares; a sentinel stays single-square. */
-async function largeCabinetGuardsPerimeter() {
-  const terrain = Array(49).fill('floor'); for (const index of [0, 1, 2, 7, 14]) terrain[index] = 'wall';
-  const enemies: CustomLevelDefinition['enemies'] = [{ index: 8, kind: 'melee', variant: 'cabinet', color: 0, hp: 4, footprint: [8, 9, 15, 16] }];
-  for (let index = 0; index < 49; index++) if (terrain[index] === 'floor' && ![8, 9, 15, 16, 11].includes(index))
-    enemies.push({ index, kind: 'melee', color: [3, 4, 5].includes(index) ? 0 : 1, hp: index === 3 ? 3 : 0 });
-  const g = fresh();
-  assert(g.startCustomLevel(level(7, 7, { terrain, heroIndex: 11, enemies, playerHp: 20 })), 'cabinet field starts');
-  const cabinet = g.state.board[8]!, guarded = g.state.board[3]!;
-  assert(cabinet.supportTargetId === guarded.id, 'first ally around the whole cabinet is guarded, although its first square touches only walls');
-  const preview = await commit(g, [5, 4, 3]);
-  const hit = preview.hits.at(-1)!;
-  assert(hit.index === 3 && hit.availablePower === 3 && hit.damage === 2 && !hit.killed, 'guard lowers the 3-power hit to 2');
-  const survivor = g.state.board[3];
-  assert(survivor?.id === guarded.id && survivor.hp === 1 && isCellAlive(survivor), 'guarded ally survives with the forecast HP');
+/** 5. A shield-bearer stays single-square: a multi-square sentinel has no shield facing. */
+function sentinelSingleSquare() {
   const sentinel = level(7, 7, { heroIndex: 45, enemies: [{ index: 8, kind: 'melee', variant: 'sentinel', color: 0, hp: 3, footprint: [8, 9] }] });
   assert(!validateCustomLevel(sentinel).valid, 'a multi-square sentinel has no shield facing and is rejected');
   sentinel.enemies[0].footprint = undefined;
   assert(validateCustomLevel(sentinel).valid, 'a single-square sentinel stays valid');
-  console.log('PASS large cabinet guards around its footprint; sentinel stays one square');
+  console.log('PASS sentinel stays one square');
 }
 
 /** 6. Enumerated JSON fields must be strings, not arrays that stringify to a valid value. */
@@ -143,7 +75,7 @@ function strictEnumerations() {
   assert(validateCustomLevel(base).valid, 'baseline JSON is valid');
   const mutations: [string, (value: any) => void][] = [
     ['kind', value => { value.enemies[0].kind = ['melee']; }],
-    ['variant', value => { value.enemies[0].variant = ['stool']; }],
+    ['variant', value => { value.enemies[0].variant = ['wolf']; }],
     ['goal key', value => { value.goals[0].key = ['kills']; }],
     ['device kind', value => { value.devices[0].kind = ['fire']; }],
     ['terrain', value => { value.terrain[3] = ['floor']; }],
@@ -180,9 +112,7 @@ async function lessonPaletteFromEnemiesOnly() {
 async function main() {
   deviceSearchIsBounded();
   await prismCorridorOpens();
-  await volleyStopsAtCatDeath();
-  await beaconAnnouncementsArrive();
-  await largeCabinetGuardsPerimeter();
+  sentinelSingleSquare();
   strictEnumerations();
   await lessonPaletteFromEnemiesOnly();
   console.log('PASS review fixes');

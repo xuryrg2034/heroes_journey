@@ -30,8 +30,8 @@ async function rest(page: Page) {
   await ready(page);
 }
 function ok(step: ForestRunStep): ForestRunState { if (!step.ok) throw new Error(step.reason); return step.run; }
-/** A run at the fork with a healthy cat, then a map battle of the given lesson started on the engine at the given map row. */
-async function mapBattle(page: Page, row: number, lessonIndex: number) {
+/** A run at the fork with a healthy cat, then a registered map battle started on the engine at the given map row. */
+async function mapBattle(page: Page, row: number, battleId: string) {
   let run = createForestRun(1);
   for (const id of ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4']) {
     run = ok(enterNode(run, id));
@@ -41,14 +41,14 @@ async function mapBattle(page: Page, row: number, lessonIndex: number) {
     ['ashen-oath-forest-run-v1', serializeForestRun(run)]);
   await page.goto('/'); await page.locator('#run-start-button').click();
   await page.locator('.map-node[data-node="beast-wolf"]').click(); await ready(page);
-  await startTemplate(page, row, lessonIndex);
+  await startTemplate(page, row, battleId);
 }
-async function startTemplate(page: Page, row: number, lessonIndex: number | string) {
-  await page.evaluate(([row, index]) => {
+async function startTemplate(page: Page, row: number, battleId: string) {
+  await page.evaluate(([row, id]) => {
     const engine = (window as any).__PUZZLE_GAME.engine;
-    if (!engine.startRunBattle({ nodeId: 'beast-wolf', label: 'Проба', row, seed: 4242, template: typeof index === 'string' ? { kind: 'battle', id: index } : { kind: 'lesson', index }, player: { hp: 40, maxHp: 40, energy: 0 },
+    if (!engine.startRunBattle({ nodeId: 'beast-wolf', label: 'Проба', row, seed: 4242, template: { kind: 'battle', id }, player: { hp: 40, maxHp: 40, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] })) throw new Error('startRunBattle failed');
-  }, [row, lessonIndex] as const);
+  }, [row, battleId] as const);
   await ready(page);
 }
 async function openTroll(page: Page) {
@@ -64,7 +64,7 @@ async function openTroll(page: Page) {
 test('growing anger: the HUD chip shows the current step and the next one, as the engine reports them', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await mapBattle(page, 5, 0);
+  await mapBattle(page, 5, 'trunk-wake');
   const chip = page.locator('#pressure-chip');
   await expect(chip).toBeVisible();
   const expected = async () => { const info = runPressureInfo(await state(page)); return info; };
@@ -81,7 +81,7 @@ test('growing anger: the HUD chip shows the current step and the next one, as th
   await expect(page.locator('#pressure-anger')).toContainText(`Злость: ${info.angerPerTurn} за ход`);
   // A trunk battle (row 1–4) has no growing anger and no chip.
   await page.evaluate(() => {
-    (window as any).__PUZZLE_GAME.engine.startRunBattle({ nodeId: 'trunk-1', label: 'Ствол', row: 1, seed: 1, template: { kind: 'lesson', index: 0 }, player: { hp: 5, maxHp: 5, energy: 0 },
+    (window as any).__PUZZLE_GAME.engine.startRunBattle({ nodeId: 'trunk-1', label: 'Ствол', row: 1, seed: 1, template: { kind: 'battle', id: 'trunk-wake' }, player: { hp: 5, maxHp: 5, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] });
   });
   await ready(page);
@@ -92,11 +92,11 @@ test('growing anger: the HUD chip shows the current step and the next one, as th
 test('crystals: the forecast counts them, one appears after the turn with its value, breaking it scores', async ({ page }) => {
   test.setTimeout(90_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await mapBattle(page, 5, 0);
+  await mapBattle(page, 5, 'trunk-wake');
   // The engine's own forecast picks a chain that kills at least CRYSTAL_KILLS enemies without ending the battle
-  // (a battle-ending chain makes no crystal): try a few lesson fields until one has such a chain.
+  // (a battle-ending chain makes no crystal): try a few battle fields until one has such a chain.
   let path: number[] | null = null;
-  for (const lesson of ['den-watch', 'camp-cauldron-ring', 'goblin-archer-watch', 'goblin-shield-flank', 'goblin-shaman-rite', 'boar-garden', 'porcupine-thicket', 'wolf-ford', 3, 4, 5, 6, 7]) {
+  for (const lesson of ['den-watch', 'camp-cauldron-ring', 'goblin-archer-watch', 'goblin-shield-flank', 'goblin-shaman-rite', 'boar-garden', 'porcupine-thicket', 'wolf-ford', 'trunk-arrows', 'three-banners', 'den-nest', 'camp-shield-wall', 'den-breakout']) {
     await startTemplate(page, 5, lesson);
     path = await page.evaluate(() => {
       const game = (window as any).__PUZZLE_GAME, seen = new Set<string>();

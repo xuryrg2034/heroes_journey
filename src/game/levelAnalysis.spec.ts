@@ -100,8 +100,9 @@ async function deterministic() {
   const first = JSON.stringify(await analyzeEngine(start(pocket), options));
   const second = JSON.stringify(await analyzeEngine(start(pocket), options));
   assert(first === second, 'identical inputs produce identical analysis JSON');
-  const lesson = JSON.stringify(await analyzeLevel({ kind: 'lesson', index: 0 }, { ...options, agentRuns: 1 }));
-  assert(lesson === JSON.stringify(await analyzeLevel({ kind: 'lesson', index: 0 }, { ...options, agentRuns: 1 })), 'lesson analysis is reproducible');
+  const node = { kind: 'run-node', target: nodeAnalysisTargets('trunk-wake')[0] } as const;
+  const once = JSON.stringify(await analyzeLevel(node, { ...options, agentRuns: 1 }));
+  assert(once === JSON.stringify(await analyzeLevel(node, { ...options, agentRuns: 1 })), 'map-node battle analysis is reproducible');
 }
 
 async function layoutMetrics() {

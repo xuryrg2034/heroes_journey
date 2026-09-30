@@ -1,7 +1,22 @@
 import { test, expect, type Page } from '@playwright/test';
-import { DEMONSTRATION_OPENING } from '../src/game/forestLevel';
 
 const game=(page:Page)=>page.evaluate(()=>structuredClone((window as any).__PUZZLE_GAME.state));
+/**
+ * A dense 7×7 forest clearing in the editor format: trees, a pond, a campfire, a puddle at B2 (index 11) and 39 weak
+ * goblins of five colors, the cat at D7 (45). It replaces the removed forest trial as a controlled field for input,
+ * forecast and enemy-phase checks; `goals` and the extra enemies are set per test.
+ */
+const CLEARING=['#YYPPB#','YYPPPBR','YGG#BRR','GG~FBRG','RBBGGBG','#RRBBBG','#BRHG##'];
+const COLOR:Record<string,number>={R:0,G:1,B:2,Y:3,P:4};
+function clearing(goals:{key:string;target:number}[]=[{key:'kills',target:999}],overrides:Record<number,Record<string,unknown>>={},playerHp=5){
+  const symbols=CLEARING.join('').split('');
+  return {version:1,name:'Поляна',seed:701,cols:7,rows:7,
+    terrain:symbols.map((symbol,index)=>index===11?'puddle':symbol==='#'?'tree':symbol==='~'?'pond':symbol==='F'?'campfire':'floor'),
+    heroIndex:45,enemies:symbols.flatMap((symbol,index)=>symbol in COLOR?[{index,kind:'melee',color:COLOR[symbol],hp:0,...overrides[index]}]:[]),
+    doors:[],goals,turnLimit:0,completion:'direct',paletteWeights:[100,100,100,100,100],extraColors:[],playerHp,inventory:{frost:1,bomb:0,healing:0,fire:0}};
+}
+/** The first chain of the clearing: D6-E6-F6-F5 (blue), as the removed forest trial's demonstration opening. */
+const OPENING=[38,39,40,33];
 
 test('chain budget grows through zero-HP enemies and spends five on a durable target',async({page})=>{
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await start(page);
@@ -77,49 +92,19 @@ test('ordinary melee keeps anger after a miss, strikes cardinally, recovers afte
   await page.locator('[data-action="pause"]').click();await page.locator('[data-action="retry"]').click();await ready(page);expect(await game(page)).toEqual(initial);expect(errors).toEqual([]);
 });
 
-test('large wardrobe has one identity across four selectable cells, shared damage and one death',async({page})=>{
-  test.setTimeout(45_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('/');await page.locator('[data-scenario="banquet"]').click();await ready(page);
-  const natural=await game(page),wardrobe=natural.board.find((c:any)=>c?.variant==='wardrobe');expect(wardrobe).toBeTruthy();
-  expect(natural.board.filter((c:any)=>c?.id===wardrobe.id)).toHaveLength(4);expect(new Set(wardrobe.footprint).size).toBe(4);
-  await page.screenshot({path:'artifacts/wardrobe-natural.png',fullPage:true});
-  // Isolate footprint combat; the authored entity and production pointer pipeline remain real.
-  const setup=async()=>page.evaluate(()=>{
-    const g=(window as any).__PUZZLE_GAME,e=g.engine;e.startScenario('banquet',701);const s=e.state;
-    const template=structuredClone(s.board.find((c:any)=>c?.variant==='chair'));
-    for(const c of s.board)if(c){c.intent={cells:[],damage:1,label:'Спокоен'};c.behavior={aggressive:false,restTurns:0};delete c.supportTargetId;}
-    for(let i=0;i<s.board.length;i++)if(s.board[i]?.variant==='wardrobe')s.board[i]={...structuredClone(template),id:9000+i};
-    if(s.player.index!==45)s.board[s.player.index]={...structuredClone(template),id:9099};s.player.index=45;s.board[45]=null;s.terrain[45]='floor';s.rotations=[];
-    const large={...structuredClone(template),id:9200,variant:'wardrobe',kind:'melee',color:0,hp:5,maxHp:5,footprint:[30,31,37,38],intent:{cells:[],damage:1,label:'Спокоен'},behavior:{aggressive:false,restTurns:0}};
-    for(const index of large.footprint){s.terrain[index]='floor';s.board[index]=large;}
-    for(const index of [44,43,36]){s.terrain[index]='floor';s.board[index]={...structuredClone(template),id:9300+index,hp:0,maxHp:0,color:0,intent:{cells:[],damage:1,label:'Спокоен'},behavior:{aggressive:false,restTurns:0}};}
-    s.inventory.fire=1;s.itemPrepared=false;e.cancelChain();
-  });
-  await setup();await draw(page,[44,37],false);const p=await page.evaluate(()=>(window as any).__PUZZLE_GAME.preview());expect(p.hits.at(-1)).toMatchObject({index:37,damage:2,hpAfter:3,killed:false});expect(p.endIndex).toBe(44);
-  const otherPart=await center(page,38);await page.mouse.move(otherPart.x,otherPart.y,{steps:5});await expect.poll(async()=>(await game(page)).chain).toEqual([44,37]);
-  await page.screenshot({path:'artifacts/wardrobe-chain.png',fullPage:true});await page.mouse.up();await ready(page);
-  let s=await game(page);expect([30,31,37,38].map(i=>s.board[i].hp)).toEqual([3,3,3,3]);expect(s.player.index).toBe(44);
-  const kills=s.objective.kills;await draw(page,[43,36,37]);await ready(page);s=await game(page);expect(s.board.filter((c:any)=>c?.id===9200)).toHaveLength(0);expect(s.objective.kills-kills).toBe(3);expect(s.player.index).toBe(37);
-  expect(s.terrain.flatMap((t:string,i:number)=>(t==='floor'||t==='puddle')&&i!==s.player.index&&!s.board[i]?[i]:[])).toEqual([]);
-  await setup();await page.locator('#fire-button').click();const target=await center(page,37);await page.mouse.click(target.x,target.y);await expect.poll(async()=>(await game(page)).board[37].damageEffects?.burning).toBe(1);
-  s=await game(page);expect([30,31,37,38].map(i=>s.board[i].hp)).toEqual([5,5,5,5]);expect(s.turn).toBe(0);expect([30,31,37,38].map(i=>s.board[i].damageEffects.burning)).toEqual([1,1,1,1]);
-  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'artifacts/wardrobe-mobile.png',fullPage:true});expect(errors).toEqual([]);
-});
-
 test('directional sentinel rejects frontal chains, allows a flank, and loses its shield while frozen',async({page})=>{
   test.setTimeout(45_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('/');await page.locator('[data-scenario="library"]').click();await ready(page);
-  expect((await game(page)).board.some((c:any)=>c?.variant==='sentinel')).toBe(true);
+  await start(page);
   // Isolated geometry fixture: front, flank and ice share identical HP, color and facing.
-  const setup=async()=>page.evaluate(()=>{
-    const g=(window as any).__PUZZLE_GAME,e=g.engine;e.startScenario('barracks',701);const s=e.state;
-    const template=structuredClone(s.board.find((c:any)=>c?.kind==='melee'&&c.variant!=='sentinel'));
-    for(const c of s.board)if(c){c.intent={cells:[],damage:1,label:'Спокоен'};c.behavior={aggressive:false,restTurns:0};delete c.supportTargetId;}
+  const setup=async()=>page.evaluate(definition=>{
+    const g=(window as any).__PUZZLE_GAME,e=g.engine;if(!e.startCustomLevel(definition))throw new Error('Clearing did not start');const s=e.state;
+    const template=structuredClone(s.board.find((c:any)=>c?.kind==='melee'&&!c.variant));
+    for(const c of s.board)if(c){c.intent={cells:[],damage:1,label:'Спокоен'};c.behavior={aggressive:false,restTurns:0};}
     if(s.player.index!==38)s.board[s.player.index]={...structuredClone(template),id:8000};
     s.player.index=38;s.board[38]=null;s.terrain[38]='floor';s.rotations=[];
-    for(const index of [24,31,37,30,23]){s.terrain[index]=index===24?'puddle':'floor';s.board[index]={...structuredClone(template),id:8100+index,kind:'melee',variant:index===24?'sentinel':'chair',color:0,hp:index===24?4:0,maxHp:index===24?4:0,status:{wet:index===24,frozen:0,brittle:false},intent:{cells:[],damage:1,label:'Спокоен'},behavior:{aggressive:false,restTurns:0}};}
+    for(const index of [24,31,37,30,23]){s.terrain[index]=index===24?'puddle':'floor';s.board[index]={...structuredClone(template),id:8100+index,kind:'melee',variant:index===24?'sentinel':undefined,color:0,hp:index===24?4:0,maxHp:index===24?4:0,status:{wet:index===24,frozen:0,brittle:false},intent:{cells:[],damage:1,label:'Спокоен'},behavior:{aggressive:false,restTurns:0}};}
     s.board[24].shield={dx:0,dy:1};s.inventory.frost=1;s.itemPrepared=false;e.cancelChain();
-  });
+  },clearing());
   await setup();await expect(page.locator('#shield-summary')).toContainText('D4 ↓');
   const baseline=await game(page);await draw(page,[31],false);const front=await center(page,24);await page.mouse.move(front.x,front.y,{steps:5});
   await expect.poll(async()=>(await game(page)).chain).toEqual([31]);await expect(page.locator('#status-message')).toContainText('Щит');
@@ -133,32 +118,6 @@ test('directional sentinel rejects frontal chains, allows a flank, and loses its
   await page.screenshot({path:'artifacts/sentinel-frozen.png',fullPage:true});await page.mouse.up();await ready(page);expect((await game(page)).player.index).toBe(24);
   await setup();await page.setViewportSize({width:390,height:844});await page.screenshot({path:'artifacts/sentinel-mobile.png',fullPage:true});
   expect(errors).toEqual([]);
-});
-
-test('seed 984 validates new arrivals before returning input and preserves surviving enemies',async({page})=>{
-  test.setTimeout(45_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await start(page);
-  await page.evaluate(()=>{
-    const g=(window as any).__PUZZLE_GAME;g.engine.startScenario('forest',984);
-    (window as any).__generationAudit={arrivals:[],inputs:[],events:[]};let previous=structuredClone(g.state);
-    g.engine.subscribe((s:any,event:any)=>{
-      const audit=(window as any).__generationAudit;audit.events.push(event.type);
-      if(event.type==='special-arrival')audit.arrivals.push({event:structuredClone(event),cell:structuredClone(s.board[event.index]),scoreBefore:previous.score,scoreAfter:s.score,objectiveBefore:previous.objective,objectiveAfter:structuredClone(s.objective)});
-      if(s.phase==='PLAYER_INPUT')audit.inputs.push({turn:s.turn,moves:g.availableMoves().length,count:s.board.filter(Boolean).length});
-      previous=structuredClone(s);
-    });
-  });await ready(page);dense(await game(page));
-  for(const path of [[38,39,40,33],[26,19,20,13]]){
-    const before=await game(page),preview=await page.evaluate(p=>(window as any).__PUZZLE_GAME.preview(p),path);expect(preview.valid).toBe(true);
-    await draw(page,path);await ready(page);const after=await game(page);dense(after);
-    const arrivals=await page.evaluate(()=>(window as any).__generationAudit.arrivals),removed=new Set([...preview.hits.filter((h:any)=>h.killed).map((h:any)=>before.board[h.index].id),...arrivals.map((a:any)=>a.event.oldId)]);
-    before.board.forEach((cell:any,index:number)=>{if(cell&&!removed.has(cell.id))expect(after.board[index]).toMatchObject({id:cell.id,color:cell.color,hp:cell.hp});});
-  }
-  const final=await game(page),audit=await page.evaluate(()=>(window as any).__generationAudit);
-  expect(final.wave).toBe(2);expect(final.spawnCounts).toEqual({archers:2,boss:0});expect(final.board.filter((c:any)=>c?.kind==='ranged')).toHaveLength(2);
-  expect(await page.evaluate(()=>(window as any).__PUZZLE_GAME.availableMoves().length)).toBeGreaterThan(0);
-  expect(audit.arrivals).toHaveLength(2);for(const a of audit.arrivals){expect(a.cell).toMatchObject({kind:'ranged',id:a.event.newId});expect(a.event.newId).not.toBe(a.event.oldId);expect(a.scoreAfter).toBe(a.scoreBefore);expect(a.objectiveAfter).toEqual(a.objectiveBefore);}
-  expect(audit.inputs.length).toBeGreaterThan(0);for(const input of audit.inputs){expect(input.moves).toBeGreaterThan(0);expect(input.count).toBe(39);}
-  expect(audit.events).not.toContain('reshuffle');await page.screenshot({path:'artifacts/forest-984-validated-arrivals.png',fullPage:true});expect(errors).toEqual([]);
 });
 
 test('rest earns half energy, resolves enemy attacks, unlocks jump, and respects the energy cap',async({page})=>{
@@ -196,15 +155,11 @@ async function draw(page:Page,path:number[],release=true) {
   for(const index of path.slice(1)){const p=await center(page,index);await page.mouse.move(p.x,p.y,{steps:5});}
   await expect.poll(async()=>(await game(page)).chain).toEqual(path);if(release)await page.mouse.up();
 }
-async function start(page:Page){await page.goto('/');await page.locator('#begin-button').click();await ready(page);}
-async function opening(page:Page){
-  await draw(page,DEMONSTRATION_OPENING[0]);await ready(page);dense(await game(page));
-  for(let turn=0;turn<8&&(await game(page)).wave===1;turn++){const path=await chooseMove(page);expect(path).toBeTruthy();await draw(page,path);await ready(page);dense(await game(page));}
-  expect((await game(page)).wave).toBe(2);
-}
+async function start(page:Page,definition:unknown=clearing()){await page.goto('/');await page.evaluate(d=>(window as any).__PUZZLE_GAME.startCustomLevel(d),definition);await ready(page);}
+async function opening(page:Page){await draw(page,OPENING);await ready(page);dense(await game(page));}
 async function chooseMove(page:Page){return page.evaluate(()=>{
   const g=(window as any).__PUZZLE_GAME,s=g.state;
-  const targets=s.board.flatMap((c:any,i:number)=>c&&(s.wave===2?c.kind==='ranged':s.wave===3?c.kind==='boss':false)?[i]:[]);
+  const targets=s.board.flatMap((c:any,i:number)=>c&&(c.kind==='ranged'||c.kind==='boss')?[i]:[]);
   return g.availableMoves().map((path:number[])=>{
     const p=g.preview(path),distance=targets.length?Math.min(...targets.map((i:number)=>Math.max(Math.abs(i%7-p.endIndex%7),Math.abs(Math.floor(i/7)-Math.floor(p.endIndex/7))))):0;
     const special=p.hits.reduce((v:number,h:any)=>v+h.damage*(s.board[h.index]?.kind==='boss'?12:s.board[h.index]?.kind==='ranged'?8:0),0);
@@ -212,61 +167,22 @@ async function chooseMove(page:Page){return page.evaluate(()=>{
   }).sort((a:any,b:any)=>b.score-a.score)[0]?.path;
 });}
 
-test('dense forest play keeps exact damage and random arrivals replace ordinary enemies without bonus kills',async({page})=>{
-  test.setTimeout(90_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
-  await page.goto('/');await page.screenshot({path:'artifacts/forest-title.png',fullPage:true});await page.locator('#begin-button').click();await ready(page);
-  dense(await game(page));await page.screenshot({path:'artifacts/forest-filled-start.png',fullPage:true});
-  await page.evaluate(()=>{
-    const g=(window as any).__PUZZLE_GAME;(window as any).__arrivals=[];
-    let previous=structuredClone(g.state);const observed=new Map<number,any>(previous.board.filter(Boolean).map((cell:any)=>[cell.id,structuredClone(cell)]));
-    g.engine.subscribe((state:any,event:any)=>{
-      if(event.type==='special-arrival') (window as any).__arrivals.push({event:{...event},old:observed.get(event.oldId),new:structuredClone(state.board[event.index]),heroBefore:previous.player.index,heroAfter:state.player.index,objectiveBefore:previous.objective,objectiveAfter:structuredClone(state.objective),scoreBefore:previous.score,scoreAfter:state.score,countBefore:previous.board.filter(Boolean).length,countAfter:state.board.filter(Boolean).length});
-      for(const cell of state.board)if(cell&&!observed.has(cell.id))observed.set(cell.id,structuredClone(cell));
-      previous=structuredClone(state);
-    });
-  });
-  let sawArchers=false,sawBoss=false;const visits:Record<number,number>={};
-  for(let turn=0;turn<35;turn++) {
-    const before=await game(page);if(before.phase==='WIN'||before.phase==='LOSE')break;
-    const path=turn===0?DEMONSTRATION_OPENING[0]:await page.evaluate(visited=>{
-      const g=(window as any).__PUZZLE_GAME,s=g.state,targets=s.board.flatMap((c:any,i:number)=>c?.kind===(s.wave===3?'boss':'ranged')?[i]:[]);
-      return g.availableMoves().map((path:number[])=>{const p=g.preview(path),distance=targets.length?Math.min(...targets.map((i:number)=>Math.abs(i%7-p.endIndex%7)+Math.abs(Math.floor(i/7)-Math.floor(p.endIndex/7)))):0;
-        const special=p.hits.reduce((v:number,h:any)=>v+h.damage*(s.board[h.index]?.kind==='boss'?12:s.board[h.index]?.kind==='ranged'?8:0),0);
-        // Five colors can require trading HP for a boss hit; avoid endless safe loops while rejecting lethal moves.
-        return{path,score:special+p.kills*2-p.damage*20-distance*2-(p.damage>=s.player.hp?10000:0)-(visited[p.endIndex]??0)*.5};
-      }).sort((a:any,b:any)=>b.score-a.score)[0]?.path;
-    },visits);expect(path).toBeTruthy();
-    await draw(page,path,false);const preview=await page.evaluate(()=>(window as any).__PUZZLE_GAME.preview());expect(preview.valid).toBe(true);
-    if(turn===0)await page.screenshot({path:'artifacts/forest-chain.png',fullPage:true});
-    await page.mouse.up();await expect.poll(async()=>(await game(page)).phase).not.toMatch(/RESOLVE|UPDATE/);
-    const state=await game(page);expect(state.player.hp).toBe(before.player.hp-preview.damage);
-    visits[preview.endIndex]=(visits[preview.endIndex]??0)+1;
-    if(state.phase==='PLAYER_INPUT')dense(state);
-    if(state.wave===2&&!sawArchers){sawArchers=true;expect(state.board.filter((c:any)=>c?.kind==='ranged')).toHaveLength(2);await page.screenshot({path:'artifacts/forest-reinforcements.png',fullPage:true});}
-    if(state.wave===3&&!sawBoss){sawBoss=true;expect(state.board.filter((c:any)=>c?.kind==='boss')).toHaveLength(1);await page.screenshot({path:'artifacts/forest-boss.png',fullPage:true});}
-  }
-  // Reaching the boss depends on the heuristic bot, so victory is not asserted; observed arrivals keep their order.
-  const arrivals=await page.evaluate(()=>(window as any).__arrivals);
-  expect(arrivals.map((a:any)=>a.new.kind)).toEqual(['ranged','ranged','boss'].slice(0,arrivals.length));
-  for(const a of arrivals){if(a.old){expect(a.old.kind).toBe('melee');expect(a.old.id).toBe(a.event.oldId);}else expect(a.event.oldId).toBeLessThan(a.event.newId);expect(a.new.id).toBe(a.event.newId);expect(a.new.id).not.toBe(a.event.oldId);expect(a.event.index).not.toBe(a.heroBefore);expect(a.heroAfter).toBe(a.heroBefore);expect(a.objectiveAfter).toEqual(a.objectiveBefore);expect(a.scoreAfter).toBe(a.scoreBefore);expect(a.countAfter).toBe(a.countBefore);}
-  await page.screenshot({path:'artifacts/forest-final.png',fullPage:true});expect(errors).toEqual([]);
-});
-
 test('input remains adjacent, reversible and safe across navigation, pause and restart',async({page})=>{
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/');
-  await page.evaluate(()=>{document.querySelector<HTMLButtonElement>('#begin-button')!.click();document.querySelector<HTMLButtonElement>('[data-action="title"]')!.click();});
-  await expect(page.locator('#title-screen')).toBeVisible();await expect(page.locator('#board-host canvas')).toBeAttached();await page.locator('#begin-button').click();await ready(page);
+  // Leaving for the menu while the battle is still opening must not leave input behind.
+  await page.evaluate(definition=>{void (window as any).__PUZZLE_GAME.startCustomLevel(definition);document.querySelector<HTMLButtonElement>('[data-action="title"]')!.click();},clearing());
+  await expect(page.locator('#title-screen')).toBeVisible();await expect(page.locator('#board-host canvas')).toBeAttached();await page.evaluate(d=>(window as any).__PUZZLE_GAME.startCustomLevel(d),clearing());await ready(page);
   await page.locator('[data-action="pause"]').click();await expect(page.locator('main')).toHaveAttribute('inert','');
   await page.evaluate(()=>document.querySelector<HTMLButtonElement>('#wait-button')!.click());await page.keyboard.press('Shift+Tab');await page.keyboard.press('Enter');expect((await game(page)).turn).toBe(0);
   if(await page.locator('#modal-layer').isVisible())await page.locator('#modal [data-action="resume"]').click();
-  if(await page.locator('#title-screen').isVisible())await page.locator('#begin-button').click();await ready(page);
+  if(await page.locator('#title-screen').isVisible())await page.evaluate(d=>(window as any).__PUZZLE_GAME.startCustomLevel(d),clearing());await ready(page);
   const far=await center(page,1);await page.mouse.click(far.x,far.y);expect((await game(page)).chain).toEqual([]);
   await draw(page,[44]);expect((await game(page)).turn).toBe(0);
   await draw(page,[44,37,36],false);const back=await center(page,37);await page.mouse.move(back.x,back.y,{steps:4});expect((await game(page)).chain).toEqual([44,37]);
   await page.evaluate(()=>(window as any).__PUZZLE_GAME.restartLevel());await page.mouse.up();await ready(page);
   await draw(page,[44,37],false);const wrong=await center(page,38);await page.mouse.move(wrong.x,wrong.y,{steps:4});expect((await game(page)).chain).toEqual([44,37]);
   await page.evaluate(()=>(window as any).__PUZZLE_GAME.cancelChain());await page.mouse.up();
-  await draw(page,DEMONSTRATION_OPENING[0],false);const end=await center(page,DEMONSTRATION_OPENING[0].at(-1)!),bounds=await page.locator('#board-host').boundingBox();await page.mouse.move(bounds!.x-12,end.y);await page.mouse.up();await ready(page);dense(await game(page));
+  await draw(page,OPENING,false);const end=await center(page,OPENING.at(-1)!),bounds=await page.locator('#board-host').boundingBox();await page.mouse.move(bounds!.x-12,end.y);await page.mouse.up();await ready(page);dense(await game(page));
   await page.evaluate(()=>(window as any).__PUZZLE_GAME.damagePlayer(5));await expect.poll(async()=>(await game(page)).phase).toBe('LOSE');
   await page.locator('#modal [data-action="retry"]').first().click();await ready(page);expect((await game(page)).player).toMatchObject({index:45,hp:5});dense(await game(page));expect(errors).toEqual([]);
 });
@@ -287,14 +203,11 @@ test('frost works on the observed wet enemy rather than a fixed archer spawn',as
   await page.screenshot({path:'artifacts/forest-frost.png',fullPage:true});await page.mouse.up();await ready(page);expect((await game(page)).board[wetIndex]?.id).not.toBe(wetId);dense(await game(page));expect(errors).toEqual([]);
 });
 
-// Isolated combat fixtures test partial boss hits and swap cancellation independently
-// of seeded reinforcement positions. Natural progression is exercised above.
+// Isolated combat fixtures test partial boss hits and swap cancellation independently of seeded refill positions.
 async function fixture(page:Page,kind:'boss'|'swap') {
   await page.evaluate(mode=>{
     const g=(window as any).__PUZZLE_GAME,e=g.engine,s=e.state,hero=11;
     s.board[s.player.index]=s.board[hero];s.board[hero]=null;s.player.index=hero;s.player.hp=5;s.turn=0;
-    s.wave=mode==='boss'?3:2;s.spawnCounts={archers:2,boss:mode==='boss'?1:0};
-    s.objective.kills=8;s.objective.rangedKills=mode==='boss'?2:0;
     for(const cell of s.board)if(cell){cell.behavior={aggressive:false,restTurns:0};cell.intent={cells:[],damage:1,label:'Спокоен'};}
     if(mode==='boss'){const boss=s.board[10];Object.assign(boss,{kind:'boss',color:null,hp:6,maxHp:6});for(const index of [2,3,4,9])s.board[index].color=1;}
     else {const archer=s.board[20];Object.assign(archer,{kind:'ranged',hp:7,maxHp:7,color:0});archer.behavior.restTurns=1;for(const index of [12,13,18,19,27]){s.board[index].color=0;s.board[index].hp=0;s.board[index].maxHp=0;}archer.intent={cells:[],damage:1,label:'Обмен',moveTo:19,swapWithId:s.board[19].id};s.rotations=[{from:20,to:19,sourceId:archer.id,targetId:s.board[19].id,geometry:'cardinal'}];}
@@ -302,7 +215,7 @@ async function fixture(page:Page,kind:'boss'|'swap') {
   },kind);dense(await game(page));
 }
 test('living chief blocks traversal and keeps damage between chains',async({page})=>{
-  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await start(page);await fixture(page,'boss');
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await start(page,clearing([{key:'bossKills',target:1}],{10:{kind:'boss',color:null,hp:6}}));await fixture(page,'boss');
   await draw(page,[4,3,10],false);const beyond=await center(page,9);await page.mouse.move(beyond.x,beyond.y,{steps:5});expect((await game(page)).chain).toEqual([4,3,10]);
   const preview=await page.evaluate(()=>(window as any).__PUZZLE_GAME.preview());expect(preview.endsOnSurvivor).toBe(true);expect(preview.endIndex).toBe(3);expect(preview.hits.at(-1).hpAfter).toBe(3);
   await page.mouse.up();await ready(page);expect((await game(page)).board[10].hp).toBe(3);dense(await game(page));
@@ -310,8 +223,14 @@ test('living chief blocks traversal and keeps damage between chains',async({page
 });
 
 test('resting archer exchanges two occupied identities and canceled exchange never creates an empty-cell step',async({page})=>{
-  test.setTimeout(45_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await start(page);await opening(page);
-  await page.screenshot({path:'artifacts/forest-angry.png',fullPage:true});await page.locator('#wait-button').click();await ready(page);
+  test.setTimeout(60_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  // Two archers on the clearing; a sturdy cat rests until one of them announces an exchange after its shot.
+  const archers=clearing(undefined,{16:{kind:'ranged',hp:7},20:{kind:'ranged',hp:7}},20);
+  await start(page,archers);await opening(page);
+  await page.screenshot({path:'artifacts/forest-angry.png',fullPage:true});
+  const swapping=async()=>(await game(page)).board.findIndex((c:any)=>c?.kind==='ranged'&&c.intent.swapWithId!==undefined);
+  let rests=0;
+  do{await page.locator('#wait-button').click();await ready(page);rests++;}while(rests<8&&await swapping()<0);
   const before=await game(page),source=before.board.findIndex((c:any)=>c?.kind==='ranged'&&c.intent.swapWithId!==undefined);expect(source).toBeGreaterThanOrEqual(0);
   const a=before.board[source],target=a.intent.moveTo,b=before.board[target];expect(b.id).toBe(a.intent.swapWithId);
   const coordinate=(index:number)=>`${String.fromCharCode(65+index%before.cols)}${Math.floor(index/before.cols)+1}`;
@@ -322,7 +241,7 @@ test('resting archer exchanges two occupied identities and canceled exchange nev
   // Extra preview requests must not advance the selector's RNG or alter state.
   await page.evaluate(()=>(window as any).__PUZZLE_GAME.restartLevel());await ready(page);await opening(page);
   expect(await page.evaluate(()=>{const g=(window as any).__PUZZLE_GAME,before=JSON.stringify(g.state);for(let n=0;n<24;n++){const path=g.availableMoves()[0];g.preview(path);g.engine.previewRotations(path);}return JSON.stringify(g.state)===before;})).toBe(true);
-  await page.locator('#wait-button').click();await ready(page);const replayed=await game(page);expect(replayed.board).toEqual(before.board);expect(replayed.rotations).toEqual(before.rotations);
+  for(let n=0;n<rests;n++){await page.locator('#wait-button').click();await ready(page);}const replayed=await game(page);expect(replayed.board).toEqual(before.board);expect(replayed.rotations).toEqual(before.rotations);
   await page.locator('#wait-button').click();await ready(page);expect((await game(page)).board).toEqual(after.board);
   await page.evaluate(()=>(window as any).__PUZZLE_GAME.restartLevel());await ready(page);await fixture(page,'swap');
   const arranged=await game(page),archerId=arranged.board[20].id,partnerId=arranged.board[19].id;
@@ -370,17 +289,17 @@ test('announced cell rotations survive either resident dying and cancel only whe
 
 test('mobile touch chaining starts on a completely filled board',async({browser})=>{
   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});const page=await context.newPage(),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('http://127.0.0.1:4173/');await page.locator('#begin-button').tap();await ready(page);dense(await game(page));expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
-  await page.locator('#board-host').scrollIntoViewIfNeeded();const points=await Promise.all(DEMONSTRATION_OPENING[0].map(i=>center(page,i))),cdp=await context.newCDPSession(page);
+  await page.goto('http://127.0.0.1:4173/');await page.evaluate(d=>(window as any).__PUZZLE_GAME.startCustomLevel(d),clearing());await ready(page);dense(await game(page));expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.locator('#board-host').scrollIntoViewIfNeeded();const points=await Promise.all(OPENING.map(i=>center(page,i))),cdp=await context.newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{...points[0],id:1}]});for(const p of points.slice(1))await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{...p,id:1}]});
-  await expect.poll(async()=>(await game(page)).chain).toEqual(DEMONSTRATION_OPENING[0]);await page.screenshot({path:'artifacts/forest-mobile.png',fullPage:true});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await ready(page);dense(await game(page));expect(errors).toEqual([]);await context.close();
+  await expect.poll(async()=>(await game(page)).chain).toEqual(OPENING);await page.screenshot({path:'artifacts/forest-mobile.png',fullPage:true});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await ready(page);dense(await game(page));expect(errors).toEqual([]);await context.close();
 });
 
 test('ordinary chains earn energy while jump and spin spend energy without earning it',async({page})=>{
   test.setTimeout(60_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await start(page);
   expect((await game(page)).player.energy).toBe(0);for(const kind of ['jump','spin'])await expect(page.locator(`#${kind}-ability`)).toBeDisabled();
   await expect(page.locator('#rage-ability')).toHaveCount(0);
-  await draw(page,DEMONSTRATION_OPENING[0]);await ready(page);expect((await game(page)).player.energy).toBe(2);
+  await draw(page,OPENING);await ready(page);expect((await game(page)).player.energy).toBe(2);
   const afterOpening=await game(page),angry=afterOpening.board.flatMap((c:any,i:number)=>c?.kind==='melee'&&c.behavior.aggressive&&c.intent.cells.length?[{cell:c,index:i}]:[]);expect(angry.length).toBeGreaterThan(0);
   for(const {cell,index} of angry){for(const target of cell.intent.cells)expect(Math.abs(target%7-index%7)+Math.abs(Math.floor(target/7)-Math.floor(index/7))).toBe(1);}
   await page.locator('#jump-ability').click();const tree=await center(page,17);await page.mouse.click(tree.x,tree.y);expect((await game(page)).player.energy).toBe(2);expect((await game(page)).chosenAbility).toBe('jump');
@@ -415,4 +334,18 @@ test('ordinary chains earn energy while jump and spin spend energy without earni
   await page.locator('#spin-ability').click();expect((await game(page)).chosenAbility).toBe('spin');expect((await game(page)).player.energy).toBe(7);await page.locator('#spin-ability').click();await ready(page);const spun=await game(page);expect(spun.player.energy).toBe(4);expect(spun.player.index).toBe(19);expect(spun.board[11]).toMatchObject({id:spinFixture.survivor,hp:2});dense(spun);
   await page.evaluate(()=>{const g=(window as any).__PUZZLE_GAME;g.state.player.energy=6.5;g.engine.cancelChain();});
   const capPath=await chooseMove(page);await draw(page,capPath);await ready(page);expect((await game(page)).player.energy).toBe(7);expect(errors).toEqual([]);
+});
+
+test('forecast damage equals the executed damage across real mouse turns on a dense field',async({page})=>{
+  test.setTimeout(60_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await start(page,clearing(undefined,{16:{kind:'ranged',hp:7},20:{kind:'ranged',hp:7}},20));dense(await game(page));
+  for(let turn=0;turn<10;turn++){
+    const before=await game(page);if(before.phase!=='PLAYER_INPUT')break;
+    const path=turn===0?OPENING:await chooseMove(page);expect(path).toBeTruthy();
+    await draw(page,path,false);const preview=await page.evaluate(()=>(window as any).__PUZZLE_GAME.preview());expect(preview.valid).toBe(true);
+    await page.mouse.up();await expect.poll(async()=>(await game(page)).phase).not.toMatch(/RESOLVE|UPDATE/);
+    const after=await game(page);expect(after.player.hp).toBe(Math.max(0,before.player.hp-preview.damage));
+    if(after.phase==='PLAYER_INPUT')dense(after);
+  }
+  expect(errors).toEqual([]);
 });

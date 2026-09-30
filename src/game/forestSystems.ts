@@ -1,7 +1,7 @@
 import { isCellAlive } from './cellLife';
 import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, ChargeDamageCause, EnemyPhaseForecast, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ObjectiveProgress, RotationPlan, RotationPreview } from './forestTypes';
 import { recoveredMoveTowards } from './recoveredEnemyMovement';
-import { canMoveTo, randomLaunchCell, updateShieldDir, type EnemyActor } from './recovered/enemies';
+import { canMoveTo, updateShieldDir, type EnemyActor } from './recovered/enemies';
 import { pathColour, WILD } from './recovered/core';
 import { canFireArrowHit } from './recovered/combat';
 import { footprintPerimeter, uniqueEntities } from './entityFootprint';
@@ -9,7 +9,7 @@ import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPha
 import { BOAR_CHARGE_LENGTH, BOAR_DAMAGE, chargeDirection, chargeLane, HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE, walkableTerrain } from './terrain';
 import { chainSpikeDamage, SHAMAN_PERIOD, shamanRites, shamanTargets, wolfHasPack, WOLF_DAMAGE } from './forestBeasts';
-import { creditDefeat, damageCell, defeatOutright, defeatsRoomBoss, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
+import { creditDefeat, damageCell, defeatOutright, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
 export { physicalDamage, shieldBlocksEntry } from './combatRules';
 import { MELEE_AGGRESSION_START_TURN, meleeCanAttack } from './enemyLifecycle';
 import { applyDamageEffect, stepBleeding, tickDamageEffects, type DamageEffects } from './damageEffects';
@@ -20,7 +20,7 @@ import { clubImpacts, clubZone, effectTickHurts, isTroll, swingClub, TROLL_CLUB_
 import { angerPerTurn, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
-export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, volley: 0, burning: 0, poison: 0 });
+export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, burning: 0, poison: 0 });
 /** The only way the forecast adds cat damage: the total and its source stay in step. */
 function hurt(preview: ChainPreview, source: HeroDamageSource, amount: number) {
   preview.damage += amount; preview.damageBySource[source] += amount;
@@ -33,7 +33,7 @@ export const cloneCell = (cell: ForestCell): ForestCell => ({ ...cell, status: {
   ...(cell.shield ? { shield: { ...cell.shield } } : {}),
   ...(cell.footprint ? { footprint: [...cell.footprint] } : {}),
   ...(cell.door ? { door: { ...cell.door, footprint: [...cell.door.footprint] } } : {}),
-  intent: { ...cell.intent, cells: [...cell.intent.cells], ...(cell.intent.summonCells ? { summonCells: [...cell.intent.summonCells] } : {}), ...(cell.intent.summonIds ? { summonIds: [...cell.intent.summonIds] } : {}),
+  intent: { ...cell.intent, cells: [...cell.intent.cells],
     ...(cell.intent.charge ? { charge: { ...cell.intent.charge } } : {}),
     ...(cell.intent.empowerIds ? { empowerIds: [...cell.intent.empowerIds] } : {}), ...(cell.intent.empowerCells ? { empowerCells: [...cell.intent.empowerCells] } : {}) } });
 export function cloneBoard(board: (ForestCell | null)[]): (ForestCell | null)[] {
@@ -67,37 +67,10 @@ export function chainAdjacent(state: ForestState, from: number, to: number): boo
   return adjacent(state, from, to);
 }
 export function chainNeighbors(state: ForestState, index: number): number[] { return neighbors(state, index).filter(target => chainAdjacent(state, index, target)); }
-/**
- * One replacement rule for announced summons and special arrivals: a living,
- * unshielded, keyless single-cell ordinary enemy (no variant or a chair) on
- * open floor, never under the cat or a device. The beacon further limits this
- * to calm weak enemies; execution rechecks the same predicate.
- */
-export function canReplaceWithArrival(state: Pick<ForestState, 'cols' | 'rows' | 'terrain' | 'pits' | 'devices' | 'player'>, board: readonly (ForestCell | null)[], index: number): boolean {
-  const cell = board[index];
-  return !!cell && cell.kind === 'melee' && (!cell.variant || cell.variant === 'chair') && isCellAlive(cell)
-    && !cell.shield && !cell.carriesKey && (cell.footprint?.length ?? 1) === 1
-    && index !== state.player.index && isWalkable(state as ForestState, index) && !deviceAt(state as ForestState, index);
-}
 function meleeTargets(state: ForestState, index: number): number[] {
   const footprint = state.board[index]?.footprint;
   if (footprint && footprint.length > 1) return footprintPerimeter(footprint, state.cols, state.rows).filter(target => isWalkable(state, target));
   return neighbors(state, index).filter(target => target % state.cols === index % state.cols || Math.floor(target / state.cols) === Math.floor(index / state.cols));
-}
-/** Sliding pieces stop at the first occupied square; knights alone may jump over blockers. */
-export function chessTargets(state: ForestState, index: number, variant: 'rook' | 'bishop' | 'knight'): number[] {
-  const offsets = variant === 'knight' ? [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]]
-    : variant === 'rook' ? [[1, 0], [-1, 0], [0, 1], [0, -1]] : [[1, 1], [1, -1], [-1, 1], [-1, -1]];
-  const result: number[] = [];
-  for (const [dx, dy] of offsets) for (let step = 1; step <= (variant === 'knight' ? 1 : Math.max(state.cols, state.rows)); step++) {
-    const x = index % state.cols + dx * step, y = Math.floor(index / state.cols) + dy * step;
-    if (x < 0 || x >= state.cols || y < 0 || y >= state.rows) break;
-    const target = y * state.cols + x;
-    if (!isWalkable(state, target) || state.board[target]?.kind === 'door') break;
-    result.push(target);
-    if (state.board[target] || target === state.player.index) break;
-  }
-  return result;
 }
 /** A rotation exchanges two living ordinary enemies; empty cells never qualify. */
 export function canSwapEnemies(state: ForestState, from: number, to: number): boolean {
@@ -110,9 +83,8 @@ export function canSwapEnemies(state: ForestState, from: number, to: number): bo
     return canMoveTo(0, 0, 0, 0, false, false, { valid: () => true, playableMove: () => true,
       cell: () => ({ subtype: 2, kind: 1, power: cell.hp, col: 0, row: 0, face_dir: 1, attack_mode: 0, properties }) });
   };
-  const chess = source?.variant === 'rook' || source?.variant === 'bishop' || source?.variant === 'knight' ? source.variant : null;
-  return !!normal(source) && !!normal(target) && (chess ? chessTargets(state, from, chess).includes(to) : adjacent(state, from, to)
-    && (from % state.cols === to % state.cols || Math.floor(from / state.cols) === Math.floor(to / state.cols)))
+  return !!normal(source) && !!normal(target) && adjacent(state, from, to)
+    && (from % state.cols === to % state.cols || Math.floor(from / state.cols) === Math.floor(to / state.cols))
     && from !== state.player.index && to !== state.player.index;
 }
 /** Announced cells survive occupant death. Empty endpoints will receive fresh ordinary enemies. A boar push cancels pairs it disturbed. */
@@ -126,24 +98,18 @@ export function rotationPreview(state: ForestState, board = state.board, playerI
     else if (deviceAt(state, plan.from) || deviceAt(state, plan.to)) reason = 'Устройство занимает клетку обмена.';
     else if (source?.status.frozen || target?.status.frozen) reason = 'Замороженный участник блокирует обмен.';
     else if ([source, target].some(cell => cell && (cell.kind !== 'melee' && cell.kind !== 'ranged' || (cell.footprint?.length ?? 1) > 1))) reason = 'Эта цель не участвует в обмене.';
-    else if (!rotationGeometryClear(state, plan, board, playerIndex)) reason = 'Путь обмена закрыт.';
+    else if (!rotationGeometryClear(state, plan)) reason = 'Путь обмена закрыт.';
     else if (used.has(plan.from) || used.has(plan.to)) reason = 'Клетка уже участвует в другом обмене.';
     if (!reason) { used.add(plan.from); used.add(plan.to); }
     return { ...plan, active: !reason, ...(reason ? { reason } : {}) };
   });
 }
-function rotationGeometryClear(state: ForestState, plan: RotationPlan, board: (ForestCell | null)[], playerIndex: number): boolean {
-  const { from, to, geometry } = plan;
+/** A cardinal swap needs both cells walkable and side by side. */
+function rotationGeometryClear(state: ForestState, plan: RotationPlan): boolean {
+  const { from, to } = plan;
   if (from === to || !isWalkable(state, from) || !isWalkable(state, to)) return false;
   const dx = to % state.cols - from % state.cols, dy = Math.floor(to / state.cols) - Math.floor(from / state.cols);
-  if (geometry === 'cardinal') return Math.abs(dx) + Math.abs(dy) === 1;
-  if (geometry === 'knight') return Math.abs(dx) * Math.abs(dy) === 2;
-  if (geometry === 'rook' ? dx !== 0 && dy !== 0 : Math.abs(dx) !== Math.abs(dy)) return false;
-  for (let step = 1; step < Math.max(Math.abs(dx), Math.abs(dy)); step++) {
-    const index = from + Math.sign(dx) * step + Math.sign(dy) * step * state.cols;
-    if (!isWalkable(state, index) || board[index] || index === playerIndex) return false;
-  }
-  return true;
+  return Math.abs(dx) + Math.abs(dy) === 1;
 }
 /**
  * `crystal`: a colour-change crystal falls on `index` after the preceding step (one battle-RNG draw), crushing the
@@ -151,7 +117,7 @@ function rotationGeometryClear(state: ForestState, plan: RotationPlan, board: (F
  */
 export type ChainStep = { kind: 'hit'; hit: ChainHit } | { kind: 'device'; index: number; activated: boolean }
   | { kind: 'crystal'; index: number; victimId?: number; value: number };
-export interface ChainSimulation { steps?: ChainStep[]; queuedDevices?: InteractionDevice[]; preview: ChainPreview; board: (ForestCell | null)[]; bossKilled: boolean }
+export interface ChainSimulation { steps?: ChainStep[]; queuedDevices?: InteractionDevice[]; preview: ChainPreview; board: (ForestCell | null)[] }
 /** Stand-in for a fallen crystal on the forecast board (the engine gives the real one its ID at execution). */
 function crystalStandIn(state: ForestState, index: number, id: number): ForestCell {
   return { id, kind: 'prism', color: null, hp: 1, maxHp: 1, armor: 0, countdown: 2, crystalChain: 0,
@@ -177,14 +143,13 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
   const board = cloneBoard(state.board);
   const preview: ChainPreview = { valid: true, length: path.length, enemies: 0, power: 0, endIndex: state.player.index,
     damage: 0, damageBySource: emptyDamageBySource(), threats: [], createsPrism: false, reason: '', hits: [], kills: 0, endsOnSurvivor: false, rotations: rotationPreview(state), energyCost: 0, energyGain: 0 };
-  let bossKilled = false, color: number | null = null, previous = state.player.index;
+  let color: number | null = null, previous = state.player.index;
   let chainPower = 0;
   let temporaryEffect: 'fire' | undefined;
   const steps: ChainStep[] = [], queuedDevices: InteractionDevice[] = [];
   const seenDevices = new Set<number>();
   preview.deviceActivations = []; preview.trapHits = []; preview.trapDamage = 0; preview.trapKills = 0;
   const customProgress = { ...state.objective };
-  const key = { ...state.room.key };
   const seen = new Set<number>();
   const reject = (reason: string) => { preview.valid = false; preview.reason = reason; };
   if (!path.length) reject('Начни цепочку рядом с котом.');
@@ -234,29 +199,26 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
         const availablePower = chainPower;
         // Read before the hit: a porcupine killed by this very hit still fires its quills.
         const spikeDamage = chainSpikeDamage(cell);
-        const opensByKey = cell.kind === 'door' && (state.customLevel ? customGoalsMet(state, customProgress) : key.held || !!cell.door?.breached);
-        const damage = cell.kind === 'door' && (opensByKey || cell.door?.magic) ? 0 : physicalDamage(board, cell, chainPower);
+        // An authored exit opens once every goal is met; the chain never damages it.
+        const opensDoor = cell.kind === 'door' && customGoalsMet(state, customProgress);
+        const damage = cell.kind === 'door' ? 0 : physicalDamage(cell, chainPower);
         const outcome = damageCell(cell, damage, 'physical');
-        const { hpBefore, phaseChanged } = outcome;
-        const killed = opensByKey || outcome.killed;
+        const { hpBefore } = outcome;
+        const killed = opensDoor || outcome.killed;
         // Modifiers affect damage; expenditure never exceeds available power or HP actually removed.
         const powerSpent = Math.min(chainPower, outcome.hpRemoved);
         chainPower -= powerSpent;
         if (!killed && cell.kind !== 'door') applyAttackEffect(cell, temporaryEffect ?? state.player.attackEffect, true);
         const doorOpened = cell.kind === 'door' && killed;
         preview.hits.push({ index, damage, hpBefore, hpAfter: killed ? 0 : cell.hp, killed, physical: true, availablePower, powerSpent, remainingPower: chainPower, ...(spikeDamage ? { spikeDamage } : {}),
-          ...(!killed && (temporaryEffect ?? state.player.attackEffect) ? { attackEffect: temporaryEffect ?? state.player.attackEffect } : {}), ...(doorOpened ? { doorOpened: true } : {}), ...(phaseChanged ? { phaseChanged: true } : {}) });
+          ...(!killed && (temporaryEffect ?? state.player.attackEffect) ? { attackEffect: temporaryEffect ?? state.player.attackEffect } : {}), ...(doorOpened ? { doorOpened: true } : {}) });
         preview.power = chainPower;
         if (killed) {
           removeDefeated(board, cell);
           preview.endIndex = index;
           if (cell.kind !== 'door') { preview.kills++; if (preview.kills % CRYSTAL_KILLS === 0) pendingCrystals++; }
-          if (state.customLevel && cell.kind !== 'door') {
-            creditDefeat(state, cell, customProgress);
-          }
-          if (cell.carriesKey) key.droppedAt = index;
-          if (defeatsRoomBoss(state, cell)) bossKilled = true;
-          if (doorOpened) { key.held = false; preview.opensDoor = index; preview.completesRoom = true; }
+          if (cell.kind !== 'door') creditDefeat(state, cell, customProgress);
+          if (doorOpened) { preview.opensDoor = index; preview.completesRoom = true; }
         }
         else if (step < path.length - 1) { reject('Этот противник выживет. Закончи на нём или накопи больше силы.'); break; }
         preview.endsOnSurvivor = !killed;
@@ -265,7 +227,7 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
           const taken = Math.min(movingPlayer.hp, spikeDamage);
           movingPlayer.hp -= taken; preview.spikeDamage = (preview.spikeDamage ?? 0) + taken; hurt(preview, 'quills', taken);
           if (movingPlayer.hp === 0) {
-            preview.playerDies = true; preview.completesRoom = false; bossKilled = false; delete preview.opensDoor;
+            preview.playerDies = true; preview.completesRoom = false; delete preview.opensDoor;
             steps.push({ kind: 'hit', hit: preview.hits[preview.hits.length - 1] }); seen.add(cell.id);
             break;
           }
@@ -277,9 +239,6 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
       steps.push({ kind: 'hit', hit: preview.hits[preview.hits.length - 1] });
       seen.add(cell.id);
     }
-    if (preview.endIndex === index && key.droppedAt === index) {
-      key.droppedAt = null; key.held = true; preview.keyCollected = true; if (preview.hits[preview.hits.length - 1]?.index === index) preview.hits[preview.hits.length - 1].keyCollected = true;
-    }
     if (preview.endIndex === index && movingPlayer.damageEffects?.bleeding) {
       const step = stepBleeding(movingPlayer.damageEffects);
       assignDamageEffects(movingPlayer, step.effects);
@@ -288,25 +247,25 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
       preview.movementDamage = (preview.movementDamage ?? 0) + damage;
       hurt(preview, 'bleeding', damage);
       if (movingPlayer.hp === 0) {
-        preview.playerDies = true; preview.completesRoom = false; bossKilled = false;
+        preview.playerDies = true; preview.completesRoom = false;
         delete preview.opensDoor;
         break;
       }
     }
     previous = index;
     if (!state.devices.length && preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
-    if (bossKilled || preview.completesRoom) break;
+    if (preview.completesRoom) break;
     // After this step the crystal falls (never on the path still ahead); a victory step ends the battle first.
     if (pendingCrystals) dropCrystals();
   }
   // A crystal that found no cell during the chain tries once more at its end; still none — it is not created.
-  if (preview.valid && !preview.playerDies && !bossKilled && !preview.completesRoom) dropCrystals();
+  if (preview.valid && !preview.playerDies && !preview.completesRoom) dropCrystals();
   pendingCrystals = 0;
   // Its value is the chain's final length (kills), fixed once the chain is over.
   for (const crystal of crystalSteps) crystal.value = preview.kills;
   for (const standIn of standIns) standIn.crystalChain = preview.kills;
   if (preview.valid && !allowIncomplete && preview.enemies < 2 && preview.opensDoor === undefined && !plannedPathValid) reject('Нужны хотя бы два противника в цепочке.');
-  if (!preview.valid) { preview.endIndex = state.player.index; return { preview, board, bossKilled: false }; }
+  if (!preview.valid) { preview.endIndex = state.player.index; return { preview, board }; }
   preview.energyGain = Math.min(7 - state.player.energy, preview.hits.filter(hit => { const cell = state.board[hit.index]; return cell && cell.kind !== 'door' && cell.kind !== 'prism'; }).length * 0.5);
   // An ordinary chain that stops on thorns hurts the cat before any lever resolves.
   if (!preview.playerDies && state.terrain[preview.endIndex] === 'thorns') {
@@ -325,35 +284,33 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
         preview.trapHits.push(impact.hit);
         if (impact.hit.killed && impact.cell?.kind !== 'prism') {
           preview.trapKills++; creditDefeat(state, impact.cell!, customProgress);
-          bossKilled ||= defeatsRoomBoss(state, impact.cell!);
         }
       }
     }
     if (forecastState.player.hp <= 0) { preview.playerDies = true; break; }
   }
-  if (!preview.playerDies && (bossKilled || preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress))) preview.completesRoom = true;
-  if (preview.playerDies) { preview.completesRoom = false; delete preview.opensDoor; bossKilled = false; }
+  if (!preview.playerDies && preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
+  if (preview.playerDies) { preview.completesRoom = false; delete preview.opensDoor; }
   forecastEnemyPhase(state, forecastState, preview, movingPlayer.damageEffects, customProgress);
   // Only the number of fallen crystals is public; their cells and the crushed enemies stay in the internal steps.
   if (crystalSteps.length) { preview.crystals = crystalSteps.length; preview.createsPrism = true; }
-  return { preview, board, bossKilled, steps, queuedDevices };
+  return { preview, board, steps, queuedDevices };
 }
 /**
  * The enemy phase after an action, run on a copy with the live rules: boar charges (boarCharge.ts),
- * attacks in board order with archer arrows striking creatures (enemyPhase.ts), swaps, volley, effect ticks.
+ * attacks in board order with archer arrows striking creatures (enemyPhase.ts), swaps, effect ticks.
  * `after` is the position once the action and its levers resolved. No RNG, no events.
  */
 function forecastEnemyPhase(state: ForestState, after: ForestState, preview: ChainPreview, movementEffects = state.player.damageEffects,
   progress: ObjectiveProgress = state.objective): void {
   // Forced deaths are enemy abilities: as in the live phase (recordDefeat 'enemy') only goal targets and bosses count.
   const credited = { ...progress };
-  if (preview.playerDies) { preview.rotations = []; preview.volleyDamage = 0; return; }
+  if (preview.playerDies) { preview.rotations = []; return; }
   const effectAware = hasDamageEffects(state.player) || !!state.player.attackEffect
     || after.board.some(cell => cell && (hasDamageEffects(cell) || cell.attackEffect));
   let hp = state.player.hp - preview.damage;
   let effects: DamageEffects | undefined = movementEffects ? { ...movementEffects } : undefined;
   if (effectAware) { preview.movementDamage ??= 0; preview.effectDamage = 0; }
-  preview.volleyDamage = 0;
   if (preview.completesRoom) {
     preview.rotations = [];
     if (effectAware) preview.endEffects = effects;
@@ -365,7 +322,7 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
   // Keep the raw threat total for boards without effects; the charge part is always the applied damage.
   const phase: EnemyPhaseForecast = { heroIndex: sim.player.index, charges: [], rams: [], moves: [], deaths: [], knockedDown: [], packBroken: [], empowered: [], regenerated: [] };
   const displaced = new Set<number>(), firstFrom = new Map<number, number>(), lastTo = new Map<number, number>();
-  let chargeDamage = 0, chargeFrom = -1, chargeBoar = -1, bossDown = false;
+  let chargeDamage = 0, chargeFrom = -1, chargeBoar = -1;
   const chargeBreakdown: Record<ChargeDamageCause, number> = { ram: 0, spikes: 0, thorns: 0, pit: 0 };
   for (const impact of resolveCharges(sim, displaced)) {
     if (impact.kind === 'ram' || impact.kind === 'crush') {
@@ -373,7 +330,6 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
       if (impact.cell && impact.killed) {
         phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: impact.kind === 'ram' ? 'ram' : impact.cause });
         creditDefeat(state, impact.cell, credited, 'enemy');
-        bossDown ||= defeatsRoomBoss(state, impact.cell);
       }
     }
     if (impact.kind === 'start') { chargeFrom = impact.index; chargeBoar = impact.boar.id; }
@@ -399,20 +355,11 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
     preview.playerDies = true;
     return;
   }
-  // A room boss killed by a forced death wins the battle once the current step (charges, then attacks) ends.
-  const winsNow = () => {
-    preview.rotations = [];
-    if (effectAware) preview.endEffects = effects;
-    preview.playerDies = effectAware ? hp <= 0 : preview.damage >= state.player.hp;
-    if (!preview.playerDies) phase.completesObjective = true;
-    return;
-  };
-  // Authored goals are checked in settleTurn, after the volley and the cat's own tick, with the turn counted.
+  // Authored goals are checked in settleTurn, after the cat's own tick, with the turn counted.
   const settles = () => {
     if (!preview.playerDies && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, { ...credited, turns: credited.turns + 1 })) phase.completesObjective = true;
     return;
   };
-  if (bossDown) { winsNow(); return; }
   const plan = planEnemyPhase(sim.board, sim.player.index, displaced, sim);
   // Same order as execution: every actor once, re-evaluated when its turn comes (an earlier arrow may have
   // killed this attacker or its packmate).
@@ -433,7 +380,6 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
       if (!impact.killed) continue;
       phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: 'arrow' });
       creditDefeat(state, impact.cell, credited, 'enemy');
-      bossDown ||= defeatsRoomBoss(state, impact.cell);
     }
     // The troll's club falls on every creature in its zone, as in the live phase (troll.ts).
     const club = isTroll(attack.cell) ? swingClub(attack.cell) : null;
@@ -441,35 +387,25 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
       if (!impact.killed) continue;
       phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: 'club' });
       creditDefeat(state, impact.cell, credited, 'enemy');
-      bossDown ||= defeatsRoomBoss(state, impact.cell);
     }
   }
-  if (bossDown && hp > 0) { winsNow(); return; }
   // Shaman rites resolve after the attacks, as in the live phase (UI data only: they never hurt the cat).
   if (hp > 0) for (const rite of shamanRites(sim.board, plan.actors)) phase.empowered.push({ shamanId: rite.shaman.id, id: rite.cell.id, index: rite.index, tier: rite.tier });
-  // Troll regeneration at the end of the phase (UI data only). Damage still to come this phase — the gate volley on
-  // its squares and its own effect tick — is projected with the same kernels the live phase uses.
-  if (hp > 0) for (const { cell, index, indices } of uniqueEntities(sim.board)) {
+  // Troll regeneration at the end of the phase (UI data only). Its own effect tick still to come this phase is
+  // projected with the same kernel the live phase uses.
+  if (hp > 0) for (const { cell, index } of uniqueEntities(sim.board)) {
     if (!isTroll(cell)) continue;
-    const volley = state.hazard.turnsUntil === 1 && indices.some(part => state.hazard.cells.includes(part));
-    const amount = trollRegeneration(cell, volley || effectTickHurts(cell));
+    const amount = trollRegeneration(cell, effectTickHurts(cell));
     if (amount) phase.regenerated.push({ id: cell.id, index, amount });
   }
   preview.rotations = rotationPreview(sim, sim.board, sim.player.index, displaced);
-  const volleyHitsHero = state.hazard.turnsUntil === 1 && state.hazard.cells.includes(sim.player.index);
   if (!effectAware) {
     if (preview.damage >= state.player.hp) deactivate();
-    preview.volleyDamage = volleyHitsHero ? state.hazard.damage : 0;
-    hurt(preview, 'volley', preview.volleyDamage);
     preview.playerDies = preview.damage >= state.player.hp;
     if (preview.playerDies) phase.regenerated = [];
     settles(); return;
   }
   if (hp <= 0) deactivate();
-  if (hp > 0 && volleyHitsHero) {
-    const damage = Math.min(hp, state.hazard.damage);
-    hp -= damage; preview.volleyDamage = damage; hurt(preview, 'volley', damage);
-  }
   if (hp > 0) {
     const tick = tickDamageEffects(effects);
     effects = tick.effects;
@@ -481,14 +417,14 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
   }
   preview.endEffects = effects;
   preview.playerDies = hp <= 0;
-  // A cat killed by the volley or its own tick ends the turn before the regeneration step.
+  // A cat killed by its own tick ends the turn before the regeneration step.
   if (preview.playerDies) phase.regenerated = [];
   settles();
 }
 
 /**
  * Forecast of Rest (`ForestEngine.waitTurn`): no player action, +0,5 energy, then the same enemy phase on a copy —
- * boar charges, attacks, archer arrows, the club, swaps, the gate volley and effect ticks. No RNG, no events.
+ * boar charges, attacks, archer arrows, the club, swaps and effect ticks. No RNG, no events.
  */
 export function simulateRest(state: ForestState): ChainPreview {
   const preview: ChainPreview = { valid: state.phase === 'PLAYER_INPUT', length: 0, enemies: 0, power: 0, endIndex: state.player.index, damage: 0,
@@ -516,31 +452,26 @@ export function simulateAbility(state: ForestState, ability: AbilityKind, target
     const cell = board[index];
     if (!isWalkable(state, index) || index === state.player.index || dx * dx + dy * dy > JUMP_RANGE * JUMP_RANGE) reject(`Прыжок: свободная для приземления клетка в радиусе ${JUMP_RANGE}.`);
     else if (cell?.kind === 'door' || cell?.kind === 'prism') reject('На дверь или огонёк нельзя приземлиться.');
-    else if (cell && (cell.hp > physicalDamage(state.board, cell, 4) || cell.variant === 'wizard' && cell.bossStage === 1)) reject('Цель должна погибнуть от удара при приземлении.');
+    else if (cell && cell.hp > physicalDamage(cell, 4)) reject('Цель должна погибнуть от удара при приземлении.');
     else preview.endIndex = index;
   } else if (!indices.length) reject('Рядом нет противников.');
-  let bossKilled = false;
   const customProgress = { ...state.objective };
-  if (!preview.valid) return { preview, board, bossKilled };
+  if (!preview.valid) return { preview, board };
   const seen = new Set<number>();
   for (const index of indices) {
     const cell = board[index]; if (!cell || seen.has(cell.id)) continue; seen.add(cell.id);
-    const damage = physicalDamage(state.board, cell, 4);
-    const { hpBefore, phaseChanged, killed } = damageCell(cell, damage, 'physical');
+    const damage = physicalDamage(cell, 4);
+    const { hpBefore, killed } = damageCell(cell, damage, 'physical');
     if (!killed) applyAttackEffect(cell, state.player.attackEffect, true);
-    preview.enemies++; preview.hits.push({ index, damage, hpBefore, hpAfter: cell.hp, killed, physical: true, ...(phaseChanged ? { phaseChanged: true } : {}) });
+    preview.enemies++; preview.hits.push({ index, damage, hpBefore, hpAfter: cell.hp, killed, physical: true });
     if (killed) {
       preview.kills++; removeDefeated(board, cell);
-      if (defeatsRoomBoss(state, cell)) bossKilled = true;
-      if (state.customLevel) creditDefeat(state, cell, customProgress);
+      creditDefeat(state, cell, customProgress);
     }
   }
-  if (ability === 'jump' && (state.room.key.droppedAt === preview.endIndex || state.board[preview.endIndex]?.carriesKey)) {
-    preview.keyCollected = true; if (preview.hits[0]) preview.hits[0].keyCollected = true;
-  }
-  preview.completesRoom = bossKilled || state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress);
+  preview.completesRoom = state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress);
   forecastEnemyPhase(state, { ...state, board, player: { ...state.player, index: preview.endIndex } }, preview, state.player.damageEffects, customProgress);
-  return { preview, board, bossKilled };
+  return { preview, board };
 }
 
 /** Intent preparation runs only between turns. Targets never chase a submitted chain. */
@@ -556,7 +487,7 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
     cell.intent = { cells: [], damage: 1, label: 'Готовится' }; cell.countdown = 2;
     // Quills are not a weapon: a lesson porcupine without `armed` still shows them.
     if (cell.variant === 'porcupine') { cell.intent.label = cell.status.frozen > 0 ? 'Заморожен · без игл' : 'Иглы'; return; }
-    if (cell.behavior.passive) { cell.behavior.aggressive = false; cell.intent.label = 'Без оружия'; return; }
+    // The shield-bearer turns its shield toward the cat every turn, armed or not (decision of 30.09.2026).
     if (cell.variant === 'sentinel') {
       const actor: EnemyActor = { subtype: 4, kind: 1, power: cell.hp, col: index % state.cols, row: Math.floor(index / state.cols), face_dir: 1, attack_mode: 0, properties: {} };
       updateShieldDir(actor, state.player.index % state.cols, Math.floor(state.player.index / state.cols), {
@@ -564,13 +495,8 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
       });
       cell.shield = { dx: actor.properties[249] ?? 0, dy: actor.properties[250] ?? 0 };
     }
-    if (cell.variant === 'cabinet') {
-      // Every square of a large cabinet guards its surroundings, not only the first scanned square.
-      const parts = state.board.flatMap((part, partIndex) => part?.id === cell.id ? [partIndex] : []);
-      const around = [...new Set(parts.flatMap(part => neighbors(state, part)))].filter(target => !parts.includes(target)).sort((a, b) => a - b);
-      cell.supportTargetId = around.map(target => state.board[target]).find(target => target && isCellAlive(target) && target.id !== cell.id && target.kind !== 'door' && target.kind !== 'prism' && target.variant !== 'cabinet')?.id;
-    }
-    if (cell.kind === 'door') { cell.intent.label = state.customLevel ? customGoalsMet(state) ? 'Выход открыт' : 'Выполни цели' : cell.door?.breached ? 'Проход открыт' : cell.door?.magic ? 'Нужен ключ или бомба' : 'Ключ или 200 урона'; return; }
+    if (cell.behavior.passive) { cell.behavior.aggressive = false; cell.intent.label = 'Без оружия'; return; }
+    if (cell.kind === 'door') { cell.intent.label = customGoalsMet(state) ? 'Выход открыт' : 'Выполни цели'; return; }
     // Forest beasts and the shaman never join the one-new-goblin aggression queue (forestBeasts.ts).
     if (cell.variant === 'shaman') { cell.intent = { cells: [], damage: 0, label: 'Готовит камлание' }; shamans.push(index); return; }
     if (cell.variant === 'wolf') {
@@ -609,30 +535,20 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
       if (cell.behavior.restTurns > 0) {
         cell.intent.label = 'Отдых';
         if (paired.has(index)) return;
-        const chess = cell.variant === 'rook' || cell.variant === 'bishop' || cell.variant === 'knight' ? cell.variant : null;
-        let target: number | undefined;
-        if (chess) target = chessTargets(state, index, chess).filter(target => canSwapEnemies(state, index, target) && !paired.has(target)).sort((a, b) => a - b)[0];
-        else {
-          // Keep our cardinal, occupied-pair rules; port only the verified three-pass selection.
-          const step = recoveredMoveTowards({ col: index % state.cols, row: Math.floor(index / state.cols),
-            destCol: state.player.index % state.cols, destRow: Math.floor(state.player.index / state.cols), minDist: 0 }, {
-            rand,
-            canMoveTo: (x, y) => x >= 0 && x < state.cols && y >= 0 && y < state.rows
-              && !paired.has(y * state.cols + x) && canSwapEnemies(state, index, y * state.cols + x),
-          });
-          const destination = step.row * state.cols + step.col;
-          if (destination !== index) target = destination;
-        }
-        if (target !== undefined) {
+        // Keep our cardinal, occupied-pair rules; port only the verified three-pass selection.
+        const step = recoveredMoveTowards({ col: index % state.cols, row: Math.floor(index / state.cols),
+          destCol: state.player.index % state.cols, destRow: Math.floor(state.player.index / state.cols), minDist: 0 }, {
+          rand,
+          canMoveTo: (x, y) => x >= 0 && x < state.cols && y >= 0 && y < state.rows
+            && !paired.has(y * state.cols + x) && canSwapEnemies(state, index, y * state.cols + x),
+        });
+        const target = step.row * state.cols + step.col;
+        if (target !== index) {
           cell.intent.moveTo = target; cell.intent.swapWithId = state.board[target]!.id;
           cell.intent.label = 'Отдых · ротация'; paired.add(index); paired.add(target);
-          state.rotations.push({ from: index, to: target, sourceId: cell.id, targetId: state.board[target]!.id, geometry: chess ?? 'cardinal' });
+          state.rotations.push({ from: index, to: target, sourceId: cell.id, targetId: state.board[target]!.id, geometry: 'cardinal' });
         }
         return;
-      }
-      if (cell.variant === 'rook' || cell.variant === 'bishop' || cell.variant === 'knight') {
-        cell.intent.cells = chessTargets(state, index, cell.variant); cell.countdown = 1;
-        cell.intent.label = cell.variant === 'rook' ? 'Прямой удар' : cell.variant === 'bishop' ? 'Диагональный удар' : 'Удар конём'; return;
       }
       const dx = state.player.index % state.cols - index % state.cols, dy = Math.floor(state.player.index / state.cols) - Math.floor(index / state.cols);
       const horizontal = Math.abs(dx) > Math.abs(dy), stepX = horizontal ? Math.sign(dx) || 1 : 0, stepY = horizontal ? 0 : Math.sign(dy) || 1;
@@ -646,19 +562,6 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
       }
       cell.countdown = 1; cell.intent.label = 'Выстрел';
     } else if (cell.kind === 'boss') {
-      if (cell.variant === 'beacon') {
-        cell.intent = { cells: [], damage: 0, label: 'Призыв через 2 хода' };
-        if (cell.status.frozen > 0) { cell.intent.label = 'Заморожен'; return; }
-        if ((cell.behavior.cycle ?? 0) % 2 === 1) {
-          // Calm weak enemies that the arrival step will actually replace.
-          const targets = state.board.flatMap((target, targetIndex) => target && canReplaceWithArrival(state, state.board, targetIndex)
-            && !target.behavior.aggressive && target.maxHp === 0 ? [{ index: targetIndex, id: target.id }] : []).slice(0, 2);
-          cell.intent = { cells: [], damage: 0, label: 'Призыв подкреплений',
-            summonCells: targets.map(target => target.index), summonIds: targets.map(target => target.id) };
-          cell.countdown = 1;
-        }
-        return;
-      }
       if (cell.variant === 'troll') {
         // Windup → strike → rest (troll.ts). The zone is chosen toward the cat when the windup is announced and
         // kept until the strike; frost and rest pause the cycle without losing it.
@@ -678,35 +581,10 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
           return;
         }
       }
-      if (cell.variant === 'wizard') {
-        const cycle = cell.behavior.cycle ?? 0;
-        if (cycle % 3 === 2) {
-          const summonCells: number[] = [];
-          const eligible = (x: number, y: number) => {
-            if (x < 0 || x >= state.cols || y < 0 || y >= state.rows) return false;
-            const targetIndex = y * state.cols + x;
-            return !summonCells.includes(targetIndex) && canReplaceWithArrival(state, state.board, targetIndex);
-          };
-          for (let summon = 0; summon < 2; summon++) {
-            // Native cyclic board scan; our eligibility requires an occupied ordinary chair.
-            const [x, y] = randomLaunchCell(index % state.cols, Math.floor(index / state.cols), -1, -1, state.cols, state.rows,
-              { rand, valid: eligible, marshAt: () => false, cell: () => null });
-            if (eligible(x, y)) summonCells.push(y * state.cols + x);
-          }
-          // IDs are fixed with the cells: a push that moves another chair onto a cell never changes the victim.
-          cell.intent = { cells: [], damage: 0, label: 'Призыв мебели', summonCells, summonIds: summonCells.map(target => state.board[target]!.id) };
-        } else {
-          const x = state.player.index % state.cols, y = Math.floor(state.player.index / state.cols);
-          cell.intent.cells = state.board.flatMap((_target, targetIndex) => isWalkable(state, targetIndex) && (cycle % 3 === 0 ? targetIndex % state.cols === x : Math.floor(targetIndex / state.cols) === y) ? [targetIndex] : []);
-          cell.intent.label = cycle % 3 === 0 ? 'Вертикальный разряд' : 'Горизонтальный разряд';
-          cell.intent.damage = cell.bossStage === 2 ? 2 : 1;
-        }
-        cell.countdown = 1; state.bossWarning = [...cell.intent.cells]; return;
-      }
       const dx = state.player.index % state.cols - index % state.cols, dy = Math.floor(state.player.index / state.cols) - Math.floor(index / state.cols);
       const horizontal = Math.abs(dx) >= Math.abs(dy), sign = horizontal ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
       cell.intent.cells = neighbors(state, index).filter(target => horizontal ? target % state.cols - index % state.cols === sign : Math.floor(target / state.cols) - Math.floor(index / state.cols) === sign);
-      cell.countdown = 1; cell.intent.damage = cell.variant === 'jailer' ? 2 : 1; cell.intent.label = cell.variant === 'jailer' ? 'Тяжёлый удар' : cell.variant === 'commander' ? 'Удар командира' : 'Взмах котелком'; state.bossWarning = [...cell.intent.cells];
+      cell.countdown = 1; cell.intent.damage = cell.variant === 'jailer' ? 2 : 1; cell.intent.label = cell.variant === 'jailer' ? 'Тяжёлый удар' : 'Взмах котелком'; state.bossWarning = [...cell.intent.cells];
     }
   });
   // Pressure accumulates: old windups persist, one calm enemy joins each turn — more as turns pass in map battles

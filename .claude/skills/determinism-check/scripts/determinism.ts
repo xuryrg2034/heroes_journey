@@ -1,10 +1,12 @@
 /**
  * Smoke-check determinism of real play: the same seed and the same actions must
  * produce identical states, and preview/move search must not touch state, RNG or IDs.
+ * Scenes: every battle node of the forest map (as in a run) and the editor camp fixture.
  * Usage: npx tsx .claude/skills/determinism-check/scripts/determinism.ts [turns] [seed...]
  */
 import { ForestEngine } from '../../../../src/game/forestEngine';
-import { TUTORIAL_LESSONS } from '../../../../src/game/tutorialLevels';
+import { FOREST_MAP } from '../../../../src/game/run/forestMap';
+import { forestFixtureLevel, nodeBattleSetup } from '../../../../src/game/testing/fixtures';
 
 type Runtime = { rng: number; nextId: number };
 type Scene = { name: string; start: (seed: number) => ForestEngine | null };
@@ -14,15 +16,11 @@ const turns = args[0] ?? 6;
 const seeds = args.length > 1 ? args.slice(1) : [1, 83, 701, 987654321];
 
 function fresh() { const g = new ForestEngine(); g.animationScale = 0; return g; }
-function seededLesson(index: number, seed: number) {
-  const definition = TUTORIAL_LESSONS[index].definition, previous = definition.seed;
-  try { definition.seed = seed; const g = fresh(); return g.startTutorial(index) ? g : null; }
-  finally { definition.seed = previous; }
-}
+// Every battle node of the forest map, started as in a run with the scene seed; plus the editor camp fixture.
 const scenes: Scene[] = [
-  ...TUTORIAL_LESSONS.map((lesson, index) => ({ name: `lesson ${index + 1} (${lesson.id})`, start: (seed: number) => seededLesson(index, seed) })),
-  { name: 'campaign', start: seed => { const g = fresh(); g.startCampaign(seed); return g; } },
-  { name: 'castle', start: seed => { const g = fresh(); g.startCastle(seed); return g; } },
+  ...FOREST_MAP.flatMap(node => node.content.kind === 'battle' ? [{ name: `${node.id} (${node.content.battleId})`,
+    start: (seed: number) => { const g = fresh(); return g.startRunBattle(nodeBattleSetup((node.content as { battleId: string }).battleId, { seed })) ? g : null; } }] : []),
+  { name: 'editor camp fixture', start: seed => { const g = fresh(); return g.startCustomLevel(forestFixtureLevel(seed)) ? g : null; } },
 ];
 
 function fingerprint(g: ForestEngine) {

@@ -26,7 +26,7 @@ argument-hint: "<описание механики>"
 | Ожидание, отмена | `turnRuntime.ts` | Проверка поколения сцены после каждого ожидания |
 | Прогноз | `forestSystems.ts` | Считается на копии поля, без RNG и событий; раздельные поля урона |
 | Генерация | `boardGeneration.ts`, `forestEngine.ts` | Новые клетки исключены из пополнения, если это нужно; выжившие не перекрашиваются |
-| Уроки | `lessons/*.ts`, `lessonBuilder.ts` | Разрешения `allowedItems`/`allowedAbilities` проверяются движком |
+| Бои карты | `run/battles/*.ts`, `lessonBuilder.ts`, `run/forestMap.ts` | Инструменты открывает поход (`grants`, находки), движок проверяет `runNode.allowed*` |
 | Редактор, JSON | `customLevel.ts`, `editor/LevelEditor.ts` | Валидация, обратная совместимость старого JSON, UI выбора |
 | Рендер, звук | `render/*.ts`, `audio.ts` | Реагируют на события и не влияют на результат; многоклеточные фигуры через `uniqueEntities` |
 | Арт | `characterAssets.ts` | Новый `kind`/`variant` → `CHARACTER_ART_IDS`, процедурный резерв (скилл `character-art`) |
@@ -43,7 +43,7 @@ argument-hint: "<описание механики>"
 
 - `README.md`: правила, управление, список проверок.
 - `docs/architecture.md`: модуль, фаза хода.
-- Профильный документ или новый в `docs/`; для уроков — `docs/levels/`.
+- Профильный документ или новый в `docs/`; для боёв карты — `docs/levels/` и `docs/biomes/forest-map.md`.
 - Удалить устаревшие утверждения. Результаты проверок датировать.
 
 ## 4. Приёмка

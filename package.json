@@ -9,7 +9,6 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "playwright test",
     "test:rules": "tsx src/game/forest.spec.ts",
-    "test:campaign": "tsx src/game/campaign.spec.ts",
     "test:abilities": "tsx src/game/abilities.spec.ts",
     "test:recovery": "tsx src/game/recovery.spec.ts",
     "test:recovered-rules": "tsx src/game/recoveredRules.spec.ts",
@@ -20,15 +19,15 @@
     "test:generation": "tsx src/game/generation.spec.ts",
     "test:turn-pipeline": "tsx src/game/turnPipeline.spec.ts",
     "test:damage-effects": "tsx src/game/damageEffects.spec.ts && tsx src/game/damageEffectsIntegration.spec.ts",
-    "test:tutorial": "tsx src/game/tutorial.spec.ts",
+    "test:trunk-battles": "tsx src/game/trunkBattles.spec.ts",
     "test:chain-budget": "tsx src/game/chainBudget.spec.ts",
     "test:devices": "tsx src/game/devices.spec.ts",
-    "test:tutorial-capabilities": "tsx src/game/tutorialCapabilities.spec.ts",
-    "test:advanced-tutorial": "tsx src/game/advancedTutorial.spec.ts",
+    "test:node-tools": "tsx src/game/nodeTools.spec.ts",
+    "test:items": "tsx src/game/items.spec.ts",
     "test:pits": "tsx src/game/pits.spec.ts",
-    "test:pit-lessons": "tsx src/game/pitLessons.spec.ts",
     "test:jailer-rules": "tsx src/game/jailerRules.spec.ts",
-    "test:chapter-finale": "tsx src/game/chapterFinale.spec.ts",
+    "test:shared-battles": "tsx src/game/sharedBattles.spec.ts",
+    "test:chief-battle": "tsx src/game/chiefBattle.spec.ts",
     "test:palette-generation": "tsx src/game/palette-generation.spec.ts",
     "test:refill-randomness": "tsx src/game/refill-randomness.spec.ts",
     "test:review-fixes": "tsx src/game/reviewFixes.spec.ts",
@@ -42,7 +41,8 @@
     "test:beast-battles": "tsx src/game/beastBattles.spec.ts",
     "test:troll-arena": "tsx src/game/trollArena.spec.ts",
     "test:playtest-rules": "tsx src/game/playtestRules.spec.ts",
-    "analyze:levels": "tsx scripts/analyze-levels.ts"
+    "analyze:levels": "tsx scripts/analyze-levels.ts",
+    "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"

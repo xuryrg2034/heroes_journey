@@ -109,7 +109,7 @@ async function edges() {
   const prediction = await commit(g, [at(0, 5), at(0, 4)], 'spiked edge');
   equal(prediction.enemyPhase!.deaths.map(death => [death.id, death.cause]), doomed.map(id => [id, 'spikes']), 'forecast names the enemies pushed onto the spikes');
   assert(doomed.every(id => !cellById(g, id)), 'three enemies die on the spikes');
-  equal([g.state.objective.kills, g.state.room.combatKills], [2, 2], 'spike deaths are not the player’s kills');
+  equal(g.state.objective.kills, 2, 'spike deaths are not the player’s kills');
   equal([indexOf(g, boar), indexOf(g, sturdy), indexOf(g, second)], [at(2, 3), at(2, 4), at(2, 5)], 'the boar advances its full length');
   movesMatch(g, prediction, 'spiked edge');
   dense(g, 'spiked edge');
@@ -265,7 +265,7 @@ async function archer() {
   assert(!cellById(g, weak) && !cellById(g, armed.id) && !cellById(g, far), 'weak creatures on the lines die');
   equal(sturdy.hp, 2, 'a sturdy creature on the line is wounded');
   assert(cellById(g, prism.id) && cellById(g, door.id) && door.hp === 1 && !door.door?.breached, 'prisms and doors are not struck');
-  equal([g.state.objective.kills, g.state.room.combatKills], [2, 2], 'arrow kills are not credited to the player');
+  equal(g.state.objective.kills, 2, 'arrow kills are not credited to the player');
 }
 
 // Seeded replay, forecast purity and cancellation of a stale turn during a charge.
@@ -348,13 +348,14 @@ async function largeHolder() {
   const definition = level(['11K11', '11111', '11111', '11111', '11111', '1@111'], {}, { spikedEdges: ['bottom'] });
   const footprint = [at(2, 1), at(3, 1), at(2, 2), at(3, 2)];
   definition.enemies = definition.enemies.filter(enemy => !footprint.includes(enemy.index));
-  definition.enemies.push({ index: at(2, 1), kind: 'melee', color: 1, hp: 10, variant: 'wardrobe', footprint });
+  // A plain 2×2 goblin (the castle wardrobe was removed; the editor still allows a large ordinary melee enemy).
+  definition.enemies.push({ index: at(2, 1), kind: 'melee', color: 1, hp: 10, footprint });
   const g = start(definition);
   const wardrobe = g.state.board[at(2, 1)]!, boar = g.state.board[at(2, 0)]!, below = [3, 4, 5].map(y => idAt(g, at(2, y)));
-  assert(boar.intent.charge, 'the boar announces its charge into the wardrobe');
+  assert(boar.intent.charge, 'the boar announces its charge into the large figure');
   const prediction = await commit(g, [at(0, 5), at(0, 4)], 'large holder');
   equal(prediction.enemyPhase!.charges, [{ boarId: boar.id, from: at(2, 0), to: at(2, 0), stunned: true }], 'forecast: the boar is stopped and stunned');
-  assert(footprint.every(index => g.state.board[index] === wardrobe) && wardrobe.hp === 10 - BOAR_DAMAGE, 'the wardrobe stays in place and takes the ram');
+  assert(footprint.every(index => g.state.board[index] === wardrobe) && wardrobe.hp === 10 - BOAR_DAMAGE, 'the large figure stays in place and takes the ram');
   equal([3, 4, 5].map(y => idAt(g, at(2, y))), below, 'nothing behind it moves');
   assert(boar.behavior.restTurns === 1 && boar.status.brittle, 'zero advance stuns the boar');
 }
@@ -402,33 +403,6 @@ async function ramWithEffects() {
   assert(events.indexOf('damage:ram') < events.indexOf('status:') && events.indexOf('damage:fire') < events.indexOf('damage:poison'), `ram, its effect, then burning before poison: ${events.join(' ')}`);
 }
 
-// Wizard summon victims are fixed IDs: a boar pushing another chair onto an announced cell never changes the victim.
-async function wizardSummonFixed() {
-  const legend: Record<string, Tile> = {
-    W: { enemy: { kind: 'melee', color: 1, hp: 3, variant: 'boar' }, terrain: 'puddle' }, Z: { enemy: { kind: 'boss', color: null, hp: 18, variant: 'wizard' } },
-    E: { enemy: { kind: 'melee', color: 0, hp: 10, variant: 'elite' } }, C: { enemy: { kind: 'melee', color: 0, hp: 0, variant: 'chair' } },
-    s: { enemy: { kind: 'melee', color: 0, hp: 0, variant: 'stool' } },
-  };
-  const rows = ['sWssZ', 'sEsss', 'sCsss', 'sCsss', 'sss@s'];
-  const scene = async (freezeLast: boolean) => {
-    const g = start(level(rows, legend, { playerHp: 20, inventory: { frost: 3 } }));
-    for (let turn = 0; turn < 2; turn++) assert(g.prepareFrost(at(1, 0)) && await g.waitTurn(), `turn ${turn + 1}: the frozen boar waits`);
-    const wizard = g.state.board[at(4, 0)]!;
-    const victim = idAt(g, at(1, 3))!, other = idAt(g, at(1, 2))!;
-    assert(wizard.intent.summonCells?.includes(at(1, 3)), 'the wizard announces the lower chair');
-    if (freezeLast) assert(g.prepareFrost(at(1, 0)), 'control: the boar stays frozen');
-    const arrivals: { index: number; oldId: number }[] = [];
-    g.subscribe((_state, event) => { if (event.type === 'special-arrival' && event.text === 'ПРИЗЫВ') arrivals.push({ index: event.index!, oldId: event.oldId! }); });
-    await commit(g, [at(2, 3), at(1, 4), at(2, 4)], freezeLast ? 'summon without push' : 'summon after push');
-    return { g, victim, other, arrivals };
-  };
-  const pushed = await scene(false);
-  assert(!pushed.arrivals.some(arrival => arrival.index === at(1, 3)) && cellById(pushed.g, pushed.other)?.variant === 'chair', 'the pushed-in chair is not summoned over');
-  equal(idAt(pushed.g, at(1, 3)), pushed.other, 'the push moved the other chair onto the announced cell');
-  const still = await scene(true);
-  assert(still.arrivals.some(arrival => arrival.index === at(1, 3) && arrival.oldId === still.victim), 'control: without the push the announced chair is replaced');
-}
-
 async function main() {
   validation();
   await compression();
@@ -447,8 +421,7 @@ async function main() {
   await catOnDevice();
   await swapCancelled();
   await ramWithEffects();
-  await wizardSummonFixed();
-  console.log('PASS boar: two boars in order, pushed boar skips, wardrobe holds, cat on a device, swap cancelled by a push, ram effect with burning and poison, wizard summon IDs fixed before pushes, compression, spiked/plain edges, cat on spikes, thorns, stun, knock-down, pushed into an attack, shield/frost/boss holders, frozen boar, pit, orthogonal lanes, archer friendly fire, forecast = execution, replay and restart');
+  console.log('PASS boar: two boars in order, pushed boar skips, a large figure holds, cat on a device, swap cancelled by a push, ram effect with burning and poison, compression, spiked/plain edges, cat on spikes, thorns, stun, knock-down, pushed into an attack, shield/frost/boss holders, frozen boar, pit, orthogonal lanes, archer friendly fire, forecast = execution, replay and restart');
 }
 main().catch(error => { console.error(error); throw error; });
 

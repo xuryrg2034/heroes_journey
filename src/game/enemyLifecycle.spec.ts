@@ -1,4 +1,5 @@
-import { ForestEngine } from './forestEngine';
+import type { ForestEngine } from './forestEngine';
+import { startForestFixture } from './testing/fixtures';
 import { meleeCanAttack, meleeLifecycle, MELEE_AGGRESSION_START_TURN } from './enemyLifecycle';
 import { prepareIntents } from './forestSystems';
 import type { ForestCell } from './forestTypes';
@@ -11,10 +12,10 @@ function unit(kind: ForestCell['kind'] = 'melee'): ForestCell {
     status: { wet: false, frozen: 0, brittle: false }, behavior: { aggressive: false, restTurns: 0 }, intent: { cells: [], damage: 1, label: '' } };
 }
 function fixture(index = 17) {
-  const g = new ForestEngine(701); g.animationScale = 0; g.startLevel();
+  const g = startForestFixture(701);
   g.state.player.index = 24; g.state.player.energy = 0; g.state.terrain.fill('floor');
   g.state.board = Array.from({ length: 49 }, (_, i) => i === 24 ? null : unit('prism'));
-  g.state.board[index] = unit(); g.state.wave = 3; g.state.spawnCounts = { archers: 2, boss: 1 }; prepareIntents(g.state);
+  g.state.board[index] = unit(); prepareIntents(g.state);
   return { g, enemy: g.state.board[index]! };
 }
 async function commit(g: ForestEngine, path: number[]) {

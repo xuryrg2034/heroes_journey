@@ -11,7 +11,6 @@
  * docs/level-metrics.md for definitions and limits.
  */
 import { ForestEngine, type AnalysisSnapshot } from './forestEngine';
-import { TUTORIAL_LESSONS } from './tutorialLevels';
 import { chainAdjacent, isWalkable, JUMP_RANGE } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { isCellAlive } from './cellLife';
@@ -179,7 +178,7 @@ function hashString(text: string): string {
   return (a >>> 0).toString(36) + ':' + (b >>> 0).toString(36);
 }
 // Presentation text and static authored data never change what can happen next.
-const IGNORED_KEYS = new Set(['message', 'score', 'lastDamage', 'chain', 'chosenAbility', 'level', 'waveLabel', 'hintDismissed', 'definition']);
+const IGNORED_KEYS = new Set(['message', 'score', 'lastDamage', 'chain', 'chosenAbility', 'level', 'hintDismissed', 'definition']);
 function stateText(state: ForestState): string {
   return JSON.stringify(state, (key, value) => IGNORED_KEYS.has(key) ? undefined : value);
 }
@@ -560,10 +559,9 @@ export function staticMetrics(state: ForestState, rootActions: ActionInfo[]): St
   const sizes = new Map<number, number>();
   colored.forEach((_, n) => sizes.set(find(n), (sizes.get(find(n)) ?? 0) + 1));
   const componentSizes = [...sizes.values()].sort((a, b) => b - a);
-  const armed = entities.filter(({ cell }) => !cell.behavior.passive && cell.variant !== 'beacon' && cell.variant !== 'porcupine' && cell.variant !== 'shaman');
+  const armed = entities.filter(({ cell }) => !cell.behavior.passive && cell.variant !== 'porcupine' && cell.variant !== 'shaman');
   const attacked = new Set<number>();
   for (const { cell } of armed) if (cell.intent.damage > 0) for (const index of cell.intent.cells) if (walkable[index]) attacked.add(index);
-  if (state.hazard.turnsUntil === 1) for (const index of state.hazard.cells) attacked.add(index);
   const chains = rootActions.filter(info => info.action.kind === 'chain');
   const count = (kind: AnalysisAction['kind']) => rootActions.filter(info => info.action.kind === kind).length;
   return {
@@ -742,30 +740,21 @@ async function fragileCells(analyzer: Analyzer, base: AnalysisSnapshot, seeds: n
 // ---------------------------------------------------------------- entry points
 
 export type LevelSource =
-  | { kind: 'lesson'; index: number }
   | { kind: 'custom'; definition: CustomLevelDefinition | unknown; id?: string }
-  | { kind: 'forest'; seed?: number }
   /** Forest-map node battle started as in a run (src/game/run/nodeAnalysis.ts). */
   | { kind: 'run-node'; target: NodeAnalysisTarget };
 
 /** Start a level on a fresh engine; returns null if the engine rejects it. */
 export function startLevelEngine(source: LevelSource): ForestEngine | null {
   const engine = new ForestEngine(); engine.animationScale = 0;
-  if (source.kind === 'lesson') return engine.startTutorial(source.index) ? engine : null;
   if (source.kind === 'custom') return engine.startCustomLevel(source.definition) ? engine : null;
-  if (source.kind === 'run-node') return engine.startRunBattle(source.target.setup) ? engine : null;
-  engine.startLevel(0, source.seed ?? 701);
-  return engine;
+  return engine.startRunBattle(source.target.setup) ? engine : null;
 }
 
 export function sourceInfo(source: LevelSource, engine: ForestEngine) {
-  if (source.kind === 'lesson') return { id: `lesson-${source.index + 1}`, name: engine.state.level.name, source: `tutorial ${source.index + 1} (${TUTORIAL_LESSONS[source.index].id})` };
   if (source.kind === 'custom') return { id: source.id ?? 'custom', name: engine.state.level.name, source: 'custom JSON' };
-  if (source.kind === 'run-node') {
-    const { target } = source, tools = [...target.tools.items, ...target.tools.abilities].join('+') || 'none';
-    return { id: target.id, name: engine.state.level.name, source: `forest node row ${target.row}, tools ${tools}, 5 HP, 0 energy, no items` };
-  }
-  return { id: 'forest', name: engine.state.level.name, source: 'forest trial' };
+  const { target } = source, tools = [...target.tools.items, ...target.tools.abilities].join('+') || 'none';
+  return { id: target.id, name: engine.state.level.name, source: `forest node row ${target.row}, tools ${tools}, 5 HP, 0 energy, no items` };
 }
 
 /**
@@ -858,14 +847,5 @@ export async function analyzeEngine(engine: ForestEngine, partial: Partial<Analy
 export async function analyzeLevel(source: LevelSource, partial: Partial<AnalysisOptions> = {}): Promise<LevelAnalysis> {
   const engine = startLevelEngine(source);
   if (!engine) throw new Error('The engine rejected the level.');
-  const options = { ...partial };
-  const notes: string[] = [];
-  if (source.kind === 'forest') {
-    // Three waves and a 20 HP boss are far beyond any affordable search horizon.
-    options.search = false;
-    notes.push('Forest: tree search and restricted solvers are skipped (victory needs three waves); static metrics and agents only.');
-  }
-  const result = await analyzeEngine(engine, options, sourceInfo(source, engine));
-  result.notes.push(...notes);
-  return result;
+  return analyzeEngine(engine, { ...partial }, sourceInfo(source, engine));
 }

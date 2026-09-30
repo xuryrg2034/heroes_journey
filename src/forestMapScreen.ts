@@ -3,7 +3,7 @@
  * (src/game/run/forestRun.ts) decides everything; this module reads forestRunView() and draws it.
  * main.ts owns the screen switching, saving and the battle hand-off.
  */
-import { ITEMS } from './game/campaignContent';
+import { ITEMS } from './game/items';
 import { summarizeDamageEffects } from './game/damageEffects';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { FOREST_MAP, forestNode, hasVictoryFind, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
@@ -85,7 +85,6 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
   if (node.feature) lines.push(`Особенность поля: <b>${escapeHtml(node.feature)}</b>`);
   lines.push(content.kind === 'rest' ? `Лечит на ${content.heal} HP и снимает эффекты (параметр временный)`
     : content.kind === 'in-development' ? escapeHtml(content.planned)
-    : content.kind === 'forest-trial' ? 'Три волны, в финале Главарь'
     : info.hint);
   if (hasVictoryFind(node)) lines.push('После победы — находка: выбор 1 из 3');
   const grants = grantText(node);
@@ -94,7 +93,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
   if (reward) lines.push(`После победы открывает: <b>${reward}</b>`);
   const palette = nodeRefillPalette(node)?.filter(weight => weight > 0).length;
   if (palette) lines.push(`Цветов в пополнении: ${palette}`);
-  if (node.placeholder) lines.push(`Пока стоит авторский бой начала пути. Будет: ${escapeHtml(node.placeholder.planned.toLowerCase())}`);
+  if (node.placeholder) lines.push(`Пока стоит временный бой. Будет: ${escapeHtml(node.placeholder.planned.toLowerCase())}`);
   const tags = [
     `<span class="map-tag">${info.label}</span>`,
     node.placeholder ? '<span class="map-tag temp">временно</span>' : '',

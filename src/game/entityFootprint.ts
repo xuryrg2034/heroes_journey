@@ -1,9 +1,6 @@
-import { isCellAlive } from './cellLife';
-import type { ForestCell, ForestState } from './forestTypes';
-import { walkableTerrain } from './terrain';
+import type { ForestCell } from './forestTypes';
 
 type Footprinted = Pick<ForestCell, 'door'> & { footprint?: readonly number[] };
-type SpatialState = Pick<ForestState, 'cols' | 'rows' | 'terrain' | 'board' | 'player'>;
 /** Declared occupancy, with compatibility for existing gate doors and single cells. */
 export function occupiedIndices(cell: Footprinted | null | undefined, anchor: number): number[] {
   return [...(cell?.footprint ?? cell?.door?.footprint ?? [anchor])];
@@ -37,22 +34,6 @@ export function footprintFromOffsets(anchor: number, cols: number, rows: number,
     result.push(index); seen.add(index);
   }
   return result;
-}
-export function canPlaceFootprint(state: SpatialState, indices: readonly number[], options: { replaceOrdinary?: boolean; ignoreId?: number } = {}): boolean {
-  if (!indices.length || new Set(indices).size !== indices.length) return false;
-  const target = new Set(indices), occupants = uniqueEntities(state.board);
-  for (const index of indices) {
-    if (!Number.isInteger(index) || index < 0 || index >= state.cols * state.rows || index === state.player.index
-      || !walkableTerrain(state.terrain[index])) return false;
-    const cell = state.board[index];
-    if (!cell || cell.id === options.ignoreId) continue;
-    if (!options.replaceOrdinary || cell.kind !== 'melee' || !isCellAlive(cell) || cell.carriesKey || cell.shield
-      || cell.variant && cell.variant !== 'chair') return false;
-    // Both declared and actual aliases must be wholly replaced, even on malformed boards.
-    if (occupiedIndices(cell, index).some(occupied => !target.has(occupied))) return false;
-    if (occupants.find(occupant => occupant.cell.id === cell.id)!.indices.some(occupied => !target.has(occupied))) return false;
-  }
-  return true;
 }
 export function footprintPerimeter(indices: readonly number[], cols: number, rows: number): number[] {
   const occupied = new Set(indices), perimeter = new Set<number>();

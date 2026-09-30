@@ -43,9 +43,10 @@ function source(event: EngineEvent, enemyPhase: boolean, state: ForestState): He
   if (event.effect === 'poison') return 'poison';
   if (!enemyPhase) return event.text === 'thorns' ? 'thorns' : 'trap';
   if (['ram', 'spikes', 'thorns', 'pit'].includes(event.text ?? '')) return 'charge';
-  if (event.from === undefined) return 'volley';
+  // Since the gate volley was removed (30.09.2026) every enemy-phase blow names its attacker.
+  if (event.from === undefined) throw new Error(`unattributed enemy-phase damage event: ${JSON.stringify(event)}`);
   const attacker = state.board[event.from];
-  return attacker?.kind === 'ranged' ? 'ranged' : attacker?.kind === 'boss' ? 'boss' : 'melee';
+  return attacker?.kind === 'ranged' ? 'ranged' : attacker?.variant === 'troll' ? 'troll' : attacker?.kind === 'boss' ? 'boss' : 'melee';
 }
 
 const covered = new Set<string>();
@@ -111,17 +112,7 @@ async function main() {
   await play(level(['11K11', '11H11', '11111', '11111', '11001', '110@1'], { ...LEGEND, H: { enemy: { kind: 'melee', color: 1, hp: 3 } } }, { spikedEdges: ['bottom'] }), [[at(3, 4), at(2, 4), at(2, 5)]], 'edge spikes');
   // The chain ends on the archer's announced line.
   await play(level(['A1111', '11111', '11111', '@1111', '11111'], LEGEND), [[at(1, 2), at(0, 2)]], 'archer line');
-  // Gate volley: the real gate room of the campaign, forecast with the volley on the cat's cell.
-  for (const seed of [1, 83, 701]) {
-    const g = new ForestEngine(); g.animationScale = 0; g.startCampaign(seed);
-    for (let turn = 0; turn < 7 && g.state.phase === 'PLAYER_INPUT'; turn++) {
-      const moves = g.availableMoves(6);
-      const path = moves.find(move => g.state.hazard.turnsUntil === 1 && g.state.hazard.cells.includes(g.preview(move).endIndex)) ?? moves[0];
-      if (!path) break;
-      await commit(g, path, `gate seed ${seed} turn ${turn}`);
-    }
-  }
-  const expected = ['quills', 'thorns', 'trap', 'charge', 'charge.ram', 'charge.spikes', 'charge.thorns', 'charge.pit', 'melee', 'ranged', 'boss', 'burning', 'poison', 'bleeding', 'volley'];
+  const expected = ['quills', 'thorns', 'trap', 'charge', 'charge.ram', 'charge.spikes', 'charge.thorns', 'charge.pit', 'melee', 'ranged', 'boss', 'burning', 'poison', 'bleeding'];
   const missing = expected.filter(key => !covered.has(key));
   assert(!missing.length, `the scenarios exercise every source; missing ${missing.join(', ')}`);
   console.log(`PASS damage breakdown: sources sum to damage and match executed events (${[...covered].sort().join(', ')})`);

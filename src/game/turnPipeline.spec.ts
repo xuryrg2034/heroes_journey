@@ -1,4 +1,5 @@
-import { ForestEngine } from './forestEngine';
+import type { ForestEngine } from './forestEngine';
+import { startForestFixture } from './testing/fixtures';
 import { damageCell, physicalDamage } from './combatRules';
 import { planEnemyPhase } from './enemyPhase';
 import { simulateChain } from './forestSystems';
@@ -17,14 +18,10 @@ function cell(kind: ForestCell['kind'] = 'melee', hp = kind === 'melee' ? 0 : 4)
 }
 
 function fixture(): ForestEngine {
-  const game = new ForestEngine(701);
-  game.animationScale = 0;
-  game.startLevel();
+  const game = startForestFixture(701);
   game.state.player.index = 24;
   game.state.terrain.fill('floor');
   game.state.board = Array.from({ length: 49 }, (_, index) => index === 24 ? null : cell('prism', 1));
-  game.state.wave = 3;
-  game.state.spawnCounts = { archers: 2, boss: 1 };
   return game;
 }
 
@@ -81,7 +78,7 @@ async function runtimeCancellation(): Promise<void> {
   console.log('PASS turn runtime closes invalidated sequences at event and asynchronous wait boundaries');
 }
 
-async function attackSwapHazardOrder(): Promise<void> {
+async function attackBeforeSwap(): Promise<void> {
   const game = fixture();
   const attacker = cell(), mover = cell('ranged', 7), partner = cell('melee', 4);
   attacker.behavior.aggressive = true;
@@ -93,39 +90,17 @@ async function attackSwapHazardOrder(): Promise<void> {
   game.state.board[20] = mover;
   game.state.board[13] = partner;
   game.state.rotations = [{ from: 20, to: 13, sourceId: mover.id, targetId: partner.id, geometry: 'cardinal' }];
-  game.state.hazard = { cells: [20, 24], turnsUntil: 1, damage: 2 };
   const events: string[] = [];
   game.subscribe((_state, event) => {
-    if (['attack', 'damage', 'enemy-swap', 'arrow-volley', 'hit'].includes(event.type)) events.push(event.type);
+    if (['attack', 'damage', 'enemy-swap', 'hit'].includes(event.type)) events.push(event.type);
   });
   assert(await game.waitTurn(), 'ordered turn completes');
-  const attack = events.indexOf('attack'), swap = events.indexOf('enemy-swap'), volley = events.indexOf('arrow-volley');
-  assert(attack >= 0 && attack < swap && swap < volley, 'fixed attack resolves before swap, then hazard');
-  assert(game.state.player.hp === 2 && game.state.lastDamage === 3, 'attack and hazard each damage the hero exactly once');
-  assert(game.state.board[20]?.id === partner.id && game.state.board[20]?.hp === 2,
-    'hazard hits the occupant after the swap');
-  console.log('PASS fixed attacks precede rotation, and hazard strikes the rotated board');
-}
-
-async function summonedEnemyWaits(): Promise<void> {
-  const game = fixture();
-  const wizard = cell('boss', 18), victim = cell();
-  wizard.variant = 'wizard';
-  wizard.intent = { cells: [], damage: 0, label: 'Summon', summonCells: [17] };
-  game.state.board[0] = wizard;
-  game.state.board[17] = victim;
-  const attacks: number[] = [];
-  game.subscribe((_state, event) => { if (event.type === 'attack' && event.from === 17) attacks.push(game.state.turn); });
-  assert(await game.waitTurn(), 'summoning turn completes');
-  const newcomer = game.state.board[17];
-  assert(newcomer?.variant === 'stool' && newcomer.id !== victim.id, 'wizard replaces the announced victim');
-  assert(game.state.player.hp === 5 && attacks.length === 0, 'newcomer gets no action in its arrival turn');
-  wizard.status.frozen = 1; // Isolate the new actor from the wizard's next spell.
-  const completed = await game.waitTurn();
-  const afterSecondTurn = { attackTurns: [...attacks], hp: game.state.player.hp };
-  assert(completed && afterSecondTurn.attackTurns.length === 1 && afterSecondTurn.attackTurns[0] === 2 && afterSecondTurn.hp === 4,
-    'newcomer may act on the following turn');
-  console.log('PASS summoned newcomer enters after actor snapshot and attacks only next turn');
+  const attack = events.indexOf('attack'), swap = events.indexOf('enemy-swap');
+  assert(attack >= 0 && attack < swap, 'fixed attack resolves before swap');
+  assert(game.state.player.hp === 4 && game.state.lastDamage === 1, 'the attack damages the hero exactly once');
+  assert(game.state.board[20]?.id === partner.id && game.state.board[13]?.id === mover.id && game.state.board[20]?.hp === 4,
+    'the swap exchanges both occupants intact');
+  console.log('PASS fixed attacks precede rotation');
 }
 
 async function lethalForecastStopsLaterPhases(): Promise<void> {
@@ -146,15 +121,14 @@ async function lethalForecastStopsLaterPhases(): Promise<void> {
   game.state.board[20] = mover;
   game.state.board[13] = partner;
   game.state.rotations = [{ from: 20, to: 13, sourceId: mover.id, targetId: partner.id, geometry: 'cardinal' }];
-  game.state.hazard = { cells: [22], turnsUntil: 1, damage: 2 };
 
   const path = [23, 22], simulation = simulateChain(game.state, path);
   assert(simulation.preview.valid, 'lethal route is legal');
   const planned = planEnemyPhase(simulation.board, simulation.preview.endIndex);
   assert(planned.attacks.map(attack => attack.index).join() === '15,21'
     && simulation.preview.threats.join() === '15,21', 'forecast and execution planner select the same ordered attackers');
-  assert(simulation.preview.damage === 6 && simulation.preview.volleyDamage === 2,
-    'forecast includes both fixed attacks and the announced hazard');
+  assert(simulation.preview.damage === 4 && !simulation.preview.rotations[0].active,
+    'forecast includes both fixed attacks and cancels the rotation after the lethal phase');
 
   const events: string[] = [];
   game.subscribe((_state, event) => events.push(event.type));
@@ -162,9 +136,8 @@ async function lethalForecastStopsLaterPhases(): Promise<void> {
   assert(await game.releaseChain(), 'lethal turn finishes with a loss');
   assert(game.state.phase === 'LOSE' && game.state.player.hp === 0 && game.state.lastDamage === 3,
     'actual damage is capped at remaining health');
-  assert(events.filter(type => type === 'attack').length === 2
-    && !events.includes('enemy-swap') && !events.includes('arrow-volley'),
-  'lethal attack prevents later rotation and hazard phases');
+  assert(events.filter(type => type === 'attack').length === 2 && !events.includes('enemy-swap'),
+  'lethal attack prevents the later rotation phase');
   console.log('PASS enemy forecast matches ordered actor plan; lethal damage stops later phases');
 }
 
@@ -210,7 +183,7 @@ async function laterActorUsesCurrentState(): Promise<void> {
 function damageSources(): void {
   const physical = cell('boss', 12);
   physical.status.brittle = true;
-  const physicalAmount = physicalDamage([physical], physical, 4);
+  const physicalAmount = physicalDamage(physical, 4);
   const physicalHit = damageCell(physical, physicalAmount, 'physical');
   assert(physicalAmount === 8 && physicalHit.hpAfter === 4 && !physical.status.brittle,
     'physical hit doubles brittle damage and consumes the status');
@@ -223,20 +196,7 @@ function damageSources(): void {
       `${source} damage leaves brittle for a later physical hit`);
   }
 
-  for (const source of ['physical', 'item', 'hazard'] as const) {
-    const wizard = cell('boss', 3);
-    wizard.variant = 'wizard';
-    wizard.bossStage = 1;
-    const outcome = damageCell(wizard, 6, source);
-    if (source === 'hazard') {
-      assert(outcome.killed && !outcome.phaseChanged && wizard.hp === 0 && wizard.bossStage === 1,
-        'lethal hazard kills the wizard without opening its second stage');
-    } else {
-      assert(!outcome.killed && outcome.phaseChanged && wizard.hp === 24 && Number(wizard.bossStage) === 2,
-        `${source} damage breaks the wizard seal and starts stage two`);
-    }
-  }
-  console.log('PASS physical, item and hazard damage keep distinct brittle and wizard-stage semantics');
+  console.log('PASS physical, item and hazard damage keep distinct brittle semantics');
 }
 
 async function animationTimingDoesNotChangeRules(): Promise<void> {
@@ -246,7 +206,6 @@ async function animationTimingDoesNotChangeRules(): Promise<void> {
   attacker.intent = { cells: [24], damage: 1, label: 'Fixed attack' };
   immediate.state.board[17] = attacker;
   immediate.state.board[0] = null;
-  immediate.state.hazard = { cells: [24], turnsUntil: 1, damage: 1 };
   animated.state = structuredClone(immediate.state);
   animated.animationScale = 0.01;
   const firstEvents: string[] = [], secondEvents: string[] = [];
@@ -295,8 +254,7 @@ async function restartAtHitAndSpawn(): Promise<void> {
 }
 
 await runtimeCancellation();
-await attackSwapHazardOrder();
-await summonedEnemyWaits();
+await attackBeforeSwap();
 await lethalForecastStopsLaterPhases();
 await laterActorUsesCurrentState();
 damageSources();

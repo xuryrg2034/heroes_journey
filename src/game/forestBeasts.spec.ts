@@ -237,9 +237,9 @@ async function shamanLadder() {
   equal(log.events.filter(event => event.type === 'empower').map(event => event.text), ['armed'], 'execution: one step');
   equal([shared.behavior.tier, shared.maxHp], ['armed', 0], 'the shared goblin is armed, not sturdy');
 
-  // Only ordinary goblins: wolf, porcupine, boar, stool and a sturdy goblin are never announced.
+  // Only ordinary goblins: wolf, porcupine, boar, a weak shield bearer (a 0-HP variant, in place of the removed castle stool) and a sturdy goblin are never announced.
   const picky = start(level(['WPK00', 'TSH00', '00000', '00000', '00@00'], {
-    K: { enemy: { kind: 'melee', color: 1, hp: 3, variant: 'boar' } }, T: { enemy: { kind: 'melee', color: 1, hp: 0, variant: 'stool' } },
+    K: { enemy: { kind: 'melee', color: 1, hp: 3, variant: 'boar' } }, T: { enemy: { kind: 'melee', color: 1, hp: 0, variant: 'sentinel' } },
     H: { enemy: { kind: 'melee', color: 1, hp: 3 } },
   }));
   assert(await picky.waitTurn(), 'rest');

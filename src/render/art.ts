@@ -1,6 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import type { ForestCell, TerrainKind } from '../game/forestTypes';
-import { drawKey, makeCastleEnemy, makeDoor, makeWardrobe } from './castleArt';
+import { makeDoor, makeGuardEnemy } from './guardArt';
 import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
 import { shieldIsActive } from '../game/combatRules';
@@ -33,16 +33,10 @@ function makeIllustratedEnemy(cell: ForestCell, width: number, height: number, t
   const wide=width>80||height>80, halfW=width/2,halfH=height/2;
   const ready=cell.intent.cells.length>0&&(cell.kind==='melee'?meleeCanAttack(cell):!cell.status.frozen&&cell.behavior.restTurns===0);
   const resting=cell.behavior.restTurns>0&&!cell.status.frozen;
-  const summoning=cell.variant==='beacon'&&!!cell.intent.summonCells?.length&&!cell.status.frozen&&!resting;
   const color=cell.color===null?0x8f929b:COLORS[cell.color];
   if(ready){
     const aura=new Graphics();aura.label='attack-aura';
     aura.roundRect(-halfW+1,-halfH+1,width-2,height-2,10).stroke({color:0xf2aa72,width:3,alpha:.95});
-    outerMarks.push(aura);
-  }
-  if(summoning){
-    const aura=new Graphics();aura.label='summon-aura';
-    aura.roundRect(-halfW+1,-halfH+1,width-2,height-2,10).stroke({color:0x9de3d3,width:3,alpha:.95});
     outerMarks.push(aura);
   }
   if(cell.kind==='prism'){
@@ -66,18 +60,13 @@ function makeIllustratedEnemy(cell: ForestCell, width: number, height: number, t
     marks.roundRect(halfW-37,-halfH+5,32,18,4).fill(0x233039).stroke({color:0xb5b79c,width:1});
     label(c,`${cell.hp}♥`,halfW-21,-halfH+14,11);
   }
-  if(cell.status.frozen||ready||summoning||resting){
-    marks.roundRect(-halfW+5,-halfH+5,19,18,4).fill(ready?0x85433a:summoning?0x285b60:0x253438).stroke({color:ready?0xe9a879:summoning?0x9de3d3:0x88a8a9,width:1});
-    label(c,cell.status.frozen?'❄':ready?'!':summoning?'✦':'Ⅱ',-halfW+14.5,-halfH+14,12);
+  if(cell.status.frozen||ready||resting){
+    marks.roundRect(-halfW+5,-halfH+5,19,18,4).fill(ready?0x85433a:0x253438).stroke({color:ready?0xe9a879:0x88a8a9,width:1});
+    label(c,cell.status.frozen?'❄':ready?'!':'Ⅱ',-halfW+14.5,-halfH+14,12);
   }
   if(cell.status.wet)marks.poly([-halfW+9,halfH-22,-halfW+14,halfH-13,-halfW+9,halfH-8,-halfW+4,halfH-13]).fill(0x8fd9de);
   if(cell.status.frozen)marks.roundRect(-halfW+5,-halfH+5,width-10,height-10,8).fill({color:0xabf0eb,alpha:.13}).stroke({color:0xb0edee,width:2,alpha:.9});
   if(cell.status.brittle){marks.circle(halfW-14,halfH-15,10).fill(0x38585c);label(c,'×2',halfW-14,halfH-15,11,0xd7ffff);}
-  if(cell.carriesKey){marks.roundRect(-16,-halfH-7,32,13,4).fill(0x5a492c).stroke({color:0xf5d08a,width:1});drawKey(marks,0,-halfH,.7);}
-  if(cell.variant==='wizard'){
-    if(cell.bossStage===1)marks.circle(0,-4,Math.min(width,height)*.38).stroke({color:0xc5f3f0,width:2.5,alpha:.95});
-    label(c,cell.bossStage===1?'ПЕЧАТЬ I':'КОЛДУН II',0,halfH-26,9,cell.bossStage===1?0xc8f3f2:0xe2c1f1);
-  }
   if((cell.variant==='sentinel'||cell.variant==='jailer')&&cell.shield&&shieldIsActive(cell)){
     const plate=new Graphics();plate.label='directional-shield';plate.rotation=Math.atan2(cell.shield.dy,cell.shield.dx);
     plate.moveTo(halfW-5,-halfH+13).lineTo(halfW-5,halfH-13).stroke({color:0xf2deaa,width:5});c.addChild(plate);
@@ -85,10 +74,10 @@ function makeIllustratedEnemy(cell: ForestCell, width: number, height: number, t
   addDamageEffectBadges(c,cell.damageEffects,wide?halfH-5:34);
   return c;
 }
-export function makeEnemy(cell: ForestCell,index=0,cols=7,customLevel=false,tutorialTarget=false): Container {
+export function makeEnemy(cell: ForestCell,index=0,cols=7,tutorialTarget=false): Container {
   if(cell.kind==='door'&&cell.door){
     const bounds=footprintBounds(occupiedIndices(cell,index),cols);
-    return makeDoor(cell,(bounds?.width??1)*80,(bounds?.height??1)*80,customLevel);
+    return makeDoor(cell,(bounds?.width??1)*80,(bounds?.height??1)*80);
   }
   const bounds=footprintBounds(occupiedIndices(cell,index),cols);
   const illustrated=makeIllustratedEnemy(cell,(bounds?.width??1)*80,(bounds?.height??1)*80,tutorialTarget);
@@ -98,8 +87,7 @@ export function makeEnemy(cell: ForestCell,index=0,cols=7,customLevel=false,tuto
   if(cell.variant==='porcupine')return makePorcupine(cell,tutorialTarget);
   if(cell.variant==='shaman')return makeShaman(cell,tutorialTarget);
   if(cell.variant==='troll')return makeTroll(cell,(bounds?.width??1)*80,(bounds?.height??1)*80);
-  if(cell.variant==='wardrobe'){const bounds=footprintBounds(occupiedIndices(cell,index),cols);return makeWardrobe(cell,(bounds?.width??1)*80,(bounds?.height??1)*80);}
-  if(cell.variant)return makeCastleEnemy(cell);
+  if(cell.variant==='sentinel'||cell.variant==='jailer')return makeGuardEnemy(cell);
   const c=new Container(),g=new Graphics();
   const passive=cell.behavior.passive===true;
   const ready=cell.intent.cells.length>0 && (cell.kind==='melee'?meleeCanAttack(cell):!cell.status.frozen&&cell.behavior.restTurns===0);
@@ -203,7 +191,6 @@ export function makeEnemy(cell: ForestCell,index=0,cols=7,customLevel=false,tuto
     g.moveTo(-22,-14).lineTo(-10,-2).lineTo(-18,10).moveTo(23,-8).lineTo(12,1).lineTo(18,18).stroke({color:0xceffff,alpha:0.65,width:1});
   }
   if(cell.status.brittle) {g.circle(27,23,10).fill(0x355a5c).stroke({color:0xbcf1e8,width:1});label(c,'×2',27,22,11,0xd9ffff);}
-  if(cell.carriesKey){g.roundRect(-16,-41,32,13,4).fill(0x5a492c).stroke({color:0xf5d08a,width:1});drawKey(g,0,-35,.7);}
   addDamageEffectBadges(c, cell.damageEffects);
   return c;
 }

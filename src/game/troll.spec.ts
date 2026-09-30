@@ -20,13 +20,13 @@ const TROLL_TEST_HP = 24;
 /**
  * `#` wall, `@` cat, digits: weak (0 HP) enemies of that colour, `T` a 2×2 troll anchored at its top-left square
  * (`t` marks its other three squares), `S` a single-cell troll, `H` a sturdy green goblin (3 HP), `K` a boar,
- * `D` a door, `O` a prism, `B` a beacon. Other symbols come from `legend`.
+ * `D` a door, `O` a prism. Other symbols come from `legend`.
  */
 function level(rows: string[], legend: Record<string, Tile> = {}, extra: Partial<CustomLevelDefinition> = {}, trollHp = TROLL_TEST_HP): CustomLevelDefinition {
   const tiles: Record<string, Tile> = {
     H: { enemy: { kind: 'melee', color: 1, hp: 3 } }, K: { enemy: { kind: 'melee', color: 1, hp: 3, variant: 'boar' } },
     S: { enemy: { kind: 'boss', color: null, hp: trollHp, variant: 'troll' } }, O: { enemy: { kind: 'prism', color: null, hp: 1 } },
-    B: { enemy: { kind: 'boss', color: null, hp: 8, variant: 'beacon' } }, D: { door: true }, ...legend,
+    D: { door: true }, ...legend,
   };
   const terrain: TerrainKind[] = [], enemies: CustomEnemy[] = [], doors: CustomLevelDefinition['doors'] = [], devices: NonNullable<CustomLevelDefinition['devices']> = [];
   let heroIndex = -1;
@@ -335,21 +335,6 @@ async function regeneration() {
   assert(sick.hp < sickHp, 'the poison tick hurt the troll');
 }
 
-// Arrivals and summons never replace the troll; the beacon picks ordinary goblins only.
-async function arrivals() {
-  const g = start(level(['111111B', '11Tt111', '11tt111', '1111111', '111@111', '1111111']));
-  const troll = trollOf(g)!, body = bodyOf(g, troll.id);
-  let announced = 0;
-  for (let turn = 0; turn < 4; turn++) {
-    await rest(g, `beacon turn ${turn}`);
-    const beacon = g.state.board.find(cell => cell?.variant === 'beacon')!;
-    announced += beacon.intent.summonCells?.length ?? 0;
-    assert(!(beacon.intent.summonCells ?? []).some(index => body.includes(index)), 'the beacon never announces a troll square');
-    equal(bodyOf(g, troll.id), body, 'the troll keeps its body');
-  }
-  assert(announced > 0, 'the beacon did announce summons');
-}
-
 function validation() {
   const base = level(['11Tt111', '11tt111', '1111111', '111@111', '1111111', '1111111']);
   assert(validateCustomLevel(base).valid, 'a 2×2 troll is valid');
@@ -432,10 +417,9 @@ async function main() {
   await chainOnce();
   await kill();
   await regeneration();
-  await arrivals();
   validation();
   await determinism();
   await cancellation();
-  console.log('PASS troll: windup → strike → rest, club on enemies (kills not credited to the player), doors and prisms spared, cat in/out of the zone, orthogonal zone and tie rule, walls, frost pause and brittleness, boar holds, pit jams, chain hits once, kill/jump/refill/bossKills victory, regeneration with cap, damage and burning, beacon never targets the troll, validation, forecast = execution (damageBySource.troll, club deaths, regeneration), seeded replay, cancellation');
+  console.log('PASS troll: windup → strike → rest, club on enemies (kills not credited to the player), doors and prisms spared, cat in/out of the zone, orthogonal zone and tie rule, walls, frost pause and brittleness, boar holds, pit jams, chain hits once, kill/jump/refill/bossKills victory, regeneration with cap, damage and burning, validation, forecast = execution (damageBySource.troll, club deaths, regeneration), seeded replay, cancellation');
 }
 main().catch(error => { console.error(error); throw error; });

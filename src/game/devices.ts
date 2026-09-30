@@ -58,6 +58,6 @@ export function* applyDeviceVolley(state: ForestState, device: InteractionDevice
     const outcome = damageCell(cell, device.damage ?? 4, 'item');
     if (outcome.killed) removeDefeated(state.board, cell);
     yield { index, cell, hit: { index, damage: outcome.damage, hpBefore: outcome.hpBefore, hpAfter: outcome.hpAfter,
-      killed: outcome.killed, physical: false, ...(outcome.phaseChanged ? { phaseChanged: true } : {}) } };
+      killed: outcome.killed, physical: false } };
   }
 }

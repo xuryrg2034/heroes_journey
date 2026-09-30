@@ -1,4 +1,5 @@
-import { ForestEngine } from './forestEngine';
+import type { ForestEngine } from './forestEngine';
+import { startForestFixture } from './testing/fixtures';
 import { isCellAlive } from './cellLife';
 import { canSwapEnemies, prepareIntents } from './forestSystems';
 import { applyDamageEffect } from './damageEffects';
@@ -10,15 +11,14 @@ function equal(actual: unknown, expected: unknown, message: string) {
   assert(a === b, `${message}: ${a} != ${b}`);
 }
 let nextId = 80_000;
-function enemy(hp = 0, variant?: ForestCell['variant']): ForestCell {
-  return { id: nextId++, kind: 'melee', ...(variant ? { variant } : {}), color: 0, hp, maxHp: hp,
+function enemy(hp = 0): ForestCell {
+  return { id: nextId++, kind: 'melee', color: 0, hp, maxHp: hp,
     armor: 0, countdown: 1, status: { wet: false, frozen: 0, brittle: false },
     behavior: { aggressive: false, restTurns: 0 }, intent: { cells: [], damage: 1, label: 'Спокоен' } };
 }
 function fixture() {
-  const game = new ForestEngine(); game.animationScale = 0; game.startLevel();
+  const game = startForestFixture();
   game.state.board.fill(null); game.state.terrain.fill('floor');
-  game.state.wave = 3; game.state.spawnCounts = { archers: 2, boss: 1 };
   return game;
 }
 async function commit(game: ForestEngine, path: number[]) {
@@ -62,13 +62,6 @@ async function modifiersSpendActualRemoval() {
     [3, 3, 0, true], 'brittle kill spends at most the three power available');
   await commit(brittle, [44, 37, 30]);
   assert(brittle.state.player.index === 30, 'brittle route commits its predicted endpoint');
-
-  const supported = fixture(); supported.state.board[44] = enemy(); supported.state.board[37] = enemy(4);
-  const cabinet = enemy(4, 'cabinet'); cabinet.supportTargetId = supported.state.board[37]!.id;
-  supported.state.board[36] = cabinet;
-  const protectedHit = supported.preview([44, 37]).hits[1];
-  equal([protectedHit.availablePower, protectedHit.damage, protectedHit.powerSpent, protectedHit.remainingPower, protectedHit.hpAfter],
-    [2, 1, 1, 1, 3], 'cabinet reduction preserves one unspent power');
 }
 async function zeroHpLifeAndCancellation() {
   const game = fixture(), weak = enemy(); weak.behavior.aggressive = true;

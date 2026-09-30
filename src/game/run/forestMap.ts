@@ -2,12 +2,11 @@
  * Authored node graph of the forest biome (design: docs/biomes/forest-map.md).
  * Pure data and path helpers; no engine, no DOM.
  *
- * Node battles are authored in the registry src/game/run/forestBattles.ts (`{ kind: 'battle', battleId }`).
- * The trunk, the trail junction and the Jailer reuse opening lessons, the Chief is the forest trial.
+ * Every node battle is authored in the registry src/game/run/forestBattles.ts (`{ kind: 'battle', battleId }`).
  * `placeholder` marks a node whose battle waits for enemies that do not exist yet. `content.kind === 'in-development'`
  * marks a future boss stub (not a battle); the model and the map screen support it, but no node uses it now.
  */
-import { TUTORIAL_LESSONS, type AuthoredLesson, type TutorialLesson } from '../tutorialLevels';
+import type { AuthoredLesson } from '../lessonBuilder';
 import type { PaletteWeights } from '../customLevel';
 import { forestBattle } from './forestBattles';
 import type { AbilityKind, EnemyColor, ItemKind } from '../forestTypes';
@@ -19,9 +18,6 @@ export type ForestLane = 'trunk' | 'beasts' | 'goblins' | 'shared' | 'den' | 'ca
 export type ForestNodeContent =
   /** Authored node battle from FOREST_NODE_BATTLES. */
   | { kind: 'battle'; battleId: string }
-  /** Opening lesson reused as a temporary template. */
-  | { kind: 'lesson'; lessonId: TutorialLesson['id'] }
-  | { kind: 'forest-trial' }
   | { kind: 'rest'; heal: number }
   | { kind: 'find' }
   | { kind: 'in-development'; planned: string };
@@ -61,7 +57,6 @@ export function forestRowPalette(row: number): EnemyColor[] {
   return FOREST_COLOR_ORDER.slice(0, size);
 }
 
-const lesson = (lessonId: TutorialLesson['id']): ForestNodeContent => ({ kind: 'lesson', lessonId });
 /** Content of a node that plays an authored battle of the registry (src/game/run/battles/*.ts). */
 export const battle = (battleId: string): ForestNodeContent => ({ kind: 'battle', battleId });
 const rest = (): ForestNodeContent => ({ kind: 'rest', heal: FOREST_REST_HEAL });
@@ -70,10 +65,10 @@ const JUMP: ForestNodeGrant = { abilities: ['jump'] };
 
 export const FOREST_MAP: readonly ForestMapNode[] = [
   // Trunk: four forced battles without tools.
-  { id: 'trunk-1', type: 'battle', name: 'Разбудили', lane: 'trunk', row: 1, column: 1, content: lesson('chain'), next: ['trunk-2'] },
-  { id: 'trunk-2', type: 'battle', name: 'Запас топора', lane: 'trunk', row: 2, column: 1, content: lesson('power'), next: ['trunk-3'] },
-  { id: 'trunk-3', type: 'battle', name: 'Последний шаг', lane: 'trunk', row: 3, column: 1, content: lesson('position'), next: ['trunk-4'] },
-  { id: 'trunk-4', type: 'battle', name: 'Чужие стрелы', lane: 'trunk', row: 4, column: 1, content: lesson('arrows'), feature: 'Рычаг стрел',
+  { id: 'trunk-1', type: 'battle', name: 'Разбудили', lane: 'trunk', row: 1, column: 1, content: battle('trunk-wake'), next: ['trunk-2'] },
+  { id: 'trunk-2', type: 'battle', name: 'Запас топора', lane: 'trunk', row: 2, column: 1, content: battle('trunk-axe'), next: ['trunk-3'] },
+  { id: 'trunk-3', type: 'battle', name: 'Последний шаг', lane: 'trunk', row: 3, column: 1, content: battle('trunk-last-step'), next: ['trunk-4'] },
+  { id: 'trunk-4', type: 'battle', name: 'Чужие стрелы', lane: 'trunk', row: 4, column: 1, content: battle('trunk-arrows'), feature: 'Рычаг стрел',
     next: ['beast-wolf', 'goblin-archer'] },
   // First fork. Frost opens on both first trail nodes.
   { id: 'beast-wolf', type: 'battle', name: 'Вожак у брода', lane: 'beasts', row: 5, column: 0, content: battle('wolf-ford'), grants: FROST,
@@ -95,10 +90,10 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
   { id: 'trail-find', type: 'find', name: 'Находка', lane: 'shared', row: 7, column: 1, content: { kind: 'find' }, grants: JUMP, next: ['trail-banners'] },
   { id: 'goblin-shaman', type: 'battle', name: 'Камлание за частоколом', lane: 'goblins', row: 7, column: 2, content: battle('goblin-shaman-rite'), grants: JUMP,
     feature: 'Шаман', next: ['trail-banners'] },
-  { id: 'trail-banners', type: 'battle', name: 'Три знамени', lane: 'shared', row: 8, column: 1, content: lesson('prism'), feature: 'Огонёк в проломе',
+  { id: 'trail-banners', type: 'battle', name: 'Три знамени', lane: 'shared', row: 8, column: 1, content: battle('three-banners'), feature: 'Огонёк в проломе',
     next: ['jailer'] },
   // Victory over the checkpoint opens the spin for the rest of the run.
-  { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: lesson('jailer'), rewardGrants: { abilities: ['spin'] },
+  { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: battle('jailer-gate'), rewardGrants: { abilities: ['spin'] },
     next: ['den-battle', 'camp-battle'] },
   // Second half: the branch chosen after the Jailer decides the boss.
   // A rest comes before every elite (playtest decision 30.09.2026).
@@ -118,22 +113,15 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
     next: ['camp-breakthrough'] },
   { id: 'camp-breakthrough', type: 'breakthrough', name: 'Прорыв к воротам', lane: 'camp', row: 13, column: 2, content: battle('camp-gate-run'),
     feature: 'Цель — выход', next: ['camp-chief'] },
-  { id: 'camp-chief', type: 'boss', name: 'Главарь с котелком', lane: 'camp', row: 14, column: 2, content: { kind: 'forest-trial' }, next: [] },
+  { id: 'camp-chief', type: 'boss', name: 'Главарь с котелком', lane: 'camp', row: 14, column: 2, content: battle('chief-breakfast'), next: [] },
 ];
 
 const BY_ID = new Map(FOREST_MAP.map(node => [node.id, node]));
 export function forestNode(id: string): ForestMapNode | undefined { return BY_ID.get(id); }
 
-/** Index of the node's lesson template in TUTORIAL_LESSONS, or -1. */
-export function lessonIndex(node: ForestMapNode): number {
-  return node.content.kind === 'lesson' ? TUTORIAL_LESSONS.findIndex(entry => entry.id === (node.content as { lessonId: string }).lessonId) : -1;
-}
-
-/** Authored battle a node plays: a registry battle or a reused lesson. Null for the forest trial, rest, find and stubs. */
+/** Authored battle a node plays from the registry. Null for rest, find and stubs. */
 export function nodeBattleTemplate(node: ForestMapNode): AuthoredLesson | null {
-  if (node.content.kind === 'battle') return forestBattle(node.content.battleId) ?? null;
-  const index = lessonIndex(node);
-  return index < 0 ? null : TUTORIAL_LESSONS[index];
+  return node.content.kind === 'battle' ? forestBattle(node.content.battleId) ?? null : null;
 }
 
 /**
@@ -147,8 +135,7 @@ export function authoredRefillPalette(template: AuthoredLesson, row: number): Pa
 }
 
 /**
- * Refill palette of a node battle (see authoredRefillPalette). Null for nodes without an authored template;
- * the forest trial always uses five colors.
+ * Refill palette of a node battle (see authoredRefillPalette). Null for nodes without a battle.
  */
 export function nodeRefillPalette(node: ForestMapNode): PaletteWeights | null {
   const template = nodeBattleTemplate(node);
@@ -213,7 +200,6 @@ export function validateForestMap(): string[] {
       if (!target) errors.push(`${node.id}: неизвестный переход ${next}.`);
       else if (target.row <= node.row) errors.push(`${node.id} → ${next}: переход должен вести вглубь карты.`);
     }
-    if (node.content.kind === 'lesson' && lessonIndex(node) < 0) errors.push(`${node.id}: нет шаблона ${node.content.lessonId}.`);
     if (node.content.kind === 'battle' && !forestBattle(node.content.battleId)) errors.push(`${node.id}: нет боя ${node.content.battleId} в реестре.`);
     if (node.content.kind === 'battle' && !isBattleNode(node)) errors.push(`${node.id}: бой из реестра стоит не в боевом узле.`);
     if ((node.type === 'rest') !== (node.content.kind === 'rest')) errors.push(`${node.id}: тип привала и содержимое расходятся.`);

@@ -1,10 +1,9 @@
 /**
  * Level analyzer CLI. Usage (see docs/level-metrics.md):
- *   npm run analyze:levels                         # 16 opening battles + forest trial
- *   npm run analyze:levels -- --lesson 8 --depth 4
+ *   npm run analyze:levels                                    # every battle of the node registry (= --nodes)
+ *   npm run analyze:levels -- --node chief-breakfast --depth 4  # one registry battle or map node, as in a run
+ *   npm run analyze:levels -- --node wolf-ford --row 5          # a registry battle on another map row
  *   npm run analyze:levels -- --json my-level.json --seeds 5 --out report.json
- *   npm run analyze:levels -- --node wolf-ford --row 5        # forest-map node battle, as in a run
- *   npm run analyze:levels -- --nodes                         # every battle of the node registry
  * Levels are analyzed in parallel child processes; every level uses its own engines.
  */
 import { fork } from 'node:child_process';
@@ -13,16 +12,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type LevelAnalysis, type LevelSource } from '../src/game/levelAnalysis';
-import { TUTORIAL_LESSONS } from '../src/game/tutorialLevels';
 import { allNodeBattleTargets, nodeAnalysisTargets } from '../src/game/run/nodeAnalysis';
 
 interface Task { source: LevelSource; options: Partial<AnalysisOptions> }
 interface Done { index: number; result?: LevelAnalysis; error?: string; ms: number }
 
 const HELP = `analyze-levels [options]
-  --lesson N[,M]     opening battle number(s) 1-16 (repeatable)
+  (no level given)   every battle of the node registry, as --nodes
   --json FILE        editor JSON level (repeatable)
-  --forest           include the forest trial (default only when no level is given)
   --node ID          forest-map node battle (repeatable): a registry battle id or a map node id.
                      Started as in a run: 5 HP, 0 energy, no items, tools guaranteed on entering the node
   --nodes            every battle of the node registry (src/game/run/battles/*.ts)
@@ -42,7 +39,7 @@ const HELP = `analyze-levels [options]
 
 function parse(argv: string[]) {
   const tasks: LevelSource[] = [], options: Partial<AnalysisOptions> = {};
-  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), forest = false, allNodes = false, row: number | undefined;
+  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined;
   const nodeIds: string[] = [];
   const number = (flag: string, value: string | undefined, min: number) => {
     const parsed = Number(value);
@@ -52,14 +49,8 @@ function parse(argv: string[]) {
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i], value = argv[i + 1];
     switch (flag) {
-      case '--lesson': for (const part of (value ?? '').split(',')) {
-        const lesson = number(flag, part, 1);
-        if (lesson > TUTORIAL_LESSONS.length) throw new Error(`--lesson: 1-${TUTORIAL_LESSONS.length}`);
-        tasks.push({ kind: 'lesson', index: lesson - 1 });
-      } i++; break;
       case '--json': if (!value) throw new Error('--json: file required');
         tasks.push({ kind: 'custom', definition: JSON.parse(readFileSync(value, 'utf8')), id: basename(value) }); i++; break;
-      case '--forest': forest = true; break;
       case '--node': if (!value) throw new Error('--node: id required'); nodeIds.push(value); i++; break;
       case '--nodes': allNodes = true; break;
       case '--row': row = number(flag, value, 1); i++; break;
@@ -82,15 +73,13 @@ function parse(argv: string[]) {
     }
   }
   const skipped: string[] = [];
+  // Without any level the whole node registry is analyzed.
+  if (!tasks.length && !nodeIds.length) allNodes = true;
   if (allNodes) { const all = allNodeBattleTargets(row); skipped.push(...all.skipped); tasks.push(...all.targets.map(target => ({ kind: 'run-node' as const, target }))); }
   for (const id of nodeIds) tasks.push(...nodeAnalysisTargets(id, row).map(target => ({ kind: 'run-node' as const, target })));
   if (row !== undefined && !allNodes && !nodeIds.length) throw new Error('--row: use with --node or --nodes');
-  if (allNodes || nodeIds.length) {
-    for (const id of skipped) console.log(`skip ${id}: not bound to a map node, pass --row R`);
-    if (!tasks.length && !forest) throw new Error('No node battle to analyze.');
-  }
-  else if (!tasks.length) { TUTORIAL_LESSONS.forEach((_, index) => tasks.push({ kind: 'lesson', index })); forest = true; }
-  if (forest) tasks.push({ kind: 'forest' });
+  for (const id of skipped) console.log(`skip ${id}: not bound to a map node, pass --row R`);
+  if (!tasks.length) throw new Error('No level to analyze.');
   return { tasks: tasks.map(source => ({ source, options })), out, workers };
 }
 
@@ -112,7 +101,7 @@ async function runAll(tasks: Task[], workers: number, onDone: (done: Done) => vo
     for (let i = 0; i < tasks.length; i++) { const done = await runTask(tasks[i], i); results[i] = done; onDone(done); }
     return results;
   }
-  // Heaviest first: larger boards and later lessons dominate the wall time.
+  // Heaviest first: battles deeper on the map dominate the wall time.
   const queue = tasks.map((_, i) => i).sort((a, b) => weight(tasks[b]) - weight(tasks[a]));
   const script = fileURLToPath(import.meta.url);
   // Every worker promise settles: a crashed worker reports its in-flight task as an error and
@@ -140,8 +129,6 @@ async function runAll(tasks: Task[], workers: number, onDone: (done: Done) => vo
   return results;
 }
 function weight(task: Task) {
-  if (task.source.kind === 'forest') return 100;
-  if (task.source.kind === 'lesson') { const { cols, rows } = TUTORIAL_LESSONS[task.source.index].definition; return cols * rows + task.source.index; }
   if (task.source.kind === 'run-node') return task.source.target.row + 40;
   return 50;
 }

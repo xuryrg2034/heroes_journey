@@ -48,7 +48,7 @@ async function run() {
   await chain(lethal); equal(lethal.state.phase, 'LOSE', 'fall defeats simultaneous victory'); equal(lethal.state.player.hp, 0);
 
   const marked = fixture(); const markedId = marked.state.board[10]!.id;
-  marked.state.tutorial = { index: 0, targetIds: [markedId], hintDismissed: true, allowedItems: [], allowedAbilities: [] };
+  marked.state.tutorial = { targetIds: [markedId], hintDismissed: true, allowedItems: [], allowedAbilities: [] };
   await chain(marked); equal(marked.state.objective.tutorialTargets, 1, 'fall credits original authored target ID');
 
   const immune = fixture(); immune.state.devices[0].targets = [10, 11, 12, 13, 14];
@@ -61,9 +61,9 @@ async function run() {
   equal(immune.state.pits.map(pit => pit.index), [14]); assert(!isCellAlive(prism)); assert(isCellAlive(boss));
 
   const blocked = fixture(); blocked.state.devices[0].targets = [12];
-  blocked.state.rotations = [{ from: 11, to: 13, sourceId: blocked.state.board[11]!.id, targetId: blocked.state.board[13]!.id, geometry: 'rook' }];
-  blocked.state.board[12] = null;
-  assert(rotationPreview(blocked.state)[0].active); assert(!blocked.preview([16, 17, 18]).rotations[0].active, 'preview blocks exchange across future hole');
+  // Rotations are cardinal only since the chess pieces were removed: the exchange targets the cell that becomes a hole.
+  blocked.state.rotations = [{ from: 11, to: 12, sourceId: blocked.state.board[11]!.id, targetId: blocked.state.board[12]!.id, geometry: 'cardinal' }];
+  assert(rotationPreview(blocked.state)[0].active); assert(!blocked.preview([16, 17, 18]).rotations[0].active, 'preview blocks exchange into future hole');
   let swapped = false; blocked.subscribe((_state, event) => { if (event.type === 'enemy-swap') swapped = true; });
   await chain(blocked); assert(!swapped);
   blocked.state.pits.push({ index: 7, closesAfterTurn: 2 }); assert(!adjacent(blocked.state, 6, 12));

@@ -4,7 +4,7 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /(?:game|campaign|editor|tutorial|telemetry|desktop-ux|pit-editor|pits|finale-editor|finale|palette|refill|boar-ui|forest-map|forest-beasts-ui|forest-troll-ui|battle-readability|map-rules-ui|crystal-fall-ui|spin-toasts-ui)\.spec\.ts/,
+  testMatch: /(?:game|editor|trunk|telemetry|desktop-ux|pit-editor|finale-editor|palette|refill|boar-ui|forest-map|forest-beasts-ui|forest-troll-ui|battle-readability|map-rules-ui|crystal-fall-ui|spin-toasts-ui)\.spec\.ts/,
   timeout: 30_000,
   fullyParallel: false,
   workers: 1,

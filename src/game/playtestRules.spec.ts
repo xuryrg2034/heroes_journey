@@ -1,8 +1,7 @@
 /**
  * Rules decided after playtest 1 (30.09.2026, docs/biomes/forest-map.md «Плейтест 1»), checked through real
- * engine commands (startRunBattle / startTutorial / startLevel / startCustomLevel, preview, begin/extend/release,
- * rest, restart):
- * 1. growing anger in map battles on rows ≥ 5 — and its absence on the trunk, in lessons, the forest and the editor;
+ * engine commands (startRunBattle / startCustomLevel, preview, begin/extend/release, rest, restart):
+ * 1. growing anger in map battles on rows ≥ 5 — and its absence on the trunk (rows 1–4) and in the editor;
  * 2. colour-change crystals (every mode) — 6 and 12 chain kills, seeded cells, uncredited crushing, protected
  *    cells, no limit, value and score, no power and no share in the next crystal's chain length;
  * 3. kill credit — archer, boar and club kills are not the player's, goal targets still count, devices are credited;
@@ -17,6 +16,7 @@ import { CRYSTAL_KILLS, CRYSTAL_PROTECTED_VARIANTS, CRYSTAL_SCORE_PER_KILL, runP
 import { FOREST_NODE_BATTLES, forestBattle, type NodeBattle } from './run/forestBattles';
 import { authoredRefillPalette } from './run/forestMap';
 import { SHAMAN_STURDY_HP } from './forestBeasts';
+import { startForestFixture, startNodeBattle } from './testing/fixtures';
 import type { CustomLevelDefinition, PaletteWeights } from './customLevel';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -31,10 +31,11 @@ const registry = FOREST_NODE_BATTLES as Record<string, NodeBattle>;
 function register(battle: NodeBattle) { registry[battle.id] = battle; return battle.id; }
 
 /**
- * Crystal field: red weak goblins (passive in a lesson) around a row of cells a crystal must never take — a boss
- * `Q`, a sentinel `S`, a heavy guard `E`, the marked blue target `T`, a brazier `L` and a door `D`.
+ * Crystal field: red weak goblins (passive on the trunk) around a row of cells a crystal must never take — a boss
+ * `Q`, a sentinel `S`, two marked targets `E` and `T`, a brazier `L` and a door `D`. (`E` was the castle's heavy
+ * guard until the castle enemies were removed on 30.09.2026.)
  */
-const FIELD = register(authoredLesson<string>({
+const FIELD = register(authoredLesson({
   id: 'spec-crystal-field', name: 'Поле кристаллов', description: 'Проверочный бой.', hint: 'Проверка.', seed: 9901,
   rows: [
     'RRRRRRR',
@@ -46,12 +47,12 @@ const FIELD = register(authoredLesson<string>({
     'HRRRRRR',
   ],
   legend: {
-    Q: { kind: 'boss', hp: 20 }, S: { color: 0, hp: 7, variant: 'sentinel' }, E: { color: 0, hp: 10, variant: 'elite' },
+    Q: { kind: 'boss', hp: 20 }, S: { color: 0, hp: 7, variant: 'sentinel' }, E: { color: 3, target: true },
     T: { color: 2, target: true }, L: { device: { kind: 'fire', charges: 1 } }, D: { door: true },
   },
 }));
 /** Pits lever `P` at G6 opening the whole second row. */
-const PITS = register(authoredLesson<string>({
+const PITS = register(authoredLesson({
   id: 'spec-crystal-pits', name: 'Люки', description: 'Проверочный бой.', hint: 'Проверка.', seed: 9902,
   rows: [
     'RRRRRRR',
@@ -65,7 +66,7 @@ const PITS = register(authoredLesson<string>({
   legend: { T: { color: 2, target: true }, P: { device: { kind: 'pits', charges: 1, targets: ['A2', 'B2', 'C2', 'D2', 'E2', 'F2', 'G2'] } } },
 }));
 /** An armed archer `A` shooting down column A at the goblin `W` and the marked target `T`; the cat stands at A7. */
-const ARCHER = register(authoredLesson<string>({
+const ARCHER = register(authoredLesson({
   id: 'spec-archer-line', name: 'Линия стрелка', description: 'Проверочный бой.', hint: 'Проверка.', seed: 9903,
   rows: [
     'ABBBB',
@@ -96,7 +97,7 @@ const field = (row = 5, refill = 0) => node(FIELD, row, { refill, palette: RED_O
 
 /** A published event with the cat's cell and the phase at that moment. */
 type Seen = EngineEvent & { cat: number; phase: string };
-interface Played { preview: ChainPreview; events: Seen[]; scoreDelta: number; killsDelta: number; combatDelta: number }
+interface Played { preview: ChainPreview; events: Seen[]; scoreDelta: number; killsDelta: number }
 /** One real chain: a pure forecast (no state, RNG or ID change), then real input; damage and the outcome match it. */
 async function chain(g: ForestEngine, path: number[], where: string): Promise<Played> {
   const before = json(g.state), snap = g.captureAnalysisSnapshot();
@@ -104,7 +105,7 @@ async function chain(g: ForestEngine, path: number[], where: string): Promise<Pl
   const after = g.captureAnalysisSnapshot();
   assert(json(g.state) === before && after.rng === snap.rng && after.nextId === snap.nextId, `${where}: the forecast spends no state, RNG or IDs`);
   assert(preview.valid, `${where}: ${preview.reason}`);
-  const hp = g.state.player.hp, score = g.state.score, kills = g.state.objective.kills, combat = g.state.room.combatKills;
+  const hp = g.state.player.hp, score = g.state.score, kills = g.state.objective.kills;
   const events: Seen[] = [];
   const off = g.subscribe((state, event) => { events.push({ ...event, ...(event.indices ? { indices: [...event.indices] } : {}), cat: state.player.index, phase: state.phase }); });
   assert(g.beginChain(path[0]), `${where}: chain starts`);
@@ -114,7 +115,7 @@ async function chain(g: ForestEngine, path: number[], where: string): Promise<Pl
   equal([g.state.lastDamage, g.state.player.hp], [preview.damage, hp - preview.damage], `${where}: damage matches the forecast`);
   equal(g.state.phase === 'WIN', !!preview.completesRoom || !!preview.enemyPhase?.completesObjective, `${where}: victory matches the forecast`);
   equal(g.state.phase === 'LOSE', !!preview.playerDies, `${where}: defeat matches the forecast`);
-  return { preview, events, scoreDelta: g.state.score - score, killsDelta: g.state.objective.kills - kills, combatDelta: g.state.room.combatKills - combat };
+  return { preview, events, scoreDelta: g.state.score - score, killsDelta: g.state.objective.kills - kills };
 }
 const crystalsOf = (g: ForestEngine) => g.state.board.flatMap((cell, index) => cell?.kind === 'prism' && cell.crystalChain ? [{ index, cell }] : []);
 const idsOf = (g: ForestEngine) => new Set(g.state.board.flatMap(cell => cell ? [cell.id] : []));
@@ -170,27 +171,20 @@ async function growingAnger() {
   equal(grown, [1, 1, 1, 2, 2, 2, 3, 3, 3], 'row 5: enemies becoming angry per turn grow 1 → 2 → 3');
   equal(runPressureInfo(pressed.state), { active: true, angerPerTurn: 3, refillTier: 'armed', nextRefillTurn: 12 }, 'UI data after nine turns');
 
-  // The trunk (row 4) and the standalone lesson keep lesson passivity: nobody becomes angry.
+  // The trunk (row 4) keeps authored passivity: nobody becomes angry; so does the real first trunk battle.
   const trunk = field(4);
-  assert(!runPressureInfo(trunk.state).active && trunk.state.board.every(cell => !cell || cell.kind !== 'melee' || cell.behavior.passive), 'row 4: lesson passivity kept');
+  assert(!runPressureInfo(trunk.state).active && trunk.state.board.every(cell => !cell || cell.kind !== 'melee' || cell.behavior.passive), 'row 4: authored passivity kept');
   equal(await angerByTurn(trunk, 9), [0, 0, 0, 0, 0, 0, 0, 0, 0], 'row 4 (trunk): no growing anger');
-  const lesson = new ForestEngine(); lesson.animationScale = 0; assert(lesson.startTutorial(0), 'lesson 1 starts');
-  lesson.state.player.hp = lesson.state.player.maxHp = 99;
-  equal(await angerByTurn(lesson, 6), [0, 0, 0, 0, 0, 0], 'standalone lesson: passivity kept');
+  const wake = startNodeBattle('trunk-wake', { player: { hp: 99, maxHp: 99, energy: 0 } });
+  equal(await angerByTurn(wake, 6), [0, 0, 0, 0, 0, 0], 'trunk-wake (row 1): passivity kept');
 
-  // The standalone forest trial and an editor level keep one new angry enemy per turn.
-  const forest = new ForestEngine(); forest.animationScale = 0; forest.startLevel(0, 701);
-  forest.state.player.hp = forest.state.player.maxHp = 99;
-  assert(!runPressureInfo(forest.state).active, 'standalone forest: no pressure');
-  assert((await angerByTurn(forest, 8)).every(count => count <= 1), 'standalone forest: at most one new angry enemy per turn');
+  // An editor level keeps one new angry enemy per turn.
   const editor = new ForestEngine(); editor.animationScale = 0;
   assert(editor.startCustomLevel({ ...forestBattle(FIELD)!.definition, playerHp: 20 } satisfies CustomLevelDefinition), 'editor level starts');
   equal(await angerByTurn(editor, 8), [1, 1, 1, 1, 1, 1, 1, 1], 'editor level: one new angry enemy per turn');
 
-  // The forest trial as a map node (the chief on row 14) is a map battle with growing anger.
-  const chief = new ForestEngine(); chief.animationScale = 0;
-  assert(chief.startRunBattle({ nodeId: 'camp-chief', label: 'Главарь', seed: 9, template: { kind: 'forest-trial' }, row: 14,
-    player: { hp: 99, maxHp: 99, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] }), 'chief node starts');
+  // The Chief's battle (camp-chief, row 14) is a map battle with growing anger.
+  const chief = startNodeBattle('chief-breakfast', { player: { hp: 99, maxHp: 99, energy: 0 } });
   const chiefAnger = await angerByTurn(chief, 5);
   assert(chiefAnger[4] > 1 && runPressureInfo(chief.state).active, `the chief node uses growing anger, got ${chiefAnger}`);
 }
@@ -270,6 +264,16 @@ async function crystalCounts() {
   assert(crystalsOf(pile).length > 2, `more than two crystals can stand on the field, got ${crystalsOf(pile).length}`);
 }
 
+/** A crystal does not need a cell away from the cat: a cramped 4×3 board still receives it (moved from the castle suite). */
+function crowdedCrystal() {
+  const tight = startForestFixture(), cell = tight.state.board.find(entry => entry?.kind === 'melee' && entry.color === 0)!;
+  tight.state.cols = 4; tight.state.rows = 3; tight.state.player.index = 11; tight.state.devices = [];
+  tight.state.terrain = Array.from({ length: 12 }, (_, index) => [3, 7].includes(index) ? 'wall' : 'floor');
+  tight.state.board = Array.from({ length: 12 }, (_, index) => [3, 7, 11].includes(index) ? null : { ...structuredClone(cell), id: 5000 + index });
+  const cramped = tight.preview([10, 9, 8, 4, 0, 1, 2, 6, 5]);
+  assert(cramped.valid && cramped.kills === 9 && cramped.crystals === 1, 'a crystal does not need a cell away from the cat');
+}
+
 async function crystalPlacement() {
   // Seeded: the same refill seed repeats the cells; different seeds give different cells (no fixed coordinate).
   const positions = new Set<string>();
@@ -301,12 +305,12 @@ async function crystalPlacement() {
     }
     assert(guarded.every(id => id === undefined || g.state.board.some(cell => cell?.id === id)), `seed ${k}: protected enemies survive`);
     assert(g.state.devices.length === 1 && g.state.board[at(g, 'F5')]?.kind === 'door', `seed ${k}: device and door untouched`);
-    // A crushed enemy dies without credit: kills and combat kills grow by the chain kills only, no extra score.
+    // A crushed enemy dies without credit: the kill count grows by the chain kills only, no extra score.
     for (const event of played.events.filter(entry => entry.type === 'crystal' && entry.oldId !== undefined)) {
       crushed++;
       assert(before.has(event.oldId!) && !g.state.board.some(cell => cell?.id === event.oldId), `seed ${k}: the crushed enemy is gone`);
     }
-    equal([played.killsDelta, played.combatDelta], [12, 12], `seed ${k}: only the twelve chain kills are counted`);
+    equal(played.killsDelta, 12, `seed ${k}: only the twelve chain kills are counted`);
     const hitScore = played.preview.hits.reduce((sum, hit) => sum + (hit.crystalScore ?? (hit.killed ? 20 + 2 * hit.damage : hit.damage)), 0);
     equal(played.scoreDelta, hitScore + (g.state.lastDamage ? 0 : 30), `seed ${k}: crushing scores nothing`);
   }
@@ -339,7 +343,7 @@ async function crystalPlacement() {
   assert(overPits > 0, 'crystals fell while pits were open');
 
   // Protected list: bosses of every kind and the named variants.
-  for (const variant of ['troll', 'jailer', 'beacon', 'commander', 'wizard', 'sentinel', 'elite', 'wardrobe']) {
+  for (const variant of ['troll', 'jailer', 'sentinel']) {
     assert(CRYSTAL_PROTECTED_VARIANTS.includes(variant as typeof CRYSTAL_PROTECTED_VARIANTS[number]), `${variant} is protected`);
   }
 }
@@ -392,7 +396,7 @@ async function crystalValue() {
 }
 
 /** A chain may start on a crystal or prism (30.09.2026): the first coloured target sets the colour, two enemies are still needed. */
-const START = register(authoredLesson<string>({
+const START = register(authoredLesson({
   id: 'spec-prism-start', name: 'Старт с огонька', description: 'Проверочный бой.', hint: 'Проверка.', seed: 9905,
   rows: ['RRBB', 'RRBB', 'RRBB', 'HPBB'], legend: { P: { kind: 'prism' } }, goals: [{ key: 'kills', target: 999 }],
 }));
@@ -430,7 +434,7 @@ async function killCredit() {
   const plain = g.state.board[at(g, 'A2')]!.id, target = g.state.board[at(g, 'A3')]!.id, lower = g.state.board[at(g, 'A4')]!.id;
   const played = await chain(g, cells(g, ['B6', 'C6']), 'archer turn');
   equal(played.preview.enemyPhase!.deaths.map(death => [death.id, death.cause]), [[plain, 'arrow'], [target, 'arrow'], [lower, 'arrow']], 'forecast: the arrow kills the line');
-  equal([played.killsDelta, played.combatDelta, g.state.objective.tutorialTargets], [2, 2, 1], 'arrow kills: no kill credit, the target counts for the task');
+  equal([played.killsDelta, g.state.objective.tutorialTargets], [2, 1], 'arrow kills: no kill credit, the target counts for the task');
   assert(g.state.phase === 'WIN' && played.preview.enemyPhase!.completesObjective, 'the arrow on the only target wins, as forecast');
 
   // An editor level with a «defeat 3 enemies» goal: two chain kills plus the arrow kills do not complete it, and the
@@ -474,7 +478,7 @@ async function killCredit() {
   // Devices are the player's: lever kills are credited with the chain kills.
   const pits = node(PITS, 5, { palette: RED_ONLY });
   const lever = await chain(pits, cells(pits, ['A6', 'B6', 'C6', 'D6', 'E6', 'F6', 'G6']), 'pits lever');
-  equal([lever.killsDelta, lever.combatDelta], [6 + 7, 6 + 7], 'lever kills are credited');
+  equal(lever.killsDelta, 6 + 7, 'lever kills are credited');
 }
 
 // ---------------------------------------------------------------- determinism and cancellation
@@ -588,6 +592,7 @@ async function main() {
   await growingAnger();
   await strongerRefills();
   await crystalCounts();
+  crowdedCrystal();
   await crystalPlacement();
   await crystalValue();
   await chainFromCrystal();

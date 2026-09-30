@@ -144,7 +144,7 @@ async function routes() {
     let won = 0;
     for (const k of REFILL_SEEDS) {
       const g = start(id, k), where = `${id} refill ${k}`, before = blocked.length;
-      assert(g.state.runNode?.nodeId === PLANS[id].node && g.state.tutorial?.index === -1, `${where}: a node battle, not an opening lesson`);
+      assert(g.state.runNode?.nodeId === PLANS[id].node && !!g.state.tutorial, `${where}: a map-node battle with its authored targets`);
       await playRoute(id, g, where, blocked);
       // The only accepted deviation: a crystal took a cell of the fixed route (its outcome is then not asserted).
       if (blocked.length > before) continue;

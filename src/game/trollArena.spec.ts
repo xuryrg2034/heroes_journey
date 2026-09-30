@@ -115,7 +115,7 @@ function layout() {
   const colors = new Set(definition.enemies.flatMap(enemy => enemy.color === null ? [] : [enemy.color]));
   assert(forestRowPalette(ROW).every(color => colors.has(color)), 'the opening uses the five colors of row 14');
   const g = start();
-  assert(g.state.runNode?.nodeId === NODE && g.state.tutorial?.index === -1, 'a node battle, not an opening lesson');
+  assert(g.state.runNode?.nodeId === NODE && !!g.state.tutorial, 'a map-node battle with its authored targets');
   assert(troll(g)!.status.wet && troll(g)!.hp === troll(g)!.maxHp, 'the troll is wet and unhurt');
 }
 

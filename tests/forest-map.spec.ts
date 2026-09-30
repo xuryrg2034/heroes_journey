@@ -102,7 +102,7 @@ test('title starts a run, the map shows graph, statuses, hover details and resou
   expect(errors).toEqual([]);
 });
 
-test('a node battle is played by mouse, hides lesson navigation and returns to the map with the result saved', async ({ page }) => {
+test('a node battle is played by mouse and returns to the map with the result saved', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
@@ -115,15 +115,11 @@ test('a node battle is played by mouse, hides lesson navigation and returns to t
   await expect(page.locator('#chapter-number')).not.toContainText('/ 16');
   await expect(page.locator('.chapter-select')).toHaveText('← К КАРТЕ');
   await page.screenshot({ path: 'artifacts/forest-map-battle.png' });
-  // Lesson 1 route, as in tutorial.spec.ts: E2-E3-E4 (blue), then D3-C4-B3-A2-A3 (red).
+  // The first trunk route, as in trunk.spec.ts: E2-E3-E4 (blue), then D3-C4-B3-A2-A3 (red).
   await draw(page, [9, 14, 19]);
   await draw(page, [13, 17, 11, 5, 10]);
   expect((await state(page)).phase).toBe('WIN');
   await expect(page.locator('#modal [data-action="run-map"]')).toContainText('К КАРТЕ');
-  for (const action of ['next-tutorial', 'tutorial-choice', 'tutorial-forest', 'continue', 'new-run']) await expect(page.locator(`#modal [data-action="${action}"]`)).toHaveCount(0);
-  await expect(page.locator('#modal')).not.toContainText('СЛЕДУЮЩИЙ БОЙ');
-  // The engine refuses the lesson transitions as well.
-  expect(await page.evaluate(() => { const engine = (window as any).__PUZZLE_GAME.engine; return [engine.nextTutorial(), engine.startTutorialChoice(1), engine.continueCampaign()]; })).toEqual([false, false, false]);
   // The model got the result right away: a reload here would land on the map, not in a replayed battle.
   expect(await savedRun(page)).toMatchObject({ visited: ['trunk-1'], currentNodeId: 'trunk-1', pending: null });
   await page.locator('#modal [data-action="run-map"]').click();
@@ -133,7 +129,7 @@ test('a node battle is played by mouse, hides lesson navigation and returns to t
   await expect(page.locator('#map-battles')).toContainText('1');
   await expect(page.locator('#map-notice')).toContainText('пройден');
   expect(await noScroll(page)).toBe(true);
-  // Telemetry keeps the node apart from the plain lesson 1.
+  // Telemetry records the attempt under the node key.
   const attempts = (await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY)).attempts;
   expect(attempts.map((attempt: any) => [attempt.key, attempt.mode, attempt.outcome])).toContainEqual(['run:trunk-1', 'run', 'win']);
   expect(errors).toEqual([]);
@@ -232,7 +228,7 @@ test('defeat keeps the node current: retry restores the entry, map offers to ret
   await expect(page.locator('#modal')).toContainText('Кот отступил');
   await expect(page.locator('#modal [data-action="retry"]')).toContainText('ПОВТОРИТЬ УЗЕЛ');
   await expect(page.locator('#modal [data-action="run-map"]')).toContainText('К КАРТЕ');
-  for (const action of ['next-tutorial', 'tutorial-choice', 'title']) await expect(page.locator(`#modal [data-action="${action}"]`)).toHaveCount(0);
+  await expect(page.locator('#modal [data-action="title"]')).toHaveCount(0);
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'artifacts/forest-map-defeat.png' });
   expect(await savedRun(page)).toMatchObject({ currentNodeId: 'trunk-3', pending: { kind: 'battle', nodeId: 'trunk-4', defeats: 1 } });
@@ -249,7 +245,7 @@ test('defeat keeps the node current: retry restores the entry, map offers to ret
   await page.screenshot({ path: 'artifacts/forest-map-pending.png' });
   await page.locator('.map-banner [data-action="run-battle"]').click(); await settled(page);
   expect((await state(page)).board).toEqual(entry.board);
-  // Pause dialog of a node battle: retry and the map, no lesson list.
+  // Pause dialog of a node battle: retry and the map.
   await page.locator('[data-action="pause"]').click();
   await expect(page.locator('#modal [data-action="retry"]')).toContainText('ПОВТОРИТЬ УЗЕЛ');
   await expect(page.locator('#modal [data-action="run-map"]')).toBeVisible();
@@ -260,7 +256,6 @@ test('defeat keeps the node current: retry restores the entry, map offers to ret
   const mine = attempts.filter((attempt: any) => attempt.key === 'run:trunk-4');
   expect(mine.map((attempt: any) => attempt.outcome)).toEqual(['lose', 'lose', 'quit']);
   expect(mine.every((attempt: any) => attempt.mode === 'run' && attempt.id === 'trunk-4')).toBe(true);
-  expect(attempts.some((attempt: any) => attempt.key === 'tutorial:3')).toBe(false);
   await page.locator('.playtest-link').click();
   await expect(page.locator('.playtest-table')).toContainText('Карта леса · Чужие стрелы');
   await page.locator('[data-action="playtest-close"]').click();
@@ -322,12 +317,12 @@ test('the Chief is a real battle node; beating him ends the run with a victory',
   await page.goto('/'); await page.locator('#run-start-button').click();
   await node(page, 'camp-chief').click(); await settled(page);
   const battle = await state(page);
-  expect(battle.runNode.nodeId).toBe('camp-chief'); expect(battle.room.kind).toBe('forest');
-  await expect(page.locator('#chapter-number')).toContainText('ВОЛНА 1 / 3');
-  // The trial's own continue button stays out of the node battle.
+  expect(battle.runNode.nodeId).toBe('camp-chief');
+  // An ordinary authored battle: the Chief stands on the field from the start, no waves.
+  expect(battle.board.some((cell: any) => cell?.kind === 'boss' && !cell.variant)).toBe(true);
+  await expect(page.locator('#chapter-number')).toContainText('ПОХОД');
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
   await expect(page.locator('#modal')).toContainText('Главарь повержен');
-  await expect(page.locator('#modal [data-action="continue"]')).toHaveCount(0);
   await expect(page.locator('#modal [data-action="run-new"]')).toBeVisible();
   expect((await savedRun(page)).result).toMatchObject({ outcome: 'victory', nodeId: 'camp-chief' });
   await page.waitForTimeout(600);
@@ -406,14 +401,13 @@ async function startNodeBattle(page: Page, template: object, allowedAbilities: s
   await settled(page);
 }
 
-test('a registry battle (tutorial index -1): help opens, marked targets are counted, an opened jump is visible', async ({ page }) => {
+test('a registry battle: help opens, marked targets are counted, an opened jump is visible', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
   await page.goto('/');
   await page.locator('#run-start-button').click();
   await node(page, 'trunk-1').click(); await settled(page);
   // A registry battle is started on the engine with the tools of a run that opened the jump.
   await startNodeBattle(page, { kind: 'battle', id: 'wolf-ford' }, ['jump'], ['frost']);
-  expect((await state(page)).tutorial.index).toBe(-1);
   await expect(page.locator('#game-screen')).toHaveClass(/tutorial-abilities/);
   await expect(page.locator('.energy-hud')).toBeVisible();
   await expect(page.locator('.ability-button[data-ability="jump"]')).toBeVisible();
@@ -437,7 +431,7 @@ test('a registry battle (tutorial index -1): help opens, marked targets are coun
   expect(errors).toEqual([]);
 });
 
-test('a lesson node uses the run tools, not the lesson permissions: an opened jump is available in lesson 1', async ({ page }) => {
+test('a trunk node uses the run tools: an opened jump is available in the first trunk battle', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
   await page.goto('/');
   await page.locator('#run-start-button').click();
@@ -445,8 +439,7 @@ test('a lesson node uses the run tools, not the lesson permissions: an opened ju
   expect((await state(page)).tutorial.allowedAbilities).toEqual([]);
   await expect(page.locator('#game-screen')).not.toHaveClass(/tutorial-abilities/);
   await expect(page.locator('.energy-hud')).toBeHidden();
-  await startNodeBattle(page, { kind: 'lesson', index: 0 }, ['jump'], ['frost']);
-  expect((await state(page)).tutorial.index).toBe(0);
+  await startNodeBattle(page, { kind: 'battle', id: 'trunk-wake' }, ['jump'], ['frost']);
   await expect(page.locator('#game-screen')).toHaveClass(/tutorial-abilities/);
   await expect(page.locator('.energy-hud')).toBeVisible();
   await expect(page.locator('.ability-button[data-ability="jump"]')).toBeVisible();

@@ -21,7 +21,7 @@ export interface CustomLevelDefinition {
 }
 export interface CustomLevelRuntime { definition: CustomLevelDefinition; goalCompletedTurn: number | null; paletteWeights: PaletteWeights }
 const TERRAINS = ['floor', 'puddle', 'wall', 'tree', 'pond', 'campfire', 'thorns'];
-const VARIANTS = ['chair', 'stool', 'cabinet', 'elite', 'sentinel', 'wardrobe', 'rook', 'bishop', 'knight', 'commander', 'wizard', 'jailer', 'beacon', 'boar', 'wolf', 'porcupine', 'shaman', 'troll'];
+const VARIANTS = ['sentinel', 'jailer', 'boar', 'wolf', 'porcupine', 'shaman', 'troll'];
 const GOALS = ['kills', 'rangedKills', 'bossKills', 'turns'];
 const ITEMS = ['frost', 'bomb', 'healing', 'fire'];
 const ATTACK_EFFECTS: DamageEffectKind[] = ['fire', 'poison', 'bleeding', 'wind'];
@@ -82,7 +82,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
     placement(enemy, `Враг ${n + 1}`);
     if (!oneOf(enemy.kind, ['melee', 'ranged', 'boss', 'prism']) || !integer(enemy.hp, 0, 10000) || enemy.color !== null && !integer(enemy.color, 0, 4)) errors.push(`Враг ${n + 1}: неверный тип, цвет или здоровье.`);
     if (enemy.variant !== undefined) {
-      const expected = oneOf(enemy.variant, ['rook', 'bishop', 'knight']) ? 'ranged' : oneOf(enemy.variant, ['commander', 'wizard', 'jailer', 'beacon', 'troll']) ? 'boss' : 'melee';
+      const expected = oneOf(enemy.variant, ['jailer', 'troll']) ? 'boss' : 'melee';
       if (!oneOf(enemy.variant, VARIANTS) || enemy.kind !== expected) errors.push(`Враг ${n + 1}: вариант не соответствует типу.`);
       // A shield faces from one square; a multi-square sentinel has no defined facing.
       if (enemy.variant === 'sentinel' && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: страж со щитом занимает одну клетку.`);

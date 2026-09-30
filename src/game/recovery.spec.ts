@@ -1,5 +1,5 @@
 import fixtureData from '../../tests/fixtures/recovered-movement.json';
-import { ForestEngine } from './forestEngine';
+import { FOREST_FIXTURE_OPENING, forestFixtureLevel, startForestFixture } from './testing/fixtures';
 import { canSwapEnemies, prepareIntents, rotationPreview } from './forestSystems';
 import { recoveredMoveTowards } from './recoveredEnemyMovement';
 import type { ForestCell } from './forestTypes';
@@ -22,9 +22,8 @@ function goldenVectors() {
   console.log(`PASS ${fixtureData.vectors.length} actual recovered Python movement vectors, results and dependency call order`);
 }
 function fixture() {
-  const g = new ForestEngine(701); g.animationScale = 0; g.startLevel();
+  const g = startForestFixture(701);
   g.state.player.index = 45; g.state.terrain.fill('floor'); g.state.board.fill(null);
-  g.state.wave = 3; g.state.spawnCounts = { archers: 2, boss: 1 };
   return g;
 }
 let id = 50000;
@@ -63,25 +62,25 @@ function adapterRules() {
   paired.state.board[17] = null; paired.state.board[24] = null;
   assert(rotationPreview(paired.state)[0].active && JSON.stringify(paired.state.rotations) === before, 'announced pair survives both deaths without new selection');
   assert(!rotationPreview(paired.state, paired.state.board, 24)[0].active, 'hero still cancels announced endpoint');
-  const chess = fixture(); chess.state.board[24] = cell('ranged'); chess.state.board[24]!.variant = 'knight'; chess.state.board[9] = cell();
-  prepareIntents(chess.state, () => { throw new Error('chess must not use recovered movement RNG'); });
-  assert(chess.state.rotations[0]?.to === 9 && chess.state.rotations[0].geometry === 'knight', 'chess geometry and selection unchanged');
-  console.log('PASS integrated movement preference, all eligibility protections, disjoint pairs, death/hero semantics and unchanged chess');
+  console.log('PASS integrated movement preference, all eligibility protections, disjoint pairs and death/hero semantics');
 }
 async function seededReplay() {
-  const g = new ForestEngine(984); g.animationScale = 0;
+  // The camp with two authored archers (A3 and B5, off the opening routes) instead of the removed wave-2 arrivals.
+  const level = forestFixtureLevel(984);
+  const enemies = level.enemies.map(enemy => [2, 29].includes(enemy.index) ? { ...enemy, kind: 'ranged' as const, hp: 7 } : enemy);
+  const g = startForestFixture(984, { enemies });
   const play = async () => {
-    for (const path of [[38, 39, 40, 33], [26, 19, 20, 13]]) {
+    for (const path of FOREST_FIXTURE_OPENING.map(route => [...route])) {
       assert(g.beginChain(path[0]), 'natural opening begin'); for (const index of path.slice(1)) assert(g.extendChain(index), 'natural opening extend');
       assert(await g.releaseChain(), 'natural opening commit');
     }
-    await g.waitTurn(); assert(g.state.rotations.length > 0, 'natural archers prepare seeded rotation');
+    await g.waitTurn(); assert(g.state.rotations.length > 0, 'resting archers prepare a seeded rotation');
     const rng = (g as unknown as { rng: number }).rng, snapshot = JSON.stringify(g.state);
     for (let n = 0; n < 5; n++) { g.preview(); g.previewRotations(); }
     assert((g as unknown as { rng: number }).rng === rng && JSON.stringify(g.state) === snapshot, 'previews neither draw RNG nor change fixed intents');
     return snapshot;
   };
-  g.startLevel(); const first = await play(); g.restartLevel(); equal(await play(), first, 'seeded intents and refill replay after restart');
-  console.log('PASS natural seeded intent/refill restart replay and pure repeated previews');
+  const first = await play(); g.restartLevel(); equal(await play(), first, 'seeded intents and refill replay after restart');
+  console.log('PASS seeded archer intent/refill restart replay and pure repeated previews');
 }
 goldenVectors(); adapterRules(); await seededReplay();

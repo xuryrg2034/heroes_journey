@@ -17,12 +17,18 @@ async function hold(page: Page, path: number[]) {
   await expect.poll(async () => (await state(page)).chain).toEqual(path);
 }
 async function draw(page: Page, path: number[]) { await hold(page, path); await page.mouse.up(); await settled(page); }
+/** The first map node battle (the trunk's authored two-color field), entered from the title: a new run or the saved one. */
+async function firstNode(page: Page) {
+  await page.locator('#run-start-button').click();
+  if (await page.locator('#map-screen').isVisible()) await page.locator('.map-node[data-node="trunk-1"]').click();
+  await settled(page);
+}
 
 test('playtest journal records attempts, exports valid JSON and keeps the screen in sync', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await page.locator('#tutorial-begin-button').click(); await settled(page);
+  await firstNode(page);
   // Attempt 1: a hesitation (Escape drops the chain), one real chain, then a retry.
   await hold(page, [8, 13]); await page.keyboard.press('Escape');
   await expect.poll(async () => (await state(page)).chain).toEqual([]);
@@ -33,27 +39,28 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
   // Attempt 2: finish the battle.
   await draw(page, [9, 14, 19]); await draw(page, [13, 17, 11, 5, 10]);
   expect((await state(page)).phase).toBe('WIN');
-  await page.locator('#modal [data-action="title"]').click();
+  await page.locator('#modal [data-action="run-map"]').click();
+  await page.locator('#map-screen [data-action="title"]').click();
   await expect(page.locator('#title-screen')).toBeVisible();
   const stored = await journal(page);
   expect(stored.enabled).toBe(true);
   expect(stored.attempts).toHaveLength(2);
   const [first, second] = stored.attempts;
-  expect(first).toMatchObject({ key: 'tutorial:0', mode: 'tutorial', id: 'chain', index: 0, outcome: 'restart', chains: 1, chainMax: 3, cancelledChains: 1, attemptInVisit: 1 });
+  expect(first).toMatchObject({ key: 'run:trunk-1', mode: 'run', id: 'trunk-1', outcome: 'restart', chains: 1, chainMax: 3, cancelledChains: 1, attemptInVisit: 1 });
   expect(first.turns).toBe(1); expect(first.firstMoveMs).toBeGreaterThan(0); expect(first.hpEnd).toBeGreaterThan(0);
-  expect(second).toMatchObject({ key: 'tutorial:0', outcome: 'win', chains: 2, attemptInVisit: 2, cancelledChains: 0, visit: first.visit });
+  expect(second).toMatchObject({ key: 'run:trunk-1', outcome: 'win', chains: 2, attemptInVisit: 2, cancelledChains: 0, visit: first.visit });
   expect(second.durationMs).toBeGreaterThan(0);
 
   // The screen reads the same journal; export downloads valid JSON with aggregates.
   await page.locator('.playtest-link').click();
   await expect(page.locator('.playtest-table tbody tr')).toHaveCount(1);
-  await expect(page.locator('.playtest-table')).toContainText('Бой 1');
+  await expect(page.locator('.playtest-table')).toContainText('Карта леса · Разбудили');
   await page.screenshot({ path: 'artifacts/playtest-screen.png' });
   const [download] = await Promise.all([page.waitForEvent('download'), page.locator('[data-action="playtest-download"]').click()]);
   const exported = JSON.parse(await readFile((await download.path())!, 'utf8'));
   expect(exported).toMatchObject({ format: 'ashen-oath-playtest', version: 1, enabled: true });
   expect(exported.attempts).toHaveLength(2);
-  expect(exported.aggregates[0]).toMatchObject({ key: 'tutorial:0', attempts: 2, wins: 1, attemptsToWin: 2, abandonRate: 0 });
+  expect(exported.aggregates[0]).toMatchObject({ key: 'run:trunk-1', attempts: 2, wins: 1, attemptsToWin: 2, abandonRate: 0 });
 
   // Clearing needs an in-page confirmation (no window.confirm).
   page.on('dialog', dialog => { throw new Error(`unexpected dialog ${dialog.message()}`); });
@@ -71,7 +78,7 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
 
 test('leaving mid-battle records a quit and the pause block opens the journal', async ({ page }) => {
   await page.goto('/');
-  await page.locator('#tutorial-begin-button').click(); await settled(page);
+  await firstNode(page);
   await draw(page, [8, 13, 17]);
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal .playtest-details summary').click();
@@ -87,7 +94,7 @@ test('leaving mid-battle records a quit and the pause block opens the journal', 
 
 test('?telemetry=0 disables recording and persists the setting', async ({ page }) => {
   await page.goto('/?telemetry=0');
-  await page.locator('#tutorial-begin-button').click(); await settled(page);
+  await firstNode(page);
   await draw(page, [8, 13, 17]);
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="title"]').click();
@@ -95,7 +102,7 @@ test('?telemetry=0 disables recording and persists the setting', async ({ page }
   expect(stored.enabled).toBe(false); expect(stored.attempts).toEqual([]);
   // The setting survives a reload without the query.
   await page.goto('/');
-  await page.locator('#tutorial-begin-button').click(); await settled(page);
+  await firstNode(page);
   await draw(page, [8, 13, 17]);
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="title"]').click();
@@ -104,7 +111,7 @@ test('?telemetry=0 disables recording and persists the setting', async ({ page }
 
 test('closing the tab after a defeat counts as abandonment; a single-cell click is not a cancel', async ({ page }) => {
   await page.goto('/');
-  await page.locator('#tutorial-begin-button').click(); await settled(page);
+  await firstNode(page);
   // Single click on a neighbour: the release is invalid but it is inspection, not hesitation.
   const first = await center(page, 8);
   await page.mouse.move(first.x, first.y); await page.mouse.down(); await page.mouse.up(); await settled(page);

@@ -4,9 +4,9 @@
  * Battles are played by ForestEngine.startRunBattle(battleSetup(run)); the finished battle is fed back
  * with resolveBattle(run, engine.runBattleOutcome()).
  */
-import { mixSeed, rewardChoices } from '../campaignContent';
+import { mixSeed, rewardChoices } from '../items';
 import type { AbilityKind, ItemKind } from '../forestTypes';
-import { FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, lessonIndex, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_ELITE_HEAL } from './forestMap';
+import { FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_ELITE_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
 
@@ -18,7 +18,7 @@ const ITEM_KINDS: ItemKind[] = ['frost', 'bomb', 'healing', 'fire'];
 const ABILITY_KINDS: AbilityKind[] = ['jump', 'spin'];
 
 export interface ForestRunResources { player: RunPlayerResources; inventory: Record<ItemKind, number> }
-/** Tools opened by run events (grants and finds); they replace lesson permissions in map battles. */
+/** Tools opened by run events (grants and finds); a map battle allows only these. */
 export interface ForestRunTools { items: ItemKind[]; abilities: AbilityKind[] }
 export type ForestRunPending =
   /** Entered battle node. `entry` is the snapshot on entering; a defeat retries from it. */
@@ -143,13 +143,10 @@ export function enterNode(current: ForestRunState, nodeId: string): ForestRunSte
   events.push({ type: 'battle-ready', nodeId }); return { ok: true, run, events };
 }
 
-/** Engine template of a battle node: a registry battle, a reused lesson or the forest trial; null if the node has none. */
+/** Engine template of a battle node: its registry battle; null if the node has none. */
 export function nodeRunTemplate(node: ForestMapNode): RunBattleTemplate | null {
   const { content } = node;
-  if (content.kind === 'forest-trial') return { kind: 'forest-trial' };
-  if (content.kind === 'battle') return forestBattle(content.battleId) ? { kind: 'battle', id: content.battleId } : null;
-  if (content.kind === 'lesson') { const index = lessonIndex(node); return index < 0 ? null : { kind: 'lesson', index }; }
-  return null;
+  return content.kind === 'battle' && forestBattle(content.battleId) ? { kind: 'battle', id: content.battleId } : null;
 }
 
 /** Engine setup for the entered battle node; the same run always yields the same setup (also after reload). */
@@ -266,12 +263,11 @@ function expectedTools(visited: string[], finds: ForestRunState['finds'], entere
 const sameTools = (a: ForestRunTools, b: ForestRunTools) => a.items.length === b.items.length && a.abilities.length === b.abilities.length
   && a.items.every(item => b.items.includes(item)) && a.abilities.every(ability => b.abilities.includes(ability));
 
-/** Upper bound of each item: node grants, taken finds and the forest trial's second-wave flask. */
+/** Upper bound of each item: node grants and taken finds. */
 function inventoryCap(visited: string[], finds: ForestRunState['finds'], entered: ForestMapNode | null): Record<ItemKind, number> {
   const cap: Record<ItemKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0 };
   for (const node of [...visited.map(id => forestNode(id)!), ...entered ? [entered] : []]) {
     for (const item of ITEM_KINDS) cap[item] += node.grants?.inventory?.[item] ?? 0;
-    if (node.content.kind === 'forest-trial' && visited.includes(node.id)) cap.frost++;
   }
   for (const find of finds) cap[find.item]++;
   return cap;

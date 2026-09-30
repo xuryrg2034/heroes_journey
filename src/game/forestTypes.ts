@@ -5,17 +5,17 @@ import type { CellBehaviorComponent, CellFootprintComponent, CellHealthComponent
 export type EnemyColor = 0 | 1 | 2 | 3 | 4;
 export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'wall' | 'thorns';
 export type CellKind = 'melee' | 'ranged' | 'boss' | 'prism' | 'door';
-export type EnemyVariant = 'chair' | 'stool' | 'cabinet' | 'elite' | 'sentinel' | 'wardrobe' | 'rook' | 'bishop' | 'knight' | 'commander' | 'wizard' | 'jailer' | 'beacon' | 'boar' | 'wolf' | 'porcupine' | 'shaman' | 'troll';
-export type RoomTheme = 'forest' | 'gate' | 'banquet' | 'barracks' | 'chess' | 'library' | 'wizard';
-export type ExitDirection = 'left' | 'forward' | 'right';
+export type EnemyVariant = 'sentinel' | 'jailer' | 'boar' | 'wolf' | 'porcupine' | 'shaman' | 'troll';
 export type ItemKind = 'frost' | 'bomb' | 'healing' | 'fire';
 export type AbilityKind = 'jump' | 'spin';
 export interface RewardOption { item: ItemKind; label: string; description: string }
-export interface DoorData { branch: ExitDirection; label: string; destination: RoomTheme; magic: boolean; breached: boolean; footprint: number[] }
-export type RotationGeometry = 'cardinal' | 'rook' | 'bishop' | 'knight';
+/** Authored exit of a battle with `completion: 'exit'`: it opens (`breached`) once every goal is met. */
+export interface DoorData { label: string; breached: boolean; footprint: number[] }
+/** Archer swaps exchange side neighbours only. */
+export type RotationGeometry = 'cardinal';
 export interface RotationPlan { from: number; to: number; sourceId: number; targetId: number; geometry: RotationGeometry }
 export interface RotationPreview extends RotationPlan { active: boolean; reason?: string }
-export type Phase = 'TITLE' | 'PLAYER_INPUT' | 'PLAYER_RESOLVE' | 'ENEMY_RESOLVE' | 'BOARD_UPDATE' | 'REWARD' | 'WIN' | 'LOSE';
+export type Phase = 'TITLE' | 'PLAYER_INPUT' | 'PLAYER_RESOLVE' | 'ENEMY_RESOLVE' | 'BOARD_UPDATE' | 'WIN' | 'LOSE';
 /** Entity data assembled from structural components; no registry or render objects. */
 export interface ForestCell extends CellIdentityComponent, CellHealthComponent, CellLinkComponent,
   CellStatusComponent, CellBehaviorComponent, CellIntentComponent, CellFootprintComponent, CellShieldComponent, DamageEffectComponent {}
@@ -32,20 +32,18 @@ export interface InteractionDevice { index: number; kind: 'arrows' | 'fire' | 'p
 export interface TemporaryPit { index: number; closesAfterTurn: number }
 export interface DeviceActivation { index: number; kind: InteractionDevice['kind']; chargesBefore: number; chargesAfter: number }
 export interface ForestState {
-  phase: Phase; levelIndex: number; level: ForestLevel; cols: number; rows: number; board: (ForestCell | null)[];
+  phase: Phase; level: ForestLevel; cols: number; rows: number; board: (ForestCell | null)[];
   terrain: TerrainKind[]; devices: InteractionDevice[]; pits: TemporaryPit[]; player: { index: number; hp: number; maxHp: number; energy: number } & DamageEffectComponent; chain: number[];
   chosenAbility: AbilityKind | null;
-  wave: 1 | 2 | 3; waveLabel: string; inventory: Record<ItemKind, number>; itemPrepared: boolean;
+  inventory: Record<ItemKind, number>; itemPrepared: boolean;
   objective: ObjectiveProgress; turn: number; score: number; message: string; bossWarning: number[]; lastDamage: number;
-  spawnCounts: { archers: number; boss: number };
-  room: { kind: 'forest' | 'gate' | 'castle' | 'wizard' | 'custom'; theme: RoomTheme; depth: number; combatKills: number;
-    key: { held: boolean; droppedAt: number | null }; commanderSpawned: boolean };
-  run: { active: boolean; seed: number; path: ExitDirection[]; completedRooms: number };
-  hazard: { cells: number[]; turnsUntil: number; damage: number };
-  rewards: RewardOption[]; selectedExit: ExitDirection | null;
   rotations: RotationPlan[];
   customLevel?: CustomLevelRuntime;
-  tutorial?: { index: number; targetIds: number[]; hintDismissed: boolean;
+  /**
+   * Authored battle metadata (a map-node battle): marked target IDs, the hint and the tool permissions. Absent in an
+   * editor level, where every tool is allowed.
+   */
+  tutorial?: { targetIds: number[]; hintDismissed: boolean;
     allowedItems: ItemKind[]; allowedAbilities: AbilityKind[] };
   /** Forest-map run battle (src/game/run): tools opened by the run, which replace lesson permissions. */
   runNode?: { nodeId: string; label: string; allowedItems: ItemKind[]; allowedAbilities: AbilityKind[];
@@ -57,7 +55,7 @@ export interface EngineEvent { type: string; effect?: DamageEffectKind; index?: 
 export type ForestEvent = EngineEvent;
 export interface ChainHit {
   index: number; damage: number; hpBefore: number; hpAfter: number; killed: boolean; physical: boolean;
-  attackEffect?: DamageEffectKind; doorOpened?: boolean; keyCollected?: boolean; phaseChanged?: boolean;
+  attackEffect?: DamageEffectKind; doorOpened?: boolean;
   /** Porcupine quills that wound the cat at this ordinary chain hit (before HP clamping). */
   spikeDamage?: number;
   /** Score for breaking a crystal at this hit (CRYSTAL_SCORE_PER_KILL × its chain kills). */
@@ -67,10 +65,10 @@ export interface ChainHit {
 }
 /**
  * Sources of cat damage in a forecast, as the engine applies them: porcupine quills, bleeding steps, thorns at the
- * chain end, traps (levers), boar charges, enemy attacks by attacker kind (the troll's club apart from other bosses),
- * the gate volley and end-of-turn ticks.
+ * chain end, traps (levers), boar charges, enemy attacks by attacker kind (the troll's club apart from other bosses)
+ * and end-of-turn ticks.
  */
-export type HeroDamageSource = 'quills' | 'bleeding' | 'thorns' | 'trap' | 'charge' | 'melee' | 'ranged' | 'boss' | 'troll' | 'volley' | 'burning' | 'poison';
+export type HeroDamageSource = 'quills' | 'bleeding' | 'thorns' | 'trap' | 'charge' | 'melee' | 'ranged' | 'boss' | 'troll' | 'burning' | 'poison';
 export type ChargeDamageCause = 'ram' | 'spikes' | 'thorns' | 'pit';
 export interface ChainPreview {
   valid: boolean; length: number; enemies: number; power: number; endIndex: number; damage: number;
@@ -79,7 +77,7 @@ export interface ChainPreview {
   /** `charge` split by cause (boar ram, spiked edge, pushed onto thorns, pushed into a pit); sums to `chargeDamage`. */
   chargeBreakdown?: Record<ChargeDamageCause, number>;
   threats: number[]; createsPrism: boolean; reason: string; hits: ChainHit[]; kills: number; endsOnSurvivor: boolean;
-  keyCollected?: boolean; opensDoor?: number; completesRoom?: boolean; volleyDamage?: number;
+  opensDoor?: number; completesRoom?: boolean;
   rotations: RotationPreview[];
   energyCost: number; energyGain: number;
   deviceActivations?: DeviceActivation[]; trapHits?: ChainHit[]; trapDamage?: number; trapKills?: number;
@@ -128,12 +126,12 @@ export interface EnemyPhaseForecast {
   /** Trolls that regenerate at the end of this phase (no damage this turn, no burning) and the HP they restore. */
   regenerated: { id: number; index: number; amount: number }[];
   /**
-   * The battle is won during this enemy phase: a room boss falls to a forced death, or the authored goals
-   * (with credited forced deaths and the finished turn) are met at the end of the phase while the cat lives.
+   * The battle is won during this enemy phase: the authored goals (with credited forced deaths and the finished
+   * turn) are met at the end of the phase while the cat lives.
    * Enemy deaths from their own burning/poison ticks are not projected. Set only when true.
    */
   completesObjective?: true;
 }
 export interface AbilityPreview extends ChainPreview { ability: AbilityKind; cost: number; indices: number[]; targetIndex?: number }
 export interface FrostPreview { valid: boolean; reason: string; targetIndex: number; freezes: boolean; skippedCells: number[] }
-export interface ItemPreview { valid: boolean; reason: string; indices: number[]; damage: number; healing: number; breachesDoor: boolean }
+export interface ItemPreview { valid: boolean; reason: string; indices: number[]; damage: number; healing: number }

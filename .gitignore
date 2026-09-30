@@ -10,3 +10,5 @@ artifacts/**/*.jpg
 artifacts/palette-campaign-recheck/
 # Локальные настройки Claude Code
 .claude/settings.local.json
+# Local scratch files of agent sessions
+.scratch/

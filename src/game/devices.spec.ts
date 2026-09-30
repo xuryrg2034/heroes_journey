@@ -72,7 +72,7 @@ async function run() {
   const doorway = fixture();
   doorway.state.customLevel!.definition.completion = 'exit'; doorway.state.customLevel!.definition.goals[0].target = 2;
   const door = doorway.state.board[19]!; door.kind = 'door'; door.color = null; door.hp = door.maxHp = 1;
-  door.door = { branch: 'forward', label: 'Exit', destination: 'forest', magic: true, breached: false, footprint: [19] };
+  door.door = { label: 'Exit', breached: false, footprint: [19] };
   doorway.state.devices[0].targets = [19]; doorway.state.player.hp = 4;
   assert(doorway.preview([16, 17, 18, 19]).playerDies);
   await chain(doorway, [16, 17, 18, 19]); assert.equal(doorway.state.phase, 'LOSE', 'door waits for lethal queued volley');
@@ -96,9 +96,9 @@ async function run() {
   const b = bleed.preview([16, 17, 18]); assert(b.valid && b.playerDies); assert.equal(b.deviceActivations?.length, 0);
   await chain(bleed); assert.equal(bleed.state.devices[0].charges, 2, 'death before device does not spend charge');
 
-  for (const type of ['device', 'trap', 'boss-phase']) {
+  // The wizard's 'boss-phase' event was removed with the castle enemies; restart is still checked on both device events.
+  for (const type of ['device', 'trap']) {
     const reset = fixture(); let restarted = false;
-    if (type === 'boss-phase') { const boss = reset.state.board[10]!; boss.kind = 'boss'; boss.variant = 'wizard'; boss.hp = boss.maxHp = 1; boss.bossStage = 1; }
     const emitted: string[] = [];
     reset.subscribe((_state, event) => emitted.push(event.type));
     reset.subscribe((_state, event) => { if (!restarted && event.type === type) { restarted = true; reset.restartLevel(); } });
@@ -108,11 +108,12 @@ async function run() {
 
   const volley = fixture(); const large = volley.state.board[10]!; large.hp = large.maxHp = 9; large.footprint = [10, 11]; volley.state.board[11] = large;
   const impacts = [...applyDeviceVolley(volley.state, volley.state.devices[0])]; assert.equal(large.hp, 5); assert.equal(impacts.filter(impact => impact.cell?.id === large.id).length, 1);
+  // A durable enemy behind the wall (the wizard's phase change on a volley was removed with the castle enemies).
   volley.state.board[12] = { ...volley.state.board[2]!, id: 9000 };
-  const wizard = volley.state.board[12]!; wizard.kind = 'boss'; wizard.variant = 'wizard'; wizard.bossStage = 1; wizard.hp = wizard.maxHp = 1;
-  [...applyDeviceVolley(volley.state, { index: 17, kind: 'arrows', charges: 1, targets: [12] })]; assert.equal(wizard.bossStage, 2); assert.equal(wizard.hp, 24);
-  volley.state.terrain[11] = 'wall'; const hp = wizard.hp;
-  [...applyDeviceVolley(volley.state, { index: 17, kind: 'arrows', charges: 1, targets: [10, 11, 12] })]; assert.equal(wizard.hp, hp, 'wall stops ray');
+  const durable = volley.state.board[12]!; durable.hp = durable.maxHp = 9;
+  [...applyDeviceVolley(volley.state, { index: 17, kind: 'arrows', charges: 1, targets: [12] })]; assert.equal(durable.hp, 5, 'open ray reaches the durable enemy');
+  volley.state.terrain[11] = 'wall'; const hp = durable.hp;
+  [...applyDeviceVolley(volley.state, { index: 17, kind: 'arrows', charges: 1, targets: [10, 11, 12] })]; assert.equal(durable.hp, hp, 'wall stops ray');
 
   const jump = fixture('fire'); jump.state.player.energy = 7; assert(await jump.useAbility('jump', 17)); assert.equal(jump.state.devices[0].charges, 2); assert.equal(jump.state.player.index, 17);
   for (const patch of [{ index: 16 }, { index: 21 }, { charges: -1 }, { targets: [100] }, { targets: [10, 10] }, { targets: [10, 12] }, { targets: [4, 5] }, { targets: [10, 11, 16] }, { kind: 'pit' }, { damage: 0 }]) {

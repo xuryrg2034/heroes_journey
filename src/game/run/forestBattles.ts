@@ -9,14 +9,15 @@ import type { AuthoredLesson } from '../lessonBuilder';
 import { BEAST_BATTLES } from './battles/beasts';
 import { BOSS_BATTLES } from './battles/bosses';
 import { GOBLIN_BATTLES } from './battles/goblins';
+import { SHARED_BATTLES } from './battles/shared';
+import { TRUNK_BATTLES } from './battles/trunk';
 
 /**
- * A node battle: the authored layout, marked targets, passivity (`armed`), devices, pits and `spikedEdges` of a lesson.
+ * A node battle: the authored layout, marked targets, passivity (`armed`), devices, pits and `spikedEdges`.
  * The run supplies the rest: refill seed, refill palette (map row plus the authored colors), the cat's HP, energy,
- * items and the opened tools. Therefore `allowedItems`, `allowedAbilities`, `initialEnergy`, `nextLessonIndices`
- * and a starting inventory are rejected by `validateNodeBattle`.
+ * items and the opened tools. Therefore a starting inventory is rejected by `validateNodeBattle`.
  */
-export type NodeBattle = AuthoredLesson<string>;
+export type NodeBattle = AuthoredLesson;
 
 /** Collect battle groups into one registry; a repeated id is an authoring error and fails on load. */
 export function buildNodeBattleRegistry(groups: Record<string, readonly NodeBattle[]>): Record<string, NodeBattle> {
@@ -33,7 +34,7 @@ export function buildNodeBattleRegistry(groups: Record<string, readonly NodeBatt
 }
 
 export const FOREST_NODE_BATTLES: Readonly<Record<string, NodeBattle>> = buildNodeBattleRegistry({
-  beasts: BEAST_BATTLES, goblins: GOBLIN_BATTLES, bosses: BOSS_BATTLES,
+  trunk: TRUNK_BATTLES, beasts: BEAST_BATTLES, goblins: GOBLIN_BATTLES, shared: SHARED_BATTLES, bosses: BOSS_BATTLES,
 });
 
 /** Registered battle by id, or undefined (never an inherited object key). */
@@ -49,9 +50,6 @@ export function validateNodeBattle(battle: NodeBattle): string[] {
   if (!validation.valid) errors.push(...validation.errors.map(error => `${at}: ${error}`));
   const enemies = new Set(battle.definition.enemies.map(enemy => enemy.index));
   if (battle.targetIndices.some(index => !enemies.has(index))) errors.push(`${at}: отмеченная цель не стоит на враге.`);
-  if (battle.allowedItems || battle.allowedAbilities) errors.push(`${at}: инструменты в бою узла открывает поход, не бой.`);
-  if (battle.initialEnergy !== undefined) errors.push(`${at}: энергию в бой узла переносит поход.`);
-  if (battle.nextLessonIndices) errors.push(`${at}: переходы задаёт карта (next узла), не бой.`);
   if (Object.values(battle.definition.inventory ?? {}).some(count => (count ?? 0) > 0)) errors.push(`${at}: предметы в бой узла переносит поход.`);
   return errors;
 }

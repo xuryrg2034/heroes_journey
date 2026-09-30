@@ -29,8 +29,8 @@ allowed-tools: Bash, Read, Grep, Glob, Edit
 |---|---|
 | правила цепи, урон, враги | README «Управление и общие правила», `docs/game-design.md`, `docs/chain-budget.md`, `docs/architecture.md` |
 | эффекты | `docs/damage-effects.md` |
-| устройства, провалы | `docs/devices.md`, `docs/levels/pit-trail.md` |
-| уроки и кривая | `docs/levels/*.md`, README «Проект первых уровней», память проекта в `AGENTS.md` |
+| устройства, провалы | `docs/devices.md`, `docs/gdd.md` |
+| бои карты и кривая | `docs/levels/*.md`, `docs/biomes/forest-map.md`, `docs/gdd.md`, память проекта в `AGENTS.md` |
 | палитра, генерация | README «Цвета и сложность», `docs/level-authoring-research.md`, `AGENTS.md` |
 | интерфейс | `docs/desktop-ux.md`, README |
 | редактор, JSON | README «Редактор уровней» |

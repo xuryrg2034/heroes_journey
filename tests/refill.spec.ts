@@ -17,10 +17,11 @@ async function draw(page: Page, path: number[]) {
   await page.mouse.up(); await ready(page);
 }
 
-test('a long tutorial chain refills with mixed palette colors and retries the exact seeded result', async ({ page }) => {
+test('a long chain in the first trunk battle refills with mixed palette colors and retries the exact seeded result', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await page.locator('#tutorial-begin-button').click(); await ready(page);
+  // The authored two-color field of the first map node, with its own palette and a fixed refill seed.
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-wake', { seed: 7101 })); await ready(page);
   const opening = await state(page);
   const path = [8, 13, 17, 11, 5, 10];
   expect(path.map(index => opening.board[index].color)).toEqual(Array(path.length).fill(0));
@@ -43,7 +44,7 @@ test('a long tutorial chain refills with mixed palette colors and retries the ex
   const replaced = path.slice(0, -1).map(index => after.board[index]);
   expect(replaced.every((cell: any) => cell && !initialIds.has(cell.id))).toBe(true);
   expect(replaced.some((cell: any) => cell.color !== 0)).toBe(true);
-  await page.screenshot({ path: 'artifacts/tutorial-mixed-refill.png' });
+  await page.screenshot({ path: 'artifacts/trunk-mixed-refill.png' });
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="retry"]').click(); await ready(page);
   expect(await state(page)).toEqual(opening);

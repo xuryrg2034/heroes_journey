@@ -2,9 +2,7 @@ import { Assets, Sprite, type Texture } from 'pixi.js';
 import type { ForestCell } from '../game/forestTypes';
 
 export const CHARACTER_ART_IDS = [
-  'player', 'melee', 'ranged', 'boss', 'prism',
-  'chair', 'stool', 'cabinet', 'wardrobe', 'sentinel', 'elite',
-  'rook', 'bishop', 'knight', 'commander', 'wizard', 'jailer', 'beacon',
+  'player', 'melee', 'ranged', 'boss', 'prism', 'sentinel', 'jailer',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];
