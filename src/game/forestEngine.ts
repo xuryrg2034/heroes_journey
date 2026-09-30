@@ -1,6 +1,6 @@
 import type { PlannedSummon } from './enemyPhase';
 import { isCellAlive } from './cellLife';
-import { TUTORIAL_LESSONS } from './tutorialLevels';
+import { TUTORIAL_LESSONS, type AuthoredLesson } from './tutorialLevels';
 import { COLOR_FROM_SYMBOL, FOREST_LEVEL, WAVE_LABELS, WAVE_OBJECTIVES } from './forestLevel';
 import { ABILITY_COST, canReplaceWithArrival, chainNeighbors, cloneBoard, isWalkable, neighbors, prepareIntents, simulateAbility, simulateChain } from './forestSystems';
 import { canHeal } from './recovered/combat';
@@ -17,7 +17,9 @@ import { chooseGeneratedColors, hasOrdinaryChain } from './boardGeneration';
 import { ENEMY_COLORS } from './enemyPalette';
 import type { AbilityKind, CellKind, ChainPreview, DoorData, EnemyColor, EnemyVariant, EngineEvent, ForestCell, ForestState, FrostPreview, ItemKind, ItemPreview, RoomTheme, RotationPreview, TerrainKind } from './forestTypes';
 import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
+import { forestBattle } from './run/forestBattles';
 import { FOREST_BEAST_HP } from './forestBeasts';
+import { TROLL_HP } from './troll';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Complete replayable position for offline analysis (`levelAnalysis.ts`); not a save format. */
@@ -79,10 +81,15 @@ export class ForestEngine {
   }
   /** Start a forest-map node battle with the run's carried resources and opened tools (src/game/run). */
   startRunBattle(setup: RunBattleSetup): boolean {
-    if (setup.template.kind === 'forest-trial') { this.beginForestTrial(setup.seed, setup); return true; }
-    const lesson = TUTORIAL_LESSONS[setup.template.index];
-    if (!Number.isInteger(setup.template.index) || !lesson) return false;
-    return this.loadCustomLevel({ ...lesson.definition, seed: setup.seed, paletteWeights: [...setup.paletteWeights ?? lesson.definition.paletteWeights] }, setup.template.index, setup);
+    const { template } = setup;
+    if (template.kind === 'forest-trial') { this.beginForestTrial(setup.seed, setup); return true; }
+    // A registry battle is not an opening lesson: its tutorial index is -1 (see loadCustomLevel).
+    const authored = template.kind === 'battle'
+      ? typeof template.id === 'string' ? { lesson: forestBattle(template.id), index: -1 } : null
+      : Number.isInteger(template.index) ? { lesson: TUTORIAL_LESSONS[template.index], index: template.index } : null;
+    const lesson = authored?.lesson;
+    if (!authored || !lesson) return false;
+    return this.loadCustomLevel({ ...lesson.definition, seed: setup.seed, paletteWeights: [...setup.paletteWeights ?? lesson.definition.paletteWeights] }, { lesson, index: authored.index }, setup);
   }
   /** Result of a finished map-node battle for the run model; null outside a node or before WIN/LOSE. */
   runBattleOutcome(): RunBattleOutcome | null {
@@ -119,26 +126,30 @@ export class ForestEngine {
   startTutorial(index = 0): boolean {
     const lesson = TUTORIAL_LESSONS[index];
     if (!Number.isInteger(index) || !lesson) return false;
-    return this.loadCustomLevel(lesson.definition, index);
+    return this.loadCustomLevel(lesson.definition, { lesson, index });
   }
   nextTutorial(): boolean {
-    if (!this.state.tutorial || this.state.runNode || this.state.phase !== 'WIN') return false;
+    if (!this.state.tutorial || this.state.tutorial.index < 0 || this.state.runNode || this.state.phase !== 'WIN') return false;
     const choices = TUTORIAL_LESSONS[this.state.tutorial.index].nextLessonIndices;
     if (choices) return choices.length === 1 ? this.startTutorialChoice(choices[0]) : false;
     return this.startTutorial(this.state.tutorial.index + 1);
   }
   startTutorialChoice(index: number): boolean {
-    if (!this.state.tutorial || this.state.runNode || this.state.phase !== 'WIN' || !Number.isInteger(index)) return false;
+    if (!this.state.tutorial || this.state.tutorial.index < 0 || this.state.runNode || this.state.phase !== 'WIN' || !Number.isInteger(index)) return false;
     const lesson = TUTORIAL_LESSONS[this.state.tutorial.index];
     const choices = lesson.nextLessonIndices ?? [this.state.tutorial.index + 1];
     return choices.includes(index) && this.startTutorial(index);
   }
   startCustomLevel(value: unknown): boolean { return this.loadCustomLevel(value); }
-  private loadCustomLevel(value: unknown, tutorialIndex?: number, run?: RunBattleSetup): boolean {
+  /**
+   * Load an editor level, or an authored battle with its lesson metadata (marked targets, passivity, permissions,
+   * hint). `authored.index` is the lesson's index in TUTORIAL_LESSONS, or -1 for a forest-map registry battle.
+   */
+  private loadCustomLevel(value: unknown, authored?: { lesson: AuthoredLesson; index: number }, run?: RunBattleSetup): boolean {
     const validation = validateCustomLevel(value);
     if (!validation.valid || !validation.definition) { this.emit({ type: 'invalid', text: validation.errors.join(' ') }); return false; }
     const definition = validation.definition;
-    const lesson = tutorialIndex === undefined ? undefined : TUTORIAL_LESSONS[tutorialIndex];
+    const lesson = authored?.lesson, tutorialIndex = authored?.index ?? -1;
     const previous = { state: this.state, seed: this.seed, rng: this.rng, nextId: this.nextId, generation: this.generation,
       entrySnapshot: this.entrySnapshot, pendingRoom: this.pendingRoom, pendingPrism: this.pendingPrism };
     try {
@@ -153,12 +164,12 @@ export class ForestEngine {
       state.room = { ...state.room, kind: 'custom', commanderSpawned: true }; state.waveLabel = 'Авторский уровень';
       state.customLevel = { definition, goalCompletedTurn: null, paletteWeights: [...definition.paletteWeights] };
       if (lesson) {
-        state.tutorial = { index: tutorialIndex!, targetIds: [], hintDismissed: false,
+        state.tutorial = { index: tutorialIndex, targetIds: [], hintDismissed: false,
           allowedItems: [...(lesson.allowedItems ?? [])], allowedAbilities: [...(lesson.allowedAbilities ?? [])] };
         state.inventory = { frost: 0, bomb: 0, healing: 0, fire: 0, ...definition.inventory };
         state.player = { index: definition.heroIndex, hp: 5, maxHp: 5, energy: lesson.initialEnergy ?? 0 };
         state.objective.tutorialTargets = 0;
-        state.waveLabel = `Урок ${tutorialIndex! + 1} / ${TUTORIAL_LESSONS.length}`;
+        state.waveLabel = tutorialIndex >= 0 ? `Урок ${tutorialIndex + 1} / ${TUTORIAL_LESSONS.length}` : lesson.name;
       }
       if (run) this.applyRunSetup(run);
       const labels = { kills: 'Противники', rangedKills: 'Стрелки', bossKills: 'Боссы', turns: 'Выдержать ходов' };
@@ -269,13 +280,14 @@ export class ForestEngine {
     this.emit({ type: 'start' });
   }
   private createVariant(variant: EnemyVariant, index: number, color: EnemyColor | null): ForestCell {
-    const boss = ['commander', 'wizard', 'jailer', 'beacon'].includes(variant), chess = ['rook', 'bishop', 'knight'].includes(variant);
+    const boss = ['commander', 'wizard', 'jailer', 'beacon', 'troll'].includes(variant), chess = ['rook', 'bishop', 'knight'].includes(variant);
     const cell = this.createCell(boss ? 'boss' : chess ? 'ranged' : 'melee', boss ? null : color, index);
     cell.variant = variant; cell.hp = cell.maxHp = variant === 'chair' ? 0 : variant === 'stool' ? 2 : variant === 'cabinet' ? 4 : variant === 'elite' || variant === 'wardrobe' ? 10 : variant === 'commander' ? 28 : variant === 'wizard' ? 18 : 7;
     if (variant in FOREST_BEAST_HP) cell.hp = cell.maxHp = FOREST_BEAST_HP[variant as keyof typeof FOREST_BEAST_HP];
     if (variant === 'wizard') cell.bossStage = 1;
     if (variant === 'jailer') cell.shield = { dx: 0, dy: 1 };
     if (variant === 'jailer' || variant === 'beacon') cell.hp = cell.maxHp = 8;
+    if (variant === 'troll') cell.hp = cell.maxHp = TROLL_HP;
     cell.behavior.aggressive = ['stool', 'elite'].includes(variant); cell.behavior.cycle = 0;
     cell.carriesKey = variant === 'commander'; return cell;
   }

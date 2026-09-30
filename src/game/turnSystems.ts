@@ -9,6 +9,7 @@ import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPha
 import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
+import { clubCanRaise, clubImpacts, isTroll, swingClub, trollRegeneration } from './troll';
 import { updateBasicAttack, type BasicAttackOps, type EnemyActor } from './recovered/enemies';
 import type { EngineEvent } from './forestTypes';
 import { stepBleeding, tickDamageEffects } from './damageEffects';
@@ -214,11 +215,14 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
     } else {
       if (cell.variant === 'wizard') cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
       if (cell.kind === 'ranged' || cell.variant === 'jailer') cell.behavior.restTurns = 1;
+      // The troll's club (troll.ts): it rests and its zone is spent before the swing is published.
+      const club = isTroll(cell) ? swingClub(cell) : null;
       yield { event: { type: 'attack', index, from: index, to: target,
-        ...(['wizard', 'jailer'].includes(cell.variant ?? '') ? { indices: [...cell.intent.cells] } : {}) } };
+        ...(['wizard', 'jailer'].includes(cell.variant ?? '') ? { indices: [...cell.intent.cells] } : {}),
+        ...(club ? { indices: [...club.zone], amount: club.damage, text: 'club' } : {}) } };
       if (hitsHero) {
         const damage = damageHero(ctx.state, cell.intent.damage);
-        yield { event: { type: 'damage', index: ctx.state.player.index, from: index, amount: damage } };
+        yield { event: { type: 'damage', index: ctx.state.player.index, from: index, amount: damage, ...(club ? { text: 'club' } : {}) } };
         if (ctx.state.player.hp > 0 && applyAttackEffect(ctx.state.player, cell.attackEffect, false)) {
           yield { event: { type: 'status', index: ctx.state.player.index, from: index, effect: cell.attackEffect, amount: 1 } };
         }
@@ -231,6 +235,16 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
         ctx.recordDefeat(impact.cell, impact.index, true);
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index } };
+        bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
+      }
+      // The club falls on every creature in the zone, enemies included; kills are credited to the player.
+      if (ctx.state.player.hp > 0 && club) for (const impact of clubImpacts(ctx.state.board, cell, club.zone, club.damage)) {
+        yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage, text: 'club' } };
+        if (!ctx.current()) return false;
+        if (!impact.killed) continue;
+        ctx.recordDefeat(impact.cell, impact.index, true);
+        if (!ctx.current()) return false;
+        yield { event: { type: 'kill', index: impact.index, text: 'club' } };
         bossKilled ||= defeatsRoomBoss(ctx.state, impact.cell);
       }
       yield { delay: 115 };
@@ -434,6 +448,7 @@ export function* resolveEnemyTurn(ctx: TurnContext): TurnSequence {
   if (!(yield* resolveShamanRites(ctx, plan.actors))) return false;
   for (const { cell } of plan.actors) if ((cell.variant === 'beacon' || cell.variant === 'shaman') && isCellAlive(cell)
     && !cell.behavior.passive && cell.status.frozen === 0) cell.behavior.cycle = (cell.behavior.cycle ?? 0) + 1;
+  if (!(yield* resolveTrollWindups(ctx, plan.actors))) return false;
   ctx.refreshCustomProgress();
   if (!(yield* resolveRotations(ctx, displaced))) return false;
   for (const { cell } of resting) cell.behavior.restTurns--;
@@ -441,6 +456,7 @@ export function* resolveEnemyTurn(ctx: TurnContext): TurnSequence {
   if (ctx.state.player.hp === 0) { ctx.finish(false); return true; }
   if (!(yield* resolveDamageEffects(ctx))) return false;
   if (['WIN', 'LOSE'].includes(ctx.state.phase)) return true;
+  if (!(yield* resolveTrollRegeneration(ctx))) return false;
   const closed = closeExpiredPits(ctx.state);
   if (closed.length) { yield { event: { type: 'pit-close', indices: closed } }; if (!ctx.current()) return false; }
   if (settleTurn(ctx)) return true;
@@ -455,6 +471,41 @@ export function* resolveShamanRites(ctx: TurnContext, actors: { cell: ForestCell
   if (!actors.some(({ cell }) => cell.intent.empowerIds?.length && shamanActive(ctx.state.board, cell))) return true;
   for (const rite of shamanRites(ctx.state.board, actors)) {
     yield { event: { type: 'empower', index: rite.index, from: rite.shamanIndex, amount: rite.cell.hp, text: rite.tier } };
+    if (!ctx.current()) return false;
+    yield { delay: 90 };
+    if (!ctx.current()) return false;
+  }
+  return true;
+}
+
+/**
+ * Troll windup (troll.ts): an armed, thawed, rested troll with an announced zone raises its club this phase, so
+ * its next enemy phase strikes. Frost and rest pause the cycle. The event is published once the club is raised.
+ */
+export function* resolveTrollWindups(ctx: TurnContext, actors: { cell: ForestCell; index: number }[]): TurnSequence {
+  for (const { cell, index } of actors) {
+    if (!clubCanRaise(ctx.state.board, cell)) continue;
+    cell.behavior.club = { ...cell.behavior.club!, cells: [...cell.behavior.club!.cells], raised: true };
+    yield { event: { type: 'windup', index, from: index, indices: [...cell.behavior.club.cells], text: 'club' } };
+    if (!ctx.current()) return false;
+    yield { delay: 90 };
+    if (!ctx.current()) return false;
+  }
+  return true;
+}
+
+/**
+ * Troll regeneration at the end of the enemy phase, after the effect ticks: a living troll that took no damage
+ * this turn and carries no burning stacks restores up to TROLL_REGEN HP. The per-turn damage mark is cleared here.
+ */
+export function* resolveTrollRegeneration(ctx: TurnContext): TurnSequence {
+  for (const { cell, index } of uniqueEntities(ctx.state.board)) {
+    if (!isTroll(cell)) continue;
+    const amount = trollRegeneration(cell);
+    delete cell.behavior.hurtThisTurn;
+    if (!amount) continue;
+    cell.hp += amount;
+    yield { event: { type: 'regen', index, amount, text: `${cell.hp} HP` } };
     if (!ctx.current()) return false;
     yield { delay: 90 };
     if (!ctx.current()) return false;

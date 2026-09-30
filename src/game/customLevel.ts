@@ -21,7 +21,7 @@ export interface CustomLevelDefinition {
 }
 export interface CustomLevelRuntime { definition: CustomLevelDefinition; goalCompletedTurn: number | null; paletteWeights: PaletteWeights }
 const TERRAINS = ['floor', 'puddle', 'wall', 'tree', 'pond', 'campfire', 'thorns'];
-const VARIANTS = ['chair', 'stool', 'cabinet', 'elite', 'sentinel', 'wardrobe', 'rook', 'bishop', 'knight', 'commander', 'wizard', 'jailer', 'beacon', 'boar', 'wolf', 'porcupine', 'shaman'];
+const VARIANTS = ['chair', 'stool', 'cabinet', 'elite', 'sentinel', 'wardrobe', 'rook', 'bishop', 'knight', 'commander', 'wizard', 'jailer', 'beacon', 'boar', 'wolf', 'porcupine', 'shaman', 'troll'];
 const GOALS = ['kills', 'rangedKills', 'bossKills', 'turns'];
 const ITEMS = ['frost', 'bomb', 'healing', 'fire'];
 const ATTACK_EFFECTS: DamageEffectKind[] = ['fire', 'poison', 'bleeding', 'wind'];
@@ -30,6 +30,13 @@ const record = (value: unknown): value is Record<string, unknown> => !!value && 
 /** Strict enum membership: arrays and other objects never pass through string coercion. */
 const oneOf = (value: unknown, allowed: readonly string[]): value is string => typeof value === 'string' && allowed.includes(value);
 const integer = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+/** Four distinct integer cells forming a 2×2 square on a board `cols` wide. */
+function squareOfFour(indices: unknown[], cols: unknown): boolean {
+  if (typeof cols !== 'number' || indices.length !== 4 || indices.some(index => !integer(index, 0, 10000))) return false;
+  const cells = indices as number[], xs = cells.map(index => index % cols), ys = cells.map(index => Math.floor(index / cols));
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return new Set(cells).size === 4 && x + 1 < cols && [0, 1].every(dy => [0, 1].every(dx => cells.includes((y + dy) * cols + x + dx)));
+}
 export function validateCustomLevel(value: unknown): { valid: boolean; errors: string[]; definition?: CustomLevelDefinition } {
   const errors: string[] = [];
   if (!record(value)) return { valid: false, errors: ['Уровень должен быть объектом.'] };
@@ -75,7 +82,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
     placement(enemy, `Враг ${n + 1}`);
     if (!oneOf(enemy.kind, ['melee', 'ranged', 'boss', 'prism']) || !integer(enemy.hp, 0, 10000) || enemy.color !== null && !integer(enemy.color, 0, 4)) errors.push(`Враг ${n + 1}: неверный тип, цвет или здоровье.`);
     if (enemy.variant !== undefined) {
-      const expected = oneOf(enemy.variant, ['rook', 'bishop', 'knight']) ? 'ranged' : oneOf(enemy.variant, ['commander', 'wizard', 'jailer', 'beacon']) ? 'boss' : 'melee';
+      const expected = oneOf(enemy.variant, ['rook', 'bishop', 'knight']) ? 'ranged' : oneOf(enemy.variant, ['commander', 'wizard', 'jailer', 'beacon', 'troll']) ? 'boss' : 'melee';
       if (!oneOf(enemy.variant, VARIANTS) || enemy.kind !== expected) errors.push(`Враг ${n + 1}: вариант не соответствует типу.`);
       // A shield faces from one square; a multi-square sentinel has no defined facing.
       if (enemy.variant === 'sentinel' && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: страж со щитом занимает одну клетку.`);
@@ -85,7 +92,10 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
       if ((enemy.variant === 'wolf' || enemy.variant === 'porcupine' || enemy.variant === 'shaman') && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: волк, дикобраз и шаман занимают одну клетку.`);
     }
     if ((enemy.kind === 'boss' || enemy.kind === 'prism') && enemy.color !== null) errors.push(`Враг ${n + 1}: босс и огонёк бесцветны.`);
-    if (Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && enemy.kind !== 'melee') errors.push(`Враг ${n + 1}: большая форма доступна ближнему врагу.`);
+    // The troll is the only boss with a body: one cell or a 2×2 square. Other bosses aim from a single square.
+    const trollBody = enemy.variant === 'troll' && enemy.kind === 'boss';
+    if (Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && enemy.kind !== 'melee' && !trollBody) errors.push(`Враг ${n + 1}: большая форма доступна ближнему врагу и троллю.`);
+    if (trollBody && Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && !squareOfFour(enemy.footprint, value.cols)) errors.push(`Враг ${n + 1}: тролль занимает одну клетку или квадрат 2×2.`);
     if (enemy.aggressive !== undefined && typeof enemy.aggressive !== 'boolean') errors.push(`Враг ${n + 1}: агрессия должна быть true/false.`);
     if (enemy.attackEffect !== undefined && !validAttackEffect(enemy.attackEffect)) errors.push(`Враг ${n + 1}: эффект удара должен быть fire, poison, bleeding или wind.`);
   });

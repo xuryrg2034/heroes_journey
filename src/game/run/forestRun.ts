@@ -7,7 +7,8 @@
 import { mixSeed, rewardChoices } from '../campaignContent';
 import type { AbilityKind, ItemKind } from '../forestTypes';
 import { FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, lessonIndex, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant } from './forestMap';
-import type { RunBattleOutcome, RunBattleSetup, RunPlayerResources } from './runBattle';
+import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
+import { forestBattle } from './forestBattles';
 
 export const FOREST_RUN_VERSION = 1;
 /** Same caps as the battle engine: 5 HP in built-in modes, energy up to 7. */
@@ -141,13 +142,21 @@ export function enterNode(current: ForestRunState, nodeId: string): ForestRunSte
   events.push({ type: 'battle-ready', nodeId }); return { ok: true, run, events };
 }
 
+/** Engine template of a battle node: a registry battle, a reused lesson or the forest trial; null if the node has none. */
+export function nodeRunTemplate(node: ForestMapNode): RunBattleTemplate | null {
+  const { content } = node;
+  if (content.kind === 'forest-trial') return { kind: 'forest-trial' };
+  if (content.kind === 'battle') return forestBattle(content.battleId) ? { kind: 'battle', id: content.battleId } : null;
+  if (content.kind === 'lesson') { const index = lessonIndex(node); return index < 0 ? null : { kind: 'lesson', index }; }
+  return null;
+}
+
 /** Engine setup for the entered battle node; the same run always yields the same setup (also after reload). */
 export function battleSetup(run: ForestRunState): RunBattleSetup | null {
   const pending = run.pending; if (pending?.kind !== 'battle') return null;
   const node = forestNode(pending.nodeId); if (!node) return null;
-  const template = node.content.kind === 'forest-trial' ? { kind: 'forest-trial' as const }
-    : node.content.kind === 'lesson' ? { kind: 'lesson' as const, index: lessonIndex(node) } : null;
-  if (!template || template.kind === 'lesson' && template.index < 0) return null;
+  const template = nodeRunTemplate(node);
+  if (!template) return null;
   const entry = structuredClone(pending.entry);
   const paletteWeights = nodeRefillPalette(node);
   return { nodeId: node.id, label: node.name, seed: pending.seed, template, player: entry.player, inventory: entry.inventory,

@@ -3,7 +3,7 @@ import { FOREST_MAP } from '../src/game/run/forestMap';
 import { chooseFindItem, createForestRun, enterNode, resolveBattle, serializeForestRun, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
 
 // Forest map screen (docs/biomes/forest-map.md). The run model is tested in src/game/forestRun.spec.ts;
-// here the real page is driven: title entry, map, node battles, rest, find, reload, defeat and the Troll stub.
+// here the real page is driven: title entry, map, node battles, rest, find, reload, defeat and both bosses.
 // Saved runs are built with the pure model and injected through localStorage, so long routes stay fast.
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -72,18 +72,22 @@ test('title starts a run, the map shows graph, statuses, hover details and resou
   await expect(page.locator('#map-battles')).toContainText('0');
   // Both branches are visible: beast trail and goblin barricade, den to the Troll and camp to the Chief.
   await expect(page.locator('.map-lane-tag')).toHaveText(['Звериная тропа', 'Гоблинская засека', 'Логово зверей → Тролль', 'Лагерь гоблинов → Главарь']);
-  await expect(node(page, 'den-troll')).toContainText('в разработке');
+  await expect(node(page, 'den-troll')).not.toContainText('в разработке');
   expect(await noScroll(page)).toBe(true);
   // Every node fits the first screen, the last row included.
   const box = await page.locator('#map-board').boundingBox();
   expect(box!.y + box!.height).toBeLessThanOrEqual(720); expect(box!.x + box!.width).toBeLessThanOrEqual(1280);
   await node(page, 'beast-wolf').hover();
-  await expect(page.locator('#map-detail')).toContainText('Особенность поля: Лужа у брода');
-  await expect(page.locator('#map-detail')).toContainText('временно');
+  await expect(page.locator('#map-detail')).toContainText('Особенность поля: Стая волков');
+  await expect(page.locator('#map-detail')).not.toContainText('временно');
   await expect(page.locator('#map-detail')).toContainText('Открывает: Холод');
   await expect(page.locator('#map-detail')).toContainText('Цветов в пополнении');
+  // A node whose battle is still a stand-in carries the «временно» mark.
+  await node(page, 'den-elite').hover();
+  await expect(page.locator('#map-detail')).toContainText('временно');
   await node(page, 'den-troll').hover();
-  await expect(page.locator('#map-detail')).toContainText('в разработке');
+  await expect(page.locator('#map-detail')).toContainText('Тролль, стая и жаровня');
+  await expect(page.locator('#map-detail')).not.toContainText('в разработке');
   await expect(page.locator('#map-detail')).toContainText('Босс');
   await node(page, 'trail-rest').hover();
   await expect(page.locator('#map-detail')).toContainText('Привал');
@@ -263,25 +267,30 @@ test('defeat keeps the node current: retry restores the entry, map offers to ret
   expect(errors).toEqual([]);
 });
 
-test('the Troll node reports "in development", not a victory; reset asks for confirmation on the page', async ({ page }) => {
+test('the Troll is a real battle node; beating him wins the run; reset asks for confirmation on the page', async ({ page }) => {
+  test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
   await seedRun(page, walk([...TO_JAILER, 'den-battle', 'den-elite', 'den-rest', 'den-breakthrough'], 4));
   await page.goto('/'); await page.locator('#run-start-button').click();
   await expect(node(page, 'den-troll')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'den-troll')).not.toContainText('в разработке');
   await expect(node(page, 'camp-chief')).toHaveAttribute('data-status', 'locked');
-  await node(page, 'den-troll').click();
-  await expect(page.locator('#modal')).toContainText('Тролль — в разработке');
-  await expect(page.locator('#run-result-copy')).toContainText('Это не победа');
-  await expect(page.locator('#modal')).not.toContainText('повержен');
-  await expect(page.locator('#modal .outcome-symbol')).not.toHaveText('✦');
+  await node(page, 'den-troll').click(); await settled(page);
+  const battle = await state(page);
+  expect(battle.runNode.nodeId).toBe('den-troll');
+  expect(battle.board.some((cell: any) => cell?.variant === 'troll')).toBe(true);
+  expect(battle.player.hp).toBe(4);
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
+  await expect(page.locator('#modal')).toContainText('ПОХОД ЗАВЕРШЁН');
+  await expect(page.locator('#modal .outcome-symbol')).toHaveText('✦');
+  await expect(page.locator('#modal')).not.toContainText('в разработке');
   await expect(page.locator('#modal [data-action="run-new"]')).toContainText('НОВЫЙ ПОХОД');
   await expect(page.locator('#modal [data-action="title"]')).toContainText('В МЕНЮ');
-  expect((await savedRun(page)).result).toMatchObject({ outcome: 'boss-in-development', nodeId: 'den-troll' });
+  expect((await savedRun(page)).result).toMatchObject({ outcome: 'victory', nodeId: 'den-troll' });
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'artifacts/forest-map-troll.png' });
   await page.locator('#modal [data-action="run-map"]').click();
-  await expect(node(page, 'den-troll')).toHaveClass(/reached/);
-  await expect(node(page, 'den-troll')).toContainText('в разработке');
+  await expect(node(page, 'den-troll')).toHaveAttribute('data-status', 'current');
   await expect(page.locator('.map-node[data-status="available"]')).toHaveCount(0);
   // The finished run stays saved and is shown again after a reload.
   await page.reload();
@@ -374,5 +383,99 @@ test('rest clears effects on the cat and says so', async ({ page }) => {
   await page.locator('#modal [data-action="resume"]').click();
   await expect(page.locator('#map-hp .map-effects')).toHaveCount(0);
   expect((await savedRun(page)).resources.player.damageEffects).toBeUndefined();
+  expect(errors).toEqual([]);
+});
+
+/** Start a node battle straight on the engine (src/game stays untouched): the run's opened tools are given by the setup. */
+async function startNodeBattle(page: Page, template: object, allowedAbilities: string[], allowedItems: string[]) {
+  await page.evaluate(([template, allowedAbilities, allowedItems]) => {
+    const engine = (window as any).__PUZZLE_GAME.engine;
+    const ok = engine.startRunBattle({ nodeId: 'trunk-1', label: 'Проба', seed: 4242, template, player: { hp: 5, maxHp: 5, energy: 2 },
+      inventory: { frost: 1, bomb: 0, healing: 0, fire: 0 }, allowedItems, allowedAbilities });
+    if (!ok) throw new Error('startRunBattle failed');
+  }, [template, allowedAbilities, allowedItems] as const);
+  await settled(page);
+}
+
+test('a registry battle (tutorial index -1): help opens, marked targets are counted, an opened jump is visible', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  await page.goto('/');
+  await page.locator('#run-start-button').click();
+  await node(page, 'trunk-1').click(); await settled(page);
+  // A registry battle is started on the engine with the tools of a run that opened the jump.
+  await startNodeBattle(page, { kind: 'battle', id: 'wolf-ford' }, ['jump'], ['frost']);
+  expect((await state(page)).tutorial.index).toBe(-1);
+  await expect(page.locator('#game-screen')).toHaveClass(/tutorial-abilities/);
+  await expect(page.locator('.energy-hud')).toBeVisible();
+  await expect(page.locator('.ability-button[data-ability="jump"]')).toBeVisible();
+  await expect(page.locator('.ability-button[data-ability="jump"]')).toBeEnabled();
+  await expect(page.locator('.item-button[data-item="frost"]')).toBeVisible();
+  await expect(page.locator('#objectives')).toContainText('Отмеченные охранники');
+  await expect(page.locator('#objectives')).toContainText('0 / 4');
+  await expect(page.locator('#tutorial-message')).toContainText('Волк рядом с живым волком');
+  await expect(page.locator('.field-guide')).toContainText('Прыжок');
+  await expect(page.locator('.field-guide')).toContainText('Холод и вода');
+  await page.screenshot({ path: 'artifacts/forest-map-registry-battle.png' });
+  await page.locator('[data-action="help"]').first().click();
+  await expect(page.locator('#modal')).toContainText('Вожак у брода');
+  await expect(page.locator('#modal')).toContainText('ПОХОД');
+  await page.locator('#modal [data-action="resume"]').click();
+  // Without opened tools the abilities panel and energy stay hidden.
+  await startNodeBattle(page, { kind: 'battle', id: 'wolf-ford' }, [], []);
+  await expect(page.locator('#game-screen')).not.toHaveClass(/tutorial-abilities/);
+  await expect(page.locator('.energy-hud')).toBeHidden();
+  await expect(page.locator('.field-guide')).not.toContainText('Прыжок');
+  expect(errors).toEqual([]);
+});
+
+test('a lesson node uses the run tools, not the lesson permissions: an opened jump is available in lesson 1', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  await page.goto('/');
+  await page.locator('#run-start-button').click();
+  await node(page, 'trunk-1').click(); await settled(page);
+  expect((await state(page)).tutorial.allowedAbilities).toEqual([]);
+  await expect(page.locator('#game-screen')).not.toHaveClass(/tutorial-abilities/);
+  await expect(page.locator('.energy-hud')).toBeHidden();
+  await startNodeBattle(page, { kind: 'lesson', index: 0 }, ['jump'], ['frost']);
+  expect((await state(page)).tutorial.index).toBe(0);
+  await expect(page.locator('#game-screen')).toHaveClass(/tutorial-abilities/);
+  await expect(page.locator('.energy-hud')).toBeVisible();
+  await expect(page.locator('.ability-button[data-ability="jump"]')).toBeVisible();
+  await expect(page.locator('.ability-button[data-ability="jump"]')).toBeEnabled();
+  await expect(page.locator('.field-guide')).toContainText('Прыжок');
+  await page.locator('[data-action="help"]').first().click();
+  await expect(page.locator('#modal')).toContainText('ПОХОД');
+  await page.locator('#modal [data-action="resume"]').click();
+  expect(errors).toEqual([]);
+});
+
+test('registry battle end to end: the beast trail node from the map, a real mouse route, the result on the map', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // Run seed 1: the authored route of wolf-ford is checked for it in src/game/beastBattles.spec.ts.
+  await seedRun(page, walk(TRUNK, 5, 1));
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  await node(page, 'beast-wolf').hover();
+  await expect(page.locator('#map-detail')).toContainText('Вожак у брода');
+  await expect(page.locator('#map-detail')).not.toContainText('временно');
+  await node(page, 'beast-wolf').click(); await settled(page);
+  const entry = await state(page);
+  expect(entry.runNode.nodeId).toBe('beast-wolf'); expect(entry.board.filter((cell: any) => cell?.variant === 'wolf').length).toBeGreaterThan(1);
+  await expect(page.locator('#chapter-number')).toContainText('ПОХОД');
+  await expect(page.locator('#objectives')).toContainText('0 / 4');
+  const cell = (label: string) => (Number(label.slice(1)) - 1) * entry.cols + label.charCodeAt(0) - 65;
+  await draw(page, ['B5', 'C5', 'C4', 'D3', 'D2'].map(cell));
+  expect((await state(page)).phase).toBe('PLAYER_INPUT');
+  await draw(page, ['C2', 'D1', 'E2', 'E3', 'D4'].map(cell));
+  expect((await state(page)).phase).toBe('WIN');
+  await expect(page.locator('#modal [data-action="run-map"]')).toBeVisible();
+  await page.locator('#modal [data-action="run-map"]').click();
+  await expect(node(page, 'beast-wolf')).toHaveAttribute('data-status', 'current');
+  await expect(node(page, 'beast-boar')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'trail-rest')).toHaveAttribute('data-status', 'available');
+  const run = await savedRun(page);
+  expect(run.visited).toEqual([...TRUNK, 'beast-wolf']); expect(run.pending).toBeNull();
+  expect(run.tools.items).toContain('frost');
+  await expect(page.locator('#map-battles')).toContainText('5');
   expect(errors).toEqual([]);
 });

@@ -16,6 +16,8 @@ export function damageCell(cell: ForestCell, damage: number, source: DamageSourc
   damage = Math.max(0, damage);
   const wasAlive = isCellAlive(cell);
   if (wasAlive && cell.maxHp === 0 && damage > 0) cell.defeated = true;
+  // Every damage source passes here: the troll regenerates only after a turn without it (troll.ts).
+  if (wasAlive && damage > 0 && cell.variant === 'troll') cell.behavior.hurtThisTurn = true;
   cell.hp = Math.max(0, cell.hp - damage);
   if (source === 'physical') cell.status.brittle = false;
   const hpRemoved = Math.min(hpBefore, damage);

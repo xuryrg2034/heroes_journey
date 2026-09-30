@@ -1,10 +1,10 @@
 import { isCellAlive } from './cellLife';
-import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, ChargeDamageCause, EnemyPhaseForecast, HeroDamageSource, InteractionDevice, ForestCell, ForestState, RotationPlan, RotationPreview } from './forestTypes';
+import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, ChargeDamageCause, EnemyPhaseForecast, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ObjectiveProgress, RotationPlan, RotationPreview } from './forestTypes';
 import { recoveredMoveTowards } from './recoveredEnemyMovement';
 import { canMoveTo, randomLaunchCell, updateShieldDir, type EnemyActor } from './recovered/enemies';
 import { gemValue, pathColour, WILD } from './recovered/core';
 import { canFireArrowHit } from './recovered/combat';
-import { footprintPerimeter } from './entityFootprint';
+import { footprintPerimeter, uniqueEntities } from './entityFootprint';
 import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase } from './enemyPhase';
 import { BOAR_CHARGE_LENGTH, BOAR_DAMAGE, chargeDirection, chargeLane, HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE, walkableTerrain } from './terrain';
@@ -16,9 +16,10 @@ import { applyDamageEffect, stepBleeding, tickDamageEffects, type DamageEffects 
 import { assignDamageEffects, applyAttackEffect, hasDamageEffects } from './effectRules';
 import { customGoalsMet } from './customLevel';
 import { applyDeviceVolley, deviceAt, pitAt } from './devices';
+import { clubImpacts, clubZone, effectTickHurts, isTroll, swingClub, TROLL_CLUB_DAMAGE, trollBody, trollRegeneration } from './troll';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
-export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, volley: 0, burning: 0, poison: 0 });
+export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, volley: 0, burning: 0, poison: 0 });
 /** The only way the forecast adds cat damage: the total and its source stay in step. */
 function hurt(preview: ChainPreview, source: HeroDamageSource, amount: number) {
   preview.damage += amount; preview.damageBySource[source] += amount;
@@ -26,7 +27,7 @@ function hurt(preview: ChainPreview, source: HeroDamageSource, amount: number) {
 const tickSource = (kind: 'fire' | 'poison' | 'bleeding'): HeroDamageSource => kind === 'fire' ? 'burning' : kind;
 export const JUMP_RANGE = 3;
 
-export const cloneCell = (cell: ForestCell): ForestCell => ({ ...cell, status: { ...cell.status }, behavior: { ...cell.behavior },
+export const cloneCell = (cell: ForestCell): ForestCell => ({ ...cell, status: { ...cell.status }, behavior: { ...cell.behavior, ...(cell.behavior.club ? { club: { ...cell.behavior.club, cells: [...cell.behavior.club.cells] } } : {}) },
   ...(cell.damageEffects ? { damageEffects: { ...cell.damageEffects } } : {}),
   ...(cell.shield ? { shield: { ...cell.shield } } : {}),
   ...(cell.footprint ? { footprint: [...cell.footprint] } : {}),
@@ -289,7 +290,7 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
   if (!preview.playerDies && (bossKilled || preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress))) preview.completesRoom = true;
   if (preview.playerDies) { preview.completesRoom = false; delete preview.opensDoor; bossKilled = false; }
   const diesInAction = !!preview.playerDies;
-  const enemyForecast = forecastEnemyPhase(state, forecastState, preview, movingPlayer.damageEffects);
+  const enemyForecast = forecastEnemyPhase(state, forecastState, preview, movingPlayer.damageEffects, customProgress);
   if (!state.tutorial && (state.run.active || state.customLevel) && !diesInAction && !preview.completesRoom && gemValue(preview.kills, [8], [0, 1]) > 0 && board.filter(cell => cell?.kind === 'prism').length < 2) {
     // The prism waits for refill: it needs a cell still empty after boar pushes, away from the cat's final cell.
     const heroIndex = preview.enemyPhase?.heroIndex ?? preview.endIndex;
@@ -310,8 +311,11 @@ interface EnemyForecastResult { occupiedAfterCharges: ReadonlySet<number> | null
  * attacks in board order with archer arrows striking creatures (enemyPhase.ts), swaps, volley, effect ticks.
  * `after` is the position once the action and its levers resolved. No RNG, no events.
  */
-function forecastEnemyPhase(state: ForestState, after: ForestState, preview: ChainPreview, movementEffects = state.player.damageEffects): EnemyForecastResult {
+function forecastEnemyPhase(state: ForestState, after: ForestState, preview: ChainPreview, movementEffects = state.player.damageEffects,
+  progress: ObjectiveProgress = state.objective): EnemyForecastResult {
   const result: EnemyForecastResult = { occupiedAfterCharges: null, activeRotationCells: new Set() };
+  // Forced deaths are credited to the player in the live phase (recordDefeat), so they count toward the goals.
+  const credited = { ...progress };
   if (preview.playerDies) { preview.rotations = []; preview.volleyDamage = 0; return result; }
   const effectAware = hasDamageEffects(state.player) || !!state.player.attackEffect
     || after.board.some(cell => cell && (hasDamageEffects(cell) || cell.attackEffect));
@@ -328,7 +332,7 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
   const sim: ForestState = { ...after, board: cloneBoard(after.board), pits: after.pits.map(pit => ({ ...pit })),
     player: { ...after.player, hp, damageEffects: effects ? { ...effects } : undefined }, lastDamage: 0 };
   // Keep the raw threat total for boards without effects; the charge part is always the applied damage.
-  const phase: EnemyPhaseForecast = { heroIndex: sim.player.index, charges: [], moves: [], deaths: [], knockedDown: [], packBroken: [], empowered: [] };
+  const phase: EnemyPhaseForecast = { heroIndex: sim.player.index, charges: [], moves: [], deaths: [], knockedDown: [], packBroken: [], empowered: [], regenerated: [] };
   const displaced = new Set<number>(), firstFrom = new Map<number, number>(), lastTo = new Map<number, number>();
   let chargeDamage = 0, chargeFrom = -1, bossDown = false;
   const chargeBreakdown: Record<ChargeDamageCause, number> = { ram: 0, spikes: 0, thorns: 0, pit: 0 };
@@ -337,6 +341,7 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
       if (impact.heroDamage !== undefined) { chargeDamage += impact.heroDamage; chargeBreakdown[impact.kind === 'ram' ? 'ram' : impact.cause] += impact.heroDamage; }
       if (impact.cell && impact.killed) {
         phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: impact.kind === 'ram' ? 'ram' : impact.cause });
+        creditDefeat(state, impact.cell, credited);
         bossDown ||= defeatsRoomBoss(state, impact.cell);
       }
     }
@@ -368,6 +373,12 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
     preview.rotations = [];
     if (effectAware) preview.endEffects = effects;
     preview.playerDies = effectAware ? hp <= 0 : preview.damage >= state.player.hp;
+    if (!preview.playerDies) phase.completesObjective = true;
+    return result;
+  };
+  // Authored goals are checked in settleTurn, after the volley and the cat's own tick, with the turn counted.
+  const settles = () => {
+    if (!preview.playerDies && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, { ...credited, turns: credited.turns + 1 })) phase.completesObjective = true;
     return result;
   };
   if (bossDown) return winsNow();
@@ -383,19 +394,36 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
     if (live.hitsHero) {
       preview.threats.push(attack.index);
       const damage = effectAware ? Math.min(hp, attack.cell.intent.damage) : attack.cell.intent.damage;
-      hp -= damage; hurt(preview, attack.cell.kind === 'ranged' ? 'ranged' : attack.cell.kind === 'boss' ? 'boss' : 'melee', damage);
+      hp -= damage; hurt(preview, attack.cell.kind === 'ranged' ? 'ranged' : isTroll(attack.cell) ? 'troll' : attack.cell.kind === 'boss' ? 'boss' : 'melee', damage);
       if (effectAware && hp <= 0) break;
       if (effectAware && attack.cell.attackEffect) effects = applyDamageEffect(effects, attack.cell.attackEffect);
     }
     if (hp > 0 && archerStrikesCreatures(attack.cell)) for (const impact of archerVolley(sim.board, attack.cell)) {
       if (!impact.killed) continue;
       phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: 'arrow' });
+      creditDefeat(state, impact.cell, credited);
+      bossDown ||= defeatsRoomBoss(state, impact.cell);
+    }
+    // The troll's club falls on every creature in its zone, as in the live phase (troll.ts).
+    const club = isTroll(attack.cell) ? swingClub(attack.cell) : null;
+    if (hp > 0 && club) for (const impact of clubImpacts(sim.board, attack.cell, club.zone, club.damage)) {
+      if (!impact.killed) continue;
+      phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: 'club' });
+      creditDefeat(state, impact.cell, credited);
       bossDown ||= defeatsRoomBoss(state, impact.cell);
     }
   }
   if (bossDown && hp > 0) return winsNow();
   // Shaman rites resolve after the attacks, as in the live phase (UI data only: they never hurt the cat).
   if (hp > 0) for (const rite of shamanRites(sim.board, plan.actors)) phase.empowered.push({ shamanId: rite.shaman.id, id: rite.cell.id, index: rite.index, tier: rite.tier });
+  // Troll regeneration at the end of the phase (UI data only). Damage still to come this phase — the gate volley on
+  // its squares and its own effect tick — is projected with the same kernels the live phase uses.
+  if (hp > 0) for (const { cell, index, indices } of uniqueEntities(sim.board)) {
+    if (!isTroll(cell)) continue;
+    const volley = state.hazard.turnsUntil === 1 && indices.some(part => state.hazard.cells.includes(part));
+    const amount = trollRegeneration(cell, volley || effectTickHurts(cell));
+    if (amount) phase.regenerated.push({ id: cell.id, index, amount });
+  }
   preview.rotations = rotationPreview(sim, sim.board, sim.player.index, displaced);
   result.activeRotationCells = new Set(preview.rotations.filter(plan => plan.active).flatMap(plan => [plan.from, plan.to]));
   const volleyHitsHero = state.hazard.turnsUntil === 1 && state.hazard.cells.includes(sim.player.index);
@@ -404,7 +432,8 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
     preview.volleyDamage = volleyHitsHero ? state.hazard.damage : 0;
     hurt(preview, 'volley', preview.volleyDamage);
     preview.playerDies = preview.damage >= state.player.hp;
-    return result;
+    if (preview.playerDies) phase.regenerated = [];
+    return settles();
   }
   if (hp <= 0) deactivate();
   if (hp > 0 && volleyHitsHero) {
@@ -422,7 +451,9 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
   }
   preview.endEffects = effects;
   preview.playerDies = hp <= 0;
-  return result;
+  // A cat killed by the volley or its own tick ends the turn before the regeneration step.
+  if (preview.playerDies) phase.regenerated = [];
+  return settles();
 }
 
 export function simulateAbility(state: ForestState, ability: AbilityKind, targetIndex?: number): ChainSimulation & { preview: AbilityPreview } {
@@ -463,7 +494,7 @@ export function simulateAbility(state: ForestState, ability: AbilityKind, target
     preview.keyCollected = true; if (preview.hits[0]) preview.hits[0].keyCollected = true;
   }
   preview.completesRoom = bossKilled || state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress);
-  forecastEnemyPhase(state, { ...state, board, player: { ...state.player, index: preview.endIndex } }, preview);
+  forecastEnemyPhase(state, { ...state, board, player: { ...state.player, index: preview.endIndex } }, preview, state.player.damageEffects, customProgress);
   return { preview, board, bossKilled };
 }
 
@@ -581,6 +612,18 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
             summonCells: targets.map(target => target.index), summonIds: targets.map(target => target.id) };
           cell.countdown = 1;
         }
+        return;
+      }
+      if (cell.variant === 'troll') {
+        // Windup → strike → rest (troll.ts). The zone is chosen toward the cat when the windup is announced and
+        // kept until the strike; frost and rest pause the cycle without losing it.
+        cell.intent = { cells: [], damage: 0, label: 'Отдых' };
+        if (cell.behavior.restTurns > 0) { if (cell.status.frozen > 0) cell.intent.label = 'Заморожен · отдых'; return; }
+        if (cell.status.frozen > 0) { cell.intent.label = cell.behavior.club?.raised ? 'Заморожен · удар удержан' : 'Заморожен'; return; }
+        if (!cell.behavior.club) cell.behavior.club = { ...clubZone(state, trollBody(state.board, cell), state.player.index), raised: false };
+        const club = cell.behavior.club;
+        cell.countdown = club.raised ? 1 : 2;
+        cell.intent = { cells: [...club.cells], damage: TROLL_CLUB_DAMAGE, label: club.raised ? 'Удар дубиной' : 'Замах дубиной' };
         return;
       }
       if (cell.variant === 'jailer') {

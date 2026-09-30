@@ -6,7 +6,7 @@ type Point = { x: number; y: number };
 const INK = 0x172024;
 export const PUSH_COLOR = 0xd6efff;
 export const DEATH_COLOR = 0xff6a5c;
-export const CAUSE_LABEL: Record<string, string> = { ram: 'УДАР', spikes: 'ШИПЫ', thorns: 'КОЛЮЧКИ', pit: 'ПРОВАЛ', arrow: 'СТРЕЛА', quills: 'ИГЛЫ' };
+export const CAUSE_LABEL: Record<string, string> = { ram: 'УДАР', spikes: 'ШИПЫ', thorns: 'КОЛЮЧКИ', pit: 'ПРОВАЛ', arrow: 'СТРЕЛА', quills: 'ИГЛЫ', club: 'ДУБИНА' };
 
 /** Solid chevron (arrow head) centred on a point and pointing along (dx, dy). */
 export function drawChevron(g: Graphics, at: Point, dx: number, dy: number, color: number, size = 11) {
@@ -84,4 +84,38 @@ export function drawSpikedEdge(g: Graphics, side: 'top' | 'right' | 'bottom' | '
     g.poly([...point(a, rail - 1), ...point(b, rail + depth), ...point(c, rail - 1)]).fill(0xd8d2c0).stroke({ color: 0x1b1f22, width: 1.2, join: 'round' });
     g.poly([...point(b, rail + depth - 4), ...point(b, rail + depth), ...point(b + (c - a) * 0.12, rail + depth - 4)]).fill(0xd6503f);
   }
+}
+
+export const CLUB_COLOR = 0xd9744a;
+/**
+ * Troll club zone. Windup: a dashed contour around the band with a club emblem. Raised (the strike falls this phase):
+ * every cell filled, a heavy solid border and diagonal slam stripes. Different from the boar's amber corridor with
+ * rail chevrons and from the archer's thin arrow with corner brackets.
+ */
+export function drawClubZone(g: Graphics, cells: Point[], raised: boolean) {
+  if (!cells.length) return;
+  const half = 37, minX = Math.min(...cells.map(c => c.x)) - half, maxX = Math.max(...cells.map(c => c.x)) + half;
+  const minY = Math.min(...cells.map(c => c.y)) - half, maxY = Math.max(...cells.map(c => c.y)) + half;
+  if (raised) {
+    for (const c of cells) {
+      g.roundRect(c.x - 35, c.y - 35, 70, 70, 4).fill({ color: CLUB_COLOR, alpha: 0.3 });
+      for (let n = -1; n <= 1; n++) g.moveTo(c.x - 30 + n * 20, c.y + 30).lineTo(c.x + 10 + n * 20, c.y - 30).stroke({ color: 0xffd0a8, width: 3, alpha: 0.45 });
+    }
+    g.roundRect(minX, minY, maxX - minX, maxY - minY, 6).stroke({ color: INK, width: 8, alpha: 0.75 });
+    g.roundRect(minX, minY, maxX - minX, maxY - minY, 6).stroke({ color: CLUB_COLOR, width: 5, alpha: 1 });
+    return;
+  }
+  const seg = 12, gap = 8, edges: [number, number, number, number][] = [[minX, minY, maxX, minY], [maxX, minY, maxX, maxY], [maxX, maxY, minX, maxY], [minX, maxY, minX, minY]];
+  for (const [color, width, alpha] of [[INK, 6, 0.6], [CLUB_COLOR, 3, 0.95]] as const) {
+    for (const [ax, ay, bx, by] of edges) {
+      const length = Math.hypot(bx - ax, by - ay);
+      for (let t = 0; t < length; t += seg + gap) { const t2 = Math.min(length, t + seg); g.moveTo(ax + (bx - ax) * t / length, ay + (by - ay) * t / length).lineTo(ax + (bx - ax) * t2 / length, ay + (by - ay) * t2 / length); }
+    }
+    g.stroke({ color, width, alpha });
+  }
+  // Club emblem in the corner: a studded stick.
+  const x = minX + 16, y = minY + 16;
+  g.moveTo(x - 7, y + 7).lineTo(x + 6, y - 6).stroke({ color: INK, width: 8, cap: 'round' });
+  g.moveTo(x - 7, y + 7).lineTo(x + 6, y - 6).stroke({ color: 0xb98a58, width: 4, cap: 'round' });
+  g.circle(x + 7, y - 7, 5).fill(0x7a5b3a).stroke({ color: INK, width: 2 });
 }

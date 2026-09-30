@@ -12,7 +12,7 @@ import { drawKey } from './castleArt';
 import { loadCharacterArt } from './characterAssets';
 import { deviceTargets } from '../game/devices';
 import { drawStunStars } from './boarArt';
-import { CAUSE_LABEL, DEATH_COLOR, PUSH_COLOR, drawArrowMark, drawBoarLane, drawChevron, drawDashedTile, drawDeathCross, drawSpikedEdge } from './forecastArt';
+import { CAUSE_LABEL, DEATH_COLOR, PUSH_COLOR, drawArrowMark, drawBoarLane, drawChevron, drawClubZone, drawDashedTile, drawDeathCross, drawSpikedEdge } from './forecastArt';
 import { drawThornRim } from './art';
 import { goblinTier, wolfHasPack, type BeastWorld } from '../game/forestBeasts';
 import { QUILL, RITE } from './beastArt';
@@ -248,7 +248,7 @@ export class BoardRenderer {
       if(!cell || alive.has(cell.id)) return;
       alive.add(cell.id);
       const tutorialTarget=state.tutorial?.targetIds.includes(cell.id) ?? false;
-      const signature=`${index}/${cell.kind}/${cell.variant}/${cell.footprint}/${cell.bossStage}/${cell.carriesKey}/${cell.supportTargetId}/${JSON.stringify(cell.shield)}/${JSON.stringify(cell.door)}/${cell.color}/${cell.hp}/${cell.maxHp}/${cell.defeated}/${cell.countdown}/${cell.intent.cells.join('.')}/${cell.intent.summonCells?.join('.')}/${cell.intent.moveTo}/${cell.intent.swapWithId}/${cell.behavior.aggressive}/${cell.behavior.passive}/${cell.behavior.restTurns}/${tutorialTarget}/${cell.status.wet}/${cell.status.frozen}/${cell.status.brittle}/${cell.attackEffect}/${JSON.stringify(cell.damageEffects)}/${cell.variant==='wolf'||cell.variant==='shaman'||cell.variant==='porcupine'?`${cell.intent.label}/${cell.intent.empowerCells?.join('.')}`:''}`;
+      const signature=`${index}/${cell.kind}/${cell.variant}/${cell.footprint}/${cell.bossStage}/${cell.carriesKey}/${cell.supportTargetId}/${JSON.stringify(cell.shield)}/${JSON.stringify(cell.door)}/${cell.color}/${cell.hp}/${cell.maxHp}/${cell.defeated}/${cell.countdown}/${cell.intent.cells.join('.')}/${cell.intent.summonCells?.join('.')}/${cell.intent.moveTo}/${cell.intent.swapWithId}/${cell.behavior.aggressive}/${cell.behavior.passive}/${cell.behavior.restTurns}/${tutorialTarget}/${cell.status.wet}/${cell.status.frozen}/${cell.status.brittle}/${cell.attackEffect}/${JSON.stringify(cell.damageEffects)}/${cell.variant==='wolf'||cell.variant==='shaman'||cell.variant==='porcupine'||cell.variant==='troll'?`${cell.intent.label}/${cell.intent.empowerCells?.join('.')}`:''}`;
       let piece=this.views.get(cell.id);
       const oldMotion=piece?.motion,oldIndex=piece?.index;
       const oldBorn=piece?.born;
@@ -435,6 +435,16 @@ export class BoardRenderer {
         }
         return;
       }
+      if(cell.variant==='troll'){
+        // Club zone from the engine's intent: windup is a contour a turn ahead, the raised club fills the zone.
+        if(cell.intent.cells.length&&cell.behavior.restTurns===0){
+          const raised=!!cell.behavior.club?.raised,zone=cell.intent.cells.map(target=>this.center(target));
+          drawClubZone(tg,zone,raised);
+          const mid={x:(Math.min(...zone.map(z=>z.x))+Math.max(...zone.map(z=>z.x)))/2,y:(Math.min(...zone.map(z=>z.y))+Math.max(...zone.map(z=>z.y)))/2};
+          this.label(mid.x,mid.y,raised?`УДАР ${cell.intent.damage}`:'ЗАМАХ',raised?0xffe2c4:0xf0c9a4,raised?13:11);
+        }
+        return;
+      }
       if(cell.variant==='boar'){
         // Charge lane: a heavy amber corridor above the pieces. The archer's line is a thin arrow with corner brackets.
         if(cell.intent.charge&&chargeReady(cell,NO_DISPLACED)){
@@ -603,7 +613,7 @@ export class BoardRenderer {
       }
       this.endpoint.visible=state.phase==='PLAYER_INPUT';
       // Same wording as the chain panel: a door entry is not a victory.
-      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.opensDoor!==undefined?'В СЛЕДУЮЩИЙ ЗАЛ':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
+      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.opensDoor!==undefined?'В СЛЕДУЮЩИЙ ЗАЛ':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
       const half=Math.ceil(this.endpointText.width/2)+10;
       this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,end.x)),Math.max(12,end.y-35));
       this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!preview.valid?0x3c3530:preview.damage?0x742e30:0x263b31).stroke({color:!preview.valid?0xc4a775:preview.damage?0xe49681:0x9aa982,width:1});
@@ -642,6 +652,12 @@ export class BoardRenderer {
     for(const id of phase.packBroken){
       const index=seat(id);if(index<0)continue;const at=this.center(index);
       drawDashedTile(g,at,DEATH_COLOR);this.label(at.x,at.y-4,'СТАЯ РАЗБИТА',0xffb3a6,9);drawn.labels.push('СТАЯ РАЗБИТА');
+    }
+    for(const regen of phase.regenerated){
+      const cell=cellOf(regen.id);if(!cell)continue;
+      const now=state.board.findIndex(other=>other?.id===regen.id),at=this.entityCenter(cell,now);
+      g.circle(at.x,at.y,34).stroke({color:INK_RING,width:6,alpha:.6});g.circle(at.x,at.y,34).stroke({color:0x9fd78a,width:3});
+      this.label(at.x,at.y+30,`+${regen.amount} HP`,0xc4f0ae,11);drawn.labels.push(`+${regen.amount} HP`);
     }
     // Announced rites: raised at the end of the phase, or cancelled (shaman or target gone, or the shaman is frozen).
     state.board.forEach(shaman=>{
@@ -719,6 +735,24 @@ export class BoardRenderer {
       this.shake=Math.max(this.shake,2);
       if(event.type==='hit') this.popup(i,event.amount?`−${event.amount}${event.text&&CAUSE_LABEL[event.text]?` ${CAUSE_LABEL[event.text]}`:''}`:event.text??'УДАР',PALE);
     }
+    if(event.type==='windup'&&event.text==='club'&&i!==undefined){
+      const cell=state.board[i],piece=cell?this.views.get(cell.id):undefined,at=this.entityCenter(cell,i);
+      if(piece)piece.strike={started:performance.now(),dx:0,dy:-9};
+      this.burst(i,0xd9744a,10);this.popupAt(at.x,at.y-58,'ЗАМАХ',0xf0c9a4);
+      for(const target of event.indices??[]){const zone=this.center(target),flash=new Graphics().roundRect(zone.x-35,zone.y-35,70,70,4).stroke({color:0xd9744a,width:4,alpha:.9});this.effects.addChild(flash);this.particles.push({view:flash,vx:0,vy:0,life:420,max:420,stationary:true});}
+    }
+    if(event.type==='attack'&&event.text==='club'&&i!==undefined){
+      const cell=state.board[i],piece=cell?this.views.get(cell.id):undefined,zone=event.indices??[];
+      const at=this.entityCenter(cell,i),mid=zone.length?this.center(zone[Math.floor(zone.length/2)]):at;
+      const distance=Math.max(1,Math.hypot(mid.x-at.x,mid.y-at.y));
+      if(piece)piece.strike={started:performance.now(),dx:(mid.x-at.x)/distance*14,dy:(mid.y-at.y)/distance*14};
+      for(const target of zone){const spot=this.center(target),slam=new Graphics().roundRect(spot.x-35,spot.y-35,70,70,4).fill({color:0xffb27a,alpha:.55}).stroke({color:0xffe2c4,width:4});this.effects.addChild(slam);this.particles.push({view:slam,vx:0,vy:0,life:360,max:360,stationary:true});this.burst(target,0xe3a06f,7);}
+      this.shake=Math.max(this.shake,11);this.popupAt(mid.x,mid.y,`УДАР ${event.amount??''}`.trim(),0xffe2c4);
+    }
+    if(event.type==='regen'&&i!==undefined){
+      const cell=state.board[i],at=this.entityCenter(cell,i);
+      this.burst(i,0x9fd78a,16);this.popupAt(at.x,at.y-44,`+${event.amount??''} HP`,0xc4f0ae);
+    }
     if(event.type==='empower'&&i!==undefined){
       this.burst(i,RITE,24);if(event.from!==undefined)this.burst(event.from,RITE,10);
       this.popup(i,event.text==='sturdy'?'↑ КРЕПКИЙ':'↑ ВООРУЖЁН',0xe6d0ff);
@@ -732,7 +766,8 @@ export class BoardRenderer {
       const ring=new Graphics().arc(at.x,at.y,30,Math.PI*1.05,Math.PI*1.95).stroke({color:0xf2c483,width:3,alpha:.8});
       this.effects.addChild(ring);this.particles.push({view:ring,vx:0,vy:0,life:100,max:100,stationary:true});
     }
-    const impactIndex=event.type==='damage'&&event.from!==undefined&&state.board[event.from]?.kind==='melee'?event.from
+    // The troll's club has its own zone slam above; the generic strike line would point at the cat only.
+    const impactIndex=event.text==='club'?undefined:event.type==='damage'&&event.from!==undefined&&state.board[event.from]?.kind==='melee'?event.from
       :event.type==='attack'&&i!==undefined&&state.board[i]?.kind!=='melee'?i:undefined;
     if(impactIndex!==undefined) {
       const cell=state.board[impactIndex],piece=cell?this.views.get(cell.id):undefined;
@@ -843,9 +878,11 @@ export class BoardRenderer {
   }
 
   private popup(index: number,text: string,color: number) {
-    const c=this.center(index);
+    const c=this.center(index);this.popupAt(c.x,c.y-22,text,color);
+  }
+  private popupAt(x: number,y: number,text: string,color: number) {
     const view=new Text({text,style:{fontFamily:'Georgia, serif',fontSize:15,fontWeight:'bold',fill:color,stroke:{color:0x141919,width:4}}});
-    view.anchor.set(0.5);view.position.set(c.x,c.y-22);this.effects.addChild(view);this.popups.push({view,life:850});
+    view.anchor.set(0.5);view.position.set(x,y);this.effects.addChild(view);this.popups.push({view,life:850});
   }
 
   private tick(delta: number) {

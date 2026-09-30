@@ -29,10 +29,14 @@ export function evaluateEnemyAttack(cell: ForestCell, index: number, playerIndex
   if (cell.variant === 'beacon' || cell.variant === 'boar' || cell.variant === 'porcupine' || cell.variant === 'shaman') return null;
   // A pack broken before the strike (a chain, an arrow or a charge took the neighbour) disarms the wolf.
   if (cell.variant === 'wolf' && world && !wolfHasPack(world, index)) return null;
+  // The troll strikes only once its windup phase has passed (troll.ts); the windup itself is not an attack.
+  if (cell.variant === 'troll' && !cell.behavior.club?.raised) return null;
   const hitsHero = cell.intent.cells.includes(playerIndex);
+  // These spend their action even on a miss (a troll's club still falls on the creatures in its zone).
+  const firesOnMiss = cell.kind === 'ranged' || cell.variant === 'wizard' || cell.variant === 'jailer' || cell.variant === 'troll';
   if (cell.kind === 'melee' && (!hitsHero || !meleeCanAttack(cell))) return null;
-  if (cell.kind !== 'ranged' && cell.variant !== 'wizard' && cell.variant !== 'jailer' && !hitsHero) return null;
-  return { cell, index, hitsHero, target: cell.kind === 'ranged' || cell.variant === 'wizard' || cell.variant === 'jailer' ? cell.intent.cells.at(-1) ?? index : playerIndex };
+  if (!firesOnMiss && !hitsHero) return null;
+  return { cell, index, hitsHero, target: firesOnMiss ? cell.intent.cells.at(-1) ?? index : playerIndex };
 }
 
 /**

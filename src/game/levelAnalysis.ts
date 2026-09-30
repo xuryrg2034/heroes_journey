@@ -19,6 +19,7 @@ import { planEnemyPhase } from './enemyPhase';
 import { applyDamageEffect, tickDamageEffects } from './damageEffects';
 import type { ChainPreview, ForestCell, ForestState, ItemKind } from './forestTypes';
 import type { CustomLevelDefinition } from './customLevel';
+import type { NodeAnalysisTarget } from './run/nodeAnalysis';
 
 export type AnalysisAction =
   | { kind: 'chain'; path: number[] }
@@ -52,7 +53,7 @@ export interface AnalysisOptions extends SearchOptions {
   agents: boolean;
   /** Honest planner S: resampled refill seeds per candidate first action. 0 disables S. */
   plannerResamples: number;
-  /** Honest planner S: first actions it compares (best forecast score first, immediate wins always). */
+  /** Honest planner S: first actions compared on K refills, chosen by a one-refill screening of all first moves; wins this turn always. */
   plannerCandidates: number;
   /** Recolor every starting enemy and measure the greedy agent (slow, off by default). */
   fragile: boolean;
@@ -109,17 +110,32 @@ export interface AgentSummary {
   avgHp: number; avgTurns: number; avgWinTurns: number | null; winHpMedian: number | null; winHpP10: number | null;
 }
 export interface PlannerResult {
-  resamples: number; candidates: { action: string; robustness: number }[]; choice: string | null;
+  resamples: number;
+  /** r(A) over resolved resamples; null when the budget resolved none. `unresolved` samples are not counted as losses. */
+  candidates: { action: string; robustness: number | null; unresolved: number }[]; choice: string | null;
   /** Evaluated candidates that win within depth under >= 80% of resampled refills. */
   robustFirstMoves: number;
-  pOracle: number; pHonest: number; fortuneGap: number; budgetExhausted: boolean;
+  /** P(S) over evaluation seeds whose outcome was resolved; null when none was. */
+  /**
+   * One resolution rule for O and S on every evaluation seed: a found win is a win; "no win" counts only when the
+   * search finished within its budget; otherwise the seed is unresolved and left out (`*Unresolved`).
+   */
+  pOracle: number | null; pHonest: number | null; oracleUnresolved: number; honestUnresolved: number;
+  /** FG = mean of O(seed) - S(seed) over the seeds resolved for both (`fortuneGapSeeds`); null when there are none. */
+  fortuneGap: number | null; fortuneGapSeeds: number;
+  /** Some candidate search ran out of its own node budget. */
+  budgetExhausted: boolean;
 }
 export interface DeceptionResult {
   reference: 'honest' | 'oracle'; pReference: number; pGreedy: number; deception: number | null;
   greedyFirstMove: string | null; greedyTrap: boolean | null; greedyTrapSeedShare: number | null;
 }
 export interface FragileCell { cell: string; from: number; to: number; pGreedy: number; delta: number }
-export interface SeedSensitivity { seeds: number[]; minTurns: (number | null)[]; bestHp: (number | null)[]; minTurnsSpread: number | null; bestHpSpread: number | null; winnableShare: number }
+export interface SeedSensitivity {
+  seeds: number[]; minTurns: (number | null)[]; bestHp: (number | null)[]; minTurnsSpread: number | null; bestHpSpread: number | null;
+  /** P(O) over resolved seeds (same rule as the planner); null when no seed is resolved. */
+  winnableShare: number | null; unresolvedSeeds: number;
+}
 export interface LevelAnalysis {
   level: { id: string; name: string; source: string };
   options: AnalysisOptions;
@@ -221,8 +237,21 @@ function describePreview(state: ForestState, preview: ChainPreview) {
     dealt += removed;
     goal += weight * (removed + (hit.killed ? 50 : 0));
   }
-  const kills = preview.kills + (preview.trapKills ?? 0);
+  // Forced deaths in the following enemy phase (ram, spikes, thorns, pit, arrow, club) are credited to the player.
+  const deaths = preview.enemyPhase?.deaths ?? [];
+  for (const death of deaths) {
+    const cell = state.board.find(candidate => candidate?.id === death.id);
+    goal += goalWeight(state, cell) * ((cell?.hp ?? 0) + 50);
+  }
+  const kills = preview.kills + (preview.trapKills ?? 0) + deaths.length;
   return { goal, dealt, kills };
+}
+/**
+ * Beam ordering: progress toward the goals first; damage costs HP only mildly (paying HP for progress is a
+ * legitimate plan), with an extra penalty when the cat would be left on its last hit point.
+ */
+function actionScore(hp: number, goal: number, kills: number, dealt: number, energy: number, incoming: number) {
+  return 10 * goal + 2 * kills + dealt + energy - 8 * incoming - (incoming > 0 && hp - incoming <= 1 ? 30 : 0);
 }
 
 /**
@@ -264,10 +293,11 @@ class Analyzer {
     const deviceCells = new Set(state.devices.map(device => device.index));
     const push = (action: AnalysisAction, preview: ChainPreview | null, extra: Partial<ActionInfo> = {}) => {
       const described = preview ? describePreview(state, preview) : { goal: 0, dealt: 0, kills: 0 };
-      const win = !!preview?.completesRoom, dies = !!preview?.playerDies, incoming = preview?.damage ?? 0;
+      // A win in the enemy phase (forced deaths, the finished turn) is forecast by the engine as well.
+      const win = !!preview?.completesRoom || !!preview?.enemyPhase?.completesObjective, dies = !!preview?.playerDies, incoming = preview?.damage ?? 0;
       const lateWin = !win && !dies && !!preview && tickMayWin(state, preview);
       const score = win ? 1e6 + 100 * (state.player.hp - incoming) : dies ? -1e6
-        : 10 * described.goal + 2 * described.kills + described.dealt + (preview?.energyGain ?? 0) - 40 * incoming;
+        : actionScore(state.player.hp, described.goal, described.kills, described.dealt, preview?.energyGain ?? 0, incoming);
       infos.push({ action, label: actionLabel(state, action), main: action.kind !== 'item', win, lateWin, dies, incoming, ...described, score,
         usesDevice: action.kind === 'chain' && action.path.some(index => deviceCells.has(index)),
         usesPrism: action.kind === 'chain' && action.path.some(index => state.board[index]?.kind === 'prism'), ...extra });
@@ -282,9 +312,10 @@ class Analyzer {
     const spin = g.previewAbility('spin');
     if (spin.valid) push({ kind: 'spin' }, spin);
     // Rest has no chain forecast; the announced attacks on the current square are its visible cost.
+    // Its enemy phase (charges, arrows, ticks, a survived turn) can still win, so a horizon leaf always executes it.
     const incoming = planEnemyPhase(state.board, state.player.index, undefined, state).attacks.filter(attack => attack.hitsHero).reduce((sum, attack) => sum + attack.cell.intent.damage, 0);
-    infos.push({ action: { kind: 'rest' }, label: 'rest', main: true, win: false, lateWin: incoming < state.player.hp && tickMayWin(state, null), dies: incoming >= state.player.hp, incoming, kills: 0, dealt: 0, goal: 0,
-      score: -5 - 40 * incoming, usesDevice: false, usesPrism: false });
+    infos.push({ action: { kind: 'rest' }, label: 'rest', main: true, win: false, lateWin: true, dies: incoming >= state.player.hp, incoming, kills: 0, dealt: 0, goal: 0,
+      score: -5 + actionScore(state.player.hp, 0, 0, 0, 0, incoming), usesDevice: false, usesPrism: false });
     if (!state.itemPrepared) for (const item of ['frost', 'bomb', 'fire', 'healing'] as ItemKind[]) {
       if (state.inventory[item] < 1 || state.tutorial && !state.tutorial.allowedItems.includes(item)) continue;
       const targets = item === 'healing' ? [state.player.index] : uniqueEntities(state.board).map(entity => entity.index);
@@ -548,6 +579,14 @@ export function staticMetrics(state: ForestState, rootActions: ActionInfo[]): St
 
 // ---------------------------------------------------------------- agents
 
+/** Oracle outcome of one seed: a found win, a finished search without one, or null when the budget cut it short. */
+function oracleOutcome(result: SearchResult): boolean | null {
+  return result.winnable ? true : result.unresolvedFirstActions > 0 ? null : false;
+}
+function shareOf(outcomes: (boolean | null)[]) {
+  const resolved = outcomes.filter((outcome): outcome is boolean => outcome !== null);
+  return { p: resolved.length ? resolved.filter(Boolean).length / resolved.length : null, unresolved: outcomes.length - resolved.length };
+}
 /** First-action outcome by its label, including inputs merged into it by identical result. */
 function outcomeOf(result: SearchResult | undefined, label: string | undefined) {
   return label === undefined ? undefined : result?.outcomes?.find(entry => entry.action === label || entry.aliases?.includes(label));
@@ -616,34 +655,63 @@ async function runAgents(analyzer: Analyzer, roots: AnalysisNode[], options: Ana
  */
 async function honestPlanner(analyzer: Analyzer, base: AnalysisSnapshot, rootFor: (seed: number) => AnalysisNode, seeds: number[], search: SearchResult[], options: AnalysisOptions): Promise<PlannerResult> {
   const root = rootFor(seeds[0]);
-  const planner = new TreeSearch(analyzer, ALL_TOOLS, options, root);
   const infos = analyzer.computeActions(root).filter(info => info.main);
-  const ordered = [...infos].sort(byScore);
-  const candidates = [...ordered.filter(info => info.win), ...ordered.filter(info => !info.win && !info.dies).slice(0, options.plannerCandidates)];
+  const ordered = [...infos].sort(byScore), open = ordered.filter(info => !info.win && !info.dies);
   const resamples = Array.from({ length: options.plannerResamples }, (_, j) => variantSeed(base.rng ^ 0x5bd1e995, j + 1));
-  const winsAfter = async (info: ActionInfo, seed: number) => {
+  let budgetExhausted = false;
+  /** true / false when resolved, null when the candidate's own budget ran out first. */
+  const winsAfter = async (planner: TreeSearch, info: ActionInfo, seed: number): Promise<boolean | null> => {
     const child = await analyzer.execute(rootFor(seed), info.action);
     if (!child) return false;
-    return (await planner.evaluate(child, options.depth - (child.turn - root.turn))).winTurns < Infinity;
+    const value = await planner.evaluate(child, options.depth - (child.turn - root.turn));
+    return value.winTurns < Infinity ? true : value.complete ? false : null;
   };
-  const scored: { info: ActionInfo; robustness: number }[] = [];
+  // Screening: every open first move on one extra resampled refill (never the evaluation seeds), in forecast
+  // order with its own budget. Moves that win there are compared first; the forecast order breaks ties.
+  const screener = new TreeSearch(analyzer, ALL_TOOLS, options, root), screenSeed = variantSeed(base.rng ^ 0x5bd1e995, 0x10000);
+  const screened: { info: ActionInfo; rank: number }[] = [];
+  for (const info of open) {
+    const outcome = await winsAfter(screener, info, screenSeed);
+    screened.push({ info, rank: outcome === true ? 0 : outcome === null ? 1 : 2 });
+  }
+  budgetExhausted ||= screener.stats.budgetExhausted;
+  const candidates = [...ordered.filter(info => info.win),
+    ...screened.sort((a, b) => a.rank - b.rank || byScore(a.info, b.info)).slice(0, options.plannerCandidates).map(entry => entry.info)];
+  const scored: { info: ActionInfo; robustness: number | null; unresolved: number }[] = [];
   for (const info of candidates) {
-    let wins = 0;
-    // An immediate win happens before any refill, so no resampling can change it.
-    if (info.win) wins = resamples.length;
-    else for (const seed of resamples) if (await winsAfter(info, seed)) wins++;
-    scored.push({ info, robustness: resamples.length ? wins / resamples.length : 0 });
+    // Every candidate gets its own node budget, so later candidates are not starved by earlier ones.
+    const planner = new TreeSearch(analyzer, ALL_TOOLS, options, root);
+    let wins = 0, resolved = 0;
+    // A win this turn (in the chain or the following enemy phase) comes before any refill: no resampling can change it.
+    if (info.win) { wins = resolved = resamples.length; }
+    else for (const seed of resamples) {
+      const outcome = await winsAfter(planner, info, seed);
+      if (outcome === null) continue;
+      resolved++; if (outcome) wins++;
+    }
+    budgetExhausted ||= planner.stats.budgetExhausted;
+    scored.push({ info, robustness: resolved ? wins / resolved : null, unresolved: resamples.length - resolved });
   }
-  const choice = [...scored].sort((a, b) => b.robustness - a.robustness || byScore(a.info, b.info))[0];
-  let honestWins = 0;
-  if (choice) for (let k = 0; k < seeds.length; k++) {
+  const choice = [...scored].filter(entry => entry.robustness !== null)
+    .sort((a, b) => b.robustness! - a.robustness! || byScore(a.info, b.info))[0];
+  // S's outcome on the evaluation seeds: the oracle's own first-action result when resolved, otherwise a fresh
+  // search with its own budget (the chosen candidate's planner may already be spent).
+  const evaluator = new TreeSearch(analyzer, ALL_TOOLS, options, root);
+  const honest: (boolean | null)[] = [];
+  for (let k = 0; k < seeds.length; k++) {
+    if (!choice) { honest.push(null); continue; }
     const outcome = outcomeOf(search[k], choice.info.label);
-    if (outcome && outcome.trap !== null ? outcome.winTurns !== null : await winsAfter(choice.info, seeds[k])) honestWins++;
+    honest.push(outcome && outcome.trap !== null ? outcome.winTurns !== null : await winsAfter(evaluator, choice.info, seeds[k]));
   }
-  const pOracle = search.filter(result => result.winnable).length / search.length, pHonest = honestWins / seeds.length;
-  return { resamples: resamples.length, candidates: scored.map(entry => ({ action: entry.info.label, robustness: round(entry.robustness) })),
-    choice: choice?.info.label ?? null, robustFirstMoves: scored.filter(entry => entry.robustness >= 0.8).length,
-    pOracle: round(pOracle), pHonest: round(pHonest), fortuneGap: round(pOracle - pHonest), budgetExhausted: planner.stats.budgetExhausted };
+  budgetExhausted ||= evaluator.stats.budgetExhausted;
+  const oracle = search.map(oracleOutcome), pOracle = shareOf(oracle), pHonest = shareOf(honest);
+  const paired = oracle.flatMap((won, k) => won !== null && honest[k] !== null ? [Number(won) - Number(honest[k])] : []);
+  return { resamples: resamples.length,
+    candidates: scored.map(entry => ({ action: entry.info.label, robustness: entry.robustness === null ? null : round(entry.robustness), unresolved: entry.unresolved })),
+    choice: choice?.info.label ?? null, robustFirstMoves: scored.filter(entry => entry.robustness !== null && entry.robustness >= 0.8).length,
+    pOracle: pOracle.p === null ? null : round(pOracle.p), pHonest: pHonest.p === null ? null : round(pHonest.p),
+    oracleUnresolved: pOracle.unresolved, honestUnresolved: pHonest.unresolved,
+    fortuneGap: paired.length ? round(paired.reduce((a, b) => a + b, 0) / paired.length) : null, fortuneGapSeeds: paired.length, budgetExhausted };
 }
 
 /** Recolor each starting colored enemy to every other palette color and replay the greedy agent. */
@@ -674,13 +742,16 @@ async function fragileCells(analyzer: Analyzer, base: AnalysisSnapshot, seeds: n
 export type LevelSource =
   | { kind: 'lesson'; index: number }
   | { kind: 'custom'; definition: CustomLevelDefinition | unknown; id?: string }
-  | { kind: 'forest'; seed?: number };
+  | { kind: 'forest'; seed?: number }
+  /** Forest-map node battle started as in a run (src/game/run/nodeAnalysis.ts). */
+  | { kind: 'run-node'; target: NodeAnalysisTarget };
 
 /** Start a level on a fresh engine; returns null if the engine rejects it. */
 export function startLevelEngine(source: LevelSource): ForestEngine | null {
   const engine = new ForestEngine(); engine.animationScale = 0;
   if (source.kind === 'lesson') return engine.startTutorial(source.index) ? engine : null;
   if (source.kind === 'custom') return engine.startCustomLevel(source.definition) ? engine : null;
+  if (source.kind === 'run-node') return engine.startRunBattle(source.target.setup) ? engine : null;
   engine.startLevel(0, source.seed ?? 701);
   return engine;
 }
@@ -688,6 +759,10 @@ export function startLevelEngine(source: LevelSource): ForestEngine | null {
 export function sourceInfo(source: LevelSource, engine: ForestEngine) {
   if (source.kind === 'lesson') return { id: `lesson-${source.index + 1}`, name: engine.state.level.name, source: `tutorial ${source.index + 1} (${TUTORIAL_LESSONS[source.index].id})` };
   if (source.kind === 'custom') return { id: source.id ?? 'custom', name: engine.state.level.name, source: 'custom JSON' };
+  if (source.kind === 'run-node') {
+    const { target } = source, tools = [...target.tools.items, ...target.tools.abilities].join('+') || 'none';
+    return { id: target.id, name: engine.state.level.name, source: `forest node row ${target.row}, tools ${tools}, 5 HP, 0 energy, no items` };
+  }
   return { id: 'forest', name: engine.state.level.name, source: 'forest trial' };
 }
 
@@ -724,7 +799,10 @@ export async function analyzeEngine(engine: ForestEngine, partial: Partial<Analy
     for (let k = 0; k < seeds.length; k++) search.push(await new TreeSearch(analyzer, ALL_TOOLS, options, rootFor(seeds[k])).run(rootFor(seeds[k]), seeds[k], true));
     const minTurns = search.map(result => result.minTurns), bestHp = search.map(result => result.bestHp);
     const spread = (values: (number | null)[]) => { const known = values.filter((value): value is number => value !== null); return known.length ? Math.max(...known) - Math.min(...known) : null; };
-    sensitivity = { seeds, minTurns, bestHp, minTurnsSpread: spread(minTurns), bestHpSpread: spread(bestHp), winnableShare: round(search.filter(result => result.winnable).length / search.length) };
+    sensitivity = { seeds, minTurns, bestHp, minTurnsSpread: spread(minTurns), bestHpSpread: spread(bestHp), ...(() => {
+      const share = shareOf(search.map(oracleOutcome));
+      return { winnableShare: share.p === null ? null : round(share.p), unresolvedSeeds: share.unresolved };
+    })() };
     if (options.plannerResamples > 0) planner = await honestPlanner(analyzer, base, rootFor, seeds, search, options);
     if (options.restricted) {
       const baseResult = search[0];
@@ -750,8 +828,9 @@ export async function analyzeEngine(engine: ForestEngine, partial: Partial<Analy
         restricted[tool].agents = { ...without, needRandom: bitsDelta(without.random.info, agents.random.info), needGreedy: bitsDelta(without.greedy.info, agents.greedy.info) };
       }
     }
-    const reference = planner ? 'honest' as const : 'oracle' as const;
-    const pReference = planner ? planner.pHonest : sensitivity ? sensitivity.winnableShare : null;
+    const honest = planner?.pHonest ?? null;
+    const reference = honest !== null ? 'honest' as const : 'oracle' as const;
+    const pReference = honest !== null ? honest : sensitivity ? sensitivity.winnableShare : null;
     if (pReference !== null) {
       const first = greedyChoice(rootActions);
       // Unknown (budget-cut or missing) outcomes stay null instead of counting as traps.

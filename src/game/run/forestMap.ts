@@ -2,12 +2,14 @@
  * Authored node graph of the forest biome (design: docs/biomes/forest-map.md).
  * Pure data and path helpers; no engine, no DOM.
  *
- * Until the forest roster exists, battle nodes reuse the 16 authored opening battles and the forest trial
- * (table «Что станет с 16 готовыми боями»). Such nodes carry `placeholder`. The Troll boss is a stub
- * (`content.kind === 'in-development'`): it is not a battle and never pretends to be one.
+ * Node battles are authored in the registry src/game/run/forestBattles.ts (`{ kind: 'battle', battleId }`).
+ * The trunk, the trail junction and the Jailer reuse opening lessons, the Chief is the forest trial.
+ * `placeholder` marks a node whose battle waits for enemies that do not exist yet. `content.kind === 'in-development'`
+ * marks a future boss stub (not a battle); the model and the map screen support it, but no node uses it now.
  */
-import { TUTORIAL_LESSONS, type TutorialLesson } from '../tutorialLevels';
+import { TUTORIAL_LESSONS, type AuthoredLesson, type TutorialLesson } from '../tutorialLevels';
 import type { PaletteWeights } from '../customLevel';
+import { forestBattle } from './forestBattles';
 import type { AbilityKind, EnemyColor, ItemKind } from '../forestTypes';
 
 export type ForestNodeType = 'battle' | 'elite' | 'rest' | 'find' | 'breakthrough' | 'boss' | 'checkpoint';
@@ -15,6 +17,9 @@ export type ForestNodeType = 'battle' | 'elite' | 'rest' | 'find' | 'breakthroug
 export type ForestLane = 'trunk' | 'beasts' | 'goblins' | 'shared' | 'den' | 'camp';
 
 export type ForestNodeContent =
+  /** Authored node battle from FOREST_NODE_BATTLES. */
+  | { kind: 'battle'; battleId: string }
+  /** Opening lesson reused as a temporary template. */
   | { kind: 'lesson'; lessonId: TutorialLesson['id'] }
   | { kind: 'forest-trial' }
   | { kind: 'rest'; heal: number }
@@ -55,6 +60,8 @@ export function forestRowPalette(row: number): EnemyColor[] {
 }
 
 const lesson = (lessonId: TutorialLesson['id']): ForestNodeContent => ({ kind: 'lesson', lessonId });
+/** Content of a node that plays an authored battle of the registry (src/game/run/battles/*.ts). */
+export const battle = (battleId: string): ForestNodeContent => ({ kind: 'battle', battleId });
 const rest = (): ForestNodeContent => ({ kind: 'rest', heal: FOREST_REST_HEAL });
 const FROST: ForestNodeGrant = { items: ['frost'], inventory: { frost: 1 } };
 const JUMP: ForestNodeGrant = { abilities: ['jump'] };
@@ -67,46 +74,46 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
   { id: 'trunk-4', type: 'battle', name: 'Чужие стрелы', lane: 'trunk', row: 4, column: 1, content: lesson('arrows'), feature: 'Рычаг стрел',
     next: ['beast-wolf', 'goblin-archer'] },
   // First fork. Frost opens on both first trail nodes.
-  { id: 'beast-wolf', type: 'battle', name: 'Звериная тропа: волк', lane: 'beasts', row: 5, column: 0, content: lesson('frost'), grants: FROST,
-    feature: 'Лужа у брода', placeholder: { planned: 'Бой с волком' }, next: ['beast-boar', 'trail-rest'] },
+  { id: 'beast-wolf', type: 'battle', name: 'Вожак у брода', lane: 'beasts', row: 5, column: 0, content: battle('wolf-ford'), grants: FROST,
+    feature: 'Стая волков', next: ['beast-boar', 'trail-rest'] },
   // Battle 10 (the archer in a niche) is solved with a jump, so it waits for the jump row below.
-  { id: 'goblin-archer', type: 'battle', name: 'Гоблинская засека: лучник', lane: 'goblins', row: 5, column: 2, content: lesson('pit-crossing'), grants: FROST,
-    feature: 'Провалы', placeholder: { planned: 'Бой с лучником по новым правилам' }, next: ['trail-rest', 'goblin-shield'] },
+  { id: 'goblin-archer', type: 'battle', name: 'Дозор на засеке', lane: 'goblins', row: 5, column: 2, content: battle('goblin-archer-watch'), grants: FROST,
+    feature: 'Лучник', next: ['trail-rest', 'goblin-shield'] },
   // Shared rest links both trails.
-  { id: 'beast-boar', type: 'battle', name: 'Кабан', lane: 'beasts', row: 6, column: 0, content: lesson('fire'), feature: 'Жаровня',
-    placeholder: { planned: 'Бой с кабаном' }, next: ['beast-porcupine', 'trail-find'] },
+  { id: 'beast-boar', type: 'battle', name: 'Кабан в огороде', lane: 'beasts', row: 6, column: 0, content: battle('boar-garden'), feature: 'Кабан и шипы по краю',
+    next: ['beast-porcupine', 'trail-find'] },
   // Rest leads only to battles, so no path skips two battles in a row (12–13 battles on every path).
   { id: 'trail-rest', type: 'rest', name: 'Привал', lane: 'shared', row: 6, column: 1, content: rest(),
     next: ['beast-porcupine', 'goblin-shaman'] },
-  { id: 'goblin-shield', type: 'battle', name: 'Щитоносец', lane: 'goblins', row: 6, column: 2, content: lesson('crossroads'), feature: 'Рычаг и жаровня',
-    placeholder: { planned: 'Бой со щитоносцем' }, next: ['trail-find', 'goblin-shaman'] },
+  { id: 'goblin-shield', type: 'battle', name: 'Щит у частокола', lane: 'goblins', row: 6, column: 2, content: battle('goblin-shield-flank'), feature: 'Щитоносец',
+    next: ['trail-find', 'goblin-shaman'] },
   // Jump opens on every node of this row: the shared find or the trail battle.
-  { id: 'beast-porcupine', type: 'battle', name: 'Дикобраз', lane: 'beasts', row: 7, column: 0, content: lesson('jump'), grants: JUMP,
-    feature: 'Пролом в стене', placeholder: { planned: 'Бой с дикобразом' }, next: ['trail-banners'] },
+  { id: 'beast-porcupine', type: 'battle', name: 'Колючий подлесок', lane: 'beasts', row: 7, column: 0, content: battle('porcupine-thicket'), grants: JUMP,
+    feature: 'Дикобразы', next: ['trail-banners'] },
   { id: 'trail-find', type: 'find', name: 'Находка', lane: 'shared', row: 7, column: 1, content: { kind: 'find' }, grants: JUMP, next: ['trail-banners'] },
-  { id: 'goblin-shaman', type: 'battle', name: 'Шаман', lane: 'goblins', row: 7, column: 2, content: lesson('archer'), grants: JUMP,
-    feature: 'Стрелок в нише', placeholder: { planned: 'Бой с шаманом' }, next: ['trail-banners'] },
+  { id: 'goblin-shaman', type: 'battle', name: 'Камлание за частоколом', lane: 'goblins', row: 7, column: 2, content: battle('goblin-shaman-rite'), grants: JUMP,
+    feature: 'Шаман', next: ['trail-banners'] },
   { id: 'trail-banners', type: 'battle', name: 'Три знамени', lane: 'shared', row: 8, column: 1, content: lesson('prism'), feature: 'Огонёк в проломе',
     next: ['jailer'] },
   // Victory over the checkpoint opens the spin for the rest of the run.
   { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: lesson('jailer'), rewardGrants: { abilities: ['spin'] },
     next: ['den-battle', 'camp-battle'] },
   // Second half: the branch chosen after the Jailer decides the boss.
-  { id: 'den-battle', type: 'battle', name: 'Логово: бой', lane: 'den', row: 10, column: 0, content: lesson('pit-embers'), feature: 'Провалы и жаровня',
-    placeholder: { planned: 'Бой логова со зверями' }, next: ['den-elite'] },
-  { id: 'den-elite', type: 'elite', name: 'Логово: элита', lane: 'den', row: 11, column: 0, content: lesson('pit-choice'), feature: 'Провалы',
-    placeholder: { planned: 'Медведь или Зверовод' }, next: ['den-rest'] },
+  { id: 'den-battle', type: 'battle', name: 'Сторожевая стая', lane: 'den', row: 10, column: 0, content: battle('den-watch'), feature: 'Волки, дикобраз, лучник',
+    next: ['den-elite'] },
+  { id: 'den-elite', type: 'elite', name: 'Гнездо у шипов', lane: 'den', row: 11, column: 0, content: battle('den-nest'), feature: 'Кабан, стая, шипы',
+    placeholder: { planned: 'Медведь или Зверовод, когда появятся' }, next: ['den-rest'] },
   { id: 'den-rest', type: 'rest', name: 'Привал в логове', lane: 'den', row: 12, column: 0, content: rest(), next: ['den-breakthrough'] },
-  { id: 'den-breakthrough', type: 'breakthrough', name: 'Прорыв к логову', lane: 'den', row: 13, column: 0, content: lesson('escape'),
+  { id: 'den-breakthrough', type: 'breakthrough', name: 'Выход из логова', lane: 'den', row: 13, column: 0, content: battle('den-breakout'),
     feature: 'Цель — выход', next: ['den-troll'] },
-  { id: 'den-troll', type: 'boss', name: 'Тролль', lane: 'den', row: 14, column: 0,
-    content: { kind: 'in-development', planned: 'Босс Тролль — в разработке, боя пока нет' }, next: [] },
-  { id: 'camp-battle', type: 'battle', name: 'Лагерь: бой', lane: 'camp', row: 10, column: 2, content: lesson('pit-choice'), feature: 'Провалы',
-    placeholder: { planned: 'Бой лагеря гоблинов' }, next: ['camp-elite'] },
-  { id: 'camp-elite', type: 'elite', name: 'Лагерь: колокол', lane: 'camp', row: 11, column: 2, content: lesson('beacon'),
-    placeholder: { planned: 'Элита лагеря (решение о колоколе отложено)' }, next: ['camp-rest'] },
+  { id: 'den-troll', type: 'boss', name: 'Тролль', lane: 'den', row: 14, column: 0, content: battle('troll-lair'), feature: 'Тролль, стая и жаровня',
+    next: [] },
+  { id: 'camp-battle', type: 'battle', name: 'Круг у котла', lane: 'camp', row: 10, column: 2, content: battle('camp-cauldron-ring'), feature: 'Гоблины у котла',
+    next: ['camp-elite'] },
+  { id: 'camp-elite', type: 'elite', name: 'Стена щитов', lane: 'camp', row: 11, column: 2, content: battle('camp-shield-wall'), feature: 'Щитоносцы, лучник, шаман',
+    next: ['camp-rest'] },
   { id: 'camp-rest', type: 'rest', name: 'Привал у частокола', lane: 'camp', row: 12, column: 2, content: rest(), next: ['camp-breakthrough'] },
-  { id: 'camp-breakthrough', type: 'breakthrough', name: 'Прорыв через ворота', lane: 'camp', row: 13, column: 2, content: lesson('escape'),
+  { id: 'camp-breakthrough', type: 'breakthrough', name: 'Прорыв к воротам', lane: 'camp', row: 13, column: 2, content: battle('camp-gate-run'),
     feature: 'Цель — выход', next: ['camp-chief'] },
   { id: 'camp-chief', type: 'boss', name: 'Главарь с котелком', lane: 'camp', row: 14, column: 2, content: { kind: 'forest-trial' }, next: [] },
 ];
@@ -119,15 +126,30 @@ export function lessonIndex(node: ForestMapNode): number {
   return node.content.kind === 'lesson' ? TUTORIAL_LESSONS.findIndex(entry => entry.id === (node.content as { lessonId: string }).lessonId) : -1;
 }
 
+/** Authored battle a node plays: a registry battle or a reused lesson. Null for the forest trial, rest, find and stubs. */
+export function nodeBattleTemplate(node: ForestMapNode): AuthoredLesson | null {
+  if (node.content.kind === 'battle') return forestBattle(node.content.battleId) ?? null;
+  const index = lessonIndex(node);
+  return index < 0 ? null : TUTORIAL_LESSONS[index];
+}
+
 /**
- * Refill palette of a node battle: the row palette plus every color of the template's authored opening layout
- * (that layout is never recolored). Null for nodes without a lesson template; the forest trial always uses five colors.
+ * Refill palette of an authored battle placed on map row `row`: the row palette plus every color of its authored
+ * opening layout (that layout is never recolored).
+ */
+export function authoredRefillPalette(template: AuthoredLesson, row: number): PaletteWeights {
+  const colors = new Set<EnemyColor>([...forestRowPalette(row),
+    ...template.definition.enemies.flatMap(enemy => enemy.color === null ? [] : [enemy.color])]);
+  return [0, 1, 2, 3, 4].map(color => colors.has(color as EnemyColor) ? 100 : 0) as PaletteWeights;
+}
+
+/**
+ * Refill palette of a node battle (see authoredRefillPalette). Null for nodes without an authored template;
+ * the forest trial always uses five colors.
  */
 export function nodeRefillPalette(node: ForestMapNode): PaletteWeights | null {
-  const index = lessonIndex(node); if (index < 0) return null;
-  const colors = new Set<EnemyColor>([...forestRowPalette(node.row),
-    ...TUTORIAL_LESSONS[index].definition.enemies.flatMap(enemy => enemy.color === null ? [] : [enemy.color])]);
-  return [0, 1, 2, 3, 4].map(color => colors.has(color as EnemyColor) ? 100 : 0) as PaletteWeights;
+  const template = nodeBattleTemplate(node);
+  return template ? authoredRefillPalette(template, node.row) : null;
 }
 
 /** An elite victory is followed by a find (choice of one of three items) before the next transition. */
@@ -143,6 +165,41 @@ export function forestMapPaths(from = FOREST_MAP_START): string[][] {
   return node.next.flatMap(next => forestMapPaths(next).map(path => [from, ...path]));
 }
 
+/** Tools a run has opened on entering a node. Finds are a choice of random items, so they never count as guaranteed. */
+export interface GuaranteedTools { items: ItemKind[]; abilities: AbilityKind[] }
+
+/**
+ * Tools open on entering `nodeId` on every route: grants of the earlier nodes and of the node itself, plus the
+ * reward grants of won earlier battles. Used by the analyzer to start a node battle as in a run.
+ */
+export function guaranteedNodeTools(nodeId: string): GuaranteedTools {
+  const routes = forestMapPaths().flatMap(path => { const at = path.indexOf(nodeId); return at < 0 ? [] : [path.slice(0, at + 1)]; });
+  const opened = routes.map(route => {
+    const items = new Set<ItemKind>(), abilities = new Set<AbilityKind>();
+    route.forEach((id, step) => {
+      const node = BY_ID.get(id)!, grants = [node.grants, step < route.length - 1 && isBattleNode(node) ? node.rewardGrants : undefined];
+      for (const grant of grants) { grant?.items?.forEach(item => items.add(item)); grant?.abilities?.forEach(ability => abilities.add(ability)); }
+    });
+    return { items, abilities };
+  });
+  if (!opened.length) return { items: [], abilities: [] };
+  return {
+    items: ITEM_ORDER.filter(item => opened.every(route => route.items.has(item))),
+    abilities: ABILITY_ORDER.filter(ability => opened.every(route => route.abilities.has(ability))),
+  };
+}
+
+/** Tools open on entering any node of map row `row` (intersection over the row); for battles not yet bound to a node. */
+export function guaranteedRowTools(row: number): GuaranteedTools | null {
+  const nodes = FOREST_MAP.filter(node => node.row === row);
+  if (!nodes.length) return null;
+  const tools = nodes.map(node => guaranteedNodeTools(node.id));
+  return { items: tools[0].items.filter(item => tools.every(entry => entry.items.includes(item))),
+    abilities: tools[0].abilities.filter(ability => tools.every(entry => entry.abilities.includes(ability))) };
+}
+const ITEM_ORDER: ItemKind[] = ['frost', 'bomb', 'healing', 'fire'];
+const ABILITY_ORDER: AbilityKind[] = ['jump', 'spin'];
+
 /** Structural checks of the authored graph; an empty list means valid. */
 export function validateForestMap(): string[] {
   const errors: string[] = [];
@@ -154,6 +211,8 @@ export function validateForestMap(): string[] {
       else if (target.row <= node.row) errors.push(`${node.id} → ${next}: переход должен вести вглубь карты.`);
     }
     if (node.content.kind === 'lesson' && lessonIndex(node) < 0) errors.push(`${node.id}: нет шаблона ${node.content.lessonId}.`);
+    if (node.content.kind === 'battle' && !forestBattle(node.content.battleId)) errors.push(`${node.id}: нет боя ${node.content.battleId} в реестре.`);
+    if (node.content.kind === 'battle' && !isBattleNode(node)) errors.push(`${node.id}: бой из реестра стоит не в боевом узле.`);
     if ((node.type === 'rest') !== (node.content.kind === 'rest')) errors.push(`${node.id}: тип привала и содержимое расходятся.`);
     if ((node.type === 'find') !== (node.content.kind === 'find')) errors.push(`${node.id}: тип находки и содержимое расходятся.`);
     if (node.content.kind === 'in-development' && node.type !== 'boss') errors.push(`${node.id}: заглушка допустима только для босса.`);

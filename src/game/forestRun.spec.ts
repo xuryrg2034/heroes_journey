@@ -1,8 +1,10 @@
 import { ForestEngine } from './forestEngine';
 import { TUTORIAL_LESSONS } from './tutorialLevels';
-import { FOREST_MAP, FOREST_MAP_START, FOREST_REST_HEAL, forestMapPaths, forestNode, forestRowPalette, isBattleNode, lessonIndex, nodeRefillPalette, validateForestMap } from './run/forestMap';
-import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestNodeSeed, forestRunView, parseForestRun,
+import { authoredRefillPalette, battle, FOREST_MAP, FOREST_MAP_START, FOREST_REST_HEAL, forestMapPaths, forestNode, forestRowPalette, isBattleNode, lessonIndex, nodeRefillPalette,
+  validateForestMap, type ForestMapNode } from './run/forestMap';
+import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestNodeSeed, forestRunView, nodeRunTemplate, parseForestRun,
   resolveBattle, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
+import { buildNodeBattleRegistry, FOREST_NODE_BATTLES, validateForestBattles, validateNodeBattle, type NodeBattle } from './run/forestBattles';
 import { createForestRunStore, FOREST_RUN_STORAGE_KEY, type RunStorage } from './run/forestRunStorage';
 import type { ItemKind } from './forestTypes';
 
@@ -17,9 +19,9 @@ const engine = () => { const e = new ForestEngine(); e.animationScale = 0; retur
 const json = (value: unknown) => JSON.stringify(value);
 
 /** One real ordinary chain (the first listed move), or a rest when no chain exists. */
-async function realMove(e: ForestEngine) {
+async function realMove(e: ForestEngine, pick: (move: number[]) => boolean = () => true) {
   if (e.state.phase !== 'PLAYER_INPUT') return;
-  const move = e.availableMoves(6)[0];
+  const moves = e.availableMoves(6), move = moves.find(pick) ?? moves[0];
   if (!move) { await e.waitTurn(); return; }
   const before = json(e.captureAnalysisSnapshot());
   e.preview(move);
@@ -72,7 +74,8 @@ function mapStructure() {
   assert(paths.some(path => path.includes('beast-wolf') && path.includes('goblin-shaman')), 'the shared rest lets a route cross between trails');
   assert(forestNode('trail-rest')!.type === 'rest' && forestNode('trail-find')!.type === 'find', 'shared rest and find nodes exist');
   const troll = forestNode('den-troll')!, chief = forestNode('camp-chief')!;
-  assert(troll.content.kind === 'in-development', 'the Troll is a marked stub, not a battle template');
+  assert(troll.content.kind === 'battle' && troll.content.battleId === 'troll-lair' && !!nodeRunTemplate(troll), 'the Troll is the registry battle troll-lair');
+  assert(FOREST_MAP.every(node => node.content.kind !== 'in-development'), 'no map node is an in-development stub any more');
   assert(chief.content.kind === 'forest-trial', 'the Chief is the existing forest trial');
   assert(forestNode('jailer')!.content.kind === 'lesson' && FOREST_MAP.some(node => node.type === 'breakthrough'), 'Jailer checkpoint and breakthrough nodes exist');
   assert(FOREST_MAP.some(node => node.placeholder), 'temporary template nodes are marked');
@@ -189,9 +192,16 @@ async function denRoute() {
   run = ok(enterNode(run, 'den-breakthrough'), 'enter breakthrough'); launch(e, run);
   assert(e.state.customLevel?.definition.completion === 'exit', 'the breakthrough node is won through the exit');
   e.winLevel(); run = settle(e, run);
-  const stub = ok(enterNode(run, 'den-troll'), 'reach the Troll');
-  assert(stub.result?.outcome === 'boss-in-development' && !battleSetup(stub) && !availableNodes(stub).length, 'the Troll stub ends the branch without a battle or a victory');
-  assert(json(parseForestRun(serializeForestRun(stub))) === json(stub), 'stub result survives serialization');
+  run = ok(enterNode(run, 'den-troll'), 'enter the Troll'); launch(e, run);
+  assert(e.state.board.some(cell => cell?.variant === 'troll') && e.state.level.objectives.some(goal => goal.key === 'bossKills'), 'the Troll node starts the troll arena');
+  assert(e.state.runNode?.allowedAbilities.includes('spin') && e.state.runNode.allowedAbilities.includes('jump'), 'the Troll fight has the tools of the run');
+  await realMove(e);
+  if (e.state.phase === 'LOSE') { run = settle(e, run); e.restartLevel(); }
+  e.winLevel(); run = settle(e, run);
+  assert(run.result?.outcome === 'victory' && run.result.nodeId === 'den-troll' && !availableNodes(run).length, 'beating the Troll wins the run');
+  assert(json(parseForestRun(serializeForestRun(run))) === json(run), 'the Troll victory survives serialization');
+  const stubResult = JSON.parse(serializeForestRun(run)); stubResult.result = { outcome: 'boss-in-development', nodeId: 'den-troll' };
+  assert(parseForestRun(JSON.stringify(stubResult)) === null, 'an in-development result on a real boss is rejected');
 }
 
 /** Forest-trial boss: carried tools replace the trial's free abilities. */
@@ -222,10 +232,10 @@ function restCap() {
 async function paletteByRow() {
   const colorsAt = new Map<string, Set<number>>();
   for (const node of FOREST_MAP) {
-    if (!isBattleNode(node) || node.content.kind === 'in-development') continue;
-    const e = engine(), template = node.content.kind === 'forest-trial' ? { kind: 'forest-trial' as const } : { kind: 'lesson' as const, index: lessonIndex(node) };
-    assert(e.startRunBattle({ nodeId: node.id, label: node.name, seed: forestNodeSeed(1, node.id), template, player: { hp: 5, maxHp: 5, energy: 0 },
-      inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [], ...(nodeRefillPalette(node) ? { paletteWeights: nodeRefillPalette(node)! } : {}) }), `${node.id} starts`);
+    if (!isBattleNode(node)) continue;
+    const e = engine(), template = nodeRunTemplate(node); assert(template, `${node.id} has a battle template`);
+    assert(e.startRunBattle({ nodeId: node.id, label: node.name, seed: forestNodeSeed(1, node.id), player: { hp: 5, maxHp: 5, energy: 0 },
+      template: template!, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [], ...(nodeRefillPalette(node) ? { paletteWeights: nodeRefillPalette(node)! } : {}) }), `${node.id} starts`);
     const colors = new Set(e.state.customLevel ? e.state.customLevel.paletteWeights.flatMap((weight, color) => weight > 0 ? [color] : []) : [0, 1, 2, 3, 4]);
     for (const color of forestRowPalette(node.row)) assert(colors.has(color), `${node.id}: row ${node.row} palette is available in the refill`);
     colorsAt.set(node.id, colors);
@@ -238,13 +248,13 @@ async function paletteByRow() {
       previous = colors;
     }
   }
-  // The wolf node reuses a two-color lesson; on the map its refill already brings in row-5 colors.
-  const lesson = TUTORIAL_LESSONS[lessonIndex(forestNode('beast-wolf')!)], authored = new Set(lesson.definition.enemies.map(enemy => enemy.color));
+  // Trunk node 3 reuses a two-color lesson; on the map (row 3) its refill already brings in a third color.
+  const lesson = TUTORIAL_LESSONS[lessonIndex(forestNode('trunk-3')!)], authored = new Set(lesson.definition.enemies.map(enemy => enemy.color));
   let fresh = 0;
   for (const seed of [1, 2, 3, 4]) {
     let run = createForestRun(seed);
-    run.visited = ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4']; run.currentNodeId = 'trunk-4';
-    run = ok(enterNode(run, 'beast-wolf'), 'enter wolf');
+    run.visited = ['trunk-1', 'trunk-2']; run.currentNodeId = 'trunk-2';
+    run = ok(enterNode(run, 'trunk-3'), 'enter trunk-3');
     const e = engine(); launch(e, run);
     const start = new Map(e.state.board.flatMap(cell => cell ? [[cell.id, cell.color] as const] : []));
     for (let turn = 0; turn < 3; turn++) await realMove(e);
@@ -255,13 +265,13 @@ async function paletteByRow() {
     }
   }
   assert(fresh > 0, 'refill in a map node uses the row palette beyond the template colors');
-  const standalone = engine(); standalone.startTutorial(lessonIndex(forestNode('beast-wolf')!));
+  const standalone = engine(); standalone.startTutorial(lessonIndex(forestNode('trunk-3')!));
   assert(json(standalone.state.customLevel!.paletteWeights) === json(lesson.definition.paletteWeights), 'the standalone lesson keeps its own palette');
 }
 
 /**
  * Effect stacks from a real node battle. No authored template has an enemy with an attack effect yet (forest enemies
- * are in progress), so the wolf node's enemies get a poison strike, as an editor level may define; the hit itself is
+ * are in progress), so the wolf node's enemies get a poison strike, as an editor level may define (the chosen chain ends under a strike); the hit itself is
  * the engine's ordinary enemy phase after a real chain.
  */
 async function realEffects() {
@@ -270,8 +280,12 @@ async function realEffects() {
   for (const id of ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4']) { run = ok(enterNode(run, id), `enter ${id}`); launch(e, run); e.winLevel(); run = settle(e, run); }
   run = ok(enterNode(run, 'beast-wolf'), 'enter wolf'); launch(e, run);
   for (const cell of e.state.board) if (cell && cell.kind !== 'door' && cell.kind !== 'prism') cell.attackEffect = 'poison';
-  const move = e.availableMoves(6)[0], forecast = e.preview(move);
-  await realMove(e);
+  // A chain that ends under an enemy strike without killing the cat: the poison comes from the real enemy phase.
+  const hurts = (path: number[]) => { const p = e.preview(path); return p.valid && !p.completesRoom && !p.playerDies && p.damage > 0; };
+  const move = e.availableMoves(6).find(hurts);
+  assert(move, 'the wolf node offers a chain that ends under a strike');
+  const forecast = e.preview(move!);
+  await realMove(e, path => json(path) === json(move));
   assert(e.state.phase === 'PLAYER_INPUT' && (e.state.player.damageEffects?.poison ?? 0) > 0, 'a real enemy strike poisons the cat');
   assert(forecast.endEffects?.poison === e.state.player.damageEffects!.poison, 'the chain forecast showed the poison that was applied');
   e.winLevel(); run = settle(e, run);
@@ -355,13 +369,85 @@ function lessonsUnchanged() {
   assert(!forest.state.runNode && forest.continueCampaign() && forest.state.room.kind === 'gate', 'the forest trial still leads to the castle run');
 }
 
+/**
+ * Authored node battles (src/game/run/forestBattles.ts): every registry battle passes the validator and starts as a
+ * node with an opening chain and its lesson metadata; a map node bound to a registry battle is played through the
+ * real run model and engine commands.
+ */
+async function registryBattles() {
+  const battles = Object.values(FOREST_NODE_BATTLES);
+  assert(battles.length > 0, 'the node battle registry is not empty');
+  assert(!validateForestBattles().length, `registry battles are valid: ${validateForestBattles().join(' ')}`);
+  const sample = battles[0];
+  let duplicate = '';
+  try { buildNodeBattleRegistry({ beasts: [sample], goblins: [sample] }); } catch (error) { duplicate = String(error); }
+  assert(duplicate.includes(sample.id), 'a repeated battle id is rejected when the registry is built');
+  const misuse: NodeBattle = { ...sample, allowedItems: ['frost'], initialEnergy: 2, nextLessonIndices: [1] };
+  assert(validateNodeBattle(misuse).length === 3, 'permissions, energy and branches of a node battle belong to the run');
+  for (const entry of battles) {
+    const bound = FOREST_MAP.filter(node => node.content.kind === 'battle' && node.content.battleId === entry.id).map(node => node.row);
+    for (const row of bound.length ? bound : [1, 5, 10, 14]) {
+      const e = engine(), paletteWeights = authoredRefillPalette(entry, row);
+      assert(e.startRunBattle({ nodeId: `check-${entry.id}`, label: entry.name, seed: forestNodeSeed(7, entry.id), template: { kind: 'battle', id: entry.id },
+        player: { hp: 4, maxHp: 5, energy: 1 }, inventory: { frost: 1, bomb: 0, healing: 0, fire: 0 }, allowedItems: ['frost'], allowedAbilities: ['jump'], paletteWeights }),
+      `${entry.id}: starts as a node battle on row ${row}`);
+      const { state } = e, definition = entry.definition;
+      assert(state.phase === 'PLAYER_INPUT' && e.availableMoves(6).length > 0, `${entry.id}: the opening has an ordinary chain`);
+      assert(state.runNode?.nodeId === `check-${entry.id}` && state.tutorial?.index === -1, `${entry.id}: a node battle, not an opening lesson`);
+      assert(state.player.hp === 4 && state.player.energy === 1 && state.inventory.frost === 1, `${entry.id}: run resources replace the battle's own`);
+      assert(json(state.tutorial!.allowedItems) === json(['frost']) && json(state.tutorial!.allowedAbilities) === json(['jump']), `${entry.id}: run tools replace permissions`);
+      assert(state.tutorial!.targetIds.length === entry.targetIndices.length
+        && entry.targetIndices.every(index => state.tutorial!.targetIds.includes(state.board[index]!.id)), `${entry.id}: marked targets are registered`);
+      for (const enemy of definition.enemies) {
+        const cell = state.board[enemy.index]!;
+        assert(cell.color === enemy.color && cell.hp === enemy.hp && cell.variant === enemy.variant, `${entry.id}: authored layout kept at ${enemy.index}`);
+        if (enemy.variant !== 'jailer' && enemy.variant !== 'beacon') assert(!!cell.behavior.passive === !enemy.aggressive, `${entry.id}: passivity kept at ${enemy.index}`);
+      }
+      assert(json(state.devices.map(device => device.index)) === json((definition.devices ?? []).map(device => device.index))
+        && json(state.customLevel!.definition.spikedEdges ?? []) === json(definition.spikedEdges ?? []), `${entry.id}: devices and spiked edges kept`);
+      assert(json(state.customLevel!.paletteWeights) === json(paletteWeights), `${entry.id}: row ${row} refill palette plus authored colors`);
+      assert(state.level.name === entry.name && state.level.tutorial === entry.hint && state.level.description === entry.description, `${entry.id}: battle texts shown`);
+      e.winLevel();
+      assert(!e.nextTutorial() && !e.startTutorialChoice(0) && e.runBattleOutcome()?.won === true, `${entry.id}: lesson transitions are rejected in a node battle`);
+    }
+  }
+  assert(!engine().startRunBattle({ ...battleSetup(ok(enterNode(createForestRun(1), FOREST_MAP_START), 'start'))!, template: { kind: 'battle', id: 'no-such-battle' } }),
+    'an unknown registry id is rejected by the engine');
+
+  // Bind a map node to a registry battle for this check only: the validator, the run model and the engine agree.
+  const node: ForestMapNode = forestNode('trunk-2')!, original = node.content;
+  try {
+    node.content = battle('no-such-battle');
+    assert(validateForestMap().some(error => error.includes('no-such-battle')), 'a node referring to a missing battle id is invalid');
+    node.content = battle(sample.id);
+    assert(!validateForestMap().length, 'a node bound to a registry battle is valid');
+    assert(json(nodeRefillPalette(node)) === json(authoredRefillPalette(sample, node.row)), 'node palette: row palette plus the authored colors');
+    let run = ok(enterNode(createForestRun(5), 'trunk-1'), 'enter trunk-1');
+    const first = engine(); launch(first, run); first.winLevel(); run = settle(first, run);
+    run = ok(enterNode(run, 'trunk-2'), 'enter bound node');
+    const setup = battleSetup(run)!;
+    assert(json(setup.template) === json({ kind: 'battle', id: sample.id }), 'the bound node plays the registry battle');
+    const e = engine(); launch(e, run);
+    const replay = engine(); launch(replay, run);
+    for (let turn = 0; turn < 2; turn++) { await realMove(e); await realMove(replay); }
+    assert(json(e.captureAnalysisSnapshot()) === json(replay.captureAnalysisSnapshot()), 'the same run replays the node battle identically');
+    e.restartLevel();
+    assert(e.state.turn === 0 && e.state.runNode?.nodeId === 'trunk-2' && e.state.tutorial?.index === -1, 'retry restores the node entry');
+    e.damagePlayer(e.state.player.hp);
+    run = settle(e, run);
+    assert(run.pending?.kind === 'battle' && run.pending.defeats === 1, 'a lost registry battle stays the current node');
+  } finally { node.content = original; }
+  assert(!validateForestMap().length, 'map restored after the binding check');
+}
+
 mapStructure();
 restCap();
 chiefToolLock();
 serialization();
 lessonsUnchanged();
 await paletteByRow();
+await registryBattles();
 await realEffects();
 await denRoute();
 await determinism();
-console.log('forest run: map, carry-over, rest, find, stub boss, retry, determinism and storage passed');
+console.log('forest run: map, carry-over, rest, find, both bosses, retry, determinism and storage passed');

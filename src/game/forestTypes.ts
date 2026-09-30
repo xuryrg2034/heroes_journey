@@ -5,7 +5,7 @@ import type { CellBehaviorComponent, CellFootprintComponent, CellHealthComponent
 export type EnemyColor = 0 | 1 | 2 | 3 | 4;
 export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'wall' | 'thorns';
 export type CellKind = 'melee' | 'ranged' | 'boss' | 'prism' | 'door';
-export type EnemyVariant = 'chair' | 'stool' | 'cabinet' | 'elite' | 'sentinel' | 'wardrobe' | 'rook' | 'bishop' | 'knight' | 'commander' | 'wizard' | 'jailer' | 'beacon' | 'boar' | 'wolf' | 'porcupine' | 'shaman';
+export type EnemyVariant = 'chair' | 'stool' | 'cabinet' | 'elite' | 'sentinel' | 'wardrobe' | 'rook' | 'bishop' | 'knight' | 'commander' | 'wizard' | 'jailer' | 'beacon' | 'boar' | 'wolf' | 'porcupine' | 'shaman' | 'troll';
 export type RoomTheme = 'forest' | 'gate' | 'banquet' | 'barracks' | 'chess' | 'library' | 'wizard';
 export type ExitDirection = 'left' | 'forward' | 'right';
 export type ItemKind = 'frost' | 'bomb' | 'healing' | 'fire';
@@ -63,9 +63,10 @@ export interface ChainHit {
 }
 /**
  * Sources of cat damage in a forecast, as the engine applies them: porcupine quills, bleeding steps, thorns at the
- * chain end, traps (levers), boar charges, enemy attacks by attacker kind, the gate volley and end-of-turn ticks.
+ * chain end, traps (levers), boar charges, enemy attacks by attacker kind (the troll's club apart from other bosses),
+ * the gate volley and end-of-turn ticks.
  */
-export type HeroDamageSource = 'quills' | 'bleeding' | 'thorns' | 'trap' | 'charge' | 'melee' | 'ranged' | 'boss' | 'volley' | 'burning' | 'poison';
+export type HeroDamageSource = 'quills' | 'bleeding' | 'thorns' | 'trap' | 'charge' | 'melee' | 'ranged' | 'boss' | 'troll' | 'volley' | 'burning' | 'poison';
 export type ChargeDamageCause = 'ram' | 'spikes' | 'thorns' | 'pit';
 export interface ChainPreview {
   valid: boolean; length: number; enemies: number; power: number; endIndex: number; damage: number;
@@ -89,7 +90,7 @@ export interface ChainPreview {
   /** Positions after the enemy phase that follows this action (absent when the battle ends first). */
   enemyPhase?: EnemyPhaseForecast;
 }
-export type ForcedDeathCause = 'ram' | 'spikes' | 'thorns' | 'pit' | 'arrow';
+export type ForcedDeathCause = 'ram' | 'spikes' | 'thorns' | 'pit' | 'arrow' | 'club';
 /** UI data for the enemy phase: the same rules as execution, computed on a copy. */
 export interface EnemyPhaseForecast {
   /** Cat cell after every charge; enemy attacks, the volley and swaps use it. */
@@ -97,7 +98,7 @@ export interface EnemyPhaseForecast {
   charges: { boarId: number; from: number; to: number; stunned: boolean }[];
   /** Net displacement of pushed entities (the charging boar included); the cat has id 0. */
   moves: { id: number; from: number; to: number }[];
-  /** Entities that die in the enemy phase from rams, spikes, thorns, pits and archer arrows. */
+  /** Entities that die in the enemy phase from rams, spikes, thorns, pits, archer arrows and the troll's club. */
   deaths: { id: number; index: number; cause: ForcedDeathCause }[];
   /** Pushed entities that skip their action in this phase. */
   knockedDown: number[];
@@ -105,6 +106,14 @@ export interface EnemyPhaseForecast {
   packBroken: number[];
   /** Goblins a shaman raises one step in this phase (after attacks): `armed` or `sturdy`. */
   empowered: { shamanId: number; id: number; index: number; tier: 'armed' | 'sturdy' }[];
+  /** Trolls that regenerate at the end of this phase (no damage this turn, no burning) and the HP they restore. */
+  regenerated: { id: number; index: number; amount: number }[];
+  /**
+   * The battle is won during this enemy phase: a room boss falls to a forced death, or the authored goals
+   * (with credited forced deaths and the finished turn) are met at the end of the phase while the cat lives.
+   * Enemy deaths from their own burning/poison ticks are not projected. Set only when true.
+   */
+  completesObjective?: true;
 }
 export interface AbilityPreview extends ChainPreview { ability: AbilityKind; cost: number; indices: number[]; targetIndex?: number }
 export interface FrostPreview { valid: boolean; reason: string; targetIndex: number; freezes: boolean; skippedCells: number[] }

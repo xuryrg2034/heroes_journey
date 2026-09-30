@@ -3,6 +3,8 @@
  *   npm run analyze:levels                         # 16 opening battles + forest trial
  *   npm run analyze:levels -- --lesson 8 --depth 4
  *   npm run analyze:levels -- --json my-level.json --seeds 5 --out report.json
+ *   npm run analyze:levels -- --node wolf-ford --row 5        # forest-map node battle, as in a run
+ *   npm run analyze:levels -- --nodes                         # every battle of the node registry
  * Levels are analyzed in parallel child processes; every level uses its own engines.
  */
 import { fork } from 'node:child_process';
@@ -12,6 +14,7 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type LevelAnalysis, type LevelSource } from '../src/game/levelAnalysis';
 import { TUTORIAL_LESSONS } from '../src/game/tutorialLevels';
+import { allNodeBattleTargets, nodeAnalysisTargets } from '../src/game/run/nodeAnalysis';
 
 interface Task { source: LevelSource; options: Partial<AnalysisOptions> }
 interface Done { index: number; result?: LevelAnalysis; error?: string; ms: number }
@@ -20,6 +23,10 @@ const HELP = `analyze-levels [options]
   --lesson N[,M]     opening battle number(s) 1-16 (repeatable)
   --json FILE        editor JSON level (repeatable)
   --forest           include the forest trial (default only when no level is given)
+  --node ID          forest-map node battle (repeatable): a registry battle id or a map node id.
+                     Started as in a run: 5 HP, 0 energy, no items, tools guaranteed on entering the node
+  --nodes            every battle of the node registry (src/game/run/battles/*.ts)
+  --row R            map row for registry battles not bound to a node (tools and palette of that row)
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
   --depth D          search horizon in turns (default ${DEFAULT_ANALYSIS_OPTIONS.depth})
   --beam B           children per internal node (default ${DEFAULT_ANALYSIS_OPTIONS.beam})
@@ -27,7 +34,7 @@ const HELP = `analyze-levels [options]
   --runs N           random-agent runs per seed (default ${DEFAULT_ANALYSIS_OPTIONS.agentRuns})
   --turn-limit T     agent turn limit (default ${DEFAULT_ANALYSIS_OPTIONS.agentTurnLimit})
   --resamples K      honest planner: resampled refills per candidate, 0 disables (default ${DEFAULT_ANALYSIS_OPTIONS.plannerResamples})
-  --candidates M     honest planner: first actions compared (default ${DEFAULT_ANALYSIS_OPTIONS.plannerCandidates})
+  --candidates M     honest planner: first actions compared after screening all on one refill (default ${DEFAULT_ANALYSIS_OPTIONS.plannerCandidates})
   --fragile          recolor every starting enemy and report cells with |dP(greedy)| > 0.2 (slow)
   --no-search | --no-restricted | --no-agents
   --workers W        parallel processes (default: CPU count - 1)
@@ -35,7 +42,8 @@ const HELP = `analyze-levels [options]
 
 function parse(argv: string[]) {
   const tasks: LevelSource[] = [], options: Partial<AnalysisOptions> = {};
-  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), forest = false;
+  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), forest = false, allNodes = false, row: number | undefined;
+  const nodeIds: string[] = [];
   const number = (flag: string, value: string | undefined, min: number) => {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed < min) throw new Error(`${flag}: expected an integer >= ${min}`);
@@ -52,6 +60,9 @@ function parse(argv: string[]) {
       case '--json': if (!value) throw new Error('--json: file required');
         tasks.push({ kind: 'custom', definition: JSON.parse(readFileSync(value, 'utf8')), id: basename(value) }); i++; break;
       case '--forest': forest = true; break;
+      case '--node': if (!value) throw new Error('--node: id required'); nodeIds.push(value); i++; break;
+      case '--nodes': allNodes = true; break;
+      case '--row': row = number(flag, value, 1); i++; break;
       case '--seeds': options.seeds = number(flag, value, 1); i++; break;
       case '--depth': options.depth = number(flag, value, 1); i++; break;
       case '--beam': options.beam = number(flag, value, 1); i++; break;
@@ -70,7 +81,15 @@ function parse(argv: string[]) {
       default: throw new Error(`Unknown argument ${flag}\n${HELP}`);
     }
   }
-  if (!tasks.length) { TUTORIAL_LESSONS.forEach((_, index) => tasks.push({ kind: 'lesson', index })); forest = true; }
+  const skipped: string[] = [];
+  if (allNodes) { const all = allNodeBattleTargets(row); skipped.push(...all.skipped); tasks.push(...all.targets.map(target => ({ kind: 'run-node' as const, target }))); }
+  for (const id of nodeIds) tasks.push(...nodeAnalysisTargets(id, row).map(target => ({ kind: 'run-node' as const, target })));
+  if (row !== undefined && !allNodes && !nodeIds.length) throw new Error('--row: use with --node or --nodes');
+  if (allNodes || nodeIds.length) {
+    for (const id of skipped) console.log(`skip ${id}: not bound to a map node, pass --row R`);
+    if (!tasks.length && !forest) throw new Error('No node battle to analyze.');
+  }
+  else if (!tasks.length) { TUTORIAL_LESSONS.forEach((_, index) => tasks.push({ kind: 'lesson', index })); forest = true; }
   if (forest) tasks.push({ kind: 'forest' });
   return { tasks: tasks.map(source => ({ source, options })), out, workers };
 }
@@ -123,6 +142,7 @@ async function runAll(tasks: Task[], workers: number, onDone: (done: Done) => vo
 function weight(task: Task) {
   if (task.source.kind === 'forest') return 100;
   if (task.source.kind === 'lesson') { const { cols, rows } = TUTORIAL_LESSONS[task.source.index].definition; return cols * rows + task.source.index; }
+  if (task.source.kind === 'run-node') return task.source.target.row + 40;
   return 50;
 }
 
@@ -152,7 +172,7 @@ function tables(results: Done[]) {
     ok.map(done => {
       const r = done.result!, a = r.agents, p = r.planner, d = r.deception;
       const need = r.restricted ? Object.entries(r.restricted).filter(([, x]) => x.agents).map(([tool, x]) => `${tool[0]}:${delta(x.agents!.needRandom)}/${delta(x.agents!.needGreedy)}`).join(' ') : '';
-      return [r.level.id, pct(p?.pOracle ?? r.seedSensitivity?.winnableShare), pct(p?.pHonest), pct(p?.fortuneGap), p ? `${p.robustFirstMoves}/${p.candidates.length}` : '-',
+      return [r.level.id, pct(p ? p.pOracle : r.seedSensitivity?.winnableShare), pct(p?.pHonest), pct(p?.fortuneGap), p ? `${p.robustFirstMoves}/${p.candidates.length}` : '-',
         pct(a?.random.winRate), a ? `${pct(a.random.winRateCi95[0])}-${pct(a.random.winRateCi95[1])}` : '-', bits(a?.random.info), pct(a?.greedy.winRate), bits(a?.greedy.info),
         d?.deception?.toFixed(2) ?? '-', d?.greedyTrap === null || d?.greedyTrap === undefined ? '-' : d.greedyTrap ? 'yes' : 'no', val(a?.random.winHpMedian), val(a?.random.winHpP10), need || '-'];
     }));

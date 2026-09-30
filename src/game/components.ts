@@ -43,6 +43,13 @@ export interface CellBehavior {
    * goblin is permanently armed (angry again after its rest). Absent: weak, or sturdy when maxHp > 0.
    */
   tier?: 'armed' | 'sturdy';
+  /**
+   * Troll club (troll.ts): the zone fixed when the windup is announced, kept until the strike. `raised` once the
+   * windup phase has passed, so the next enemy phase strikes. Replaced, never mutated in place.
+   */
+  club?: { cells: number[]; dx: number; dy: number; raised: boolean };
+  /** Troll only: damaged this turn (set by `damageCell`), cleared by the end-of-phase regeneration step. */
+  hurtThisTurn?: boolean;
 }
 
 export interface CellBehaviorComponent {

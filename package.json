@@ -37,6 +37,10 @@
     "test:forest-beasts": "tsx src/game/forestBeasts.spec.ts",
     "test:damage-breakdown": "tsx src/game/damageBreakdown.spec.ts",
     "test:forest-run": "tsx src/game/forestRun.spec.ts",
+    "test:troll": "tsx src/game/troll.spec.ts",
+    "test:goblin-battles": "tsx src/game/goblinBattles.spec.ts",
+    "test:beast-battles": "tsx src/game/beastBattles.spec.ts",
+    "test:troll-arena": "tsx src/game/trollArena.spec.ts",
     "analyze:levels": "tsx scripts/analyze-levels.ts"
   },
   "dependencies": {

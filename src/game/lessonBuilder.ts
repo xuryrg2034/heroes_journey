@@ -2,9 +2,16 @@
 import type { CustomLevelDefinition, PaletteWeights } from './customLevel';
 import type { AbilityKind, EnemyColor, ItemKind, TerrainKind } from './forestTypes';
 
-export interface TutorialLesson {
-  id: 'chain' | 'power' | 'position' | 'arrows' | 'fire' | 'crossroads' | 'frost' | 'jump' | 'prism' | 'archer'
-    | 'pit-crossing' | 'pit-choice' | 'pit-embers' | 'jailer' | 'escape' | 'beacon';
+/** Ids of the 16 opening battles in TUTORIAL_LESSONS. */
+export type TutorialLessonId = 'chain' | 'power' | 'position' | 'arrows' | 'fire' | 'crossroads' | 'frost' | 'jump' | 'prism' | 'archer'
+  | 'pit-crossing' | 'pit-choice' | 'pit-embers' | 'jailer' | 'escape' | 'beacon';
+
+/**
+ * Authored battle built by `authoredLesson`. The opening lessons use `TutorialLesson` (a closed id union);
+ * forest-map node battles (src/game/run/forestBattles.ts) use the same format with a free string id.
+ */
+export interface AuthoredLesson<Id extends string = string> {
+  id: Id;
   name: string;
   description: string;
   hint: string;
@@ -16,6 +23,7 @@ export interface TutorialLesson {
   /** Explicit campaign branches; an empty list continues to the forest trial. */
   nextLessonIndices?: number[];
 }
+export type TutorialLesson = AuthoredLesson<TutorialLessonId>;
 
 /** One map character of an authored lesson. Coordinates in `device.targets` use UI labels such as `C4`. */
 export interface LessonTile {
@@ -36,8 +44,8 @@ export interface LessonTile {
   door?: boolean;
 }
 
-export interface LessonSpec {
-  id: TutorialLesson['id']; name: string; description: string; hint: string;
+export interface LessonSpec<Id extends string = TutorialLessonId> {
+  id: Id; name: string; description: string; hint: string;
   rows: string[]; seed: number;
   /** Extra or overriding characters; see DEFAULT_TILES. */
   legend?: Record<string, LessonTile>;
@@ -68,7 +76,7 @@ export function cellIndex(label: string, cols: number, rows = 12): number {
 }
 
 /** General authored lesson: every walkable square except the cat is occupied by an enemy, device or door. */
-export function authoredLesson(spec: LessonSpec): TutorialLesson {
+export function authoredLesson<Id extends string = TutorialLessonId>(spec: LessonSpec<Id>): AuthoredLesson<Id> {
   const { rows } = spec, cols = rows[0].length;
   if (rows.some(row => row.length !== cols)) throw new Error(`Неровная карта урока ${spec.id}.`);
   const tiles = rows.join('').split('');

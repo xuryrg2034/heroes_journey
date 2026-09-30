@@ -1,0 +1,55 @@
+import { authoredLesson, cellIndex } from '../../lessonBuilder';
+import type { NodeBattle } from '../forestBattles';
+
+/**
+ * Boss node battles (the Troll of the den branch). Format and checks: docs/biomes/forest-map.md,
+ * «Как добавить бой узла»; cards, routes and metrics: docs/levels/forest-nodes-beasts.md.
+ * Ids are unique across battles/*.ts.
+ */
+
+/**
+ * `authoredLesson` places one entity per map character. A 2×2 troll is written as `T` on its top-left square and
+ * three placeholder characters on the others; this folds the four authored entries into one enemy with a footprint.
+ */
+function withTrollBody(battle: NodeBattle, anchor: string): NodeBattle {
+  const { definition } = battle, cols = definition.cols;
+  const index = cellIndex(anchor, cols, definition.rows);
+  const footprint = [index, index + 1, index + cols, index + cols + 1];
+  const troll = definition.enemies.find(enemy => enemy.index === index && enemy.variant === 'troll');
+  if (!troll) throw new Error(`${battle.id}: нет тролля в ${anchor}.`);
+  // The other three squares must be troll placeholders: a typo there would otherwise silently delete an enemy.
+  for (const part of footprint.slice(1)) {
+    const placeholder = definition.enemies.find(enemy => enemy.index === part);
+    if (placeholder?.variant !== 'troll') throw new Error(`${battle.id}: клетка тела тролля ${part} занята не заглушкой тролля.`);
+  }
+  const enemies = definition.enemies.filter(enemy => enemy === troll || !footprint.includes(enemy.index));
+  return { ...battle, definition: { ...definition, enemies: enemies.map(enemy => enemy === troll ? { ...enemy, footprint } : enemy) } };
+}
+
+const TROLL_HP = 30;
+
+export const BOSS_BATTLES: NodeBattle[] = [
+  withTrollBody(authoredLesson({
+    id: 'troll-lair', name: 'Логово Тролля', description: 'Тролль сторожит логово с дубиной наготове. Вокруг него — стая и жаровня с углями.',
+    hint: 'Тролль отращивает 3 HP за ход без урона, если не горит. Бей его каждый ход, подожги через жаровню и не стой в полосе замаха: дубина бьёт всех, и волков тоже.',
+    rows: [
+      'VVOOOBB',
+      'VVVOBOB',
+      'VGTt#GR',
+      'GGtu#GR',
+      'GGWBRGR',
+      'OOXWRFR',
+      'ORBOVVH',
+    ],
+    legend: {
+      T: { kind: 'boss', variant: 'troll', hp: TROLL_HP, armed: true },
+      t: { kind: 'boss', variant: 'troll', hp: TROLL_HP },
+      u: { kind: 'boss', variant: 'troll', hp: TROLL_HP, terrain: 'puddle' },
+      W: { color: 3, hp: 2, variant: 'wolf', armed: true },
+      X: { color: 2, hp: 2, variant: 'wolf', armed: true },
+      F: { device: { kind: 'fire', charges: 2 } },
+    },
+    goals: [{ key: 'bossKills', target: 1 }],
+    seed: 9520,
+  }), 'C3'),
+];

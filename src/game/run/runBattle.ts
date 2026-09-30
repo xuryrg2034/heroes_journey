@@ -9,8 +9,11 @@ import type { AbilityKind, ItemKind } from '../forestTypes';
 /** Cat resources carried between map nodes. */
 export interface RunPlayerResources { hp: number; maxHp: number; energy: number; damageEffects?: DamageEffects }
 
-/** Battle template of a node: an authored lesson layout (by index in TUTORIAL_LESSONS) or the forest trial. */
-export type RunBattleTemplate = { kind: 'lesson'; index: number } | { kind: 'forest-trial' };
+/**
+ * Battle template of a node: an authored node battle (by id in FOREST_NODE_BATTLES, src/game/run/forestBattles.ts),
+ * an opening lesson layout (by index in TUTORIAL_LESSONS; temporary filling of the map) or the forest trial.
+ */
+export type RunBattleTemplate = { kind: 'battle'; id: string } | { kind: 'lesson'; index: number } | { kind: 'forest-trial' };
 
 /** Everything needed to (re)create a node battle deterministically. */
 export interface RunBattleSetup {
@@ -24,7 +27,7 @@ export interface RunBattleSetup {
   /** Tools opened by the run so far; they replace the lesson's own permissions. */
   allowedItems: ItemKind[];
   allowedAbilities: AbilityKind[];
-  /** Refill palette of a lesson template on the map (row palette plus the authored opening colors); absent keeps the template's. */
+  /** Refill palette of an authored template on the map (row palette plus the authored opening colors); absent keeps the template's. */
   paletteWeights?: PaletteWeights;
 }
 

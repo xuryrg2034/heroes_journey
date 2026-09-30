@@ -7,6 +7,7 @@ import { shieldIsActive } from '../game/combatRules';
 import { addDamageEffectBadges } from './damageEffectBadges';
 import { makeBoar } from './boarArt';
 import { makePorcupine, makeShaman, makeWolf } from './beastArt';
+import { makeTroll } from './trollArt';
 import { characterArtId, characterSprite } from './characterAssets';
 export const COLORS = [0xca7970, 0x9fba7c, 0x79b0c4, 0xd8b66a, 0xb69ad2];
 export const PALE = 0xf2dfb4;
@@ -95,6 +96,7 @@ export function makeEnemy(cell: ForestCell,index=0,cols=7,customLevel=false,tuto
   if(cell.variant==='wolf')return makeWolf(cell,index,cols,tutorialTarget);
   if(cell.variant==='porcupine')return makePorcupine(cell,tutorialTarget);
   if(cell.variant==='shaman')return makeShaman(cell,tutorialTarget);
+  if(cell.variant==='troll')return makeTroll(cell,(bounds?.width??1)*80,(bounds?.height??1)*80);
   if(cell.variant==='wardrobe'){const bounds=footprintBounds(occupiedIndices(cell,index),cols);return makeWardrobe(cell,(bounds?.width??1)*80,(bounds?.height??1)*80);}
   if(cell.variant)return makeCastleEnemy(cell);
   const c=new Container(),g=new Graphics();

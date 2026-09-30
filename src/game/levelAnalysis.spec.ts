@@ -1,7 +1,10 @@
 // Correctness of the level analyzer itself on small artificial boards.
 // These are not balance assertions about the authored battles.
 import { ForestEngine } from './forestEngine';
-import { analyzeEngine, analyzeLevel, type AnalysisOptions } from './levelAnalysis';
+import { analyzeEngine, analyzeLevel, startLevelEngine, type AnalysisOptions } from './levelAnalysis';
+import { FOREST_MAP } from './run/forestMap';
+import { FOREST_NODE_BATTLES } from './run/forestBattles';
+import { nodeAnalysisTargets } from './run/nodeAnalysis';
 import type { CustomEnemy, CustomLevelDefinition } from './customLevel';
 import type { TerrainKind } from './forestTypes';
 
@@ -68,6 +71,18 @@ async function trapsAndBurnWins() {
   assert(search.stats.lateWinChecks > 0 && search.stats.previewMismatches === 0, 'late-win candidates are executed, forecast wins still match');
 }
 
+// P(O) and P(S) share one resolution rule: a budget-cut "no win" is unresolved in both, never a loss in one only.
+async function unresolvedLuck() {
+  const starved = (await analyzeEngine(start(pocket), { ...quick, seeds: 2, nodeBudget: 1, agents: false, restricted: false })).planner!;
+  // Seed 0 finds its win within the budget, seed 1 is cut short: P(O) = 1 over one resolved seed (not 0.5), and
+  // the gap is paired on that seed only (the earlier asymmetric count gave FG = -0.5).
+  assert(starved.oracleUnresolved === 1 && starved.pOracle === 1, `a budget-cut oracle seed is unresolved, not lost: ${JSON.stringify(starved)}`);
+  assert(starved.fortuneGapSeeds === 1 && starved.fortuneGap === 0, `the gap uses only seeds resolved for both O and S: ${JSON.stringify(starved)}`);
+  const fed = (await analyzeEngine(start(pocket), { ...quick, seeds: 2, agents: false, restricted: false })).planner!;
+  assert(fed.pOracle === 1 && fed.oracleUnresolved === 0 && fed.fortuneGapSeeds === 2 && fed.fortuneGap !== null && fed.fortuneGap >= 0,
+    `with budget both are resolved and the gap is paired: ${JSON.stringify(fed)}`);
+}
+
 async function liveEngineUntouched() {
   const live = start(pocket), twin = start(pocket);
   const before = JSON.stringify(live.captureAnalysisSnapshot());
@@ -115,6 +130,38 @@ async function boarSpikes() {
   assert(plain.minTurns !== 1, 'without spikes the same board cannot be won on turn 1');
 }
 
+// A win that comes from the enemy phase (spike deaths completing the goal) is forecast by the engine
+// (`enemyPhase.completesObjective`) and must be found on the horizon leaf, not only at the root.
+function pushBoard(kills: number): CustomLevelDefinition {
+  const board = level(['#1.1#', '#0.0#', '#101#', '#010#', '#101#', '#0@0#'], [{ key: 'kills', target: kills }], [100, 100, 0, 0, 0]);
+  // `.` squares hold the boar (C1) and a sturdy 3 HP goblin (C2); enemies stay in board order for stable IDs.
+  board.enemies.push({ index: 2, kind: 'melee', color: 1, hp: 3, variant: 'boar' }, { index: 7, kind: 'melee', color: 1, hp: 3 });
+  board.enemies.sort((a, b) => a.index - b.index);
+  return { ...board, seed: 4242, spikedEdges: ['bottom'] };
+}
+async function pushWins() {
+  // Forecast contract on turn 2: every chain that forecasts an enemy-phase win (and no chain win) wins when played.
+  const g = start(pushBoard(6));
+  g.state.chain = [26, 22]; await g.releaseChain(); // B6-C5
+  assert(g.state.turn === 1 && g.state.phase === 'PLAYER_INPUT', 'first chain B6-C5 does not win');
+  const after = g.captureAnalysisSnapshot();
+  let phaseWins = 0;
+  for (const path of g.availableMoves(16)) {
+    const preview = g.preview(path);
+    const replay = new ForestEngine(); replay.animationScale = 0; replay.restoreAnalysisSnapshot(after);
+    replay.state.chain = [...path]; await replay.releaseChain();
+    if (preview.completesRoom) continue;
+    assert(!!preview.enemyPhase?.completesObjective === (replay.state.phase === 'WIN'), `enemy-phase win forecast matches execution for ${path.join('-')}`);
+    if (preview.enemyPhase?.completesObjective) phaseWins++;
+  }
+  assert(phaseWins > 0, 'some turn-2 chains win only through the spike push');
+  // The analyzer sees that turn-2 win after B6-C5 (before the fix it counted this first action as a trap).
+  const search = (await analyzeEngine(start(pushBoard(6)), { ...quick, beam: 3, nodeBudget: 300, agents: false, restricted: false, plannerResamples: 0 })).search![0];
+  const opening = search.outcomes!.find(outcome => outcome.action === 'chain B6-C5' || outcome.aliases?.includes('chain B6-C5'))!;
+  assert(opening.winTurns === 2 && opening.trap === false, `the push win on the horizon leaf is found, got ${JSON.stringify(opening)}`);
+  assert(search.stats.previewMismatches === 0, 'every forecast win (chain or enemy phase) happened on execution');
+}
+
 // Porcupine quills are part of the chain forecast the analyzer reads: every opening passes a porcupine,
 // so the one-turn win costs exactly one HP, and no forecast disagrees with execution.
 async function porcupineQuills() {
@@ -125,11 +172,39 @@ async function porcupineQuills() {
   assert(search.stats.previewMismatches === 0, 'quill forecasts match execution');
 }
 
+// Node battles are analyzed as in a run: 5 HP, 0 energy, no items, and only the tools every route has opened.
+async function nodeBattleSource() {
+  const trunk = nodeAnalysisTargets('trunk-3');
+  assert(trunk.length === 1 && trunk[0].row === 3 && !trunk[0].tools.items.length && !trunk[0].tools.abilities.length, 'a trunk node has no guaranteed tools');
+  const shaman = nodeAnalysisTargets('goblin-shaman')[0];
+  assert(shaman.tools.abilities.includes('jump') && !shaman.tools.abilities.includes('spin'), 'the jump row opens jump; the spin needs the Jailer');
+  const den = nodeAnalysisTargets('den-battle')[0];
+  assert(den.tools.abilities.includes('spin') && den.tools.items.includes('frost'), 'after the Jailer the spin is guaranteed');
+  const engine = startLevelEngine({ kind: 'run-node', target: shaman });
+  assert(engine && engine.state.runNode && engine.state.player.hp === 5 && engine.state.player.energy === 0, 'node analysis starts with 5 HP and 0 energy');
+  assert(Object.values(engine.state.inventory).every(count => count === 0), 'node analysis gives no items');
+  assert(JSON.stringify(engine.state.tutorial!.allowedAbilities) === JSON.stringify(shaman.tools.abilities), 'node analysis uses the guaranteed tools');
+  let rejected = 0;
+  for (const call of [() => nodeAnalysisTargets('no-such-node'), () => nodeAnalysisTargets('trunk-3', 5)]) { try { call(); } catch { rejected++; } }
+  assert(rejected === 2, 'unknown ids and a row override of a map node are rejected');
+  const id = Object.keys(FOREST_NODE_BATTLES)[0];
+  if (!id) return;
+  const [target] = nodeAnalysisTargets(id, 7);
+  assert(target.row === 7 && target.tools.abilities.includes('jump') && target.setup.template.kind === 'battle', 'a registry battle is analyzed on the given row');
+  const bound = FOREST_MAP.some(node => node.content.kind === 'battle' && node.content.battleId === id);
+  if (!bound) { let unbound = false; try { nodeAnalysisTargets(id); } catch { unbound = true; } assert(unbound, 'an unbound registry battle needs --row'); }
+  const report = await analyzeLevel({ kind: 'run-node', target }, { ...quick, search: false, agents: false });
+  assert(report.level.id === target.id && report.static.enemies > 0, 'the analyzer reports a node battle');
+}
+
 await minimalWin();
+await nodeBattleSource();
 await porcupineQuills();
 await boarSpikes();
+await pushWins();
 await requiresJump();
 await trapsAndBurnWins();
+await unresolvedLuck();
 await liveEngineUntouched();
 await deterministic();
 await layoutMetrics();
