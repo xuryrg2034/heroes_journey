@@ -309,7 +309,7 @@ body:before{opacity:.055}
 .map-node-icon{display:grid;place-items:center;width:46px;height:46px;margin:0 auto;border:2px solid var(--lane);border-radius:50%;background:#223342;font:25px/1 Arial,sans-serif;color:var(--lane);transition:transform .12s,box-shadow .12s}
 .map-node-name{position:absolute;top:50px;left:3px;right:3px;font:11px/1.2 Arial,sans-serif;color:#cfd6c8}
 .map-node-dev{position:absolute;top:75px;left:0;right:0;font:600 9px/1.2 Arial,sans-serif;letter-spacing:.6px;color:#f0a58e;text-transform:uppercase}
-.map-node.type-boss .map-node-icon,.map-node.type-checkpoint .map-node-icon,.map-node.type-elite .map-node-icon{width:52px;height:52px;margin-top:-3px;font-size:25px}
+.map-node.type-boss .map-node-icon,.map-node.type-checkpoint .map-node-icon,.map-node.type-hard .map-node-icon{width:52px;height:52px;margin-top:-3px;font-size:25px}
 .map-node.type-rest .map-node-icon,.map-node.type-find .map-node-icon{border-radius:14px}
 .map-node.placeholder .map-node-icon{border-style:dashed}
 .map-node.status-locked{cursor:default}.map-node.status-locked .map-node-icon{opacity:.7}.map-node.status-locked .map-node-name{opacity:.62}

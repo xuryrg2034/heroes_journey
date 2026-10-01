@@ -93,7 +93,7 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
     },
     seed: 9604,
   }),
-  // Row 11, camp elite «Стена щитов». Two bearers close the column C; the moss path along row 7 goes round
+  // Row 11, camp hard battle «Стена щитов». Two bearers close the column C; the moss path along row 7 goes round
   // behind them to the shaman, and the archer at its end shoots along that very path every other turn.
   authoredLesson({
     id: 'camp-shield-wall', name: 'Стена щитов',

@@ -11,7 +11,11 @@ import type { PaletteWeights } from '../customLevel';
 import { forestBattle } from './forestBattles';
 import type { AbilityKind, EnemyColor, ItemKind } from '../forestTypes';
 
-export type ForestNodeType = 'battle' | 'elite' | 'rest' | 'find' | 'breakthrough' | 'boss' | 'checkpoint';
+/**
+ * `hard` — the hard battle (until 01.10.2026 the node type was called «элита»; «elite» now names the enemy modifier).
+ * Node ids `den-elite` and `camp-elite` are kept: the node seed (battle and find) is derived from the id.
+ */
+export type ForestNodeType = 'battle' | 'hard' | 'rest' | 'find' | 'breakthrough' | 'boss' | 'checkpoint';
 /** Trunk, first-half trails (beasts/goblins/shared) and second-half branches (den → Troll, camp → Chief). */
 export type ForestLane = 'trunk' | 'beasts' | 'goblins' | 'shared' | 'den' | 'camp';
 
@@ -46,8 +50,8 @@ export interface ForestMapNode {
 
 /** Rest heal, HP up to the maximum. TEMPORARY balance parameter, not a tuned value. */
 export const FOREST_REST_HEAL = 2;
-/** Elite victory heal, HP up to the maximum, given together with the find (council review, item 6/9). */
-export const FOREST_ELITE_HEAL = 1;
+/** Hard-battle victory heal, HP up to the maximum, given together with the find (council review, item 6/9). */
+export const FOREST_HARD_HEAL = 1;
 export const FOREST_MAP_START = 'trunk-1';
 /** Colors are added in the same order as in the lessons: red, blue, green, ochre, amethyst. */
 export const FOREST_COLOR_ORDER: readonly EnemyColor[] = [0, 2, 1, 3, 4];
@@ -96,11 +100,11 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
   { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: battle('jailer-gate'), rewardGrants: { abilities: ['spin'] },
     next: ['den-battle', 'camp-battle'] },
   // Second half: the branch chosen after the Jailer decides the boss.
-  // A rest comes before every elite (playtest decision 30.09.2026).
+  // A rest comes before every hard battle (playtest decision 30.09.2026).
   { id: 'den-battle', type: 'battle', name: 'Сторожевая стая', lane: 'den', row: 10, column: 0, content: battle('den-watch'), feature: 'Волки, дикобраз, лучник',
     next: ['den-rest'] },
   { id: 'den-rest', type: 'rest', name: 'Привал в логове', lane: 'den', row: 11, column: 0, content: rest(), next: ['den-elite'] },
-  { id: 'den-elite', type: 'elite', name: 'Гнездо у шипов', lane: 'den', row: 12, column: 0, content: battle('den-nest'), feature: 'Кабан, стая, шипы',
+  { id: 'den-elite', type: 'hard', name: 'Гнездо у шипов', lane: 'den', row: 12, column: 0, content: battle('den-nest'), feature: 'Кабан, стая, шипы',
     placeholder: { planned: 'Медведь или Зверовод, когда появятся' }, next: ['den-breakthrough'] },
   { id: 'den-breakthrough', type: 'breakthrough', name: 'Выход из логова', lane: 'den', row: 13, column: 0, content: battle('den-breakout'),
     feature: 'Цель — выход', next: ['den-troll'] },
@@ -109,7 +113,7 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
   { id: 'camp-battle', type: 'battle', name: 'Круг у котла', lane: 'camp', row: 10, column: 2, content: battle('camp-cauldron-ring'), feature: 'Гоблины у котла',
     next: ['camp-rest'] },
   { id: 'camp-rest', type: 'rest', name: 'Привал у частокола', lane: 'camp', row: 11, column: 2, content: rest(), next: ['camp-elite'] },
-  { id: 'camp-elite', type: 'elite', name: 'Стена щитов', lane: 'camp', row: 12, column: 2, content: battle('camp-shield-wall'), feature: 'Щитоносцы, лучник, шаман',
+  { id: 'camp-elite', type: 'hard', name: 'Стена щитов', lane: 'camp', row: 12, column: 2, content: battle('camp-shield-wall'), feature: 'Щитоносцы, лучник, шаман',
     next: ['camp-breakthrough'] },
   { id: 'camp-breakthrough', type: 'breakthrough', name: 'Прорыв к воротам', lane: 'camp', row: 13, column: 2, content: battle('camp-gate-run'),
     feature: 'Цель — выход', next: ['camp-chief'] },
@@ -142,8 +146,8 @@ export function nodeRefillPalette(node: ForestMapNode): PaletteWeights | null {
   return template ? authoredRefillPalette(template, node.row) : null;
 }
 
-/** An elite victory is followed by a find (choice of one of three items) before the next transition. */
-export function hasVictoryFind(node: ForestMapNode): boolean { return node.type === 'elite'; }
+/** A hard-battle victory is followed by a find (choice of one of three items) before the next transition. */
+export function hasVictoryFind(node: ForestMapNode): boolean { return node.type === 'hard'; }
 
 /** Nodes that are fights (or a planned fight, for the stub boss). Rest and find are not battles. */
 export function isBattleNode(node: ForestMapNode): boolean { return node.type !== 'rest' && node.type !== 'find'; }

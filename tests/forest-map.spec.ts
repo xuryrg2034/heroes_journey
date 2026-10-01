@@ -38,7 +38,7 @@ function walk(ids: string[], hp = 5, seed = 4242): ForestRunState {
   for (const id of ids) {
     run = ok(enterNode(run, id));
     if (run.pending?.kind === 'battle') run = won(run, hp);
-    // A find follows a find node and, in the model, an elite victory.
+    // A find follows a find node and, in the model, a hard-battle victory.
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]));
   }
   return run;
@@ -333,7 +333,7 @@ test('the Chief is a real battle node; beating him ends the run with a victory',
   expect(errors).toEqual([]);
 });
 
-test('Jailer victory reports the opened spin; an elite victory leads to a find of one of three', async ({ page }) => {
+test('Jailer victory reports the opened spin; a hard-battle victory leads to a find of one of three', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await seedRun(page, walk([...TRUNK, 'beast-wolf', 'beast-boar', 'trail-find', 'trail-banners']));
@@ -349,17 +349,17 @@ test('Jailer victory reports the opened spin; an elite victory leads to a find o
   await node(page, 'den-battle').click(); await settled(page);
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
   await page.locator('#modal [data-action="run-map"]').click();
-  // A rest always comes right before an elite.
+  // A rest always comes right before a hard battle.
   await expect(node(page, 'den-elite')).toHaveAttribute('data-status', 'locked');
   await node(page, 'den-rest').click();
   await page.locator('#modal [data-action="resume"]').click();
   await node(page, 'den-elite').hover();
   await expect(page.locator('#map-detail')).toContainText('находка');
   await node(page, 'den-elite').click(); await settled(page);
-  // A wounded cat gets +1 HP for the elite (FOREST_ELITE_HEAL): shown in the result and kept by the run.
+  // A wounded cat gets +1 HP for the hard battle (FOREST_HARD_HEAL): shown in the result and kept by the run.
   await page.evaluate(() => (window as any).__PUZZLE_GAME.damagePlayer(2));
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
-  await expect(page.locator('#elite-heal')).toContainText('+1 HP за элиту');
+  await expect(page.locator('#hard-heal')).toContainText('+1 HP за трудный бой');
   await expect(page.locator('#modal .result-stats')).toContainText('4/5');
   expect((await savedRun(page)).resources.player.hp).toBe(4);
   await expect(page.locator('#modal [data-action="run-find"]')).toContainText('ВЫБРАТЬ НАХОДКУ');

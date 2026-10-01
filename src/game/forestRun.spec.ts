@@ -48,8 +48,8 @@ function settle(e: ForestEngine, run: ForestRunState): ForestRunState {
   const outcome = e.runBattleOutcome(); assert(outcome, 'finished map battle reports an outcome');
   const next = ok(resolveBattle(run, outcome!), `resolve ${outcome!.nodeId}`);
   if (outcome!.won) {
-    // An elite victory adds its heart (+1 HP up to the maximum) on top of the carried HP.
-    const heart = forestNode(outcome!.nodeId)!.type === 'elite' ? Math.min(1, e.state.player.maxHp - e.state.player.hp) : 0;
+    // A hard-battle victory adds its heart (+1 HP up to the maximum) on top of the carried HP.
+    const heart = forestNode(outcome!.nodeId)!.type === 'hard' ? Math.min(1, e.state.player.maxHp - e.state.player.hp) : 0;
     assert(next.resources.player.hp === e.state.player.hp + heart && next.resources.player.energy === e.state.player.energy,
       `${outcome!.nodeId}: HP and energy carried out of the battle`);
     assert(json(next.resources.inventory) === json(e.state.inventory), `${outcome!.nodeId}: items carried out of the battle`);
@@ -87,7 +87,7 @@ function mapStructure() {
   assert(FOREST_MAP.filter(isBattleNode).every(node => node.content.kind === 'battle' && !!forestBattle(node.content.battleId)), 'every battle node plays a registry battle');
   assert(FOREST_MAP.some(node => node.placeholder), 'temporary template nodes are marked');
   for (const path of paths) path.forEach((id, n) => {
-    if (forestNode(id)!.type === 'elite') assert(forestNode(path[n - 1])!.type === 'rest', `${path.join('>')}: a rest right before the elite ${id}`);
+    if (forestNode(id)!.type === 'hard') assert(forestNode(path[n - 1])!.type === 'rest', `${path.join('>')}: a rest right before the hard battle ${id}`);
   });
   for (const node of FOREST_MAP) {
     const battle = node.content.kind === 'battle' ? forestBattle(node.content.battleId) : undefined; if (!battle) continue;
@@ -163,9 +163,9 @@ async function campRoute(seed: number, trace?: string[]) {
     }
     if (id === 'camp-elite') {
       const options = run.pending?.kind === 'find' ? run.pending.options : [];
-      assert(options.length === 3 && run.pending?.nodeId === id && !availableNodes(run).length, 'an elite victory offers a find before moving on');
+      assert(options.length === 3 && run.pending?.nodeId === id && !availableNodes(run).length, 'a hard-battle victory offers a find before moving on');
       const count = run.resources.inventory[options[0]];
-      run = ok(chooseFindItem(run, options[0]), 'elite reward'); log(run); saved(run);
+      run = ok(chooseFindItem(run, options[0]), 'hard-battle reward'); log(run); saved(run);
       assert(run.resources.inventory[options[0]] === count + 1 && run.currentNodeId === id && availableNodes(run)[0]?.id === 'camp-breakthrough', 'the reward completes the elite node');
     }
   }
@@ -205,8 +205,8 @@ async function denRoute() {
   for (const id of ['jailer', 'den-battle']) { run = ok(enterNode(run, id), `enter ${id}`); launch(e, run); e.winLevel(); run = settle(e, run); }
   run = ok(enterNode(run, 'den-rest'), 'den rest');
   run = ok(enterNode(run, 'den-elite'), 'enter den-elite'); launch(e, run); e.winLevel(); run = settle(e, run);
-  assert(run.pending?.kind === 'find' && json(parseForestRun(serializeForestRun(run))) === json(run), 'the elite reward survives serialization');
-  run = ok(chooseFindItem(run, (run.pending as { options: ItemKind[] }).options[1]), 'den elite reward');
+  assert(run.pending?.kind === 'find' && json(parseForestRun(serializeForestRun(run))) === json(run), 'the hard-battle reward survives serialization');
+  run = ok(chooseFindItem(run, (run.pending as { options: ItemKind[] }).options[1]), 'den hard-battle reward');
   run = ok(enterNode(run, 'den-breakthrough'), 'enter breakthrough'); launch(e, run);
   assert(e.state.customLevel?.definition.completion === 'exit', 'the breakthrough node is won through the exit');
   e.winLevel(); run = settle(e, run);
@@ -312,8 +312,8 @@ async function realEffects() {
   assert(!rested.resources.player.damageEffects && step.ok && step.events.some(event => event.type === 'effects-cleared'), 'the rest clears the carried poison');
 }
 
-/** An elite victory gives +1 HP (up to the maximum) together with the find; the saved run keeps it. */
-async function eliteHeart() {
+/** A hard-battle victory gives +1 HP (up to the maximum) together with the find; the saved run keeps it. */
+async function hardHeart() {
   let run = createForestRun(77);
   const e = engine();
   for (const id of ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4', 'goblin-archer', 'goblin-shield', 'trail-find', 'trail-banners', 'jailer', 'camp-battle', 'camp-rest']) {
@@ -321,22 +321,22 @@ async function eliteHeart() {
     if (run.pending?.kind === 'battle') { launch(e, run); e.winLevel(); run = settle(e, run); }
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
   }
-  run = ok(enterNode(run, 'camp-elite'), 'enter the elite');
+  run = ok(enterNode(run, 'camp-elite'), 'enter the hard battle');
   for (const wound of [2, 0]) {
     const fight = engine(); launch(fight, run);
-    assert(fight.state.runNode?.nodeId === 'camp-elite', 'the elite battle really starts');
+    assert(fight.state.runNode?.nodeId === 'camp-elite', 'the hard battle really starts');
     await realMove(fight);
     if (fight.state.phase !== 'PLAYER_INPUT') fight.restartLevel();
     // Only to set up both cases: wounded, and already at full HP.
     fight.state.player.hp = wound ? Math.max(1, fight.state.player.maxHp - wound) : fight.state.player.maxHp;
     fight.winLevel();
-    const before = fight.state.player.hp, step = resolveBattle(run, fight.runBattleOutcome()!), won = ok(step, 'elite victory');
+    const before = fight.state.player.hp, step = resolveBattle(run, fight.runBattleOutcome()!), won = ok(step, 'hard-battle victory');
     const expected = Math.min(won.resources.player.maxHp, before + 1);
-    assert(won.resources.player.hp === expected, `elite victory from ${before} HP gives ${expected} HP, never above the maximum`);
+    assert(won.resources.player.hp === expected, `hard-battle victory from ${before} HP gives ${expected} HP, never above the maximum`);
     assert(step.ok && step.events.some(event => event.type === 'healed' && event.nodeId === 'camp-elite' && event.amount === expected - before), 'the heal is reported to the map screen');
-    assert(won.pending?.kind === 'find', 'the find still follows the elite victory');
+    assert(won.pending?.kind === 'find', 'the find still follows the hard-battle victory');
     assert(json(parseForestRun(serializeForestRun(won))) === json(won), 'the healed run round-trips through the save');
-    const picked = ok(chooseFindItem(won, (won.pending as { options: ItemKind[] }).options[0]), 'elite find');
+    const picked = ok(chooseFindItem(won, (won.pending as { options: ItemKind[] }).options[0]), 'hard-battle find');
     assert(picked.resources.player.hp === expected && json(parseForestRun(serializeForestRun(picked))) === json(picked), 'the heal stays after the find and in the save');
   }
 }
@@ -467,7 +467,7 @@ serialization();
 await paletteByRow();
 await registryBattles();
 await realEffects();
-await eliteHeart();
+await hardHeart();
 await denRoute();
 await determinism();
 console.log('forest run: map, carry-over, rest, find, both bosses, retry, determinism and storage passed');

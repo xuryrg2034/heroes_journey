@@ -6,7 +6,7 @@
  */
 import { mixSeed, rewardChoices } from '../items';
 import type { AbilityKind, ItemKind } from '../forestTypes';
-import { FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_ELITE_HEAL } from './forestMap';
+import { FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
 
@@ -23,7 +23,7 @@ export interface ForestRunTools { items: ItemKind[]; abilities: AbilityKind[] }
 export type ForestRunPending =
   /** Entered battle node. `entry` is the snapshot on entering; a defeat retries from it. */
   | { kind: 'battle'; nodeId: string; seed: number; entry: ForestRunResources; tools: ForestRunTools; defeats: number }
-  /** Item choice of a find node, or the reward of a won elite battle (the node completes after the choice). */
+  /** Item choice of a find node, or the reward of a won hard battle (the node completes after the choice). */
   | { kind: 'find'; nodeId: string; options: ItemKind[] };
 export type ForestRunResult =
   | { outcome: 'victory'; nodeId: string }
@@ -37,7 +37,7 @@ export interface ForestRunState {
   currentNodeId: string | null;
   /** Completed nodes in order. */
   visited: string[];
-  /** Items taken on finds and elite rewards, in visiting order; with `visited` it determines the opened tools. */
+  /** Items taken on finds and hard-battle rewards, in visiting order; with `visited` it determines the opened tools. */
   finds: { nodeId: string; item: ItemKind }[];
   resources: ForestRunResources;
   tools: ForestRunTools;
@@ -51,7 +51,7 @@ export type ForestRunEvent =
   | { type: 'items-granted'; items: Partial<Record<ItemKind, number>> }
   | { type: 'battle-ready'; nodeId: string }
   | { type: 'battle-lost'; nodeId: string; defeats: number }
-  /** Rest heal, or the elite victory heart (+1 HP); `amount` is 0 at full HP. */
+  /** Rest heal, or the hard-battle victory heart (+1 HP); `amount` is 0 at full HP. */
   | { type: 'healed'; nodeId: string; amount: number }
   /** Rest removed burning, poison and bleeding from the cat. */
   | { type: 'effects-cleared'; nodeId: string }
@@ -108,7 +108,7 @@ function applyGrant(run: ForestRunState, grant: ForestNodeGrant, events: ForestR
   if (Object.keys(added).length) events.push({ type: 'items-granted', items: { ...added } });
 }
 
-/** Three items from the castle reward table; a find node (slot 0) and an elite reward (slot 1) use separate rolls. */
+/** Three items from the castle reward table; a find node (slot 0) and a hard-battle reward (slot 1) use separate rolls. */
 function findOptions(runSeed: number, node: ForestMapNode): ItemKind[] {
   return rewardChoices(forestNodeSeed(runSeed, node.id), node.type === 'find' ? 0 : 1).map(option => option.item);
 }
@@ -183,9 +183,9 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
   };
   const node = forestNode(battle.nodeId)!;
   if (node.rewardGrants) applyGrant(run, node.rewardGrants, events);
-  if (node.type === 'elite') {
-    // The elite battle ends when its targets fall, so the heart is given with the victory, not picked up on a cell.
-    const player = run.resources.player, amount = Math.max(0, Math.min(FOREST_ELITE_HEAL, player.maxHp - player.hp));
+  if (node.type === 'hard') {
+    // The hard battle ends when its targets fall, so the heart is given with the victory, not picked up on a cell.
+    const player = run.resources.player, amount = Math.max(0, Math.min(FOREST_HARD_HEAL, player.maxHp - player.hp));
     player.hp += amount; events.push({ type: 'healed', nodeId: node.id, amount });
   }
   if (hasVictoryFind(node)) { offerFind(run, node.id, events); return { ok: true, run, events }; }
@@ -288,7 +288,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   }
   if (value.currentNodeId !== at) return null;
   const visited = value.visited as string[], seed = value.seed as number;
-  // Finds: one choice per visited find or elite node, in order, from that node's offered items.
+  // Finds: one choice per visited find or hard-battle node, in order, from that node's offered items.
   const findNodes = visited.map(id => forestNode(id)!).filter(node => node.type === 'find' || hasVictoryFind(node));
   const finds = value.finds;
   if (!Array.isArray(finds) || finds.length !== findNodes.length || finds.some((find, n) => !isRecord(find) || find.nodeId !== findNodes[n].id
@@ -298,9 +298,9 @@ export function parseForestRun(text: string): ForestRunState | null {
   // A completed node without transitions must carry the run result; otherwise the run would be stuck.
   if (pending === null && result === null && !nextIds.length) return null;
   const entered = isRecord(pending) && typeof pending.nodeId === 'string' ? forestNode(pending.nodeId) ?? null : null;
-  const wonElite = pending !== null && isRecord(pending) && pending.kind === 'find' && !!entered && hasVictoryFind(entered);
+  const wonHard = pending !== null && isRecord(pending) && pending.kind === 'find' && !!entered && hasVictoryFind(entered);
   const typedFinds = finds as ForestRunState['finds'];
-  if (!sameTools(value.tools as ForestRunTools, expectedTools(visited, typedFinds, entered, wonElite))) return null;
+  if (!sameTools(value.tools as ForestRunTools, expectedTools(visited, typedFinds, entered, wonHard))) return null;
   const cap = inventoryCap(visited, typedFinds, entered), inventory = (value.resources as ForestRunResources).inventory;
   if (ITEM_KINDS.some(item => inventory[item] > cap[item])) return null;
   if (pending !== null) {

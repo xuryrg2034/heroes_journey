@@ -209,7 +209,7 @@ function showRunOutcome(won: boolean) {
   const healedEvent = step?.ok ? step.events.find(event => event.type === 'healed') : undefined;
   const healed = healedEvent?.type === 'healed' ? healedEvent.amount : 0;
   const grants = won ? [opened ? grantText(opened) : '', step?.ok ? unlockedText(step.events) : ''].filter(Boolean).join('; ') : '';
-  if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` +${healed} HP за элиту.` : ''}`;
+  if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` +${healed} HP за трудный бой.` : ''}`;
   if (won && run.result) { showModal(runResultHtml(run)); return; }
   showModal(nodeBattleModalHtml({ won, name: node.label, turns: engine.state.turn, hp: won ? run.resources.player.hp : outcome.player.hp, maxHp: won ? run.resources.player.maxHp : outcome.player.maxHp,
     defeats: pending?.kind === 'battle' ? pending.defeats : 0, battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', healed: won ? healed : 0 }));
