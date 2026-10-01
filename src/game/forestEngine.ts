@@ -3,14 +3,12 @@ import { ABILITY_COST, chainNeighbors, cloneBoard, isWalkable, neighbors, planAb
 import { canHeal } from './recovered/combat';
 import { uniqueEntities } from './entityFootprint';
 import { applyRefillTier, nextRandom, refillTier, runPressureActive } from './mapBattleRules';
-import { animationWait, playTurn, type TurnSequence } from './turnRuntime';
-import { concludeBattle, resolvePlayerTurn, resolveRestTurn, type TurnContext } from './turnSystems';
-import { cleanseDamageEffects } from './damageEffects';
-import { applyAttackEffect, assignDamageEffects, projectEnemyEffects } from './effectRules';
-import { applyDamage, killCreature } from './combatRules';
-import { allowedSpawnColors, customGoalsMet, refreshCustomProgress, validateCustomLevel, weightedColor } from './customLevel';
+import { animationWait, drainSync, playTurn, type TurnSequence } from './turnRuntime';
+import { concludeBattle, resolveItemTurn, resolvePlayerTurn, resolveRestTurn, type TurnContext } from './turnSystems';
+import { projectEnemyEffects } from './effectRules';
+import { killCreature } from './combatRules';
+import { allowedSpawnColors, refreshCustomProgress, validateCustomLevel, weightedColor } from './customLevel';
 import type { ChainSimulation } from './forestSystems';
-import { ITEMS } from './items';
 import { chooseGeneratedColors, hasOrdinaryChain } from './boardGeneration';
 import type { AbilityKind, CellKind, ChainPreview, EnemyColor, EnemyVariant, EngineEvent, ForestCell, ForestState, FrostPreview, ItemKind, ItemPreview, RotationPreview } from './forestTypes';
 import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
@@ -260,11 +258,7 @@ export class ForestEngine {
   prepareFrost(index: number) {
     const preview = this.previewFrost(index);
     if (!preview.valid) { this.emit({ type: 'invalid', index, text: preview.reason }); return false; }
-    const cell = this.state.board[index]!;
-    this.state.inventory.frost--; this.state.itemPrepared = true;
-    cell.status.frozen = Math.max(1, cell.status.frozen); cell.status.brittle = true;
-    this.state.message = 'Цель замёрзла: пропустит действие, следующий удар ×2.';
-    this.emit({ type: 'frost', index, text: 'ЗАМОРОЖЕН · ×2' }); return true;
+    return this.playItem('frost', index, { valid: true, reason: '', indices: [index], damage: 0, healing: 0 });
   }
   useFrost(index: number) { return this.prepareFrost(index); }
   previewItem(item: ItemKind, index = this.state.player.index): ItemPreview {
@@ -292,39 +286,12 @@ export class ForestEngine {
     const preview = this.previewItem(item, index);
     if (!preview.valid) { this.emit({ type: 'invalid', index, text: preview.reason }); return false; }
     if (item === 'frost') return this.prepareFrost(index);
-    const generation = this.generation; this.state.inventory[item]--; this.state.itemPrepared = true;
-    if (item === 'healing') {
-      this.state.player.hp += preview.healing;
-      const cleansing = !!(this.state.player.damageEffects?.poison || this.state.player.damageEffects?.bleeding);
-      assignDamageEffects(this.state.player, cleanseDamageEffects(this.state.player.damageEffects));
-      if (cleansing) { this.emit({ type: 'status', index: this.state.player.index }); if (generation !== this.generation) return false; }
-    }
-    const damaged = new Set<number>();
-    for (const targetIndex of preview.indices) {
-      if (item === 'healing') break;
-      const cell = this.state.board[targetIndex]; if (!cell || damaged.has(cell.id)) continue; damaged.add(cell.id);
-      if (item === 'fire') {
-        applyAttackEffect(cell, 'fire', true);
-        this.emit({ type: 'status', index: targetIndex, effect: 'fire', amount: 1 });
-        if (generation !== this.generation) return false;
-        continue;
-      }
-      const outcome = applyDamage(cell, preview.damage, 'item');
-      this.emit({ type: 'hit', index: targetIndex, amount: preview.damage });
-      if (generation !== this.generation) return false;
-      if (outcome.killed) {
-        killCreature(this.state, cell, targetIndex, 'player');
-        if (generation !== this.generation) return false;
-        this.emit({ type: 'kill', index: targetIndex });
-        if (generation !== this.generation) return false;
-      }
-    }
-    this.emit({ type: 'item', index, indices: preview.indices, amount: preview.damage || preview.healing, text: ITEMS[item].label });
-    if (generation !== this.generation) return false;
-    if (this.state.customLevel?.definition.completion === 'direct' && customGoalsMet(this.state)) { this.finish(true); return true; }
-    const spawned = this.generateBoard(false);
-    if (spawned.length) { this.emit({ type: 'spawn', indices: spawned }); if (generation !== this.generation) return false; }
-    this.emit(); return true;
+    return this.playItem(item, index, preview);
+  }
+  /** A consumable through the item schedule (ItemAction), synchronously: its events are published as they happen. */
+  private playItem(item: ItemKind, index: number, preview: ItemPreview): boolean {
+    const context = this.turnContext();
+    return drainSync(resolveItemTurn(context, item, index, preview), context.current, event => this.emit(event)).result;
   }
   async releaseChain(): Promise<boolean> {
     if (this.state.phase !== 'PLAYER_INPUT') return false;
@@ -357,7 +324,7 @@ export class ForestEngine {
       },
       finish: (won, message) => this.finish(won, message),
       planRotationReplacements: rotations => this.planRotationReplacements(rotations),
-      generateBoard: () => this.generateBoard(true),
+      generateBoard: (prepare = true) => this.generateBoard(prepare),
       hint: () => this.hint(),
     };
   }

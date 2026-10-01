@@ -6,7 +6,7 @@ import { instant, runSchedule, type SystemSet, type TurnSystem } from './ecs/sch
 import { ForestEngine } from './forestEngine';
 import type { EngineEvent } from './forestTypes';
 import { drainSync } from './turnRuntime';
-import { BOARD_UPDATE, END_OF_TURN, ENEMY_PHASE, PLAYER_ACTION, resolveRestTurn, type TurnContext } from './turnSystems';
+import { BOARD_UPDATE, END_OF_TURN, ENEMY_PHASE, ITEM_ACTION, PLAYER_ACTION, resolveRestTurn, type TurnContext } from './turnSystems';
 import { forestFixtureLevel, nodeBattleSetup } from './testing/fixtures';
 
 function assert(condition: unknown, message: string): void { if (!condition) throw new Error(message); }
@@ -17,6 +17,7 @@ function order() {
   assert(names(ENEMY_PHASE) === 'EnemyPhaseStart PhaseSnapshot BoarCharges EnemyAttacks ShamanRites CycleCounters TrollWindups GoalRefresh Rotations RestCountdown DamageEffectTicks TrollRegen ClosePits',
     `EnemyPhase: ${names(ENEMY_PHASE)}`);
   assert(names(END_OF_TURN) === 'SettleTurn' && names(BOARD_UPDATE) === 'Generation ReturnToInput', 'EndOfTurn and BoardUpdate');
+  assert(names(ITEM_ACTION) === 'ItemResolve ItemVictory ItemRefill', `ItemAction: ${names(ITEM_ACTION)}`);
   console.log('PASS the schedule keeps the documented phase order');
 }
 
@@ -68,9 +69,43 @@ async function drainEqualsPlayback() {
   console.log('PASS drainSync of a Rest turn equals live playback (events, state, RNG, IDs)');
 }
 
+/**
+ * ECS stage 7: consumables run as the ItemAction set, synchronously. A restart from a subscriber at any event of an
+ * item cancels it the same way: the stale item reports `false` (before, an item cancelled at its last event — frost's
+ * only `frost`, the final `state` of the others — reported `true`) and nothing of it reaches the new scene.
+ */
+function itemsThroughTheSchedule() {
+  const start = () => {
+    const g = new ForestEngine(); g.animationScale = 0;
+    assert(g.startRunBattle(nodeBattleSetup('trunk-wake', { allowedItems: ['frost', 'bomb', 'fire', 'healing'], inventory: { frost: 1, bomb: 1, healing: 1, fire: 1 } })), 'battle starts');
+    // Healing with poison: its cleansing publishes a `status` before the item event.
+    g.state.player.hp = 3; g.state.player.damageEffects = { burning: 0, burningTurns: 0, poison: 2, bleeding: 0, bleedingSteps: 0 };
+    return g;
+  };
+  for (const item of ['frost', 'bomb', 'fire', 'healing'] as const) {
+    const probe = start(), target = item === 'healing' ? probe.state.player.index : probe.state.board.findIndex(cell => cell && cell.kind !== 'door' && cell.kind !== 'prism');
+    let total = 0; probe.subscribe(() => { total++; });
+    assert(probe.useItem(item, target) === true && total > 0, `${item}: used without a restart`);
+    // A restart with no item at all: the scene the cancelled item must leave behind (position, RNG, IDs).
+    const reference = start(); reference.restartLevel();
+    const expected = JSON.stringify(reference.captureAnalysisSnapshot());
+    for (let k = 1; k <= total; k++) {
+      const g = start();
+      let count = 0, restarted = false;
+      const late: string[] = [];
+      g.subscribe((_state, event) => { if (restarted) { late.push(event.type); return; } if (++count === k) { restarted = true; g.restartLevel(); } });
+      assert(g.useItem(item, target) === false, `${item}: a restart at event ${k} of ${total} cancels it`);
+      assert(late.join() === 'start' && JSON.stringify(g.captureAnalysisSnapshot()) === expected,
+        `${item}: nothing of the stale item reaches the restarted scene at event ${k} (late: ${late.join()})`);
+    }
+  }
+  console.log('PASS items run as the ItemAction set; a restart at any event cancels frost, bomb, fire and healing alike');
+}
+
 async function main() {
   order();
   semantics();
+  itemsThroughTheSchedule();
   await drainEqualsPlayback();
   console.log('PASS ecs schedule');
 }

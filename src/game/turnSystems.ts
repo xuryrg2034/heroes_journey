@@ -1,5 +1,7 @@
 import { isCellAlive } from './cellLife';
-import type { AbilityKind, ChainHit, EnemyPhaseForecast, ForcedDeathCause, ForestCell, ForestState, HeroDamageSource, RotationPreview } from './forestTypes';
+import type { AbilityKind, ChainHit, EnemyPhaseForecast, ForcedDeathCause, ForestCell, ForestState, HeroDamageSource, ItemKind, ItemPreview, RotationPreview } from './forestTypes';
+import { ITEMS } from './items';
+import { cleanseDamageEffects } from './damageEffects';
 import type { ChainSimulation } from './forestSystems';
 import { rotationPreview } from './rotations';
 import { uniqueEntities } from './entityFootprint';
@@ -29,6 +31,8 @@ import { instant, runSchedule, type ScheduleVerdict, type SystemSet, type TurnSy
  */
 export interface TurnScratch {
   action?: { simulation: ChainSimulation; ability?: AbilityKind; startIndex: number; doorOpened: boolean };
+  /** The consumable being used (ItemAction): kind, target cell and its validated preview. */
+  item?: { kind: ItemKind; index: number; preview: ItemPreview };
   enemyPhase?: { resting: { cell: ForestCell; index: number }[]; displaced: Set<number>; actors: { cell: ForestCell; index: number }[] };
   /** What the turn's systems did, in order; the forecast projects its preview from it (forecast.ts). */
   report?: TurnReport;
@@ -69,8 +73,8 @@ export interface TurnContext {
   readonly cmd: Commands;
   finish(won: boolean, message?: string): void;
   planRotationReplacements(rotations: RotationPreview[]): Map<number, ForestCell>;
-  /** Refill and fresh intents; returns the cells that received a new enemy. */
-  generateBoard(): number[];
+  /** Refill (with fresh intents unless `prepare` is false); returns the cells that received a new enemy. */
+  generateBoard(prepare?: boolean): number[];
   hint(): string;
 }
 
@@ -499,6 +503,56 @@ const ClosePits: TurnSystem<TurnContext> = { name: 'ClosePits', *run(ctx) {
   return true;
 } };
 
+/**
+ * ItemAction: one consumable, used in place (no enemy answer, the turn does not advance). Frost freezes and makes
+ * brittle; healing restores HP and cleanses poison and bleeding; a bomb strikes, fire sets burning stacks.
+ */
+const ItemResolve: TurnSystem<TurnContext> = { name: 'ItemResolve', *run(ctx) {
+  const { kind, index, preview } = ctx.scratch.item!, state = ctx.state;
+  state.inventory[kind]--; state.itemPrepared = true;
+  if (kind === 'frost') {
+    const cell = state.board[index]!;
+    cell.status.frozen = Math.max(1, cell.status.frozen); cell.status.brittle = true;
+    state.message = 'Цель замёрзла: пропустит действие, следующий удар ×2.';
+    yield { event: { type: 'frost', index, text: 'ЗАМОРОЖЕН · ×2' } };
+    return true;
+  }
+  if (kind === 'healing') {
+    state.player.hp += preview.healing;
+    const cleansing = !!(state.player.damageEffects?.poison || state.player.damageEffects?.bleeding);
+    assignDamageEffects(state.player, cleanseDamageEffects(state.player.damageEffects));
+    if (cleansing) { yield { event: { type: 'status', index: state.player.index } }; if (!ctx.current()) return false; }
+  }
+  const damaged = new Set<number>();
+  if (kind !== 'healing') for (const targetIndex of preview.indices) {
+    const cell = state.board[targetIndex]; if (!cell || damaged.has(cell.id)) continue; damaged.add(cell.id);
+    if (kind === 'fire') {
+      applyAttackEffect(cell, 'fire', true);
+      yield { event: { type: 'status', index: targetIndex, effect: 'fire', amount: 1 } };
+      if (!ctx.current()) return false;
+      continue;
+    }
+    const outcome = applyDamage(cell, preview.damage, 'item');
+    yield { event: { type: 'hit', index: targetIndex, amount: preview.damage } };
+    if (!ctx.current()) return false;
+    if (outcome.killed && !(yield* defeatCreature(ctx, cell, targetIndex, 'player'))) return false;
+  }
+  yield { event: { type: 'item', index, indices: preview.indices, amount: preview.damage || preview.healing, text: ITEMS[kind].label } };
+  return ctx.current();
+} };
+/** ItemAction: direct goals met by the item end the battle (frost never ends it). */
+const ItemVictory = instant<TurnContext>('ItemVictory', ctx => {
+  if (ctx.scratch.item!.kind !== 'frost' && ctx.state.customLevel?.definition.completion === 'direct' && customGoalsMet(ctx.state)) ctx.finish(true);
+});
+/** ItemAction: emptied cells refill at once, without fresh intents (frost leaves the board as it is). */
+const ItemRefill: TurnSystem<TurnContext> = { name: 'ItemRefill', *run(ctx) {
+  if (ctx.scratch.item!.kind === 'frost') return true;
+  const spawned = ctx.generateBoard(false);
+  if (spawned.length) { yield { event: { type: 'spawn', indices: spawned } }; if (!ctx.current()) return false; }
+  yield { event: { type: 'state' } };
+  return true;
+} };
+
 /** Status expiry and turn objectives happen after the effect ticks and before generation. */
 const SettleTurn = instant<TurnContext>('SettleTurn', ctx => {
   uniqueEntities(ctx.state.board).forEach(({ cell }) => { if (cell.status.frozen > 0) cell.status.frozen--; });
@@ -525,6 +579,7 @@ const ReturnToInput: TurnSystem<TurnContext> = { name: 'ReturnToInput', *run(ctx
 
 // ---------------------------------------------------------------- schedule (ECS plan §3.4)
 
+export const ITEM_ACTION: SystemSet<TurnContext> = { name: 'ItemAction', systems: [ItemResolve, ItemVictory, ItemRefill] };
 export const PLAYER_ACTION: SystemSet<TurnContext> = { name: 'PlayerAction', systems: [ChainResolve, ChainEndTerrain, DeviceVolleys, PlayerVictory] };
 export const REST_ACTION: SystemSet<TurnContext> = { name: 'RestAction', systems: [RestStart] };
 export const ENEMY_PHASE: SystemSet<TurnContext> = { name: 'EnemyPhase', systems: [EnemyPhaseStart, PhaseSnapshot, BoarCharges, EnemyAttacks,
@@ -559,6 +614,11 @@ export function concludeBattle(state: ForestState, won: boolean, message?: strin
 export function resolvePlayerTurn(ctx: TurnContext, simulation: ChainSimulation, ability?: AbilityKind): TurnSequence {
   ctx.scratch.action = { simulation, ability, startIndex: ctx.state.player.index, doorOpened: false };
   return runSchedule(ctx, [PLAYER_ACTION, ...ENEMY_TURN], turnVerdict);
+}
+/** A consumable (validated by the caller): ItemAction alone — no enemy answer. */
+export function resolveItemTurn(ctx: TurnContext, kind: ItemKind, index: number, preview: ItemPreview): TurnSequence {
+  ctx.scratch.item = { kind, index, preview };
+  return runSchedule(ctx, [ITEM_ACTION], turnVerdict);
 }
 /** Rest: RestAction, then the same enemy phase, end of turn and board update. */
 export function resolveRestTurn(ctx: TurnContext): TurnSequence {
