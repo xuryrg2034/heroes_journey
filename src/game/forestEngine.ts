@@ -16,7 +16,7 @@ import type { AbilityKind, CellKind, ChainPreview, EnemyColor, EnemyVariant, Eng
 import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
 import { forestBattle } from './run/forestBattles';
 import { cloneState, type World } from './ecs/world';
-import { hasTag, variantDefinition } from './enemyDefinitions';
+import { definitionOf, hasTag, variantDefinition } from './enemyDefinitions';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Seed of an engine before any battle is loaded; every battle replaces it with its own. */
@@ -68,7 +68,8 @@ export class ForestEngine {
   private emit(event: EngineEvent = { type: 'state' }) { for (const listener of this.listeners) listener(this.state, event); }
   private random() { const draw = nextRandom(this.rng); this.rng = draw.state; return draw.value; }
   private createCell(kind: CellKind, color: EnemyColor | null, index: number): ForestCell {
-    const hp = kind === 'boss' ? 20 : kind === 'ranged' ? 7 : kind === 'prism' ? 1 : 0;
+    // Base kinds take their default HP from the registry (goblin 0, archer 7, Chief 20, prism 1); doors have none.
+    const hp = definitionOf({ kind })?.hp ?? 0;
     return { id: this.nextId++, kind, color, hp, maxHp: hp, armor: 0, countdown: 2,
       status: { wet: this.state.terrain[index] === 'puddle', frozen: 0, brittle: false },
       behavior: { aggressive: false, restTurns: 0 },

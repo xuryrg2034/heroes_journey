@@ -1,5 +1,4 @@
 import { isCellAlive } from './cellLife';
-import { applyDamage, removeDefeated } from './combatRules';
 import { uniqueEntities } from './entityFootprint';
 import { meleeCanAttack } from './enemyLifecycle';
 import { behaviorOf } from './enemyBehaviors';
@@ -19,17 +18,14 @@ export interface EnemyAttack {
  */
 export function evaluateEnemyAttack(cell: ForestCell, index: number, playerIndex: number, world?: BeastWorld): EnemyAttack | null {
   if (!isCellAlive(cell) || cell.behavior.passive || cell.status.frozen > 0 || cell.behavior.restTurns > 0) return null;
-  // The boar acts only through its charge (boarCharge.ts); porcupine and shaman never strike.
-  if (cell.variant === 'boar' || cell.variant === 'porcupine' || cell.variant === 'shaman') return null;
-  // Behaviour-specific condition (enemyBehaviors.ts): a wolf needs its pack now.
-  const behavior = behaviorOf(cell);
-  if (behavior?.canStrike && !behavior.canStrike(cell, index, world)) return null;
-  // The troll strikes only once its windup phase has passed (troll.ts); the windup itself is not an attack.
-  if (cell.variant === 'troll' && !cell.behavior.club?.raised) return null;
+  // The behaviour (enemyBehaviors.ts) decides: the boar acts only through its charge, porcupine and shaman never
+  // strike; a wolf needs its pack now, the troll its raised club.
+  const behavior = behaviorOf(cell), rule = behavior?.attack;
+  if (!rule || behavior.canStrike && !behavior.canStrike(cell, index, world)) return null;
   const hitsHero = cell.intent.cells.includes(playerIndex);
-  // These spend their action even on a miss (a troll's club still falls on the creatures in its zone).
-  const firesOnMiss = cell.kind === 'ranged' || cell.variant === 'jailer' || cell.variant === 'troll';
-  if (cell.kind === 'melee' && (!hitsHero || !meleeCanAttack(cell))) return null;
+  // Some spend their action even on a miss (a troll's club still falls on the creatures in its zone).
+  const firesOnMiss = !!rule.firesOnMiss;
+  if (rule.style === 'melee' && (!hitsHero || !meleeCanAttack(cell))) return null;
   if (!firesOnMiss && !hitsHero) return null;
   return { cell, index, hitsHero, target: firesOnMiss ? cell.intent.cells.at(-1) ?? index : playerIndex };
 }
@@ -47,18 +43,5 @@ export function planEnemyPhase(board: (ForestCell | null)[], playerIndex: number
   };
 }
 
-/** Archer: every creature standing on the announced cells is struck, not only the cat. */
+/** Archer: every creature standing on the announced cells is struck, not only the cat (render: arrow hits). */
 export const archerStrikesCreatures = (cell: ForestCell): boolean => cell.kind === 'ranged';
-export interface ArrowImpact { index: number; cell: ForestCell; damage: number; killed: boolean }
-/** Shared by the forecast and the live phase. Doors and prisms are untouched, as with the arrow lever. The cat is handled by the caller. */
-export function* archerVolley(board: (ForestCell | null)[], archer: ForestCell): Generator<ArrowImpact> {
-  const struck = new Set<number>();
-  for (const index of archer.intent.cells) {
-    const cell = board[index];
-    if (!cell || cell === archer || cell.kind === 'door' || cell.kind === 'prism' || struck.has(cell.id) || !isCellAlive(cell)) continue;
-    struck.add(cell.id);
-    const outcome = applyDamage(cell, archer.intent.damage, 'hazard');
-    if (outcome.killed) removeDefeated(board, cell);
-    yield { index, cell, damage: outcome.damage, killed: outcome.killed };
-  }
-}

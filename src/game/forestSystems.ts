@@ -2,25 +2,22 @@ import { isCellAlive } from './cellLife';
 import { cloneEntity } from './ecs/components';
 import { cloneEntities } from './ecs/world';
 import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, ChargeDamageCause, EnemyPhaseForecast, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ObjectiveProgress, RotationPlan, RotationPreview } from './forestTypes';
-import { recoveredMoveTowards } from './recoveredEnemyMovement';
-import { updateShieldDir, type EnemyActor } from './recovered/enemies';
 import { pathColour, WILD } from './recovered/core';
-import { canFireArrowHit } from './recovered/combat';
 import { uniqueEntities } from './entityFootprint';
-import { behaviorOf, type IntentPass } from './enemyBehaviors';
-import { canSwapEnemies, chainAdjacent, isWalkable, meleeTargets, neighbors } from './boardGeometry';
-import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase } from './enemyPhase';
-import { BOAR_CHARGE_LENGTH, BOAR_DAMAGE, chargeDirection, chargeLane, HERO_MOVE_ID, resolveCharges } from './boarCharge';
-import { THORN_DAMAGE, walkableTerrain } from './terrain';
-import { chainSpikeDamage, SHAMAN_PERIOD, shamanRites, shamanTargets } from './forestBeasts';
+import { angerIntent, announceRites, behaviorOf, type IntentPass } from './enemyBehaviors';
+import { chainAdjacent, isWalkable, neighbors } from './boardGeometry';
+import { evaluateEnemyAttack, planEnemyPhase } from './enemyPhase';
+import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
+import { THORN_DAMAGE } from './terrain';
+import { chainSpikeDamage, shamanRites } from './forestBeasts';
 import { creditDefeat, applyDamage, defeatOutright, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
 export { physicalDamage, shieldBlocksEntry } from './combatRules';
-import { MELEE_AGGRESSION_START_TURN, meleeCanAttack } from './enemyLifecycle';
+import { MELEE_AGGRESSION_START_TURN } from './enemyLifecycle';
 import { applyDamageEffect, stepBleeding, tickDamageEffects, type DamageEffects } from './damageEffects';
 import { assignDamageEffects, applyAttackEffect, hasDamageEffects } from './effectRules';
 import { customGoalsMet } from './customLevel';
 import { applyDeviceVolley, deviceAt } from './devices';
-import { clubImpacts, clubZone, effectTickHurts, isTroll, swingClub, TROLL_CLUB_DAMAGE, trollBody, trollRegeneration } from './troll';
+import { effectTickHurts, isTroll, trollRegeneration } from './troll';
 import { angerPerTurn, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
@@ -315,28 +312,24 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
   // killed this attacker or its packmate).
   for (const attack of plan.actors) {
     const { cell, index } = attack;
-    // An announced strike at the cat that the board now disarms (a wolf whose pack was broken: the only
-    // behaviour judging the world, enemyBehaviors.ts).
+    // An announced strike at the cat that the board now disarms: a wolf whose pack was broken, the only behaviour
+    // judging the world (`canStrike`, enemyBehaviors.ts); the interface shows the list as broken packs.
     const live = evaluateEnemyAttack(cell, index, sim.player.index, sim);
     if (!live && evaluateEnemyAttack(cell, index, sim.player.index)?.hitsHero) phase.packBroken.push(cell.id);
     if (!live) continue;
+    const rule = behaviorOf(cell)!.attack!;
     if (live.hitsHero) {
       preview.threats.push(attack.index);
       const damage = effectAware ? Math.min(hp, attack.cell.intent.damage) : attack.cell.intent.damage;
-      hp -= damage; hurt(preview, attack.cell.kind === 'ranged' ? 'ranged' : isTroll(attack.cell) ? 'troll' : attack.cell.kind === 'boss' ? 'boss' : 'melee', damage);
+      hp -= damage; hurt(preview, rule.source, damage);
       if (effectAware && hp <= 0) break;
       if (effectAware && attack.cell.attackEffect) effects = applyDamageEffect(effects, attack.cell.attackEffect);
     }
-    if (hp > 0 && archerStrikesCreatures(attack.cell)) for (const impact of archerVolley(sim.board, attack.cell)) {
+    // Arrows and the troll's club strike every creature on their cells, as in the live phase (the same strike).
+    const strike = rule.style === 'strike' ? rule.strike?.(attack.cell) : undefined;
+    if (hp > 0 && strike?.creatures) for (const impact of strike.creatures.impacts(sim.board)) {
       if (!impact.killed) continue;
-      phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: 'arrow' });
-      creditDefeat(state, impact.cell, credited, 'enemy');
-    }
-    // The troll's club falls on every creature in its zone, as in the live phase (troll.ts).
-    const club = isTroll(attack.cell) ? swingClub(attack.cell) : null;
-    if (hp > 0 && club) for (const impact of clubImpacts(sim.board, attack.cell, club.zone, club.damage)) {
-      if (!impact.killed) continue;
-      phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: 'club' });
+      phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: strike.creatures.cause });
       creditDefeat(state, impact.cell, credited, 'enemy');
     }
   }
@@ -425,129 +418,29 @@ export function simulateAbility(state: ForestState, ability: AbilityKind, target
   return { preview, board };
 }
 
-/** Intent preparation runs only between turns. Targets never chase a submitted chain. */
+/**
+ * Intent preparation runs only between turns. Targets never chase a submitted chain. One board-order pass; each
+ * enemy's behaviour (enemyBehaviors.ts) prepares its intent and fills the shared queues, then the anger queue and
+ * the shaman rites are resolved.
+ */
 export function prepareIntents(state: ForestState, rand: (min: number, max: number) => number = min => min) {
   state.bossWarning = [];
   state.rotations = [];
   const pass: IntentPass = { state, rand, anger: [], rites: [], paired: new Set() };
-  const { anger: melee, rites: shamans, paired } = pass;
   const prepared = new Set<number>();
   state.board.forEach((cell, index) => {
     if (!cell || cell.kind !== 'door' && !isCellAlive(cell) || prepared.has(cell.id)) return; prepared.add(cell.id);
     cell.intent = { cells: [], damage: 1, label: 'Готовится' }; cell.countdown = 2;
-    // Quills are not a weapon: a lesson porcupine without `armed` still shows them.
-    if (cell.variant === 'porcupine') { cell.intent.label = cell.status.frozen > 0 ? 'Заморожен · без игл' : 'Иглы'; return; }
-    // The shield-bearer turns its shield toward the cat every turn, armed or not (decision of 30.09.2026).
-    if (cell.variant === 'sentinel') {
-      const actor: EnemyActor = { subtype: 4, kind: 1, power: cell.hp, col: index % state.cols, row: Math.floor(index / state.cols), face_dir: 1, attack_mode: 0, properties: {} };
-      updateShieldDir(actor, state.player.index % state.cols, Math.floor(state.player.index / state.cols), {
-        remove: (enemy, prop) => { delete enemy.properties[prop]; }, set: (enemy, prop, value) => { enemy.properties[prop] = value; }, spriteIndex: () => 0,
-      });
-      cell.shield = { dx: actor.properties[249] ?? 0, dy: actor.properties[250] ?? 0 };
-    }
+    const behavior = behaviorOf(cell);
+    if (behavior?.beforePassive?.(pass, cell, index)) return;
     if (cell.behavior.passive) { cell.behavior.aggressive = false; cell.intent.label = 'Без оружия'; return; }
     if (cell.kind === 'door') { cell.intent.label = customGoalsMet(state) ? 'Выход открыт' : 'Выполни цели'; return; }
-    // Forest beasts and the shaman never join the one-new-goblin aggression queue (forestBeasts.ts).
-    if (cell.variant === 'shaman') { cell.intent = { cells: [], damage: 0, label: 'Готовит камлание' }; shamans.push(index); return; }
-    // Behaviour dispatcher (enemyBehaviors.ts), inside the one board-order pass.
-    const behavior = behaviorOf(cell);
-    if (behavior?.intent) { behavior.intent(pass, cell, index); return; }
-    if (cell.variant === 'boar') {
-      // Announced now, run at the start of the next enemy phase; never retargeted after the chain.
-      if (cell.status.frozen > 0) { cell.intent.label = 'Заморожен'; return; }
-      if (cell.behavior.restTurns > 0) { cell.intent.label = 'Оглушён'; return; }
-      const direction = chargeDirection(state.cols, index, state.player.index), lane = chargeLane(state, index, direction, BOAR_CHARGE_LENGTH);
-      if (!lane.length) { cell.intent.label = 'Упёрся'; return; }
-      cell.countdown = 1;
-      cell.intent = { cells: lane, damage: BOAR_DAMAGE, label: 'Рывок', charge: { ...direction, length: BOAR_CHARGE_LENGTH } };
-      return;
-    }
-    if (cell.kind === 'melee') {
-      cell.intent.label = 'Спокоен';
-      // A goblin raised by a shaman is permanently armed: angry again once its rest is over.
-      if (cell.behavior.tier && cell.behavior.restTurns === 0) cell.behavior.aggressive = true;
-      if (meleeCanAttack(cell)) {
-        cell.countdown = 1;
-        cell.intent = { cells: meleeTargets(state, index), damage: 1, label: 'Замах' };
-        return;
-      }
-      if (cell.behavior.restTurns > 0 || cell.status.frozen > 0) return;
-      const distance = Math.max(Math.abs(index % state.cols - state.player.index % state.cols), Math.abs(Math.floor(index / state.cols) - Math.floor(state.player.index / state.cols)));
-      melee.push({ index, distance, id: cell.id });
-    } else if (cell.kind === 'ranged') {
-      if (cell.behavior.restTurns > 0) {
-        cell.intent.label = 'Отдых';
-        if (paired.has(index)) return;
-        // Keep our cardinal, occupied-pair rules; port only the verified three-pass selection.
-        const step = recoveredMoveTowards({ col: index % state.cols, row: Math.floor(index / state.cols),
-          destCol: state.player.index % state.cols, destRow: Math.floor(state.player.index / state.cols), minDist: 0 }, {
-          rand,
-          canMoveTo: (x, y) => x >= 0 && x < state.cols && y >= 0 && y < state.rows
-            && !paired.has(y * state.cols + x) && canSwapEnemies(state, index, y * state.cols + x),
-        });
-        const target = step.row * state.cols + step.col;
-        if (target !== index) {
-          cell.intent.moveTo = target; cell.intent.swapWithId = state.board[target]!.id;
-          cell.intent.label = 'Отдых · ротация'; paired.add(index); paired.add(target);
-          state.rotations.push({ from: index, to: target, sourceId: cell.id, targetId: state.board[target]!.id, geometry: 'cardinal' });
-        }
-        return;
-      }
-      const dx = state.player.index % state.cols - index % state.cols, dy = Math.floor(state.player.index / state.cols) - Math.floor(index / state.cols);
-      const horizontal = Math.abs(dx) > Math.abs(dy), stepX = horizontal ? Math.sign(dx) || 1 : 0, stepY = horizontal ? 0 : Math.sign(dy) || 1;
-      for (let n = 1; n <= 3; n++) {
-        const x = index % state.cols + stepX * n, y = Math.floor(index / state.cols) + stepY * n;
-        if (!canFireArrowHit(x, y, state.cols, state.rows)) break;
-        const target = y * state.cols + x;
-        // Arrows travel above temporary holes; only solid authored terrain stops the ray.
-        if (!walkableTerrain(state.terrain[target])) break;
-        cell.intent.cells.push(target);
-      }
-      cell.countdown = 1; cell.intent.label = 'Выстрел';
-    } else if (cell.kind === 'boss') {
-      if (cell.variant === 'troll') {
-        // Windup → strike → rest (troll.ts). The zone is chosen toward the cat when the windup is announced and
-        // kept until the strike; frost and rest pause the cycle without losing it.
-        cell.intent = { cells: [], damage: 0, label: 'Отдых' };
-        if (cell.behavior.restTurns > 0) { if (cell.status.frozen > 0) cell.intent.label = 'Заморожен · отдых'; return; }
-        if (cell.status.frozen > 0) { cell.intent.label = cell.behavior.club?.raised ? 'Заморожен · удар удержан' : 'Заморожен'; return; }
-        if (!cell.behavior.club) cell.behavior.club = { ...clubZone(state, trollBody(state.board, cell), state.player.index), raised: false };
-        const club = cell.behavior.club;
-        cell.countdown = club.raised ? 1 : 2;
-        cell.intent = { cells: [...club.cells], damage: TROLL_CLUB_DAMAGE, label: club.raised ? 'Удар дубиной' : 'Замах дубиной' };
-        return;
-      }
-      if (cell.variant === 'jailer') {
-        cell.shield ??= { dx: 0, dy: 1 };
-        if (cell.status.frozen > 0 || cell.behavior.restTurns > 0) {
-          cell.intent = { cells: [], damage: 0, label: cell.status.frozen > 0 ? 'Заморожен · щит опущен' : 'Отдых · щит опущен' };
-          return;
-        }
-      }
-      const dx = state.player.index % state.cols - index % state.cols, dy = Math.floor(state.player.index / state.cols) - Math.floor(index / state.cols);
-      const horizontal = Math.abs(dx) >= Math.abs(dy), sign = horizontal ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
-      cell.intent.cells = neighbors(state, index).filter(target => horizontal ? target % state.cols - index % state.cols === sign : Math.floor(target / state.cols) - Math.floor(index / state.cols) === sign);
-      cell.countdown = 1; cell.intent.damage = cell.variant === 'jailer' ? 2 : 1; cell.intent.label = cell.variant === 'jailer' ? 'Тяжёлый удар' : 'Взмах котелком'; state.bossWarning = [...cell.intent.cells];
-    }
+    behavior?.intent?.(pass, cell, index);
   });
   // Pressure accumulates: old windups persist, one calm enemy joins each turn — more as turns pass in map battles
   // on rows ≥ 5 (angerPerTurn, mapBattleRules.ts).
-  if (state.turn >= MELEE_AGGRESSION_START_TURN) for (const candidate of melee.sort((a, b) => a.distance - b.distance || a.id - b.id).slice(0, angerPerTurn(state))) {
-    const cell = state.board[candidate.index]!; cell.countdown = 1;
-    cell.behavior.aggressive = true;
-    cell.intent = { cells: meleeTargets(state, candidate.index), damage: 1, label: 'Замах' };
+  if (state.turn >= MELEE_AGGRESSION_START_TURN) for (const candidate of pass.anger.sort((a, b) => a.distance - b.distance || a.id - b.id).slice(0, angerPerTurn(state))) {
+    angerIntent(state, state.board[candidate.index]!, candidate.index);
   }
-  // Shaman rites are announced after the aggression step, so the targets' steps are final for this turn.
-  // One step per target per phase: a goblin announced by one shaman is not announced by another.
-  const claimed = new Set<number>();
-  for (const index of shamans) {
-    const cell = state.board[index]!;
-    if (cell.status.frozen > 0) { cell.intent.label = 'Заморожен'; continue; }
-    if ((cell.behavior.cycle ?? 0) % SHAMAN_PERIOD !== SHAMAN_PERIOD - 1) continue;
-    const targets = shamanTargets(state, index, claimed);
-    for (const target of targets) claimed.add(target.id);
-    cell.countdown = 1;
-    cell.intent = { cells: [], damage: 0, label: targets.length ? 'Камлание' : 'Камлание · нет целей',
-      empowerIds: targets.map(target => target.id), empowerCells: targets.map(target => target.index) };
-  }
+  announceRites(pass);
 }

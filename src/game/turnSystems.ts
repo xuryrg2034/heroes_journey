@@ -6,11 +6,12 @@ import { uniqueEntities } from './entityFootprint';
 import { customGoalsMet, refreshCustomProgress } from './customLevel';
 import { applyDamage, heroTarget, defeatOutright, type DefeatCredit } from './combatRules';
 import { crystalScore } from './mapBattleRules';
-import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
+import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
+import { behaviorOf } from './enemyBehaviors';
 import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
-import { clubCanRaise, clubImpacts, isTroll, swingClub, trollRegeneration } from './troll';
+import { clubCanRaise, isTroll, trollRegeneration } from './troll';
 import { updateBasicAttack, type BasicAttackOps, type EnemyActor } from './recovered/enemies';
 import type { EngineEvent } from './forestTypes';
 import { stepBleeding, tickDamageEffects } from './damageEffects';
@@ -246,7 +247,7 @@ function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number):
       if (impacted || ctx.state.player.index !== target || !evaluateEnemyAttack(cell, index, target, ctx.state)?.hitsHero) return;
       impacted = true;
       cell.behavior.aggressive = false; cell.behavior.restTurns = 1;
-      const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, 'melee').damage;
+      const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, behaviorOf(cell)?.attack?.source ?? 'melee').damage;
       events.push({ type: 'damage', index: target, from: index, amount: damage });
     },
     nextState: (_enemy, state) => {
@@ -278,39 +279,31 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
     const attack = evaluateEnemyAttack(cell, index, ctx.state.player.index, ctx.state);
     if (!attack) continue;
     const { target, hitsHero } = attack;
-    if (cell.kind === 'melee') {
+    // evaluateEnemyAttack returned an attack, so the behaviour has an attack rule (enemyBehaviors.ts).
+    const rule = behaviorOf(cell)!.attack!;
+    if (rule.style === 'melee') {
       if (!(yield* resolveMeleeAttack(ctx, cell, index))) return false;
     } else {
-      if (cell.kind === 'ranged' || cell.variant === 'jailer') cell.behavior.restTurns = 1;
-      // The troll's club (troll.ts): it rests and its zone is spent before the swing is published.
-      const club = isTroll(cell) ? swingClub(cell) : null;
-      yield { event: { type: 'attack', index, from: index, to: target,
-        ...(cell.variant === 'jailer' ? { indices: [...cell.intent.cells] } : {}),
-        ...(club ? { indices: [...club.zone], amount: club.damage, text: 'club' } : {}) } };
+      if (rule.restsAfter) cell.behavior.restTurns = 1;
+      // The strike may change the attacker before it is published (the troll rests and its zone is spent).
+      const strike = rule.strike?.(cell) ?? {};
+      const text = strike.text ? { text: strike.text } : {};
+      yield { event: { type: 'attack', index, from: index, to: target, ...strike.event } };
       if (hitsHero) {
-        const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, cell.kind === 'ranged' ? 'ranged' : club ? 'troll' : 'boss').damage;
-        yield { event: { type: 'damage', index: ctx.state.player.index, from: index, amount: damage, ...(club ? { text: 'club' } : {}) } };
+        const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, rule.source).damage;
+        yield { event: { type: 'damage', index: ctx.state.player.index, from: index, amount: damage, ...text } };
         if (ctx.state.player.hp > 0 && applyAttackEffect(ctx.state.player, cell.attackEffect, false)) {
           yield { event: { type: 'status', index: ctx.state.player.index, from: index, effect: cell.attackEffect, amount: 1 } };
         }
       }
-      // Forest arrows strike every creature on the announced cells; an enemy's kill counts only for goal targets.
-      if (ctx.state.player.hp > 0 && archerStrikesCreatures(cell)) for (const impact of archerVolley(ctx.state.board, cell)) {
-        yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage } };
+      // Arrows and the club strike every creature on their cells, enemies included; an enemy's kill counts only for goal targets.
+      if (ctx.state.player.hp > 0 && strike.creatures) for (const impact of strike.creatures.impacts(ctx.state.board)) {
+        yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage, ...text } };
         if (!ctx.current()) return false;
         if (!impact.killed) continue;
         ctx.cmd.kill(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
-        yield { event: { type: 'kill', index: impact.index } };
-      }
-      // The club falls on every creature in the zone, enemies included; an enemy's kill counts only for goal targets.
-      if (ctx.state.player.hp > 0 && club) for (const impact of clubImpacts(ctx.state.board, cell, club.zone, club.damage)) {
-        yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage, text: 'club' } };
-        if (!ctx.current()) return false;
-        if (!impact.killed) continue;
-        ctx.cmd.kill(impact.cell, impact.index, 'enemy');
-        if (!ctx.current()) return false;
-        yield { event: { type: 'kill', index: impact.index, text: 'club' } };
+        yield { event: { type: 'kill', index: impact.index, ...text } };
       }
       yield { delay: 115 };
     }

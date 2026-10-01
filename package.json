@@ -47,7 +47,8 @@
     "test:ecs-world": "tsx src/game/ecsWorld.spec.ts",
     "test:ecs-schedule": "tsx src/game/ecsSchedule.spec.ts",
     "test:ecs-observers": "tsx src/game/ecsObservers.spec.ts",
-    "test:ecs-definitions": "tsx src/game/ecsDefinitions.spec.ts"
+    "test:ecs-definitions": "tsx src/game/ecsDefinitions.spec.ts",
+    "test:ecs-behaviors": "tsx src/game/ecsBehaviors.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"
