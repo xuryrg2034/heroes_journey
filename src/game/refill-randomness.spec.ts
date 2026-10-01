@@ -1,6 +1,7 @@
 import { ForestEngine } from './forestEngine';
 import { hasOrdinaryChain } from './boardGeneration';
 import { allowedSpawnColors, type PaletteWeights } from './customLevel';
+import { ELITE_HP_FACTOR } from './elite';
 import { FOREST_NODE_BATTLES, forestBattle } from './run/forestBattles';
 import { nodeBattleSetup, startNodeBattle } from './testing/fixtures';
 import type { EnemyColor } from './forestTypes';
@@ -28,7 +29,8 @@ function authoredOpenings() {
     assert(hasOrdinaryChain(g.state), `${battle.id}: authored opening has an ordinary chain`);
     for (const enemy of battle.definition.enemies) {
       const cell = g.state.board[enemy.index];
-      assert(cell && cell.color === enemy.color && cell.hp === enemy.hp && cell.kind === enemy.kind,
+      // An elite enemy loads with its authored HP multiplied by ELITE_HP_FACTOR (elite.ts).
+      assert(cell && cell.color === enemy.color && cell.hp === enemy.hp * (enemy.elite ? ELITE_HP_FACTOR : 1) && cell.kind === enemy.kind,
         `${battle.id}: generation never recolors or weakens an authored initial enemy`);
     }
     assert(g.state.tutorial!.targetIds.join() === battle.targetIndices.map(index => g.state.board[index]!.id).join(),

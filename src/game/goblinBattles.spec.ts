@@ -7,6 +7,7 @@
  */
 import { hasOrdinaryChain } from './boardGeneration';
 import { shieldIsActive } from './combatRules';
+import { ELITE_HP_FACTOR, heroStrikeDamage } from './elite';
 import { ForestEngine } from './forestEngine';
 import type { ChainPreview } from './forestTypes';
 import { GOBLIN_BATTLES } from './run/battles/goblins';
@@ -22,10 +23,16 @@ const json = (value: unknown) => JSON.stringify(value);
 /** Map row each battle is designed for (docs/levels/forest-nodes-goblins.md, «Узлы»). */
 const ROWS: Record<string, number> = {
   'goblin-archer-watch': 5, 'goblin-shield-flank': 6, 'goblin-shaman-rite': 7,
-  'camp-cauldron-ring': 10, 'camp-shield-wall': 11, 'camp-gate-run': 13,
+  'camp-cauldron-ring': 10, 'camp-shield-wall': 12, 'camp-gate-run': 13,
 };
 /** Refill seeds as a run would derive them; the authored layout does not depend on them. */
 const SEEDS = [9601, 17, 4242, 777001, 31337];
+/**
+ * Spread refill seeds for battles with an elite (its loot is a 50% roll of the battle RNG). The first draw of the
+ * generator barely differs for neighbouring small seeds, so they are spread by the golden ratio; k = 1…3 and 13…15
+ * cover both outcomes of the loot roll in camp-shield-wall.
+ */
+const ELITE_SEEDS = [1, 2, 3, 13, 14, 15].map(k => Math.imul(k, 2654435761) >>> 0);
 
 function setupFor(id: string, seed: number, player: RunPlayerResources = { hp: 5, maxHp: 5, energy: 0 }, frost = 0): RunBattleSetup {
   const battle = forestBattle(id)!, row = ROWS[id], tools = guaranteedRowTools(row)!;
@@ -232,18 +239,69 @@ async function cauldronRing() {
 }
 
 async function shieldWall() {
-  for (const seed of SEEDS) {
-    const play = new Play('camp-shield-wall', seed);
+  const drops = new Set<boolean>();
+  for (const seed of [...SEEDS, ...ELITE_SEEDS]) {
+    const play = new Play('camp-shield-wall', seed), archer = play.cell('A7')!;
+    // The elite archer: authored 3 HP doubled at load, its arrow hits the cat for 2 (the same forecast as execution).
+    assert(archer.kind === 'ranged' && archer.elite && archer.hp === 3 * ELITE_HP_FACTOR && archer.maxHp === 6, 'the archer A7 is an elite with 6 HP');
+    assert(json(archer.intent.cells) === json(['B7', 'C7', 'D7'].map(label => play.at(label))) && heroStrikeDamage(archer) === 2,
+      'the elite announces the flank path B7–D7 and hits the cat for 2');
     const straight = play.preview('E5', 'D4', 'C4');
     assert(!straight.valid && straight.reason.includes('Щит'), 'the wall cannot be entered from the cat’s side');
     const bait = play.preview('E5', 'E4', 'D4');
     assert(bait.valid && ['B7', 'C7', 'D7'].every(label => bait.enemyPhase!.deaths.some(death => death.index === play.at(label) && death.cause === 'arrow')),
       'the forecast shows the arrow clearing the flank path when the cat stays');
-    await play.chain('E7', 'D7', 'C7', 'B6', 'B7', 'A6', 'B5', 'A4');
-    assert(!play.g.state.board.some(cell => cell?.variant === 'shaman'), 'the flank reaches the shaman behind the wall');
-    await play.ability('jump', 'A7');
+    // Too short a run only wounds the elite; the cat stops on its line and the forecast shows the elite arrow (2).
+    const wound = play.preview('E7', 'D7', 'C7', 'B7', 'A7');
+    assert(wound.valid && wound.hits.at(-1)?.hpAfter === 1 && wound.endIndex === play.at('B7') && wound.damage === 2 && wound.damageBySource.ranged === 2,
+      'a short run wounds the elite and leaves the cat under a 2-damage arrow');
+    // One chain takes one pocket: the elite and then the shaman is refused.
+    const both = play.preview('E7', 'D7', 'C7', 'B7', 'A7', 'B6', 'B5', 'A4');
+    assert(!both.valid, 'one chain cannot take the elite and the shaman');
+
+    // The trap: the lane spent on the shaman leaves the elite out of the jump's reach (it would survive the landing).
+    const trap = new Play('camp-shield-wall', seed);
+    await trap.chain('E7', 'D7', 'C7', 'B7', 'B6', 'B5', 'A4');
+    assert(!trap.g.state.board.some(cell => cell?.variant === 'shaman') && trap.g.state.player.energy >= 2, 'the lane reaches the shaman behind the wall');
+    const late = trap.g.previewAbility('jump', trap.at('A7'));
+    assert(!late.valid && trap.cell('A7')?.hp === 6, 'the forecast refuses to jump on the 6-HP elite');
+
+    // The answer: the lane to the elite (6 enemies, power 6), then the jump finishes the shaman — with or without loot.
+    const play2 = new Play('camp-shield-wall', seed);
+    const lane = await play2.chain('E7', 'D7', 'C7', 'B6', 'B7', 'A7');
+    assert(lane.hits.at(-1)?.killed && lane.hits.at(-1)?.availablePower === 6 && lane.damage === 0, 'the lane kills the elite at exactly 6 power');
+    const loot = play2.g.state.board.filter(cell => cell?.loot);
+    assert(loot.length <= 1 && loot.every(cell => cell!.loot === 'frost'), 'the elite drops at most one loot, a consumable open in this setup (frost only)');
+    drops.add(loot.length === 1);
+    await play2.ability('jump', 'A4');
+    play2.won(5);
+    if (seed === SEEDS[0]) await replayMatches(play2);
+  }
+  assert(drops.size === 2, 'the answer holds both when the elite drops loot and when it does not');
+  // Without the jump the elite can still be wounded and finished, paying 2 HP to its arrow.
+  const slow = new Play('camp-shield-wall', ELITE_SEEDS[0]);
+  await slow.chain('E7', 'D7', 'C7', 'B7', 'A7');
+  await slow.chain('A7', 'B6', 'B5', 'A4');
+  slow.won(3);
+  // A frost flask carried by the run (the node goblin-archer grants one) makes the elite brittle: then the lane may take
+  // the shaman and the jump (4 × 2) kills the 6-HP elite. A legal use of frost, not a rule bent for the route.
+  const frost = new Play('camp-shield-wall', ELITE_SEEDS[0], undefined, 1);
+  assert(frost.g.useItem('frost', frost.at('A7')) && frost.cell('A7')!.status.brittle, 'frost makes the elite brittle');
+  await frost.chain('E7', 'D7', 'C7', 'B7', 'B6', 'B5', 'A4');
+  await frost.ability('jump', 'A7');
+  frost.won(5);
+  // Energy carries over between nodes. With 3 or 7 at the entry no first action wins at once (the jump from F6 reaches
+  // neither target, the spin does not kill the elite), and the answer still holds on spread seeds.
+  for (const energy of [3, 7]) for (const seed of ELITE_SEEDS) {
+    const play = new Play('camp-shield-wall', seed, { hp: 5, maxHp: 5, energy });
+    const { g } = play, cells = g.state.board.map((_cell, index) => index);
+    const instant = [...g.availableMoves(16).map(path => g.preview(path)),
+      ...cells.map(index => g.previewAbility('jump', index)), g.previewAbility('spin')].filter(p => p.valid && p.completesRoom);
+    assert(instant.length === 0, `camp-shield-wall (energy ${energy}, seed ${seed}): no one-turn win`);
+    assert(!g.previewAbility('jump', play.at('A7')).valid, 'carried energy does not let the jump take the elite');
+    await play.chain('E7', 'D7', 'C7', 'B6', 'B7', 'A7');
+    await play.ability('jump', 'A4');
     play.won(5);
-    if (seed === SEEDS[0]) await replayMatches(play);
   }
 }
 
@@ -265,7 +323,7 @@ async function refillVariety() {
   const firstMoves: Record<string, string[]> = {
     'goblin-archer-watch': ['C4', 'D3'], 'goblin-shield-flank': ['E2', 'F2', 'G2', 'G3', 'F3', 'E4', 'E3'],
     'goblin-shaman-rite': ['E5', 'F5', 'G5', 'G4'], 'camp-cauldron-ring': ['F6', 'F7', 'E6', 'D5', 'C5', 'C4', 'D3'],
-    'camp-shield-wall': ['E7', 'D7', 'C7', 'B6', 'B7', 'A6', 'B5', 'A4'], 'camp-gate-run': ['B4', 'A3', 'A2', 'B3'],
+    'camp-shield-wall': ['E7', 'D7', 'C7', 'B6', 'B7', 'A7'], 'camp-gate-run': ['B4', 'A3', 'A2', 'B3'],
   };
   for (const [id, move] of Object.entries(firstMoves)) {
     const starts = new Set<string>(), refills = new Set<string>();
@@ -289,4 +347,4 @@ await cauldronRing();
 await shieldWall();
 await gateRun();
 await refillVariety();
-console.log('goblin battles: layouts, routes on five refill seeds, forecasts, traps, replay and refill variety pass');
+console.log('goblin battles: layouts, routes on five refill seeds (eleven for the elite), forecasts, traps, replay and refill variety pass');

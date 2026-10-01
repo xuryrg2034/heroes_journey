@@ -93,23 +93,25 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
     },
     seed: 9604,
   }),
-  // Row 11, camp hard battle «Стена щитов». Two bearers close the column C; the moss path along row 7 goes round
-  // behind them to the shaman, and the archer at its end shoots along that very path every other turn.
+  // Row 12, camp hard battle «Стена щитов». Two bearers close the column C; the moss path along row 7 goes round
+  // behind them. It forks at B6/B7 into two dead-end pockets: the elite archer A7 (3 → 6 HP, its arrow hits the cat
+  // for 2, a jump cannot kill it) and the shaman A4 (2 HP). One chain takes only one of them: the lane goes to the
+  // elite, the jump (energy from the lane) finishes the shaman. Loot from the elite is a bonus, not part of the answer.
   authoredLesson({
     id: 'camp-shield-wall', name: 'Стена щитов',
-    description: 'Два щитоносца перегородили лагерь. За строем камлает шаман, обходную тропу держит лучник.',
-    hint: 'Щиты смотрят на кота. Обходная тропа ведёт за строй, но стрела выбивает гоблинов на ней: иди, пока она цела.',
+    description: 'Два щитоносца перегородили лагерь. За строем камлает шаман, обходную тропу держит элитный лучник.',
+    hint: 'Элитный лучник вдвое крепче, его стрела бьёт кота на 2. Прыжок бьёт на 4 и годится, только если цель погибнет. Обходная тропа одна: реши, на кого её потратить.',
     rows: [
       'VV#RRV',
       'VO#BBV',
       'OOSbOO',
       'MBTOOO',
       'BG#OOO',
-      'GG#OrH',
+      'BG#OrH',
       'AGGGGR',
     ],
     legend: {
-      A: { kind: 'ranged', color: 0, hp: 3, armed: true, target: true },
+      A: { kind: 'ranged', color: 1, hp: 3, armed: true, target: true, elite: true },
       M: { color: 1, hp: 2, variant: 'shaman', armed: true, target: true },
       S: { color: 2, hp: 4, variant: 'sentinel', armed: true },
       T: { color: 3, hp: 4, variant: 'sentinel', armed: true },

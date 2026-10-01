@@ -6,6 +6,7 @@ import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode
 import { buildNodeBattleRegistry, FOREST_NODE_BATTLES, forestBattle, validateForestBattles, validateNodeBattle, type NodeBattle } from './run/forestBattles';
 import { createForestRunStore, FOREST_RUN_STORAGE_KEY, type RunStorage } from './run/forestRunStorage';
 import type { ItemKind } from './forestTypes';
+import { ELITE_HP_FACTOR } from './elite';
 
 // Forest-map run (docs/biomes/forest-map.md). Battles are loaded by the real engine from the run's setup,
 // real chains and items are played, and the finished battle is fed back to the pure run model.
@@ -419,7 +420,8 @@ async function registryBattles() {
         && entry.targetIndices.every(index => state.tutorial!.targetIds.includes(state.board[index]!.id)), `${entry.id}: marked targets are registered`);
       for (const enemy of definition.enemies) {
         const cell = state.board[enemy.index]!;
-        assert(cell.color === enemy.color && cell.hp === enemy.hp && cell.variant === enemy.variant, `${entry.id}: authored layout kept at ${enemy.index}`);
+        // An elite enemy loads with its authored HP multiplied by ELITE_HP_FACTOR (elite.ts).
+        assert(cell.color === enemy.color && cell.hp === enemy.hp * (enemy.elite ? ELITE_HP_FACTOR : 1) && cell.variant === enemy.variant, `${entry.id}: authored layout kept at ${enemy.index}`);
         // Authored passivity holds on the trunk (rows 1–4) only; from row 5 every enemy follows the growing anger.
         if (enemy.variant !== 'jailer') assert(!!cell.behavior.passive === (!enemy.aggressive && row < 5), `${entry.id}: passivity on row ${row} at ${enemy.index}`);
       }

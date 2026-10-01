@@ -3,8 +3,9 @@
  * Every battle starts as in a run (ForestEngine.startRunBattle with the row palette and the tools guaranteed on
  * that row) and is played with real chain commands. Checks: the authored route wins on several refill seeds,
  * the forecast equals execution, the traps of each card are visible in the forecast, the same seed and actions
- * replay identically, refills stay random within the row palette and survivors keep their colors.
- * Heuristic bot results are deliberately not asserted here (see docs/level-metrics.md).
+ * replay identically, refills stay random within the row palette and survivors keep their colors. Elites (elite.ts):
+ * doubled HP, the +1 strike shown by the forecast, the run-up they need, and routes that win whether the elite's
+ * loot drops or not. Heuristic bot results are deliberately not asserted here (see docs/level-metrics.md).
  */
 import { hasOrdinaryChain } from './boardGeneration';
 import { ForestEngine } from './forestEngine';
@@ -33,17 +34,19 @@ const PLANS: Record<string, Plan> = {
   'boar-garden': { node: 'beast-boar', row: 6, hp: 5, route: [['G5', 'F5', 'E6', 'D5', 'C5'], ['B5', 'B6', 'C6']] },
   'porcupine-thicket': { node: 'beast-porcupine', row: 7, hp: 4, route: [['A2', 'A3', 'B2', 'C1', 'D2', 'E3'], ['F2', 'F3', 'E4', 'D4', 'C5', 'C6', 'C7']] },
   'den-watch': { node: 'den-battle', row: 10, hp: 5, route: [['F6', 'E5', 'E6', 'D5', 'E4', 'D4', 'C3', 'D2'], ['C2', 'D1', 'E2']] },
-  'den-nest': { node: 'den-elite', row: 11, hp: 4, route: [['E2', 'F1', 'E1'], ['D1', 'C1', 'B1']] },
+  'den-nest': { node: 'den-elite', row: 12, hp: 4, route: [['E4', 'F3', 'G2', 'G1'], ['F1', 'E2'], ['D1', 'C1', 'B1']] },
   'den-breakout': { node: 'den-breakthrough', row: 13, hp: 5, route: [['B7', 'B6', 'B5', 'B4', 'B3', 'C3'], ['C2', 'C1']] },
 };
 /** Refill variants as in the level analyzer: the authored start stays, only later refills change. */
 const REFILL_SEEDS = [0, 1, 2, 3, 4, 5];
+/** Spread refill variants: the first draw of the battle RNG is almost the same for neighbouring small seeds (elite loot). */
+const SPREAD_SEEDS = Array.from({ length: 16 }, (_, k) => Math.imul(k + 1, 2654435761) >>> 0);
 
 const json = (value: unknown) => JSON.stringify(value);
 const at = (g: ForestEngine, label: string) => (Number(label.slice(1)) - 1) * g.state.cols + label.charCodeAt(0) - 65;
 const path = (g: ForestEngine, labels: string[]) => labels.map(label => at(g, label));
 
-function setupFor(id: string, seed?: number, player = { hp: 5, maxHp: 5, energy: 0 }): RunBattleSetup {
+function setupFor(id: string, seed?: number, player: RunBattleSetup['player'] = { hp: 5, maxHp: 5, energy: 0 }): RunBattleSetup {
   const battle = forestBattle(id)!, plan = PLANS[id], tools = guaranteedRowTools(plan.row)!;
   return { nodeId: plan.node, label: battle.name, seed: seed ?? battle.definition.seed, template: { kind: 'battle', id }, row: plan.row, player,
     inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [...tools.items], allowedAbilities: [...tools.abilities],
@@ -92,15 +95,22 @@ async function commit(g: ForestEngine, labels: string[], where: string): Promise
 /**
  * Map battles place colour-change crystals on seeded random cells, crushing the enemy there (mapBattleRules.ts,
  * playtest 1): a fixed-label route can find one of its cells taken by a crystal. Such a seed is reported: a turn the
- * crystal makes invalid is not played, a turn through the crystal is played (forecast = execution still checked),
- * and the seed's outcome is not asserted (the route itself is not re-planned).
+ * crystal makes invalid is not played, a turn through the crystal is played (forecast = execution still checked), and
+ * the seed's outcome is not asserted (the crystal changes the chain colour; the route itself is not re-planned).
  */
 const crystalOnRoute = (g: ForestEngine, labels: string[]) => labels.find(label => !!g.state.board[at(g, label)]?.crystalChain);
+/**
+ * Elite loot falls like a crystal (elite.ts) but is a colourless link that keeps the chain colour and power: a route
+ * through it stays playable, only the enemy that lay there is skipped. Such a seed is still asserted (see routes()).
+ */
+const lootOnRoute = (g: ForestEngine, labels: string[]) => labels.find(label => !!g.state.board[at(g, label)]?.loot);
 
-async function playRoute(id: string, g: ForestEngine, where: string, affected?: string[]): Promise<string[]> {
+async function playRoute(id: string, g: ForestEngine, where: string, affected?: string[], looted?: string[]): Promise<string[]> {
   const snapshots: string[] = [];
   for (const [turn, labels] of PLANS[id].route.entries()) {
     assert(g.state.phase === 'PLAYER_INPUT', `${where}: turn ${turn + 1} is playable`);
+    const loot = lootOnRoute(g, labels);
+    if (loot) looted?.push(`${where}: turn ${turn + 1} passes elite loot on ${loot}`);
     const crystal = crystalOnRoute(g, labels);
     if (crystal && affected) {
       const valid = g.preview(path(g, labels)).valid;
@@ -139,18 +149,20 @@ function layouts() {
 }
 
 async function routes() {
-  const blocked: string[] = [];
+  const blocked: string[] = [], looted: string[] = [];
   for (const id of Object.keys(PLANS)) {
     let won = 0;
     for (const k of REFILL_SEEDS) {
-      const g = start(id, k), where = `${id} refill ${k}`, before = blocked.length;
+      const g = start(id, k), where = `${id} refill ${k}`, before = blocked.length, lootBefore = looted.length;
       assert(g.state.runNode?.nodeId === PLANS[id].node && !!g.state.tutorial, `${where}: a map-node battle with its authored targets`);
-      await playRoute(id, g, where, blocked);
+      await playRoute(id, g, where, blocked, looted);
       // The only accepted deviation: a crystal took a cell of the fixed route (its outcome is then not asserted).
       if (blocked.length > before) continue;
       won++;
       assert(g.state.phase === 'WIN', `${where}: the authored route wins, got ${g.state.phase}`);
-      assert(g.state.player.hp === PLANS[id].hp, `${where}: ${PLANS[id].hp} HP left, got ${g.state.player.hp}`);
+      // Loot on the route replaced the enemy there: it can only spare a hit (a quill), never cost one.
+      const hpOk = looted.length > lootBefore ? g.state.player.hp >= PLANS[id].hp : g.state.player.hp === PLANS[id].hp;
+      assert(hpOk, `${where}: ${PLANS[id].hp} HP left, got ${g.state.player.hp}`);
       assert(g.runBattleOutcome()?.won === true, `${where}: the run sees the victory`);
     }
     assert(won * 2 > REFILL_SEEDS.length, `${id}: the authored route wins on most refill seeds (the rest met a crystal), won ${won}`);
@@ -163,6 +175,7 @@ async function routes() {
     }
   }
   for (const note of blocked) console.log(`NOTE ${note}`);
+  for (const note of looted) console.log(`NOTE ${note} (outcome asserted)`);
 }
 
 async function replayAndRandomRefill() {
@@ -224,12 +237,92 @@ async function trapsInForecast() {
   g = start('den-nest');
   assert(spikeKills(g, preview(g, PLANS['den-nest'].route[0])) === 2, 'den-nest: the charge pushes the leader and a packmate onto the spikes');
   assert(spikeKills(g, preview(g, ['D4', 'C4', 'D3'])) < 2, 'den-nest: a void in the boar column is visible as a spared target');
+  // The elite and the wolf beside it outlive the push: ending a chain in their reach is shown as 2 (elite) + 1 (wolf).
+  const cornered = preview(g, ['D4', 'D3', 'D2']);
+  assert(cornered.damageBySource.melee === 3 && spikeKills(g, cornered) === 2, 'den-nest: the pack beside the elite is shown to strike 3 after the push');
+  assert(preview(g, ['E4', 'F3', 'F2']).damageBySource.melee === 2, 'den-nest: next to the elite the forecast shows its strike of 2');
 
   // Breakout: stopping beside the packed wolves costs HP; the porcupine is a tempting extra kill with a quill.
   g = start('den-breakout');
   assert(preview(g, PLANS['den-breakout'].route[0]).damage === 0, 'den-breakout: breaking the pack in the middle is safe');
   assert(preview(g, ['C6', 'C5', 'C4']).damageBySource.melee >= 1, 'den-breakout: killing the lower wolf leaves the pack armed');
   assert(preview(g, ['B7', 'B6', 'A5', 'B5', 'B4', 'B3', 'C3']).spikeDamage === 1, 'den-breakout: the porcupine detour costs a quill');
+}
+
+/**
+ * Elites (elite.ts) in den-watch and den-nest: doubled authored HP, the +1 strike in the forecast and in execution,
+ * the run-up a 2-HP elite needs (a chain of two or more, never starting on it), and the authored route of den-nest
+ * winning on spread seeds both when the elite's loot drops and when it does not.
+ */
+async function elites() {
+  const eliteAt = { 'den-watch': 'E2', 'den-nest': 'E2' } as const;
+  for (const [id, label] of Object.entries(eliteAt)) {
+    const g = start(id), cell = g.state.board[at(g, label)]!;
+    const authored = forestBattle(id)!.definition.enemies.find(enemy => enemy.index === at(g, label))!;
+    assert(cell.elite && authored.elite && cell.hp === 2 * authored.hp && cell.maxHp === cell.hp && cell.hp === 2, `${id}: the elite on ${label} has doubled HP`);
+    assert(g.state.board.filter(other => other?.elite).length === 1, `${id}: one authored elite`);
+  }
+
+  // Den watch: the elite flank wolf must be the last of the finishing chain; leading with it is refused by the forecast.
+  let g = start('den-watch');
+  await commit(g, PLANS['den-watch'].route[0], 'den-watch elite setup');
+  const wrongOrder = g.preview(path(g, ['E2', 'D1', 'C2']));
+  assert(!wrongOrder.valid && wrongOrder.hits[0]?.killed === false, 'den-watch: a chain that starts on the elite is shown to leave it alive');
+
+  // Den nest: the elite strikes for 2 when the cat stops beside it (forecast = execution through commit).
+  g = start('den-nest');
+  const struck = await commit(g, ['E4', 'F3', 'F2'], 'den-nest elite strike');
+  assert(struck.damage === 2 && g.state.player.hp === 3, 'den-nest: the elite\'s strike costs 2 HP');
+  // From the authored pocket the blue run-up F1 kills the elite exactly (power 2 against 2 HP).
+  g = start('den-nest');
+  await commit(g, PLANS['den-nest'].route[0], 'den-nest pocket');
+  const runUp = g.preview(path(g, ['F1', 'E2']));
+  assert(runUp.valid && runUp.hits[1]?.killed && runUp.hits[1].damage === 2, 'den-nest: one blue run-up kills the 2-HP elite');
+
+  // The decision does not rest on the drop: the route wins on spread seeds whether the loot falls or not.
+  let dropped = 0, missed = 0;
+  for (const variant of SPREAD_SEEDS) {
+    const run = new ForestEngine(); run.animationScale = 0;
+    assert(run.startRunBattle(setupFor('den-nest')), 'den-nest: spread start');
+    const snap = run.captureAnalysisSnapshot(); snap.rng = variantSeed(snap.rng, variant); run.restoreAnalysisSnapshot(snap);
+    const where = `den-nest spread ${variant}`, route = PLANS['den-nest'].route;
+    await commit(run, route[0], `${where} turn 1`);
+    await commit(run, route[1], `${where} turn 2`);
+    const loot = run.state.board.find(cell => cell?.kind === 'prism' && cell.loot);
+    if (loot) dropped++; else missed++;
+    await commit(run, route[2], `${where} turn 3`);
+    assert(run.state.phase === 'WIN', `${where}: the route wins (loot ${loot ? 'dropped' : 'not dropped'})`);
+    // Loot that crushed the porcupine lies on the finishing chain: it is picked up and spares the quill.
+    assert(run.state.player.hp === PLANS['den-nest'].hp + (loot && run.state.inventory.frost > 0 ? 1 : 0), `${where}: HP after the route`);
+  }
+  assert(dropped > 0 && missed > 0, `den-nest: the spread seeds cover both outcomes of the loot roll (${dropped} dropped, ${missed} not)`);
+  console.log(`den-nest elite: the route wins on ${SPREAD_SEEDS.length} spread seeds, loot dropped on ${dropped}`);
+}
+
+/**
+ * Energy is carried between nodes (a rest does not spend it), and on row 12 jump (radius 3, hit 4) and spin (hit 4 on the
+ * eight neighbours) are open. Whatever the entry energy, no first action kills the den-nest elite — so it never dies on
+ * the turn of the boar's push, where its loot could fall into the boar lane — and the authored route still wins.
+ */
+async function carriedEnergy() {
+  const elite = (g: ForestEngine) => at(g, 'E2'), seeds = SPREAD_SEEDS.slice(0, 6);
+  for (const energy of [0, 3, 7]) {
+    for (const variant of seeds) {
+      const g = new ForestEngine(); g.animationScale = 0;
+      assert(g.startRunBattle(setupFor('den-nest', undefined, { hp: 5, maxHp: 5, energy })), `den-nest: starts with ${energy} energy`);
+      const snap = g.captureAnalysisSnapshot(); snap.rng = variantSeed(snap.rng, variant); g.restoreAnalysisSnapshot(snap);
+      const where = `den-nest energy ${energy} seed ${variant}`, before = json(g.state);
+      const kills = (preview: ChainPreview) => preview.valid && preview.hits.some(hit => hit.index === elite(g) && hit.killed);
+      // availableMoves is a pruned sample (≤240 paths), not every chain; a full search found none either (review 01.10.2026).
+      for (const move of g.availableMoves(16)) assert(!kills(g.preview(move)), `${where}: no first chain kills the elite`);
+      for (let cell = 0; cell < g.state.board.length; cell++) assert(!kills(g.previewAbility('jump', cell)), `${where}: no first jump kills the elite`);
+      const spin = g.previewAbility('spin');
+      assert(spin.valid === energy >= 3 && !kills(spin), `${where}: the first spin does not reach the elite`);
+      assert(json(g.state) === before, `${where}: the previews keep the state`);
+      await playRoute('den-nest', g, where);
+      assert(g.state.phase === 'WIN', `${where}: the authored route wins`);
+    }
+  }
 }
 
 /** The exit opens only after the first turn; the breakout is won through the door, before the wolves answer. */
@@ -257,6 +350,8 @@ async function main() {
   await replayAndRandomRefill();
   await trapsInForecast();
   await exitRules();
+  await elites();
+  await carriedEnergy();
   await woundedEntry();
   console.log('beast battles: ok');
 }
