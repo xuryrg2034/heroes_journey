@@ -127,8 +127,9 @@ async function lethalForecastStopsLaterPhases(): Promise<void> {
   const planned = planEnemyPhase(simulation.board, simulation.preview.endIndex);
   assert(planned.attacks.map(attack => attack.index).join() === '15,21'
     && simulation.preview.threats.join() === '15,21', 'forecast and execution planner select the same ordered attackers');
-  assert(simulation.preview.damage === 4 && !simulation.preview.rotations[0].active,
-    'forecast includes both fixed attacks and cancels the rotation after the lethal phase');
+  // Exact damage (decision Г, 01.10.2026): capped by the cat's 3 HP, as execution applies it below.
+  assert(simulation.preview.damage === 3 && simulation.preview.playerDies && !simulation.preview.rotations[0].active,
+    'forecast includes both fixed attacks, caps the damage at the remaining HP and cancels the rotation after the lethal phase');
 
   const events: string[] = [];
   game.subscribe((_state, event) => events.push(event.type));

@@ -25,10 +25,15 @@ export function instant<C>(name: string, apply: (ctx: C) => void): TurnSystem<C>
   return { name, *run(ctx) { apply(ctx); return true; } };
 }
 
-/** Run the sets in order. Returns false when cancelled (by a system or by the `after` verdict), true otherwise. */
-export function* runSchedule<C>(ctx: C, sets: readonly SystemSet<C>[], after: (ctx: C) => ScheduleVerdict): TurnSequence {
+/**
+ * Run the sets in order. Returns false when cancelled (by a system or by the `after` verdict), true otherwise.
+ * `observe` sees every system that returned normally, before its verdict (the forecast reads positions there).
+ */
+export function* runSchedule<C>(ctx: C, sets: readonly SystemSet<C>[], after: (ctx: C) => ScheduleVerdict,
+  observe?: (system: TurnSystem<C>, ctx: C) => void): TurnSequence {
   for (const set of sets) for (const system of set.systems) {
     if (!(yield* system.run(ctx))) return false;
+    observe?.(system, ctx);
     const verdict = after(ctx);
     if (verdict === 'cancelled') return false;
     if (verdict === 'finished') return true;

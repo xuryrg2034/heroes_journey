@@ -9,6 +9,10 @@
  *   npx tsx scripts/golden/golden.ts --update         rewrite the baseline from the current engine
  *   npx tsx scripts/golden/golden.ts --ref <dir>      detailed diff against the engine in <dir> (a copy of the repo,
  *                                                     e.g. `git worktree add .scratch/ref <commit>`)
+ *   --ref <dir> --previews                            for a change that alters previews only (ECS stage 6): every other
+ *                                                     record must match strictly; preview fields that differ are counted
+ *                                                     by action and field with one example (the list to approve)
+ *   --show '<run>#<record>'                           with --previews: print that record from both engines
  *   --only <text>                                     only scenes whose name contains <text>
  *   --stats                                           print how often each event type and cancellation point occurs
  *
@@ -291,6 +295,44 @@ async function main() {
     writeFileSync(BASELINE, JSON.stringify({ note: 'Golden engine baseline, see scripts/golden/golden.ts', runs: hashes }, null, 0) + '\n');
     console.log(`golden baseline written: ${runs} runs, ${records} records, ${((Date.now() - started) / 1000).toFixed(1)} s`);
     return;
+  }
+  if (refDir && args.includes('--previews')) {
+    // Stage 6 check: every record except the previews must match the reference strictly; previews are compared
+    // field by field and summarised (the list of differences to approve).
+    const reference = await record(await loadLib(resolve(refDir)), only);
+    const PREVIEW = /^(chain|rest|spin|jump \d+) /;
+    let strict = 0, previewRecords = 0, changedPreviews = 0;
+    const fields = new Map<string, { count: number; example: string }>();
+    const walk = (path: string, a: unknown, b: unknown, out: Map<string, string>) => {
+      if (JSON.stringify(a) === JSON.stringify(b)) return;
+      if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+        for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) walk(path ? `${path}.${key}` : key, (a as Any)[key], (b as Any)[key], out);
+        return;
+      }
+      out.set(path, `${JSON.stringify(a)?.slice(0, 160)} → ${JSON.stringify(b)?.slice(0, 160)}`);
+    };
+    const show = args.includes('--show') ? args[args.indexOf('--show') + 1] : undefined;
+    for (const [key, lines] of Object.entries(current)) {
+      const other = reference[key] ?? [];
+      if (show?.startsWith(`${key}#`)) { const n = Number(show.slice(key.length + 1)); console.log(`SHOW ref: ${other[n]}\nSHOW cur: ${lines[n]}\nSHOW context: ${lines.slice(Math.max(0, n - 40), n).filter(line => /^(act|after|start) /.test(line)).slice(-2).join('\n')}`); }
+      if (other.length !== lines.length) { strict++; console.log(`STRICT ${key}: ${other.length} ref / ${lines.length} current records`); continue; }
+      lines.forEach((line, n) => {
+        const kind = PREVIEW.exec(line);
+        if (!kind) { if (line !== other[n]) { strict++; if (strict <= 5) console.log(`STRICT ${key} record ${n}\n  ref: ${other[n].slice(0, 400)}\n  cur: ${line.slice(0, 400)}`); } return; }
+        previewRecords++;
+        if (line === other[n]) return;
+        changedPreviews++;
+        const out = new Map<string, string>();
+        walk('', JSON.parse(other[n].slice(kind[0].length)), JSON.parse(line.slice(kind[0].length)), out);
+        for (const [field, change] of out) {
+          const name = `${kind[1].split(' ')[0]} ${field}`, entry = fields.get(name);
+          if (entry) entry.count++; else fields.set(name, { count: 1, example: `${key} #${n}: ${change}` });
+        }
+      });
+    }
+    for (const [name, { count, example }] of [...fields].sort((x, y) => y[1].count - x[1].count)) console.log(`${String(count).padStart(6)}  ${name}\n        e.g. ${example}`);
+    console.log(`${strict ? 'FAIL' : 'PASS'} strict records vs ${refDir}: ${strict} differing; previews: ${changedPreviews} of ${previewRecords} changed; ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    process.exit(strict ? 1 : 0);
   }
   if (refDir) {
     const reference = await record(await loadLib(resolve(refDir)), only);

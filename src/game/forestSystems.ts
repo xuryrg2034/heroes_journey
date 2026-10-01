@@ -1,32 +1,24 @@
 import { isCellAlive } from './cellLife';
 import { cloneEntity } from './ecs/components';
 import { cloneEntities } from './ecs/world';
-import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, ChargeDamageCause, EnemyPhaseForecast, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ObjectiveProgress, RotationPlan, RotationPreview } from './forestTypes';
+import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, HeroDamageSource, InteractionDevice, ForestCell, ForestState } from './forestTypes';
 import { pathColour, WILD } from './recovered/core';
-import { uniqueEntities } from './entityFootprint';
+import { forecastConsequences, hurt } from './forecast';
 import { angerIntent, announceRites, behaviorOf, type IntentPass } from './enemyBehaviors';
 import { chainAdjacent, isWalkable, neighbors } from './boardGeometry';
-import { evaluateEnemyAttack, planEnemyPhase } from './enemyPhase';
-import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
-import { chainSpikeDamage, shamanRites } from './forestBeasts';
+import { chainSpikeDamage } from './forestBeasts';
 import { creditDefeat, applyDamage, defeatOutright, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
 export { physicalDamage, shieldBlocksEntry } from './combatRules';
 import { MELEE_AGGRESSION_START_TURN } from './enemyLifecycle';
-import { applyDamageEffect, stepBleeding, tickDamageEffects, type DamageEffects } from './damageEffects';
-import { assignDamageEffects, applyAttackEffect, hasDamageEffects } from './effectRules';
+import { stepBleeding, type DamageEffects } from './damageEffects';
+import { assignDamageEffects, applyAttackEffect } from './effectRules';
 import { customGoalsMet } from './customLevel';
 import { applyDeviceVolley, deviceAt } from './devices';
-import { effectTickHurts, isTroll, trollRegeneration } from './troll';
 import { angerPerTurn, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
 export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, burning: 0, poison: 0 });
-/** The only way the forecast adds cat damage: the total and its source stay in step. */
-function hurt(preview: ChainPreview, source: HeroDamageSource, amount: number) {
-  preview.damage += amount; preview.damageBySource[source] += amount;
-}
-const tickSource = (kind: 'fire' | 'poison' | 'bleeding'): HeroDamageSource => kind === 'fire' ? 'burning' : kind;
 export const JUMP_RANGE = 3;
 
 /** Entity copy by the component registry (ecs/components.ts). */
@@ -34,37 +26,19 @@ export const cloneCell = (cell: ForestCell): ForestCell => cloneEntity(cell);
 /** Board copy by the registry; a multi-cell entity stays one shared record across its cells. */
 export const cloneBoard = (board: (ForestCell | null)[]): (ForestCell | null)[] => cloneEntities(board);
 export { adjacent, canSwapEnemies, chainAdjacent, chainNeighbors, isWalkable, neighbors } from './boardGeometry';
-/** Announced cells survive occupant death. Empty endpoints will receive fresh ordinary enemies. A boar push cancels pairs it disturbed. */
-export function rotationPreview(state: ForestState, board = state.board, playerIndex = state.player.index, displaced: ReadonlySet<number> = new Set()): RotationPreview[] {
-  const used = new Set<number>();
-  return [...state.rotations].sort((a, b) => a.from - b.from || a.to - b.to).map(plan => {
-    let reason = '';
-    const source = board[plan.from], target = board[plan.to];
-    if (plan.from === playerIndex || plan.to === playerIndex) reason = 'Кот занимает клетку обмена.';
-    else if ([plan.sourceId, plan.targetId, source?.id, target?.id].some(id => id !== undefined && displaced.has(id))) reason = 'Кабан сбил участника обмена.';
-    else if (deviceAt(state, plan.from) || deviceAt(state, plan.to)) reason = 'Устройство занимает клетку обмена.';
-    else if (source?.status.frozen || target?.status.frozen) reason = 'Замороженный участник блокирует обмен.';
-    else if ([source, target].some(cell => cell && (cell.kind !== 'melee' && cell.kind !== 'ranged' || (cell.footprint?.length ?? 1) > 1))) reason = 'Эта цель не участвует в обмене.';
-    else if (!rotationGeometryClear(state, plan)) reason = 'Путь обмена закрыт.';
-    else if (used.has(plan.from) || used.has(plan.to)) reason = 'Клетка уже участвует в другом обмене.';
-    if (!reason) { used.add(plan.from); used.add(plan.to); }
-    return { ...plan, active: !reason, ...(reason ? { reason } : {}) };
-  });
-}
-/** A cardinal swap needs both cells walkable and side by side. */
-function rotationGeometryClear(state: ForestState, plan: RotationPlan): boolean {
-  const { from, to } = plan;
-  if (from === to || !isWalkable(state, from) || !isWalkable(state, to)) return false;
-  const dx = to % state.cols - from % state.cols, dy = Math.floor(to / state.cols) - Math.floor(from / state.cols);
-  return Math.abs(dx) + Math.abs(dy) === 1;
-}
+import { rotationPreview } from './rotations';
+export { rotationPreview };
 /**
  * `crystal`: a colour-change crystal falls on `index` after the preceding step (one battle-RNG draw), crushing the
  * enemy `victimId` there; `value` is the chain's final kill count. Internal: never part of the public forecast.
  */
 export type ChainStep = { kind: 'hit'; hit: ChainHit } | { kind: 'device'; index: number; activated: boolean }
   | { kind: 'crystal'; index: number; victimId?: number; value: number };
-export interface ChainSimulation { steps?: ChainStep[]; queuedDevices?: InteractionDevice[]; preview: ChainPreview; board: (ForestCell | null)[] }
+export interface ChainSimulation {
+  steps?: ChainStep[]; queuedDevices?: InteractionDevice[]; preview: ChainPreview; board: (ForestCell | null)[];
+  /** The cat's damage effects after the planned steps (bleeding advances per step). */
+  movementEffects?: DamageEffects;
+}
 /** Stand-in for a fallen crystal on the forecast board (the engine gives the real one its ID at execution). */
 function crystalStandIn(state: ForestState, index: number, id: number): ForestCell {
   return { id, kind: 'prism', color: null, hp: 1, maxHp: 1, armor: 0, countdown: 2, crystalChain: 0,
@@ -72,17 +46,28 @@ function crystalStandIn(state: ForestState, index: number, id: number): ForestCe
     intent: { cells: [], damage: 1, label: 'Готовится' } };
 }
 /**
- * Shared pure combat evaluator: preview and the committed turn consume this exact result. `rng` is a copy of the live
- * battle RNG state: with it the crystals falling during the chain are drawn exactly as execution will draw them; without
- * it (validity checks, witness search) no crystal falls.
+ * Chain with its forecast: the plan (`planChain`), then its consequences — the levers' aftermath, the enemy phase and
+ * the end of the turn — from the live systems on a copy (forecast.ts). Pure: the live state, RNG and IDs are untouched.
  */
 export function simulateChain(state: ForestState, path: number[], allowIncomplete = false, rng?: number): ChainSimulation {
+  const simulation = planChain(state, path, allowIncomplete, rng);
+  if (simulation.preview.valid) forecastConsequences(state, simulation.preview, { simulation }, rng, simulation.movementEffects);
+  return simulation;
+}
+/**
+ * The action plan of a chain, shared by the preview and the committed turn (execution replays it): validity, hits,
+ * the cat's steps with quills and bleeding, crystals, levers and thorns at the end. No enemy answer. `rng` is a copy
+ * of the live battle RNG state: with it the crystals falling during the chain are drawn exactly as execution will draw
+ * them; without it (validity checks, witness search) no crystal falls.
+ */
+export function planChain(state: ForestState, path: number[], allowIncomplete = false, rng?: number): ChainSimulation {
   // Validate the submitted path independently from a lethal movement prefix.
   let plannedPathValid = false;
   // Porcupine quills can kill the cat mid-chain as bleeding can; validate the path as if the cat survived.
   const quills = path.reduce((sum, index) => sum + chainSpikeDamage(state.board[index]), 0);
   if (state.player.damageEffects?.bleeding || quills >= state.player.hp) {
-    const planned = simulateChain({ ...state, player: { ...state.player, hp: Number.MAX_SAFE_INTEGER, damageEffects: undefined } }, path, allowIncomplete);
+    // Validity only: the plan, never the forecast.
+    const planned = planChain({ ...state, player: { ...state.player, hp: Number.MAX_SAFE_INTEGER, damageEffects: undefined } }, path, allowIncomplete);
     if (!planned.preview.valid) return planned;
     plannedPathValid = !allowIncomplete;
   }
@@ -238,134 +223,10 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
   }
   if (!preview.playerDies && preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
   if (preview.playerDies) { preview.completesRoom = false; delete preview.opensDoor; }
-  forecastEnemyPhase(state, forecastState, preview, movingPlayer.damageEffects, customProgress);
   // Only the number of fallen crystals is public; their cells and the crushed enemies stay in the internal steps.
   if (crystalSteps.length) { preview.crystals = crystalSteps.length; preview.createsPrism = true; }
-  return { preview, board, steps, queuedDevices };
+  return { preview, board, steps, queuedDevices, movementEffects: movingPlayer.damageEffects };
 }
-/**
- * The enemy phase after an action, run on a copy with the live rules: boar charges (boarCharge.ts),
- * attacks in board order with archer arrows striking creatures (enemyPhase.ts), swaps, effect ticks.
- * `after` is the position once the action and its levers resolved. No RNG, no events.
- */
-function forecastEnemyPhase(state: ForestState, after: ForestState, preview: ChainPreview, movementEffects = state.player.damageEffects,
-  progress: ObjectiveProgress = state.objective): void {
-  // Forced deaths are enemy abilities: as in the live phase (recordDefeat 'enemy') only goal targets and bosses count.
-  const credited = { ...progress };
-  if (preview.playerDies) { preview.rotations = []; return; }
-  const effectAware = hasDamageEffects(state.player) || !!state.player.attackEffect
-    || after.board.some(cell => cell && (hasDamageEffects(cell) || cell.attackEffect));
-  let hp = state.player.hp - preview.damage;
-  let effects: DamageEffects | undefined = movementEffects ? { ...movementEffects } : undefined;
-  if (effectAware) { preview.movementDamage ??= 0; preview.effectDamage = 0; }
-  if (preview.completesRoom) {
-    preview.rotations = [];
-    if (effectAware) preview.endEffects = effects;
-    preview.playerDies = effectAware ? hp <= 0 : preview.damage >= state.player.hp;
-    return;
-  }
-  const sim: ForestState = { ...after, board: cloneBoard(after.board), pits: after.pits.map(pit => ({ ...pit })),
-    player: { ...after.player, hp, damageEffects: effects ? { ...effects } : undefined }, lastDamage: 0 };
-  // Keep the raw threat total for boards without effects; the charge part is always the applied damage.
-  const phase: EnemyPhaseForecast = { heroIndex: sim.player.index, charges: [], rams: [], moves: [], deaths: [], knockedDown: [], packBroken: [], empowered: [], regenerated: [] };
-  const displaced = new Set<number>(), firstFrom = new Map<number, number>(), lastTo = new Map<number, number>();
-  let chargeDamage = 0, chargeFrom = -1, chargeBoar = -1;
-  const chargeBreakdown: Record<ChargeDamageCause, number> = { ram: 0, spikes: 0, thorns: 0, pit: 0 };
-  for (const impact of resolveCharges(sim, displaced)) {
-    if (impact.kind === 'ram' || impact.kind === 'crush') {
-      if (impact.heroDamage !== undefined) { chargeDamage += impact.heroDamage; chargeBreakdown[impact.kind === 'ram' ? 'ram' : impact.cause] += impact.heroDamage; }
-      if (impact.cell && impact.killed) {
-        phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: impact.kind === 'ram' ? 'ram' : impact.cause });
-        creditDefeat(state, impact.cell, credited, 'enemy');
-      }
-    }
-    if (impact.kind === 'start') { chargeFrom = impact.index; chargeBoar = impact.boar.id; }
-    if (impact.kind === 'ram') phase.rams.push({ boarId: chargeBoar, id: impact.cell?.id ?? HERO_MOVE_ID, index: impact.index, damage: impact.damage, killed: impact.killed, shielded: impact.shielded });
-    if (impact.kind === 'ram' && impact.heroDamage !== undefined) preview.threats.push(chargeFrom);
-    if (impact.kind === 'shift') for (const move of [...impact.moves, { id: impact.boarId, from: impact.from, to: impact.to }]) {
-      if (!firstFrom.has(move.id)) firstFrom.set(move.id, move.from);
-      lastTo.set(move.id, move.to);
-    }
-    if (impact.kind === 'end') phase.charges.push({ boarId: impact.boarId, from: impact.from, to: impact.index, stunned: impact.moved === 0 });
-  }
-  phase.heroIndex = sim.player.index;
-  phase.moves = [...lastTo].map(([id, to]) => ({ id, from: firstFrom.get(id)!, to }));
-  phase.knockedDown = [...displaced].filter(id => id !== HERO_MOVE_ID && !phase.charges.some(charge => charge.boarId === id) && sim.board.some(cell => cell?.id === id));
-  preview.enemyPhase = phase;
-  if (chargeDamage) { preview.chargeDamage = chargeDamage; preview.chargeBreakdown = chargeBreakdown; hurt(preview, 'charge', chargeDamage); }
-  hp = sim.player.hp;
-  effects = sim.player.damageEffects ? { ...sim.player.damageEffects } : undefined;
-  const deactivate = () => { preview.rotations = preview.rotations.map(plan => ({ ...plan, active: false, reason: 'Кот погибнет до обмена.' })); };
-  if (hp <= 0) {
-    preview.rotations = rotationPreview(sim, sim.board, sim.player.index, displaced); deactivate();
-    if (effectAware) preview.endEffects = effects;
-    preview.playerDies = true;
-    return;
-  }
-  // Authored goals are checked in settleTurn, after the cat's own tick, with the turn counted.
-  const settles = () => {
-    if (!preview.playerDies && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, { ...credited, turns: credited.turns + 1 })) phase.completesObjective = true;
-    return;
-  };
-  const plan = planEnemyPhase(sim.board, sim.player.index, displaced, sim);
-  // Same order as execution: every actor once, re-evaluated when its turn comes (an earlier arrow may have
-  // killed this attacker or its packmate).
-  for (const attack of plan.actors) {
-    const { cell, index } = attack;
-    // An announced strike at the cat that the board now disarms: a wolf whose pack was broken, the only behaviour
-    // judging the world (`canStrike`, enemyBehaviors.ts); the interface shows the list as broken packs.
-    const live = evaluateEnemyAttack(cell, index, sim.player.index, sim);
-    if (!live && evaluateEnemyAttack(cell, index, sim.player.index)?.hitsHero) phase.packBroken.push(cell.id);
-    if (!live) continue;
-    const rule = behaviorOf(cell)!.attack!;
-    if (live.hitsHero) {
-      preview.threats.push(attack.index);
-      const damage = effectAware ? Math.min(hp, attack.cell.intent.damage) : attack.cell.intent.damage;
-      hp -= damage; hurt(preview, rule.source, damage);
-      if (effectAware && hp <= 0) break;
-      if (effectAware && attack.cell.attackEffect) effects = applyDamageEffect(effects, attack.cell.attackEffect);
-    }
-    // Arrows and the troll's club strike every creature on their cells, as in the live phase (the same strike).
-    const strike = rule.style === 'strike' ? rule.strike?.(attack.cell) : undefined;
-    if (hp > 0 && strike?.creatures) for (const impact of strike.creatures.impacts(sim.board)) {
-      if (!impact.killed) continue;
-      phase.deaths.push({ id: impact.cell.id, index: impact.index, cause: strike.creatures.cause });
-      creditDefeat(state, impact.cell, credited, 'enemy');
-    }
-  }
-  // Shaman rites resolve after the attacks, as in the live phase (UI data only: they never hurt the cat).
-  if (hp > 0) for (const rite of shamanRites(sim.board, plan.actors)) phase.empowered.push({ shamanId: rite.shaman.id, id: rite.cell.id, index: rite.index, tier: rite.tier });
-  // Troll regeneration at the end of the phase (UI data only). Its own effect tick still to come this phase is
-  // projected with the same kernel the live phase uses.
-  if (hp > 0) for (const { cell, index } of uniqueEntities(sim.board)) {
-    if (!isTroll(cell)) continue;
-    const amount = trollRegeneration(cell, effectTickHurts(cell));
-    if (amount) phase.regenerated.push({ id: cell.id, index, amount });
-  }
-  preview.rotations = rotationPreview(sim, sim.board, sim.player.index, displaced);
-  if (!effectAware) {
-    if (preview.damage >= state.player.hp) deactivate();
-    preview.playerDies = preview.damage >= state.player.hp;
-    if (preview.playerDies) phase.regenerated = [];
-    settles(); return;
-  }
-  if (hp <= 0) deactivate();
-  if (hp > 0) {
-    const tick = tickDamageEffects(effects);
-    effects = tick.effects;
-    for (const hit of tick.hits) {
-      const damage = Math.min(hp, hit.damage);
-      hp -= damage; preview.effectDamage! += damage; hurt(preview, tickSource(hit.kind), damage);
-      if (hp <= 0) break;
-    }
-  }
-  preview.endEffects = effects;
-  preview.playerDies = hp <= 0;
-  // A cat killed by its own tick ends the turn before the regeneration step.
-  if (preview.playerDies) phase.regenerated = [];
-  settles();
-}
-
 /**
  * Forecast of Rest (`ForestEngine.waitTurn`): no player action, +0,5 energy, then the same enemy phase on a copy —
  * boar charges, attacks, archer arrows, the club, swaps and effect ticks. No RNG, no events.
@@ -375,13 +236,18 @@ export function simulateRest(state: ForestState): ChainPreview {
     damageBySource: emptyDamageBySource(), threats: [], createsPrism: false, reason: state.phase === 'PLAYER_INPUT' ? '' : 'Дождись своего хода.',
     hits: [], kills: 0, endsOnSurvivor: false, rotations: rotationPreview(state), energyCost: 0, energyGain: Math.min(0.5, 7 - state.player.energy) };
   if (!preview.valid) return preview;
-  const after: ForestState = { ...state, turn: state.turn + 1, board: cloneBoard(state.board), pits: state.pits.map(pit => ({ ...pit })),
-    player: { ...state.player, ...(state.player.damageEffects ? { damageEffects: { ...state.player.damageEffects } } : {}) }, lastDamage: 0 };
-  forecastEnemyPhase(state, after, preview, state.player.damageEffects, { ...state.objective });
+  forecastConsequences(state, preview, { rest: true }, undefined, state.player.damageEffects);
   return preview;
 }
 
+/** Ability with its forecast: the plan (`planAbility`), then the enemy answer from the live systems on a copy. */
 export function simulateAbility(state: ForestState, ability: AbilityKind, targetIndex?: number): ChainSimulation & { preview: AbilityPreview } {
+  const simulation = planAbility(state, ability, targetIndex);
+  if (simulation.preview.valid) forecastConsequences(state, simulation.preview, { simulation, ability }, undefined, state.player.damageEffects);
+  return simulation;
+}
+/** The action plan of an ability (jump or spin): validity and hits, replayed by execution. No enemy answer. */
+export function planAbility(state: ForestState, ability: AbilityKind, targetIndex?: number): ChainSimulation & { preview: AbilityPreview } {
   const board = cloneBoard(state.board), cost = ABILITY_COST[ability] ?? 0;
   const indices = ability === 'spin' ? neighbors(state, state.player.index).filter(index => board[index] && board[index]!.kind !== 'door' && board[index]!.kind !== 'prism') : targetIndex === undefined ? [] : [targetIndex];
   const preview: AbilityPreview = { ability, cost, indices, targetIndex, valid: true, length: indices.length, enemies: 0, power: 4, endIndex: state.player.index,
@@ -414,7 +280,6 @@ export function simulateAbility(state: ForestState, ability: AbilityKind, target
     }
   }
   preview.completesRoom = state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress);
-  forecastEnemyPhase(state, { ...state, board, player: { ...state.player, index: preview.endIndex } }, preview, state.player.damageEffects, customProgress);
   return { preview, board };
 }
 

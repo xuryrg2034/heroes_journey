@@ -1,10 +1,10 @@
 import type { AuthoredLesson } from './lessonBuilder';
-import { ABILITY_COST, chainNeighbors, cloneBoard, isWalkable, neighbors, prepareIntents, simulateAbility, simulateChain, simulateRest } from './forestSystems';
+import { ABILITY_COST, chainNeighbors, cloneBoard, isWalkable, neighbors, planAbility, planChain, prepareIntents, simulateAbility, simulateChain, simulateRest } from './forestSystems';
 import { canHeal } from './recovered/combat';
 import { uniqueEntities } from './entityFootprint';
 import { applyRefillTier, nextRandom, refillTier, runPressureActive } from './mapBattleRules';
 import { animationWait, playTurn, type TurnSequence } from './turnRuntime';
-import { resolvePlayerTurn, resolveRestTurn, type TurnContext } from './turnSystems';
+import { concludeBattle, resolvePlayerTurn, resolveRestTurn, type TurnContext } from './turnSystems';
 import { cleanseDamageEffects } from './damageEffects';
 import { applyAttackEffect, assignDamageEffects, projectEnemyEffects } from './effectRules';
 import { applyDamage, killCreature } from './combatRules';
@@ -203,7 +203,7 @@ export class ForestEngine {
   getBoardState() { return cloneBoard(this.state.board); }
   neighbors(index: number) { return neighbors(this.state, index); }
   chainNeighbors(index: number) { return chainNeighbors(this.state, index); }
-  validStarts() { return this.chainNeighbors(this.state.player.index).filter(index => this.state.board[index] && simulateChain(this.state, [index], true).preview.valid); }
+  validStarts() { return this.chainNeighbors(this.state.player.index).filter(index => this.state.board[index] && planChain(this.state, [index], true).preview.valid); }
   setAbility(ability: AbilityKind | null): boolean {
     if (ability !== null && this.abilityLocked(ability)) return false;
     if (this.state.phase !== 'PLAYER_INPUT' || ability !== null && (!Object.hasOwn(ABILITY_COST, ability) || this.state.player.energy < ABILITY_COST[ability])) return false;
@@ -219,13 +219,13 @@ export class ForestEngine {
   async useAbility(ability: AbilityKind, targetIndex?: number): Promise<boolean> {
     if (this.state.phase !== 'PLAYER_INPUT' || !Object.hasOwn(ABILITY_COST, ability)) return false;
     if (this.abilityLocked(ability)) { this.emit({ type: 'invalid', text: 'Эта способность ещё не открыта.' }); return false; }
-    const simulation = simulateAbility(this.state, ability, targetIndex);
+    const simulation = planAbility(this.state, ability, targetIndex);
     if (!simulation.preview.valid) { this.state.message = simulation.preview.reason; this.emit({ type: 'invalid', text: simulation.preview.reason }); return false; }
     return this.commitSimulation(simulation, ability);
   }
   beginChain(index: number) {
     if (this.state.phase !== 'PLAYER_INPUT' || this.state.chosenAbility === 'jump' || this.state.chosenAbility === 'spin') return false;
-    const preview = simulateChain(this.state, [index], true).preview;
+    const preview = planChain(this.state, [index], true).preview;
     if (!preview.valid) { this.emit({ type: 'invalid', index, text: preview.reason }); return false; }
     this.state.chain = [index]; this.emit({ type: 'chain', index }); return true;
   }
@@ -234,8 +234,8 @@ export class ForestEngine {
     if (this.state.phase !== 'PLAYER_INPUT' || !path.length) return false;
     if (index === path[path.length - 1]) return true;
     if (path.length > 1 && index === path[path.length - 2]) { path.pop(); this.emit({ type: 'chain', index }); return true; }
-    if (!this.state.devices.length && simulateChain(this.state, path, true).preview.completesRoom) { this.emit({ type: 'invalid', index, text: 'Эта цепочка уже завершает бой.' }); return false; }
-    const simulation = simulateChain(this.state, [...path, index], true, this.rng);
+    if (!this.state.devices.length && planChain(this.state, path, true).preview.completesRoom) { this.emit({ type: 'invalid', index, text: 'Эта цепочка уже завершает бой.' }); return false; }
+    const simulation = planChain(this.state, [...path, index], true, this.rng);
     if (!simulation.preview.valid) { this.emit({ type: 'invalid', index, text: simulation.preview.reason }); return false; }
     path.push(index); this.emit({ type: 'chain', index }); return true;
   }
@@ -328,7 +328,7 @@ export class ForestEngine {
   }
   async releaseChain(): Promise<boolean> {
     if (this.state.phase !== 'PLAYER_INPUT') return false;
-    const path = [...this.state.chain], simulation = simulateChain(this.state, path, false, this.rng);
+    const path = [...this.state.chain], simulation = planChain(this.state, path, false, this.rng);
     if (!simulation.preview.valid) {
       this.state.chain = []; this.state.message = simulation.preview.reason;
       this.emit({ type: 'invalid', text: simulation.preview.reason }); return false;
@@ -453,7 +453,7 @@ export class ForestEngine {
       let budget = 1700;
       const walk = (path: number[]) => {
         if (--budget < 0) return;
-        const simulation = simulateChain(this.state, path, true), result = simulation.preview;
+        const simulation = planChain(this.state, path, true), result = simulation.preview;
         if (!result.valid) return;
         if (result.enemies >= 2 || result.opensDoor !== undefined) {
           const targets = path.filter(index => this.state.board[index]?.kind !== 'melee').join(',');
@@ -477,10 +477,7 @@ export class ForestEngine {
     return '';
   }
   private finish(won: boolean, message?: string) {
-    this.state.phase = won ? 'WIN' : 'LOSE'; this.state.chain = []; this.state.chosenAbility = null;
-    this.state.message = message ?? (this.state.runNode ? won ? 'Узел пройден.' : 'Кот отступил. Повтори узел: запас восстановится как на входе.'
-      : won ? 'Цели выполнены. Авторский уровень пройден!' : 'Кот отступил. Повтори уровень.');
-    if (won) this.state.score += this.state.player.hp * 150 + Math.max(0, 12 - this.state.turn) * 70;
+    concludeBattle(this.state, won, message);
     this.emit({ type: won ? 'win' : 'lose', text: this.state.message });
   }
   winLevel() { this.generation++; this.finish(true); }

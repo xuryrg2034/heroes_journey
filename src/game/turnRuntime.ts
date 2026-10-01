@@ -34,7 +34,7 @@ export function animationWait(milliseconds: number, scale: number): Promise<void
  * Run a turn sequence to its end synchronously, without clocks: yielded events are collected (and passed to
  * `onEvent`), delays skipped. For forecasts and tests that need the same systems without playback (ECS plan §3.8).
  * `isCurrent` may stop it early. Every event of a chain, ability or Rest turn passes through the sequence except the
- * battle end: `win`/`lose` are published by the facade's `finish` directly (to be moved in stage 6).
+ * battle end: `win`/`lose` are published by the facade's `finish` directly; the forecast reads the copy's phase instead.
  */
 export function drainSync(sequence: TurnSequence, isCurrent: () => boolean = () => true, onEvent?: (event: EngineEvent) => void): { result: boolean; events: EngineEvent[] } {
   const events: EngineEvent[] = [];

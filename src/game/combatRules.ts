@@ -17,6 +17,17 @@ export interface HeroTarget { readonly hero: Pick<ForestState, 'player' | 'lastD
 export const heroTarget = (state: Pick<ForestState, 'player' | 'lastDamage'>): HeroTarget => ({ hero: state });
 export interface DamageOutcome { damage: number; hpBefore: number; hpAfter: number; hpRemoved: number; killed: boolean }
 
+/** One application of damage to the cat: its source and the damage actually taken (capped by HP). */
+export interface HeroDamageEntry { cause: HeroDamageSource; damage: number }
+const heroTraces = new WeakMap<object, HeroDamageEntry[]>();
+/**
+ * Record every damage the cat of `state` takes from now on (the forecast's copy of the world): the forecast reads
+ * the breakdown by source from the same applications the live turn makes. Other states are not traced.
+ */
+export function traceHeroDamage(state: Pick<ForestState, 'player' | 'lastDamage'>): HeroDamageEntry[] {
+  const trace: HeroDamageEntry[] = []; heroTraces.set(state, trace); return trace;
+}
+
 /**
  * The single damage function (ECS plan §3.7), for creatures and the cat, forecast copies and the live world alike.
  * A creature: an already evaluated amount; a 0-HP enemy is marked defeated by any positive hit; physical damage clears
@@ -31,6 +42,7 @@ export function applyDamage(target: ForestCell | HeroTarget, amount: number, sou
     const state = target.hero, hpBefore = state.player.hp;
     const damage = Math.min(state.player.hp, amount);
     state.player.hp -= damage; state.lastDamage += damage;
+    heroTraces.get(state)?.push({ cause: source as HeroDamageSource, damage });
     return { damage, hpBefore, hpAfter: state.player.hp, hpRemoved: damage, killed: state.player.hp === 0 };
   }
   const cell = target, hpBefore = cell.hp;

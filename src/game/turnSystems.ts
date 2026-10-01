@@ -1,14 +1,14 @@
 import { isCellAlive } from './cellLife';
-import type { AbilityKind, ChainHit, ForestCell, ForestState, HeroDamageSource, RotationPreview } from './forestTypes';
+import type { AbilityKind, ChainHit, EnemyPhaseForecast, ForcedDeathCause, ForestCell, ForestState, HeroDamageSource, RotationPreview } from './forestTypes';
 import type { ChainSimulation } from './forestSystems';
-import { rotationPreview } from './forestSystems';
+import { rotationPreview } from './rotations';
 import { uniqueEntities } from './entityFootprint';
 import { customGoalsMet, refreshCustomProgress } from './customLevel';
 import { applyDamage, heroTarget, defeatOutright, type DefeatCredit } from './combatRules';
 import { crystalScore } from './mapBattleRules';
 import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
 import { behaviorOf } from './enemyBehaviors';
-import { HERO_MOVE_ID, resolveCharges } from './boarCharge';
+import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
 import { clubCanRaise, isTroll, trollRegeneration } from './troll';
@@ -30,6 +30,30 @@ import { instant, runSchedule, type ScheduleVerdict, type SystemSet, type TurnSy
 export interface TurnScratch {
   action?: { simulation: ChainSimulation; ability?: AbilityKind; startIndex: number; doorOpened: boolean };
   enemyPhase?: { resting: { cell: ForestCell; index: number }[]; displaced: Set<number>; actors: { cell: ForestCell; index: number }[] };
+  /** What the turn's systems did, in order; the forecast projects its preview from it (forecast.ts). */
+  report?: TurnReport;
+}
+
+/**
+ * Facts the systems record while they resolve a turn (live or on the forecast's copy): the forecast reads its
+ * preview from them instead of resolving the rules a second time. Cheap; the live turn ignores it.
+ */
+export interface TurnReport {
+  /** Every boar charge impact, in resolution order (boarCharge.ts). */
+  chargeImpacts: ChargeImpact[];
+  /** Cells of the enemies that hurt the cat: a ramming boar (its starting cell), then attackers in board order. */
+  threats: number[];
+  /** Wolves whose announced strike at the cat the board cancels when their turn comes. */
+  packBroken: number[];
+  /** Creatures killed by enemy abilities (charges, arrows, the club) in this enemy phase. */
+  deaths: { id: number; index: number; cause: ForcedDeathCause }[];
+  empowered: EnemyPhaseForecast['empowered'];
+  regenerated: EnemyPhaseForecast['regenerated'];
+  /** The announced rotations as the rotation step judged them (absent until it runs). */
+  rotations?: RotationPreview[];
+}
+export function turnReport(ctx: { scratch: TurnScratch }): TurnReport {
+  return ctx.scratch.report ??= { chargeImpacts: [], threats: [], packBroken: [], deaths: [], empowered: [], regenerated: [] };
 }
 
 /** The world and its services used by the synchronous turn systems. No clocks or animation promises. */
@@ -248,6 +272,7 @@ function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number):
       impacted = true;
       cell.behavior.aggressive = false; cell.behavior.restTurns = 1;
       const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, behaviorOf(cell)?.attack?.source ?? 'melee').damage;
+      turnReport(ctx).threats.push(index);
       events.push({ type: 'damage', index: target, from: index, amount: damage });
     },
     nextState: (_enemy, state) => {
@@ -277,6 +302,8 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
   for (const { cell, index } of actors) {
     // Keep actor membership fixed, but honour status/intent edits made by synchronous subscribers.
     const attack = evaluateEnemyAttack(cell, index, ctx.state.player.index, ctx.state);
+    // An announced strike at the cat that the board now cancels (a wolf whose pack was broken).
+    if (!attack && evaluateEnemyAttack(cell, index, ctx.state.player.index)?.hitsHero) turnReport(ctx).packBroken.push(cell.id);
     if (!attack) continue;
     const { target, hitsHero } = attack;
     // evaluateEnemyAttack returned an attack, so the behaviour has an attack rule (enemyBehaviors.ts).
@@ -291,6 +318,7 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
       yield { event: { type: 'attack', index, from: index, to: target, ...strike.event } };
       if (hitsHero) {
         const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, rule.source).damage;
+        turnReport(ctx).threats.push(index);
         yield { event: { type: 'damage', index: ctx.state.player.index, from: index, amount: damage, ...text } };
         if (ctx.state.player.hp > 0 && applyAttackEffect(ctx.state.player, cell.attackEffect, false)) {
           yield { event: { type: 'status', index: ctx.state.player.index, from: index, effect: cell.attackEffect, amount: 1 } };
@@ -301,6 +329,7 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
         yield { event: { type: 'hit', index: impact.index, from: index, amount: impact.damage, ...text } };
         if (!ctx.current()) return false;
         if (!impact.killed) continue;
+        turnReport(ctx).deaths.push({ id: impact.cell.id, index: impact.index, cause: strike.creatures.cause });
         ctx.cmd.kill(impact.cell, impact.index, 'enemy');
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index: impact.index, ...text } };
@@ -317,14 +346,18 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
  * to `displaced`: they skip their action and their announced swaps this phase.
  */
 export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): TurnSequence {
-  let boarIndex = -1;
+  let boarIndex = -1, chargeFrom = -1;
+  const report = turnReport(ctx);
   for (const impact of resolveCharges(ctx.state, displaced)) {
     if (!ctx.current()) return false;
+    report.chargeImpacts.push(impact);
     if (impact.kind === 'start') {
-      boarIndex = impact.index;
+      boarIndex = chargeFrom = impact.index;
       yield { event: { type: 'charge', index: impact.index, from: impact.index, indices: impact.lane, amount: impact.boar.intent.damage } };
     } else if (impact.kind === 'ram' || impact.kind === 'crush') {
       const text = impact.kind === 'ram' ? 'ram' : impact.cause;
+      if (impact.kind === 'ram' && impact.heroDamage !== undefined) report.threats.push(chargeFrom);
+      if (impact.heroDamage === undefined && impact.killed && impact.cell) report.deaths.push({ id: impact.cell.id, index: impact.index, cause: text });
       if (impact.heroDamage !== undefined) {
         yield { event: { type: 'damage', index: ctx.state.player.index, from: impact.kind === 'ram' ? boarIndex : undefined, amount: impact.heroDamage, text } };
         if (!ctx.current()) return false;
@@ -358,6 +391,7 @@ export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): T
 /** Apply every announced exchange after attacks; replacements never act in this phase. */
 export function* resolveRotations(ctx: TurnContext, displaced: ReadonlySet<number> = new Set()): TurnSequence {
   const rotations = rotationPreview(ctx.state, ctx.state.board, ctx.state.player.index, displaced), replacements = ctx.planRotationReplacements(rotations);
+  turnReport(ctx).rotations = rotations;
   for (const plan of rotations) {
     if (!ctx.current()) return false;
     if (!plan.active) continue;
@@ -504,10 +538,21 @@ export const ENEMY_TURN: readonly SystemSet<TurnContext>[] = [ENEMY_PHASE, END_O
  * After every system: a restarted scene cancels the turn; a cat at 0 HP loses (if its system did not already
  * finish the battle); a finished battle stops the schedule before any later system.
  */
-function turnVerdict(ctx: TurnContext): ScheduleVerdict {
+export function turnVerdict(ctx: TurnContext): ScheduleVerdict {
   if (!ctx.current()) return 'cancelled';
   if (ctx.state.player.hp === 0 && ctx.state.phase !== 'WIN' && ctx.state.phase !== 'LOSE') ctx.finish(false);
   return ctx.state.phase === 'WIN' || ctx.state.phase === 'LOSE' ? 'finished' : 'continue';
+}
+
+/**
+ * The end of a battle (the facade's `finish` and the forecast's copy alike): phase, cleared selection, the result
+ * message and the victory bonus. Publishing `win`/`lose` is the caller's.
+ */
+export function concludeBattle(state: ForestState, won: boolean, message?: string): void {
+  state.phase = won ? 'WIN' : 'LOSE'; state.chain = []; state.chosenAbility = null;
+  state.message = message ?? (state.runNode ? won ? 'Узел пройден.' : 'Кот отступил. Повтори узел: запас восстановится как на входе.'
+    : won ? 'Цели выполнены. Авторский уровень пройден!' : 'Кот отступил. Повтори уровень.');
+  if (won) state.score += state.player.hp * 150 + Math.max(0, 12 - state.turn) * 70;
 }
 
 /** A chain or an ability: PlayerAction, then the enemy phase, the end of the turn and the board update. */
@@ -531,6 +576,7 @@ export function resolveEnemyTurn(ctx: TurnContext): TurnSequence {
 export function* resolveShamanRites(ctx: TurnContext, actors: { cell: ForestCell; index: number }[]): TurnSequence {
   if (!actors.some(({ cell }) => cell.intent.empowerIds?.length && shamanActive(ctx.state.board, cell))) return true;
   for (const rite of shamanRites(ctx.state.board, actors)) {
+    turnReport(ctx).empowered.push({ shamanId: rite.shaman.id, id: rite.cell.id, index: rite.index, tier: rite.tier });
     yield { event: { type: 'empower', index: rite.index, from: rite.shamanIndex, amount: rite.cell.hp, text: rite.tier } };
     if (!ctx.current()) return false;
     yield { delay: 90 };
@@ -565,6 +611,7 @@ export function* resolveTrollRegeneration(ctx: TurnContext): TurnSequence {
     const amount = trollRegeneration(cell);
     delete cell.behavior.hurtThisTurn;
     if (!amount) continue;
+    turnReport(ctx).regenerated.push({ id: cell.id, index, amount });
     cell.hp += amount;
     yield { event: { type: 'regen', index, amount, text: `${cell.hp} HP` } };
     if (!ctx.current()) return false;

@@ -1,4 +1,4 @@
-import { chainNeighbors, shieldBlocksEntry, simulateChain } from './forestSystems';
+import { chainNeighbors, planChain, shieldBlocksEntry } from './forestSystems';
 import type { EnemyColor, ForestState } from './forestTypes';
 import { deviceAt } from './devices';
 import { allowedSpawnColors } from './customLevel';
@@ -22,7 +22,7 @@ export function chooseGeneratedColors(state: ForestState, generatedIds: Readonly
   const palette = allowedSpawnColors(state);
   const allowedFor = (id: number): EnemyColor[] => palette.filter(color => !colorLimits.has(id) || colorLimits.get(id)!.includes(color));
   let budget = GENERATION_SEARCH_BUDGET;
-  const evaluate = (path: number[]) => { budget--; return simulateChain(ordinary, path, true).preview; };
+  const evaluate = (path: number[]) => { budget--; return planChain(ordinary, path, true).preview; };
   /**
    * Sound pruning for a path that already holds its first enemy. The only cells
    * a chain may pass before its second enemy are unvisited devices and prisms, so
