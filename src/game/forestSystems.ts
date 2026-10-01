@@ -3,21 +3,23 @@ import { cloneEntity } from './ecs/components';
 import { cloneEntities } from './ecs/world';
 import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, ChargeDamageCause, EnemyPhaseForecast, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ObjectiveProgress, RotationPlan, RotationPreview } from './forestTypes';
 import { recoveredMoveTowards } from './recoveredEnemyMovement';
-import { canMoveTo, updateShieldDir, type EnemyActor } from './recovered/enemies';
+import { updateShieldDir, type EnemyActor } from './recovered/enemies';
 import { pathColour, WILD } from './recovered/core';
 import { canFireArrowHit } from './recovered/combat';
-import { footprintPerimeter, uniqueEntities } from './entityFootprint';
+import { uniqueEntities } from './entityFootprint';
+import { behaviorOf, type IntentPass } from './enemyBehaviors';
+import { canSwapEnemies, chainAdjacent, isWalkable, meleeTargets, neighbors } from './boardGeometry';
 import { archerStrikesCreatures, archerVolley, evaluateEnemyAttack, planEnemyPhase } from './enemyPhase';
 import { BOAR_CHARGE_LENGTH, BOAR_DAMAGE, chargeDirection, chargeLane, HERO_MOVE_ID, resolveCharges } from './boarCharge';
 import { THORN_DAMAGE, walkableTerrain } from './terrain';
-import { chainSpikeDamage, SHAMAN_PERIOD, shamanRites, shamanTargets, wolfHasPack, WOLF_DAMAGE } from './forestBeasts';
+import { chainSpikeDamage, SHAMAN_PERIOD, shamanRites, shamanTargets } from './forestBeasts';
 import { creditDefeat, applyDamage, defeatOutright, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
 export { physicalDamage, shieldBlocksEntry } from './combatRules';
 import { MELEE_AGGRESSION_START_TURN, meleeCanAttack } from './enemyLifecycle';
 import { applyDamageEffect, stepBleeding, tickDamageEffects, type DamageEffects } from './damageEffects';
 import { assignDamageEffects, applyAttackEffect, hasDamageEffects } from './effectRules';
 import { customGoalsMet } from './customLevel';
-import { applyDeviceVolley, deviceAt, pitAt } from './devices';
+import { applyDeviceVolley, deviceAt } from './devices';
 import { clubImpacts, clubZone, effectTickHurts, isTroll, swingClub, TROLL_CLUB_DAMAGE, trollBody, trollRegeneration } from './troll';
 import { angerPerTurn, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
 
@@ -34,53 +36,7 @@ export const JUMP_RANGE = 3;
 export const cloneCell = (cell: ForestCell): ForestCell => cloneEntity(cell);
 /** Board copy by the registry; a multi-cell entity stays one shared record across its cells. */
 export const cloneBoard = (board: (ForestCell | null)[]): (ForestCell | null)[] => cloneEntities(board);
-export function isWalkable(state: ForestState, index: number): boolean {
-  return index >= 0 && index < state.cols * state.rows && !pitAt(state, index) && walkableTerrain(state.terrain[index]);
-}
-export function adjacent(state: ForestState, from: number, to: number): boolean {
-  if (from === to || !isWalkable(state, from) || !isWalkable(state, to)) return false;
-  const dx = to % state.cols - from % state.cols, dy = Math.floor(to / state.cols) - Math.floor(from / state.cols);
-  if (Math.abs(dx) > 1 || Math.abs(dy) > 1) return false;
-  if (dx && dy) {
-    const horizontal = from + dx, vertical = from + dy * state.cols;
-    if (!isWalkable(state, horizontal) && !isWalkable(state, vertical)) return false;
-  }
-  return true;
-}
-export function neighbors(state: ForestState, index: number): number[] {
-  const result: number[] = [];
-  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-    const x = index % state.cols + dx, y = Math.floor(index / state.cols) + dy;
-    if (x >= 0 && x < state.cols && y >= 0 && y < state.rows) {
-      const target = y * state.cols + x; if (adjacent(state, index, target)) result.push(target);
-    }
-  }
-  return result;
-}
-export function chainAdjacent(state: ForestState, from: number, to: number): boolean {
-  return adjacent(state, from, to);
-}
-export function chainNeighbors(state: ForestState, index: number): number[] { return neighbors(state, index).filter(target => chainAdjacent(state, index, target)); }
-function meleeTargets(state: ForestState, index: number): number[] {
-  const footprint = state.board[index]?.footprint;
-  if (footprint && footprint.length > 1) return footprintPerimeter(footprint, state.cols, state.rows).filter(target => isWalkable(state, target));
-  return neighbors(state, index).filter(target => target % state.cols === index % state.cols || Math.floor(target / state.cols) === Math.floor(index / state.cols));
-}
-/** A rotation exchanges two living ordinary enemies; empty cells never qualify. */
-export function canSwapEnemies(state: ForestState, from: number, to: number): boolean {
-  const source = state.board[from], target = state.board[to];
-  const normal = (cell: ForestCell | null | undefined) => {
-    if (!cell || !isCellAlive(cell)) return false; // Our rotations require occupied endpoints.
-    const properties: Record<number, number> = {};
-    if (cell.kind !== 'melee' && cell.kind !== 'ranged' || (cell.footprint?.length ?? 1) > 1) properties[37] = 1;
-    if (cell.status.frozen > 0) properties[254] = cell.status.frozen;
-    return canMoveTo(0, 0, 0, 0, false, false, { valid: () => true, playableMove: () => true,
-      cell: () => ({ subtype: 2, kind: 1, power: cell.hp, col: 0, row: 0, face_dir: 1, attack_mode: 0, properties }) });
-  };
-  return !!normal(source) && !!normal(target) && adjacent(state, from, to)
-    && (from % state.cols === to % state.cols || Math.floor(from / state.cols) === Math.floor(to / state.cols))
-    && from !== state.player.index && to !== state.player.index;
-}
+export { adjacent, canSwapEnemies, chainAdjacent, chainNeighbors, isWalkable, neighbors } from './boardGeometry';
 /** Announced cells survive occupant death. Empty endpoints will receive fresh ordinary enemies. A boar push cancels pairs it disturbed. */
 export function rotationPreview(state: ForestState, board = state.board, playerIndex = state.player.index, displaced: ReadonlySet<number> = new Set()): RotationPreview[] {
   const used = new Set<number>();
@@ -359,9 +315,10 @@ function forecastEnemyPhase(state: ForestState, after: ForestState, preview: Cha
   // killed this attacker or its packmate).
   for (const attack of plan.actors) {
     const { cell, index } = attack;
-    // Only strikes that would have hit the cat: the announcement alone (no world) hits, the live pack check fails.
-    if (cell.variant === 'wolf' && evaluateEnemyAttack(cell, index, sim.player.index)?.hitsHero && !wolfHasPack(sim, index)) phase.packBroken.push(cell.id);
+    // An announced strike at the cat that the board now disarms (a wolf whose pack was broken: the only
+    // behaviour judging the world, enemyBehaviors.ts).
     const live = evaluateEnemyAttack(cell, index, sim.player.index, sim);
+    if (!live && evaluateEnemyAttack(cell, index, sim.player.index)?.hitsHero) phase.packBroken.push(cell.id);
     if (!live) continue;
     if (live.hitsHero) {
       preview.threats.push(attack.index);
@@ -472,9 +429,8 @@ export function simulateAbility(state: ForestState, ability: AbilityKind, target
 export function prepareIntents(state: ForestState, rand: (min: number, max: number) => number = min => min) {
   state.bossWarning = [];
   state.rotations = [];
-  const melee: { index: number; distance: number; id: number }[] = [];
-  const shamans: number[] = [];
-  const paired = new Set<number>();
+  const pass: IntentPass = { state, rand, anger: [], rites: [], paired: new Set() };
+  const { anger: melee, rites: shamans, paired } = pass;
   const prepared = new Set<number>();
   state.board.forEach((cell, index) => {
     if (!cell || cell.kind !== 'door' && !isCellAlive(cell) || prepared.has(cell.id)) return; prepared.add(cell.id);
@@ -493,16 +449,9 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
     if (cell.kind === 'door') { cell.intent.label = customGoalsMet(state) ? 'Выход открыт' : 'Выполни цели'; return; }
     // Forest beasts and the shaman never join the one-new-goblin aggression queue (forestBeasts.ts).
     if (cell.variant === 'shaman') { cell.intent = { cells: [], damage: 0, label: 'Готовит камлание' }; shamans.push(index); return; }
-    if (cell.variant === 'wolf') {
-      // One threshold: a living neighbouring wolf arms it and makes it angry; a lone wolf stays passive.
-      const pack = wolfHasPack(state, index);
-      cell.behavior.aggressive = pack;
-      if (pack && meleeCanAttack(cell)) {
-        cell.countdown = 1;
-        cell.intent = { cells: meleeTargets(state, index), damage: WOLF_DAMAGE, label: 'Стая · замах' };
-      } else cell.intent.label = !pack ? 'Одинок' : cell.status.frozen > 0 ? 'Заморожен' : 'Стая · отдых';
-      return;
-    }
+    // Behaviour dispatcher (enemyBehaviors.ts), inside the one board-order pass.
+    const behavior = behaviorOf(cell);
+    if (behavior?.intent) { behavior.intent(pass, cell, index); return; }
     if (cell.variant === 'boar') {
       // Announced now, run at the start of the next enemy phase; never retargeted after the chain.
       if (cell.status.frozen > 0) { cell.intent.label = 'Заморожен'; return; }

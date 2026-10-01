@@ -2,7 +2,8 @@ import { isCellAlive } from './cellLife';
 import { applyDamage, removeDefeated } from './combatRules';
 import { uniqueEntities } from './entityFootprint';
 import { meleeCanAttack } from './enemyLifecycle';
-import { wolfHasPack, type BeastWorld } from './forestBeasts';
+import { behaviorOf } from './enemyBehaviors';
+import type { BeastWorld } from './forestBeasts';
 import type { ForestCell } from './forestTypes';
 
 export interface EnemyAttack {
@@ -20,8 +21,9 @@ export function evaluateEnemyAttack(cell: ForestCell, index: number, playerIndex
   if (!isCellAlive(cell) || cell.behavior.passive || cell.status.frozen > 0 || cell.behavior.restTurns > 0) return null;
   // The boar acts only through its charge (boarCharge.ts); porcupine and shaman never strike.
   if (cell.variant === 'boar' || cell.variant === 'porcupine' || cell.variant === 'shaman') return null;
-  // A pack broken before the strike (a chain, an arrow or a charge took the neighbour) disarms the wolf.
-  if (cell.variant === 'wolf' && world && !wolfHasPack(world, index)) return null;
+  // Behaviour-specific condition (enemyBehaviors.ts): a wolf needs its pack now.
+  const behavior = behaviorOf(cell);
+  if (behavior?.canStrike && !behavior.canStrike(cell, index, world)) return null;
   // The troll strikes only once its windup phase has passed (troll.ts); the windup itself is not an attack.
   if (cell.variant === 'troll' && !cell.behavior.club?.raised) return null;
   const hitsHero = cell.intent.cells.includes(playerIndex);
