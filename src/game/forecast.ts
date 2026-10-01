@@ -97,6 +97,12 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
     ctx.scratch.action = { simulation, ability: action.ability, startIndex: sim.player.index, doorOpened: false };
   }
   drainSync(runSchedule(ctx, ['simulation' in action ? PLAYER_ACTION : REST_ACTION], turnVerdict));
+  // Lever volleys as the copy resolved them: an elite's loot falling after one volley may change the next (the plan
+  // resolves the volleys without loot).
+  if ('simulation' in action && action.simulation.queuedDevices?.length && preview.trapHits) {
+    const report = turnReport(ctx);
+    preview.trapHits = report.trapHits; preview.trapKills = report.trapKills; preview.pitCells = report.pitCells; preview.pitImmuneCells = report.pitImmuneCells;
+  }
   // The copy is the turn as it will run: where it ends the battle with the action itself, so does the preview (an
   // incomplete one-enemy path that already meets the goals, which the plan does not mark as a victory).
   if (sim.phase === 'LOSE') { preview.playerDies = true; preview.completesRoom = false; delete preview.opensDoor; preview.rotations = []; return; }

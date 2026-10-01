@@ -246,19 +246,20 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
  * Forecast of Rest (`ForestEngine.waitTurn`): no player action, +0,5 energy, then the same enemy phase on a copy —
  * boar charges, attacks, archer arrows, the club, swaps and effect ticks. No RNG, no events.
  */
-export function simulateRest(state: ForestState): ChainPreview {
+export function simulateRest(state: ForestState, rng?: number): ChainPreview {
   const preview: ChainPreview = { valid: state.phase === 'PLAYER_INPUT', length: 0, enemies: 0, power: 0, endIndex: state.player.index, damage: 0,
     damageBySource: emptyDamageBySource(), threats: [], createsPrism: false, reason: state.phase === 'PLAYER_INPUT' ? '' : 'Дождись своего хода.',
     hits: [], kills: 0, endsOnSurvivor: false, rotations: rotationPreview(state), energyCost: 0, energyGain: Math.min(0.5, 7 - state.player.energy) };
   if (!preview.valid) return preview;
-  forecastConsequences(state, preview, { rest: true }, undefined, state.player.damageEffects);
+  forecastConsequences(state, preview, { rest: true }, rng, state.player.damageEffects);
   return preview;
 }
 
 /** Ability with its forecast: the plan (`planAbility`), then the enemy answer from the live systems on a copy. */
-export function simulateAbility(state: ForestState, ability: AbilityKind, targetIndex?: number): ChainSimulation & { preview: AbilityPreview } {
+export function simulateAbility(state: ForestState, ability: AbilityKind, targetIndex?: number, rng?: number): ChainSimulation & { preview: AbilityPreview } {
   const simulation = planAbility(state, ability, targetIndex);
-  if (simulation.preview.valid) forecastConsequences(state, simulation.preview, { simulation, ability }, undefined, state.player.damageEffects);
+  // `rng`: a copy of the live battle RNG — loot an elite drops after the ability is drawn from it, as in execution.
+  if (simulation.preview.valid) forecastConsequences(state, simulation.preview, { simulation, ability }, rng, state.player.damageEffects);
   return simulation;
 }
 /** The action plan of an ability (jump or spin): validity and hits, replayed by execution. No enemy answer. */

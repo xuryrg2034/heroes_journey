@@ -10,7 +10,7 @@ import { applyDamage, heroTarget, defeatOutright, type DefeatCredit } from './co
 import { crystalScore } from './mapBattleRules';
 import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
 import { behaviorOf } from './enemyBehaviors';
-import { rollEliteLoot } from './elite';
+import { heroStrikeDamage, rollEliteLoot } from './elite';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
@@ -58,9 +58,14 @@ export interface TurnReport {
   regenerated: EnemyPhaseForecast['regenerated'];
   /** The announced rotations as the rotation step judged them (absent until it runs). */
   rotations?: RotationPreview[];
+  /** Lever volleys after the chain: creatures struck, kills (prisms excluded), pits opened and pits that held a figure. */
+  trapHits: ChainHit[];
+  trapKills: number;
+  pitCells: number[];
+  pitImmuneCells: number[];
 }
 export function turnReport(ctx: { scratch: TurnScratch }): TurnReport {
-  return ctx.scratch.report ??= { chargeImpacts: [], threats: [], packBroken: [], deaths: [], empowered: [], regenerated: [] };
+  return ctx.scratch.report ??= { chargeImpacts: [], threats: [], packBroken: [], deaths: [], empowered: [], regenerated: [], trapHits: [], trapKills: 0, pitCells: [], pitImmuneCells: [] };
 }
 
 /** The world and its services used by the synchronous turn systems. No clocks or animation promises. */
@@ -194,7 +199,8 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
     }
     if (original.kind === 'boss') ctx.state.objective.bossHits++;
     // A map-battle crystal scores by the chain that created it (same number as the forecast's hits[].crystalScore).
-    ctx.state.score += hit.crystalScore ?? (hit.killed ? 20 + hit.damage * 2 : hit.damage);
+    // Picked-up loot scores nothing (elite.ts); a crystal scores by its chain.
+    ctx.state.score += hit.loot ? 0 : hit.crystalScore ?? (hit.killed ? 20 + hit.damage * 2 : hit.damage);
     yield { event: { type: hit.physical ? 'hit' : 'collect', index: hit.index, amount: hit.damage, text: hit.killed ? undefined : `${hit.hpAfter} HP` } };
     if (!ctx.current()) return false;
     if (hit.killed) yield { event: { type: 'kill', index: hit.index } };
@@ -242,7 +248,11 @@ const DeviceVolleys: TurnSystem<TurnContext> = { name: 'DeviceVolleys', *run(ctx
   for (const device of simulation.queuedDevices ?? []) {
     yield { event: { type: 'trap', index: device.index, text: device.kind, indices: deviceTargets(ctx.state, device), amount: device.kind === 'pits' ? undefined : device.damage ?? 4 } };
     if (!ctx.current()) return false;
+    const report = turnReport(ctx);
     for (const impact of applyDeviceVolley(ctx.state, device)) {
+      if (impact.pitOpened && !report.pitCells.includes(impact.index)) report.pitCells.push(impact.index);
+      if (impact.pitImmune && !report.pitImmuneCells.includes(impact.index)) report.pitImmuneCells.push(impact.index);
+      if (impact.hit) { report.trapHits.push(impact.hit); if (impact.hit.killed && impact.cell?.kind !== 'prism') report.trapKills++; }
       if (impact.pitOpened) yield { event: { type: 'pit-open', index: impact.index, indices: [impact.index] } };
       else if (impact.pitImmune) yield { event: { type: 'pit-immune', index: impact.index, indices: [impact.index] } };
       else if (impact.heroDamage !== undefined) yield { event: { type: 'damage', index: impact.index, amount: impact.heroDamage } };
@@ -405,7 +415,7 @@ export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): T
     report.chargeImpacts.push(impact);
     if (impact.kind === 'start') {
       boarIndex = chargeFrom = impact.index;
-      yield { event: { type: 'charge', index: impact.index, from: impact.index, indices: impact.lane, amount: impact.boar.intent.damage } };
+      yield { event: { type: 'charge', index: impact.index, from: impact.index, indices: impact.lane, amount: heroStrikeDamage(impact.boar) } };
     } else if (impact.kind === 'ram' || impact.kind === 'crush') {
       const text = impact.kind === 'ram' ? 'ram' : impact.cause;
       if (impact.kind === 'ram' && impact.heroDamage !== undefined) report.threats.push(chargeFrom);

@@ -214,7 +214,7 @@ export class ForestEngine {
   private abilityLocked(ability: AbilityKind) { const rules = this.toolRules(); return !!rules && !rules.allowedAbilities.includes(ability); }
   private itemLocked(item: ItemKind) { const rules = this.toolRules(); return !!rules && !rules.allowedItems.includes(item); }
   previewAbility(ability: AbilityKind, targetIndex?: number) {
-    const preview = simulateAbility(this.state, ability, targetIndex).preview;
+    const preview = simulateAbility(this.state, ability, targetIndex, this.rng).preview;
     return this.abilityLocked(ability) && preview.valid ? { ...preview, valid: false, reason: 'Эта способность ещё не открыта.' } : preview;
   }
   async useAbility(ability: AbilityKind, targetIndex?: number): Promise<boolean> {
@@ -244,7 +244,7 @@ export class ForestEngine {
   /** Pure: crystals falling during the chain are drawn on a copy of the RNG; the live RNG, IDs and state are untouched. */
   preview(path = this.state.chain): ChainPreview { return simulateChain(this.state, path, false, this.rng).preview; }
   /** Forecast of Rest: the enemy phase that `waitTurn` would run now (pure: no state, RNG or ID change). */
-  previewRest(): ChainPreview { return simulateRest(this.state); }
+  previewRest(): ChainPreview { return simulateRest(this.state, this.rng); }
   previewRotations(path = this.state.chain) { return this.preview(path).rotations; }
   previewFrost(index: number): FrostPreview {
     const cell = this.state.board[index];

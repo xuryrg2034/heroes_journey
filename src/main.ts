@@ -1,6 +1,7 @@
 import './style.css';
 import { ForestEngine } from './game/forestEngine';
 import { ITEMS } from './game/items';
+import { heroStrikeDamage } from './game/elite';
 import { ABILITY_COST, JUMP_RANGE } from './game/forestSystems';
 import { uniqueEntities } from './game/entityFootprint';
 import { archerStrikesCreatures, planEnemyPhase } from './game/enemyPhase';
@@ -240,9 +241,10 @@ function updateGuide() {
   const sentinelPresent = state.board.some(cell => cell?.variant === 'sentinel');
   const boarPresent = state.board.some(cell => cell?.variant === 'boar');
   const trollPresent = state.board.some(cell => cell?.variant === 'troll'), wolfPresent = state.board.some(cell => cell?.variant === 'wolf'), porcupinePresent = state.board.some(cell => cell?.variant === 'porcupine'), shamanPresent = state.board.some(cell => cell?.variant === 'shaman');
+  const elitePresent = state.board.some(cell => cell?.elite);
   const spikedSides = state.customLevel?.definition.spikedEdges ?? [];
   const thornsPresent = state.terrain.includes('thorns');
-  const guideKey=`${state.runNode?.nodeId ?? ''}:${toolRules(state).items.join(',')}:${toolRules(state).abilities.join(',')}/${!!state.tutorial}/${!!state.customLevel}/${sentinelPresent}/${boarPresent}/${trollPresent}/${wolfPresent}/${porcupinePresent}/${shamanPresent}/${spikedSides.join(',')}/${thornsPresent}`;
+  const guideKey=`${state.runNode?.nodeId ?? ''}:${toolRules(state).items.join(',')}:${toolRules(state).abilities.join(',')}/${!!state.tutorial}/${!!state.customLevel}/${sentinelPresent}/${boarPresent}/${trollPresent}/${wolfPresent}/${porcupinePresent}/${shamanPresent}/${elitePresent}/${spikedSides.join(',')}/${thornsPresent}`;
   if (guideTheme === guideKey) return;
   guideTheme = guideKey;
   // A map-node battle (authored layout with marked targets) or an editor level.
@@ -263,6 +265,7 @@ function updateGuide() {
   if (state.tutorial && tools.abilities.includes('jump')) rows.push(['↗', 'Прыжок · 2 энергии', 'Каждый атакованный враг даёт 0,5 энергии. Прыжок наносит 4 урона и переносит кота на выбранную клетку.']);
   if (state.tutorial && state.board.some(cell => cell?.kind === 'prism')) rows.push(['✦', 'Кристалл меняет цвет', 'Цепь можно начать с кристалла или пройти через него: цвет меняется, накопленная сила сохраняется, самой силы он не даёт. Число на нём — очки за разрушение. Новый падает прямо по ходу цепи за каждые 6 убийств, куда — неизвестно заранее.']);
   if (state.tutorial && state.board.some(cell => cell?.kind === 'ranged')) rows.push(['⌖', 'Стрелок и обмен', 'Лучник стреляет по отмеченной линии и задевает всех на ней, врагов тоже, затем отдыхает. Знак ⇄ показывает будущий обмен: учитывай его при выборе позиции.']);
+  if (elitePresent) rows.push(['♛', 'Элита', 'Золотая рамка и корона. HP ×2, удар по коту на 1 сильнее. Побеждённая игроком, с шансом 50% оставляет на поле расходник: пройди по нему цепью — он попадёт в запас.']);
   if (boarPresent) rows.push(['⇶', 'Кабан', 'Янтарный коридор — рывок до 3 клеток по прямой. Кабан бьёт первого и толкает ряд; клетки, освобождённые цепью, решают, кто уцелеет. Упёрся — оглушён, следующий удар по нему двойной.']);
   if (trollPresent) rows.push(['♞', 'Тролль · дубина', 'Замах объявлен на ход раньше: пунктирная зона. Затем удар бьёт всех в залитой зоне, врагов тоже, «УДАР 2», и тролль отдыхает. Регенерация: без урона и горения за ход он лечится. Ранение или горение её останавливают.']);
   if (wolfPresent) rows.push(['≽', 'Волк · стая', 'Волк с соседом-волком вооружён и бьёт по сторонам; линия связывает пару. Одинокий волк пассивен. Убери соседа цепью, стрелой или рывком — удар отменится («СТАЯ РАЗБИТА»).']);
@@ -310,7 +313,7 @@ function telegraphNotes(state: typeof engine.state): string[] {
         : ids.length ? `Шаман: после этого хода ${ids.length === 1 ? 'гоблин с ↑ станет' : `гоблины с ↑ (${ids.length}) станут`} опаснее (вооружён → крепкий). Убей шамана или цель — камлание сорвётся.`
         : `Шаман: камлание через ${SHAMAN_PERIOD - (cell.behavior.cycle ?? 0) % SHAMAN_PERIOD} ход. Цели получат ↑; убей шамана или цель — не сработает.`);
     } else if (cell.variant === 'boar' && cell.intent.charge && chargeReady(cell, new Set())) {
-      notes.push(`Кабан: «УДАР ${cell.intent.damage}» — только первому в ряду. Остальных он «ТОЛКАЕТ» (без урона); вытолкнутый на шипы или в провал гибнет.`);
+      notes.push(`Кабан: «УДАР ${heroStrikeDamage(cell)}» — только первому в ряду. Остальных он «ТОЛКАЕТ» (без урона); вытолкнутый на шипы или в провал гибнет.`);
     }
   }
   return notes.slice(0, 2);
@@ -431,6 +434,8 @@ function updateHUD() {
   if (lastHit?.attackEffect === 'fire' && !lastHit.killed) el('chain-reward').innerHTML += '<br>+1 горение · урон в конце хода, после ответа врагов.';
   if (preview.crystals) el('chain-reward').innerHTML += `<br><b>+${preview.crystals} ${preview.crystals === 1 ? 'кристалл упадёт' : 'кристалла упадут'} по ходу цепи</b> · место — сюрприз, смена цвета, очки за разрушение`;
   if (crystalsActive(state) && !restMode && count > 0 && preview.valid) el('chain-reward').innerHTML += `<br>До кристалла: <b>${preview.kills % CRYSTAL_KILLS} / ${CRYSTAL_KILLS}</b> убийств цепью`;
+  const lootHits = preview.hits.filter(hit => hit.loot);
+  if (lootHits.length) el('chain-reward').innerHTML += `<br>Подберёт: <b>${lootHits.map(hit => ITEMS[hit.loot!].label).join(', ')}</b>`;
   if (preview.crystalScore) el('chain-reward').innerHTML += `<br>Кристаллы разрушены: <b>+${preview.crystalScore} очков</b>`;
   if ((!tutorial || allowedAbilities.length) && preview.valid && preview.energyGain > 0) el('chain-reward').innerHTML += `<br>Энергия: <b>+${energyText(preview.energyGain)}</b>`;
   const activations = preview.deviceActivations ?? [];
@@ -676,6 +681,8 @@ function notifyEnemyEffect(state: typeof engine.state, event: { type: string; in
   if (event.type === 'empower') toast('empower', `Шаман усилил гоблина: ${event.text === 'sturdy' ? 'крепкий' : 'вооружён'}`);
   else if (event.type === 'push') toast('push', 'Кабан толкнул ряд');
   else if (event.type === 'status' && event.text === 'ОГЛУШЁН') toast('stun', 'Кабан упёрся и оглушён');
+  else if (event.type === 'loot' && event.text) toast('loot-drop', `Элита оставила: ${ITEMS[event.text as ItemKind].label}`);
+  else if (event.type === 'loot-pickup' && event.text) toast(`loot-${event.text}`, `+ ${ITEMS[event.text as ItemKind].label}`);
   else if (event.type === 'regen') toast('regen', `Тролль восстановил ${event.amount ?? ''} HP`.replace('  ', ' '));
   else if (event.type === 'hit') { const source = event.from !== undefined ? state.board[event.from] : null; arrowHit = source && archerStrikesCreatures(source) && at !== undefined ? at : -1; }
   else if (event.type === 'kill' && at !== undefined) {
@@ -709,7 +716,7 @@ const debug = {
   get objective() { return engine.state.objective; }, get turn() { return engine.state.turn; }, get score() { return engine.state.score; },
   get forestRun() { return forestRun; }, startForestRun: (seed?: number) => newRun(seed), openMap: () => showScreen('map'), forestRunStore: runStore,
   get screen() { return screen; }, get frostTargeting() { return renderer?.frostTargeting ?? false; }, get itemTargeting() { return renderer?.itemTargeting ?? null; },
-  get endpointLabel() { return renderer?.endpointLabel ?? null; }, get telegraphMarks() { return renderer?.telegraphMarks ?? []; }, get forecastMarks() { return renderer?.forecastMarks ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
+  get endpointLabel() { return renderer?.endpointLabel ?? null; }, get telegraphMarks() { return renderer?.telegraphMarks ?? []; }, get eliteMarks() { return renderer?.eliteMarks ?? []; }, get lootMarks() { return renderer?.lootMarks ?? []; }, get forecastMarks() { return renderer?.forecastMarks ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
   getBoardState: () => engine.getBoardState(), availableMoves: () => engine.availableMoves(), validStarts: () => engine.validStarts(),
   preview: (path?: number[]) => engine.preview(path), previewFrost: (index: number) => engine.previewFrost(index),
   previewRotations: (path?: number[]) => engine.previewRotations(path),

@@ -354,3 +354,5 @@ body:before{opacity:.055}
 .battle-toast{max-width:100%;padding:2px 9px;border-left:3px solid #d9a35f;background:#2b2418c4;font:12.5px/1.35 Arial,sans-serif;color:#f2e2bf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:toast-in .16s ease-out}
 @keyframes toast-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @media(max-width:700px){.battle-toasts{display:none}}
+
+.editor-grid .editor-cell.elite{box-shadow:inset 0 0 0 2px #ffc83a}.editor-cell .editor-elite-mark{position:absolute;top:0;left:3px;color:#ffc83a;font:700 14px Arial,sans-serif;text-shadow:0 1px #241c10;pointer-events:none}

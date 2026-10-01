@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import type { ForestCell, TerrainKind } from '../game/forestTypes';
+import type { ForestCell, ItemKind, TerrainKind } from '../game/forestTypes';
 import { makeDoor, makeGuardEnemy } from './guardArt';
 import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
@@ -74,7 +74,39 @@ function makeIllustratedEnemy(cell: ForestCell, width: number, height: number, t
   addDamageEffectBadges(c,cell.damageEffects,wide?halfH-5:34);
   return c;
 }
+export const ITEM_COLORS: Record<ItemKind, number> = { frost: 0x8fd9de, bomb: 0xe0a26c, healing: 0x9fd78a, fire: 0xf0a065 };
+export const ITEM_GLYPHS: Record<ItemKind, string> = { frost: '❄', bomb: '✹', healing: '✚', fire: '♨' };
+const ITEM_SHORT: Record<ItemKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь' };
+/** A consumable dropped by an elite: a colourless link that carries an item badge (same glyphs as the item toolbar). */
+function makeLootPiece(item: ItemKind): Container {
+  const c=new Container(),glow=new Graphics(),g=new Graphics(),color=ITEM_COLORS[item];
+  glow.label='prism-aura';glow.circle(0,-2,28).fill({color:0xd1dfac,alpha:.12}).stroke({color:0xe9eac0,width:1,alpha:.35});
+  g.ellipse(0,26,24,6).fill({color:0x101a15,alpha:.7});
+  g.circle(0,-3,21).fill(0x1d2c36).stroke({color:0x18232d,width:5}).circle(0,-3,21).stroke({color:color,width:2.5});
+  g.circle(0,-3,16).fill({color,alpha:.28});
+  g.moveTo(-29,-3).lineTo(-24,-3).moveTo(24,-3).lineTo(29,-3).stroke({color:PALE,width:2});
+  c.addChild(glow,g);
+  label(c,ITEM_GLYPHS[item],0,-3,22,0xfff4d0);
+  g.roundRect(-24,17,48,14,5).fill(0x233039).stroke({color:0xf3d98a,width:1.5});
+  label(c,ITEM_SHORT[item],0,24,9,0xffeaa8);
+  return c;
+}
+/** Elite mark (elite.ts): a gold frame and a crown, drawn on top of any enemy art and readable at 80 px. */
+function addEliteMark(c: Container): void {
+  const frame=new Graphics();frame.label='elite-mark';
+  frame.roundRect(-35,-35,70,70,9).stroke({color:0x18232d,width:5,alpha:.9}).roundRect(-35,-35,70,70,9).stroke({color:0xffc83a,width:2.5});
+  // Crown on the top edge, between the status plate (left) and the HP plate (right).
+  frame.poly([-11,-30,-12,-42,-6,-37,0,-45,6,-37,12,-42,11,-30]).fill(0xffc83a).stroke({color:0x18232d,width:2});
+  frame.circle(0,-35,2.2).fill(0xc2432f);
+  c.addChild(frame);
+}
 export function makeEnemy(cell: ForestCell,index=0,cols=7,tutorialTarget=false): Container {
+  if(cell.kind==='prism'&&cell.loot)return makeLootPiece(cell.loot);
+  const view=makeEnemyBase(cell,index,cols,tutorialTarget);
+  if(cell.elite)addEliteMark(view);
+  return view;
+}
+function makeEnemyBase(cell: ForestCell,index=0,cols=7,tutorialTarget=false): Container {
   if(cell.kind==='door'&&cell.door){
     const bounds=footprintBounds(occupiedIndices(cell,index),cols);
     return makeDoor(cell,(bounds?.width??1)*80,(bounds?.height??1)*80);

@@ -6,10 +6,11 @@
 import { validateCustomLevel, type CustomEnemy, type CustomLevelDefinition } from './customLevel';
 import { ELITE_HP_FACTOR } from './elite';
 import { ForestEngine } from './forestEngine';
-import type { EngineEvent, ForestCell, ItemKind } from './forestTypes';
+import type { EngineEvent, ItemKind } from './forestTypes';
 import { ITEM_KINDS } from './items';
 import { forestFixtureLevel } from './testing/fixtures';
-import { availableNodes, enterNode, createForestRun, parseForestRun, resolveBattle, serializeForestRun } from './run/forestRun';
+import { availableNodes, createForestRun, enterNode, parseForestRun, resolveBattle, serializeForestRun } from './run/forestRun';
+import { nodeBattleTemplate } from './run/forestMap';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 /** Well-spread battle seeds: the first draw of the battle LCG barely differs between consecutive small seeds. */
@@ -138,40 +139,104 @@ async function bombLoot() {
   console.log(`PASS an elite killed by an item drops loot (${drops}/30)`);
 }
 
+/**
+ * A real drop picked up by a later chain: the item joins the inventory; no power, energy, score or prism objective for
+ * it. Searches the spread seeds for a drop that a legal chain can reach.
+ */
 async function pickup() {
-  // A dropped consumable on E6 (39): the chain D6→E6→F6→F5 passes it like a crystal.
-  const g = camp(1), events = record(g);
-  const id = Math.max(...g.state.board.map(cell => cell?.id ?? 0)) + 1000;
-  const loot: ForestCell = { id, kind: 'prism', color: null, hp: 1, maxHp: 1, armor: 0, countdown: 2, loot: 'bomb',
-    status: { wet: false, frozen: 0, brittle: false }, behavior: { aggressive: false, restTurns: 0 }, intent: { cells: [], damage: 1, label: '' } };
-  g.state.board[39] = loot;
-  const bombs = g.state.inventory.bomb, prisms = g.state.objective.prisms;
-  const preview = g.preview(PATH);
-  assert(preview.valid && preview.hits.some(hit => hit.index === 39 && hit.loot === 'bomb'), 'the preview shows the pickup');
-  await chain(g, PATH);
-  assert(g.state.inventory.bomb === bombs + 1 && g.state.objective.prisms === prisms, 'the item joins the inventory; it is not a prism objective');
-  assert(events.some(event => event.type === 'loot-pickup' && event.index === 39 && event.text === 'bomb'), 'a loot-pickup event is published');
-  console.log('PASS a chain passing the loot picks it up into the inventory');
+  for (let seed = 1; seed <= 60; seed++) {
+    const g = camp(spread(seed)), events = record(g);
+    await chain(g, PATH);
+    const drop = events.find(event => event.type === 'loot');
+    if (!drop || g.state.phase !== 'PLAYER_INPUT') continue;
+    const at = drop.index!, item = drop.text as ItemKind;
+    const path = g.availableMoves(8).find(candidate => candidate.includes(at));
+    if (!path) continue;
+    const preview = g.preview(path), hit = preview.hits.find(entry => entry.index === at)!;
+    assert(preview.valid && hit.loot === item && !hit.physical, `seed ${seed}: the preview shows the pickup of ${item}`);
+    const enemyHits = preview.hits.filter(entry => g.state.board[entry.index]?.kind !== 'prism' && g.state.board[entry.index]?.kind !== 'door').length;
+    assert(preview.energyGain === Math.min(7 - g.state.player.energy, enemyHits * 0.5), `seed ${seed}: no energy for the pickup`);
+    const items = g.state.inventory[item], prisms = g.state.objective.prisms;
+    let scoreBefore = g.state.score, pickupScore = -1;
+    g.subscribe((state, event) => { if (event.type === 'collect' && event.index === at) pickupScore = state.score - scoreBefore; scoreBefore = state.score; });
+    await chain(g, path);
+    assert(g.state.inventory[item] === items + 1 && g.state.objective.prisms === prisms, `seed ${seed}: the item joins the inventory; not a prism objective`);
+    assert(pickupScore === 0, `seed ${seed}: the pickup scores nothing (got ${pickupScore})`);
+    assert(events.some(event => event.type === 'loot-pickup' && event.index === at && event.text === item), `seed ${seed}: a loot-pickup event`);
+    console.log(`PASS a real drop (seed ${spread(seed)}) is picked up by a later chain: +1 ${item}, no power, energy, score or prism objective`);
+    return;
+  }
+  throw new Error('no reachable drop on 60 seeds');
 }
 
+/** Review of 01.10.2026: loot after an ability is drawn from a copy of the live RNG in its forecast (spin). */
+async function abilityForecast() {
+  let drops = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const enemies: CustomEnemy[] = [16, 17, 18, 25, 30, 31, 32].map(index => ({ index, kind: 'melee', color: 0, hp: 1, elite: true }));
+    enemies.push({ index: 23, kind: 'melee', color: 0, hp: 0 });
+    for (const index of [3, 21, 27, 45, 0, 6, 42, 48]) enemies.push({ index, kind: 'ranged', color: 1, hp: 3, aggressive: true });
+    for (const index of [10, 38, 22, 26]) enemies.push({ index, kind: 'melee', color: 1, hp: 3, aggressive: true });
+    const g = start({ ...level(enemies, 24, spread(seed)), cols: 7, rows: 7, terrain: Array(49).fill('floor'), playerHp: 20 });
+    g.state.player.energy = 7;
+    const before = g.state.player.hp, preview = g.previewAbility('spin'), events = record(g);
+    assert(preview.valid && await g.useAbility('spin'), `seed ${seed}: spin`);
+    if (events.some(event => event.type === 'loot')) drops++;
+    assert(before - g.state.player.hp === preview.damage && !!preview.playerDies === (g.state.player.hp === 0), `seed ${seed}: spin forecast ${preview.damage}, executed ${before - g.state.player.hp}`);
+  }
+  assert(drops > 0, 'loot fell after the spin');
+  console.log(`PASS the spin forecast equals execution with loot falling after it (${drops}/60 seeds)`);
+}
+
+/** Review of 01.10.2026: loot falling after one lever volley may change the next one; the preview shows the copy's. */
+async function leversForecast() {
+  let drops = 0;
+  for (let seed = 1; seed <= 80; seed++) {
+    const enemies: CustomEnemy[] = [{ index: 21, kind: 'melee', color: 0, hp: 0 }, { index: 17, kind: 'melee', color: 0, hp: 0 },
+      { index: 11, kind: 'melee', color: 1, hp: 1, elite: true }, { index: 13, kind: 'melee', color: 1, hp: 3 }, { index: 8, kind: 'melee', color: 1, hp: 3 }, { index: 3, kind: 'melee', color: 1, hp: 3 }];
+    const g = start({ ...level(enemies, 22, spread(seed)), cols: 5, rows: 5, terrain: Array(25).fill('floor'),
+      devices: [{ index: 16, kind: 'arrows', charges: 1, targets: [11, 6, 1] }, { index: 18, kind: 'arrows', charges: 1, targets: [13, 8, 3] }] });
+    const path = [21, 16, 17, 18], preview = g.preview(path);
+    let volleys = false, trapKills = 0, dropped = false;
+    g.subscribe((_state, event) => { if (event.type === 'trap') volleys = true; if (volleys && event.type === 'kill' && event.text !== 'loot') trapKills++; if (event.type === 'loot') dropped = true; });
+    await chain(g, path);
+    if (dropped) drops++;
+    assert(trapKills === preview.trapKills, `seed ${seed}: lever kills forecast ${preview.trapKills}, executed ${trapKills}`);
+  }
+  assert(drops > 0, 'loot fell between the volleys');
+  console.log(`PASS lever results in the preview equal execution when loot falls between volleys (${drops}/80 seeds)`);
+}
+
+/** The run keeps looted items within what the battle's elites can drop; made-up loot is rejected. */
 function runCarriesLoot() {
-  // A won battle that ends with one more bomb than it started with: the save holds it.
   let run = createForestRun(77);
-  const first = availableNodes(run)[0];
-  const entered = enterNode(run, first.id);
-  assert(entered.ok, 'enter the first battle');
-  run = entered.run;
-  const pending = run.pending as { entry: { player: { hp: number; maxHp: number; energy: number }; inventory: Record<ItemKind, number> } };
-  const inventory = { ...pending.entry.inventory, bomb: pending.entry.inventory.bomb + 1 };
-  const won = resolveBattle(run, { nodeId: first.id, won: true, player: { ...pending.entry.player }, inventory });
-  assert(won.ok && won.run.loot.some(gain => gain.nodeId === first.id && gain.item === 'bomb' && gain.count === 1), 'the run records the picked-up bomb');
-  const parsed = parseForestRun(serializeForestRun(won.run));
-  assert(parsed && parsed.resources.inventory.bomb === inventory.bomb, 'a save with the looted bomb loads');
-  const tampered = JSON.parse(serializeForestRun(won.run)); tampered.resources.inventory.bomb++;
-  assert(parseForestRun(JSON.stringify(tampered)) === null, 'one bomb more than grants, finds and loot is rejected');
-  const legacy = JSON.parse(serializeForestRun(won.run)); delete legacy.loot; legacy.resources.inventory.bomb--;
-  assert(parseForestRun(JSON.stringify(legacy))?.loot.length === 0, 'a save from before loot loads with no loot');
-  console.log('PASS the run records looted items; saves stay bounded by grants, finds and loot');
+  const first = availableNodes(run)[0], template = nodeBattleTemplate(first)!;
+  // The map has no elites yet: mark one in this battle for the test.
+  const original = template.definition.enemies;
+  template.definition.enemies = original.map((enemy, n) => n === 0 ? { ...enemy, elite: true } : enemy);
+  try {
+    const entered = enterNode(run, first.id);
+    assert(entered.ok, 'enter the first battle');
+    run = entered.run;
+    const pending = run.pending as { entry: { player: { hp: number; maxHp: number; energy: number }; inventory: Record<ItemKind, number> } };
+    const inventory = { ...pending.entry.inventory, bomb: pending.entry.inventory.bomb + 1 };
+    const won = resolveBattle(run, { nodeId: first.id, won: true, player: { ...pending.entry.player }, inventory });
+    assert(won.ok && won.run.loot.some(gain => gain.nodeId === first.id && gain.item === 'bomb' && gain.count === 1), 'the run records the picked-up bomb');
+    const saved = serializeForestRun(won.run);
+    assert(parseForestRun(saved)?.resources.inventory.bomb === inventory.bomb, 'a save with the looted bomb loads');
+    const tamper = (change: (value: Record<string, any>) => void) => { const value = JSON.parse(saved); change(value); return parseForestRun(JSON.stringify(value)); };
+    assert(tamper(value => { value.resources.inventory.bomb++; }) === null, 'one bomb more than grants, finds and loot is rejected');
+    assert(tamper(value => { value.loot[0].count = 2; value.resources.inventory.bomb++; }) === null, 'more items than the battle has elites is rejected');
+    assert(tamper(value => { value.loot.push({ nodeId: first.id, item: 'frost', count: 1 }); value.resources.inventory.frost++; }) === null, 'a second item from one elite is rejected');
+    assert(tamper(value => { value.loot = [{ nodeId: 'trunk-2', item: 'bomb', count: 1 }]; }) === null, 'loot of a node not won is rejected');
+    assert(tamper(value => { delete value.loot; value.resources.inventory.bomb--; })?.loot.length === 0, 'a save from before loot loads with no loot');
+  } finally { template.definition.enemies = original; }
+  const plain = createForestRun(78), node = availableNodes(plain)[0], step = enterNode(plain, node.id);
+  assert(step.ok, 'enter');
+  const value = JSON.parse(serializeForestRun(step.run));
+  value.loot = [{ nodeId: node.id, item: 'bomb', count: 1 }];
+  assert(parseForestRun(JSON.stringify(value)) === null, 'loot of a battle without elites (or not yet won) is rejected');
+  console.log('PASS the run records looted items; saves stay bounded by the battle\'s elites, grants and finds');
 }
 
 bakingAndValidation();
@@ -180,5 +245,7 @@ await chainLoot();
 await noLootFromEnemies();
 await bombLoot();
 await pickup();
+await abilityForecast();
+await leversForecast();
 runCarriesLoot();
 console.log('PASS elite');
