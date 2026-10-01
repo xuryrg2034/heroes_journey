@@ -1,3 +1,4 @@
+import { hasTag } from './enemyDefinitions';
 import { applyDamage, heroTarget, removeDefeated } from './combatRules';
 import type { ChainHit, ForestCell, ForestState, InteractionDevice } from './forestTypes';
 import { walkableTerrain } from './terrain';
@@ -6,7 +7,7 @@ export const deviceAt = (state: ForestState, index: number) => state.devices.fin
 export const pitAt = (state: Pick<ForestState, 'pits'>, index: number) => state.pits.find(pit => pit.index === index);
 /** Fixed doors and heavy entities hold their floor shut, including every square of a footprint. */
 export const pitImmune = (cell: ForestCell | null | undefined): boolean => !!cell &&
-  (cell.kind === 'door' || cell.kind === 'boss' || (cell.footprint?.length ?? 1) > 1);
+  (cell.kind === 'door' || hasTag(cell, 'Boss') || (cell.footprint?.length ?? 1) > 1);
 /** Targets are ordered from the emitter. Walls stop the authored ray, creatures do not. */
 export function deviceTargets(state: Pick<ForestState, 'terrain'>, device: InteractionDevice): number[] {
   if (device.kind === 'pits') return device.targets.filter(index => walkableTerrain(state.terrain[index]));

@@ -1,3 +1,4 @@
+import { hasTag } from './enemyDefinitions';
 /**
  * Boar charge: one shared synchronous rule for the chain forecast and the live enemy phase.
  * The generator mutates the state it receives (a forecast copy or the live world) and yields
@@ -74,7 +75,7 @@ function scanRow(state: ForestState, from: number, dx: number, dy: number): { bo
 function holdsRow(state: ForestState, body: Body, pushedFrom: number): boolean {
   const cell = body.cell;
   if (!cell) return body.pinned;
-  return cell.kind === 'door' || cell.kind === 'prism' || cell.kind === 'boss' || (cell.footprint?.length ?? 1) > 1
+  return cell.kind === 'door' || cell.kind === 'prism' || hasTag(cell, 'Boss') || (cell.footprint?.length ?? 1) > 1
     || cell.status.frozen > 0 || shieldBlocksEntry(state, cell, pushedFrom, body.index);
 }
 /** Move each body one cell forward (front first), then the boar into the first vacated cell. */

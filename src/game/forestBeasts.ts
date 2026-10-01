@@ -18,7 +18,6 @@ export const SHAMAN_TARGETS = 2;
 /** HP of a goblin raised from armed to sturdy. */
 export const SHAMAN_STURDY_HP = 2;
 /** Default HP when a variant is created without authored data (authored levels always set HP). */
-export const FOREST_BEAST_HP = { wolf: 0, porcupine: 2, shaman: 2 } as const;
 
 /** Enough of the world to decide adjacency on the current board (a forecast copy or the live state). */
 export type BeastWorld = Pick<ForestState, 'cols' | 'rows' | 'terrain' | 'pits' | 'board'>;

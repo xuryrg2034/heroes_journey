@@ -15,9 +15,8 @@ import { chooseGeneratedColors, hasOrdinaryChain } from './boardGeneration';
 import type { AbilityKind, CellKind, ChainPreview, EnemyColor, EnemyVariant, EngineEvent, ForestCell, ForestState, FrostPreview, ItemKind, ItemPreview, RotationPreview } from './forestTypes';
 import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
 import { forestBattle } from './run/forestBattles';
-import { FOREST_BEAST_HP } from './forestBeasts';
 import { cloneState, type World } from './ecs/world';
-import { TROLL_HP } from './troll';
+import { hasTag, variantDefinition } from './enemyDefinitions';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Seed of an engine before any battle is loaded; every battle replaces it with its own. */
@@ -150,7 +149,7 @@ export class ForestEngine {
         cell.hp = cell.maxHp = enemy.hp; cell.behavior.aggressive = enemy.aggressive ?? false;
         if (lesson) {
           // Map rows ≥ 5 drop authored passivity: goblins join the growing anger, beasts follow their own rules.
-          cell.behavior.passive = !runPressureActive(state) && !enemy.aggressive && enemy.variant !== 'jailer';
+          cell.behavior.passive = !runPressureActive(state) && !enemy.aggressive && !hasTag(cell, 'NeverPassive');
           if (lesson.targetIndices.includes(enemy.index)) state.tutorial!.targetIds.push(cell.id);
         }
         if (enemy.attackEffect) cell.attackEffect = enemy.attackEffect;
@@ -175,13 +174,12 @@ export class ForestEngine {
     }
     this.emit({ type: 'start' }); return true;
   }
+  /** Bake a variant from its definition (enemyDefinitions.ts); the authored HP and flags are applied by the caller. */
   private createVariant(variant: EnemyVariant, index: number, color: EnemyColor | null): ForestCell {
-    const boss = variant === 'jailer' || variant === 'troll';
-    const cell = this.createCell(boss ? 'boss' : 'melee', boss ? null : color, index);
-    cell.variant = variant; cell.hp = cell.maxHp = 7;
-    if (variant in FOREST_BEAST_HP) cell.hp = cell.maxHp = FOREST_BEAST_HP[variant as keyof typeof FOREST_BEAST_HP];
-    if (variant === 'jailer') { cell.shield = { dx: 0, dy: 1 }; cell.hp = cell.maxHp = 8; }
-    if (variant === 'troll') cell.hp = cell.maxHp = TROLL_HP;
+    const definition = variantDefinition(variant)!;
+    const cell = this.createCell(definition.kind, definition.tags.includes('Colorless') ? null : color, index);
+    cell.variant = variant; cell.hp = cell.maxHp = definition.hp;
+    if (definition.initialShield) cell.shield = { ...definition.initialShield };
     cell.behavior.cycle = 0;
     return cell;
   }

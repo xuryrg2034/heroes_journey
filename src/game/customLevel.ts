@@ -3,6 +3,7 @@ import type { DamageEffectKind } from './damageEffects';
 import { ENEMY_COLORS } from './enemyPalette';
 import { walkableTerrain } from './terrain';
 import { uniqueEntities } from './entityFootprint';
+import { ENEMY_VARIANTS, variantDefinition } from './enemyDefinitions';
 
 export type PaletteWeights = [number, number, number, number, number];
 export type CustomGoalKey = 'kills' | 'rangedKills' | 'bossKills' | 'turns';
@@ -22,7 +23,6 @@ export interface CustomLevelDefinition {
 }
 export interface CustomLevelRuntime { definition: CustomLevelDefinition; goalCompletedTurn: number | null; paletteWeights: PaletteWeights }
 const TERRAINS = ['floor', 'puddle', 'wall', 'tree', 'pond', 'campfire', 'thorns'];
-const VARIANTS = ['sentinel', 'jailer', 'boar', 'wolf', 'porcupine', 'shaman', 'troll'];
 const GOALS = ['kills', 'rangedKills', 'bossKills', 'turns'];
 const ITEMS = ['frost', 'bomb', 'healing', 'fire'];
 const ATTACK_EFFECTS: DamageEffectKind[] = ['fire', 'poison', 'bleeding', 'wind'];
@@ -82,19 +82,15 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
     if (!record(enemy)) { errors.push(`Враг ${n + 1}: нужен объект.`); return; }
     placement(enemy, `Враг ${n + 1}`);
     if (!oneOf(enemy.kind, ['melee', 'ranged', 'boss', 'prism']) || !integer(enemy.hp, 0, 10000) || enemy.color !== null && !integer(enemy.color, 0, 4)) errors.push(`Враг ${n + 1}: неверный тип, цвет или здоровье.`);
+    const definition = typeof enemy.variant === 'string' ? variantDefinition(enemy.variant) : undefined;
     if (enemy.variant !== undefined) {
-      const expected = oneOf(enemy.variant, ['jailer', 'troll']) ? 'boss' : 'melee';
-      if (!oneOf(enemy.variant, VARIANTS) || enemy.kind !== expected) errors.push(`Враг ${n + 1}: вариант не соответствует типу.`);
-      // A shield faces from one square; a multi-square sentinel has no defined facing.
-      if (enemy.variant === 'sentinel' && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: страж со щитом занимает одну клетку.`);
-      // A charge pushes single squares; a large boar would have no single lane.
-      if (enemy.variant === 'boar' && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: кабан занимает одну клетку.`);
-      // Pack adjacency, quills and rites are defined for single squares.
-      if ((enemy.variant === 'wolf' || enemy.variant === 'porcupine' || enemy.variant === 'shaman') && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: волк, дикобраз и шаман занимают одну клетку.`);
+      if (!oneOf(enemy.variant, ENEMY_VARIANTS) || enemy.kind !== definition?.kind) errors.push(`Враг ${n + 1}: вариант не соответствует типу.`);
+      // Shapes are definition data: shields, charges, pack adjacency, quills and rites are defined for single squares.
+      if (definition?.shapeError && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: ${definition.shapeError}`);
     }
     if ((enemy.kind === 'boss' || enemy.kind === 'prism') && enemy.color !== null) errors.push(`Враг ${n + 1}: босс и огонёк бесцветны.`);
     // The troll is the only boss with a body: one cell or a 2×2 square. Other bosses aim from a single square.
-    const trollBody = enemy.variant === 'troll' && enemy.kind === 'boss';
+    const trollBody = definition?.shape === 'square2' && enemy.kind === definition.kind;
     if (Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && enemy.kind !== 'melee' && !trollBody) errors.push(`Враг ${n + 1}: большая форма доступна ближнему врагу и троллю.`);
     if (trollBody && Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && !squareOfFour(enemy.footprint, value.cols)) errors.push(`Враг ${n + 1}: тролль занимает одну клетку или квадрат 2×2.`);
     if (enemy.aggressive !== undefined && typeof enemy.aggressive !== 'boolean') errors.push(`Враг ${n + 1}: агрессия должна быть true/false.`);

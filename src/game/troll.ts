@@ -15,7 +15,6 @@ onDamaged('troll-hurt-mark', cell => { if (cell.variant === 'troll') cell.behavi
 
 /** Balance defaults of the prototype (30.09.2026); an authored level sets the troll's HP. */
 
-export const TROLL_HP = 24;
 /** Club damage to every creature (the cat included) standing in the announced zone. */
 export const TROLL_CLUB_DAMAGE = 2;
 /** HP restored at the end of an enemy phase in which the troll took no damage and is not burning. */

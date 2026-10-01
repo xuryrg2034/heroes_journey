@@ -4,6 +4,7 @@
  * Pure functions of the state: the forecast and the live turn read the same answers; nothing here draws random
  * numbers or emits events. Every number marked «баланс» is a balance constant, to be tuned by playtests.
  */
+import { ENEMY_DEFINITIONS, hasTag } from './enemyDefinitions';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
 import { SHAMAN_STURDY_HP } from './forestBeasts';
@@ -83,10 +84,10 @@ export const CRYSTAL_KILLS = 6;
 /** Баланс: score for breaking a crystal with a chain = CRYSTAL_SCORE_PER_KILL × kills of the chain that created it. */
 export const CRYSTAL_SCORE_PER_KILL = 20;
 /**
- * Enemies a crystal never lands on (besides every `kind: 'boss'` — the Chief, the Jailer and the Troll): the
- * shield-bearer and the bosses by variant. Kept explicit so a new variant is a deliberate decision.
+ * Variants a crystal never lands on (besides every boss): the definitions tagged `CrystalProtected`
+ * (enemyDefinitions.ts). A new variant opts in by its tag.
  */
-export const CRYSTAL_PROTECTED_VARIANTS: readonly EnemyVariant[] = ['troll', 'jailer', 'sentinel'];
+export const CRYSTAL_PROTECTED_VARIANTS: readonly EnemyVariant[] = ENEMY_DEFINITIONS.flatMap(definition => definition.variant && definition.tags.includes('CrystalProtected') ? [definition.variant] : []);
 
 /** Crystals are one rule for every mode since 30.09.2026; kept for callers (UI) written against the map-only version. */
 export const crystalsActive = (_state?: Pick<ForestState, 'runNode'>): boolean => true;
@@ -122,7 +123,7 @@ export function crystalCellAllowed(state: Pick<ForestState, 'cols' | 'rows' | 't
     || pitAt(state as ForestState, index) || deviceAt(state as ForestState, index)) return false;
   const cell = board[index];
   if (!cell) return true;
-  return cell.kind !== 'door' && cell.kind !== 'prism' && cell.kind !== 'boss' && isCellAlive(cell)
-    && !(cell.variant && CRYSTAL_PROTECTED_VARIANTS.includes(cell.variant)) && (cell.footprint?.length ?? 1) === 1
+  return cell.kind !== 'door' && cell.kind !== 'prism' && !hasTag(cell, 'Boss') && isCellAlive(cell)
+    && !hasTag(cell, 'CrystalProtected') && (cell.footprint?.length ?? 1) === 1
     && !state.tutorial?.targetIds.includes(cell.id);
 }
