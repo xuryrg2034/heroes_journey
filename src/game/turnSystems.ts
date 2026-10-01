@@ -10,6 +10,7 @@ import { applyDamage, heroTarget, defeatOutright, type DefeatCredit } from './co
 import { crystalScore } from './mapBattleRules';
 import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
 import { behaviorOf } from './enemyBehaviors';
+import { rollEliteLoot } from './elite';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
@@ -36,6 +37,8 @@ export interface TurnScratch {
   enemyPhase?: { resting: { cell: ForestCell; index: number }[]; displaced: Set<number>; actors: { cell: ForestCell; index: number }[] };
   /** What the turn's systems did, in order; the forecast projects its preview from it (forecast.ts). */
   report?: TurnReport;
+  /** Elites the player killed outside a planned chain step; their loot rolls when the killing action is over. */
+  lootQueue?: ForestCell[];
 }
 
 /**
@@ -84,6 +87,8 @@ export interface Commands {
   kill(cell: ForestCell, index: number, credit: DefeatCredit): void;
   /** A new colour-change crystal (fresh ID) holding the chain length `value`, placed on `index`. */
   placeCrystal(index: number, value: number): ForestCell;
+  /** A consumable dropped by an elite (fresh ID): a `prism` record carrying `loot`, placed on `index`. */
+  placeLoot(index: number, item: ItemKind): ForestCell;
 }
 
 /**
@@ -126,6 +131,14 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
   const steps = simulation.steps ?? simulation.preview.hits.map(hit => ({ kind: 'hit' as const, hit }));
   for (const action of steps) {
     if (!ctx.current()) return false;
+    if (action.kind === 'loot') {
+      // An elite's loot rolled by the plan (same draws): it falls where the plan put it, crushing the enemy there.
+      for (let n = 0; n < action.draws; n++) ctx.drawRandom();
+      if (action.index === undefined) continue;
+      if (!(yield* placeLoot(ctx, action.index, action.item!, action.victimId))) return false;
+      yield { delay };
+      continue;
+    }
     if (action.kind === 'crystal') {
       // A crystal falls where the forecast drew it (same RNG draw), crushing the enemy there through the common death
       // path without credit; the kill is published once it is gone, the crystal once it stands on the board.
@@ -169,8 +182,14 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
         yield { event: { type: 'move', from, to: hit.index, index: hit.index } };
         if (!ctx.current()) return false;
       }
-      if (original.kind === 'prism') ctx.state.objective.prisms++;
-      else ctx.cmd.kill(original, hit.index, 'player');
+      // A dropped consumable joins the inventory; it is not a prism objective.
+      if (original.kind === 'prism' && original.loot) ctx.state.inventory[original.loot]++;
+      else if (original.kind === 'prism') ctx.state.objective.prisms++;
+      else {
+        ctx.cmd.kill(original, hit.index, 'player');
+        // An ability's elite kill rolls its loot once the ability is over (an ordinary chain plans it).
+        if (ability && original.elite) (ctx.scratch.lootQueue ??= []).push(original);
+      }
       if (!ctx.current()) return false;
     }
     if (original.kind === 'boss') ctx.state.objective.bossHits++;
@@ -179,6 +198,7 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
     yield { event: { type: hit.physical ? 'hit' : 'collect', index: hit.index, amount: hit.damage, text: hit.killed ? undefined : `${hit.hpAfter} HP` } };
     if (!ctx.current()) return false;
     if (hit.killed) yield { event: { type: 'kill', index: hit.index } };
+    if (hit.loot) { yield { event: { type: 'loot-pickup', index: hit.index, text: hit.loot } }; if (!ctx.current()) return false; }
     if (!ctx.current()) return false;
     const attackEffect = hit.attackEffect ?? ctx.state.player.attackEffect;
     if (!hit.killed && hit.physical && attackEffect && original.kind !== 'door'
@@ -203,7 +223,7 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
     if (!ctx.current()) return false;
   }
   ctx.state.chain = [];
-  return true;
+  return yield* dropQueuedLoot(ctx);
 } };
 /** PlayerAction: an ordinary chain that stops on thorns costs the cat HP before any lever (as simulateChain). */
 const ChainEndTerrain: TurnSystem<TurnContext> = { name: 'ChainEndTerrain', *run(ctx) {
@@ -231,6 +251,7 @@ const DeviceVolleys: TurnSystem<TurnContext> = { name: 'DeviceVolleys', *run(ctx
         if (!ctx.current()) return false;
         if (impact.hit.killed) {
           ctx.cmd.kill(impact.cell!, impact.index, 'player');
+          if (impact.cell!.elite) (ctx.scratch.lootQueue ??= []).push(impact.cell!);
           if (!ctx.current()) return false;
           yield { event: { type: 'kill', index: impact.index } };
         }
@@ -240,6 +261,8 @@ const DeviceVolleys: TurnSystem<TurnContext> = { name: 'DeviceVolleys', *run(ctx
     }
     yield { delay: 160 };
     if (!ctx.current()) return false;
+    // Loot of the elites this lever killed falls once its volley is over.
+    if (!(yield* dropQueuedLoot(ctx))) return false;
   }
   return true;
 } };
@@ -259,6 +282,31 @@ function* defeatCreature(ctx: TurnContext, cell: ForestCell, index: number, cred
   return ctx.current();
 }
 
+/**
+ * An elite's loot lands on `index` (elite.ts): the enemy there (`victimId`) is crushed through the common death path
+ * without credit, then the consumable appears. Returns false when a restart cancelled it.
+ */
+function* placeLoot(ctx: TurnContext, index: number, item: ItemKind, victimId?: number): TurnSequence {
+  const victim = ctx.state.board[index];
+  if (victim && victim.id === victimId) {
+    defeatOutright(victim);
+    if (!(yield* defeatCreature(ctx, victim, index, 'none', 'loot'))) return false;
+  }
+  const loot = ctx.cmd.placeLoot(index, item);
+  yield { event: { type: 'loot', index, newId: loot.id, text: item } };
+  return ctx.current();
+}
+/** Roll and drop the loot of the queued elites, in kill order, from the live battle RNG (the forecast copy: its own). */
+function* dropQueuedLoot(ctx: TurnContext): TurnSequence {
+  const queue = ctx.scratch.lootQueue ?? [];
+  ctx.scratch.lootQueue = [];
+  for (const _elite of queue) {
+    const roll = rollEliteLoot(ctx.state, ctx.state.board, new Set(), () => ctx.drawRandom());
+    if (roll.index !== undefined && !(yield* placeLoot(ctx, roll.index, roll.item!, roll.victim?.id))) return false;
+  }
+  return ctx.current();
+}
+
 /** Preserve the recovered windup → impact → recovery machine without wall-clock waits. */
 function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number): TurnSequence {
   const target = ctx.state.player.index;
@@ -275,7 +323,7 @@ function* resolveMeleeAttack(ctx: TurnContext, cell: ForestCell, index: number):
       if (impacted || ctx.state.player.index !== target || !evaluateEnemyAttack(cell, index, target, ctx.state)?.hitsHero) return;
       impacted = true;
       cell.behavior.aggressive = false; cell.behavior.restTurns = 1;
-      const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, behaviorOf(cell)?.attack?.source ?? 'melee').damage;
+      const damage = applyDamage(heroTarget(ctx.state, cell), cell.intent.damage, behaviorOf(cell)?.attack?.source ?? 'melee').damage;
       turnReport(ctx).threats.push(index);
       events.push({ type: 'damage', index: target, from: index, amount: damage });
     },
@@ -321,7 +369,7 @@ export function* resolveEnemyAttacks(ctx: TurnContext, actors: Pick<EnemyAttack,
       const text = strike.text ? { text: strike.text } : {};
       yield { event: { type: 'attack', index, from: index, to: target, ...strike.event } };
       if (hitsHero) {
-        const damage = applyDamage(heroTarget(ctx.state), cell.intent.damage, rule.source).damage;
+        const damage = applyDamage(heroTarget(ctx.state, cell), cell.intent.damage, rule.source).damage;
         turnReport(ctx).threats.push(index);
         yield { event: { type: 'damage', index: ctx.state.player.index, from: index, amount: damage, ...text } };
         if (ctx.state.player.hp > 0 && applyAttackEffect(ctx.state.player, cell.attackEffect, false)) {
@@ -449,6 +497,7 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
       yield { event: { type: 'hit', index, amount: hit.damage, effect: hit.kind } };
       if (outcome.killed) {
         ctx.cmd.kill(cell, index, hit.playerCredit ? 'player' : 'environment');
+        if (hit.playerCredit && cell.elite) (ctx.scratch.lootQueue ??= []).push(cell);
         if (!ctx.current()) return false;
         yield { event: { type: 'kill', index, effect: hit.kind } };
         break;
@@ -459,7 +508,8 @@ export function* resolveDamageEffects(ctx: TurnContext): TurnSequence {
       yield { event: { type: 'status', index } };
     }
   }
-  return true;
+  // Loot of elites the player's burning or poison killed falls after every tick of the phase.
+  return yield* dropQueuedLoot(ctx);
 }
 
 /** RestAction: the cat skips its hits, gains 0.5 energy and the enemy phase follows. */
@@ -535,10 +585,15 @@ const ItemResolve: TurnSystem<TurnContext> = { name: 'ItemResolve', *run(ctx) {
     const outcome = applyDamage(cell, preview.damage, 'item');
     yield { event: { type: 'hit', index: targetIndex, amount: preview.damage } };
     if (!ctx.current()) return false;
-    if (outcome.killed && !(yield* defeatCreature(ctx, cell, targetIndex, 'player'))) return false;
+    if (outcome.killed) {
+      if (!(yield* defeatCreature(ctx, cell, targetIndex, 'player'))) return false;
+      if (cell.elite) (ctx.scratch.lootQueue ??= []).push(cell);
+    }
   }
   yield { event: { type: 'item', index, indices: preview.indices, amount: preview.damage || preview.healing, text: ITEMS[kind].label } };
-  return ctx.current();
+  if (!ctx.current()) return false;
+  // Loot of the elites the item killed falls once the item is resolved.
+  return yield* dropQueuedLoot(ctx);
 } };
 /** ItemAction: direct goals met by the item end the battle (frost never ends it). */
 const ItemVictory = instant<TurnContext>('ItemVictory', ctx => {

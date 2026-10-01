@@ -1,7 +1,7 @@
 import type { DamageEffects, DamageEffectKind } from './damageEffects';
 import type { CustomLevelRuntime } from './customLevel';
 import type { CellBehaviorComponent, CellFootprintComponent, CellHealthComponent, CellIdentityComponent,
-  CellIntentComponent, CellLinkComponent, CellShieldComponent, CellStatusComponent, DamageEffectComponent } from './components';
+  CellIntentComponent, CellLinkComponent, CellShieldComponent, CellStatusComponent, DamageEffectComponent, CellEliteComponent } from './components';
 export type EnemyColor = 0 | 1 | 2 | 3 | 4;
 export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'wall' | 'thorns';
 export type CellKind = 'melee' | 'ranged' | 'boss' | 'prism' | 'door';
@@ -18,7 +18,7 @@ export interface RotationPreview extends RotationPlan { active: boolean; reason?
 export type Phase = 'TITLE' | 'PLAYER_INPUT' | 'PLAYER_RESOLVE' | 'ENEMY_RESOLVE' | 'BOARD_UPDATE' | 'WIN' | 'LOSE';
 /** Entity data assembled from structural components; no registry or render objects. */
 export interface ForestCell extends CellIdentityComponent, CellHealthComponent, CellLinkComponent,
-  CellStatusComponent, CellBehaviorComponent, CellIntentComponent, CellFootprintComponent, CellShieldComponent, DamageEffectComponent {}
+  CellStatusComponent, CellBehaviorComponent, CellIntentComponent, CellFootprintComponent, CellShieldComponent, DamageEffectComponent, CellEliteComponent {}
 export interface ObjectiveProgress { kills: number; rangedKills: number; bossKills: number; turns: number; armorKills: number; prisms: number; bossHits: number; tutorialTargets?: number }
 export interface ObjectiveRequirement { key: keyof ObjectiveProgress; target: number; label: string }
 export interface ForestLevel {
@@ -56,6 +56,8 @@ export interface ChainHit {
   spikeDamage?: number;
   /** Score for breaking a crystal at this hit (CRYSTAL_SCORE_PER_KILL × its chain kills). */
   crystalScore?: number;
+  /** A consumable dropped by an elite, picked up at this cell (elite.ts). */
+  loot?: ItemKind;
   /** Ordinary chain budget: available includes this enemy's +1; abilities omit these fields. */
   availablePower?: number; powerSpent?: number; remainingPower?: number;
 }

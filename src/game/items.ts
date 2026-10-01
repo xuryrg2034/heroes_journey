@@ -1,6 +1,8 @@
 import type { ItemKind, RewardOption } from './forestTypes';
 
 /** Consumables: names and descriptions shown in the HUD, on the map and in finds. */
+/** Every consumable kind, in the inventory order. */
+export const ITEM_KINDS: readonly ItemKind[] = ['frost', 'bomb', 'healing', 'fire'];
 export const ITEMS: Record<ItemKind, RewardOption> = {
   frost: { item: 'frost', label: 'Холодный настой', description: 'Враг пропустит фазу; следующий удар по нему ×2.' },
   bomb: { item: 'bomb', label: 'Бомба', description: '6 урона одному врагу.' },

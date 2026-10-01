@@ -39,9 +39,11 @@ export const DamageEffects: ComponentDef = {
   name: 'DamageEffects', fields: ['damageEffects', 'attackEffect'], copy: { damageEffects: effects => ({ ...effects }) },
 };
 export const Crystal: ComponentDef = { name: 'Crystal', fields: ['crystalChain'] };
+export const Loot: ComponentDef = { name: 'Loot', fields: ['loot'] };
+export const Elite: ComponentDef = { name: 'Elite', fields: ['elite'] };
 
 /** Every component of an entity record, in registration order. */
-export const COMPONENTS: readonly ComponentDef[] = [Identity, Health, Status, Behavior, Intent, Footprint, Door, Shield, DamageEffects, Crystal];
+export const COMPONENTS: readonly ComponentDef[] = [Identity, Health, Status, Behavior, Intent, Footprint, Door, Shield, DamageEffects, Crystal, Loot, Elite];
 
 const OWNER = new Map<string, ComponentDef>(COMPONENTS.flatMap(component => component.fields.map(field => [field as string, component] as const)));
 const COPIERS = COMPONENTS.flatMap(component => Object.entries(component.copy ?? {}) as [CellField, (value: unknown) => unknown][]);

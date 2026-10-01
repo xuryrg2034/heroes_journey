@@ -10,7 +10,8 @@ export type CustomGoalKey = 'kills' | 'rangedKills' | 'bossKills' | 'turns';
 /** Board sides lined with spikes: a creature pushed off such a side dies, the cat is hurt and holds. */
 export type EdgeSide = 'top' | 'right' | 'bottom' | 'left';
 export const EDGE_SIDES: readonly EdgeSide[] = ['top', 'right', 'bottom', 'left'];
-export interface CustomEnemy { index: number; kind: Exclude<CellKind, 'door'>; color: EnemyColor | null; hp: number; variant?: EnemyVariant; footprint?: number[]; aggressive?: boolean; attackEffect?: DamageEffectKind }
+/** `elite`: the elite modifier (elite.ts) — an ordinary, non-boss enemy with at least 1 HP; the engine doubles its HP. */
+export interface CustomEnemy { index: number; kind: Exclude<CellKind, 'door'>; color: EnemyColor | null; hp: number; variant?: EnemyVariant; footprint?: number[]; aggressive?: boolean; attackEffect?: DamageEffectKind; elite?: boolean }
 export interface CustomDoor { index: number; footprint?: number[] }
 export interface CustomLevelDefinition {
   version: 1; name: string; seed: number; cols: number; rows: number; terrain: TerrainKind[]; heroIndex: number;
@@ -95,6 +96,8 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
     if (trollBody && Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && !squareOfFour(enemy.footprint, value.cols)) errors.push(`Враг ${n + 1}: тролль занимает одну клетку или квадрат 2×2.`);
     if (enemy.aggressive !== undefined && typeof enemy.aggressive !== 'boolean') errors.push(`Враг ${n + 1}: агрессия должна быть true/false.`);
     if (enemy.attackEffect !== undefined && !validAttackEffect(enemy.attackEffect)) errors.push(`Враг ${n + 1}: эффект удара должен быть fire, poison, bleeding или wind.`);
+    if (enemy.elite !== undefined && typeof enemy.elite !== 'boolean') errors.push(`Враг ${n + 1}: элита должна быть true/false.`);
+    else if (enemy.elite && (!oneOf(enemy.kind, ['melee', 'ranged']) || !integer(enemy.hp, 1, 10000))) errors.push(`Враг ${n + 1}: элитой может быть обычный враг (не босс и не огонёк) с HP от 1.`);
   });
   if (!Array.isArray(value.doors) || value.doors.length > 8) errors.push('Допустимо до восьми выходов.');
   else {

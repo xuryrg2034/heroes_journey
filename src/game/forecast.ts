@@ -55,6 +55,11 @@ function forecastContext(world: World): TurnContext {
         const crystal = standInCell(state, index, nextCrystal--, 'prism'); crystal.crystalChain = value;
         state.board[index] = crystal; return crystal;
       },
+      // Loot shares the crystals' stand-in IDs, in falling order, as the plan does.
+      placeLoot: (index, item) => {
+        const loot = standInCell(state, index, nextCrystal--, 'prism'); loot.loot = item;
+        state.board[index] = loot; return loot;
+      },
     },
     finish: (won, message) => concludeBattle(state, won, message),
     planRotationReplacements: rotations => {

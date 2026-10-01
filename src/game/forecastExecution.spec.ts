@@ -3,7 +3,7 @@
  * can take (chains, Rest, jump, spin), the preview is compared with what the committed turn actually does:
  * the cat's HP (exact damage, decision Г of 01.10.2026: never more than its HP), its death, the victory, the forced
  * deaths, the effects left on the cat. Fire items between turns put burning on enemies so effect ticks take part.
- * Editor levels add porcupines and attackers that cause bleeding and poison, with low HP and small kill goals. A
+ * Editor levels add porcupines, attackers that cause bleeding and poison and elites, with low HP and small kill goals. A
  * preview must not touch the live position, RNG or IDs, nor throw.
  */
 import type { AbilityKind, ChainPreview, ForestState } from './forestTypes';
@@ -46,6 +46,7 @@ async function act(g: ForestEngine, action: Action): Promise<boolean> {
 
 /** Effect stacks without the empty ones, in a fixed order. */
 const effects = (value: object | undefined) => JSON.stringify(Object.entries(value ?? {}).filter(([, n]) => n).sort());
+let lootDrops = 0, eliteHits = 0;
 let compared = 0, deaths = 0, wins = 0, tickWins = 0, effectTurns = 0;
 function compare(label: string, before: ForestState, preview: ChainPreview, after: ForestState) {
   compared++;
@@ -62,6 +63,10 @@ function compare(label: string, before: ForestState, preview: ChainPreview, afte
 }
 
 async function play(battleId: string, seed: number, g: ForestEngine) {
+  g.subscribe((state, event) => {
+    if (event.type === 'loot') lootDrops++;
+    if (event.type === 'damage' && event.from !== undefined && state.board[event.from]?.elite) eliteHits++;
+  });
   for (let step = 0; step < STEPS && g.state.phase === 'PLAYER_INPUT'; step++) {
     // Burning on an enemy every other turn: effect ticks of the cat's targets take part in the enemy phase.
     if (step % 2 === 1 && g.state.inventory.fire > 0) {
@@ -97,7 +102,9 @@ function startEditorLevel(seed: number): ForestEngine {
   if (seed > 20) level.enemies = level.enemies.map(enemy => ({ ...enemy, aggressive: true }));
   else level.enemies = level.enemies.map(enemy => { const roll = random();
     return roll < 0.15 ? { ...enemy, variant: 'porcupine' as const } : roll < 0.3 ? { ...enemy, attackEffect: 'bleeding' as const, aggressive: true }
-      : roll < 0.4 ? { ...enemy, attackEffect: 'poison' as const, aggressive: true } : enemy; });
+      : roll < 0.4 ? { ...enemy, attackEffect: 'poison' as const, aggressive: true }
+      // Elites (elite.ts): +1 to the cat, loot falling during chains and after levers, items and ticks.
+      : roll < 0.55 ? { ...enemy, hp: Math.max(1, enemy.hp), elite: true, aggressive: roll < 0.48 } : enemy; });
   level.goals = [{ key: 'kills', target: 3 + seed % 6 }]; level.playerHp = seed > 20 ? 1 + seed % 2 : 3 + seed % 4;
   const g = new ForestEngine(); g.animationScale = 0;
   if (!g.startCustomLevel(level)) throw new Error(`editor level ${seed}: rejected`);
@@ -126,7 +133,8 @@ async function main() {
   await goalOnOneKill();
   for (const battleId of Object.keys(FOREST_NODE_BATTLES)) for (const seed of SEEDS) await play(battleId, seed, startBattle(battleId, seed));
   for (let seed = 1; seed <= 30; seed++) await play(`editor-${seed}`, seed, startEditorLevel(seed));
-  assert(compared > 500 && deaths > 0 && wins > 0 && effectTurns > 0, `coverage: ${compared} compared, ${deaths} deaths, ${wins} wins, ${effectTurns} fire turns`);
-  console.log(`PASS forecast = execution: ${compared} actions on ${Object.keys(FOREST_NODE_BATTLES).length} battles × ${SEEDS.length} seeds and 30 editor levels; ${deaths} deaths, ${wins} victories (${tickWins} at the end of the turn), ${effectTurns} turns with burning enemies; previews leave the position, RNG and IDs untouched`);
+  assert(compared > 500 && deaths > 0 && wins > 0 && effectTurns > 0 && lootDrops > 0 && eliteHits > 0,
+    `coverage: ${compared} compared, ${deaths} deaths, ${wins} wins, ${effectTurns} fire turns, ${lootDrops} loot drops, ${eliteHits} elite hits on the cat`);
+  console.log(`PASS forecast = execution: ${compared} actions on ${Object.keys(FOREST_NODE_BATTLES).length} battles × ${SEEDS.length} seeds and 30 editor levels; ${deaths} deaths, ${wins} victories (${tickWins} at the end of the turn), ${effectTurns} turns with burning enemies, ${lootDrops} elite loot drops, ${eliteHits} elite hits on the cat; previews leave the position, RNG and IDs untouched`);
 }
 await main();

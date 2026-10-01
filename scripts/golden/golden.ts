@@ -113,6 +113,19 @@ function trollPitLab(seed: number) {
     playerHp: 20, inventory: { frost: 1, bomb: 1, healing: 2, fire: 2 } };
 }
 
+/**
+ * The camp with elites (elite.ts): armed elite goblins next to the cat, an elite archer and elites on the opening
+ * chains, so swings, arrows, chain kills, loot drops on the board and pickups all occur.
+ */
+function eliteLab(lib: Lib, seed: number) {
+  const level = lib.forestFixtureLevel(seed);
+  // The cat stands on D7 (45); C7 (44) and E7 (46) beside it, the blue opening D6→E6→F6→F5, the red F4→F3→G3→G2.
+  const elites: Record<number, Any> = { 44: { hp: 1, aggressive: true }, 46: { hp: 1, aggressive: true }, 40: { hp: 1 }, 20: { hp: 1 }, 12: { hp: 2, kind: 'ranged', aggressive: true } };
+  level.enemies = level.enemies.map((enemy: Any) => elites[enemy.index] ? { ...enemy, ...elites[enemy.index], elite: true } : enemy);
+  level.name = 'Лагерь с элитой';
+  return level;
+}
+
 function scenes(lib: Lib): Scene[] {
   const fresh = () => { const g = new lib.ForestEngine(); g.animationScale = 0; return g; };
   const nodes = lib.FOREST_MAP.filter(node => node.content.kind === 'battle');
@@ -130,6 +143,7 @@ function scenes(lib: Lib): Scene[] {
     editor('boar', seed => lib.demos[0](seed)), editor('beasts', seed => lib.demos[1](seed)), editor('troll', seed => lib.demos[2](seed)),
     editor('devices-lab', devicesLab),
     editor('troll-pit-lab', trollPitLab),
+    editor('elite-lab', seed => eliteLab(lib, seed)),
   ];
 }
 

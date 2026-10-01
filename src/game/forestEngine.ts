@@ -15,6 +15,7 @@ import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
 import { forestBattle } from './run/forestBattles';
 import { cloneState, type World } from './ecs/world';
 import { definitionOf, hasTag, variantDefinition } from './enemyDefinitions';
+import { applyElite } from './elite';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Seed of an engine before any battle is loaded; every battle replaces it with its own. */
@@ -152,6 +153,8 @@ export class ForestEngine {
           if (lesson.targetIndices.includes(enemy.index)) state.tutorial!.targetIds.push(cell.id);
         }
         if (enemy.attackEffect) cell.attackEffect = enemy.attackEffect;
+        // The elite modifier is baked over the authored HP (elite.ts).
+        if (enemy.elite) applyElite(cell);
         if (enemy.footprint) cell.footprint = [...enemy.footprint];
         const indices = cell.footprint ?? [enemy.index]; cell.status.wet = indices.some(index => state.terrain[index] === 'puddle');
         for (const index of indices) state.board[index] = cell;
@@ -320,6 +323,10 @@ export class ForestEngine {
         placeCrystal: (index, value) => {
           const crystal = this.createCell('prism', null, index); crystal.crystalChain = value;
           state.board[index] = crystal; return crystal;
+        },
+        placeLoot: (index, item) => {
+          const loot = this.createCell('prism', null, index); loot.loot = item;
+          state.board[index] = loot; return loot;
         },
       },
       finish: (won, message) => this.finish(won, message),

@@ -3,6 +3,7 @@ import type { ForestCell, ForestState, HeroDamageSource } from './forestTypes';
 import { notifyDamaged, notifyDeath, onDeath } from './ecs/observers';
 import { refreshCustomProgress } from './customLevel';
 import { isCellAlive } from './cellLife';
+import { heroDamageBonus } from './elite';
 import { shieldBlocksApproach } from './recovered/core';
 
 export type DamageSource = 'physical' | 'item' | 'hazard' | 'effect';
@@ -12,9 +13,9 @@ export function physicalDamage(cell: ForestCell, base: number): number {
   return base * (cell.status.brittle ? 2 : 1);
 }
 
-/** The cat as a damage target (it is not a board entity). */
-export interface HeroTarget { readonly hero: Pick<ForestState, 'player' | 'lastDamage'> }
-export const heroTarget = (state: Pick<ForestState, 'player' | 'lastDamage'>): HeroTarget => ({ hero: state });
+/** The cat as a damage target (it is not a board entity); `from` is the attacking entity, if any. */
+export interface HeroTarget { readonly hero: Pick<ForestState, 'player' | 'lastDamage'>; readonly from?: ForestCell | null }
+export const heroTarget = (state: Pick<ForestState, 'player' | 'lastDamage'>, from?: ForestCell | null): HeroTarget => ({ hero: state, from });
 export interface DamageOutcome { damage: number; hpBefore: number; hpAfter: number; hpRemoved: number; killed: boolean }
 
 /** One application of damage to the cat: its source and the damage actually taken (capped by HP). */
@@ -39,8 +40,9 @@ export function applyDamage(target: ForestCell, amount: number, source: DamageSo
 export function applyDamage(target: HeroTarget, amount: number, cause: HeroDamageSource): DamageOutcome;
 export function applyDamage(target: ForestCell | HeroTarget, amount: number, source: DamageSource | HeroDamageSource): DamageOutcome {
   if ('hero' in target) {
+    // An elite attacker adds its bonus to every attack on the cat (elite.ts).
     const state = target.hero, hpBefore = state.player.hp;
-    const damage = Math.min(state.player.hp, amount);
+    const damage = Math.min(state.player.hp, amount + heroDamageBonus(target.from));
     state.player.hp -= damage; state.lastDamage += damage;
     heroTraces.get(state)?.push({ cause: source as HeroDamageSource, damage });
     return { damage, hpBefore, hpAfter: state.player.hp, hpRemoved: damage, killed: state.player.hp === 0 };

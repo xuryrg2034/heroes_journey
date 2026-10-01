@@ -29,6 +29,8 @@ export interface LessonTile {
   armed?: boolean;
   /** Marked objective; its ID must be defeated. */
   target?: boolean;
+  /** Elite modifier (elite.ts): HP ×2, +1 to its attacks on the cat, loot when the player kills it. */
+  elite?: boolean;
   variant?: NonNullable<CustomLevelDefinition['enemies'][number]['variant']>;
   /** Walkable ground under an entity (`puddle`, `thorns`) or impassable scenery with no entity (`tree`, `pond`, `campfire`). */
   terrain?: 'puddle' | 'thorns' | 'tree' | 'pond' | 'campfire';
@@ -93,7 +95,7 @@ export function authoredLesson(spec: LessonSpec): AuthoredLesson {
     const colorless = kind === 'boss' || kind === 'prism';
     enemies.push({ index, kind, color: colorless ? null : entry.color ?? 0, hp: entry.hp ?? (kind === 'prism' ? 1 : 0),
       // Bosses fight by default, as the previous lesson helpers did for marked bosses.
-      ...(entry.variant ? { variant: entry.variant } : {}), aggressive: entry.armed ?? kind === 'boss' });
+      ...(entry.variant ? { variant: entry.variant } : {}), aggressive: entry.armed ?? kind === 'boss', ...(entry.elite ? { elite: true } : {}) });
     if (entry.target) targetIndices.push(index);
   });
   if (!spec.goals && !targetIndices.length) throw new Error(`Урок ${spec.id}: нужны отмеченные цели или явные goals.`);

@@ -109,7 +109,7 @@ export function* resolveBoarCharge(state: ForestState, boar: ForestCell, start: 
       rammed = true;
       const first = bodies[0];
       if (!first.cell) {
-        const heroDamage = applyDamage(heroTarget(state), boar.intent.damage, 'charge').damage;
+        const heroDamage = applyDamage(heroTarget(state, boar), boar.intent.damage, 'charge').damage;
         const effect = state.player.hp > 0 && applyAttackEffect(state.player, boar.attackEffect, false);
         yield { kind: 'ram', index: first.index, heroDamage, damage: heroDamage, killed: state.player.hp === 0, shielded: false, effect };
         if (state.player.hp === 0) return;

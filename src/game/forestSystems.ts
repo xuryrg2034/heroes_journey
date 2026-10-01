@@ -1,8 +1,9 @@
 import { isCellAlive } from './cellLife';
 import { cloneEntities } from './ecs/world';
-import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, HeroDamageSource, InteractionDevice, ForestCell, ForestState } from './forestTypes';
+import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ItemKind } from './forestTypes';
 import { pathColour, WILD } from './recovered/core';
-import { forecastConsequences, hurt } from './forecast';
+import { forecastConsequences, hurt, standInCell } from './forecast';
+import { rollEliteLoot } from './elite';
 import { angerIntent, announceRites, behaviorOf, type IntentPass } from './enemyBehaviors';
 import { chainAdjacent, isWalkable, neighbors } from './boardGeometry';
 import { THORN_DAMAGE } from './terrain';
@@ -30,7 +31,8 @@ export { rotationPreview };
  * enemy `victimId` there; `value` is the chain's final kill count. Internal: never part of the public forecast.
  */
 export type ChainStep = { kind: 'hit'; hit: ChainHit } | { kind: 'device'; index: number; activated: boolean }
-  | { kind: 'crystal'; index: number; victimId?: number; value: number };
+  | { kind: 'crystal'; index: number; victimId?: number; value: number }
+  | { kind: 'loot'; draws: number; index?: number; item?: ItemKind; victimId?: number };
 export interface ChainSimulation {
   steps?: ChainStep[]; queuedDevices?: InteractionDevice[]; preview: ChainPreview; board: (ForestCell | null)[];
   /** The cat's damage effects after the planned steps (bleeding advances per step). */
@@ -84,7 +86,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   if (!path.length) reject('Начни цепочку рядом с котом.');
   // Crystals fall during the chain (mapBattleRules.ts): one per CRYSTAL_KILLS chain-hit kills, on a cell drawn from the
   // RNG copy among the allowed ones that the rest of this path does not use. Without a cell it waits for a later step.
-  let pendingCrystals = 0, rngState = rng;
+  let pendingCrystals = 0, rngState = rng, pendingLoot = false;
   const crystalSteps: Extract<ChainStep, { kind: 'crystal' }>[] = [], standIns: ForestCell[] = [];
   const dropCrystals = () => {
     while (pendingCrystals > 0 && rngState !== undefined) {
@@ -122,7 +124,8 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
         // A map-battle crystal scores by the chain that created it; like any prism it gives no power or energy.
         const score = crystalScore(cell);
         if (score) preview.crystalScore = (preview.crystalScore ?? 0) + score;
-        preview.hits.push({ index, damage: 0, hpBefore: cell.hp, hpAfter: 0, killed: true, physical: false, availablePower: chainPower, powerSpent: 0, remainingPower: chainPower, ...(score ? { crystalScore: score } : {}) });
+        // A dropped consumable (elite.ts) is picked up by the chain passing through or ending on it.
+        preview.hits.push({ index, damage: 0, hpBefore: cell.hp, hpAfter: 0, killed: true, physical: false, availablePower: chainPower, powerSpent: 0, remainingPower: chainPower, ...(score ? { crystalScore: score } : {}), ...(cell.loot ? { loot: cell.loot } : {}) });
       } else {
         if (cell.kind !== 'door') { preview.enemies++; chainPower++; }
         const availablePower = chainPower;
@@ -147,6 +150,8 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
           preview.endIndex = index;
           if (cell.kind !== 'door') { preview.kills++; if (preview.kills % CRYSTAL_KILLS === 0) pendingCrystals++; }
           if (cell.kind !== 'door') creditDefeat(state, cell, customProgress);
+          // An elite killed by the chain may drop a consumable once this step is over (elite.ts).
+          if (cell.elite) pendingLoot = true;
           if (doorOpened) { preview.opensDoor = index; preview.completesRoom = true; }
         }
         else if (step < path.length - 1) { reject('Этот противник выживет. Закончи на нём или накопи больше силы.'); break; }
@@ -184,7 +189,20 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
     previous = index;
     if (!state.devices.length && preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
     if (preview.completesRoom) break;
-    // After this step the crystal falls (never on the path still ahead); a victory step ends the battle first.
+    // After this step the elite's loot falls, then the crystal (never on the path still ahead); a victory step ends
+    // the battle first. The roll draws from the same RNG copy, so execution replays it draw for draw.
+    if (pendingLoot && rngState !== undefined) {
+      pendingLoot = false;
+      const view = { ...state, player: { ...state.player, index: preview.endIndex } };
+      const reserved = new Set(path.filter(at => board[at]));
+      const roll = rollEliteLoot(view, board, reserved, () => { const draw = nextRandom(rngState!); rngState = draw.state; return draw.value; });
+      if (roll.index !== undefined) {
+        if (roll.victim) { defeatOutright(roll.victim); removeDefeated(board, roll.victim); }
+        const standIn = standInCell(state, roll.index, -1 - standIns.length, 'prism'); standIn.loot = roll.item; standIns.push(standIn); board[roll.index] = standIn;
+      }
+      steps.push({ kind: 'loot', draws: roll.draws, ...(roll.index !== undefined ? { index: roll.index, item: roll.item, ...(roll.victim ? { victimId: roll.victim.id } : {}) } : {}) });
+    }
+    pendingLoot = false;
     if (pendingCrystals) dropCrystals();
   }
   // A crystal that found no cell during the chain tries once more at its end; still none — it is not created.
@@ -192,7 +210,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   pendingCrystals = 0;
   // Its value is the chain's final length (kills), fixed once the chain is over.
   for (const crystal of crystalSteps) crystal.value = preview.kills;
-  for (const standIn of standIns) standIn.crystalChain = preview.kills;
+  for (const standIn of standIns) if (!standIn.loot) standIn.crystalChain = preview.kills;
   if (preview.valid && !allowIncomplete && preview.enemies < 2 && preview.opensDoor === undefined && !plannedPathValid) reject('Нужны хотя бы два противника в цепочке.');
   if (!preview.valid) { preview.endIndex = state.player.index; return { preview, board }; }
   preview.energyGain = Math.min(7 - state.player.energy, preview.hits.filter(hit => { const cell = state.board[hit.index]; return cell && cell.kind !== 'door' && cell.kind !== 'prism'; }).length * 0.5);
