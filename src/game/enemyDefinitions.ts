@@ -49,7 +49,7 @@ export const ENEMY_DEFINITIONS: readonly EnemyDefinition[] = [
   { id: 'goblin', kind: 'melee', tags: ['Ordinary'], shape: 'any', hp: 0, editor: { label: 'Гоблин', hp: 0 } },
   { id: 'archer', kind: 'ranged', tags: [], shape: 'single', hp: 7, editor: { label: 'Лучник', hp: 7, glyph: '⌖' } },
   { id: 'chief', kind: 'boss', tags: ['Boss', 'Colorless'], shape: 'single', hp: 20, editor: { label: 'Главарь', hp: 20, glyph: '♛' } },
-  { id: 'prism', kind: 'prism', tags: ['Colorless', 'ColorReset'], shape: 'single', hp: 1, editor: { label: 'Огонёк', hp: 1, glyph: '✦' } },
+  { id: 'prism', kind: 'prism', tags: ['Colorless', 'ColorReset'], shape: 'single', hp: 1, editor: { label: 'Кристалл', hp: 1, glyph: '✦' } },
   { id: 'sentinel', kind: 'melee', variant: 'sentinel', tags: ['CrystalProtected'], shape: 'single', shapeError: 'страж со щитом занимает одну клетку.',
     hp: 7, editor: { label: 'Щитоносец (страж-щит)', hp: 7, glyph: '▣' } },
   { id: 'jailer', kind: 'boss', variant: 'jailer', tags: ['Boss', 'Colorless', 'CrystalProtected', 'NeverPassive'], shape: 'single',

@@ -23,9 +23,9 @@ const brushDefinition=(type:string)=>variantDefinition(type)??ENEMY_DEFINITIONS.
 const attackEffects:Record<DamageEffectKind,string>={fire:'Огонь · горение',poison:'Яд · длительный урон',bleeding:'Кровотечение · при обычном движении',wind:'Ветер · усиливает горение'};
 const effectOptions=(selected?:DamageEffectKind|null)=>`<option value="" ${!selected?'selected':''}>Без эффекта</option>${Object.entries(attackEffects).map(([kind,label])=>`<option value="${kind}" ${selected===kind?'selected':''}>${label}</option>`).join('')}`;
 const esc=(value:unknown)=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-/** Elite modifier (src/game/elite.ts): only an ordinary enemy (melee/ranged kind, not a boss or a wisp) with at least 1 HP. */
+/** Elite modifier (src/game/elite.ts): only an ordinary enemy (melee/ranged kind, not a boss or a crystal) with at least 1 HP. */
 const eliteAllowed=(type:string)=>['melee','ranged'].includes(brushDefinition(type).kind);
-const eliteNote=(elite:boolean,type:string,hp:number)=>!elite?'':!eliteAllowed(type)?'Элитой может быть только обычный враг: не босс и не огонёк.':hp<1?'Элите нужно HP ≥ 1 (слабый враг с 0 HP не может быть элитой): проверка уровня откажет, пока здоровье не задано.':'Элита: HP ×2, любой её удар по коту +1, побеждённая игроком с шансом 50% оставляет расходник на поле.';
+const eliteNote=(elite:boolean,type:string,hp:number)=>!elite?'':!eliteAllowed(type)?'Элитой может быть только обычный враг: не босс и не кристалл.':hp<1?'Элите нужно HP ≥ 1 (слабый враг с 0 HP не может быть элитой): проверка уровня откажет, пока здоровье не задано.':'Элита: HP ×2, любой её удар по коту +1, побеждённая игроком с шансом 50% оставляет расходник на поле.';
 const copy=<T>(value:T):T=>structuredClone(value);
 type SavedMap={name:string;definition:CustomLevelDefinition};
 

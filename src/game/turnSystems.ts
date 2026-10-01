@@ -430,6 +430,8 @@ export function* resolveBoarCharges(ctx: TurnContext, displaced: Set<number>): T
         if (ctx.state.player.hp === 0) return true;
         continue;
       }
+      // A crystal or loot rammed by the boar is only pushed: no hit to show.
+      if (impact.kind === 'ram' && impact.cell?.kind === 'prism') continue;
       yield { event: { type: 'hit', index: impact.index, from: boarIndex, amount: impact.damage, text: impact.kind === 'ram' && impact.shielded ? 'ЩИТ' : text } };
       if (!ctx.current()) return false;
       if (impact.killed && impact.cell) {

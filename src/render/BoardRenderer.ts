@@ -259,7 +259,8 @@ export class BoardRenderer {
         piece={view,signature,index,born:oldBorn??now,motion:oldMotion}; this.views.set(cell.id,piece);
       }
       piece.index=index;
-      if(cell.kind==='prism'){if(cell.loot)this.lootCells.set(index,cell.loot);else this.lootCells.delete(index);}
+      // Pushed loot moves: forget its previous cell.
+      if(cell.kind==='prism'){if(oldIndex!==undefined&&oldIndex!==index)this.lootCells.delete(oldIndex);if(cell.loot)this.lootCells.set(index,cell.loot);else this.lootCells.delete(index);}
       if((event.type==='crystal'||event.type==='loot')&&event.newId===cell.id&&!piece.drop){const pos=this.entityCenter(cell,index);piece.view.position.set(pos.x,pos.y-240);piece.drop={started:now,duration:this.dur(240),crushed:event.oldId!==undefined||this.lootCrushed.delete(index)};}
       // A boar shift moves whole rows one cell: each pushed body slides from its previous cell.
       if(event.type==='push'&&oldIndex!==undefined&&oldIndex!==index&&!cell.footprint){

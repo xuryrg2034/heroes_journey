@@ -398,7 +398,7 @@ async function crystalValue() {
 
 /** A chain may start on a crystal or prism (30.09.2026): the first coloured target sets the colour, two enemies are still needed. */
 const START = register(authoredLesson({
-  id: 'spec-prism-start', name: 'Старт с огонька', description: 'Проверочный бой.', hint: 'Проверка.', seed: 9905,
+  id: 'spec-prism-start', name: 'Старт с кристалла', description: 'Проверочный бой.', hint: 'Проверка.', seed: 9905,
   rows: ['RRBB', 'RRBB', 'RRBB', 'HPBB'], legend: { P: { kind: 'prism' } }, goals: [{ key: 'kills', target: 999 }],
 }));
 async function chainFromCrystal() {

@@ -136,14 +136,17 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
       chargeDamage += impact.heroDamage; chargeBreakdown[impact.kind === 'ram' ? 'ram' : impact.cause] += impact.heroDamage;
     }
     if (impact.kind === 'start') chargeBoar = impact.boar.id;
-    if (impact.kind === 'ram') phase.rams.push({ boarId: chargeBoar, id: impact.cell?.id ?? HERO_MOVE_ID, index: impact.index, damage: impact.damage, killed: impact.killed, shielded: impact.shielded });
+    // A crystal or loot is pushed, not rammed (no damage): only its move is shown.
+    if (impact.kind === 'ram' && impact.cell?.kind !== 'prism') phase.rams.push({ boarId: chargeBoar, id: impact.cell?.id ?? HERO_MOVE_ID, index: impact.index, damage: impact.damage, killed: impact.killed, shielded: impact.shielded });
     if (impact.kind === 'shift') for (const move of [...impact.moves, { id: impact.boarId, from: impact.from, to: impact.to }]) {
       if (!firstFrom.has(move.id)) firstFrom.set(move.id, move.from);
       lastTo.set(move.id, move.to);
     }
     if (impact.kind === 'end') phase.charges.push({ boarId: impact.boarId, from: impact.from, to: impact.index, stunned: impact.moved === 0 });
   }
-  phase.moves = [...lastTo].map(([id, to]) => ({ id, from: firstFrom.get(id)!, to }));
+  // Entities created during this very action (a crystal or loot falling in the chain: stand-in IDs below 0) stay
+  // hidden — the forecast accounts for them but never shows where they fall.
+  phase.moves = [...lastTo].filter(([id]) => id >= 0).map(([id, to]) => ({ id, from: firstFrom.get(id)!, to }));
   phase.knockedDown = [...displaced].filter(id => id !== HERO_MOVE_ID && !phase.charges.some(charge => charge.boarId === id) && afterCharges.has(id));
   preview.enemyPhase = phase;
   if (chargeDamage) { preview.chargeDamage = chargeDamage; preview.chargeBreakdown = chargeBreakdown; hurt(preview, 'charge', chargeDamage); }

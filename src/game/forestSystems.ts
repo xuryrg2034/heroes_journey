@@ -277,7 +277,7 @@ export function planAbility(state: ForestState, ability: AbilityKind, targetInde
     const index = targetIndex ?? -1, dx = index % state.cols - state.player.index % state.cols, dy = Math.floor(index / state.cols) - Math.floor(state.player.index / state.cols);
     const cell = board[index];
     if (!isWalkable(state, index) || index === state.player.index || dx * dx + dy * dy > JUMP_RANGE * JUMP_RANGE) reject(`Прыжок: свободная для приземления клетка в радиусе ${JUMP_RANGE}.`);
-    else if (cell?.kind === 'door' || cell?.kind === 'prism') reject('На дверь или огонёк нельзя приземлиться.');
+    else if (cell?.kind === 'door' || cell?.kind === 'prism') reject('На дверь или кристалл нельзя приземлиться.');
     else if (cell && cell.hp > physicalDamage(cell, 4)) reject('Цель должна погибнуть от удара при приземлении.');
     else preview.endIndex = index;
   } else if (!indices.length) reject('Рядом нет противников.');

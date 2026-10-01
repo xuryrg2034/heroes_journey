@@ -89,7 +89,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
       // Shapes are definition data: shields, charges, pack adjacency, quills and rites are defined for single squares.
       if (definition?.shapeError && Array.isArray(enemy.footprint) && enemy.footprint.length > 1) errors.push(`Враг ${n + 1}: ${definition.shapeError}`);
     }
-    if ((enemy.kind === 'boss' || enemy.kind === 'prism') && enemy.color !== null) errors.push(`Враг ${n + 1}: босс и огонёк бесцветны.`);
+    if ((enemy.kind === 'boss' || enemy.kind === 'prism') && enemy.color !== null) errors.push(`Враг ${n + 1}: босс и кристалл бесцветны.`);
     // The troll is the only boss with a body: one cell or a 2×2 square. Other bosses aim from a single square.
     const trollBody = definition?.shape === 'square2' && enemy.kind === definition.kind;
     if (Array.isArray(enemy.footprint) && enemy.footprint.length > 1 && enemy.kind !== 'melee' && !trollBody) errors.push(`Враг ${n + 1}: большая форма доступна ближнему врагу и троллю.`);
@@ -97,7 +97,7 @@ export function validateCustomLevel(value: unknown): { valid: boolean; errors: s
     if (enemy.aggressive !== undefined && typeof enemy.aggressive !== 'boolean') errors.push(`Враг ${n + 1}: агрессия должна быть true/false.`);
     if (enemy.attackEffect !== undefined && !validAttackEffect(enemy.attackEffect)) errors.push(`Враг ${n + 1}: эффект удара должен быть fire, poison, bleeding или wind.`);
     if (enemy.elite !== undefined && typeof enemy.elite !== 'boolean') errors.push(`Враг ${n + 1}: элита должна быть true/false.`);
-    else if (enemy.elite && (!oneOf(enemy.kind, ['melee', 'ranged']) || !integer(enemy.hp, 1, 10000))) errors.push(`Враг ${n + 1}: элитой может быть обычный враг (не босс и не огонёк) с HP от 1.`);
+    else if (enemy.elite && (!oneOf(enemy.kind, ['melee', 'ranged']) || !integer(enemy.hp, 1, 10000))) errors.push(`Враг ${n + 1}: элитой может быть обычный враг (не босс и не кристалл) с HP от 1.`);
   });
   if (!Array.isArray(value.doors) || value.doors.length > 8) errors.push('Допустимо до восьми выходов.');
   else {

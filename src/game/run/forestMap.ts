@@ -94,7 +94,7 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
   { id: 'trail-find', type: 'find', name: 'Находка', lane: 'shared', row: 7, column: 1, content: { kind: 'find' }, grants: JUMP, next: ['trail-banners'] },
   { id: 'goblin-shaman', type: 'battle', name: 'Камлание за частоколом', lane: 'goblins', row: 7, column: 2, content: battle('goblin-shaman-rite'), grants: JUMP,
     feature: 'Шаман', next: ['trail-banners'] },
-  { id: 'trail-banners', type: 'battle', name: 'Три знамени', lane: 'shared', row: 8, column: 1, content: battle('three-banners'), feature: 'Огонёк в проломе',
+  { id: 'trail-banners', type: 'battle', name: 'Три знамени', lane: 'shared', row: 8, column: 1, content: battle('three-banners'), feature: 'Кристалл в проломе',
     next: ['jailer'] },
   // Victory over the checkpoint opens the spin for the rest of the run.
   { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: battle('jailer-gate'), rewardGrants: { abilities: ['spin'] },

@@ -71,13 +71,18 @@ function scanRow(state: ForestState, from: number, dx: number, dy: number): { bo
     bodies.push({ index: next, cell, pinned: false }); at = next;
   }
 }
-/** Rows stop at doors, prisms, bosses, large figures, frozen creatures and a shield facing the push. */
+/**
+ * Rows stop at doors, bosses, large figures, frozen creatures and a shield facing the push. A crystal or an elite's
+ * loot (`prism`) does not hold the row: it slides with it (decision of 01.10.2026).
+ */
 function holdsRow(state: ForestState, body: Body, pushedFrom: number): boolean {
   const cell = body.cell;
   if (!cell) return body.pinned;
-  return cell.kind === 'door' || cell.kind === 'prism' || hasTag(cell, 'Boss') || (cell.footprint?.length ?? 1) > 1
+  return cell.kind === 'door' || hasTag(cell, 'Boss') || (cell.footprint?.length ?? 1) > 1
     || cell.status.frozen > 0 || shieldBlocksEntry(state, cell, pushedFrom, body.index);
 }
+/** A crystal or loot: not a creature — never wet, never hurt by thorns, never knocked down. */
+const isLink = (cell: ForestCell | null): boolean => cell?.kind === 'prism';
 /** Move each body one cell forward (front first), then the boar into the first vacated cell. */
 function shiftRow(state: ForestState, boar: ForestCell, at: number, bodies: Body[], dest: number, displaced: Set<number>) {
   const boarTo = bodies[0]?.index ?? dest, moves: ChargeMove[] = [];
@@ -85,7 +90,7 @@ function shiftRow(state: ForestState, boar: ForestCell, at: number, bodies: Body
     const body = bodies[n], to = n + 1 < bodies.length ? bodies[n + 1].index : dest;
     if (!body.cell) { state.player.index = to; moves.unshift({ id: HERO_MOVE_ID, from: body.index, to }); continue; }
     state.board[body.index] = null; state.board[to] = body.cell;
-    body.cell.status.wet = state.terrain[to] === 'puddle'; displaced.add(body.cell.id);
+    if (!isLink(body.cell)) { body.cell.status.wet = state.terrain[to] === 'puddle'; displaced.add(body.cell.id); }
     moves.unshift({ id: body.cell.id, from: body.index, to });
   }
   state.board[at] = null; state.board[boarTo] = boar; boar.status.wet = state.terrain[boarTo] === 'puddle'; displaced.add(boar.id);
@@ -115,8 +120,9 @@ export function* resolveBoarCharge(state: ForestState, boar: ForestCell, start: 
         if (state.player.hp === 0) return;
       } else {
         const cell = first.cell;
-        const shielded = cell.kind === 'door' || cell.kind === 'prism' || shieldBlocksEntry(state, cell, at, first.index);
-        const outcome = shielded ? null : applyDamage(cell, boar.intent.damage, 'hazard');
+        // A crystal or loot takes no damage and is pushed on; a door or a shield facing the boar holds the ram.
+        const shielded = cell.kind === 'door' || shieldBlocksEntry(state, cell, at, first.index);
+        const outcome = shielded || isLink(cell) ? null : applyDamage(cell, boar.intent.damage, 'hazard');
         if (outcome?.killed) removeDefeated(state.board, cell);
         yield { kind: 'ram', index: first.index, cell, damage: outcome?.damage ?? 0, killed: !!outcome?.killed, shielded };
         // A weak victim leaves a gap: the boar advances into it on this step.
@@ -140,6 +146,8 @@ export function* resolveBoarCharge(state: ForestState, boar: ForestCell, start: 
           if (state.player.hp === 0) return;
           break;
         }
+        // A crystal or loot at the front neither breaks nor falls: it stops the row like a wall.
+        if (isLink(front.cell)) break;
         const cell = front.cell, hpBefore = cell.hp;
         cell.hp = 0; cell.defeated = true; removeDefeated(state.board, cell);
         yield { kind: 'crush', index: front.index, cause, cell, damage: Math.max(1, hpBefore), killed: true };
@@ -158,7 +166,8 @@ export function* resolveBoarCharge(state: ForestState, boar: ForestCell, start: 
         continue;
       }
       const cell = state.board[move.to];
-      if (!cell || !isCellAlive(cell)) continue;
+      // Thorns hurt creatures only; a crystal or loot slides over them untouched.
+      if (!cell || isLink(cell) || !isCellAlive(cell)) continue;
       const outcome = applyDamage(cell, THORN_DAMAGE, 'hazard');
       if (outcome.killed) removeDefeated(state.board, cell);
       yield { kind: 'crush', index: move.to, cause: 'thorns', cell, damage: outcome.damage, killed: outcome.killed };
