@@ -38,6 +38,7 @@ export function cloneState(state: ForestState): ForestState {
     pits: state.pits.map(pit => ({ ...pit })), player: { ...state.player }, chain: [...state.chain], inventory: { ...state.inventory },
     objective: { ...state.objective }, bossWarning: [...state.bossWarning], rotations: state.rotations.map(plan => ({ ...plan })) };
   if (state.player.damageEffects) copy.player.damageEffects = { ...state.player.damageEffects };
+  if (state.materials) copy.materials = { ...state.materials };
   if (state.customLevel) copy.customLevel = { ...state.customLevel, paletteWeights: [...state.customLevel.paletteWeights] };
   if (state.tutorial) copy.tutorial = { ...state.tutorial, targetIds: [...state.tutorial.targetIds],
     allowedItems: [...state.tutorial.allowedItems], allowedAbilities: [...state.tutorial.allowedAbilities] };

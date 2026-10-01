@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import type { ForestCell, ItemKind, TerrainKind } from '../game/forestTypes';
+import type { ForestCell, LootKind, TerrainKind } from '../game/forestTypes';
 import { makeDoor, makeGuardEnemy } from './guardArt';
 import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
@@ -74,11 +74,13 @@ function makeIllustratedEnemy(cell: ForestCell, width: number, height: number, t
   addDamageEffectBadges(c,cell.damageEffects,wide?halfH-5:34);
   return c;
 }
-export const ITEM_COLORS: Record<ItemKind, number> = { frost: 0x8fd9de, bomb: 0xe0a26c, healing: 0x9fd78a, fire: 0xf0a065 };
-export const ITEM_GLYPHS: Record<ItemKind, string> = { frost: '❄', bomb: '✹', healing: '✚', fire: '♨' };
-const ITEM_SHORT: Record<ItemKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь' };
+/** Consumables and crafting resources (elite loot): colour, glyph and short name. */
+export const ITEM_COLORS: Record<LootKind, number> = { frost: 0x8fd9de, bomb: 0xe0a26c, healing: 0x9fd78a, fire: 0xf0a065,
+  dew: 0xa6e6f2, powder: 0xbfae94, resin: 0xd9a441, herbs: 0x86c96f };
+export const ITEM_GLYPHS: Record<LootKind, string> = { frost: '❄', bomb: '✹', healing: '✚', fire: '♨', dew: '◍', powder: '⁂', resin: '◆', herbs: '♣' };
+const ITEM_SHORT: Record<LootKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь', dew: 'Роса', powder: 'Порох', resin: 'Смола', herbs: 'Травы' };
 /** A consumable dropped by an elite: a colourless link that carries an item badge (same glyphs as the item toolbar). */
-function makeLootPiece(item: ItemKind): Container {
+function makeLootPiece(item: LootKind): Container {
   const c=new Container(),glow=new Graphics(),g=new Graphics(),color=ITEM_COLORS[item];
   glow.label='prism-aura';glow.circle(0,-2,28).fill({color:0xd1dfac,alpha:.12}).stroke({color:0xe9eac0,width:1,alpha:.35});
   g.ellipse(0,26,24,6).fill({color:0x101a15,alpha:.7});

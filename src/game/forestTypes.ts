@@ -7,6 +7,10 @@ export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'w
 export type CellKind = 'melee' | 'ranged' | 'boss' | 'prism' | 'door';
 export type EnemyVariant = 'sentinel' | 'jailer' | 'boar' | 'wolf' | 'porcupine' | 'shaman' | 'troll';
 export type ItemKind = 'frost' | 'bomb' | 'healing' | 'fire';
+/** Crafting resource (resources.ts): dew, powder, resin, herbs. */
+export type ResourceKind = 'dew' | 'powder' | 'resin' | 'herbs';
+/** What an elite drops: a consumable, or a resource where no consumable is open (elite.ts). */
+export type LootKind = ItemKind | ResourceKind;
 export type AbilityKind = 'jump' | 'spin';
 export interface RewardOption { item: ItemKind; label: string; description: string }
 /** Authored exit of a battle with `completion: 'exit'`: it opens (`breached`) once every goal is met. */
@@ -34,6 +38,8 @@ export interface ForestState {
   terrain: TerrainKind[]; devices: InteractionDevice[]; pits: TemporaryPit[]; player: { index: number; hp: number; maxHp: number; energy: number } & DamageEffectComponent; chain: number[];
   chosenAbility: AbilityKind | null;
   inventory: Record<ItemKind, number>; itemPrepared: boolean;
+  /** Resources picked up in this battle (elite loot); absent until the first one. The run keeps them. */
+  materials?: Record<ResourceKind, number>;
   objective: ObjectiveProgress; turn: number; score: number; message: string; bossWarning: number[]; lastDamage: number;
   rotations: RotationPlan[];
   customLevel?: CustomLevelRuntime;
@@ -56,8 +62,8 @@ export interface ChainHit {
   spikeDamage?: number;
   /** Score for breaking a crystal at this hit (CRYSTAL_SCORE_PER_KILL × its chain kills). */
   crystalScore?: number;
-  /** A consumable dropped by an elite, picked up at this cell (elite.ts). */
-  loot?: ItemKind;
+  /** A consumable or resource dropped by an elite, picked up at this cell (elite.ts). */
+  loot?: LootKind;
   /** Ordinary chain budget: available includes this enemy's +1; abilities omit these fields. */
   availablePower?: number; powerSpent?: number; remainingPower?: number;
 }

@@ -5,7 +5,8 @@
  * with resolveBattle(run, engine.runBattleOutcome()).
  */
 import { ITEM_KINDS, mixSeed, rewardChoices } from '../items';
-import type { AbilityKind, ItemKind } from '../forestTypes';
+import type { LootKind, ResourceKind, AbilityKind, ItemKind } from '../forestTypes';
+import { emptyMaterials, isResource, RESOURCE_KINDS } from '../resources';
 import { nodeBattleTemplate, FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
@@ -16,7 +17,8 @@ export const FOREST_RUN_START_HP = 5;
 const MAX_ENERGY = 7;
 const ABILITY_KINDS: AbilityKind[] = ['jump', 'spin'];
 
-export interface ForestRunResources { player: RunPlayerResources; inventory: Record<ItemKind, number> }
+/** `materials`: crafting resources kept for the future crafting (elite loot, resources.ts); absent until the first. */
+export interface ForestRunResources { player: RunPlayerResources; inventory: Record<ItemKind, number>; materials?: Record<ResourceKind, number> }
 /** Tools opened by run events (grants and finds); a map battle allows only these. */
 export interface ForestRunTools { items: ItemKind[]; abilities: AbilityKind[] }
 export type ForestRunPending =
@@ -39,10 +41,11 @@ export interface ForestRunState {
   /** Items taken on finds and hard-battle rewards, in visiting order; with `visited` it determines the opened tools. */
   finds: { nodeId: string; item: ItemKind }[];
   /**
-   * Consumables picked up in won battles (elite loot, elite.ts): the net gain of each item over the battle's entry
-   * inventory. With grants and finds it bounds the inventory a saved run may hold. Absent in saves before 01.10.2026.
+   * Elite loot picked up in won battles (elite.ts): for a consumable the net gain over the battle's entry inventory,
+   * for a resource the count the battle reports. With grants and finds it bounds what a saved run may hold; a battle
+   * never yields more than its authored elites. Absent in saves before 01.10.2026.
    */
-  loot: { nodeId: string; item: ItemKind; count: number }[];
+  loot: { nodeId: string; item: LootKind; count: number }[];
   resources: ForestRunResources;
   tools: ForestRunTools;
   pending: ForestRunPending | null;
@@ -185,11 +188,20 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
       ...(outcome.player.damageEffects ? { damageEffects: { ...outcome.player.damageEffects } } : {}) },
     inventory: Object.fromEntries(ITEM_KINDS.map(item => [item, clampCount(outcome.inventory[item])])) as Record<ItemKind, number>,
   };
-  // Items picked up in the battle (elite loot) raise the inventory over its entry snapshot.
+  // Items picked up in the battle (elite loot) raise the inventory over its entry snapshot; resources picked up are
+  // added to the run's stock for the future crafting.
   for (const item of ITEM_KINDS) {
     const count = run.resources.inventory[item] - battle.entry.inventory[item];
     if (count > 0) run.loot.push({ nodeId: battle.nodeId, item, count });
   }
+  const materials = battle.entry.materials ? { ...battle.entry.materials } : undefined;
+  for (const resource of RESOURCE_KINDS) {
+    const count = clampCount(outcome.materials?.[resource] ?? 0);
+    if (!count) continue;
+    run.loot.push({ nodeId: battle.nodeId, item: resource, count });
+    (run.resources.materials ??= { ...emptyMaterials(), ...materials })[resource] += count;
+  }
+  if (materials && !run.resources.materials) run.resources.materials = materials;
   const node = forestNode(battle.nodeId)!;
   if (node.rewardGrants) applyGrant(run, node.rewardGrants, events);
   if (node.type === 'hard') {
@@ -248,7 +260,8 @@ function validResources(value: unknown): value is ForestRunResources {
   if (maxHp !== FOREST_RUN_START_HP || !isCount(hp) || (hp as number) < 1 || (hp as number) > maxHp) return false;
   if (typeof energy !== 'number' || !Number.isFinite(energy) || energy < 0 || energy > MAX_ENERGY) return false;
   if (damageEffects !== undefined && (!isRecord(damageEffects) || Object.entries(damageEffects).some(([key, amount]) => !EFFECT_KEYS.includes(key) || !isCount(amount)))) return false;
-  const inventory = value.inventory;
+  const inventory = value.inventory, materials = value.materials;
+  if (materials !== undefined && (!isRecord(materials) || Object.keys(materials).length !== RESOURCE_KINDS.length || !RESOURCE_KINDS.every(resource => isCount(materials[resource])))) return false;
   return Object.keys(inventory).length === ITEM_KINDS.length && ITEM_KINDS.every(item => isCount(inventory[item]));
 }
 function validTools(value: unknown): value is ForestRunTools {
@@ -278,8 +291,8 @@ function battleElites(node: ForestMapNode): number {
   return nodeBattleTemplate(node)?.definition.enemies.filter(enemy => enemy.elite).length ?? 0;
 }
 
-function inventoryCap(visited: string[], finds: ForestRunState['finds'], entered: ForestMapNode | null, loot: ForestRunState['loot']): Record<ItemKind, number> {
-  const cap: Record<ItemKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0 };
+function inventoryCap(visited: string[], finds: ForestRunState['finds'], entered: ForestMapNode | null, loot: ForestRunState['loot']): Record<LootKind, number> {
+  const cap: Record<LootKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0, ...emptyMaterials() };
   for (const node of [...visited.map(id => forestNode(id)!), ...entered ? [entered] : []]) {
     for (const item of ITEM_KINDS) cap[item] += node.grants?.inventory?.[item] ?? 0;
   }
@@ -321,7 +334,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   const loot = value.loot === undefined ? [] : value.loot;
   if (!Array.isArray(loot) || loot.some(gain => !isRecord(gain) || typeof gain.nodeId !== 'string'
     || !(visited.includes(gain.nodeId) || wonHard && entered?.id === gain.nodeId)
-    || !ITEM_KINDS.includes(gain.item as ItemKind) || !isCount(gain.count) || (gain.count as number) < 1)) return null;
+    || !(ITEM_KINDS.includes(gain.item as ItemKind) || isResource(gain.item as string)) || !isCount(gain.count) || (gain.count as number) < 1)) return null;
   const typedLoot = loot as ForestRunState['loot'];
   const perNode = new Map<string, number>(), pairs = new Set<string>();
   for (const gain of typedLoot) {
@@ -331,6 +344,9 @@ export function parseForestRun(text: string): ForestRunState | null {
   for (const [nodeId, count] of perNode) if (count > battleElites(forestNode(nodeId)!)) return null;
   const cap = inventoryCap(visited, typedFinds, entered, typedLoot), inventory = (value.resources as ForestRunResources).inventory;
   if (ITEM_KINDS.some(item => inventory[item] > cap[item])) return null;
+  // Resources have no other source than elite loot yet.
+  const materials = (value.resources as ForestRunResources).materials;
+  if (materials && RESOURCE_KINDS.some(resource => materials[resource] > cap[resource])) return null;
   if (pending !== null) {
     if (!isRecord(pending) || typeof pending.nodeId !== 'string' || !nextIds.includes(pending.nodeId)) return null;
     const node = forestNode(pending.nodeId)!;

@@ -16,6 +16,7 @@ import { forestBattle } from './run/forestBattles';
 import { cloneState, type World } from './ecs/world';
 import { definitionOf, hasTag, variantDefinition } from './enemyDefinitions';
 import { applyElite } from './elite';
+import { emptyMaterials } from './resources';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Seed of an engine before any battle is loaded; every battle replaces it with its own. */
@@ -86,7 +87,7 @@ export class ForestEngine {
     const node = this.state.runNode, phase = this.state.phase;
     if (!node || phase !== 'WIN' && phase !== 'LOSE') return null;
     const { hp, maxHp, energy, damageEffects } = this.state.player;
-    return { nodeId: node.nodeId, won: phase === 'WIN', inventory: { ...this.state.inventory },
+    return { nodeId: node.nodeId, won: phase === 'WIN', inventory: { ...this.state.inventory }, materials: { ...emptyMaterials(), ...this.state.materials },
       player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
   }
   private applyRunSetup(setup: RunBattleSetup) {

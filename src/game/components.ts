@@ -1,5 +1,5 @@
 import type { DamageEffects, DamageEffectKind } from './damageEffects';
-import type { CellKind, DoorData, EnemyColor, EnemyVariant, ItemKind } from './forestTypes';
+import type { CellKind, DoorData, EnemyColor, EnemyVariant, LootKind } from './forestTypes';
 
 /** Structural entity components. The engine stores their fields together in each cell. */
 export interface CellIdentityComponent {
@@ -23,8 +23,8 @@ export interface CellLinkComponent {
    * created it. Breaking it with a chain scores CRYSTAL_SCORE_PER_KILL × this value. Absent on authored prisms.
    */
   crystalChain?: number;
-  /** A consumable dropped by an elite (a `prism` cell, elite.ts): a chain passing through or ending on it picks it up. */
-  loot?: ItemKind;
+  /** A consumable or resource dropped by an elite (a `prism` cell, elite.ts): a chain passing through or ending on it picks it up. */
+  loot?: LootKind;
 }
 
 /** Elite modifier (elite.ts): HP ×2 baked at load, +1 to every attack on the cat, loot when the player kills it. */

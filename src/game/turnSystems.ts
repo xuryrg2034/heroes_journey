@@ -1,5 +1,5 @@
 import { isCellAlive } from './cellLife';
-import type { AbilityKind, ChainHit, EnemyPhaseForecast, ForcedDeathCause, ForestCell, ForestState, HeroDamageSource, ItemKind, ItemPreview, RotationPreview } from './forestTypes';
+import type { AbilityKind, ChainHit, EnemyPhaseForecast, ForcedDeathCause, ForestCell, ForestState, HeroDamageSource, ItemKind, ItemPreview, LootKind, RotationPreview } from './forestTypes';
 import { ITEMS } from './items';
 import { cleanseDamageEffects } from './damageEffects';
 import type { ChainSimulation } from './forestSystems';
@@ -11,6 +11,7 @@ import { crystalScore } from './mapBattleRules';
 import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPhase';
 import { behaviorOf } from './enemyBehaviors';
 import { heroStrikeDamage, rollEliteLoot } from './elite';
+import { emptyMaterials, isResource } from './resources';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
@@ -92,8 +93,8 @@ export interface Commands {
   kill(cell: ForestCell, index: number, credit: DefeatCredit): void;
   /** A new colour-change crystal (fresh ID) holding the chain length `value`, placed on `index`. */
   placeCrystal(index: number, value: number): ForestCell;
-  /** A consumable dropped by an elite (fresh ID): a `prism` record carrying `loot`, placed on `index`. */
-  placeLoot(index: number, item: ItemKind): ForestCell;
+  /** A consumable or resource dropped by an elite (fresh ID): a `prism` record carrying `loot`, placed on `index`. */
+  placeLoot(index: number, item: LootKind): ForestCell;
 }
 
 /**
@@ -187,8 +188,10 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
         yield { event: { type: 'move', from, to: hit.index, index: hit.index } };
         if (!ctx.current()) return false;
       }
-      // A dropped consumable joins the inventory; it is not a prism objective.
-      if (original.kind === 'prism' && original.loot) ctx.state.inventory[original.loot]++;
+      // A dropped consumable joins the inventory, a resource the battle's materials; neither is a prism objective.
+      const loot = original.kind === 'prism' ? original.loot : undefined;
+      if (loot && isResource(loot)) (ctx.state.materials ??= emptyMaterials())[loot]++;
+      else if (loot) ctx.state.inventory[loot]++;
       else if (original.kind === 'prism') ctx.state.objective.prisms++;
       else {
         ctx.cmd.kill(original, hit.index, 'player');
@@ -296,7 +299,7 @@ function* defeatCreature(ctx: TurnContext, cell: ForestCell, index: number, cred
  * An elite's loot lands on `index` (elite.ts): the enemy there (`victimId`) is crushed through the common death path
  * without credit, then the consumable appears. Returns false when a restart cancelled it.
  */
-function* placeLoot(ctx: TurnContext, index: number, item: ItemKind, victimId?: number): TurnSequence {
+function* placeLoot(ctx: TurnContext, index: number, item: LootKind, victimId?: number): TurnSequence {
   const victim = ctx.state.board[index];
   if (victim && victim.id === victimId) {
     defeatOutright(victim);

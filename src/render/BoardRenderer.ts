@@ -7,7 +7,7 @@ import { archerStrikesCreatures, evaluateEnemyAttack } from '../game/enemyPhase'
 import { chargeReady } from '../game/boarCharge';
 import { enemyDefeatCountsForGoal, shieldBlocksEntry, shieldIsActive } from '../game/combatRules';
 import { isCellAlive } from '../game/cellLife';
-import type { EngineEvent as ForestEvent, ForestState, ForestCell, ItemKind, AbilityKind } from '../game/forestTypes';
+import type { LootKind, EngineEvent as ForestEvent, ForestState, ForestCell, ItemKind, AbilityKind } from '../game/forestTypes';
 import { COLORS, PALE, ITEM_COLORS, makeEnemy, makePlayer, drawTerrain } from './art';
 import { ITEMS } from '../game/items';
 import { heroStrikeDamage } from '../game/elite';
@@ -18,10 +18,14 @@ import { CAUSE_LABEL, DEATH_COLOR, PUSH_COLOR, drawArrowMark, drawBoarLane, draw
 import { drawThornRim } from './art';
 import { SHAMAN_PERIOD, goblinTier, wolfHasPack, type BeastWorld } from '../game/forestBeasts';
 import { QUILL, RITE } from './beastArt';
+import { isResource, lootLabel, RESOURCES } from '../game/resources';
 
 const TILE = 80;
 const INK_RING = 0x172024;
-export const ELITE_TIP='Элита: HP ×2, удар по коту +1, может оставить расходник.';
+export const ELITE_TIP='Элита: HP ×2, удар по коту +1, может оставить расходник или ресурс.';
+/** Hover text of dropped loot: a consumable joins the inventory, a resource is kept by the run for crafting. */
+const lootTip=(kind:LootKind)=>isResource(kind)?`${RESOURCES[kind].label}: ресурс на будущее (из двух — ${ITEMS[RESOURCES[kind].crafts].label.toLowerCase()} на привале, когда появится крафт). Пройди по нему цепью — он уйдёт в запас похода.`
+  :`${ITEMS[kind].label}: ${ITEMS[kind].description} Пройди по нему цепью — предмет попадёт в запас.`;
 interface Piece {
   view: Container; signature: string; index: number; born: number;
   motion?: { x:number; y:number; started:number; duration:number; curve?:number };
@@ -90,7 +94,7 @@ export class BoardRenderer {
   private targetingItem:ItemKind|null = null;
   private targetHover = -1;
   /** Dropped consumables on the field by cell (kept until picked up: the engine clears the cell before its `collect` event). */
-  private lootCells = new Map<number, ItemKind>();
+  private lootCells = new Map<number, LootKind>();
   /** Cells where an elite's loot just crushed an enemy (the landing shows the crush). */
   private lootCrushed = new Set<number>();
   private doorFocus:number|null=null;
@@ -617,7 +621,7 @@ export class BoardRenderer {
         const special=(bridge&&!hit.crystalScore)||hit.doorOpened;
         const badge=new Graphics().roundRect(at.x-39,at.y+(special?17:11),78,special?18:29,3).fill(hit.killed?0x283d2b:0x663e31).stroke({color:hit.killed?0xbac799:0xe8b38b,width:1});
         const weak=state.board[hit.index]?.maxHp===0;
-        const text=new Text({text:bridge?(hit.loot?`ПОДБЕРЁТ\n${ITEMS[hit.loot].label}`:hit.crystalScore?`СМЕНА ЦВЕТА\n+${hit.crystalScore} ОЧКОВ`:'СМЕНА ЦВЕТА'):hit.doorOpened?'ВХОД ОТКРЫТ':`${hit.availablePower} − ${hit.powerSpent} = ${hit.remainingPower}\n${weak?'СЛАБ · ':''}${hit.killed?'ПОВЕРЖЕН':`${hit.hpAfter} HP${hit.attackEffect === 'fire' ? ' · +ОГОНЬ' : ''}`}`,style:{fontFamily:'Arial, sans-serif',fontSize:bridge?9:weak?8:9,fontWeight:'bold',fill:PALE,align:'center'}});
+        const text=new Text({text:bridge?(hit.loot?`ПОДБЕРЁТ\n${lootLabel(hit.loot)}`:hit.crystalScore?`СМЕНА ЦВЕТА\n+${hit.crystalScore} ОЧКОВ`:'СМЕНА ЦВЕТА'):hit.doorOpened?'ВХОД ОТКРЫТ':`${hit.availablePower} − ${hit.powerSpent} = ${hit.remainingPower}\n${weak?'СЛАБ · ':''}${hit.killed?'ПОВЕРЖЕН':`${hit.hpAfter} HP${hit.attackEffect === 'fire' ? ' · +ОГОНЬ' : ''}`}`,style:{fontFamily:'Arial, sans-serif',fontSize:bridge?9:weak?8:9,fontWeight:'bold',fill:PALE,align:'center'}});
         text.anchor.set(0.5);text.position.set(at.x,at.y+26);this.hitLabels.addChild(badge,text);
       }
       if(state.phase==='PLAYER_INPUT') {
@@ -834,13 +838,13 @@ export class BoardRenderer {
     }
     if(event.type==='kill'&&i!==undefined&&event.text==='loot')this.lootCrushed.add(i);
     if(event.type==='loot'&&i!==undefined){
-      const item=event.text as ItemKind|undefined;
-      if(item)this.popupAt(this.center(i).x,this.center(i).y-40,`ВЫПАЛО · ${ITEMS[item].label}`,ITEM_COLORS[item]);
+      const item=event.text as LootKind|undefined;
+      if(item)this.popupAt(this.center(i).x,this.center(i).y-40,`ВЫПАЛО · ${lootLabel(item)}`,ITEM_COLORS[item]);
     }
     if(event.type==='loot-pickup'&&i!==undefined){
-      const item=event.text as ItemKind|undefined;
+      const item=event.text as LootKind|undefined;
       this.lootCells.delete(i);
-      if(item){this.burst(i,ITEM_COLORS[item],26);this.popup(i,`+ ${ITEMS[item].label}`,ITEM_COLORS[item]);}
+      if(item){this.burst(i,ITEM_COLORS[item],26);this.popup(i,`+ ${lootLabel(item)}`,ITEM_COLORS[item]);}
     }
     if(event.type==='collect' && i!==undefined && this.lootCells.has(i)) {
       // A dropped consumable, not a colour crystal: the pickup flash above comes with the next event.
@@ -1050,7 +1054,7 @@ export class BoardRenderer {
 
   private pointerMove = (event: PointerEvent) => {
     const hoveredCell=this.engine.state.board[this.indexAt(this.eventPoint(event))];
-    this.app.canvas.title=hoveredCell?.elite?ELITE_TIP:hoveredCell?.kind==='prism'&&hoveredCell.loot?`${ITEMS[hoveredCell.loot].label}: ${ITEMS[hoveredCell.loot].description} Пройди по нему цепью — предмет попадёт в запас.`:'';
+    this.app.canvas.title=hoveredCell?.elite?ELITE_TIP:hoveredCell?.kind==='prism'&&hoveredCell.loot?lootTip(hoveredCell.loot):'';
     if(this.targetingItem||this.engine.state.chosenAbility==='jump') {const next=this.indexAt(this.eventPoint(event));if(next!==this.targetHover){this.targetHover=next;this.drawOverlays(this.engine.state);}return;}
     const hovered=this.indexAt(this.eventPoint(event));
     const lastFocus=this.doorFocus;this.focusDoor(hovered>=0?hovered:null);

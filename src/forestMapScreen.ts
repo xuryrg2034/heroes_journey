@@ -5,6 +5,7 @@
  */
 import { ITEMS } from './game/items';
 import { summarizeDamageEffects } from './game/damageEffects';
+import { RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { FOREST_MAP, forestNode, hasVictoryFind, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
 import { forestRunView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
@@ -126,7 +127,7 @@ function nodeHtml(view: ForestRunView, node: ForestMapNode, status: ForestNodeSt
 }
 
 function resourcesHtml(view: ForestRunView): string {
-  const { player, inventory } = view.resources, { tools } = view;
+  const { player, inventory, materials } = view.resources, { tools } = view;
   const hearts = player.maxHp > 10 ? `<span class="health-numeric">${player.hp} / ${player.maxHp} ♥</span>`
     : Array.from({ length: player.maxHp }, (_, i) => `<span class="heart ${i < player.hp ? 'full' : 'empty'}" aria-hidden="true">♥</span>`).join('');
   const effects = summarizeDamageEffects(player.damageEffects);
@@ -134,6 +135,8 @@ function resourcesHtml(view: ForestRunView): string {
   const chips = [
     ...ITEM_KEYS.filter(item => inventory[item] > 0 || tools.items.includes(item)).map(item => `<span class="map-chip${inventory[item] ? '' : ' empty'}" title="${escapeHtml(ITEMS[item].description)}">${ITEM_ICON[item]} ${ITEM_NAME[item]} <b>×${inventory[item]}</b></span>`),
     ...tools.abilities.map(ability => `<span class="map-chip ability">${ABILITY_ICON[ability]} ${ABILITY_NAME[ability]}</span>`),
+    // Crafting resources from elite loot, kept for the future crafting at a rest (resources.ts).
+    ...RESOURCE_KINDS.filter(resource => (materials?.[resource] ?? 0) > 0).map(resource => `<span class="map-chip resource" data-resource="${resource}" title="Ресурс на будущее: из двух — ${escapeHtml(ITEMS[RESOURCES[resource].crafts].label.toLowerCase())} на привале, когда появится крафт">${RESOURCES[resource].label} <b>×${materials![resource]}</b></span>`),
   ];
   return `<div class="map-res" id="map-hp"><span class="hud-label">ЗДОРОВЬЕ</span><div class="map-hearts" aria-label="Здоровье: ${player.hp} из ${player.maxHp}">${hearts}</div>${effectText ? `<small class="map-effects">${effectText}</small>` : ''}</div>`
     + `<div class="map-res" id="map-energy"><span class="hud-label">ЭНЕРГИЯ</span><strong>${energyText(player.energy)} / 7</strong></div>`

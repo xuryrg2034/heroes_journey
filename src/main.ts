@@ -5,7 +5,7 @@ import { heroStrikeDamage } from './game/elite';
 import { ABILITY_COST, JUMP_RANGE } from './game/forestSystems';
 import { uniqueEntities } from './game/entityFootprint';
 import { archerStrikesCreatures, planEnemyPhase } from './game/enemyPhase';
-import type { AbilityKind, ItemKind } from './game/forestTypes';
+import type { LootKind, AbilityKind, ItemKind } from './game/forestTypes';
 import type { RunBattleSetup } from './game/run/runBattle';
 import { BoardRenderer, enemyReadyToAttack } from './render/BoardRenderer';
 import { GameAudio } from './audio';
@@ -23,6 +23,7 @@ import { createForestRunStore } from './game/run/forestRunStorage';
 import { forestNode } from './game/run/forestMap';
 import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
 import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled } from './telemetry';
+import { lootLabel } from './game/resources';
 
 const SAVE_KEY = 'ashen-oath-campaign-v1';
 type Save = { sound: boolean };
@@ -435,7 +436,7 @@ function updateHUD() {
   if (preview.crystals) el('chain-reward').innerHTML += `<br><b>+${preview.crystals} ${preview.crystals === 1 ? 'кристалл упадёт' : 'кристалла упадут'} по ходу цепи</b> · место — сюрприз, смена цвета, очки за разрушение`;
   if (crystalsActive(state) && !restMode && count > 0 && preview.valid) el('chain-reward').innerHTML += `<br>До кристалла: <b>${preview.kills % CRYSTAL_KILLS} / ${CRYSTAL_KILLS}</b> убийств цепью`;
   const lootHits = preview.hits.filter(hit => hit.loot);
-  if (lootHits.length) el('chain-reward').innerHTML += `<br>Подберёт: <b>${lootHits.map(hit => ITEMS[hit.loot!].label).join(', ')}</b>`;
+  if (lootHits.length) el('chain-reward').innerHTML += `<br>Подберёт: <b>${lootHits.map(hit => lootLabel(hit.loot!)).join(', ')}</b>`;
   if (preview.crystalScore) el('chain-reward').innerHTML += `<br>Кристаллы разрушены: <b>+${preview.crystalScore} очков</b>`;
   if ((!tutorial || allowedAbilities.length) && preview.valid && preview.energyGain > 0) el('chain-reward').innerHTML += `<br>Энергия: <b>+${energyText(preview.energyGain)}</b>`;
   const activations = preview.deviceActivations ?? [];
@@ -681,8 +682,8 @@ function notifyEnemyEffect(state: typeof engine.state, event: { type: string; in
   if (event.type === 'empower') toast('empower', `Шаман усилил гоблина: ${event.text === 'sturdy' ? 'крепкий' : 'вооружён'}`);
   else if (event.type === 'push') toast('push', 'Кабан толкнул ряд');
   else if (event.type === 'status' && event.text === 'ОГЛУШЁН') toast('stun', 'Кабан упёрся и оглушён');
-  else if (event.type === 'loot' && event.text) toast('loot-drop', `Элита оставила: ${ITEMS[event.text as ItemKind].label}`);
-  else if (event.type === 'loot-pickup' && event.text) toast(`loot-${event.text}`, `+ ${ITEMS[event.text as ItemKind].label}`);
+  else if (event.type === 'loot' && event.text) toast('loot-drop', `Элита оставила: ${lootLabel(event.text as LootKind)}`);
+  else if (event.type === 'loot-pickup' && event.text) toast(`loot-${event.text}`, `+ ${lootLabel(event.text as LootKind)}`);
   else if (event.type === 'regen') toast('regen', `Тролль восстановил ${event.amount ?? ''} HP`.replace('  ', ' '));
   else if (event.type === 'hit') { const source = event.from !== undefined ? state.board[event.from] : null; arrowHit = source && archerStrikesCreatures(source) && at !== undefined ? at : -1; }
   else if (event.type === 'kill' && at !== undefined) {

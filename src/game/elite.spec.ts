@@ -6,8 +6,9 @@
 import { validateCustomLevel, type CustomEnemy, type CustomLevelDefinition } from './customLevel';
 import { ELITE_HP_FACTOR } from './elite';
 import { ForestEngine } from './forestEngine';
-import type { EngineEvent, ItemKind } from './forestTypes';
+import type { EngineEvent, ItemKind, ResourceKind } from './forestTypes';
 import { ITEM_KINDS } from './items';
+import { isResource } from './resources';
 import { forestFixtureLevel } from './testing/fixtures';
 import { availableNodes, createForestRun, enterNode, parseForestRun, resolveBattle, serializeForestRun } from './run/forestRun';
 import { nodeBattleTemplate } from './run/forestMap';
@@ -103,8 +104,9 @@ async function chainLoot() {
     drops++;
     const at = loot[0].index!, cell = g.state.board[at];
     items.add(loot[0].text as ItemKind);
+    assert(ITEM_KINDS.includes(loot[0].text as ItemKind), `seed ${seed}: an editor level drops consumables`);
     assert(at !== 33 && at !== g.state.player.index, `seed ${seed}: the loot never lands on the rest of the chain or the cat`);
-    assert(cell?.kind === 'prism' && cell.loot === loot[0].text && ITEM_KINDS.includes(cell.loot!), `seed ${seed}: the loot lies as a prism carrying its item`);
+    assert(cell?.kind === 'prism' && cell.loot === loot[0].text && ITEM_KINDS.includes(cell.loot as ItemKind), `seed ${seed}: the loot lies as a prism carrying its item`);
     // Same seed and actions: the same drop.
     const again = camp(spread(seed)), replay = record(again);
     await chain(again, PATH);
@@ -230,6 +232,13 @@ function runCarriesLoot() {
     assert(tamper(value => { value.loot.push({ nodeId: first.id, item: 'frost', count: 1 }); value.resources.inventory.frost++; }) === null, 'a second item from one elite is rejected');
     assert(tamper(value => { value.loot = [{ nodeId: 'trunk-2', item: 'bomb', count: 1 }]; }) === null, 'loot of a node not won is rejected');
     assert(tamper(value => { delete value.loot; value.resources.inventory.bomb--; })?.loot.length === 0, 'a save from before loot loads with no loot');
+    // A resource from the same battle's elite instead: the run keeps it in its materials.
+    const withResource = resolveBattle(run, { nodeId: first.id, won: true, player: { ...pending.entry.player }, inventory: { ...pending.entry.inventory }, materials: { dew: 1, powder: 0, resin: 0, herbs: 0 } });
+    assert(withResource.ok && withResource.run.resources.materials?.dew === 1 && withResource.run.loot.some(gain => gain.item === 'dew' && gain.count === 1), 'a looted resource joins the run materials');
+    const resourceSave = serializeForestRun(withResource.run);
+    assert(parseForestRun(resourceSave)?.resources.materials?.dew === 1, 'a save with the resource loads');
+    const extra = JSON.parse(resourceSave); extra.resources.materials.dew = 2;
+    assert(parseForestRun(JSON.stringify(extra)) === null, 'more resources than the looted ones are rejected');
   } finally { template.definition.enemies = original; }
   const plain = createForestRun(78), node = availableNodes(plain)[0], step = enterNode(plain, node.id);
   assert(step.ok, 'enter');
@@ -239,12 +248,44 @@ function runCarriesLoot() {
   console.log('PASS the run records looted items; saves stay bounded by the battle\'s elites, grants and finds');
 }
 
+/**
+ * Decision of 01.10.2026: where the node opens no consumable, an elite leaves a crafting resource instead; a chain picks
+ * it up into the battle's materials and the run keeps them.
+ */
+async function resourceLoot() {
+  let drops = 0, picked = 0;
+  const kinds = new Set<string>();
+  for (let seed = 1; seed <= 60; seed++) {
+    const g = camp(spread(seed)), events = record(g);
+    // A map node with no consumable open (the camp level stands in for its battle).
+    g.state.runNode = { nodeId: 'trunk-1', label: 'тест', allowedItems: [], allowedAbilities: [], row: 1 };
+    await chain(g, PATH);
+    const drop = events.find(event => event.type === 'loot');
+    if (!drop) continue;
+    drops++; kinds.add(drop.text!);
+    assert(isResource(drop.text) && g.state.board[drop.index!]?.loot === drop.text, `seed ${seed}: a resource drops where no item is open`);
+    const path = g.state.phase === 'PLAYER_INPUT' ? g.availableMoves(8).find(candidate => candidate.includes(drop.index!)) : undefined;
+    if (!path) continue;
+    const items = JSON.stringify(g.state.inventory);
+    await chain(g, path);
+    assert(g.state.materials?.[drop.text as ResourceKind] === 1 && JSON.stringify(g.state.inventory) === items, `seed ${seed}: the resource joins the battle's materials, not the inventory`);
+    assert(events.some(event => event.type === 'loot-pickup' && event.text === drop.text), `seed ${seed}: a pickup event`);
+    // The battle's outcome hands the picked resource to the run.
+    g.winLevel();
+    assert(g.runBattleOutcome()?.materials?.[drop.text as ResourceKind] === 1, `seed ${seed}: the battle outcome carries the resource`);
+    picked++;
+  }
+  assert(drops > 10 && kinds.size >= 2 && picked > 0, `resources drop (${drops}/60, kinds ${[...kinds].join()}, picked ${picked})`);
+  console.log(`PASS no consumable open: an elite leaves a resource (${drops}/60, ${[...kinds].join(', ')}), picked into the battle's materials`);
+}
+
 bakingAndValidation();
 await heroDamageBonus();
 await chainLoot();
 await noLootFromEnemies();
 await bombLoot();
 await pickup();
+await resourceLoot();
 await abilityForecast();
 await leversForecast();
 runCarriesLoot();

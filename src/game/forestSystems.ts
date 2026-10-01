@@ -1,6 +1,6 @@
 import { isCellAlive } from './cellLife';
 import { cloneEntities } from './ecs/world';
-import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, HeroDamageSource, InteractionDevice, ForestCell, ForestState, ItemKind } from './forestTypes';
+import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, HeroDamageSource, InteractionDevice, ForestCell, ForestState, LootKind } from './forestTypes';
 import { pathColour, WILD } from './recovered/core';
 import { forecastConsequences, hurt, standInCell } from './forecast';
 import { rollEliteLoot } from './elite';
@@ -32,7 +32,7 @@ export { rotationPreview };
  */
 export type ChainStep = { kind: 'hit'; hit: ChainHit } | { kind: 'device'; index: number; activated: boolean }
   | { kind: 'crystal'; index: number; victimId?: number; value: number }
-  | { kind: 'loot'; draws: number; index?: number; item?: ItemKind; victimId?: number };
+  | { kind: 'loot'; draws: number; index?: number; item?: LootKind; victimId?: number };
 export interface ChainSimulation {
   steps?: ChainStep[]; queuedDevices?: InteractionDevice[]; preview: ChainPreview; board: (ForestCell | null)[];
   /** The cat's damage effects after the planned steps (bleeding advances per step). */

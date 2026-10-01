@@ -4,7 +4,7 @@
  */
 import type { DamageEffects } from '../damageEffects';
 import type { PaletteWeights } from '../customLevel';
-import type { AbilityKind, ItemKind } from '../forestTypes';
+import type { ResourceKind, AbilityKind, ItemKind } from '../forestTypes';
 
 /** Cat resources carried between map nodes. */
 export interface RunPlayerResources { hp: number; maxHp: number; energy: number; damageEffects?: DamageEffects }
@@ -38,4 +38,6 @@ export interface RunBattleOutcome {
   won: boolean;
   player: RunPlayerResources;
   inventory: Record<ItemKind, number>;
+  /** Resources picked up in this battle (elite loot); the run adds them to its stock. */
+  materials?: Record<ResourceKind, number>;
 }
