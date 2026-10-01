@@ -11,7 +11,7 @@
  */
 import { HERO_MOVE_ID } from './boarCharge';
 import { killCreature, traceHeroDamage } from './combatRules';
-import { cloneEntities, cloneState, type World } from './ecs/world';
+import { cloneEntities, cloneWorld, type World } from './ecs/world';
 import { runSchedule } from './ecs/schedule';
 import { hasDamageEffects } from './effectRules';
 import type { DamageEffects } from './damageEffects';
@@ -83,7 +83,8 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
   const effectAwareOn = (board: readonly (ForestCell | null)[]) => hasDamageEffects(state.player) || !!state.player.attackEffect
     || board.some(cell => cell && (hasDamageEffects(cell) || cell.attackEffect));
   if (preview.playerDies) { preview.rotations = []; return; }
-  const world: World = { state: cloneState(state), res: { rng: rng ?? 0, nextId: 0 } };
+  // The copy's own resources: a copy of the live RNG; IDs are stand-ins, never allocated.
+  const world = cloneWorld({ state, res: { rng: rng ?? 0, nextId: 0 } });
   const sim = world.state, trace = traceHeroDamage(sim), ctx = forecastContext(world);
   if ('simulation' in action) {
     // The copy replays the plan; its board is copied so the plan stays as execution will receive it.

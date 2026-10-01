@@ -58,5 +58,3 @@ export function unregisteredFields(cell: ForestCell): string[] {
   return Object.keys(cell).filter(field => !OWNER.has(field));
 }
 
-/** The component that owns a record field, if any. */
-export function componentOf(field: string): ComponentDef | undefined { return OWNER.get(field); }

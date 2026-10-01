@@ -624,10 +624,6 @@ export function resolveItemTurn(ctx: TurnContext, kind: ItemKind, index: number,
 export function resolveRestTurn(ctx: TurnContext): TurnSequence {
   return runSchedule(ctx, [REST_ACTION, ...ENEMY_TURN], turnVerdict);
 }
-/** The enemy answer alone (after a player action already resolved on this context). */
-export function resolveEnemyTurn(ctx: TurnContext): TurnSequence {
-  return runSchedule(ctx, ENEMY_TURN, turnVerdict);
-}
 
 /**
  * Shaman rites after the attacks (shared rule: forestBeasts.ts). Knocked-down shamans are not actors and skip

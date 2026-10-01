@@ -6,7 +6,6 @@
 import { isCellAlive } from './cellLife';
 import { applyDamage, removeDefeated } from './combatRules';
 import { onDamaged } from './ecs/observers';
-import { tickDamageEffects } from './damageEffects';
 import type { ForestCell, ForestState } from './forestTypes';
 import { walkableTerrain } from './terrain';
 
@@ -94,11 +93,9 @@ export function* clubImpacts(board: (ForestCell | null)[], troll: ForestCell, zo
 /**
  * HP restored at the end of this enemy phase: a living troll that took no damage this turn (from any source:
  * chain, ability, item, lever, arrow, ram, club, effect tick) and carries no burning stacks. Passivity and frost
- * do not stop it. `pendingDamage` lets the forecast account for damage that has not been applied yet.
+ * do not stop it.
  */
-export function trollRegeneration(troll: ForestCell, pendingDamage = false): number {
-  if (!isTroll(troll) || !isCellAlive(troll) || pendingDamage || troll.behavior.hurtThisTurn || (troll.damageEffects?.burning ?? 0) > 0) return 0;
+export function trollRegeneration(troll: ForestCell): number {
+  if (!isTroll(troll) || !isCellAlive(troll) || troll.behavior.hurtThisTurn || (troll.damageEffects?.burning ?? 0) > 0) return 0;
   return Math.max(0, Math.min(TROLL_REGEN, troll.maxHp - troll.hp));
 }
-/** Forecast only: will the end-of-turn effect tick still hurt this troll? (Same kernel as execution.) */
-export const effectTickHurts = (cell: ForestCell): boolean => tickDamageEffects(cell.damageEffects).hits.some(hit => hit.damage > 0);

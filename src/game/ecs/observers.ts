@@ -3,9 +3,9 @@
  * step. They change only the entity or state they are given; events for rendering stay with the systems. Rule
  * modules register their observers once, at module load; the list keeps registration order.
  *
- * `onDamaged` runs wherever `applyDamage` runs — forecast copies and execution alike. `onDeath` runs only in
- * execution (the `kill` command) until the one-simulation forecast of stage 6: the forecast still credits deaths
- * directly with `creditDefeat`. A new death rule that must show in the forecast needs its forecast twin until then.
+ * `onDamaged` runs wherever `applyDamage` runs. `onDeath` runs on the `kill` command — in execution and in the
+ * forecast, which plays the same turn on a world copy (forecast.ts). Only the action plan (`planChain`) credits the
+ * chain's own kills directly with `creditDefeat`, to decide whether the chain itself ends the battle.
  *
  * - `onDamaged` — after positive damage to a creature (not the cat), before removal: e.g. the troll's per-turn mark.
  * - `onDeath` — after a dead creature is removed from the board (`killCreature`), with the credit of its death:
