@@ -754,7 +754,7 @@ export function startLevelEngine(source: LevelSource): ForestEngine | null {
 export function sourceInfo(source: LevelSource, engine: ForestEngine) {
   if (source.kind === 'custom') return { id: source.id ?? 'custom', name: engine.state.level.name, source: 'custom JSON' };
   const { target } = source, tools = [...target.tools.items, ...target.tools.abilities].join('+') || 'none';
-  return { id: target.id, name: engine.state.level.name, source: `forest node row ${target.row}, tools ${tools}, 5 HP, 0 energy, no items` };
+  return { id: target.id, name: engine.state.level.name, source: `forest node row ${target.row}, tools ${tools}, 5 HP, ${target.setup.player.energy} energy, no items` };
 }
 
 /**

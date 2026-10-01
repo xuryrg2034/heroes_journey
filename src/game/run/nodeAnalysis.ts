@@ -1,7 +1,7 @@
 /**
  * Analyzer setups for forest-map node battles (scripts/analyze-levels.ts `--node`, `--nodes`).
  * A node battle is started exactly as in a run, through ForestEngine.startRunBattle, with the analysis entry:
- * 5/5 HP, 0 energy, no items, and the tools every route has opened on entering the node (guaranteedNodeTools);
+ * 5/5 HP, 0 energy (the analyzer's --energy overrides it), no items, and the tools every route has opened on entering the node (guaranteedNodeTools);
  * for a battle not yet bound to a node, the tools guaranteed on the whole row given with `--row`.
  * The refill seed is the battle's authored seed; the palette is the row palette plus the authored colors.
  */

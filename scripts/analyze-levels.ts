@@ -3,6 +3,7 @@
  *   npm run analyze:levels                                    # every battle of the node registry (= --nodes)
  *   npm run analyze:levels -- --node chief-breakfast --depth 4  # one registry battle or map node, as in a run
  *   npm run analyze:levels -- --node wolf-ford --row 5          # a registry battle on another map row
+ *   npm run analyze:levels -- --node den-nest --energy 5         # entered with energy carried from earlier nodes
  *   npm run analyze:levels -- --json my-level.json --seeds 5 --out report.json
  * Levels are analyzed in parallel child processes; every level uses its own engines.
  */
@@ -21,9 +22,10 @@ const HELP = `analyze-levels [options]
   (no level given)   every battle of the node registry, as --nodes
   --json FILE        editor JSON level (repeatable)
   --node ID          forest-map node battle (repeatable): a registry battle id or a map node id.
-                     Started as in a run: 5 HP, 0 energy, no items, tools guaranteed on entering the node
+                     Started as in a run: 5 HP, 0 energy (see --energy), no items, tools guaranteed on entering the node
   --nodes            every battle of the node registry (src/game/run/battles/*.ts)
   --row R            map row for registry battles not bound to a node (tools and palette of that row)
+  --energy E         node battles: entry energy instead of 0 (the run carries energy between nodes)
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
   --depth D          search horizon in turns (default ${DEFAULT_ANALYSIS_OPTIONS.depth})
   --beam B           children per internal node (default ${DEFAULT_ANALYSIS_OPTIONS.beam})
@@ -39,7 +41,7 @@ const HELP = `analyze-levels [options]
 
 function parse(argv: string[]) {
   const tasks: LevelSource[] = [], options: Partial<AnalysisOptions> = {};
-  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined;
+  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined;
   const nodeIds: string[] = [];
   const number = (flag: string, value: string | undefined, min: number) => {
     const parsed = Number(value);
@@ -54,6 +56,7 @@ function parse(argv: string[]) {
       case '--node': if (!value) throw new Error('--node: id required'); nodeIds.push(value); i++; break;
       case '--nodes': allNodes = true; break;
       case '--row': row = number(flag, value, 1); i++; break;
+      case '--energy': energy = number(flag, value, 0); i++; break;
       case '--seeds': options.seeds = number(flag, value, 1); i++; break;
       case '--depth': options.depth = number(flag, value, 1); i++; break;
       case '--beam': options.beam = number(flag, value, 1); i++; break;
@@ -78,6 +81,10 @@ function parse(argv: string[]) {
   if (allNodes) { const all = allNodeBattleTargets(row); skipped.push(...all.skipped); tasks.push(...all.targets.map(target => ({ kind: 'run-node' as const, target }))); }
   for (const id of nodeIds) tasks.push(...nodeAnalysisTargets(id, row).map(target => ({ kind: 'run-node' as const, target })));
   if (row !== undefined && !allNodes && !nodeIds.length) throw new Error('--row: use with --node or --nodes');
+  if (energy !== undefined) {
+    if (!tasks.some(task => task.kind === 'run-node')) throw new Error('--energy: use with --node or --nodes');
+    for (const task of tasks) if (task.kind === 'run-node') task.target.setup.player.energy = energy;
+  }
   for (const id of skipped) console.log(`skip ${id}: not bound to a map node, pass --row R`);
   if (!tasks.length) throw new Error('No level to analyze.');
   return { tasks: tasks.map(source => ({ source, options })), out, workers };
