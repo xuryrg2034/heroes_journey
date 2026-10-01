@@ -3,9 +3,8 @@
  * colorlessness, shape, tags and default HP for the engine, the validator, the crystal rule and the editor.
  */
 import { validateCustomLevel, type CustomLevelDefinition } from './customLevel';
-import { definitionOf, ENEMY_DEFINITIONS, ENEMY_MODIFIERS, ENEMY_VARIANTS, hasTag, variantDefinition } from './enemyDefinitions';
+import { definitionOf, ENEMY_DEFINITIONS, ENEMY_VARIANTS, hasTag, variantDefinition } from './enemyDefinitions';
 import { ForestEngine } from './forestEngine';
-import { CRYSTAL_PROTECTED_VARIANTS } from './mapBattleRules';
 
 function assert(condition: unknown, message: string): void { if (!condition) throw new Error(message); }
 
@@ -16,11 +15,11 @@ function registry() {
     assert(definition.tags.includes('Colorless') === (definition.kind === 'boss' || definition.kind === 'prism'), `${definition.id}: bosses and prisms are colorless`);
     assert(definition.tags.includes('Boss') === (definition.kind === 'boss'), `${definition.id}: the Boss tag marks the boss kind`);
   }
-  assert(CRYSTAL_PROTECTED_VARIANTS.join() === 'sentinel,jailer,troll', `crystal protection from tags: ${CRYSTAL_PROTECTED_VARIANTS.join()}`);
+  const protectedVariants = ENEMY_DEFINITIONS.filter(definition => definition.variant && definition.tags.includes('CrystalProtected')).map(definition => definition.variant);
+  assert(protectedVariants.join() === 'sentinel,jailer,troll', `crystal protection by tag: ${protectedVariants.join()}`);
   assert(definitionOf({ kind: 'melee' })?.id === 'goblin' && definitionOf({ kind: 'ranged' })?.id === 'archer' && definitionOf({ kind: 'boss' })?.id === 'chief'
     && definitionOf({ kind: 'boss', variant: 'jailer' })?.id === 'jailer' && definitionOf({ kind: 'door' }) === undefined, 'records resolve to their definition');
   assert(hasTag({ kind: 'boss', variant: 'jailer' }, 'NeverPassive') && !hasTag({ kind: 'boss' }, 'NeverPassive'), 'only the Jailer ignores authored passivity');
-  assert(ENEMY_MODIFIERS.length === 0, 'no modifier is registered yet (the elite comes with the next mechanics)');
   console.log('PASS registry: unique ids, kinds, colorless bosses, crystal protection by tag, record lookup');
 }
 

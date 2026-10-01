@@ -5,8 +5,5 @@ export interface Entity {
 }
 export type Point = readonly [number, number];
 export type BoardQuery<E = Entity> = (col: number, row: number) => E | null;
-export interface FallingEntity {
-  col: number; row: number; width: number; height: number; properties: Record<number, number>;
-}
 export const has = (entity: { properties: Record<number, number> }, property: number): boolean =>
   Object.prototype.hasOwnProperty.call(entity.properties, property);

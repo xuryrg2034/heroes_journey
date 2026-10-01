@@ -1,4 +1,4 @@
-import { validateCustomLevel, type CustomEnemy, type CustomLevelDefinition } from '../game/customLevel';
+import type { CustomEnemy, CustomLevelDefinition } from '../game/customLevel';
 import type { TerrainKind } from '../game/forestTypes';
 
 /**
@@ -24,4 +24,3 @@ export function createBeastsDemo(seed = 6100): CustomLevelDefinition {
     goals: [{ key: 'kills', target: 14 }], turnLimit: 0, completion: 'direct', paletteWeights: [100, 100, 0, 0, 0], extraColors: [],
     playerHp: 6, inventory: { frost: 1, bomb: 0, healing: 1, fire: 0 } };
 }
-export const beastsDemoValid = () => validateCustomLevel(createBeastsDemo());

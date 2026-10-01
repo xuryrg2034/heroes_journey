@@ -76,14 +76,3 @@ export function hasTag(cell: Pick<ForestCell, 'kind' | 'variant'> | null | undef
 }
 /** Registered variant ids, in registration order. */
 export const ENEMY_VARIANTS: readonly EnemyVariant[] = ENEMY_DEFINITIONS.flatMap(definition => definition.variant ? [definition.variant] : []);
-
-/**
- * Modifier (ECS plan §3.3): a layer over a definition applied when an enemy is baked. A modifier changes data
- * (health, tags), never adds behaviour. None is registered yet; the elite modifier is the first planned one.
- */
-export interface EnemyModifier {
-  readonly id: string;
-  readonly tags: readonly EnemyTag[];
-  apply(cell: ForestCell): void;
-}
-export const ENEMY_MODIFIERS: readonly EnemyModifier[] = [];

@@ -97,6 +97,9 @@ for state in [-1,0,1,2]:
                 for second in [False,True]:
                     w=world();w['done']=[first,second]
                     add('update_basic_attack',[state,timer],w,actor(properties={53:12,**({54:13} if follow else {})}))
+# Only the functions the game still uses are kept (01.10.2026); ids stay those of the full generation.
+LIVE={'can_move_to','is_visibly_agro','update_shield_dir','update_basic_attack'}
+vectors=[v for v in vectors if v['fn'] in LIVE]
 out={'provenance':{'source':str(SOURCE/'recovered_enemies.py'),'sha256':hashlib.sha256((SOURCE/'recovered_enemies.py').read_bytes()).hexdigest(),'oracle':'Actual recovered Python functions; no native execution'},'vectors':vectors}
 Path(__file__).with_name('recovered-enemies.json').write_text(json.dumps(out,separators=(',',':')),encoding='utf-8')
-print(f'Generated {len(vectors)} enemy reference cases across 12 functions')
+print(f'Generated {len(vectors)} enemy reference cases across {len(LIVE)} functions')

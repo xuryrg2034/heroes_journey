@@ -19,14 +19,12 @@ export type Phase = 'TITLE' | 'PLAYER_INPUT' | 'PLAYER_RESOLVE' | 'ENEMY_RESOLVE
 /** Entity data assembled from structural components; no registry or render objects. */
 export interface ForestCell extends CellIdentityComponent, CellHealthComponent, CellLinkComponent,
   CellStatusComponent, CellBehaviorComponent, CellIntentComponent, CellFootprintComponent, CellShieldComponent, DamageEffectComponent {}
-export type Cell = ForestCell;
 export interface ObjectiveProgress { kills: number; rangedKills: number; bossKills: number; turns: number; armorKills: number; prisms: number; bossHits: number; tutorialTargets?: number }
 export interface ObjectiveRequirement { key: keyof ObjectiveProgress; target: number; label: string }
 export interface ForestLevel {
   name: string; subtitle: string; description: string; tutorial: string; seed: number; map: string[];
   objectives: ObjectiveRequirement[]; turnLimit: number;
 }
-export type Level = ForestLevel;
 export interface InteractionDevice { index: number; kind: 'arrows' | 'fire' | 'pits'; charges: number; targets: number[]; damage?: number }
 /** Runtime overlay; authored terrain is retained and restored simply by removing the entry. */
 export interface TemporaryPit { index: number; closesAfterTurn: number }
@@ -50,9 +48,7 @@ export interface ForestState {
     /** Map row of the node (1 = first trunk battle); growing anger applies from RUN_PRESSURE_FIRST_ROW (mapBattleRules.ts). */
     row: number };
 }
-export type GameState = ForestState;
 export interface EngineEvent { type: string; effect?: DamageEffectKind; index?: number; from?: number; to?: number; amount?: number; text?: string; indices?: number[]; oldId?: number; newId?: number; geometry?: RotationGeometry }
-export type ForestEvent = EngineEvent;
 export interface ChainHit {
   index: number; damage: number; hpBefore: number; hpAfter: number; killed: boolean; physical: boolean;
   attackEffect?: DamageEffectKind; doorOpened?: boolean;

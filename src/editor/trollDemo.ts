@@ -1,4 +1,4 @@
-import { validateCustomLevel, type CustomEnemy, type CustomLevelDefinition } from '../game/customLevel';
+import type { CustomEnemy, CustomLevelDefinition } from '../game/customLevel';
 import type { TerrainKind } from '../game/forestTypes';
 
 /**
@@ -21,4 +21,3 @@ export function createTrollDemo(seed = 7200): CustomLevelDefinition {
     goals: [{ key: 'bossKills', target: 1 }], turnLimit: 0, completion: 'direct', paletteWeights: [100, 100, 0, 0, 0], extraColors: [],
     playerHp: 6, inventory: { frost: 1, bomb: 0, healing: 1, fire: 0 } };
 }
-export const trollDemoValid = () => validateCustomLevel(createTrollDemo());

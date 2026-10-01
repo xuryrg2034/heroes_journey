@@ -1,8 +1,15 @@
 import type { ForestEngine } from './forestEngine';
 import { startForestFixture } from './testing/fixtures';
-import { meleeCanAttack, meleeLifecycle, MELEE_AGGRESSION_START_TURN } from './enemyLifecycle';
+import { meleeCanAttack, MELEE_AGGRESSION_START_TURN } from './enemyLifecycle';
 import { prepareIntents } from './forestSystems';
 import type { ForestCell } from './forestTypes';
+
+/** The melee state as the player reads it, derived from behavior and status (the only persistent data). */
+function meleeLifecycle(cell: ForestCell): 'calm' | 'prepared' | 'frozen' | 'recovering' {
+  if (cell.status.frozen > 0) return 'frozen';
+  if (cell.behavior.restTurns > 0) return 'recovering';
+  return meleeCanAttack(cell) ? 'prepared' : 'calm';
+}
 
 function assert(value: unknown, message: string): void { if (!value) throw new Error(message); }
 let nextId = 90000;

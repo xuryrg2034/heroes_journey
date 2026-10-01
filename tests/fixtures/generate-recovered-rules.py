@@ -151,12 +151,17 @@ def main():
         run('fall_down', data)
         run('refill', {**data, 'args': [[-1, 0, 1, 2, 8][trial % 5], trial % 3, bool(trial % 2), trial % 9-4, 10], 'draw': trial % 3, 'large': trial % 2 == 0})
     from collections import Counter
+    assert len(Counter(v['fn'] for v in vectors)) == 24
+    # Only the functions the game still uses are kept (01.10.2026); the rest are generated first so the random
+    # draws, and therefore the kept vectors, stay as before.
+    LIVE = {'path_colour', 'enemy_will_attack', 'can_heal', 'can_fire_arrow_hit', 'agro_start_turn'}
+    vectors = [v for v in vectors if v['fn'] in LIVE]
     counts = dict(Counter(v['fn'] for v in vectors))
-    assert len(counts) == 24
+    assert len(counts) == len(LIVE)
     provenance = {name: {'path': str(args.source / f'{name}.py'), 'sha256': hashlib.sha256((args.source / f'{name}.py').read_bytes()).hexdigest()}
         for name in ['recovered_core', 'recovered_board', 'recovered_combat']}
     header = json.dumps({'schemaVersion': 1, 'method': 'Actual external Python model invocation, not native execution.', 'provenance': provenance, 'counts': counts}, indent=2)
-    args.output.write_text(header[:-2] + ',\n  "vectors": [\n' + ',\n'.join('    '+json.dumps(v, separators=(',', ':')) for v in vectors) + '\n  ]\n}\n', encoding='utf-8')
+    args.output.write_bytes((header[:-2] + ',\n  "vectors": [\n' + ',\n'.join('    '+json.dumps(v, separators=(',', ':')) for v in vectors) + '\n  ]\n}\n').replace('\n', '\r\n').encode('utf-8'))
     print(json.dumps({'functions': len(counts), 'vectors': len(vectors), 'counts': counts}))
 
 

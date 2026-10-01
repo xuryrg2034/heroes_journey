@@ -1,5 +1,4 @@
 import { isCellAlive } from './cellLife';
-import { cloneEntity } from './ecs/components';
 import { cloneEntities } from './ecs/world';
 import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, HeroDamageSource, InteractionDevice, ForestCell, ForestState } from './forestTypes';
 import { pathColour, WILD } from './recovered/core';
@@ -21,8 +20,6 @@ export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
 export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, burning: 0, poison: 0 });
 export const JUMP_RANGE = 3;
 
-/** Entity copy by the component registry (ecs/components.ts). */
-export const cloneCell = (cell: ForestCell): ForestCell => cloneEntity(cell);
 /** Board copy by the registry; a multi-cell entity stays one shared record across its cells. */
 export const cloneBoard = (board: (ForestCell | null)[]): (ForestCell | null)[] => cloneEntities(board);
 export { adjacent, canSwapEnemies, chainAdjacent, chainNeighbors, isWalkable, neighbors } from './boardGeometry';

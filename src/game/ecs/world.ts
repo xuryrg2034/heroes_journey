@@ -12,9 +12,6 @@ import { uniqueEntities } from '../entityFootprint';
 import type { ForestCell, ForestState } from '../forestTypes';
 import { cloneEntity, unregisteredFields } from './components';
 
-/** The cat is entity 0 in events and forecasts (it is not stored on the board). */
-export const HERO_ID = 0;
-
 export interface WorldResources {
   /** State of the battle's linear congruential generator (mapBattleRules.nextRandom). */
   rng: number;
@@ -50,12 +47,6 @@ export function cloneState(state: ForestState): ForestState {
 
 export function cloneWorld(world: World): World {
   return { state: cloneState(world.state), res: { ...world.res } };
-}
-
-/** Read-only view of the cat as entity 0 (its data stays in `state.player`). */
-export function heroView(state: ForestState) {
-  const { index, hp, maxHp, energy, damageEffects, attackEffect } = state.player;
-  return { id: HERO_ID, index, hp, maxHp, energy, damageEffects, attackEffect };
 }
 
 /**

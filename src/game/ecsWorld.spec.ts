@@ -3,7 +3,7 @@
  * Copies must be independent of the original in every mutable part and equal to a full structured clone in content.
  */
 import { cloneEntity, COMPONENTS, unregisteredFields } from './ecs/components';
-import { checkWorldIndex, cloneEntities, cloneState, heroView, HERO_ID } from './ecs/world';
+import { checkWorldIndex, cloneEntities, cloneState } from './ecs/world';
 import { cloneAnalysisSnapshot, ForestEngine } from './forestEngine';
 import type { ForestCell } from './forestTypes';
 import { FOREST_MAP } from './run/forestMap';
@@ -134,8 +134,6 @@ async function invariant() {
   assert(checkWorldIndex(twin).some(error => error.includes('share id')), 'two records with one id are reported');
   const onCat = cloneState(g.state); onCat.board[onCat.player.index] = onCat.board[goblin];
   assert(checkWorldIndex(onCat).some(error => error.includes("cat's cell")), 'an entity on the cat is reported');
-  const view = heroView(g.state);
-  assert(view.id === HERO_ID && view.hp === g.state.player.hp && view.index === g.state.player.index, 'the cat is viewed as entity 0');
   console.log('PASS cell-index invariant detects split footprints, duplicate ids and an entity on the cat');
 }
 

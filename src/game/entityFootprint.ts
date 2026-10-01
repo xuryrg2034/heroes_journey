@@ -22,19 +22,6 @@ export function clearEntity(board: (ForestCell | null)[], id: number): number[] 
   board.forEach((cell, index) => { if (cell?.id === id) { board[index] = null; cleared.push(index); } });
   return cleared;
 }
-/** Offsets are explicit x/y coordinates so extending a shape cannot wrap across rows. */
-export function footprintFromOffsets(anchor: number, cols: number, rows: number, offsets: readonly (readonly [number, number])[]): number[] | null {
-  if (!Number.isInteger(anchor) || cols < 1 || rows < 1 || !Number.isInteger(cols) || !Number.isInteger(rows) || anchor < 0 || anchor >= cols * rows || !offsets.length) return null;
-  const result: number[] = [], seen = new Set<number>();
-  for (const [dx, dy] of offsets) {
-    const x = anchor % cols + dx, y = Math.floor(anchor / cols) + dy;
-    if (!Number.isInteger(dx) || !Number.isInteger(dy) || x < 0 || x >= cols || y < 0 || y >= rows) return null;
-    const index = y * cols + x;
-    if (seen.has(index)) return null;
-    result.push(index); seen.add(index);
-  }
-  return result;
-}
 export function footprintPerimeter(indices: readonly number[], cols: number, rows: number): number[] {
   const occupied = new Set(indices), perimeter = new Set<number>();
   for (const index of indices) {

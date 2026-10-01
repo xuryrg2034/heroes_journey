@@ -12,7 +12,8 @@ import { ForestEngine } from './forestEngine';
 import type { ChainPreview, EngineEvent, ForestCell } from './forestTypes';
 import { authoredLesson } from './lessonBuilder';
 import { variantSeed } from './levelAnalysis';
-import { CRYSTAL_KILLS, CRYSTAL_PROTECTED_VARIANTS, CRYSTAL_SCORE_PER_KILL, runPressureInfo } from './mapBattleRules';
+import { CRYSTAL_KILLS, CRYSTAL_SCORE_PER_KILL, runPressureInfo } from './mapBattleRules';
+import { hasTag } from './enemyDefinitions';
 import { FOREST_NODE_BATTLES, forestBattle, type NodeBattle } from './run/forestBattles';
 import { authoredRefillPalette } from './run/forestMap';
 import { SHAMAN_STURDY_HP } from './forestBeasts';
@@ -344,7 +345,7 @@ async function crystalPlacement() {
 
   // Protected list: bosses of every kind and the named variants.
   for (const variant of ['troll', 'jailer', 'sentinel']) {
-    assert(CRYSTAL_PROTECTED_VARIANTS.includes(variant as typeof CRYSTAL_PROTECTED_VARIANTS[number]), `${variant} is protected`);
+    assert(hasTag({ kind: variant === 'sentinel' ? 'melee' : 'boss', variant: variant as 'troll' }, 'CrystalProtected'), `${variant} is protected`);
   }
 }
 

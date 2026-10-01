@@ -1,27 +1,24 @@
 import oracleData from '../../tests/fixtures/recovered-enemies.json';
 import * as rules from './recovered/enemies';
 import { ForestEngine } from './forestEngine';
-import { cloneCell, prepareIntents } from './forestSystems';
+import { cloneEntity } from './ecs/components';
+import { prepareIntents } from './forestSystems';
 import { hasOrdinaryChain } from './boardGeneration';
 import { startForestFixture, startNodeBattle } from './testing/fixtures';
 import type { ForestCell } from './forestTypes';
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 function equal(actual: unknown, expected: unknown, message: string) { assert(JSON.stringify(actual) === JSON.stringify(expected), `${message}: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`); }
-interface World { width: number; height: number; cells: Record<string, rules.EnemyActor>; marsh: number[][]; blocked: number[][]; boss: boolean; draws: number[]; done: boolean[] }
+interface World { width: number; height: number; cells: Record<string, rules.EnemyActor>; blocked: number[][]; done: boolean[] }
 interface Vector { id: string; fn: string; args: (number | boolean)[]; world: World; actor: rules.EnemyActor | null; expected: unknown; actorAfter: unknown; trace: unknown[][] }
 function references() {
   for (const v of oracleData.vectors as unknown as Vector[]) {
-    const w = v.world, trace: unknown[][] = [], a = structuredClone(v.actor); let draw = 0, done = 0;
+    const w = v.world, trace: unknown[][] = [], a = structuredClone(v.actor); let done = 0;
     const record = (...values: unknown[]) => { trace.push(values); };
     const contains = (points: number[][], x: number, y: number) => points.some(point => point[0] === x && point[1] === y);
     const ops: rules.EnemyBoardOps & rules.ShieldOps & rules.BasicAttackOps = {
       valid: (x, y) => { record('valid', x, y); return x >= 0 && x < w.width && y >= 0 && y < w.height; },
       cell: (x, y) => { record('cell', x, y); return w.cells[`${x},${y}`] ?? null; },
       playableMove: (sx, sy, x, y) => { record('playableMove', sx, sy, x, y); return !contains(w.blocked, x, y); },
-      marshAt: (x, y) => { record('marshAt', x, y); return contains(w.marsh, x, y); },
-      playableSpawn: (x, y, power) => { record('playableSpawn', x, y, power); return !contains(w.blocked, x, y); },
-      bossLevel: () => { record('bossLevel'); return w.boss; },
-      rand: (min, max) => { record('rand', min, max); return min + w.draws[draw++] % (max - min); },
       remove: (e, prop) => { record('remove', prop); delete e.properties[prop]; },
       set: (e, prop, value) => { record('set', prop, value); e.properties[prop] = value; },
       spriteIndex: (_e, name) => { record('spriteIndex', name); const [prefix, suffix] = name.split('_'); return ['side', 'front', 'back'].indexOf(prefix) * 4 + ['idle', 'ready', 'attack', 'hit'].indexOf(suffix) + 10; },
@@ -31,24 +28,16 @@ function references() {
     const n = (index: number) => v.args[index] as number, b = (index: number) => v.args[index] as boolean;
     let result: unknown;
     switch (v.fn) {
-      case 'grid_distance': result = rules.gridDistance(n(0), n(1), n(2), n(3)); break;
       case 'can_move_to': result = rules.canMoveTo(n(0), n(1), n(2), n(3), b(4), b(5), ops); break;
-      case 'can_random_attack': result = rules.canRandomAttack(n(0), n(1), b(2), b(3), b(4), b(5), ops); break;
-      case 'can_land_fire_on': result = rules.canLandFireOn(n(0), n(1), b(2), ops); break;
-      case 'is_trapped': result = rules.isTrapped(n(0), n(1), ops); break;
-      case 'move_towards': result = rules.moveTowards(n(0), n(1), n(2), n(3), n(4), b(5), ops); break;
-      case 'random_land_cell': result = rules.randomLandCell(n(0), n(1), n(2), n(3), n(4), n(5), ops); break;
-      case 'random_launch_cell': result = rules.randomLaunchCell(n(0), n(1), n(2), n(3), n(4), n(5), ops); break;
       case 'is_visibly_agro': result = rules.isVisiblyAgro(a!); break;
       case 'update_shield_dir': rules.updateShieldDir(a!, n(0), n(1), ops); result = null; break;
       case 'update_basic_attack': result = rules.updateBasicAttack(a!, n(0), n(1), ops); break;
-      case 'will_stop_osmium_missile': result = rules.willStopOsmiumMissile(a, ops); break;
       default: throw new Error(`Unknown oracle ${v.fn}`);
     }
     equal(result, v.expected, `${v.id} result`); equal(trace, v.trace, `${v.id} callback order`);
     equal(a ? { properties: a.properties, face_dir: a.face_dir } : null, v.actorAfter, `${v.id} mutations`);
   }
-  console.log(`PASS ${oracleData.vectors.length} actual Python fixtures across all twelve enemy functions, exact results/mutations/callback order`);
+  console.log(`PASS ${oracleData.vectors.length} actual Python fixtures across the four enemy functions the game uses, exact results/mutations/callback order`);
 }
 let nextId = 80000;
 function unit(kind: ForestCell['kind'] = 'melee', hp = kind === 'melee' ? 0 : 4): ForestCell { return { id: nextId++, kind, color: 0, hp, maxHp: hp, armor: 0, countdown: 1,
@@ -64,7 +53,7 @@ async function commit(g: ForestEngine, path: number[]) { assert(g.beginChain(pat
 async function shields() {
   const front = fixture(), sentinel = front.state.board[24]!;
   equal(sentinel.shield, { dx: 0, dy: 1 }, 'shield faces south toward hero');
-  const clone = cloneCell(sentinel); clone.shield!.dy = -1; equal(sentinel.shield, { dx: 0, dy: 1 }, 'shield cloning isolates candidates');
+  const clone = cloneEntity(sentinel); clone.shield!.dy = -1; equal(sentinel.shield, { dx: 0, dy: 1 }, 'shield cloning isolates candidates');
   let reason = ''; front.subscribe((_state, event) => { if (event.type === 'invalid') reason = event.text ?? ''; });
   const before = JSON.stringify(front.state); assert(!front.beginChain(24) && !front.validStarts().includes(24) && reason.includes('Щит'), 'front rejected at input with precise reason');
   equal(JSON.stringify(front.state), before, 'front rejection costs no HP/energy/turn/state');

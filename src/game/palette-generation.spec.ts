@@ -1,7 +1,7 @@
 import { ForestEngine } from './forestEngine';
 import { hasOrdinaryChain, chooseGeneratedColors } from './boardGeneration';
 import { allowedSpawnColors, createCustomLevelDemo, weightedColor } from './customLevel';
-import { ENEMY_COLORS, COLOR_FROM_SYMBOL, COLOR_SYMBOLS } from './enemyPalette';
+import { ENEMY_COLORS, COLOR_FROM_SYMBOL } from './enemyPalette';
 import { isWalkable } from './forestSystems';
 import { forestBattle } from './run/forestBattles';
 import { authoredRefillPalette, FOREST_MAP, forestRowPalette, nodeBattleTemplate } from './run/forestMap';
@@ -129,7 +129,7 @@ async function fiveColorNodes() {
 }
 
 function customAndRepair() {
-  assert(COLOR_SYMBOLS.map(symbol => COLOR_FROM_SYMBOL[symbol]).join() === ENEMY_COLORS.join(), 'canonical map symbols cover every stable color ID');
+  assert((['R', 'G', 'B', 'Y', 'P'] as const).map(symbol => COLOR_FROM_SYMBOL[symbol]).join() === ENEMY_COLORS.join(), 'canonical map symbols cover every stable color ID');
   for (const color of [3, 4] as const) {
     const definition = createCustomLevelDemo(701 + color); definition.extraColors = [];
     definition.paletteWeights = [0, 0, 0, 0, 0]; definition.paletteWeights[color] = 100;

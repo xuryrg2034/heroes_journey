@@ -4,11 +4,11 @@
  * Pure functions of the state: the forecast and the live turn read the same answers; nothing here draws random
  * numbers or emits events. Every number marked «баланс» is a balance constant, to be tuned by playtests.
  */
-import { ENEMY_DEFINITIONS, hasTag } from './enemyDefinitions';
+import { hasTag } from './enemyDefinitions';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
 import { SHAMAN_STURDY_HP } from './forestBeasts';
-import type { EnemyVariant, ForestCell, ForestState } from './forestTypes';
+import type { ForestCell, ForestState } from './forestTypes';
 import { walkableTerrain } from './terrain';
 
 // ---------------------------------------------------------------- growing anger (map rows ≥ 5)
@@ -83,11 +83,6 @@ export function runPressureInfo(state: PressureState): RunPressureInfo {
 export const CRYSTAL_KILLS = 6;
 /** Баланс: score for breaking a crystal with a chain = CRYSTAL_SCORE_PER_KILL × kills of the chain that created it. */
 export const CRYSTAL_SCORE_PER_KILL = 20;
-/**
- * Variants a crystal never lands on (besides every boss): the definitions tagged `CrystalProtected`
- * (enemyDefinitions.ts). A new variant opts in by its tag.
- */
-export const CRYSTAL_PROTECTED_VARIANTS: readonly EnemyVariant[] = ENEMY_DEFINITIONS.flatMap(definition => definition.variant && definition.tags.includes('CrystalProtected') ? [definition.variant] : []);
 
 /** Crystals are one rule for every mode since 30.09.2026; kept for callers (UI) written against the map-only version. */
 export const crystalsActive = (_state?: Pick<ForestState, 'runNode'>): boolean => true;
@@ -99,11 +94,6 @@ export const crystalsActive = (_state?: Pick<ForestState, 'runNode'>): boolean =
 export function nextRandom(state: number): { value: number; state: number } {
   const next = (Math.imul(state, 1664525) + 1013904223) >>> 0;
   return { value: next / 4294967296, state: next };
-}
-
-/** Crystals an ordinary chain creates from its chain-hit kills (prisms, doors, devices and later deaths never count). */
-export function crystalsForKills(kills: number): number {
-  return Math.floor(Math.max(0, kills) / CRYSTAL_KILLS);
 }
 
 /** Score for breaking this cell with a chain when it is a crystal; 0 for anything else. */

@@ -90,7 +90,6 @@ function store(journal: Journal) {
 export const telemetryEnabled = () => load().enabled;
 export function setTelemetryEnabled(enabled: boolean) { const journal = load(); journal.enabled = enabled; store(journal); }
 export function clearTelemetry() { const journal = load(); journal.attempts = []; store(journal); }
-export const readAttempts = () => load().attempts.slice();
 
 const median = (values: number[]): number | null => {
   if (!values.length) return null;

@@ -11,7 +11,7 @@ import { BONE, COLORS, INK, label, sigil } from './boarArt';
  */
 /** Figures are drawn in a ±35 box and enlarged to fill the plate like the illustrated goblins. */
 const FIG = 1, FIG_Y = -3, TALL = 1.22;
-export const WOLF_GREY = 0x7d8791, QUILL = 0xd8d2c0, RITE = 0xb98cf0;
+export const QUILL = 0xd8d2c0, RITE = 0xb98cf0;
 
 interface Frame { c: Container; marks: Graphics; color: number }
 /** Plate, chain-color sigil plaque, HP badge and the shared status marks. `aura` draws a halo of that color behind the plate. */
