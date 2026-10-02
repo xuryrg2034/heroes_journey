@@ -10,6 +10,7 @@
 import { hasOrdinaryChain } from './boardGeneration';
 import { shieldIsActive } from './combatRules';
 import { ELITE_HP_FACTOR, heroStrikeDamage } from './elite';
+import { nextReinforcementTurn, REINFORCEMENT_DELAY } from './exitRules';
 import { ForestEngine } from './forestEngine';
 import type { ChainPreview } from './forestTypes';
 import { GOBLIN_BATTLES } from './run/battles/goblins';
@@ -395,12 +396,21 @@ async function shieldWall() {
   }
 }
 
+/**
+ * Breakthrough, class «ход» (03.10.2026): the goal «hold one turn» is met after the first enemy answer, so the first
+ * chain is forecast «ВЫХОД ОТКРОЕТСЯ ПОСЛЕ ОТВЕТА ВРАГОВ», the chest falls at the end of turn 1, the reinforcement is
+ * due after turn 4, and the gate is entered on turn 2.
+ */
 async function gateRun() {
   for (const seed of SEEDS) {
     const play = new Play('camp-gate-run', seed), gate = play.cell('C1')!;
     assert(gate.kind === 'door' && gate.intent.label === 'Выполни цели', 'the gate is closed on the first turn');
+    const first = play.preview('B4', 'A3', 'A2', 'B3');
+    assert(first.valid && !first.unlocksExit && first.enemyPhase?.unlocksExit, 'the first chain opens the gate only after the enemies answer');
     await play.chain('B4', 'A3', 'A2', 'B3');
     assert(play.cell('C1')!.intent.label === 'Выход открыт', 'the gate opens after the first turn');
+    assert(play.g.state.customLevel!.goalCompletedTurn === 1 && play.g.state.board.some(cell => !!cell?.chest), 'the chest falls at the end of the first turn');
+    assert(nextReinforcementTurn(play.g.state) === 1 + REINFORCEMENT_DELAY, 'the reinforcement is due after turn 4');
     await play.chain('C2', 'C3', 'D2', 'C1');
     play.won(5);
     assert(play.g.state.player.index === play.at('C1'), 'the cat leaves through the gate');

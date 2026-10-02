@@ -15,6 +15,7 @@ import { planChain } from './forestSystems';
 import type { ChainPreview } from './forestTypes';
 import { variantSeed } from './levelAnalysis';
 import { BEAST_BATTLES } from './run/battles/beasts';
+import { nextReinforcementTurn, REINFORCEMENT_DELAY } from './exitRules';
 import { forestBattle, validateNodeBattle } from './run/forestBattles';
 import { authoredRefillPalette, forestRowPalette, guaranteedRowTools } from './run/forestMap';
 import { forestNodeSeed } from './run/forestRun';
@@ -33,7 +34,8 @@ interface Plan {
   hp: number;
   /**
    * The authored exit door and its distance class. `near`: the winning chain of the route continues into the door;
-   * `turn`/`far`: the route meets the goals and the door is one / two turns away. With `search` the walk to the door
+   * `turn`/`far`: the route meets the goals and the door is one / two turns away (den-breakout: the goal «hold one
+   * turn» is met after the first enemy answer, so the exit is the second turn). With `search` the walk to the door
    * crosses refilled squares, so it is not fixed: it is found by a search over real chains (`exitPath`), at most
    * `search` turns, and played with real commands.
    */
@@ -49,7 +51,7 @@ const PLANS: Record<string, Plan> = {
   'den-watch': { node: 'den-battle', row: 10, hp: 5, route: [['F6', 'E5', 'E6', 'D5', 'E4', 'D4', 'C3', 'D2'], ['C2', 'D1', 'E2', 'E3', 'F2', 'G1']],
     exit: { cell: 'G1', distance: 'near' } },
   'den-nest': { node: 'den-elite', row: 12, hp: 4, route: [['E4', 'E3'], ['F2', 'E2', 'D1', 'C1', 'B1']], exit: { cell: 'A5', distance: 'far', search: 2 } },
-  'den-breakout': { node: 'den-breakthrough', row: 13, hp: 5, route: [['B7', 'B6', 'B5', 'B4', 'B3', 'C3'], ['C2', 'C1']], exit: { cell: 'C1', distance: 'near' } },
+  'den-breakout': { node: 'den-breakthrough', row: 13, hp: 5, route: [['B7', 'B6', 'B5', 'B4', 'B3', 'C3'], ['C2', 'C1']], exit: { cell: 'C1', distance: 'turn' } },
 };
 /** Refill variants as in the level analyzer: the authored start stays, only later refills change. */
 const REFILL_SEEDS = [0, 1, 2, 3, 4, 5];
@@ -449,11 +451,20 @@ async function carriedEnergy() {
   }
 }
 
-/** The exit opens only after the first turn; the breakout is won through the door, before the wolves answer. */
+/**
+ * The exit opens only after the first turn; the breakout is won through the door, before the wolves answer. The first
+ * chain is forecast as «ВЫХОД ОТКРОЕТСЯ ПОСЛЕ ОТВЕТА ВРАГОВ» (the goal is met in the enemy phase); the chest falls at
+ * the end of the first turn, and the reinforcement (row 13) is due REINFORCEMENT_DELAY turns later, after turn 4.
+ */
 async function exitRules() {
   const g = start('den-breakout');
   assert(!g.preview([at(g, 'C2'), at(g, 'C1')]).valid, 'den-breakout: the exit is closed on the first turn');
+  const first = g.preview(path(g, PLANS['den-breakout'].route[0]));
+  assert(first.valid && !first.unlocksExit && first.enemyPhase?.unlocksExit, 'den-breakout: the first chain opens the exit only after the enemies answer');
+  assert(g.state.board.every(cell => !cell?.chest), 'den-breakout: no chest before the first turn ends');
   await commit(g, PLANS['den-breakout'].route[0], 'den-breakout first turn');
+  assert(g.state.customLevel!.goalCompletedTurn === 1 && g.state.board.some(cell => !!cell?.chest), 'den-breakout: the chest falls at the end of the first turn');
+  assert(nextReinforcementTurn(g.state) === 1 + REINFORCEMENT_DELAY, 'den-breakout: the reinforcement is due after turn 4');
   const door = g.preview([at(g, 'C2'), at(g, 'C1')]);
   assert(door.valid && door.completesRoom && !door.enemyPhase, 'den-breakout: after one turn the exit completes the battle before the enemy phase');
 }
@@ -463,7 +474,8 @@ async function exitRules() {
  * start. `near`: the chain that meets the last goal continues into the door — forecast «ВЫХОД · ПОБЕДА» — and the same
  * chain without the door meets the goals but is no victory: the battle goes on with the door open. `turn`: the goals
  * are met (boar-garden: by the push in the enemy phase), the battle goes on, and the door is entered next turn.
- * `far` (den-nest) is checked on spread seeds in `elites`.
+ * `far` marks a searched exit: den-nest's way to A5 crosses refilled cells, so it is found by real commands on spread
+ * seeds in `elites`. Its door class is «ход» since 03.10.2026 (1–2 turns, docs/levels/forest-nodes-beasts.md).
  */
 async function exits() {
   for (const [id, plan] of Object.entries(PLANS)) {
@@ -475,11 +487,11 @@ async function exits() {
     const last = plan.route.at(-1)!;
     if (plan.exit.distance === 'turn') {
       assert(g.state.phase === 'PLAYER_INPUT' && goalsMet(g) && (g.state.board[door]!.intent.label as string) === 'Выход открыт', `${id}: the goals are met, the battle goes on with the door open`);
-      assert(last.length === 1 && last[0] === plan.exit.cell, `${id}: the door is entered alone on the next turn`);
+      assert(last.at(-1) === plan.exit.cell && (last.length === 1 || id === 'den-breakout'), `${id}: the door is entered on the next turn`);
     }
     const into = g.preview(path(g, last));
     assert(into.valid && into.opensDoor === door && into.completesRoom && !into.enemyPhase, `${id}: the last chain enters the door — victory before the enemies answer`);
-    if (plan.exit.distance !== 'near' || id === 'den-breakout') continue;
+    if (plan.exit.distance !== 'near') continue;
     const stay = path(g, last.slice(0, -1)), short = g.preview(stay);
     assert(short.valid && !short.completesRoom && !short.enemyPhase?.completesObjective && short.opensDoor === undefined, `${id}: the same chain without the door is no victory`);
     await commit(g, last.slice(0, -1), `${id} stay`);

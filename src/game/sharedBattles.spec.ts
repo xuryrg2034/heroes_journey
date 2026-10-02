@@ -12,7 +12,8 @@ import { startNodeBattle } from './testing/fixtures';
 // nodes (startNodeBattle): 5/5 HP, 0 energy, no items, frost and jump open (guaranteed on every route), the row palette
 // plus the authored colors. Rows ≥ 5 drop the authored passivity and add growing anger (mapBattleRules.ts), so these
 // are the conditions every route below is played in. Both battles end through an exit door (decision of 02.10.2026):
-// the goals open it, entering it wins — «Три знамени» F6 beside the green guard, the Jailer F1 one turn from the kill.
+// the goals open it, entering it wins — «Три знамени» F6 beside the green guard, the Jailer F1 two squares from the
+// kill: the killing chain continues into it over a refilled neighbour (class «near», 03.10.2026); after the jump one turn.
 // Analyzer metrics live in docs/levels/*.md, not here.
 
 function assert(condition: unknown, message: string): void {
@@ -160,7 +161,7 @@ async function jailer(g: ForestEngine) {
   await leaveJailer(g);
 }
 /**
- * «Ход»: the cat stands on D1 after the kill, two squares from the door F1; the enemies answer once, then any refilled
+ * Staying after the kill: the cat stands on D1, two squares from the door F1; the enemies answer once, then any refilled
  * neighbour on E1 or E2 and the door make the exit chain. Found by a search over real moves, not a fixed refill.
  */
 async function leaveJailer(g: ForestEngine) {
@@ -173,7 +174,22 @@ async function leaveJailer(g: ForestEngine) {
   assert(g.state.turn === turn + 1, 'the cat leaves one turn after the kill');
   won(g, hp);
 }
-/** Alternative: after the same two turns the earned jump also finishes (it ignores the shield). */
+/**
+ * «Рядом» for a chain finish (03.10.2026): the boss is no colour link, so the chain that kills the Jailer on D1 goes on
+ * over any killable refilled neighbour (E1, E2) into the door the same turn. The squares are refilled, so the finishing
+ * chain is found by a search over real moves, not fixed; it must kill the Jailer and end in the door.
+ */
+async function jailerNear(g: ForestEngine) {
+  await commit(g, 'F3', 'F2', 'E1', 'D1');
+  await commit(g, 'E2', 'E3', 'D2', 'C3', 'B3', 'C2', 'D1');
+  const door = at(g, DOOR['jailer-gate']), jailerIndex = at(g, 'D1'), hp = g.state.player.hp;
+  const finishes = g.availableMoves().filter(path => path.at(-1) === door && path.includes(jailerIndex)).sort((a, b) => a.length - b.length);
+  assert(finishes.length > 0, 'the chain that kills the Jailer continues into the door the same turn');
+  const out = await commit(g, ...finishes[0].map(index => String.fromCharCode(65 + index % g.state.cols) + (Math.floor(index / g.state.cols) + 1)));
+  assert(out.opensDoor === door && out.hits.some(hit => hit.index === jailerIndex && hit.killed), 'the same chain kills the Jailer and opens the door mid-chain');
+  won(g, hp);
+}
+/** Alternative: after the same two turns the earned jump also finishes (it ignores the shield); a jump cannot enter the door. */
 async function jailerJump(g: ForestEngine) {
   await commit(g, 'F3', 'G2', 'F2', 'E1', 'D1');
   await commit(g, 'E2', 'E3', 'D2', 'C3', 'B3', 'C2', 'D1');
@@ -194,11 +210,11 @@ async function refillIndependence() {
   let clean = 0;
   for (const seed of [1, 2, 3, 4, 5]) {
     if (await banners(start('three-banners', seed))) clean++;
-    await jailer(start('jailer-gate', seed)); await jailerJump(start('jailer-gate', seed));
+    await jailer(start('jailer-gate', seed)); await jailerJump(start('jailer-gate', seed)); await jailerNear(start('jailer-gate', seed));
   }
   assert(clean >= 4, `three-banners: the authored route is checked on most refill seeds, got ${clean} of 5`);
-  // The Jailer's exit rests on refilled squares: check the one-turn exit on spread seeds as well.
-  for (let k = 1; k <= 4; k++) { const seed = Math.imul(k, 2654435761) >>> 0; await jailer(start('jailer-gate', seed)); await jailerJump(start('jailer-gate', seed)); }
+  // The Jailer's exit rests on refilled squares: check both exits (by the killing chain and one turn later) on spread seeds as well.
+  for (let k = 1; k <= 4; k++) { const seed = Math.imul(k, 2654435761) >>> 0; await jailer(start('jailer-gate', seed)); await jailerJump(start('jailer-gate', seed)); await jailerNear(start('jailer-gate', seed)); }
 }
 async function replay(id: 'three-banners' | 'jailer-gate', play: (g: ForestEngine) => Promise<unknown>) {
   const g = start(id), initial = JSON.stringify(g.captureAnalysisSnapshot());
@@ -210,8 +226,8 @@ async function main() {
   layouts();
   jailerOpeningCap();
   await replay('three-banners', banners);
-  await replay('jailer-gate', jailer); await replay('jailer-gate', jailerJump); await replay('jailer-gate', poolTooEarly);
+  await replay('jailer-gate', jailer); await replay('jailer-gate', jailerJump); await replay('jailer-gate', jailerNear); await replay('jailer-gate', poolTooEarly);
   await refillIndependence();
-  console.log('PASS shared battles as map nodes: Three Banners prism route into the door; Jailer opening cap, shield/rest window, pool trap, chain finish, jump alternative, exit one turn later; refill seeds, pure forecast and exact replay');
+  console.log('PASS shared battles as map nodes: Three Banners prism route into the door; Jailer opening cap, shield/rest window, pool trap, chain finish, jump alternative, exit by the killing chain or one turn later; refill seeds, pure forecast and exact replay');
 }
 main().catch(error => { console.error(error); throw error; });
