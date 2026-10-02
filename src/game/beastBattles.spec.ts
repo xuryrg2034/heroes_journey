@@ -33,8 +33,8 @@ const PLANS: Record<string, Plan> = {
   'wolf-ford': { node: 'beast-wolf', row: 5, hp: 5, route: [['B5', 'C5', 'C4', 'D3', 'D2'], ['C2', 'D1', 'E2', 'E3', 'D4']] },
   'boar-garden': { node: 'beast-boar', row: 6, hp: 5, route: [['G5', 'F5', 'E6', 'D5', 'C5'], ['B5', 'B6', 'C6']] },
   'porcupine-thicket': { node: 'beast-porcupine', row: 7, hp: 4, route: [['A2', 'A3', 'B2', 'C1', 'D2', 'E3'], ['F2', 'F3', 'E4', 'D4', 'C5', 'C6', 'C7']] },
-  'den-watch': { node: 'den-battle', row: 10, hp: 5, route: [['F6', 'E5', 'E6', 'D5', 'E4', 'D4', 'C3', 'D2'], ['C2', 'D1', 'E2']] },
-  'den-nest': { node: 'den-elite', row: 12, hp: 4, route: [['E4', 'F3', 'G2', 'G1'], ['F1', 'E2'], ['D1', 'C1', 'B1']] },
+  'den-watch': { node: 'den-battle', row: 10, hp: 5, route: [['F6', 'E5', 'E6', 'D5', 'E4', 'D4', 'C3', 'D2'], ['C2', 'D1', 'E2', 'E3']] },
+  'den-nest': { node: 'den-elite', row: 12, hp: 4, route: [['E4', 'E3'], ['F2', 'E2', 'D1', 'C1', 'B1']] },
   'den-breakout': { node: 'den-breakthrough', row: 13, hp: 5, route: [['B7', 'B6', 'B5', 'B4', 'B3', 'C3'], ['C2', 'C1']] },
 };
 /** Refill variants as in the level analyzer: the authored start stays, only later refills change. */
@@ -148,17 +148,9 @@ function layouts() {
   assert(starts.size >= 5, 'the cat starts in different places');
 }
 
-/**
- * TODO(design): these battles were laid out for a standing elite; elites now move (decision of 01.10.2026,
- * docs/ecs-architecture.md §7 «Случайные элиты»), so their fixed routes no longer hold. The design session re-lays
- * them; until then their route wins are not asserted (forecast and replay checks elsewhere still run).
- */
-const MOVING_ELITE_TODO = new Set(['den-watch', 'den-nest']);
-
 async function routes() {
   const blocked: string[] = [], looted: string[] = [];
   for (const id of Object.keys(PLANS)) {
-    if (MOVING_ELITE_TODO.has(id)) continue;
     let won = 0;
     for (const k of REFILL_SEEDS) {
       const g = start(id, k), where = `${id} refill ${k}`, before = blocked.length, lootBefore = looted.length;
@@ -186,23 +178,10 @@ async function routes() {
   for (const note of looted) console.log(`NOTE ${note} (outcome asserted)`);
 }
 
-/** Moving-elite battles (TODO above): the first authored chain, then the first chain the engine offers, for 3 turns. */
-async function playOffered(id: string, g: ForestEngine, where: string) {
-  await commit(g, PLANS[id].route[0], `${where} turn 1`);
-  for (let turn = 0; turn < 3 && g.state.phase === 'PLAYER_INPUT'; turn++) {
-    const offered = g.availableMoves(8)[0];
-    if (!offered) break;
-    g.beginChain(offered[0]); for (const index of offered.slice(1)) g.extendChain(index);
-    assert(await g.releaseChain(), `${where}: offered chain ${turn + 2}`);
-  }
-  return g.captureAnalysisSnapshot();
-}
-
 async function replayAndRandomRefill() {
   for (const id of Object.keys(PLANS)) {
-    const play = MOVING_ELITE_TODO.has(id) ? playOffered : playRoute;
-    const first = await play(id, start(id, 2), `${id} replay A`);
-    const second = await play(id, start(id, 2), `${id} replay B`);
+    const first = await playRoute(id, start(id, 2), `${id} replay A`);
+    const second = await playRoute(id, start(id, 2), `${id} replay B`);
     assert(json(first) === json(second), `${id}: the same seed and actions replay identically`);
     // After the first turn the refilled squares differ between refill seeds (colors are not fixed to coordinates).
     const boards = new Set<string>();
@@ -258,10 +237,17 @@ async function trapsInForecast() {
   g = start('den-nest');
   assert(spikeKills(g, preview(g, PLANS['den-nest'].route[0])) === 2, 'den-nest: the charge pushes the leader and a packmate onto the spikes');
   assert(spikeKills(g, preview(g, ['D4', 'C4', 'D3'])) < 2, 'den-nest: a void in the boar column is visible as a spared target');
-  // TODO(design, MOVING_ELITE_TODO): «the elite and the wolf beside it strike 3 after the push» assumed a standing elite;
-  // the elite now announces a move toward the cat at the start of the turn instead of a swing.
-  // TODO(design, MOVING_ELITE_TODO): «next to the elite the forecast shows its strike of 2» — the elite announced a move.
-  void ['E4', 'F3', 'F2'];
+  // The elite closes in on the cat (elite.ts): its step is announced, and a chain that ends elsewhere lets it leave the pack.
+  assert(g.state.board[at(g, 'E2')]?.intent.moveTo === at(g, 'E3'), 'den-nest: the elite announces its step toward the cat');
+  const away = start('den-nest');
+  await commit(away, ['E4', 'F3'], 'den-nest elite leaves');
+  assert(away.state.board[at(away, 'E3')]?.elite && !away.state.board[at(away, 'E2')]?.elite, 'den-nest: not blocked, the elite steps to E3, away from D1');
+  // Standing on its step pins it beside D1: it now swings for 2, and a second chain that stops in reach is shown as 3.
+  const pinned = start('den-nest');
+  await commit(pinned, PLANS['den-nest'].route[0], 'den-nest pin');
+  const guard = pinned.state.board[at(pinned, 'E2')];
+  assert(guard?.elite && guard.intent.cells.includes(pinned.state.player.index), 'den-nest: the pinned elite stays and announces a strike on the cat');
+  assert(preview(pinned, ['D3', 'D2']).damageBySource.melee === 3, 'den-nest: after the pin, stopping by the elite and D1 is shown as 3');
 
   // Breakout: stopping beside the packed wolves costs HP; the porcupine is a tempting extra kill with a quill.
   g = start('den-breakout');
@@ -284,23 +270,29 @@ async function elites() {
     assert(g.state.board.filter(other => other?.elite).length === 1, `${id}: one authored elite`);
   }
 
-  // TODO(design, MOVING_ELITE_TODO): the elite scenarios below assume the elite stands on E2 through the route.
-  if (MOVING_ELITE_TODO.size) { console.log('PASS den elites: doubled HP (route scenarios: TODO design, moving elites)'); return; }
-  // Den watch: the elite flank wolf must be the last of the finishing chain; leading with it is refused by the forecast.
+  // Den watch: the elite leaves the pack toward the cat; once the leader is dead it stands alone on E3 and must be
+  // the last of the finishing chain — leading with it is refused by the forecast.
   let g = start('den-watch');
+  assert(g.state.board[at(g, 'E2')]?.intent.moveTo === at(g, 'E3'), 'den-watch: the elite announces a step toward the cat');
   await commit(g, PLANS['den-watch'].route[0], 'den-watch elite setup');
-  const wrongOrder = g.preview(path(g, ['E2', 'D1', 'C2']));
+  assert(g.state.board[at(g, 'E3')]?.elite && !g.state.board[at(g, 'E3')]!.intent.cells.length, 'den-watch: the elite came to E3 and, without its pack, does not strike');
+  const wrongOrder = g.preview(path(g, ['E3', 'E2', 'D1', 'C2']));
   assert(!wrongOrder.valid && wrongOrder.hits[0]?.killed === false, 'den-watch: a chain that starts on the elite is shown to leave it alive');
 
-  // Den nest: the elite strikes for 2 when the cat stops beside it (forecast = execution through commit).
+  // Den nest: pinned beside D1, the elite strikes for 2 if it is not finished (forecast = execution through commit).
   g = start('den-nest');
-  const struck = await commit(g, ['E4', 'F3', 'F2'], 'den-nest elite strike');
-  assert(struck.damage === 2 && g.state.player.hp === 3, 'den-nest: the elite\'s strike costs 2 HP');
-  // From the authored pocket the blue run-up F1 kills the elite exactly (power 2 against 2 HP).
-  g = start('den-nest');
-  await commit(g, PLANS['den-nest'].route[0], 'den-nest pocket');
-  const runUp = g.preview(path(g, ['F1', 'E2']));
-  assert(runUp.valid && runUp.hits[1]?.killed && runUp.hits[1].damage === 2, 'den-nest: one blue run-up kills the 2-HP elite');
+  await commit(g, PLANS['den-nest'].route[0], 'den-nest pin');
+  const struck = await commit(g, ['D3', 'D2'], 'den-nest elite strike');
+  assert(struck.damageBySource.melee === 3 && g.state.player.hp === 2, 'den-nest: the pinned elite (2) and D1 (1) strike the cat that stays');
+  // The other answer to the moving elite: let it come to E3, ride the push to C2 and catch it last in the red chain.
+  for (const variant of SPREAD_SEEDS.slice(0, 6)) {
+    const ride = start('den-nest');
+    const snap = ride.captureAnalysisSnapshot(); snap.rng = variantSeed(snap.rng, variant); ride.restoreAnalysisSnapshot(snap);
+    await commit(ride, ['D4', 'D3', 'C4'], `den-nest ride ${variant}`);
+    assert(ride.state.player.index === at(ride, 'C2') && ride.state.board[at(ride, 'E3')]?.elite, `den-nest ride ${variant}: the push carries the cat to C2, the elite steps to E3`);
+    await commit(ride, ['B1', 'C1', 'D1', 'E1', 'F2', 'E3'], `den-nest ride ${variant} finish`);
+    assert(ride.state.phase === 'WIN', `den-nest ride ${variant}: the red chain catches the elite last`);
+  }
 
   // The decision does not rest on the drop: the route wins on spread seeds whether the loot falls or not.
   let dropped = 0, missed = 0;
@@ -311,12 +303,10 @@ async function elites() {
     const where = `den-nest spread ${variant}`, route = PLANS['den-nest'].route;
     await commit(run, route[0], `${where} turn 1`);
     await commit(run, route[1], `${where} turn 2`);
+    // The elite dies inside the winning chain: its loot (if any) falls and is left behind with the battle won.
     const loot = run.state.board.find(cell => cell?.kind === 'prism' && cell.loot);
     if (loot) dropped++; else missed++;
-    await commit(run, route[2], `${where} turn 3`);
-    assert(run.state.phase === 'WIN', `${where}: the route wins (loot ${loot ? 'dropped' : 'not dropped'})`);
-    // Loot that crushed the porcupine lies on the finishing chain: it is picked up and spares the quill.
-    assert(run.state.player.hp === PLANS['den-nest'].hp + (loot && run.state.inventory.frost > 0 ? 1 : 0), `${where}: HP after the route`);
+    assert(run.state.phase === 'WIN' && run.state.player.hp === PLANS['den-nest'].hp, `${where}: the route wins with ${PLANS['den-nest'].hp} HP (loot ${loot ? 'dropped' : 'not dropped'})`);
   }
   assert(dropped > 0 && missed > 0, `den-nest: the spread seeds cover both outcomes of the loot roll (${dropped} dropped, ${missed} not)`);
   console.log(`den-nest elite: the route wins on ${SPREAD_SEEDS.length} spread seeds, loot dropped on ${dropped}`);
@@ -324,8 +314,8 @@ async function elites() {
 
 /**
  * Energy is carried between nodes (a rest does not spend it), and on row 12 jump (radius 3, hit 4) and spin (hit 4 on the
- * eight neighbours) are open. Whatever the entry energy, no first action kills the den-nest elite — so it never dies on
- * the turn of the boar's push, where its loot could fall into the boar lane — and the authored route still wins.
+ * eight neighbours) are open. Whatever the entry energy, no first action kills the den-nest elite (it is out of jump
+ * and spin reach and of every first chain), and the authored route still wins.
  */
 async function carriedEnergy() {
   const elite = (g: ForestEngine) => at(g, 'E2'), seeds = SPREAD_SEEDS.slice(0, 6);
@@ -336,14 +326,12 @@ async function carriedEnergy() {
       const snap = g.captureAnalysisSnapshot(); snap.rng = variantSeed(snap.rng, variant); g.restoreAnalysisSnapshot(snap);
       const where = `den-nest energy ${energy} seed ${variant}`, before = json(g.state);
       const kills = (preview: ChainPreview) => preview.valid && preview.hits.some(hit => hit.index === elite(g) && hit.killed);
-      // availableMoves is a pruned sample (≤240 paths), not every chain; a full search found none either (review 01.10.2026).
+      // availableMoves is a pruned sample (≤240 paths), not every chain; a full search over every chain found none either (review 02.10.2026, current layout).
       for (const move of g.availableMoves(16)) assert(!kills(g.preview(move)), `${where}: no first chain kills the elite`);
       for (let cell = 0; cell < g.state.board.length; cell++) assert(!kills(g.previewAbility('jump', cell)), `${where}: no first jump kills the elite`);
       const spin = g.previewAbility('spin');
       assert(spin.valid === energy >= 3 && !kills(spin), `${where}: the first spin does not reach the elite`);
       assert(json(g.state) === before, `${where}: the previews keep the state`);
-      // TODO(design, MOVING_ELITE_TODO): the authored route assumed a standing elite.
-      if (MOVING_ELITE_TODO.has('den-nest')) continue;
       await playRoute('den-nest', g, where);
       assert(g.state.phase === 'WIN', `${where}: the authored route wins`);
     }

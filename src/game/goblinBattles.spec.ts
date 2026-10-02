@@ -281,6 +281,10 @@ async function shieldWall() {
   // Without the jump the elite can still be wounded and finished, paying 2 HP to its arrow.
   const slow = new Play('camp-shield-wall', ELITE_SEEDS[0]);
   await slow.chain('E7', 'D7', 'C7', 'B7', 'A7');
+  // Elites move (decision of 01.10.2026): a resting elite archer retreats from a cat closer than 3 cells. In the corner
+  // A7 neither side (A6, B7) is farther from the cat on B7, so the wounded elite stays in its pocket.
+  const resting = slow.cell('A7')!;
+  assert(resting.elite && resting.behavior.restTurns > 0 && resting.intent.moveTo === undefined, 'the resting elite has nowhere to retreat from the corner');
   await slow.chain('A7', 'B6', 'B5', 'A4');
   slow.won(3);
   // A frost flask carried by the run (the node goblin-archer grants one) makes the elite brittle: then the lane may take

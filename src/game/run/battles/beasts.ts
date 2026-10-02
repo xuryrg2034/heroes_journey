@@ -65,7 +65,7 @@ export const BEAST_BATTLES: NodeBattle[] = [
   }),
   authoredLesson({
     id: 'den-watch', name: 'Сторожевая стая', description: 'У входа в логово вожак держит стаю, а браконьер-лучник простреливает подход.',
-    hint: 'Убей вожака — одинокие волки не нападают. Элитный волк вдвое крепче: бей его с разгона. Дикобраз у вожака ранит кота, лучник бьёт всех на своей линии.',
+    hint: 'Убей вожака — одинокие волки не нападают. Элитный волк идёт к коту и вдвое крепче: без стаи он не бьёт, добивай его последним. Дикобраз у вожака ранит кота, лучник бьёт всех на своей линии.',
     rows: [
       'GGGROOO',
       'GOWLER#',
@@ -85,11 +85,11 @@ export const BEAST_BATTLES: NodeBattle[] = [
   }),
   authoredLesson({
     id: 'den-nest', name: 'Гнездо у шипов', description: 'Стая залегла у колючей изгороди, кабан внизу роет землю, а сбоку гнездо сторожит элитный волк.',
-    hint: 'Кабан толкает ряд к коту: вытолкнутый за изгородь гибнет, пустота в ряду гасит толчок. Элитный волк бьёт на 2 и вдвое крепче — бери его с разгона и не стой рядом.',
+    hint: 'Кабан толкает ряд к коту: вытолкнутый за изгородь гибнет, пустота в ряду гасит толчок. Элитный волк идёт к тебе: встань на его шаг — он останется у стаи; вдвое крепче, поэтому бей его не первым.',
     rows: [
-      'OWLWRBG',
-      'OBUOEGG',
-      'VVPOOGR',
+      'OWLWRBB',
+      'OBUOERG',
+      'VVPOGGR',
       'GVOOGBR',
       'GGOHRBG',
       '##KRRGG',
@@ -98,7 +98,7 @@ export const BEAST_BATTLES: NodeBattle[] = [
       W: { color: 0, hp: 0, variant: 'wolf', armed: true, target: true },
       L: { color: 4, hp: 6, variant: 'wolf', armed: true, target: true },
       U: { color: 2, hp: 0, variant: 'wolf', armed: true, target: true },
-      E: { color: 2, hp: 1, variant: 'wolf', armed: true, target: true, elite: true },
+      E: { color: 0, hp: 1, variant: 'wolf', armed: true, target: true, elite: true },
       P: { color: 0, hp: 2, variant: 'porcupine' },
       K: { color: 3, hp: 4, variant: 'boar', armed: true },
     },
