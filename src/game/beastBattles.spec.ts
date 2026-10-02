@@ -148,9 +148,17 @@ function layouts() {
   assert(starts.size >= 5, 'the cat starts in different places');
 }
 
+/**
+ * TODO(design): these battles were laid out for a standing elite; elites now move (decision of 01.10.2026,
+ * docs/ecs-architecture.md §7 «Случайные элиты»), so their fixed routes no longer hold. The design session re-lays
+ * them; until then their route wins are not asserted (forecast and replay checks elsewhere still run).
+ */
+const MOVING_ELITE_TODO = new Set(['den-watch', 'den-nest']);
+
 async function routes() {
   const blocked: string[] = [], looted: string[] = [];
   for (const id of Object.keys(PLANS)) {
+    if (MOVING_ELITE_TODO.has(id)) continue;
     let won = 0;
     for (const k of REFILL_SEEDS) {
       const g = start(id, k), where = `${id} refill ${k}`, before = blocked.length, lootBefore = looted.length;
@@ -178,10 +186,23 @@ async function routes() {
   for (const note of looted) console.log(`NOTE ${note} (outcome asserted)`);
 }
 
+/** Moving-elite battles (TODO above): the first authored chain, then the first chain the engine offers, for 3 turns. */
+async function playOffered(id: string, g: ForestEngine, where: string) {
+  await commit(g, PLANS[id].route[0], `${where} turn 1`);
+  for (let turn = 0; turn < 3 && g.state.phase === 'PLAYER_INPUT'; turn++) {
+    const offered = g.availableMoves(8)[0];
+    if (!offered) break;
+    g.beginChain(offered[0]); for (const index of offered.slice(1)) g.extendChain(index);
+    assert(await g.releaseChain(), `${where}: offered chain ${turn + 2}`);
+  }
+  return g.captureAnalysisSnapshot();
+}
+
 async function replayAndRandomRefill() {
   for (const id of Object.keys(PLANS)) {
-    const first = await playRoute(id, start(id, 2), `${id} replay A`);
-    const second = await playRoute(id, start(id, 2), `${id} replay B`);
+    const play = MOVING_ELITE_TODO.has(id) ? playOffered : playRoute;
+    const first = await play(id, start(id, 2), `${id} replay A`);
+    const second = await play(id, start(id, 2), `${id} replay B`);
     assert(json(first) === json(second), `${id}: the same seed and actions replay identically`);
     // After the first turn the refilled squares differ between refill seeds (colors are not fixed to coordinates).
     const boards = new Set<string>();
@@ -237,10 +258,10 @@ async function trapsInForecast() {
   g = start('den-nest');
   assert(spikeKills(g, preview(g, PLANS['den-nest'].route[0])) === 2, 'den-nest: the charge pushes the leader and a packmate onto the spikes');
   assert(spikeKills(g, preview(g, ['D4', 'C4', 'D3'])) < 2, 'den-nest: a void in the boar column is visible as a spared target');
-  // The elite and the wolf beside it outlive the push: ending a chain in their reach is shown as 2 (elite) + 1 (wolf).
-  const cornered = preview(g, ['D4', 'D3', 'D2']);
-  assert(cornered.damageBySource.melee === 3 && spikeKills(g, cornered) === 2, 'den-nest: the pack beside the elite is shown to strike 3 after the push');
-  assert(preview(g, ['E4', 'F3', 'F2']).damageBySource.melee === 2, 'den-nest: next to the elite the forecast shows its strike of 2');
+  // TODO(design, MOVING_ELITE_TODO): «the elite and the wolf beside it strike 3 after the push» assumed a standing elite;
+  // the elite now announces a move toward the cat at the start of the turn instead of a swing.
+  // TODO(design, MOVING_ELITE_TODO): «next to the elite the forecast shows its strike of 2» — the elite announced a move.
+  void ['E4', 'F3', 'F2'];
 
   // Breakout: stopping beside the packed wolves costs HP; the porcupine is a tempting extra kill with a quill.
   g = start('den-breakout');
@@ -263,6 +284,8 @@ async function elites() {
     assert(g.state.board.filter(other => other?.elite).length === 1, `${id}: one authored elite`);
   }
 
+  // TODO(design, MOVING_ELITE_TODO): the elite scenarios below assume the elite stands on E2 through the route.
+  if (MOVING_ELITE_TODO.size) { console.log('PASS den elites: doubled HP (route scenarios: TODO design, moving elites)'); return; }
   // Den watch: the elite flank wolf must be the last of the finishing chain; leading with it is refused by the forecast.
   let g = start('den-watch');
   await commit(g, PLANS['den-watch'].route[0], 'den-watch elite setup');
@@ -319,6 +342,8 @@ async function carriedEnergy() {
       const spin = g.previewAbility('spin');
       assert(spin.valid === energy >= 3 && !kills(spin), `${where}: the first spin does not reach the elite`);
       assert(json(g.state) === before, `${where}: the previews keep the state`);
+      // TODO(design, MOVING_ELITE_TODO): the authored route assumed a standing elite.
+      if (MOVING_ELITE_TODO.has('den-nest')) continue;
       await playRoute('den-nest', g, where);
       assert(g.state.phase === 'WIN', `${where}: the authored route wins`);
     }

@@ -21,6 +21,8 @@ import { canFireArrowHit } from './recovered/combat';
 import { updateShieldDir, type EnemyActor } from './recovered/enemies';
 import { recoveredMoveTowards } from './recoveredEnemyMovement';
 import { walkableTerrain } from './terrain';
+import { ELITE_MOVE_EVERY, ELITE_MOVEMENT, ELITE_RETREAT_DISTANCE } from './elite';
+import { uniqueEntities } from './entityFootprint';
 import { clubImpacts, clubZone, swingClub, TROLL_CLUB_DAMAGE, trollBody } from './troll';
 
 /** Shared data of one intent pass. */
@@ -106,7 +108,8 @@ export function angerIntent(state: ForestState, cell: ForestCell, index: number)
 function archerIntent({ state, rand, paired }: IntentPass, cell: ForestCell, index: number) {
   if (cell.behavior.restTurns > 0) {
     cell.intent.label = 'Отдых';
-    if (paired.has(index)) return;
+    // A resting elite archer retreats instead of rotating toward the cat (announceEliteMoves).
+    if (paired.has(index) || cell.elite) return;
     // Keep our cardinal, occupied-pair rules; port only the verified three-pass selection.
     const step = recoveredMoveTowards({ col: index % state.cols, row: Math.floor(index / state.cols),
       destCol: state.player.index % state.cols, destRow: Math.floor(state.player.index / state.cols), minDist: 0 }, {
@@ -247,6 +250,56 @@ export function announceRites({ state, rites }: IntentPass) {
     cell.countdown = 1;
     cell.intent = { cells: [], damage: 0, label: targets.length ? 'Камлание' : 'Камлание · нет целей',
       empowerIds: targets.map(target => target.id), empowerCells: targets.map(target => target.index) };
+  }
+}
+
+/**
+ * Elite movement (decision of 01.10.2026), after the anger queue and the rites so every intent is final: an elite that
+ * does not strike, charge, shoot or perform a rite this turn announces an exchange with a side neighbour (the archer's
+ * rotation rules: `canSwapEnemies`, `paired`, `state.rotations`, cardinal geometry) — melee closes in on the cat (to
+ * a neighbour strictly nearer, Chebyshev) when the cat is out of its reach, ranged retreats while the cat is closer
+ * than 3 cells. Ties are drawn from the battle RNG. Frozen, resting (except a resting
+ * archer, who retreats instead of its rotation) and passive elites stay; defensive ones hold (`ELITE_MOVEMENT`).
+ * Ordinary enemies never close in. Every `ELITE_MOVE_EVERY` turns; draws of the battle RNG come in board order.
+ */
+export function announceEliteMoves({ state, rand, paired }: IntentPass) {
+  if (ELITE_MOVE_EVERY <= 0 || state.turn % ELITE_MOVE_EVERY !== 0) return;
+  const cols = state.cols, hero = state.player.index;
+  const distance = (a: number, b: number) => Math.max(Math.abs(a % cols - b % cols), Math.abs(Math.floor(a / cols) - Math.floor(b / cols)));
+  const sides = (index: number) => [index - cols, index + 1, index + cols, index - 1].filter(target => target >= 0 && target < cols * state.rows
+    && (target % cols === index % cols || Math.floor(target / cols) === Math.floor(index / cols)) && distance(index, target) === 1);
+  const swappable = (index: number, target: number) => !paired.has(target) && canSwapEnemies(state, index, target);
+  for (const { cell, index } of uniqueEntities(state.board)) {
+    const id = definitionOf(cell)?.id;
+    if (!cell.elite || !id || !isCellAlive(cell) || cell.status.frozen > 0 || cell.behavior.passive || paired.has(index)) continue;
+    const mode = ELITE_MOVEMENT[id];
+    let target = index, label = '';
+    if (mode === 'close') {
+      // The cat in reach (announced strike or a side neighbour, armed or not), a charge or a rest: no closing in.
+      if (cell.behavior.restTurns > 0 || cell.intent.charge || cell.intent.cells.includes(hero) || meleeTargets(state, index).includes(hero)) continue;
+      // Only a neighbour strictly nearer to the cat; the nearest, a tie by the battle RNG; none — the elite stands.
+      const near = distance(index, hero), closer = sides(index).filter(side => swappable(index, side) && distance(side, hero) < near);
+      if (!closer.length) continue;
+      const nearest = Math.min(...closer.map(side => distance(side, hero))), best = closer.filter(side => distance(side, hero) === nearest);
+      target = best.length > 1 ? best[rand(0, best.length)] : best[0]; label = 'Сближение';
+    } else if (mode === 'retreat') {
+      // An archer retreats in its rest turn (it shoots otherwise); a shaman in a turn without a rite.
+      if (id === 'archer' ? cell.behavior.restTurns === 0 : cell.behavior.restTurns > 0 || !!cell.intent.empowerIds?.length) continue;
+      const near = distance(index, hero);
+      if (near > ELITE_RETREAT_DISTANCE) continue;
+      const away = sides(index).filter(side => swappable(index, side) && distance(side, hero) > near);
+      if (!away.length) continue;
+      const farthest = Math.max(...away.map(side => distance(side, hero)));
+      const best = away.filter(side => distance(side, hero) === farthest);
+      target = best.length > 1 ? best[rand(0, best.length)] : best[0];
+      label = id === 'archer' ? 'Отдых · отступление' : 'Отступление';
+    } else continue;
+    if (target === index) continue;
+    const partner = state.board[target]!;
+    cell.countdown = 1;
+    cell.intent = { cells: [], damage: 0, label, moveTo: target, swapWithId: partner.id };
+    paired.add(index); paired.add(target);
+    state.rotations.push({ from: index, to: target, sourceId: cell.id, targetId: partner.id, geometry: 'cardinal' });
   }
 }
 

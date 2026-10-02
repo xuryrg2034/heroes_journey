@@ -22,7 +22,7 @@ import { isResource, lootLabel, RESOURCES } from '../game/resources';
 
 const TILE = 80;
 const INK_RING = 0x172024;
-export const ELITE_TIP='Элита: HP ×2, удар по коту +1, может оставить расходник или ресурс.';
+export const ELITE_TIP='Элита: HP ×2, удар по коту +1; ближняя сближается с котом, дальняя отступает; оставляет добычу.';
 /** Hover text of dropped loot: a consumable joins the inventory, a resource is kept by the run for crafting. */
 const lootTip=(kind:LootKind)=>isResource(kind)?`${RESOURCES[kind].label}: ресурс на будущее (из двух — ${ITEMS[RESOURCES[kind].crafts].label.toLowerCase()} на привале, когда появится крафт). Пройди по нему цепью — он уйдёт в запас похода.`
   :`${ITEMS[kind].label}: ${ITEMS[kind].description} Пройди по нему цепью — предмет попадёт в запас.`;

@@ -313,8 +313,8 @@ function* placeLoot(ctx: TurnContext, index: number, item: LootKind, victimId?: 
 function* dropQueuedLoot(ctx: TurnContext): TurnSequence {
   const queue = ctx.scratch.lootQueue ?? [];
   ctx.scratch.lootQueue = [];
-  for (const _elite of queue) {
-    const roll = rollEliteLoot(ctx.state, ctx.state.board, new Set(), () => ctx.drawRandom());
+  for (const elite of queue) {
+    const roll = rollEliteLoot(ctx.state, ctx.state.board, new Set(), () => ctx.drawRandom(), elite.elite);
     if (roll.index !== undefined && !(yield* placeLoot(ctx, roll.index, roll.item!, roll.victim?.id))) return false;
   }
   return ctx.current();

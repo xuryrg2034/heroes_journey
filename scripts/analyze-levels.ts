@@ -4,6 +4,7 @@
  *   npm run analyze:levels -- --node chief-breakfast --depth 4  # one registry battle or map node, as in a run
  *   npm run analyze:levels -- --node wolf-ford --row 5          # a registry battle on another map row
  *   npm run analyze:levels -- --node den-nest --energy 5         # entered with energy carried from earlier nodes
+ *   npm run analyze:levels -- --nodes --elite-move-every 2    # compare elite movement periods (0 — no movement)
  *   npm run analyze:levels -- --json my-level.json --seeds 5 --out report.json
  * Levels are analyzed in parallel child processes; every level uses its own engines.
  */
@@ -14,8 +15,13 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type LevelAnalysis, type LevelSource } from '../src/game/levelAnalysis';
 import { allNodeBattleTargets, nodeAnalysisTargets } from '../src/game/run/nodeAnalysis';
+import { ELITE_MOVE_EVERY, setEliteMoveEvery } from '../src/game/elite';
 
-interface Task { source: LevelSource; options: Partial<AnalysisOptions> }
+/** The game's elite movement period, kept to restore it between tasks. */
+const ELITE_MOVE_EVERY_DEFAULT = ELITE_MOVE_EVERY;
+
+/** `eliteMoveEvery`: elite movement period for this analysis (elite.ts; 0 — no movement); the game uses ELITE_MOVE_EVERY. */
+interface Task { source: LevelSource; options: Partial<AnalysisOptions>; eliteMoveEvery?: number }
 interface Done { index: number; result?: LevelAnalysis; error?: string; ms: number }
 
 const HELP = `analyze-levels [options]
@@ -26,6 +32,7 @@ const HELP = `analyze-levels [options]
   --nodes            every battle of the node registry (src/game/run/battles/*.ts)
   --row R            map row for registry battles not bound to a node (tools and palette of that row)
   --energy E         node battles: entry energy instead of 0 (the run carries energy between nodes)
+  --elite-move-every N  elites move every N turns (0 — not at all); the game's value is ELITE_MOVE_EVERY in elite.ts
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
   --depth D          search horizon in turns (default ${DEFAULT_ANALYSIS_OPTIONS.depth})
   --beam B           children per internal node (default ${DEFAULT_ANALYSIS_OPTIONS.beam})
@@ -41,7 +48,7 @@ const HELP = `analyze-levels [options]
 
 function parse(argv: string[]) {
   const tasks: LevelSource[] = [], options: Partial<AnalysisOptions> = {};
-  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined;
+  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined, eliteMoveEvery: number | undefined;
   const nodeIds: string[] = [];
   const number = (flag: string, value: string | undefined, min: number) => {
     const parsed = Number(value);
@@ -57,6 +64,7 @@ function parse(argv: string[]) {
       case '--nodes': allNodes = true; break;
       case '--row': row = number(flag, value, 1); i++; break;
       case '--energy': energy = number(flag, value, 0); i++; break;
+      case '--elite-move-every': eliteMoveEvery = number(flag, value, 0); i++; break;
       case '--seeds': options.seeds = number(flag, value, 1); i++; break;
       case '--depth': options.depth = number(flag, value, 1); i++; break;
       case '--beam': options.beam = number(flag, value, 1); i++; break;
@@ -87,12 +95,15 @@ function parse(argv: string[]) {
   }
   for (const id of skipped) console.log(`skip ${id}: not bound to a map node, pass --row R`);
   if (!tasks.length) throw new Error('No level to analyze.');
-  return { tasks: tasks.map(source => ({ source, options })), out, workers };
+  return { tasks: tasks.map(source => ({ source, options, ...(eliteMoveEvery === undefined ? {} : { eliteMoveEvery }) })), out, workers };
 }
 
 async function runTask(task: Task, index: number): Promise<Done> {
   const started = performance.now();
-  try { return { index, result: await analyzeLevel(task.source, task.options), ms: Math.round(performance.now() - started) }; }
+  try {
+    setEliteMoveEvery(task.eliteMoveEvery ?? ELITE_MOVE_EVERY_DEFAULT);
+    return { index, result: await analyzeLevel(task.source, task.options), ms: Math.round(performance.now() - started) };
+  }
   catch (error) { return { index, error: error instanceof Error ? error.message : String(error), ms: Math.round(performance.now() - started) }; }
 }
 

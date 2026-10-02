@@ -4,7 +4,7 @@ import type { AbilityKind, AbilityPreview, ChainHit, ChainPreview, HeroDamageSou
 import { pathColour, WILD } from './recovered/core';
 import { forecastConsequences, hurt, standInCell } from './forecast';
 import { rollEliteLoot } from './elite';
-import { angerIntent, announceRites, behaviorOf, type IntentPass } from './enemyBehaviors';
+import { angerIntent, announceEliteMoves, announceRites, behaviorOf, type IntentPass } from './enemyBehaviors';
 import { chainAdjacent, isWalkable, neighbors } from './boardGeometry';
 import { THORN_DAMAGE } from './terrain';
 import { chainSpikeDamage } from './forestBeasts';
@@ -86,7 +86,8 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   if (!path.length) reject('Начни цепочку рядом с котом.');
   // Crystals fall during the chain (mapBattleRules.ts): one per CRYSTAL_KILLS chain-hit kills, on a cell drawn from the
   // RNG copy among the allowed ones that the rest of this path does not use. Without a cell it waits for a later step.
-  let pendingCrystals = 0, rngState = rng, pendingLoot = false;
+  let pendingCrystals = 0, rngState = rng;
+  let pendingLoot: ForestCell['elite'] | false = false;
   const crystalSteps: Extract<ChainStep, { kind: 'crystal' }>[] = [], standIns: ForestCell[] = [];
   const dropCrystals = () => {
     while (pendingCrystals > 0 && rngState !== undefined) {
@@ -151,7 +152,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
           if (cell.kind !== 'door') { preview.kills++; if (preview.kills % CRYSTAL_KILLS === 0) pendingCrystals++; }
           if (cell.kind !== 'door') creditDefeat(state, cell, customProgress);
           // An elite killed by the chain may drop a consumable once this step is over (elite.ts).
-          if (cell.elite) pendingLoot = true;
+          if (cell.elite) pendingLoot = cell.elite;
           if (doorOpened) { preview.opensDoor = index; preview.completesRoom = true; }
         }
         else if (step < path.length - 1) { reject('Этот противник выживет. Закончи на нём или накопи больше силы.'); break; }
@@ -192,10 +193,10 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
     // After this step the elite's loot falls, then the crystal (never on the path still ahead); a victory step ends
     // the battle first. The roll draws from the same RNG copy, so execution replays it draw for draw.
     if (pendingLoot && rngState !== undefined) {
-      pendingLoot = false;
+      const elite = pendingLoot; pendingLoot = false;
       const view = { ...state, player: { ...state.player, index: preview.endIndex } };
       const reserved = new Set(path.filter(at => board[at]));
-      const roll = rollEliteLoot(view, board, reserved, () => { const draw = nextRandom(rngState!); rngState = draw.state; return draw.value; });
+      const roll = rollEliteLoot(view, board, reserved, () => { const draw = nextRandom(rngState!); rngState = draw.state; return draw.value; }, elite);
       if (roll.index !== undefined) {
         if (roll.victim) { defeatOutright(roll.victim); removeDefeated(board, roll.victim); }
         const standIn = standInCell(state, roll.index, -1 - standIns.length, 'prism'); standIn.loot = roll.item; standIns.push(standIn); board[roll.index] = standIn;
@@ -324,4 +325,6 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
     angerIntent(state, state.board[candidate.index]!, candidate.index);
   }
   announceRites(pass);
+  // Elites move once every intent is final (enemyBehaviors.ts).
+  announceEliteMoves(pass);
 }

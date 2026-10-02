@@ -29,7 +29,8 @@ export interface CellLinkComponent {
 
 /** Elite modifier (elite.ts): HP ×2 baked at load, +1 to every attack on the cat, loot when the player kills it. */
 export interface CellEliteComponent {
-  elite?: true;
+  /** `true` — authored (level data); `'random'` — appeared in a map battle's refill (elite.ts). */
+  elite?: true | 'random';
 }
 
 export interface CellStatus {

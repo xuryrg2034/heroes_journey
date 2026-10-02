@@ -15,7 +15,7 @@ import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
 import { forestBattle } from './run/forestBattles';
 import { cloneState, type World } from './ecs/world';
 import { definitionOf, hasTag, variantDefinition } from './enemyDefinitions';
-import { applyElite } from './elite';
+import { applyElite, applyRandomElite, rollRandomElite } from './elite';
 import { emptyMaterials } from './resources';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
@@ -186,9 +186,16 @@ export class ForestEngine {
     cell.behavior.cycle = 0;
     return cell;
   }
-  private createRoomMelee(color: EnemyColor, index: number): ForestCell {
-    // Map rows ≥ 5: refills are never passive and grow stronger with the turn number (mapBattleRules.ts).
-    if (runPressureActive(this.state)) return applyRefillTier(this.createCell('melee', color, index), refillTier(this.state));
+  /**
+   * A new ordinary refill enemy. `board`: the board it joins (a refill candidate), counted for the elite cap.
+   * Map rows ≥ 5: never passive, stronger with the turn number (mapBattleRules.ts), and an elite by chance (elite.ts).
+   */
+  private createRoomMelee(color: EnemyColor, index: number, board: readonly (ForestCell | null)[] = this.state.board): ForestCell {
+    if (runPressureActive(this.state)) {
+      const cell = applyRefillTier(this.createCell('melee', color, index), refillTier(this.state));
+      if (rollRandomElite(this.state, board, () => this.random())) applyRandomElite(cell);
+      return cell;
+    }
     if (this.state.tutorial) { const cell = this.createCell('melee', color, index); cell.behavior.passive = true; return cell; }
     return this.createCell('melee', color, index);
   }
@@ -349,7 +356,7 @@ export class ForestEngine {
     const replacements = new Map<number, ForestCell>();
     const board = cloneBoard(this.state.board);
     for (const plan of rotations.filter(plan => plan.active)) for (const index of [plan.from, plan.to]) if (!board[index]) {
-      const cell = this.createRoomMelee(this.refillColor(), index); replacements.set(index, cell); board[index] = cell;
+      const cell = this.createRoomMelee(this.refillColor(), index, board); replacements.set(index, cell); board[index] = cell;
     }
     if (!replacements.size) return replacements;
     const nextId = this.nextId;
@@ -378,7 +385,7 @@ export class ForestEngine {
     const result: GeneratedBoard = { state, generatedIds: new Set(initialIds), spawned: [], nextId: 0 };
     for (let index = 0; index < state.board.length; index++) {
       if (!isWalkable(state, index) || state.board[index] || index === state.player.index || state.devices.some(device => device.index === index)) continue;
-      const cell = this.createRoomMelee(this.refillColor(state), index);
+      const cell = this.createRoomMelee(this.refillColor(state), index, state.board);
       state.board[index] = cell; result.spawned.push(index); result.generatedIds.add(cell.id);
     }
     if (prepare) prepareIntents(state, (min, max) => min + Math.floor(this.random() * (max - min)));
