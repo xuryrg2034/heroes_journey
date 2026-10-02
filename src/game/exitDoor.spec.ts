@@ -8,7 +8,8 @@ import { ForestEngine } from './forestEngine';
 import { authoredLesson } from './lessonBuilder';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './run/forestBattles';
 import type { RunBattleSetup } from './run/runBattle';
-import { CHEST_RESOURCES, chestContents } from './exitRules';
+import { CHEST_RESOURCES, chestContents, nextReinforcementTurn, REINFORCEMENT_COUNT, REINFORCEMENT_DELAY, REINFORCEMENT_EVERY } from './exitRules';
+import type { EngineEvent } from './forestTypes';
 import { createForestRun, enterNode, parseForestRun, resolveBattle, serializeForestRun } from './run/forestRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -32,9 +33,9 @@ registry['spec-exit-pits'] = authoredLesson({ id: 'spec-exit-pits', name: 'Вы�
   legend: { D: { door: true }, T: { color: 0, target: true }, P: { device: { kind: 'pits', charges: 1, targets: PIT_TARGETS } } }, seed: 7104 });
 const COLUMN = [20, 15, 10, 5], DOOR = 0;
 
-function start(id: string, seed: number, row = 3): ForestEngine {
+function start(id: string, seed: number, row = 3, hp = 5): ForestEngine {
   const setup: RunBattleSetup = { nodeId: 'spec', label: 'spec', seed, template: { kind: 'battle', id }, row,
-    player: { hp: 5, maxHp: 5, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] };
+    player: { hp, maxHp: hp, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] };
   const g = new ForestEngine(); g.animationScale = 0;
   assert(g.startRunBattle(setup), `${id} starts`);
   return g;
@@ -220,11 +221,166 @@ async function noChestInTheEditor() {
   console.log('PASS no chest in an editor level');
 }
 
+/** Rest until the battle leaves player input or `turns` turns are done; records the reinforcement events by turn. */
+async function restLog(g: ForestEngine, turns: number) {
+  const log: { turn: number; event: EngineEvent; before?: (number | undefined)[] }[] = [];
+  const off = g.subscribe((state, event) => { if (event.type === 'reinforcement' || event.type === 'reinforcement-announce') log.push({ turn: state.turn, event }); });
+  for (let n = 0; n < turns && g.state.phase === 'PLAYER_INPUT'; n++) await g.waitTurn();
+  off();
+  return log;
+}
+
+/** Stage 3: announced one turn ahead, the reinforcement arrives 3 turns after the goals, then every 3 turns. */
+async function reinforcementsArriveOnTime() {
+  let checked = 0;
+  for (const row of [3, 6]) for (let k = 1; k <= 6; k++) {
+    const g = start('spec-exit-target', spread(k), row, 40);
+    await chain(g, COLUMN);
+    const goal = g.state.customLevel!.goalCompletedTurn!;
+    assert(goal === 1 && nextReinforcementTurn(g.state) === goal + REINFORCEMENT_DELAY, `row ${row} seed ${k}: the first reinforcement is due ${REINFORCEMENT_DELAY} turns after the goals`);
+    // Rest up to the turn before the first arrival: its cells are announced at that turn's board update.
+    const early = await restLog(g, REINFORCEMENT_DELAY - 1);
+    if (g.state.phase !== 'PLAYER_INPUT') continue;
+    assert(early.length === 1 && early[0].event.type === 'reinforcement-announce' && early[0].turn === goal + REINFORCEMENT_DELAY - 1,
+      `row ${row} seed ${k}: only the announcement, one turn ahead (${JSON.stringify(early.map(entry => [entry.turn, entry.event.type]))})`);
+    const announced = g.state.customLevel!.reinforcement!;
+    assert(announced.turn === goal + REINFORCEMENT_DELAY && announced.cells.length === REINFORCEMENT_COUNT
+      && announced.cells.every(index => g.state.board[index]?.kind === 'melee' && !g.state.board[index]!.variant && !g.state.board[index]!.elite),
+      `row ${row} seed ${k}: ${REINFORCEMENT_COUNT} cells of ordinary goblins announced`);
+    const before = new Map(announced.cells.map(index => [index, g.state.board[index]?.id]));
+    const ids = new Set(g.state.board.flatMap(cell => cell ? [cell.id] : []));
+    const arrival = await restLog(g, 1);
+    if (g.state.phase !== 'PLAYER_INPUT') continue;
+    const came = arrival.find(entry => entry.event.type === 'reinforcement');
+    assert(came && came.turn === goal + REINFORCEMENT_DELAY && !g.state.customLevel!.reinforcement, `row ${row} seed ${k}: the reinforcement arrived on its turn`);
+    for (const index of came.event.indices!) {
+      const cell = g.state.board[index]!;
+      assert(announced.cells.includes(index) && cell.kind === 'melee' && !ids.has(cell.id) && cell.id !== before.get(index) && !cell.behavior.passive,
+        `row ${row} seed ${k}: a new goblin on the announced cell ${index}`);
+      // Angry at once: an attack intent or, when no swing is possible, at least armed for one.
+      assert(cell.behavior.aggressive || cell.behavior.restTurns > 0, `row ${row} seed ${k}: the arrival on ${index} is angry`);
+    }
+    // The next one: announced at +5, arrives at +6.
+    const later = await restLog(g, REINFORCEMENT_EVERY);
+    if (g.state.phase !== 'PLAYER_INPUT') continue;
+    assert(later.map(entry => `${entry.turn}:${entry.event.type}`).join(' ') === `${goal + REINFORCEMENT_DELAY + REINFORCEMENT_EVERY - 1}:reinforcement-announce ${goal + REINFORCEMENT_DELAY + REINFORCEMENT_EVERY}:reinforcement`,
+      `row ${row} seed ${k}: then every ${REINFORCEMENT_EVERY} turns (${later.map(entry => `${entry.turn}:${entry.event.type}`).join(' ')})`);
+    checked++;
+  }
+  assert(checked >= 8, `the schedule was followed through two waves on most battles (${checked}/12)`);
+  console.log(`PASS reinforcements: announced one turn ahead, ${REINFORCEMENT_COUNT} angry goblins ${REINFORCEMENT_DELAY} turns after the goals, then every ${REINFORCEMENT_EVERY}`);
+}
+
+/** Review of stage 3: the replaced goblin is no kill of the player; no reinforcement in the editor; a restart cancels the arrival. */
+async function reinforcementReplacementAndBounds() {
+  let replaced = 0;
+  for (let k = 1; k <= 10; k++) {
+    const g = start('spec-exit-target', spread(k), 3, 40);
+    await chain(g, COLUMN);
+    await restLog(g, REINFORCEMENT_DELAY - 1);
+    const announced = g.state.customLevel?.reinforcement;
+    if (!announced || g.state.phase !== 'PLAYER_INPUT') continue;
+    const kills = g.state.objective.kills, score = g.state.score;
+    let crushed = 0, phases: string[] = [];
+    const off = g.subscribe((state, event) => {
+      if (event.type === 'kill' && event.text === 'reinforcement') crushed++;
+      if (event.type === 'kill' && event.text !== 'reinforcement') crushed = -100;
+      if (event.type === 'reinforcement' || event.text === 'reinforcement') phases.push(state.phase);
+    });
+    await g.waitTurn(); off();
+    if (crushed <= 0 || g.state.phase !== 'PLAYER_INPUT') continue;
+    // A rest with no other death: only the replacement died, and nothing was credited or scored for it.
+    assert(g.state.objective.kills === kills && g.state.score - score <= 30, `seed ${k}: the replaced goblin is no kill (kills ${kills} → ${g.state.objective.kills})`);
+    assert(phases.every(phase => phase === 'BOARD_UPDATE'), `seed ${k}: the arrival belongs to the board update (${phases.join(',')})`);
+    replaced++;
+  }
+  assert(replaced >= 4, `replacements without credit checked on most seeds (${replaced}/10)`);
+
+  for (let k = 1; k <= 3; k++) {
+    const g = new ForestEngine(); g.animationScale = 0;
+    assert(g.startCustomLevel({ ...registry['spec-exit-target'].definition, seed: spread(k), playerHp: 20 }), 'editor level starts');
+    await chain(g, COLUMN);
+    const log = await restLog(g, REINFORCEMENT_DELAY + 1);
+    assert(!log.length && nextReinforcementTurn(g.state) === null, `seed ${k}: no reinforcement in an editor level`);
+  }
+
+  // A restart from a subscriber at the arrival cancels the turn: no later event, the replay matches a clean restart.
+  for (let k = 1; k <= 4; k++) {
+    const g = start('spec-exit-target', spread(k), 6, 40);
+    await chain(g, COLUMN);
+    await restLog(g, REINFORCEMENT_DELAY - 1);
+    if (!g.state.customLevel?.reinforcement || g.state.phase !== 'PLAYER_INPUT') continue;
+    let restarted = false, late = 0;
+    const off = g.subscribe((_state, event) => {
+      if (restarted && event.type !== 'start') late++;
+      if (!restarted && event.type === 'reinforcement') { restarted = true; g.restartLevel(); }
+    });
+    const resolved = await g.waitTurn(); off();
+    assert(restarted && !resolved && late === 0, `seed ${k}: the restart cancelled the arrival turn (late events ${late})`);
+    const clean = start('spec-exit-target', spread(k), 6, 40);
+    assert(json(g.captureAnalysisSnapshot().state) === json(clean.captureAnalysisSnapshot().state), `seed ${k}: the restart restored the opening`);
+  }
+  console.log('PASS the replaced goblin is no kill; the arrival is the board update; no reinforcement in the editor; a restart cancels it');
+}
+
+/** Random elites among arrivals follow the common rule: from row 5 only. */
+async function reinforcementElites() {
+  const elites = { 3: 0, 6: 0 } as Record<number, number>, arrivals = { 3: 0, 6: 0 } as Record<number, number>;
+  for (const row of [3, 6]) for (let k = 1; k <= 30; k++) {
+    const g = start('spec-exit-target', spread(k), row, 60);
+    await chain(g, COLUMN);
+    const off = g.subscribe((state, event) => {
+      if (event.type !== 'reinforcement') return;
+      for (const index of event.indices!) { arrivals[row]++; if (state.board[index]?.elite === 'random') elites[row]++; }
+    });
+    for (let n = 0; n < 7 && g.state.phase === 'PLAYER_INPUT'; n++) await g.waitTurn();
+    off();
+  }
+  assert(arrivals[3] > 50 && arrivals[6] > 50 && elites[3] === 0 && elites[6] > 0, `random elites among arrivals: row 3 ${elites[3]}/${arrivals[3]}, row 6 ${elites[6]}/${arrivals[6]}`);
+  console.log(`PASS random elites among arrivals by the common rule (row 3: 0/${arrivals[3]}, row 6: ${elites[6]}/${arrivals[6]})`);
+}
+
+/** The cat standing on an announced cell keeps it; a chain kills arrivals with full credit. */
+async function reinforcementCellsAndCredit() {
+  let blocked = 0, credited = 0;
+  for (let k = 1; k <= 12; k++) {
+    const g = start('spec-exit-target', spread(k), 3, 40);
+    await chain(g, COLUMN);
+    await restLog(g, REINFORCEMENT_DELAY - 1);
+    const announced = g.state.customLevel?.reinforcement;
+    if (!announced || g.state.phase !== 'PLAYER_INPUT') continue;
+    // A chain that ends on an announced cell: the cat stands there when the reinforcement comes.
+    const path = g.availableMoves(8).find(candidate => announced.cells.includes(candidate.at(-1)!) && !candidate.includes(DOOR));
+    if (path) {
+      const landing = path.at(-1)!;
+      const log: number[][] = [];
+      const off = g.subscribe((_state, event) => { if (event.type === 'reinforcement') log.push(event.indices!); });
+      await chain(g, path); off();
+      if (g.state.phase === 'PLAYER_INPUT' && g.state.player.index === landing) {
+        assert(!log.flat().includes(landing), `seed ${k}: no goblin arrives under the cat`);
+        blocked++;
+      }
+    } else await g.waitTurn();
+    if (g.state.phase !== 'PLAYER_INPUT') continue;
+    // Kill an arrival with a chain: an ordinary kill of the player.
+    const arrivals = new Set(announced.cells.flatMap(index => g.state.board[index] && index !== g.state.player.index ? [g.state.board[index]!.id] : []));
+    const kill = g.availableMoves(8).find(candidate => !candidate.includes(DOOR) && candidate.some(index => arrivals.has(g.state.board[index]?.id ?? -1) && index !== candidate.at(-1)));
+    if (!kill) continue;
+    const preview = g.preview(kill), kills = g.state.objective.kills, score = g.state.score;
+    await chain(g, kill);
+    assert(g.state.objective.kills === kills + preview.kills && g.state.score > score, `seed ${k}: arrivals count as kills and score`);
+    credited++;
+  }
+  assert(blocked >= 2 && credited >= 4, `the cat blocked an arrival (${blocked}/12); arrivals were killed with credit (${credited}/12)`);
+  console.log('PASS the cat on an announced cell keeps it; killing arrivals counts and scores');
+}
+
 /** Exact replay through the chest's fall and the turns after it. */
 async function chestReplay() {
-  const play = async (seed: number) => { const g = start('spec-exit-target', seed, 6); await chain(g, COLUMN); await g.waitTurn(); await g.waitTurn(); return json(g.captureAnalysisSnapshot()); };
+  // Long enough for the first reinforcement (announcement and arrival) too.
+  const play = async (seed: number) => { const g = start('spec-exit-target', seed, 6, 40); await chain(g, COLUMN); for (let n = 0; n < REINFORCEMENT_DELAY + 1; n++) await g.waitTurn(); return json(g.captureAnalysisSnapshot()); };
   for (let k = 1; k <= 3; k++) assert(await play(spread(k)) === await play(spread(k)), `seed ${k}: replay through the chest`);
-  console.log('PASS exact replay through the chest');
+  console.log('PASS exact replay through the chest and the first reinforcement');
 }
 
 await sameChainIntoTheDoor();
@@ -238,4 +394,8 @@ chestResourcesKeepTheRunSaveable();
 await chestReplay();
 await pitsHoldUnderTheChest();
 await noChestInTheEditor();
+await reinforcementsArriveOnTime();
+await reinforcementElites();
+await reinforcementCellsAndCredit();
+await reinforcementReplacementAndBounds();
 console.log('PASS exit door');

@@ -12,7 +12,7 @@ import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPh
 import { behaviorOf } from './enemyBehaviors';
 import { heroStrikeDamage, rollEliteLoot } from './elite';
 import { emptyMaterials, isResource } from './resources';
-import { chestContents, chestDue, rollChestCell } from './exitRules';
+import { chestContents, chestDue, nextReinforcementTurn, reinforcementLanding, rollChestCell, rollReinforcementCells } from './exitRules';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
@@ -87,6 +87,8 @@ export interface TurnContext {
   planRotationReplacements(rotations: RotationPreview[]): Map<number, ForestCell>;
   /** Refill (with fresh intents unless `prepare` is false); returns the cells that received a new enemy. */
   generateBoard(prepare?: boolean): number[];
+  /** A reinforcement goblin (fresh ID) placed on the empty cell `index`: a refill goblin, angry at once (exitRules.ts). */
+  arrive(index: number): ForestCell;
   hint(): string;
 }
 
@@ -662,6 +664,41 @@ const SettleTurn = instant<TurnContext>('SettleTurn', ctx => {
   if (ctx.state.customLevel && ctx.state.level.turnLimit > 0 && ctx.state.turn >= ctx.state.level.turnLimit) ctx.finish(false, 'Лимит ходов исчерпан. Попробуй другой маршрут.');
 });
 
+/**
+ * BoardUpdate: the announced reinforcement arrives before the refill (exitRules.ts). An ordinary goblin on its cell is
+ * replaced through the common death path without credit; an empty cell is filled; any other occupant keeps its cell.
+ */
+const Reinforcements: TurnSystem<TurnContext> = { name: 'Reinforcements', *run(ctx) {
+  const runtime = ctx.state.customLevel, announced = runtime?.reinforcement;
+  if (!announced || announced.turn !== ctx.state.turn) return true;
+  delete runtime!.reinforcement;
+  // The board update starts with the arrival (review of stage 3): its events belong to that phase, not the enemies'.
+  ctx.state.phase = 'BOARD_UPDATE'; yield { event: { type: 'state' } };
+  if (!ctx.current()) return false;
+  const arrived: number[] = [];
+  for (const index of announced.cells) {
+    const landing = reinforcementLanding(ctx.state, index);
+    if (landing === 'keep') continue;
+    if (landing === 'replace') {
+      const goblin = ctx.state.board[index]!;
+      defeatOutright(goblin);
+      if (!(yield* defeatCreature(ctx, goblin, index, 'none', 'reinforcement'))) return false;
+    }
+    ctx.arrive(index); arrived.push(index);
+  }
+  if (arrived.length) { yield { event: { type: 'reinforcement', indices: arrived } }; if (!ctx.current()) return false; }
+  return true;
+} };
+/** BoardUpdate, after the refill: the next reinforcement's cells are announced one turn ahead. */
+const ReinforcementAnnounce: TurnSystem<TurnContext> = { name: 'ReinforcementAnnounce', *run(ctx) {
+  const next = nextReinforcementTurn(ctx.state);
+  if (next === null || next - ctx.state.turn !== 1) return true;
+  const cells = rollReinforcementCells(ctx.state, () => ctx.drawRandom());
+  ctx.state.customLevel!.reinforcement = { turn: next, cells };
+  if (cells.length) { yield { event: { type: 'reinforcement-announce', indices: [...cells] } }; if (!ctx.current()) return false; }
+  return true;
+} };
+
 /** Refill (with the chain witness), fresh intents and the return to player input. */
 const Generation: TurnSystem<TurnContext> = { name: 'Generation', *run(ctx) {
   ctx.state.phase = 'BOARD_UPDATE'; yield { event: { type: 'state' } };
@@ -687,7 +724,7 @@ export const ENEMY_PHASE: SystemSet<TurnContext> = { name: 'EnemyPhase', systems
 /** EndOfTurn: the chest of goals met in the enemy phase or by the turn itself. */
 const ChestDrop: TurnSystem<TurnContext> = { name: 'ChestDrop', run: dropChest };
 export const END_OF_TURN: SystemSet<TurnContext> = { name: 'EndOfTurn', systems: [SettleTurn, ChestDrop] };
-export const BOARD_UPDATE: SystemSet<TurnContext> = { name: 'BoardUpdate', systems: [Generation, ReturnToInput] };
+export const BOARD_UPDATE: SystemSet<TurnContext> = { name: 'BoardUpdate', systems: [Reinforcements, Generation, ReinforcementAnnounce, ReturnToInput] };
 /** Everything after the player's own action. */
 export const ENEMY_TURN: readonly SystemSet<TurnContext>[] = [ENEMY_PHASE, END_OF_TURN, BOARD_UPDATE];
 

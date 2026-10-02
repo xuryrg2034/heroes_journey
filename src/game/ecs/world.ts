@@ -39,7 +39,8 @@ export function cloneState(state: ForestState): ForestState {
     objective: { ...state.objective }, bossWarning: [...state.bossWarning], rotations: state.rotations.map(plan => ({ ...plan })) };
   if (state.player.damageEffects) copy.player.damageEffects = { ...state.player.damageEffects };
   if (state.materials) copy.materials = { ...state.materials };
-  if (state.customLevel) copy.customLevel = { ...state.customLevel, paletteWeights: [...state.customLevel.paletteWeights] };
+  if (state.customLevel) copy.customLevel = { ...state.customLevel, paletteWeights: [...state.customLevel.paletteWeights],
+    ...(state.customLevel.reinforcement ? { reinforcement: { ...state.customLevel.reinforcement, cells: [...state.customLevel.reinforcement.cells] } } : {}) };
   if (state.tutorial) copy.tutorial = { ...state.tutorial, targetIds: [...state.tutorial.targetIds],
     allowedItems: [...state.tutorial.allowedItems], allowedAbilities: [...state.tutorial.allowedAbilities] };
   if (state.runNode) copy.runNode = { ...state.runNode, allowedItems: [...state.runNode.allowedItems], allowedAbilities: [...state.runNode.allowedAbilities] };

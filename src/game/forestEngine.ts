@@ -346,6 +346,12 @@ export class ForestEngine {
       finish: (won, message) => this.finish(won, message),
       planRotationReplacements: rotations => this.planRotationReplacements(rotations),
       generateBoard: (prepare = true) => this.generateBoard(prepare),
+      arrive: index => {
+        // A refill goblin of the row (tier, random elite by the common rule), angry at once.
+        const cell = this.createRoomMelee(this.refillColor(), index);
+        cell.behavior.passive = false; cell.behavior.aggressive = true;
+        state.board[index] = cell; return cell;
+      },
       hint: () => this.hint(),
     };
   }

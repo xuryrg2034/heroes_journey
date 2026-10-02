@@ -26,6 +26,8 @@ export interface CustomLevelRuntime {
   definition: CustomLevelDefinition; goalCompletedTurn: number | null; paletteWeights: PaletteWeights;
   /** The exit's chest has fallen (or found no cell) in a map battle with a door (exitRules.ts). */
   chestDropped?: boolean;
+  /** The next reinforcement, announced one turn ahead: the turn whose board update brings it and its cells (exitRules.ts). */
+  reinforcement?: { turn: number; cells: number[] };
 }
 const TERRAINS = ['floor', 'puddle', 'wall', 'tree', 'pond', 'campfire', 'thorns'];
 const GOALS = ['kills', 'rangedKills', 'bossKills', 'turns'];

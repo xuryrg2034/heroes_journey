@@ -76,6 +76,8 @@ function forecastContext(world: World): TurnContext {
       return replacements;
     },
     generateBoard: () => [],
+    // The board update is never forecast (reinforcements, like the refill).
+    arrive: () => { throw new Error('The forecast does not run the board update.'); },
     hint: () => '',
   };
 }

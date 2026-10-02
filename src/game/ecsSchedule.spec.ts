@@ -16,7 +16,7 @@ function order() {
   assert(names(PLAYER_ACTION) === 'ChainResolve ChainEndTerrain DeviceVolleys PlayerVictory', `PlayerAction: ${names(PLAYER_ACTION)}`);
   assert(names(ENEMY_PHASE) === 'EnemyPhaseStart PhaseSnapshot BoarCharges EnemyAttacks ShamanRites CycleCounters TrollWindups GoalRefresh Rotations RestCountdown DamageEffectTicks TrollRegen ClosePits',
     `EnemyPhase: ${names(ENEMY_PHASE)}`);
-  assert(names(END_OF_TURN) === 'SettleTurn ChestDrop' && names(BOARD_UPDATE) === 'Generation ReturnToInput', 'EndOfTurn and BoardUpdate');
+  assert(names(END_OF_TURN) === 'SettleTurn ChestDrop' && names(BOARD_UPDATE) === 'Reinforcements Generation ReinforcementAnnounce ReturnToInput', 'EndOfTurn and BoardUpdate');
   assert(names(ITEM_ACTION) === 'ItemResolve ItemVictory ItemRefill', `ItemAction: ${names(ITEM_ACTION)}`);
   console.log('PASS the schedule keeps the documented phase order');
 }
