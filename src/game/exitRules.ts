@@ -5,7 +5,7 @@
  *   the current action; an enemy there is crushed without credit. It is a colourless link (a `prism` record with
  *   `chest`): no power, no credit, untouched by arrows, the club and levers, pushed by a boar like loot. A chain passing
  *   through or ending on it opens it: its crafting resources join the battle's materials and go to the run.
- * - Reinforcements (question В1): REINFORCEMENT_COUNT angry goblins take the cells of ordinary goblins
+ * - Reinforcements (question В1; from row 5, like the growing anger — user's decision of 02.10.2026): REINFORCEMENT_COUNT angry goblins take the cells of ordinary goblins
  *   REINFORCEMENT_DELAY turns after the goals, then every REINFORCEMENT_EVERY turns. The cells are announced one turn
  *   ahead (drawn by the battle RNG after the refill); on arrival an ordinary goblin there is replaced without credit,
  *   an empty cell is filled, anything else (the cat, an elite, a chest, a beast…) keeps its cell. Arrivals are ordinary
@@ -14,7 +14,7 @@
  */
 import type { ForestCell, ForestState, ResourceKind } from './forestTypes';
 import { RESOURCE_KINDS } from './resources';
-import { crystalCellAllowed, nextRandom } from './mapBattleRules';
+import { crystalCellAllowed, nextRandom, runPressureActive } from './mapBattleRules';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
 
@@ -58,10 +58,10 @@ export const REINFORCEMENT_COUNT = 2;
 
 /**
  * Turn whose board update brings the next reinforcement (the cells change at the end of that turn), or null before
- * the goals and outside an exit map battle. Read during the player's input: `result − state.turn` actions remain.
+ * the goals, outside an exit map battle and on the trunk (rows below RUN_PRESSURE_FIRST_ROW: the lessons stay calm). Read during the player's input: `result − state.turn` actions remain.
  */
 export function nextReinforcementTurn(state: Pick<ForestState, 'runNode' | 'customLevel' | 'turn'>): number | null {
-  if (!exitBattle(state) || state.customLevel!.goalCompletedTurn === null) return null;
+  if (!exitBattle(state) || !runPressureActive(state) || state.customLevel!.goalCompletedTurn === null) return null;
   const first = state.customLevel!.goalCompletedTurn + REINFORCEMENT_DELAY;
   return state.turn < first ? first : first + REINFORCEMENT_EVERY * (Math.floor((state.turn - first) / REINFORCEMENT_EVERY) + 1);
 }

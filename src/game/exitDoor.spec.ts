@@ -233,7 +233,14 @@ async function restLog(g: ForestEngine, turns: number) {
 /** Stage 3: announced one turn ahead, the reinforcement arrives 3 turns after the goals, then every 3 turns. */
 async function reinforcementsArriveOnTime() {
   let checked = 0;
-  for (const row of [3, 6]) for (let k = 1; k <= 6; k++) {
+  // The trunk (rows 1–4) stays calm after the goals: no reinforcement at all (user's decision of 02.10.2026).
+  for (let k = 1; k <= 4; k++) {
+    const g = start('spec-exit-target', spread(k), 3, 40);
+    await chain(g, COLUMN);
+    const log = await restLog(g, REINFORCEMENT_DELAY + REINFORCEMENT_EVERY + 1);
+    assert(nextReinforcementTurn(g.state) === null && !log.length, `row 3 seed ${k}: no reinforcement on the trunk`);
+  }
+  for (const row of [5, 6]) for (let k = 1; k <= 6; k++) {
     const g = start('spec-exit-target', spread(k), row, 40);
     await chain(g, COLUMN);
     const goal = g.state.customLevel!.goalCompletedTurn!;
@@ -268,14 +275,14 @@ async function reinforcementsArriveOnTime() {
     checked++;
   }
   assert(checked >= 8, `the schedule was followed through two waves on most battles (${checked}/12)`);
-  console.log(`PASS reinforcements: announced one turn ahead, ${REINFORCEMENT_COUNT} angry goblins ${REINFORCEMENT_DELAY} turns after the goals, then every ${REINFORCEMENT_EVERY}`);
+  console.log(`PASS reinforcements from row 5 (none on the trunk): announced one turn ahead, ${REINFORCEMENT_COUNT} angry goblins ${REINFORCEMENT_DELAY} turns after the goals, then every ${REINFORCEMENT_EVERY}`);
 }
 
 /** Review of stage 3: the replaced goblin is no kill of the player; no reinforcement in the editor; a restart cancels the arrival. */
 async function reinforcementReplacementAndBounds() {
   let replaced = 0;
   for (let k = 1; k <= 10; k++) {
-    const g = start('spec-exit-target', spread(k), 3, 40);
+    const g = start('spec-exit-target', spread(k), 6, 40);
     await chain(g, COLUMN);
     await restLog(g, REINFORCEMENT_DELAY - 1);
     const announced = g.state.customLevel?.reinforcement;
@@ -323,7 +330,7 @@ async function reinforcementReplacementAndBounds() {
   console.log('PASS the replaced goblin is no kill; the arrival is the board update; no reinforcement in the editor; a restart cancels it');
 }
 
-/** Random elites among arrivals follow the common rule: from row 5 only. */
+/** Random elites among arrivals follow the common rule (row 6); the trunk has no arrivals. */
 async function reinforcementElites() {
   const elites = { 3: 0, 6: 0 } as Record<number, number>, arrivals = { 3: 0, 6: 0 } as Record<number, number>;
   for (const row of [3, 6]) for (let k = 1; k <= 30; k++) {
@@ -336,15 +343,15 @@ async function reinforcementElites() {
     for (let n = 0; n < 7 && g.state.phase === 'PLAYER_INPUT'; n++) await g.waitTurn();
     off();
   }
-  assert(arrivals[3] > 50 && arrivals[6] > 50 && elites[3] === 0 && elites[6] > 0, `random elites among arrivals: row 3 ${elites[3]}/${arrivals[3]}, row 6 ${elites[6]}/${arrivals[6]}`);
-  console.log(`PASS random elites among arrivals by the common rule (row 3: 0/${arrivals[3]}, row 6: ${elites[6]}/${arrivals[6]})`);
+  assert(arrivals[3] === 0 && arrivals[6] > 50 && elites[6] > 0, `random elites among arrivals: row 3 ${elites[3]}/${arrivals[3]}, row 6 ${elites[6]}/${arrivals[6]}`);
+  console.log(`PASS random elites among arrivals by the common rule (row 3: no arrivals, row 6: ${elites[6]}/${arrivals[6]})`);
 }
 
 /** The cat standing on an announced cell keeps it; a chain kills arrivals with full credit. */
 async function reinforcementCellsAndCredit() {
   let blocked = 0, credited = 0;
   for (let k = 1; k <= 12; k++) {
-    const g = start('spec-exit-target', spread(k), 3, 40);
+    const g = start('spec-exit-target', spread(k), 6, 40);
     await chain(g, COLUMN);
     await restLog(g, REINFORCEMENT_DELAY - 1);
     const announced = g.state.customLevel?.reinforcement;

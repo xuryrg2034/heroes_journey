@@ -47,7 +47,7 @@ test('exit battle: goals met message, open door, chest, forecast wording, reinfo
   test.setTimeout(180_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-wake', { row: 3, seed: 4242, player: { hp: 40, maxHp: 40, energy: 0 } }));
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-wake', { row: 6, seed: 4242, player: { hp: 40, maxHp: 40, energy: 0 } }));
   await ready(page);
   // Every toast of the battle is recorded: they live under two seconds.
   await page.evaluate(() => {
@@ -72,9 +72,9 @@ test('exit battle: goals met message, open door, chest, forecast wording, reinfo
     await holdChain(page, path!);
     if (unlock) {
       announced = true;
-      await expect(page.locator('#chain-rank')).toHaveText('ВЫХОД ОТКРОЕТСЯ');
+      await expect(page.locator('#chain-rank')).toHaveText(/^ВЫХОД ОТКРОЕТСЯ( · −\d+ HP)?$/);
       await expect(page.locator('#chain-reward')).toContainText('Цели будут выполнены');
-      expect((await page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel)).text).toBe('ВЫХОД ОТКРОЕТСЯ');
+      expect((await page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel)).text).toMatch(/^ВЫХОД ОТКРОЕТСЯ( · −\d+ HP)?$/);
       await shot(page, 'exit-ui-unlocks-forecast');
     }
     await finishTurn(page);
