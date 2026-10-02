@@ -243,7 +243,9 @@ export class ForestEngine {
     if (this.state.phase !== 'PLAYER_INPUT' || !path.length) return false;
     if (index === path[path.length - 1]) return true;
     if (path.length > 1 && index === path[path.length - 2]) { path.pop(); this.emit({ type: 'chain', index }); return true; }
-    if (!this.state.devices.length && planChain(this.state, path, true).preview.completesRoom) { this.emit({ type: 'invalid', index, text: 'Эта цепочка уже завершает бой.' }); return false; }
+    // A chain that already wins stops: entering the door always, meeting the goals when no lever could still change it.
+    const current = planChain(this.state, path, true).preview;
+    if (current.opensDoor !== undefined || !this.state.devices.length && current.completesRoom) { this.emit({ type: 'invalid', index, text: 'Эта цепочка уже завершает бой.' }); return false; }
     const simulation = planChain(this.state, [...path, index], true, this.rng);
     if (!simulation.preview.valid) { this.emit({ type: 'invalid', index, text: simulation.preview.reason }); return false; }
     path.push(index); this.emit({ type: 'chain', index }); return true;

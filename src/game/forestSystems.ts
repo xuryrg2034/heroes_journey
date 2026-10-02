@@ -153,7 +153,11 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
           if (cell.kind !== 'door') creditDefeat(state, cell, customProgress);
           // An elite killed by the chain may drop a consumable once this step is over (elite.ts).
           if (cell.elite) pendingLoot = cell.elite;
-          if (doorOpened) { preview.opensDoor = index; preview.completesRoom = true; }
+          if (doorOpened) {
+            // The door is the chain's last cell: nothing continues past the exit.
+            if (step < path.length - 1) { reject('За выходом цепь не продолжается.'); break; }
+            preview.opensDoor = index; preview.completesRoom = true;
+          }
         }
         else if (step < path.length - 1) { reject('Этот противник выживет. Закончи на нём или накопи больше силы.'); break; }
         preview.endsOnSurvivor = !killed;

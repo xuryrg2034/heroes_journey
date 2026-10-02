@@ -46,6 +46,7 @@ export interface LessonSpec {
   /** Refill palette; defaults to every color present on the authored map. */
   palette?: EnemyColor[];
   goals?: CustomLevelDefinition['goals'];
+  /** Absent: `exit` when the map has a door (`door: true` tile), else `direct`. */
   completion?: CustomLevelDefinition['completion'];
   /** Board sides lined with spikes (see `CustomLevelDefinition.spikedEdges`). */
   spikedEdges?: CustomLevelDefinition['spikedEdges'];
@@ -106,7 +107,8 @@ export function authoredLesson(spec: LessonSpec): AuthoredLesson {
     definition: {
       version: 1, name: spec.name, seed: spec.seed, cols, rows: rows.length, terrain, heroIndex, enemies, doors,
       goals: spec.goals ?? [{ key: 'kills', target: targetIndices.length }], turnLimit: 0,
-      completion: spec.completion ?? 'direct',
+      // An authored door makes the battle end through the exit (decision of 02.10.2026): meeting the goals opens it.
+      completion: spec.completion ?? (doors.length ? 'exit' : 'direct'),
       paletteWeights: [0, 1, 2, 3, 4].map(color => palette.includes(color as EnemyColor) ? 100 : 0) as PaletteWeights,
       extraColors: [], ...(devices.length ? { devices } : {}), ...(spec.spikedEdges?.length ? { spikedEdges: [...spec.spikedEdges] } : {}),
       playerHp: 5, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 },

@@ -376,7 +376,7 @@ function updateHUD() {
   el('compact-room-name').textContent = state.level.name;
   const goalDone = !!custom && custom.goalCompletedTurn !== null;
   el('chapter-number').textContent = state.runNode ? `ПОХОД · ${state.runNode.label.toUpperCase()}` : 'АВТОРСКИЙ УРОВЕНЬ';
-  el('objective-label').textContent = markedGoals ? exit ? 'ДОБЕРИСЬ ДО ВЫХОДА' : 'ПОБЕДИ ОТМЕЧЕННЫХ' : !goalDone ? 'ВЫПОЛНИ ЦЕЛИ' : exit ? 'ДОБЕРИСЬ ДО ВЫХОДА' : 'ЦЕЛЬ ВЫПОЛНЕНА';
+  el('objective-label').textContent = markedGoals ? exit && goalDone ? 'ДОБЕРИСЬ ДО ВЫХОДА' : 'ПОБЕДИ ОТМЕЧЕННЫХ' : !goalDone ? 'ВЫПОЛНИ ЦЕЛИ' : exit ? 'ДОБЕРИСЬ ДО ВЫХОДА' : 'ЦЕЛЬ ВЫПОЛНЕНА';
   el('compact-room-goal').textContent = state.runNode ? state.runNode.label : !goalDone ? 'Выполни цели' : exit ? 'Выход открыт' : 'Победа';
   const doors = uniqueDoors();
   el('door-guide').hidden = !doors.length || markedGoals;

@@ -52,7 +52,8 @@
     "test:forecast-execution": "tsx src/game/forecastExecution.spec.ts",
     "test:elite": "tsx src/game/elite.spec.ts",
     "test:boar-crystals": "tsx src/game/boarCrystals.spec.ts",
-    "test:random-elites": "tsx src/game/randomElites.spec.ts"
+    "test:random-elites": "tsx src/game/randomElites.spec.ts",
+    "test:exit-door": "tsx src/game/exitDoor.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"
