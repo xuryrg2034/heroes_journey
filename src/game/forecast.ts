@@ -177,6 +177,8 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
   if (dies && !report.rotations) preview.rotations = preview.rotations.map(plan => ({ ...plan, active: false, reason: 'Кот погибнет до обмена.' }));
   if (effectAware) preview.endEffects = sim.player.damageEffects ? { ...sim.player.damageEffects } : undefined;
   preview.playerDies = dies;
+  // A cat dying in the answer leaves by no door: the action's goals open nothing for it.
+  if (dies) delete preview.unlocksExit;
   // Authored goals met at the end of the turn (forced deaths credited, the turn counted) while the cat lives.
   if ((sim.phase as ForestState['phase']) === 'WIN') phase.completesObjective = true;
   // The goals of an exit battle met in the enemy phase (a boar pushing a target onto spikes) or by the turn: the door opens.

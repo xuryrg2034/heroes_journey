@@ -36,12 +36,16 @@ export function makeDoor(cell:ForestCell,width:number,height:number):Container{
   g.roundRect(x+6,y+7,w-12,h-13,Math.min(18,w/3)).fill(open?0x0b1720:0x4c3b2c).stroke({color:0x927b53,width:2});
   for(let n=1;n<5;n++){const px=x+7+(w-14)*n/5;g.moveTo(px,y+12).lineTo(px,y+h-10).stroke({color:open?0x16363c:0x786047,width:2,alpha:.7});}
   if(!open){
-    for(const py of [y+h*.32,y+h*.7]){g.rect(x+7,py,w-14,7).fill(0x58636a);for(const px of [x+12,x+w/2,x+w-13])g.circle(px,py+3.5,1.7).fill(0xa7ad9f);}
-    g.roundRect(-9,-12,18,23,4).fill(0x9c7b43).stroke({color:0xe8c780,width:1});g.circle(0,-5,3).fill(INK);g.poly([-1,-3,1,-3,3,4,-3,4]).fill(INK);
+    // Closed: an iron-barred gate with a hanging padlock and a red frame, unlike the golden chest.
+    g.roundRect(x+6,y+7,w-12,h-13,Math.min(18,w/3)).fill(0x2b2430).stroke({color:0x927b53,width:2});
+    for(let n=1;n<5;n++){const px=x+7+(w-14)*n/5;g.rect(px-2,y+10,4,h-18).fill(0x6c737a).stroke({color:INK,width:1});}
+    g.roundRect(x+3,y+3,w-6,h-6,7).stroke({color:0xc86a5a,width:2.5,alpha:.85});
+    g.moveTo(-8,-14).lineTo(-8,-20).arc(0,-20,8,Math.PI,0).lineTo(8,-14).stroke({color:0xc7cbc4,width:3});
+    g.roundRect(-10,-14,20,18,4).fill(0x9c7b43).stroke({color:INK,width:2});g.circle(0,-6,2.4).fill(INK);
   }
-  if(open){g.ellipse(0,9,Math.min(w*.3,29),Math.min(h*.32,27)).fill({color:0xc9b976,alpha:.15});text(c,'↥',0,-4,31,0xe5dba6);}
+  if(open){g.ellipse(0,9,Math.min(w*.3,29),Math.min(h*.32,27)).fill({color:0xc9b976,alpha:.15});g.roundRect(x+3,y+3,w-6,h-6,7).stroke({color:0x8fd9a8,width:2.5,alpha:.85});text(c,'↥',0,-4,31,0xe5dba6);}
   text(c,'ВЫХОД',0,h/2-9,width>85?11:9,open?0xc6ecce:BONE);
-  g.roundRect(-Math.min(w-8,120)/2,y+3,Math.min(w-8,120),17,3).fill(0x1b242a);text(c,open?'ОТКРЫТО':'ЦЕЛЬ',0,y+11,width>85?11:8.5,0xebd5a5);
+  g.roundRect(-Math.min(w-8,120)/2,y+3,Math.min(w-8,120),17,3).fill(0x1b242a);text(c,open?'ОТКРЫТО':'ЗАКРЫТО',0,y+11,width>85?11:8.5,open?0xebd5a5:0xf0b0a0);
   return c;
 }
 

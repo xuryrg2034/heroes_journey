@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import type { ForestCell, LootKind, TerrainKind } from '../game/forestTypes';
+import type { ForestCell, LootKind, ResourceKind, TerrainKind } from '../game/forestTypes';
+import { lootLabel } from '../game/resources';
 import { makeDoor, makeGuardEnemy } from './guardArt';
 import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
@@ -93,6 +94,36 @@ function makeLootPiece(item: LootKind): Container {
   label(c,ITEM_SHORT[item],0,24,9,0xffeaa8);
   return c;
 }
+/** Contents of the exit's chest for the player: «Роса ×2» or «Роса, Порох». */
+export function chestLabel(chest: readonly ResourceKind[]): string {
+  const counts = new Map<ResourceKind, number>();
+  for (const kind of chest) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  return [...counts].map(([kind, n]) => n > 1 ? `${lootLabel(kind)} ×${n}` : lootLabel(kind)).join(', ');
+}
+/**
+ * The exit's chest (exitRules.ts): a stout banded wooden chest with a gold lock, not a crystal. Colourless link stubs
+ * on both sides keep it readable as a chain link; two dots on the plaque show the resources inside.
+ */
+function makeChestPiece(chest: readonly ResourceKind[]): Container {
+  const c=new Container(),glow=new Graphics(),g=new Graphics(),INKC=0x18232d,GOLD=0xe0b24a;
+  glow.label='prism-aura';glow.roundRect(-33,-30,66,60,10).fill({color:0xf3d98a,alpha:.1}).stroke({color:0xf3d98a,width:1.5,alpha:.4});
+  g.ellipse(0,27,27,6).fill({color:0x101a15,alpha:.7});
+  g.moveTo(-34,-2).lineTo(-28,-2).moveTo(28,-2).lineTo(34,-2).stroke({color:PALE,width:2});
+  // Body, then the domed lid with its iron bands.
+  g.poly([-24,-2,24,-2,26,24,-26,24]).fill(0x8a5a30).stroke({color:INKC,width:4});
+  g.poly([-24,-2,24,-2,25,5,-25,5]).fill(0x6b4423);
+  g.poly([-26,-4,-22,-19,-12,-26,12,-26,22,-19,26,-4]).fill(0xa9743d).stroke({color:INKC,width:4});
+  g.poly([-20,-20,-11,-24,-2,-24,-8,-18,-18,-15]).fill({color:0xd29a5d,alpha:.9});
+  for(const x of [-16,16]){g.rect(x-3,-25,6,49).fill(0x46586a).stroke({color:INKC,width:1.5});g.circle(x,-17,1.4).fill(0xc7d1d4).circle(x,16,1.4).fill(0xc7d1d4);}
+  // Lock plate.
+  g.roundRect(-7,-8,14,15,3).fill(GOLD).stroke({color:INKC,width:2.5});
+  g.circle(0,-2,2.2).fill(INKC).poly([-1,-1,1,-1,2,4,-2,4]).fill(INKC);
+  // Plaque with the contents.
+  g.roundRect(-20,17,40,12,5).fill(0x233039).stroke({color:0xf3d98a,width:1.5});
+  chest.slice(0,4).forEach((kind,n,all)=>g.circle((n-(all.length-1)/2)*11,23,3.6).fill(ITEM_COLORS[kind]).stroke({color:INKC,width:1}));
+  c.addChild(glow,g);
+  return c;
+}
 /** Elite mark (elite.ts): a gold frame and a crown, drawn on top of any enemy art and readable at 80 px. */
 function addEliteMark(c: Container): void {
   const frame=new Graphics();frame.label='elite-mark';
@@ -103,6 +134,7 @@ function addEliteMark(c: Container): void {
   c.addChild(frame);
 }
 export function makeEnemy(cell: ForestCell,index=0,cols=7,tutorialTarget=false): Container {
+  if(cell.kind==='prism'&&cell.chest)return makeChestPiece(cell.chest);
   if(cell.kind==='prism'&&cell.loot)return makeLootPiece(cell.loot);
   const view=makeEnemyBase(cell,index,cols,tutorialTarget);
   if(cell.elite)addEliteMark(view);

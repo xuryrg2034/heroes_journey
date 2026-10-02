@@ -347,6 +347,7 @@ body:before{opacity:.055}
 
 /* Growing anger chip in the battle HUD; crystals and rest forecast need no extra chrome. */
 .pressure-chip{display:flex;flex-direction:column;gap:2px;margin-top:10px;min-width:0;padding:7px 10px;border-left:3px solid #d9744a;background:#4a2f2440;font:12px/1.3 Arial,sans-serif;color:#efd9c2}
+.reinforcement-chip{border-left-color:#e9824f;cursor:help}.reinforcement-chip.imminent{background:#6a3a2a66;border-left-color:#ffb27a}.reinforcement-chip.imminent b{color:#fff0d8}
 .pressure-chip[hidden]{display:none}.pressure-chip .hud-label{font-size:9px;letter-spacing:1px;margin:0;color:#e5a27f}.pressure-chip b{font-size:12.5px;color:#ffe2c4}
 
 /* Short enemy-effect notes by the field: one line each, at most three, in the free middle of the HUD. */
