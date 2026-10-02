@@ -457,6 +457,9 @@ async function killCredit() {
   // Since the exit door (02.10.2026) the push meets the goals and opens the door; the battle goes on until the cat enters it.
   assert(boar.state.phase === 'PLAYER_INPUT' && boar.state.customLevel!.goalCompletedTurn !== null
     && boar.state.board.some(cell => cell?.kind === 'door' && cell.intent.label === 'Выход открыт'), 'boar-garden: the push opens the exit door');
+  // The forecast said so (exit door, stage 2), and the chest fell at the end of that turn.
+  assert(second.preview.enemyPhase!.unlocksExit && !second.preview.unlocksExit && !second.preview.enemyPhase!.completesObjective, 'boar-garden: the forecast shows the door opening in the enemy phase');
+  assert(boar.state.board.some(cell => !!cell?.chest), 'boar-garden: the chest fell once the push met the goals');
 
   // Troll club in an editor level with a kill goal: club kills do not advance it.
   const club = new ForestEngine(); club.animationScale = 0;

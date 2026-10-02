@@ -8,6 +8,8 @@ import { ForestEngine } from './forestEngine';
 import { authoredLesson } from './lessonBuilder';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './run/forestBattles';
 import type { RunBattleSetup } from './run/runBattle';
+import { CHEST_RESOURCES, chestContents } from './exitRules';
+import { createForestRun, enterNode, parseForestRun, resolveBattle, serializeForestRun } from './run/forestRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
@@ -24,6 +26,10 @@ registry['spec-exit-boss'] = authoredLesson({ id: 'spec-exit-boss', name: 'Вы�
 // The same field with an arrow lever on C5 (22): with a device on the field a chain must still stop at the door.
 registry['spec-exit-lever'] = authoredLesson({ id: 'spec-exit-lever', name: 'Выход у рычага', description: '', hint: '', rows: ['DgGGG', 'TGGGG', 'RGGGG', 'RGGGG', 'RHLGG'],
   legend: { D: { door: true }, T: { color: 0, target: true }, L: { device: { kind: 'arrows', charges: 1, targets: ['E1', 'E2', 'E3', 'E4'] } } }, seed: 7103 });
+// A pit lever on B1 (1) over the rest of the field (the cat's B5 apart): the chain meets the goal, then fires it.
+const PIT_TARGETS = ['B2', 'C2', 'D2', 'E2', 'B3', 'C3', 'D3', 'E3', 'B4', 'C4', 'D4', 'E4', 'C5', 'D5', 'E5'];
+registry['spec-exit-pits'] = authoredLesson({ id: 'spec-exit-pits', name: 'Выход у люков', description: '', hint: '', rows: ['DPGGG', 'TGGGG', 'RGGGG', 'RGGGG', 'RHGGG'],
+  legend: { D: { door: true }, T: { color: 0, target: true }, P: { device: { kind: 'pits', charges: 1, targets: PIT_TARGETS } } }, seed: 7104 });
 const COLUMN = [20, 15, 10, 5], DOOR = 0;
 
 function start(id: string, seed: number, row = 3): ForestEngine {
@@ -95,8 +101,141 @@ async function nothingPastTheDoor() {
   console.log('PASS nothing continues past the door, even with a lever on the field');
 }
 
+const chestAt = (g: ForestEngine) => g.state.board.findIndex(cell => !!cell?.chest);
+const tally = (resources: readonly string[]) => resources.reduce<Record<string, number>>((sum, kind) => ({ ...sum, [kind]: (sum[kind] ?? 0) + 1 }), {});
+
+/** Stage 2: the chest falls when the goals are met, on an allowed cell, with resources by the node's seed. */
+async function chestFallsWithTheGoals() {
+  const sets = new Set<string>();
+  for (const id of ['spec-exit-target', 'spec-exit-boss']) for (let k = 1; k <= 6; k++) {
+    const seed = spread(k), g = start(id, seed);
+    assert(chestAt(g) < 0, `${id} seed ${k}: no chest before the goals`);
+    const preview = g.preview(COLUMN);
+    assert(preview.unlocksExit && !preview.completesRoom, `${id} seed ${k}: the forecast says the goals open the exit`);
+    // At the moment it falls: not the cat, the door or a device, on walkable ground; a crushed enemy is no target or boss.
+    let fell: { index: number; ok: boolean } | undefined;
+    const bosses = new Set(g.state.board.flatMap(cell => cell?.kind === 'boss' ? [cell.id] : []));
+    const off = g.subscribe((state, event) => {
+      if (event.type !== 'chest') return;
+      const index = event.index!, crushed = event.oldId;
+      fell = { index, ok: index !== state.player.index && state.board[index]?.chest !== undefined && !state.devices.some(device => device.index === index)
+        && ['floor', 'puddle', 'thorns'].includes(state.terrain[index]) && (crushed === undefined || !state.tutorial!.targetIds.includes(crushed) && !bosses.has(crushed)) };
+    });
+    await chain(g, COLUMN); off();
+    assert(g.state.player.hp === 5 - preview.damage, `${id} seed ${k}: forecast damage equals execution with the chest falling`);
+    // An enemy the chest crushes is no kill of the player: only the chain's kills count.
+    assert(g.state.objective.kills === preview.kills, `${id} seed ${k}: kills ${g.state.objective.kills} = the chain's ${preview.kills}`);
+    const at = chestAt(g), chest = g.state.board[at]!;
+    assert(fell?.ok && at >= 0 && chest.kind === 'prism' && chest.color === null, `${id} seed ${k}: the chest fell on an allowed cell after the goals`);
+    assert(JSON.stringify(chest.chest) === JSON.stringify(chestContents(g.state.level.seed)) && chest.chest!.length === CHEST_RESOURCES, `${id} seed ${k}: ${CHEST_RESOURCES} resources by the node's seed`);
+    sets.add(JSON.stringify(tally(chest.chest!)));
+    // It does not vanish: three rests later it is still on the field (a moved chest keeps its ID).
+    const chestId = chest.id;
+    for (let n = 0; n < 3 && g.state.phase === 'PLAYER_INPUT'; n++) await g.waitTurn();
+    if (g.state.phase === 'PLAYER_INPUT') assert(g.state.board.some(cell => cell?.id === chestId), `${id} seed ${k}: the chest stays on the field`);
+  }
+  assert(sets.size >= 3, `chest contents vary with the node's seed (${sets.size} sets over 12 battles)`);
+  console.log(`PASS the chest falls with the goals on an allowed cell; ${CHEST_RESOURCES} resources by the node's seed; it stays`);
+}
+
+/** The chain that enters the door leaves no chest behind: the battle is over. */
+async function noChestWhenLeavingAtOnce() {
+  for (let k = 1; k <= 3; k++) {
+    const g = start('spec-exit-target', spread(k));
+    let fell = false;
+    const off = g.subscribe((_state, event) => { if (event.type === 'chest') fell = true; });
+    await chain(g, [...COLUMN, DOOR]); off();
+    assert(g.state.phase === 'WIN' && !fell, `seed ${k}: leaving at once, no chest falls`);
+  }
+  console.log('PASS no chest falls when the same chain leaves through the door');
+}
+
+/** A chain passing through or ending on the chest opens it: the resources join the battle and go to the run. */
+async function chainOpensTheChest() {
+  let opened = 0;
+  for (let k = 1; k <= 10; k++) {
+    const g = start('spec-exit-target', spread(k));
+    await chain(g, COLUMN);
+    const at = chestAt(g), contents = g.state.board[at]?.chest;
+    if (!contents || g.state.phase !== 'PLAYER_INPUT') continue;
+    const path = g.availableMoves(8).find(candidate => candidate.includes(at) && !candidate.includes(DOOR));
+    if (!path) continue;
+    const preview = g.preview(path), hit = preview.hits.find(entry => entry.index === at);
+    assert(preview.valid && hit?.chest && JSON.stringify(hit.chest) === JSON.stringify(contents), `seed ${k}: the forecast shows the chest opening`);
+    const score = g.state.score;
+    await chain(g, path);
+    const got = Object.fromEntries(Object.entries(g.state.materials ?? {}).filter(([, count]) => count > 0));
+    assert(JSON.stringify(Object.entries(got).sort()) === JSON.stringify(Object.entries(tally(contents)).sort()), `seed ${k}: exactly the chest's resources joined the battle (${JSON.stringify(got)})`);
+    assert(!g.state.board.some(cell => cell?.chest), `seed ${k}: the opened chest is gone`);
+    assert(g.state.objective.prisms === 0 && g.state.score > score, `seed ${k}: the chest is no prism objective; the chain's kills still score`);
+    opened++;
+  }
+  assert(opened >= 3, `the chain opened the chest on most seeds (${opened}/10)`);
+  console.log('PASS a chain through the chest opens it: its resources join the battle');
+}
+
+/** The chest's resources go to the run, and a trunk battle with a chest keeps the run saveable. */
+function chestResourcesKeepTheRunSaveable() {
+  let run = createForestRun(1);
+  const entered = enterNode(run, 'trunk-1'); assert(entered.ok, 'enter trunk-1'); run = entered.run;
+  const entry = (run.pending as { entry: { player: { hp: number; maxHp: number; energy: number }; inventory: Record<string, number> } }).entry;
+  const won = resolveBattle(run, { nodeId: 'trunk-1', won: true, player: { ...entry.player }, inventory: { ...entry.inventory } as never, materials: { dew: 1, powder: 0, resin: 1, herbs: 0 } });
+  assert(won.ok && won.run.resources.materials?.dew === 1 && won.run.resources.materials.resin === 1, 'the chest resources join the run');
+  assert(parseForestRun(serializeForestRun(won.run)) !== null, 'the run with a trunk chest stays saveable');
+  const greedy = JSON.parse(serializeForestRun(won.run)); greedy.loot.push({ nodeId: 'trunk-1', item: 'herbs', count: CHEST_RESOURCES }); greedy.resources.materials.herbs += CHEST_RESOURCES;
+  assert(parseForestRun(JSON.stringify(greedy)) === null, 'more resources than one chest holds are rejected on the trunk');
+  console.log('PASS the chest resources go to the run; the save stays bounded');
+}
+
+/** Review of stage 2: a pit lever never takes the chest — the floor holds under it; it stays on the field. */
+async function pitsHoldUnderTheChest() {
+  let held = 0;
+  for (let k = 1; k <= 12; k++) {
+    const g = start('spec-exit-pits', spread(k));
+    let chestId: number | undefined;
+    const off = g.subscribe((_state, event) => { if (event.type === 'chest') chestId = event.newId; });
+    await chain(g, [...COLUMN, 1]); off();
+    if (chestId === undefined || g.state.phase !== 'PLAYER_INPUT') continue;
+    const at = g.state.board.findIndex(cell => cell?.id === chestId);
+    assert(at >= 0, `seed ${k}: the chest survived the pit lever`);
+    if (PIT_TARGETS.some(label => g.state.board[at] && at === 'ABCDE'.indexOf(label[0]) + (Number(label.slice(1)) - 1) * 5)) {
+      assert(!g.state.pits.some(pit => pit.index === at), `seed ${k}: no pit opened under the chest`);
+      held++;
+    }
+  }
+  assert(held >= 3, `the chest stood on a pit target and held on several seeds (${held}/12)`);
+  console.log('PASS the pit lever never opens a pit under the chest');
+}
+
+/** The chest is a rule of map battles: an editor level with an exit and met goals drops none. */
+async function noChestInTheEditor() {
+  for (let k = 1; k <= 3; k++) {
+    const g = new ForestEngine(); g.animationScale = 0;
+    assert(g.startCustomLevel({ ...registry['spec-exit-target'].definition, seed: spread(k) }), 'editor level starts');
+    let fell = false;
+    const off = g.subscribe((_state, event) => { if (event.type === 'chest') fell = true; });
+    await chain(g, COLUMN); await g.waitTurn(); off();
+    assert(g.state.customLevel!.goalCompletedTurn !== null && !fell && !g.state.board.some(cell => cell?.chest), `seed ${k}: no chest in an editor level`);
+  }
+  console.log('PASS no chest in an editor level');
+}
+
+/** Exact replay through the chest's fall and the turns after it. */
+async function chestReplay() {
+  const play = async (seed: number) => { const g = start('spec-exit-target', seed, 6); await chain(g, COLUMN); await g.waitTurn(); await g.waitTurn(); return json(g.captureAnalysisSnapshot()); };
+  for (let k = 1; k <= 3; k++) assert(await play(spread(k)) === await play(spread(k)), `seed ${k}: replay through the chest`);
+  console.log('PASS exact replay through the chest');
+}
+
 await sameChainIntoTheDoor();
 await nothingPastTheDoor();
 await stayAndLeaveLater();
 await replay();
+await chestFallsWithTheGoals();
+await noChestWhenLeavingAtOnce();
+await chainOpensTheChest();
+chestResourcesKeepTheRunSaveable();
+await chestReplay();
+await pitsHoldUnderTheChest();
+await noChestInTheEditor();
 console.log('PASS exit door');

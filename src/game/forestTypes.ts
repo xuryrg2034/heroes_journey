@@ -64,6 +64,8 @@ export interface ChainHit {
   crystalScore?: number;
   /** A consumable or resource dropped by an elite, picked up at this cell (elite.ts). */
   loot?: LootKind;
+  /** The exit's chest opened at this cell: the crafting resources it gives (exitRules.ts). */
+  chest?: ResourceKind[];
   /** Ordinary chain budget: available includes this enemy's +1; abilities omit these fields. */
   availablePower?: number; powerSpent?: number; remainingPower?: number;
 }
@@ -104,6 +106,11 @@ export interface ChainPreview {
   crystals?: number;
   /** Score for the crystals this chain breaks (sum of `hits[].crystalScore`). */
   crystalScore?: number;
+  /**
+   * This action meets the goals of an exit battle without entering the door: the door opens and the chest falls
+   * (its cell, like a crystal's, is never shown). Set only when true.
+   */
+  unlocksExit?: true;
 }
 export type ForcedDeathCause = 'ram' | 'spikes' | 'thorns' | 'pit' | 'arrow' | 'club';
 /** UI data for the enemy phase: the same rules as execution, computed on a copy. */
@@ -135,6 +142,8 @@ export interface EnemyPhaseForecast {
    * Enemy deaths from their own burning/poison ticks are not projected. Set only when true.
    */
   completesObjective?: true;
+  /** The goals of an exit battle are met during this enemy phase or at the end of the turn: the door opens. Set only when true. */
+  unlocksExit?: true;
 }
 export interface AbilityPreview extends ChainPreview { ability: AbilityKind; cost: number; indices: number[]; targetIndex?: number }
 export interface FrostPreview { valid: boolean; reason: string; targetIndex: number; freezes: boolean; skippedCells: number[] }

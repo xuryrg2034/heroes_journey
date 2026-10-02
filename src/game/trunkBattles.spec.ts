@@ -62,6 +62,8 @@ async function commit(engine: ForestEngine, route: string): Promise<ChainPreview
     if (colors.has(cell.id)) assert(cell.color === colors.get(cell.id), 'survivors keep their colors');
     // A long chain leaves colour-change crystals: colourless, not enemies.
     else if (cell.crystalChain) assert(cell.kind === 'prism' && cell.color === null, 'a new crystal is a colourless prism');
+    // The exit's chest falls once the goals are met: a colourless prism too.
+    else if (cell.chest) assert(cell.kind === 'prism' && cell.color === null, 'the chest is a colourless prism');
     else assert(cell.kind !== 'door' && cell.behavior.passive && cell.color !== null && engine.state.customLevel!.paletteWeights[cell.color] > 0,
       'new trunk enemies remain passive and use the node palette');
   }

@@ -338,6 +338,10 @@ export class ForestEngine {
           const loot = this.createCell('prism', null, index); loot.loot = item;
           state.board[index] = loot; return loot;
         },
+        placeChest: (index, contents) => {
+          const chest = this.createCell('prism', null, index); chest.chest = [...contents];
+          state.board[index] = chest; return chest;
+        },
       },
       finish: (won, message) => this.finish(won, message),
       planRotationReplacements: rotations => this.planRotationReplacements(rotations),

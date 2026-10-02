@@ -20,6 +20,7 @@ import type { ChainSimulation } from './forestSystems';
 import { nextRandom } from './mapBattleRules';
 import { rotationPreview } from './rotations';
 import { drainSync } from './turnRuntime';
+import { exitBattle } from './exitRules';
 import { concludeBattle, END_OF_TURN, ENEMY_PHASE, PLAYER_ACTION, REST_ACTION, turnReport, turnVerdict, type TurnContext } from './turnSystems';
 
 /** The only way a forecast adds cat damage: the total and its source stay in step. */
@@ -60,6 +61,11 @@ function forecastContext(world: World): TurnContext {
         const loot = standInCell(state, index, nextCrystal--, 'prism'); loot.loot = item;
         state.board[index] = loot; return loot;
       },
+      // The chest too: its cell stays hidden like a crystal's.
+      placeChest: (index, contents) => {
+        const chest = standInCell(state, index, nextCrystal--, 'prism'); chest.chest = [...contents];
+        state.board[index] = chest; return chest;
+      },
     },
     finish: (won, message) => concludeBattle(state, won, message),
     planRotationReplacements: rotations => {
@@ -90,6 +96,9 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
   if (preview.playerDies) { preview.rotations = []; return; }
   // The copy's own resources: a copy of the live RNG; IDs are stand-ins, never allocated.
   const world = cloneWorld({ state, res: { rng: rng ?? 0, nextId: 0 } });
+  // An exit battle whose goals are still open: the turn may open its door (the action, or the enemy phase).
+  const exitLocked = exitBattle(state) && state.customLevel!.goalCompletedTurn === null;
+  const exitUnlocked = () => exitLocked && world.state.customLevel!.goalCompletedTurn !== null;
   const sim = world.state, trace = traceHeroDamage(sim), ctx = forecastContext(world);
   if ('simulation' in action) {
     // The copy replays the plan; its board is copied so the plan stays as execution will receive it.
@@ -108,6 +117,8 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
   if (sim.phase === 'LOSE') { preview.playerDies = true; preview.completesRoom = false; delete preview.opensDoor; preview.rotations = []; return; }
   if (sim.phase === 'WIN') preview.completesRoom = true;
   else if (preview.completesRoom) preview.completesRoom = false;
+  // The action meets the goals without entering the door: the door opens, the chest falls (its cell hidden).
+  if (!preview.completesRoom && exitUnlocked()) preview.unlocksExit = true;
   if (preview.completesRoom) {
     // The battle ends with the player's action: no enemy answer.
     preview.rotations = [];
@@ -166,4 +177,6 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
   preview.playerDies = dies;
   // Authored goals met at the end of the turn (forced deaths credited, the turn counted) while the cat lives.
   if ((sim.phase as ForestState['phase']) === 'WIN') phase.completesObjective = true;
+  // The goals of an exit battle met in the enemy phase (a boar pushing a target onto spikes) or by the turn: the door opens.
+  else if (!dies && !preview.unlocksExit && exitUnlocked()) phase.unlocksExit = true;
 }

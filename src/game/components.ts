@@ -1,5 +1,5 @@
 import type { DamageEffects, DamageEffectKind } from './damageEffects';
-import type { CellKind, DoorData, EnemyColor, EnemyVariant, LootKind } from './forestTypes';
+import type { CellKind, DoorData, EnemyColor, EnemyVariant, LootKind, ResourceKind } from './forestTypes';
 
 /** Structural entity components. The engine stores their fields together in each cell. */
 export interface CellIdentityComponent {
@@ -25,6 +25,8 @@ export interface CellLinkComponent {
   crystalChain?: number;
   /** A consumable or resource dropped by an elite (a `prism` cell, elite.ts): a chain passing through or ending on it picks it up. */
   loot?: LootKind;
+  /** The exit's chest (a `prism` cell, exitRules.ts): crafting resources a chain passing through or ending on it collects. */
+  chest?: ResourceKind[];
 }
 
 /** Elite modifier (elite.ts): HP ×2 baked at load, +1 to every attack on the cat, loot when the player kills it. */

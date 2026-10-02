@@ -1,5 +1,5 @@
 import { isCellAlive } from './cellLife';
-import type { AbilityKind, ChainHit, EnemyPhaseForecast, ForcedDeathCause, ForestCell, ForestState, HeroDamageSource, ItemKind, ItemPreview, LootKind, RotationPreview } from './forestTypes';
+import type { AbilityKind, ChainHit, EnemyPhaseForecast, ForcedDeathCause, ForestCell, ForestState, HeroDamageSource, ItemKind, ItemPreview, LootKind, ResourceKind, RotationPreview } from './forestTypes';
 import { ITEMS } from './items';
 import { cleanseDamageEffects } from './damageEffects';
 import type { ChainSimulation } from './forestSystems';
@@ -12,6 +12,7 @@ import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPh
 import { behaviorOf } from './enemyBehaviors';
 import { heroStrikeDamage, rollEliteLoot } from './elite';
 import { emptyMaterials, isResource } from './resources';
+import { chestContents, chestDue, rollChestCell } from './exitRules';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
@@ -64,6 +65,8 @@ export interface TurnReport {
   trapKills: number;
   pitCells: number[];
   pitImmuneCells: number[];
+  /** The exit's chest fell during this turn (exitRules.ts). */
+  chest?: boolean;
 }
 export function turnReport(ctx: { scratch: TurnScratch }): TurnReport {
   return ctx.scratch.report ??= { chargeImpacts: [], threats: [], packBroken: [], deaths: [], empowered: [], regenerated: [], trapHits: [], trapKills: 0, pitCells: [], pitImmuneCells: [] };
@@ -95,6 +98,8 @@ export interface Commands {
   placeCrystal(index: number, value: number): ForestCell;
   /** A consumable or resource dropped by an elite (fresh ID): a `prism` record carrying `loot`, placed on `index`. */
   placeLoot(index: number, item: LootKind): ForestCell;
+  /** The exit's chest (fresh ID): a `prism` record carrying `chest`, placed on `index`. */
+  placeChest(index: number, contents: ResourceKind[]): ForestCell;
 }
 
 /**
@@ -192,6 +197,8 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
       const loot = original.kind === 'prism' ? original.loot : undefined;
       if (loot && isResource(loot)) (ctx.state.materials ??= emptyMaterials())[loot]++;
       else if (loot) ctx.state.inventory[loot]++;
+      // The exit's chest gives its resources to the battle's materials.
+      else if (original.kind === 'prism' && original.chest) for (const resource of original.chest) (ctx.state.materials ??= emptyMaterials())[resource]++;
       else if (original.kind === 'prism') ctx.state.objective.prisms++;
       else {
         ctx.cmd.kill(original, hit.index, 'player');
@@ -202,12 +209,13 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
     }
     if (original.kind === 'boss') ctx.state.objective.bossHits++;
     // A map-battle crystal scores by the chain that created it (same number as the forecast's hits[].crystalScore).
-    // Picked-up loot scores nothing (elite.ts); a crystal scores by its chain.
-    ctx.state.score += hit.loot ? 0 : hit.crystalScore ?? (hit.killed ? 20 + hit.damage * 2 : hit.damage);
+    // Picked-up loot and an opened chest score nothing (elite.ts, exitRules.ts); a crystal scores by its chain.
+    ctx.state.score += hit.loot || hit.chest ? 0 : hit.crystalScore ?? (hit.killed ? 20 + hit.damage * 2 : hit.damage);
     yield { event: { type: hit.physical ? 'hit' : 'collect', index: hit.index, amount: hit.damage, text: hit.killed ? undefined : `${hit.hpAfter} HP` } };
     if (!ctx.current()) return false;
     if (hit.killed) yield { event: { type: 'kill', index: hit.index } };
     if (hit.loot) { yield { event: { type: 'loot-pickup', index: hit.index, text: hit.loot } }; if (!ctx.current()) return false; }
+    if (hit.chest) { yield { event: { type: 'chest-open', index: hit.index, text: hit.chest.join(',') } }; if (!ctx.current()) return false; }
     if (!ctx.current()) return false;
     const attackEffect = hit.attackEffect ?? ctx.state.player.attackEffect;
     if (!hit.killed && hit.physical && attackEffect && original.kind !== 'door'
@@ -232,7 +240,8 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
     if (!ctx.current()) return false;
   }
   ctx.state.chain = [];
-  return yield* dropQueuedLoot(ctx);
+  if (!(yield* dropQueuedLoot(ctx))) return false;
+  return yield* dropChest(ctx);
 } };
 /** PlayerAction: an ordinary chain that stops on thorns costs the cat HP before any lever (as simulateChain). */
 const ChainEndTerrain: TurnSystem<TurnContext> = { name: 'ChainEndTerrain', *run(ctx) {
@@ -274,8 +283,8 @@ const DeviceVolleys: TurnSystem<TurnContext> = { name: 'DeviceVolleys', *run(ctx
     }
     yield { delay: 160 };
     if (!ctx.current()) return false;
-    // Loot of the elites this lever killed falls once its volley is over.
-    if (!(yield* dropQueuedLoot(ctx))) return false;
+    // Loot of the elites this lever killed falls once its volley is over, then the chest when the volley met the goals.
+    if (!(yield* dropQueuedLoot(ctx)) || !(yield* dropChest(ctx))) return false;
   }
   return true;
 } };
@@ -317,6 +326,26 @@ function* dropQueuedLoot(ctx: TurnContext): TurnSequence {
     const roll = rollEliteLoot(ctx.state, ctx.state.board, new Set(), () => ctx.drawRandom(), elite.elite);
     if (roll.index !== undefined && !(yield* placeLoot(ctx, roll.index, roll.item!, roll.victim?.id))) return false;
   }
+  return ctx.current();
+}
+
+/**
+ * The exit's chest falls once the goals of an exit map battle are met (exitRules.ts): after the action that met them,
+ * or at the end of the turn when the enemy phase or the turn itself met them. Never once the cat entered the door.
+ * The enemy on its cell is crushed through the common death path without credit.
+ */
+function* dropChest(ctx: TurnContext): TurnSequence {
+  if (!chestDue(ctx.state) || ctx.scratch.action?.doorOpened) return ctx.current();
+  ctx.state.customLevel!.chestDropped = true;
+  const roll = rollChestCell(ctx.state, ctx.state.board, () => ctx.drawRandom());
+  if (roll.index === undefined) return ctx.current();
+  if (roll.victim) {
+    defeatOutright(roll.victim);
+    if (!(yield* defeatCreature(ctx, roll.victim, roll.index, 'none', 'chest'))) return false;
+  }
+  const chest = ctx.cmd.placeChest(roll.index, chestContents(ctx.state.level.seed));
+  turnReport(ctx).chest = true;
+  yield { event: { type: 'chest', index: roll.index, newId: chest.id, ...(roll.victim ? { oldId: roll.victim.id } : {}) } };
   return ctx.current();
 }
 
@@ -607,8 +636,9 @@ const ItemResolve: TurnSystem<TurnContext> = { name: 'ItemResolve', *run(ctx) {
   }
   yield { event: { type: 'item', index, indices: preview.indices, amount: preview.damage || preview.healing, text: ITEMS[kind].label } };
   if (!ctx.current()) return false;
-  // Loot of the elites the item killed falls once the item is resolved.
-  return yield* dropQueuedLoot(ctx);
+  // Loot of the elites the item killed falls once the item is resolved, then the chest when the item met the goals.
+  if (!(yield* dropQueuedLoot(ctx))) return false;
+  return yield* dropChest(ctx);
 } };
 /** ItemAction: direct goals met by the item end the battle (frost never ends it). */
 const ItemVictory = instant<TurnContext>('ItemVictory', ctx => {
@@ -654,7 +684,9 @@ export const PLAYER_ACTION: SystemSet<TurnContext> = { name: 'PlayerAction', sys
 export const REST_ACTION: SystemSet<TurnContext> = { name: 'RestAction', systems: [RestStart] };
 export const ENEMY_PHASE: SystemSet<TurnContext> = { name: 'EnemyPhase', systems: [EnemyPhaseStart, PhaseSnapshot, BoarCharges, EnemyAttacks,
   ShamanRites, CycleCounters, TrollWindups, GoalRefresh, Rotations, RestCountdown, DamageEffectTicks, TrollRegen, ClosePits] };
-export const END_OF_TURN: SystemSet<TurnContext> = { name: 'EndOfTurn', systems: [SettleTurn] };
+/** EndOfTurn: the chest of goals met in the enemy phase or by the turn itself. */
+const ChestDrop: TurnSystem<TurnContext> = { name: 'ChestDrop', run: dropChest };
+export const END_OF_TURN: SystemSet<TurnContext> = { name: 'EndOfTurn', systems: [SettleTurn, ChestDrop] };
 export const BOARD_UPDATE: SystemSet<TurnContext> = { name: 'BoardUpdate', systems: [Generation, ReturnToInput] };
 /** Everything after the player's own action. */
 export const ENEMY_TURN: readonly SystemSet<TurnContext>[] = [ENEMY_PHASE, END_OF_TURN, BOARD_UPDATE];

@@ -126,7 +126,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
         const score = crystalScore(cell);
         if (score) preview.crystalScore = (preview.crystalScore ?? 0) + score;
         // A dropped consumable (elite.ts) is picked up by the chain passing through or ending on it.
-        preview.hits.push({ index, damage: 0, hpBefore: cell.hp, hpAfter: 0, killed: true, physical: false, availablePower: chainPower, powerSpent: 0, remainingPower: chainPower, ...(score ? { crystalScore: score } : {}), ...(cell.loot ? { loot: cell.loot } : {}) });
+        preview.hits.push({ index, damage: 0, hpBefore: cell.hp, hpAfter: 0, killed: true, physical: false, availablePower: chainPower, powerSpent: 0, remainingPower: chainPower, ...(score ? { crystalScore: score } : {}), ...(cell.loot ? { loot: cell.loot } : {}), ...(cell.chest ? { chest: [...cell.chest] } : {}) });
       } else {
         if (cell.kind !== 'door') { preview.enemies++; chainPower++; }
         const availablePower = chainPower;

@@ -22,7 +22,11 @@ export interface CustomLevelDefinition {
   spikedEdges?: EdgeSide[];
   playerHp?: number; playerAttackEffect?: DamageEffectKind; inventory?: Partial<Record<ItemKind, number>>;
 }
-export interface CustomLevelRuntime { definition: CustomLevelDefinition; goalCompletedTurn: number | null; paletteWeights: PaletteWeights }
+export interface CustomLevelRuntime {
+  definition: CustomLevelDefinition; goalCompletedTurn: number | null; paletteWeights: PaletteWeights;
+  /** The exit's chest has fallen (or found no cell) in a map battle with a door (exitRules.ts). */
+  chestDropped?: boolean;
+}
 const TERRAINS = ['floor', 'puddle', 'wall', 'tree', 'pond', 'campfire', 'thorns'];
 const GOALS = ['kills', 'rangedKills', 'bossKills', 'turns'];
 const ITEMS = ['frost', 'bomb', 'healing', 'fire'];

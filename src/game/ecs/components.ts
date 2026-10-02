@@ -39,7 +39,7 @@ export const DamageEffects: ComponentDef = {
   name: 'DamageEffects', fields: ['damageEffects', 'attackEffect'], copy: { damageEffects: effects => ({ ...effects }) },
 };
 export const Crystal: ComponentDef = { name: 'Crystal', fields: ['crystalChain'] };
-export const Loot: ComponentDef = { name: 'Loot', fields: ['loot'] };
+export const Loot: ComponentDef = { name: 'Loot', fields: ['loot', 'chest'], copy: { chest: copyArray } };
 export const Elite: ComponentDef = { name: 'Elite', fields: ['elite'] };
 
 /** Every component of an entity record, in registration order. */

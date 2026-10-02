@@ -7,6 +7,7 @@
 import { ITEM_KINDS, mixSeed, rewardChoices } from '../items';
 import type { LootKind, ResourceKind, AbilityKind, ItemKind } from '../forestTypes';
 import { RUN_PRESSURE_FIRST_ROW } from '../mapBattleRules';
+import { CHEST_RESOURCES } from '../exitRules';
 import { emptyMaterials, isResource, RESOURCE_KINDS } from '../resources';
 import { nodeBattleTemplate, FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
@@ -294,6 +295,8 @@ function battleElites(node: ForestMapNode): number {
 }
 /** A battle node where random elites may appear (map rows from RUN_PRESSURE_FIRST_ROW, elite.ts). */
 const randomElitesPossible = (node: ForestMapNode): boolean => !!nodeBattleTemplate(node) && node.row >= RUN_PRESSURE_FIRST_ROW;
+/** Resources a node's exit chest adds (exitRules.ts): CHEST_RESOURCES in a battle with an exit door, else 0. */
+const chestResources = (node: ForestMapNode): number => nodeBattleTemplate(node)?.definition.completion === 'exit' ? CHEST_RESOURCES : 0;
 
 function inventoryCap(visited: string[], finds: ForestRunState['finds'], entered: ForestMapNode | null, loot: ForestRunState['loot']): Record<LootKind, number> {
   const cap: Record<LootKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0, ...emptyMaterials() };
@@ -335,23 +338,26 @@ export function parseForestRun(text: string): ForestRunState | null {
   if (!sameTools(value.tools as ForestRunTools, expectedTools(visited, typedFinds, entered, wonHard))) return null;
   // Elite loot of won battles: completed battle nodes, or the hard battle whose find is still pending; one entry per
   // node and kind. Consumables come only from authored elites (at most one each). Resources also come from random
-  // elites, which appear in battles from row 5 in any number over a battle: there they are not bounded by count.
+  // elites, which appear in battles from row 5 in any number over a battle: there they are not bounded by count. A
+  // battle with an exit door adds its chest's resources (exitRules.ts).
   const loot = value.loot === undefined ? [] : value.loot;
   if (!Array.isArray(loot) || loot.some(gain => !isRecord(gain) || typeof gain.nodeId !== 'string'
     || !(visited.includes(gain.nodeId) || wonHard && entered?.id === gain.nodeId)
     || !(ITEM_KINDS.includes(gain.item as ItemKind) || isResource(gain.item as string)) || !isCount(gain.count) || (gain.count as number) < 1)) return null;
   const typedLoot = loot as ForestRunState['loot'];
-  const perNode = new Map<string, number>(), pairs = new Set<string>();
+  const perNode = new Map<string, number>(), perNodeItems = new Map<string, number>(), pairs = new Set<string>();
   for (const gain of typedLoot) {
     if (pairs.has(`${gain.nodeId}:${gain.item}`)) return null;
     pairs.add(`${gain.nodeId}:${gain.item}`);
     // Resources of a node with random elites are unbounded; everything else counts against the authored elites.
     if (!(isResource(gain.item) && randomElitesPossible(forestNode(gain.nodeId)!))) perNode.set(gain.nodeId, (perNode.get(gain.nodeId) ?? 0) + gain.count);
+    if (!isResource(gain.item)) perNodeItems.set(gain.nodeId, (perNodeItems.get(gain.nodeId) ?? 0) + gain.count);
   }
-  for (const [nodeId, count] of perNode) if (count > battleElites(forestNode(nodeId)!)) return null;
+  for (const [nodeId, count] of perNode) if (count > battleElites(forestNode(nodeId)!) + chestResources(forestNode(nodeId)!)) return null;
+  for (const [nodeId, count] of perNodeItems) if (count > battleElites(forestNode(nodeId)!)) return null;
   const cap = inventoryCap(visited, typedFinds, entered, typedLoot), inventory = (value.resources as ForestRunResources).inventory;
   if (ITEM_KINDS.some(item => inventory[item] > cap[item])) return null;
-  // Resources have no other source than elite loot yet.
+  // Resources come from elite loot and exit chests (both recorded in `loot`).
   const materials = (value.resources as ForestRunResources).materials;
   if (materials && RESOURCE_KINDS.some(resource => materials[resource] > cap[resource])) return null;
   if (pending !== null) {
