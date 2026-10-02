@@ -13,7 +13,7 @@ import { availableParallelism } from 'node:os';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type LevelAnalysis, type LevelSource } from '../src/game/levelAnalysis';
+import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, type AgentSummary, type AnalysisOptions, type LevelAnalysis, type LevelSource } from '../src/game/levelAnalysis';
 import { allNodeBattleTargets, nodeAnalysisTargets } from '../src/game/run/nodeAnalysis';
 import { ELITE_MOVE_EVERY, setEliteMoveEvery } from '../src/game/elite';
 
@@ -162,7 +162,7 @@ function render(header: string[], rows: string[][]) {
 }
 function tables(results: Done[]) {
   const ok = results.filter(done => done.result);
-  const structure = render(['level', 'size', 'enem', 'col', 'lcs%', 'intl%', 'acts', 'safe%', 'win', 'minT', 'hp', 'sol', 'fwin%', 'trap%', 'crit', 'KM', 'exh', 'requires', 'benefit', 'spread', 'sec'],
+  const structure = render(['level', 'size', 'enem', 'col', 'lcs%', 'intl%', 'acts', 'safe%', 'win', 'goalT', 'minT', 'hp', 'sol', 'fwin%', 'trap%', 'crit', 'KM', 'exh', 'requires', 'benefit', 'spread', 'sec'],
     ok.map(done => {
       const r = done.result!, s = r.search?.[0], st = r.static;
       const restricted = r.restricted ? Object.entries(r.restricted) : [];
@@ -170,7 +170,7 @@ function tables(results: Done[]) {
       const benefit = restricted.filter(([, x]) => x.applicable && x.benefitTurns).map(([tool, x]) => `${tool[0]}:${x.benefitTurns}t`).join(' ') || '-';
       const spread = r.seedSensitivity ? `${val(r.seedSensitivity.minTurnsSpread)}/${val(r.seedSensitivity.bestHpSpread)}` : '-';
       return [r.level.id, `${st.cols}x${st.rows}`, String(st.enemies), String(st.colors), pct(st.largestComponentShare), pct(st.colorInterleave), String(st.firstActions.total), pct(st.safeFirstChainShare),
-        s ? (s.winnable ? 'yes' : 'no') : '-', val(s?.minTurns), val(s?.bestHpAtMin), val(s?.solutionsAtMin), pct(s?.firstMoveWinShare), pct(s?.trapShare), s?.criticality?.toFixed(2) ?? '-', val(s?.keyMoves),
+        s ? (s.winnable ? 'yes' : 'no') : '-', val(s?.minGoalTurns), val(s?.minTurns), val(s?.bestHpAtMin), val(s?.solutionsAtMin), pct(s?.firstMoveWinShare), pct(s?.trapShare), s?.criticality?.toFixed(2) ?? '-', val(s?.keyMoves),
         s ? (s.exhaustive ? 'yes' : 'no') : '-', requires, benefit, spread, (done.ms / 1000).toFixed(0)];
     }));
   const agents = render(['level', 'P(O)', 'P(S)', 'FG', 'robust', 'P(R)', 'P(R) 95%', 'I(R)', 'P(G1)', 'I(G1)', 'Dec', 'gTrap', 'hpMed', 'hpP10', 'N_X bits (R/G1)'],
@@ -181,8 +181,16 @@ function tables(results: Done[]) {
         pct(a?.random.winRate), a ? `${pct(a.random.winRateCi95[0])}-${pct(a.random.winRateCi95[1])}` : '-', bits(a?.random.info), pct(a?.greedy.winRate), bits(a?.greedy.info),
         d?.deception?.toFixed(2) ?? '-', d?.greedyTrap === null || d?.greedyTrap === undefined ? '-' : d.greedyTrap ? 'yes' : 'no', val(a?.random.winHpMedian), val(a?.random.winHpP10), need || '-'];
     }));
+  // Goals and exit: in a battle with an authored exit the win is entering the open door, so the turns to the goals
+  // and to the exit are reported apart (median over the agent's runs that got there).
+  const exit = render(['level', 'goalT', 'exitT', 'hpExit', 'R goal%', 'R win%', 'R goalT', 'R exitT', 'R delay', 'R hp', 'G1 goal%', 'G1 win%', 'G1 goalT', 'G1 exitT', 'G1 delay', 'G1 hp', 'G1 stuck'],
+    ok.map(done => {
+      const r = done.result!, s = r.search?.[0], a = r.agents;
+      const agent = (x: AgentSummary | undefined) => !x ? ['-', '-', '-', '-', '-', '-'] : [pct(x.goalRate), pct(x.winRate), val(x.goalTurnsMedian), val(x.winTurnsMedian), val(x.exitDelayMedian), val(x.winHpMedian)];
+      return [r.level.id, val(s?.minGoalTurns), val(s?.minTurns), val(s?.bestHpAtMin), ...agent(a?.random), ...agent(a?.greedy), a ? `${a.greedy.goalsNoExit}/${a.greedy.runs}` : '-'];
+    }));
   const errors = results.filter(done => done.error).map(done => `#${done.index} ERROR ${done.error}`);
-  return [structure, '', agents, ...errors].join('\n');
+  return [structure, '', agents, '', exit, ...errors].join('\n');
 }
 
 async function main() {
@@ -197,10 +205,13 @@ async function main() {
   const totalMs = Math.round(performance.now() - started);
   console.log(`\n${tables(results)}\n`);
   console.log('Percent columns are x100. Definitions: docs/level-metrics.md. Table 1 (oracle search O, seed 0): lcs largest same-color component share, intl color interleave,');
-  console.log('acts distinct first actions, safe first chains with 0 forecast damage, minT/hp/sol min turns / best HP at min / winning first actions, fwin/trap first actions');
+  console.log('acts distinct first actions, safe first chains with 0 forecast damage, goalT min turns to the goals, minT/hp/sol min turns to the win (exit battles: entering the door) / best HP at min / winning first actions, fwin/trap first actions');
   console.log('that can / cannot win within depth, crit mean w_t, KM steps with w_t<=0.1, exh exhaustive, requires/benefit restricted search (a/i/d/p), spread minT/HP over seeds.');
   console.log('Table 2: P(O) oracle, P(S) honest planner, FG = P(O)-P(S), robust = candidates winning under >=80% resampled refills, R random / G1 greedy agent,');
   console.log('I = -log2 P bits (>= when no win), Dec = 1-P(G1)/P(S), gTrap = greedy first move cannot win, hp = random-agent HP at win, N_X = I(without X)-I(with X).');
+  console.log('Table 3 (exit battles: the win is entering the open door): goalT/exitT/hpExit oracle turns to the goals / to the exit / HP at the exit (seed 0, within depth);');
+  console.log('per agent: goal% runs meeting the goals, win% runs leaving through the door, medians of goalT, exitT, delay = exitT - goalT and hp at the exit;');
+  console.log('G1 stuck = greedy runs that met the goals but did not leave (died or hit the turn limit).');
   for (const done of results) for (const note of done.result?.notes ?? []) console.log(`note ${done.result!.level.id}: ${note}`);
   console.log(`Total wall time ${(totalMs / 1000).toFixed(1)}s`);
   if (out) {

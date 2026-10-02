@@ -1,5 +1,6 @@
 import type { ForestEngine } from './game/forestEngine';
-import type { AbilityKind, ItemKind } from './game/forestTypes';
+import type { AbilityKind, ItemKind, ResourceKind } from './game/forestTypes';
+import { isResource } from './game/resources';
 import { forestNode } from './game/run/forestMap';
 
 /**
@@ -47,6 +48,24 @@ export interface AttemptRecord {
   items: Partial<Record<ItemKind, number>>;
   /** Time from the start to the first committed turn (reading the field); null if none. */
   firstMoveMs: number | null;
+  // Exit door (02.10.2026). Journals written before have none of the fields below: readers treat a missing field as unknown.
+  /** Engine turn (1-based number of the action) that met the battle's goals (`customLevel.goalCompletedTurn`); null — not met. */
+  goalTurn?: number | null;
+  /** Turn of the winning door entry in a battle that ends through the exit; null — no such win. */
+  exitTurn?: number | null;
+  /** `exitTurn − goalTurn`: turns spent after the goals before leaving (0 — the chain that met them entered the door). */
+  exitDelay?: number | null;
+  /** Cat HP when the goals were met; null — not met. */
+  hpAtGoal?: number | null;
+  /** Cat damage taken after the goals were met; null — not met. */
+  damageAfterGoal?: number | null;
+  /** Crafting resources in the battle's materials at the end (`state.materials`: elite loot, the chest). The run keeps them on a win only. */
+  materials?: Partial<Record<ResourceKind, number>>;
+  /** Consumables picked up from elite loot (`loot-pickup` events). */
+  lootItems?: Partial<Record<ItemKind, number>>;
+  /** The exit's chest fell (`chest` event) / was opened by a chain (`chest-open` event). */
+  chestDropped?: boolean;
+  chestOpened?: boolean;
 }
 
 interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[] }
@@ -60,6 +79,10 @@ export interface BattleAggregate {
   /** Share of visits that ended by leaving without a win. */
   abandonRate: number;
   avgCancelled: number; avgChainLength: number | null;
+  /** Medians over attempts that met the goals / won through the door (null — none): goal turn, exit turn, turns between them, damage after the goals. */
+  medianGoalTurn: number | null; medianExitTurn: number | null; medianExitDelay: number | null; medianDamageAfterGoal: number | null;
+  /** Share of attempts that opened the chest among those where it fell; null — it never fell. */
+  chestOpenRate: number | null;
 }
 
 const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [] });
@@ -127,6 +150,9 @@ export function aggregate(attempts: AttemptRecord[]): BattleAggregate[] {
     const chainSum = chained.reduce((sum, item) => sum + item.chainAvg * item.chains, 0);
     const chainCount = chained.reduce((sum, item) => sum + item.chains, 0);
     const firstMoves = list.map(item => item.firstMoveMs).filter((value): value is number => typeof value === 'number');
+    // Old records lack the exit fields: only numbers count.
+    const numbers = (pick: (item: AttemptRecord) => unknown) => list.map(pick).filter((value): value is number => typeof value === 'number');
+    const chests = list.filter(item => item.chestDropped === true);
     rows.push({
       key, label: battleLabel(list[list.length - 1]), attempts: list.length, visits: visits.size, wins: wins.length, loses: loses.length,
       winRate: round(wins.length / list.length), loseRate: round(loses.length / list.length),
@@ -137,6 +163,9 @@ export function aggregate(attempts: AttemptRecord[]): BattleAggregate[] {
       abandonRate: round(abandoned / visits.size),
       avgCancelled: round(list.reduce((sum, item) => sum + item.cancelledChains, 0) / list.length),
       avgChainLength: chainCount ? round(chainSum / chainCount) : null,
+      medianGoalTurn: median(numbers(item => item.goalTurn)), medianExitTurn: median(numbers(item => item.exitTurn)),
+      medianExitDelay: median(numbers(item => item.exitDelay)), medianDamageAfterGoal: median(numbers(item => item.damageAfterGoal)),
+      chestOpenRate: chests.length ? round(chests.filter(item => item.chestOpened).length / chests.length) : null,
     });
   }
   return rows.sort((a, b) => a.key.localeCompare(b.key, 'en', { numeric: true }));
@@ -156,6 +185,10 @@ interface Open {
   startedAt: number; t0: number; visit: number; attemptInVisit: number;
   turns: number; hp: number; maxHp: number; damage: number; chainLengths: number[]; cancelled: number;
   abilities: Partial<Record<AbilityKind, number>>; items: Partial<Record<ItemKind, number>>; firstMoveMs: number | null;
+  goalTurn: number | null; hpAtGoal: number | null; damageAfterGoal: number; exitTurn: number | null;
+  /** Kept in step with the engine like `hp`: on a restart the engine already holds the new battle when `start` arrives. */
+  materials: Partial<Record<ResourceKind, number>>;
+  lootItems: Partial<Record<ItemKind, number>>; chestDropped: boolean; chestOpened: boolean;
 }
 
 export interface TelemetryController {
@@ -163,6 +196,11 @@ export interface TelemetryController {
   quiet<T>(action: () => T): T;
   /** The player left the battle (menu, editor). */
   leave(): void;
+}
+
+/** Non-zero resources of the battle's materials (absent until the first pickup). */
+function materialsOf(engine: ForestEngine): Partial<Record<ResourceKind, number>> {
+  return Object.fromEntries(Object.entries(engine.state.materials ?? {}).filter(([, amount]) => amount > 0));
 }
 
 function describe(engine: ForestEngine): Pick<Open, 'key' | 'mode' | 'id' | 'seed'> {
@@ -192,6 +230,10 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
       chains: lengths.length, chainAvg: lengths.length ? round(lengths.reduce((a, b) => a + b, 0) / lengths.length) : 0,
       chainMax: lengths.length ? Math.max(...lengths) : 0, cancelledChains: current.cancelled,
       abilities: current.abilities, items: current.items, firstMoveMs: current.firstMoveMs,
+      goalTurn: current.goalTurn, exitTurn: current.exitTurn,
+      exitDelay: current.exitTurn !== null && current.goalTurn !== null ? current.exitTurn - current.goalTurn : null,
+      hpAtGoal: current.hpAtGoal, damageAfterGoal: current.goalTurn === null ? null : current.damageAfterGoal,
+      materials: current.materials, lootItems: current.lootItems, chestDropped: current.chestDropped, chestOpened: current.chestOpened,
     };
     const journal = load();
     journal.attempts = [...journal.attempts, record].slice(-MAX_ATTEMPTS);
@@ -204,7 +246,8 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     if (info.key !== lastKey || visitClosed) { visitCounter++; attemptCounter = 0; visitClosed = false; }
     lastKey = info.key; attemptCounter++;
     open = { ...info, startedAt: Date.now(), t0: performance.now(), visit: visitCounter, attemptInVisit: attemptCounter,
-      turns: 0, hp: engine.state.player.hp, maxHp: engine.state.player.maxHp, damage: 0, chainLengths: [], cancelled: 0, abilities: {}, items: {}, firstMoveMs: null };
+      turns: 0, hp: engine.state.player.hp, maxHp: engine.state.player.maxHp, damage: 0, chainLengths: [], cancelled: 0, abilities: {}, items: {}, firstMoveMs: null,
+      goalTurn: null, hpAtGoal: null, damageAfterGoal: 0, exitTurn: null, materials: {}, lootItems: {}, chestDropped: false, chestOpened: false };
   };
   const committed = () => {
     if (!open) return;
@@ -218,17 +261,42 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     if (last && last.key === lastKey && last.visit === visitCounter && last.outcome === 'lose') { last.left = true; store(journal); }
     visitClosed = true;
   };
-  const sync = () => { if (open) { open.hp = engine.state.player.hp; open.maxHp = engine.state.player.maxHp; } };
+  const sync = () => { if (open) { open.hp = engine.state.player.hp; open.maxHp = engine.state.player.maxHp; open.materials = materialsOf(engine); } };
   const leave = () => { sync(); if (open) finish('quit', true); else markLeftAfterDefeat(); };
 
+  /**
+   * The goals were met by now (read from the engine, never changed): the turn and the cat's HP at the first event that
+   * sees them. Damage published before that event counts as before the goals.
+   */
+  const watchGoals = () => {
+    const turn = engine.state.customLevel?.goalCompletedTurn;
+    if (!open || open.goalTurn !== null || typeof turn !== 'number') return;
+    open.goalTurn = turn; open.hpAtGoal = engine.state.player.hp;
+  };
   engine.subscribe((_state, event) => {
     if (event.type !== 'start') sync();
     switch (event.type) {
       case 'start': if (open) finish(open.key === describe(engine).key ? 'restart' : 'quit', open.key !== describe(engine).key); begin(); break;
-      case 'win': if (open) finish('win', false); break;
-      case 'lose': if (open) finish('lose', false); break;
-      case 'damage': if (open && event.index === engine.state.player.index) open.damage += event.amount ?? 0; break;
+      case 'win':
+        if (open) {
+          watchGoals();
+          // A battle with an authored exit is won only by entering the door: that turn is the exit turn.
+          if (engine.state.customLevel?.definition.completion === 'exit') open.exitTurn = engine.state.turn;
+          finish('win', false);
+        }
+        break;
+      case 'lose': if (open) { watchGoals(); finish('lose', false); } break;
+      case 'damage':
+        if (open && event.index === engine.state.player.index) {
+          open.damage += event.amount ?? 0;
+          if (open.goalTurn !== null) open.damageAfterGoal += event.amount ?? 0;
+        }
+        break;
+      case 'loot-pickup': if (open && event.text && !isResource(event.text)) { const item = event.text as ItemKind; open.lootItems[item] = (open.lootItems[item] ?? 0) + 1; } break;
+      case 'chest': if (open) open.chestDropped = true; break;
+      case 'chest-open': if (open) open.chestOpened = true; break;
     }
+    if (event.type !== 'start') watchGoals();
   });
 
   // Thin observers around player commands. Each records only when the engine will accept the command,
@@ -281,8 +349,8 @@ const number = (value: number | null) => value === null ? '—' : String(round(v
 export function playtestHtml(options: { confirmClear?: boolean; notice?: string } = {}): string {
   const journal = load(), rows = aggregate(journal.attempts);
   const table = rows.length
-    ? `<div class="playtest-scroll"><table class="playtest-table"><thead><tr><th>Бой</th><th title="Всего попыток">Попыт.</th><th title="Доля побед среди попыток">Побед</th><th title="Медиана числа попыток до первой победы">До победы</th><th title="Медианное время победы">Время</th><th title="Медианное время попытки, закончившейся выходом">До выхода</th><th title="Доля визитов, где игрок ушёл без победы">Отказ</th></tr></thead><tbody>${rows.map(row =>
-      `<tr><th scope="row" title="${escapeHtml(row.key)}">${escapeHtml(row.label)}</th><td>${row.attempts}</td><td>${percent(row.winRate)}</td><td>${number(row.attemptsToWin)}</td><td>${seconds(row.medianWinMs)}</td><td>${seconds(row.medianQuitMs)}</td><td>${percent(row.abandonRate)}</td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="playtest-scroll"><table class="playtest-table"><thead><tr><th>Бой</th><th title="Всего попыток">Попыт.</th><th title="Доля побед среди попыток">Побед</th><th title="Медиана числа попыток до первой победы">До победы</th><th title="Медианное время победы">Время</th><th title="Медианное время попытки, закончившейся уходом из боя">До ухода</th><th title="Медиана хода, на котором выполнены цели (попытки, где выполнены)">Цели</th><th title="Медиана хода входа в дверь (победы через выход)">Выход</th><th title="Медиана ходов от целей до выхода (0 — та же цепь вошла в дверь)">Задерж.</th><th title="Доля попыток, открывших сундук, среди тех, где он упал">Сундук</th><th title="Доля визитов, где игрок ушёл без победы">Отказ</th></tr></thead><tbody>${rows.map(row =>
+      `<tr><th scope="row" title="${escapeHtml(row.key)}">${escapeHtml(row.label)}</th><td>${row.attempts}</td><td>${percent(row.winRate)}</td><td>${number(row.attemptsToWin)}</td><td>${seconds(row.medianWinMs)}</td><td>${seconds(row.medianQuitMs)}</td><td>${number(row.medianGoalTurn)}</td><td>${number(row.medianExitTurn)}</td><td>${number(row.medianExitDelay)}</td><td>${row.chestOpenRate === null ? '—' : percent(row.chestOpenRate)}</td><td>${percent(row.abandonRate)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="modal-copy">Пока нет записей. Сыграйте бой: журнал появится после победы, поражения, повтора или выхода.</p>';
   const clear = options.confirmClear
     ? `<div class="playtest-confirm" role="alert"><span>Удалить ${journal.attempts.length} записей?</span><button class="button secondary" data-action="playtest-clear-yes">УДАЛИТЬ</button><button class="text-button" data-action="playtest-clear-no">ОТМЕНА</button></div>`

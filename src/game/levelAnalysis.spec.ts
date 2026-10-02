@@ -12,7 +12,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-/** `#` wall, `.` floor, `@` cat, `B` boss (`bossHp`), digits = ordinary 0 HP enemy of that color. */
+/** `#` wall, `.` floor (empty: a door, a refill), `@` cat, `B` boss (`bossHp`), digits = ordinary 0 HP enemy of that color. */
 function level(rows: string[], goals: CustomLevelDefinition['goals'], weights: CustomLevelDefinition['paletteWeights'] = [1, 1, 0, 0, 0], bossHp = 4): CustomLevelDefinition {
   const cols = rows[0].length, terrain: TerrainKind[] = [], enemies: CustomEnemy[] = [];
   let heroIndex = -1;
@@ -82,6 +82,32 @@ async function unresolvedLuck() {
   const fed = (await analyzeEngine(start(pocket), { ...quick, seeds: 2, agents: false, restricted: false })).planner!;
   assert(fed.pOracle === 1 && fed.oracleUnresolved === 0 && fed.fortuneGapSeeds === 2 && fed.fortuneGap !== null && fed.fortuneGap >= 0,
     `with budget both are resolved and the gap is paired: ${JSON.stringify(fed)}`);
+}
+
+// Exit battle (completion 'exit', every map battle since 02.10.2026): meeting the goals opens the door, only entering
+// it wins. Door on F4 behind a wall; the lone colour-1 goblin on F3 leads to it from E2 or F2. Four kills (any
+// colour-0 chain of four) meet the goals, but no chain both meets them and reaches the door: the exit is a turn of its
+// own. The refill is colour 0 only, so F3 stays the one way in; the open field lies away from the door.
+function exitBoard(): CustomLevelDefinition {
+  const board = level(['000000', '0000@0', '0000#1', '0000#.'], [{ key: 'kills', target: 4 }], [1, 0, 0, 0, 0]);
+  return { ...board, doors: [{ index: 23 }], completion: 'exit' };
+}
+async function exitAfterGoals() {
+  const options = { ...quick, depth: 3, beam: 3, nodeBudget: 400, chainLength: 6, plannerResamples: 0, restricted: false } as const;
+  const search = (await analyzeEngine(start(exitBoard()), { ...options, seeds: 1, agents: false })).search![0];
+  assert(search.minGoalTurns === 1 && search.minTurns === 2, `goals on turn 1, the exit is a turn of its own: ${search.minGoalTurns}/${search.minTurns}`);
+  assert(search.stats.previewMismatches === 0, 'every forecast win is a door entry that happened');
+  const opening = search.outcomes!.find(outcome => outcome.winTurns === 2);
+  assert(opening?.goalTurns === 1, `a first action winning on turn 2 met the goals on turn 1: ${JSON.stringify(opening)}`);
+  // The greedy agent meets the goals with its first chain and then makes for the door instead of the longest chain:
+  // a chain to E2/F2 and one into the door. The pure kill order (before 02.10.2026) wandered over the open field
+  // (3 turns after the goals in the median, 6 turns on average on these seeds).
+  const agents = (await analyzeEngine(start(exitBoard()), { ...options, seeds: 3, search: false })).agents!, greedy = agents.greedy;
+  assert(greedy.goals === greedy.runs && greedy.goalTurnsMedian === 1, `greedy meets the goals on turn 1: ${JSON.stringify(greedy)}`);
+  assert(greedy.goalsNoExit === 0 && greedy.exitDelayMedian !== null && greedy.exitDelayMedian <= 2 && greedy.avgWinTurns !== null && greedy.avgWinTurns <= 3,
+    `after the goals the greedy agent goes to the door: ${JSON.stringify(greedy)}`);
+  // An agent's win is a door entry: never without the goals.
+  for (const agent of [agents.random, greedy]) assert(agent.wins <= agent.goals && (agent.exitDelayMedian ?? 0) >= 0, 'no agent wins without the goals');
 }
 
 async function liveEngineUntouched() {
@@ -217,6 +243,7 @@ await pushWins();
 await requiresJump();
 await trapsAndBurnWins();
 await unresolvedLuck();
+await exitAfterGoals();
 await liveEngineUntouched();
 await deterministic();
 await layoutMetrics();

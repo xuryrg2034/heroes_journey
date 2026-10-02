@@ -11,7 +11,7 @@
  * docs/level-metrics.md for definitions and limits.
  */
 import { cloneAnalysisSnapshot, ForestEngine, type AnalysisSnapshot } from './forestEngine';
-import { chainAdjacent, isWalkable, JUMP_RANGE } from './forestSystems';
+import { chainAdjacent, chainNeighbors, isWalkable, JUMP_RANGE } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
 import { isCellAlive } from './cellLife';
 import { enemyDefeatCountsForGoal } from './combatRules';
@@ -72,6 +72,8 @@ export interface StaticMetrics {
 }
 export interface FirstActionOutcome {
   action: string; winTurns: number | null; hp: number | null; dies: boolean; resolvedDepth: number;
+  /** Fewest turns until the goals are met with the cat alive, within the horizon (exit battles: the door opens). */
+  goalTurns: number | null;
   /** true: dies or no win within the horizon (fully searched); null: the budget left it unresolved. */
   trap: boolean | null;
   /** Other inputs with the identical resulting position (merged into this first action). */
@@ -85,7 +87,13 @@ export interface SearchStats {
 }
 export interface SearchResult {
   seed: number; depth: number; exhaustive: boolean;
+  /**
+   * `winnable`, `minTurns`, `bestHp*`: the win — in a battle with an authored exit (`completion: 'exit'`) only entering
+   * the open door, so `minTurns` is the turns to the exit and `bestHpAtMin` the HP at the exit.
+   */
   winnable: boolean; minTurns: number | null; bestHp: number | null; bestHpAtMin: number | null;
+  /** Fewest turns until the goals are met with the cat alive, found within the horizon; null — not found. Equals `minTurns` in a direct battle. */
+  minGoalTurns: number | null;
   firstActions: number; solutionsAtMin: number; firstMoveWinShare: number; trapShare: number; unresolvedFirstActions: number;
   criticality: number | null; criticalityComplete: boolean; solutionLine: string[];
   /** w_t along the solution line: share of distinct actions that keep the optimum at step t. */
@@ -108,6 +116,14 @@ export interface AgentSummary {
   /** TSI-style information I = -log2 P(win). */
   info: Bits;
   avgHp: number; avgTurns: number; avgWinTurns: number | null; winHpMedian: number | null; winHpP10: number | null;
+  /** Runs that met the goals with the cat alive (exit battles: opened the door) and their share. */
+  goals: number; goalRate: number;
+  /** Median turns to the goals (runs that met them) and to the win (wins: the exit). */
+  goalTurnsMedian: number | null; winTurnsMedian: number | null;
+  /** Wins: median turns from the goals to the exit (0 — the chain that met them entered the door) and HP lost in them. */
+  exitDelayMedian: number | null; hpLostAfterGoalMedian: number | null;
+  /** Runs that met the goals but did not win: the cat died or the turn limit came first. */
+  goalsNoExit: number;
 }
 export interface PlannerResult {
   resamples: number;
@@ -195,10 +211,31 @@ export function variantSeed(base: number, k: number): number {
   return (h ^ h >>> 16) >>> 0;
 }
 
+/** A battle with an authored exit (`completion: 'exit'`, every map battle since 02.10.2026): only entering the open door wins. */
+const exitCompletion = (state: ForestState) => state.customLevel?.definition.completion === 'exit';
+/** The goals are met: the battle is won, or the authored goals were completed (in an exit battle the door is open). */
+const goalsMet = (state: ForestState) => state.phase === 'WIN' || (state.customLevel?.goalCompletedTurn ?? null) !== null;
+/**
+ * Chain steps from every cell to the nearest door over walkable cells (chain adjacency, occupants ignored), for an
+ * exit battle whose door is open; null otherwise. The beam and the greedy agent use it to head for the exit after
+ * the goals: before them the door is closed (`planChain` refuses it), so it pulls nothing.
+ */
+function exitDistances(state: ForestState): number[] | null {
+  if (!exitCompletion(state) || !goalsMet(state)) return null;
+  const distance = state.board.map(() => Infinity), queue: number[] = [];
+  for (const { cell, indices } of uniqueEntities(state.board)) if (cell.kind === 'door') for (const index of indices) { distance[index] = 0; queue.push(index); }
+  for (let head = 0; head < queue.length; head++) {
+    const from = queue[head];
+    for (const to of chainNeighbors(state, from)) if (distance[to] === Infinity) { distance[to] = distance[from] + 1; queue.push(to); }
+  }
+  return distance;
+}
+
+/** Goal progress of hitting `cell`. The door is not a goal: after the goals of an exit battle only reaching it matters (exitDistances). */
 function goalWeight(state: ForestState, cell: ForestCell | null | undefined): number {
-  if (!cell || cell.kind === 'prism') return 0;
+  if (!cell || cell.kind === 'prism' || cell.kind === 'door') return 0;
   const definition = state.customLevel?.definition;
-  if (cell.kind === 'door') return definition?.completion === 'exit' || !definition ? 1 : 0;
+  if (exitCompletion(state) && goalsMet(state)) return 0;
   if (state.tutorial?.targetIds.length) return state.tutorial.targetIds.includes(cell.id) ? 1 : 0;
   const keys = definition ? definition.goals.map(goal => goal.key) : ['kills', 'rangedKills', 'bossKills'];
   if (keys.includes('bossKills') && cell.kind === 'boss') return 1;
@@ -208,7 +245,7 @@ function goalWeight(state: ForestState, cell: ForestCell | null | undefined): nu
 
 // ---------------------------------------------------------------- nodes and actions
 
-interface AnalysisNode { snap: AnalysisSnapshot; hash: string; movesKey: string; phase: ForestState['phase']; hp: number; maxHp: number; turn: number }
+interface AnalysisNode { snap: AnalysisSnapshot; hash: string; movesKey: string; phase: ForestState['phase']; hp: number; maxHp: number; turn: number; goalsMet: boolean }
 interface ActionInfo {
   action: AnalysisAction; label: string; main: boolean;
   /** The engine forecast says the action ends the battle with a win. */
@@ -220,13 +257,17 @@ interface ActionInfo {
   lateWin: boolean;
   dies: boolean; incoming: number; kills: number; dealt: number; goal: number; score: number;
   usesDevice: boolean; usesPrism: boolean;
+  /** The forecast says this action meets the goals of an exit battle without entering the door (`unlocksExit`). */
+  unlocks: boolean;
+  /** Exit battle with the door open: chain steps from the cat's cell after this action to the door (Infinity — cut off); null otherwise. */
+  exitDistance: number | null;
 }
 
 function makeNode(snap: AnalysisSnapshot): AnalysisNode {
   snap.entry = null;
   const text = stateText(snap.state);
   return { snap, hash: hashString(`${text}|${snap.rng}|${snap.nextId}`), movesKey: hashString(text),
-    phase: snap.state.phase, hp: snap.state.player.hp, maxHp: snap.state.player.maxHp, turn: snap.state.turn };
+    phase: snap.state.phase, hp: snap.state.player.hp, maxHp: snap.state.player.maxHp, turn: snap.state.turn, goalsMet: goalsMet(snap.state) };
 }
 
 function describePreview(state: ForestState, preview: ChainPreview) {
@@ -249,11 +290,16 @@ function describePreview(state: ForestState, preview: ChainPreview) {
 }
 /**
  * Beam ordering: progress toward the goals first; damage costs HP only mildly (paying HP for progress is a
- * legitimate plan), with an extra penalty when the cat would be left on its last hit point.
+ * legitimate plan), with an extra penalty when the cat would be left on its last hit point. After the goals of an
+ * exit battle the progress is the approach to the door (`approach` = steps gained toward it).
  */
-function actionScore(hp: number, goal: number, kills: number, dealt: number, energy: number, incoming: number) {
-  return 10 * goal + 2 * kills + dealt + energy - 8 * incoming - (incoming > 0 && hp - incoming <= 1 ? 30 : 0);
+function actionScore(hp: number, goal: number, kills: number, dealt: number, energy: number, incoming: number, approach = 0) {
+  return 10 * goal + 10 * approach + 2 * kills + dealt + energy - 8 * incoming - (incoming > 0 && hp - incoming <= 1 ? 30 : 0);
 }
+/** Steps gained toward the door; 0 when either end is cut off from it. */
+const approachOf = (before: number, after: number) => Number.isFinite(before) && Number.isFinite(after) ? before - after : 0;
+/** Ascending distance; equal (including both cut off) compares as 0. */
+const byDistance = (a: number, b: number) => a === b ? 0 : a - b;
 
 /**
  * Could the next end-of-turn burning/poison tick defeat a goal entity? Uses the engine's own
@@ -292,16 +338,21 @@ class Analyzer {
     const g = this.worker, state = g.state, infos: ActionInfo[] = [];
     if (state.phase !== 'PLAYER_INPUT') { this.actionCache.set(node.movesKey, infos); return infos; }
     const deviceCells = new Set(state.devices.map(device => device.index));
+    // In an exit battle nothing but entering the door wins: an enemy-phase tick may open the door, never end the battle.
+    const exit = exitCompletion(state), distances = exitDistances(state), here = distances ? distances[state.player.index] : Infinity;
     const push = (action: AnalysisAction, preview: ChainPreview | null, extra: Partial<ActionInfo> = {}) => {
       const described = preview ? describePreview(state, preview) : { goal: 0, dealt: 0, kills: 0 };
       // A win in the enemy phase (forced deaths, the finished turn) is forecast by the engine as well.
       const win = !!preview?.completesRoom || !!preview?.enemyPhase?.completesObjective, dies = !!preview?.playerDies, incoming = preview?.damage ?? 0;
-      const lateWin = !win && !dies && !!preview && tickMayWin(state, preview);
+      const lateWin = !exit && !win && !dies && !!preview && tickMayWin(state, preview);
+      // The cat's cell after the action and the enemy phase (a boar may push it).
+      const exitDistance = distances && preview ? distances[preview.enemyPhase?.heroIndex ?? preview.endIndex] : null;
       const score = win ? 1e6 + 100 * (state.player.hp - incoming) : dies ? -1e6
-        : actionScore(state.player.hp, described.goal, described.kills, described.dealt, preview?.energyGain ?? 0, incoming);
+        : actionScore(state.player.hp, described.goal, described.kills, described.dealt, preview?.energyGain ?? 0, incoming, exitDistance === null ? 0 : approachOf(here, exitDistance));
       infos.push({ action, label: actionLabel(state, action), main: action.kind !== 'item', win, lateWin, dies, incoming, ...described, score,
         usesDevice: action.kind === 'chain' && action.path.some(index => deviceCells.has(index)),
-        usesPrism: action.kind === 'chain' && action.path.some(index => state.board[index]?.kind === 'prism'), ...extra });
+        usesPrism: action.kind === 'chain' && action.path.some(index => state.board[index]?.kind === 'prism'),
+        unlocks: !!preview?.unlocksExit || !!preview?.enemyPhase?.unlocksExit, exitDistance, ...extra });
     };
     for (const path of g.availableMoves(this.options.chainLength)) push({ kind: 'chain', path }, g.preview(path));
     for (let target = 0; target < state.board.length; target++) {
@@ -313,10 +364,13 @@ class Analyzer {
     const spin = g.previewAbility('spin');
     if (spin.valid) push({ kind: 'spin' }, spin);
     // Rest has no chain forecast; the announced attacks on the current square are its visible cost.
-    // Its enemy phase (charges, arrows, ticks, a survived turn) can still win, so a horizon leaf always executes it.
+    // Its enemy phase (charges, arrows, ticks, a survived turn) can still win, so a horizon leaf executes it — except in an
+    // exit battle, where only the door wins.
     const incoming = planEnemyPhase(state.board, state.player.index, undefined, state).attacks.filter(attack => attack.hitsHero).reduce((sum, attack) => sum + attack.cell.intent.damage, 0);
-    infos.push({ action: { kind: 'rest' }, label: 'rest', main: true, win: false, lateWin: true, dies: incoming >= state.player.hp, incoming, kills: 0, dealt: 0, goal: 0,
-      score: -5 + actionScore(state.player.hp, 0, 0, 0, 0, incoming), usesDevice: false, usesPrism: false });
+    infos.push({ action: { kind: 'rest' }, label: 'rest', main: true, win: false, lateWin: !exit, dies: incoming >= state.player.hp, incoming, kills: 0, dealt: 0, goal: 0,
+      score: -5 + actionScore(state.player.hp, 0, 0, 0, 0, incoming), usesDevice: false, usesPrism: false,
+      // A rest's enemy phase may still meet the goals (a ram, a tick): only executing it tells, the leaf does not count it.
+      unlocks: false, exitDistance: distances ? here : null });
     if (!state.itemPrepared) for (const item of ['frost', 'bomb', 'fire', 'healing'] as ItemKind[]) {
       if (state.inventory[item] < 1 || state.tutorial && !state.tutorial.allowedItems.includes(item)) continue;
       const targets = item === 'healing' ? [state.player.index] : uniqueEntities(state.board).map(entity => entity.index);
@@ -329,7 +383,7 @@ class Analyzer {
         const goal = cells.reduce((sum, cell) => sum + goalWeight(state, cell) * (item === 'bomb' ? Math.min(cell.hp, preview.damage) + (cell.hp <= preview.damage ? 50 : 0) : item === 'fire' ? 3 : 5), 0);
         const score = item === 'healing' ? 20 * preview.healing : item === 'frost' ? 5 * (g.previewFrost(target).skippedCells.length ? 1 : 0) + 10 * goal : 10 * goal + cells.length;
         infos.push({ action: { kind: 'item', item, target }, label: actionLabel(state, { kind: 'item', item, target }), main: false, win: false, lateWin: false, dies: false,
-          incoming: 0, kills: 0, dealt: preview.damage, goal, score, usesDevice: false, usesPrism: false });
+          incoming: 0, kills: 0, dealt: preview.damage, goal, score, usesDevice: false, usesPrism: false, unlocks: false, exitDistance: null });
       }
     }
     this.actionCache.set(node.movesKey, infos);
@@ -363,14 +417,17 @@ const byScore = (a: ActionInfo, b: ActionInfo) => b.score - a.score;
 
 // ---------------------------------------------------------------- tree search
 
-/** `complete` is false only when the node budget cut the subtree. */
-interface Value { winTurns: number; hpAtMin: number; maxHp: number; complete: boolean }
-const NONE: Value = { winTurns: Infinity, hpAtMin: -1, maxHp: -1, complete: true };
-const INCOMPLETE: Value = { ...NONE, complete: false };
+/** `complete` is false only when the node budget cut the subtree. `goalTurns`: fewest turns to the goals with the cat alive. */
+interface Value { winTurns: number; goalTurns: number; hpAtMin: number; maxHp: number; complete: boolean }
+const NONE: Value = { winTurns: Infinity, goalTurns: Infinity, hpAtMin: -1, maxHp: -1, complete: true };
+/** Value of a node with no win found yet: the goals count as reached (0 turns) once met. */
+const reached = (node: AnalysisNode): Value => node.phase === 'WIN' ? { winTurns: 0, goalTurns: 0, hpAtMin: node.hp, maxHp: node.hp, complete: true }
+  : node.goalsMet && node.phase !== 'LOSE' ? { ...NONE, goalTurns: 0 } : NONE;
 function merge(best: Value, value: Value, turns: number): Value {
   const winTurns = value.winTurns + turns;
   return {
     winTurns: Math.min(best.winTurns, winTurns),
+    goalTurns: Math.min(best.goalTurns, value.goalTurns + turns),
     hpAtMin: winTurns < best.winTurns ? value.hpAtMin : winTurns === best.winTurns ? Math.max(best.hpAtMin, value.hpAtMin) : best.hpAtMin,
     maxHp: Math.max(best.maxHp, value.maxHp),
     complete: best.complete && value.complete,
@@ -424,13 +481,15 @@ class TreeSearch {
   }
 
   async evaluate(node: AnalysisNode, remaining: number): Promise<Value> {
-    if (node.phase === 'WIN') return { winTurns: 0, hpAtMin: node.hp, maxHp: node.hp, complete: true };
-    if (node.phase !== 'PLAYER_INPUT' || remaining <= 0) return NONE;
+    const base = reached(node);
+    if (node.phase !== 'PLAYER_INPUT' || remaining <= 0) return base;
     const key = `${node.hash}|${remaining}`, known = this.memo.get(key);
     if (known) { this.stats.memoHits++; return known; }
     const infos = this.actions(node);
-    if (!infos) return INCOMPLETE;
-    let value: Value = { ...NONE };
+    if (!infos) return { ...base, complete: false };
+    let value: Value = { ...base };
+    // On the horizon leaf only wins are executed; an action the forecast says meets the goals counts for the goal turn.
+    if (remaining === 1 && infos.some(info => info.main && !info.dies && (info.win || info.unlocks))) value.goalTurns = Math.min(value.goalTurns, 1);
     for (const info of this.candidates(infos, false, remaining === 1)) {
       const child = await this.child(node, info);
       if (!child) continue;
@@ -452,7 +511,7 @@ class TreeSearch {
       // Different inputs with an identical resulting position are one distinguishable first action.
       const known = seen.get(node.hash);
       if (known) { known.aliases.push(info.label); continue; }
-      const entry = { info, node, value: node.phase === 'WIN' ? { winTurns: 0, hpAtMin: node.hp, maxHp: node.hp, complete: true } : NONE, resolved: 0, aliases: [] as string[] };
+      const entry = { info, node, value: reached(node), resolved: 0, aliases: [] as string[] };
       seen.set(node.hash, entry); children.push(entry);
     }
     const order = [...children].sort((a, b) => byScore(a.info, b.info));
@@ -470,6 +529,9 @@ class TreeSearch {
     const turnsOf = (entry: typeof children[number]) => entry.value.winTurns + entry.node.turn - root.turn;
     const winners = children.filter(entry => entry.value.winTurns < Infinity);
     const minTurns = winners.length ? Math.min(...winners.map(turnsOf)) : null;
+    const goalTurnsOf = (entry: typeof children[number]) => entry.value.goalTurns + entry.node.turn - root.turn;
+    const goalReached = children.filter(entry => entry.value.goalTurns < Infinity);
+    const minGoalTurns = goalReached.length ? Math.min(...goalReached.map(goalTurnsOf)) : null;
     const atMin = winners.filter(entry => turnsOf(entry) === minTurns);
     const traps = children.filter(entry => entry.node.phase === 'LOSE' || entry.value.winTurns === Infinity && entry.resolved >= depth && entry.value.complete);
     const unresolved = children.filter(entry => entry.value.winTurns === Infinity && !traps.includes(entry));
@@ -479,7 +541,7 @@ class TreeSearch {
       && children.every(entry => entry.value.complete || entry.value.winTurns < Infinity);
     const result: SearchResult = {
       seed, depth, exhaustive,
-      winnable: winners.length > 0, minTurns,
+      winnable: winners.length > 0, minTurns, minGoalTurns,
       bestHp: winners.length ? Math.max(...winners.map(entry => entry.value.maxHp)) : null,
       bestHpAtMin: atMin.length ? Math.max(...atMin.map(entry => entry.value.hpAtMin)) : null,
       firstActions: children.length, solutionsAtMin: atMin.length,
@@ -492,7 +554,7 @@ class TreeSearch {
     };
     if (withOutcomes) result.outcomes = children.map(entry => ({ action: entry.info.label,
       winTurns: entry.value.winTurns < Infinity ? turnsOf(entry) : null, hp: entry.value.winTurns < Infinity ? entry.value.hpAtMin : null,
-      dies: entry.node.phase === 'LOSE', resolvedDepth: Math.min(entry.resolved, depth),
+      dies: entry.node.phase === 'LOSE', resolvedDepth: Math.min(entry.resolved, depth), goalTurns: entry.value.goalTurns < Infinity ? goalTurnsOf(entry) : null,
       trap: traps.includes(entry) ? true : entry.value.winTurns < Infinity ? false : null,
       ...(entry.aliases.length ? { aliases: entry.aliases } : {}) }));
     return result;
@@ -591,15 +653,20 @@ function shareOf(outcomes: (boolean | null)[]) {
 function outcomeOf(result: SearchResult | undefined, label: string | undefined) {
   return label === undefined ? undefined : result?.outcomes?.find(entry => entry.action === label || entry.aliases?.includes(label));
 }
-/** Greedy by immediate result: win now > survive > kills > damage dealt > safe end > less incoming damage. */
+/**
+ * Greedy by immediate result: win now > survive > (exit battle with the door open) nearer the door > kills > damage
+ * dealt > safe end > less incoming damage. Before the goals the door is closed and does not pull the agent.
+ */
 function greedyChoice(infos: ActionInfo[]): ActionInfo | undefined {
-  return infos.filter(info => info.main).sort((a, b) => Number(b.win) - Number(a.win) || Number(a.dies) - Number(b.dies) || b.kills - a.kills
+  return infos.filter(info => info.main).sort((a, b) => Number(b.win) - Number(a.win) || Number(a.dies) - Number(b.dies)
+    || (a.exitDistance !== null && b.exitDistance !== null ? byDistance(a.exitDistance, b.exitDistance) : 0) || b.kills - a.kills
     || b.dealt - a.dealt || Number(a.incoming > 0) - Number(b.incoming > 0) || a.incoming - b.incoming)[0];
 }
-interface AgentRun { won: boolean; hp: number; turns: number; lost: boolean }
+/** `goalTurn`: turns until the goals were met with the cat alive (null — not met); `hpAtGoal`: the cat's HP then. */
+interface AgentRun { won: boolean; hp: number; turns: number; lost: boolean; goalTurn: number | null; hpAtGoal: number | null }
 async function runAgent(analyzer: Analyzer, root: AnalysisNode, kind: 'random' | 'greedy', agentSeed: number, turnLimit: number, tools: ToolAccess = ALL_TOOLS): Promise<AgentRun> {
   const random = mulberry32(agentSeed);
-  let node = root;
+  let node = root, goalTurn: number | null = null, hpAtGoal: number | null = null;
   while (node.phase === 'PLAYER_INPUT' && node.turn - root.turn < turnLimit) {
     const infos = analyzer.computeActions(node).filter(info => allowed(info, tools));
     const choice = kind === 'random' ? infos[Math.floor(random() * infos.length)] : greedyChoice(infos);
@@ -607,8 +674,9 @@ async function runAgent(analyzer: Analyzer, root: AnalysisNode, kind: 'random' |
     const next = await analyzer.execute(node, choice.action);
     if (!next) break;
     node = next;
+    if (goalTurn === null && node.goalsMet && node.phase !== 'LOSE') { goalTurn = node.turn - root.turn; hpAtGoal = node.hp; }
   }
-  return { won: node.phase === 'WIN', hp: node.phase === 'LOSE' ? 0 : node.hp, turns: node.turn - root.turn, lost: node.phase === 'LOSE' };
+  return { won: node.phase === 'WIN', hp: node.phase === 'LOSE' ? 0 : node.hp, turns: node.turn - root.turn, lost: node.phase === 'LOSE', goalTurn, hpAtGoal };
 }
 /** Wilson score interval, 95%. */
 export function wilson(wins: number, runs: number): [number, number] {
@@ -628,14 +696,25 @@ function bitsDelta(without: Bits, withTool: Bits): BitsDelta {
   return { bits: null, atLeast: null };
 }
 function quantile(sorted: number[], q: number) { return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : null; }
+/** Median of the values (mean of the two middle ones); null for none. */
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b), middle = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[middle] : round((sorted[middle - 1] + sorted[middle]) / 2, 2);
+}
 function summarize(results: AgentRun[]): AgentSummary {
   const wins = results.filter(result => result.won);
   const mean = (values: number[]) => values.length ? round(values.reduce((a, b) => a + b, 0) / values.length, 2) : 0;
-  const winHp = wins.map(result => result.hp).sort((a, b) => a - b);
+  const winHp = wins.map(result => result.hp).sort((a, b) => a - b), goals = results.filter(result => result.goalTurn !== null);
   return { runs: results.length, wins: wins.length, winRate: results.length ? round(wins.length / results.length) : 0, winRateCi95: wilson(wins.length, results.length),
     losses: results.filter(result => result.lost).length, info: informationBits(wins.length, results.length),
     avgHp: mean(results.map(result => result.hp)), avgTurns: mean(results.map(result => result.turns)),
-    avgWinTurns: wins.length ? mean(wins.map(result => result.turns)) : null, winHpMedian: quantile(winHp, 0.5), winHpP10: quantile(winHp, 0.1) };
+    avgWinTurns: wins.length ? mean(wins.map(result => result.turns)) : null, winHpMedian: quantile(winHp, 0.5), winHpP10: quantile(winHp, 0.1),
+    goals: goals.length, goalRate: results.length ? round(goals.length / results.length) : 0,
+    goalTurnsMedian: median(goals.map(result => result.goalTurn!)), winTurnsMedian: median(wins.map(result => result.turns)),
+    exitDelayMedian: median(wins.flatMap(result => result.goalTurn === null ? [] : [result.turns - result.goalTurn])),
+    hpLostAfterGoalMedian: median(wins.flatMap(result => result.hpAtGoal === null ? [] : [result.hpAtGoal - result.hp])),
+    goalsNoExit: goals.filter(result => !result.won).length };
 }
 async function runAgents(analyzer: Analyzer, roots: AnalysisNode[], options: AnalysisOptions, tools: ToolAccess = ALL_TOOLS) {
   const random: AgentRun[] = [], greedy: AgentRun[] = [];
