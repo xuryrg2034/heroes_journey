@@ -454,7 +454,9 @@ async function killCredit() {
   const second = await chain(boar, cells(boar, ['B5', 'B6', 'C6']), 'boar turn 2');
   const spikes = second.preview.enemyPhase!.deaths.filter(death => death.cause === 'spikes').length;
   equal([spikes, boar.state.objective.tutorialTargets, second.killsDelta], [2, 2, second.preview.kills], 'spike deaths: targets count for the task, no kill credit');
-  equal(boar.state.phase, 'WIN', 'boar-garden is still won by the push');
+  // Since the exit door (02.10.2026) the push meets the goals and opens the door; the battle goes on until the cat enters it.
+  assert(boar.state.phase === 'PLAYER_INPUT' && boar.state.customLevel!.goalCompletedTurn !== null
+    && boar.state.board.some(cell => cell?.kind === 'door' && cell.intent.label === 'Выход открыт'), 'boar-garden: the push opens the exit door');
 
   // Troll club in an editor level with a kill goal: club kills do not advance it.
   const club = new ForestEngine(); club.animationScale = 0;

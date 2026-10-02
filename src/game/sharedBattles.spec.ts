@@ -11,7 +11,9 @@ import { startNodeBattle } from './testing/fixtures';
 // lesson 9) and the Jailer checkpoint (node jailer, row 9; former lesson 14). Both are started exactly as their map
 // nodes (startNodeBattle): 5/5 HP, 0 energy, no items, frost and jump open (guaranteed on every route), the row palette
 // plus the authored colors. Rows ≥ 5 drop the authored passivity and add growing anger (mapBattleRules.ts), so these
-// are the conditions every route below is played in. Analyzer metrics live in docs/levels/*.md, not here.
+// are the conditions every route below is played in. Both battles end through an exit door (decision of 02.10.2026):
+// the goals open it, entering it wins — «Три знамени» F6 beside the green guard, the Jailer F1 one turn from the kill.
+// Analyzer metrics live in docs/levels/*.md, not here.
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -20,6 +22,8 @@ function assert(condition: unknown, message: string): void {
 const at = (g: ForestEngine, label: string) => (Number(label.slice(1)) - 1) * g.state.cols + label.charCodeAt(0) - 65;
 const route = (g: ForestEngine, ...labels: string[]) => labels.map(label => at(g, label));
 const boss = (g: ForestEngine) => g.state.board.find(cell => cell?.kind === 'boss');
+const DOOR = { 'three-banners': 'F6', 'jailer-gate': 'F1' } as const;
+const doorLabel = (g: ForestEngine, id: keyof typeof DOOR) => g.state.board[at(g, DOOR[id])]?.kind === 'door' ? g.state.board[at(g, DOOR[id])]!.intent.label : 'none';
 function start(id: 'three-banners' | 'jailer-gate', refillSeed = 0) {
   const g = startNodeBattle(id);
   // Same seed substitution as the level analyzer: the authored start stays, only later refills change.
@@ -48,6 +52,7 @@ async function commit(g: ForestEngine, ...labels: string[]) {
   assert(g.state.player.index === prediction.endIndex, 'endpoint matches forecast');
   assert((g.state.phase === 'LOSE') === !!prediction.playerDies, 'death matches forecast');
   assert((g.state.phase === 'WIN') === !!prediction.completesRoom, 'completion matches forecast');
+  if (g.state.phase === 'WIN') assert(prediction.opensDoor === path.at(-1) && g.state.player.index === path.at(-1), 'the victory is the cat entering the door');
   return prediction;
 }
 async function jump(g: ForestEngine, label: string) {
@@ -76,6 +81,7 @@ function layouts() {
     const authored = new Set(definition.enemies.flatMap(enemy => enemy.color === null ? [] : [enemy.color]));
     assert(authored.size === colors, `${id}: ${colors} authored ordinary colors`);
     const occupied = new Set([...definition.enemies.map(enemy => enemy.index), ...definition.doors.map(door => door.index), definition.heroIndex]);
+    assert(definition.doors.length === 1 && definition.completion === 'exit', `${id} ends through one exit door`);
     definition.terrain.forEach((terrain, cell) => assert(occupied.has(cell) === (terrain !== 'wall'), `${id}: every walkable square has authored content`));
     const g = start(id), { state } = g;
     assert(state.runNode?.nodeId === nodeId && state.runNode.row === node.row && runPressureActive(state), `${id} starts as ${nodeId} on row ${node.row} with growing anger`);
@@ -92,6 +98,7 @@ function layouts() {
     }
     assert(state.tutorial!.targetIds.join() === battle.targetIndices.map(index => state.board[index]!.id).join(), `${id}: marked targets keep their IDs`);
     assert(g.availableMoves(4).length > 0, `${id} opens with a legal chain`);
+    assert(doorLabel(g, id) === 'Выполни цели', `${id}: the door on ${DOOR[id]} is closed at the start`);
   }
 }
 
@@ -114,7 +121,11 @@ async function banners(g: ForestEngine): Promise<boolean> {
   const crystal = ['F3', 'F4', 'E4'].find(label => g.state.board[at(g, label)]?.crystalChain);
   if (crystal) { console.log(`NOTE three-banners: a crystal took ${crystal} of the green lane on this refill seed`); return false; }
   assert(['F3', 'F4', 'E4'].every(label => g.state.board[at(g, label)]?.color === 1), 'the green group survives the first refill');
-  await commit(g, 'F3', 'F4', 'E4', 'E5');
+  // «Рядом»: the green chain that defeats Z continues into the corner door F6.
+  const greens = g.preview(route(g, 'F3', 'F4', 'E4', 'E5'));
+  assert(greens.hits.at(-1)?.killed && !greens.completesRoom && greens.opensDoor === undefined, 'meeting both goals alone is no victory');
+  const exit = await commit(g, 'F3', 'F4', 'E4', 'E5', 'F6');
+  assert(exit.opensDoor === at(g, 'F6') && g.state.turn === 2, 'the same chain enters the door on turn 2');
   won(g, 5);
   return true;
 }
@@ -143,16 +154,33 @@ async function jailer(g: ForestEngine) {
   await commit(g, 'E2', 'E3', 'D2', 'C3', 'B3', 'C2', 'D1');
   assert(boss(g)!.hp === 3 && shieldIsActive(boss(g)!), 'the pool from below lands in the rest window; the shield returns');
   assert(boss(g)!.intent.cells.includes(g.state.player.index) && boss(g)!.intent.damage === 2, 'the next heavy strike is aimed at the cat below');
-  const finish = await commit(g, 'B1', 'C1', 'D1'); won(g, 5);
-  assert(finish.completesRoom && g.state.player.energy >= 2, 'a side chain finishes the Jailer; the earned jump stays unused');
+  const finish = await commit(g, 'B1', 'C1', 'D1');
+  assert(!finish.completesRoom && g.state.phase === 'PLAYER_INPUT' && !boss(g) && g.state.player.energy >= 2, 'a side chain finishes the Jailer; the earned jump stays unused');
   assert(g.state.objective.tutorialTargets === 1 && g.state.objective.bossKills === 1, 'the Jailer is the only required target');
+  await leaveJailer(g);
+}
+/**
+ * «Ход»: the cat stands on D1 after the kill, two squares from the door F1; the enemies answer once, then any refilled
+ * neighbour on E1 or E2 and the door make the exit chain. Found by a search over real moves, not a fixed refill.
+ */
+async function leaveJailer(g: ForestEngine) {
+  const door = at(g, DOOR['jailer-gate']), turn = g.state.turn;
+  assert(g.state.player.index === at(g, 'D1') && doorLabel(g, 'jailer-gate') === 'Выход открыт', 'the kill opens the door two squares away');
+  const exits = g.availableMoves().filter(path => path.at(-1) === door).sort((a, b) => a.length - b.length);
+  assert(exits.length > 0, 'an exit chain exists on the turn after the kill');
+  const hp = g.state.player.hp;
+  await commit(g, ...exits[0].map(index => String.fromCharCode(65 + index % g.state.cols) + (Math.floor(index / g.state.cols) + 1)));
+  assert(g.state.turn === turn + 1, 'the cat leaves one turn after the kill');
+  won(g, hp);
 }
 /** Alternative: after the same two turns the earned jump also finishes (it ignores the shield). */
 async function jailerJump(g: ForestEngine) {
   await commit(g, 'F3', 'G2', 'F2', 'E1', 'D1');
   await commit(g, 'E2', 'E3', 'D2', 'C3', 'B3', 'C2', 'D1');
   assert(boss(g)!.hp === 2, 'the longer flank leaves two HP');
-  await jump(g, 'D1'); won(g, 5);
+  await jump(g, 'D1');
+  assert(g.state.phase === 'PLAYER_INPUT' && !boss(g), 'the jump finishes the Jailer; the door opens');
+  await leaveJailer(g);
 }
 /** Trap: eating the pool while the shield is up wastes the rest window. */
 async function poolTooEarly(g: ForestEngine) {
@@ -169,6 +197,8 @@ async function refillIndependence() {
     await jailer(start('jailer-gate', seed)); await jailerJump(start('jailer-gate', seed));
   }
   assert(clean >= 4, `three-banners: the authored route is checked on most refill seeds, got ${clean} of 5`);
+  // The Jailer's exit rests on refilled squares: check the one-turn exit on spread seeds as well.
+  for (let k = 1; k <= 4; k++) { const seed = Math.imul(k, 2654435761) >>> 0; await jailer(start('jailer-gate', seed)); await jailerJump(start('jailer-gate', seed)); }
 }
 async function replay(id: 'three-banners' | 'jailer-gate', play: (g: ForestEngine) => Promise<unknown>) {
   const g = start(id), initial = JSON.stringify(g.captureAnalysisSnapshot());
@@ -182,6 +212,6 @@ async function main() {
   await replay('three-banners', banners);
   await replay('jailer-gate', jailer); await replay('jailer-gate', jailerJump); await replay('jailer-gate', poolTooEarly);
   await refillIndependence();
-  console.log('PASS shared battles as map nodes: Three Banners prism route; Jailer opening cap, shield/rest window, pool trap, chain finish, jump alternative; refill seeds, pure forecast and exact replay');
+  console.log('PASS shared battles as map nodes: Three Banners prism route into the door; Jailer opening cap, shield/rest window, pool trap, chain finish, jump alternative, exit one turn later; refill seeds, pure forecast and exact replay');
 }
 main().catch(error => { console.error(error); throw error; });

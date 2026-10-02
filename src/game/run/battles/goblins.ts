@@ -6,17 +6,19 @@ import type { NodeBattle } from '../forestBattles';
  * docs/biomes/forest-map.md, «Как добавить бой узла». Ids are unique across battles/*.ts.
  * Cards, maps, verified routes and dated analyzer metrics: docs/levels/forest-nodes-goblins.md.
  * Only the opening layouts are authored; refills stay random by the run seed and the row palette.
+ * Every battle has an exit door D (decision of 02.10.2026): the goals open it, the victory is entering it.
  */
 export const GOBLIN_BATTLES: NodeBattle[] = [
   // Row 5, lesson. The archer's announced line D2–D4 is off limits; the guard Q stands on it,
   // so a chain may wound Q and leave the arrow to finish it. The archer stands in a puddle for frost.
+  // Exit «nearby»: the door C2 touches both goals (D1, D3), so the chain taking the last one continues into it.
   authoredLesson({
     id: 'goblin-archer-watch', name: 'Дозор на засеке',
     description: 'Лучник засел в нише над засекой. Караульный стоит прямо на его линии.',
     hint: 'Лучник бьёт по объявленной линии до 3 клеток и попадает во всех, кто на ней стоит, в том числе в своих. Не заканчивай цепь на линии. Караульного можно ранить и оставить стреле.',
     rows: [
       'GG#A#O',
-      'GRBRBO',
+      'GRDRBO',
       'OORQBG',
       'OBRRBG',
       'BBGHGR',
@@ -25,11 +27,13 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
     legend: {
       A: { kind: 'ranged', color: 2, hp: 3, armed: true, target: true, terrain: 'puddle' },
       Q: { color: 0, hp: 3, target: true },
+      D: { door: true },
     },
     seed: 9601,
   }),
   // Row 6, lesson / application. The shield faces the cat, so the red pocket north of the bearer is closed
   // from the start; the ochre chain to the guard Q moves the cat east and turns the shield away from the pocket.
+  // Exit «nearby»: the door C5 is the gap the bearer guards; the red chain that kills it continues into it.
   authoredLesson({
     id: 'goblin-shield-flank', name: 'Щит у частокола',
     description: 'Щитоносец стережёт проход в частоколе, караульный стоит у ворот засеки.',
@@ -39,24 +43,26 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
       'GRRROOO',
       '#BRGQOO',
       'BBSGOGO',
-      '#OBGGBb',
+      '#ODGGBb',
       'OOBBGB#',
     ],
     legend: {
       S: { color: 0, hp: 3, variant: 'sentinel', armed: true, target: true },
       Q: { color: 3, hp: 2, target: true },
+      D: { door: true },
     },
     seed: 9602,
   }),
   // Row 7, barricade exam. The only breach E3 is held by a shield bearer facing the cat; the cat must stop where
   // the east–west axis dominates (G4) to pass through it and take the shaman before its first rite.
   // The archer on the watchtower A1 is finished with the jump that opens on this node.
+  // Exit «one turn»: the door C1 behind the stockade is next to the jump's landing cell B1.
   authoredLesson({
     id: 'goblin-shaman-rite', name: 'Камлание за частоколом',
     description: 'Шаман камлает за частоколом. Щитоносец держит пролом, лучник сидит на вышке.',
     hint: 'Каждый второй ход шаман поднимает двух соседних гоблинов на ступень: слабый станет вооружённым, вооружённый — крепким. Щит пускает цепь только сбоку. Прыжок за 2 энергии перелетает частокол.',
     rows: [
-      'AOOGMGR',
+      'AODGMGR',
       'OORRGBR',
       'O###S##',
       'OGGGGGO',
@@ -67,17 +73,19 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
       M: { color: 1, hp: 2, variant: 'shaman', armed: true, target: true },
       S: { color: 1, hp: 3, variant: 'sentinel', armed: true },
       A: { kind: 'ranged', color: 2, hp: 3, armed: true, target: true, terrain: 'puddle' },
+      D: { door: true },
     },
     seed: 9603,
   }),
   // Row 10, first camp battle, the first spin after the Jailer. The shaman M and two sturdy guards X, Y stand
   // around the pocket D3; a long blue chain ending there earns 3 energy, the spin then hits all three.
+  // Exit «one turn»: the gate D1 lies beyond the ring the spin clears; one chain over the refills leads out.
   authoredLesson({
     id: 'camp-cauldron-ring', name: 'Круг у котла',
     description: 'У котла камлает шаман, по бокам стоят двое крепких караульных. Лучник стережёт тропу.',
     hint: 'Круговой удар за 3 энергии бьёт на 4 всех восьмерых соседей, не глядя на цвет и щиты. Закончи длинную цепь у котла там, куда караульные не достают.',
     rows: [
-      '#OOVVG#',
+      '#OODVG#',
       'ROXMYGG',
       'RRVBOOG',
       'VvBRBoO',
@@ -90,6 +98,7 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
       M: { color: 4, hp: 2, variant: 'shaman', armed: true, target: true },
       Y: { color: 1, hp: 2, armed: true, target: true },
       A: { kind: 'ranged', color: 0, hp: 3, armed: true },
+      D: { door: true },
     },
     seed: 9604,
   }),
@@ -97,12 +106,14 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
   // behind them. It forks at B6/B7 into two dead-end pockets: the elite archer A7 (3 → 6 HP, its arrow hits the cat
   // for 2, a jump cannot kill it) and the shaman A4 (2 HP). One chain takes only one of them: the lane goes to the
   // elite, the jump (energy from the lane) finishes the shaman. Loot from the elite is a bonus, not part of the answer.
+  // Exit «one turn»: the door A1 above the shaman's pocket (ochre A3–B2 leads in); the loot, dropped elsewhere, now
+  // waits on the field and costs extra turns under growing anger.
   authoredLesson({
     id: 'camp-shield-wall', name: 'Стена щитов',
     description: 'Два щитоносца перегородили лагерь. За строем камлает шаман, обходную тропу держит элитный лучник.',
     hint: 'Элитный лучник вдвое крепче, его стрела бьёт кота на 2. Прыжок бьёт на 4 и годится, только если цель погибнет. Обходная тропа одна: реши, на кого её потратить.',
     rows: [
-      'VV#RRV',
+      'DV#RRV',
       'VO#BBV',
       'OOSbOO',
       'MBTOOO',
@@ -115,6 +126,7 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
       M: { color: 1, hp: 2, variant: 'shaman', armed: true, target: true },
       S: { color: 2, hp: 4, variant: 'sentinel', armed: true },
       T: { color: 3, hp: 4, variant: 'sentinel', armed: true },
+      D: { door: true },
     },
     seed: 9605,
   }),

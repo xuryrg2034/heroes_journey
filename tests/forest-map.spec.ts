@@ -115,9 +115,10 @@ test('a node battle is played by mouse and returns to the map with the result sa
   await expect(page.locator('#chapter-number')).not.toContainText('/ 16');
   await expect(page.locator('.chapter-select')).toHaveText('← К КАРТЕ');
   await page.screenshot({ path: 'artifacts/forest-map-battle.png' });
-  // The first trunk route, as in trunk.spec.ts: E2-E3-E4 (blue), then D3-C4-B3-A2-A3 (red).
+  // The first trunk route, as in trunk.spec.ts: E2-E3-E4 (blue), then D3-C4-B3-A2-A3-B4-C5-D5 (red, 8 defeats open the
+  // door) and into the door E5: a trunk battle is won only by entering the exit.
   await draw(page, [9, 14, 19]);
-  await draw(page, [13, 17, 11, 5, 10]);
+  await draw(page, [13, 17, 11, 5, 10, 16, 22, 23, 24]);
   expect((await state(page)).phase).toBe('WIN');
   await expect(page.locator('#modal [data-action="run-map"]')).toContainText('К КАРТЕ');
   // The model got the result right away: a reload here would land on the map, not in a replayed battle.
@@ -468,7 +469,8 @@ test('registry battle end to end: the beast trail node from the map, a real mous
   const cell = (label: string) => (Number(label.slice(1)) - 1) * entry.cols + label.charCodeAt(0) - 65;
   await draw(page, ['B5', 'C5', 'C4', 'D3', 'D2'].map(cell));
   expect((await state(page)).phase).toBe('PLAYER_INPUT');
-  await draw(page, ['C2', 'D1', 'E2', 'E3', 'D4'].map(cell));
+  // The goals open the door C1; the same chain finishes C2 and enters it (02.10.2026: victory only through the exit).
+  await draw(page, ['C3', 'D4', 'E3', 'E2', 'D1', 'C2', 'C1'].map(cell));
   expect((await state(page)).phase).toBe('WIN');
   await expect(page.locator('#modal [data-action="run-map"]')).toBeVisible();
   await page.locator('#modal [data-action="run-map"]').click();

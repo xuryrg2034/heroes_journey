@@ -5,10 +5,13 @@
  * the forecast equals execution, the traps of each card are visible in the forecast, the same seed and actions
  * replay identically, refills stay random within the row palette and survivors keep their colors. Elites (elite.ts):
  * doubled HP, the +1 strike shown by the forecast, the run-up they need, and routes that win whether the elite's
- * loot drops or not. Heuristic bot results are deliberately not asserted here (see docs/level-metrics.md).
+ * loot drops or not. Exit door (decision of 02.10.2026): every beast battle ends by entering its authored door, the
+ * goals only open it; the designed exit distance is checked on spread seeds (see `exits`). Heuristic bot results are
+ * deliberately not asserted here (see docs/level-metrics.md).
  */
 import { hasOrdinaryChain } from './boardGeneration';
 import { ForestEngine } from './forestEngine';
+import { planChain } from './forestSystems';
 import type { ChainPreview } from './forestTypes';
 import { variantSeed } from './levelAnalysis';
 import { BEAST_BATTLES } from './run/battles/beasts';
@@ -28,14 +31,25 @@ interface Plan {
   route: string[][];
   /** Cat HP after the route from a 5/5 entry. */
   hp: number;
+  /**
+   * The authored exit door and its distance class. `near`: the winning chain of the route continues into the door;
+   * `turn`/`far`: the route meets the goals and the door is one / two turns away. With `search` the walk to the door
+   * crosses refilled squares, so it is not fixed: it is found by a search over real chains (`exitPath`), at most
+   * `search` turns, and played with real commands.
+   */
+  exit: { cell: string; distance: 'near' | 'turn' | 'far'; search?: number };
 }
 const PLANS: Record<string, Plan> = {
-  'wolf-ford': { node: 'beast-wolf', row: 5, hp: 5, route: [['B5', 'C5', 'C4', 'D3', 'D2'], ['C2', 'D1', 'E2', 'E3', 'D4']] },
-  'boar-garden': { node: 'beast-boar', row: 6, hp: 5, route: [['G5', 'F5', 'E6', 'D5', 'C5'], ['B5', 'B6', 'C6']] },
-  'porcupine-thicket': { node: 'beast-porcupine', row: 7, hp: 4, route: [['A2', 'A3', 'B2', 'C1', 'D2', 'E3'], ['F2', 'F3', 'E4', 'D4', 'C5', 'C6', 'C7']] },
-  'den-watch': { node: 'den-battle', row: 10, hp: 5, route: [['F6', 'E5', 'E6', 'D5', 'E4', 'D4', 'C3', 'D2'], ['C2', 'D1', 'E2', 'E3']] },
-  'den-nest': { node: 'den-elite', row: 12, hp: 4, route: [['E4', 'E3'], ['F2', 'E2', 'D1', 'C1', 'B1']] },
-  'den-breakout': { node: 'den-breakthrough', row: 13, hp: 5, route: [['B7', 'B6', 'B5', 'B4', 'B3', 'C3'], ['C2', 'C1']] },
+  'wolf-ford': { node: 'beast-wolf', row: 5, hp: 5, route: [['B5', 'C5', 'C4', 'D3', 'D2'], ['C3', 'D4', 'E3', 'E2', 'D1', 'C2', 'C1']],
+    exit: { cell: 'C1', distance: 'near' } },
+  // The targets fall onto the spikes in the enemy phase of turn 2; the door beside the cat is entered on turn 3.
+  'boar-garden': { node: 'beast-boar', row: 6, hp: 5, route: [['G5', 'F5', 'E6', 'D5', 'C5'], ['B5', 'B6', 'C6'], ['D6']], exit: { cell: 'D6', distance: 'turn' } },
+  'porcupine-thicket': { node: 'beast-porcupine', row: 7, hp: 4, route: [['A2', 'A3', 'B2', 'C1', 'D2', 'E3'], ['F2', 'F3', 'E4', 'D4', 'C5', 'C6', 'C7', 'D6']],
+    exit: { cell: 'D6', distance: 'near' } },
+  'den-watch': { node: 'den-battle', row: 10, hp: 5, route: [['F6', 'E5', 'E6', 'D5', 'E4', 'D4', 'C3', 'D2'], ['C2', 'D1', 'E2', 'E3', 'F2', 'G1']],
+    exit: { cell: 'G1', distance: 'near' } },
+  'den-nest': { node: 'den-elite', row: 12, hp: 4, route: [['E4', 'E3'], ['F2', 'E2', 'D1', 'C1', 'B1']], exit: { cell: 'A5', distance: 'far', search: 2 } },
+  'den-breakout': { node: 'den-breakthrough', row: 13, hp: 5, route: [['B7', 'B6', 'B5', 'B4', 'B3', 'C3'], ['C2', 'C1']], exit: { cell: 'C1', distance: 'near' } },
 };
 /** Refill variants as in the level analyzer: the authored start stays, only later refills change. */
 const REFILL_SEEDS = [0, 1, 2, 3, 4, 5];
@@ -105,6 +119,88 @@ const crystalOnRoute = (g: ForestEngine, labels: string[]) => labels.find(label 
  */
 const lootOnRoute = (g: ForestEngine, labels: string[]) => labels.find(label => !!g.state.board[at(g, label)]?.loot);
 
+const doorOf = (g: ForestEngine) => g.state.board.findIndex(cell => cell?.kind === 'door');
+const goalsMet = (g: ForestEngine) => g.state.customLevel!.goalCompletedTurn !== null;
+
+/** Every valid chain into the (open) door from the cat, up to 16 cells, with its forecast — exhaustive within a budget. */
+function doorChains(g: ForestEngine): { path: number[]; preview: ChainPreview }[] {
+  const door = doorOf(g), found: { path: number[]; preview: ChainPreview }[] = [];
+  let budget = 200_000;
+  const walk = (chain: number[]) => {
+    if (--budget < 0) return;
+    const last = chain.length ? chain[chain.length - 1] : g.state.player.index;
+    if (g.chainNeighbors(last).includes(door)) {
+      const preview = g.preview([...chain, door]);
+      if (preview.valid) found.push({ path: [...chain, door], preview });
+    }
+    if (chain.length >= 15) return;
+    for (const next of g.chainNeighbors(last)) {
+      if (next === door || chain.includes(next) || !g.state.board[next]) continue;
+      const step = planChain(g.state, [...chain, next], true).preview;
+      if (step.valid && !step.endsOnSurvivor) walk([...chain, next]);
+    }
+  };
+  walk([]);
+  return found;
+}
+
+/** A copy of a running battle (same setup, position, RNG and ids) for searching ahead. */
+function copyOf(id: string, g: ForestEngine): ForestEngine {
+  const copy = new ForestEngine(); copy.animationScale = 0;
+  assert(copy.startRunBattle(setupFor(id, undefined, { hp: 5, maxHp: 5, energy: g.state.player.energy })), `${id}: copy starts`);
+  copy.restoreAnalysisSnapshot(g.captureAnalysisSnapshot());
+  return copy;
+}
+
+/**
+ * The walk to a door that is a turn or more away crosses refilled squares, so it is found, not fixed: a breadth search
+ * over real chains on copies of the battle. Each turn it tries every chain into the door, otherwise keeps the `width`
+ * safe chains that end closest to it. Returns the fewest-turn sequence (best HP among them) within `maxTurns`, or null.
+ */
+async function exitPath(id: string, g: ForestEngine, maxTurns: number, width = 12): Promise<number[][] | null> {
+  const door = doorOf(g), cols = g.state.cols;
+  const distance = (index: number) => Math.max(Math.abs(index % cols - door % cols), Math.abs(Math.floor(index / cols) - Math.floor(door / cols)));
+  let frontier: { engine: ForestEngine; chains: number[][] }[] = [{ engine: g, chains: [] }];
+  for (let turn = 1; turn <= maxTurns; turn++) {
+    let best: { chains: number[][]; hp: number } | null = null;
+    for (const node of frontier) for (const { path: chain, preview } of doorChains(node.engine)) {
+      const hp = node.engine.state.player.hp - preview.damage;
+      if (!preview.playerDies && (!best || hp > best.hp)) best = { chains: [...node.chains, chain], hp };
+    }
+    if (best) return best.chains;
+    if (turn === maxTurns) break;
+    const next: { engine: ForestEngine; chains: number[][]; score: number }[] = [];
+    for (const node of frontier) {
+      const scored = node.engine.availableMoves(16).map(move => ({ move, preview: node.engine.preview(move) }))
+        .filter(({ preview }) => preview.valid && !preview.playerDies)
+        .map(({ move, preview }) => ({ move, score: distance(preview.enemyPhase?.heroIndex ?? preview.endIndex) * 10 + preview.damage * 25 }))
+        .sort((a, b) => a.score - b.score).slice(0, width);
+      for (const { move } of scored) {
+        const engine = copyOf(id, node.engine);
+        await commit(engine, move.map(index => label(engine, index)), `${id} exit search`);
+        if (engine.state.phase === 'PLAYER_INPUT') next.push({ engine, chains: [...node.chains, move], score: distance(engine.state.player.index) * 10 - engine.state.player.hp * 25 });
+      }
+    }
+    frontier = next.sort((a, b) => a.score - b.score).slice(0, width);
+  }
+  return null;
+}
+const label = (g: ForestEngine, index: number) => `${String.fromCharCode(65 + index % g.state.cols)}${Math.floor(index / g.state.cols) + 1}`;
+
+/** After the goals: the battle goes on with the door open; the found walk to it is played and wins only on entering. */
+async function walkToExit(id: string, g: ForestEngine, where: string, maxTurns: number): Promise<number> {
+  assert(g.state.phase === 'PLAYER_INPUT' && goalsMet(g), `${where}: the goals are met and the battle goes on`);
+  assert(g.state.board[doorOf(g)]?.intent.label === 'Выход открыт', `${where}: the door is open`);
+  const chains = await exitPath(id, g, maxTurns), door = doorOf(g);
+  assert(chains, `${where}: the door is reached within ${maxTurns} turns`);
+  for (const [turn, chain] of chains.entries()) {
+    const preview = await commit(g, chain.map(index => label(g, index)), `${where} exit turn ${turn + 1}`);
+    const phase: string = g.state.phase;
+    assert((phase === 'WIN') === (turn === chains.length - 1) && (phase !== 'WIN' || preview.opensDoor === door), `${where}: won only by entering the door`);
+  }
+  return chains.length;
+}
+
 async function playRoute(id: string, g: ForestEngine, where: string, affected?: string[], looted?: string[]): Promise<string[]> {
   const snapshots: string[] = [];
   for (const [turn, labels] of PLANS[id].route.entries()) {
@@ -120,6 +216,11 @@ async function playRoute(id: string, g: ForestEngine, where: string, affected?: 
     await commit(g, labels, `${where} turn ${turn + 1}`);
     snapshots.push(json(g.captureAnalysisSnapshot()));
     if (crystal && affected && g.state.phase !== 'PLAYER_INPUT') return snapshots;
+  }
+  const { search } = PLANS[id].exit;
+  if (search && g.state.phase === 'PLAYER_INPUT') {
+    await walkToExit(id, g, where, search);
+    snapshots.push(json(g.captureAnalysisSnapshot()));
   }
   return snapshots;
 }
@@ -180,8 +281,9 @@ async function routes() {
 
 async function replayAndRandomRefill() {
   for (const id of Object.keys(PLANS)) {
-    const first = await playRoute(id, start(id, 2), `${id} replay A`);
-    const second = await playRoute(id, start(id, 2), `${id} replay B`);
+    // A crystal on the fixed route stops both replays at the same turn (it is noted in routes()).
+    const first = await playRoute(id, start(id, 3), `${id} replay A`, []);
+    const second = await playRoute(id, start(id, 3), `${id} replay B`, []);
     assert(json(first) === json(second), `${id}: the same seed and actions replay identically`);
     // After the first turn the refilled squares differ between refill seeds (colors are not fixed to coordinates).
     const boards = new Set<string>();
@@ -285,17 +387,22 @@ async function elites() {
   const struck = await commit(g, ['D3', 'D2'], 'den-nest elite strike');
   assert(struck.damageBySource.melee === 3 && g.state.player.hp === 2, 'den-nest: the pinned elite (2) and D1 (1) strike the cat that stays');
   // The other answer to the moving elite: let it come to E3, ride the push to C2 and catch it last in the red chain.
+  const rideTurns: number[] = [];
   for (const variant of SPREAD_SEEDS.slice(0, 6)) {
     const ride = start('den-nest');
     const snap = ride.captureAnalysisSnapshot(); snap.rng = variantSeed(snap.rng, variant); ride.restoreAnalysisSnapshot(snap);
     await commit(ride, ['D4', 'D3', 'C4'], `den-nest ride ${variant}`);
     assert(ride.state.player.index === at(ride, 'C2') && ride.state.board[at(ride, 'E3')]?.elite, `den-nest ride ${variant}: the push carries the cat to C2, the elite steps to E3`);
     await commit(ride, ['B1', 'C1', 'D1', 'E1', 'F2', 'E3'], `den-nest ride ${variant} finish`);
-    assert(ride.state.phase === 'WIN', `den-nest ride ${variant}: the red chain catches the elite last`);
+    // The red chain catches the elite last; from E3 the door A5 is one turn away on most seeds (two on the rest).
+    rideTurns.push(await walkToExit('den-nest', ride, `den-nest ride ${variant}`, 3));
+    assert(ride.state.phase === 'WIN' && ride.state.player.hp === PLANS['den-nest'].hp, `den-nest ride ${variant}: the cat leaves with ${PLANS['den-nest'].hp} HP`);
   }
+  console.log(`den-nest ride: turns to the door after the goals ${rideTurns.join(', ')}`);
 
-  // The decision does not rest on the drop: the route wins on spread seeds whether the loot falls or not.
+  // The decision does not rest on the drop: the route meets the goals and leaves on spread seeds whether the loot falls or not.
   let dropped = 0, missed = 0;
+  const pinTurns: number[] = [];
   for (const variant of SPREAD_SEEDS) {
     const run = new ForestEngine(); run.animationScale = 0;
     assert(run.startRunBattle(setupFor('den-nest')), 'den-nest: spread start');
@@ -303,13 +410,17 @@ async function elites() {
     const where = `den-nest spread ${variant}`, route = PLANS['den-nest'].route;
     await commit(run, route[0], `${where} turn 1`);
     await commit(run, route[1], `${where} turn 2`);
-    // The elite dies inside the winning chain: its loot (if any) falls and is left behind with the battle won.
+    // The elite dies inside the chain that meets the goals: its loot (if any) falls, and the battle goes on until the door.
     const loot = run.state.board.find(cell => cell?.kind === 'prism' && cell.loot);
     if (loot) dropped++; else missed++;
-    assert(run.state.phase === 'WIN' && run.state.player.hp === PLANS['den-nest'].hp, `${where}: the route wins with ${PLANS['den-nest'].hp} HP (loot ${loot ? 'dropped' : 'not dropped'})`);
+    assert(run.state.phase === 'PLAYER_INPUT' && run.state.player.hp === PLANS['den-nest'].hp, `${where}: the goals are met with ${PLANS['den-nest'].hp} HP (loot ${loot ? 'dropped' : 'not dropped'})`);
+    pinTurns.push(await walkToExit('den-nest', run, where, PLANS['den-nest'].exit.search!));
+    assert((run.state.phase as string) === 'WIN' && run.state.player.hp === PLANS['den-nest'].hp, `${where}: the cat leaves through the door with ${PLANS['den-nest'].hp} HP`);
   }
   assert(dropped > 0 && missed > 0, `den-nest: the spread seeds cover both outcomes of the loot roll (${dropped} dropped, ${missed} not)`);
-  console.log(`den-nest elite: the route wins on ${SPREAD_SEEDS.length} spread seeds, loot dropped on ${dropped}`);
+  // «Far»: from B1, where the pin line meets the goals, the door A5 takes two turns on most seeds.
+  assert(pinTurns.filter(turns => turns === 2).length * 2 > pinTurns.length, `den-nest: the door is two turns away after the pin on most seeds (${pinTurns.join(', ')})`);
+  console.log(`den-nest elite: the route leaves on ${SPREAD_SEEDS.length} spread seeds, loot dropped on ${dropped}; turns to the door ${pinTurns.join(', ')}`);
 }
 
 /**
@@ -347,6 +458,35 @@ async function exitRules() {
   assert(door.valid && door.completesRoom && !door.enemyPhase, 'den-breakout: after one turn the exit completes the battle before the enemy phase');
 }
 
+/**
+ * Exit doors (decision of 02.10.2026). Every beast battle has one authored door and ends through it; it is closed at the
+ * start. `near`: the chain that meets the last goal continues into the door — forecast «ВЫХОД · ПОБЕДА» — and the same
+ * chain without the door meets the goals but is no victory: the battle goes on with the door open. `turn`: the goals
+ * are met (boar-garden: by the push in the enemy phase), the battle goes on, and the door is entered next turn.
+ * `far` (den-nest) is checked on spread seeds in `elites`.
+ */
+async function exits() {
+  for (const [id, plan] of Object.entries(PLANS)) {
+    const g = start(id), door = at(g, plan.exit.cell), { definition } = forestBattle(id)!;
+    assert(definition.completion === 'exit' && definition.doors.length === 1 && definition.doors[0].index === door, `${id}: one authored door on ${plan.exit.cell}, the battle ends through it`);
+    assert(g.state.board[door]?.kind === 'door' && g.state.board[door]!.intent.label === 'Выполни цели', `${id}: the door is closed at the start`);
+    if (plan.exit.distance === 'far') continue;
+    for (const labels of plan.route.slice(0, -1)) await commit(g, labels, `${id} exit`);
+    const last = plan.route.at(-1)!;
+    if (plan.exit.distance === 'turn') {
+      assert(g.state.phase === 'PLAYER_INPUT' && goalsMet(g) && (g.state.board[door]!.intent.label as string) === 'Выход открыт', `${id}: the goals are met, the battle goes on with the door open`);
+      assert(last.length === 1 && last[0] === plan.exit.cell, `${id}: the door is entered alone on the next turn`);
+    }
+    const into = g.preview(path(g, last));
+    assert(into.valid && into.opensDoor === door && into.completesRoom && !into.enemyPhase, `${id}: the last chain enters the door — victory before the enemies answer`);
+    if (plan.exit.distance !== 'near' || id === 'den-breakout') continue;
+    const stay = path(g, last.slice(0, -1)), short = g.preview(stay);
+    assert(short.valid && !short.completesRoom && !short.enemyPhase?.completesObjective && short.opensDoor === undefined, `${id}: the same chain without the door is no victory`);
+    await commit(g, last.slice(0, -1), `${id} stay`);
+    assert(g.state.phase === 'PLAYER_INPUT' && goalsMet(g) && (g.state.board[door]!.intent.label as string) === 'Выход открыт', `${id}: the goals are met, the battle goes on with the door open`);
+  }
+}
+
 /** A cat that enters a node wounded is not killed by the first turn of the authored route. */
 async function woundedEntry() {
   for (const id of Object.keys(PLANS)) {
@@ -363,6 +503,7 @@ async function main() {
   await replayAndRandomRefill();
   await trapsInForecast();
   await exitRules();
+  await exits();
   await elites();
   await carriedEnergy();
   await woundedEntry();

@@ -81,11 +81,28 @@ test('chain end label matches the chain panel: a winning blow and an exit, and t
   await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-wake', { seed: 7101 }));
   await expect(page.locator('#board-host canvas')).toBeVisible();
   await game('(() => { const g = window.__PUZZLE_GAME; g.beginChain(8); for (const i of [13, 17, 11, 5, 10, 16, 22]) g.extendChain(i); })()');
+  // Eight defeats only open the door (decision of 02.10.2026): the same chain wins when it continues D5 → the door E5.
+  await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.preview().kills)).toBe(8);
+  expect(await page.evaluate(() => (window as any).__PUZZLE_GAME.preview().completesRoom)).toBeFalsy();
+  await game('(() => { const g = window.__PUZZLE_GAME; g.extendChain(23); g.extendChain(24); })()');
   await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.preview().completesRoom)).toBe(true);
-  await expect(page.locator('#chain-rank')).toHaveText('ПОБЕДНЫЙ УДАР');
+  // A map battle is won only through its door: the chain ending on it reads «ВЫХОД · ПОБЕДА» on the panel and the board.
+  await expect(page.locator('#chain-rank')).toHaveText('ВЫХОД · ПОБЕДА');
   let end = await label();
-  expect(end.visible).toBe(true); expect(end.text).toBe('ПОБЕДНЫЙ УДАР');
+  expect(end.visible).toBe(true); expect(end.text).toBe('ВЫХОД · ПОБЕДА');
   expect(end.plateWidth).toBeGreaterThanOrEqual(end.textWidth);
+  await game('window.__PUZZLE_GAME.cancelChain()');
+  // «ПОБЕДНЫЙ УДАР» remains for levels that end on the last goal (completion 'direct', editor levels).
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.startCustomLevel({ version: 1, name: 'Прямая победа', seed: 5, cols: 5, rows: 4,
+    terrain: Array(20).fill('floor'), heroIndex: 17, doors: [],
+    enemies: Array.from({ length: 20 }, (_, index) => ({ index, kind: 'melee', color: 0, hp: 0 })).filter(enemy => enemy.index !== 17),
+    goals: [{ key: 'kills', target: 3 }], turnLimit: 0, completion: 'direct', paletteWeights: [100, 0, 0, 0, 0], extraColors: [], playerHp: 5 }));
+  await expect.poll(() => page.evaluate(() => (window as any).__PUZZLE_GAME.phase)).toBe('PLAYER_INPUT');
+  await game('(() => { const g = window.__PUZZLE_GAME; g.beginChain(16); g.extendChain(15); g.extendChain(10); })()');
+  await expect(page.locator('#chain-rank')).toHaveText('ПОБЕДНЫЙ УДАР');
+  const direct = await label();
+  expect(direct.visible).toBe(true); expect(direct.text).toBe('ПОБЕДНЫЙ УДАР');
+  expect(direct.plateWidth).toBeGreaterThanOrEqual(direct.textWidth);
   await game('window.__PUZZLE_GAME.cancelChain()');
   // A level with an exit: the goal (one turn) opens the door, and a chain that ends on it wins; both labels say so.
   await page.evaluate(() => (window as any).__PUZZLE_GAME.startCustomLevel({ version: 1, name: 'Выход', seed: 5, cols: 5, rows: 4,

@@ -402,13 +402,13 @@ function updateHUD() {
     const total = tutorial.targetIds.length;
     const progress = Math.min(total, state.objective.tutorialTargets ?? 0);
     const jailer = boss?.variant === 'jailer' ? boss : undefined;
-    el('objectives').innerHTML = exit
-      ? `<p class="key-status">⇥ ${!goalDone ? 'Откроется после цели' : 'Выход открыт'}</p><p class="objective-note">Дойди до двери. Остальные враги могут остаться.</p>`
-      : jailer ? `<div class="objective tutorial-objective"><div><span>Тюремщик · HP</span><strong>${jailer.hp}<small> / ${jailer.maxHp}</small></strong></div><div class="objective-track"><span style="width:${(1 - jailer.hp / jailer.maxHp) * 100}%"></span></div></div>`
-      : `<div class="objective tutorial-objective"><div><span>Отмеченные охранники</span><strong>${progress}<small> / ${total}</small></strong></div><div class="objective-track"><span style="width:${total ? progress / total * 100 : 0}%"></span></div></div>`;
+    // Every map battle has an exit door (02.10.2026): the goal progress stays visible, the door state goes below it.
+    el('objectives').innerHTML = (jailer ? `<div class="objective tutorial-objective"><div><span>Тюремщик · HP</span><strong>${jailer.hp}<small> / ${jailer.maxHp}</small></strong></div><div class="objective-track"><span style="width:${(1 - jailer.hp / jailer.maxHp) * 100}%"></span></div></div>`
+      : `<div class="objective tutorial-objective"><div><span>Отмеченные охранники</span><strong>${progress}<small> / ${total}</small></strong></div><div class="objective-track"><span style="width:${total ? progress / total * 100 : 0}%"></span></div></div>`)
+      + (exit ? `<p class="key-status">⇥ ${!goalDone ? 'Выход откроется после целей' : 'Выход открыт · войди цепью'}</p>` : '');
   } else if (custom) {
     const labels={kills:'Победить врагов',rangedKills:'Победить стрелков',bossKills:'Победить главарей',turns:'Выдержать ходы'};
-    el('objectives').innerHTML=custom.definition.goals.map(goal=>`<div class="objective"><div><span>${labels[goal.key]}</span><strong>${Math.min(goal.target,state.objective[goal.key])}<small> / ${goal.target}</small></strong></div><div class="objective-track"><span style="width:${Math.min(100,state.objective[goal.key]/goal.target*100)}%"></span></div></div>`).join('')+(goalDone&&exit?'<p class="objective-note">⇥ Выход открыт. Войди цепью.</p>':'');
+    el('objectives').innerHTML=custom.definition.goals.map(goal=>`<div class="objective"><div><span>${labels[goal.key]}</span><strong>${Math.min(goal.target,state.objective[goal.key])}<small> / ${goal.target}</small></strong></div><div class="objective-track"><span style="width:${Math.min(100,state.objective[goal.key]/goal.target*100)}%"></span></div></div>`).join('')+(exit?`<p class="key-status">⇥ ${!goalDone ? 'Выход откроется после целей' : 'Выход открыт · войди цепью'}</p>`:'');
   } else el('objectives').innerHTML = '';
   const count = state.chain.length;
   // Hovering «Отдых» shows what resting would do, in the same forecast format (engine.previewRest).

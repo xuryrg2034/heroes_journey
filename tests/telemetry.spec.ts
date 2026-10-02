@@ -37,7 +37,7 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="retry"]').click(); await settled(page);
   // Attempt 2: finish the battle.
-  await draw(page, [9, 14, 19]); await draw(page, [13, 17, 11, 5, 10]);
+  await draw(page, [9, 14, 19]); await draw(page, [13, 17, 11, 5, 10, 16, 22, 23, 24]);
   expect((await state(page)).phase).toBe('WIN');
   await page.locator('#modal [data-action="run-map"]').click();
   await page.locator('#map-screen [data-action="title"]').click();

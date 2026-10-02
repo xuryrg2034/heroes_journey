@@ -10,11 +10,12 @@ import type { ChainPreview, EngineEvent } from './forestTypes';
 // The Chief's battle `chief-breakfast` (src/game/run/battles/bosses.ts, node camp-chief on row 14). It replaces the
 // standalone forest trial with waves (30.09.2026): the same camp map, the Chief stands on the board from the start.
 // Checked through real engine commands: the Chief is a colourless 20-HP boss, sweeps the three cells on the side that
-// faces the cat with 1 damage every turn, the battle is won when he dies, and the map node ends the run in victory.
-// The first turn takes authored cells only. Later turns go through refilled cells (random by seed, and random elites
-// draw the same RNG), so victory routes are not fixed: a small search over real commands finds one on each of several
-// spread seeds, and the route is then replayed on a fresh engine with every forecast checked. The search is test data,
-// not a balance claim: it sees the real outcome of each action (an oracle). Analyzer metrics are recorded in docs.
+// faces the cat with 1 damage every turn, his death opens the exit E7 (02.10.2026) and the battle is won by entering
+// it, and the map node ends the run in victory. The first turn takes authored cells only. Later turns go through
+// refilled cells (random by seed, and random elites draw the same RNG), so victory routes are not fixed: a small search
+// over real commands finds one on each of several spread seeds — the Chief's death and then the way out — and the route
+// is then replayed on a fresh engine with every forecast checked. The search is test data, not a balance claim: it sees
+// the real outcome of each action (an oracle). Analyzer metrics are recorded in docs (taken before the door).
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const json = (value: unknown) => JSON.stringify(value);
@@ -25,6 +26,8 @@ const chief = (g: ForestEngine) => g.state.board.find(cell => cell?.kind === 'bo
 
 /** Authored first turn: the right flank along blue, authored cells only (refill-independent). */
 const AUTHORED_ROUTE = ['D6-E6-F5-E4-E3-F2-F1'];
+/** Exit door: beside the cat's entrance D7, the far end of the camp from the Chief; class «ход» (one or two turns). */
+const DOOR = 'E7', EXIT_TURNS = 2;
 /** Run seed of the run-victory check (the camp branch, all earlier nodes won). */
 const RUN_SEED = 701;
 /** Spread refill seeds: neighbouring small seeds share the first draws of the generator. */
@@ -35,14 +38,18 @@ async function execute(g: ForestEngine, action: Action): Promise<boolean> {
   if ('chain' in action) { g.beginChain(action.chain[0]); for (const step of action.chain.slice(1)) g.extendChain(step); return g.releaseChain(); }
   return g.useAbility(action.ability, action.target);
 }
+const distance = (g: ForestEngine, a: number, b: number) =>
+  Math.max(Math.abs(a % g.state.cols - b % g.state.cols), Math.abs(Math.floor(a / g.state.cols) - Math.floor(b / g.state.cols)));
 /**
  * Greedy one-turn lookahead over real commands: every chain of `availableMoves`, the spin and every valid jump is
- * played on a snapshot and undone; the best outcome is kept (victory, else damage to the Chief, HP, energy). It
- * knows the refill that follows each action, so it only shows that a victory is reachable on this seed.
+ * played on a snapshot and undone; the best outcome is kept (victory; after the Chief's death — nearer the exit, then
+ * HP; before it — damage to the Chief, HP, energy). It knows the refill that follows each action, so it only shows
+ * that a victory is reachable on this seed.
  */
 async function searchVictory(g: ForestEngine, maxTurns = 12): Promise<Action[]> {
   const played: Action[] = [];
   const score = () => g.state.phase === 'WIN' ? Infinity : g.state.phase === 'LOSE' ? -Infinity
+    : !chief(g) ? 1000 - distance(g, g.state.player.index, at(g, DOOR)) * 20 + g.state.player.hp * 15
     : (20 - chief(g)!.hp) * 10 + g.state.player.hp * 15 + g.state.player.energy * 3;
   for (let turn = 0; turn < maxTurns && g.state.phase === 'PLAYER_INPUT'; turn++) {
     const snapshot = g.captureAnalysisSnapshot();
@@ -73,12 +80,26 @@ async function useChecked(g: ForestEngine, ability: 'jump' | 'spin', target?: nu
   assert((g.state.phase === 'WIN') === !!forecast.completesRoom && (g.state.phase === 'LOSE') === !!forecast.playerDies, `${ability}: outcome matches the forecast`);
   return forecast;
 }
-/** Replay found actions on a fresh engine through the checked commands. */
-async function replayChecked(g: ForestEngine, actions: Action[]) {
-  for (const action of actions) {
+/**
+ * Replay found actions on a fresh engine through the checked commands. Returns the action (1-based) after which the
+ * Chief is dead and the exit open; the battle goes on until the cat enters the door.
+ */
+async function replayChecked(g: ForestEngine, actions: Action[]): Promise<number> {
+  let opened = 0;
+  for (const [n, action] of actions.entries()) {
+    const alive = !!chief(g);
     if ('chain' in action) await commit(g, labels(g, action.chain).join('-'));
     else await useChecked(g, action.ability, action.target);
+    if (alive && !chief(g)) {
+      opened = n + 1;
+      assert(g.state.objective.bossKills === 1, 'the Chief\'s death counts for the task');
+      // His death alone is no victory: the exit opens and the battle goes on, unless the same chain went on into the door.
+      if (g.state.phase === 'WIN') assert(n === actions.length - 1 && g.state.player.index === at(g, DOOR), 'the same chain went on into the exit');
+      else assert(g.state.board[at(g, DOOR)]?.intent.label === 'Выход открыт' && !g.runBattleOutcome(), 'the Chief\'s death opens the exit, the battle goes on');
+    }
   }
+  assert(g.state.phase !== 'WIN' || g.state.player.index === at(g, DOOR), 'the victory is the cat entering the exit');
+  return opened;
 }
 
 /** One real chain: pure forecast, then begin/extend/release; damage, endpoint, death and victory match the forecast. */
@@ -108,6 +129,8 @@ function layout() {
   assert(`${definition.cols}x${definition.rows}` === '7x7' && ['tree', 'pond', 'campfire', 'puddle'].every(kind => definition.terrain.includes(kind as never)),
     'the camp map keeps its trees, pond, campfire and puddle');
   assert(json(definition.goals) === json([{ key: 'bossKills', target: 1 }]) && !battle.targetIndices.length, 'the only goal is to defeat the boss');
+  assert(definition.completion === 'exit' && json(definition.doors) === json([{ index: 6 * definition.cols + 4 }]) && definition.terrain[6 * definition.cols + 4] === 'floor',
+    'one exit door on the floor of E7: the battle ends through the exit');
 
   const g = startNodeBattle('chief-breakfast'), boss = chief(g)!;
   assert(g.state.runNode?.nodeId === 'camp-chief' && g.state.runNode.row === 14 && runPressureActive(g.state), 'started as camp-chief on row 14 with growing anger');
@@ -116,6 +139,8 @@ function layout() {
   assert(boss.hp === 20 && boss.maxHp === 20 && boss.color === null && !boss.variant && boss.behavior.aggressive && !boss.behavior.passive,
     'the Chief is a colourless armed 20-HP boss');
   assert(g.state.level.objectives.length === 1 && g.state.level.objectives[0].key === 'bossKills', 'the task shown is the boss');
+  const exit = g.state.board[at(g, DOOR)];
+  assert(exit?.kind === 'door' && exit.intent.label === 'Выполни цели' && !g.preview(cells(g, `D6-${DOOR}`)).valid, 'the exit beside the entrance is closed at the start');
   return g;
 }
 
@@ -175,11 +200,12 @@ async function searchedVictories() {
     if (probe.state.phase !== 'WIN') { console.log(`NOTE chief-breakfast seed ${seed}: the search found no victory`); continue; }
     const g = startNodeBattle('chief-breakfast', { seed }), id = chief(g)!.id;
     await commit(g, AUTHORED_ROUTE[0]);
-    await replayChecked(g, route);
-    assert(g.state.phase === 'WIN' && !g.state.board.some(cell => cell?.id === id) && g.state.objective.bossKills === 1, `seed ${seed}: the Chief dies and the battle is won`);
+    const opened = await replayChecked(g, route), exit = route.length - opened;
+    assert(g.state.phase === 'WIN' && !g.state.board.some(cell => cell?.id === id) && g.state.objective.bossKills === 1, `seed ${seed}: the Chief dies and the cat leaves`);
+    assert(exit <= EXIT_TURNS, `seed ${seed}: the exit is reached within ${EXIT_TURNS} turns of his death (${exit})`);
     const outcome = g.runBattleOutcome();
     assert(outcome?.won && outcome.nodeId === 'camp-chief' && outcome.player.hp === g.state.player.hp, `seed ${seed}: the run receives the victory`);
-    found.push(`${seed}: ${route.length + 1} turns, ${g.state.player.hp} HP`);
+    found.push(`${seed}: Chief on turn ${opened + 1}, out ${exit} later, ${g.state.player.hp} HP`);
   }
   // Not a balance claim: the search must find enough routes for the victory check to mean something.
   assert(found.length >= SEARCH_SEEDS.length - 2, `victory routes found on ${found.length}/${SEARCH_SEEDS.length} spread seeds`);
@@ -188,8 +214,8 @@ async function searchedVictories() {
 
 /**
  * A prepared position: after the authored first turn the Chief is wounded to 4 HP. Chains ending on him are found on
- * the board (its cells after the first turn come from the refill): one with less than 4 power only wounds him — no
- * victory is forecast — and one with 4 or more defeats him: victory.
+ * the board (its cells after the first turn come from the refill): one with less than 4 power only wounds him, one with
+ * 4 or more kills him. Neither is forecast as the victory: his death opens the exit, and the cat still has to leave.
  */
 async function preparedFinish() {
   const g = startNodeBattle('chief-breakfast');
@@ -202,9 +228,15 @@ async function preparedFinish() {
   const long = onChief.find(({ preview }) => (preview.hits.at(-1)?.availablePower ?? 0) >= 4);
   assert(short && long, `chains of less and of more power end on the Chief (${onChief.length})`);
   assert(!short.preview.completesRoom && (short.preview.hits.at(-1)?.hpAfter ?? 0) > 0, 'too little power only wounds the prepared Chief: no victory is forecast');
-  assert(long.preview.completesRoom, 'enough power to kill him: the victory is forecast');
+  assert(long.preview.hits.at(-1)?.killed && !long.preview.completesRoom, 'enough power kills him, but his death alone is not forecast as the victory');
   await commit(g, long.path.map(index => labels(g, [index])[0]).join('-'));
-  assert(g.state.phase === 'WIN' && g.state.objective.bossKills === 1, 'the Chief dies: victory');
+  assert(g.state.phase === 'PLAYER_INPUT' && g.state.objective.bossKills === 1 && !chief(g) && g.state.board[at(g, DOOR)]?.intent.label === 'Выход открыт',
+    'the Chief dies: the exit opens and the battle goes on');
+  const probe = new ForestEngine(); probe.animationScale = 0; probe.restoreAnalysisSnapshot(g.captureAnalysisSnapshot());
+  const route = await searchVictory(probe);
+  assert(probe.state.phase === 'WIN' && route.length <= EXIT_TURNS, `from the Chief's place the exit is reached within ${EXIT_TURNS} turns (${route.length})`);
+  await replayChecked(g, route);
+  assert((g.state.phase as string) === 'WIN' && g.state.player.index === at(g, DOOR), 'the cat leaves through the exit: victory');
 }
 
 /** The same seed and actions replay refills, crystals, IDs and the result; restart restores the authored opening. */
@@ -249,7 +281,7 @@ async function runVictory() {
   const route = await searchVictory(probe);
   assert(probe.state.phase === 'WIN', 'the search finds a victory on the run seed');
   await replayChecked(g, route);
-  assert(g.state.phase === 'WIN' && g.state.objective.bossKills === 1, 'real commands defeat the Chief in the run');
+  assert(g.state.phase === 'WIN' && g.state.objective.bossKills === 1 && g.state.player.index === at(g, DOOR), 'real commands defeat the Chief and leave through the exit in the run');
   const step = resolveBattle(run, g.runBattleOutcome()!);
   const done = ok(step, 'resolve camp-chief');
   assert(done.result?.outcome === 'victory' && done.result.nodeId === 'camp-chief' && !availableNodes(done).length, 'the Chief ends the run in victory');
@@ -265,6 +297,6 @@ async function main() {
   await runVictory();
   await preparedFinish();
   await replay();
-  console.log(`PASS chief-breakfast: colourless 20-HP Chief from the start, no waves, sweep of the cat side for 1, victory on his death (searched routes on spread seeds — ${found.join('; ')}; prepared position; run victory), validator, exact replay`);
+  console.log(`PASS chief-breakfast: colourless 20-HP Chief from the start, no waves, sweep of the cat side for 1, his death opens the exit ${DOOR}, victory by entering it (searched routes on spread seeds — ${found.join('; ')}; prepared position; run victory), validator, exact replay`);
 }
 main().catch(error => { console.error(error); throw error; });

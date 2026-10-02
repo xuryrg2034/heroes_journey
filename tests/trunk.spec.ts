@@ -37,7 +37,7 @@ test('trunk battles 1–3 are played by mouse, keep marked targets and retry exa
   await open(page, 'trunk-wake', 7101);
   let entry = await state(page);
   expect(entry.player.hp).toBe(5);
-  expect(new Set(entry.board.filter(Boolean).map((cell: any) => cell.color))).toEqual(new Set([0, 2]));
+  expect(new Set(entry.board.filter((cell: any) => cell && cell.kind !== 'door').map((cell: any) => cell.color))).toEqual(new Set([0, 2]));
   await page.screenshot({ path: 'artifacts/trunk-wake-desktop.png' });
   await expect(page.locator('#chapter-number')).toContainText('ПОХОД');
   await expect(page.locator('.tutorial-room .energy-hud')).toBeHidden();
@@ -50,32 +50,33 @@ test('trunk battles 1–3 are played by mouse, keep marked targets and retry exa
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="retry"]').click(); await settled(page);
   expect((await state(page)).board).toEqual(entry.board);
-  // Trunk 1: E2-E3-E4 (blue), then D3-C4-B3-A2-A3 (red with diagonal steps) reaches 8 defeats.
+  // Trunk 1: E2-E3-E4 (blue), then D3-C4-B3-A2-A3-B4-C5 (red with diagonal steps) reaches 8 defeats and opens the
+  // door; D5 and the door E5 end the same chain in the victory (02.10.2026: a battle is won only through the exit).
   await draw(page, [9, 14, 19]);
   expect((await state(page)).objective.kills).toBe(3);
-  await draw(page, [13, 17, 11, 5, 10]);
+  await draw(page, [13, 17, 11, 5, 10, 16, 22, 23, 24]);
   expect((await state(page)).phase).toBe('WIN');
   await expect(page.locator('#modal [data-action="run-map"]')).toBeVisible();
   await open(page, 'trunk-axe', 7102);
   entry = await state(page);
   expect(entry.tutorial.targetIds).toHaveLength(2);
   await expect(page.locator('#objectives')).toContainText('0 / 2');
-  // Trunk 2: B3-B2-C2 gives exactly 3 power to the red guard; C3-D4-E3-E2 brings 4 to the blue one.
+  // Trunk 2: B3-B2-C2 gives exactly 3 power to the red guard; C3-D4-E3-E2 brings 4 to the blue one and F1 is the door.
   await draw(page, [13, 7, 8]);
   expect((await state(page)).objective.tutorialTargets).toBe(1);
   await expect(page.locator('#objectives')).toContainText('1 / 2');
-  await draw(page, [14, 21, 16, 10]);
+  await draw(page, [14, 21, 16, 10, 5]);
   expect((await state(page)).phase).toBe('WIN');
   await open(page, 'trunk-last-step', 7103);
   entry = await state(page);
   expect(entry.tutorial.targetIds).toHaveLength(2);
   await page.screenshot({ path: 'artifacts/trunk-last-step-desktop.png' });
   expect(entry.board.filter((cell: any) => cell?.behavior.aggressive)).toHaveLength(4);
-  // Trunk 3: C5-B5-A4-A3-B2 kills the red guard with exact power, B1-C2-D3-E2-F1 the blue one.
+  // Trunk 3: C5-B5-A4-A3-B2 kills the red guard with exact power, B1-C2-D3-E2-F1 the blue one, then the door E1.
   await draw(page, [26, 25, 18, 12, 7]);
   expect((await state(page)).objective.tutorialTargets).toBe(1);
   expect((await state(page)).player.hp).toBe(5);
-  await draw(page, [1, 8, 15, 10, 5]);
+  await draw(page, [1, 8, 15, 10, 5, 4]);
   expect((await state(page)).phase).toBe('WIN');
   expect(errors).toEqual([]);
 });
@@ -109,9 +110,16 @@ test('the arrow lever keeps the chain color and its volley finishes the guard', 
   await page.screenshot({ path: 'artifacts/trunk-arrows.png' });
   // B2-C3-lever C4-D5-D6 leaves the guard at 3 HP; the volley on row 6 finishes it, the cat stands on D5.
   await draw(page, [6, 12, 17, 23, 28]);
-  expect((await state(page)).phase).toBe('WIN');
-  expect((await state(page)).player.hp).toBe(5);
-  expect((await state(page)).devices[0].charges).toBe(1);
+  // The volley kills the guard after the chain: the goal opens the door E4, but the battle goes on (02.10.2026).
+  let after = await state(page);
+  expect(after.phase).toBe('PLAYER_INPUT');
+  expect(after.player.hp).toBe(5);
+  expect(after.devices[0].charges).toBe(1);
+  expect(after.board[19]?.intent.label).toBe('Выход открыт');
+  // The next turn: a one-cell chain from the cat on D5 into the open door E4 wins.
+  await draw(page, [19]);
+  after = await state(page);
+  expect(after.phase).toBe('WIN'); expect(after.player.hp).toBe(5);
   expect(errors).toEqual([]);
 });
 
@@ -130,7 +138,9 @@ test('mobile touch crosses a lever and shows its charges and danger line', async
   await page.screenshot({ path: 'artifacts/trunk-arrows-mobile-preview.png', fullPage: true });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await settled(page);
   expect((await state(page)).devices[0].charges).toBe(1);
-  expect((await state(page)).phase).toBe('WIN');
+  // The volley opens the exit door E4; entering it is the next turn.
+  expect((await state(page)).phase).toBe('PLAYER_INPUT');
+  expect((await state(page)).board[19]?.intent.label).toBe('Выход открыт');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]); await context.close();
 });

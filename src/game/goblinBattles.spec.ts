@@ -4,6 +4,8 @@
  * come from the setup, the cat has 5/5 HP and 0 energy, tools are those guaranteed on the row.
  * The checks play real commands: intended routes on several refill seeds, forecast against execution,
  * traps visible in the forecast, replay by seed, refill variety. No bot is expected to win or lose.
+ * Every battle ends through its exit (decision of 02.10.2026): the goals only open the door, the victory is entering it.
+ * Where the way to the door runs over refilled cells, it is found by a search over real commands, never fixed.
  */
 import { hasOrdinaryChain } from './boardGeneration';
 import { shieldIsActive } from './combatRules';
@@ -112,6 +114,40 @@ class Play {
     this.snapshots.push(json(state));
   }
   won(hp: number) { assert(this.g.state.phase === 'WIN' && this.g.state.player.hp === hp, `${this.id} (seed ${this.seed}): victory with ${hp} HP, got ${this.g.state.phase} ${this.g.state.player.hp}`); }
+  label(index: number) { return String.fromCharCode(65 + index % this.g.state.cols) + (Math.floor(index / this.g.state.cols) + 1); }
+  door() { return this.g.state.board.findIndex(cell => cell?.kind === 'door'); }
+  /** The goals are met, the door is open and the battle goes on: meeting the goals is no victory. */
+  goalsMet() {
+    const door = this.g.state.board[this.door()];
+    assert(this.g.state.phase === 'PLAYER_INPUT' && door?.intent.label === 'Выход открыт', `${this.id} (seed ${this.seed}): the goals open the door and the battle goes on`);
+  }
+  /**
+   * The way out over refilled cells: a search of real moves (no death, least damage first) for a chain into the open door
+   * within `turns` turns, then committed by real input. Returns the number of turns it took.
+   */
+  async leave(turns: number): Promise<number> {
+    const { g } = this, root = g.captureAnalysisSnapshot(), door = this.door();
+    const search = async (depth: number): Promise<number[][] | null> => {
+      const moves = g.availableMoves(16).map(path => ({ path, p: g.preview(path) })).filter(move => move.p.valid && !move.p.playerDies);
+      const exit = moves.filter(move => move.p.completesRoom && move.path.at(-1) === door).sort((a, b) => a.path.length - b.path.length)[0];
+      if (exit) return [exit.path];
+      if (depth <= 1) return null;
+      const snapshot = g.captureAnalysisSnapshot();
+      for (const { path } of moves.sort((a, b) => a.p.damage - b.p.damage).slice(0, 8)) {
+        assert(g.beginChain(path[0]) && path.slice(1).every(step => g.extendChain(step)) && await g.releaseChain(), 'search move commits');
+        const rest = g.state.phase === 'PLAYER_INPUT' ? await search(depth - 1) : null;
+        g.restoreAnalysisSnapshot(snapshot);
+        if (rest) return [path, ...rest];
+      }
+      return null;
+    };
+    const plan = await search(turns);
+    g.restoreAnalysisSnapshot(root);
+    if (!plan) throw new Error(`${this.id} (seed ${this.seed}): the open door is reached within ${turns} turn(s)`);
+    for (const path of plan) await this.chain(...path.map(index => this.label(index)));
+    assert(this.g.state.phase === 'WIN' && this.g.state.player.index === door, `${this.id}: the cat leaves through the door`);
+    return plan.length;
+  }
 }
 
 /** Replay the recorded actions on a fresh engine with the same seed: every snapshot must repeat exactly. */
@@ -167,13 +203,31 @@ async function archerWatch() {
     assert(wound.hits.at(-1)?.index === lesson.at('D3') && !wound.hits.at(-1)?.killed && wound.hits.at(-1)?.hpAfter === 1, 'the chain only wounds the guard');
     assert(wound.enemyPhase!.deaths.some(death => death.id === guard.id && death.cause === 'arrow'), 'the forecast shows the arrow finishing the guard');
     assert(lesson.g.state.objective.tutorialTargets === 1 && lesson.g.state.player.hp === 5, 'the arrow kill counts as the player’s target');
+    // The way out «nearby»: after the wound the archer is the last goal, and whenever a chain can kill it, the same chain
+    // continues into the door C2 beside it. That chain runs over refilled cells, so it is searched among the real moves;
+    // when the refill gives no chain to the archer, the second turn leads out.
+    assert(lesson.cell('C2')!.kind === 'door' && lesson.cell('C2')!.intent.label === 'Выполни цели', 'the door C2 is closed until the goals');
+    const archerNow = lesson.g.availableMoves(16).some(path => { const p = lesson.g.preview(path); return p.valid && p.hits.some(hit => hit.killed && lesson.g.state.board[hit.index]?.kind === 'ranged'); });
+    const turns = await lesson.leave(2);
+    assert(!archerNow || turns === 1, 'the chain that kills the archer after the wound leaves through C2 at once');
     // Priority target: the archer first, then the guard, deterministic on every refill seed.
     const priority = new Play('goblin-archer-watch', seed);
     await priority.chain('E4', 'E3', 'E2', 'D1');
     assert(!priority.g.state.board.some(cell => cell?.kind === 'ranged'), 'the archer falls first');
-    await priority.chain('D2', 'C3', 'D3');
+    const stay = priority.preview('D2', 'C3', 'D3');
+    assert(stay.valid && !stay.completesRoom && stay.opensDoor === undefined, 'killing the guard without the door is no victory');
+    // The same winning chain continues into the door C2 (diagonal to the guard's cell): the victory comes before the answer.
+    const out = await priority.chain('D2', 'C3', 'D3', 'C2');
+    assert(out.opensDoor === priority.at('C2') && out.completesRoom && out.hits.at(-2)?.killed, 'the forecast opens the door mid-chain');
     priority.won(5);
     if (seed === SEEDS[0]) await replayMatches(priority);
+    // Meeting the goals without the door: the battle goes on, the cat may leave later from beside the door.
+    const later = new Play('goblin-archer-watch', seed);
+    await later.chain('E4', 'E3', 'E2', 'D1');
+    await later.chain('D2', 'C3', 'D3');
+    later.goalsMet();
+    await later.chain('C2');
+    later.won(later.g.state.player.hp);
   }
   // The node grants one frost flask: the archer stands in a puddle, so freezing it cancels the announced shot.
   const frost = new Play('goblin-archer-watch', SEEDS[0], undefined, 1);
@@ -192,14 +246,18 @@ async function shieldFlank() {
     assert(bait.valid && bait.damage === 1 && bait.damageBySource.melee === 1, 'the forecast shows the bearer striking a chain that stops beside it');
     await play.chain('E2', 'F2', 'G2', 'G3', 'F3', 'E4', 'E3');
     assert(bearer.shield?.dx === 1 && !bearer.shield.dy, 'the cat in the east turns the shield away from the pocket');
-    await play.chain('D2', 'C2', 'B2', 'C3', 'C4');
+    const stay = play.preview('D2', 'C2', 'B2', 'C3', 'C4');
+    assert(stay.valid && !stay.completesRoom, 'killing the bearer without the door is no victory');
+    // The exit C5 is the gap the bearer guards: the chain that kills it continues into the door at once.
+    const out = await play.chain('D2', 'C2', 'B2', 'C3', 'C4', 'C5');
+    assert(out.opensDoor === play.at('C5') && out.completesRoom, 'the forecast opens the door behind the bearer mid-chain');
     play.won(5);
     if (seed === SEEDS[0]) await replayMatches(play);
   }
 }
 
 async function shamanRite() {
-  for (const seed of SEEDS) {
+  for (const seed of [...SEEDS, ...ELITE_SEEDS]) {
     const play = new Play('goblin-shaman-rite', seed), shaman = play.cell('E1')!, bearer = play.cell('E3')!;
     assert(bearer.shield?.dy === 1, 'the breach faces the cat below');
     await play.chain('E5', 'F5', 'G5', 'G4');
@@ -208,7 +266,11 @@ async function shamanRite() {
     const now = play.preview('F4', 'E4', 'E3', 'E2', 'F1', 'E1');
     assert(now.valid && now.enemyPhase!.empowered.length === 0, 'killing the shaman cancels the rite in the forecast');
     await play.chain('F4', 'E4', 'E3', 'E2', 'F1', 'E1');
+    // The jump takes the last goal and opens the door C1 beside the landing cell; the exit is one turn later («ход»).
     await play.ability('jump', 'B1');
+    play.goalsMet();
+    assert(play.g.state.player.hp === 5, 'the answer after the jump costs nothing');
+    await play.chain('C1');
     play.won(5);
     if (seed === SEEDS[0]) await replayMatches(play);
 
@@ -223,7 +285,8 @@ async function shamanRite() {
 }
 
 async function cauldronRing() {
-  for (const seed of SEEDS) {
+  const exits: number[] = [];
+  for (const seed of [...SEEDS, ...ELITE_SEEDS]) {
     const play = new Play('camp-cauldron-ring', seed);
     for (const [bait, guard] of [[['F6', 'F7', 'E6', 'D5', 'C5', 'C4'], 'B4'], [['F6', 'F7', 'E6', 'D5', 'E4'], 'F4']] as const) {
       const prediction = play.preview(...bait);
@@ -233,13 +296,18 @@ async function cauldronRing() {
     assert(ring.damage === 0 && play.g.state.player.energy >= 3, 'the pocket D3 is safe and the chain pays for the spin');
     const spin = await play.ability('spin');
     assert(spin.kills >= 3, 'the spin takes the shaman and both guards');
-    play.won(5);
+    // The goals open the gate D1 two rows above the cauldron: a chain over the refilled ring (C2, D2, E2) leads out.
+    // After the goals refills may come as elites (12%), so a ring of 2-HP elites can cost a second turn.
+    play.goalsMet();
+    exits.push(await play.leave(2));
     if (seed === SEEDS[0]) await replayMatches(play);
   }
+  assert(exits.filter(turns => turns === 1).length >= exits.length - 2, `the gate is one turn away on most seeds (${exits.join(',')})`);
 }
 
 async function shieldWall() {
   const drops = new Set<boolean>();
+  let lootAndLeave = 0;
   for (const seed of [...SEEDS, ...ELITE_SEEDS]) {
     const play = new Play('camp-shield-wall', seed), archer = play.cell('A7')!;
     // The elite archer: authored 3 HP doubled at load, its arrow hits the cat for 2 (the same forecast as execution).
@@ -274,10 +342,23 @@ async function shieldWall() {
     assert(loot.length <= 1 && loot.every(cell => cell!.loot === 'frost'), 'the elite drops at most one loot, a consumable open in this setup (frost only)');
     drops.add(loot.length === 1);
     await play2.ability('jump', 'A4');
+    // The jump meets the goals and opens the door A1 in the corner above the shaman's pocket; the battle goes on, so the
+    // dropped loot stays on the field and can be taken on the way out — at the price of turns under growing anger.
+    play2.goalsMet();
+    assert(play2.g.state.board.filter(cell => cell?.loot).length === loot.length, 'the dropped loot waits on the field after the goals');
+    if (loot.length) {
+      const door = play2.door();
+      if (play2.g.availableMoves(16).some(path => path.at(-1) === door && path.some(index => play2.g.state.board[index]?.loot) && play2.g.preview(path).completesRoom)) lootAndLeave++;
+    }
+    // The way out is one turn («ход»): the ochre A3–B2 (or B3) beside the pocket leads into the corner.
+    const exit = play2.preview('A3', 'B2', 'A1');
+    assert(exit.valid && exit.completesRoom && exit.damage === 0, 'the ochre chain A3–B2 leaves through A1');
+    assert(await play2.leave(1) === 1, 'the exit is one turn after the jump');
     play2.won(5);
     if (seed === SEEDS[0]) await replayMatches(play2);
   }
   assert(drops.size === 2, 'the answer holds both when the elite drops loot and when it does not');
+  assert(lootAndLeave > 0, 'on some seeds one chain both takes the loot and leaves');
   // Without the jump the elite can still be wounded and finished, paying 2 HP to its arrow.
   const slow = new Play('camp-shield-wall', ELITE_SEEDS[0]);
   await slow.chain('E7', 'D7', 'C7', 'B7', 'A7');
@@ -286,6 +367,8 @@ async function shieldWall() {
   const resting = slow.cell('A7')!;
   assert(resting.elite && resting.behavior.restTurns > 0 && resting.intent.moveTo === undefined, 'the resting elite has nowhere to retreat from the corner');
   await slow.chain('A7', 'B6', 'B5', 'A4');
+  slow.goalsMet();
+  await slow.leave(1);
   slow.won(3);
   // A frost flask carried by the run (the node goblin-archer grants one) makes the elite brittle: then the lane may take
   // the shaman and the jump (4 × 2) kills the 6-HP elite. A legal use of frost, not a rule bent for the route.
@@ -293,7 +376,9 @@ async function shieldWall() {
   assert(frost.g.useItem('frost', frost.at('A7')) && frost.cell('A7')!.status.brittle, 'frost makes the elite brittle');
   await frost.chain('E7', 'D7', 'C7', 'B7', 'B6', 'B5', 'A4');
   await frost.ability('jump', 'A7');
-  frost.won(5);
+  // This way ends in the elite's corner A7, far from the door: leaving takes up to two turns across the field.
+  frost.goalsMet();
+  await frost.leave(2);
   // Energy carries over between nodes. With 3 or 7 at the entry no first action wins at once (the jump from F6 reaches
   // neither target, the spin does not kill the elite), and the answer still holds on spread seeds.
   for (const energy of [3, 7]) for (const seed of ELITE_SEEDS) {
@@ -305,6 +390,7 @@ async function shieldWall() {
     assert(!g.previewAbility('jump', play.at('A7')).valid, 'carried energy does not let the jump take the elite');
     await play.chain('E7', 'D7', 'C7', 'B6', 'B7', 'A7');
     await play.ability('jump', 'A4');
+    await play.leave(1);
     play.won(5);
   }
 }
@@ -351,4 +437,4 @@ await cauldronRing();
 await shieldWall();
 await gateRun();
 await refillVariety();
-console.log('goblin battles: layouts, routes on five refill seeds (eleven for the elite), forecasts, traps, replay and refill variety pass');
+console.log('goblin battles: layouts, routes on five refill seeds (eleven for the elite and the «one turn» exits), exits through the door, forecasts, traps, replay and refill variety pass');

@@ -41,7 +41,7 @@ export const BOSS_BATTLES: NodeBattle[] = [
       'GGtu#GR',
       'GGWBRGR',
       'OOXWRFR',
-      'ORBOVVH',
+      'ODBOVVH',
     ],
     legend: {
       T: { kind: 'boss', variant: 'troll', hp: TROLL_HP, armed: true },
@@ -50,6 +50,8 @@ export const BOSS_BATTLES: NodeBattle[] = [
       W: { color: 3, hp: 2, variant: 'wolf', armed: true },
       X: { color: 2, hp: 2, variant: 'wolf', armed: true },
       F: { device: { kind: 'fire', charges: 2 } },
+      // Exit (02.10.2026): bottom edge behind the pack, away from the walled right flank; it replaces a lone red.
+      D: { door: true },
     },
     goals: [{ key: 'bossKills', target: 1 }],
     seed: 9520,
@@ -57,7 +59,8 @@ export const BOSS_BATTLES: NodeBattle[] = [
   /**
    * The Chief. Replaces the standalone forest trial (30.09.2026): the same camp map with trees, the pond, the campfire
    * and the puddle, but without waves — the Chief stands on the board from the start. His behaviour is unchanged:
-   * colourless, 20 HP, a sweep of the three squares on the side facing the cat every turn.
+   * colourless, 20 HP, a sweep of the three squares on the side facing the cat every turn. Since 02.10.2026 his death
+   * opens the exit E7 and the battle is won by entering it.
    */
   authoredLesson({
     id: 'chief-breakfast', name: 'Главарь с котелком',
@@ -70,12 +73,14 @@ export const BOSS_BATTLES: NodeBattle[] = [
       'GG~FBRG',
       'RBBGGBG',
       '^RRBBBG',
-      '^BRHG^^',
+      '^BRHD^^',
     ],
     legend: {
       K: { kind: 'boss', hp: CHIEF_HP },
       w: { color: 4, terrain: 'puddle' },
       '^': { terrain: 'tree' }, '~': { terrain: 'pond' }, F: { terrain: 'campfire' },
+      // Exit (02.10.2026): beside the cat's entrance D7, the far end of the camp from the Chief; it replaces a lone green.
+      D: { door: true },
     },
     goals: [{ key: 'bossKills', target: 1 }],
     seed: 701,

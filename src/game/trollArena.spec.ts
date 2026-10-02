@@ -2,9 +2,12 @@
  * Troll arena of the den branch (`troll-lair`, src/game/run/battles/bosses.ts), design:
  * docs/levels/forest-nodes-beasts.md, section «Логово Тролля». The battle starts as in a run
  * (ForestEngine.startRunBattle, row 14 palette and tools) and is played with real commands: chains and the spin.
- * Checks: the authored route wins on several refill seeds, forecast equals execution (club damage, club deaths,
+ * Checks: the authored route kills the troll on several refill seeds, forecast equals execution (club damage, club deaths,
  * regeneration), the club is shown as a threat and as a tool, burning from the brazier stops regeneration,
- * frost is usable on the wet troll, the same seed and actions replay identically. No bot results are asserted.
+ * frost is usable on the wet troll, the same seed and actions replay identically. Exit door B7 (02.10.2026): the troll's
+ * death opens it and the battle is won by entering it. The way out runs over refilled cells (random by seed, with random
+ * elites), so it is found by a small search over real commands and replayed with checked forecasts; the search is test
+ * data (an oracle that sees each outcome), not a balance claim. No bot results are asserted.
  */
 import { hasOrdinaryChain } from './boardGeneration';
 import { ForestEngine } from './forestEngine';
@@ -22,8 +25,8 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const ID = 'troll-lair', NODE = 'den-troll', ROW = 14;
-/** Authored route: one action per turn; a chain as UI labels or the spin. */
-type Step = string[] | 'spin';
+/** Authored route: one action per turn; a chain as UI labels, the spin or a jump onto a label. */
+type Step = string[] | 'spin' | { jump: string };
 const ROUTE: Step[] = [
   ['G6', 'G5', 'F6', 'E6', 'E5', 'D4'], // brazier F6: the troll burns; the cat ends in the announced zone, which only winds up now
   ['F4', 'F3'], // strike turn: leave the zone without touching the troll; burning blocks regeneration
@@ -33,6 +36,10 @@ const ROUTE: Step[] = [
   'spin', // the energy of five chains pays for the finishing spin
 ];
 const REFILL_SEEDS = [0, 1, 2, 3, 4, 5];
+/** Exit door: the bottom edge behind the pack, the class «ход» — one or two turns from where the route kills the troll. */
+const DOOR = 'B7', EXIT_TURNS = 2;
+/** Spread run seeds of the exit check (neighbouring small seeds share the first draws of the generator). */
+const SPREAD_SEEDS = [1, 2, 3, 4, 5, 6].map(k => Math.imul(k, 2654435761) >>> 0);
 
 const json = (value: unknown) => JSON.stringify(value);
 const at = (g: ForestEngine, label: string) => (Number(label.slice(1)) - 1) * g.state.cols + label.charCodeAt(0) - 65;
@@ -55,12 +62,13 @@ function start(refillSeed = 0, seed?: number, frost = 0): ForestEngine {
 async function act(g: ForestEngine, step: Step, where: string): Promise<ChainPreview> {
   const before = json(g.state), snap = json(g.captureAnalysisSnapshot()), hp = g.state.player.hp;
   const colors = new Map(g.state.board.flatMap(cell => cell ? [[cell.id, cell.color] as const] : []));
-  const preview = step === 'spin' ? g.previewAbility('spin') : g.preview(step.map(label => at(g, label)));
+  const preview = step === 'spin' ? g.previewAbility('spin') : !Array.isArray(step) ? g.previewAbility('jump', at(g, step.jump)) : g.preview(step.map(label => at(g, label)));
   assert(json(g.state) === before && json(g.captureAnalysisSnapshot()) === snap, `${where}: the forecast keeps state, RNG and ids`);
   assert(preview.valid, `${where}: ${preview.reason}`);
   const events: EngineEvent[] = [];
   const off = g.subscribe((_state, event) => { events.push({ ...event }); });
   if (step === 'spin') assert(await g.useAbility('spin'), `${where}: spin`);
+  else if (!Array.isArray(step)) assert(await g.useAbility('jump', at(g, step.jump)), `${where}: jump`);
   else {
     const cells = step.map(label => at(g, label));
     assert(g.beginChain(cells[0]), `${where}: chain starts`);
@@ -107,31 +115,98 @@ function layout() {
   const trolls = definition.enemies.filter(enemy => enemy.variant === 'troll');
   assert(trolls.length === 1 && trolls[0].kind === 'boss' && trolls[0].footprint?.length === 4 && trolls[0].aggressive, 'one armed 2x2 troll');
   assert(trolls[0].footprint!.some(index => definition.terrain[index] === 'puddle'), 'the troll stands in a puddle (frost can freeze it)');
-  assert(json(definition.goals) === json([{ key: 'bossKills', target: 1 }]) && definition.completion === 'direct', 'goal: kill the boss');
+  assert(json(definition.goals) === json([{ key: 'bossKills', target: 1 }]) && definition.completion === 'exit', 'goal: kill the boss, then leave');
+  const door = 6 * definition.cols + 1; // B7
+  assert(json(definition.doors) === json([{ index: door }]) && definition.terrain[door] === 'floor', 'one exit door on the floor of B7');
   assert((definition.devices ?? []).some(device => device.kind === 'fire'), 'a brazier in the lair');
   assert(definition.enemies.filter(enemy => enemy.variant === 'wolf').length === 3, 'a pack of three wolves');
-  const occupied = new Set([...definition.enemies.flatMap(enemy => enemy.footprint ?? [enemy.index]), ...(definition.devices ?? []).map(device => device.index), definition.heroIndex]);
+  const occupied = new Set([...definition.enemies.flatMap(enemy => enemy.footprint ?? [enemy.index]), ...(definition.devices ?? []).map(device => device.index),
+    ...definition.doors.map(entry => entry.index), definition.heroIndex]);
   definition.terrain.forEach((terrain, cell) => assert(occupied.has(cell) === (terrain !== 'wall'), 'every walkable square is authored'));
   const colors = new Set(definition.enemies.flatMap(enemy => enemy.color === null ? [] : [enemy.color]));
   assert(forestRowPalette(ROW).every(color => colors.has(color)), 'the opening uses the five colors of row 14');
   const g = start();
   assert(g.state.runNode?.nodeId === NODE && !!g.state.tutorial, 'a map-node battle with its authored targets');
   assert(troll(g)!.status.wet && troll(g)!.hp === troll(g)!.maxHp, 'the troll is wet and unhurt');
+  const exit = g.state.board[at(g, DOOR)];
+  assert(exit?.kind === 'door' && exit.intent.label === 'Выполни цели', 'the exit is closed at the start');
+  assert(!g.preview(path(g, ['A6', DOOR])).valid, 'a chain into the closed exit is refused');
 }
 
-async function routes() {
+type Action = { chain: number[] } | { ability: 'spin' } | { ability: 'jump'; target: number };
+const toStep = (g: ForestEngine, action: Action): Step => 'chain' in action ? labelsOf(g, action.chain)
+  : action.ability === 'spin' ? 'spin' : { jump: labelsOf(g, [action.target])[0] };
+const labelsOf = (g: ForestEngine, cells: number[]) => cells.map(index => String.fromCharCode(65 + index % g.state.cols) + (Math.floor(index / g.state.cols) + 1));
+async function execute(g: ForestEngine, action: Action): Promise<boolean> {
+  if ('chain' in action) { g.beginChain(action.chain[0]); for (const cell of action.chain.slice(1)) g.extendChain(cell); return g.releaseChain(); }
+  return g.useAbility(action.ability, action.ability === 'jump' ? action.target : undefined);
+}
+function actions(g: ForestEngine): Action[] {
+  const list: Action[] = g.availableMoves(10).map(chain => ({ chain }));
+  if (g.previewAbility('spin').valid) list.push({ ability: 'spin' });
+  g.state.board.forEach((_cell, index) => { if (g.previewAbility('jump', index).valid) list.push({ ability: 'jump', target: index }); });
+  return list;
+}
+const distance = (g: ForestEngine, a: number, b: number) =>
+  Math.max(Math.abs(a % g.state.cols - b % g.state.cols), Math.abs(Math.floor(a / g.state.cols) - Math.floor(b / g.state.cols)));
+/**
+ * The shortest way out (at most `turns`) over real commands: every chain of `availableMoves`, the spin and every jump is
+ * played on a snapshot and undone; on the second turn only the actions that end nearest the door are expanded. It sees the
+ * refill of each action (an oracle), so it only shows that the exit is reachable in that many turns on this seed.
+ */
+async function searchExit(g: ForestEngine, turns: number, width = 25): Promise<Action[] | null> {
+  if (turns === 0 || g.state.phase !== 'PLAYER_INPUT') return null;
+  const snapshot = g.captureAnalysisSnapshot(), door = at(g, DOOR), next: { action: Action; score: number }[] = [];
+  for (const action of actions(g)) {
+    await execute(g, action);
+    const phase = g.state.phase as string;
+    if (phase === 'PLAYER_INPUT') next.push({ action, score: g.state.player.hp * 4 - distance(g, g.state.player.index, door) * 10 });
+    g.restoreAnalysisSnapshot(snapshot);
+    if (phase === 'WIN') return [action];
+  }
+  next.sort((a, b) => b.score - a.score);
+  for (const { action } of next.slice(0, width)) {
+    await execute(g, action);
+    const rest = await searchExit(g, turns - 1, width);
+    g.restoreAnalysisSnapshot(snapshot);
+    if (rest) return [action, ...rest];
+  }
+  return null;
+}
+/** After the route the troll is dead and the exit open; a way out is searched, then replayed with checked forecasts. */
+async function leave(g: ForestEngine, where: string): Promise<string> {
+  assert(!troll(g) && g.state.objective.bossKills === 1 && g.state.phase === 'PLAYER_INPUT' && !g.runBattleOutcome(), `${where}: the troll is dead, the battle goes on`);
+  assert(g.state.board[at(g, DOOR)]!.intent.label === 'Выход открыт', `${where}: the troll's death opens the exit`);
+  const probe = new ForestEngine(); probe.animationScale = 0; probe.restoreAnalysisSnapshot(g.captureAnalysisSnapshot());
+  let route: Action[] | null = null;
+  for (let turns = 1; turns <= EXIT_TURNS && !route; turns++) route = await searchExit(probe, turns);
+  assert(route, `${where}: the exit is reached within ${EXIT_TURNS} turns`);
+  for (const [n, action] of route.entries()) await act(g, toStep(g, action), `${where} exit ${n + 1}`);
+  assert((g.state.phase as string) === 'WIN' && g.state.player.index === at(g, DOOR) && g.runBattleOutcome()?.won === true, `${where}: the cat leaves through ${DOOR}, the run sees the victory`);
+  return `${route.length} turn(s), ${g.state.player.hp} HP`;
+}
+
+async function routes(): Promise<string[]> {
+  const exits: string[] = [];
   for (const k of REFILL_SEEDS) {
     const g = start(k), where = `refill ${k}`;
     await playRoute(g, where);
-    assert(g.state.phase === 'WIN' && g.state.turn === ROUTE.length, `${where}: the authored route wins in ${ROUTE.length} turns (${g.state.phase}, turn ${g.state.turn})`);
+    assert(g.state.turn === ROUTE.length, `${where}: the authored route kills the troll in ${ROUTE.length} turns (turn ${g.state.turn})`);
     // Growing anger on row 14 (playtest 1): the third turn now takes one melee hit from a goblin of the growing anger.
-    assert(g.state.player.hp === 4 && g.runBattleOutcome()?.won === true, `${where}: 4 HP left and the run sees the victory, got ${g.state.player.hp}`);
+    assert(g.state.player.hp === 4, `${where}: 4 HP left when the troll dies, got ${g.state.player.hp}`);
+    exits.push(`${where}: ${await leave(g, where)}`);
   }
   for (const runSeed of [1, 2]) {
     const g = start(0, forestNodeSeed(runSeed, NODE));
     await playRoute(g, `run ${runSeed}`);
-    assert(g.state.phase === 'WIN', `run ${runSeed}: the authored route wins`);
+    exits.push(`run ${runSeed}: ${await leave(g, `run ${runSeed}`)}`);
   }
+  for (const [k, seed] of SPREAD_SEEDS.entries()) {
+    const g = start(0, seed), where = `spread ${k + 1}`;
+    await playRoute(g, where);
+    exits.push(`${where}: ${await leave(g, where)}`);
+  }
+  return exits;
 }
 
 async function replay() {
@@ -188,7 +263,8 @@ async function woundedEntry() {
 
 async function main() {
   layout();
-  await routes();
+  const exits = await routes();
+  console.log(`troll arena: the route kills the troll, way out through ${DOOR} after its death — ${exits.join('; ')}`);
   await replay();
   await forecastSignals();
   frost();

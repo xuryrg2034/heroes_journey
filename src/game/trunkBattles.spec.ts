@@ -11,8 +11,9 @@ import type { ChainPreview, ItemKind } from './forestTypes';
 // Trunk battles (map rows 1–4, src/game/run/battles/trunk.ts; former opening lessons 1–4). Every battle is started
 // exactly as its map node (startNodeBattle: 5/5 HP, 0 energy, no items, the node's tools — none on the trunk — and the
 // row palette plus the authored colors). Every route below is played through the real engine commands on the battle's
-// authored seed; refills after the first move are the seeded random ones. Analyzer metrics are recorded in
-// docs/levels/*.md, not asserted here.
+// authored seed; refills after the first move are the seeded random ones. Every trunk battle ends through its exit
+// door (decision of 02.10.2026): the goals open it, entering it wins. Analyzer metrics are recorded in docs/levels/*.md,
+// not asserted here.
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -24,6 +25,8 @@ const TRUNK = [
   { id: 'trunk-last-step', node: 'trunk-3' },
   { id: 'trunk-arrows', node: 'trunk-4' },
 ] as const;
+/** Exit door of each battle (UI label): the winning chain continues into it, except on the lever, where it is one turn away. */
+const DOOR: Record<string, string> = { 'trunk-wake': 'E5', 'trunk-axe': 'F1', 'trunk-last-step': 'E1', 'trunk-arrows': 'E4' };
 type TrunkId = typeof TRUNK[number]['id'];
 
 function start(id: TrunkId, seed?: number): ForestEngine {
@@ -50,13 +53,16 @@ async function commit(engine: ForestEngine, route: string): Promise<ChainPreview
   assert(engine.state.lastDamage === forecast.damage && hp - engine.state.player.hp === forecast.damage,
     `route ${route}: forecast damage ${forecast.damage} matches execution ${hp - engine.state.player.hp}`);
   assert(!!forecast.playerDies === (engine.state.phase === 'LOSE'), `route ${route}: forecast death matches execution`);
-  if (forecast.completesRoom) assert(engine.state.phase === 'WIN', `route ${route}: forecast victory is executed`);
+  assert(!!forecast.completesRoom === (engine.state.phase === 'WIN'), `route ${route}: forecast victory ${!!forecast.completesRoom} is executed`);
+  // A trunk battle is won only by entering the door.
+  if (engine.state.phase === 'WIN') assert(forecast.opensDoor === steps.at(-1) && engine.state.player.index === steps.at(-1)
+    && engine.state.board[steps.at(-1)!] === null, `route ${route}: the victory is the cat entering the door`);
   for (const cell of engine.state.board) {
     if (!cell) continue;
     if (colors.has(cell.id)) assert(cell.color === colors.get(cell.id), 'survivors keep their colors');
     // A long chain leaves colour-change crystals: colourless, not enemies.
     else if (cell.crystalChain) assert(cell.kind === 'prism' && cell.color === null, 'a new crystal is a colourless prism');
-    else assert(cell.behavior.passive && cell.color !== null && engine.state.customLevel!.paletteWeights[cell.color] > 0,
+    else assert(cell.kind !== 'door' && cell.behavior.passive && cell.color !== null && engine.state.customLevel!.paletteWeights[cell.color] > 0,
       'new trunk enemies remain passive and use the node palette');
   }
   if (engine.state.phase === 'PLAYER_INPUT') assert(hasOrdinaryChain(engine.state), `route ${route} leaves an ordinary chain`);
@@ -74,7 +80,12 @@ function authoredLayouts() {
     assert(definition.enemies.every(enemy => enemy.color === 0 || enemy.color === 2), `${id} starts with red and blue enemies only`);
     assert(new Set(definition.enemies.map(enemy => enemy.color)).size === 2, `${id} starts with both colors`);
     assert(definition.turnLimit === 0 && (definition.playerHp ?? 5) === 5, `${id} has no turn limit`);
-    const occupied = new Set([...definition.enemies.map(enemy => enemy.index), ...(definition.devices ?? []).map(device => device.index)]);
+    const occupied = new Set([...definition.enemies.map(enemy => enemy.index), ...(definition.devices ?? []).map(device => device.index),
+      ...definition.doors.map(door => door.index)]);
+    // One exit door on a free square (not a device), so the battle ends through the exit.
+    assert(definition.doors.length === 1 && definition.completion === 'exit', `${id} has one exit door`);
+    const door = definition.doors[0].index;
+    assert(!(definition.devices ?? []).some(device => device.index === door) && door !== definition.heroIndex, `${id}: the door stands on its own square`);
     definition.terrain.forEach((terrain, cell) => {
       if (terrain !== 'wall') assert(cell === definition.heroIndex || occupied.has(cell), `${id} floor ${cell} is authored`);
       else assert(!occupied.has(cell), `${id} wall ${cell} is clear`);
@@ -106,6 +117,8 @@ function authoredLayouts() {
         `${id} enemy at ${index} belongs to a same-color group`);
     });
     assert(hasOrdinaryChain(state), `${id} opens with an ordinary chain`);
+    const doorCell = state.board[at(engine, DOOR[id])];
+    assert(doorCell?.kind === 'door' && doorCell.intent.label === 'Выполни цели', `${id}: the door on ${DOOR[id]} is closed at the start`);
   }
 }
 
@@ -114,25 +127,36 @@ async function battleWake() {
   const diagonal = 'D2-D3-C4-B3-A2-A3-B4-C5';
   const forecast = preview(g, diagonal);
   assert(forecast.hits.map(hit => hit.availablePower).join() === '1,2,3,4,5,6,7,8', 'every weak goblin adds one power');
-  assert(forecast.completesRoom, 'the diagonal red chain reaches eight defeats at once');
+  assert(forecast.kills === 8 && !forecast.completesRoom && forecast.opensDoor === undefined, 'the diagonal red chain reaches eight defeats at once, but the goal alone is no victory');
   assert(!preview(g, 'D2-D3-D4').valid, 'crossing from red to blue is rejected without spending a turn');
+  assert(preview(g, 'E2-E3-E4-E5').reason.startsWith('Выход закрыт'), 'the closed door in the corner refuses a chain before the goal');
   const orthogonalOnly = g.availableMoves(16).filter(steps => steps.every((cell, n) => n === 0
     || cell % 5 === steps[n - 1] % 5 || Math.floor(cell / 5) === Math.floor(steps[n - 1] / 5)));
-  assert(orthogonalOnly.every(steps => !g.preview(steps).completesRoom), 'no orthogonal-only chain wins: the battle needs a diagonal step');
-  await commit(g, diagonal);
-  assert(g.state.phase === 'WIN' && g.state.objective.kills === 8 && g.state.player.hp === 5, 'battle 1 won in one turn');
+  assert(orthogonalOnly.every(steps => g.preview(steps).kills < 8), 'no orthogonal-only chain reaches eight: the battle needs a diagonal step');
+  // «Рядом»: the winning chain continues through the last red goblin D5 into the door E5.
+  const exit = preview(g, `${diagonal}-D5-E5`);
+  assert(exit.completesRoom && exit.opensDoor === at(g, 'E5') && exit.kills === 9, 'the same red chain continues through D5 into the door: victory');
+  await commit(g, `${diagonal}-D5-E5`);
+  assert(g.state.phase === 'WIN' && g.state.objective.kills === 9 && g.state.player.hp === 5 && g.state.turn === 1, 'battle 1 won in one turn through the door');
+
+  const later = start('trunk-wake');
+  await commit(later, diagonal);
+  assert(later.state.phase === 'PLAYER_INPUT' && later.state.objective.kills === 8 && later.state.board[at(later, 'E5')]?.intent.label === 'Выход открыт',
+    'eight defeats open the door; the battle goes on');
+  await commit(later, 'D5-E5');
+  assert(later.state.phase === 'WIN' && later.state.player.hp === 5, 'the cat leaves on the next turn');
 
   const twoTurns = start('trunk-wake');
   await commit(twoTurns, 'E2-E3-E4');
   assert(twoTurns.state.phase === 'PLAYER_INPUT' && twoTurns.state.objective.kills === 3, 'a short blue chain keeps the battle going');
-  await commit(twoTurns, 'D3-C4-B3-A2-A3');
-  assert(twoTurns.state.phase === 'WIN', 'a second red chain with diagonals completes the goal');
+  await commit(twoTurns, 'D3-C4-B3-A2-A3-B4-C5-D5-E5');
+  assert(twoTurns.state.phase === 'WIN', 'a second red chain with diagonals completes the goal and leaves through the door');
 }
 
 async function battleAxe() {
   const g = start('trunk-axe');
   assert(g.state.board[at(g, 'C2')]?.hp === 3 && g.state.board[at(g, 'E2')]?.hp === 4, 'marked guards have authored HP');
-  assert(g.state.board.every(cell => !cell || cell.behavior.passive), 'nobody is armed in battle 2');
+  assert(g.state.board.every(cell => !cell || cell.kind === 'door' || cell.behavior.passive), 'nobody is armed in battle 2');
   const red = preview(g, 'B3-B2-C2');
   assert(red.hits.map(hit => hit.availablePower).join() === '1,2,3' && hitOn(g, red, 'C2')?.killed
     && red.hits.at(-1)?.remainingPower === 0, 'two weak goblins give exactly the 3 power the red guard needs');
@@ -142,21 +166,23 @@ async function battleAxe() {
   assert(short.endsOnSurvivor && hitOn(g, short, 'E2')?.hpAfter === 1 && short.endIndex === at(g, 'E1'),
     'the short blue lane is one power short: the guard survives and the cat stops before it');
   const detour = preview(g, 'C3-D4-E3-E2');
-  assert(detour.completesRoom, 'the longer blue detour brings enough power');
-  await commit(g, 'C3-D4-E3-E2');
+  assert(hitOn(g, detour, 'E2')?.killed && !detour.completesRoom, 'the longer blue detour brings enough power');
+  assert(preview(g, 'C3-D4-E3-E2-F1').completesRoom, 'and continues into the door F1 beside the guard');
+  await commit(g, 'C3-D4-E3-E2-F1');
   assert(g.state.phase === 'WIN' && g.state.turn === 2, 'battle 2 won in two turns');
 
   const wound = start('trunk-axe');
   await commit(wound, 'B3-B2-C2');
   await commit(wound, 'D1-E1-E2');
   assert(wound.state.board[at(wound, 'E2')]?.hp === 1 && wound.state.objective.tutorialTargets === 1, 'the wound persists and is not a kill');
-  await commit(wound, 'D1-E2');
-  assert(wound.state.phase === 'WIN', 'the wounded guard is finished on the next turn');
+  // One goblin's worth of power: the wounded guard alone, then the door beside it.
+  await commit(wound, 'E2-F1');
+  assert(wound.state.phase === 'WIN' && wound.state.turn === 3, 'the wounded guard is finished on the next turn and the cat leaves');
 }
 
 async function battleLastStep(seed?: number) {
   const g = start('trunk-last-step', seed);
-  assert(g.state.board.filter(cell => cell && !cell.behavior.passive).length === 4, 'two armed guards and two armed goblins');
+  assert(g.state.board.filter(cell => cell && cell.kind !== 'door' && !cell.behavior.passive).length === 4, 'two armed guards and two armed goblins');
   const greedy = preview(g, 'E5-E6-F5-F4-F3-F2');
   const longest = Math.max(...g.availableMoves(16).map(steps => g.preview(steps).kills));
   assert(greedy.kills === longest && greedy.damage === 2 && !greedy.playerDies,
@@ -170,8 +196,10 @@ async function battleLastStep(seed?: number) {
   assert(hitOn(g, lane, 'B2')?.killed && lane.hits.at(-1)?.remainingPower === 0 && lane.damage === 0,
     'four red goblins give exactly the 5 power for the red guard; its square is out of every strike');
   await commit(g, 'C5-B5-A4-A3-B2');
-  await commit(g, 'B1-C2-D3-E2-F1');
-  assert(g.state.phase === 'WIN' && g.state.turn === 2 && g.state.player.hp === 5, 'the authored blue lane finishes the second guard');
+  const lastLane = preview(g, 'B1-C2-D3-E2-F1');
+  assert(hitOn(g, lastLane, 'F1')?.killed && !lastLane.completesRoom, 'the authored blue lane finishes the second guard');
+  await commit(g, 'B1-C2-D3-E2-F1-E1');
+  assert(g.state.phase === 'WIN' && g.state.turn === 2 && g.state.player.hp === 5, 'and continues into the door E1: victory before any answer');
 }
 
 async function battleArrows(seed?: number) {
@@ -183,16 +211,23 @@ async function battleArrows(seed?: number) {
     'without the lever no chain brings more than 3 power to the 7-HP guard');
   const safe = preview(g, 'B2-C3-C4-D5-D6');
   assert(safe.hits.map(hit => hit.availablePower).join() === '1,2,3,4' && hitOn(g, safe, 'D6')?.hpAfter === 3, 'the lever keeps the color and adds no power');
-  assert(safe.completesRoom && safe.damage === 0 && safe.endIndex === at(g, 'D5') && safe.trapHits?.some(hit => hit.index === guard && hit.killed),
+  assert(!safe.completesRoom && safe.damage === 0 && safe.endIndex === at(g, 'D5') && safe.trapHits?.some(hit => hit.index === guard && hit.killed),
     'arrows finish the wounded guard while the cat stands above the line');
+  // «Ход»: the guard falls to the volley after the chain, so the door E4 beside D5 is still closed during it.
+  assert(!preview(g, 'B2-C3-C4-D5-E4').valid, 'the lever chain cannot go on into the door: it opens only after the volley');
   const onLine = preview(g, 'A2-B2-C3-D3-C4-D5-C6-D6');
-  assert(onLine.completesRoom && onLine.trapDamage === 4 && onLine.damage === 4, 'ending on the arrow line is forecast as 4 damage');
+  assert(hitOn(g, onLine, 'D6')?.killed && onLine.trapDamage === 4 && onLine.damage === 4, 'ending on the arrow line is forecast as 4 damage');
   assert(preview(g, 'A2-B2-C3-D3-C4-D5-C6').playerDies, 'stopping on the line beside the surviving guard is forecast as death');
   await commit(g, 'B2-C3-C4-D5-D6');
-  assert(g.state.phase === 'WIN' && g.state.player.hp === 5 && g.state.devices[0].charges === 1, 'lever battle won in one turn');
+  assert(g.state.phase === 'PLAYER_INPUT' && g.state.player.hp === 5 && g.state.devices[0].charges === 1
+    && g.state.board[at(g, 'E4')]?.intent.label === 'Выход открыт', 'the volley kills the guard and opens the door beside the cat');
+  await commit(g, 'E4');
+  assert(g.state.phase === 'WIN' && g.state.player.hp === 5 && g.state.turn === 2, 'lever battle won: one step into the door on the next turn');
   const hurt = start('trunk-arrows', seed);
   await commit(hurt, 'A2-B2-C3-D3-C4-D5-C6-D6');
-  assert(hurt.state.phase === 'WIN' && hurt.state.player.hp === 1, 'the forecast 4 damage from own arrows is executed');
+  assert(hurt.state.phase === 'PLAYER_INPUT' && hurt.state.player.hp === 1, 'the forecast 4 damage from own arrows is executed');
+  await commit(hurt, 'E5-E4');
+  assert(hurt.state.phase === 'WIN' && hurt.state.player.hp === 1, 'the hurt cat leaves through the door');
 }
 
 /** The routes rest on the authored layout, not on refill colors: replay them on the refill seeds of real runs. */
@@ -205,9 +240,10 @@ async function routesOnRunSeeds() {
 
 async function replayIsExact() {
   const routes: [TrunkId, string[]][] = [
-    ['trunk-axe', ['B3-B2-C2', 'D1-E1-E2', 'D1-E2']],
-    ['trunk-last-step', ['C5-B5-A4-A3-B2', 'B1-C2-D3-E2-F1']],
-    ['trunk-wake', ['E2-E3-E4', 'D3-C4-B3-A2-A3']],
+    ['trunk-axe', ['B3-B2-C2', 'D1-E1-E2', 'E2-F1']],
+    ['trunk-last-step', ['C5-B5-A4-A3-B2', 'B1-C2-D3-E2-F1-E1']],
+    ['trunk-wake', ['E2-E3-E4', 'D3-C4-B3-A2-A3', 'B4-C5-D5-E5']],
+    ['trunk-arrows', ['B2-C3-C4-D5-D6', 'E4']],
   ];
   for (const [id, steps] of routes) {
     const runs = [start(id), start(id)];
@@ -236,7 +272,7 @@ async function lockedToolsAndRetry() {
     for (let turn = 0; turn < 5; turn++) {
       assert(await g.waitTurn(), `passive ${id} can advance turn ${turn + 1}`);
       assert(g.state.player.hp === 5, `trainees never injure the cat in ${id}`);
-      assert(g.state.board.every(cell => !cell || cell.behavior.passive && !cell.behavior.aggressive), `trainees including refills remain passive on turn ${turn + 1}`);
+      assert(g.state.board.every(cell => !cell || cell.kind === 'door' || cell.behavior.passive && !cell.behavior.aggressive), `trainees including refills remain passive on turn ${turn + 1}`);
     }
   }
 
@@ -249,7 +285,7 @@ async function lockedToolsAndRetry() {
   assert(JSON.stringify(interrupted.state) === opening, 'hit-time restart restores every authored entity and target');
 
   const won = start('trunk-wake');
-  await commit(won, 'D2-D3-C4-B3-A2-A3-B4-C5');
+  await commit(won, 'D2-D3-C4-B3-A2-A3-B4-C5-D5-E5');
   const outcome = won.runBattleOutcome();
   assert(outcome?.won && outcome.nodeId === 'trunk-1' && outcome.player.hp === 5, 'a won trunk battle reports its outcome to the run');
 }
@@ -277,7 +313,7 @@ async function run() {
   await battleWake(); await battleAxe(); await battleLastStep(); await battleArrows();
   await routesOnRunSeeds();
   await replayIsExact(); await lockedToolsAndRetry(); await alternateEndpointsStayPlayable();
-  console.log('PASS trunk battles 1–4 as map nodes: authored two-color layouts, row palettes, verified routes (authored and run seeds), forecast traps, exact replay, locked tools, playable endpoints');
+  console.log('PASS trunk battles 1–4 as map nodes: authored two-color layouts with an exit door, row palettes, verified routes into the door (authored and run seeds), forecast traps, exact replay, locked tools, playable endpoints');
 }
 
 run().catch(error => { console.error(error); throw error; });
