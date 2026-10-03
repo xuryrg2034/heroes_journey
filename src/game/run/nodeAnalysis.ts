@@ -2,7 +2,8 @@
  * Analyzer setups for forest-map node battles (scripts/analyze-levels.ts `--node`, `--nodes`).
  * A node battle is started exactly as in a run, through ForestEngine.startRunBattle, with the analysis entry:
  * 5/5 HP, 0 energy (the analyzer's --energy overrides it), no items, and the tools every route has opened on entering the node (guaranteedNodeTools);
- * for a battle not yet bound to a node, the tools guaranteed on the whole row given with `--row`.
+ * for a battle not yet bound to a node, the tools guaranteed on the whole row given with `--row`, or by default on the
+ * first row of its pool band (battlePools.ts): the generated map takes such a battle from its pool.
  * The refill seed is the battle's authored seed; the palette is the row palette plus the authored colors.
  */
 import { FOREST_RUN_START_HP, nodeRunTemplate } from './forestRun';
@@ -10,6 +11,7 @@ import { authoredRefillPalette, FOREST_MAP, forestNode, guaranteedNodeTools, gua
 import { FOREST_NODE_BATTLES, forestBattle } from './forestBattles';
 import type { AuthoredLesson } from '../lessonBuilder';
 import type { RunBattleSetup, RunBattleTemplate } from './runBattle';
+import { battlePoolEntry } from './battlePools';
 
 export interface NodeAnalysisTarget { id: string; row: number; tools: GuaranteedTools; setup: RunBattleSetup }
 
@@ -32,16 +34,21 @@ function fromRow(battleId: string, row: number): NodeAnalysisTarget {
   return { id: `${battleId}@row${row}`, row, tools, setup: setupFor(`analysis:${battleId}`, authored.name, { kind: 'battle', id: battleId }, authored, row, tools) };
 }
 
+/** Default analysis row of a battle not bound to an authored node: the first row of its pool band; undefined without metadata. */
+export function defaultBattleRow(id: string): number | undefined { return battlePoolEntry(id)?.rows[0]; }
+
 /**
  * Analysis targets of one id: a registry battle id (checked first) or a map node id.
- * A registry battle is analyzed on every node that plays it, or on row `row` when given;
- * an unbound battle needs `row`.
+ * A registry battle is analyzed on every authored node that plays it, or on row `row` when given; an unbound battle
+ * is analyzed on the first row of its pool band, and without pool metadata needs `row`.
  */
 export function nodeAnalysisTargets(id: string, row?: number): NodeAnalysisTarget[] {
   if (forestBattle(id)) {
     if (row !== undefined) return [fromRow(id, row)];
     const nodes = FOREST_MAP.filter(node => node.content.kind === 'battle' && node.content.battleId === id);
-    if (!nodes.length) throw new Error(`Бой ${id} не привязан к узлу карты: укажи ряд флагом --row.`);
+    const band = defaultBattleRow(id);
+    if (!nodes.length && band !== undefined) return [fromRow(id, band)];
+    if (!nodes.length) throw new Error(`Бой ${id} не привязан к узлу карты и не описан в пулах (battlePools.ts): укажи ряд флагом --row.`);
     return nodes.map(node => fromNode(node, `${id}@${node.id}`));
   }
   const node = forestNode(id);
@@ -50,12 +57,12 @@ export function nodeAnalysisTargets(id: string, row?: number): NodeAnalysisTarge
   return [fromNode(node)];
 }
 
-/** Targets of every registry battle; unbound battles without `row` are listed in `skipped`. */
+/** Targets of every registry battle; unbound battles without `row` and without pool metadata are listed in `skipped`. */
 export function allNodeBattleTargets(row?: number): { targets: NodeAnalysisTarget[]; skipped: string[] } {
   const targets: NodeAnalysisTarget[] = [], skipped: string[] = [];
   for (const id of Object.keys(FOREST_NODE_BATTLES)) {
     const bound = FOREST_MAP.some(node => node.content.kind === 'battle' && node.content.battleId === id);
-    if (!bound && row === undefined) { skipped.push(id); continue; }
+    if (!bound && row === undefined && defaultBattleRow(id) === undefined) { skipped.push(id); continue; }
     targets.push(...nodeAnalysisTargets(id, bound ? undefined : row));
   }
   return { targets, skipped };

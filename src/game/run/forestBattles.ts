@@ -35,10 +35,13 @@ export function buildNodeBattleRegistry(groups: Record<string, readonly NodeBatt
   return registry;
 }
 
-export const FOREST_NODE_BATTLES: Readonly<Record<string, NodeBattle>> = buildNodeBattleRegistry({
+/** Battle groups by file of battles/*.ts (the group name is the file name); the pool validator names the file of a battle. */
+export const FOREST_BATTLE_GROUPS: Readonly<Record<string, readonly NodeBattle[]>> = {
   trunk: TRUNK_BATTLES, beasts: BEAST_BATTLES, goblins: GOBLIN_BATTLES, shared: SHARED_BATTLES, bosses: BOSS_BATTLES,
   den: DEN_BATTLES, camp: CAMP_BATTLES,
-});
+};
+
+export const FOREST_NODE_BATTLES: Readonly<Record<string, NodeBattle>> = buildNodeBattleRegistry(FOREST_BATTLE_GROUPS);
 
 /** Registered battle by id, or undefined (never an inherited object key). */
 export function forestBattle(id: string): NodeBattle | undefined {

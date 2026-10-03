@@ -58,7 +58,8 @@
     "test:single-hit": "tsx src/game/singleHit.spec.ts",
     "test:telemetry": "tsx src/telemetry.spec.ts",
     "test:player-profile": "tsx src/game/playerProfile.spec.ts",
-    "test:forest-events": "tsx src/game/forestEvents.spec.ts"
+    "test:forest-events": "tsx src/game/forestEvents.spec.ts",
+    "test:battle-pools": "tsx src/game/battlePools.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"
