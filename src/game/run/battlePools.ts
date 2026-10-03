@@ -27,6 +27,8 @@ export interface BattlePoolEntry {
   main: MainEnemy;
   /** Field feature shown on the map once the battle of a node is known. */
   feature?: string;
+  /** A stand-in battle: what replaces it once the enemies exist (shown as «временно» on the map). */
+  placeholder?: string;
 }
 
 export const MAIN_ENEMY_NAMES: Record<MainEnemy, string> = {
@@ -54,7 +56,7 @@ export const BATTLE_POOLS: Readonly<Record<string, BattlePoolEntry>> = {
   // Branches, rows 10–12.
   'den-watch': { rows: [10, 12], type: 'battle', branch: 'den', requires: ['jump', 'spin'], main: 'wolf', feature: 'Волки, дикобраз, лучник' },
   'camp-cauldron-ring': { rows: [10, 12], type: 'battle', branch: 'camp', requires: ['jump', 'spin'], main: 'shaman', feature: 'Гоблины у котла' },
-  'den-nest': { rows: [10, 12], type: 'hard', branch: 'den', requires: [], main: 'wolf', feature: 'Кабан, стая, шипы' },
+  'den-nest': { rows: [10, 12], type: 'hard', branch: 'den', requires: [], main: 'wolf', feature: 'Кабан, стая, шипы', placeholder: 'Медведь или Зверовод, когда появятся' },
   'camp-shield-wall': { rows: [10, 12], type: 'hard', branch: 'camp', requires: [], main: 'sentinel', feature: 'Щитоносцы, лучник, шаман' },
   // Breakthroughs, row 13, and bosses, row 14.
   'den-breakout': { rows: [13, 13], type: 'breakthrough', branch: 'den', requires: [], main: 'wolf', feature: 'Цель — выход' },
