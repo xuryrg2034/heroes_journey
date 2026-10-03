@@ -58,6 +58,14 @@ export const BATTLE_POOLS: Readonly<Record<string, BattlePoolEntry>> = {
   'camp-cauldron-ring': { rows: [10, 12], type: 'battle', branch: 'camp', requires: ['jump', 'spin'], main: 'shaman', feature: 'Гоблины у котла' },
   'den-nest': { rows: [10, 12], type: 'hard', branch: 'den', requires: [], main: 'wolf', feature: 'Кабан, стая, шипы', placeholder: 'Медведь или Зверовод, когда появятся' },
   'camp-shield-wall': { rows: [10, 12], type: 'hard', branch: 'camp', requires: [], main: 'sentinel', feature: 'Щитоносцы, лучник, шаман' },
+  // Branch battles of 04.10.2026 (docs/levels/forest-branch-den.md, forest-branch-camp.md). Rows 10–12 guarantee frost,
+  // jump and spin, so `requires` only records what the card's intended line needs.
+  'den-quill-screen': { rows: [10, 12], type: 'battle', branch: 'den', requires: [], main: 'porcupine', feature: 'Дикобразы-заслон, вожак в углу' },
+  'den-thorn-rut': { rows: [10, 12], type: 'battle', branch: 'den', requires: [], main: 'boar', feature: 'Кабан и колючая колея' },
+  'den-old-tusker': { rows: [10, 12], type: 'hard', branch: 'den', requires: ['spin'], main: 'boar', feature: 'Секач-элита, шипы' },
+  'camp-twin-towers': { rows: [10, 12], type: 'battle', branch: 'camp', requires: [], main: 'archer', feature: 'Две вышки лучников' },
+  'camp-pond-causeway': { rows: [10, 12], type: 'battle', branch: 'camp', requires: [], main: 'sentinel', feature: 'Щитоносец на гати' },
+  'camp-high-shaman': { rows: [10, 12], type: 'hard', branch: 'camp', requires: [], main: 'shaman', feature: 'Верховный шаман-элита' },
   // Breakthroughs, row 13, and bosses, row 14.
   'den-breakout': { rows: [13, 13], type: 'breakthrough', branch: 'den', requires: [], main: 'wolf', feature: 'Цель — выход' },
   'camp-gate-run': { rows: [13, 13], type: 'breakthrough', branch: 'camp', requires: [], main: 'sentinel', feature: 'Цель — выход' },
