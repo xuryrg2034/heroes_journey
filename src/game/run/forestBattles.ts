@@ -8,6 +8,8 @@ import { validateCustomLevel } from '../customLevel';
 import type { AuthoredLesson } from '../lessonBuilder';
 import { BEAST_BATTLES } from './battles/beasts';
 import { BOSS_BATTLES } from './battles/bosses';
+import { CAMP_BATTLES } from './battles/camp';
+import { DEN_BATTLES } from './battles/den';
 import { GOBLIN_BATTLES } from './battles/goblins';
 import { SHARED_BATTLES } from './battles/shared';
 import { TRUNK_BATTLES } from './battles/trunk';
@@ -35,6 +37,7 @@ export function buildNodeBattleRegistry(groups: Record<string, readonly NodeBatt
 
 export const FOREST_NODE_BATTLES: Readonly<Record<string, NodeBattle>> = buildNodeBattleRegistry({
   trunk: TRUNK_BATTLES, beasts: BEAST_BATTLES, goblins: GOBLIN_BATTLES, shared: SHARED_BATTLES, bosses: BOSS_BATTLES,
+  den: DEN_BATTLES, camp: CAMP_BATTLES,
 });
 
 /** Registered battle by id, or undefined (never an inherited object key). */
