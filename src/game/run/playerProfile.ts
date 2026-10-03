@@ -4,7 +4,7 @@
  * the trail fork (decision of 04.10.2026, docs/roguelike-runs.md, section 2). Storage is optional and every access is
  * guarded: without it the profile reads as a first-time player's and nothing is remembered, so the game plays the trunk.
  */
-import { forestNode, FOREST_TRUNK_LAST_ROW } from './forestMap';
+import { FOREST_TRUNK_LAST_ROW } from './forestMap';
 import type { ForestRunEvent } from './forestRun';
 import type { RunStorage } from './forestRunStorage';
 
@@ -29,9 +29,9 @@ export function parsePlayerProfile(text: string | null): PlayerProfile {
   } catch { return emptyProfile(); }
 }
 
-/** A run step that entered a node past the trunk: the first such entry marks the trunk as cleared. */
+/** A run step that entered a node past the trunk (authored or generated map): the first such entry marks the trunk as cleared. */
 export function clearsTrunk(events: readonly ForestRunEvent[]): boolean {
-  return events.some(event => event.type === 'node-entered' && (forestNode(event.nodeId)?.row ?? 0) > FOREST_TRUNK_LAST_ROW);
+  return events.some(event => event.type === 'node-entered' && event.row > FOREST_TRUNK_LAST_ROW);
 }
 
 export interface PlayerProfileStore {

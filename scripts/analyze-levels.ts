@@ -30,7 +30,7 @@ const HELP = `analyze-levels [options]
   --node ID          forest-map node battle (repeatable): a registry battle id or a map node id.
                      Started as in a run: 5 HP, 0 energy (see --energy), no items, tools guaranteed on entering the node
   --nodes            every battle of the node registry (src/game/run/battles/*.ts)
-  --row R            map row for registry battles not bound to a node (tools and palette of that row)
+  --row R            map row for registry battles not bound to a node (tools and palette of that row); default: first row of the pool band
   --energy E         node battles: entry energy instead of 0 (the run carries energy between nodes)
   --elite-move-every N  elites move every N turns (0 — not at all); the game's value is ELITE_MOVE_EVERY in elite.ts
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
@@ -93,7 +93,7 @@ function parse(argv: string[]) {
     if (!tasks.some(task => task.kind === 'run-node')) throw new Error('--energy: use with --node or --nodes');
     for (const task of tasks) if (task.kind === 'run-node') task.target.setup.player.energy = energy;
   }
-  for (const id of skipped) console.log(`skip ${id}: not bound to a map node, pass --row R`);
+  for (const id of skipped) console.log(`skip ${id}: not bound to a map node and not in the pools (battlePools.ts), pass --row R`);
   if (!tasks.length) throw new Error('No level to analyze.');
   return { tasks: tasks.map(source => ({ source, options, ...(eliteMoveEvery === undefined ? {} : { eliteMoveEvery }) })), out, workers };
 }

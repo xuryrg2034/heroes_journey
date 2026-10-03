@@ -27,6 +27,11 @@ export type ForestNodeContent =
   | { kind: 'find' }
   /** A map event of src/game/run/forestEvents.ts: a scene with a choice, no battle (decision of 04.10.2026). */
   | { kind: 'event'; eventId: string }
+  /**
+   * A node of the generated map (mapGenerator.ts) whose battle or event is taken from its pool on entering
+   * (battlePools.ts, forestEvents.ts); the run records the pick and shows the node with it (forestRun.ts, `runNode`).
+   */
+  | { kind: 'pool' }
   | { kind: 'in-development'; planned: string };
 
 /** Run event of a node, applied on entering it (before its battle): tools open for the rest of the run. */
@@ -37,9 +42,14 @@ export interface ForestMapNode {
   type: ForestNodeType;
   name: string;
   lane: ForestLane;
-  /** Layout for the map screen: row 1 is the first trunk battle; column 0 left, 1 centre, 2 right. */
+  /**
+   * Layout for the map screen: row 1 is the first trunk battle; column 0 left, 1 centre, 2 right (in a branch of the
+   * generated map: the branch's own column 0 or 1).
+   */
   row: number;
   column: 0 | 1 | 2;
+  /** Vertical place on the map screen, 0 (top) – 1 (bottom); absent: the column's lane of the authored three. */
+  slot?: number;
   content: ForestNodeContent;
   next: string[];
   grants?: ForestNodeGrant;
@@ -67,8 +77,11 @@ export function forestRowPalette(row: number): EnemyColor[] {
 /** Content of a node that plays an authored battle of the registry (src/game/run/battles/*.ts). */
 export const battle = (battleId: string): ForestNodeContent => ({ kind: 'battle', battleId });
 const rest = (): ForestNodeContent => ({ kind: 'rest', heal: FOREST_REST_HEAL });
-const FROST: ForestNodeGrant = { items: ['frost'], inventory: { frost: 1 } };
-const JUMP: ForestNodeGrant = { abilities: ['jump'] };
+/** Grants of the first trail row (frost, one flask) and of the jump row; the generated map gives them by row. */
+export const FROST: ForestNodeGrant = { items: ['frost'], inventory: { frost: 1 } };
+export const JUMP: ForestNodeGrant = { abilities: ['jump'] };
+/** Reward of the checkpoint victory: the spin for the rest of the run. */
+export const SPIN_REWARD: ForestNodeGrant = { abilities: ['spin'] };
 
 export const FOREST_MAP: readonly ForestMapNode[] = [
   // Trunk: four forced battles without tools.
@@ -105,7 +118,7 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
     next: ['jailer'] },
   { id: 'trail-cache', type: 'event', name: 'Гоблинский тайник', lane: 'goblins', row: 8, column: 2, content: { kind: 'event', eventId: 'goblin-cache' }, next: ['jailer'] },
   // Victory over the checkpoint opens the spin for the rest of the run.
-  { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: battle('jailer-gate'), rewardGrants: { abilities: ['spin'] },
+  { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: battle('jailer-gate'), rewardGrants: SPIN_REWARD,
     next: ['den-battle', 'camp-battle'] },
   // Second half: the branch chosen after the Jailer decides the boss.
   // A rest comes before every hard battle (playtest decision 30.09.2026).
@@ -144,7 +157,19 @@ export function forestRunStarts(skipTrunk: boolean): string[] {
   return exit ? [...exit.next] : [FOREST_MAP_START];
 }
 
-/** Authored battle a node plays from the registry. Null for rest, find and stubs. */
+/**
+ * The graph a run walks: the authored FOREST_MAP (old saves and tests) or a generated map (mapGenerator.ts).
+ * `starts(skipTrunk)`: the first transitions of a run that plays the trunk or starts past it.
+ */
+export interface ForestRunMap {
+  kind: 'authored' | 'generated';
+  nodes: readonly ForestMapNode[];
+  node(id: string): ForestMapNode | undefined;
+  starts(skipTrunk: boolean): string[];
+}
+export const AUTHORED_RUN_MAP: ForestRunMap = { kind: 'authored', nodes: FOREST_MAP, node: forestNode, starts: forestRunStarts };
+
+/** Authored battle a node plays from the registry. Null for rest, find, stubs and unpicked pool nodes. */
 export function nodeBattleTemplate(node: ForestMapNode): AuthoredLesson | null {
   return node.content.kind === 'battle' ? forestBattle(node.content.battleId) ?? null : null;
 }

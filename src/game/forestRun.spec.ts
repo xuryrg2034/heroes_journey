@@ -384,7 +384,10 @@ function serialization() {
   const parsed = parseForestRun(serializeForestRun(run))!;
   assert(json(parsed) === json(run) && json(battleSetup(parsed)) === json(battleSetup(run)), 'pending battle round-trips to the same setup');
   const tamper = (edit: (value: Record<string, any>) => void) => { const value = JSON.parse(serializeForestRun(run)); edit(value); return parseForestRun(JSON.stringify(value)); };
-  assert(parseForestRun('{') === null && tamper(v => { v.version = 2; }) === null, 'garbage and other versions are rejected');
+  assert(parseForestRun('{') === null && tamper(v => { v.version = 3; }) === null, 'garbage and other versions are rejected');
+  // Version 1 (before the generated map, 04.10.2026) has no map and no picks: it walks the authored graph.
+  assert(json(tamper(v => { v.version = 1; delete v.map; delete v.picks; })) === json(run), 'a version 1 save loads on the authored graph');
+  assert(tamper(v => { v.version = 1; }) === null, 'a version 1 save never carries a map');
   assert(tamper(v => { v.visited = ['trunk-2']; v.currentNodeId = 'trunk-2'; v.pending = null; }) === null, 'a route that skips nodes is rejected');
   assert(tamper(v => { v.pending.seed++; }) === null, 'a battle seed not derived from the run is rejected');
   assert(tamper(v => { v.resources.player.hp = 9; }) === null, 'HP above the maximum is rejected');
