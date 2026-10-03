@@ -169,9 +169,11 @@ async function growingAnger() {
   assert(runPressureInfo(pressed.state).active, 'row 5: the pressure is active');
   assert(pressed.state.board.every(cell => !cell || !cell.behavior.passive), 'row 5: no enemy of the lesson template is passive');
   const grown = await angerByTurn(pressed, 9);
-  equal(grown, [1, 1, 1, 1, 1, 1, 1, 1, 1], 'row 5: one new angry enemy per turn before the goals, no acceleration');
+  // The crystal field holds the Chief (Q, a protected cell): since 04.10.2026 no anger while it lives — the boss is the
+  // pressure. One new angry enemy per turn without a boss: pressure.spec.ts.
+  equal(grown, [0, 0, 0, 0, 0, 0, 0, 0, 0], 'row 5 with the Chief alive: no new angry enemy before the goals');
   const info = runPressureInfo(pressed.state);
-  equal([info.active, info.nextAnger, info.afterGoals], [true, 1, false], 'UI data after nine turns');
+  equal([info.active, info.nextAnger, info.afterGoals], [true, 0, false], 'UI data after nine turns');
 
   // The trunk (row 4) keeps authored passivity: nobody becomes angry; so does the real first trunk battle.
   const trunk = field(4);
@@ -188,7 +190,8 @@ async function growingAnger() {
   // The Chief's battle (camp-chief, row 14) is a map battle with the pressure layers: soft anger before the goals.
   const chief = startNodeBattle('chief-breakfast', { player: { hp: 99, maxHp: 99, energy: 0 } });
   const chiefAnger = await angerByTurn(chief, 5);
-  assert(chiefAnger.some(count => count === 1) && chiefAnger.every(count => count <= 1) && runPressureInfo(chief.state).active, `the chief node uses the soft clock before the goals, got ${chiefAnger}`);
+  // Since 04.10.2026 the Chief is the pressure: no new anger while it lives.
+  assert(chiefAnger.every(count => count === 0) && runPressureInfo(chief.state).active, `the chief node adds no anger while the Chief lives, got ${chiefAnger}`);
 }
 
 /** Before the goals the refill stays weak whatever the turn (Grindstone-style pressure, 04.10.2026: refills are always weak; the anger after the goals: pressure.spec.ts). */

@@ -192,8 +192,9 @@ async function routes(): Promise<string[]> {
     const g = start(k), where = `refill ${k}`;
     await playRoute(g, where);
     assert(g.state.turn === ROUTE.length, `${where}: the authored route kills the troll in ${ROUTE.length} turns (turn ${g.state.turn})`);
-    // Growing anger on row 14 (playtest 1): the third turn now takes one melee hit from a goblin of the growing anger.
-    assert(g.state.player.hp === 4, `${where}: 4 HP left when the troll dies, got ${g.state.player.hp}`);
+    // Since 04.10.2026 no goblin becomes angry while the Troll lives (the boss is the pressure): the route that took a hit
+    // from a goblin of the growing anger on its third turn (4 HP) now keeps all 5 HP.
+    assert(g.state.player.hp === 5, `${where}: 5 HP left when the troll dies, got ${g.state.player.hp}`);
     exits.push(`${where}: ${await leave(g, where)}`);
   }
   for (const runSeed of [1, 2]) {
