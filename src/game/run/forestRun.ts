@@ -24,14 +24,20 @@ export interface ForestRunResources { player: RunPlayerResources; inventory: Rec
 /** Tools opened by run events (grants and finds); a map battle allows only these. */
 export interface ForestRunTools { items: ItemKind[]; abilities: AbilityKind[] }
 export type ForestRunPending =
-  /** Entered battle node. `entry` is the snapshot on entering; a defeat retries from it. */
-  | { kind: 'battle'; nodeId: string; seed: number; entry: ForestRunResources; tools: ForestRunTools; defeats: number }
+  /**
+   * Entered battle node. `entry` is the snapshot on entering: the battle starts from it (also after a reload, the
+   * battle in progress is not saved). A defeat ends the run (decision of 04.10.2026, docs/roguelike-runs.md);
+   * saves made before that may still carry a `defeats` counter, which parseForestRun drops.
+   */
+  | { kind: 'battle'; nodeId: string; seed: number; entry: ForestRunResources; tools: ForestRunTools }
   /** Item choice of a find node, or the reward of a won hard battle (the node completes after the choice). */
   | { kind: 'find'; nodeId: string; options: ItemKind[] };
 export type ForestRunResult =
   | { outcome: 'victory'; nodeId: string }
   /** The branch ends at a boss that is not implemented yet. This is not a victory. */
-  | { outcome: 'boss-in-development'; nodeId: string };
+  | { outcome: 'boss-in-development'; nodeId: string }
+  /** The cat fell in the battle of `nodeId` (an entered, not completed node): the run is over (decision of 04.10.2026). */
+  | { outcome: 'defeat'; nodeId: string };
 
 export interface ForestRunState {
   version: typeof FOREST_RUN_VERSION;
@@ -51,6 +57,8 @@ export interface ForestRunState {
   loot: { nodeId: string; item: LootKind; count: number }[];
   resources: ForestRunResources;
   tools: ForestRunTools;
+  /** Points of all finished node battles, the lost one included (the battle's `state.score`). Absent in saves before 04.10.2026: read as 0. */
+  score: number;
   pending: ForestRunPending | null;
   result: ForestRunResult | null;
 }
@@ -60,7 +68,8 @@ export type ForestRunEvent =
   | { type: 'tools-unlocked'; items: ItemKind[]; abilities: AbilityKind[] }
   | { type: 'items-granted'; items: Partial<Record<ItemKind, number>> }
   | { type: 'battle-ready'; nodeId: string }
-  | { type: 'battle-lost'; nodeId: string; defeats: number }
+  /** The node battle was lost: the run is over (`result.outcome === 'defeat'`). */
+  | { type: 'run-lost'; nodeId: string }
   /** Rest heal, or the hard-battle victory heart (+1 HP); `amount` is 0 at full HP. */
   | { type: 'healed'; nodeId: string; amount: number }
   /** Rest removed burning, poison and bleeding from the cat. */
@@ -82,7 +91,7 @@ export function forestNodeSeed(runSeed: number, nodeId: string): number {
 
 export function createForestRun(seed: number): ForestRunState {
   return {
-    version: FOREST_RUN_VERSION, seed: seed >>> 0, currentNodeId: null, visited: [], finds: [], loot: [],
+    version: FOREST_RUN_VERSION, seed: seed >>> 0, currentNodeId: null, visited: [], finds: [], loot: [], score: 0,
     resources: { player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
     tools: { items: [], abilities: [] }, pending: null, result: null,
@@ -149,7 +158,7 @@ export function enterNode(current: ForestRunState, nodeId: string): ForestRunSte
   }
   if (node.content.kind === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
   run.pending = { kind: 'battle', nodeId, seed: forestNodeSeed(run.seed, nodeId),
-    entry: structuredClone(run.resources), tools: structuredClone(run.tools), defeats: 0 };
+    entry: structuredClone(run.resources), tools: structuredClone(run.tools) };
   events.push({ type: 'battle-ready', nodeId }); return { ok: true, run, events };
 }
 
@@ -173,16 +182,20 @@ export function battleSetup(run: ForestRunState): RunBattleSetup | null {
 
 const clampCount = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 
-/** Feed a finished battle back. Victory carries HP, energy, items and effects; defeat keeps the entry snapshot. */
+/**
+ * Feed a finished battle back. Victory carries HP, energy, items and effects. Defeat ends the run: the result names the
+ * lost node, the resources stay the entry snapshot (a living cat), and nothing more can be entered.
+ */
 export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome): ForestRunStep {
   const pending = current.pending;
   if (pending?.kind !== 'battle' || pending.nodeId !== outcome.nodeId) return fail('Этот бой не относится к текущему узлу.');
   const run = structuredClone(current), events: ForestRunEvent[] = [];
   const battle = run.pending as Extract<ForestRunPending, { kind: 'battle' }>;
   if (outcome.won && !(outcome.player.hp >= 1)) return fail('Победа с 0 HP невозможна.');
+  run.score = (run.score ?? 0) + clampCount(outcome.score);
   if (!outcome.won) {
-    battle.defeats++;
-    events.push({ type: 'battle-lost', nodeId: battle.nodeId, defeats: battle.defeats }); return { ok: true, run, events };
+    run.pending = null; run.result = { outcome: 'defeat', nodeId: battle.nodeId };
+    events.push({ type: 'run-lost', nodeId: battle.nodeId }); return { ok: true, run, events };
   }
   const maxHp = Math.max(1, clampCount(outcome.player.maxHp));
   run.resources = {
@@ -228,7 +241,8 @@ export function chooseFindItem(current: ForestRunState, item: ItemKind): ForestR
   completeNode(run, forestNode(pending.nodeId)!, events); return { ok: true, run, events };
 }
 
-export type ForestNodeStatus = 'visited' | 'current' | 'in-progress' | 'available' | 'locked';
+/** `lost`: the node whose battle ended the run in a defeat. */
+export type ForestNodeStatus = 'visited' | 'current' | 'in-progress' | 'available' | 'locked' | 'lost';
 export interface ForestRunView {
   nodes: { node: ForestMapNode; status: ForestNodeStatus }[];
   available: string[];
@@ -243,6 +257,7 @@ export interface ForestRunView {
 export function forestRunView(run: ForestRunState): ForestRunView {
   const available = availableNodes(run).map(node => node.id);
   const status = (node: ForestMapNode): ForestNodeStatus => run.pending?.nodeId === node.id ? 'in-progress'
+    : run.result?.outcome === 'defeat' && run.result.nodeId === node.id ? 'lost'
     : node.id === run.currentNodeId ? 'current' : run.visited.includes(node.id) ? 'visited' : available.includes(node.id) ? 'available' : 'locked';
   return { nodes: FOREST_MAP.map(node => ({ node, status: status(node) })), available,
     battlesWon: run.visited.filter(id => { const node = forestNode(id); return !!node && isBattleNode(node); }).length,
@@ -332,7 +347,9 @@ export function parseForestRun(text: string): ForestRunState | null {
   const pending = value.pending, result = value.result;
   // A completed node without transitions must carry the run result; otherwise the run would be stuck.
   if (pending === null && result === null && !nextIds.length) return null;
-  const entered = isRecord(pending) && typeof pending.nodeId === 'string' ? forestNode(pending.nodeId) ?? null : null;
+  // The entered, not completed node: the open one, or the node whose battle was lost (its grants were applied on entering).
+  const entered = isRecord(pending) && typeof pending.nodeId === 'string' ? forestNode(pending.nodeId) ?? null
+    : isRecord(result) && result.outcome === 'defeat' && typeof result.nodeId === 'string' ? forestNode(result.nodeId) ?? null : null;
   const wonHard = pending !== null && isRecord(pending) && pending.kind === 'find' && !!entered && hasVictoryFind(entered);
   const typedFinds = finds as ForestRunState['finds'];
   if (!sameTools(value.tools as ForestRunTools, expectedTools(visited, typedFinds, entered, wonHard))) return null;
@@ -365,7 +382,7 @@ export function parseForestRun(text: string): ForestRunState | null {
     const node = forestNode(pending.nodeId)!;
     if (pending.kind === 'battle') {
       if (!isBattleNode(node) || node.content.kind === 'in-development' || !isSeed(pending.seed) || pending.seed !== forestNodeSeed(value.seed as number, node.id)
-        || !validResources(pending.entry) || !validTools(pending.tools) || !isCount(pending.defeats)) return null;
+        || !validResources(pending.entry) || !validTools(pending.tools) || pending.defeats !== undefined && !isCount(pending.defeats)) return null;
       // While a battle is open the run still holds the entry snapshot: a defeat never changes resources.
       if (JSON.stringify(pending.entry) !== JSON.stringify(value.resources) || !sameTools(pending.tools, value.tools as ForestRunTools)) return null;
     } else if (pending.kind === 'find') {
@@ -377,7 +394,15 @@ export function parseForestRun(text: string): ForestRunState | null {
     if (result.outcome === 'victory') { if (result.nodeId !== at || forestNode(at!)?.type !== 'boss') return null; }
     else if (result.outcome === 'boss-in-development') {
       if (typeof result.nodeId !== 'string' || !nextIds.includes(result.nodeId) || forestNode(result.nodeId)?.content.kind !== 'in-development') return null;
+    } else if (result.outcome === 'defeat') {
+      // The lost battle was entered from the current node and never completed.
+      const lost = typeof result.nodeId === 'string' ? forestNode(result.nodeId) : undefined;
+      if (!lost || !nextIds.includes(lost.id) || !nodeRunTemplate(lost)) return null;
     } else return null;
   }
-  return { ...structuredClone(value), loot: structuredClone(typedLoot) } as unknown as ForestRunState;
+  if (value.score !== undefined && !isCount(value.score)) return null;
+  const run = { ...structuredClone(value), loot: structuredClone(typedLoot), score: (value.score as number | undefined) ?? 0 } as unknown as ForestRunState;
+  // Saves before 04.10.2026 count defeats of the open battle; a defeat now ends the run, so the counter has no meaning.
+  if (run.pending?.kind === 'battle') delete (run.pending as { defeats?: number }).defeats;
+  return run;
 }

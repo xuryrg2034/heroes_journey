@@ -20,7 +20,7 @@ export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: strin
   boss: { icon: '♛', label: 'Босс', hint: 'Финал ветки.' },
 };
 const STATUS_LABEL: Record<ForestNodeStatus, string> = {
-  visited: 'Пройден', current: 'Текущий', 'in-progress': 'В бою', available: 'Доступен', locked: 'Закрыт',
+  visited: 'Пройден', current: 'Текущий', 'in-progress': 'В бою', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение',
 };
 const ITEM_ICON: Record<ItemKind, string> = { frost: '❄', bomb: '✹', healing: '✚', fire: '♨' };
 const ITEM_NAME: Record<ItemKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь' };
@@ -75,7 +75,8 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
   const view = forestRunView(run), node = nodeId ? forestNode(nodeId) : undefined;
   if (!node) {
     const pending = view.pending;
-    const text = view.result ? 'Поход завершён. Наведи на узел, чтобы вспомнить его.'
+    const text = view.result?.outcome === 'defeat' ? 'Поход окончен поражением. Наведи на узел, чтобы вспомнить путь.'
+      : view.result ? 'Поход завершён. Наведи на узел, чтобы вспомнить его.'
       : pending?.kind === 'battle' ? `Бой узла «${nodeName(pending.nodeId)}» не завершён. Начни его снова кнопкой выше.`
       : pending?.kind === 'find' ? 'Находка ждёт выбора предмета.'
       : view.available.length ? 'Выбери следующий узел: доступные подсвечены. Наведи на узел, чтобы увидеть тип и особенность поля.' : '';
@@ -154,7 +155,7 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
   const view = forestRunView(run);
   const pending = view.pending;
   const banner = pending?.kind === 'battle'
-    ? `<div class="map-banner"><span>Бой узла «${escapeHtml(nodeName(pending.nodeId))}» не завершён${pending.defeats ? ` · поражений: ${pending.defeats}` : ''}.</span><button class="button primary" data-action="run-battle">${pending.defeats ? 'ПОВТОРИТЬ УЗЕЛ' : 'К БОЮ'}</button></div>`
+    ? `<div class="map-banner"><span>Бой узла «${escapeHtml(nodeName(pending.nodeId))}» не завершён.</span><button class="button primary" data-action="run-battle">К БОЮ</button></div>`
     : pending?.kind === 'find'
       ? `<div class="map-banner"><span>Находка ждёт выбора предмета.</span><button class="button primary" data-action="run-find">ВЫБРАТЬ</button></div>`
       : options.notice ? `<div class="map-banner notice" id="map-notice"><span>${escapeHtml(options.notice)}</span></div>` : '';
@@ -190,21 +191,31 @@ export function findModalHtml(nodeId: string, options: ItemKind[]): string {
   return `<p class="eyebrow">НАХОДКА</p><h2 id="modal-title">Одна вещь в дорогу</h2><p class="modal-copy">Возьми один предмет из трёх. Он откроется для следующих боёв.</p><div class="reward-options">${options.map(item => `<button class="reward-choice" data-find="${item}"><span class="reward-icon">${ITEM_ICON[item]}</span><span><b>${ITEMS[item].label} <em>+1</em></b><small>${ITEMS[item].description}</small></span></button>`).join('')}</div><p class="reward-note">${escapeHtml(nodeName(nodeId))}: остальные предметы останутся в лесу.</p>`;
 }
 
-/** Result of a battle in a map node: victory goes back to the map, defeat retries the node. */
-export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; defeats: number; battlesWon: number; grants: string; find?: boolean; healed?: number }): string {
-  const { won, name, turns, hp, maxHp, defeats, battlesWon, grants, find, healed } = options;
+/**
+ * Result of a won map-node battle: back to the map (or to the hard-battle find). A defeat in the run's battle ends the
+ * run and shows runResultHtml instead; the defeat branch here is only for a node battle opened outside the saved run
+ * (the debug hook `startNodeBattle`), which has no run to end.
+ */
+export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; battlesWon: number; grants: string; find?: boolean; healed?: number }): string {
+  const { won, name, turns, hp, maxHp, battlesWon, grants, find, healed } = options;
   const stats = `<div class="result-stats"><span><b>${turns}</b>ХОДЫ</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${battlesWon}</b>БОЁВ ПРОЙДЕНО</span></div>`;
   return won
     ? `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol">✦</div><h2 id="modal-title">Узел пройден</h2><p class="modal-copy">Здоровье, энергия и предметы уходят с тобой на карту.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` <b id="hard-heal">+${healed} HP за трудный бой.</b>` : ''}${find ? ' За победу — находка: выбери один предмет из трёх.' : ''}</p>${stats}${find ? '<button class="button primary" data-action="run-find">ВЫБРАТЬ НАХОДКУ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>' : '<button class="button primary" data-action="run-map">К КАРТЕ</button>'}`
-    : `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот отступил</h2><p class="modal-copy">Поход продолжается: узел остаётся текущим, поражений в нём — ${defeats}. Повтор вернёт поле, здоровье и запас как на входе.</p>${stats}<button class="button primary" data-action="retry">ПОВТОРИТЬ УЗЕЛ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`;
+    : `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот отступил</h2><p class="modal-copy">Бой открыт вне сохранённого похода. Повтор вернёт поле, здоровье и запас как на входе.</p>${stats}<button class="button primary" data-action="retry">ПОВТОРИТЬ БОЙ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`;
 }
 
-/** End of the run. The unfinished Troll branch is reported as such, not as a victory. */
+/** End of the run: victory over a boss, a defeat, or the unfinished Troll branch (reported as such, not as a victory). */
 export function runResultHtml(run: ForestRunState): string {
   const view = forestRunView(run), result = run.result;
   if (!result) return '';
   const { hp, maxHp } = run.resources.player;
-  const stats = `<div class="result-stats"><span><b>${view.battlesWon}</b>БОЁВ ПРОЙДЕНО</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span></div>`;
+  if (result.outcome === 'defeat') {
+    // A defeat ends the run (decision of 04.10.2026): where it ended, how far it went, no way back into it.
+    const lost = forestNode(result.nodeId);
+    const stats = `<div class="result-stats" id="run-defeat-stats"><span><b>${lost?.row ?? '—'}</b>РЯД</span><span><b>${view.battlesWon}</b>БОЁВ ВЫИГРАНО</span><span><b>${run.score}</b>ОЧКИ</span></div>`;
+    return `<p class="eyebrow">ПОХОД ОКОНЧЕН</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот пал</h2><p class="modal-copy" id="run-result-copy">Поражение в узле «${escapeHtml(lost?.name ?? result.nodeId)}». Этот поход не продолжить: новый начнётся заново.</p>${stats}<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="title">В МЕНЮ</button>`;
+  }
+  const stats = `<div class="result-stats"><span><b>${view.battlesWon}</b>БОЁВ ПРОЙДЕНО</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${run.score}</b>ОЧКИ</span></div>`;
   const buttons = '<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="run-map">СМОТРЕТЬ КАРТУ</button><button class="text-button" data-action="title">В МЕНЮ</button>';
   // The boss of the chosen branch decides the ending text.
   const troll = result.outcome === 'victory' && result.nodeId === 'den-troll';

@@ -8,6 +8,7 @@ import { authoredLesson } from './game/lessonBuilder';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './game/run/forestBattles';
 import type { RunBattleSetup } from './game/run/runBattle';
 import { CHEST_RESOURCES } from './game/exitRules';
+import { forestFixtureLevel } from './game/testing/fixtures';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
@@ -154,7 +155,37 @@ function oldJournal() {
   console.log('PASS an old journal without the exit fields loads, aggregates and renders');
 }
 
+/**
+ * A lost map-node battle ends the run (decision of 04.10.2026): the record says so and closes the visit, so leaving
+ * afterwards is not an abandonment. An editor level keeps the old meaning: leaving after its defeat is an abandonment.
+ */
+async function runDefeatEndsTheRun() {
+  telemetry.clearTelemetry();
+  const { g, controller } = start(spread(3), true);
+  await chain(g, [20, 15]);
+  g.damagePlayer(g.state.player.hp);
+  assert(g.state.phase === 'LOSE', 'the cat falls');
+  controller!.leave();
+  let [record] = journal();
+  assert(journal().length === 1 && record.outcome === 'lose' && record.runEnded === true && record.left === false, `the run defeat ends the run, leaving is not an abandonment: ${JSON.stringify(record)}`);
+  let [row] = telemetry.aggregate(journal());
+  assert(row.loses === 1 && row.abandonRate === 0 && row.attemptsToWin === null, `aggregates count a lost run, not an abandoned node: ${JSON.stringify(row)}`);
+
+  telemetry.clearTelemetry();
+  const editor = new ForestEngine(); editor.animationScale = 0;
+  const watch = telemetry.installTelemetry(editor);
+  assert(editor.startCustomLevel(forestFixtureLevel(spread(4))), 'the editor level starts');
+  editor.damagePlayer(editor.state.player.hp);
+  watch.leave();
+  [record] = journal();
+  assert(record.outcome === 'lose' && record.runEnded === undefined && record.left === true, `an editor defeat then leaving is an abandonment: ${JSON.stringify(record)}`);
+  [row] = telemetry.aggregate(journal());
+  assert(row.abandonRate === 1, 'the editor visit counts as abandoned');
+  console.log('PASS a run defeat marks the end of the run and closes the visit; an editor defeat keeps the abandonment rule');
+}
+
 await leaveAtOnce();
+await runDefeatEndsTheRun();
 await stayThenLeave();
 await restartKeepsTheChest();
 await eliteLoot();

@@ -40,4 +40,6 @@ export interface RunBattleOutcome {
   inventory: Record<ItemKind, number>;
   /** Resources picked up in this battle (elite loot); the run adds them to its stock. */
   materials?: Record<ResourceKind, number>;
+  /** Points of this battle (`state.score`); the run sums them for its result screen. */
+  score?: number;
 }

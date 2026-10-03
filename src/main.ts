@@ -201,29 +201,39 @@ function chooseFind(item: ItemKind) {
   mapNotice = `Взято: ${itemNames[item]} +1. ${itemNames[item]} открыт для следующих боёв.${grants ? ` Также открыто: ${grants}.` : ''}`;
   audio.play('reward'); showScreen('map');
 }
-/** A finished node battle goes to the model exactly once; the modal offers the map (and a retry after a defeat). */
+/** The battle on screen is the saved run's open node battle (not a debug battle opened outside the run). */
+const ownsRunBattle = () => !!engine.state.runNode && forestRun?.pending?.kind === 'battle' && forestRun.pending.nodeId === engine.state.runNode.nodeId;
+/**
+ * A finished node battle goes to the model exactly once. Victory offers the map (or the hard-battle find); a defeat
+ * ends the run and shows its result (decision of 04.10.2026): the node is not replayed.
+ */
 function showRunOutcome(won: boolean) {
   const outcome = engine.runBattleOutcome(), node = engine.state.runNode;
   audio.play(won ? 'win' : 'lose');
   if (!forestRun || !outcome || !node) {
     showModal('<h2 id="modal-title">Бой узла завершён</h2><button class="button primary" data-action="run-map">К КАРТЕ</button>'); return;
   }
-  const step = forestRun.pending?.kind === 'battle' && forestRun.pending.nodeId === outcome.nodeId ? commitRun(resolveBattle(forestRun, outcome)) : null;
+  const step = ownsRunBattle() ? commitRun(resolveBattle(forestRun, outcome)) : null;
   const run = forestRun, pending = run.pending, opened = forestNode(node.nodeId);
+  if (step?.ok && run.result?.outcome === 'defeat') { showModal(runResultHtml(run)); return; }
   const healedEvent = step?.ok ? step.events.find(event => event.type === 'healed') : undefined;
   const healed = healedEvent?.type === 'healed' ? healedEvent.amount : 0;
   const grants = won ? [opened ? grantText(opened) : '', step?.ok ? unlockedText(step.events) : ''].filter(Boolean).join('; ') : '';
   if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` +${healed} HP за трудный бой.` : ''}`;
   if (won && run.result) { showModal(runResultHtml(run)); return; }
   showModal(nodeBattleModalHtml({ won, name: node.label, turns: engine.state.turn, hp: won ? run.resources.player.hp : outcome.player.hp, maxHp: won ? run.resources.player.maxHp : outcome.player.maxHp,
-    defeats: pending?.kind === 'battle' ? pending.defeats : 0, battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', healed: won ? healed : 0 }));
+    battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', healed: won ? healed : 0 }));
 }
-/** Pause of a map-node battle (retry restores the node entry, the map keeps the run) or of an editor level. */
+/**
+ * Pause of a map-node battle or of an editor level. The run's battle has no retry (a defeat ends the run); a node
+ * battle opened outside the run (debug hook) and an editor level keep it.
+ */
 function pauseHtml(): string {
   const { runNode } = engine.state;
   const playtest = '<details class="playtest-details"><summary>Плейтест</summary><button class="text-button" data-action="playtest">ОТКРЫТЬ ЖУРНАЛ ПОПЫТОК</button></details>';
+  if (runNode && ownsRunBattle()) return `<p class="eyebrow">БОЙ УЗЛА</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Прогресс похода сохранён. Поражение в этом бою закончит поход.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`;
   return runNode
-    ? `<p class="eyebrow">БОЙ УЗЛА</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Повтор вернёт поле, здоровье и запас как на входе в узел. Прогресс похода сохранён.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">ПОВТОРИТЬ УЗЕЛ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`
+    ? `<p class="eyebrow">БОЙ ВНЕ ПОХОДА</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Повтор вернёт поле, здоровье и запас как на входе.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">ПОВТОРИТЬ БОЙ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`
     : `<p class="eyebrow">АВТОРСКИЙ УРОВЕНЬ</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Повтор восстановит начальное поле, здоровье, предметы и палитру.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">ПОВТОРИТЬ УРОВЕНЬ</button><button class="button secondary" data-action="editor">В РЕДАКТОР</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`;
 }
 function uniqueDoors() {
@@ -601,7 +611,7 @@ function showHelp() {
     showModal(`<p class="eyebrow">ПОХОД · ${runNode.label.toUpperCase()}</p><h2 id="modal-title">${level.name}</h2><p class="modal-copy">${level.tutorial} Веди цепь через соседние клетки одного цвета. Отпусти мышь или палец после двух целей. Вернись на предыдущую клетку, чтобы убрать последний шаг.</p><button class="button primary" data-action="resume">ВЕРНУТЬСЯ В БОЙ</button>`);
     return;
   }
-  showModal(`<p class="eyebrow">НАСТАВЛЕНИЕ КОТУ-ВАРВАРУ</p><h2 id="modal-title">Один топор. Целый лес.</h2><div class="help-rules"><p><b>Поход по лесу</b>Выбирай следующий узел на карте: бои, привалы и находки. Здоровье, энергия и предметы переходят между узлами. Повтор боя возвращает поле, здоровье и запас как на входе в узел.</p><p><b>Цепочка и последний шаг</b>Начни рядом с котом и проведи через цели одного цвета по горизонтали, вертикали или диагонали. Диагональ закрыта, только если обе боковые клетки непроходимы. Каждый враг добавляет 1 к бюджету удара. Враг с 0 HP слабый: гибнет от удара и ничего не тратит. Остальные тратят своё HP из бюджета; если бюджета не хватило, последний враг выживет с раной. Последнего врага можно ранить, но пройти через живого нельзя. Кот остаётся на последней освобождённой клетке. Бесцветные цели подходят к любому цвету. Вернись на шаг назад, чтобы сократить цепь. Каждые 6 убийств одной цепью оставляют кристалл на случайной клетке: он даёт очки, когда цепь его разрушит. Цепь можно начать с кристалла или пройти через него по пути: цвет меняется, силы он не даёт.</p><p><b>Красные клетки — будущая атака</b>Разозлённый гоблин бьёт только четырёх соседей по сторонам и остаётся опасным до попадания по коту. Лучник стреляет в отмеченную линию, затем отдыхает. Знак ⇄ связывает две клетки. Гибель врага не отменяет обмен: его место займёт пополнение. Кот на любом конце или живой враг во льду остановят обмен.</p><p><b>Выход</b>В бою с выходом дверь открывается после выполнения целей. Дойди до неё цепью; соседнюю открытую дверь можно выбрать одну и отпустить.</p><p><b>Энергия и способности</b>Обычная цепь даёт +0,5 энергии за каждого атакованного врага, максимум 7. Прыжок стоит 2: дальность ${JUMP_RANGE}, физический удар 4, приземление только на пустой пол или убитого врага. Круговой удар стоит 3 и сразу бьёт всех восьмерых соседей на 4, оставляя кота на месте. Выбор прыжка отменяется повторным нажатием либо Esc. Энергия переносится между боями похода. Отдых даёт +0,5 энергии до предела 7 и запускает обычный ход врагов со всеми событиями поля.</p><p><b>Направленный щит</b>Щитоносец и Тюремщик закрывают золотой гранью переднюю сторону. Вход цепи с этой стороны запрещён; направление подхода считается от предыдущей цели. Обойди сбоку. Лёд отключает щит. Прыжок, круговой удар и предметы игнорируют направление щита, но сохраняют обычные требования урона и приземления.</p><p><b>Один предмет перед цепью</b>Холод замораживает любого врага и даёт хрупкость. Бомба повреждает выбранного врага. Огонь накладывает горение на выбранную и соседние клетки без мгновенного урона; горение и яд ранят в конце хода. Кровотечение ранит после каждых трёх обычных шагов, а ветер усиливает уже горящую цель. Лечение возвращает здоровье и снимает яд и кровотечение даже при полном HP, но не тушит огонь. Выбери предмет и цель, затем проведи цепь или выбери отдых. Esc отменит выбор цели. Лёд приостанавливает действия и отдых врага.</p></div><button class="button primary" data-action="resume">${screen === 'game' ? 'ВЕРНУТЬСЯ В БОЙ' : 'ПОНЯТНО'}</button>`);
+  showModal(`<p class="eyebrow">НАСТАВЛЕНИЕ КОТУ-ВАРВАРУ</p><h2 id="modal-title">Один топор. Целый лес.</h2><div class="help-rules"><p><b>Поход по лесу</b>Выбирай следующий узел на карте: бои, привалы и находки. Здоровье, энергия и предметы переходят между узлами. Поражение в бою заканчивает поход: следующий начинается заново.</p><p><b>Цепочка и последний шаг</b>Начни рядом с котом и проведи через цели одного цвета по горизонтали, вертикали или диагонали. Диагональ закрыта, только если обе боковые клетки непроходимы. Каждый враг добавляет 1 к бюджету удара. Враг с 0 HP слабый: гибнет от удара и ничего не тратит. Остальные тратят своё HP из бюджета; если бюджета не хватило, последний враг выживет с раной. Последнего врага можно ранить, но пройти через живого нельзя. Кот остаётся на последней освобождённой клетке. Бесцветные цели подходят к любому цвету. Вернись на шаг назад, чтобы сократить цепь. Каждые 6 убийств одной цепью оставляют кристалл на случайной клетке: он даёт очки, когда цепь его разрушит. Цепь можно начать с кристалла или пройти через него по пути: цвет меняется, силы он не даёт.</p><p><b>Красные клетки — будущая атака</b>Разозлённый гоблин бьёт только четырёх соседей по сторонам и остаётся опасным до попадания по коту. Лучник стреляет в отмеченную линию, затем отдыхает. Знак ⇄ связывает две клетки. Гибель врага не отменяет обмен: его место займёт пополнение. Кот на любом конце или живой враг во льду остановят обмен.</p><p><b>Выход</b>В бою с выходом дверь открывается после выполнения целей. Дойди до неё цепью; соседнюю открытую дверь можно выбрать одну и отпустить.</p><p><b>Энергия и способности</b>Обычная цепь даёт +0,5 энергии за каждого атакованного врага, максимум 7. Прыжок стоит 2: дальность ${JUMP_RANGE}, физический удар 4, приземление только на пустой пол или убитого врага. Круговой удар стоит 3 и сразу бьёт всех восьмерых соседей на 4, оставляя кота на месте. Выбор прыжка отменяется повторным нажатием либо Esc. Энергия переносится между боями похода. Отдых даёт +0,5 энергии до предела 7 и запускает обычный ход врагов со всеми событиями поля.</p><p><b>Направленный щит</b>Щитоносец и Тюремщик закрывают золотой гранью переднюю сторону. Вход цепи с этой стороны запрещён; направление подхода считается от предыдущей цели. Обойди сбоку. Лёд отключает щит. Прыжок, круговой удар и предметы игнорируют направление щита, но сохраняют обычные требования урона и приземления.</p><p><b>Один предмет перед цепью</b>Холод замораживает любого врага и даёт хрупкость. Бомба повреждает выбранного врага. Огонь накладывает горение на выбранную и соседние клетки без мгновенного урона; горение и яд ранят в конце хода. Кровотечение ранит после каждых трёх обычных шагов, а ветер усиливает уже горящую цель. Лечение возвращает здоровье и снимает яд и кровотечение даже при полном HP, но не тушит огонь. Выбери предмет и цель, затем проведи цепь или выбери отдых. Esc отменит выбор цели. Лёд приостанавливает действия и отдых врага.</p></div><button class="button primary" data-action="resume">${screen === 'game' ? 'ВЕРНУТЬСЯ В БОЙ' : 'ПОНЯТНО'}</button>`);
 }
 document.addEventListener('click', event => {
   const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
@@ -610,7 +620,8 @@ document.addEventListener('click', event => {
   audio.unlock();
   if (target.dataset.find && itemKeys.includes(target.dataset.find as ItemKind)) { chooseFind(target.dataset.find as ItemKind); return; }
   switch (target.dataset.action) {
-    case 'retry': void openScene(() => engine.restartLevel()); break;
+    // The run's own battle is never replayed (a defeat ends the run); retry is for editor levels and debug battles.
+    case 'retry': if (!ownsRunBattle()) void openScene(() => engine.restartLevel()); break;
     case 'title': quietCancel(); showScreen('title'); break;
     case 'editor': quietCancel(); showScreen('editor'); break;
     case 'resume': hideModal(); break;

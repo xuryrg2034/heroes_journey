@@ -357,3 +357,6 @@ body:before{opacity:.055}
 @media(max-width:700px){.battle-toasts{display:none}}
 
 .editor-grid .editor-cell.elite{box-shadow:inset 0 0 0 2px #ffc83a}.editor-cell .editor-elite-mark{position:absolute;top:0;left:3px;color:#ffc83a;font:700 14px Arial,sans-serif;text-shadow:0 1px #241c10;pointer-events:none}
+
+/* Run ends on a defeat (04.10.2026): the node where the cat fell. */
+.map-node.status-lost{cursor:default}.map-node.status-lost .map-node-icon{background:#4a2a25;border-color:#b27564;color:#f2c2b2;box-shadow:0 0 0 4px #b2756444}

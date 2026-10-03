@@ -66,6 +66,11 @@ export interface AttemptRecord {
   /** The exit's chest fell (`chest` event) / was opened by a chain (`chest-open` event). */
   chestDropped?: boolean;
   chestOpened?: boolean;
+  /**
+   * A lost map-node battle (`mode: 'run'`, `outcome: 'lose'`) ends the run (decision of 04.10.2026): true on such a
+   * record. The visit closes with it; leaving afterwards is not an abandonment. Absent in older journals and on other records.
+   */
+  runEnded?: boolean;
 }
 
 interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[] }
@@ -234,11 +239,13 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
       exitDelay: current.exitTurn !== null && current.goalTurn !== null ? current.exitTurn - current.goalTurn : null,
       hpAtGoal: current.hpAtGoal, damageAfterGoal: current.goalTurn === null ? null : current.damageAfterGoal,
       materials: current.materials, lootItems: current.lootItems, chestDropped: current.chestDropped, chestOpened: current.chestOpened,
+      ...(current.mode === 'run' && outcome === 'lose' ? { runEnded: true } : {}),
     };
     const journal = load();
     journal.attempts = [...journal.attempts, record].slice(-MAX_ATTEMPTS);
     store(journal);
-    if (outcome === 'win' || left) visitClosed = true;
+    // A run defeat ends the run: there is no retry, so the visit is over (leaving afterwards is not an abandonment).
+    if (outcome === 'win' || left || record.runEnded) visitClosed = true;
   };
   const begin = () => {
     if (!load().enabled) { open = null; return; }

@@ -88,7 +88,7 @@ export class ForestEngine {
     if (!node || phase !== 'WIN' && phase !== 'LOSE') return null;
     const { hp, maxHp, energy, damageEffects } = this.state.player;
     return { nodeId: node.nodeId, won: phase === 'WIN', inventory: { ...this.state.inventory }, materials: { ...emptyMaterials(), ...this.state.materials },
-      player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
+      score: this.state.score, player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
   }
   private applyRunSetup(setup: RunBattleSetup) {
     const { player } = setup, state = this.state;
