@@ -8,6 +8,7 @@ import { authoredLesson } from './game/lessonBuilder';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './game/run/forestBattles';
 import type { RunBattleSetup } from './game/run/runBattle';
 import { CHEST_RESOURCES } from './game/exitRules';
+import { forestFixtureLevel } from './game/testing/fixtures';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
@@ -154,7 +155,58 @@ function oldJournal() {
   console.log('PASS an old journal without the exit fields loads, aggregates and renders');
 }
 
+/**
+ * A lost map-node battle ends the run (decision of 04.10.2026): the record says so and closes the visit, so leaving
+ * afterwards is not an abandonment. An editor level keeps the old meaning: leaving after its defeat is an abandonment.
+ */
+async function runDefeatEndsTheRun() {
+  telemetry.clearTelemetry();
+  const { g, controller } = start(spread(3), true);
+  await chain(g, [20, 15]);
+  g.damagePlayer(g.state.player.hp);
+  assert(g.state.phase === 'LOSE', 'the cat falls');
+  controller!.leave();
+  let [record] = journal();
+  assert(journal().length === 1 && record.outcome === 'lose' && record.runEnded === true && record.left === false, `the run defeat ends the run, leaving is not an abandonment: ${JSON.stringify(record)}`);
+  let [row] = telemetry.aggregate(journal());
+  assert(row.loses === 1 && row.abandonRate === 0 && row.attemptsToWin === null, `aggregates count a lost run, not an abandoned node: ${JSON.stringify(row)}`);
+
+  telemetry.clearTelemetry();
+  const editor = new ForestEngine(); editor.animationScale = 0;
+  const watch = telemetry.installTelemetry(editor);
+  assert(editor.startCustomLevel(forestFixtureLevel(spread(4))), 'the editor level starts');
+  editor.damagePlayer(editor.state.player.hp);
+  watch.leave();
+  [record] = journal();
+  assert(record.outcome === 'lose' && record.runEnded === undefined && record.left === true, `an editor defeat then leaving is an abandonment: ${JSON.stringify(record)}`);
+  [row] = telemetry.aggregate(journal());
+  assert(row.abandonRate === 1, 'the editor visit counts as abandoned');
+  console.log('PASS a run defeat marks the end of the run and closes the visit; an editor defeat keeps the abandonment rule');
+}
+
+/** A choice at a map event is recorded with its node, option and outcome; exported and aggregated; off when disabled. */
+function eventChoices() {
+  telemetry.clearTelemetry();
+  telemetry.recordRunEvent({ nodeId: 'trail-cache', option: 'break', outcome: 1, text: 'ловушка, −2 HP (не ниже 1)', seed: 7 });
+  telemetry.recordRunEvent({ nodeId: 'trail-cache', option: 'break', outcome: 0, text: 'добыча, 2 ресурса крафта: Роса, Смола', seed: 8 });
+  telemetry.recordRunEvent({ nodeId: 'trail-brook', option: 'drink', outcome: 0, text: '+2 HP (не выше максимума)', seed: 9 });
+  const payload = telemetry.exportPayload();
+  assert(payload.runEvents.length === 3 && payload.runEvents[0].nodeId === 'trail-cache' && payload.runEvents[0].option === 'break' && payload.runEvents[0].outcome === 1, 'event choices are exported');
+  const cache = payload.eventAggregates.find(row => row.nodeId === 'trail-cache')!;
+  assert(cache.count === 2 && cache.label === 'Гоблинский тайник' && Object.keys(cache.outcomes).length === 2, `aggregated by node and option: ${JSON.stringify(cache)}`);
+  assert(payload.aggregates.length === 0 && telemetry.playtestHtml().includes('Гоблинский тайник'), 'battle aggregates are untouched; the playtest screen lists the events');
+  telemetry.setTelemetryEnabled(false);
+  telemetry.recordRunEvent({ nodeId: 'trail-brook', option: 'flask', outcome: 0, text: '+1 «Холод»', seed: 10 });
+  assert(telemetry.exportPayload().runEvents.length === 3, 'a disabled journal records no event');
+  telemetry.setTelemetryEnabled(true);
+  telemetry.clearTelemetry();
+  assert(telemetry.exportPayload().runEvents.length === 0, 'clearing removes event choices too');
+  console.log('PASS event choices are recorded, exported and aggregated by node and option');
+}
+
+eventChoices();
 await leaveAtOnce();
+await runDefeatEndsTheRun();
 await stayThenLeave();
 await restartKeepsTheChest();
 await eliteLoot();

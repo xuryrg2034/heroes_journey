@@ -18,11 +18,12 @@ import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
 import { CRYSTAL_KILLS, crystalsActive, runPressureInfo } from './game/mapBattleRules';
-import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, forestRunView, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseEventOption, forestRunView, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
+import { clearsTrunk, createPlayerProfileStore } from './game/run/playerProfile';
 import { forestNode } from './game/run/forestMap';
-import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
-import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled } from './telemetry';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
+import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent } from './telemetry';
 import { lootLabel } from './game/resources';
 import { nextReinforcementTurn, REINFORCEMENT_COUNT } from './game/exitRules';
 import { chestLabel } from './render/art';
@@ -148,9 +149,11 @@ async function openScene(action: () => unknown | Promise<unknown>) {
 }
 // Forest map run (src/game/run): the model owns the rules; here we only switch screens, hand battles to the engine and save.
 const runStore = createForestRunStore();
+// Player profile outside the run: the trunk is played until it is cleared once (decision of 04.10.2026).
+const profileStore = createPlayerProfileStore();
 let forestRun: ForestRunState | null = runStore.load();
 let mapConfirmReset = false, mapNotice = '';
-const renderRunEntry = () => { el('run-entry').innerHTML = runEntryHtml(forestRun, mapConfirmReset); };
+const renderRunEntry = () => { el('run-entry').innerHTML = runEntryHtml(forestRun, mapConfirmReset, profileStore.load().trunkCleared); };
 function renderMap() { if (forestRun) el('map-screen').innerHTML = mapScreenHtml(forestRun, { notice: mapNotice, confirmReset: mapConfirmReset }); }
 const refreshRunViews = () => { renderRunEntry(); renderMap(); };
 function commitRun(step: ForestRunStep): ForestRunStep {
@@ -159,7 +162,7 @@ function commitRun(step: ForestRunStep): ForestRunStep {
 }
 function newRun(seed?: number) {
   const random = new Uint32Array(1); crypto.getRandomValues(random);
-  forestRun = createForestRun(seed ?? random[0]); runStore.save(forestRun);
+  forestRun = createForestRun(seed ?? random[0], { skipTrunk: profileStore.load().trunkCleared }); runStore.save(forestRun);
   mapConfirmReset = false; mapNotice = ''; audio.unlock(); audio.play('click'); showScreen('map');
 }
 async function playRunBattle() {
@@ -171,12 +174,26 @@ function showFind() {
   const pending = forestRun?.pending;
   if (pending?.kind === 'find') showModal(findModalHtml(pending.nodeId, pending.options));
 }
-/** Where the player goes after any run step: map, result, battle or find. */
+/** The open map event (also after a reload: the saved run keeps it pending). */
+function showEvent() { if (forestRun?.pending?.kind === 'event') showModal(eventModalHtml(forestRun)); }
+function chooseEvent(optionId: string) {
+  if (!forestRun || forestRun.pending?.kind !== 'event') return;
+  const step = commitRun(chooseEventOption(forestRun, optionId));
+  if (!step.ok) return;
+  const resolved = step.events.find(event => event.type === 'event-resolved');
+  if (resolved?.type === 'event-resolved') {
+    recordRunEvent({ nodeId: resolved.nodeId, option: resolved.option, outcome: resolved.outcome, text: resolved.text, seed: step.run.seed });
+    mapNotice = `${forestNode(resolved.nodeId)?.name ?? ''}: ${resolved.text}.`;
+  }
+  audio.play('reward'); showScreen('map'); showModal(eventResultHtml(step.run, step.events));
+}
+/** Where the player goes after any run step: map, result, battle, find or event. */
 function routeRun() {
   if (!forestRun) return;
   if (forestRun.pending?.kind === 'battle') { void playRunBattle(); return; }
   showScreen('map');
   if (forestRun.result) showModal(runResultHtml(forestRun));
+  else if (forestRun.pending?.kind === 'event') showEvent();
   else showFind();
 }
 function resumeRun() { if (forestRun) { mapNotice = ''; audio.unlock(); audio.play('click'); routeRun(); } else newRun(); }
@@ -184,6 +201,7 @@ function enterMapNode(id: string) {
   if (!forestRun) return;
   const step = commitRun(enterNode(forestRun, id));
   if (!step.ok) { mapNotice = step.reason; renderMap(); return; }
+  if (clearsTrunk(step.events)) profileStore.markTrunkCleared();
   mapNotice = ''; audio.unlock(); audio.play('click');
   routeRun();
   const healed = step.events.find(event => event.type === 'healed');
@@ -201,29 +219,39 @@ function chooseFind(item: ItemKind) {
   mapNotice = `Взято: ${itemNames[item]} +1. ${itemNames[item]} открыт для следующих боёв.${grants ? ` Также открыто: ${grants}.` : ''}`;
   audio.play('reward'); showScreen('map');
 }
-/** A finished node battle goes to the model exactly once; the modal offers the map (and a retry after a defeat). */
+/** The battle on screen is the saved run's open node battle (not a debug battle opened outside the run). */
+const ownsRunBattle = () => !!engine.state.runNode && forestRun?.pending?.kind === 'battle' && forestRun.pending.nodeId === engine.state.runNode.nodeId;
+/**
+ * A finished node battle goes to the model exactly once. Victory offers the map (or the hard-battle find); a defeat
+ * ends the run and shows its result (decision of 04.10.2026): the node is not replayed.
+ */
 function showRunOutcome(won: boolean) {
   const outcome = engine.runBattleOutcome(), node = engine.state.runNode;
   audio.play(won ? 'win' : 'lose');
   if (!forestRun || !outcome || !node) {
     showModal('<h2 id="modal-title">Бой узла завершён</h2><button class="button primary" data-action="run-map">К КАРТЕ</button>'); return;
   }
-  const step = forestRun.pending?.kind === 'battle' && forestRun.pending.nodeId === outcome.nodeId ? commitRun(resolveBattle(forestRun, outcome)) : null;
+  const step = ownsRunBattle() ? commitRun(resolveBattle(forestRun, outcome)) : null;
   const run = forestRun, pending = run.pending, opened = forestNode(node.nodeId);
+  if (step?.ok && run.result?.outcome === 'defeat') { showModal(runResultHtml(run)); return; }
   const healedEvent = step?.ok ? step.events.find(event => event.type === 'healed') : undefined;
   const healed = healedEvent?.type === 'healed' ? healedEvent.amount : 0;
   const grants = won ? [opened ? grantText(opened) : '', step?.ok ? unlockedText(step.events) : ''].filter(Boolean).join('; ') : '';
   if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` +${healed} HP за трудный бой.` : ''}`;
   if (won && run.result) { showModal(runResultHtml(run)); return; }
   showModal(nodeBattleModalHtml({ won, name: node.label, turns: engine.state.turn, hp: won ? run.resources.player.hp : outcome.player.hp, maxHp: won ? run.resources.player.maxHp : outcome.player.maxHp,
-    defeats: pending?.kind === 'battle' ? pending.defeats : 0, battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', healed: won ? healed : 0 }));
+    battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', healed: won ? healed : 0 }));
 }
-/** Pause of a map-node battle (retry restores the node entry, the map keeps the run) or of an editor level. */
+/**
+ * Pause of a map-node battle or of an editor level. The run's battle has no retry (a defeat ends the run); a node
+ * battle opened outside the run (debug hook) and an editor level keep it.
+ */
 function pauseHtml(): string {
   const { runNode } = engine.state;
   const playtest = '<details class="playtest-details"><summary>Плейтест</summary><button class="text-button" data-action="playtest">ОТКРЫТЬ ЖУРНАЛ ПОПЫТОК</button></details>';
+  if (runNode && ownsRunBattle()) return `<p class="eyebrow">БОЙ УЗЛА</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Прогресс похода сохранён. Поражение в этом бою закончит поход.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`;
   return runNode
-    ? `<p class="eyebrow">БОЙ УЗЛА</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Повтор вернёт поле, здоровье и запас как на входе в узел. Прогресс похода сохранён.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">ПОВТОРИТЬ УЗЕЛ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`
+    ? `<p class="eyebrow">БОЙ ВНЕ ПОХОДА</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Повтор вернёт поле, здоровье и запас как на входе.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">ПОВТОРИТЬ БОЙ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`
     : `<p class="eyebrow">АВТОРСКИЙ УРОВЕНЬ</p><h2 id="modal-title">Переведи дух</h2><p class="modal-copy">Повтор восстановит начальное поле, здоровье, предметы и палитру.</p><button class="button primary" data-action="resume">ПРОДОЛЖИТЬ</button><button class="button secondary" data-action="retry">ПОВТОРИТЬ УРОВЕНЬ</button><button class="button secondary" data-action="editor">В РЕДАКТОР</button>${playtest}<button class="text-button" data-action="title">В МЕНЮ</button>`;
 }
 function uniqueDoors() {
@@ -559,7 +587,7 @@ function showModal(html: string) {
 // Playtest screen: opened from the title link or the pause dialog; the game itself never depends on it.
 let playtestFrom: 'title' | 'pause' | null = null;
 function renderPlaytest(options: { confirmClear?: boolean; notice?: string } = {}) {
-  showModal(playtestHtml(options));
+  showModal(playtestHtml({ ...options, trunkCleared: profileStore.load().trunkCleared }));
   el('modal').classList.add('playtest-modal');
 }
 function openPlaytest() { playtestFrom = paused ? 'pause' : 'title'; renderPlaytest(); }
@@ -597,7 +625,7 @@ function showHelp() {
     showModal(`<p class="eyebrow">ПОХОД · ${runNode.label.toUpperCase()}</p><h2 id="modal-title">${level.name}</h2><p class="modal-copy">${level.tutorial} Веди цепь через соседние клетки одного цвета. Отпусти мышь или палец — удар даже по одной цели. Вернись на предыдущую клетку, чтобы убрать последний шаг.</p><button class="button primary" data-action="resume">ВЕРНУТЬСЯ В БОЙ</button>`);
     return;
   }
-  showModal(`<p class="eyebrow">НАСТАВЛЕНИЕ КОТУ-ВАРВАРУ</p><h2 id="modal-title">Один топор. Целый лес.</h2><div class="help-rules"><p><b>Поход по лесу</b>Выбирай следующий узел на карте: бои, привалы и находки. Здоровье, энергия и предметы переходят между узлами. Повтор боя возвращает поле, здоровье и запас как на входе в узел.</p><p><b>Цепочка и последний шаг</b>Начни рядом с котом и проведи через цели одного цвета по горизонтали, вертикали или диагонали. Диагональ закрыта, только если обе боковые клетки непроходимы. Каждый враг добавляет 1 к бюджету удара. Враг с 0 HP слабый: гибнет от удара и ничего не тратит. Остальные тратят своё HP из бюджета; если бюджета не хватило, последний враг выживет с раной. Последнего врага можно ранить, но пройти через живого нельзя. Кот остаётся на последней освобождённой клетке. Бесцветные цели подходят к любому цвету. Вернись на шаг назад, чтобы сократить цепь. Каждые 6 убийств одной цепью оставляют кристалл на случайной клетке: он даёт очки, когда цепь его разрушит. Цепь можно начать с кристалла или пройти через него по пути: цвет меняется, силы он не даёт.</p><p><b>Красные клетки — будущая атака</b>Разозлённый гоблин бьёт только четырёх соседей по сторонам и остаётся опасным до попадания по коту. Лучник стреляет в отмеченную линию, затем отдыхает. Знак ⇄ связывает две клетки. Гибель врага не отменяет обмен: его место займёт пополнение. Кот на любом конце или живой враг во льду остановят обмен.</p><p><b>Выход</b>В бою с выходом дверь открывается после выполнения целей. Дойди до неё цепью; соседнюю открытую дверь можно выбрать одну и отпустить.</p><p><b>Энергия и способности</b>Обычная цепь даёт +0,5 энергии за каждого атакованного врага, максимум 7. Прыжок стоит 2: дальность ${JUMP_RANGE}, физический удар 4, приземление только на пустой пол или убитого врага. Круговой удар стоит 3 и сразу бьёт всех восьмерых соседей на 4, оставляя кота на месте. Выбор прыжка отменяется повторным нажатием либо Esc. Энергия переносится между боями похода. Отдых даёт +0,5 энергии до предела 7 и запускает обычный ход врагов со всеми событиями поля.</p><p><b>Направленный щит</b>Щитоносец и Тюремщик закрывают золотой гранью переднюю сторону. Вход цепи с этой стороны запрещён; направление подхода считается от предыдущей цели. Обойди сбоку. Лёд отключает щит. Прыжок, круговой удар и предметы игнорируют направление щита, но сохраняют обычные требования урона и приземления.</p><p><b>Один предмет перед цепью</b>Холод замораживает любого врага и даёт хрупкость. Бомба повреждает выбранного врага. Огонь накладывает горение на выбранную и соседние клетки без мгновенного урона; горение и яд ранят в конце хода. Кровотечение ранит после каждых трёх обычных шагов, а ветер усиливает уже горящую цель. Лечение возвращает здоровье и снимает яд и кровотечение даже при полном HP, но не тушит огонь. Выбери предмет и цель, затем проведи цепь или выбери отдых. Esc отменит выбор цели. Лёд приостанавливает действия и отдых врага.</p></div><button class="button primary" data-action="resume">${screen === 'game' ? 'ВЕРНУТЬСЯ В БОЙ' : 'ПОНЯТНО'}</button>`);
+  showModal(`<p class="eyebrow">НАСТАВЛЕНИЕ КОТУ-ВАРВАРУ</p><h2 id="modal-title">Один топор. Целый лес.</h2><div class="help-rules"><p><b>Поход по лесу</b>Выбирай следующий узел на карте: бои, привалы и находки. Здоровье, энергия и предметы переходят между узлами. Поражение в бою заканчивает поход: следующий начинается заново.</p><p><b>Цепочка и последний шаг</b>Начни рядом с котом и проведи через цели одного цвета по горизонтали, вертикали или диагонали. Диагональ закрыта, только если обе боковые клетки непроходимы. Каждый враг добавляет 1 к бюджету удара. Враг с 0 HP слабый: гибнет от удара и ничего не тратит. Остальные тратят своё HP из бюджета; если бюджета не хватило, последний враг выживет с раной. Последнего врага можно ранить, но пройти через живого нельзя. Кот остаётся на последней освобождённой клетке. Бесцветные цели подходят к любому цвету. Вернись на шаг назад, чтобы сократить цепь. Каждые 6 убийств одной цепью оставляют кристалл на случайной клетке: он даёт очки, когда цепь его разрушит. Цепь можно начать с кристалла или пройти через него по пути: цвет меняется, силы он не даёт.</p><p><b>Красные клетки — будущая атака</b>Разозлённый гоблин бьёт только четырёх соседей по сторонам и остаётся опасным до попадания по коту. Лучник стреляет в отмеченную линию, затем отдыхает. Знак ⇄ связывает две клетки. Гибель врага не отменяет обмен: его место займёт пополнение. Кот на любом конце или живой враг во льду остановят обмен.</p><p><b>Выход</b>В бою с выходом дверь открывается после выполнения целей. Дойди до неё цепью; соседнюю открытую дверь можно выбрать одну и отпустить.</p><p><b>Энергия и способности</b>Обычная цепь даёт +0,5 энергии за каждого атакованного врага, максимум 7. Прыжок стоит 2: дальность ${JUMP_RANGE}, физический удар 4, приземление только на пустой пол или убитого врага. Круговой удар стоит 3 и сразу бьёт всех восьмерых соседей на 4, оставляя кота на месте. Выбор прыжка отменяется повторным нажатием либо Esc. Энергия переносится между боями похода. Отдых даёт +0,5 энергии до предела 7 и запускает обычный ход врагов со всеми событиями поля.</p><p><b>Направленный щит</b>Щитоносец и Тюремщик закрывают золотой гранью переднюю сторону. Вход цепи с этой стороны запрещён; направление подхода считается от предыдущей цели. Обойди сбоку. Лёд отключает щит. Прыжок, круговой удар и предметы игнорируют направление щита, но сохраняют обычные требования урона и приземления.</p><p><b>Один предмет перед цепью</b>Холод замораживает любого врага и даёт хрупкость. Бомба повреждает выбранного врага. Огонь накладывает горение на выбранную и соседние клетки без мгновенного урона; горение и яд ранят в конце хода. Кровотечение ранит после каждых трёх обычных шагов, а ветер усиливает уже горящую цель. Лечение возвращает здоровье и снимает яд и кровотечение даже при полном HP, но не тушит огонь. Выбери предмет и цель, затем проведи цепь или выбери отдых. Esc отменит выбор цели. Лёд приостанавливает действия и отдых врага.</p></div><button class="button primary" data-action="resume">${screen === 'game' ? 'ВЕРНУТЬСЯ В БОЙ' : 'ПОНЯТНО'}</button>`);
 }
 document.addEventListener('click', event => {
   const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
@@ -605,8 +633,10 @@ document.addEventListener('click', event => {
   if (!el('modal-layer').hidden && !el('modal').contains(target)) return;
   audio.unlock();
   if (target.dataset.find && itemKeys.includes(target.dataset.find as ItemKind)) { chooseFind(target.dataset.find as ItemKind); return; }
+  if (target.dataset.eventOption) { chooseEvent(target.dataset.eventOption); return; }
   switch (target.dataset.action) {
-    case 'retry': void openScene(() => engine.restartLevel()); break;
+    // The run's own battle is never replayed (a defeat ends the run); retry is for editor levels and debug battles.
+    case 'retry': if (!ownsRunBattle()) void openScene(() => engine.restartLevel()); break;
     case 'title': quietCancel(); showScreen('title'); break;
     case 'editor': quietCancel(); showScreen('editor'); break;
     case 'resume': hideModal(); break;
@@ -643,6 +673,7 @@ document.addEventListener('click', event => {
     case 'map-node': if (target.getAttribute('aria-disabled') !== 'true' && target.dataset.node) enterMapNode(target.dataset.node); break;
     case 'run-battle': void playRunBattle(); break;
     case 'run-find': showFind(); break;
+    case 'run-event': showEvent(); break;
     case 'run-map': quietCancel(); showScreen('map'); break;
     case 'playtest': openPlaytest(); break;
     case 'playtest-close': closePlaytest(); break;
@@ -651,6 +682,7 @@ document.addEventListener('click', event => {
     case 'playtest-clear-yes': clearTelemetry(); renderPlaytest({ notice: 'Журнал очищен.' }); break;
     case 'playtest-toggle': setTelemetryEnabled(!telemetryEnabled()); renderPlaytest({ notice: telemetryEnabled() ? 'Журнал включён.' : 'Журнал выключен: новые попытки не записываются.' }); break;
     case 'playtest-download': downloadPlaytest(); break;
+    case 'profile-reset-trunk': profileStore.resetTrunk(); renderRunEntry(); renderPlaytest({ notice: 'Отметка ствола сброшена: следующий новый поход начнётся со ствола.' }); break;
     case 'playtest-copy': void copyPlaytest(); break;
   }
 });
@@ -742,7 +774,7 @@ const debug = {
   get player() { return engine.state.player; }, get board() { return engine.getBoardState(); }, get selectedPath() { return engine.state.chain; },
   get energy() { return engine.state.player.energy; }, get chosenAbility() { return engine.state.chosenAbility; },
   get objective() { return engine.state.objective; }, get turn() { return engine.state.turn; }, get score() { return engine.state.score; },
-  get forestRun() { return forestRun; }, startForestRun: (seed?: number) => newRun(seed), openMap: () => showScreen('map'), forestRunStore: runStore,
+  get forestRun() { return forestRun; }, startForestRun: (seed?: number) => newRun(seed), openMap: () => showScreen('map'), forestRunStore: runStore, profileStore,
   get screen() { return screen; }, get frostTargeting() { return renderer?.frostTargeting ?? false; }, get itemTargeting() { return renderer?.itemTargeting ?? null; },
   get endpointLabel() { return renderer?.endpointLabel ?? null; }, get telegraphMarks() { return renderer?.telegraphMarks ?? []; }, get eliteMarks() { return renderer?.eliteMarks ?? []; }, get lootMarks() { return renderer?.lootMarks ?? []; }, get chestMarks() { return renderer?.chestMarks ?? []; }, get reinforcementMarks() { return renderer?.reinforcementMarks ?? []; }, get forecastMarks() { return renderer?.forecastMarks ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
   getBoardState: () => engine.getBoardState(), availableMoves: () => engine.availableMoves(), validStarts: () => engine.validStarts(),

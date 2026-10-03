@@ -172,10 +172,13 @@ test('entering the next node from a result does not replay the previous outcome'
   await expect(page.locator('#modal-layer')).toBeHidden();
   expect(await tones()).not.toContain(520);
   await page.evaluate(() => (window as any).__PUZZLE_GAME.damagePlayer(10));
-  await expect(page.locator('#modal-title')).toHaveText('Кот отступил');
+  // A defeat ends the run (04.10.2026); the next run's first battle must not replay that outcome.
+  await expect(page.locator('#modal-title')).toHaveText('Кот пал');
   await expect.poll(tones).toContain(95);
   await clear();
-  await page.locator('#modal [data-action="retry"]').click(); await settled(page);
+  await page.locator('#modal [data-action="run-new"]').click();
+  await page.locator('.map-node[data-node="trunk-1"]').click(); await settled(page);
+  expect((await state(page)).runNode.nodeId).toBe('trunk-1');
   await expect(page.locator('#modal-layer')).toBeHidden();
   expect(await tones()).not.toContain(95);
 });

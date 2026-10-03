@@ -108,7 +108,14 @@ test('a node battle is played by mouse and returns to the map with the result sa
   await page.goto('/');
   await page.locator('#run-start-button').click();
   await node(page, 'trunk-1').click(); await settled(page);
-  expect(await savedRun(page)).toMatchObject({ pending: { kind: 'battle', nodeId: 'trunk-1', defeats: 0 } });
+  expect(await savedRun(page)).toMatchObject({ pending: { kind: 'battle', nodeId: 'trunk-1' } });
+  // No retry counter any more: a defeat ends the run (04.10.2026).
+  expect((await savedRun(page)).pending.defeats).toBeUndefined();
+  // The pause of the run's battle offers no retry from the entry snapshot.
+  await page.locator('[data-action="pause"]').click();
+  await expect(page.locator('#modal [data-action="retry"]')).toHaveCount(0);
+  await expect(page.locator('#modal [data-action="run-map"]')).toBeVisible();
+  await page.locator('#modal [data-action="resume"]').click();
   const entry = await state(page);
   expect(entry.runNode.nodeId).toBe('trunk-1'); expect(entry.player.hp).toBe(5);
   await expect(page.locator('#chapter-number')).toContainText('ПОХОД');
@@ -218,48 +225,94 @@ test('reload keeps the run: map position and the start of an unfinished node bat
   expect(errors).toEqual([]);
 });
 
-test('defeat keeps the node current: retry restores the entry, map offers to return to the battle, telemetry stays intact', async ({ page }) => {
-  test.setTimeout(60_000);
-  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await seedRun(page, walk(['trunk-1', 'trunk-2', 'trunk-3']));
+test('a defeat ends the run: the result screen shows row, node, points and won battles; the save stays over; telemetry marks the end', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // The cat leaves the trunk at 1 HP and enters the beast trail by mouse.
+  await seedRun(page, walk(TRUNK, 1));
   await page.goto('/'); await page.locator('#run-start-button').click();
-  await node(page, 'trunk-4').click(); await settled(page);
-  const entry = await state(page);
-  await page.evaluate(() => (window as any).__PUZZLE_GAME.damagePlayer(9));
-  await expect(page.locator('#modal')).toContainText('Кот отступил');
-  await expect(page.locator('#modal [data-action="retry"]')).toContainText('ПОВТОРИТЬ УЗЕЛ');
-  await expect(page.locator('#modal [data-action="run-map"]')).toContainText('К КАРТЕ');
-  await expect(page.locator('#modal [data-action="title"]')).toHaveCount(0);
+  await node(page, 'beast-wolf').click(); await settled(page);
+  expect((await state(page)).player.hp).toBe(1);
+  // Real play: a chain the forecast marks as deadly, drawn with the mouse; otherwise a rest until the enemies strike.
+  for (let turn = 0; turn < 40 && (await state(page)).phase === 'PLAYER_INPUT'; turn++) {
+    const deadly = await page.evaluate(() => { const game = (window as any).__PUZZLE_GAME; return (game.availableMoves() as number[][]).find(path => game.preview(path).playerDies) ?? null; });
+    if (deadly) await draw(page, deadly);
+    else { await page.locator('#wait-button').click(); await settled(page); }
+  }
+  expect((await state(page)).phase).toBe('LOSE');
+  const score = (await state(page)).score;
+  await expect(page.locator('#modal .eyebrow')).toHaveText('ПОХОД ОКОНЧЕН');
+  await expect(page.locator('#modal-title')).toHaveText('Кот пал');
+  await expect(page.locator('#run-result-copy')).toContainText('Вожак у брода');
+  await expect(page.locator('#run-defeat-stats')).toContainText('5РЯД');
+  await expect(page.locator('#run-defeat-stats')).toContainText('4БОЁВ ВЫИГРАНО');
+  await expect(page.locator('#run-defeat-stats')).toContainText(`${score}ОЧКИ`);
+  await expect(page.locator('#modal [data-action="run-new"]')).toHaveText('НОВЫЙ ПОХОД');
+  await expect(page.locator('#modal [data-action="title"]')).toHaveText('В МЕНЮ');
+  await expect(page.locator('#modal [data-action="retry"]')).toHaveCount(0);
+  await expect(page.locator('#modal [data-action="run-map"]')).toHaveCount(0);
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'artifacts/forest-map-defeat.png' });
-  expect(await savedRun(page)).toMatchObject({ currentNodeId: 'trunk-3', pending: { kind: 'battle', nodeId: 'trunk-4', defeats: 1 } });
-  await page.locator('#modal [data-action="retry"]').click(); await settled(page);
-  const retried = await state(page);
-  expect(retried.board).toEqual(entry.board); expect(retried.player.hp).toBe(5); expect(retried.runNode.nodeId).toBe('trunk-4');
-  await page.evaluate(() => (window as any).__PUZZLE_GAME.damagePlayer(9));
-  expect(await savedRun(page)).toMatchObject({ pending: { defeats: 2 } });
-  await page.locator('#modal [data-action="run-map"]').click();
-  await expect(page.locator('#map-screen')).toBeVisible();
-  await expect(node(page, 'trunk-4')).toHaveAttribute('data-status', 'in-progress');
-  await expect(page.locator('.map-node[data-status="available"]')).toHaveCount(0);
-  await expect(page.locator('.map-banner')).toContainText('поражений: 2');
-  await page.screenshot({ path: 'artifacts/forest-map-pending.png' });
-  await page.locator('.map-banner [data-action="run-battle"]').click(); await settled(page);
-  expect((await state(page)).board).toEqual(entry.board);
-  // Pause dialog of a node battle: retry and the map.
-  await page.locator('[data-action="pause"]').click();
-  await expect(page.locator('#modal [data-action="retry"]')).toContainText('ПОВТОРИТЬ УЗЕЛ');
-  await expect(page.locator('#modal [data-action="run-map"]')).toBeVisible();
-  await page.locator('#modal [data-action="run-map"]').click();
-  await expect(page.locator('#map-screen')).toBeVisible();
-  // Telemetry: the journal has the node key, the map screen opens the playtest table without errors.
+  expect(await savedRun(page)).toMatchObject({ currentNodeId: 'trunk-4', pending: null, result: { outcome: 'defeat', nodeId: 'beast-wolf' }, score });
+  // The saved run stays over: after a reload the title offers its result, the map has no way on.
+  await page.reload();
+  await expect(page.locator('#run-start-button')).toContainText('ИТОГ ПОХОДА');
+  await page.locator('#run-start-button').click();
+  await expect(page.locator('#modal-title')).toHaveText('Кот пал');
+  await page.locator('#modal [data-action="title"]').click();
+  await expect(page.locator('#title-screen')).toBeVisible();
+  // Telemetry: one lost attempt that ended the run, not an abandoned node.
   const attempts = (await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY)).attempts;
-  const mine = attempts.filter((attempt: any) => attempt.key === 'run:trunk-4');
-  expect(mine.map((attempt: any) => attempt.outcome)).toEqual(['lose', 'lose', 'quit']);
-  expect(mine.every((attempt: any) => attempt.mode === 'run' && attempt.id === 'trunk-4')).toBe(true);
+  const mine = attempts.filter((attempt: any) => attempt.key === 'run:beast-wolf');
+  expect(mine).toHaveLength(1);
+  expect(mine[0]).toMatchObject({ mode: 'run', id: 'beast-wolf', outcome: 'lose', runEnded: true, left: false });
+  // A new run starts a fresh save. The cat reached row 5, so the profile skips the trunk in it.
+  await page.locator('#run-start-button').click();
+  await page.locator('#modal [data-action="run-new"]').click();
+  await expect(page.locator('#map-screen')).toBeVisible();
+  const fresh = await savedRun(page);
+  expect(fresh.result).toBeNull(); expect(fresh.visited).toEqual([]); expect(fresh.score).toBe(0); expect(fresh.skippedTrunk).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('the trunk is played once: row 5 marks the profile, a new run starts at the fork, the playtest menu resets the mark', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  const profile = () => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'));
+  await seedRun(page, walk(TRUNK));
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  expect(await profile()).toBeNull();
+  // Entering the first node past the trunk marks it cleared in the profile (a separate key, outside the run save).
+  await node(page, 'goblin-archer').click(); await settled(page);
+  expect(await profile()).toEqual({ version: 1, trunkCleared: true });
+  expect((await savedRun(page)).trunkCleared).toBeUndefined();
+  await page.locator('[data-action="pause"]').click();
+  await page.locator('#modal [data-action="title"]').click();
+  // Start over: the new run begins at the trail fork; the trunk is shown as walked earlier.
+  await page.locator('#run-reset-button').click();
+  await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
+  await expect(page.locator('#map-screen')).toBeVisible();
+  for (const id of TRUNK) await expect(node(page, id)).toHaveAttribute('data-status', 'skipped');
+  await expect(node(page, 'beast-wolf')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'goblin-archer')).toHaveAttribute('data-status', 'available');
+  await expect(page.locator('#map-battles')).toContainText('0');
+  expect(await noScroll(page)).toBe(true);
+  await page.screenshot({ path: 'artifacts/forest-map-skipped-trunk.png' });
+  await node(page, 'trunk-1').hover();
+  await expect(page.locator('#map-detail')).toContainText('Пройден раньше');
+  // The title says where a new run starts; the playtest menu shows the mark and resets it.
+  await page.locator('#map-screen [data-action="title"]').click();
   await page.locator('.playtest-link').click();
-  await expect(page.locator('.playtest-table')).toContainText('Карта леса · Чужие стрелы');
+  await expect(page.locator('#playtest-profile')).toContainText('ствол пройден');
+  await page.locator('[data-action="profile-reset-trunk"]').click();
+  await expect(page.locator('.playtest-note')).toContainText('Отметка ствола сброшена');
+  await expect(page.locator('#playtest-profile')).toContainText('ствол не пройден');
+  expect(await profile()).toEqual({ version: 1, trunkCleared: false });
   await page.locator('[data-action="playtest-close"]').click();
+  await page.locator('#run-reset-button').click();
+  await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
+  await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'beast-wolf')).toHaveAttribute('data-status', 'locked');
   expect(errors).toEqual([]);
 });
 
@@ -302,7 +355,10 @@ test('the Troll is a real battle node; beating him wins the run; reset asks for 
   await expect(page.locator('#map-screen')).toBeVisible();
   const fresh = await savedRun(page);
   expect(fresh.visited).toEqual([]); expect(fresh.result).toBeNull(); expect(fresh.resources.player.hp).toBe(5);
-  await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'available');
+  // Entering the Troll's node (past the trunk) marked the trunk as cleared: the new run starts at the trail fork.
+  expect(fresh.skippedTrunk).toBe(true);
+  await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'skipped');
+  await expect(node(page, 'beast-wolf')).toHaveAttribute('data-status', 'available');
   // The same confirmation on the map.
   await page.locator('.map-actions [data-action="run-reset"]').click();
   await expect(page.locator('.map-confirm')).toContainText('Сбросить поход');
@@ -375,6 +431,59 @@ test('Jailer victory reports the opened spin; a hard-battle victory leads to a f
   expect(errors).toEqual([]);
 });
 
+test('a map event is chosen by mouse: outcomes shown in advance, an unaffordable option says why, a reload keeps the event, telemetry records the choice', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // The goblin barricade to the shaman with 0 energy: row 8 offers the banners or the goblin cache.
+  await seedRun(page, walk([...TRUNK, 'goblin-archer', 'goblin-shield', 'goblin-shaman']));
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  await expect(node(page, 'trail-cache')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'trail-banners')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'trail-brook')).toHaveAttribute('data-status', 'locked');
+  await expect(node(page, 'trail-cache')).toContainText('?');
+  await node(page, 'trail-cache').hover();
+  await expect(page.locator('#map-detail')).toContainText('Событие');
+  await expect(page.locator('#map-detail')).toContainText('Взломать, Разобрать осторожно, Пройти мимо');
+  expect(await noScroll(page)).toBe(true);
+  await node(page, 'trail-cache').click();
+  // The event window: title, scene, three options with their outcomes; careful needs energy the cat has not.
+  await expect(page.locator('#modal-title')).toHaveText('Гоблинский тайник');
+  const choices = page.locator('#modal .event-choice');
+  await expect(choices).toHaveCount(3);
+  await expect(choices.nth(0)).toContainText('50%: добыча, 2 ресурса крафта');
+  await expect(choices.nth(0)).toContainText('50%: ловушка, −2 HP (не ниже 1)');
+  await expect(choices.nth(1)).toBeDisabled();
+  await expect(choices.nth(1).locator('.event-reason')).toContainText('Нужна энергия: 1 (сейчас 0)');
+  await expect(choices.nth(2)).toContainText('ничего не меняется');
+  expect(await page.evaluate(() => { const box = document.querySelector('#modal')!.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; })).toBe(true);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-event.png' });
+  expect(await savedRun(page)).toMatchObject({ pending: { kind: 'event', nodeId: 'trail-cache' } });
+  // A disabled option does nothing.
+  await choices.nth(1).click({ force: true });
+  expect((await savedRun(page)).pending).toMatchObject({ kind: 'event' });
+  // A reload brings back the same event.
+  await page.reload();
+  await page.locator('#run-start-button').click();
+  await expect(page.locator('#modal-title')).toHaveText('Гоблинский тайник');
+  await expect(page.locator('#modal .event-choice').nth(1)).toBeDisabled();
+  const before = (await savedRun(page)).resources;
+  await page.locator('#modal .event-choice').nth(0).click();
+  await expect(page.locator('#event-result')).toContainText('Взломать');
+  const after = await savedRun(page);
+  expect(after).toMatchObject({ currentNodeId: 'trail-cache', pending: null, eventChoices: [{ nodeId: 'trail-cache', option: 'break' }] });
+  const trap = after.eventChoices[0].outcome === 1;
+  if (trap) { await expect(page.locator('#event-result')).toContainText('ловушка'); expect(after.resources.player.hp).toBe(Math.max(1, before.player.hp - 2)); }
+  else { await expect(page.locator('#event-result')).toContainText('добыча'); expect(Object.values(after.resources.materials).reduce((a: number, b: any) => a + b, 0)).toBe(2); }
+  await page.locator('#modal [data-action="run-map"]').click();
+  await expect(node(page, 'trail-cache')).toHaveAttribute('data-status', 'current');
+  await expect(node(page, 'jailer')).toHaveAttribute('data-status', 'available');
+  await expect(page.locator('#map-battles')).toContainText('7');
+  const events = (await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY)).runEvents;
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({ nodeId: 'trail-cache', option: 'break', outcome: after.eventChoices[0].outcome });
+  expect(errors).toEqual([]);
+});
 test('rest clears effects on the cat and says so', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   let run = ok(enterNode(walk(TRUNK), 'beast-wolf'));

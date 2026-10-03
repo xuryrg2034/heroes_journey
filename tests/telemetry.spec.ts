@@ -29,13 +29,15 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await firstNode(page);
-  // Attempt 1: a hesitation (Escape drops the chain), one real chain, then a retry.
+  // Attempt 1: a hesitation (Escape drops the chain), one real chain, then the menu. The run's battle has no retry
+  // (a defeat ends the run, 04.10.2026); continuing the run starts the open node again from its entry: a new visit.
   await hold(page, [8, 13]); await page.keyboard.press('Escape');
   await expect.poll(async () => (await state(page)).chain).toEqual([]);
   await page.mouse.up();
   await draw(page, [8, 13, 17]);
   await page.locator('[data-action="pause"]').click();
-  await page.locator('#modal [data-action="retry"]').click(); await settled(page);
+  await page.locator('#modal [data-action="title"]').click();
+  await firstNode(page);
   // Attempt 2: finish the battle.
   await draw(page, [9, 14, 19]); await draw(page, [13, 17, 11, 5, 10, 16, 22, 23, 24]);
   expect((await state(page)).phase).toBe('WIN');
@@ -46,9 +48,9 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
   expect(stored.enabled).toBe(true);
   expect(stored.attempts).toHaveLength(2);
   const [first, second] = stored.attempts;
-  expect(first).toMatchObject({ key: 'run:trunk-1', mode: 'run', id: 'trunk-1', outcome: 'restart', chains: 1, chainMax: 3, cancelledChains: 1, attemptInVisit: 1 });
+  expect(first).toMatchObject({ key: 'run:trunk-1', mode: 'run', id: 'trunk-1', outcome: 'quit', left: true, chains: 1, chainMax: 3, cancelledChains: 1, attemptInVisit: 1 });
   expect(first.turns).toBe(1); expect(first.firstMoveMs).toBeGreaterThan(0); expect(first.hpEnd).toBeGreaterThan(0);
-  expect(second).toMatchObject({ key: 'run:trunk-1', outcome: 'win', chains: 2, attemptInVisit: 2, cancelledChains: 0, visit: first.visit });
+  expect(second).toMatchObject({ key: 'run:trunk-1', outcome: 'win', chains: 2, attemptInVisit: 1, cancelledChains: 0, visit: first.visit + 1 });
   expect(second.durationMs).toBeGreaterThan(0);
 
   // The screen reads the same journal; export downloads valid JSON with aggregates.
@@ -60,7 +62,7 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
   const exported = JSON.parse(await readFile((await download.path())!, 'utf8'));
   expect(exported).toMatchObject({ format: 'ashen-oath-playtest', version: 1, enabled: true });
   expect(exported.attempts).toHaveLength(2);
-  expect(exported.aggregates[0]).toMatchObject({ key: 'run:trunk-1', attempts: 2, wins: 1, attemptsToWin: 2, abandonRate: 0 });
+  expect(exported.aggregates[0]).toMatchObject({ key: 'run:trunk-1', attempts: 2, visits: 2, wins: 1, attemptsToWin: 1, abandonRate: 0.5 });
 
   // Clearing needs an in-page confirmation (no window.confirm).
   page.on('dialog', dialog => { throw new Error(`unexpected dialog ${dialog.message()}`); });
@@ -109,7 +111,7 @@ test('?telemetry=0 disables recording and persists the setting', async ({ page }
   expect((await journal(page)).attempts).toEqual([]);
 });
 
-test('closing the tab after a defeat counts as abandonment; a single-cell click is not a cancel', async ({ page }) => {
+test('a run defeat ends the run: closing the tab afterwards is not an abandonment; a single-cell click is not a cancel', async ({ page }) => {
   await page.goto('/');
   await firstNode(page);
   // Single click on a neighbour: the release is invalid but it is inspection, not hesitation.
@@ -119,10 +121,10 @@ test('closing the tab after a defeat counts as abandonment; a single-cell click 
   await expect.poll(async () => (await state(page)).phase).toBe('LOSE');
   let stored = await journal(page);
   expect(stored.attempts).toHaveLength(1);
-  expect(stored.attempts[0]).toMatchObject({ outcome: 'lose', left: false, cancelledChains: 0 });
+  expect(stored.attempts[0]).toMatchObject({ outcome: 'lose', left: false, cancelledChains: 0, runEnded: true });
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   stored = await journal(page);
-  expect(stored.attempts[0].left).toBe(true);
+  expect(stored.attempts[0].left).toBe(false);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   expect((await journal(page)).attempts).toHaveLength(1);
   // The playtest link is only offered on the title screen.

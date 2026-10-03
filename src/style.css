@@ -357,3 +357,12 @@ body:before{opacity:.055}
 @media(max-width:700px){.battle-toasts{display:none}}
 
 .editor-grid .editor-cell.elite{box-shadow:inset 0 0 0 2px #ffc83a}.editor-cell .editor-elite-mark{position:absolute;top:0;left:3px;color:#ffc83a;font:700 14px Arial,sans-serif;text-shadow:0 1px #241c10;pointer-events:none}
+
+/* Run ends on a defeat (04.10.2026): the node where the cat fell. */
+.map-node.status-lost{cursor:default}.map-node.status-lost .map-node-icon{background:#4a2a25;border-color:#b27564;color:#f2c2b2;box-shadow:0 0 0 4px #b2756444}
+/* Trunk cleared in an earlier run (player profile, 04.10.2026): drawn as walked, quieter than this run's nodes. */
+.map-node.status-skipped{cursor:default}.map-node.status-skipped .map-node-icon{background:#3a4836;color:#cfd3b8;opacity:.65}.map-node.status-skipped .map-node-name{opacity:.6}
+.playtest-profile{font-size:11px;color:#8e947b;margin:10px 0 0}.playtest-profile .text-button{padding:6px;font-size:10px}
+/* Map events (04.10.2026): a square node like rest and find; the event window lists options with their outcomes. */
+.map-node.type-event .map-node-icon{border-radius:14px;font-weight:700}
+.event-scene{margin-bottom:4px}.event-options{display:flex;flex-direction:column;gap:9px;margin:20px 0 6px}.event-choice{display:flex;flex-direction:column;align-items:flex-start;gap:4px;border:1px solid #64704e;background:linear-gradient(100deg,#3e4a3180,#28332390);padding:12px 16px;text-align:left}.event-choice:hover:not(:disabled){border-color:#d1b576;background:#465137}.event-choice b{font-size:15px;font-weight:600;color:#e0cba2}.event-choice small{font-size:12px;line-height:1.5;color:#adbda0}.event-choice:disabled{opacity:.6}.event-choice:disabled b{color:#a9a48f}.event-reason{font-style:normal;font-size:12px;color:#e29a80}

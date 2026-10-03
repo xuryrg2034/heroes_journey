@@ -66,9 +66,22 @@ export interface AttemptRecord {
   /** The exit's chest fell (`chest` event) / was opened by a chain (`chest-open` event). */
   chestDropped?: boolean;
   chestOpened?: boolean;
+  /**
+   * A lost map-node battle (`mode: 'run'`, `outcome: 'lose'`) ends the run (decision of 04.10.2026): true on such a
+   * record. The visit closes with it; leaving afterwards is not an abandonment. Absent in older journals and on other records.
+   */
+  runEnded?: boolean;
 }
 
-interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[] }
+/**
+ * A choice at a map event (04.10.2026): the node, the option, the rolled outcome (index and text) and the run seed.
+ * Kept beside the battle attempts; journals written before have none.
+ */
+export interface RunEventRecord { nodeId: string; option: string; outcome: number; text: string; seed: number; at: number }
+/** Choices per event node and option, with how often each outcome came. */
+export interface EventAggregate { nodeId: string; label: string; option: string; count: number; outcomes: Record<string, number> }
+
+interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[] }
 
 export interface BattleAggregate {
   key: string; label: string; attempts: number; visits: number; wins: number; loses: number;
@@ -85,7 +98,7 @@ export interface BattleAggregate {
   chestOpenRate: number | null;
 }
 
-const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [] });
+const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [] });
 let memory: Journal = emptyJournal();
 
 function sanitize(value: unknown): Journal {
@@ -95,6 +108,9 @@ function sanitize(value: unknown): Journal {
   journal.enabled = raw.enabled !== false;
   if (Array.isArray(raw.attempts)) {
     journal.attempts = raw.attempts.filter(item => item && typeof item === 'object' && typeof item.key === 'string' && typeof item.outcome === 'string').slice(-MAX_ATTEMPTS);
+  }
+  if (Array.isArray(raw.runEvents)) {
+    journal.runEvents = raw.runEvents.filter(item => item && typeof item === 'object' && typeof item.nodeId === 'string' && typeof item.option === 'string').slice(-MAX_ATTEMPTS);
   }
   return journal;
 }
@@ -112,7 +128,26 @@ function store(journal: Journal) {
 
 export const telemetryEnabled = () => load().enabled;
 export function setTelemetryEnabled(enabled: boolean) { const journal = load(); journal.enabled = enabled; store(journal); }
-export function clearTelemetry() { const journal = load(); journal.attempts = []; store(journal); }
+export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; store(journal); }
+
+/** Record a choice at a map event (called by the map screen after the run model resolved it). Respects `enabled`. */
+export function recordRunEvent(record: Omit<RunEventRecord, 'at'>) {
+  const journal = load();
+  if (!journal.enabled) return;
+  journal.runEvents = [...journal.runEvents, { ...record, at: Date.now() }].slice(-MAX_ATTEMPTS);
+  store(journal);
+}
+
+export function aggregateEvents(records: RunEventRecord[]): EventAggregate[] {
+  const rows = new Map<string, EventAggregate>();
+  for (const record of records) {
+    const key = `${record.nodeId}/${record.option}`;
+    const row = rows.get(key) ?? { nodeId: record.nodeId, label: forestNode(record.nodeId)?.name ?? record.nodeId, option: record.option, count: 0, outcomes: {} };
+    row.count++; row.outcomes[record.text] = (row.outcomes[record.text] ?? 0) + 1;
+    rows.set(key, row);
+  }
+  return [...rows.values()].sort((a, b) => `${a.nodeId}/${a.option}`.localeCompare(`${b.nodeId}/${b.option}`));
+}
 
 const median = (values: number[]): number | null => {
   if (!values.length) return null;
@@ -174,7 +209,7 @@ export function aggregate(attempts: AttemptRecord[]): BattleAggregate[] {
 export function exportPayload() {
   const journal = load();
   return { format: 'ashen-oath-playtest', version: 1, exportedAt: new Date().toISOString(), enabled: journal.enabled,
-    attempts: journal.attempts, aggregates: aggregate(journal.attempts) };
+    attempts: journal.attempts, aggregates: aggregate(journal.attempts), runEvents: journal.runEvents, eventAggregates: aggregateEvents(journal.runEvents) };
 }
 export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
 
@@ -234,11 +269,13 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
       exitDelay: current.exitTurn !== null && current.goalTurn !== null ? current.exitTurn - current.goalTurn : null,
       hpAtGoal: current.hpAtGoal, damageAfterGoal: current.goalTurn === null ? null : current.damageAfterGoal,
       materials: current.materials, lootItems: current.lootItems, chestDropped: current.chestDropped, chestOpened: current.chestOpened,
+      ...(current.mode === 'run' && outcome === 'lose' ? { runEnded: true } : {}),
     };
     const journal = load();
     journal.attempts = [...journal.attempts, record].slice(-MAX_ATTEMPTS);
     store(journal);
-    if (outcome === 'win' || left) visitClosed = true;
+    // A run defeat ends the run: there is no retry, so the visit is over (leaving afterwards is not an abandonment).
+    if (outcome === 'win' || left || record.runEnded) visitClosed = true;
   };
   const begin = () => {
     if (!load().enabled) { open = null; return; }
@@ -345,19 +382,28 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 const seconds = (ms: number | null) => ms === null ? '—' : ms < 60_000 ? `${(ms / 1000).toFixed(1).replace('.', ',')} с` : `${Math.floor(ms / 60_000)}:${String(Math.round(ms % 60_000 / 1000)).padStart(2, '0')}`;
 const number = (value: number | null) => value === null ? '—' : String(round(value, 1)).replace('.', ',');
 
-/** HTML of the «Плейтест» modal. `confirmClear` swaps the clear button for an in-page confirmation. */
-export function playtestHtml(options: { confirmClear?: boolean; notice?: string } = {}): string {
+/**
+ * HTML of the «Плейтест» modal. `confirmClear` swaps the clear button for an in-page confirmation. `trunkCleared`: the
+ * player profile's trunk mark (playerProfile.ts); while it is set the modal offers to reset it.
+ */
+export function playtestHtml(options: { confirmClear?: boolean; notice?: string; trunkCleared?: boolean } = {}): string {
   const journal = load(), rows = aggregate(journal.attempts);
   const table = rows.length
     ? `<div class="playtest-scroll"><table class="playtest-table"><thead><tr><th>Бой</th><th title="Всего попыток">Попыт.</th><th title="Доля побед среди попыток">Побед</th><th title="Медиана числа попыток до первой победы">До победы</th><th title="Медианное время победы">Время</th><th title="Медианное время попытки, закончившейся уходом из боя">До ухода</th><th title="Медиана хода, на котором выполнены цели (попытки, где выполнены)">Цели</th><th title="Медиана хода входа в дверь (победы через выход)">Выход</th><th title="Медиана ходов от целей до выхода (0 — та же цепь вошла в дверь)">Задерж.</th><th title="Доля попыток, открывших сундук, среди тех, где он упал">Сундук</th><th title="Доля визитов, где игрок ушёл без победы">Отказ</th></tr></thead><tbody>${rows.map(row =>
       `<tr><th scope="row" title="${escapeHtml(row.key)}">${escapeHtml(row.label)}</th><td>${row.attempts}</td><td>${percent(row.winRate)}</td><td>${number(row.attemptsToWin)}</td><td>${seconds(row.medianWinMs)}</td><td>${seconds(row.medianQuitMs)}</td><td>${number(row.medianGoalTurn)}</td><td>${number(row.medianExitTurn)}</td><td>${number(row.medianExitDelay)}</td><td>${row.chestOpenRate === null ? '—' : percent(row.chestOpenRate)}</td><td>${percent(row.abandonRate)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p class="modal-copy">Пока нет записей. Сыграйте бой: журнал появится после победы, поражения, повтора или выхода.</p>';
+  const events = aggregateEvents(journal.runEvents);
+  const eventTable = events.length
+    ? `<div class="playtest-scroll"><table class="playtest-table playtest-events"><thead><tr><th>Событие</th><th>Выбор</th><th>Раз</th><th>Исходы</th></tr></thead><tbody>${events.map(row =>
+      `<tr><th scope="row">${escapeHtml(row.label)}</th><td>${escapeHtml(row.option)}</td><td>${row.count}</td><td>${Object.entries(row.outcomes).map(([text, count]) => `${escapeHtml(text)} ×${count}`).join('; ')}</td></tr>`).join('')}</tbody></table></div>`
+    : '';
   const clear = options.confirmClear
     ? `<div class="playtest-confirm" role="alert"><span>Удалить ${journal.attempts.length} записей?</span><button class="button secondary" data-action="playtest-clear-yes">УДАЛИТЬ</button><button class="text-button" data-action="playtest-clear-no">ОТМЕНА</button></div>`
     : '<button class="text-button" data-action="playtest-clear">ОЧИСТИТЬ</button>';
-  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}
+  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}
 <div class="playtest-actions"><button class="button secondary" data-action="playtest-download">СКАЧАТЬ JSON</button><button class="button secondary" data-action="playtest-copy">СКОПИРОВАТЬ JSON</button>${clear}</div>
 <p class="playtest-note" aria-live="polite">${escapeHtml(options.notice ?? 'Данные хранятся только в этом браузере и никуда не отправляются.')}</p>
+<p class="playtest-profile" id="playtest-profile">${options.trunkCleared ? 'Профиль: ствол пройден — новый поход начнётся с развилки троп. <button class="text-button" data-action="profile-reset-trunk">СБРОСИТЬ ОТМЕТКУ СТВОЛА</button>' : 'Профиль: ствол не пройден — новый поход начнётся со ствола.'}</p>
 <button class="text-button playtest-toggle" data-action="playtest-toggle">${journal.enabled ? 'ЖУРНАЛ ВКЛЮЧЁН · ВЫКЛЮЧИТЬ' : 'ЖУРНАЛ ВЫКЛЮЧЕН · ВКЛЮЧИТЬ'}</button>
 <button class="text-button" data-action="playtest-close">← НАЗАД</button>`;
 }

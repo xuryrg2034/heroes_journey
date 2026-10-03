@@ -59,13 +59,37 @@ function settle(e: ForestEngine, run: ForestRunState): ForestRunState {
   return next;
 }
 
+/**
+ * A defeat ends the run (decision of 04.10.2026): the lost node is the result, the resources stay the living entry
+ * snapshot, nothing can be entered, resolved or replayed, and the ended run survives a save. `before` is the run with
+ * the battle open; `lost` is the run after resolveBattle with the engine's real defeat outcome.
+ */
+function assertRunLost(lost: ForestRunState, before: ForestRunState, battleScore: number) {
+  const id = before.pending!.nodeId;
+  assert(lost.result?.outcome === 'defeat' && lost.result.nodeId === id && lost.pending === null, `${id}: the defeat ends the run at this node`);
+  assert(json(lost.resources) === json(before.resources) && lost.currentNodeId === before.currentNodeId && json(lost.visited) === json(before.visited),
+    `${id}: the ended run keeps the entry resources and the route`);
+  assert(lost.score === before.score + battleScore, `${id}: the lost battle's points are counted`);
+  assert(!availableNodes(lost).length && !battleSetup(lost), `${id}: no transition and no battle to replay`);
+  const next = forestNode(id)!.next[0] ?? id;
+  assert(!enterNode(lost, next).ok && !enterNode(lost, id).ok, `${id}: nothing can be entered after the defeat`);
+  assert(!resolveBattle(lost, { nodeId: id, won: true, player: { ...before.resources.player }, inventory: { ...before.resources.inventory } }).ok, `${id}: the lost battle cannot be won afterwards`);
+  assert(json(parseForestRun(serializeForestRun(lost))) === json(lost), `${id}: the ended run survives a save and reload unchanged`);
+  assert(forestRunView(lost).nodes.find(entry => entry.node.id === id)?.status === 'lost' && !forestRunView(lost).available.length, `${id}: the map shows where the run ended`);
+}
+
 function mapStructure() {
   assert(!validateForestMap().length, `map is valid: ${validateForestMap().join(' ')}`);
   const paths = forestMapPaths();
   assert(paths.length > 1 && paths.every(path => path[0] === FOREST_MAP_START), 'all routes start at the trunk');
   for (const path of paths) {
     const nodes = path.map(id => forestNode(id)!), battles = nodes.filter(isBattleNode).length;
-    assert(battles >= 12 && battles <= 15, `${path.join('>')}: 12–15 battles, got ${battles}`);
+    // Changed 04.10.2026: a row-8 event may replace «Три знамени», so a route has 11–13 battles (was 12–13), and
+    // the find followed by an event gives two nodes without a battle in a row (accepted with the test events).
+    assert(battles >= 11 && battles <= 15, `${path.join('>')}: 11–15 battles, got ${battles}`);
+    const row8 = forestNode(path[path.indexOf('jailer') - 1])!, row7 = forestNode(path[path.indexOf('jailer') - 2])!;
+    assert(row8.row === 8 && row7.next.some(id => forestNode(id)!.type === 'event') && row7.next.some(id => isBattleNode(forestNode(id)!)),
+      `${path.join('>')}: before row 8 the route chooses between a battle and an event`);
     assert(nodes.slice(0, 4).every(node => node.lane === 'trunk' && node.type === 'battle'), 'every route opens with the four trunk battles');
     assert(nodes.filter(node => node.id === 'jailer').length === 1 && forestNode('jailer')!.type === 'checkpoint', 'every route passes the Jailer checkpoint');
     const last = nodes[nodes.length - 1], half = nodes.slice(nodes.findIndex(node => node.id === 'jailer') + 1);
@@ -136,21 +160,18 @@ async function campRoute(seed: number, trace?: string[]) {
       e.damagePlayer(wound); assert(e.state.player.hp === hp - wound && e.state.phase === 'PLAYER_INPUT', 'the cat is wounded but fighting');
     }
     if (id === 'trunk-4') {
-      const entry = json(e.captureAnalysisSnapshot().entry);
+      // A reload in the middle of a node battle starts it again from the entry snapshot (the battle is not saved).
+      const reloaded = engine(); launch(reloaded, parseForestRun(serializeForestRun(run))!);
+      assert(json(reloaded.captureAnalysisSnapshot().entry) === json(e.captureAnalysisSnapshot().entry), 'a reload relaunches the open battle from the same entry');
       e.damagePlayer(10); assert(e.state.phase === 'LOSE', 'the cat can fall in a node');
-      const lost = settle(e, run);
-      assert(lost.pending?.kind === 'battle' && lost.pending.defeats === 1 && json(lost.resources) === json(run.resources), 'a defeat keeps the node and the entry resources');
-      assert(!availableNodes(lost).length, 'no transition while the node is unfinished');
-      e.restartLevel();
-      assert(json(e.state) === json(JSON.parse(entry).state), 'retry restores the node entry snapshot');
-      const reloaded = engine(); launch(reloaded, parseForestRun(serializeForestRun(lost))!);
-      assert(json(reloaded.captureAnalysisSnapshot()) === json(e.captureAnalysisSnapshot()), 'relaunch after reload equals the retry snapshot');
-      run = lost; await realMove(e);
+      assertRunLost(settle(e, run), run, e.state.score);
+      // The model is pure: the route goes on from the run before that defeat (a test shortcut, not a game action).
+      e.restartLevel(); await realMove(e);
     }
     if (e.state.phase === 'LOSE') {
-      // A real chain killed the cat: the node is lost and retried from its entry snapshot.
-      run = settle(e, run); assert(run.pending?.kind === 'battle' && run.pending.defeats > 0, `${id}: real death is a defeat`);
-      e.restartLevel(); assert((e.state.phase as string) === 'PLAYER_INPUT' && e.state.player.hp === run.resources.player.hp, `${id}: retry after a real death`);
+      // A real chain killed the cat: the run ends here. The route goes on from the run before the defeat (test shortcut).
+      assertRunLost(settle(e, run), run, e.state.score);
+      e.restartLevel();
     }
     if (id === 'jailer') assert(!e.state.tutorial!.allowedAbilities.includes('spin'), 'spin is closed during the Jailer battle');
     if (id === 'camp-chief') assert(e.state.board.some(cell => cell?.kind === 'boss' && cell.hp === 20 && !cell.variant) && e.state.runNode?.allowedAbilities.includes('spin'),
@@ -215,7 +236,7 @@ async function denRoute() {
   assert(e.state.board.some(cell => cell?.variant === 'troll') && e.state.level.objectives.some(goal => goal.key === 'bossKills'), 'the Troll node starts the troll arena');
   assert(e.state.runNode?.allowedAbilities.includes('spin') && e.state.runNode.allowedAbilities.includes('jump'), 'the Troll fight has the tools of the run');
   await realMove(e);
-  if (e.state.phase === 'LOSE') { run = settle(e, run); e.restartLevel(); }
+  if (e.state.phase === 'LOSE') { assertRunLost(settle(e, run), run, e.state.score); e.restartLevel(); }
   e.winLevel(); run = settle(e, run);
   assert(run.result?.outcome === 'victory' && run.result.nodeId === 'den-troll' && !availableNodes(run).length, 'beating the Troll wins the run');
   assert(json(parseForestRun(serializeForestRun(run))) === json(run), 'the Troll victory survives serialization');
@@ -456,13 +477,71 @@ async function registryBattles() {
     e.restartLevel();
     assert(e.state.turn === 0 && e.state.runNode?.nodeId === 'trunk-2', 'retry restores the node entry');
     e.damagePlayer(e.state.player.hp);
-    run = settle(e, run);
-    assert(run.pending?.kind === 'battle' && run.pending.defeats === 1, 'a lost registry battle stays the current node');
+    assertRunLost(settle(e, run), run, e.state.score);
   } finally { node.content = original; }
   assert(!validateForestMap().length, 'map restored after the binding check');
 }
 
+const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
+
+/**
+ * A defeat by real play ends the run (decision of 04.10.2026). The cat reaches the beast trail at 1 HP (trunk battles
+ * won after a wound), then fights with real chains: a chain the forecast marks as deadly when one exists, otherwise a
+ * rest, until the enemies kill it. Spread seeds; the forecast and the outcome agree.
+ */
+async function defeatEndsRun() {
+  let lost = 0;
+  for (let k = 1; k <= 4; k++) {
+    let run = createForestRun(spread(k));
+    const e = engine();
+    for (const id of ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4']) {
+      run = ok(enterNode(run, id), `enter ${id}`); launch(e, run);
+      if (id === 'trunk-4') e.damagePlayer(e.state.player.hp - 1);
+      e.winLevel(); run = settle(e, run);
+    }
+    assert(run.resources.player.hp === 1, 'the cat leaves the trunk at 1 HP');
+    run = ok(enterNode(run, 'beast-wolf'), 'enter wolf'); launch(e, run);
+    for (let turn = 0; turn < 40 && e.state.phase === 'PLAYER_INPUT'; turn++) {
+      const deadly = e.availableMoves(6).find(path => e.preview(path).playerDies);
+      if (deadly) { await realMove(e, path => json(path) === json(deadly)); assert((e.state.phase as string) === 'LOSE', `seed ${k}: the chain forecast as deadly kills the cat`); }
+      else await e.waitTurn();
+    }
+    if (e.state.phase !== 'LOSE') continue;
+    lost++;
+    const before = run, after = settle(e, run);
+    assertRunLost(after, before, e.state.score);
+    assert(forestNode(after.result!.nodeId)!.row === 5 && forestRunView(after).battlesWon === 4, `seed ${k}: the result knows the row and the won battles`);
+  }
+  assert(lost >= 2, `real play lost the wolf node on most seeds (${lost}/4)`);
+  console.log(`PASS a real defeat ends the run (${lost}/4 seeds lost the wolf node at 1 HP)`);
+}
+
+/** Saves made before 04.10.2026 (an open battle with `defeats`, no `score`) load and play by the new rules. */
+function oldSaves() {
+  let run = createForestRun(spread(7));
+  for (const id of ['trunk-1', 'trunk-2']) { run = ok(enterNode(run, id), `enter ${id}`); if (run.pending?.kind === 'battle') { const e = engine(); launch(e, run); e.winLevel(); run = settle(e, run); } }
+  run = ok(enterNode(run, 'trunk-3'), 'enter trunk-3');
+  const old = JSON.parse(serializeForestRun(run)); old.pending.defeats = 3; delete old.score;
+  const parsed = parseForestRun(JSON.stringify(old));
+  assert(parsed && parsed.score === 0 && parsed.pending?.kind === 'battle' && !('defeats' in parsed.pending), 'an old save with defeats loads; the counter is dropped, the score starts at 0');
+  assert(json(battleSetup(parsed!)) === json(battleSetup(run)), 'the old open battle starts from the same entry');
+  const e = engine(); launch(e, parsed!); e.damagePlayer(9);
+  assertRunLost(settle(e, parsed!), parsed!, e.state.score);
+  const finished = JSON.parse(serializeForestRun(ok(enterNode(createForestRun(spread(8)), 'trunk-1'), 'enter')));
+  finished.pending.defeats = 1; delete finished.score; delete finished.loot;
+  assert(parseForestRun(JSON.stringify(finished))?.pending?.kind === 'battle', 'an old save without loot and score loads');
+  const bad = JSON.parse(JSON.stringify(old)); bad.pending.defeats = -1;
+  assert(parseForestRun(JSON.stringify(bad)) === null, 'a malformed old counter is still rejected');
+  const ended = JSON.parse(serializeForestRun(run)); ended.pending = null; ended.result = { outcome: 'defeat', nodeId: 'trunk-4' };
+  assert(parseForestRun(JSON.stringify(ended)) === null, 'a defeat in a node that was not entered is rejected');
+  ended.result.nodeId = 'trunk-3'; ended.score = 10;
+  assert(parseForestRun(JSON.stringify(ended))?.result?.outcome === 'defeat', 'a defeat in the entered node loads');
+  ended.pending = run.pending;
+  assert(parseForestRun(JSON.stringify(ended)) === null, 'a defeat with an open battle is rejected');
+}
+
 mapStructure();
+oldSaves();
 restCap();
 chiefToolLock();
 serialization();
@@ -471,5 +550,6 @@ await registryBattles();
 await realEffects();
 await hardHeart();
 await denRoute();
+await defeatEndsRun();
 await determinism();
-console.log('forest run: map, carry-over, rest, find, both bosses, retry, determinism and storage passed');
+console.log('forest run: map, carry-over, rest, find, both bosses, defeat ends the run, old saves, determinism and storage passed');
