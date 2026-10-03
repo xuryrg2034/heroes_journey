@@ -9,12 +9,13 @@
  *   REINFORCEMENT_DELAY turns after the goals, then every REINFORCEMENT_EVERY turns. The cells are announced one turn
  *   ahead (drawn by the battle RNG after the refill); on arrival an ordinary goblin there is replaced without credit,
  *   an empty cell is filled, anything else (the cat, an elite, a chest, a beast…) keeps its cell. Arrivals are ordinary
- *   refill goblins (row tier, random elite by the common rule from row 5), angry at once; their kills score as usual.
+ *   refill goblins (refill step — armed from the first arrival, which ends the calm, sturdy from goal + 6 —, random
+ *   elite by the common rule from row 5), angry at once; their kills score as usual.
  * Pure rules: the turn systems (turnSystems.ts) place and publish.
  */
 import type { ForestCell, ForestState, ResourceKind } from './forestTypes';
 import { RESOURCE_KINDS } from './resources';
-import { crystalCellAllowed, nextRandom, runPressureActive } from './mapBattleRules';
+import { crystalCellAllowed, nextRandom, RUN_CALM_TURNS, runPressureActive } from './mapBattleRules';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
 
@@ -49,8 +50,8 @@ export function rollChestCell(state: ForestState, board: readonly (ForestCell | 
   return { index, ...(victim ? { victim } : {}) };
 }
 
-/** Баланс: reinforcements arrive this many turns after the goals are met… */
-export const REINFORCEMENT_DELAY = 3;
+/** Reinforcements arrive this many turns after the goals are met — when the calm ends (difficulty layers, 03.10.2026)… */
+export const REINFORCEMENT_DELAY = RUN_CALM_TURNS;
 /** Баланс: …then again every this many turns. */
 export const REINFORCEMENT_EVERY = 3;
 /** Баланс: angry goblins in one reinforcement. */

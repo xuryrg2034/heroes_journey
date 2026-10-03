@@ -1,8 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
-import { CRYSTAL_KILLS, CRYSTAL_SCORE_PER_KILL, RUN_ANGER_STEPS, runPressureInfo } from '../src/game/mapBattleRules';
+import { CRYSTAL_KILLS, CRYSTAL_SCORE_PER_KILL, runPressureInfo } from '../src/game/mapBattleRules';
 import { createForestRun, enterNode, resolveBattle, serializeForestRun, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
 
-// Rules decided after playtest 1 in the real UI: growing anger chip, colour-change crystals (forecast → appearance →
+// Rules decided after playtest 1 in the real UI: pressure chip (layers since 03.10.2026), colour-change crystals (forecast → appearance →
 // breaking → score), «не засчитано» for enemy-caused deaths and the forecast of resting. Numbers come from the engine.
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -61,7 +61,7 @@ async function openTroll(page: Page) {
   await expect(page.locator('#board-host canvas')).toBeVisible();
 }
 
-test('growing anger: the HUD chip shows the current step and the next one, as the engine reports them', async ({ page }) => {
+test('pressure layers: the HUD chip shows the soft clock before the goals and the calm after them, as the engine reports', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await mapBattle(page, 5, 'trunk-wake');
@@ -70,16 +70,31 @@ test('growing anger: the HUD chip shows the current step and the next one, as th
   const expected = async () => { const info = runPressureInfo(await state(page)); return info; };
   let info = await expected();
   expect(info.active).toBe(true);
-  await expect(page.locator('#pressure-anger')).toContainText(`Злость: ${info.angerPerTurn} за ход`);
-  const next = RUN_ANGER_STEPS.find(step => step.fromTurn > 0 && step.count > info.angerPerTurn)!;
-  await expect(page.locator('#pressure-anger')).toContainText(`→ ${next.count} после хода ${next.fromTurn}`);
-  await expect(page.locator('#pressure-refill')).toContainText('Пополнение: слабые');
+  // Before the goals: one angry enemy per turn, weak refills, no next step to announce (difficulty layers, 03.10.2026).
+  await expect(page.locator('#pressure-anger')).toHaveText(`Злость: ${info.angerPerTurn} за ход`);
+  await expect(page.locator('#pressure-refill')).toHaveText('Пополнение: слабые');
   await shot(page, 'rules-pressure-chip');
   for (let turn = 0; turn < 4; turn++) await rest(page);
   info = await expected();
-  expect(info.angerPerTurn).toBeGreaterThan(1);
-  await expect(page.locator('#pressure-anger')).toContainText(`Злость: ${info.angerPerTurn} за ход`);
-  // A trunk battle (row 1–4) has no growing anger and no chip.
+  expect([info.angerPerTurn, info.refillTier, info.nextStepTurn]).toEqual([1, 'weak', undefined]);
+  await expect(page.locator('#pressure-anger')).toHaveText('Злость: 1 за ход');
+  // Meet the goals (engine commands): the chip counts the calm from the goal turn.
+  for (let attempt = 0; attempt < 8 && (await state(page)).customLevel.goalCompletedTurn === null; attempt++) {
+    await page.evaluate(async () => {
+      const g = (window as any).__PUZZLE_GAME.engine, moves: number[][] = g.availableMoves(8);
+      const safe = moves.filter(path => { const p = g.preview(path); return p.valid && p.opensDoor === undefined && !p.playerDies; });
+      const path = safe.find(candidate => g.preview(candidate).unlocksExit) ?? safe[0];
+      if (path) { g.beginChain(path[0]); for (const index of path.slice(1)) g.extendChain(index); await g.releaseChain(); } else await g.waitTurn();
+    });
+    await ready(page);
+  }
+  info = await expected();
+  expect(info.afterGoals).toBe(true);
+  expect(info.calmLeft).toBeGreaterThan(0);
+  await expect(page.locator('#pressure-anger')).toContainText('Затишье');
+  await expect(page.locator('#pressure-refill')).toHaveText(`Затем злость ${info.nextAngerPerTurn} за ход, пополнение: вооружённые`);
+  await shot(page, 'rules-pressure-calm');
+  // A trunk battle (row 1–4) has no pressure layers and no chip.
   await page.evaluate(() => {
     (window as any).__PUZZLE_GAME.engine.startRunBattle({ nodeId: 'trunk-1', label: 'Ствол', row: 1, seed: 1, template: { kind: 'battle', id: 'trunk-wake' }, player: { hp: 5, maxHp: 5, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] });

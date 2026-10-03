@@ -323,8 +323,8 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
     if (cell.kind === 'door') { cell.intent.label = customGoalsMet(state) ? 'Выход открыт' : 'Выполни цели'; return; }
     behavior?.intent?.(pass, cell, index);
   });
-  // Pressure accumulates: old windups persist, one calm enemy joins each turn — more as turns pass in map battles
-  // on rows ≥ 5 (angerPerTurn, mapBattleRules.ts).
+  // Pressure accumulates: old windups persist, one calm enemy joins each turn — in map battles on rows ≥ 5 by the
+  // pressure layers: none in the calm after the goals, more after it (angerPerTurn, mapBattleRules.ts).
   if (state.turn >= MELEE_AGGRESSION_START_TURN) for (const candidate of pass.anger.sort((a, b) => a.distance - b.distance || a.id - b.id).slice(0, angerPerTurn(state))) {
     angerIntent(state, state.board[candidate.index]!, candidate.index);
   }

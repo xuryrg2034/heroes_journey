@@ -1,7 +1,8 @@
 /**
  * Rules decided after playtest 1 (30.09.2026, docs/biomes/forest-map.md «Плейтест 1»), checked through real
  * engine commands (startRunBattle / startCustomLevel, preview, begin/extend/release, rest, restart):
- * 1. growing anger in map battles on rows ≥ 5 — and its absence on the trunk (rows 1–4) and in the editor;
+ * 1. the pressure before the goals in map battles on rows ≥ 5 (soft anger, weak refills — difficulty layers of
+ *    03.10.2026; the after-goals layer: difficultyLayers.spec.ts) — and the calm trunk (rows 1–4) and editor;
  * 2. colour-change crystals (every mode) — 6 and 12 chain kills, seeded cells, uncredited crushing, protected
  *    cells, no limit, value and score, no power and no share in the next crystal's chain length;
  * 3. kill credit — archer, boar and club kills are not the player's, goal targets still count, devices are credited;
@@ -16,7 +17,6 @@ import { CRYSTAL_KILLS, CRYSTAL_SCORE_PER_KILL, runPressureInfo } from './mapBat
 import { hasTag } from './enemyDefinitions';
 import { FOREST_NODE_BATTLES, forestBattle, type NodeBattle } from './run/forestBattles';
 import { authoredRefillPalette } from './run/forestMap';
-import { SHAMAN_STURDY_HP } from './forestBeasts';
 import { startForestFixture, startNodeBattle } from './testing/fixtures';
 import type { CustomLevelDefinition, PaletteWeights } from './customLevel';
 
@@ -164,13 +164,13 @@ async function angerByTurn(g: ForestEngine, turns: number): Promise<number[]> {
 }
 
 async function growingAnger() {
-  // Row ≥ 5: lesson passivity is dropped and the anger queue grows with the turn number (balance constants).
+  // Row ≥ 5: lesson passivity is dropped; before the goals one calm enemy becomes angry per turn, never more (03.10.2026).
   const pressed = field(5);
   assert(runPressureInfo(pressed.state).active, 'row 5: the pressure is active');
   assert(pressed.state.board.every(cell => !cell || !cell.behavior.passive), 'row 5: no enemy of the lesson template is passive');
   const grown = await angerByTurn(pressed, 9);
-  equal(grown, [1, 1, 1, 2, 2, 2, 3, 3, 3], 'row 5: enemies becoming angry per turn grow 1 → 2 → 3');
-  equal(runPressureInfo(pressed.state), { active: true, angerPerTurn: 3, refillTier: 'armed', nextRefillTurn: 12 }, 'UI data after nine turns');
+  equal(grown, [1, 1, 1, 1, 1, 1, 1, 1, 1], 'row 5: one new angry enemy per turn before the goals, no acceleration');
+  equal(runPressureInfo(pressed.state), { active: true, angerPerTurn: 1, refillTier: 'weak', afterGoals: false }, 'UI data after nine turns');
 
   // The trunk (row 4) keeps authored passivity: nobody becomes angry; so does the real first trunk battle.
   const trunk = field(4);
@@ -184,13 +184,13 @@ async function growingAnger() {
   assert(editor.startCustomLevel({ ...forestBattle(FIELD)!.definition, playerHp: 20 } satisfies CustomLevelDefinition), 'editor level starts');
   equal(await angerByTurn(editor, 8), [1, 1, 1, 1, 1, 1, 1, 1], 'editor level: one new angry enemy per turn');
 
-  // The Chief's battle (camp-chief, row 14) is a map battle with growing anger.
+  // The Chief's battle (camp-chief, row 14) is a map battle with the pressure layers: soft anger before the goals.
   const chief = startNodeBattle('chief-breakfast', { player: { hp: 99, maxHp: 99, energy: 0 } });
   const chiefAnger = await angerByTurn(chief, 5);
-  assert(chiefAnger[4] > 1 && runPressureInfo(chief.state).active, `the chief node uses growing anger, got ${chiefAnger}`);
+  assert(chiefAnger.some(count => count === 1) && chiefAnger.every(count => count <= 1) && runPressureInfo(chief.state).active, `the chief node uses the soft clock before the goals, got ${chiefAnger}`);
 }
 
-/** Refill step by the turn number: weak before turn 8, armed from 8, sturdy from 12; announced at the refill. */
+/** Before the goals the refill stays weak whatever the turn (difficulty layers, 03.10.2026; the after-goals steps: difficultyLayers.spec.ts). */
 async function strongerRefills() {
   const avoid = (g: ForestEngine) => new Set(['A5', 'B5', 'C5', 'D5', 'E5', 'F5'].map(label => at(g, label)));
   const play = async (g: ForestEngine, where: string) => {
@@ -204,18 +204,11 @@ async function strongerRefills() {
   };
   const g = field(5);
   for (let turn = 0; turn < 6; turn++) assert(await g.waitTurn(), 'rest');
-  const seventh = await play(g, 'turn 7');
-  assert(seventh.fresh.length && seventh.fresh.every(cell => !cell.behavior.passive && !cell.behavior.tier && cell.hp === 0), 'turn 7: new enemies are weak and not passive');
-  const eighth = await play(g, 'turn 8');
-  assert(eighth.fresh.length && eighth.fresh.every(cell => cell.behavior.tier === 'armed' && cell.hp === 0 && cell.behavior.aggressive), 'turn 8: new enemies arrive armed');
-  assert(eighth.fresh.every(cell => cell.intent.label === 'Замах' && cell.intent.cells.length > 0), 'armed arrivals announce their strike at the refill');
-  for (let turn = 8; turn < 10; turn++) assert(await g.waitTurn(), 'rest');
-  const eleventh = await play(g, 'turn 11');
-  assert(eleventh.fresh.every(cell => cell.behavior.tier === 'armed'), 'turn 11: still armed');
-  const twelfth = await play(g, 'turn 12');
-  assert(twelfth.fresh.length && twelfth.fresh.every(cell => cell.behavior.tier === 'sturdy' && cell.hp === SHAMAN_STURDY_HP && cell.maxHp === SHAMAN_STURDY_HP),
-    'turn 12: new enemies arrive sturdy (the shaman step)');
-  equal(runPressureInfo(g.state).refillTier, 'sturdy', 'UI data: sturdy refills');
+  for (const where of ['turn 7', 'turn 8', 'turn 9', 'turn 10', 'turn 11', 'turn 12', 'turn 13']) {
+    const played = await play(g, where);
+    assert(played.fresh.length && played.fresh.every(cell => !cell.behavior.passive && !cell.behavior.tier && (cell.elite || cell.hp === 0)), `${where}: new enemies are weak, unarmed and not passive before the goals`);
+  }
+  equal(runPressureInfo(g.state).refillTier, 'weak', 'UI data: weak refills before the goals');
 
   // The trunk keeps passive weak refills whatever the turn.
   const trunk = field(4);
@@ -605,6 +598,6 @@ async function main() {
   await killCredit();
   await replayAndCancel();
   await forecastExtras();
-  console.log('PASS playtest rules: growing anger on rows ≥ 5 only, stronger refills, crystals (fall at the 6th/12th kill during the chain, seeded cells, not ahead on the path, prism start, uncredited crushing, protected cells, pits, no limit, value, no power), kill credit (archer, boar, club, devices, targets), forecast = execution, replay, cancellation; UI forecasts enemyPhase.rams and previewRest = execution');
+  console.log('PASS playtest rules: soft anger and weak refills before the goals on rows ≥ 5, calm trunk, crystals (fall at the 6th/12th kill during the chain, seeded cells, not ahead on the path, prism start, uncredited crushing, protected cells, pits, no limit, value, no power), kill credit (archer, boar, club, devices, targets), forecast = execution, replay, cancellation; UI forecasts enemyPhase.rams and previewRest = execution');
 }
 void main();

@@ -54,6 +54,7 @@
     "test:boar-crystals": "tsx src/game/boarCrystals.spec.ts",
     "test:random-elites": "tsx src/game/randomElites.spec.ts",
     "test:exit-door": "tsx src/game/exitDoor.spec.ts",
+    "test:difficulty-layers": "tsx src/game/difficultyLayers.spec.ts",
     "test:telemetry": "tsx src/telemetry.spec.ts"
   },
   "dependencies": {
