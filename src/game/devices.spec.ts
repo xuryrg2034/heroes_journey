@@ -34,7 +34,8 @@ async function run() {
   assert.equal(preview.hits.length, 2); assert.equal(preview.hits[1].availablePower, 2);
   assert.equal(preview.trapKills, 5); assert.equal(preview.deviceActivations?.length, 1);
   assert.equal(JSON.stringify(game.state), initial, 'preview is pure');
-  assert(!game.beginChain(17)); assert(!game.preview([16, 17]).valid);
+  // Since 04.10.2026 one enemy is a full chain: one enemy then the lever is valid; the lever alone still is not.
+  assert(!game.beginChain(17)); assert(game.preview([16, 17]).valid, 'one enemy then a lever is a full chain');
   assert(!game.preview([16, 17, 18, 17]).valid);
   game.state.board[18]!.color = 1; assert(!game.preview([16, 17, 18]).valid, 'device preserves color'); game.state.board[18]!.color = 0;
   assert(game.beginChain(16)); assert(game.extendChain(17)); game.cancelChain(); assert.equal(game.state.devices[0].charges, 2);

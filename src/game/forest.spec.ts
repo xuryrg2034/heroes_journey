@@ -54,7 +54,9 @@ async function regressions() {
   g.beginChain(44); g.extendChain(37);
   assert(!g.extendChain(36), 'living intermediate boss cannot be crossed');
   assert(g.extendChain(44) && g.state.chain.length === 1, 'backtracking works');
-  assert(!await g.releaseChain() && g.state.turn === 0, 'tiny chain is free cancellation');
+  // Since 04.10.2026 a chain of one enemy is a full hit (Grindstone): valid, power 1.
+  const single = g.preview([44]);
+  assert(single.valid && single.kills === 1 && single.hits[0].availablePower === 1, 'a one-enemy chain is a full hit'); g.cancelChain();
   const preview = g.preview([44, 37]);
   assert(preview.hits[0].availablePower === 1 && preview.hits[0].powerSpent === 0
     && preview.hits[1].availablePower === 2 && preview.hits[1].powerSpent === 2 && preview.endIndex === 44,
@@ -105,8 +107,9 @@ async function regressions() {
 
   const repair = fixture(); repair.state.board = Array.from({ length: 49 }, () => cell('ranged', 2, 7)); repair.state.board[45] = null;
   repair.state.board[44] = cell('melee', 0); repair.state.board[37] = cell('melee', 1); repair.state.board[0] = cell('boss', null, 13);
-  const preserved = repair.getBoardState(); assert(repair.availableMoves().length === 0, 'fixture has no legal route from hero');
-  await repair.waitTurn(); assert(repair.availableMoves().length === 0, 'no generated slots means a trapped position is not automatically rearranged');
+  // Since 04.10.2026 a one-enemy chain is a full hit: an adjacent enemy is always a move (no trapped position here).
+  const preserved = repair.getBoardState(); assert(repair.availableMoves().some(path => path.length === 1), 'a single hit on an adjacent enemy is a move');
+  await repair.waitTurn(); assert(repair.availableMoves().length > 0, 'no generated slots: the position is not rearranged and single hits remain');
   preserved.forEach((old, index) => { if (old) assert(repair.state.board[index]?.id === old.id && repair.state.board[index]?.hp === old.hp && repair.state.board[index]?.color === old.color, 'generation preserves living IDs, HP and colors'); });
   console.log('PASS adjacency, sequential HP, survivor blocking, corners, wildcard, frost dry-run/duration, wait, immediate boss win, async restart');
 }

@@ -11,7 +11,7 @@ import { isCellAlive } from './cellLife';
  */
 export const GENERATION_SEARCH_BUDGET = 4000;
 
-/** Only a two-enemy witness is needed; prisms may connect its two physical targets. */
+/** A witness of one hittable enemy is enough since 04.10.2026 (a chain of one enemy is a full hit); prisms and devices may lead to it. */
 export function hasOrdinaryChain(state: ForestState): boolean {
   return chooseGeneratedColors(state, new Set());
 }
@@ -24,9 +24,9 @@ export function chooseGeneratedColors(state: ForestState, generatedIds: Readonly
   let budget = GENERATION_SEARCH_BUDGET;
   const evaluate = (path: number[]) => { budget--; return planChain(ordinary, path, true).preview; };
   /**
-   * Sound pruning for a path that already holds its first enemy. The only cells
-   * a chain may pass before its second enemy are unvisited devices and prisms, so
-   * a plain breadth-first search over them decides whether any second enemy or
+   * Sound pruning for a path that holds no enemy yet (or, before 04.10.2026, its first one). The only cells
+   * a chain may pass before the next enemy are unvisited devices and prisms, so
+   * a plain breadth-first search over them decides whether any enemy or
    * door can still be entered (adjacency, shield side and colour are the same
    * checks the chain evaluator applies). It over-approximates only doors, bleeding
    * and the requirement that a colour-resetting prism precede the second enemy.
@@ -80,8 +80,8 @@ export function chooseGeneratedColors(state: ForestState, generatedIds: Readonly
       cell.color = color;
       const preview = evaluate(path);
       if (!preview.valid) continue;
-      if (preview.enemies >= 2 || preview.opensDoor !== undefined) return true;
-      // Any number of prisms may link the two enemies, exactly as in a played chain.
+      if (preview.enemies >= 1 || preview.opensDoor !== undefined) return true;
+      // Prisms and devices may lead to the first enemy, exactly as in a played chain.
       if (preview.endsOnSurvivor || preview.completesRoom || !canReachSecondTarget(path)) continue;
       for (const next of chainNeighbors(ordinary, path[path.length - 1])) {
         const target = ordinary.board[next];

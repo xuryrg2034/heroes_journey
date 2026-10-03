@@ -399,7 +399,8 @@ async function chainFromCrystal() {
   const prism = at(g, 'B4');
   assert(g.validStarts().includes(prism) && g.beginChain(prism), 'the prism beside the cat starts a chain');
   g.cancelChain();
-  assert(!g.preview(cells(g, ['B4', 'C4'])).valid, 'a prism and one enemy are not enough');
+  // Since 04.10.2026 one enemy is a full chain: a prism and one enemy are enough.
+  assert(g.preview(cells(g, ['B4', 'C4'])).valid, 'a prism and one enemy are a full chain');
   assert(!g.preview(cells(g, ['B4', 'C4', 'B3'])).valid, 'the first coloured target (blue) sets the colour');
   const played = await chain(g, cells(g, ['B4', 'C4', 'C3']), 'prism start');
   equal([played.preview.enemies, played.preview.kills, played.preview.hits.map(hit => hit.availablePower)], [2, 2, [0, 1, 2]], 'the prism gives no power and is not a kill');

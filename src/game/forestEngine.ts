@@ -449,9 +449,10 @@ export class ForestEngine {
         if (--budget < 0) return;
         const simulation = planChain(this.state, path, true), result = simulation.preview;
         if (!result.valid) return;
-        if (result.enemies >= 2 || result.opensDoor !== undefined) {
+        if (result.enemies >= 1 || result.opensDoor !== undefined) {
           const targets = path.filter(index => this.state.board[index]?.kind !== 'melee').join(',');
-          const key = `${result.endIndex}:${targets}:${Math.min(7, result.enemies)}:${result.power}`;
+          // The last cell keeps apart moves that end on different enemies (two wounding single hits leave the cat in place).
+          const key = `${result.endIndex}:${path[path.length - 1]}:${targets}:${Math.min(7, result.enemies)}:${result.power}`;
           if (!best.has(key) || best.get(key)!.length < path.length) best.set(key, [...path]);
         }
         if (path.length >= maxLength || result.endsOnSurvivor || result.completesRoom) return;

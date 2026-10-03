@@ -55,11 +55,12 @@ async function finiteFallbackAndDeferral() {
   const firstId = internals.nextId; internals.random = () => { draws++; return 0.5; };
   g.subscribe((_state, event) => { if (event.type === 'spawn') spawns++; });
   assert(g.useItem('bomb', 44), 'item creates exactly one unpublished ordinary replacement');
-  // One weighted palette draw per candidate (the removed forest trial drew twice: a 25% neighbour-colour roll, then a colour).
-  assert(draws === 32 && g.state.board[44]!.color === 4 && g.state.board[44]!.id === firstId && spawns === 1, '32 rejected color samples use finite exact five-color fallback without publishing or consuming rejected IDs');
+  // One weighted palette draw per candidate. Since 04.10.2026 a single hit is an opening: the cat already has a hittable
+  // neighbour (37), so the first candidate is accepted — one draw, no fallback (before: 32 rejected samples, then a recolour).
+  assert(draws === 1 && g.state.board[44]!.id === firstId && spawns === 1, 'the first candidate is accepted: one draw, no rejected IDs, published once');
   assert(g.state.board[37] === existing && JSON.stringify(existing) === old && hasOrdinaryChain(g.state), 'only new slot changes color and ordinary validation ignores selected ability/zero energy');
 
-  console.log('PASS bounded random attempts, new-slot-only exact color fallback, independent ordinary validation');
+  console.log('PASS bounded random attempts (a single hit opens at once), new-slot-only colours, independent ordinary validation');
 }
 async function unchangedPlayerTrap() {
   // A constructed legal position checks the unchanged no-rescue contract under eight-way geometry.
@@ -76,11 +77,14 @@ async function unchangedPlayerTrap() {
   assert(trapped.preview([44, 43]).valid && trapped.previewAbility('jump', 24).valid, 'player initially has a chain and can choose a bad distant landing');
   const survivors = strong.map(index => trapped.state.board[index]!);
   await trapped.useAbility('jump', 24);
-  assert(trapped.state.player.energy === 0 && !hasOrdinaryChain(trapped.state) && trapped.availableMoves().length === 0, 'eight-way enclosed landing remains a tactical risk');
+  // Since 04.10.2026 a single hit is a move: the enclosed landing leaves only wounding hits on the durable neighbours —
+  // a tactical cost, no dead end.
+  const moves = trapped.availableMoves();
+  assert(trapped.state.player.energy === 0 && hasOrdinaryChain(trapped.state) && moves.length > 0 && moves.every(path => path.length === 1 && strong.includes(path[0])), 'eight-way enclosed landing leaves only single wounding hits');
   assert(survivors.every((cell, n) => trapped.state.board[strong[n]] === cell && cell.hp === 20 && cell.color === 0), 'refill cannot recolor, damage or displace published blockers');
   await trapped.waitTurn();
-  assert(trapped.state.player.energy === 0.5 && !hasOrdinaryChain(trapped.state) && survivors.every(cell => cell.hp === 20 && cell.color === 0), 'rest earns only half energy without automatic rescue');
-  console.log('PASS constructed eight-way bad jump preserves no-rescue and unchanged living enemies');
+  assert(trapped.state.player.energy === 0.5 && survivors.every(cell => cell.hp === 20 && cell.color === 0), 'rest earns only half energy without automatic rescue');
+  console.log('PASS constructed eight-way bad jump: single wounding hits only, no rescue, unchanged living enemies');
 }
 async function pairGeneration() {
   const g = startForestFixture(984);

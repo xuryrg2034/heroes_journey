@@ -85,8 +85,8 @@ export interface ChainPreview {
   threats: number[]; createsPrism: boolean; reason: string; hits: ChainHit[]; kills: number; endsOnSurvivor: boolean;
   opensDoor?: number; completesRoom?: boolean;
   /**
-   * An invalid, too short chain that already meets every goal of an exit battle, with the open door one chain step from
-   * its end: the door cell to continue into (the chain then wins). Hint only; the minimum-enemies rule is unchanged.
+   * The goals of an exit battle are met when this valid chain ends and the door is one chain step from its end: the door
+   * cell to continue into (the chain then wins before the enemies answer). Hint only (playtest 3, 03.10.2026).
    */
   exitNext?: number;
   rotations: RotationPreview[];

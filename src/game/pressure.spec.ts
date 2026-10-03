@@ -98,7 +98,9 @@ async function afterTheGoals() {
     const arrivedOn: number[] = [];
     for (let n = 0; n < 9 && g.state.phase === 'PLAYER_INPUT'; n++) {
       const info = runPressureInfo(g.state);
-      assert(info.afterGoals && info.nextAnger === anger(g.state.turn + 1, goal), `seed ${k}: UI announces ${info.nextAnger} for the next turn`);
+      // The HUD announces the next anger under the cap of the angry ones now (an estimate the action may change).
+      const announced = Math.max(0, Math.min(anger(g.state.turn + 1, goal), CAP - angryOrdinaryCount(g.state.board)));
+      assert(info.afterGoals && info.nextAnger === announced, `seed ${k}: UI announces ${info.nextAnger} for the next turn, expected ${announced}`);
       const { fresh, newAngry, arrivals } = await turn(g, [DOOR]);
       checkAnger(g, newAngry, `seed ${k} turn ${g.state.turn}`);
       if (newAngry >= 3) grown++;

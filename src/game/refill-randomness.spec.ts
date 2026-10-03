@@ -39,8 +39,14 @@ function authoredOpenings() {
   // A deliberately invalid authored opening must fail instead of repainting its enemies.
   const battle = forestBattle('trunk-wake')!, previous = battle.definition;
   try {
-    battle.definition = structuredClone(previous);
-    battle.definition.enemies.forEach(enemy => { enemy.hp = 100; });
+    // Since 04.10.2026 one hittable neighbour is an opening: enclose the cat with closed doors (no hit before the goals).
+    const def = battle.definition = structuredClone(previous), cols = def.cols, hero = def.heroIndex;
+    const around = [-1, 0, 1].flatMap(dy => [-1, 0, 1].map(dx => [dx, dy])).filter(([dx, dy]) => dx || dy)
+      .map(([dx, dy]) => [hero % cols + dx, Math.floor(hero / cols) + dy]).filter(([x, y]) => x >= 0 && y >= 0 && x < cols && y < def.rows)
+      .map(([x, y]) => y * cols + x).filter(index => ['floor', 'puddle', 'thorns'].includes(def.terrain[index]));
+    def.enemies = def.enemies.filter(enemy => !around.includes(enemy.index));
+    def.devices = (def.devices ?? []).filter(device => !around.includes(device.index));
+    def.doors = around.map(index => ({ index }));
     const g = new ForestEngine(), before = JSON.stringify(g.state);
     assert(!g.startRunBattle(nodeBattleSetup('trunk-wake')) && JSON.stringify(g.state) === before, 'invalid authored opening is rejected atomically');
   } finally { battle.definition = previous; }

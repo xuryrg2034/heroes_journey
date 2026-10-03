@@ -73,9 +73,10 @@ test('exit battle: goals met message, open door, chest, forecast wording, reinfo
     await holdChain(page, path!);
     if (unlock) {
       announced = true;
-      await expect(page.locator('#chain-rank')).toHaveText(/^ВЫХОД ОТКРОЕТСЯ( · −\d+ HP)?$/);
+      // Beside the door the same chain also points at it (exitNext): «ПРОДОЛЖИ В ВЫХОД».
+      await expect(page.locator('#chain-rank')).toHaveText(/^(ВЫХОД ОТКРОЕТСЯ|ПРОДОЛЖИ В ВЫХОД)( · −\d+ HP)?$/);
       await expect(page.locator('#chain-reward')).toContainText('Цели будут выполнены');
-      expect((await page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel)).text).toMatch(/^ВЫХОД ОТКРОЕТСЯ( · −\d+ HP)?$/);
+      expect((await page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel)).text).toMatch(/^(ВЫХОД ОТКРОЕТСЯ|ПРОДОЛЖИ В ВЫХОД)( · −\d+ HP)?$/);
       await shot(page, 'exit-ui-unlocks-forecast');
     }
     await finishTurn(page);
@@ -149,7 +150,7 @@ test('playtest 3: the last goal beside the door — selecting it says «ПРОД
     for (const path of log) { g.beginChain(path[0]); for (const index of path.slice(1)) g.extendChain(index); await g.releaseChain(); }
   });
   await ready(page);
-  // Select F1 with the mouse: the chain is too short, but the panel and the field point at the door E1.
+  // Select F1 with the mouse: a valid single hit whose forecast points at the door E1.
   await holdChain(page, [5]);
   await expect(page.locator('#chain-rank')).toHaveText('ПРОДОЛЖИ В ВЫХОД');
   await expect.poll(async () => (await page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel)).text).toBe('ПРОДОЛЖИ В ВЫХОД');

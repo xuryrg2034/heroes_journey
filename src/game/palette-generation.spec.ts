@@ -148,16 +148,19 @@ function customAndRepair() {
     for (const index of [37, 44, 45]) ordinary.state.terrain[index] = 'floor';
     ordinary.state.board[44] = generated; ordinary.state.board[37] = survivor;
     generated.color = 0; survivor.color = color; const before = JSON.stringify(survivor);
-    assert(!hasOrdinaryChain(ordinary.state) && chooseGeneratedColors(ordinary.state, new Set([generated.id])), 'repair considers the fourth and fifth colors');
-    assert(ordinary.state.board[44]!.color === color && JSON.stringify(survivor) === before, 'repair only recolors the new entity');
+    // Since 04.10.2026 a single hit is an opening; the fresh ID still takes only an allowed colour (here the fourth or fifth).
+    assert(hasOrdinaryChain(ordinary.state) && chooseGeneratedColors(ordinary.state, new Set([generated.id])), 'repair considers the fourth and fifth colors');
+    // The opening may be the survivor itself (a single hit); repair never recolours it.
+    assert([0, color].includes(ordinary.state.board[44]!.color!) && JSON.stringify(survivor) === before, 'repair only recolors the new entity');
     generated.color = 0;
-    assert(!chooseGeneratedColors(ordinary.state, new Set([generated.id]), new Map([[generated.id, [0, 1, 2]]])) && generated.color === 0, 'per-ID activation limits forbid borrowing a future color and restore failed candidates');
+    // With no allowed colour for the fresh ID the survivor alone opens the field (a single hit): the fresh ID keeps its colour.
+    assert(chooseGeneratedColors(ordinary.state, new Set([generated.id]), new Map([[generated.id, [0, 1, 2]]])) && generated.color === 0, 'per-ID activation limits never borrow a future color; the survivor alone opens the field');
   }
   const weights = [1, 0, 0, 3, 0] as const;
   assert([0, 0.249, 0.25, 0.999].map(roll => weightedColor([...weights], roll)).join() === '0,0,3,3', 'weighted selection retains relative weights and skips zeros');
   // The fixture setup the specs use for node battles really is the analyzer entry of the node.
   assert(JSON.stringify(nodeBattleSetup('trunk-last-step').paletteWeights) === JSON.stringify(authoredRefillPalette(forestBattle('trunk-last-step')!, 3)), 'node setup carries the row 3 palette');
-  console.log('PASS custom positive/zero weights, weighted intervals, ochre/amethyst exact repair and restricted per-ID palettes');
+  console.log('PASS custom positive/zero weights, weighted intervals, allowed-colour repair of the fresh ID (a single hit opens the corridor since 04.10.2026) and restricted per-ID palettes');
 }
 
 await nodePalettes(); await sameBattleOnRows(); await fiveColorNodes(); customAndRepair();

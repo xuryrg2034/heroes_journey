@@ -61,19 +61,12 @@ export function simulateChain(state: ForestState, path: number[], allowIncomplet
  */
 export function planChain(state: ForestState, path: number[], allowIncomplete = false, rng?: number): ChainSimulation {
   // Validate the submitted path independently from a lethal movement prefix.
-  let plannedPathValid = false;
   // Porcupine quills can kill the cat mid-chain as bleeding can; validate the path as if the cat survived.
   const quills = path.reduce((sum, index) => sum + chainSpikeDamage(state.board[index]), 0);
   if (state.player.damageEffects?.bleeding || quills >= state.player.hp) {
     // Validity only: the plan, never the forecast.
     const planned = planChain({ ...state, player: { ...state.player, hp: Number.MAX_SAFE_INTEGER, damageEffects: undefined } }, path, allowIncomplete);
-    // The exit hint of the immortal copy must hold for the real cat: bleeding or quills may kill it on the way in.
-    const exitNext = planned.preview.exitNext;
-    if (exitNext !== undefined && planChain(state, [...path, exitNext]).preview.opensDoor === undefined) {
-      delete planned.preview.exitNext; planned.preview.reason = 'Нужны хотя бы два противника в цепочке.';
-    }
     if (!planned.preview.valid) return planned;
-    plannedPathValid = !allowIncomplete;
   }
   const movingPlayer = { ...state.player, ...(state.player.damageEffects ? { damageEffects: { ...state.player.damageEffects } } : {}) };
   const board = cloneBoard(state.board);
@@ -197,7 +190,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
       }
     }
     previous = index;
-    if (!state.devices.length && preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
+    if (!state.devices.length && preview.enemies >= 1 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
     if (preview.completesRoom) break;
     // After this step the elite's loot falls, then the crystal (never on the path still ahead); a victory step ends
     // the battle first. The roll draws from the same RNG copy, so execution replays it draw for draw.
@@ -221,14 +214,16 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   // Its value is the chain's final length (kills), fixed once the chain is over.
   for (const crystal of crystalSteps) crystal.value = preview.kills;
   for (const standIn of standIns) if (!standIn.loot) standIn.crystalChain = preview.kills;
-  if (preview.valid && !allowIncomplete && preview.enemies < 2 && preview.opensDoor === undefined && !plannedPathValid) {
-    // Playtest 3 (03.10.2026): the last goal falls on this chain and the open door is a chain step away — the winning
-    // move is to continue into it. The rule stays (the chain is still too short); the forecast only points the way.
+  // Since 04.10.2026 a chain of one enemy is a full hit (Grindstone); a chain of none (a crystal, loot or a chest alone)
+  // is no hit — unless it enters the open door.
+  if (preview.valid && !allowIncomplete && preview.enemies < 1 && preview.opensDoor === undefined) reject('Нужен хотя бы один противник в цепочке.');
+  if (!preview.valid) { preview.endIndex = state.player.index; return { preview, board }; }
+  // Playtest 3 (03.10.2026): the goals are met when this chain ends and the open door is one chain step away — the
+  // chain may continue into it and win before the enemies answer. Hint only (planned on the real cat, no RNG).
+  if (!allowIncomplete && preview.opensDoor === undefined && !preview.completesRoom && !preview.playerDies) {
     const exitNext = exitNextTo(state, path, preview.endIndex, customProgress);
-    reject(exitNext === undefined ? 'Нужны хотя бы два противника в цепочке.' : customGoalsMet(state) ? 'Выход открыт — продолжи цепь в выход.' : 'Последняя цель падёт — продолжи цепь в выход.');
     if (exitNext !== undefined) preview.exitNext = exitNext;
   }
-  if (!preview.valid) { preview.endIndex = state.player.index; return { preview, board }; }
   preview.energyGain = Math.min(7 - state.player.energy, preview.hits.filter(hit => { const cell = state.board[hit.index]; return cell && cell.kind !== 'door' && cell.kind !== 'prism'; }).length * 0.5);
   // An ordinary chain that stops on thorns hurts the cat before any lever resolves.
   if (!preview.playerDies && state.terrain[preview.endIndex] === 'thorns') {
@@ -252,16 +247,16 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
     }
     if (forecastState.player.hp <= 0) { preview.playerDies = true; break; }
   }
-  if (!preview.playerDies && preview.enemies >= 2 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
+  if (!preview.playerDies && preview.enemies >= 1 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
   if (preview.playerDies) { preview.completesRoom = false; delete preview.opensDoor; }
   // Only the number of fallen crystals is public; their cells and the crushed enemies stay in the internal steps.
   if (crystalSteps.length) { preview.crystals = crystalSteps.length; preview.createsPrism = true; }
   return { preview, board, steps, queuedDevices, movementEffects: movingPlayer.damageEffects };
 }
 /**
- * A door cell that would end this chain with the exit: the chain meets every goal of an exit battle (progress counted
- * in the plan) and planning it one step further into that cell opens the door. Pure; no RNG (the extension is planned
- * without one).
+ * A door cell that would end this chain with the exit: every goal of an exit battle is met when the chain ends (progress
+ * counted in the plan) and planning it one step further into that cell opens the door on the real cat (bleeding or
+ * quills may kill it first: then no hint). Pure; no RNG (the extension is planned without one).
  */
 function exitNextTo(state: ForestState, path: number[], end: number, progress: ForestState['objective']): number | undefined {
   if (state.customLevel?.definition.completion !== 'exit' || !customGoalsMet(state, progress)) return undefined;
@@ -347,8 +342,8 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
     if (cell.kind === 'door') { cell.intent.label = customGoalsMet(state) ? 'Выход открыт' : 'Выполни цели'; return; }
     behavior?.intent?.(pass, cell, index);
   });
-  // Pressure accumulates: old windups persist, one calm enemy joins each turn — in map battles on rows ≥ 5 by the
-  // pressure layers: none in the calm after the goals, more after it (angerPerTurn, mapBattleRules.ts).
+  // Pressure accumulates: old windups persist, one calm enemy joins each turn — in map battles on rows ≥ 5 one more
+  // each turn after the goals, up to the cap of angry ones (angerQueueSize, mapBattleRules.ts).
   if (state.turn >= MELEE_AGGRESSION_START_TURN) for (const candidate of pass.anger.sort((a, b) => a.distance - b.distance || a.id - b.id).slice(0, angerQueueSize(state))) {
     angerIntent(state, state.board[candidate.index]!, candidate.index);
   }

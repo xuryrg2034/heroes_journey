@@ -670,7 +670,7 @@ export class BoardRenderer {
       }
       this.endpoint.visible=state.phase==='PLAYER_INPUT';
       // Same wording as the chain panel.
-      this.endpointText.text=!preview.valid?(preview.exitNext!==undefined?'ПРОДОЛЖИ В ВЫХОД':'ПРОДОЛЖАЙ'):preview.opensDoor!==undefined?'ВЫХОД · ПОБЕДА':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.unlocksExit||preview.enemyPhase?.unlocksExit?`ВЫХОД ОТКРОЕТСЯ${preview.unlocksExit?'':' ПОСЛЕ ОТВЕТА ВРАГОВ'}${preview.damage?` · −${preview.damage} HP`:''}`:preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
+      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.exitNext!==undefined?`ПРОДОЛЖИ В ВЫХОД${preview.damage?` · −${preview.damage} HP`:''}`:preview.opensDoor!==undefined?'ВЫХОД · ПОБЕДА':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.unlocksExit||preview.enemyPhase?.unlocksExit?`ВЫХОД ОТКРОЕТСЯ${preview.unlocksExit?'':' ПОСЛЕ ОТВЕТА ВРАГОВ'}${preview.damage?` · −${preview.damage} HP`:''}`:preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
       const half=Math.ceil(this.endpointText.width/2)+10;
       this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,end.x)),Math.max(12,end.y-35));
       this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!preview.valid?0x3c3530:preview.damage?0x742e30:0x263b31).stroke({color:!preview.valid?0xc4a775:preview.damage?0xe49681:0x9aa982,width:1});

@@ -37,14 +37,16 @@ async function goalsAndExits() {
   await commit(g, [8, 4, 0]); assert(g.state.phase === 'WIN' && g.state.player.hp === 20, 'custom exit wins the level');
   const direct = definition(); direct.completion = 'direct'; direct.doors = []; direct.goals = [{ key: 'kills', target: 1 }];
   const d = start(direct); const attacker = d.state.board[5]!; attacker.behavior.aggressive = true; prepareIntents(d.state);
-  assert(!d.preview([8]).valid && d.preview([8, 4]).completesRoom && d.preview([8, 4]).damage === 0, 'direct goal one still requires a legal two-enemy chain and skips enemy phase');
-  let enemyPhases = 0; d.subscribe((_state, event) => { if (event.type === 'enemy-turn') enemyPhases++; }); await commit(d, [8, 4]); assert(d.state.phase === 'WIN' && enemyPhases === 0, 'direct victory cancels all remaining enemy activity');
+  // Since 04.10.2026 a chain of one enemy is a full hit: it alone meets the direct goal and skips the enemy phase.
+  assert(d.preview([8]).valid && d.preview([8]).completesRoom && d.preview([8]).damage === 0, 'direct goal one is met by a one-enemy chain and skips the enemy phase');
+  // The winning chain stops on its victory: [8] wins at once and cannot be extended.
+  let enemyPhases = 0; d.subscribe((_state, event) => { if (event.type === 'enemy-turn') enemyPhases++; }); await commit(d, [8]); assert(d.state.phase === 'WIN' && enemyPhases === 0, 'direct victory cancels all remaining enemy activity');
   const survive = definition(); survive.heroIndex = 1; survive.goals = [{ key: 'turns', target: 1 }];
   const s = start(survive); assert(!s.preview([0]).valid && !s.beginChain(0) && s.state.turn === 0 && s.state.player.energy === 0, 'locked single exit is not an action');
   await s.waitTurn(); assert(s.state.customLevel?.goalCompletedTurn === 1 && s.preview([0]).valid, 'completed survive turn unlocks lone neighboring door'); await commit(s, [0]); assert(s.state.phase === 'WIN', 'single unlocked custom door enters');
   const boss = definition(); boss.enemies.push({ index: 9, kind: 'boss', hp: 2, color: null }); boss.goals = [{ key: 'kills', target: 100 }];
   const b = start(boss); await commit(b, [8, 9]); assert(b.state.phase === 'PLAYER_INPUT' && b.state.objective.bossKills === 1 && b.state.objective.kills === 2 , 'custom boss death counts goals without built-in instant win or forest waves');
-  console.log('PASS same-chain objective/exit, direct completion/min2, lone unlocked exit and custom boss isolation');
+  console.log('PASS same-chain objective/exit, direct completion by one enemy, lone unlocked exit and custom boss isolation');
 }
 async function survivalAndLimit() {
   for (const fatal of [false, true]) {
@@ -95,10 +97,15 @@ function allowedFallbackAndAuthoring() {
   const def = definition(); def.terrain.fill('wall'); for (const index of [12, 8, 4]) def.terrain[index] = 'floor'; def.completion = 'direct'; def.doors = []; def.goals = [{ key: 'kills', target: 100 }];
   def.enemies = [{ index: 4, kind: 'melee', hp: 4, color: 3 }];
   const g = startForestFixture(); const before = JSON.stringify(g.state);
-  assert(validateCustomLevel(def).valid && !g.startCustomLevel(def) && JSON.stringify(g.state) === before, 'unreachable authored color outside spawn palette cannot be repaired by forbidden new color or live recolor');
+  // A cat with no hittable neighbour has no opening: the start is rejected atomically.
+  const enclosed = structuredClone(def); enclosed.terrain[8] = 'wall';
+  assert(validateCustomLevel(enclosed).valid && !g.startCustomLevel(enclosed) && JSON.stringify(g.state) === before, 'a cat with no hittable neighbour is rejected atomically');
+  // Since 04.10.2026 a one-enemy chain is a full hit: the generated neighbour opens the corridor whatever its colour, and
+  // the authored colour outside the spawn palette stays as painted.
+  assert(validateCustomLevel(def).valid && g.startCustomLevel(def) && hasOrdinaryChain(g.state) && g.state.board[4]!.color === 3, 'a single hit on the generated neighbour opens the corridor; the authored colour stays');
   def.paletteWeights = [0, 0, 0, 1, 0]; assert(g.startCustomLevel(def) && hasOrdinaryChain(g.state), 'same authored corridor works with its color explicitly enabled');
   const original = g.state.board[4]!, generated = g.state.board[8]!; generated.color = 0;
-  assert(chooseGeneratedColors(g.state, new Set([generated.id])) && Number(generated.color) === 3 && original.color === 3, 'fallback considers allowed fourth color and preserves author cell');
+  assert(chooseGeneratedColors(g.state, new Set([generated.id])) && Number(generated.color) === 3 && original.color === 3, 'fallback recolours a generated cell only into the allowed palette (colour 0 is off) and preserves the author cell');
   const shapes = definition(); shapes.enemies = [{ index: 5, kind: 'boss', variant: 'troll', hp: 10, color: null, footprint: [5, 6, 9, 10], aggressive: true }];
   const shape = start(shapes), big = shape.state.board[5]!; assert(big.footprint!.every(index => shape.state.board[index] === big) && big.color === null && big.hp === 10 && big.behavior.aggressive, 'painted 2×2 footprint, HP and initial aggression are preserved');
   console.log('PASS allowed-color-only fallback, immutable authored colors, atomic rejected start and shared painted footprints');

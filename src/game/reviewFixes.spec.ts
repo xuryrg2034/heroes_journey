@@ -26,13 +26,14 @@ async function commit(g: ForestEngine, path: number[]) {
 /** 1. An opening search through many devices answers quickly, whether or not a chain exists. */
 function deviceSearchIsBounded() {
   const braziers = (enemies: CustomLevelDefinition['enemies']) => level(4, 4, { enemies, goals: [{ key: 'kills', target: 2 }],
-    paletteWeights: [100, 0, 0, 0, 0], devices: Array.from({ length: 16 }, (_, index) => index).filter(index => index > 1 && !enemies.some(enemy => enemy.index === index))
+    paletteWeights: [100, 0, 0, 0, 0], devices: Array.from({ length: 16 }, (_, index) => index).filter(index => index > 0 && !enemies.some(enemy => enemy.index === index))
       .map(index => ({ index, kind: 'fire' as const, charges: 1, targets: [] })) });
-  const lonely = braziers([{ index: 1, kind: 'melee', color: 0, hp: 0 }]);
+  // Since 04.10.2026 one hittable enemy is an opening: the lone enemy stands behind the braziers (a lever needs an enemy first).
+  const lonely = braziers([{ index: 15, kind: 'melee', color: 0, hp: 0 }]);
   assert(validateCustomLevel(lonely).valid, 'brazier field is a well-formed level');
   const g = fresh(), before = JSON.stringify(g.state);
   let started = performance.now();
-  assert(!g.startCustomLevel(lonely), 'one enemy among braziers has no opening chain');
+  assert(!g.startCustomLevel(lonely), 'one enemy behind the braziers has no opening chain');
   const rejectMs = performance.now() - started;
   assert(rejectMs < 1000, `rejection took ${Math.round(rejectMs)} ms`);
   assert(JSON.stringify(g.state) === before, 'rejected start leaves the previous scene intact');

@@ -58,7 +58,7 @@ export interface RunPressureInfo {
   active: boolean;
   /** The goals are met: the anger grows by one each turn. */
   afterGoals: boolean;
-  /** Calm enemies that become angry after the next action (before the cap). */
+  /** Calm enemies that become angry after the next action, limited by the cap for the angry ones now (an estimate: the action may change them). */
   nextAnger: number;
   /** Angry ordinary enemies now, and the cap. */
   angry: number;
@@ -66,7 +66,8 @@ export interface RunPressureInfo {
 }
 export function runPressureInfo(state: PressureState & Pick<ForestState, 'board'>): RunPressureInfo {
   return { active: runPressureActive(state), afterGoals: (state.customLevel?.goalCompletedTurn ?? null) !== null,
-    nextAnger: angerAt(state, state.turn + 1), angry: angryOrdinaryCount(state.board), cap: RUN_ANGER_CAP };
+    nextAnger: runPressureActive(state) ? Math.max(0, Math.min(angerAt(state, state.turn + 1), RUN_ANGER_CAP - angryOrdinaryCount(state.board))) : angerAt(state, state.turn + 1),
+    angry: angryOrdinaryCount(state.board), cap: RUN_ANGER_CAP };
 }
 
 // ---------------------------------------------------------------- colour-change crystals (every mode)

@@ -33,7 +33,8 @@ async function energyAndChains() {
   assert(g.beginChain(23) && g.extendChain(22) && g.extendChain(23), 'normal chain retains backtracking');
   assert(g.state.player.energy === 0 && g.preview([23, 22]).energyGain === 1, 'hover and backtrack never grant forecast energy');
   g.cancelChain(); assert(g.state.player.energy === 0 && g.state.turn === 0, 'cancel grants no energy or turn');
-  assert(!await commit(g, [23]) && g.state.player.energy === 0, 'invalid tiny chain grants no energy');
+  // Since 04.10.2026 a chain of one enemy is a full hit: its forecast grants half energy like any ordinary hit.
+  const single = g.preview([23]); assert(single.valid && single.energyGain === 0.5 && g.state.player.energy === 0, 'a one-enemy chain forecasts half energy, nothing spent yet');
   g.state.board[22]!.hp = g.state.board[22]!.maxHp = 20;
   const p = g.preview([23, 22]); assert(p.valid && p.energyGain === 1 && !p.hits[1].killed, 'surviving terminal enemy still grants half energy');
   await commit(g, [23, 22]); assert(g.state.player.energy === 1, 'committed ordinary hits grant exactly half each');
@@ -46,7 +47,7 @@ async function energyAndChains() {
   const diagonal = fixture(0);
   assert(diagonal.preview([16, 8]).valid && diagonal.preview([16, 8]).energyGain === 1 && diagonal.preview([16, 8]).energyCost === 0, 'ordinary diagonal chain generates energy without ability cost');
   diagonal.state.board[8]!.color = 1; assert(!diagonal.preview([16, 8]).valid, 'diagonal chain retains color restriction'); diagonal.state.board[8]!.color = 0;
-  assert(!await commit(diagonal, [16]) && diagonal.state.player.energy === 0, 'invalid tiny diagonal chain grants no energy');
+  assert(diagonal.preview([16]).valid && diagonal.preview([16]).energyGain === 0.5 && diagonal.state.player.energy === 0, 'a one-enemy diagonal chain is a full hit (04.10.2026), forecast only');
   await commit(diagonal, [16, 8]); assert(diagonal.state.player.energy === 1 && diagonal.state.chosenAbility === null, 'committed diagonal chain earns half per enemy');
   assert(!diagonal.previewAbility('jump', 1).valid, 'insufficient energy still rejects jump');
   const removed = 'rage' as AbilityKind, snapshot = JSON.stringify(diagonal.state);

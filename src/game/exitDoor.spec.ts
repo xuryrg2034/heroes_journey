@@ -385,7 +385,8 @@ async function reinforcementCellsAndCredit() {
 
 /**
  * Playtest 3 (03.10.2026): in `trunk-last-step` on seed 337763618 the only move was the last goal F1 (1 HP) continued
- * into the door E1 — the goals are met mid-chain. Selecting F1 alone must say so: `exitNext` points at the door.
+ * into the door E1 — the goals are met mid-chain. Since 04.10.2026 the chain F1 alone is a full hit; its forecast still
+ * points at the door (`exitNext`), and F1 → E1 wins.
  */
 const PLAYTEST3 = [[26, 25, 18, 12, 7], [8, 15, 10, 5], [11, 17, 23, 29, 28], [27, 33, 32, 31, 24], [25, 18], [13, 6, 1, 2], [1, 8], [1, 7], [12, 13, 18], [13, 7], [6, 13],
   [12, 18, 25, 31], [26, 33, 32], [27, 26], [31, 32], [33, 26, 25, 31], [32, 27, 26], [27, 33], [27, 28], [27, 32], [33, 27], [28, 23], [17, 10, 11], [10, 17], [16, 10], [11, 16], [11, 10]];
@@ -397,15 +398,15 @@ async function continueIntoTheExit() {
   assert(g.beginChain(F1), 'select F1');
   const before = g.captureAnalysisSnapshot(), preview = g.preview(), after = g.captureAnalysisSnapshot();
   assert(json(before) === json(after), 'the hint spends no state, RNG or IDs');
-  assert(!preview.valid && preview.exitNext === E1 && preview.reason === 'Последняя цель падёт — продолжи цепь в выход.', `F1 alone points at the door (${preview.reason}, ${preview.exitNext})`);
+  assert(preview.valid && preview.kills === 1 && preview.exitNext === E1 && preview.unlocksExit, `F1 alone is a valid hit that points at the door (${preview.reason}, ${preview.exitNext})`);
   assert(g.extendChain(E1) && await g.releaseChain() && (g.state.phase as string) === 'WIN', 'F1 → E1 wins');
-  // With 2 HP the last goal survives the one-enemy chain: no hint, the ordinary reason.
+  // With 2 HP the last goal survives the one-enemy chain (a wound): no hint.
   const sturdy = startNodeBattle('trunk-last-step', { seed: 337763618 });
   for (const path of PLAYTEST3) await chain(sturdy, path);
   const snap = sturdy.captureAnalysisSnapshot(); snap.state.board[F1]!.hp = snap.state.board[F1]!.maxHp = 2; sturdy.restoreAnalysisSnapshot(snap);
   assert(sturdy.beginChain(F1), 'select F1 (2 HP)');
   const strong = sturdy.preview();
-  assert(!strong.valid && strong.exitNext === undefined, `F1 with 2 HP gives no exit hint (${strong.reason})`);
+  assert(strong.valid && strong.endsOnSurvivor && strong.exitNext === undefined, `F1 with 2 HP is a wound without an exit hint (${strong.reason})`);
   // A chain that does not meet the goals gives none either: the other target is still standing at the start.
   const early = startNodeBattle('trunk-last-step', { seed: 337763618 });
   for (const start of early.validStarts()) { early.beginChain(start); assert(early.preview().exitNext === undefined, `no exit hint before the goals (start ${start})`); early.cancelChain(); }
@@ -423,7 +424,7 @@ async function continueIntoTheExit() {
   };
   assert(bleed(5, false).exitNext === 0, 'a healthy cat gets the hint');
   const dying = bleed(1, true);
-  assert(dying.exitNext === undefined && dying.reason === 'Нужны хотя бы два противника в цепочке.', `a bleeding cat that would die on the way in gets no hint (${dying.reason})`);
+  assert(dying.exitNext === undefined, `a bleeding cat that would die on the way in gets no hint (${dying.reason})`);
   console.log('PASS the last goal beside the door: the forecast says «продолжи цепь в выход» and F1 → E1 wins; no hint for a cat that would die');
 }
 

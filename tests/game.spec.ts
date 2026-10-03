@@ -108,7 +108,8 @@ test('directional sentinel rejects frontal chains, allows a flank, and loses its
   await setup();await expect(page.locator('#shield-summary')).toContainText('D4 ↓');
   const baseline=await game(page);await draw(page,[31],false);const front=await center(page,24);await page.mouse.move(front.x,front.y,{steps:5});
   await expect.poll(async()=>(await game(page)).chain).toEqual([31]);await expect(page.locator('#status-message')).toContainText('Щит');
-  await page.screenshot({path:'artifacts/sentinel-front-rejected.png',fullPage:true});await page.mouse.up();await ready(page);
+  // Since 04.10.2026 [31] alone is a hit: cancel the chain instead of releasing it.
+  await page.screenshot({path:'artifacts/sentinel-front-rejected.png',fullPage:true});await page.keyboard.press('Escape');await page.mouse.up();await ready(page);
   expect((await game(page)).turn).toBe(baseline.turn);expect((await game(page)).board[24].hp).toBe(4);expect((await game(page)).player.energy).toBe(baseline.player.energy);
   await draw(page,[37,30,23,24],false);const flank=await page.evaluate(()=>(window as any).__PUZZLE_GAME.preview());expect(flank.valid).toBe(true);expect(flank.hits.at(-1)).toMatchObject({index:24,killed:true});
   await page.screenshot({path:'artifacts/sentinel-flank.png',fullPage:true});await page.mouse.up();await ready(page);expect((await game(page)).player.index).toBe(24);
@@ -177,7 +178,8 @@ test('input remains adjacent, reversible and safe across navigation, pause and r
   if(await page.locator('#modal-layer').isVisible())await page.locator('#modal [data-action="resume"]').click();
   if(await page.locator('#title-screen').isVisible())await page.evaluate(d=>(window as any).__PUZZLE_GAME.startCustomLevel(d),clearing());await ready(page);
   const far=await center(page,1);await page.mouse.click(far.x,far.y);expect((await game(page)).chain).toEqual([]);
-  await draw(page,[44]);expect((await game(page)).turn).toBe(0);
+  // Since 04.10.2026 a single enemy is a hit: a selected one cancelled with Escape spends nothing.
+  await draw(page,[44],false);await page.keyboard.press('Escape');await page.mouse.up();expect((await game(page)).turn).toBe(0);
   await draw(page,[44,37,36],false);const back=await center(page,37);await page.mouse.move(back.x,back.y,{steps:4});expect((await game(page)).chain).toEqual([44,37]);
   await page.evaluate(()=>(window as any).__PUZZLE_GAME.restartLevel());await page.mouse.up();await ready(page);
   await draw(page,[44,37],false);const wrong=await center(page,38);await page.mouse.move(wrong.x,wrong.y,{steps:4});expect((await game(page)).chain).toEqual([44,37]);
@@ -323,7 +325,7 @@ test('ordinary chains earn energy while jump and spin spend energy without earni
     for(const i of [11,5,18]){s.board[i].color=0;s.board[i].hp=4;}g.engine.cancelChain();
   });
   await page.locator('#jump-ability').click();await page.locator('#frost-button').click();expect((await game(page)).chosenAbility).toBeNull();expect(await page.evaluate(()=>(window as any).__PUZZLE_GAME.itemTargeting)).toBe('frost');await page.keyboard.press('Escape');
-  await draw(page,[18]);expect((await game(page)).turn).toBe(0);expect((await game(page)).player.energy).toBe(7);
+  await draw(page,[18],false);await page.keyboard.press('Escape');await page.mouse.up();expect((await game(page)).turn).toBe(0);expect((await game(page)).player.energy).toBe(7);
   const spinFixture=await page.evaluate(()=>{
     const g=(window as any).__PUZZLE_GAME,s=g.state;s.board[s.player.index]=s.board[19];s.board[19]=null;s.player.index=19;s.objective.kills=0;s.rotations=[];
     for(const c of s.board)if(c){c.intent={cells:[],damage:1,label:'Спокоен'};c.behavior={aggressive:false,restTurns:0};}
