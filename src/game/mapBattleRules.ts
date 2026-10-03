@@ -1,102 +1,72 @@
 /**
- * Rules of map battles: the pressure layers on rows ≥ RUN_PRESSURE_FIRST_ROW (decision of 03.10.2026, replacing the
- * turn-number anger of playtest 1), and colour-change crystals for long ordinary chains in every mode (30.09.2026).
+ * Rules of map battles: the pressure on rows ≥ RUN_PRESSURE_FIRST_ROW (Grindstone-style anger, decision of 04.10.2026),
+ * and colour-change crystals for long ordinary chains in every mode (30.09.2026).
  * Pure functions of the state: the forecast and the live turn read the same answers; nothing here draws random
  * numbers or emits events. Every number marked «баланс» is a balance constant, to be tuned by playtests.
  */
 import { hasTag } from './enemyDefinitions';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
-import { SHAMAN_STURDY_HP } from './forestBeasts';
 import type { ForestCell, ForestState } from './forestTypes';
 import { walkableTerrain } from './terrain';
 
-// ---------------------------------------------------------------- pressure layers (map rows ≥ 5)
+// ---------------------------------------------------------------- pressure (map rows ≥ 5)
 
-/** Баланс: first map row whose battles use the pressure layers; the trunk (rows 1–4) keeps its lesson rules. */
+/** Баланс: first map row whose battles use the pressure; the trunk (rows 1–4) keeps its lesson rules. */
 export const RUN_PRESSURE_FIRST_ROW = 5;
 /**
- * Difficulty layers (decision of 03.10.2026, docs/level-design-guide.md «Слои сложности»: a puzzle before the goals,
- * pressure after them). Before the goals the clock is soft: RUN_ANGER_BEFORE_GOALS calm enemy becomes angry per turn,
- * refills stay weak — a long battle does not grow harsher by its turn number.
+ * Pressure in the manner of Grindstone (decision of 04.10.2026, replacing the layers of 03.10.2026): refills are
+ * always weak; only the number of enemies becoming angry grows. Before the goals RUN_ANGER_BEFORE_GOALS calm enemy
+ * becomes angry per turn; after them, at the board update of the k-th turn after the goal turn, 1 + k of them — never
+ * more angry ordinary enemies on the field than RUN_ANGER_CAP (the cap limits the anger only: reinforcements come).
  */
 export const RUN_ANGER_BEFORE_GOALS = 1;
-/** Баланс: turns of calm after the goals — no new anger, weak unarmed refills (random elites keep their 12%). */
-export const RUN_CALM_TURNS = 3;
-/**
- * Баланс: the after-goals layer, counted from the turn the goals were met (`customLevel.goalCompletedTurn` = g). The
- * last step whose `afterGoal` ≤ turn − g applies at the board update of that turn: the calm (g … g+2: no anger, weak),
- * then from g+3 two angry per turn and armed refills, from g+6 three and sturdy refills.
- */
-export const RUN_AFTER_GOAL_STEPS: readonly { afterGoal: number; anger: number; tier: RefillTier }[] = [
-  { afterGoal: 0, anger: 0, tier: 'weak' },
-  { afterGoal: RUN_CALM_TURNS, anger: 2, tier: 'armed' },
-  { afterGoal: 6, anger: 3, tier: 'sturdy' },
-];
+/** Баланс: at most this many angry ordinary enemies (melee without a variant) on the field after the anger queue. */
+export const RUN_ANGER_CAP = 10;
 
 type PressureState = Pick<ForestState, 'runNode' | 'turn' | 'customLevel'>;
 
-/** The pressure layers apply only to a map-node battle on row ≥ RUN_PRESSURE_FIRST_ROW (not the trunk or the editor). */
+/** The pressure applies only to a map-node battle on row ≥ RUN_PRESSURE_FIRST_ROW (not the trunk or the editor). */
 export function runPressureActive(state: Pick<ForestState, 'runNode'>): boolean {
   return (state.runNode?.row ?? 0) >= RUN_PRESSURE_FIRST_ROW;
 }
 
-/** The after-goals step for `state.turn` completed turns, or null before the goals. */
-function afterGoalStep(state: PressureState) {
-  const goal = state.customLevel?.goalCompletedTurn ?? null;
-  if (goal === null) return null;
-  let step = RUN_AFTER_GOAL_STEPS[0];
-  for (const candidate of RUN_AFTER_GOAL_STEPS) if (state.turn - goal >= candidate.afterGoal) step = candidate;
-  return step;
-}
-
-/** Calm ordinary melee enemies that join the anger queue after `state.turn` completed turns: 1 outside the pressure. */
-export function angerPerTurn(state: PressureState): number {
+/** Anger at the board update of turn `turn`: 1 outside the pressure and before the goals, 1 + (turn − goal turn) after. */
+function angerAt(state: PressureState, turn: number): number {
   if (!runPressureActive(state)) return 1;
-  return afterGoalStep(state)?.anger ?? RUN_ANGER_BEFORE_GOALS;
+  const goal = state.customLevel?.goalCompletedTurn ?? null;
+  return goal === null ? RUN_ANGER_BEFORE_GOALS : RUN_ANGER_BEFORE_GOALS + Math.max(0, turn - goal);
+}
+/** Calm ordinary melee enemies that join the anger queue after `state.turn` completed turns (before the cap). */
+export function angerPerTurn(state: PressureState): number {
+  return angerAt(state, state.turn);
+}
+/** An ordinary enemy counted by the anger cap: a living melee goblin without a variant that is angry. */
+const angryOrdinary = (cell: ForestCell): boolean => cell.kind === 'melee' && !cell.variant && isCellAlive(cell) && cell.behavior.aggressive;
+/** Angry ordinary enemies on the board (each entity once). */
+export function angryOrdinaryCount(board: readonly (ForestCell | null)[]): number {
+  return new Set(board.flatMap(cell => cell && angryOrdinary(cell) ? [cell.id] : [])).size;
+}
+/** How many calm enemies the anger queue takes now: `angerPerTurn`, limited on rows ≥ 5 by the cap of angry ones. */
+export function angerQueueSize(state: PressureState & Pick<ForestState, 'board'>): number {
+  const wanted = angerPerTurn(state);
+  return runPressureActive(state) ? Math.max(0, Math.min(wanted, RUN_ANGER_CAP - angryOrdinaryCount(state.board))) : wanted;
 }
 
-export type RefillTier = 'weak' | 'armed' | 'sturdy';
-/** Step of the ordinary enemies a refill creates after `state.turn` completed turns: weak until the after-goals steps. */
-export function refillTier(state: PressureState): RefillTier {
-  if (!runPressureActive(state)) return 'weak';
-  return afterGoalStep(state)?.tier ?? 'weak';
-}
-
-/** Apply the refill step to a freshly created ordinary goblin (same persistent step as a shaman's rite). */
-export function applyRefillTier(cell: ForestCell, tier: RefillTier): ForestCell {
-  cell.behavior.passive = false;
-  if (tier === 'weak') return cell;
-  cell.behavior.tier = tier; cell.behavior.aggressive = true;
-  if (tier === 'sturdy') cell.hp = cell.maxHp = SHAMAN_STURDY_HP;
-  return cell;
-}
-
-/** UI data: the current pressure step of a map battle. Everything after the goals counts from the goal turn. */
+/** UI data: the pressure of a map battle — the anger of the next board update and the angry ordinary enemies against the cap. */
 export interface RunPressureInfo {
   active: boolean;
-  /** Calm enemies that become angry after the current turn. */
-  angerPerTurn: number;
-  /** Step of the enemies the next refill creates. */
-  refillTier: RefillTier;
-  /** The goals are met: the after-goals layer applies. */
+  /** The goals are met: the anger grows by one each turn. */
   afterGoals: boolean;
-  /** During the calm after the goals: actions left before the pressure grows (as the reinforcement counter counts). */
-  calmLeft?: number;
-  /** Completed-turn number of the next after-goals step, with its anger and refill step. Absent before the goals and at the last step. */
-  nextStepTurn?: number;
-  nextAngerPerTurn?: number;
-  nextRefillTier?: RefillTier;
+  /** Calm enemies that become angry after the next action (before the cap). */
+  nextAnger: number;
+  /** Angry ordinary enemies now, and the cap. */
+  angry: number;
+  cap: number;
 }
-export function runPressureInfo(state: PressureState): RunPressureInfo {
-  const active = runPressureActive(state), goal = state.customLevel?.goalCompletedTurn ?? null;
-  const info: RunPressureInfo = { active, angerPerTurn: angerPerTurn(state), refillTier: refillTier(state), afterGoals: goal !== null };
-  if (!active || goal === null) return info;
-  const next = RUN_AFTER_GOAL_STEPS.find(step => goal + step.afterGoal > state.turn);
-  if (!next) return info;
-  const current = afterGoalStep(state)!;
-  return { ...info, ...(current === RUN_AFTER_GOAL_STEPS[0] ? { calmLeft: goal + next.afterGoal - state.turn } : {}),
-    nextStepTurn: goal + next.afterGoal, nextAngerPerTurn: next.anger, nextRefillTier: next.tier };
+export function runPressureInfo(state: PressureState & Pick<ForestState, 'board'>): RunPressureInfo {
+  return { active: runPressureActive(state), afterGoals: (state.customLevel?.goalCompletedTurn ?? null) !== null,
+    nextAnger: angerAt(state, state.turn + 1), angry: angryOrdinaryCount(state.board), cap: RUN_ANGER_CAP };
 }
 
 // ---------------------------------------------------------------- colour-change crystals (every mode)

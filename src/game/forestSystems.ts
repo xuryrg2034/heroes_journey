@@ -15,7 +15,7 @@ import { stepBleeding, type DamageEffects } from './damageEffects';
 import { assignDamageEffects, applyAttackEffect } from './effectRules';
 import { customGoalsMet } from './customLevel';
 import { applyDeviceVolley, deviceAt } from './devices';
-import { angerPerTurn, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
+import { angerQueueSize, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
 export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, burning: 0, poison: 0 });
@@ -349,7 +349,7 @@ export function prepareIntents(state: ForestState, rand: (min: number, max: numb
   });
   // Pressure accumulates: old windups persist, one calm enemy joins each turn — in map battles on rows ≥ 5 by the
   // pressure layers: none in the calm after the goals, more after it (angerPerTurn, mapBattleRules.ts).
-  if (state.turn >= MELEE_AGGRESSION_START_TURN) for (const candidate of pass.anger.sort((a, b) => a.distance - b.distance || a.id - b.id).slice(0, angerPerTurn(state))) {
+  if (state.turn >= MELEE_AGGRESSION_START_TURN) for (const candidate of pass.anger.sort((a, b) => a.distance - b.distance || a.id - b.id).slice(0, angerQueueSize(state))) {
     angerIntent(state, state.board[candidate.index]!, candidate.index);
   }
   announceRites(pass);

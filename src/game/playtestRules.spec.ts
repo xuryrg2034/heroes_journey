@@ -1,8 +1,8 @@
 /**
  * Rules decided after playtest 1 (30.09.2026, docs/biomes/forest-map.md «Плейтест 1»), checked through real
  * engine commands (startRunBattle / startCustomLevel, preview, begin/extend/release, rest, restart):
- * 1. the pressure before the goals in map battles on rows ≥ 5 (soft anger, weak refills — difficulty layers of
- *    03.10.2026; the after-goals layer: difficultyLayers.spec.ts) — and the calm trunk (rows 1–4) and editor;
+ * 1. the pressure before the goals in map battles on rows ≥ 5 (anger 1 per turn, weak refills — Grindstone-style,
+ *    04.10.2026; after the goals: pressure.spec.ts) — and the calm trunk (rows 1–4) and editor;
  * 2. colour-change crystals (every mode) — 6 and 12 chain kills, seeded cells, uncredited crushing, protected
  *    cells, no limit, value and score, no power and no share in the next crystal's chain length;
  * 3. kill credit — archer, boar and club kills are not the player's, goal targets still count, devices are credited;
@@ -170,7 +170,8 @@ async function growingAnger() {
   assert(pressed.state.board.every(cell => !cell || !cell.behavior.passive), 'row 5: no enemy of the lesson template is passive');
   const grown = await angerByTurn(pressed, 9);
   equal(grown, [1, 1, 1, 1, 1, 1, 1, 1, 1], 'row 5: one new angry enemy per turn before the goals, no acceleration');
-  equal(runPressureInfo(pressed.state), { active: true, angerPerTurn: 1, refillTier: 'weak', afterGoals: false }, 'UI data after nine turns');
+  const info = runPressureInfo(pressed.state);
+  equal([info.active, info.nextAnger, info.afterGoals], [true, 1, false], 'UI data after nine turns');
 
   // The trunk (row 4) keeps authored passivity: nobody becomes angry; so does the real first trunk battle.
   const trunk = field(4);
@@ -190,7 +191,7 @@ async function growingAnger() {
   assert(chiefAnger.some(count => count === 1) && chiefAnger.every(count => count <= 1) && runPressureInfo(chief.state).active, `the chief node uses the soft clock before the goals, got ${chiefAnger}`);
 }
 
-/** Before the goals the refill stays weak whatever the turn (difficulty layers, 03.10.2026; the after-goals steps: difficultyLayers.spec.ts). */
+/** Before the goals the refill stays weak whatever the turn (Grindstone-style pressure, 04.10.2026: refills are always weak; the anger after the goals: pressure.spec.ts). */
 async function strongerRefills() {
   const avoid = (g: ForestEngine) => new Set(['A5', 'B5', 'C5', 'D5', 'E5', 'F5'].map(label => at(g, label)));
   const play = async (g: ForestEngine, where: string) => {
@@ -208,7 +209,6 @@ async function strongerRefills() {
     const played = await play(g, where);
     assert(played.fresh.length && played.fresh.every(cell => !cell.behavior.passive && !cell.behavior.tier && (cell.elite || cell.hp === 0)), `${where}: new enemies are weak, unarmed and not passive before the goals`);
   }
-  equal(runPressureInfo(g.state).refillTier, 'weak', 'UI data: weak refills before the goals');
 
   // The trunk keeps passive weak refills whatever the turn.
   const trunk = field(4);

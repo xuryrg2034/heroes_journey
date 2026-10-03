@@ -321,19 +321,14 @@ function telegraphNotes(state: typeof engine.state): string[] {
   }
   return notes.slice(0, 2);
 }
-const refillNames = { weak: 'слабые', armed: 'вооружённые', sturdy: 'крепкие' } as const;
-/** Pressure layers of a map battle in one compact HUD chip (numbers from runPressureInfo, no rule here). */
+/** Pressure of a map battle in one compact HUD chip (numbers from runPressureInfo, no rule here). */
 function updatePressureChip(state: typeof engine.state) {
   const chip = el('pressure-chip'), info = runPressureInfo(state);
   chip.hidden = !info.active || !state.runNode;
   if (chip.hidden) return;
-  // Before the goals the clock is soft and never grows (difficulty layers, 03.10.2026): no next step to announce.
-  // After them the calm counts down like the reinforcement counter, then the steps grow from the goal turn.
-  const next = info.nextStepTurn !== undefined ? ` → ${info.nextAngerPerTurn} после хода ${info.nextStepTurn}` : '';
-  el('pressure-anger').textContent = info.calmLeft !== undefined ? `Затишье · ${info.calmLeft <= 1 ? 'последнее действие' : `ещё ${info.calmLeft} ${info.calmLeft < 5 ? 'действия' : 'действий'}`}`
-    : `Злость: ${info.angerPerTurn} за ход${info.afterGoals ? next || ' (предел)' : ''}`;
-  el('pressure-refill').textContent = info.calmLeft !== undefined ? `Затем злость ${info.nextAngerPerTurn} за ход, пополнение: ${refillNames[info.nextRefillTier!]}`
-    : `Пополнение: ${refillNames[info.refillTier]}${info.nextStepTurn !== undefined ? ` → ${refillNames[info.nextRefillTier!]} после хода ${info.nextStepTurn}` : ''}`;
+  // Grindstone-style (04.10.2026): only the anger grows — by one each turn after the goals, up to the cap of angry ones.
+  el('pressure-anger').textContent = `Разозлится: ${info.nextAnger} после хода${info.afterGoals ? ' · растёт' : ''}`;
+  el('pressure-refill').textContent = `Злых: ${info.angry} из ${info.cap}`;
 }
 /** «N злых гоблинов» with the Russian plural. */
 const angryGoblins = (count: number) => { const tens = count % 100, ones = count % 10;

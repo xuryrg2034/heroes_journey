@@ -2,7 +2,7 @@ import type { AuthoredLesson } from './lessonBuilder';
 import { ABILITY_COST, chainNeighbors, cloneBoard, isWalkable, neighbors, planAbility, planChain, prepareIntents, simulateAbility, simulateChain, simulateRest } from './forestSystems';
 import { canHeal } from './recovered/combat';
 import { uniqueEntities } from './entityFootprint';
-import { applyRefillTier, nextRandom, refillTier, runPressureActive } from './mapBattleRules';
+import { nextRandom, runPressureActive } from './mapBattleRules';
 import { animationWait, drainSync, playTurn, type TurnSequence } from './turnRuntime';
 import { concludeBattle, resolveItemTurn, resolvePlayerTurn, resolveRestTurn, type TurnContext } from './turnSystems';
 import { projectEnemyEffects } from './effectRules';
@@ -188,11 +188,11 @@ export class ForestEngine {
   }
   /**
    * A new ordinary refill enemy. `board`: the board it joins (a refill candidate), counted for the elite cap.
-   * Map rows ≥ 5: never passive, stronger with the turn number (mapBattleRules.ts), and an elite by chance (elite.ts).
+   * Map rows ≥ 5: never passive, always weak (Grindstone-style pressure, 04.10.2026), and an elite by chance (elite.ts).
    */
   private createRoomMelee(color: EnemyColor, index: number, board: readonly (ForestCell | null)[] = this.state.board): ForestCell {
     if (runPressureActive(this.state)) {
-      const cell = applyRefillTier(this.createCell('melee', color, index), refillTier(this.state));
+      const cell = this.createCell('melee', color, index); cell.behavior.passive = false;
       if (rollRandomElite(this.state, board, () => this.random())) applyRandomElite(cell);
       return cell;
     }
