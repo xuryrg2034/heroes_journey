@@ -744,7 +744,7 @@ export function turnVerdict(ctx: TurnContext): ScheduleVerdict {
  */
 export function concludeBattle(state: ForestState, won: boolean, message?: string): void {
   state.phase = won ? 'WIN' : 'LOSE'; state.chain = []; state.chosenAbility = null;
-  state.message = message ?? (state.runNode ? won ? 'Узел пройден.' : 'Кот отступил. Повтори узел: запас восстановится как на входе.'
+  state.message = message ?? (state.runNode ? won ? 'Узел пройден.' : 'Кот пал. Поход окончен.'
     : won ? 'Цели выполнены. Авторский уровень пройден!' : 'Кот отступил. Повтори уровень.');
   if (won) state.score += state.player.hp * 150 + Math.max(0, 12 - state.turn) * 70;
 }
