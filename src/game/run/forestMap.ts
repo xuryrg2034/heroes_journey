@@ -123,6 +123,19 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
 const BY_ID = new Map(FOREST_MAP.map(node => [node.id, node]));
 export function forestNode(id: string): ForestMapNode | undefined { return BY_ID.get(id); }
 
+/** The trunk: the training battles of rows 1–4 (lane `trunk`). */
+export const isTrunkNode = (node: ForestMapNode): boolean => node.lane === 'trunk';
+/** Last trunk row: entering a node beyond it marks the trunk as cleared in the player profile (playerProfile.ts). */
+export const FOREST_TRUNK_LAST_ROW = Math.max(...FOREST_MAP.filter(isTrunkNode).map(node => node.row));
+/**
+ * First transitions of a run. A player who cleared the trunk once starts at its exit's transitions (decision of
+ * 04.10.2026, docs/roguelike-runs.md): the trunk opens no tools and gives no items (validateForestMap), so nothing is lost.
+ */
+export function forestRunStarts(skipTrunk: boolean): string[] {
+  const exit = skipTrunk ? FOREST_MAP.find(node => isTrunkNode(node) && node.next.some(id => !isTrunkNode(BY_ID.get(id)!))) : undefined;
+  return exit ? [...exit.next] : [FOREST_MAP_START];
+}
+
 /** Authored battle a node plays from the registry. Null for rest, find and stubs. */
 export function nodeBattleTemplate(node: ForestMapNode): AuthoredLesson | null {
   return node.content.kind === 'battle' ? forestBattle(node.content.battleId) ?? null : null;
@@ -213,5 +226,12 @@ export function validateForestMap(): string[] {
   }
   const reachable = new Set(forestMapPaths().flat());
   for (const node of FOREST_MAP) if (!reachable.has(node.id)) errors.push(`${node.id}: недостижим.`);
+  // A run may skip the trunk (player profile): the trunk must stay a single line of plain battles that opens nothing.
+  for (const node of FOREST_MAP.filter(isTrunkNode)) {
+    if (node.type !== 'battle' || node.grants || node.rewardGrants) errors.push(`${node.id}: ствол пропускается в следующих походах — только обычные бои без выдачи инструментов и предметов.`);
+    const inTrunk = node.next.filter(id => BY_ID.get(id) && isTrunkNode(BY_ID.get(id)!));
+    if (inTrunk.length && inTrunk.length !== node.next.length || inTrunk.length > 1) errors.push(`${node.id}: ствол должен быть одной линией с одним выходом.`);
+  }
+  if (FOREST_MAP.filter(node => isTrunkNode(node) && node.next.some(id => !isTrunkNode(BY_ID.get(id)!))).length !== 1) errors.push('У ствола должен быть ровно один выход.');
   return errors;
 }

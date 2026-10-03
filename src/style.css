@@ -360,3 +360,6 @@ body:before{opacity:.055}
 
 /* Run ends on a defeat (04.10.2026): the node where the cat fell. */
 .map-node.status-lost{cursor:default}.map-node.status-lost .map-node-icon{background:#4a2a25;border-color:#b27564;color:#f2c2b2;box-shadow:0 0 0 4px #b2756444}
+/* Trunk cleared in an earlier run (player profile, 04.10.2026): drawn as walked, quieter than this run's nodes. */
+.map-node.status-skipped{cursor:default}.map-node.status-skipped .map-node-icon{background:#3a4836;color:#cfd3b8;opacity:.65}.map-node.status-skipped .map-node-name{opacity:.6}
+.playtest-profile{font-size:11px;color:#8e947b;margin:10px 0 0}.playtest-profile .text-button{padding:6px;font-size:10px}

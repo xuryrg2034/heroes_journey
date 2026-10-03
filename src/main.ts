@@ -20,6 +20,7 @@ import { chargeReady } from './game/boarCharge';
 import { CRYSTAL_KILLS, crystalsActive, runPressureInfo } from './game/mapBattleRules';
 import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, forestRunView, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
+import { clearsTrunk, createPlayerProfileStore } from './game/run/playerProfile';
 import { forestNode } from './game/run/forestMap';
 import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
 import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled } from './telemetry';
@@ -148,9 +149,11 @@ async function openScene(action: () => unknown | Promise<unknown>) {
 }
 // Forest map run (src/game/run): the model owns the rules; here we only switch screens, hand battles to the engine and save.
 const runStore = createForestRunStore();
+// Player profile outside the run: the trunk is played until it is cleared once (decision of 04.10.2026).
+const profileStore = createPlayerProfileStore();
 let forestRun: ForestRunState | null = runStore.load();
 let mapConfirmReset = false, mapNotice = '';
-const renderRunEntry = () => { el('run-entry').innerHTML = runEntryHtml(forestRun, mapConfirmReset); };
+const renderRunEntry = () => { el('run-entry').innerHTML = runEntryHtml(forestRun, mapConfirmReset, profileStore.load().trunkCleared); };
 function renderMap() { if (forestRun) el('map-screen').innerHTML = mapScreenHtml(forestRun, { notice: mapNotice, confirmReset: mapConfirmReset }); }
 const refreshRunViews = () => { renderRunEntry(); renderMap(); };
 function commitRun(step: ForestRunStep): ForestRunStep {
@@ -159,7 +162,7 @@ function commitRun(step: ForestRunStep): ForestRunStep {
 }
 function newRun(seed?: number) {
   const random = new Uint32Array(1); crypto.getRandomValues(random);
-  forestRun = createForestRun(seed ?? random[0]); runStore.save(forestRun);
+  forestRun = createForestRun(seed ?? random[0], { skipTrunk: profileStore.load().trunkCleared }); runStore.save(forestRun);
   mapConfirmReset = false; mapNotice = ''; audio.unlock(); audio.play('click'); showScreen('map');
 }
 async function playRunBattle() {
@@ -184,6 +187,7 @@ function enterMapNode(id: string) {
   if (!forestRun) return;
   const step = commitRun(enterNode(forestRun, id));
   if (!step.ok) { mapNotice = step.reason; renderMap(); return; }
+  if (clearsTrunk(step.events)) profileStore.markTrunkCleared();
   mapNotice = ''; audio.unlock(); audio.play('click');
   routeRun();
   const healed = step.events.find(event => event.type === 'healed');
@@ -573,7 +577,7 @@ function showModal(html: string) {
 // Playtest screen: opened from the title link or the pause dialog; the game itself never depends on it.
 let playtestFrom: 'title' | 'pause' | null = null;
 function renderPlaytest(options: { confirmClear?: boolean; notice?: string } = {}) {
-  showModal(playtestHtml(options));
+  showModal(playtestHtml({ ...options, trunkCleared: profileStore.load().trunkCleared }));
   el('modal').classList.add('playtest-modal');
 }
 function openPlaytest() { playtestFrom = paused ? 'pause' : 'title'; renderPlaytest(); }
@@ -666,6 +670,7 @@ document.addEventListener('click', event => {
     case 'playtest-clear-yes': clearTelemetry(); renderPlaytest({ notice: 'Журнал очищен.' }); break;
     case 'playtest-toggle': setTelemetryEnabled(!telemetryEnabled()); renderPlaytest({ notice: telemetryEnabled() ? 'Журнал включён.' : 'Журнал выключен: новые попытки не записываются.' }); break;
     case 'playtest-download': downloadPlaytest(); break;
+    case 'profile-reset-trunk': profileStore.resetTrunk(); renderRunEntry(); renderPlaytest({ notice: 'Отметка ствола сброшена: следующий новый поход начнётся со ствола.' }); break;
     case 'playtest-copy': void copyPlaytest(); break;
   }
 });
@@ -757,7 +762,7 @@ const debug = {
   get player() { return engine.state.player; }, get board() { return engine.getBoardState(); }, get selectedPath() { return engine.state.chain; },
   get energy() { return engine.state.player.energy; }, get chosenAbility() { return engine.state.chosenAbility; },
   get objective() { return engine.state.objective; }, get turn() { return engine.state.turn; }, get score() { return engine.state.score; },
-  get forestRun() { return forestRun; }, startForestRun: (seed?: number) => newRun(seed), openMap: () => showScreen('map'), forestRunStore: runStore,
+  get forestRun() { return forestRun; }, startForestRun: (seed?: number) => newRun(seed), openMap: () => showScreen('map'), forestRunStore: runStore, profileStore,
   get screen() { return screen; }, get frostTargeting() { return renderer?.frostTargeting ?? false; }, get itemTargeting() { return renderer?.itemTargeting ?? null; },
   get endpointLabel() { return renderer?.endpointLabel ?? null; }, get telegraphMarks() { return renderer?.telegraphMarks ?? []; }, get eliteMarks() { return renderer?.eliteMarks ?? []; }, get lootMarks() { return renderer?.lootMarks ?? []; }, get chestMarks() { return renderer?.chestMarks ?? []; }, get reinforcementMarks() { return renderer?.reinforcementMarks ?? []; }, get forecastMarks() { return renderer?.forecastMarks ?? null; }, get rendererTicking() { return renderer?.ticking ?? false; },
   getBoardState: () => engine.getBoardState(), availableMoves: () => engine.availableMoves(), validStarts: () => engine.validStarts(),

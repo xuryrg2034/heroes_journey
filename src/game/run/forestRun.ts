@@ -9,7 +9,7 @@ import type { LootKind, ResourceKind, AbilityKind, ItemKind } from '../forestTyp
 import { RUN_PRESSURE_FIRST_ROW } from '../mapBattleRules';
 import { CHEST_RESOURCES } from '../exitRules';
 import { emptyMaterials, isResource, RESOURCE_KINDS } from '../resources';
-import { nodeBattleTemplate, FOREST_MAP, FOREST_MAP_START, forestNode, hasVictoryFind, isBattleNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_HARD_HEAL } from './forestMap';
+import { nodeBattleTemplate, FOREST_MAP, forestNode, forestRunStarts, hasVictoryFind, isBattleNode, isTrunkNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
 
@@ -44,6 +44,11 @@ export interface ForestRunState {
   seed: number;
   /** Last completed node; null before the first battle. */
   currentNodeId: string | null;
+  /**
+   * The run started past the trunk: the player profile says the trunk was cleared in an earlier run (decision of
+   * 04.10.2026). The first transitions are the trunk exit's; trunk nodes are not in `visited`. Absent otherwise.
+   */
+  skippedTrunk?: true;
   /** Completed nodes in order. */
   visited: string[];
   /** Items taken on finds and hard-battle rewards, in visiting order; with `visited` it determines the opened tools. */
@@ -89,9 +94,10 @@ export function forestNodeSeed(runSeed: number, nodeId: string): number {
   return mixSeed(runSeed >>> 0, hash);
 }
 
-export function createForestRun(seed: number): ForestRunState {
+/** `skipTrunk`: the player profile marks the trunk as cleared, so the run starts at the trail fork. */
+export function createForestRun(seed: number, options: { skipTrunk?: boolean } = {}): ForestRunState {
   return {
-    version: FOREST_RUN_VERSION, seed: seed >>> 0, currentNodeId: null, visited: [], finds: [], loot: [], score: 0,
+    version: FOREST_RUN_VERSION, seed: seed >>> 0, currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], score: 0,
     resources: { player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
     tools: { items: [], abilities: [] }, pending: null, result: null,
@@ -101,7 +107,7 @@ export function createForestRun(seed: number): ForestRunState {
 /** Transitions the player may choose now. Empty while a node is in progress or after the run ended. */
 export function availableNodes(run: ForestRunState): ForestMapNode[] {
   if (run.pending || run.result) return [];
-  const ids = run.currentNodeId === null ? [FOREST_MAP_START] : forestNode(run.currentNodeId)?.next ?? [];
+  const ids = run.currentNodeId === null ? forestRunStarts(!!run.skippedTrunk) : forestNode(run.currentNodeId)?.next ?? [];
   return ids.flatMap(id => { const node = forestNode(id); return node ? [node] : []; });
 }
 
@@ -241,8 +247,8 @@ export function chooseFindItem(current: ForestRunState, item: ItemKind): ForestR
   completeNode(run, forestNode(pending.nodeId)!, events); return { ok: true, run, events };
 }
 
-/** `lost`: the node whose battle ended the run in a defeat. */
-export type ForestNodeStatus = 'visited' | 'current' | 'in-progress' | 'available' | 'locked' | 'lost';
+/** `lost`: the node whose battle ended the run in a defeat; `skipped`: a trunk node of a run that started past the trunk. */
+export type ForestNodeStatus = 'visited' | 'current' | 'in-progress' | 'available' | 'locked' | 'lost' | 'skipped';
 export interface ForestRunView {
   nodes: { node: ForestMapNode; status: ForestNodeStatus }[];
   available: string[];
@@ -258,7 +264,8 @@ export function forestRunView(run: ForestRunState): ForestRunView {
   const available = availableNodes(run).map(node => node.id);
   const status = (node: ForestMapNode): ForestNodeStatus => run.pending?.nodeId === node.id ? 'in-progress'
     : run.result?.outcome === 'defeat' && run.result.nodeId === node.id ? 'lost'
-    : node.id === run.currentNodeId ? 'current' : run.visited.includes(node.id) ? 'visited' : available.includes(node.id) ? 'available' : 'locked';
+    : node.id === run.currentNodeId ? 'current' : run.visited.includes(node.id) ? 'visited' : available.includes(node.id) ? 'available'
+    : run.skippedTrunk && isTrunkNode(node) ? 'skipped' : 'locked';
   return { nodes: FOREST_MAP.map(node => ({ node, status: status(node) })), available,
     battlesWon: run.visited.filter(id => { const node = forestNode(id); return !!node && isBattleNode(node); }).length,
     resources: structuredClone(run.resources), tools: structuredClone(run.tools), pending: structuredClone(run.pending), result: run.result && { ...run.result } };
@@ -329,10 +336,12 @@ export function parseForestRun(text: string): ForestRunState | null {
   try { value = JSON.parse(text); } catch { return null; }
   if (!isRecord(value) || value.version !== FOREST_RUN_VERSION || !isSeed(value.seed)) return null;
   if (!Array.isArray(value.visited) || !validResources(value.resources) || !validTools(value.tools)) return null;
+  if (value.skippedTrunk !== undefined && value.skippedTrunk !== true) return null;
+  const starts = forestRunStarts(value.skippedTrunk === true);
   // Replaying the visited ids through the graph rejects saves from another map layout.
   let at: string | null = null;
   for (const id of value.visited) {
-    const allowed: string[] = at === null ? [FOREST_MAP_START] : forestNode(at)?.next ?? [];
+    const allowed: string[] = at === null ? starts : forestNode(at)?.next ?? [];
     if (typeof id !== 'string' || !allowed.includes(id)) return null;
     at = id;
   }
@@ -343,7 +352,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   const finds = value.finds;
   if (!Array.isArray(finds) || finds.length !== findNodes.length || finds.some((find, n) => !isRecord(find) || find.nodeId !== findNodes[n].id
     || !findOptions(seed, findNodes[n]).includes(find.item as ItemKind))) return null;
-  const nextIds = at === null ? [FOREST_MAP_START] : forestNode(at)!.next;
+  const nextIds = at === null ? starts : forestNode(at)!.next;
   const pending = value.pending, result = value.result;
   // A completed node without transitions must carry the run result; otherwise the run would be stuck.
   if (pending === null && result === null && !nextIds.length) return null;

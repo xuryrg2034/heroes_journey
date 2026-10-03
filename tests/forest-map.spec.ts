@@ -266,12 +266,53 @@ test('a defeat ends the run: the result screen shows row, node, points and won b
   const mine = attempts.filter((attempt: any) => attempt.key === 'run:beast-wolf');
   expect(mine).toHaveLength(1);
   expect(mine[0]).toMatchObject({ mode: 'run', id: 'beast-wolf', outcome: 'lose', runEnded: true, left: false });
-  // A new run starts a fresh save.
+  // A new run starts a fresh save. The cat reached row 5, so the profile skips the trunk in it.
   await page.locator('#run-start-button').click();
   await page.locator('#modal [data-action="run-new"]').click();
   await expect(page.locator('#map-screen')).toBeVisible();
   const fresh = await savedRun(page);
-  expect(fresh.result).toBeNull(); expect(fresh.visited).toEqual([]); expect(fresh.score).toBe(0);
+  expect(fresh.result).toBeNull(); expect(fresh.visited).toEqual([]); expect(fresh.score).toBe(0); expect(fresh.skippedTrunk).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('the trunk is played once: row 5 marks the profile, a new run starts at the fork, the playtest menu resets the mark', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  const profile = () => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'));
+  await seedRun(page, walk(TRUNK));
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  expect(await profile()).toBeNull();
+  // Entering the first node past the trunk marks it cleared in the profile (a separate key, outside the run save).
+  await node(page, 'goblin-archer').click(); await settled(page);
+  expect(await profile()).toEqual({ version: 1, trunkCleared: true });
+  expect((await savedRun(page)).trunkCleared).toBeUndefined();
+  await page.locator('[data-action="pause"]').click();
+  await page.locator('#modal [data-action="title"]').click();
+  // Start over: the new run begins at the trail fork; the trunk is shown as walked earlier.
+  await page.locator('#run-reset-button').click();
+  await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
+  await expect(page.locator('#map-screen')).toBeVisible();
+  for (const id of TRUNK) await expect(node(page, id)).toHaveAttribute('data-status', 'skipped');
+  await expect(node(page, 'beast-wolf')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'goblin-archer')).toHaveAttribute('data-status', 'available');
+  await expect(page.locator('#map-battles')).toContainText('0');
+  expect(await noScroll(page)).toBe(true);
+  await page.screenshot({ path: 'artifacts/forest-map-skipped-trunk.png' });
+  await node(page, 'trunk-1').hover();
+  await expect(page.locator('#map-detail')).toContainText('Пройден раньше');
+  // The title says where a new run starts; the playtest menu shows the mark and resets it.
+  await page.locator('#map-screen [data-action="title"]').click();
+  await page.locator('.playtest-link').click();
+  await expect(page.locator('#playtest-profile')).toContainText('ствол пройден');
+  await page.locator('[data-action="profile-reset-trunk"]').click();
+  await expect(page.locator('.playtest-note')).toContainText('Отметка ствола сброшена');
+  await expect(page.locator('#playtest-profile')).toContainText('ствол не пройден');
+  expect(await profile()).toEqual({ version: 1, trunkCleared: false });
+  await page.locator('[data-action="playtest-close"]').click();
+  await page.locator('#run-reset-button').click();
+  await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
+  await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'beast-wolf')).toHaveAttribute('data-status', 'locked');
   expect(errors).toEqual([]);
 });
 
@@ -314,7 +355,10 @@ test('the Troll is a real battle node; beating him wins the run; reset asks for 
   await expect(page.locator('#map-screen')).toBeVisible();
   const fresh = await savedRun(page);
   expect(fresh.visited).toEqual([]); expect(fresh.result).toBeNull(); expect(fresh.resources.player.hp).toBe(5);
-  await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'available');
+  // Entering the Troll's node (past the trunk) marked the trunk as cleared: the new run starts at the trail fork.
+  expect(fresh.skippedTrunk).toBe(true);
+  await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'skipped');
+  await expect(node(page, 'beast-wolf')).toHaveAttribute('data-status', 'available');
   // The same confirmation on the map.
   await page.locator('.map-actions [data-action="run-reset"]').click();
   await expect(page.locator('.map-confirm')).toContainText('Сбросить поход');

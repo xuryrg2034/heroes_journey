@@ -352,8 +352,11 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 const seconds = (ms: number | null) => ms === null ? '—' : ms < 60_000 ? `${(ms / 1000).toFixed(1).replace('.', ',')} с` : `${Math.floor(ms / 60_000)}:${String(Math.round(ms % 60_000 / 1000)).padStart(2, '0')}`;
 const number = (value: number | null) => value === null ? '—' : String(round(value, 1)).replace('.', ',');
 
-/** HTML of the «Плейтест» modal. `confirmClear` swaps the clear button for an in-page confirmation. */
-export function playtestHtml(options: { confirmClear?: boolean; notice?: string } = {}): string {
+/**
+ * HTML of the «Плейтест» modal. `confirmClear` swaps the clear button for an in-page confirmation. `trunkCleared`: the
+ * player profile's trunk mark (playerProfile.ts); while it is set the modal offers to reset it.
+ */
+export function playtestHtml(options: { confirmClear?: boolean; notice?: string; trunkCleared?: boolean } = {}): string {
   const journal = load(), rows = aggregate(journal.attempts);
   const table = rows.length
     ? `<div class="playtest-scroll"><table class="playtest-table"><thead><tr><th>Бой</th><th title="Всего попыток">Попыт.</th><th title="Доля побед среди попыток">Побед</th><th title="Медиана числа попыток до первой победы">До победы</th><th title="Медианное время победы">Время</th><th title="Медианное время попытки, закончившейся уходом из боя">До ухода</th><th title="Медиана хода, на котором выполнены цели (попытки, где выполнены)">Цели</th><th title="Медиана хода входа в дверь (победы через выход)">Выход</th><th title="Медиана ходов от целей до выхода (0 — та же цепь вошла в дверь)">Задерж.</th><th title="Доля попыток, открывших сундук, среди тех, где он упал">Сундук</th><th title="Доля визитов, где игрок ушёл без победы">Отказ</th></tr></thead><tbody>${rows.map(row =>
@@ -365,6 +368,7 @@ export function playtestHtml(options: { confirmClear?: boolean; notice?: string 
   return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}
 <div class="playtest-actions"><button class="button secondary" data-action="playtest-download">СКАЧАТЬ JSON</button><button class="button secondary" data-action="playtest-copy">СКОПИРОВАТЬ JSON</button>${clear}</div>
 <p class="playtest-note" aria-live="polite">${escapeHtml(options.notice ?? 'Данные хранятся только в этом браузере и никуда не отправляются.')}</p>
+<p class="playtest-profile" id="playtest-profile">${options.trunkCleared ? 'Профиль: ствол пройден — новый поход начнётся с развилки троп. <button class="text-button" data-action="profile-reset-trunk">СБРОСИТЬ ОТМЕТКУ СТВОЛА</button>' : 'Профиль: ствол не пройден — новый поход начнётся со ствола.'}</p>
 <button class="text-button playtest-toggle" data-action="playtest-toggle">${journal.enabled ? 'ЖУРНАЛ ВКЛЮЧЁН · ВЫКЛЮЧИТЬ' : 'ЖУРНАЛ ВЫКЛЮЧЕН · ВКЛЮЧИТЬ'}</button>
 <button class="text-button" data-action="playtest-close">← НАЗАД</button>`;
 }

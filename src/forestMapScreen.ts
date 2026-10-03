@@ -20,7 +20,7 @@ export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: strin
   boss: { icon: '♛', label: 'Босс', hint: 'Финал ветки.' },
 };
 const STATUS_LABEL: Record<ForestNodeStatus, string> = {
-  visited: 'Пройден', current: 'Текущий', 'in-progress': 'В бою', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение',
+  visited: 'Пройден', current: 'Текущий', 'in-progress': 'В бою', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение', skipped: 'Пройден раньше',
 };
 const ITEM_ICON: Record<ItemKind, string> = { frost: '❄', bomb: '✹', healing: '✚', fire: '♨' };
 const ITEM_NAME: Record<ItemKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь' };
@@ -112,8 +112,9 @@ function edgesHtml(view: ForestRunView): string {
   const at = (node: ForestMapNode) => `${node.row - 0.5},${node.column + 0.5}`;
   const lines = FOREST_MAP.flatMap(from => from.next.map(id => {
     const to = forestNode(id)!;
-    const done = ['visited', 'current'].includes(status.get(from.id) ?? '') && ['visited', 'current'].includes(status.get(id) ?? '');
-    const open = status.get(from.id) === 'current' && status.get(id) === 'available';
+    // A trunk cleared in an earlier run is drawn as walked; its exit leads to the first choice of this run.
+    const done = ['visited', 'current', 'skipped'].includes(status.get(from.id) ?? '') && ['visited', 'current', 'skipped'].includes(status.get(id) ?? '');
+    const open = ['current', 'skipped'].includes(status.get(from.id) ?? '') && status.get(id) === 'available';
     const [x1, y1] = at(from).split(','), [x2, y2] = at(to).split(',');
     return `<line class="map-edge ${done ? 'done' : open ? 'open' : ''}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
   }));
@@ -171,9 +172,12 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
     + `<div class="map-detail" id="map-detail" aria-live="polite">${nodeDetailHtml(run, null)}</div><div class="map-legend" aria-label="Обозначения">${legend}</div>`;
 }
 
-/** Title card: start a new run or continue the saved one; reset asks for confirmation on the page. */
-export function runEntryHtml(saved: ForestRunState | null, confirmReset: boolean): string {
-  if (!saved) return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>ПОХОД ПО ЛЕСУ</span><small>Карта узлов · 12–13 боёв</small></button>`;
+/**
+ * Title card: start a new run or continue the saved one; reset asks for confirmation on the page. `trunkCleared`: the
+ * player profile says a new run starts at the trail fork.
+ */
+export function runEntryHtml(saved: ForestRunState | null, confirmReset: boolean, trunkCleared = false): string {
+  if (!saved) return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>ПОХОД ПО ЛЕСУ</span><small>${trunkCleared ? 'Карта узлов · с развилки троп' : 'Карта узлов · 12–13 боёв'}</small></button>`;
   const view = forestRunView(saved);
   const status = saved.result ? 'Итог похода' : `Пройдено боёв: ${view.battlesWon} · HP ${saved.resources.player.hp}/${saved.resources.player.maxHp}`;
   const reset = confirmReset
