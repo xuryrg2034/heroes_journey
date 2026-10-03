@@ -42,6 +42,7 @@
     "test:troll-arena": "tsx src/game/trollArena.spec.ts",
     "test:playtest-rules": "tsx src/game/playtestRules.spec.ts",
     "analyze:levels": "tsx scripts/analyze-levels.ts",
+    "analyze:map": "tsx scripts/map-stats.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",
     "test:ecs-world": "tsx src/game/ecsWorld.spec.ts",
@@ -59,7 +60,8 @@
     "test:telemetry": "tsx src/telemetry.spec.ts",
     "test:player-profile": "tsx src/game/playerProfile.spec.ts",
     "test:forest-events": "tsx src/game/forestEvents.spec.ts",
-    "test:battle-pools": "tsx src/game/battlePools.spec.ts"
+    "test:battle-pools": "tsx src/game/battlePools.spec.ts",
+    "test:map-generator": "tsx src/game/mapGenerator.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"
