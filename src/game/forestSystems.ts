@@ -67,6 +67,11 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   if (state.player.damageEffects?.bleeding || quills >= state.player.hp) {
     // Validity only: the plan, never the forecast.
     const planned = planChain({ ...state, player: { ...state.player, hp: Number.MAX_SAFE_INTEGER, damageEffects: undefined } }, path, allowIncomplete);
+    // The exit hint of the immortal copy must hold for the real cat: bleeding or quills may kill it on the way in.
+    const exitNext = planned.preview.exitNext;
+    if (exitNext !== undefined && planChain(state, [...path, exitNext]).preview.opensDoor === undefined) {
+      delete planned.preview.exitNext; planned.preview.reason = 'Нужны хотя бы два противника в цепочке.';
+    }
     if (!planned.preview.valid) return planned;
     plannedPathValid = !allowIncomplete;
   }
@@ -216,7 +221,13 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   // Its value is the chain's final length (kills), fixed once the chain is over.
   for (const crystal of crystalSteps) crystal.value = preview.kills;
   for (const standIn of standIns) if (!standIn.loot) standIn.crystalChain = preview.kills;
-  if (preview.valid && !allowIncomplete && preview.enemies < 2 && preview.opensDoor === undefined && !plannedPathValid) reject('Нужны хотя бы два противника в цепочке.');
+  if (preview.valid && !allowIncomplete && preview.enemies < 2 && preview.opensDoor === undefined && !plannedPathValid) {
+    // Playtest 3 (03.10.2026): the last goal falls on this chain and the open door is a chain step away — the winning
+    // move is to continue into it. The rule stays (the chain is still too short); the forecast only points the way.
+    const exitNext = exitNextTo(state, path, preview.endIndex, customProgress);
+    reject(exitNext === undefined ? 'Нужны хотя бы два противника в цепочке.' : customGoalsMet(state) ? 'Выход открыт — продолжи цепь в выход.' : 'Последняя цель падёт — продолжи цепь в выход.');
+    if (exitNext !== undefined) preview.exitNext = exitNext;
+  }
   if (!preview.valid) { preview.endIndex = state.player.index; return { preview, board }; }
   preview.energyGain = Math.min(7 - state.player.energy, preview.hits.filter(hit => { const cell = state.board[hit.index]; return cell && cell.kind !== 'door' && cell.kind !== 'prism'; }).length * 0.5);
   // An ordinary chain that stops on thorns hurts the cat before any lever resolves.
@@ -246,6 +257,19 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   // Only the number of fallen crystals is public; their cells and the crushed enemies stay in the internal steps.
   if (crystalSteps.length) { preview.crystals = crystalSteps.length; preview.createsPrism = true; }
   return { preview, board, steps, queuedDevices, movementEffects: movingPlayer.damageEffects };
+}
+/**
+ * A door cell that would end this chain with the exit: the chain meets every goal of an exit battle (progress counted
+ * in the plan) and planning it one step further into that cell opens the door. Pure; no RNG (the extension is planned
+ * without one).
+ */
+function exitNextTo(state: ForestState, path: number[], end: number, progress: ForestState['objective']): number | undefined {
+  if (state.customLevel?.definition.completion !== 'exit' || !customGoalsMet(state, progress)) return undefined;
+  for (const [index, cell] of state.board.entries()) {
+    if (cell?.kind !== 'door' || path.includes(index) || !chainAdjacent(state, end, index)) continue;
+    if (planChain(state, [...path, index]).preview.opensDoor !== undefined) return index;
+  }
+  return undefined;
 }
 /**
  * Forecast of Rest (`ForestEngine.waitTurn`): no player action, +0,5 energy, then the same enemy phase on a copy —

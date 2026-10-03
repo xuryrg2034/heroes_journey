@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { nodeBattleSetup } from '../src/game/testing/fixtures';
 
 // The exit door of a map battle in the interface (stage 4, decision of 02.10.2026): the door reads closed/open, the
 // message when the goals are met, the chest with its own look and forecast wording, the reinforcement counter and
@@ -129,5 +130,36 @@ test('exit battle: goals met message, open door, chest, forecast wording, reinfo
   await rest(page);
   await expect.poll(async () => (await toasts(page)).some(text => text.startsWith('Подкрепление:') && text.includes('гоблина') && !text.includes('клетки'))).toBe(true);
   await shot(page, 'exit-ui-reinforcement-arrived');
+  expect(errors).toEqual([]);
+});
+
+test('playtest 3: the last goal beside the door — selecting it says «ПРОДОЛЖИ В ВЫХОД» and marks the door', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  // The node setup of the playtest (row, palette and tools as on the map), with its battle seed.
+  const setup = nodeBattleSetup('trunk-last-step', { seed: 337763618 });
+  await page.evaluate(value => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-last-step', value), setup);
+  await ready(page);
+  // Replay the playtest position through engine commands (the moves are the playtest log).
+  await page.evaluate(async () => {
+    const g = (window as any).__PUZZLE_GAME.engine;
+    const log = [[26, 25, 18, 12, 7], [8, 15, 10, 5], [11, 17, 23, 29, 28], [27, 33, 32, 31, 24], [25, 18], [13, 6, 1, 2], [1, 8], [1, 7], [12, 13, 18], [13, 7], [6, 13],
+      [12, 18, 25, 31], [26, 33, 32], [27, 26], [31, 32], [33, 26, 25, 31], [32, 27, 26], [27, 33], [27, 28], [27, 32], [33, 27], [28, 23], [17, 10, 11], [10, 17], [16, 10], [11, 16], [11, 10]];
+    for (const path of log) { g.beginChain(path[0]); for (const index of path.slice(1)) g.extendChain(index); await g.releaseChain(); }
+  });
+  await ready(page);
+  // Select F1 with the mouse: the chain is too short, but the panel and the field point at the door E1.
+  await holdChain(page, [5]);
+  await expect(page.locator('#chain-rank')).toHaveText('ПРОДОЛЖИ В ВЫХОД');
+  await expect.poll(async () => (await page.evaluate(() => (window as any).__PUZZLE_GAME.endpointLabel)).text).toBe('ПРОДОЛЖИ В ВЫХОД');
+  expect((await page.evaluate(() => (window as any).__PUZZLE_GAME.forecastMarks)).labels).toContain('ПРОДОЛЖИ В ВЫХОД');
+  await shot(page, 'exit-ui-continue-into-exit');
+  // Continue into the door: the battle is won.
+  const door = await page.evaluate(index => (window as any).__PUZZLE_GAME.gridToScreen(index), 4);
+  await page.mouse.move(door.x, door.y, { steps: 5 });
+  await expect.poll(async () => (await state(page)).chain).toEqual([5, 4]);
+  await page.mouse.up();
+  await expect.poll(async () => (await state(page)).phase).toBe('WIN');
   expect(errors).toEqual([]);
 });

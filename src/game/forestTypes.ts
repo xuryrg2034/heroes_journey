@@ -84,6 +84,11 @@ export interface ChainPreview {
   chargeBreakdown?: Record<ChargeDamageCause, number>;
   threats: number[]; createsPrism: boolean; reason: string; hits: ChainHit[]; kills: number; endsOnSurvivor: boolean;
   opensDoor?: number; completesRoom?: boolean;
+  /**
+   * An invalid, too short chain that already meets every goal of an exit battle, with the open door one chain step from
+   * its end: the door cell to continue into (the chain then wins). Hint only; the minimum-enemies rule is unchanged.
+   */
+  exitNext?: number;
   rotations: RotationPreview[];
   energyCost: number; energyGain: number;
   deviceActivations?: DeviceActivation[]; trapHits?: ChainHit[]; trapDamage?: number; trapKills?: number;

@@ -10,6 +10,7 @@ import { FOREST_NODE_BATTLES, type NodeBattle } from './run/forestBattles';
 import type { RunBattleSetup } from './run/runBattle';
 import { CHEST_RESOURCES, chestContents, nextReinforcementTurn, REINFORCEMENT_COUNT, REINFORCEMENT_DELAY, REINFORCEMENT_EVERY } from './exitRules';
 import type { EngineEvent } from './forestTypes';
+import { startNodeBattle } from './testing/fixtures';
 import { createForestRun, enterNode, parseForestRun, resolveBattle, serializeForestRun } from './run/forestRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -382,6 +383,50 @@ async function reinforcementCellsAndCredit() {
   console.log('PASS the cat on an announced cell keeps it; killing arrivals counts and scores');
 }
 
+/**
+ * Playtest 3 (03.10.2026): in `trunk-last-step` on seed 337763618 the only move was the last goal F1 (1 HP) continued
+ * into the door E1 — the goals are met mid-chain. Selecting F1 alone must say so: `exitNext` points at the door.
+ */
+const PLAYTEST3 = [[26, 25, 18, 12, 7], [8, 15, 10, 5], [11, 17, 23, 29, 28], [27, 33, 32, 31, 24], [25, 18], [13, 6, 1, 2], [1, 8], [1, 7], [12, 13, 18], [13, 7], [6, 13],
+  [12, 18, 25, 31], [26, 33, 32], [27, 26], [31, 32], [33, 26, 25, 31], [32, 27, 26], [27, 33], [27, 28], [27, 32], [33, 27], [28, 23], [17, 10, 11], [10, 17], [16, 10], [11, 16], [11, 10]];
+async function continueIntoTheExit() {
+  const g = startNodeBattle('trunk-last-step', { seed: 337763618 });
+  for (const path of PLAYTEST3) await chain(g, path);
+  const F1 = 5, E1 = 4;
+  assert(g.state.phase === 'PLAYER_INPUT' && g.state.board[E1]?.kind === 'door' && g.state.board[F1]?.hp === 1, 'the playtest position: F1 with 1 HP beside the closed door E1');
+  assert(g.beginChain(F1), 'select F1');
+  const before = g.captureAnalysisSnapshot(), preview = g.preview(), after = g.captureAnalysisSnapshot();
+  assert(json(before) === json(after), 'the hint spends no state, RNG or IDs');
+  assert(!preview.valid && preview.exitNext === E1 && preview.reason === 'Последняя цель падёт — продолжи цепь в выход.', `F1 alone points at the door (${preview.reason}, ${preview.exitNext})`);
+  assert(g.extendChain(E1) && await g.releaseChain() && (g.state.phase as string) === 'WIN', 'F1 → E1 wins');
+  // With 2 HP the last goal survives the one-enemy chain: no hint, the ordinary reason.
+  const sturdy = startNodeBattle('trunk-last-step', { seed: 337763618 });
+  for (const path of PLAYTEST3) await chain(sturdy, path);
+  const snap = sturdy.captureAnalysisSnapshot(); snap.state.board[F1]!.hp = snap.state.board[F1]!.maxHp = 2; sturdy.restoreAnalysisSnapshot(snap);
+  assert(sturdy.beginChain(F1), 'select F1 (2 HP)');
+  const strong = sturdy.preview();
+  assert(!strong.valid && strong.exitNext === undefined, `F1 with 2 HP gives no exit hint (${strong.reason})`);
+  // A chain that does not meet the goals gives none either: the other target is still standing at the start.
+  const early = startNodeBattle('trunk-last-step', { seed: 337763618 });
+  for (const start of early.validStarts()) { early.beginChain(start); assert(early.preview().exitNext === undefined, `no exit hint before the goals (start ${start})`); early.cancelChain(); }
+  // Review of task B: the hint must hold for the real cat. Door A1, the last goal B1, the cat on B2: with 1 HP and
+  // bleeding the step into the door kills it — no hint; healthy — the hint.
+  registry['spec-exit-bleed'] = authoredLesson({ id: 'spec-exit-bleed', name: 'Кровь у выхода', description: '', hint: '', rows: ['DTGGG', 'RHGGG', 'RRGGG', 'RRGGG', 'RRGGG'],
+    legend: { D: { door: true }, T: { color: 0, target: true } }, seed: 7105 });
+  const bleed = (hp: number, bleeding: boolean) => {
+    const setup: RunBattleSetup = { nodeId: 'spec', label: 'spec', seed: spread(1), template: { kind: 'battle', id: 'spec-exit-bleed' }, row: 3,
+      player: { hp, maxHp: 5, energy: 0, ...(bleeding ? { damageEffects: { burning: 0, burningTurns: 0, poison: 0, bleeding: 1, bleedingSteps: 1 } } : {}) },
+      inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] };
+    const engine = new ForestEngine(); engine.animationScale = 0;
+    assert(engine.startRunBattle(setup), 'bleed battle starts');
+    return engine.preview([1]);
+  };
+  assert(bleed(5, false).exitNext === 0, 'a healthy cat gets the hint');
+  const dying = bleed(1, true);
+  assert(dying.exitNext === undefined && dying.reason === 'Нужны хотя бы два противника в цепочке.', `a bleeding cat that would die on the way in gets no hint (${dying.reason})`);
+  console.log('PASS the last goal beside the door: the forecast says «продолжи цепь в выход» and F1 → E1 wins; no hint for a cat that would die');
+}
+
 /** Exact replay through the chest's fall and the turns after it. */
 async function chestReplay() {
   // Long enough for the first reinforcement (announcement and arrival) too.
@@ -399,6 +444,7 @@ await noChestWhenLeavingAtOnce();
 await chainOpensTheChest();
 chestResourcesKeepTheRunSaveable();
 await chestReplay();
+await continueIntoTheExit();
 await pitsHoldUnderTheChest();
 await noChestInTheEditor();
 await reinforcementsArriveOnTime();

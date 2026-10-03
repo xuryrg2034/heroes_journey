@@ -653,6 +653,13 @@ export class BoardRenderer {
           text.anchor.set(.5);text.position.set(at.x,at.y+26);this.hitLabels.addChild(badge,text);
         }
       }
+      // The last goal falls on this chain and the open door is one step away: point at it (hint only, forecast.ts).
+      if(state.phase==='PLAYER_INPUT'&&preview.exitNext!==undefined){
+        // Drawn over the pieces (the label layer): a bright frame on the door; the endpoint label names the move.
+        const frame=new Graphics();
+        for(const part of occupiedIndices(state.board[preview.exitNext],preview.exitNext)){const c=this.center(part);frame.roundRect(c.x-36,c.y-36,72,72,9).fill({color:0x8fe0a0,alpha:0.16}).stroke({color:0x9df0ae,width:4,alpha:1});}
+        this.hitLabels.addChild(frame);quillLabels.push('ПРОДОЛЖИ В ВЫХОД');
+      }
       if(state.phase==='PLAYER_INPUT'&&preview.valid&&preview.enemyPhase)this.drawPushForecast(state,preview,fc);
       this.forecastDrawn.labels.push(...quillLabels);
       const end=this.center(preview.valid?preview.endIndex:chain[chain.length-1]);
@@ -663,7 +670,7 @@ export class BoardRenderer {
       }
       this.endpoint.visible=state.phase==='PLAYER_INPUT';
       // Same wording as the chain panel.
-      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.opensDoor!==undefined?'ВЫХОД · ПОБЕДА':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.unlocksExit||preview.enemyPhase?.unlocksExit?`ВЫХОД ОТКРОЕТСЯ${preview.unlocksExit?'':' ПОСЛЕ ОТВЕТА ВРАГОВ'}${preview.damage?` · −${preview.damage} HP`:''}`:preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
+      this.endpointText.text=!preview.valid?(preview.exitNext!==undefined?'ПРОДОЛЖИ В ВЫХОД':'ПРОДОЛЖАЙ'):preview.opensDoor!==undefined?'ВЫХОД · ПОБЕДА':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.unlocksExit||preview.enemyPhase?.unlocksExit?`ВЫХОД ОТКРОЕТСЯ${preview.unlocksExit?'':' ПОСЛЕ ОТВЕТА ВРАГОВ'}${preview.damage?` · −${preview.damage} HP`:''}`:preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
       const half=Math.ceil(this.endpointText.width/2)+10;
       this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,end.x)),Math.max(12,end.y-35));
       this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!preview.valid?0x3c3530:preview.damage?0x742e30:0x263b31).stroke({color:!preview.valid?0xc4a775:preview.damage?0xe49681:0x9aa982,width:1});
