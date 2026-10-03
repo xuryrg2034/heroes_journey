@@ -12,6 +12,7 @@ import { emptyMaterials, isResource, RESOURCE_KINDS } from '../resources';
 import { nodeBattleTemplate, FOREST_MAP, forestNode, forestRunStarts, hasVictoryFind, isBattleNode, isTrunkNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
+import { eventOption, forestEvent, optionEnergyCost, optionHpCost, describeOutcome, type EventOption, type ForestEvent } from './forestEvents';
 
 export const FOREST_RUN_VERSION = 1;
 /** Same caps as the battle engine: 5 HP in built-in modes, energy up to 7. */
@@ -31,7 +32,9 @@ export type ForestRunPending =
    */
   | { kind: 'battle'; nodeId: string; seed: number; entry: ForestRunResources; tools: ForestRunTools }
   /** Item choice of a find node, or the reward of a won hard battle (the node completes after the choice). */
-  | { kind: 'find'; nodeId: string; options: ItemKind[] };
+  | { kind: 'find'; nodeId: string; options: ItemKind[] }
+  /** Entered event node (forestEvents.ts): its options wait for a choice; a reload offers the same event. */
+  | { kind: 'event'; nodeId: string };
 export type ForestRunResult =
   | { outcome: 'victory'; nodeId: string }
   /** The branch ends at a boss that is not implemented yet. This is not a victory. */
@@ -60,6 +63,11 @@ export interface ForestRunState {
    * saves before 01.10.2026.
    */
   loot: { nodeId: string; item: LootKind; count: number }[];
+  /**
+   * Choices made at events, in visiting order: the option id and the index of its outcome (rolled by the run seed and
+   * the node id). With the event data they bound what an event may have added. Absent in saves before 04.10.2026.
+   */
+  eventChoices: { nodeId: string; option: string; outcome: number }[];
   resources: ForestRunResources;
   tools: ForestRunTools;
   /** Points of all finished node battles, the lost one included (the battle's `state.score`). Absent in saves before 04.10.2026: read as 0. */
@@ -81,23 +89,30 @@ export type ForestRunEvent =
   | { type: 'effects-cleared'; nodeId: string }
   | { type: 'find-offered'; nodeId: string; options: ItemKind[] }
   | { type: 'item-chosen'; nodeId: string; item: ItemKind }
+  | { type: 'event-offered'; nodeId: string }
+  /** The event option was taken: its rolled outcome and what really changed (HP and energy after the clamps). */
+  | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string;
+    changes: { hp: number; energy: number; items: Partial<Record<ItemKind, number>>; materials: ResourceKind[] } }
   | { type: 'node-completed'; nodeId: string }
   | { type: 'run-won'; nodeId: string }
   | { type: 'boss-in-development'; nodeId: string };
 
 export type ForestRunStep = { ok: true; run: ForestRunState; events: ForestRunEvent[] } | { ok: false; reason: string };
 
-/** Deterministic node seed: the same run seed and node id always give the same battle or find. */
-export function forestNodeSeed(runSeed: number, nodeId: string): number {
+const textHash = (text: string): number => {
   let hash = 0x811c9dc5;
-  for (let n = 0; n < nodeId.length; n++) hash = Math.imul(hash ^ nodeId.charCodeAt(n), 0x01000193) >>> 0;
-  return mixSeed(runSeed >>> 0, hash);
+  for (let n = 0; n < text.length; n++) hash = Math.imul(hash ^ text.charCodeAt(n), 0x01000193) >>> 0;
+  return hash;
+};
+/** Deterministic node seed: the same run seed and node id always give the same battle, find or event outcome. */
+export function forestNodeSeed(runSeed: number, nodeId: string): number {
+  return mixSeed(runSeed >>> 0, textHash(nodeId));
 }
 
 /** `skipTrunk`: the player profile marks the trunk as cleared, so the run starts at the trail fork. */
 export function createForestRun(seed: number, options: { skipTrunk?: boolean } = {}): ForestRunState {
   return {
-    version: FOREST_RUN_VERSION, seed: seed >>> 0, currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], score: 0,
+    version: FOREST_RUN_VERSION, seed: seed >>> 0, currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], score: 0,
     resources: { player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
     tools: { items: [], abilities: [] }, pending: null, result: null,
@@ -163,6 +178,9 @@ export function enterNode(current: ForestRunState, nodeId: string): ForestRunSte
     completeNode(run, node, events); return { ok: true, run, events };
   }
   if (node.content.kind === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
+  if (node.content.kind === 'event') {
+    run.pending = { kind: 'event', nodeId }; events.push({ type: 'event-offered', nodeId }); return { ok: true, run, events };
+  }
   run.pending = { kind: 'battle', nodeId, seed: forestNodeSeed(run.seed, nodeId),
     entry: structuredClone(run.resources), tools: structuredClone(run.tools) };
   events.push({ type: 'battle-ready', nodeId }); return { ok: true, run, events };
@@ -247,6 +265,70 @@ export function chooseFindItem(current: ForestRunState, item: ItemKind): ForestR
   completeNode(run, forestNode(pending.nodeId)!, events); return { ok: true, run, events };
 }
 
+// ---------- Map events (data: forestEvents.ts) ----------
+
+/**
+ * Index of the outcome an option gives: rolled from the run seed and the node id (and the option, so options of one
+ * event roll apart). The same run always gets the same outcome, also after a reload; nothing else draws from it.
+ */
+export function eventOutcomeIndex(runSeed: number, nodeId: string, option: EventOption): number {
+  if (option.outcomes.length === 1) return 0;
+  const roll = mixSeed(forestNodeSeed(runSeed, nodeId), textHash(option.id)) / 0x100000000 * 100;
+  let total = 0;
+  for (let n = 0; n < option.outcomes.length; n++) { total += option.outcomes[n].chance; if (roll < total) return n; }
+  return option.outcomes.length - 1;
+}
+/** Kinds of the crafting resources an option gives (decided by the seed, so they are shown before the choice). */
+export function eventResourceKinds(runSeed: number, nodeId: string, option: EventOption): ResourceKind[] {
+  const count = Math.max(0, ...option.outcomes.map(outcome => outcome.effect.resources ?? 0));
+  const base = mixSeed(forestNodeSeed(runSeed, nodeId), textHash(`${option.id}:resources`));
+  return Array.from({ length: count }, (_, n) => RESOURCE_KINDS[mixSeed(base, n) % RESOURCE_KINDS.length]);
+}
+const ITEM_NAME: Record<ItemKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь' };
+const energyText = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+/** Why the option cannot be taken now ('' — it can): a closed item, energy it cannot pay, HP it cannot spare. */
+function optionBlock(run: ForestRunState, option: EventOption): string {
+  const closed = ITEM_KINDS.find(item => option.outcomes.some(outcome => (outcome.effect.items?.[item] ?? 0) > 0) && !run.tools.items.includes(item));
+  if (closed) return `«${ITEM_NAME[closed]}» ещё не открыт`;
+  const { energy, hp } = run.resources.player, energyCost = optionEnergyCost(option), hpCost = optionHpCost(option);
+  if (energy < energyCost) return `Нужна энергия: ${energyText(energyCost)} (сейчас ${energyText(energy)})`;
+  if (hpCost && hp - hpCost < 1) return `Нужно больше ${hpCost} HP`;
+  return '';
+}
+export interface EventOptionView { id: string; label: string; available: boolean; reason: string; outcomes: { chance: number; text: string }[] }
+/** The open event with every option, its outcomes (texts and chances) and whether it can be taken; null without one. */
+export function eventView(run: ForestRunState): { nodeId: string; event: ForestEvent; options: EventOptionView[] } | null {
+  const pending = run.pending, node = pending?.kind === 'event' ? forestNode(pending.nodeId) : undefined;
+  const event = node?.content.kind === 'event' ? forestEvent(node.content.eventId) : undefined;
+  if (!node || !event) return null;
+  return { nodeId: node.id, event, options: event.options.map(option => {
+    const reason = optionBlock(run, option), kinds = eventResourceKinds(run.seed, node.id, option);
+    return { id: option.id, label: option.label, available: !reason, reason,
+      outcomes: option.outcomes.map(outcome => ({ chance: outcome.chance, text: describeOutcome(outcome, outcome.effect.resources ? kinds : []) })) };
+  }) };
+}
+
+/** Take an event option: roll its outcome, apply it (HP never below 1 or above the maximum, energy 0–7), complete the node. */
+export function chooseEventOption(current: ForestRunState, optionId: string): ForestRunStep {
+  const view = eventView(current);
+  if (!view) return fail('Сейчас нет события.');
+  const option = eventOption(view.event, optionId), state = view.options.find(entry => entry.id === optionId);
+  if (!option || !state) return fail('Такого варианта нет.');
+  if (!state.available) return fail(state.reason);
+  const run = structuredClone(current), nodeId = view.nodeId, outcome = eventOutcomeIndex(run.seed, nodeId, option);
+  const { effect } = option.outcomes[outcome], player = run.resources.player, before = { hp: player.hp, energy: player.energy };
+  player.hp = Math.min(player.maxHp, Math.max(1, player.hp + (effect.hp ?? 0)));
+  player.energy = Math.min(MAX_ENERGY, Math.max(0, player.energy + (effect.energy ?? 0)));
+  const items: Partial<Record<ItemKind, number>> = {};
+  for (const item of ITEM_KINDS) if (effect.items?.[item]) { run.resources.inventory[item] += effect.items[item]!; items[item] = effect.items[item]; }
+  const materials = effect.resources ? eventResourceKinds(run.seed, nodeId, option).slice(0, effect.resources) : [];
+  for (const kind of materials) (run.resources.materials ??= emptyMaterials())[kind]++;
+  run.eventChoices.push({ nodeId, option: option.id, outcome });
+  const events: ForestRunEvent[] = [{ type: 'event-resolved', nodeId, option: option.id, outcome, text: state.outcomes[outcome].text,
+    changes: { hp: player.hp - before.hp, energy: player.energy - before.energy, items, materials } }];
+  completeNode(run, forestNode(nodeId)!, events); return { ok: true, run, events };
+}
+
 /** `lost`: the node whose battle ended the run in a defeat; `skipped`: a trunk node of a run that started past the trunk. */
 export type ForestNodeStatus = 'visited' | 'current' | 'in-progress' | 'available' | 'locked' | 'lost' | 'skipped';
 export interface ForestRunView {
@@ -320,12 +402,17 @@ const randomElitesPossible = (node: ForestMapNode): boolean => !!nodeBattleTempl
 /** Resources a node's exit chest adds (exitRules.ts): CHEST_RESOURCES in a battle with an exit door, else 0. */
 const chestResources = (node: ForestMapNode): number => nodeBattleTemplate(node)?.definition.completion === 'exit' ? CHEST_RESOURCES : 0;
 
-function inventoryCap(visited: string[], finds: ForestRunState['finds'], entered: ForestMapNode | null, loot: ForestRunState['loot']): Record<LootKind, number> {
+function inventoryCap(visited: string[], finds: ForestRunState['finds'], entered: ForestMapNode | null, loot: ForestRunState['loot'],
+  events: { items: Partial<Record<ItemKind, number>>; materials: ResourceKind[] }[]): Record<LootKind, number> {
   const cap: Record<LootKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0, ...emptyMaterials() };
   for (const node of [...visited.map(id => forestNode(id)!), ...entered ? [entered] : []]) {
     for (const item of ITEM_KINDS) cap[item] += node.grants?.inventory?.[item] ?? 0;
   }
   for (const find of finds) cap[find.item]++;
+  for (const gain of events) {
+    for (const item of ITEM_KINDS) cap[item] += gain.items[item] ?? 0;
+    for (const kind of gain.materials) cap[kind]++;
+  }
   for (const gain of loot) cap[gain.item] += gain.count;
   return cap;
 }
@@ -381,7 +468,19 @@ export function parseForestRun(text: string): ForestRunState | null {
   }
   for (const [nodeId, count] of perNode) if (count > battleElites(forestNode(nodeId)!) + chestResources(forestNode(nodeId)!)) return null;
   for (const [nodeId, count] of perNodeItems) if (count > battleElites(forestNode(nodeId)!)) return null;
-  const cap = inventoryCap(visited, typedFinds, entered, typedLoot), inventory = (value.resources as ForestRunResources).inventory;
+  // Event choices: one per visited event node, in order, an option of its event with the outcome the seed rolls.
+  const eventNodes = visited.map(id => forestNode(id)!).filter(node => node.content.kind === 'event');
+  const choices = value.eventChoices === undefined ? [] : value.eventChoices;
+  if (!Array.isArray(choices) || choices.length !== eventNodes.length) return null;
+  const eventGains: { items: Partial<Record<ItemKind, number>>; materials: ResourceKind[] }[] = [];
+  for (let n = 0; n < choices.length; n++) {
+    const choice = choices[n], node = eventNodes[n], content = node.content as { kind: 'event'; eventId: string };
+    const option = isRecord(choice) && typeof choice.option === 'string' ? eventOption(forestEvent(content.eventId)!, choice.option) : undefined;
+    if (!option || !isRecord(choice) || choice.nodeId !== node.id || choice.outcome !== eventOutcomeIndex(seed, node.id, option)) return null;
+    const { effect } = option.outcomes[choice.outcome as number];
+    eventGains.push({ items: effect.items ?? {}, materials: eventResourceKinds(seed, node.id, option).slice(0, effect.resources ?? 0) });
+  }
+  const cap = inventoryCap(visited, typedFinds, entered, typedLoot, eventGains), inventory = (value.resources as ForestRunResources).inventory;
   if (ITEM_KINDS.some(item => inventory[item] > cap[item])) return null;
   // Resources come from elite loot and exit chests (both recorded in `loot`).
   const materials = (value.resources as ForestRunResources).materials;
@@ -394,6 +493,8 @@ export function parseForestRun(text: string): ForestRunState | null {
         || !validResources(pending.entry) || !validTools(pending.tools) || pending.defeats !== undefined && !isCount(pending.defeats)) return null;
       // While a battle is open the run still holds the entry snapshot: a defeat never changes resources.
       if (JSON.stringify(pending.entry) !== JSON.stringify(value.resources) || !sameTools(pending.tools, value.tools as ForestRunTools)) return null;
+    } else if (pending.kind === 'event') {
+      if (node.content.kind !== 'event' || Object.keys(pending).length !== 2) return null;
     } else if (pending.kind === 'find') {
       if (node.type !== 'find' && !hasVictoryFind(node) || JSON.stringify(pending.options) !== JSON.stringify(findOptions(seed, node))) return null;
     } else return null;
@@ -410,7 +511,7 @@ export function parseForestRun(text: string): ForestRunState | null {
     } else return null;
   }
   if (value.score !== undefined && !isCount(value.score)) return null;
-  const run = { ...structuredClone(value), loot: structuredClone(typedLoot), score: (value.score as number | undefined) ?? 0 } as unknown as ForestRunState;
+  const run = { ...structuredClone(value), loot: structuredClone(typedLoot), eventChoices: structuredClone(choices), score: (value.score as number | undefined) ?? 0 } as unknown as ForestRunState;
   // Saves before 04.10.2026 count defeats of the open battle; a defeat now ends the run, so the counter has no meaning.
   if (run.pending?.kind === 'battle') delete (run.pending as { defeats?: number }).defeats;
   return run;

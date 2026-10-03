@@ -56,7 +56,8 @@
     "test:exit-door": "tsx src/game/exitDoor.spec.ts",
     "test:difficulty-layers": "tsx src/game/difficultyLayers.spec.ts",
     "test:telemetry": "tsx src/telemetry.spec.ts",
-    "test:player-profile": "tsx src/game/playerProfile.spec.ts"
+    "test:player-profile": "tsx src/game/playerProfile.spec.ts",
+    "test:forest-events": "tsx src/game/forestEvents.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"

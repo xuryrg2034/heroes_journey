@@ -84,7 +84,12 @@ function mapStructure() {
   assert(paths.length > 1 && paths.every(path => path[0] === FOREST_MAP_START), 'all routes start at the trunk');
   for (const path of paths) {
     const nodes = path.map(id => forestNode(id)!), battles = nodes.filter(isBattleNode).length;
-    assert(battles >= 12 && battles <= 15, `${path.join('>')}: 12–15 battles, got ${battles}`);
+    // Changed 04.10.2026: a row-8 event may replace «Три знамени», so a route has 11–13 battles (was 12–13), and
+    // the find followed by an event gives two nodes without a battle in a row (accepted with the test events).
+    assert(battles >= 11 && battles <= 15, `${path.join('>')}: 11–15 battles, got ${battles}`);
+    const row8 = forestNode(path[path.indexOf('jailer') - 1])!, row7 = forestNode(path[path.indexOf('jailer') - 2])!;
+    assert(row8.row === 8 && row7.next.some(id => forestNode(id)!.type === 'event') && row7.next.some(id => isBattleNode(forestNode(id)!)),
+      `${path.join('>')}: before row 8 the route chooses between a battle and an event`);
     assert(nodes.slice(0, 4).every(node => node.lane === 'trunk' && node.type === 'battle'), 'every route opens with the four trunk battles');
     assert(nodes.filter(node => node.id === 'jailer').length === 1 && forestNode('jailer')!.type === 'checkpoint', 'every route passes the Jailer checkpoint');
     const last = nodes[nodes.length - 1], half = nodes.slice(nodes.findIndex(node => node.id === 'jailer') + 1);

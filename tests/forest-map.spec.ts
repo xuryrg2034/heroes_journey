@@ -431,6 +431,59 @@ test('Jailer victory reports the opened spin; a hard-battle victory leads to a f
   expect(errors).toEqual([]);
 });
 
+test('a map event is chosen by mouse: outcomes shown in advance, an unaffordable option says why, a reload keeps the event, telemetry records the choice', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // The goblin barricade to the shaman with 0 energy: row 8 offers the banners or the goblin cache.
+  await seedRun(page, walk([...TRUNK, 'goblin-archer', 'goblin-shield', 'goblin-shaman']));
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  await expect(node(page, 'trail-cache')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'trail-banners')).toHaveAttribute('data-status', 'available');
+  await expect(node(page, 'trail-brook')).toHaveAttribute('data-status', 'locked');
+  await expect(node(page, 'trail-cache')).toContainText('?');
+  await node(page, 'trail-cache').hover();
+  await expect(page.locator('#map-detail')).toContainText('Событие');
+  await expect(page.locator('#map-detail')).toContainText('Взломать, Разобрать осторожно, Пройти мимо');
+  expect(await noScroll(page)).toBe(true);
+  await node(page, 'trail-cache').click();
+  // The event window: title, scene, three options with their outcomes; careful needs energy the cat has not.
+  await expect(page.locator('#modal-title')).toHaveText('Гоблинский тайник');
+  const choices = page.locator('#modal .event-choice');
+  await expect(choices).toHaveCount(3);
+  await expect(choices.nth(0)).toContainText('50%: добыча, 2 ресурса крафта');
+  await expect(choices.nth(0)).toContainText('50%: ловушка, −2 HP (не ниже 1)');
+  await expect(choices.nth(1)).toBeDisabled();
+  await expect(choices.nth(1).locator('.event-reason')).toContainText('Нужна энергия: 1 (сейчас 0)');
+  await expect(choices.nth(2)).toContainText('ничего не меняется');
+  expect(await page.evaluate(() => { const box = document.querySelector('#modal')!.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; })).toBe(true);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-event.png' });
+  expect(await savedRun(page)).toMatchObject({ pending: { kind: 'event', nodeId: 'trail-cache' } });
+  // A disabled option does nothing.
+  await choices.nth(1).click({ force: true });
+  expect((await savedRun(page)).pending).toMatchObject({ kind: 'event' });
+  // A reload brings back the same event.
+  await page.reload();
+  await page.locator('#run-start-button').click();
+  await expect(page.locator('#modal-title')).toHaveText('Гоблинский тайник');
+  await expect(page.locator('#modal .event-choice').nth(1)).toBeDisabled();
+  const before = (await savedRun(page)).resources;
+  await page.locator('#modal .event-choice').nth(0).click();
+  await expect(page.locator('#event-result')).toContainText('Взломать');
+  const after = await savedRun(page);
+  expect(after).toMatchObject({ currentNodeId: 'trail-cache', pending: null, eventChoices: [{ nodeId: 'trail-cache', option: 'break' }] });
+  const trap = after.eventChoices[0].outcome === 1;
+  if (trap) { await expect(page.locator('#event-result')).toContainText('ловушка'); expect(after.resources.player.hp).toBe(Math.max(1, before.player.hp - 2)); }
+  else { await expect(page.locator('#event-result')).toContainText('добыча'); expect(Object.values(after.resources.materials).reduce((a: number, b: any) => a + b, 0)).toBe(2); }
+  await page.locator('#modal [data-action="run-map"]').click();
+  await expect(node(page, 'trail-cache')).toHaveAttribute('data-status', 'current');
+  await expect(node(page, 'jailer')).toHaveAttribute('data-status', 'available');
+  await expect(page.locator('#map-battles')).toContainText('7');
+  const events = (await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY)).runEvents;
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({ nodeId: 'trail-cache', option: 'break', outcome: after.eventChoices[0].outcome });
+  expect(errors).toEqual([]);
+});
 test('rest clears effects on the cat and says so', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   let run = ok(enterNode(walk(TRUNK), 'beast-wolf'));

@@ -184,6 +184,27 @@ async function runDefeatEndsTheRun() {
   console.log('PASS a run defeat marks the end of the run and closes the visit; an editor defeat keeps the abandonment rule');
 }
 
+/** A choice at a map event is recorded with its node, option and outcome; exported and aggregated; off when disabled. */
+function eventChoices() {
+  telemetry.clearTelemetry();
+  telemetry.recordRunEvent({ nodeId: 'trail-cache', option: 'break', outcome: 1, text: 'ловушка, −2 HP (не ниже 1)', seed: 7 });
+  telemetry.recordRunEvent({ nodeId: 'trail-cache', option: 'break', outcome: 0, text: 'добыча, 2 ресурса крафта: Роса, Смола', seed: 8 });
+  telemetry.recordRunEvent({ nodeId: 'trail-brook', option: 'drink', outcome: 0, text: '+2 HP (не выше максимума)', seed: 9 });
+  const payload = telemetry.exportPayload();
+  assert(payload.runEvents.length === 3 && payload.runEvents[0].nodeId === 'trail-cache' && payload.runEvents[0].option === 'break' && payload.runEvents[0].outcome === 1, 'event choices are exported');
+  const cache = payload.eventAggregates.find(row => row.nodeId === 'trail-cache')!;
+  assert(cache.count === 2 && cache.label === 'Гоблинский тайник' && Object.keys(cache.outcomes).length === 2, `aggregated by node and option: ${JSON.stringify(cache)}`);
+  assert(payload.aggregates.length === 0 && telemetry.playtestHtml().includes('Гоблинский тайник'), 'battle aggregates are untouched; the playtest screen lists the events');
+  telemetry.setTelemetryEnabled(false);
+  telemetry.recordRunEvent({ nodeId: 'trail-brook', option: 'flask', outcome: 0, text: '+1 «Холод»', seed: 10 });
+  assert(telemetry.exportPayload().runEvents.length === 3, 'a disabled journal records no event');
+  telemetry.setTelemetryEnabled(true);
+  telemetry.clearTelemetry();
+  assert(telemetry.exportPayload().runEvents.length === 0, 'clearing removes event choices too');
+  console.log('PASS event choices are recorded, exported and aggregated by node and option');
+}
+
+eventChoices();
 await leaveAtOnce();
 await runDefeatEndsTheRun();
 await stayThenLeave();

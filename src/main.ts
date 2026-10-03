@@ -18,12 +18,12 @@ import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
 import { CRYSTAL_KILLS, crystalsActive, runPressureInfo } from './game/mapBattleRules';
-import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, forestRunView, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseEventOption, forestRunView, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore } from './game/run/playerProfile';
 import { forestNode } from './game/run/forestMap';
-import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
-import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled } from './telemetry';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
+import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent } from './telemetry';
 import { lootLabel } from './game/resources';
 import { nextReinforcementTurn, REINFORCEMENT_COUNT } from './game/exitRules';
 import { chestLabel } from './render/art';
@@ -174,12 +174,26 @@ function showFind() {
   const pending = forestRun?.pending;
   if (pending?.kind === 'find') showModal(findModalHtml(pending.nodeId, pending.options));
 }
-/** Where the player goes after any run step: map, result, battle or find. */
+/** The open map event (also after a reload: the saved run keeps it pending). */
+function showEvent() { if (forestRun?.pending?.kind === 'event') showModal(eventModalHtml(forestRun)); }
+function chooseEvent(optionId: string) {
+  if (!forestRun || forestRun.pending?.kind !== 'event') return;
+  const step = commitRun(chooseEventOption(forestRun, optionId));
+  if (!step.ok) return;
+  const resolved = step.events.find(event => event.type === 'event-resolved');
+  if (resolved?.type === 'event-resolved') {
+    recordRunEvent({ nodeId: resolved.nodeId, option: resolved.option, outcome: resolved.outcome, text: resolved.text, seed: step.run.seed });
+    mapNotice = `${forestNode(resolved.nodeId)?.name ?? ''}: ${resolved.text}.`;
+  }
+  audio.play('reward'); showScreen('map'); showModal(eventResultHtml(step.run, step.events));
+}
+/** Where the player goes after any run step: map, result, battle, find or event. */
 function routeRun() {
   if (!forestRun) return;
   if (forestRun.pending?.kind === 'battle') { void playRunBattle(); return; }
   showScreen('map');
   if (forestRun.result) showModal(runResultHtml(forestRun));
+  else if (forestRun.pending?.kind === 'event') showEvent();
   else showFind();
 }
 function resumeRun() { if (forestRun) { mapNotice = ''; audio.unlock(); audio.play('click'); routeRun(); } else newRun(); }
@@ -623,6 +637,7 @@ document.addEventListener('click', event => {
   if (!el('modal-layer').hidden && !el('modal').contains(target)) return;
   audio.unlock();
   if (target.dataset.find && itemKeys.includes(target.dataset.find as ItemKind)) { chooseFind(target.dataset.find as ItemKind); return; }
+  if (target.dataset.eventOption) { chooseEvent(target.dataset.eventOption); return; }
   switch (target.dataset.action) {
     // The run's own battle is never replayed (a defeat ends the run); retry is for editor levels and debug battles.
     case 'retry': if (!ownsRunBattle()) void openScene(() => engine.restartLevel()); break;
@@ -662,6 +677,7 @@ document.addEventListener('click', event => {
     case 'map-node': if (target.getAttribute('aria-disabled') !== 'true' && target.dataset.node) enterMapNode(target.dataset.node); break;
     case 'run-battle': void playRunBattle(); break;
     case 'run-find': showFind(); break;
+    case 'run-event': showEvent(); break;
     case 'run-map': quietCancel(); showScreen('map'); break;
     case 'playtest': openPlaytest(); break;
     case 'playtest-close': closePlaytest(); break;

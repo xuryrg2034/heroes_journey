@@ -9,13 +9,14 @@
 import type { AuthoredLesson } from '../lessonBuilder';
 import type { PaletteWeights } from '../customLevel';
 import { forestBattle } from './forestBattles';
+import { forestEvent } from './forestEvents';
 import type { AbilityKind, EnemyColor, ItemKind } from '../forestTypes';
 
 /**
  * `hard` — the hard battle (until 01.10.2026 the node type was called «элита»; «elite» now names the enemy modifier).
  * Node ids `den-elite` and `camp-elite` are kept: the node seed (battle and find) is derived from the id.
  */
-export type ForestNodeType = 'battle' | 'hard' | 'rest' | 'find' | 'breakthrough' | 'boss' | 'checkpoint';
+export type ForestNodeType = 'battle' | 'hard' | 'rest' | 'find' | 'event' | 'breakthrough' | 'boss' | 'checkpoint';
 /** Trunk, first-half trails (beasts/goblins/shared) and second-half branches (den → Troll, camp → Chief). */
 export type ForestLane = 'trunk' | 'beasts' | 'goblins' | 'shared' | 'den' | 'camp';
 
@@ -24,6 +25,8 @@ export type ForestNodeContent =
   | { kind: 'battle'; battleId: string }
   | { kind: 'rest'; heal: number }
   | { kind: 'find' }
+  /** A map event of src/game/run/forestEvents.ts: a scene with a choice, no battle (decision of 04.10.2026). */
+  | { kind: 'event'; eventId: string }
   | { kind: 'in-development'; planned: string };
 
 /** Run event of a node, applied on entering it (before its battle): tools open for the rest of the run. */
@@ -89,13 +92,18 @@ export const FOREST_MAP: readonly ForestMapNode[] = [
   { id: 'goblin-shield', type: 'battle', name: 'Щит у частокола', lane: 'goblins', row: 6, column: 2, content: battle('goblin-shield-flank'), feature: 'Щитоносец',
     next: ['trail-find', 'goblin-shaman'] },
   // Jump opens on every node of this row: the shared find or the trail battle.
+  // Row 8 offers a battle or an event on every path (test events, decision of 04.10.2026): the brook from the beast
+  // trail and the find, the goblin cache from the find and the shaman; the banners stay open to everyone.
   { id: 'beast-porcupine', type: 'battle', name: 'Колючий подлесок', lane: 'beasts', row: 7, column: 0, content: battle('porcupine-thicket'), grants: JUMP,
-    feature: 'Дикобразы', next: ['trail-banners'] },
-  { id: 'trail-find', type: 'find', name: 'Находка', lane: 'shared', row: 7, column: 1, content: { kind: 'find' }, grants: JUMP, next: ['trail-banners'] },
+    feature: 'Дикобразы', next: ['trail-brook', 'trail-banners'] },
+  { id: 'trail-find', type: 'find', name: 'Находка', lane: 'shared', row: 7, column: 1, content: { kind: 'find' }, grants: JUMP,
+    next: ['trail-brook', 'trail-banners', 'trail-cache'] },
   { id: 'goblin-shaman', type: 'battle', name: 'Камлание за частоколом', lane: 'goblins', row: 7, column: 2, content: battle('goblin-shaman-rite'), grants: JUMP,
-    feature: 'Шаман', next: ['trail-banners'] },
+    feature: 'Шаман', next: ['trail-banners', 'trail-cache'] },
+  { id: 'trail-brook', type: 'event', name: 'Ручей у камней', lane: 'beasts', row: 8, column: 0, content: { kind: 'event', eventId: 'brook' }, next: ['jailer'] },
   { id: 'trail-banners', type: 'battle', name: 'Три знамени', lane: 'shared', row: 8, column: 1, content: battle('three-banners'), feature: 'Кристалл в проломе',
     next: ['jailer'] },
+  { id: 'trail-cache', type: 'event', name: 'Гоблинский тайник', lane: 'goblins', row: 8, column: 2, content: { kind: 'event', eventId: 'goblin-cache' }, next: ['jailer'] },
   // Victory over the checkpoint opens the spin for the rest of the run.
   { id: 'jailer', type: 'checkpoint', name: 'Тюремщик', lane: 'shared', row: 9, column: 1, content: battle('jailer-gate'), rewardGrants: { abilities: ['spin'] },
     next: ['den-battle', 'camp-battle'] },
@@ -162,8 +170,8 @@ export function nodeRefillPalette(node: ForestMapNode): PaletteWeights | null {
 /** A hard-battle victory is followed by a find (choice of one of three items) before the next transition. */
 export function hasVictoryFind(node: ForestMapNode): boolean { return node.type === 'hard'; }
 
-/** Nodes that are fights (or a planned fight, for the stub boss). Rest and find are not battles. */
-export function isBattleNode(node: ForestMapNode): boolean { return node.type !== 'rest' && node.type !== 'find'; }
+/** Nodes that are fights (or a planned fight, for the stub boss). Rest, find and event are not battles. */
+export function isBattleNode(node: ForestMapNode): boolean { return node.type !== 'rest' && node.type !== 'find' && node.type !== 'event'; }
 
 /** Every route from the start to a terminal node, as node ids. The graph is small and acyclic. */
 export function forestMapPaths(from = FOREST_MAP_START): string[][] {
@@ -221,6 +229,9 @@ export function validateForestMap(): string[] {
     if (node.content.kind === 'battle' && !isBattleNode(node)) errors.push(`${node.id}: бой из реестра стоит не в боевом узле.`);
     if ((node.type === 'rest') !== (node.content.kind === 'rest')) errors.push(`${node.id}: тип привала и содержимое расходятся.`);
     if ((node.type === 'find') !== (node.content.kind === 'find')) errors.push(`${node.id}: тип находки и содержимое расходятся.`);
+    if ((node.type === 'event') !== (node.content.kind === 'event')) errors.push(`${node.id}: тип события и содержимое расходятся.`);
+    if (node.content.kind === 'event' && !forestEvent(node.content.eventId)) errors.push(`${node.id}: нет события ${node.content.eventId}.`);
+    if (node.type === 'event' && (node.grants || node.rewardGrants)) errors.push(`${node.id}: событие не открывает инструменты.`);
     if (node.content.kind === 'in-development' && node.type !== 'boss') errors.push(`${node.id}: заглушка допустима только для босса.`);
     if (!node.next.length && node.type !== 'boss') errors.push(`${node.id}: путь должен заканчиваться боссом.`);
   }

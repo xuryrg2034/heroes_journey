@@ -8,13 +8,15 @@ import { summarizeDamageEffects } from './game/damageEffects';
 import { RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { nodeBattleTemplate, FOREST_MAP, forestNode, hasVictoryFind, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
-import { forestRunView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
+import { eventView, forestRunView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
+import { forestEvent } from './game/run/forestEvents';
 
 export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: string; hint: string }> = {
   battle: { icon: '⚔', label: 'Бой', hint: 'Обычный бой.' },
   hard: { icon: '☠', label: 'Трудный бой', hint: 'Тяжелее обычного боя.' },
   rest: { icon: '☾', label: 'Привал', hint: 'Лечение перед следующим боем.' },
   find: { icon: '◈', label: 'Находка', hint: 'Выбор одного предмета из трёх.' },
+  event: { icon: '?', label: 'Событие', hint: 'Сцена с выбором, без боя: исходы видны заранее.' },
   breakthrough: { icon: '⇥', label: 'Прорыв', hint: 'Цель — дойти до выхода, а не победить всех.' },
   checkpoint: { icon: '▣', label: 'Контрольный бой', hint: 'Сюда сходятся обе тропы.' },
   boss: { icon: '♛', label: 'Босс', hint: 'Финал ветки.' },
@@ -79,12 +81,15 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
       : view.result ? 'Поход завершён. Наведи на узел, чтобы вспомнить его.'
       : pending?.kind === 'battle' ? `Бой узла «${nodeName(pending.nodeId)}» не завершён. Начни его снова кнопкой выше.`
       : pending?.kind === 'find' ? 'Находка ждёт выбора предмета.'
+      : pending?.kind === 'event' ? 'Событие ждёт выбора.'
       : view.available.length ? 'Выбери следующий узел: доступные подсвечены. Наведи на узел, чтобы увидеть тип и особенность поля.' : '';
     return `<p class="map-detail-idle">${text}</p>`;
   }
   const info = NODE_TYPE_INFO[node.type], content = node.content;
   const lines: string[] = [];
   if (node.feature) lines.push(`Особенность поля: <b>${escapeHtml(node.feature)}</b>`);
+  const event = content.kind === 'event' ? forestEvent(content.eventId) : undefined;
+  if (event) lines.push(`Варианты: ${event.options.map(option => escapeHtml(option.label)).join(', ')}`);
   lines.push(content.kind === 'rest' ? `Лечит на ${content.heal} HP и снимает эффекты (параметр временный)`
     : content.kind === 'in-development' ? escapeHtml(content.planned)
     : info.hint);
@@ -159,6 +164,8 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
     ? `<div class="map-banner"><span>Бой узла «${escapeHtml(nodeName(pending.nodeId))}» не завершён.</span><button class="button primary" data-action="run-battle">К БОЮ</button></div>`
     : pending?.kind === 'find'
       ? `<div class="map-banner"><span>Находка ждёт выбора предмета.</span><button class="button primary" data-action="run-find">ВЫБРАТЬ</button></div>`
+      : pending?.kind === 'event'
+        ? `<div class="map-banner"><span>Событие «${escapeHtml(nodeName(pending.nodeId))}» ждёт выбора.</span><button class="button primary" data-action="run-event">ВЫБРАТЬ</button></div>`
       : options.notice ? `<div class="map-banner notice" id="map-notice"><span>${escapeHtml(options.notice)}</span></div>` : '';
   const reset = options.confirmReset
     ? `<div class="map-confirm" role="alert"><span>Сбросить поход и начать заново?</span><button class="button secondary" data-action="run-reset-yes">СБРОСИТЬ</button><button class="text-button" data-action="run-reset-no">ОТМЕНА</button></div>`
@@ -177,7 +184,7 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
  * player profile says a new run starts at the trail fork.
  */
 export function runEntryHtml(saved: ForestRunState | null, confirmReset: boolean, trunkCleared = false): string {
-  if (!saved) return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>ПОХОД ПО ЛЕСУ</span><small>${trunkCleared ? 'Карта узлов · с развилки троп' : 'Карта узлов · 12–13 боёв'}</small></button>`;
+  if (!saved) return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>ПОХОД ПО ЛЕСУ</span><small>${trunkCleared ? 'Карта узлов · с развилки троп' : 'Карта узлов · 11–13 боёв'}</small></button>`;
   const view = forestRunView(saved);
   const status = saved.result ? 'Итог похода' : `Пройдено боёв: ${view.battlesWon} · HP ${saved.resources.player.hp}/${saved.resources.player.maxHp}`;
   const reset = confirmReset
@@ -193,6 +200,30 @@ export function restModalHtml(nodeId: string, healed: number, hp: number, maxHp:
 
 export function findModalHtml(nodeId: string, options: ItemKind[]): string {
   return `<p class="eyebrow">НАХОДКА</p><h2 id="modal-title">Одна вещь в дорогу</h2><p class="modal-copy">Возьми один предмет из трёх. Он откроется для следующих боёв.</p><div class="reward-options">${options.map(item => `<button class="reward-choice" data-find="${item}"><span class="reward-icon">${ITEM_ICON[item]}</span><span><b>${ITEMS[item].label} <em>+1</em></b><small>${ITEMS[item].description}</small></span></button>`).join('')}</div><p class="reward-note">${escapeHtml(nodeName(nodeId))}: остальные предметы останутся в лесу.</p>`;
+}
+
+/**
+ * The open event (forestEvents.ts): title, a line of scene, one button per option with its outcomes (chance and both
+ * results for a random one). An option that cannot be taken is disabled and says why.
+ */
+export function eventModalHtml(run: ForestRunState): string {
+  const view = eventView(run);
+  if (!view) return '';
+  const options = view.options.map(option => {
+    const outcomes = option.outcomes.length === 1 ? option.outcomes[0].text : option.outcomes.map(outcome => `${outcome.chance}%: ${outcome.text}`).join(' · ');
+    return `<button class="event-choice" data-event-option="${option.id}"${option.available ? '' : ' disabled aria-disabled="true"'}><b>${escapeHtml(option.label)}</b><small>${escapeHtml(outcomes)}</small>${option.available ? '' : `<em class="event-reason">${escapeHtml(option.reason)}</em>`}</button>`;
+  }).join('');
+  return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(view.event.title)}</h2><p class="modal-copy event-scene">${escapeHtml(view.event.scene)}</p><div class="event-options">${options}</div>`;
+}
+
+/** What the chosen event option did; the next step is the map. */
+export function eventResultHtml(run: ForestRunState, events: ForestRunEvent[]): string {
+  const resolved = events.find(event => event.type === 'event-resolved');
+  if (resolved?.type !== 'event-resolved') return '';
+  const node = forestNode(resolved.nodeId), event = node?.content.kind === 'event' ? forestEvent(node.content.eventId) : undefined;
+  const option = event?.options.find(entry => entry.id === resolved.option);
+  const { hp, maxHp, energy } = run.resources.player;
+  return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(event?.title ?? nodeName(resolved.nodeId))}</h2><p class="modal-copy" id="event-result"><b>${escapeHtml(option?.label ?? resolved.option)}</b>: ${escapeHtml(resolved.text)}.</p><div class="result-stats"><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${energyText(energy)}</b>ЭНЕРГИЯ</span></div><button class="button primary" data-action="run-map">К КАРТЕ</button>`;
 }
 
 /**
