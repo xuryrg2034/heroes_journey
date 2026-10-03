@@ -10,6 +10,7 @@ import { authoredLesson } from './lessonBuilder';
 import { angryOrdinaryCount, runPressureInfo } from './mapBattleRules';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './run/forestBattles';
 import type { RunBattleSetup } from './run/runBattle';
+import { startNodeBattle } from './testing/fixtures';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
@@ -25,8 +26,12 @@ const GOAL_CHAIN = [42, 35, 28, 21, 14, 7], TARGET = 7, DOOR = 0;
 const anger = (turn: number, goal: number | null) => goal === null ? 1 : 1 + (turn - goal);
 const CAP = 10;
 
-function start(seed: number, row: number): ForestEngine {
-  const setup: RunBattleSetup = { nodeId: 'spec', label: 'spec', seed, template: { kind: 'battle', id: 'spec-pressure' }, row,
+// The same field with the Chief (1 HP) as the marked target on A2: a boss battle.
+registry['spec-pressure-boss'] = authoredLesson({ id: 'spec-pressure-boss', name: 'Давление босса', description: '', hint: '', seed: 7302,
+  rows: ['DRRRRRR', 'TRRRRRR', 'RRRRRRR', 'RRRRRRR', 'RRRRRRR', 'RRRRRRR', 'RHRRRRR'], legend: { D: { door: true }, T: { kind: 'boss', hp: 1, target: true } } });
+
+function start(seed: number, row: number, id = 'spec-pressure'): ForestEngine {
+  const setup: RunBattleSetup = { nodeId: 'spec', label: 'spec', seed, template: { kind: 'battle', id }, row,
     player: { hp: 99, maxHp: 99, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] };
   const g = new ForestEngine(); g.animationScale = 0;
   assert(g.startRunBattle(setup), 'battle starts');
@@ -129,6 +134,41 @@ async function trunkUnchanged() {
   console.log('PASS the trunk (rows 1–4) is unchanged: passive, no anger, before and after the goals');
 }
 
+/** Boss battles (decision of 04.10.2026): while the Troll or the Chief lives, no new anger; after its death the common rule. */
+async function bossHoldsTheAnger() {
+  let bossKilled = 0;
+  for (let k = 1; k <= 3; k++) {
+    const g = start(spread(k), 14, 'spec-pressure-boss');
+    for (let n = 0; n < 8 && g.state.phase === 'PLAYER_INPUT'; n++) {
+      assert(runPressureInfo(g.state).nextAnger === 0, `seed ${k}: the HUD announces no anger while the boss lives`);
+      const { newAngry, fresh } = await turn(g, [TARGET, DOOR]);
+      assert(newAngry === 0, `seed ${k} turn ${g.state.turn}: ${newAngry} new angry while the boss lives`);
+      for (const cell of fresh) assert(weak(cell), `seed ${k}: refills stay weak in a boss battle`);
+    }
+    const before = g.state.turn;
+    const kill = g.availableMoves(8).find(path => path.includes(TARGET) && !path.includes(DOOR) && g.preview(path).hits.some(hit => hit.index === TARGET && hit.killed));
+    if (!kill) continue;
+    const killed = await turn(g, [], kill);
+    const goal = g.state.customLevel!.goalCompletedTurn;
+    if (goal === null || g.state.phase !== 'PLAYER_INPUT') continue;
+    bossKilled++;
+    checkAnger(g, killed.newAngry, `seed ${k} boss death`);
+    const later = await turn(g, [DOOR]);
+    checkAnger(g, later.newAngry, `seed ${k} after the boss`);
+    assert(g.state.turn > before, 'turns went on');
+  }
+  assert(bossKilled >= 2, `the boss fell and the common rule followed on most seeds (${bossKilled}/3)`);
+  // The real boss battles on their row: no anger queue while the boss lives.
+  for (const id of ['troll-lair', 'chief-breakfast']) {
+    const g = startNodeBattle(id, { row: 14, player: { hp: 99, maxHp: 99, energy: 0 } });
+    for (let n = 0; n < 4 && g.state.phase === 'PLAYER_INPUT'; n++) {
+      const { newAngry } = await turn(g, [], undefined);
+      if (g.state.customLevel!.goalCompletedTurn === null) assert(newAngry === 0, `${id} turn ${g.state.turn}: ${newAngry} new angry while the boss lives`);
+    }
+  }
+  console.log('PASS boss battles: no new anger while the Troll or the Chief lives; the common rule after its death');
+}
+
 async function replay() {
   const play = async (seed: number) => {
     const g = start(seed, 6);
@@ -143,5 +183,6 @@ async function replay() {
 await beforeTheGoals();
 await afterTheGoals();
 await trunkUnchanged();
+await bossHoldsTheAnger();
 await replay();
 console.log('PASS pressure');

@@ -4,7 +4,7 @@
  * Pure functions of the state: the forecast and the live turn read the same answers; nothing here draws random
  * numbers or emits events. Every number marked «баланс» is a balance constant, to be tuned by playtests.
  */
-import { hasTag } from './enemyDefinitions';
+import { definitionOf, hasTag, type EnemyId } from './enemyDefinitions';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
 import type { ForestCell, ForestState } from './forestTypes';
@@ -17,14 +17,20 @@ export const RUN_PRESSURE_FIRST_ROW = 5;
 /**
  * Pressure in the manner of Grindstone (decision of 04.10.2026, replacing the layers of 03.10.2026): refills are
  * always weak; only the number of enemies becoming angry grows. Before the goals RUN_ANGER_BEFORE_GOALS calm enemy
- * becomes angry per turn; after them, at the board update of the k-th turn after the goal turn, 1 + k of them — never
+ * becomes angry per turn (none while a Troll or the Chief lives: the boss is the pressure); after them, at the board update of the k-th turn after the goal turn, 1 + k of them — never
  * more angry ordinary enemies on the field than RUN_ANGER_CAP (the cap limits the anger only: reinforcements come).
  */
 export const RUN_ANGER_BEFORE_GOALS = 1;
 /** Баланс: at most this many angry ordinary enemies (melee without a variant) on the field after the anger queue. */
 export const RUN_ANGER_CAP = 10;
 
-type PressureState = Pick<ForestState, 'runNode' | 'turn' | 'customLevel'>;
+/**
+ * Bosses that make the pressure themselves (decision of 04.10.2026, as Grindstone's boss levels): while one lives and
+ * the goals are open, no calm enemy becomes angry. The Jailer is a checkpoint, not one of them.
+ */
+export const PRESSURE_BOSSES: readonly EnemyId[] = ['troll', 'chief'];
+
+type PressureState = Pick<ForestState, 'runNode' | 'turn' | 'customLevel' | 'board'>;
 
 /** The pressure applies only to a map-node battle on row ≥ RUN_PRESSURE_FIRST_ROW (not the trunk or the editor). */
 export function runPressureActive(state: Pick<ForestState, 'runNode'>): boolean {
@@ -35,7 +41,12 @@ export function runPressureActive(state: Pick<ForestState, 'runNode'>): boolean 
 function angerAt(state: PressureState, turn: number): number {
   if (!runPressureActive(state)) return 1;
   const goal = state.customLevel?.goalCompletedTurn ?? null;
-  return goal === null ? RUN_ANGER_BEFORE_GOALS : RUN_ANGER_BEFORE_GOALS + Math.max(0, turn - goal);
+  if (goal === null) return pressureBossLives(state.board) ? 0 : RUN_ANGER_BEFORE_GOALS;
+  return RUN_ANGER_BEFORE_GOALS + Math.max(0, turn - goal);
+}
+/** A living Troll or Chief on the board: the boss is the pressure (no new anger before its battle's goals). */
+export function pressureBossLives(board: readonly (ForestCell | null)[]): boolean {
+  return board.some(cell => !!cell && cell.kind === 'boss' && isCellAlive(cell) && PRESSURE_BOSSES.includes(definitionOf(cell)?.id as EnemyId));
 }
 /** Calm ordinary melee enemies that join the anger queue after `state.turn` completed turns (before the cap). */
 export function angerPerTurn(state: PressureState): number {
@@ -48,7 +59,7 @@ export function angryOrdinaryCount(board: readonly (ForestCell | null)[]): numbe
   return new Set(board.flatMap(cell => cell && angryOrdinary(cell) ? [cell.id] : [])).size;
 }
 /** How many calm enemies the anger queue takes now: `angerPerTurn`, limited on rows ≥ 5 by the cap of angry ones. */
-export function angerQueueSize(state: PressureState & Pick<ForestState, 'board'>): number {
+export function angerQueueSize(state: PressureState): number {
   const wanted = angerPerTurn(state);
   return runPressureActive(state) ? Math.max(0, Math.min(wanted, RUN_ANGER_CAP - angryOrdinaryCount(state.board))) : wanted;
 }
@@ -64,7 +75,7 @@ export interface RunPressureInfo {
   angry: number;
   cap: number;
 }
-export function runPressureInfo(state: PressureState & Pick<ForestState, 'board'>): RunPressureInfo {
+export function runPressureInfo(state: PressureState): RunPressureInfo {
   return { active: runPressureActive(state), afterGoals: (state.customLevel?.goalCompletedTurn ?? null) !== null,
     nextAnger: runPressureActive(state) ? Math.max(0, Math.min(angerAt(state, state.turn + 1), RUN_ANGER_CAP - angryOrdinaryCount(state.board))) : angerAt(state, state.turn + 1),
     angry: angryOrdinaryCount(state.board), cap: RUN_ANGER_CAP };
