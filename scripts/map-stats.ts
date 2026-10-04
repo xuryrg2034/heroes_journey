@@ -3,6 +3,7 @@
  * «Генерация карты»). Read-only: it builds runs through the run API and prints tables, nothing is saved.
  *   npm run analyze:map                 # 1000 spread seeds
  *   npm run analyze:map -- --seeds 5000
+ *   npm run analyze:map -- --ladder 1   # maps of a run on a step of «Ступени клятвы» (step 1: more hard battles)
  * Battles are resolved as won with the entry resources (no engine): the numbers are about the map and the pools,
  * never about how a battle is played.
  */
@@ -12,6 +13,8 @@ import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, crea
 
 const argSeeds = process.argv.indexOf('--seeds');
 const COUNT = argSeeds > 0 ? Number(process.argv[argSeeds + 1]) : 1000;
+const argLadder = process.argv.indexOf('--ladder');
+const LADDER = argLadder > 0 ? Number(process.argv[argLadder + 1]) : 0;
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
 const SEEDS = Array.from({ length: COUNT }, (_, k) => spread(k + 1));
 const TYPES: ForestNodeType[] = ['battle', 'hard', 'rest', 'find', 'event', 'shop'];
@@ -26,12 +29,13 @@ const byRow = new Map<number, Record<string, number>>();
 const nodeCounts: number[] = [], starts: number[] = [], routesToBoss: number[] = [], routesPerBoss: number[] = [];
 const shares = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, Object.fromEntries(TYPES.map(type => [type, [] as number[]]))])) as Record<Section, Record<string, number[]>>;
 const battlesWithTrunk: number[] = [], eventsPerRoute: number[] = [], shopsPerRoute: number[] = [], shopsPerMap: number[] = [];
-let mapsWithShopRoute = 0, consecutiveShops = 0;
+let mapsWithShopRoute = 0, consecutiveShops = 0, routesWithHard = 0, routeCount = 0;
+const hardPerMap: number[] = [];
 const freeTotal = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, 0])) as Record<Section, number>;
 const freeByType = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, Object.fromEntries(TYPES.map(type => [type, 0]))])) as Record<Section, Record<string, number>>;
 
 for (const seed of SEEDS) {
-  const run = createForestRun(seed, { map: 'generated', skipTrunk: true });
+  const run = createForestRun(seed, { map: 'generated', skipTrunk: true, ladder: LADDER });
   const nodes = forestRunView(run).nodes.map(entry => entry.node).filter(node => node.lane !== 'trunk');
   const byId = new Map(nodes.map(node => [node.id, node]));
   nodeCounts.push(nodes.length);
@@ -44,6 +48,8 @@ for (const seed of SEEDS) {
   const routes = first.flatMap(id => walk(byId.get(id)!));
   routesToBoss.push(routes.length);
   shopsPerMap.push(nodes.filter(node => node.type === 'shop').length);
+  hardPerMap.push(nodes.filter(node => node.type === 'hard').length);
+  routeCount += routes.length; routesWithHard += routes.filter(route => route.some(node => node.type === 'hard')).length;
   if (routes.some(route => route.some(node => node.type === 'shop'))) mapsWithShopRoute++;
   if (routes.some(route => route.some((node, n) => n > 0 && node.type === 'shop' && route[n - 1].type === 'shop'))) consecutiveShops++;
   for (const lane of ['den', 'camp']) routesPerBoss.push(routes.filter(route => route[route.length - 1].lane === lane).length);
@@ -58,7 +64,8 @@ for (const seed of SEEDS) {
   }
 }
 
-console.log(`Generated forest map, ${COUNT} spread seeds (Math.imul(k, 2654435761) >>> 0, k = 1…${COUNT})\n`);
+console.log(`Generated forest map, ${COUNT} spread seeds (Math.imul(k, 2654435761) >>> 0, k = 1…${COUNT}), ladder step ${LADDER}\n`);
+console.log(`Hard battles per map: ${(hardPerMap.reduce((a, b) => a + b, 0) / COUNT).toFixed(3)}; routes with a hard battle: ${pct(routesWithHard / Math.max(1, routeCount))}\n`);
 console.log('Nodes by row (share of the row\'s nodes over all maps):');
 console.log('| Ряд | Узлов на карту (ср.) | Бой | Трудный | Привал | Находка | Событие | Торговец | Прочее |');
 console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
@@ -89,7 +96,7 @@ let runs = 0, runsWithRepeat = 0, pooled = 0, repeats = 0, sameMain = 0, transit
 const repeatsBySection = { trails: 0, branches: 0 }, pooledBySection = { trails: 0, branches: 0 };
 const repeated = new Map<string, number>();
 for (const [k, seed] of SEEDS.entries()) {
-  let run: ForestRunState = createForestRun(seed, { map: 'generated', skipTrunk: true }), choice = spread(k + 7);
+  let run: ForestRunState = createForestRun(seed, { map: 'generated', skipTrunk: true, ladder: LADDER }), choice = spread(k + 7);
   const met: string[] = [];
   while (!run.result) {
     choice = spread(choice + 1);

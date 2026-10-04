@@ -296,9 +296,26 @@ async function talismans() {
   console.log('PASS talisman choices (shown, taken, refused) and battle triggers (ward, whetstone) are recorded; telemetry only observes');
 }
 
+/** The run's ladder step is written into the attempt of a map battle; step 0 writes nothing. */
+async function ladderStep() {
+  for (const ladder of [0, 4]) {
+    telemetry.clearTelemetry();
+    const setup: RunBattleSetup = { nodeId: 'spec-telemetry', label: 'spec', seed: spread(ladder + 3), template: { kind: 'battle', id: 'spec-telemetry-exit' }, row: 6,
+      player: { hp: 5, maxHp: 5, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [], ...ladder ? { ladder } : {} };
+    const g = new ForestEngine(); g.animationScale = 0; telemetry.installTelemetry(g);
+    assert(g.startRunBattle(setup), `step ${ladder}: the battle starts`);
+    await chain(g, [...COLUMN, DOOR]);
+    const [record] = journal();
+    assert(record && record.ladder === (ladder || undefined), `step ${ladder}: the attempt records ${ladder ? `ladder ${ladder}` : 'no ladder'}: ${JSON.stringify(record?.ladder)}`);
+  }
+  telemetry.clearTelemetry();
+  console.log('PASS the ladder step is recorded in the attempts of map battles');
+}
+
 eventChoices();
 restChoices();
 shopVisits();
+await ladderStep();
 await talismans();
 await leaveAtOnce();
 await runDefeatEndsTheRun();

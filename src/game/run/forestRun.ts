@@ -18,6 +18,7 @@ import { battlePoolEntry, pickPoolBattle, poolCandidates, type PoolBattleType } 
 import { isTalismanId, type TalismanId } from '../talismans';
 import { BLANK_SCORE, talismanOffer, type TalismanOption, type TalismanSource } from './talismanOffers';
 import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, shopPayment, shopPrice, shopStock, stockTotal, type ShopGoodKind, type ShopPurchase, type ShopStock } from './merchant';
+import { isLadderStep, LADDER_GREED_RESOURCES, LADDER_HARD_FACTOR, LADDER_REST_PENALTY, LADDER_SHOP_MARKUP, LADDER_START_HP, runLadderAt } from '../ladder';
 
 /**
  * Version 2 (04.10.2026): the run carries its map (`map`) and the battles and events taken from pools (`picks`).
@@ -86,6 +87,12 @@ export interface ForestRunPick { nodeId: string; battleId?: string; eventId?: st
 export interface ForestRunState {
   version: typeof FOREST_RUN_VERSION;
   seed: number;
+  /**
+   * The run's step of «Ступени клятвы» (ladder.ts, docs/roguelike-runs.md, section 6), chosen at the start: 1–10; absent —
+   * step 0, the game without changes (saves before the ladder). The run reads it for the map, the start HP, the rest and
+   * the merchant; battles get it in their setup.
+   */
+  ladder?: number;
   map: ForestRunMapRef;
   /** Pool picks of the entered nodes of a generated map, in entering order (empty on the authored graph). */
   picks: ForestRunPick[];
@@ -199,13 +206,18 @@ export function forestNodeSeed(runSeed: number, nodeId: string): number {
  * `skipTrunk`: the player profile marks the trunk as cleared, so the run starts at the trail fork.
  * `map`: `'generated'` — a map by the run seed (the game's runs, main.ts); `'authored'` (default) — the authored graph
  * FOREST_MAP, the source of the trunk and of the tests.
+ * `ladder`: the step of «Ступени клятвы» (0 — none). Step 1 generates the map with LADDER_HARD_FACTOR more hard battles
+ * (the authored graph keeps its nodes); step 6 starts at LADDER_START_HP of the maximum.
  */
-export function createForestRun(seed: number, options: { skipTrunk?: boolean; map?: 'authored' | 'generated' } = {}): ForestRunState {
-  const map: ForestRunMapRef = options.map === 'generated' ? { kind: 'generated', ...generateForestMap(seed) } : { kind: 'authored' };
+export function createForestRun(seed: number, options: { skipTrunk?: boolean; map?: 'authored' | 'generated'; ladder?: number } = {}): ForestRunState {
+  const ladder = isLadderStep(options.ladder) ? options.ladder : 0;
+  const map: ForestRunMapRef = options.map === 'generated'
+    ? { kind: 'generated', ...generateForestMap(seed, undefined, ladder >= 1 ? { hardFactor: LADDER_HARD_FACTOR } : {}) } : { kind: 'authored' };
+  const hp = ladder >= 6 ? Math.min(LADDER_START_HP, FOREST_RUN_START_HP) : FOREST_RUN_START_HP;
   return {
-    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], shops: [], score: 0,
+    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], ...ladder ? { ladder } : {}, currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], shops: [], score: 0,
     talismans: [], talismansGone: [], talismanChoices: [],
-    resources: { player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 },
+    resources: { player: { hp, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
     tools: { items: [], abilities: [] }, pending: null, result: null,
   };
@@ -400,9 +412,14 @@ export function battleSetup(run: ForestRunState): RunBattleSetup | null {
   if (!template) return null;
   const entry = structuredClone(pending.entry);
   const paletteWeights = nodeRefillPalette(node);
+  // «Ступени клятвы» (ladder.ts): the step, the hard battle (steps 3 and 8) and greed — a hard battle entered with at least
+  // LADDER_GREED_RESOURCES in stock on step 8 starts with one more random elite.
+  const ladder = run.ladder ?? 0, hard = node.type === 'hard';
+  const greedElite = hard && runLadderAt(run, 8) && stockTotal(entry.materials) >= LADDER_GREED_RESOURCES;
   return { nodeId: node.id, label: node.name, seed: pending.seed, template, row: node.row, player: entry.player, inventory: entry.inventory,
     allowedItems: [...pending.tools.items], allowedAbilities: [...pending.tools.abilities], ...(paletteWeights ? { paletteWeights } : {}),
-    ...(run.talismans.length ? { talismans: [...run.talismans] } : {}), ...(wardReady(run) ? { wardReady: true } : {}) };
+    ...(run.talismans.length ? { talismans: [...run.talismans] } : {}), ...(wardReady(run) ? { wardReady: true } : {}),
+    ...(ladder ? { ladder } : {}), ...(hard ? { hard: true } : {}), ...(greedElite ? { greedElite: true } : {}) };
 }
 
 const clampCount = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
@@ -476,12 +493,14 @@ export function chooseFindItem(current: ForestRunState, item: ItemKind): ForestR
 export const DEW_FLASK_HEAL = 1;
 /**
  * HP the «heal» choice of a rest restores before the clamp to the maximum: the node's heal, +DEW_FLASK_HEAL with «Фляга
- * росы», nothing under «Клятва голода» (docs/talismans.md; the two never come together). The rest screen, the map's
- * node panel and the heal read this one number. Under the oath the choice still clears burning, poison and bleeding.
+ * росы», nothing under «Клятва голода» (docs/talismans.md; the two never come together), LADDER_REST_PENALTY less from
+ * the ladder's step 5 (never below 0). The rest screen, the map's node panel and the heal read this one number. Under the
+ * oath the choice still clears burning, poison and bleeding.
  */
-export function restHealValue(run: Pick<ForestRunState, 'talismans'>, node: ForestMapNode): number {
+export function restHealValue(run: Pick<ForestRunState, 'talismans' | 'ladder'>, node: ForestMapNode): number {
   if (node.content.kind !== 'rest' || run.talismans?.includes('oath-hunger')) return 0;
-  return node.content.heal + (run.talismans?.includes('dew-flask') ? DEW_FLASK_HEAL : 0);
+  const value = node.content.heal + (run.talismans?.includes('dew-flask') ? DEW_FLASK_HEAL : 0);
+  return Math.max(0, value - (runLadderAt(run, 5) ? LADDER_REST_PENALTY : 0));
 }
 export interface RestRecipeView {
   resource: ResourceKind; item: ItemKind; have: number; cost: number;
@@ -564,8 +583,8 @@ export function restFinish(current: ForestRunState): ForestRunStep {
 function rollShopStock(run: Pick<ForestRunState, 'seed' | 'talismans' | 'talismansGone' | 'tools'>, node: ForestMapNode): ShopStock {
   return shopStock(forestNodeSeed(run.seed, node.id), run.tools.items, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
 }
-/** Added to every merchant price in this run. */
-export function shopMarkup(_run: unknown): number { return 0; }
+/** Added to every merchant price in this run: LADDER_SHOP_MARKUP from the ladder's step 9. */
+export function shopMarkup(run: { ladder?: number }): number { return runLadderAt(run, 9) ? LADDER_SHOP_MARKUP : 0; }
 /** A good on sale: `id` is what shopBuy takes (`item:<slot>`, `talisman`, `heal`, `harden`). */
 export interface ShopGoodView {
   id: string; good: ShopGoodKind; item?: ItemKind; talisman?: TalismanId;
@@ -893,9 +912,11 @@ export function parseForestRun(text: string): ForestRunState | null {
   const hardenIn = (list: unknown) => Array.isArray(list) ? list.filter(entry => isRecord(entry) && entry.good === 'harden').length : 0;
   const savedHardenings = shopRecords.reduce((sum: number, shop) => sum + (isRecord(shop) ? hardenIn(shop.bought) : 0), 0)
     + (isRecord(value.pending) && value.pending.kind === 'shop' ? hardenIn(value.pending.bought) : 0);
-  const maxHp = runMaxHp({ talismans, shops: [], pending: null }) + savedHardenings, savedShopMarkup = shopMarkup({});
+  const maxHp = runMaxHp({ talismans, shops: [], pending: null }) + savedHardenings, savedShopMarkup = shopMarkup({ ladder: value.ladder as number | undefined });
   if (!Array.isArray(value.visited) || !validResources(value.resources, maxHp) || !validTools(value.tools)) return null;
   if (value.skippedTrunk !== undefined && value.skippedTrunk !== true) return null;
+  // The ladder's step: absent (step 0) or 1…LADDER_MAX.
+  if (value.ladder !== undefined && !(isLadderStep(value.ladder) && value.ladder > 0)) return null;
   const mapRef = savedMap(value);
   if (!mapRef) return null;
   const map = forestRunMap({ map: mapRef }), starts = map.starts(value.skippedTrunk === true);

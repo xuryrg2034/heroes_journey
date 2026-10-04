@@ -80,6 +80,8 @@ export interface AttemptRecord {
   wardSaved?: boolean;
   /** The Whetstone gave the first ordinary chain of this attempt its power of 1. */
   whetstoneUsed?: boolean;
+  /** The run's step of «Ступени клятвы» (ladder.ts); absent — step 0, or a journal before the ladder. */
+  ladder?: number;
 }
 
 /**
@@ -101,7 +103,7 @@ export interface RunTalismanRecord { nodeId: string; source: TalismanSource; off
  * A completed merchant visit (docs/roguelike-runs.md, 5б): the node, the stock shown, every purchase with its full price
  * and the resources paid (the healing may cost less than its price), the run seed. Journals written before have none.
  */
-export interface RunShopRecord { nodeId: string; stock: ShopStock; bought: ShopPurchase[]; seed: number; at: number }
+export interface RunShopRecord { nodeId: string; stock: ShopStock; bought: ShopPurchase[]; seed: number; at: number; /** The run's ladder step; absent — 0. */ ladder?: number }
 /** Merchants over the journal: visits, visits with a purchase, purchases and resources spent per good. */
 export interface ShopAggregate { visits: number; buying: number; resources: number; goods: Partial<Record<ShopGoodKind, { count: number; resources: number }>> }
 /** Per talisman over the journal: shown, taken, refused (shown and not taken); plus the battles where it fired. */
@@ -326,6 +328,8 @@ interface Open {
   /** Kept in step with the engine like `hp`: on a restart the engine already holds the new battle when `start` arrives. */
   materials: Partial<Record<ResourceKind, number>>;
   lootItems: Partial<Record<ItemKind, number>>; chestDropped: boolean; chestOpened: boolean;
+  /** The run's ladder step (0 outside a run or on step 0). */
+  ladder: number;
   /** Talismans held, whether the ward was whole at the start (to notice it crumble) and the triggers seen. */
   talismans: TalismanId[]; wardWhole: boolean; wardSaved: boolean; whetstoneUsed: boolean;
 }
@@ -375,6 +379,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
       materials: current.materials, lootItems: current.lootItems, chestDropped: current.chestDropped, chestOpened: current.chestOpened,
       ...(current.mode === 'run' && outcome === 'lose' ? { runEnded: true } : {}),
       ...(current.talismans.length ? { talismans: current.talismans, wardSaved: current.wardSaved, whetstoneUsed: current.whetstoneUsed } : {}),
+      ...(current.ladder ? { ladder: current.ladder } : {}),
     };
     const journal = load();
     journal.attempts = [...journal.attempts, record].slice(-MAX_ATTEMPTS);
@@ -390,7 +395,8 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     open = { ...info, startedAt: Date.now(), t0: performance.now(), visit: visitCounter, attemptInVisit: attemptCounter,
       turns: 0, hp: engine.state.player.hp, maxHp: engine.state.player.maxHp, damage: 0, chainLengths: [], cancelled: 0, abilities: {}, items: {}, firstMoveMs: null,
       goalTurn: null, hpAtGoal: null, damageAfterGoal: 0, exitTurn: null, materials: {}, lootItems: {}, chestDropped: false, chestOpened: false,
-      talismans: [...engine.state.runNode?.talismans ?? []], wardWhole: !!engine.state.player.ward, wardSaved: false, whetstoneUsed: false };
+      talismans: [...engine.state.runNode?.talismans ?? []], wardWhole: !!engine.state.player.ward, wardSaved: false, whetstoneUsed: false,
+      ladder: engine.state.runNode?.ladder ?? 0 };
   };
   const committed = () => {
     if (!open) return;
