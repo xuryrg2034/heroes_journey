@@ -5,7 +5,7 @@
 import type { DamageEffects } from '../damageEffects';
 import type { PaletteWeights } from '../customLevel';
 import type { ResourceKind, AbilityKind, ItemKind } from '../forestTypes';
-import type { TalismanId } from '../talismans';
+import type { BattleModifier, TalismanId } from '../talismans';
 
 /** Cat resources carried between map nodes. */
 export interface RunPlayerResources { hp: number; maxHp: number; energy: number; damageEffects?: DamageEffects }
@@ -41,6 +41,8 @@ export interface RunBattleSetup {
   hard?: boolean;
   /** Ladder step 8: the run's stock reached LADDER_GREED_RESOURCES — one more random elite at the start. */
   greedElite?: boolean;
+  /** One-battle modifiers set by an event for this battle (talismans.ts). */
+  modifiers?: BattleModifier[];
 }
 
 /** Result of a finished node battle, read with ForestEngine.runBattleOutcome(). */

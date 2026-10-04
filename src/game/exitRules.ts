@@ -17,7 +17,7 @@ import type { ForestCell, ForestState, ResourceKind } from './forestTypes';
 import { RESOURCE_KINDS } from './resources';
 import { crystalCellAllowed, nextRandom, runPressureActive } from './mapBattleRules';
 import { isCellAlive } from './cellLife';
-import { hasTalisman } from './talismans';
+import { hasTalisman, reinforcementShift } from './talismans';
 import { LADDER_REINFORCEMENT_EVERY, ladderAt } from './ladder';
 import { deviceAt, pitAt } from './devices';
 
@@ -72,7 +72,7 @@ export const REINFORCEMENT_COUNT = 2;
 export function nextReinforcementTurn(state: Pick<ForestState, 'runNode' | 'customLevel' | 'turn'>): number | null {
   if (!exitBattle(state) || !runPressureActive(state) || state.customLevel!.goalCompletedTurn === null) return null;
   // The Hourglass (talismans.ts): the first reinforcement one turn later; then every REINFORCEMENT_EVERY as usual.
-  const first = state.customLevel!.goalCompletedTurn + REINFORCEMENT_DELAY + (hasTalisman(state, 'hourglass') ? 1 : 0);
+  const first = state.customLevel!.goalCompletedTurn + REINFORCEMENT_DELAY + reinforcementShift(state);
   // Ladder step 7: every 2 turns after the first.
   const every = ladderAt(state, 7) ? LADDER_REINFORCEMENT_EVERY : REINFORCEMENT_EVERY;
   return state.turn < first ? first : first + every * (Math.floor((state.turn - first) / every) + 1);

@@ -1,6 +1,6 @@
 import type { DamageEffects, DamageEffectKind } from './damageEffects';
 import type { CustomLevelRuntime } from './customLevel';
-import type { TalismanId } from './talismans';
+import type { BattleModifier, TalismanId } from './talismans';
 import type { CellBehaviorComponent, CellFootprintComponent, CellHealthComponent, CellIdentityComponent,
   CellIntentComponent, CellLinkComponent, CellShieldComponent, CellStatusComponent, DamageEffectComponent, CellEliteComponent } from './components';
 export type EnemyColor = 0 | 1 | 2 | 3 | 4;
@@ -63,7 +63,9 @@ export interface ForestState {
     /** The run's ladder step (ladder.ts); absent — 0. */
     ladder?: number;
     /** The node is a hard battle (ladder steps 3 and 8). */
-    hard?: true };
+    hard?: true;
+    /** One-battle modifiers set by an event (talismans.ts, `BattleModifier`). */
+    modifiers?: BattleModifier[] };
 }
 export interface EngineEvent { type: string; effect?: DamageEffectKind; index?: number; from?: number; to?: number; amount?: number; text?: string; indices?: number[]; oldId?: number; newId?: number; geometry?: RotationGeometry }
 export interface ChainHit {

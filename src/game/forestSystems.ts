@@ -16,7 +16,7 @@ import { assignDamageEffects, applyAttackEffect } from './effectRules';
 import { customGoalsMet } from './customLevel';
 import { applyDeviceVolley, deviceAt } from './devices';
 import { angerQueueSize, crystalCellAllowed, crystalKills, crystalScore, nextRandom } from './mapBattleRules';
-import { hasTalisman } from './talismans';
+import { firstChainPower, hasTalisman } from './talismans';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
 /** Energy an ability costs in this battle: the Nimble paws make the jump cost 1 (talismans.ts). */
@@ -79,9 +79,9 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
     damage: 0, damageBySource: emptyDamageBySource(), threats: [], createsPrism: false, reason: '', hits: [], kills: 0, endsOnSurvivor: false, rotations: rotationPreview(state), energyCost: 0, energyGain: 0 };
   let color: number | null = null, previous = state.player.index;
   // The Whetstone (talismans.ts): the first ordinary chain of the battle starts with a power of 1.
-  const whetstone = hasTalisman(state, 'whetstone') && !state.chainStarted;
-  let chainPower = whetstone ? 1 : 0;
-  if (whetstone) preview.whetstone = true;
+  const startPower = state.chainStarted ? 0 : firstChainPower(state);
+  let chainPower = startPower;
+  if (startPower) preview.whetstone = true;
   let temporaryEffect: 'fire' | undefined;
   const steps: ChainStep[] = [], queuedDevices: InteractionDevice[] = [];
   const seenDevices = new Set<number>();

@@ -51,3 +51,29 @@ export function hasTalisman(state: Pick<ForestState, 'runNode'>, id: TalismanId)
 export function oathCount(state: Pick<ForestState, 'runNode'>): number {
   return state.runNode?.talismans?.filter(isOath).length ?? 0;
 }
+
+/**
+ * One-battle modifiers of the run (event catalogue, docs/events.md section 5): set by an event, they act on the next
+ * map battle only and are dropped after it. They stack with the talismans that do the same.
+ */
+export type BattleModifier = 'first-chain-power' | 'wrath' | 'start-elite' | 'early-reinforcement';
+export const BATTLE_MODIFIERS: Record<BattleModifier, string> = {
+  'first-chain-power': 'Первая цепь начинается с запасом силы 1',
+  wrath: 'До целей злятся 2 врага за ход',
+  'start-elite': 'Бой начинается со случайной элитой',
+  'early-reinforcement': 'Первое подкрепление после целей на 1 ход раньше',
+};
+export const isBattleModifier = (value: unknown): value is BattleModifier => typeof value === 'string' && Object.hasOwn(BATTLE_MODIFIERS, value);
+const hasModifier = (state: Pick<ForestState, 'runNode'>, modifier: BattleModifier) => !!state.runNode?.modifiers?.includes(modifier);
+
+/** Starting power of the first ordinary chain of the battle: Whetstone +1, the event modifier +1. */
+export const firstChainPower = (state: Pick<ForestState, 'runNode'>): number =>
+  (hasTalisman(state, 'whetstone') ? 1 : 0) + (hasModifier(state, 'first-chain-power') ? 1 : 0);
+/** Extra calm enemies made angry per turn before the goals: the Oath of wrath +1, the event modifier +1. */
+export const extraAngerBeforeGoals = (state: Pick<ForestState, 'runNode'>): number =>
+  (hasTalisman(state, 'oath-wrath') ? 1 : 0) + (hasModifier(state, 'wrath') ? 1 : 0);
+/** Shift of the first reinforcement after the goals: the Hourglass +1, the event modifier −1. */
+export const reinforcementShift = (state: Pick<ForestState, 'runNode'>): number =>
+  (hasTalisman(state, 'hourglass') ? 1 : 0) - (hasModifier(state, 'early-reinforcement') ? 1 : 0);
+/** The battle starts with a random elite (the event modifier). */
+export const startsWithElite = (state: Pick<ForestState, 'runNode'>): boolean => hasModifier(state, 'start-elite');

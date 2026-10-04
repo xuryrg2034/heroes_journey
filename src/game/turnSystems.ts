@@ -12,7 +12,7 @@ import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPh
 import { behaviorOf } from './enemyBehaviors';
 import { heroStrikeDamage, rollEliteLoot } from './elite';
 import { emptyMaterials, isResource } from './resources';
-import { hasTalisman } from './talismans';
+import { firstChainPower } from './talismans';
 import { LADDER_TROLL_REGEN, ladderAt } from './ladder';
 import { chestContents, chestDue, chestSize, nextReinforcementTurn, reinforcementLanding, rollChestCell, rollReinforcementCells } from './exitRules';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
@@ -245,7 +245,7 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
   }
   ctx.state.chain = [];
   // The Whetstone's first ordinary chain is spent (abilities do not count); without it nothing is recorded.
-  if (!ability && hasTalisman(ctx.state, 'whetstone')) ctx.state.chainStarted = true;
+  if (!ability && firstChainPower(ctx.state)) ctx.state.chainStarted = true;
   if (!(yield* dropQueuedLoot(ctx))) return false;
   return yield* dropChest(ctx);
 } };

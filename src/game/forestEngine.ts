@@ -17,7 +17,7 @@ import { cloneState, type World } from './ecs/world';
 import { definitionOf, hasTag, variantDefinition, type EnemyId } from './enemyDefinitions';
 import { applyElite, applyRandomElite, rollRandomElite } from './elite';
 import { emptyMaterials } from './resources';
-import { hasTalisman, OATH_ENERGY, oathCount } from './talismans';
+import { hasTalisman, OATH_ENERGY, oathCount, startsWithElite } from './talismans';
 import { LADDER_BOSS_HP, ladderAt } from './ladder';
 import { PRESSURE_BOSSES } from './mapBattleRules';
 import { reinforcementCellAllowed } from './exitRules';
@@ -101,7 +101,8 @@ export class ForestEngine {
       ...(player.damageEffects ? { damageEffects: { ...player.damageEffects } } : {}) };
     state.inventory = { ...setup.inventory };
     state.runNode = { nodeId: setup.nodeId, label: setup.label, row: setup.row, allowedItems: [...setup.allowedItems], allowedAbilities: [...setup.allowedAbilities],
-      ...(setup.talismans?.length ? { talismans: [...setup.talismans] } : {}), ...(setup.ladder ? { ladder: setup.ladder } : {}), ...(setup.hard ? { hard: true as const } : {}) };
+      ...(setup.talismans?.length ? { talismans: [...setup.talismans] } : {}), ...(setup.ladder ? { ladder: setup.ladder } : {}), ...(setup.hard ? { hard: true as const } : {}),
+      ...(setup.modifiers?.length ? { modifiers: [...setup.modifiers] } : {}) };
     // Oaths: +OATH_ENERGY at the start of every battle (up to 7); the Ash ward, if still whole (talismans.ts).
     state.player.energy = Math.min(7, state.player.energy + OATH_ENERGY * oathCount(state));
     if (setup.wardReady && hasTalisman(state, 'ash-ward')) state.player.ward = true;
@@ -180,7 +181,9 @@ export class ForestEngine {
       }
       // Ladder step 8 (greed): a hard battle starts with one more random elite on an authored ordinary goblin, drawn by
       // the battle seed (only when the run asks for it, so the RNG of every other battle is unchanged).
-      if (run?.greedElite && state.runNode?.hard && ladderAt(state, 8)) {
+      // The event modifier «start with a random elite» does the same, once more if both apply.
+      const startElites = (run?.greedElite && state.runNode?.hard && ladderAt(state, 8) ? 1 : 0) + (startsWithElite(state) ? 1 : 0);
+      for (let n = 0; n < startElites; n++) {
         const pool = state.board.flatMap((cell, index) => cell && reinforcementCellAllowed(state, state.board, index) ? [index] : []);
         if (pool.length) applyRandomElite(state.board[pool[Math.floor(this.random() * pool.length)]]!);
       }

@@ -9,7 +9,7 @@ import type { ChainPreview, ForestState } from './forestTypes';
 import { authoredLesson, type LessonTile } from './lessonBuilder';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './run/forestBattles';
 import type { RunBattleSetup } from './run/runBattle';
-import type { TalismanId } from './talismans';
+import type { BattleModifier, TalismanId } from './talismans';
 import { nextReinforcementTurn } from './exitRules';
 import { angryOrdinaryCount } from './mapBattleRules';
 import type { DamageEffects } from './damageEffects';
@@ -21,13 +21,13 @@ const registry = FOREST_NODE_BATTLES as Record<string, NodeBattle>;
 const battle = (id: string, rows: string[], legend: Record<string, LessonTile> = {}) => {
   registry[id] = authoredLesson({ id, name: id, description: '', hint: '', seed: 7500, rows, legend: { D: { door: true }, T: { color: 3, target: true }, ...legend } });
 };
-interface Options { talismans?: TalismanId[]; ward?: boolean; hp?: number; energy?: number; row?: number; effects?: DamageEffects; abilities?: ('jump' | 'spin')[] }
+interface Options { modifiers?: BattleModifier[]; talismans?: TalismanId[]; ward?: boolean; hp?: number; energy?: number; row?: number; effects?: DamageEffects; abilities?: ('jump' | 'spin')[] }
 function start(id: string, seed: number, options: Options = {}): ForestEngine {
   const hp = options.hp ?? 5;
   const setup: RunBattleSetup = { nodeId: 'spec', label: 'spec', seed, template: { kind: 'battle', id }, row: options.row ?? 6,
     player: { hp, maxHp: Math.max(hp, 5), energy: options.energy ?? 0, ...(options.effects ? { damageEffects: { ...options.effects } } : {}) },
     inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: options.abilities ?? [],
-    ...(options.talismans ? { talismans: options.talismans } : {}), ...(options.ward ? { wardReady: true } : {}) };
+    ...(options.talismans ? { talismans: options.talismans } : {}), ...(options.modifiers ? { modifiers: options.modifiers } : {}), ...(options.ward ? { wardReady: true } : {}) };
   const g = new ForestEngine(); g.animationScale = 0;
   assert(g.startRunBattle(setup), `${id} starts`);
   return g;
@@ -171,6 +171,27 @@ async function ashWard() {
   console.log('PASS Ash ward: strike, quills, thorns, bleeding, burning, a pit — 1 HP and the ward spent, as forecast; a second lethal hit kills; the run is told');
 }
 
+/** One-battle modifiers of events (docs/events.md §5): each acts like its talisman, and they stack. */
+async function battleModifiers() {
+  for (let k = 1; k <= 3; k++) {
+    const power = start('spec-tal-durable', spread(k), { modifiers: ['first-chain-power'] }).preview([6]);
+    assert(power.whetstone && power.hits[0].availablePower === 2, `seed ${k}: «first chain +1»`);
+    const both = start('spec-tal-durable', spread(k), { modifiers: ['first-chain-power'], talismans: ['whetstone'] }).preview([6]);
+    assert(both.hits[0].availablePower === 3, `seed ${k}: the modifier stacks with the Whetstone`);
+    const g = start('spec-tal-open', spread(k), { modifiers: ['wrath'], hp: 40 }), a0 = angryOrdinaryCount(g.state.board);
+    await g.waitTurn();
+    assert(angryOrdinaryCount(g.state.board) - a0 === 2, `seed ${k}: «wrath» makes 2 angry per turn before the goals`);
+    const e = start('spec-tal-open', spread(k), { modifiers: ['start-elite'] });
+    assert(e.state.board.filter(cell => cell?.elite === 'random').length === 1, `seed ${k}: «start with a random elite»`);
+    assert(!start('spec-tal-open', spread(k)).state.board.some(cell => cell?.elite === 'random'), `seed ${k}: none without it`);
+    const r = start('spec-tal-open', spread(k), { modifiers: ['early-reinforcement'] });
+    const goal = r.availableMoves(8).find(candidate => candidate.includes(TARGET) && !candidate.includes(24));
+    assert(goal, 'goal chain'); await play(r, goal, `seed ${k} early reinforcement`);
+    assert(nextReinforcementTurn(r.state) === r.state.customLevel!.goalCompletedTurn! + 2, `seed ${k}: «early reinforcement» at goal + 2`);
+  }
+  console.log('PASS event modifiers: first chain +1 (stacks), wrath, a random elite at the start, the first reinforcement one turn earlier');
+}
+
 async function replay() {
   const run = async (seed: number) => {
     const g = start('spec-tal-open', seed, { talismans: ['whetstone', 'millstone-shard', 'hourglass', 'oath-wrath', 'ash-ward'], ward: true, hp: 3 });
@@ -187,5 +208,6 @@ await whetstone();
 await millstoneHourglassPaws();
 await chestAndOaths();
 await ashWard();
+await battleModifiers();
 await replay();
 console.log('PASS talismans (battle effects)');
