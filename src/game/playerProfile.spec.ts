@@ -45,7 +45,7 @@ function firstRunMarksTheTrunk() {
   // A defeat on the trunk would leave the mark unset; entering row 5 sets it, whatever happens in that battle.
   run = enter(run, 'goblin-archer', profile);
   assert(profile.load().trunkCleared && storage.data.has(PLAYER_PROFILE_KEY), 'entering the first trail node marks the trunk as cleared in the profile');
-  assert(json(JSON.parse(storage.data.get(PLAYER_PROFILE_KEY)!)) === json({ version: 1, trunkCleared: true }) && !('trunkCleared' in run),
+  assert(json(JSON.parse(storage.data.get(PLAYER_PROFILE_KEY)!)) === json({ version: 1, trunkCleared: true, ladder: 0 }) && !('trunkCleared' in run),
     'the profile is its own key with only the mark; the run save does not carry it');
   console.log('PASS the first run plays the trunk; entering row 5 marks it cleared in the profile');
 }
