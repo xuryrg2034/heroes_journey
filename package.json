@@ -75,7 +75,8 @@
     "test:ladder-run": "tsx src/game/ladderRun.spec.ts",
     "test:run-streams": "tsx src/game/runStreams.spec.ts",
     "test:run-gift": "tsx src/game/runGift.spec.ts",
-    "test:run-meta": "tsx src/game/runMeta.spec.ts"
+    "test:run-meta": "tsx src/game/runMeta.spec.ts",
+    "test:random-coloring": "tsx src/game/randomColoring.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"

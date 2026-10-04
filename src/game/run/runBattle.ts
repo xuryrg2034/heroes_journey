@@ -43,6 +43,11 @@ export interface RunBattleSetup {
   greedElite?: boolean;
   /** One-battle modifiers set by an event for this battle (talismans.ts). */
   modifiers?: BattleModifier[];
+  /**
+   * Prototype A (docs/random-coloring.md): the battle's pool entry asks for random coloring — the ordinary enemies get
+   * colors drawn by `seed` under checks 1–5 (randomColoring.ts); absent — the authored colors.
+   */
+  coloring?: 'random';
 }
 
 /** Result of a finished node battle, read with ForestEngine.runBattleOutcome(). */

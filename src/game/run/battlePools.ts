@@ -29,6 +29,11 @@ export interface BattlePoolEntry {
   feature?: string;
   /** A stand-in battle: what replaces it once the enemies exist (shown as «временно» on the map). */
   placeholder?: string;
+  /**
+   * Prototype A (decision of 04.10.2026, docs/random-coloring.md): `random` — the ordinary enemies of the opening get
+   * colors by the battle seed on entering (randomColoring.ts); absent — the authored colors.
+   */
+  coloring?: 'random';
 }
 
 export const MAIN_ENEMY_NAMES: Record<MainEnemy, string> = {
@@ -43,19 +48,19 @@ export const MAIN_ENEMY_NAMES: Record<MainEnemy, string> = {
 export const BATTLE_POOLS: Readonly<Record<string, BattlePoolEntry>> = {
   // Trails, rows 5–8.
   'wolf-ford': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'wolf', feature: 'Стая волков' },
-  'boar-garden': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'boar', feature: 'Кабан и шипы по краю' },
+  'boar-garden': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'boar', feature: 'Кабан и шипы по краю', coloring: 'random' },
   // The spec route is chains only: the jump the authored row 7 opens is not needed.
   'porcupine-thicket': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'porcupine', feature: 'Дикобразы' },
   // Beast trail battles of 04.10.2026 (docs/levels/forest-nodes-beasts.md, «Новые бои тропы»): chains only.
-  'beast-wolf-crossing': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'wolf', feature: 'Две стаи у брода' },
+  'beast-wolf-crossing': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'wolf', feature: 'Две стаи у брода', coloring: 'random' },
   'beast-quill-stop': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'boar', feature: 'Кабан и дикобраз-упор' },
   'goblin-archer-watch': { rows: [5, 6], type: 'battle', branch: 'goblins', requires: [], main: 'archer', feature: 'Лучник' }, // lesson; from row 7 the jump (4) kills the 3-HP archer off its line (04.10.2026)
-  'goblin-shield-flank': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'sentinel', feature: 'Щитоносец' },
+  'goblin-shield-flank': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'sentinel', feature: 'Щитоносец', coloring: 'random' },
   // The last target is taken by a jump into the niche (docs/levels/forest-nodes-goblins.md).
   'goblin-shaman-rite': { rows: [7, 8], type: 'battle', branch: 'goblins', requires: ['jump'], main: 'shaman', feature: 'Шаман' },
   // Goblin trail battles of 04.10.2026 (docs/levels/forest-nodes-goblins.md, «Новые бои тропы»): chains only.
   'goblin-watch-relief': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'archer', feature: 'Лучник на вышке' },
-  'goblin-pike-gate': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'goblin', feature: 'Копейщики у ворот' },
+  'goblin-pike-gate': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'goblin', feature: 'Копейщики у ворот', coloring: 'random' },
   'three-banners': { rows: [8, 8], type: 'battle', branch: 'shared', requires: [], main: 'goblin', feature: 'Кристалл в проломе' },
   // The checkpoint, row 9.
   'jailer-gate': { rows: [9, 9], type: 'checkpoint', branch: 'shared', requires: [], main: 'jailer', feature: 'Тюремщик за щитом' },

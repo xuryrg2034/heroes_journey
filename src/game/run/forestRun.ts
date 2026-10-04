@@ -720,7 +720,10 @@ export function battleSetup(run: ForestRunState): RunBattleSetup | null {
     allowedItems: [...pending.tools.items], allowedAbilities: [...pending.tools.abilities], ...(paletteWeights ? { paletteWeights } : {}),
     ...(run.talismans.length ? { talismans: [...run.talismans] } : {}), ...(wardReady(run) ? { wardReady: true } : {}),
     ...(ladder ? { ladder } : {}), ...(hard ? { hard: true } : {}), ...(greedElite ? { greedElite: true } : {}),
-    ...(pending.modifiers?.length ? { modifiers: [...pending.modifiers] } : {}) };
+    ...(pending.modifiers?.length ? { modifiers: [...pending.modifiers] } : {}),
+    // Prototype A (docs/random-coloring.md): the battle's pool entry may ask for random coloring of its ordinary enemies,
+    // drawn by `seed` (the run seed and the node id) — the same setup, also after a reload, gives the same colors.
+    ...(battlePoolEntry(template.id)?.coloring === 'random' ? { coloring: 'random' as const } : {}) };
 }
 
 const clampCount = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
