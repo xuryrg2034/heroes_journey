@@ -315,6 +315,65 @@ async function ladderStep() {
 eventChoices();
 restChoices();
 shopVisits();
+/** Start gifts: the kind, the buttons shown, the button and its own choice taken; summed per button kind; old journals load. */
+function giftRecords() {
+  telemetry.clearTelemetry();
+  telemetry.recordRunGift({ kind: 'full', seed: 5, chosen: 2, pick: 'whetstone', options: [{ kind: 'energy', amount: 2 }, { kind: 'calm', battles: 2 },
+    { kind: 'deal', reward: { kind: 'pick-talisman', talismans: ['dew-flask', 'whetstone'] }, price: 'rest' }, { kind: 'oath', oath: 'oath-hunger' }] });
+  telemetry.recordRunGift({ kind: 'mini', seed: 6, chosen: 1, options: [{ kind: 'items', items: ['bomb', 'frost'] }, { kind: 'max-hp', amount: 1 }] });
+  const payload = telemetry.exportPayload();
+  assert(payload.runGifts.length === 2 && payload.runGifts[0].pick === 'whetstone' && payload.runGifts[1].kind === 'mini', 'gifts are exported in order with the choice');
+  const deal = payload.giftAggregates.find(row => row.option === 'deal'), energy = payload.giftAggregates.find(row => row.option === 'energy');
+  assert(deal?.shown === 1 && deal.taken === 1 && energy?.shown === 1 && energy.taken === 0 && payload.giftAggregates.find(row => row.option === 'max-hp')?.taken === 1, `buttons summed: ${JSON.stringify(payload.giftAggregates)}`);
+  assert(telemetry.playtestHtml().includes('id="playtest-gifts"'), 'the playtest screen sums the gifts');
+  storage.set(telemetry.TELEMETRY_KEY, JSON.stringify({ version: 1, enabled: true, attempts: [], runEvents: [] }));
+  assert(telemetry.exportPayload().runGifts.length === 0 && !telemetry.playtestHtml().includes('playtest-gifts'), 'an old journal without gifts loads');
+  telemetry.clearTelemetry();
+  console.log('PASS start gifts are recorded, exported and summed per button; old journals load');
+}
+
+/**
+ * Map attempts are keyed by the registry battle (decision of 04.10.2026): on a generated map one node id holds different
+ * battles in different runs, and one battle comes at different nodes. The node stays in the record. Old journals keyed by
+ * the node still aggregate: an authored node reads as its battle.
+ */
+async function battleKeys() {
+  telemetry.clearTelemetry();
+  const play = (nodeId: string, id: string, seed: number) => {
+    const setup: RunBattleSetup = { nodeId, label: 'spec', seed, template: { kind: 'battle', id }, row: 6,
+      player: { hp: 5, maxHp: 5, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [] };
+    const g = new ForestEngine(); g.animationScale = 0; telemetry.installTelemetry(g);
+    assert(g.startRunBattle(setup), 'the spec battle starts');
+    return g;
+  };
+  // One node id, two battles (two runs); one battle, two node ids.
+  for (const [nodeId, id, seed] of [['r6c1', 'spec-telemetry-exit', spread(31)], ['r6c1', 'spec-telemetry-elite', spread(32)], ['r7c0', 'spec-telemetry-exit', spread(33)]] as const) {
+    const g = play(nodeId, id, seed);
+    await chain(g, [...COLUMN, DOOR]);
+    assert(g.state.phase === 'WIN', `${nodeId}/${id}: won`);
+  }
+  const records = journal();
+  assert(JSON.stringify(records.map(record => [record.key, record.id, record.nodeId])) === JSON.stringify([
+    ['run:spec-telemetry-exit', 'spec-telemetry-exit', 'r6c1'], ['run:spec-telemetry-elite', 'spec-telemetry-elite', 'r6c1'], ['run:spec-telemetry-exit', 'spec-telemetry-exit', 'r7c0']]),
+    `attempts keyed by the battle, the node kept: ${JSON.stringify(records.map(record => [record.key, record.nodeId]))}`);
+  assert(records[0].visit !== records[2].visit, 'the same battle at another node is another visit');
+  const rows = telemetry.aggregate(records);
+  assert(rows.length === 2 && rows.find(row => row.key === 'run:spec-telemetry-exit')?.attempts === 2 && rows.find(row => row.key === 'run:spec-telemetry-elite')?.attempts === 1,
+    `aggregates by battle: ${JSON.stringify(rows.map(row => [row.key, row.attempts]))}`);
+  // A journal before 04.10.2026: `run:trunk-1` (the node) reads as the battle of that authored node, beside a new record.
+  const old = { key: 'run:trunk-1', mode: 'run', id: 'trunk-1', seed: 1, startedAt: 0, durationMs: 1000, outcome: 'win', left: false, visit: 1, attemptInVisit: 1,
+    turns: 2, hpEnd: 5, maxHp: 5, damageTaken: 0, chains: 2, chainAvg: 3, chainMax: 4, cancelledChains: 0, abilities: {}, items: {}, firstMoveMs: 500 } as AttemptRecord;
+  const fresh: AttemptRecord = { ...old, key: 'run:trunk-wake', id: 'trunk-wake', nodeId: 'trunk-1', visit: 2 };
+  const [row] = telemetry.aggregate([old, fresh]);
+  assert(row.key === 'run:trunk-wake' && row.attempts === 2 && row.label === 'Карта леса · Разбудили', `an old node key joins its battle: ${JSON.stringify(row)}`);
+  const generatedOld = { ...old, key: 'run:r6c1', id: 'r6c1' } as AttemptRecord;
+  assert(telemetry.aggregate([generatedOld])[0].key === 'run:r6c1', 'an old generated node key (its battle unknown) keeps its row');
+  telemetry.clearTelemetry();
+  console.log('PASS map attempts are keyed by the battle with the node kept; old node keys aggregate under their authored battle');
+}
+
+giftRecords();
+await battleKeys();
 await ladderStep();
 await talismans();
 await leaveAtOnce();

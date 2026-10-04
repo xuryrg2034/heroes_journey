@@ -8,14 +8,16 @@ import { summarizeDamageEffects } from './game/damageEffects';
 import { CRAFT_COST, RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { nodeBattleTemplate, forestRowPalette, victoryChoice, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
-import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNode, shopView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView, type ShopGoodView } from './game/run/forestRun';
+import { eventView, forestRunMap, forestRunScore, forestRunView, giftView, restHealValue, restView, runNode, shopView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView, type ShopGoodView } from './game/run/forestRun';
 import { SHOP_HARDEN_STEP, SHOP_HEAL_LIMIT } from './game/run/merchant';
 import { LADDER_STEPS } from './game/ladder';
 import { forestEvent } from './game/run/forestEvents';
+import { barView, CATALOGUE_EVENTS, UNLOCK_LEVELS, UNLOCK_THRESHOLDS } from './game/run/unlocks';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
 import { isOath, talisman, type TalismanId } from './game/talismans';
 import { BLANK_SCORE, type TalismanOption } from './game/run/talismanOffers';
+import type { GiftOption, GiftPrice } from './game/run/runGift';
 
 export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: string; hint: string }> = {
   battle: { icon: '⚔', label: 'Бой', hint: 'Обычный бой.' },
@@ -100,6 +102,55 @@ export function talismanModalHtml(run: ForestRunState): string {
     + `<p class="modal-copy">${oath ? 'Клятва даёт +1 энергию в начале каждого боя и отключает одну систему похода.' : 'Талисман действует до конца похода.'} Не взятые варианты в этом походе больше не выпадут.</p>`
     + `<div class="reward-options">${pending.options.map(option).join('')}</div><button class="button secondary" data-action="talisman-refuse">ОТКАЗАТЬСЯ</button>`
     + `<p class="reward-note">${escapeHtml(nodeName(run, pending.nodeId))}</p>`;
+}
+
+// ---------- The start gift (docs/roguelike-runs.md, 2а; runGift.ts) ----------
+
+const GIFT_PRICE_TEXT: Record<GiftPrice, string> = { hp: '−1 HP сейчас (не ниже 1)', 'max-hp': '−1 к максимуму HP', rest: 'следующий привал не лечит' };
+const itemList = (items: readonly ItemKind[]) => items.map(item => `${ITEM_ICON[item]} ${ITEM_NAME[item]}`).join(', ');
+/**
+ * Title, line and icon of a gift button. Consumables and resources a button gives are named (the run's rule: outcomes
+ * are seen in advance); the talisman of the deal and the oath of the gamble stay hidden until taken.
+ */
+export function giftOptionText(option: GiftOption): { icon: string; title: string; text: string } {
+  switch (option.kind) {
+    case 'pick-item': return { icon: '◈', title: 'Выбрать 1 из 3 расходников', text: `${itemList(option.items)}. Взятый откроется для боёв похода.` };
+    case 'items': return { icon: '◈', title: `${option.items.length} случайных расходника`, text: `${itemList(option.items)}. Откроются для боёв похода.` };
+    case 'energy': return { icon: '⚡', title: `+${option.amount} энергии`, text: 'Энергия переносится между боями (не выше 7).' };
+    case 'resources': return { icon: '⚒', title: `${option.resources.length} ресурса крафта`, text: `${option.resources.map(kind => RESOURCES[kind].label).join(', ')}. Для крафта на привале и торговца.` };
+    case 'max-hp': return { icon: '♥', title: `+${option.amount} к максимуму HP`, text: `И +${option.amount} HP сразу.` };
+    case 'calm': return { icon: '☾', title: 'Тихий лес', text: `В первых ${option.battles} боях до целей враги не злятся.` };
+    case 'deal': return { icon: '◇', title: 'Талисман за цену',
+      text: `${option.reward.kind === 'pick-talisman' ? 'Обычный талисман на выбор из 2' : 'Случайный необычный талисман'}. Цена: ${GIFT_PRICE_TEXT[option.price]}.` };
+    case 'oath': return { icon: '▣', title: 'Азарт: случайная клятва', text: 'Клятва без выбора: +1 энергия в начале каждого боя, но одна система похода отключится.' };
+  }
+}
+/**
+ * The open start gift: the full gift's four buttons or the mini gift's two with the one-line hint; after a button with a
+ * choice of its own — that choice (a consumable of three, a common talisman of two). The gift cannot be refused.
+ */
+export function giftModalHtml(run: ForestRunState): string {
+  const view = giftView(run);
+  if (!view) return '';
+  if (view.chosen !== null) {
+    const option = view.options[view.chosen].option, items = option.kind === 'pick-item';
+    const picks = view.picks.map(id => {
+      if (items) { const item = id as ItemKind; return `<button class="reward-choice" data-gift-pick="${item}"><span class="reward-icon" aria-hidden="true">${ITEM_ICON[item]}</span><span><b>${ITEMS[item].label} <em>+1</em></b><small>${ITEMS[item].description}</small></span></button>`; }
+      const entry = talisman(id as TalismanId);
+      return `<button class="reward-choice talisman-choice" data-gift-pick="${entry.id}"><span class="reward-icon talisman-icon" aria-hidden="true">${TALISMAN_LETTER[entry.id]}</span><span><b>${escapeHtml(entry.name)} <em>${RARITY_LABEL[entry.rarity]}</em></b><small>${escapeHtml(entry.effect)}</small></span></button>`;
+    }).join('');
+    return `<p class="eyebrow">ДАР У КОСТРА</p><h2 id="modal-title">${items ? 'Выбери расходник' : 'Выбери талисман'}</h2>`
+      + `<p class="modal-copy">${items ? 'Взятый предмет откроется для боёв похода.' : `Цена уже уплачена: ${GIFT_PRICE_TEXT[(option as Extract<GiftOption, { kind: 'deal' }>).price]}. Не взятый талисман в этом походе больше не выпадет.`}</p>`
+      + `<div class="reward-options gift-options" id="gift-picks">${picks}</div>`;
+  }
+  const buttons = view.options.map(({ index, option, available, reason }) => {
+    const { icon, title, text } = giftOptionText(option);
+    return `<button class="reward-choice gift-choice" data-gift="${index}" data-gift-kind="${option.kind}"${available ? '' : ' disabled aria-disabled="true"'}><span class="reward-icon" aria-hidden="true">${icon}</span>`
+      + `<span><b>${escapeHtml(title)}</b><small>${escapeHtml(text)}</small>${available ? '' : `<em class="event-reason">${escapeHtml(reason)}</em>`}</span></button>`;
+  }).join('');
+  const hint = view.kind === 'mini' ? '<p class="gift-hint" id="gift-hint">Дойди до Тюремщика — у костра будет больше.</p>' : '';
+  return `<p class="eyebrow">ДАР У КОСТРА</p><h2 id="modal-title">Дар в дорогу</h2><p class="modal-copy">Выбери один дар перед тропами. Отказаться нельзя.</p>`
+    + `<div class="reward-options gift-options" id="gift-options" data-gift-size="${view.kind}">${buttons}</div>${hint}`;
 }
 
 /** What entering the node opens for the rest of the run (its `grants`), or ''. */
@@ -261,6 +312,9 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
         ? `<div class="map-banner"><span>Привал «${escapeHtml(nodeName(run, pending.nodeId))}» не завершён.</span><button class="button primary" data-action="run-rest">К ПРИВАЛУ</button></div>`
       : pending?.kind === 'shop'
         ? `<div class="map-banner"><span>Торговец ждёт.</span><button class="button primary" data-action="run-shop">К ТОРГОВЦУ</button></div>`
+      : pending?.kind === 'gift'
+        // A compact line (the gift window is usually open above it): the map keeps its first screen.
+        ? `<div class="map-banner notice gift-banner"><span>Дар у костра ждёт выбора.</span><button class="text-button" data-action="run-gift">К КОСТРУ</button></div>`
       : options.notice ? `<div class="map-banner notice" id="map-notice"><span>${escapeHtml(options.notice)}</span></div>` : '';
   const reset = options.confirmReset
     ? `<div class="map-confirm" role="alert"><span>Сбросить поход и начать заново?</span><button class="button secondary" data-action="run-reset-yes">СБРОСИТЬ</button><button class="text-button" data-action="run-reset-no">ОТМЕНА</button></div>`
@@ -396,16 +450,50 @@ export function eventResultHtml(run: ForestRunState, events: ForestRunEvent[]): 
  * run and shows runResultHtml instead; the defeat branch here is only for a node battle opened outside the saved run
  * (the debug hook `startNodeBattle`), which has no run to end.
  */
-export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; battlesWon: number; grants: string; find?: boolean; choice?: 'hard' | 'oath'; healed?: number; wardCrumbled?: boolean }): string {
-  const { won, name, turns, hp, maxHp, battlesWon, grants, find, choice, healed, wardCrumbled } = options;
+export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; battlesWon: number; grants: string; find?: boolean; choice?: 'hard' | 'oath'; healed?: number; wardCrumbled?: boolean; gift?: boolean }): string {
+  const { won, name, turns, hp, maxHp, battlesWon, grants, find, choice, healed, wardCrumbled, gift } = options;
   const choiceText = choice === 'oath' ? ' За победу — клятва: выбери одну из трёх или откажись.' : choice === 'hard' ? ' За победу — талисман: выбери один из трёх или откажись.' : '';
   const next = find ? '<button class="button primary" data-action="run-find">ВЫБРАТЬ НАХОДКУ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>'
     : choice ? `<button class="button primary" data-action="run-talisman">${choice === 'oath' ? 'ВЫБРАТЬ КЛЯТВУ' : 'ВЫБРАТЬ ТАЛИСМАН'}</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`
+    // The trunk's last battle: the start gift waits before the trails.
+    : gift ? '<button class="button primary" data-action="run-gift">К КОСТРУ: ДАР</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>'
     : '<button class="button primary" data-action="run-map">К КАРТЕ</button>';
   const stats = `<div class="result-stats"><span><b>${turns}</b>ХОДЫ</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${battlesWon}</b>БОЁВ ПРОЙДЕНО</span></div>`;
   return won
     ? `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol">✦</div><h2 id="modal-title">Узел пройден</h2><p class="modal-copy">Здоровье, энергия и предметы уходят с тобой на карту.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` <b id="hard-heal">+${healed} HP за трудный бой.</b>` : ''}${wardCrumbled ? ' <b id="ward-crumbled">Пепельный оберег спас кота и рассыпался.</b>' : ''}${find ? ' За победу — находка: выбери один предмет из трёх.' : ''}${choiceText}</p>${stats}${next}`
     : `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот отступил</h2><p class="modal-copy">Бой открыт вне сохранённого похода. Повтор вернёт поле, здоровье и запас как на входе.</p>${stats}<button class="button primary" data-action="retry">ПОВТОРИТЬ БОЙ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`;
+}
+
+// ---------- Score of the run and the bar of openings (docs/roguelike-runs.md, 7) ----------
+
+/**
+ * The score line by line (the step's bonus and the style bonuses apart) and the bar of openings as the profile took the
+ * run: «текущее / порог» and the openings left. Without a tally (a save from before) only the score.
+ */
+export function runScoreHtml(run: ForestRunState): string {
+  const score = forestRunScore(run), tally = run.tally;
+  const row = (label: string, points: number, kind = '') => `<span class="${kind}">${escapeHtml(label)}</span><b class="${kind}">${points > 0 ? '+' : ''}${points}</b>`;
+  const lines = score.lines.map(line => row(line.label, line.points, line.id === 'ladder' ? 'score-ladder' : '')).join('')
+    + score.styles.map(line => row(line.label, line.points, 'score-style')).join('');
+  const table = `<div class="run-score" id="run-score">${lines || '<span>Очков нет</span><b>0</b>'}</div><p class="run-score-total"><span>Счёт похода</span> <b id="run-score-total">${score.total}</b></p>`;
+  if (!tally) return table;
+  if (!tally.saved) return `${table}<p class="meta-note" id="meta-bar">Полоса открытий не сохраняется: хранилище браузера недоступно.</p>`;
+  const { next, left } = barView(tally.after), from = tally.after.level ? UNLOCK_THRESHOLDS[tally.after.level - 1] : 0;
+  const share = next === null ? 100 : Math.max(0, Math.min(100, (tally.after.points - from) / (next - from) * 100));
+  return `${table}<div class="meta-bar" id="meta-bar"><div class="meta-track" aria-hidden="true"><i style="width:${share.toFixed(1)}%"></i></div>`
+    + `<p>Полоса открытий: <b id="meta-points">${next === null ? tally.after.points : `${tally.after.points} / ${next}`}</b> · осталось открытий: <b id="meta-left">${left}</b></p></div>`;
+}
+/** The openings of a level of the bar: talismans and oaths with their effect line, events with theirs (one not in the game yet says so). */
+export function unlockModalHtml(level: number): string {
+  const set = UNLOCK_LEVELS[level - 1];
+  if (!set) return '';
+  const talismans = set.talismans.map(id => { const entry = talisman(id); return `<li class="unlock-item"><span class="talisman-icon${isOath(id) ? ' oath' : ''}" aria-hidden="true">${TALISMAN_LETTER[id]}</span><span><b>${escapeHtml(entry.name)}</b><small>${escapeHtml(entry.effect)}</small></span></li>`; });
+  const events = set.events.map(id => {
+    const entry = CATALOGUE_EVENTS[id], ready = !!forestEvent(id);
+    return `<li class="unlock-item"><span class="reward-icon" aria-hidden="true">?</span><span><b>Событие «${escapeHtml(entry?.title ?? id)}»</b><small>${escapeHtml(entry?.line ?? '')}${ready ? '' : ' · появится в лесу позже'}</small></span></li>`;
+  });
+  return `<p class="eyebrow">ПОЛОСА ОТКРЫТИЙ · УРОВЕНЬ ${level}</p><h2 id="modal-title">Открыто</h2><p class="modal-copy">Теперь это может встретиться в походе.</p>`
+    + `<ul class="unlock-list" id="unlock-list">${[...talismans, ...events].join('')}</ul><button class="button primary" data-action="run-result">К ИТОГУ</button>`;
 }
 
 /**
@@ -418,18 +506,20 @@ export function runResultHtml(run: ForestRunState, options: { openedLadder?: num
   const { hp, maxHp } = run.resources.player;
   const ladderStat = run.ladder ? `<span id="run-ladder"><b>${run.ladder}</b>СТУПЕНЬ</span>` : '';
   const opened = options.openedLadder ? `<p class="modal-copy ladder-opened" id="ladder-opened">Открыта ступень клятвы ${options.openedLadder}: ${escapeHtml(LADDER_STEPS[options.openedLadder].charAt(0).toLowerCase() + LADDER_STEPS[options.openedLadder].slice(1))}.</p>` : '';
+  // The score and the bar; a new level opened by this run is shown on its own screen.
+  const score = runScoreHtml(run), unlocks = run.tally?.opened ? `<button class="button primary" data-action="run-unlocks" id="run-unlocks">ОТКРЫТО: УРОВЕНЬ ${run.tally.opened}</button>` : '';
   if (result.outcome === 'defeat') {
     // A defeat ends the run (decision of 04.10.2026): where it ended, how far it went, no way back into it.
     const lost = runNode(run, result.nodeId);
     const stats = `<div class="result-stats" id="run-defeat-stats"><span><b>${lost?.row ?? '—'}</b>РЯД</span><span><b>${view.battlesWon}</b>БОЁВ ВЫИГРАНО</span><span><b>${run.score}</b>ОЧКИ</span>${ladderStat}</div>`;
-    return `<p class="eyebrow">ПОХОД ОКОНЧЕН</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот пал</h2><p class="modal-copy" id="run-result-copy">Поражение в узле «${escapeHtml(lost?.name ?? result.nodeId)}». Этот поход не продолжить: новый начнётся заново.</p>${stats}<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="title">В МЕНЮ</button>`;
+    return `<p class="eyebrow">ПОХОД ОКОНЧЕН</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот пал</h2><p class="modal-copy" id="run-result-copy">Поражение в узле «${escapeHtml(lost?.name ?? result.nodeId)}». Этот поход не продолжить: новый начнётся заново.</p>${stats}${score}${unlocks}<div class="result-actions"><button class="button ${unlocks ? 'secondary' : 'primary'}" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="title">В МЕНЮ</button></div>`;
   }
   const stats = `<div class="result-stats"><span><b>${view.battlesWon}</b>БОЁВ ПРОЙДЕНО</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${run.score}</b>ОЧКИ</span>${ladderStat}</div>`;
-  const buttons = '<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="run-map">СМОТРЕТЬ КАРТУ</button><button class="text-button" data-action="title">В МЕНЮ</button>';
+  const buttons = `${unlocks}<div class="result-actions"><button class="button ${unlocks ? 'secondary' : 'primary'}" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="run-map">СМОТРЕТЬ КАРТУ</button></div><button class="text-button" data-action="title">В МЕНЮ</button>`;
   // The boss of the chosen branch decides the ending text.
   const troll = result.outcome === 'victory' && runNode(run, result.nodeId)?.lane === 'den';
   const [title, copy] = troll ? ['Тролль повержен', 'Логово затихло, дорога к замку открыта.'] : ['Главарь повержен', 'Котелок вернулся, лес позади.'];
   return result.outcome === 'victory'
-    ? `<p class="eyebrow">ПОХОД ЗАВЕРШЁН</p><div class="outcome-symbol">✦</div><h2 id="modal-title">${title}</h2><p class="modal-copy">${copy}</p>${opened}${stats}${buttons}`
-    : `<p class="eyebrow">ВЕТКА ПОКА ОБРЫВАЕТСЯ</p><div class="outcome-symbol pending">…</div><h2 id="modal-title">Тролль — в разработке</h2><p class="modal-copy" id="run-result-copy">Путь через логово дошёл до босса, но боя с Троллём ещё нет. Это не победа: поход не завершён победой. Ветка Главаря уже играбельна в новом походе.</p>${stats}${buttons}`;
+    ? `<p class="eyebrow">ПОХОД ЗАВЕРШЁН</p><div class="outcome-symbol">✦</div><h2 id="modal-title">${title}</h2><p class="modal-copy">${copy}</p>${opened}${stats}${score}${buttons}`
+    : `<p class="eyebrow">ВЕТКА ПОКА ОБРЫВАЕТСЯ</p><div class="outcome-symbol pending">…</div><h2 id="modal-title">Тролль — в разработке</h2><p class="modal-copy" id="run-result-copy">Путь через логово дошёл до босса, но боя с Троллём ещё нет. Это не победа: поход не завершён победой. Ветка Главаря уже играбельна в новом походе.</p>${stats}${score}${buttons}`;
 }

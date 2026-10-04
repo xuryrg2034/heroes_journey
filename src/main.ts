@@ -18,15 +18,16 @@ import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
 import { crystalKills, crystalsActive, runPressureInfo } from './game/mapBattleRules';
-import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseTalisman, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, shopBuy, shopLeave, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { addPlayTime, forestRunScore, recordTally, createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseGift, chooseGiftPick, chooseTalisman, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, runReachedJailer, shopBuy, shopLeave, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore, winsRun } from './game/run/playerProfile';
-import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, talismanModalHtml, shopModalHtml } from './forestMapScreen';
-import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest, recordRunTalisman, recordRunShop } from './telemetry';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, talismanModalHtml, shopModalHtml, giftModalHtml, giftOptionText, unlockModalHtml } from './forestMapScreen';
+import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest, recordRunTalisman, recordRunShop, recordRunGift } from './telemetry';
 import { isResource, lootLabel } from './game/resources';
+import { barView } from './game/run/unlocks';
 import { nextReinforcementTurn, REINFORCEMENT_COUNT } from './game/exitRules';
 import { chestLabel } from './render/art';
-import { talisman } from './game/talismans';
+import { talisman, type TalismanId } from './game/talismans';
 import type { TalismanOption } from './game/run/talismanOffers';
 import type { ChainPreview } from './game/forestTypes';
 
@@ -112,6 +113,7 @@ const editor = new LevelEditor(el('editor-screen'), async definition => {
 });
 function showScreen(next: typeof screen) {
   if (screen === 'game' && next !== 'game') telemetry.leave();
+  runClock(next);
   screen = next;
   el('title-screen').hidden = next !== 'title';
   el('game-screen').hidden = next !== 'game';
@@ -166,15 +168,50 @@ const ladderChoice = () => { const open = profileStore.load().ladder; return { o
 const renderRunEntry = () => { el('run-entry').innerHTML = runEntryHtml(forestRun, mapConfirmReset, profileStore.load().trunkCleared, ladderChoice()); };
 function renderMap() { if (forestRun) el('map-screen').innerHTML = mapScreenHtml(forestRun, { notice: mapNotice, confirmReset: mapConfirmReset }); }
 const refreshRunViews = () => { renderRunEntry(); renderMap(); };
+/**
+ * Play time of the run (the score's «Быстрый поход», runScore.ts): counted while the map or the run's battle is on screen
+ * and the tab is visible. A screen change or a hidden tab adds what passed to the run in memory; the next step saves it
+ * (nothing is written while the page unloads), so a reload loses only the time since the last step.
+ */
+let clockFrom: number | null = null;
+function runClock(next: typeof screen = screen) {
+  const now = performance.now();
+  if (clockFrom !== null && forestRun) forestRun = addPlayTime(forestRun, now - clockFrom);
+  const counting = (next === 'map' || next === 'game' && forestRun?.pending?.kind === 'battle') && document.visibilityState === 'visible';
+  clockFrom = counting && forestRun && !forestRun.result ? now : null;
+}
+document.addEventListener('visibilitychange', () => runClock());
+/** The ladder step the last victory opened (shown on its result, also after the openings screen). */
+let openedLadderShown: number | null = null;
 function commitRun(step: ForestRunStep): ForestRunStep {
-  if (step.ok) { forestRun = step.run; runStore.save(step.run); }
+  if (step.ok) {
+    let run = step.run;
+    if (clockFrom !== null) { const now = performance.now(); run = addPlayTime(run, now - clockFrom); clockFrom = now; }
+    // The run has just ended (victory or defeat). The profile remembers whether it reached the Jailer, for the next run's
+    // gift (an entered seed changes nothing), and adds the run's score to the bar of openings; the run keeps the tally
+    // for its result screen. Once per run: a reloaded result is not a new end.
+    if (run.result && !forestRun?.result) {
+      profileStore.endRun({ reachedJailer: runReachedJailer(run), seeded: !!run.seeded });
+      const tallied = recordTally(run, profileStore.addRunScore(forestRunScore(run).total));
+      if (tallied.ok) run = tallied.run;
+      clockFrom = null; openedLadderShown = null;
+    }
+    step = { ...step, run };
+    forestRun = run; runStore.save(run);
+  }
   return step;
 }
 function newRun(seed?: number, ladder = ladderChoice().chosen) {
   const random = new Uint32Array(1); crypto.getRandomValues(random);
   // Every new run walks a map generated by its seed (mapGenerator.ts) on the chosen ladder step; the authored graph stays for old saves and tests.
-  forestRun = createForestRun(seed ?? random[0], { skipTrunk: profileStore.load().trunkCleared, map: 'generated', ladder }); runStore.save(forestRun);
+  // The start gift (runGift.ts): full after a run that reached the Jailer, or with an entered seed; else the mini gift.
+  // Only what the bar of openings has opened comes in the run (unlocks.ts).
+  const seeded = seed !== undefined, profile = profileStore.load();
+  forestRun = createForestRun(seed ?? random[0], { skipTrunk: profile.trunkCleared, map: 'generated', ladder, gift: profileStore.giftKind(seeded), seeded, unlocks: profile.meta.level });
+  runStore.save(forestRun); clockFrom = null;
   mapConfirmReset = false; mapNotice = ''; audio.unlock(); audio.play('click'); showScreen('map');
+  // A run past the trunk opens with the start gift.
+  showGift();
 }
 async function playRunBattle() {
   const setup = forestRun && battleSetup(forestRun);
@@ -197,6 +234,31 @@ function chooseTalismanOption(option: TalismanOption | null) {
   mapNotice = option === null ? `${pending.source === 'oath' ? 'Клятвы' : 'Талисманы'} отвергнуты: в этом походе они больше не выпадут.`
     : option === 'blank' ? 'Пустышка: +5 очков похода.' : `Взято: ${talisman(option).name} — ${talisman(option).effect.charAt(0).toLowerCase()}${talisman(option).effect.slice(1)}.`;
   audio.play(option ? 'reward' : 'click'); showScreen('map');
+}
+/** The open start gift (also after a reload: the saved run keeps it pending with its rolled buttons). */
+function showGift() { if (forestRun?.pending?.kind === 'gift') showModal(giftModalHtml(forestRun)); }
+/** A gift taken (the button and its own choice) goes to the playtest journal; the map opens the row-5 nodes. */
+function finishGift(run: ForestRunState) {
+  const gift = run.gift;
+  if (!gift || gift.chosen === undefined) return;
+  recordRunGift({ kind: gift.kind, options: structuredClone(gift.options), chosen: gift.chosen, ...gift.pick ? { pick: gift.pick } : {}, seed: run.seed, ...run.seeded ? { seeded: true } : {} });
+  const { title } = giftOptionText(gift.options[gift.chosen]);
+  const taken = gift.pick ? (itemKeys.includes(gift.pick as ItemKind) ? itemNames[gift.pick as ItemKind] : talisman(gift.pick as TalismanId).name)
+    : run.talismans.length ? talisman(run.talismans[0]).name : '';
+  mapNotice = `Дар у костра: ${title}${taken ? ` — ${taken}` : ''}.`;
+  audio.play('reward'); showScreen('map');
+}
+function chooseGiftButton(index: number) {
+  if (!forestRun || forestRun.pending?.kind !== 'gift') return;
+  const step = commitRun(chooseGift(forestRun, index));
+  if (!step.ok) return;
+  if (step.run.pending?.kind === 'gift') { audio.play('click'); showGift(); return; }
+  finishGift(step.run);
+}
+function pickGift(pick: string) {
+  if (!forestRun || forestRun.pending?.kind !== 'gift') return;
+  const step = commitRun(chooseGiftPick(forestRun, pick));
+  if (step.ok) finishGift(step.run);
 }
 /** The open map event (also after a reload: the saved run keeps it pending). */
 function showEvent() { if (forestRun?.pending?.kind === 'event') showModal(eventModalHtml(forestRun)); }
@@ -277,6 +339,7 @@ function routeRun() {
   else if (forestRun.pending?.kind === 'rest') showRest();
   else if (forestRun.pending?.kind === 'shop') showShop();
   else if (forestRun.pending?.kind === 'talisman') showTalisman();
+  else if (forestRun.pending?.kind === 'gift') showGift();
   else showFind();
 }
 function resumeRun() { if (forestRun) { mapNotice = ''; audio.unlock(); audio.play('click'); routeRun(); } else newRun(); }
@@ -314,6 +377,7 @@ function showRunOutcome(won: boolean) {
   if (step?.ok && run.result?.outcome === 'defeat') { showModal(runResultHtml(run)); return; }
   // A won run opens the next ladder step in the profile (once; shown on the result).
   const openedLadder = step?.ok && winsRun(step.events) ? profileStore.winLadder(run.ladder ?? 0) : null;
+  if (openedLadder) openedLadderShown = openedLadder;
   const healedEvent = step?.ok ? step.events.find(event => event.type === 'healed') : undefined;
   const healed = healedEvent?.type === 'healed' ? healedEvent.amount : 0;
   const grants = won ? [opened ? grantText(opened) : '', step?.ok ? unlockedText(step.events) : ''].filter(Boolean).join('; ') : '';
@@ -321,7 +385,7 @@ function showRunOutcome(won: boolean) {
   if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` +${healed} HP за трудный бой.` : ''}${wardCrumbled ? ' Пепельный оберег рассыпался.' : ''}`;
   if (won && run.result) { showModal(runResultHtml(run, { openedLadder })); return; }
   showModal(nodeBattleModalHtml({ won, name: node.label, turns: engine.state.turn, hp: won ? run.resources.player.hp : outcome.player.hp, maxHp: won ? run.resources.player.maxHp : outcome.player.maxHp,
-    battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', choice: won && pending?.kind === 'talisman' ? pending.source : undefined,
+    battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', choice: won && pending?.kind === 'talisman' ? pending.source : undefined, gift: won && pending?.kind === 'gift',
     healed: won ? healed : 0, wardCrumbled }));
 }
 /**
@@ -680,7 +744,8 @@ function showModal(html: string) {
 // Playtest screen: opened from the title link or the pause dialog; the game itself never depends on it.
 let playtestFrom: 'title' | 'pause' | null = null;
 function renderPlaytest(options: { confirmClear?: boolean; notice?: string } = {}) {
-  showModal(playtestHtml({ ...options, trunkCleared: profileStore.load().trunkCleared }));
+  const profile = profileStore.load();
+  showModal(playtestHtml({ ...options, trunkCleared: profile.trunkCleared, meta: { ...profile.meta, next: barView(profile.meta).next, giftFull: profile.giftFull } }));
   el('modal').classList.add('playtest-modal');
 }
 function openPlaytest() { playtestFrom = paused ? 'pause' : 'title'; renderPlaytest(); }
@@ -730,6 +795,8 @@ document.addEventListener('click', event => {
   if (target.dataset.talisman) { chooseTalismanOption(target.dataset.talisman as TalismanOption); return; }
   if (target.dataset.craft && isResource(target.dataset.craft)) { craftAtRest(target.dataset.craft); return; }
   if (target.dataset.shopBuy) { buyAtShop(target.dataset.shopBuy); return; }
+  if (target.dataset.gift) { chooseGiftButton(Number(target.dataset.gift)); return; }
+  if (target.dataset.giftPick) { pickGift(target.dataset.giftPick); return; }
   switch (target.dataset.action) {
     // The run's own battle is never replayed (a defeat ends the run); retry is for editor levels and debug battles.
     case 'retry': if (!ownsRunBattle()) void openScene(() => engine.restartLevel()); break;
@@ -781,6 +848,9 @@ document.addEventListener('click', event => {
     case 'rest-heal': healAtRest(); break;
     case 'rest-finish': finishRest(); break;
     case 'run-shop': showShop(); break;
+    case 'run-gift': if (screen !== 'map') { quietCancel(); showScreen('map'); } showGift(); break;
+    case 'run-unlocks': if (forestRun?.tally?.opened) showModal(unlockModalHtml(forestRun.tally.opened)); break;
+    case 'run-result': if (forestRun?.result) showModal(runResultHtml(forestRun, { openedLadder: openedLadderShown })); break;
     case 'shop-leave': leaveShop(); break;
     case 'run-map': quietCancel(); showScreen('map'); break;
     case 'playtest': openPlaytest(); break;
@@ -790,6 +860,7 @@ document.addEventListener('click', event => {
     case 'playtest-clear-yes': clearTelemetry(); renderPlaytest({ notice: 'Журнал очищен.' }); break;
     case 'playtest-toggle': setTelemetryEnabled(!telemetryEnabled()); renderPlaytest({ notice: telemetryEnabled() ? 'Журнал включён.' : 'Журнал выключен: новые попытки не записываются.' }); break;
     case 'playtest-download': downloadPlaytest(); break;
+    case 'profile-reset-meta': profileStore.resetMeta(); renderRunEntry(); renderPlaytest({ notice: 'Полоса открытий и отметка дара сброшены: следующий поход — с мини-даром и стартовым набором.' }); break;
     case 'profile-reset-trunk': profileStore.resetTrunk(); renderRunEntry(); renderPlaytest({ notice: 'Отметка ствола сброшена: следующий новый поход начнётся со ствола.' }); break;
     case 'playtest-copy': void copyPlaytest(); break;
   }

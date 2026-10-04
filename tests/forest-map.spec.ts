@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunMap, forestRunView, resolveBattle, restHeal, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
+import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunMap, forestRunScore, forestRunView, parseForestRun, resolveBattle, restHeal, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
 
 // Forest map screen (docs/biomes/forest-map.md). The run model is tested in src/game/forestRun.spec.ts and
 // src/game/mapGenerator.spec.ts; here the real page is driven: title entry, map, node battles, rest, find, reload,
@@ -147,7 +147,7 @@ test('a node battle is played by mouse and returns to the map with the result sa
   expect(await noScroll(page)).toBe(true);
   // Telemetry records the attempt under the node key.
   const attempts = (await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY)).attempts;
-  expect(attempts.map((attempt: any) => [attempt.key, attempt.mode, attempt.outcome])).toContainEqual(['run:trunk-1', 'run', 'win']);
+  expect(attempts.map((attempt: any) => [attempt.key, attempt.mode, attempt.nodeId, attempt.outcome])).toContainEqual(['run:trunk-wake', 'run', 'trunk-1', 'win']);
   expect(errors).toEqual([]);
 });
 
@@ -263,9 +263,21 @@ test('a defeat ends the run: the result screen shows row, node, points and won b
   await expect(page.locator('#modal [data-action="title"]')).toHaveText('В МЕНЮ');
   await expect(page.locator('#modal [data-action="retry"]')).toHaveCount(0);
   await expect(page.locator('#modal [data-action="run-map"]')).toHaveCount(0);
+  // The score line by line (row 4 of the last completed node, four trunk battles, the battle points) and the bar of
+  // openings, filled by this run's score (the first threshold is 100).
+  const ended = parseForestRun(JSON.stringify(await savedRun(page)))!, total = forestRunScore(ended).total;
+  await expect(page.locator('#run-score')).toContainText('Ряд 4');
+  await expect(page.locator('#run-score')).toContainText('Обычные бои ×4');
+  await expect(page.locator('#run-score-total')).toHaveText(String(total));
+  expect(ended.tally).toMatchObject({ score: total, before: { points: 0, level: 0 }, saved: true });
+  await expect(page.locator('#meta-points')).toHaveText(total >= 100 ? '250 / 300'.replace('250', String(Math.min(total, 299))) : `${total} / 100`);
+  await expect(page.locator('#meta-left')).toHaveText(total >= 100 ? '4' : '5');
+  const lastButton = await page.locator('#modal [data-action="title"]').boundingBox();
+  expect(lastButton!.y + lastButton!.height).toBeLessThanOrEqual(720);
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'artifacts/forest-map-defeat.png' });
   expect(await savedRun(page)).toMatchObject({ currentNodeId: 'trunk-4', pending: null, result: { outcome: 'defeat', nodeId: 'beast-wolf' }, score });
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'))).meta.points).toBe(total >= 100 ? Math.min(total, 299) : total);
   // The saved run stays over: after a reload the title offers its result, the map has no way on.
   await page.reload();
   await expect(page.locator('#run-start-button')).toContainText('ИТОГ ПОХОДА');
@@ -275,9 +287,9 @@ test('a defeat ends the run: the result screen shows row, node, points and won b
   await expect(page.locator('#title-screen')).toBeVisible();
   // Telemetry: one lost attempt that ended the run, not an abandoned node.
   const attempts = (await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY)).attempts;
-  const mine = attempts.filter((attempt: any) => attempt.key === 'run:beast-wolf');
+  const mine = attempts.filter((attempt: any) => attempt.nodeId === 'beast-wolf');
   expect(mine).toHaveLength(1);
-  expect(mine[0]).toMatchObject({ mode: 'run', id: 'beast-wolf', outcome: 'lose', runEnded: true, left: false });
+  expect(mine[0]).toMatchObject({ mode: 'run', key: 'run:wolf-ford', id: 'wolf-ford', outcome: 'lose', runEnded: true, left: false });
   // A new run starts a fresh save. The cat reached row 5, so the profile skips the trunk in it.
   await page.locator('#run-start-button').click();
   await page.locator('#modal [data-action="run-new"]').click();
@@ -296,7 +308,7 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   expect(await profile()).toBeNull();
   // Entering the first node past the trunk marks it cleared in the profile (a separate key, outside the run save).
   await node(page, 'goblin-archer').click(); await settled(page);
-  expect(await profile()).toEqual({ version: 1, trunkCleared: true, ladder: 0 });
+  expect(await profile()).toEqual({ version: 1, trunkCleared: true, ladder: 0, giftFull: false, meta: { points: 0, level: 0 } });
   expect((await savedRun(page)).trunkCleared).toBeUndefined();
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="title"]').click();
@@ -305,6 +317,11 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
   await expect(page.locator('#map-screen')).toBeVisible();
   for (const id of TRUNK) await expect(node(page, id)).toHaveAttribute('data-status', 'skipped');
+  // The start gift waits first (the mini gift: the previous run did not reach the Jailer), then row 5 opens.
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(2);
+  await expect(page.locator('#gift-hint')).toHaveText('Дойди до Тюремщика — у костра будет больше.');
+  await page.locator('#gift-options [data-gift="1"]').click();
+  await expect(page.locator('#map-notice')).toContainText('Дар у костра');
   // The new run walks a generated map: its first choice is every node of row 5.
   const fresh = await savedRun(page), firstRow = fresh.map.nodes.filter((entry: { id: string }) => entry.id.startsWith('r5')).map((entry: { id: string }) => entry.id);
   expect(firstRow.length).toBeGreaterThanOrEqual(2);
@@ -322,13 +339,110 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   await page.locator('[data-action="profile-reset-trunk"]').click();
   await expect(page.locator('.playtest-note')).toContainText('Отметка ствола сброшена');
   await expect(page.locator('#playtest-profile')).toContainText('ствол не пройден');
-  expect(await profile()).toEqual({ version: 1, trunkCleared: false, ladder: 0 });
+  expect(await profile()).toEqual({ version: 1, trunkCleared: false, ladder: 0, giftFull: false, meta: { points: 0, level: 0 } });
   await page.locator('[data-action="playtest-close"]').click();
   await page.locator('#run-reset-button').click();
   await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
   await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'available');
   const again = await savedRun(page);
   for (const entry of again.map.nodes.filter((item: { id: string }) => item.id.startsWith('r5'))) await expect(node(page, entry.id)).toHaveAttribute('data-status', 'locked');
+  expect(errors).toEqual([]);
+});
+
+test('the start gift by mouse: a seeded run shows four buttons in 1280x720, a consumable of three opens its own choice, a reload keeps it, the item opens for the run', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // A spread seed whose full gift starts with «выбрать 1 из 3 расходников» (searched, not fixed).
+  let seed = 0;
+  for (let k = 1; !seed && k < 200; k++) {
+    const candidate = Math.imul(k, 2654435761) >>> 0;
+    if (createForestRun(candidate, { map: 'generated', skipTrunk: true, gift: 'full' }).gift!.options[0].kind === 'pick-item') seed = candidate;
+  }
+  expect(seed).toBeGreaterThan(0);
+  await page.addInitScript(() => { if (!sessionStorage.getItem('profiled')) { localStorage.setItem('ashen-oath-profile-v1', JSON.stringify({ version: 1, trunkCleared: true })); sessionStorage.setItem('profiled', '1'); } });
+  await page.goto('/');
+  await page.evaluate(value => (window as any).__PUZZLE_GAME.startForestRun(value), seed);
+  await expect(page.locator('#modal .eyebrow')).toHaveText('ДАР У КОСТРА');
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(4);
+  await expect(page.locator('#gift-options [data-gift="0"]')).toContainText('Выбрать 1 из 3 расходников');
+  await expect(page.locator('#gift-options [data-gift="2"]')).toContainText('Талисман за цену');
+  await expect(page.locator('#gift-options [data-gift="3"]')).toContainText('случайная клятва');
+  await expect(page.locator('#gift-hint')).toHaveCount(0);
+  expect(await noScroll(page)).toBe(true);
+  const last = await page.locator('#gift-options [data-gift="3"]').boundingBox();
+  expect(last!.y + last!.height).toBeLessThanOrEqual(720);
+  // Headless frames start with the first input: a pointer move lets the window's fade-in finish before the shot.
+  await page.mouse.move(5, 5); await page.waitForTimeout(400); await page.screenshot({ path: 'artifacts/forest-map-gift.png' });
+  // The row-5 nodes wait for the gift.
+  expect((await savedRun(page)).pending).toEqual({ kind: 'gift' });
+  await page.locator('#gift-options [data-gift="0"]').click();
+  await expect(page.locator('#gift-picks .reward-choice')).toHaveCount(3);
+  const items: string[] = (await savedRun(page)).gift.options[0].items;
+  // A reload keeps the open own choice of the button.
+  await page.reload(); await page.locator('#run-start-button').click();
+  await expect(page.locator('#gift-picks .reward-choice')).toHaveCount(3);
+  await page.locator(`#gift-picks [data-gift-pick="${items[1]}"]`).click();
+  await expect(page.locator('#map-notice')).toContainText('Дар у костра');
+  const run = await savedRun(page);
+  expect(run.gift).toMatchObject({ kind: 'full', chosen: 0, pick: items[1] });
+  expect(run.tools.items).toEqual([items[1]]);
+  expect(run.resources.inventory[items[1]]).toBe(1);
+  await expect(page.locator('.map-node[data-status="available"]').first()).toBeVisible();
+  const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
+  expect(journal.runGifts.at(-1)).toMatchObject({ kind: 'full', chosen: 0, pick: items[1], seed, seeded: true });
+  expect(errors).toEqual([]);
+});
+
+test('the score and the bar of openings: a victory shows its lines and bonuses, opens one level on its own screen, the playtest resets the bar', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  const profile = () => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'));
+  // 95 points gathered: this victory crosses 100 (and more), but opens one level only; the surplus is cut to 299.
+  await page.addInitScript(() => { if (!sessionStorage.getItem('metered')) { localStorage.setItem('ashen-oath-profile-v1', JSON.stringify({ version: 1, trunkCleared: true, meta: { points: 95, level: 0 } })); sessionStorage.setItem('metered', '1'); } });
+  await seedRun(page, walk([...TO_JAILER, 'camp-battle', 'camp-rest', 'camp-elite', 'camp-breakthrough']));
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  await node(page, 'camp-chief').click(); await settled(page);
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
+  await expect(page.locator('#modal-title')).toHaveText('Главарь повержен');
+  await expect(page.locator('#run-score')).toContainText('Ряд 14');
+  await expect(page.locator('#run-score')).toContainText('Босс');
+  await expect(page.locator('#run-score')).toContainText('Тюремщик');
+  await expect(page.locator('#run-score')).toContainText('Аскет');
+  const ended = parseForestRun(JSON.stringify(await savedRun(page)))!;
+  await expect(page.locator('#run-score-total')).toHaveText(String(forestRunScore(ended).total));
+  expect(ended.tally).toMatchObject({ before: { points: 95, level: 0 }, after: { points: 299, level: 1 }, opened: 1, saved: true });
+  await expect(page.locator('#meta-points')).toHaveText('299 / 300');
+  await expect(page.locator('#meta-left')).toHaveText('4');
+  expect(await profile()).toMatchObject({ meta: { points: 299, level: 1 }, giftFull: true });
+  const last = await page.locator('#modal [data-action="title"]').boundingBox();
+  expect(last!.y + last!.height).toBeLessThanOrEqual(720);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-score.png' });
+  // The opening: its own screen with the new talismans, then back to the result.
+  await page.locator('#run-unlocks').click();
+  await expect(page.locator('#modal .eyebrow')).toHaveText('ПОЛОСА ОТКРЫТИЙ · УРОВЕНЬ 1');
+  await expect(page.locator('#unlock-list .unlock-item')).toHaveCount(2);
+  await expect(page.locator('#unlock-list')).toContainText('Осколок жернова');
+  await expect(page.locator('#unlock-list')).toContainText('Песочные часы');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-unlocks.png' });
+  await page.locator('#modal [data-action="run-result"]').click();
+  await expect(page.locator('#modal-title')).toHaveText('Главарь повержен');
+  // A reload shows the same result: the bar is not filled twice.
+  await page.reload(); await page.locator('#run-start-button').click();
+  await expect(page.locator('#meta-points')).toHaveText('299 / 300');
+  expect((await profile()).meta).toEqual({ points: 299, level: 1 });
+  // A new run starts with level 1 open; the playtest window shows the bar and resets it with the gift mark.
+  await page.locator('#modal [data-action="run-new"]').click();
+  expect((await savedRun(page)).unlocks).toBe(1);
+  await page.goto('/');
+  await page.locator('.playtest-link').click();
+  await expect(page.locator('#playtest-meta')).toContainText('299 / 300');
+  await expect(page.locator('#playtest-meta')).toContainText('дар следующего похода: полный');
+  await page.locator('[data-action="profile-reset-meta"]').click();
+  await expect(page.locator('.playtest-note')).toContainText('Полоса открытий и отметка дара сброшены');
+  await expect(page.locator('#playtest-meta')).toContainText('0 / 100');
+  expect(await profile()).toMatchObject({ meta: { points: 0, level: 0 }, giftFull: false, trunkCleared: true });
   expect(errors).toEqual([]);
 });
 
@@ -354,6 +468,10 @@ test('a generated map is walked by mouse: a pooled battle shown before entering,
   await page.goto('/');
   await page.evaluate(value => (window as any).__PUZZLE_GAME.startForestRun(value), seed);
   await expect(page.locator('#map-board')).toHaveAttribute('data-map', 'generated');
+  // A run with an entered seed gets the full gift; its second button (resources, +1 maximum HP or the calm) opens no
+  // tool, so the pooled battles stay as the plain run of the seed shows them.
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(4);
+  await page.locator('#gift-options [data-gift="1"]').click();
   const map = (await savedRun(page)).map;
   expect(map).toEqual({ kind: 'generated', ...JSON.parse(serializeForestRun(createForestRun(seed, { map: 'generated' }))).map });
   // The available node already names its pooled battle and its feature; the event two steps away is still a pool.
@@ -437,8 +555,12 @@ test('the Troll is a real battle node; beating him wins the run; reset asks for 
   // Entering the Troll's node (past the trunk) marked the trunk as cleared: the new run starts at the trail fork.
   expect(fresh.skippedTrunk).toBe(true);
   await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'skipped');
-  // The new run walks a generated map and starts at its first trail row.
+  // The new run walks a generated map and starts at its first trail row, after the start gift: the won run reached the
+  // Jailer, so the gift is the full one.
   expect(fresh.map.kind).toBe('generated');
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(4);
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'))).giftFull).toBe(true);
+  await page.locator('#gift-options [data-gift="1"]').click();
   await expect(node(page, fresh.map.nodes.find((entry: { id: string }) => entry.id.startsWith('r5')).id)).toHaveAttribute('data-status', 'available');
   // The same confirmation on the map.
   await page.locator('.map-actions [data-action="run-reset"]').click();
@@ -515,7 +637,7 @@ test('«Ступени клятвы»: the title picks the step (the highest ope
   await page.locator('#modal [data-action="run-new"]').click();
   expect((await savedRun(page)).ladder).toBe(4);
   const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
-  expect(journal.attempts.at(-1)).toMatchObject({ key: 'run:camp-chief', outcome: 'win', ladder: 3 });
+  expect(journal.attempts.at(-1)).toMatchObject({ key: 'run:chief-breakfast', nodeId: 'camp-chief', outcome: 'win', ladder: 3 });
   expect(errors).toEqual([]);
 });
 

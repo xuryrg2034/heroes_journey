@@ -16,7 +16,7 @@ import { forestBattle } from './run/forestBattles';
 import { cloneState, type World } from './ecs/world';
 import { definitionOf, hasTag, variantDefinition, type EnemyId } from './enemyDefinitions';
 import { applyElite, applyRandomElite, rollRandomElite } from './elite';
-import { emptyMaterials } from './resources';
+import { emptyMaterials, isResource } from './resources';
 import { hasTalisman, OATH_ENERGY, oathCount, startsWithElite } from './talismans';
 import { LADDER_BOSS_HP, ladderAt } from './ladder';
 import { PRESSURE_BOSSES } from './mapBattleRules';
@@ -49,6 +49,14 @@ export class ForestEngine {
   private generation = 0;
   private seed = IDLE_SEED;
   private entrySnapshot: { state: ForestState; rng: number; nextId: number } | null = null;
+  /**
+   * What the run's score reads of this battle (runScore.ts): cat damage, consumables picked up from loot, the exit chest.
+   * Counted from the published events, outside the state: it never changes the battle, the RNG or the forecast. A
+   * `start` (a load or a restart) clears it.
+   */
+  private battleLog = { damage: 0, lootItems: 0, chestDropped: false, chestOpened: false };
+  /** The registry battle of the open map-node battle (null in an editor level): telemetry aggregates attempts by it. */
+  private runBattle: string | null = null;
 
   constructor(seed = IDLE_SEED) {
     this.seed = seed;
@@ -69,7 +77,17 @@ export class ForestEngine {
       message: '', bossWarning: [], lastDamage: 0, rotations: [] };
   }
   subscribe(listener: (state: ForestState, event: EngineEvent) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
-  private emit(event: EngineEvent = { type: 'state' }) { for (const listener of this.listeners) listener(this.state, event); }
+  private emit(event: EngineEvent = { type: 'state' }) { this.track(event); for (const listener of this.listeners) listener(this.state, event); }
+  private track(event: EngineEvent) {
+    const log = this.battleLog;
+    if (event.type === 'start') Object.assign(log, { damage: 0, lootItems: 0, chestDropped: false, chestOpened: false });
+    else if (event.type === 'damage' && event.index === this.state.player.index) log.damage += event.amount ?? 0;
+    else if (event.type === 'loot-pickup' && event.text && !isResource(event.text)) log.lootItems++;
+    else if (event.type === 'chest') log.chestDropped = true;
+    else if (event.type === 'chest-open') log.chestOpened = true;
+  }
+  /** Registry id of the open map-node battle; null in an editor level. */
+  get runBattleId(): string | null { return this.state.runNode ? this.runBattle : null; }
   private random() { const draw = nextRandom(this.rng); this.rng = draw.state; return draw.value; }
   private createCell(kind: CellKind, color: EnemyColor | null, index: number): ForestCell {
     // Base kinds take their default HP from the registry (goblin 0, archer 7, Chief 20, prism 1); doors have none.
@@ -84,14 +102,23 @@ export class ForestEngine {
     const { template } = setup;
     const lesson = template?.kind === 'battle' && typeof template.id === 'string' ? forestBattle(template.id) : undefined;
     if (!lesson) return false;
-    return this.loadCustomLevel({ ...lesson.definition, seed: setup.seed, paletteWeights: [...setup.paletteWeights ?? lesson.definition.paletteWeights] }, lesson, setup);
+    // Set before the load: its `start` event already names the battle; a rejected load keeps the previous one.
+    const previous = this.runBattle;
+    this.runBattle = template.id;
+    const loaded = this.loadCustomLevel({ ...lesson.definition, seed: setup.seed, paletteWeights: [...setup.paletteWeights ?? lesson.definition.paletteWeights] }, lesson, setup);
+    if (!loaded) this.runBattle = previous;
+    return loaded;
   }
   /** Result of a finished map-node battle for the run model; null outside a node or before WIN/LOSE. */
   runBattleOutcome(): RunBattleOutcome | null {
     const node = this.state.runNode, phase = this.state.phase;
     if (!node || phase !== 'WIN' && phase !== 'LOSE') return null;
-    const { hp, maxHp, energy, damageEffects } = this.state.player;
+    const { hp, maxHp, energy, damageEffects } = this.state.player, log = this.battleLog;
+    // Consumables used: the entry stock plus loot picked up, less what is left.
+    const held = (inventory: Record<ItemKind, number>) => Object.values(inventory).reduce((sum, count) => sum + count, 0);
+    const itemsUsed = Math.max(0, held(this.entrySnapshot?.state.inventory ?? this.state.inventory) + log.lootItems - held(this.state.inventory));
     return { nodeId: node.nodeId, won: phase === 'WIN', inventory: { ...this.state.inventory }, materials: { ...emptyMaterials(), ...this.state.materials },
+      damageTaken: log.damage, itemsUsed, ...(log.chestDropped ? { chest: log.chestOpened ? 'opened' as const : 'dropped' as const } : {}),
       score: this.state.score, ...(this.entrySnapshot?.state.player.ward && !this.state.player.ward ? { wardUsed: true as const } : {}),
       player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
   }

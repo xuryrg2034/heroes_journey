@@ -3,6 +3,7 @@ import { forestNode } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventResourceKinds, eventOutcomeIndex, eventView, forestRunView,
   parseForestRun, resolveBattle, restCraft, restFinish, restHeal, restView, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { forestEvent } from './run/forestEvents';
+import { streamValue } from './run/runStreams';
 import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from './resources';
 import type { ItemKind, ResourceKind } from './forestTypes';
 
@@ -159,8 +160,9 @@ function eventResources() {
   let found = 0;
   for (let k = 1; k <= 400 && found < 3; k++) {
     const seed = spread(k);
-    const kinds = eventResourceKinds(seed, 'trail-cache', option);
-    if (eventOutcomeIndex(seed, 'trail-cache', option) !== 0 || kinds[0] !== kinds[1]) continue;
+    // The cache is the run's first event: its outcomes take the first `events` draw (runStreams.ts).
+    const base = streamValue(seed, 'events', 0), kinds = eventResourceKinds(base, option);
+    if (eventOutcomeIndex(base, option) !== 0 || kinds[0] !== kinds[1]) continue;
     let run = walk(seed, [...TRUNK, 'goblin-archer', 'goblin-shield', 'goblin-shaman', 'trail-cache']);
     assert(eventView(run)!.options.some(entry => entry.id === 'break' && entry.available), `seed ${k}: the cache can be broken`);
     run = ok(chooseEventOption(run, 'break'), `seed ${k}: break the cache`);

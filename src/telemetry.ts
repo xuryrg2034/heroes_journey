@@ -2,9 +2,11 @@ import type { ForestEngine } from './game/forestEngine';
 import type { AbilityKind, ItemKind, ResourceKind } from './game/forestTypes';
 import { isResource } from './game/resources';
 import { forestNode } from './game/run/forestMap';
+import { forestBattle } from './game/run/forestBattles';
 import { talisman, type TalismanId } from './game/talismans';
 import type { TalismanOption, TalismanSource } from './game/run/talismanOffers';
 import type { ShopGoodKind, ShopPurchase, ShopStock } from './game/run/merchant';
+import type { GiftKind, GiftOption, GiftOptionKind } from './game/run/runGift';
 
 /**
  * Local playtest telemetry. Nothing leaves the browser: attempts are kept in localStorage only.
@@ -20,13 +22,17 @@ export type BattleMode = 'custom' | 'run';
 
 export interface AttemptRecord {
   /**
-   * Stable aggregation key: `run:<nodeId>` (a forest-map node) or `custom:<name>` (an editor level). Journals written
-   * before the old modes were removed may still hold other keys; they are shown under their raw key.
+   * Stable aggregation key: `run:<battle id>` (a registry battle of a map node, since 04.10.2026: on a generated map one
+   * node id holds different battles in different runs) or `custom:<name>` (an editor level). Journals written before
+   * keyed map attempts by the node (`run:<node id>`, no `nodeId` field); aggregate() reads those as the battle of that
+   * authored node where it can. Journals written before the old modes were removed may hold other keys (raw key).
    */
   key: string;
   mode: BattleMode;
-  /** Forest-map node id or the editor level name. */
+  /** Registry battle id (a map node's battle; the node id in journals before 04.10.2026) or the editor level name. */
   id: string;
+  /** The map node of the attempt (`r6c1`, `trunk-1`); absent for an editor level and in journals before 04.10.2026. */
+  nodeId?: string;
   seed: number;
   /** Start time, ms since the Unix epoch. */
   startedAt: number;
@@ -104,6 +110,13 @@ export interface RunTalismanRecord { nodeId: string; source: TalismanSource; off
  * and the resources paid (the healing may cost less than its price), the run seed. Journals written before have none.
  */
 export interface RunShopRecord { nodeId: string; stock: ShopStock; bought: ShopPurchase[]; seed: number; at: number; /** The run's ladder step; absent — 0. */ ladder?: number }
+/**
+ * A start gift taken (docs/roguelike-runs.md, 2а): full or mini, the buttons shown (in order), the button taken, what its
+ * own choice took (a consumable or a talisman), the run seed and whether it was entered. Journals written before have none.
+ */
+export interface RunGiftRecord { kind: GiftKind; options: GiftOption[]; chosen: number; pick?: string; seed: number; seeded?: boolean; at: number }
+/** Per gift button kind over the journal: shown and taken (in the full and the mini gift together). */
+export interface GiftAggregate { option: GiftOptionKind; shown: number; taken: number }
 /** Merchants over the journal: visits, visits with a purchase, purchases and resources spent per good. */
 export interface ShopAggregate { visits: number; buying: number; resources: number; goods: Partial<Record<ShopGoodKind, { count: number; resources: number }>> }
 /** Per talisman over the journal: shown, taken, refused (shown and not taken); plus the battles where it fired. */
@@ -113,7 +126,7 @@ export interface RestAggregate { rests: number; heals: number; crafts: number; h
 /** Choices per event node and option, with how often each outcome came. */
 export interface EventAggregate { nodeId: string; label: string; option: string; count: number; outcomes: Record<string, number> }
 
-interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[]; runTalismans: RunTalismanRecord[]; runShops: RunShopRecord[] }
+interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[]; runTalismans: RunTalismanRecord[]; runShops: RunShopRecord[]; runGifts: RunGiftRecord[] }
 
 export interface BattleAggregate {
   key: string; label: string; attempts: number; visits: number; wins: number; loses: number;
@@ -130,7 +143,7 @@ export interface BattleAggregate {
   chestOpenRate: number | null;
 }
 
-const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [], runTalismans: [], runShops: [] });
+const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [], runTalismans: [], runShops: [], runGifts: [] });
 let memory: Journal = emptyJournal();
 
 function sanitize(value: unknown): Journal {
@@ -153,6 +166,9 @@ function sanitize(value: unknown): Journal {
   if (Array.isArray(raw.runShops)) {
     journal.runShops = raw.runShops.filter(item => item && typeof item === 'object' && typeof item.nodeId === 'string' && Array.isArray(item.bought)).slice(-MAX_ATTEMPTS);
   }
+  if (Array.isArray(raw.runGifts)) {
+    journal.runGifts = raw.runGifts.filter(item => item && typeof item === 'object' && (item.kind === 'full' || item.kind === 'mini') && Array.isArray(item.options) && typeof item.chosen === 'number').slice(-MAX_ATTEMPTS);
+  }
   return journal;
 }
 function load(): Journal {
@@ -169,7 +185,7 @@ function store(journal: Journal) {
 
 export const telemetryEnabled = () => load().enabled;
 export function setTelemetryEnabled(enabled: boolean) { const journal = load(); journal.enabled = enabled; store(journal); }
-export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; journal.runRests = []; journal.runTalismans = []; journal.runShops = []; store(journal); }
+export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; journal.runRests = []; journal.runTalismans = []; journal.runShops = []; journal.runGifts = []; store(journal); }
 
 /** Record a choice at a map event (called by the map screen after the run model resolved it). Respects `enabled`. */
 export function recordRunEvent(record: Omit<RunEventRecord, 'at'>) {
@@ -201,6 +217,23 @@ export function recordRunShop(record: Omit<RunShopRecord, 'at'>) {
   if (!journal.enabled) return;
   journal.runShops = [...journal.runShops, { ...structuredClone(record), at: Date.now() }].slice(-MAX_ATTEMPTS);
   store(journal);
+}
+/** Record a start gift taken (called by the map screen after the run model applied it). Respects `enabled`. */
+export function recordRunGift(record: Omit<RunGiftRecord, 'at'>) {
+  const journal = load();
+  if (!journal.enabled) return;
+  journal.runGifts = [...journal.runGifts, { ...structuredClone(record), at: Date.now() }].slice(-MAX_ATTEMPTS);
+  store(journal);
+}
+/** Shown and taken per gift button kind, in the order of the full gift's buttons. */
+export function aggregateGifts(records: RunGiftRecord[]): GiftAggregate[] {
+  const order: GiftOptionKind[] = ['pick-item', 'items', 'energy', 'resources', 'max-hp', 'calm', 'deal', 'oath'], rows = new Map<GiftOptionKind, GiftAggregate>();
+  for (const record of records) record.options.forEach((option, index) => {
+    const row = rows.get(option.kind) ?? { option: option.kind, shown: 0, taken: 0 };
+    row.shown++; if (index === record.chosen) row.taken++;
+    rows.set(option.kind, row);
+  });
+  return [...rows.values()].sort((a, b) => order.indexOf(a.option) - order.indexOf(b.option));
 }
 /** Resources one purchase took. */
 const purchaseCost = (purchase: ShopPurchase) => Object.values(purchase.paid ?? {}).reduce((sum, count) => sum + (typeof count === 'number' ? count : 0), 0);
@@ -256,9 +289,21 @@ const median = (values: number[]): number | null => {
 };
 const round = (value: number, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 
-export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'key'>): string {
+/**
+ * The battle an attempt belongs to: its key, or for a map attempt of a journal before 04.10.2026 (keyed by the node) the
+ * battle of that authored node (`run:trunk-1` → `run:trunk-wake`); a node that is not authored keeps its old key.
+ */
+export function attemptKey(record: Pick<AttemptRecord, 'mode' | 'id' | 'key' | 'nodeId'>): string {
+  if (record.mode !== 'run' || record.nodeId !== undefined) return record.key;
+  const content = forestNode(record.id)?.content;
+  return content?.kind === 'battle' ? `run:${content.battleId}` : record.key;
+}
+export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'key'> & { nodeId?: string }): string {
   switch (record.mode) {
-    case 'run': return `Карта леса · ${forestNode(record.id)?.name ?? record.id}`;
+    case 'run': {
+      const content = record.nodeId === undefined ? forestNode(record.id)?.content : undefined, battle = content?.kind === 'battle' ? content.battleId : record.id;
+      return `Карта леса · ${forestBattle(battle)?.name ?? forestNode(record.id)?.name ?? record.id}`;
+    }
     case 'custom': return `Свой · ${record.id}`;
     // A record of a removed mode from an older journal.
     default: return `Старый режим · ${record.key}`;
@@ -267,7 +312,7 @@ export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'key'>):
 
 export function aggregate(attempts: AttemptRecord[]): BattleAggregate[] {
   const groups = new Map<string, AttemptRecord[]>();
-  for (const attempt of attempts) groups.set(attempt.key, [...(groups.get(attempt.key) ?? []), attempt]);
+  for (const attempt of attempts) { const key = attemptKey(attempt); groups.set(key, [...(groups.get(key) ?? []), attempt]); }
   const rows: BattleAggregate[] = [];
   for (const [key, list] of groups) {
     const visits = new Map<number, AttemptRecord[]>();
@@ -313,6 +358,7 @@ export function exportPayload() {
     runRests: journal.runRests, restAggregate: aggregateRests(journal.runRests),
     runTalismans: journal.runTalismans, talismanAggregates: aggregateTalismans(journal.runTalismans),
     runShops: journal.runShops, shopAggregate: aggregateShops(journal.runShops),
+    runGifts: journal.runGifts, giftAggregates: aggregateGifts(journal.runGifts),
     talismanTriggers: { wardSaved: journal.attempts.filter(item => item.wardSaved).length, whetstoneUsed: journal.attempts.filter(item => item.whetstoneUsed).length } };
 }
 export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
@@ -320,7 +366,7 @@ export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
 // ---------- Live tracking ----------
 
 interface Open {
-  key: string; mode: BattleMode; id: string; seed: number;
+  key: string; mode: BattleMode; id: string; seed: number; nodeId?: string;
   startedAt: number; t0: number; visit: number; attemptInVisit: number;
   turns: number; hp: number; maxHp: number; damage: number; chainLengths: number[]; cancelled: number;
   abilities: Partial<Record<AbilityKind, number>>; items: Partial<Record<ItemKind, number>>; firstMoveMs: number | null;
@@ -346,11 +392,14 @@ function materialsOf(engine: ForestEngine): Partial<Record<ResourceKind, number>
   return Object.fromEntries(Object.entries(engine.state.materials ?? {}).filter(([, amount]) => amount > 0));
 }
 
-function describe(engine: ForestEngine): Pick<Open, 'key' | 'mode' | 'id' | 'seed'> {
+/** One visit is one battle at one node: the battle key with the map node (two nodes may hold the same battle). */
+const visitOf = (info: { key: string; nodeId?: string }) => `${info.key}@${info.nodeId ?? ''}`;
+function describe(engine: ForestEngine): Pick<Open, 'key' | 'mode' | 'id' | 'seed' | 'nodeId'> {
   const state = engine.state;
   // Every battle is a custom-level definition: a map node (its seed derives from the run seed) or an editor level.
   const seed = state.customLevel?.definition.seed ?? 0;
-  if (state.runNode) return { key: `run:${state.runNode.nodeId}`, mode: 'run', id: state.runNode.nodeId, seed };
+  // A map node's battle is keyed by its registry battle (the same node id holds different battles in different runs).
+  if (state.runNode) { const battle = engine.runBattleId ?? state.runNode.nodeId; return { key: `run:${battle}`, mode: 'run', id: battle, nodeId: state.runNode.nodeId, seed }; }
   const name = state.customLevel?.definition.name || 'без названия';
   return { key: `custom:${name}`, mode: 'custom', id: name, seed };
 }
@@ -366,7 +415,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     if (!load().enabled) return;
     const lengths = current.chainLengths;
     const record: AttemptRecord = {
-      key: current.key, mode: current.mode, id: current.id, seed: current.seed,
+      key: current.key, mode: current.mode, id: current.id, ...current.nodeId ? { nodeId: current.nodeId } : {}, seed: current.seed,
       startedAt: current.startedAt, durationMs: Math.round(performance.now() - current.t0), outcome, left,
       visit: current.visit, attemptInVisit: current.attemptInVisit, turns: current.turns,
       hpEnd: current.hp, maxHp: current.maxHp, damageTaken: current.damage,
@@ -390,8 +439,8 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
   const begin = () => {
     if (!load().enabled) { open = null; return; }
     const info = describe(engine);
-    if (info.key !== lastKey || visitClosed) { visitCounter++; attemptCounter = 0; visitClosed = false; }
-    lastKey = info.key; attemptCounter++;
+    if (visitOf(info) !== lastKey || visitClosed) { visitCounter++; attemptCounter = 0; visitClosed = false; }
+    lastKey = visitOf(info); attemptCounter++;
     open = { ...info, startedAt: Date.now(), t0: performance.now(), visit: visitCounter, attemptInVisit: attemptCounter,
       turns: 0, hp: engine.state.player.hp, maxHp: engine.state.player.maxHp, damage: 0, chainLengths: [], cancelled: 0, abilities: {}, items: {}, firstMoveMs: null,
       goalTurn: null, hpAtGoal: null, damageAfterGoal: 0, exitTurn: null, materials: {}, lootItems: {}, chestDropped: false, chestOpened: false,
@@ -407,7 +456,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
   const markLeftAfterDefeat = () => {
     if (visitClosed) return;
     const journal = load(), last = journal.attempts[journal.attempts.length - 1];
-    if (last && last.key === lastKey && last.visit === visitCounter && last.outcome === 'lose') { last.left = true; store(journal); }
+    if (last && visitOf(last) === lastKey && last.visit === visitCounter && last.outcome === 'lose') { last.left = true; store(journal); }
     visitClosed = true;
   };
   const sync = () => {
@@ -430,7 +479,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
   engine.subscribe((_state, event) => {
     if (event.type !== 'start') sync();
     switch (event.type) {
-      case 'start': if (open) finish(open.key === describe(engine).key ? 'restart' : 'quit', open.key !== describe(engine).key); begin(); break;
+      case 'start': if (open) { const same = visitOf(open) === visitOf(describe(engine)); finish(same ? 'restart' : 'quit', !same); } begin(); break;
       case 'win':
         if (open) {
           watchGoals();
@@ -506,7 +555,7 @@ const number = (value: number | null) => value === null ? '—' : String(round(v
  * HTML of the «Плейтест» modal. `confirmClear` swaps the clear button for an in-page confirmation. `trunkCleared`: the
  * player profile's trunk mark (playerProfile.ts); while it is set the modal offers to reset it.
  */
-export function playtestHtml(options: { confirmClear?: boolean; notice?: string; trunkCleared?: boolean } = {}): string {
+export function playtestHtml(options: { confirmClear?: boolean; notice?: string; trunkCleared?: boolean; meta?: { points: number; level: number; next: number | null; giftFull: boolean } } = {}): string {
   const journal = load(), rows = aggregate(journal.attempts);
   const table = rows.length
     ? `<div class="playtest-scroll"><table class="playtest-table"><thead><tr><th>Бой</th><th title="Всего попыток">Попыт.</th><th title="Доля побед среди попыток">Побед</th><th title="Медиана числа попыток до первой победы">До победы</th><th title="Медианное время победы">Время</th><th title="Медианное время попытки, закончившейся уходом из боя">До ухода</th><th title="Медиана хода, на котором выполнены цели (попытки, где выполнены)">Цели</th><th title="Медиана хода входа в дверь (победы через выход)">Выход</th><th title="Медиана ходов от целей до выхода (0 — та же цепь вошла в дверь)">Задерж.</th><th title="Доля попыток, открывших сундук, среди тех, где он упал">Сундук</th><th title="Доля визитов, где игрок ушёл без победы">Отказ</th></tr></thead><tbody>${rows.map(row =>
@@ -531,15 +580,21 @@ export function playtestHtml(options: { confirmClear?: boolean; notice?: string;
   const shopLine = shops.visits
     ? `<p class="playtest-rests" id="playtest-shops">Торговцы: ${shops.visits} · с покупкой ${shops.buying} · потрачено ресурсов ${shops.resources}${Object.keys(shops.goods).length ? ` (${(Object.entries(shops.goods) as [ShopGoodKind, { count: number; resources: number }][]).map(([good, row]) => `${goodName[good] ?? good} ×${row.count} за ${row.resources}`).join(', ')})` : ''}</p>`
     : '';
+  const giftName: Record<GiftOptionKind, string> = { 'pick-item': '1 из 3 расходников', items: '2 расходника', energy: '+2 энергии', resources: 'ресурсы', 'max-hp': '+1 к макс. HP', calm: 'тихий лес', deal: 'талисман за цену', oath: 'клятва' };
+  const gifts = aggregateGifts(journal.runGifts);
+  const giftLine = journal.runGifts.length
+    ? `<p class="playtest-rests" id="playtest-gifts">Дары: ${journal.runGifts.length} (полных ${journal.runGifts.filter(item => item.kind === 'full').length}) · ${gifts.map(row => `${giftName[row.option] ?? row.option} ${row.taken}/${row.shown}`).join(', ')}</p>`
+    : '';
   const wardSaves = journal.attempts.filter(item => item.wardSaved).length, whetstones = journal.attempts.filter(item => item.whetstoneUsed).length;
   const triggerLine = wardSaves || whetstones ? `<p class="playtest-rests" id="playtest-triggers">Срабатывания талисманов: оберег спас ${wardSaves} · точильный камень в ${whetstones} боях</p>` : '';
   const clear = options.confirmClear
     ? `<div class="playtest-confirm" role="alert"><span>Удалить ${journal.attempts.length} записей?</span><button class="button secondary" data-action="playtest-clear-yes">УДАЛИТЬ</button><button class="text-button" data-action="playtest-clear-no">ОТМЕНА</button></div>`
     : '<button class="text-button" data-action="playtest-clear">ОЧИСТИТЬ</button>';
-  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}${restLine}${shopLine}${talismanTable}${triggerLine}
+  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}${restLine}${shopLine}${giftLine}${talismanTable}${triggerLine}
 <div class="playtest-actions"><button class="button secondary" data-action="playtest-download">СКАЧАТЬ JSON</button><button class="button secondary" data-action="playtest-copy">СКОПИРОВАТЬ JSON</button>${clear}</div>
 <p class="playtest-note" aria-live="polite">${escapeHtml(options.notice ?? 'Данные хранятся только в этом браузере и никуда не отправляются.')}</p>
 <p class="playtest-profile" id="playtest-profile">${options.trunkCleared ? 'Профиль: ствол пройден — новый поход начнётся с развилки троп. <button class="text-button" data-action="profile-reset-trunk">СБРОСИТЬ ОТМЕТКУ СТВОЛА</button>' : 'Профиль: ствол не пройден — новый поход начнётся со ствола.'}</p>
+${options.meta ? `<p class="playtest-profile" id="playtest-meta">Полоса открытий: ${options.meta.next === null ? options.meta.points : `${options.meta.points} / ${options.meta.next}`} · уровень ${options.meta.level} · дар следующего похода: ${options.meta.giftFull ? 'полный' : 'мини'}. <button class="text-button" data-action="profile-reset-meta">СБРОСИТЬ ПОЛОСУ И ДАР</button></p>` : ''}
 <button class="text-button playtest-toggle" data-action="playtest-toggle">${journal.enabled ? 'ЖУРНАЛ ВКЛЮЧЁН · ВЫКЛЮЧИТЬ' : 'ЖУРНАЛ ВЫКЛЮЧЕН · ВКЛЮЧИТЬ'}</button>
 <button class="text-button" data-action="playtest-close">← НАЗАД</button>`;
 }
