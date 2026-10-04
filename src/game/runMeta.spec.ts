@@ -140,15 +140,15 @@ async function scoreLines() {
   const base = 5 * 14 + 2 * 9 + 15 + 30 + 100;
   assert(won.score >= 1000 && json(lines(won)) === json({ row: 70, battles: 18, hard: 15, jailer: 30, boss: 100 }), `victory: ${json(lines(won))}`);
   assert(forestRunScore(won).total === base + Object.values(styles(won)).reduce((sum, points) => sum + points, 0), 'the total is the lines plus the bonuses');
-  // Battle points: the kills and crystals of the battle log, one per ten, rounded down.
-  const scored = { ...won, battleLog: won.battleLog!.map((entry, n) => ({ ...entry, points: n === 0 ? 100 : n === 1 ? 37 : 0 })) };
-  assert(lines(scored).points === 13, '137 battle points give 13');
+  // Battle points: the kills and crystals of the battle log, one per hundred, rounded down (decision of 04.10.2026).
+  const scored = { ...won, battleLog: won.battleLog!.map((entry, n) => ({ ...entry, points: n === 0 ? 1000 : n === 1 ? 370 : 0 })) };
+  assert(lines(scored).points === 13, '1370 battle points give 13');
   // The ladder: +5% of the lines per step, rounded down; the bonuses are not multiplied.
   const laddered = await walk(TO_CHIEF, { ladder: 3 });
   const ladderBase = Object.entries(lines(laddered)).filter(([id]) => id !== 'ladder').reduce((sum, [, points]) => sum + points, 0);
   assert(lines(laddered).ladder === Math.floor(ladderBase * 15 / 100) && forestRunScore(laddered).total === ladderBase + lines(laddered).ladder + Object.values(styles(laddered)).reduce((sum, points) => sum + points, 0),
     `step 3: +15% of ${ladderBase} = ${lines(laddered).ladder}`);
-  console.log(`PASS score lines: row, battles, hard, Jailer, boss, points per 10, ladder +5% per step (victory ${forestRunScore(won).total}, defeat at the Jailer ${forestRunScore(lost).total})`);
+  console.log(`PASS score lines: row, battles, hard, Jailer, boss, points per 100, ladder +5% per step (victory ${forestRunScore(won).total}, defeat at the Jailer ${forestRunScore(lost).total})`);
 }
 
 /** Each style bonus when its condition holds, and none when it fails. */

@@ -3,7 +3,7 @@
  * screen, won or lost, and added to the bar of openings (unlocks.ts). Pure: it reads the finished run (forestRun.ts).
  *
  * Lines: 5 × the last completed row, 2 per ordinary battle won (battles and breakthroughs, the trunk included), 15 per
- * hard battle, 30 for the Jailer, 100 for a boss, 1 per 10 battle points of kills and crystals (rounded down; the
+ * hard battle, 30 for the Jailer, 100 for a boss, 1 per 100 battle points of kills and crystals (rounded down; the
  * engine's turn and win bonuses are not counted — HP and speed are the style bonuses; decision of 04.10.2026); the ladder step adds 5% of these
  * lines per step (rounded down). Style bonuses are not multiplied by the step. A bonus that needs the battle log or the
  * play time is not given to a run that has none (a save from before 04.10.2026).
@@ -11,7 +11,7 @@
 import type { ForestMapNode } from './forestMap';
 
 // Баланс (docs/roguelike-runs.md, 7).
-export const SCORE_PER_ROW = 5, SCORE_BATTLE = 2, SCORE_HARD = 15, SCORE_JAILER = 30, SCORE_BOSS = 100, SCORE_POINTS_PER = 10, SCORE_LADDER_PERCENT = 5;
+export const SCORE_PER_ROW = 5, SCORE_BATTLE = 2, SCORE_HARD = 15, SCORE_JAILER = 30, SCORE_BOSS = 100, SCORE_POINTS_PER = 100, SCORE_LADDER_PERCENT = 5;
 export const STYLE_CLEAN_HARD = 25, STYLE_CLEAN_BOSS = 50, STYLE_NO_ITEMS = 50, STYLE_FAST = 25, STYLE_GREEDY = 25, STYLE_COLLECTOR = 25, STYLE_ASCETIC = 50;
 /** «Быстрый поход»: the run's play time at most this long. */
 export const STYLE_FAST_MS = 25 * 60_000;
