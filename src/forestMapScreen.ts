@@ -12,6 +12,8 @@ import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNod
 import { forestEvent } from './game/run/forestEvents';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
+import { isOath, talisman, type TalismanId } from './game/talismans';
+import { BLANK_SCORE, type TalismanOption } from './game/run/talismanOffers';
 
 export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: string; hint: string }> = {
   battle: { icon: '⚔', label: 'Бой', hint: 'Обычный бой.' },
@@ -56,6 +58,47 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&
 const nodeName = (run: ForestRunState, id: string | null) => (id && runNode(run, id)?.name) || '';
 const pct = (value: number, total: number) => `${(value / total * 100).toFixed(3)}%`;
 
+// ---------- Talismans and oaths (docs/talismans.md): temporary letter badges until the art is drawn ----------
+
+/** Badge letter of each talisman: the first letter of its name (a distinct one where two would clash). */
+export const TALISMAN_LETTER: Record<TalismanId, string> = {
+  whetstone: 'Т', 'dew-flask': 'Ф', 'ragman-pouch': 'К', 'tough-hide': 'Ш', 'millstone-shard': 'Ж', hourglass: 'Ч', 'nimble-paws': 'Л', 'ash-ward': 'О',
+  'oath-hunger': 'Г', 'oath-poverty': 'Б', 'oath-wrath': 'Я',
+};
+const RARITY_LABEL = { common: 'обычный', uncommon: 'необычный', rare: 'редкий', oath: 'клятва' } as const;
+/**
+ * A row of talisman badges next to HP (map and battle): a round badge for a talisman, a square one for an oath; hover
+ * or keyboard focus shows the name and the effect line. `wardWhole`: the Ash ward has not crumbled yet (a crumbled one
+ * stays greyed). Empty without talismans.
+ */
+export function talismanBadgesHtml(ids: readonly TalismanId[], wardWhole: boolean): string {
+  return ids.map(id => {
+    const entry = talisman(id), spent = id === 'ash-ward' && !wardWhole;
+    const label = `${entry.name}${spent ? ' (рассыпался)' : ''}: ${entry.effect}`;
+    return `<span class="talisman-badge${isOath(id) ? ' oath' : ''}${spent ? ' spent' : ''}" tabindex="0" data-talisman-badge="${id}" aria-label="${escapeHtml(label)}"><span aria-hidden="true">${TALISMAN_LETTER[id]}</span>`
+      + `<span class="talisman-tip" role="tooltip"><b>${escapeHtml(entry.name)}${spent ? ' · рассыпался' : ''}</b>${escapeHtml(entry.effect)}</span></span>`;
+  }).join('');
+}
+
+/**
+ * The open talisman or oath choice (docs/talismans.md): up to three options (the «пустышка» when the pool is empty) and
+ * «Отказаться». Empty without one.
+ */
+export function talismanModalHtml(run: ForestRunState): string {
+  const pending = run.pending;
+  if (pending?.kind !== 'talisman') return '';
+  const oath = pending.source === 'oath';
+  const option = (id: TalismanOption) => {
+    if (id === 'blank') return `<button class="reward-choice talisman-choice" data-talisman="blank"><span class="reward-icon talisman-icon" aria-hidden="true">·</span><span><b>Пустышка <em>+${BLANK_SCORE} очков</em></b><small>Пул талисманов пуст: только очки похода.</small></span></button>`;
+    const entry = talisman(id);
+    return `<button class="reward-choice talisman-choice" data-talisman="${id}"><span class="reward-icon talisman-icon${isOath(id) ? ' oath' : ''}" aria-hidden="true">${TALISMAN_LETTER[id]}</span><span><b>${escapeHtml(entry.name)} <em>${RARITY_LABEL[entry.rarity]}</em></b><small>${escapeHtml(entry.effect)}</small></span></button>`;
+  };
+  return `<p class="eyebrow">${oath ? 'КЛЯТВА' : 'ТАЛИСМАН'}</p><h2 id="modal-title">${oath ? 'Клятва за силу' : 'Талисман в дорогу'}</h2>`
+    + `<p class="modal-copy">${oath ? 'Клятва даёт +1 энергию в начале каждого боя и отключает одну систему похода.' : 'Талисман действует до конца похода.'} Не взятые варианты в этом походе больше не выпадут.</p>`
+    + `<div class="reward-options">${pending.options.map(option).join('')}</div><button class="button secondary" data-action="talisman-refuse">ОТКАЗАТЬСЯ</button>`
+    + `<p class="reward-note">${escapeHtml(nodeName(run, pending.nodeId))}</p>`;
+}
+
 /** What entering the node opens for the rest of the run (its `grants`), or ''. */
 export function grantText(node: ForestMapNode): string {
   const grants = node.grants;
@@ -92,6 +135,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
       : view.result ? 'Поход завершён. Наведи на узел, чтобы вспомнить его.'
       : pending?.kind === 'battle' ? `Бой узла «${nodeName(run, pending.nodeId)}» не завершён. Начни его снова кнопкой выше.`
       : pending?.kind === 'find' ? 'Находка ждёт выбора предмета.'
+      : pending?.kind === 'talisman' ? `${pending.source === 'oath' ? 'Клятва' : 'Талисман'} ждёт выбора.`
       : pending?.kind === 'event' ? 'Событие ждёт выбора.'
       : pending?.kind === 'rest' ? 'Привал ждёт выбора: лечение или крафт.'
       : view.available.length ? 'Выбери следующий узел: доступные подсвечены. Наведи на узел, чтобы увидеть тип и особенность поля.' : '';
@@ -176,7 +220,8 @@ function resourcesHtml(view: ForestRunView): string {
     // Crafting resources (elite loot, chests, events; resources.ts), spent on crafting at a rest.
     ...RESOURCE_KINDS.filter(resource => (materials?.[resource] ?? 0) > 0).map(resource => `<span class="map-chip resource" data-resource="${resource}" title="Ресурс крафта: из ${CRAFT_COST} — ${escapeHtml(ITEMS[RESOURCES[resource].crafts].label.toLowerCase())} на привале">${RESOURCES[resource].label} <b>×${materials![resource]}</b></span>`),
   ];
-  return `<div class="map-res" id="map-hp"><span class="hud-label">ЗДОРОВЬЕ</span><div class="map-hearts" aria-label="Здоровье: ${player.hp} из ${player.maxHp}">${hearts}</div>${effectText ? `<small class="map-effects">${effectText}</small>` : ''}</div>`
+  const badges = talismanBadgesHtml(view.talismans, !view.wardSpent);
+  return `<div class="map-res" id="map-hp"><span class="hud-label">ЗДОРОВЬЕ</span><div class="map-hearts" aria-label="Здоровье: ${player.hp} из ${player.maxHp}">${hearts}</div>${effectText ? `<small class="map-effects">${effectText}</small>` : ''}${badges ? `<div class="talisman-row" id="map-talismans" aria-label="Талисманы">${badges}</div>` : ''}</div>`
     + `<div class="map-res" id="map-energy"><span class="hud-label">ЭНЕРГИЯ</span><strong>${energyText(player.energy)} / 7</strong></div>`
     + `<div class="map-res map-res-tools" id="map-tools"><span class="hud-label">ИНВЕНТАРЬ И ИНСТРУМЕНТЫ</span><div class="map-chips">${chips.join('') || '<span class="map-chip empty">пока закрыты</span>'}</div></div>`
     + `<div class="map-res" id="map-battles"><span class="hud-label">ПРОЙДЕНО БОЁВ</span><strong>${view.battlesWon}</strong></div>`;
@@ -193,6 +238,8 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
     ? `<div class="map-banner"><span>Бой узла «${escapeHtml(nodeName(run, pending.nodeId))}» не завершён.</span><button class="button primary" data-action="run-battle">К БОЮ</button></div>`
     : pending?.kind === 'find'
       ? `<div class="map-banner"><span>Находка ждёт выбора предмета.</span><button class="button primary" data-action="run-find">ВЫБРАТЬ</button></div>`
+      : pending?.kind === 'talisman'
+        ? `<div class="map-banner"><span>${pending.source === 'oath' ? 'Клятва' : 'Талисман'} ждёт выбора.</span><button class="button primary" data-action="run-talisman">ВЫБРАТЬ</button></div>`
       : pending?.kind === 'event'
         ? `<div class="map-banner"><span>Событие «${escapeHtml(nodeName(run, pending.nodeId))}» ждёт выбора.</span><button class="button primary" data-action="run-event">ВЫБРАТЬ</button></div>`
       : pending?.kind === 'rest'
@@ -233,7 +280,7 @@ export function restModalHtml(run: ForestRunState): string {
   const view = restView(run);
   if (!view) return '';
   const { hp, maxHp } = run.resources.player, { heal } = view;
-  const healText = heal.amount > 0 ? `+${heal.amount} HP` : heal.value > 0 ? 'Здоровье полное' : 'Не лечит';
+  const healText = heal.amount > 0 ? `+${heal.amount} HP` : heal.value > 0 ? 'Здоровье полное' : run.talismans?.includes('oath-hunger') ? 'Не лечит: Клятва голода' : 'Не лечит';
   const healBlock = `<section class="rest-option${heal.available ? '' : ' spent'}" id="rest-heal"><h3><span aria-hidden="true">${NODE_TYPE_INFO.rest.icon}</span> Лечение</h3>`
     + `<p class="rest-line"><b>${healText}</b> · сейчас ${hp} / ${maxHp}${heal.clearsEffects ? ' · снимет эффекты' : ''}</p>`
     + `<button class="button primary" data-action="rest-heal"${heal.available ? '' : ' disabled aria-disabled="true"'}>ЛЕЧИТЬСЯ</button>`
@@ -288,11 +335,15 @@ export function eventResultHtml(run: ForestRunState, events: ForestRunEvent[]): 
  * run and shows runResultHtml instead; the defeat branch here is only for a node battle opened outside the saved run
  * (the debug hook `startNodeBattle`), which has no run to end.
  */
-export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; battlesWon: number; grants: string; find?: boolean; healed?: number }): string {
-  const { won, name, turns, hp, maxHp, battlesWon, grants, find, healed } = options;
+export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; battlesWon: number; grants: string; find?: boolean; choice?: 'hard' | 'oath'; healed?: number; wardCrumbled?: boolean }): string {
+  const { won, name, turns, hp, maxHp, battlesWon, grants, find, choice, healed, wardCrumbled } = options;
+  const choiceText = choice === 'oath' ? ' За победу — клятва: выбери одну из трёх или откажись.' : choice === 'hard' ? ' За победу — талисман: выбери один из трёх или откажись.' : '';
+  const next = find ? '<button class="button primary" data-action="run-find">ВЫБРАТЬ НАХОДКУ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>'
+    : choice ? `<button class="button primary" data-action="run-talisman">${choice === 'oath' ? 'ВЫБРАТЬ КЛЯТВУ' : 'ВЫБРАТЬ ТАЛИСМАН'}</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`
+    : '<button class="button primary" data-action="run-map">К КАРТЕ</button>';
   const stats = `<div class="result-stats"><span><b>${turns}</b>ХОДЫ</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${battlesWon}</b>БОЁВ ПРОЙДЕНО</span></div>`;
   return won
-    ? `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol">✦</div><h2 id="modal-title">Узел пройден</h2><p class="modal-copy">Здоровье, энергия и предметы уходят с тобой на карту.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` <b id="hard-heal">+${healed} HP за трудный бой.</b>` : ''}${find ? ' За победу — находка: выбери один предмет из трёх.' : ''}</p>${stats}${find ? '<button class="button primary" data-action="run-find">ВЫБРАТЬ НАХОДКУ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>' : '<button class="button primary" data-action="run-map">К КАРТЕ</button>'}`
+    ? `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol">✦</div><h2 id="modal-title">Узел пройден</h2><p class="modal-copy">Здоровье, энергия и предметы уходят с тобой на карту.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` <b id="hard-heal">+${healed} HP за трудный бой.</b>` : ''}${wardCrumbled ? ' <b id="ward-crumbled">Пепельный оберег спас кота и рассыпался.</b>' : ''}${find ? ' За победу — находка: выбери один предмет из трёх.' : ''}${choiceText}</p>${stats}${next}`
     : `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот отступил</h2><p class="modal-copy">Бой открыт вне сохранённого похода. Повтор вернёт поле, здоровье и запас как на входе.</p>${stats}<button class="button primary" data-action="retry">ПОВТОРИТЬ БОЙ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`;
 }
 

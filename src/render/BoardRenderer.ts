@@ -562,7 +562,7 @@ export class BoardRenderer {
         }
         this.endpoint.position.set(Math.max(81,Math.min(this.boardWidth-81,at.x)),Math.max(12,at.y-35));
         this.endpointBack.clear().roundRect(-78,-11,156,22,4).fill(landing.valid?landing.damage?0x673b36:0x294540:0x4c3330).stroke({color,width:1});
-        this.endpointText.text=!landing.valid?'НЕЛЬЗЯ ПРИЗЕМЛИТЬСЯ':landing.damage?`ПРЫЖОК · −${landing.damage} HP`:'ПРЫЖОК · БЕЗОПАСНО';
+        this.endpointText.text=!landing.valid?'НЕЛЬЗЯ ПРИЗЕМЛИТЬСЯ':landing.wardSaves&&!landing.playerDies?'ПРЫЖОК · ОБЕРЕГ СПАСЁТ':landing.damage?`ПРЫЖОК · −${landing.damage} HP`:'ПРЫЖОК · БЕЗОПАСНО';
       }
       return;
     }
@@ -578,7 +578,7 @@ export class BoardRenderer {
       }
       if(spin.valid&&spin.enemyPhase)this.drawPushForecast(state,spin,fc);
       this.endpoint.visible=true;
-      this.endpointText.text=!spin.valid?'КРУГОВОЙ · НЕЛЬЗЯ':spin.damage?`КРУГОВОЙ · −${spin.damage} HP КОТУ · ЕЩЁ РАЗ`:'КРУГОВОЙ · БЕЗОПАСНО · ЕЩЁ РАЗ';
+      this.endpointText.text=!spin.valid?'КРУГОВОЙ · НЕЛЬЗЯ':spin.wardSaves&&!spin.playerDies?'КРУГОВОЙ · ОБЕРЕГ СПАСЁТ · ЕЩЁ РАЗ':spin.damage?`КРУГОВОЙ · −${spin.damage} HP КОТУ · ЕЩЁ РАЗ`:'КРУГОВОЙ · БЕЗОПАСНО · ЕЩЁ РАЗ';
       const half=Math.ceil(this.endpointText.width/2)+10;
       this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,hero.x)),Math.max(12,hero.y-40));
       this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!spin.valid?0x3c3530:spin.damage?0x742e30:0x263b31).stroke({color:!spin.valid?0xc4a775:spin.damage?0xe49681:tint,width:1});
@@ -670,7 +670,7 @@ export class BoardRenderer {
       }
       this.endpoint.visible=state.phase==='PLAYER_INPUT';
       // Same wording as the chain panel.
-      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.exitNext!==undefined?`ПРОДОЛЖИ В ВЫХОД${preview.damage?` · −${preview.damage} HP`:''}`:preview.opensDoor!==undefined?'ВЫХОД · ПОБЕДА':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.unlocksExit||preview.enemyPhase?.unlocksExit?`ВЫХОД ОТКРОЕТСЯ${preview.unlocksExit?'':' ПОСЛЕ ОТВЕТА ВРАГОВ'}${preview.damage?` · −${preview.damage} HP`:''}`:preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
+      this.endpointText.text=!preview.valid?'ПРОДОЛЖАЙ':preview.exitNext!==undefined?`ПРОДОЛЖИ В ВЫХОД${preview.damage?` · −${preview.damage} HP`:''}`:preview.opensDoor!==undefined?'ВЫХОД · ПОБЕДА':preview.completesRoom?'ПОБЕДНЫЙ УДАР':preview.enemyPhase?.completesObjective?'ПОБЕДА ПОСЛЕ ОТВЕТА ВРАГОВ':preview.unlocksExit||preview.enemyPhase?.unlocksExit?`ВЫХОД ОТКРОЕТСЯ${preview.unlocksExit?'':' ПОСЛЕ ОТВЕТА ВРАГОВ'}${preview.damage?` · −${preview.damage} HP`:''}`:preview.wardSaves&&!preview.playerDies?`ОБЕРЕГ СПАСЁТ${preview.damage?` · −${preview.damage} HP`:''}`:preview.damage?`−${preview.damage} HP КОТУ`:'БЕЗОПАСНО';
       const half=Math.ceil(this.endpointText.width/2)+10;
       this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,end.x)),Math.max(12,end.y-35));
       this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(!preview.valid?0x3c3530:preview.damage?0x742e30:0x263b31).stroke({color:!preview.valid?0xc4a775:preview.damage?0xe49681:0x9aa982,width:1});
@@ -683,7 +683,7 @@ export class BoardRenderer {
         if(rest.valid&&rest.enemyPhase){
           this.drawPushForecast(state,rest,fc);
           const at=this.center(rest.enemyPhase.heroIndex);
-          this.endpointText.text=rest.damage?`ОТДЫХ: −${rest.damage} HP КОТУ`:'ОТДЫХ: БЕЗОПАСНО';
+          this.endpointText.text=rest.wardSaves&&!rest.playerDies?'ОТДЫХ: ОБЕРЕГ СПАСЁТ':rest.damage?`ОТДЫХ: −${rest.damage} HP КОТУ`:'ОТДЫХ: БЕЗОПАСНО';
           const half=Math.ceil(this.endpointText.width/2)+10;
           this.endpoint.visible=true;this.endpoint.position.set(Math.min(this.boardWidth-half-4,Math.max(half+4,at.x)),Math.max(12,at.y-35));
           this.endpointBack.clear().roundRect(-half,-10,half*2,20,4).fill(rest.damage?0x742e30:0x263b31).stroke({color:rest.damage?0xe49681:0x9aa982,width:1});

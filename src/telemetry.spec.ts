@@ -32,6 +32,9 @@ registry['spec-telemetry-exit'] = authoredLesson({ id: 'spec-telemetry-exit', na
 registry['spec-telemetry-elite'] = authoredLesson({ id: 'spec-telemetry-elite', name: 'Выход за элитой', description: '', hint: '',
   rows: ['DgGGG', 'TGGGG', 'RGGGG', 'EGGGG', 'RHGGG'], legend: { D: { door: true }, T: { color: 0, target: true }, E: { color: 0, hp: 1, elite: true } }, seed: 7102 });
 const COLUMN = [20, 15, 10, 5], DOOR = 0;
+// Talismans (docs/talismans.md): a porcupine on B3 (11) beside the cat on C3; at 1 HP its quills are lethal.
+registry['spec-telemetry-quills'] = authoredLesson({ id: 'spec-telemetry-quills', name: 'Иглы', description: '', hint: '',
+  rows: ['RRRRR', 'RRRRR', 'RPHRR', 'RRRRR', 'TRRRD'], legend: { D: { door: true }, T: { color: 3, target: true }, P: { color: 0, variant: 'porcupine', hp: 0 } }, seed: 7103 });
 
 function start(seed: number, observed: boolean, id = 'spec-telemetry-exit') {
   const setup: RunBattleSetup = { nodeId: 'spec-telemetry', label: 'spec', seed, template: { kind: 'battle', id }, row: 6,
@@ -226,8 +229,53 @@ function restChoices() {
   console.log('PASS rest choices are recorded, exported and summed; old journals load');
 }
 
+/**
+ * Talisman choices (shown, taken, refused) and the triggers of a battle: the whetstone on the first chain, the Ash ward
+ * saving the cat from lethal quills. Telemetry only observes: a twin engine without it ends identical.
+ */
+async function talismans() {
+  telemetry.clearTelemetry();
+  telemetry.recordRunTalisman({ nodeId: 'jailer', source: 'oath', offered: ['oath-hunger', 'oath-poverty', 'oath-wrath'], chosen: 'oath-wrath', seed: 7 });
+  telemetry.recordRunTalisman({ nodeId: 'camp-elite', source: 'hard', offered: ['whetstone', 'tough-hide', 'ash-ward'], chosen: null, seed: 7 });
+  telemetry.recordRunTalisman({ nodeId: 'den-elite', source: 'hard', offered: ['whetstone', 'hourglass', 'blank'], chosen: 'whetstone', seed: 8 });
+  const payload = telemetry.exportPayload(), row = (id: string) => payload.talismanAggregates.find(entry => entry.id === id)!;
+  assert(payload.runTalismans.length === 3 && payload.runTalismans[1].chosen === null, 'choices and refusals are exported in order');
+  assert(row('whetstone').shown === 2 && row('whetstone').taken === 1 && row('whetstone').refused === 1 && row('oath-wrath').taken === 1 && row('oath-hunger').refused === 1 && row('blank').shown === 1,
+    `shown, taken and refused per talisman: ${JSON.stringify(payload.talismanAggregates)}`);
+  assert(row('whetstone').label === 'Точильный камень' && telemetry.playtestHtml().includes('id="playtest-talismans"'), 'the playtest screen lists the talismans');
+  telemetry.setTelemetryEnabled(false);
+  telemetry.recordRunTalisman({ nodeId: 'x', source: 'hard', offered: ['hourglass'], chosen: null, seed: 9 });
+  assert(telemetry.exportPayload().runTalismans.length === 3, 'a disabled journal records no choice');
+  telemetry.setTelemetryEnabled(true);
+
+  for (let k = 1; k <= 4; k++) {
+    telemetry.clearTelemetry();
+    const setup: RunBattleSetup = { nodeId: 'spec-telemetry', label: 'spec', seed: spread(k), template: { kind: 'battle', id: 'spec-telemetry-quills' }, row: 6,
+      player: { hp: 1, maxHp: 5, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [],
+      talismans: ['whetstone', 'ash-ward'], wardReady: true };
+    const observed = new ForestEngine(), twin = new ForestEngine(); observed.animationScale = 0; twin.animationScale = 0;
+    telemetry.installTelemetry(observed);
+    assert(observed.startRunBattle(setup) && twin.startRunBattle(setup), `seed ${k}: the quills field starts`);
+    for (const g of [observed, twin]) await chain(g, [11]);
+    assert(snapshot(observed) === snapshot(twin), `seed ${k}: telemetry does not change the battle`);
+    assert(observed.state.player.hp === 1 && !observed.state.player.ward, `seed ${k}: the ward saved the cat`);
+    observed.winLevel();
+    const [record] = journal();
+    assert(record.wardSaved === true && record.whetstoneUsed === true && JSON.stringify(record.talismans) === JSON.stringify(['whetstone', 'ash-ward']), `seed ${k}: the triggers are recorded: ${JSON.stringify(record)}`);
+    assert(telemetry.exportPayload().talismanTriggers.wardSaved === 1 && telemetry.playtestHtml().includes('id="playtest-triggers"'), `seed ${k}: the triggers are summed and shown`);
+  }
+  // Without talismans the record carries none of the fields.
+  telemetry.clearTelemetry();
+  const { g } = start(spread(9), true);
+  await chain(g, [...COLUMN, DOOR]);
+  const [plain] = journal();
+  assert(plain.talismans === undefined && plain.wardSaved === undefined && plain.whetstoneUsed === undefined, 'no talisman fields without talismans');
+  console.log('PASS talisman choices (shown, taken, refused) and battle triggers (ward, whetstone) are recorded; telemetry only observes');
+}
+
 eventChoices();
 restChoices();
+await talismans();
 await leaveAtOnce();
 await runDefeatEndsTheRun();
 await stayThenLeave();
