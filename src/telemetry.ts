@@ -2,6 +2,7 @@ import type { ForestEngine } from './game/forestEngine';
 import type { AbilityKind, ItemKind, ResourceKind } from './game/forestTypes';
 import { isResource } from './game/resources';
 import { forestNode } from './game/run/forestMap';
+import { forestBattle } from './game/run/forestBattles';
 import { talisman, type TalismanId } from './game/talismans';
 import type { TalismanOption, TalismanSource } from './game/run/talismanOffers';
 import type { ShopGoodKind, ShopPurchase, ShopStock } from './game/run/merchant';
@@ -21,13 +22,17 @@ export type BattleMode = 'custom' | 'run';
 
 export interface AttemptRecord {
   /**
-   * Stable aggregation key: `run:<nodeId>` (a forest-map node) or `custom:<name>` (an editor level). Journals written
-   * before the old modes were removed may still hold other keys; they are shown under their raw key.
+   * Stable aggregation key: `run:<battle id>` (a registry battle of a map node, since 04.10.2026: on a generated map one
+   * node id holds different battles in different runs) or `custom:<name>` (an editor level). Journals written before
+   * keyed map attempts by the node (`run:<node id>`, no `nodeId` field); aggregate() reads those as the battle of that
+   * authored node where it can. Journals written before the old modes were removed may hold other keys (raw key).
    */
   key: string;
   mode: BattleMode;
-  /** Forest-map node id or the editor level name. */
+  /** Registry battle id (a map node's battle; the node id in journals before 04.10.2026) or the editor level name. */
   id: string;
+  /** The map node of the attempt (`r6c1`, `trunk-1`); absent for an editor level and in journals before 04.10.2026. */
+  nodeId?: string;
   seed: number;
   /** Start time, ms since the Unix epoch. */
   startedAt: number;
@@ -284,9 +289,21 @@ const median = (values: number[]): number | null => {
 };
 const round = (value: number, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 
-export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'key'>): string {
+/**
+ * The battle an attempt belongs to: its key, or for a map attempt of a journal before 04.10.2026 (keyed by the node) the
+ * battle of that authored node (`run:trunk-1` → `run:trunk-wake`); a node that is not authored keeps its old key.
+ */
+export function attemptKey(record: Pick<AttemptRecord, 'mode' | 'id' | 'key' | 'nodeId'>): string {
+  if (record.mode !== 'run' || record.nodeId !== undefined) return record.key;
+  const content = forestNode(record.id)?.content;
+  return content?.kind === 'battle' ? `run:${content.battleId}` : record.key;
+}
+export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'key'> & { nodeId?: string }): string {
   switch (record.mode) {
-    case 'run': return `Карта леса · ${forestNode(record.id)?.name ?? record.id}`;
+    case 'run': {
+      const content = record.nodeId === undefined ? forestNode(record.id)?.content : undefined, battle = content?.kind === 'battle' ? content.battleId : record.id;
+      return `Карта леса · ${forestBattle(battle)?.name ?? forestNode(record.id)?.name ?? record.id}`;
+    }
     case 'custom': return `Свой · ${record.id}`;
     // A record of a removed mode from an older journal.
     default: return `Старый режим · ${record.key}`;
@@ -295,7 +312,7 @@ export function battleLabel(record: Pick<AttemptRecord, 'mode' | 'id' | 'key'>):
 
 export function aggregate(attempts: AttemptRecord[]): BattleAggregate[] {
   const groups = new Map<string, AttemptRecord[]>();
-  for (const attempt of attempts) groups.set(attempt.key, [...(groups.get(attempt.key) ?? []), attempt]);
+  for (const attempt of attempts) { const key = attemptKey(attempt); groups.set(key, [...(groups.get(key) ?? []), attempt]); }
   const rows: BattleAggregate[] = [];
   for (const [key, list] of groups) {
     const visits = new Map<number, AttemptRecord[]>();
@@ -349,7 +366,7 @@ export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
 // ---------- Live tracking ----------
 
 interface Open {
-  key: string; mode: BattleMode; id: string; seed: number;
+  key: string; mode: BattleMode; id: string; seed: number; nodeId?: string;
   startedAt: number; t0: number; visit: number; attemptInVisit: number;
   turns: number; hp: number; maxHp: number; damage: number; chainLengths: number[]; cancelled: number;
   abilities: Partial<Record<AbilityKind, number>>; items: Partial<Record<ItemKind, number>>; firstMoveMs: number | null;
@@ -375,11 +392,14 @@ function materialsOf(engine: ForestEngine): Partial<Record<ResourceKind, number>
   return Object.fromEntries(Object.entries(engine.state.materials ?? {}).filter(([, amount]) => amount > 0));
 }
 
-function describe(engine: ForestEngine): Pick<Open, 'key' | 'mode' | 'id' | 'seed'> {
+/** One visit is one battle at one node: the battle key with the map node (two nodes may hold the same battle). */
+const visitOf = (info: { key: string; nodeId?: string }) => `${info.key}@${info.nodeId ?? ''}`;
+function describe(engine: ForestEngine): Pick<Open, 'key' | 'mode' | 'id' | 'seed' | 'nodeId'> {
   const state = engine.state;
   // Every battle is a custom-level definition: a map node (its seed derives from the run seed) or an editor level.
   const seed = state.customLevel?.definition.seed ?? 0;
-  if (state.runNode) return { key: `run:${state.runNode.nodeId}`, mode: 'run', id: state.runNode.nodeId, seed };
+  // A map node's battle is keyed by its registry battle (the same node id holds different battles in different runs).
+  if (state.runNode) { const battle = engine.runBattleId ?? state.runNode.nodeId; return { key: `run:${battle}`, mode: 'run', id: battle, nodeId: state.runNode.nodeId, seed }; }
   const name = state.customLevel?.definition.name || 'без названия';
   return { key: `custom:${name}`, mode: 'custom', id: name, seed };
 }
@@ -395,7 +415,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     if (!load().enabled) return;
     const lengths = current.chainLengths;
     const record: AttemptRecord = {
-      key: current.key, mode: current.mode, id: current.id, seed: current.seed,
+      key: current.key, mode: current.mode, id: current.id, ...current.nodeId ? { nodeId: current.nodeId } : {}, seed: current.seed,
       startedAt: current.startedAt, durationMs: Math.round(performance.now() - current.t0), outcome, left,
       visit: current.visit, attemptInVisit: current.attemptInVisit, turns: current.turns,
       hpEnd: current.hp, maxHp: current.maxHp, damageTaken: current.damage,
@@ -419,8 +439,8 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
   const begin = () => {
     if (!load().enabled) { open = null; return; }
     const info = describe(engine);
-    if (info.key !== lastKey || visitClosed) { visitCounter++; attemptCounter = 0; visitClosed = false; }
-    lastKey = info.key; attemptCounter++;
+    if (visitOf(info) !== lastKey || visitClosed) { visitCounter++; attemptCounter = 0; visitClosed = false; }
+    lastKey = visitOf(info); attemptCounter++;
     open = { ...info, startedAt: Date.now(), t0: performance.now(), visit: visitCounter, attemptInVisit: attemptCounter,
       turns: 0, hp: engine.state.player.hp, maxHp: engine.state.player.maxHp, damage: 0, chainLengths: [], cancelled: 0, abilities: {}, items: {}, firstMoveMs: null,
       goalTurn: null, hpAtGoal: null, damageAfterGoal: 0, exitTurn: null, materials: {}, lootItems: {}, chestDropped: false, chestOpened: false,
@@ -436,7 +456,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
   const markLeftAfterDefeat = () => {
     if (visitClosed) return;
     const journal = load(), last = journal.attempts[journal.attempts.length - 1];
-    if (last && last.key === lastKey && last.visit === visitCounter && last.outcome === 'lose') { last.left = true; store(journal); }
+    if (last && visitOf(last) === lastKey && last.visit === visitCounter && last.outcome === 'lose') { last.left = true; store(journal); }
     visitClosed = true;
   };
   const sync = () => {
@@ -459,7 +479,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
   engine.subscribe((_state, event) => {
     if (event.type !== 'start') sync();
     switch (event.type) {
-      case 'start': if (open) finish(open.key === describe(engine).key ? 'restart' : 'quit', open.key !== describe(engine).key); begin(); break;
+      case 'start': if (open) { const same = visitOf(open) === visitOf(describe(engine)); finish(same ? 'restart' : 'quit', !same); } begin(); break;
       case 'win':
         if (open) {
           watchGoals();
@@ -535,7 +555,7 @@ const number = (value: number | null) => value === null ? '—' : String(round(v
  * HTML of the «Плейтест» modal. `confirmClear` swaps the clear button for an in-page confirmation. `trunkCleared`: the
  * player profile's trunk mark (playerProfile.ts); while it is set the modal offers to reset it.
  */
-export function playtestHtml(options: { confirmClear?: boolean; notice?: string; trunkCleared?: boolean } = {}): string {
+export function playtestHtml(options: { confirmClear?: boolean; notice?: string; trunkCleared?: boolean; meta?: { points: number; level: number; next: number | null; giftFull: boolean } } = {}): string {
   const journal = load(), rows = aggregate(journal.attempts);
   const table = rows.length
     ? `<div class="playtest-scroll"><table class="playtest-table"><thead><tr><th>Бой</th><th title="Всего попыток">Попыт.</th><th title="Доля побед среди попыток">Побед</th><th title="Медиана числа попыток до первой победы">До победы</th><th title="Медианное время победы">Время</th><th title="Медианное время попытки, закончившейся уходом из боя">До ухода</th><th title="Медиана хода, на котором выполнены цели (попытки, где выполнены)">Цели</th><th title="Медиана хода входа в дверь (победы через выход)">Выход</th><th title="Медиана ходов от целей до выхода (0 — та же цепь вошла в дверь)">Задерж.</th><th title="Доля попыток, открывших сундук, среди тех, где он упал">Сундук</th><th title="Доля визитов, где игрок ушёл без победы">Отказ</th></tr></thead><tbody>${rows.map(row =>
@@ -574,6 +594,7 @@ export function playtestHtml(options: { confirmClear?: boolean; notice?: string;
 <div class="playtest-actions"><button class="button secondary" data-action="playtest-download">СКАЧАТЬ JSON</button><button class="button secondary" data-action="playtest-copy">СКОПИРОВАТЬ JSON</button>${clear}</div>
 <p class="playtest-note" aria-live="polite">${escapeHtml(options.notice ?? 'Данные хранятся только в этом браузере и никуда не отправляются.')}</p>
 <p class="playtest-profile" id="playtest-profile">${options.trunkCleared ? 'Профиль: ствол пройден — новый поход начнётся с развилки троп. <button class="text-button" data-action="profile-reset-trunk">СБРОСИТЬ ОТМЕТКУ СТВОЛА</button>' : 'Профиль: ствол не пройден — новый поход начнётся со ствола.'}</p>
+${options.meta ? `<p class="playtest-profile" id="playtest-meta">Полоса открытий: ${options.meta.next === null ? options.meta.points : `${options.meta.points} / ${options.meta.next}`} · уровень ${options.meta.level} · дар следующего похода: ${options.meta.giftFull ? 'полный' : 'мини'}. <button class="text-button" data-action="profile-reset-meta">СБРОСИТЬ ПОЛОСУ И ДАР</button></p>` : ''}
 <button class="text-button playtest-toggle" data-action="playtest-toggle">${journal.enabled ? 'ЖУРНАЛ ВКЛЮЧЁН · ВЫКЛЮЧИТЬ' : 'ЖУРНАЛ ВЫКЛЮЧЕН · ВКЛЮЧИТЬ'}</button>
 <button class="text-button" data-action="playtest-close">← НАЗАД</button>`;
 }

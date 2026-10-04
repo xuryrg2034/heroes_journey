@@ -8,10 +8,11 @@ import { summarizeDamageEffects } from './game/damageEffects';
 import { CRAFT_COST, RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { nodeBattleTemplate, forestRowPalette, victoryChoice, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
-import { eventView, forestRunMap, forestRunView, giftView, restHealValue, restView, runNode, shopView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView, type ShopGoodView } from './game/run/forestRun';
+import { eventView, forestRunMap, forestRunScore, forestRunView, giftView, restHealValue, restView, runNode, shopView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView, type ShopGoodView } from './game/run/forestRun';
 import { SHOP_HARDEN_STEP, SHOP_HEAL_LIMIT } from './game/run/merchant';
 import { LADDER_STEPS } from './game/ladder';
 import { forestEvent } from './game/run/forestEvents';
+import { barView, CATALOGUE_EVENTS, UNLOCK_LEVELS, UNLOCK_THRESHOLDS } from './game/run/unlocks';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
 import { isOath, talisman, type TalismanId } from './game/talismans';
@@ -463,6 +464,38 @@ export function nodeBattleModalHtml(options: { won: boolean; name: string; turns
     : `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот отступил</h2><p class="modal-copy">Бой открыт вне сохранённого похода. Повтор вернёт поле, здоровье и запас как на входе.</p>${stats}<button class="button primary" data-action="retry">ПОВТОРИТЬ БОЙ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`;
 }
 
+// ---------- Score of the run and the bar of openings (docs/roguelike-runs.md, 7) ----------
+
+/**
+ * The score line by line (the step's bonus and the style bonuses apart) and the bar of openings as the profile took the
+ * run: «текущее / порог» and the openings left. Without a tally (a save from before) only the score.
+ */
+export function runScoreHtml(run: ForestRunState): string {
+  const score = forestRunScore(run), tally = run.tally;
+  const row = (label: string, points: number, kind = '') => `<span class="${kind}">${escapeHtml(label)}</span><b class="${kind}">${points > 0 ? '+' : ''}${points}</b>`;
+  const lines = score.lines.map(line => row(line.label, line.points, line.id === 'ladder' ? 'score-ladder' : '')).join('')
+    + score.styles.map(line => row(line.label, line.points, 'score-style')).join('');
+  const table = `<div class="run-score" id="run-score">${lines || '<span>Очков нет</span><b>0</b>'}</div><p class="run-score-total"><span>Счёт похода</span> <b id="run-score-total">${score.total}</b></p>`;
+  if (!tally) return table;
+  if (!tally.saved) return `${table}<p class="meta-note" id="meta-bar">Полоса открытий не сохраняется: хранилище браузера недоступно.</p>`;
+  const { next, left } = barView(tally.after), from = tally.after.level ? UNLOCK_THRESHOLDS[tally.after.level - 1] : 0;
+  const share = next === null ? 100 : Math.max(0, Math.min(100, (tally.after.points - from) / (next - from) * 100));
+  return `${table}<div class="meta-bar" id="meta-bar"><div class="meta-track" aria-hidden="true"><i style="width:${share.toFixed(1)}%"></i></div>`
+    + `<p>Полоса открытий: <b id="meta-points">${next === null ? tally.after.points : `${tally.after.points} / ${next}`}</b> · осталось открытий: <b id="meta-left">${left}</b></p></div>`;
+}
+/** The openings of a level of the bar: talismans and oaths with their effect line, events with theirs (one not in the game yet says so). */
+export function unlockModalHtml(level: number): string {
+  const set = UNLOCK_LEVELS[level - 1];
+  if (!set) return '';
+  const talismans = set.talismans.map(id => { const entry = talisman(id); return `<li class="unlock-item"><span class="talisman-icon${isOath(id) ? ' oath' : ''}" aria-hidden="true">${TALISMAN_LETTER[id]}</span><span><b>${escapeHtml(entry.name)}</b><small>${escapeHtml(entry.effect)}</small></span></li>`; });
+  const events = set.events.map(id => {
+    const entry = CATALOGUE_EVENTS[id], ready = !!forestEvent(id);
+    return `<li class="unlock-item"><span class="reward-icon" aria-hidden="true">?</span><span><b>Событие «${escapeHtml(entry?.title ?? id)}»</b><small>${escapeHtml(entry?.line ?? '')}${ready ? '' : ' · появится в лесу позже'}</small></span></li>`;
+  });
+  return `<p class="eyebrow">ПОЛОСА ОТКРЫТИЙ · УРОВЕНЬ ${level}</p><h2 id="modal-title">Открыто</h2><p class="modal-copy">Теперь это может встретиться в походе.</p>`
+    + `<ul class="unlock-list" id="unlock-list">${[...talismans, ...events].join('')}</ul><button class="button primary" data-action="run-result">К ИТОГУ</button>`;
+}
+
 /**
  * End of the run: victory over a boss, a defeat, or the unfinished Troll branch (reported as such, not as a victory).
  * `openedLadder`: the ladder step this victory opened in the profile (shown once, right after the victory).
@@ -473,18 +506,20 @@ export function runResultHtml(run: ForestRunState, options: { openedLadder?: num
   const { hp, maxHp } = run.resources.player;
   const ladderStat = run.ladder ? `<span id="run-ladder"><b>${run.ladder}</b>СТУПЕНЬ</span>` : '';
   const opened = options.openedLadder ? `<p class="modal-copy ladder-opened" id="ladder-opened">Открыта ступень клятвы ${options.openedLadder}: ${escapeHtml(LADDER_STEPS[options.openedLadder].charAt(0).toLowerCase() + LADDER_STEPS[options.openedLadder].slice(1))}.</p>` : '';
+  // The score and the bar; a new level opened by this run is shown on its own screen.
+  const score = runScoreHtml(run), unlocks = run.tally?.opened ? `<button class="button primary" data-action="run-unlocks" id="run-unlocks">ОТКРЫТО: УРОВЕНЬ ${run.tally.opened}</button>` : '';
   if (result.outcome === 'defeat') {
     // A defeat ends the run (decision of 04.10.2026): where it ended, how far it went, no way back into it.
     const lost = runNode(run, result.nodeId);
     const stats = `<div class="result-stats" id="run-defeat-stats"><span><b>${lost?.row ?? '—'}</b>РЯД</span><span><b>${view.battlesWon}</b>БОЁВ ВЫИГРАНО</span><span><b>${run.score}</b>ОЧКИ</span>${ladderStat}</div>`;
-    return `<p class="eyebrow">ПОХОД ОКОНЧЕН</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот пал</h2><p class="modal-copy" id="run-result-copy">Поражение в узле «${escapeHtml(lost?.name ?? result.nodeId)}». Этот поход не продолжить: новый начнётся заново.</p>${stats}<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="title">В МЕНЮ</button>`;
+    return `<p class="eyebrow">ПОХОД ОКОНЧЕН</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот пал</h2><p class="modal-copy" id="run-result-copy">Поражение в узле «${escapeHtml(lost?.name ?? result.nodeId)}». Этот поход не продолжить: новый начнётся заново.</p>${stats}${score}${unlocks}<div class="result-actions"><button class="button ${unlocks ? 'secondary' : 'primary'}" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="title">В МЕНЮ</button></div>`;
   }
   const stats = `<div class="result-stats"><span><b>${view.battlesWon}</b>БОЁВ ПРОЙДЕНО</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${run.score}</b>ОЧКИ</span>${ladderStat}</div>`;
-  const buttons = '<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="run-map">СМОТРЕТЬ КАРТУ</button><button class="text-button" data-action="title">В МЕНЮ</button>';
+  const buttons = `${unlocks}<div class="result-actions"><button class="button ${unlocks ? 'secondary' : 'primary'}" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="run-map">СМОТРЕТЬ КАРТУ</button></div><button class="text-button" data-action="title">В МЕНЮ</button>`;
   // The boss of the chosen branch decides the ending text.
   const troll = result.outcome === 'victory' && runNode(run, result.nodeId)?.lane === 'den';
   const [title, copy] = troll ? ['Тролль повержен', 'Логово затихло, дорога к замку открыта.'] : ['Главарь повержен', 'Котелок вернулся, лес позади.'];
   return result.outcome === 'victory'
-    ? `<p class="eyebrow">ПОХОД ЗАВЕРШЁН</p><div class="outcome-symbol">✦</div><h2 id="modal-title">${title}</h2><p class="modal-copy">${copy}</p>${opened}${stats}${buttons}`
-    : `<p class="eyebrow">ВЕТКА ПОКА ОБРЫВАЕТСЯ</p><div class="outcome-symbol pending">…</div><h2 id="modal-title">Тролль — в разработке</h2><p class="modal-copy" id="run-result-copy">Путь через логово дошёл до босса, но боя с Троллём ещё нет. Это не победа: поход не завершён победой. Ветка Главаря уже играбельна в новом походе.</p>${stats}${buttons}`;
+    ? `<p class="eyebrow">ПОХОД ЗАВЕРШЁН</p><div class="outcome-symbol">✦</div><h2 id="modal-title">${title}</h2><p class="modal-copy">${copy}</p>${opened}${stats}${score}${buttons}`
+    : `<p class="eyebrow">ВЕТКА ПОКА ОБРЫВАЕТСЯ</p><div class="outcome-symbol pending">…</div><h2 id="modal-title">Тролль — в разработке</h2><p class="modal-copy" id="run-result-copy">Путь через логово дошёл до босса, но боя с Троллём ещё нет. Это не победа: поход не завершён победой. Ветка Главаря уже играбельна в новом походе.</p>${stats}${score}${buttons}`;
 }

@@ -57,4 +57,8 @@ export interface RunBattleOutcome {
   score?: number;
   /** The Ash ward saved the cat in this battle and crumbled (the run drops it). */
   wardUsed?: true;
+  /** Cat damage taken in this battle, consumables used, and the exit chest (fell, opened) — for the run's score (runScore.ts). */
+  damageTaken?: number;
+  itemsUsed?: number;
+  chest?: 'dropped' | 'opened';
 }

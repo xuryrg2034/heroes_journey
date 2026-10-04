@@ -20,6 +20,9 @@ import { BLANK_SCORE, talismanOffer, type TalismanOption, type TalismanSource } 
 import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, shopPayment, shopPrice, shopStock, stockTotal, type ShopGoodKind, type ShopPurchase, type ShopStock } from './merchant';
 import { isLadderStep, LADDER_GREED_RESOURCES, LADDER_HARD_FACTOR, LADDER_REST_PENALTY, LADDER_SHOP_MARKUP, LADDER_START_HP, runLadderAt } from '../ladder';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from './runStreams';
+import { eventOpen, isUnlockLevel, openTalismans, type MetaBar } from './unlocks';
+import { runScore, type RunBattleRecord, type RunScore } from './runScore';
+import type { TalismanPool } from './talismanOffers';
 import { GIFT_FULL_ROW, GIFT_HP_PRICE, GIFT_MAX_HP_PRICE, GIFT_STREAMS, giftDone, giftEffects, giftNeedsPick, giftPicks, parseGift, rollGift, type GiftKind, type GiftOption, type RunGift } from './runGift';
 
 /**
@@ -73,6 +76,11 @@ export type ForestRunPending =
    * The gift itself (options, the button taken) is `ForestRunState.gift`; a reload offers the same gift.
    */
   | { kind: 'gift'; nodeId?: undefined };
+/**
+ * The end of a run in the bar of openings: its score, the bar before and after, the level it opened (null — none) and
+ * whether the profile could store it (no storage — the bar does not fill).
+ */
+export interface RunTally { score: number; before: MetaBar; after: MetaBar; opened: number | null; saved: boolean }
 /** A modifier of the next map battles (talismans.ts, `BattleModifier`) and how many battles it still acts on. */
 export interface ForestRunModifier { modifier: BattleModifier; battles: number }
 /** What a completed rest gave: healing, or crafted items (in crafting order). */
@@ -174,6 +182,17 @@ export interface ForestRunState {
   modifiers?: ForestRunModifier[];
   /** The gift's price «следующий привал не лечит»: the next rest heals 0 HP (effects are still cleared); the rest clears it. */
   restNoHeal?: true;
+  /**
+   * The level of the bar of openings the run started with (unlocks.ts, docs/roguelike-runs.md, 7): only talismans, oaths
+   * and events open at it come in this run. Absent in saves before 04.10.2026 and test runs: everything is open.
+   */
+  unlocks?: number;
+  /** Every resolved battle in order (won and the lost one): damage, consumables used, the chest — for the score. Absent in saves before 04.10.2026. */
+  battleLog?: RunBattleRecord[];
+  /** Play time of the run in ms (the map screen adds it while the run is on screen): «Быстрый поход». Absent in saves before 04.10.2026. */
+  playMs?: number;
+  /** The run's end as the profile took it (the score and the bar before and after, the level opened): shown on the result. */
+  tally?: RunTally;
   pending: ForestRunPending | null;
   result: ForestRunResult | null;
 }
@@ -261,7 +280,7 @@ export function eventRollBase(run: Pick<ForestRunState, 'seed' | 'streams' | 'pe
  * `ladder`: the step of «Ступени клятвы» (0 — none). Step 1 generates the map with LADDER_HARD_FACTOR more hard battles
  * (the authored graph keeps its nodes); step 6 starts at LADDER_START_HP of the maximum.
  */
-export function createForestRun(seed: number, options: { skipTrunk?: boolean; map?: 'authored' | 'generated'; ladder?: number; gift?: GiftKind; seeded?: boolean } = {}): ForestRunState {
+export function createForestRun(seed: number, options: { skipTrunk?: boolean; map?: 'authored' | 'generated'; ladder?: number; gift?: GiftKind; seeded?: boolean; unlocks?: number } = {}): ForestRunState {
   const ladder = isLadderStep(options.ladder) ? options.ladder : 0;
   const map: ForestRunMapRef = options.map === 'generated'
     ? { kind: 'generated', ...generateForestMap(seed, undefined, ladder >= 1 ? { hardFactor: LADDER_HARD_FACTOR } : {}) } : { kind: 'authored' };
@@ -271,17 +290,24 @@ export function createForestRun(seed: number, options: { skipTrunk?: boolean; ma
     talismans: [], talismansGone: [], talismanChoices: [],
     resources: { player: { hp, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
-    tools: { items: [], abilities: [] }, pending: null, result: null,
+    tools: { items: [], abilities: [] }, pending: null, result: null, battleLog: [], playMs: 0,
   };
+  if (isUnlockLevel(options.unlocks)) run.unlocks = options.unlocks;
   // The start gift (runGift.ts): rolled now from its streams (nothing is taken yet and the trunk opens nothing), offered
   // at once past the trunk, else after the trunk's last battle.
   if (options.gift) {
-    run.gift = rollGift(run.seed, options.gift, { taken: [], gone: [], abilities: [] });
+    run.gift = rollGift(run.seed, options.gift, talismanPool(run));
     for (const stream of GIFT_STREAMS[options.gift]) run.streams![stream]++;
     if (options.seeded) run.seeded = true;
     if (options.skipTrunk) run.pending = { kind: 'gift' };
   }
   return run;
+}
+
+/** The talisman pool of a run now: taken, out of the pool, the abilities open, and what the bar has opened. */
+export function talismanPool(run: Pick<ForestRunState, 'talismans' | 'talismansGone' | 'tools' | 'unlocks'>): TalismanPool {
+  const open = openTalismans(run.unlocks);
+  return { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities, ...open ? { open } : {} };
 }
 
 // ---------- The run's map and pool picks ----------
@@ -322,8 +348,9 @@ function nextPick(run: ForestRunState, node: ForestMapNode): ForestRunPick | nul
   if (node.content.kind !== 'pool') return null;
   const base = runRoll(run, node.type === 'event' ? 'events' : 'pool', node.id, false), roll = (salt: number) => mixSeed(base, salt);
   if (node.type === 'event') {
-    const met = run.picks.flatMap(pick => pick.eventId ? [pick.eventId] : []), ids = Object.keys(FOREST_EVENTS);
-    const fresh = ids.filter(id => !met.includes(id)), list = fresh.length ? fresh : ids;
+    // Only events the bar has opened (unlocks.ts), not met in this run; all met — an open one again.
+    const met = run.picks.flatMap(pick => pick.eventId ? [pick.eventId] : []), all = Object.keys(FOREST_EVENTS), open = all.filter(id => eventOpen(id, run.unlocks));
+    const ids = open.length ? open : all, fresh = ids.filter(id => !met.includes(id)), list = fresh.length ? fresh : ids;
     return list.length ? { nodeId: node.id, eventId: list[roll(POOL_EVENT_SALT) % list.length] } : null;
   }
   const tools = { items: [...new Set([...run.tools.items, ...node.grants?.items ?? []])], abilities: [...new Set([...run.tools.abilities, ...node.grants?.abilities ?? []])] };
@@ -404,7 +431,7 @@ export function wardReady(run: Pick<ForestRunState, 'talismans' | 'wardSpent'>):
   return !!run.talismans?.includes('ash-ward') && !run.wardSpent;
 }
 function offerTalismans(run: ForestRunState, node: ForestMapNode, source: TalismanSource, events: ForestRunEvent[]) {
-  const options = talismanOffer(runRoll(run, 'talismans', node.id, true), source, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
+  const options = talismanOffer(runRoll(run, 'talismans', node.id, true), source, talismanPool(run));
   run.pending = { kind: 'talisman', nodeId: node.id, source, options };
   events.push({ type: 'talisman-offered', nodeId: node.id, source, options: [...options] });
 }
@@ -591,6 +618,8 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
   const battle = run.pending as Extract<ForestRunPending, { kind: 'battle' }>;
   if (outcome.won && !(outcome.player.hp >= 1)) return fail('Победа с 0 HP невозможна.');
   run.score = (run.score ?? 0) + clampCount(outcome.score);
+  // The battle log of the score (runScore.ts): damage, consumables used, the chest of this battle.
+  run.battleLog?.push({ nodeId: battle.nodeId, damage: clampCount(outcome.damageTaken), items: clampCount(outcome.itemsUsed), ...outcome.chest === 'dropped' || outcome.chest === 'opened' ? { chest: outcome.chest } : {} });
   // The Ash ward saved the cat in this battle (also in a battle lost afterwards): it crumbles for the rest of the run.
   if (outcome.wardUsed && wardReady(run)) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: battle.nodeId }); }
   if (!outcome.won) {
@@ -738,7 +767,7 @@ export function restFinish(current: ForestRunState): ForestRunStep {
 
 /** The stock a merchant node rolls on entering: the next `merchant` draw (spent), the open consumables and the talisman pool. */
 function rollShopStock(run: ForestRunState, node: ForestMapNode): ShopStock {
-  return shopStock(runRoll(run, 'merchant', node.id, true), run.tools.items, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
+  return shopStock(runRoll(run, 'merchant', node.id, true), run.tools.items, talismanPool(run));
 }
 /** Added to every merchant price in this run: LADDER_SHOP_MARKUP from the ladder's step 9. */
 export function shopMarkup(run: { ladder?: number }): number { return runLadderAt(run, 9) ? LADDER_SHOP_MARKUP : 0; }
@@ -894,6 +923,27 @@ export function chooseEventOption(current: ForestRunState, optionId: string): Fo
   const events: ForestRunEvent[] = [{ type: 'event-resolved', nodeId, option: option.id, outcome, text: state.outcomes[outcome].text,
     changes: { hp: player.hp - before.hp, energy: player.energy - before.energy, items, materials } }];
   completeNode(run, runNode(run, nodeId)!, events); return { ok: true, run, events };
+}
+
+// ---------- Score and the bar of openings (docs/roguelike-runs.md, 7; runScore.ts, unlocks.ts) ----------
+
+/** The score of the run as it stands (the result screen shows it at the end). */
+export function forestRunScore(run: ForestRunState): RunScore {
+  const current = run.currentNodeId === null ? null : runNode(run, run.currentNodeId) ?? null;
+  return runScore({ visited: run.visited.flatMap(id => { const node = runNode(run, id); return node ? [node] : []; }), current,
+    victory: run.result?.outcome === 'victory', points: run.score ?? 0, ladder: run.ladder ?? 0, talismans: run.talismans?.length ?? 0,
+    ...run.battleLog ? { battles: run.battleLog } : {}, ...run.playMs !== undefined ? { playMs: run.playMs } : {} });
+}
+/** Add play time to a run on screen (the map screen calls it); a run already tallied or without the clock keeps its time. */
+export function addPlayTime(current: ForestRunState, ms: number): ForestRunState {
+  if (current.tally || current.playMs === undefined || !(ms > 0)) return current;
+  return { ...current, playMs: current.playMs + Math.round(ms) };
+}
+/** Keep how the profile took the ended run (once): the result screen shows the score and the bar from it. */
+export function recordTally(current: ForestRunState, tally: RunTally): ForestRunStep {
+  if (!current.result) return fail('Поход ещё не окончен.');
+  if (current.tally) return fail('Итог похода уже учтён.');
+  return { ok: true, run: { ...structuredClone(current), tally: structuredClone(tally) }, events: [] };
 }
 
 /** The farthest map row the run entered: its completed nodes and the node whose battle ended it (0 — none). */
@@ -1070,13 +1120,17 @@ export function parseForestRun(text: string): ForestRunState | null {
   // replayed below.
   const streams = value.streams === undefined ? null : parseStreams(value.streams);
   if (value.streams !== undefined && !streams) return null;
+  // The level of the bar of openings the run started with (unlocks.ts): absent — everything open.
+  if (value.unlocks !== undefined && !isUnlockLevel(value.unlocks)) return null;
+  const unlocks = value.unlocks as number | undefined, openPool = openTalismans(unlocks);
+  const withOpen = (pool: TalismanPool): TalismanPool => openPool ? { ...pool, open: openPool } : pool;
   // The start gift (runGift.ts): the save's gift must be the roll of its seed (rolled at creation from an empty pool),
   // with a valid choice; what the taken button gave is replayed below. Absent in saves before it and in runs without one.
   let gift: RunGift | undefined;
   if (value.gift !== undefined) {
     const kind = isRecord(value.gift) ? value.gift.kind : undefined;
     if (!streams || (kind !== 'full' && kind !== 'mini')) return null;
-    gift = parseGift(value.gift, rollGift(value.seed as number, kind, { taken: [], gone: [], abilities: [] })) ?? undefined;
+    gift = parseGift(value.gift, rollGift(value.seed as number, kind, withOpen({ taken: [], gone: [], abilities: [] }))) ?? undefined;
     if (!gift) return null;
   }
   if (value.seeded !== undefined && (value.seeded !== true || gift?.kind !== 'full')) return null;
@@ -1157,7 +1211,9 @@ export function parseForestRun(text: string): ForestRunState | null {
     if (base.type === 'event') {
       if (Object.keys(pick).length !== 2 || typeof pick.eventId !== 'string' || !forestEvent(pick.eventId)) return null;
       const met = typedPicks.flatMap(entry => entry.eventId ? [entry.eventId] : []);
-      if (met.includes(pick.eventId) && met.length < Object.keys(FOREST_EVENTS).length) return null;
+      // An event repeats only when every event open in the run was met (unlocks.ts; no bar — every event).
+      const open = Object.keys(FOREST_EVENTS).filter(id => eventOpen(id, unlocks)), ids = open.length ? open : Object.keys(FOREST_EVENTS);
+      if (met.includes(pick.eventId) && !ids.every(id => met.includes(id))) return null;
     } else {
       if (Object.keys(pick).length !== 2 || typeof pick.battleId !== 'string') return null;
       const tools = expectedTools(before, typedFinds, base, false, crafts, usesFind, giftItems);
@@ -1180,14 +1236,14 @@ export function parseForestRun(text: string): ForestRunState | null {
   const taken: TalismanId[] = [...giftGain.talismans], gone: TalismanId[] = [...giftGain.gone];
   // The `index`-th offer of the run takes that draw of the `talismans` stream (or the node seed before the streams).
   const offerFor = (node: ForestMapNode, source: TalismanSource, tools: ForestRunTools, index: number) =>
-    talismanOffer(streams ? streamValue(seed, 'talismans', index) : forestNodeSeed(seed, node.id), source, { taken, gone, abilities: tools.abilities });
+    talismanOffer(streams ? streamValue(seed, 'talismans', index) : forestNodeSeed(seed, node.id), source, withOpen({ taken, gone, abilities: tools.abilities }));
   // Merchant visits: one record per visited merchant, in order, with purchases from the stock the run seed rolls for
   // the tools and the talisman pool of that moment, at the prices of that moment. A talisman bought is taken; one shown
   // and not bought leaves the pool when the visit ends.
   let hardenings = 0, shopCount = 0;
   const shopPaid = new Map<string, Record<ResourceKind, number>>(), shopItems: ItemKind[] = [];
   const replayShop = (node: ForestMapNode, bought: unknown, tools: ForestRunTools, done: boolean, index: number): ShopStock | null => {
-    const stock = shopStock(streams ? streamValue(seed, 'merchant', index) : forestNodeSeed(seed, node.id), tools.items, { taken, gone, abilities: tools.abilities });
+    const stock = shopStock(streams ? streamValue(seed, 'merchant', index) : forestNodeSeed(seed, node.id), tools.items, withOpen({ taken, gone, abilities: tools.abilities }));
     const checked = shopPurchases(bought, stock, hardenings, savedShopMarkup);
     if (!checked) return null;
     hardenings += checked.hardenings; shopItems.push(...checked.items); shopPaid.set(node.id, checked.paid);
@@ -1327,6 +1383,21 @@ export function parseForestRun(text: string): ForestRunState | null {
     } else return null;
   }
   if (value.score !== undefined && !isCount(value.score)) return null;
+  // The score's battle log (runScore.ts): one record per resolved battle (completed, or lost, or won with its reward open),
+  // in entering order, with counts the engine reported. Absent in saves before 04.10.2026.
+  if (value.battleLog !== undefined) {
+    const resolved = entering.filter(id => { const node = nodeAt(id)!; return isBattleNode(node) && node.content.kind !== 'in-development' && !(isRecord(pending) && pending.kind === 'battle' && pending.nodeId === id); });
+    const log = value.battleLog;
+    if (!Array.isArray(log) || log.length !== resolved.length || log.some((entry, n) => !isRecord(entry) || entry.nodeId !== resolved[n] || !isCount(entry.damage) || !isCount(entry.items)
+      || Object.keys(entry).some(key => !['nodeId', 'damage', 'items', 'chest'].includes(key)) || entry.chest !== undefined && entry.chest !== 'dropped' && entry.chest !== 'opened')) return null;
+  }
+  if (value.playMs !== undefined && !isCount(value.playMs)) return null;
+  // How the profile took the ended run: only with a result.
+  if (value.tally !== undefined) {
+    const tally = value.tally, bar = (entry: unknown) => isRecord(entry) && isCount(entry.points) && isUnlockLevel(entry.level);
+    if (result === null || !isRecord(tally) || !isCount(tally.score) || !bar(tally.before) || !bar(tally.after) || typeof tally.saved !== 'boolean'
+      || !(tally.opened === null || isUnlockLevel(tally.opened))) return null;
+  }
   // Every stream counts its uses: pool battles and event nodes entered, talisman offers and merchant visits made.
   if (streams) {
     const expected: RunStreams = { ...emptyStreams(), ...Object.fromEntries((gift ? GIFT_STREAMS[gift.kind] : []).map(stream => [stream, 1])), pool: typedPicks.filter(pick => pick.battleId).length,

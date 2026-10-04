@@ -549,7 +549,8 @@ function oldSaves() {
   assert(parseForestRun(JSON.stringify(finished))?.pending?.kind === 'battle', 'an old save without loot and score loads');
   const bad = JSON.parse(JSON.stringify(old)); bad.pending.defeats = -1;
   assert(parseForestRun(JSON.stringify(bad)) === null, 'a malformed old counter is still rejected');
-  const ended = JSON.parse(serializeForestRun(run)); ended.pending = null; ended.result = { outcome: 'defeat', nodeId: 'trunk-4' };
+  // A hand-made ended save of the old format (before the score's battle log of 04.10.2026).
+  const ended = JSON.parse(serializeForestRun(run)); ended.pending = null; ended.result = { outcome: 'defeat', nodeId: 'trunk-4' }; delete ended.battleLog;
   assert(parseForestRun(JSON.stringify(ended)) === null, 'a defeat in a node that was not entered is rejected');
   ended.result.nodeId = 'trunk-3'; ended.score = 10;
   assert(parseForestRun(JSON.stringify(ended))?.result?.outcome === 'defeat', 'a defeat in the entered node loads');

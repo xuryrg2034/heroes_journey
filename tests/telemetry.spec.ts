@@ -48,9 +48,10 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
   expect(stored.enabled).toBe(true);
   expect(stored.attempts).toHaveLength(2);
   const [first, second] = stored.attempts;
-  expect(first).toMatchObject({ key: 'run:trunk-1', mode: 'run', id: 'trunk-1', outcome: 'quit', left: true, chains: 1, chainMax: 3, cancelledChains: 1, attemptInVisit: 1 });
+  // Map attempts are keyed by the registry battle; the node stays in the record (04.10.2026).
+  expect(first).toMatchObject({ key: 'run:trunk-wake', mode: 'run', id: 'trunk-wake', nodeId: 'trunk-1', outcome: 'quit', left: true, chains: 1, chainMax: 3, cancelledChains: 1, attemptInVisit: 1 });
   expect(first.turns).toBe(1); expect(first.firstMoveMs).toBeGreaterThan(0); expect(first.hpEnd).toBeGreaterThan(0);
-  expect(second).toMatchObject({ key: 'run:trunk-1', outcome: 'win', chains: 2, attemptInVisit: 1, cancelledChains: 0, visit: first.visit + 1 });
+  expect(second).toMatchObject({ key: 'run:trunk-wake', nodeId: 'trunk-1', outcome: 'win', chains: 2, attemptInVisit: 1, cancelledChains: 0, visit: first.visit + 1 });
   expect(second.durationMs).toBeGreaterThan(0);
 
   // The screen reads the same journal; export downloads valid JSON with aggregates.
@@ -62,7 +63,7 @@ test('playtest journal records attempts, exports valid JSON and keeps the screen
   const exported = JSON.parse(await readFile((await download.path())!, 'utf8'));
   expect(exported).toMatchObject({ format: 'ashen-oath-playtest', version: 1, enabled: true });
   expect(exported.attempts).toHaveLength(2);
-  expect(exported.aggregates[0]).toMatchObject({ key: 'run:trunk-1', attempts: 2, visits: 2, wins: 1, attemptsToWin: 1, abandonRate: 0.5 });
+  expect(exported.aggregates[0]).toMatchObject({ key: 'run:trunk-wake', attempts: 2, visits: 2, wins: 1, attemptsToWin: 1, abandonRate: 0.5 });
 
   // Clearing needs an in-page confirmation (no window.confirm).
   page.on('dialog', dialog => { throw new Error(`unexpected dialog ${dialog.message()}`); });

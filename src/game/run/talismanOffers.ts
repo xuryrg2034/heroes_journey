@@ -21,20 +21,25 @@ export const RARITY_CHANCES: Readonly<Record<'common' | 'uncommon' | 'rare', num
 const RARITIES = ['common', 'uncommon', 'rare'] as const;
 const TALISMAN_SALT = 0x7a11_5a4d, RARITY_SALT = 0x3c6e_f372, PICK_SALT = 0x5be0_cd19;
 
-/** What decides an offer: talismans taken, talismans out of the pool (shown and refused), abilities open now. */
-export interface TalismanPool { taken: readonly TalismanId[]; gone: readonly TalismanId[]; abilities: readonly AbilityKind[] }
+/**
+ * What decides an offer: talismans taken, talismans out of the pool (shown and refused), abilities open now, and the
+ * talismans the bar of openings has opened for the run (unlocks.ts; absent — all).
+ */
+export interface TalismanPool { taken: readonly TalismanId[]; gone: readonly TalismanId[]; abilities: readonly AbilityKind[]; open?: readonly TalismanId[] }
 
 /** `a` and `b` are not offered together (either one excludes the other). */
 export function talismansClash(a: TalismanId, b: TalismanId): boolean {
   return !!talisman(a).excludes?.includes(b) || !!talisman(b).excludes?.includes(a);
 }
 /**
- * `id` may be offered now: still in the pool, not in this offer yet, no clash with a taken talisman or another option
- * of this offer, and its ability open (Ловкие лапы need the jump).
+ * `id` may be offered now: open in the run, still in the pool, not in this offer yet, no clash with a taken talisman or
+ * another option of this offer, and its ability open (Ловкие лапы need the jump).
  */
 export function talismanEligible(id: TalismanId, pool: TalismanPool, offered: readonly TalismanOption[] = []): boolean {
   const definition = talisman(id), others = [...pool.taken, ...offered.filter((option): option is TalismanId => option !== 'blank')];
   if (pool.taken.includes(id) || pool.gone.includes(id) || offered.includes(id)) return false;
+  // Closed by the bar of openings: it waits for its level.
+  if (pool.open && !pool.open.includes(id)) return false;
   if (definition.requiresAbility && !pool.abilities.includes(definition.requiresAbility)) return false;
   return !others.some(other => talismansClash(id, other));
 }
