@@ -11,6 +11,7 @@ import { angryOrdinaryCount, runPressureInfo } from './mapBattleRules';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './run/forestBattles';
 import type { RunBattleSetup } from './run/runBattle';
 import { startNodeBattle } from './testing/fixtures';
+import { applyRandomElite } from './elite';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
@@ -121,6 +122,28 @@ async function afterTheGoals() {
 }
 
 /** The trunk (row 3) is unchanged: passive, no anger, before and after the goals; no pressure chip data. */
+/**
+ * Elites stay outside the cap (decision of 04.10.2026): a field of RUN_ANGER_CAP angry elites still lets the anger queue
+ * take its calm goblin; the count of angry ordinary enemies skips them.
+ */
+async function elitesOutsideTheCap() {
+  let checked = 0;
+  for (let k = 1; k <= 3; k++) {
+    const g = start(spread(k + 40), 6), melee = g.state.board.flatMap((cell, index) => cell && cell.kind === 'melee' && !cell.variant && index !== g.state.player.index ? [cell] : []);
+    const elites = [...new Set(melee)].slice(0, CAP);
+    if (elites.length < CAP) continue;
+    for (const cell of elites) { applyRandomElite(cell); cell.behavior.aggressive = true; }
+    assert(angryOrdinaryCount(g.state.board) === 0, `seed ${k}: angry elites are not counted (${angryOrdinaryCount(g.state.board)})`);
+    const avoid = g.state.board.flatMap((cell, index) => cell?.elite ? [index] : []);
+    const { newAngry } = await turn(g, avoid);
+    checkAnger(g, newAngry, `seed ${k} with ${CAP} angry elites`);
+    assert(newAngry === 1, `seed ${k}: the calm goblin still gets angry beside ${CAP} angry elites (${newAngry})`);
+    checked++;
+  }
+  assert(checked >= 2, `fields with ${CAP} elites checked (${checked})`);
+  console.log(`PASS elites stay outside the anger cap: ${CAP} angry elites on the field, the anger queue still takes 1 (${checked} seeds)`);
+}
+
 async function trunkUnchanged() {
   for (let k = 1; k <= 3; k++) {
     const g = start(spread(k), 3);
@@ -182,6 +205,7 @@ async function replay() {
 
 await beforeTheGoals();
 await afterTheGoals();
+await elitesOutsideTheCap();
 await trunkUnchanged();
 await bossHoldsTheAnger();
 await replay();

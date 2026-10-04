@@ -31,17 +31,17 @@ export const TALISMANS: readonly TalismanDefinition[] = [
   { id: 'hourglass', name: 'Песочные часы', rarity: 'uncommon', effect: 'Подкрепление после целей приходит на 1 ход позже (через 4 хода, затем каждые 3)' },
   { id: 'nimble-paws', name: 'Ловкие лапы', rarity: 'rare', effect: 'Прыжок стоит 1 энергию вместо 2', requiresAbility: 'jump' },
   { id: 'ash-ward', name: 'Пепельный оберег', rarity: 'rare', effect: 'Один раз за поход: удар, который убил бы кота, оставляет его с 1 HP; оберег рассыпается' },
-  { id: 'oath-hunger', name: 'Клятва голода', rarity: 'oath', effect: '+1 энергия в начале каждого боя; привал не лечит (крафт остаётся)', excludes: ['dew-flask'] },
-  { id: 'oath-poverty', name: 'Клятва бедности', rarity: 'oath', effect: '+1 энергия в начале каждого боя; сундуки пусты', excludes: ['ragman-pouch'] },
-  { id: 'oath-wrath', name: 'Клятва ярости', rarity: 'oath', effect: '+1 энергия в начале каждого боя; до целей злость 2 врага за ход вместо 1' },
+  { id: 'oath-hunger', name: 'Клятва голода', rarity: 'oath', effect: '+2 энергии в начале каждого боя; привал не лечит (крафт остаётся)', excludes: ['dew-flask'] },
+  { id: 'oath-poverty', name: 'Клятва бедности', rarity: 'oath', effect: '+2 энергии в начале каждого боя; сундуки пусты', excludes: ['ragman-pouch'] },
+  { id: 'oath-wrath', name: 'Клятва ярости', rarity: 'oath', effect: '+2 энергии в начале каждого боя; до целей злится на 1 врага за ход больше' },
 ];
 const BY_ID = new Map(TALISMANS.map(talisman => [talisman.id, talisman]));
 export const talisman = (id: TalismanId): TalismanDefinition => BY_ID.get(id)!;
 export const isTalismanId = (value: unknown): value is TalismanId => typeof value === 'string' && BY_ID.has(value as TalismanId);
 export const isOath = (id: TalismanId): boolean => talisman(id).rarity === 'oath';
 
-/** Баланс: energy an oath adds at the start of every battle (up to the cap of 7). */
-export const OATH_ENERGY = 1;
+/** Баланс: energy an oath adds at the start of every battle (up to the cap of 7); 2 since the decision of 04.10.2026 (was 1). */
+export const OATH_ENERGY = 2;
 
 /** The run's talisman `id` is held in this battle. */
 export function hasTalisman(state: Pick<ForestState, 'runNode'>, id: TalismanId): boolean {

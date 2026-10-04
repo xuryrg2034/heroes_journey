@@ -1123,6 +1123,8 @@ export class BoardRenderer {
       if(Math.abs(sample.x-middle.x)>TILE*0.39||Math.abs(sample.y-middle.y)>TILE*0.39) continue;
       visited=index;
       if(!this.engine.extendChain(index)) {this.invalidIndex=index;this.invalidUntil=performance.now()+200;}
+      // Back onto the cat dropped the chain: the drag ends, releasing strikes nothing.
+      if(!this.engine.state.chain.length) {this.dragging=false;this.activePointer=null;this.lastPointer=null;if(this.app.canvas.hasPointerCapture(event.pointerId))this.app.canvas.releasePointerCapture(event.pointerId);return;}
     }
     this.lastPointer=point;
   };

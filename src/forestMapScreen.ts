@@ -15,7 +15,7 @@ import { forestEvent } from './game/run/forestEvents';
 import { barView, CATALOGUE_EVENTS, UNLOCK_LEVELS, UNLOCK_THRESHOLDS } from './game/run/unlocks';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
-import { BATTLE_MODIFIERS, isOath, talisman, type BattleModifier, type TalismanId } from './game/talismans';
+import { BATTLE_MODIFIERS, isOath, OATH_ENERGY, talisman, type BattleModifier, type TalismanId } from './game/talismans';
 import { BLANK_SCORE, type TalismanOption, type TalismanSource } from './game/run/talismanOffers';
 import type { GiftOption, GiftPrice } from './game/run/runGift';
 
@@ -96,12 +96,12 @@ export function talismanModalHtml(run: ForestRunState): string {
   if (pending?.kind !== 'talisman') return '';
   const oath = pending.source === 'oath';
   const option = (id: TalismanOption) => {
-    if (id === 'blank') return `<button class="reward-choice talisman-choice" data-talisman="blank"><span class="reward-icon talisman-icon" aria-hidden="true">·</span><span><b>Пустышка <em>+${BLANK_SCORE} очков</em></b><small>Пул талисманов пуст: только очки похода.</small></span></button>`;
+    if (id === 'blank') return `<button class="reward-choice talisman-choice" data-talisman="blank"><span class="reward-icon talisman-icon" aria-hidden="true">·</span><span><b>Ничего <em>(+${BLANK_SCORE} очков)</em></b><small>Пул талисманов пуст: только очки похода.</small></span></button>`;
     const entry = talisman(id);
     return `<button class="reward-choice talisman-choice" data-talisman="${id}"><span class="reward-icon talisman-icon${isOath(id) ? ' oath' : ''}" aria-hidden="true">${TALISMAN_LETTER[id]}</span><span><b>${escapeHtml(entry.name)} <em>${RARITY_LABEL[entry.rarity]}</em></b><small>${escapeHtml(entry.effect)}</small></span></button>`;
   };
   return `<p class="eyebrow">${oath ? 'КЛЯТВА' : 'ТАЛИСМАН'}</p><h2 id="modal-title">${oath ? 'Клятва за силу' : 'Талисман в дорогу'}</h2>`
-    + `<p class="modal-copy">${oath ? 'Клятва даёт +1 энергию в начале каждого боя и отключает одну систему похода.' : 'Талисман действует до конца похода.'} Не взятые варианты в этом походе больше не выпадут.</p>`
+    + `<p class="modal-copy">${oath ? `Клятва даёт +${OATH_ENERGY} энергии в начале каждого боя и отключает одну систему похода.${pending.options.length ? '' : ' Клятв не осталось.'}` : 'Талисман действует до конца похода.'} Не взятые варианты в этом походе больше не выпадут.</p>`
     + `<div class="reward-options">${pending.options.map(option).join('')}</div><button class="button secondary" data-action="talisman-refuse">ОТКАЗАТЬСЯ</button>`
     + `<p class="reward-note">${escapeHtml(nodeName(run, pending.nodeId))}</p>`;
 }
@@ -124,7 +124,7 @@ export function giftOptionText(option: GiftOption): { icon: string; title: strin
     case 'calm': return { icon: '☾', title: 'Тихий лес', text: `В первых ${option.battles} боях до целей враги не злятся.` };
     case 'deal': return { icon: '◇', title: 'Талисман за цену',
       text: `${option.reward.kind === 'pick-talisman' ? 'Обычный талисман на выбор из 2' : 'Случайный необычный талисман'}. Цена: ${GIFT_PRICE_TEXT[option.price]}.` };
-    case 'oath': return { icon: '▣', title: 'Азарт: случайная клятва', text: 'Клятва без выбора: +1 энергия в начале каждого боя, но одна система похода отключится.' };
+    case 'oath': return { icon: '▣', title: 'Азарт: случайная клятва', text: `Клятва без выбора: +${OATH_ENERGY} энергии в начале каждого боя, но одна система похода отключится.` };
   }
 }
 /**

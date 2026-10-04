@@ -75,7 +75,8 @@ export function talismanDraw(base: number, rarity: TalismanRarity, count: number
  * The offer of a node: up to TALISMAN_OFFER_SIZE different talismans (or oaths). A talisman option rolls its rarity;
  * an empty rarity gives way to the next one (common → uncommon → rare → common), and with all three empty the option
  * becomes the «пустышка». The «пустышка» appears at most once: a small pool offers fewer talismans plus one «пустышка».
- * An oath option draws from the eligible oaths with no rarity roll. `nodeSeed` is forestNodeSeed(run seed, node id).
+ * An oath option draws from the eligible oaths with no rarity roll; an oath offer has no «пустышка» (decision of
+ * 04.10.2026): with no oath left it is empty and only the refusal remains. `nodeSeed` is forestNodeSeed(run seed, node id).
  */
 export function talismanOffer(nodeSeed: number, source: TalismanSource, pool: TalismanPool): TalismanOption[] {
   const base = mixSeed(nodeSeed >>> 0, TALISMAN_SALT), options: TalismanOption[] = [];
@@ -88,7 +89,7 @@ export function talismanOffer(nodeSeed: number, source: TalismanSource, pool: Ta
       for (let step = 0; step < RARITIES.length && !candidates.length; step++) candidates = eligible(RARITIES[(rolled + step) % RARITIES.length]);
     }
     if (candidates.length) options.push(candidates[mixSeed(mixSeed(base, slot), PICK_SALT) % candidates.length]);
-    else if (!options.includes('blank')) options.push('blank');
+    else if (source !== 'oath' && !options.includes('blank')) options.push('blank');
   }
   return options;
 }

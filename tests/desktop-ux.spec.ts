@@ -160,3 +160,51 @@ test('reference opens on demand and door focus explains the exit', async ({ page
   await page.mouse.move(point.x, point.y);
   await expect(page.locator('#status-message')).toContainText('Выход откроется после выполнения всех целей');
 });
+
+// Choosing the chain by mouse (decision of 04.10.2026): back onto the cat drops the chain, onto a chosen enemy cuts it
+// there; releasing after a cut strikes exactly what is left.
+test.describe('chain choice by mouse', () => {
+  test.use({ viewport: { width: 1280, height: 720 } });
+  const game = (page: Page) => page.evaluate(() => structuredClone((window as any).__PUZZLE_GAME.state));
+  const at = (page: Page, index: number) => page.evaluate(i => (window as any).__PUZZLE_GAME.gridToScreen(i), index) as Promise<{ x: number; y: number }>;
+  async function over(page: Page, index: number) { const p = await at(page, index); await page.mouse.move(p.x, p.y, { steps: 6 }); }
+
+  test('back onto the cat drops the chain; onto a chosen enemy cuts it; releasing strikes what is left', async ({ page }) => {
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto('/');
+    await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-wake', { row: 6, seed: 4242, player: { hp: 40, maxHp: 40, energy: 0 } }));
+    await expect.poll(async () => (await game(page)).phase).toBe('PLAYER_INPUT');
+    const path: number[] = await page.evaluate(() => {
+      const g = (window as any).__PUZZLE_GAME;
+      const cols = g.state.cols, near = (a: number, b: number) => Math.max(Math.abs(a % cols - b % cols), Math.abs(Math.floor(a / cols) - Math.floor(b / cols))) === 1;
+      // The last enemy beside the second: the cursor goes straight back to it, past nothing else.
+      return g.availableMoves().find((move: number[]) => move.length >= 4 && near(move[move.length - 1], move[1]) && !g.preview(move).completesRoom && g.preview(move).opensDoor === undefined);
+    });
+    expect(path).toBeTruthy();
+    const cat = (await game(page)).player.index;
+    // The first target, then back onto the cat: no chain, no strike.
+    const first = await at(page, path[0]); await page.mouse.move(first.x, first.y); await page.mouse.down();
+    await expect.poll(async () => (await game(page)).chain).toEqual([path[0]]);
+    await over(page, cat);
+    await expect.poll(async () => (await game(page)).chain).toEqual([]);
+    await page.mouse.up();
+    expect((await game(page)).turn).toBe(0);
+    // The whole path, then straight back onto the second enemy (not one step back): the first two stay.
+    const start = await at(page, path[0]); await page.mouse.move(start.x, start.y); await page.mouse.down();
+    for (const index of path.slice(1)) await over(page, index);
+    await expect.poll(async () => (await game(page)).chain).toEqual(path);
+    await over(page, path[1]);
+    await expect.poll(async () => (await game(page)).chain).toEqual(path.slice(0, 2));
+    const before = await game(page), forecast = await page.evaluate(chain => (window as any).__PUZZLE_GAME.preview(chain), path.slice(0, 2));
+    await page.mouse.up();
+    await expect.poll(async () => (await game(page)).phase).toBe('PLAYER_INPUT');
+    const after = await game(page);
+    expect(after.turn).toBe(before.turn + 1);
+    // The cut-off enemies were not struck: each keeps its HP (or lives on, moved by the turn).
+    const ids = (s: any) => new Map(s.board.flatMap((cell: any) => cell ? [[cell.id, cell.hp]] : []));
+    const was = ids(before), now = ids(after);
+    for (const index of path.slice(2)) { const cell = before.board[index]; if (cell && cell.kind !== 'prism') expect(now.get(cell.id)).toBe(was.get(cell.id)); }
+    expect(forecast.hits.map((hit: any) => hit.index)).toEqual(path.slice(0, 2));
+    expect(errors).toEqual([]);
+  });
+});

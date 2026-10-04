@@ -195,6 +195,10 @@ function pool() {
     assert(json(last) === json(['ash-ward', 'blank']), `seed ${k}: one talisman left — it and one «пустышка» (${json(last)})`);
     const none = talismanOffer(spread(k), 'hard', { taken: ['ash-ward'], gone: allButOne, abilities: ['jump'] });
     assert(json(none) === json(['blank']), `seed ${k}: an empty pool offers the «пустышка» alone`);
+    // Oaths never offer the «пустышка» (decision of 04.10.2026): one oath left — it alone; none — an empty offer.
+    const oaths = TALISMANS.filter(entry => isOath(entry.id)).map(entry => entry.id);
+    assert(json(talismanOffer(spread(k), 'oath', { taken: [], gone: oaths.slice(1), abilities: [] })) === json([oaths[0]]), `seed ${k}: one oath left — it alone, no «пустышка»`);
+    assert(json(talismanOffer(spread(k), 'oath', { taken: oaths.slice(0, 1), gone: oaths.slice(1), abilities: [] })) === '[]', `seed ${k}: no oath left — an empty offer`);
   }
   // Taking the «пустышка» in a real run: its points (the pool of this run is set up by hand, a test shortcut).
   const run = walk(spread(3), TO_CAMP_ELITE), pending = run.pending as Extract<ForestRunState['pending'], { kind: 'talisman' }>;
@@ -232,7 +236,7 @@ function effects() {
     assert(after.resources.player.hp === 2 && !after.resources.player.damageEffects && rested.ok && rested.events.some(event => event.type === 'effects-cleared'), `seed ${k}: no HP under the oath of hunger, the poison still goes`);
     const into = ok(enterNode(after, 'camp-elite'), 'enter the hard battle');
     const e = new ForestEngine(); e.animationScale = 0; assert(e.startRunBattle(battleSetup(into)!), 'starts');
-    assert(e.state.player.energy === Math.min(7, into.resources.player.energy + 1), `seed ${k}: the oath adds 1 energy at the start of the battle`);
+    assert(e.state.player.energy === Math.min(7, into.resources.player.energy + 2), `seed ${k}: the oath adds 2 energy at the start of the battle`);
   }
   // Фляга росы: a rest after the hard battle heals 1 more (generated maps where a rest follows a hard battle).
   let flasks = 0;

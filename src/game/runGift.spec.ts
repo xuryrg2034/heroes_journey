@@ -254,7 +254,7 @@ function gamble() {
     const after = ok(chooseGift(run, 3), 'oath');
     assert(talisman(oath).rarity === 'oath' && json(after.talismans) === json([oath]) && after.pending === null, 'the oath is taken at once');
     const e = new ForestEngine(); e.animationScale = 0;
-    assert(e.startRunBattle(battleSetup(ok(enterNode(after, availableNodes(after)[0].id), 'enter'))!) && e.state.player.energy === 1, 'the oath adds +1 energy at the start of the next battle');
+    assert(e.startRunBattle(battleSetup(ok(enterNode(after, availableNodes(after)[0].id), 'enter'))!) && e.state.player.energy === 2, 'the oath adds +2 energy at the start of the next battle');
   }
   console.log('PASS button 4: a random oath, taken without a choice, acts in the next battle');
 }

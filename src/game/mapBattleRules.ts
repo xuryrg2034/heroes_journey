@@ -56,7 +56,8 @@ export function angerPerTurn(state: PressureState): number {
   return angerAt(state, state.turn);
 }
 /** An ordinary enemy counted by the anger cap: a living melee goblin without a variant that is angry. */
-const angryOrdinary = (cell: ForestCell): boolean => cell.kind === 'melee' && !cell.variant && isCellAlive(cell) && cell.behavior.aggressive;
+// Elites act by their own behaviour and are not counted (decision of 04.10.2026); reinforcements are ordinary goblins.
+const angryOrdinary = (cell: ForestCell): boolean => cell.kind === 'melee' && !cell.variant && !cell.elite && isCellAlive(cell) && cell.behavior.aggressive;
 /** Angry ordinary enemies on the board (each entity once). */
 export function angryOrdinaryCount(board: readonly (ForestCell | null)[]): number {
   return new Set(board.flatMap(cell => cell && angryOrdinary(cell) ? [cell.id] : [])).size;

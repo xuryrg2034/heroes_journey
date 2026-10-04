@@ -111,8 +111,8 @@ async function chestAndOaths() {
   };
   assert((await chestOf([]))?.length === 2 && (await chestOf(['ragman-pouch']))?.length === 3, 'Ragman\'s pouch: the chest holds 3');
   assert((await chestOf(['oath-poverty']))?.length === 0, 'Oath of poverty: the chest is empty');
-  // Oaths: +1 energy at the start of every battle, capped at 7.
-  assert(start('spec-tal-open', spread(1), { talismans: ['oath-hunger'], energy: 2 }).state.player.energy === 3, 'an oath adds 1 energy at the start');
+  // Oaths: +2 energy at the start of every battle (decision of 04.10.2026), capped at 7.
+  assert(start('spec-tal-open', spread(1), { talismans: ['oath-hunger'], energy: 2 }).state.player.energy === 4, 'an oath adds 2 energy at the start');
   assert(start('spec-tal-open', spread(1), { talismans: ['oath-wrath'], energy: 7 }).state.player.energy === 7, 'up to 7');
   // Oath of wrath: 2 calm enemies become angry per turn before the goals.
   for (let k = 1; k <= 3; k++) {

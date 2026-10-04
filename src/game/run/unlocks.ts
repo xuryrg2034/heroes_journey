@@ -16,13 +16,14 @@ export const UNLOCK_MAX_LEVEL = UNLOCK_THRESHOLDS.length;
 export interface UnlockSet { talismans: TalismanId[]; events: string[] }
 /** Open from the start. */
 export const UNLOCK_START: UnlockSet = {
-  talismans: ['whetstone', 'dew-flask', 'ragman-pouch', 'tough-hide', 'ash-ward', 'oath-hunger', 'oath-poverty'],
+  // «Клятва ярости» is open from the start (decision of 04.10.2026): the Jailer offers all three oaths.
+  talismans: ['whetstone', 'dew-flask', 'ragman-pouch', 'tough-hide', 'ash-ward', 'oath-hunger', 'oath-poverty', 'oath-wrath'],
   events: ['brook', 'owl-hollow', 'old-trap', 'porcupine-nest', 'wounded-cub', 'wandering-grinder', 'warm-den', 'drunk-cook', 'traveler-fire'],
 };
 /** Levels 1–5 (index 0 — level 1): what each opens. */
 export const UNLOCK_LEVELS: readonly UnlockSet[] = [
   { talismans: ['millstone-shard', 'hourglass'], events: [] },
-  { talismans: ['oath-wrath'], events: ['goblin-cache'] },
+  { talismans: [], events: ['goblin-cache'] },
   { talismans: ['nimble-paws'], events: [] },
   { talismans: [], events: ['ford-ambush', 'bone-wheel'] },
   { talismans: [], events: ['den-bones', 'shaman-idol'] },

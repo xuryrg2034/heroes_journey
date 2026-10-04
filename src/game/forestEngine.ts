@@ -295,11 +295,19 @@ export class ForestEngine {
     if (!preview.valid) { this.emit({ type: 'invalid', index, text: preview.reason }); return false; }
     this.state.chain = [index]; this.emit({ type: 'chain', index }); return true;
   }
+  /**
+   * Drag the chain onto `index`. Back onto the cat drops the whole chain (no hit) unless the cat's cell is a valid step;
+   * onto a cell already in the chain cuts everything after it (decision of 04.10.2026: five chosen, back on the second —
+   * the first two stay).
+   */
   extendChain(index: number) {
     const path = this.state.chain;
     if (this.state.phase !== 'PLAYER_INPUT' || !path.length) return false;
     if (index === path[path.length - 1]) return true;
-    if (path.length > 1 && index === path[path.length - 2]) { path.pop(); this.emit({ type: 'chain', index }); return true; }
+    // The cat's own cell stays a step of the chain when the rules allow it (a crystal fell there, a device under the cat).
+    if (index === this.state.player.index && !planChain(this.state, [...path, index], true, this.rng).preview.valid) { this.cancelChain(); return true; }
+    const at = path.indexOf(index);
+    if (at >= 0) { path.length = at + 1; this.emit({ type: 'chain', index }); return true; }
     // A chain that already wins stops: entering the door always, meeting the goals when no lever could still change it.
     const current = planChain(this.state, path, true).preview;
     if (current.opensDoor !== undefined || !this.state.devices.length && current.completesRoom) { this.emit({ type: 'invalid', index, text: 'Эта цепочка уже завершает бой.' }); return false; }
