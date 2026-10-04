@@ -25,8 +25,11 @@ import { TOOL_ROWS } from './battlePools';
 import { FOREST_EVENTS } from './forestEvents';
 import { FOREST_MAP, FOREST_REST_HEAL, FROST, JUMP, SPIN_REWARD, isTrunkNode, type ForestLane, type ForestMapNode, type ForestNodeType, type ForestRunMap } from './forestMap';
 
-/** Version of the generator; a saved run keeps its map, so a newer generator does not change a run in progress. */
-export const MAP_GENERATOR_VERSION = 1;
+/**
+ * Version of the generator; a saved run keeps its map, so a newer generator does not change a run in progress.
+ * 2 (04.10.2026): the merchant (`shop`) and the ladder's share of hard battles.
+ */
+export const MAP_GENERATOR_VERSION = 2;
 
 // Баланс: shape of the map.
 /** Trail rows and columns, and the passes walked through them (StS: 6 passes over 7 columns). */
@@ -43,10 +46,16 @@ export type MapBranch = typeof BRANCHES[number];
 export const TRAIL_SHARES = { find: 0.15, rest: 0.15, event: 0.20 } as const;
 /** Branches, rows 10–12: the rest of the bag is battles. At least one hard battle and one rest per branch. */
 export const BRANCH_SHARES = { hard: 0.2, rest: 0.25 } as const;
+/**
+ * The merchant (docs/roguelike-runs.md, 5б): about this share of the free nodes of a map (rows 6–8 and 10–12), at least
+ * one per map, so every map has a path through a merchant. The count is decided for the whole map and spread over the
+ * three sections by their free nodes; each section then lays its merchants out with the rest of its bag.
+ */
+export const SHOP_SHARE = 0.05, SHOPS_PER_MAP_MIN = 1;
 /** A rest stands 1–3 rows before every hard battle on every path (playtest decision 30.09.2026). */
 export const REST_BEFORE_HARD = { min: 1, max: 3 } as const;
 /** Types that never stand twice in a row on a path. */
-export const NO_REPEAT_TYPES: readonly ForestNodeType[] = ['hard', 'rest', 'find'];
+export const NO_REPEAT_TYPES: readonly ForestNodeType[] = ['hard', 'rest', 'find', 'shop'];
 /** Events on one path at most: an event does not repeat in a run. */
 export const EVENTS_PER_PATH = Object.keys(FOREST_EVENTS).length;
 const LAYOUT_ATTEMPTS = 200, STRUCTURE_ATTEMPTS = 200;
@@ -102,16 +111,16 @@ export function nodePlace(id: string): NodePlace | null {
 /** Node types a place may hold. */
 export function placeTypes(place: NodePlace): readonly ForestNodeType[] {
   if (place.row === TRAIL_FIRST_ROW) return ['battle'];
-  if (place.row <= TRAIL_LAST_ROW) return ['battle', 'rest', 'find', 'event'];
+  if (place.row <= TRAIL_LAST_ROW) return ['battle', 'rest', 'find', 'event', 'shop'];
   if (place.row === CHECKPOINT_ROW) return ['checkpoint'];
-  if (place.row <= BRANCH_LAST_ROW) return ['battle', 'hard', 'rest'];
+  if (place.row <= BRANCH_LAST_ROW) return ['battle', 'hard', 'rest', 'shop'];
   return place.row === BREAKTHROUGH_ROW ? ['breakthrough'] : ['boss'];
 }
 
 // ---------- Building the run map ----------
 
 const NAMES: Record<ForestNodeType, string> = {
-  battle: 'Бой', hard: 'Трудный бой', rest: 'Привал', find: 'Находка', event: 'Событие', checkpoint: 'Тюремщик', breakthrough: 'Прорыв', boss: 'Босс',
+  battle: 'Бой', hard: 'Трудный бой', rest: 'Привал', find: 'Находка', event: 'Событие', shop: 'Торговец', checkpoint: 'Тюремщик', breakthrough: 'Прорыв', boss: 'Босс',
 };
 const BRANCH_NAMES: Record<MapBranch, { breakthrough: string; boss: string }> = {
   den: { breakthrough: 'Выход из логова', boss: 'Тролль' }, camp: { breakthrough: 'Прорыв к воротам', boss: 'Главарь с котелком' },
@@ -129,7 +138,7 @@ export function generatedNode(stored: StoredMapNode): ForestMapNode {
   if (!place) throw new Error(`Узел ${stored.id} не принадлежит сгенерированной карте.`);
   const { type } = stored;
   const name = place.branch && (type === 'breakthrough' || type === 'boss') ? BRANCH_NAMES[place.branch][type] : NAMES[type];
-  const content: ForestMapNode['content'] = type === 'rest' ? { kind: 'rest', heal: FOREST_REST_HEAL } : type === 'find' ? { kind: 'find' } : { kind: 'pool' };
+  const content: ForestMapNode['content'] = type === 'rest' ? { kind: 'rest', heal: FOREST_REST_HEAL } : type === 'find' ? { kind: 'find' } : type === 'shop' ? { kind: 'shop' } : { kind: 'pool' };
   return { id: stored.id, type, name, lane: place.lane, row: place.row, column: place.column as 0 | 1 | 2, slot: slotOf(place), content, next: [...stored.next],
     ...place.row === TOOL_ROWS.frost ? { grants: FROST } : place.row === TOOL_ROWS.jump ? { grants: JUMP } : {},
     ...type === 'checkpoint' ? { rewardGrants: SPIN_REWARD } : {} };
@@ -261,11 +270,14 @@ function sectionErrors(grid: Grid, types: Map<string, ForestNodeType>, free: (ce
   return null;
 }
 
-/** Type layout of a trail section: row 5 battles; rows 6–8 from the bag. Null when no attempt passes the rules. */
-function layTrails(random: Random, grid: Grid): Map<string, ForestNodeType> | null {
-  const cells = cellsOf(grid).map(([row, column]) => key(row, column)), free = cells.filter(cell => Number(cell.split(':')[0]) > TRAIL_FIRST_ROW);
+/** Free cells of a trail section (rows 6–8; row 5 is battles only). */
+const trailFree = (grid: Grid) => cellsOf(grid).filter(([row]) => row > TRAIL_FIRST_ROW).map(([row, column]) => key(row, column));
+
+/** Type layout of a trail section: row 5 battles; rows 6–8 from the bag with `shops` merchants. Null when no attempt passes the rules. */
+function layTrails(random: Random, grid: Grid, shops: number): Map<string, ForestNodeType> | null {
+  const cells = cellsOf(grid).map(([row, column]) => key(row, column)), free = trailFree(grid);
   for (let attempt = 0; attempt < LAYOUT_ATTEMPTS; attempt++) {
-    const bag: ForestNodeType[] = [];
+    const bag: ForestNodeType[] = Array<ForestNodeType>(shops).fill('shop');
     for (const [type, part] of Object.entries(TRAIL_SHARES) as [ForestNodeType, number][]) bag.push(...Array<ForestNodeType>(share(random, free.length, part)).fill(type));
     if (bag.length > free.length) continue;
     while (bag.length < free.length) bag.push('battle');
@@ -277,13 +289,16 @@ function layTrails(random: Random, grid: Grid): Map<string, ForestNodeType> | nu
   return null;
 }
 
-/** Type layout of a branch: battles, hard battles and rests. Null when no attempt passes the rules. */
-function layBranch(random: Random, grid: Grid): Map<string, ForestNodeType> | null {
+/**
+ * Type layout of a branch: battles, hard battles (`hardShare` of the cells, at least one), rests and `shops` merchants.
+ * Null when no attempt passes the rules.
+ */
+function layBranch(random: Random, grid: Grid, shops: number, hardShare: number): Map<string, ForestNodeType> | null {
   const cells = cellsOf(grid).map(([row, column]) => key(row, column));
   for (let attempt = 0; attempt < LAYOUT_ATTEMPTS; attempt++) {
-    const hard = Math.max(1, share(random, cells.length, BRANCH_SHARES.hard)), rest = Math.max(1, share(random, cells.length, BRANCH_SHARES.rest));
-    if (hard + rest > cells.length) continue;
-    const bag: ForestNodeType[] = [...Array<ForestNodeType>(hard).fill('hard'), ...Array<ForestNodeType>(rest).fill('rest')];
+    const hard = Math.max(1, share(random, cells.length, hardShare)), rest = Math.max(1, share(random, cells.length, BRANCH_SHARES.rest));
+    if (hard + rest + shops > cells.length) continue;
+    const bag: ForestNodeType[] = [...Array<ForestNodeType>(hard).fill('hard'), ...Array<ForestNodeType>(rest).fill('rest'), ...Array<ForestNodeType>(shops).fill('shop')];
     while (bag.length < cells.length) bag.push('battle');
     shuffle(random, bag);
     const types = new Map<string, ForestNodeType>(cells.map((cell, n) => [cell, bag[n]]));
@@ -292,10 +307,15 @@ function layBranch(random: Random, grid: Grid): Map<string, ForestNodeType> | nu
   return null;
 }
 
-/** Walk and lay out one section until its rules hold; every retry continues the same seeded sequence. */
-function section(walk: () => Grid, lay: (grid: Grid) => Map<string, ForestNodeType> | null, what: string, seed: number) {
+/**
+ * Lay out one section on its first walk, walking it again until its rules hold; every retry continues the same seeded
+ * sequence.
+ */
+function section(first: Grid, walk: () => Grid, lay: (grid: Grid) => Map<string, ForestNodeType> | null, what: string, seed: number) {
+  let grid = first;
   for (let attempt = 0; attempt < STRUCTURE_ATTEMPTS; attempt++) {
-    const grid = walk(), types = lay(grid);
+    if (attempt) grid = walk();
+    const types = lay(grid);
     if (types) return { grid, types, attempts: attempt + 1 };
   }
   throw new Error(`Генератор карты: ${what} не раскладывается для seed ${seed}.`);
@@ -304,12 +324,31 @@ function section(walk: () => Grid, lay: (grid: Grid) => Map<string, ForestNodeTy
 /** Statistics of the last generation (attempts per section), for the tests and the map report. */
 export interface GenerationStats { trails: number; den: number; camp: number }
 
-/** The map of a run seed. The same seed always gives the same map. */
-export function generateForestMap(seed: number, stats?: GenerationStats): GeneratedForestMap {
+/**
+ * Options of a run's map. `hardFactor`: factor of the branches' hard-battle share (the ladder's step 1, ladder.ts;
+ * absent — 1, the map of step 0).
+ */
+export interface MapOptions { hardFactor?: number }
+
+/** The map of a run seed (and options). The same seed and options always give the same map. */
+export function generateForestMap(seed: number, stats?: GenerationStats, options: MapOptions = {}): GeneratedForestMap {
   const random = seeded(mixSeed(seed >>> 0, textHash('forest-map')));
-  const trails = section(() => walkPasses(random, TRAIL_FIRST_ROW, TRAIL_LAST_ROW, TRAIL_COLUMNS, TRAIL_PASSES), grid => layTrails(random, grid), 'тропы', seed);
-  const branches = BRANCHES.map(branch => ({ branch, ...section(() => walkPasses(random, BRANCH_FIRST_ROW, BRANCH_LAST_ROW, BRANCH_COLUMNS, BRANCH_PASSES),
-    grid => layBranch(random, grid), `ветка ${branch}`, seed) }));
+  const hardShare = BRANCH_SHARES.hard * (options.hardFactor ?? 1);
+  const walkTrails = () => walkPasses(random, TRAIL_FIRST_ROW, TRAIL_LAST_ROW, TRAIL_COLUMNS, TRAIL_PASSES);
+  const walkBranch = () => walkPasses(random, BRANCH_FIRST_ROW, BRANCH_LAST_ROW, BRANCH_COLUMNS, BRANCH_PASSES);
+  // The merchants are counted for the whole map (SHOP_SHARE of its free nodes, at least one) and spread over the
+  // sections in proportion to their free nodes on the first walk; a section walked again keeps its count.
+  const firstWalks = [walkTrails(), ...BRANCHES.map(() => walkBranch())];
+  const free = [trailFree(firstWalks[0]).length, ...firstWalks.slice(1).map(grid => grid.next.size)], total = free.reduce((a, b) => a + b, 0);
+  const shops = [0, 0, 0];
+  for (let n = Math.max(SHOPS_PER_MAP_MIN, share(random, total, SHOP_SHARE)); n > 0; n--) {
+    let at = random.int(total), part = 0;
+    while (at >= free[part]) at -= free[part++];
+    shops[part]++;
+  }
+  const trails = section(firstWalks[0], walkTrails, grid => layTrails(random, grid, shops[0]), 'тропы', seed);
+  const branches = BRANCHES.map((branch, n) => ({ branch, ...section(firstWalks[n + 1], walkBranch,
+    grid => layBranch(random, grid, shops[n + 1], hardShare), `ветка ${branch}`, seed) }));
   if (stats) { stats.trails = trails.attempts; stats.den = branches[0].attempts; stats.camp = branches[1].attempts; }
   const nodes: StoredMapNode[] = [];
   for (const [row, column] of cellsOf(trails.grid)) {

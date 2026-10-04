@@ -8,7 +8,9 @@ import { summarizeDamageEffects } from './game/damageEffects';
 import { CRAFT_COST, RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { nodeBattleTemplate, forestRowPalette, victoryChoice, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
-import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNode, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
+import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNode, shopView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView, type ShopGoodView } from './game/run/forestRun';
+import { SHOP_HARDEN_STEP, SHOP_HEAL_LIMIT } from './game/run/merchant';
+import { LADDER_STEPS } from './game/ladder';
 import { forestEvent } from './game/run/forestEvents';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
@@ -21,6 +23,7 @@ export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: strin
   rest: { icon: '☾', label: 'Привал', hint: 'Лечение или крафт перед следующим боем.' },
   find: { icon: '◈', label: 'Находка', hint: 'Выбор одного предмета из трёх.' },
   event: { icon: '?', label: 'Событие', hint: 'Сцена с выбором, без боя: исходы видны заранее.' },
+  shop: { icon: '⚖', label: 'Торговец', hint: 'Товары за ресурсы крафта: расходники, талисман, лечение, закалка.' },
   breakthrough: { icon: '⇥', label: 'Прорыв', hint: 'Цель — дойти до выхода, а не победить всех.' },
   checkpoint: { icon: '▣', label: 'Контрольный бой', hint: 'Сюда сходятся обе тропы.' },
   boss: { icon: '♛', label: 'Босс', hint: 'Финал ветки.' },
@@ -126,6 +129,17 @@ export function nodeStatusLabel(view: ForestRunView, node: ForestMapNode): strin
   return STATUS_LABEL[view.nodes.find(entry => entry.node.id === node.id)?.status ?? 'locked'];
 }
 
+/** The changes of «Ступени клятвы» 1…`step` (each step includes the ones below), one line each. */
+export function ladderChangesHtml(step: number): string {
+  return `<ol class="ladder-changes">${LADDER_STEPS.slice(1, step + 1).map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>`;
+}
+/** Badge of the run's ladder step (map and result); empty on step 0. Hover or focus lists the changes. */
+export function ladderBadgeHtml(step: number | undefined, id = 'map-ladder'): string {
+  if (!step) return '';
+  const changes = LADDER_STEPS.slice(1, step + 1).map((line, n) => `${n + 1}. ${line}`).join('\n');
+  return `<span class="ladder-badge" id="${id}" tabindex="0" title="${escapeHtml(changes)}" aria-label="${escapeHtml(`Ступень клятвы ${step}. ${changes}`)}">Ступень ${step}</span>`;
+}
+
 /** Hover / focus panel of one node: type, field feature, temporary and in-development marks. */
 export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): string {
   const view = forestRunView(run), node = nodeId ? view.nodes.find(entry => entry.node.id === nodeId)?.node : undefined;
@@ -138,6 +152,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
       : pending?.kind === 'talisman' ? `${pending.source === 'oath' ? 'Клятва' : 'Талисман'} ждёт выбора.`
       : pending?.kind === 'event' ? 'Событие ждёт выбора.'
       : pending?.kind === 'rest' ? 'Привал ждёт выбора: лечение или крафт.'
+      : pending?.kind === 'shop' ? 'Торговец ждёт: купи или уйди.'
       : view.available.length ? 'Выбери следующий узел: доступные подсвечены. Наведи на узел, чтобы увидеть тип и особенность поля.' : '';
     return `<p class="map-detail-idle">${text}</p>`;
   }
@@ -244,6 +259,8 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
         ? `<div class="map-banner"><span>Событие «${escapeHtml(nodeName(run, pending.nodeId))}» ждёт выбора.</span><button class="button primary" data-action="run-event">ВЫБРАТЬ</button></div>`
       : pending?.kind === 'rest'
         ? `<div class="map-banner"><span>Привал «${escapeHtml(nodeName(run, pending.nodeId))}» не завершён.</span><button class="button primary" data-action="run-rest">К ПРИВАЛУ</button></div>`
+      : pending?.kind === 'shop'
+        ? `<div class="map-banner"><span>Торговец ждёт.</span><button class="button primary" data-action="run-shop">К ТОРГОВЦУ</button></div>`
       : options.notice ? `<div class="map-banner notice" id="map-notice"><span>${escapeHtml(options.notice)}</span></div>` : '';
   const reset = options.confirmReset
     ? `<div class="map-confirm" role="alert"><span>Сбросить поход и начать заново?</span><button class="button secondary" data-action="run-reset-yes">СБРОСИТЬ</button><button class="text-button" data-action="run-reset-no">ОТМЕНА</button></div>`
@@ -251,24 +268,37 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
   const tags = (generated ? GENERATED_LANE_TAGS : AUTHORED_LANE_TAGS).map(tag => `<span class="map-lane-tag column-${tag.column}" style="left:${pct(tag.from - 1, rows)};width:${pct(tag.to - tag.from + 1, rows)};top:${pct(tag.top, 1)}">${tag.text}</span>`).join('');
   const legend = (Object.keys(NODE_TYPE_INFO) as ForestNodeType[]).map(type => `<span><i aria-hidden="true">${NODE_TYPE_INFO[type].icon}</i>${NODE_TYPE_INFO[type].label}</span>`).join('')
     + '<span class="legend-temp"><i aria-hidden="true">┄</i>временный бой</span>';
-  return `<div class="map-top"><div class="map-title"><p class="eyebrow">ПОХОД ПО ЛЕСУ</p><h1>Карта леса</h1></div><div class="map-resources" aria-label="Ресурсы похода">${resourcesHtml(view)}</div><div class="map-actions"><button class="text-button" data-action="title">В МЕНЮ</button>${reset}</div></div>`
+  return `<div class="map-top"><div class="map-title"><p class="eyebrow">ПОХОД ПО ЛЕСУ</p><h1>Карта леса</h1>${ladderBadgeHtml(run.ladder)}</div><div class="map-resources" aria-label="Ресурсы похода">${resourcesHtml(view)}</div><div class="map-actions"><button class="text-button" data-action="title">В МЕНЮ</button>${reset}</div></div>`
     + banner
     + `<div class="map-scroll"><div class="map-board${generated ? ' generated' : ''}" id="map-board" data-map="${generated ? 'generated' : 'authored'}" role="group" aria-label="Карта леса">${edgesHtml(view, rows)}${tags}${view.nodes.map(entry => nodeHtml(view, entry.node, entry.status, rows)).join('')}</div></div>`
     + `<div class="map-detail" id="map-detail" aria-live="polite">${nodeDetailHtml(run, null)}</div><div class="map-legend" aria-label="Обозначения">${legend}</div>`;
 }
 
 /**
- * Title card: start a new run or continue the saved one; reset asks for confirmation on the page. `trunkCleared`: the
- * player profile says a new run starts at the trail fork.
+ * The ladder step a new run starts on (profile.ladder > 0 only): «−» and «+» within 0…open, the step, and the list of
+ * its changes on request («Правки»). Empty while no step is open.
  */
-export function runEntryHtml(saved: ForestRunState | null, confirmReset: boolean, trunkCleared = false): string {
-  if (!saved) return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>ПОХОД ПО ЛЕСУ</span><small>${trunkCleared ? 'Новая карта · с развилки троп' : 'Новая карта · начало со ствола'}</small></button>`;
+export function ladderPickHtml(ladder: { open: number; chosen: number } | undefined): string {
+  if (!ladder?.open) return '';
+  const { open, chosen } = ladder;
+  return `<div class="ladder-pick" id="ladder-pick"><span class="hud-label">СТУПЕНЬ КЛЯТВЫ</span><button class="icon-button" data-action="ladder-down" aria-label="Ступень ниже"${chosen <= 0 ? ' disabled' : ''}>−</button>`
+    + `<b id="ladder-value">${chosen}</b><small>из ${open}</small><button class="icon-button" data-action="ladder-up" aria-label="Ступень выше"${chosen >= open ? ' disabled' : ''}>+</button>`
+    + (chosen ? `<details class="ladder-details"><summary>Правки</summary>${ladderChangesHtml(chosen)}</details>` : '<small class="ladder-none">без правок</small>') + '</div>';
+}
+
+/**
+ * Title card: start a new run or continue the saved one; reset asks for confirmation on the page. `trunkCleared`: the
+ * player profile says a new run starts at the trail fork. `ladder`: the open and chosen step of a new run.
+ */
+export function runEntryHtml(saved: ForestRunState | null, confirmReset: boolean, trunkCleared = false, ladder?: { open: number; chosen: number }): string {
+  const pick = ladderPickHtml(ladder);
+  if (!saved) return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>ПОХОД ПО ЛЕСУ</span><small>${trunkCleared ? 'Новая карта · с развилки троп' : 'Новая карта · начало со ствола'}${ladder?.chosen ? ` · ступень ${ladder.chosen}` : ''}</small></button>${pick}`;
   const view = forestRunView(saved);
   const status = saved.result ? 'Итог похода' : `Пройдено боёв: ${view.battlesWon} · HP ${saved.resources.player.hp}/${saved.resources.player.maxHp}`;
   const reset = confirmReset
     ? `<div class="run-confirm" role="alert"><span>Стереть сохранённый поход?</span><button class="button secondary" data-action="run-reset-yes">СТЕРЕТЬ И НАЧАТЬ</button><button class="text-button" data-action="run-reset-no">ОТМЕНА</button></div>`
     : '<button class="text-button" data-action="run-reset" id="run-reset-button">НАЧАТЬ ЗАНОВО</button>';
-  return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>${saved.result ? 'ИТОГ ПОХОДА' : 'ПРОДОЛЖИТЬ ПОХОД'}</span><small>${status}</small></button>${reset}`;
+  return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>${saved.result ? 'ИТОГ ПОХОДА' : 'ПРОДОЛЖИТЬ ПОХОД'}</span><small>${status}${saved.ladder ? ` · ступень ${saved.ladder}` : ''}</small></button>${reset}${pick}`;
 }
 
 /**
@@ -293,6 +323,37 @@ export function restModalHtml(run: ForestRunState): string {
   const craftBlock = `<section class="rest-option" id="rest-craft"><h3><span aria-hidden="true">⚒</span> Крафт</h3><ul class="rest-recipes">${recipes}</ul>${crafted}</section>`;
   const finish = view.canFinish ? '<button class="button primary" data-action="rest-finish">К КАРТЕ</button>' : '';
   return `<p class="eyebrow">ПРИВАЛ</p><h2 id="modal-title">${escapeHtml(nodeName(run, view.nodeId))}</h2><div class="rest-options">${healBlock}${craftBlock}</div>${finish}`;
+}
+
+/**
+ * The open merchant (merchant.ts): the resources held, every good with its price (healing cut to the stock), why one
+ * cannot be bought, and «Уйти». Every press buys one good; the stock does not restock. Empty without an open merchant.
+ */
+export function shopModalHtml(run: ForestRunState): string {
+  const view = shopView(run);
+  if (!view) return '';
+  const describe = (good: ShopGoodView): [string, string, string] => {
+    if (good.item) return [ITEM_ICON[good.item], escapeHtml(ITEMS[good.item].label), escapeHtml(ITEMS[good.item].description)];
+    if (good.talisman) {
+      const entry = talisman(good.talisman);
+      return [`<span class="talisman-icon${isOath(good.talisman) ? ' oath' : ''}">${TALISMAN_LETTER[good.talisman]}</span>`, `${escapeHtml(entry.name)} <em>${RARITY_LABEL[entry.rarity]}</em>`,
+        `${escapeHtml(entry.effect)}. Не купишь — уйдёт из пула до конца похода.`];
+    }
+    if (good.good === 'heal') return ['✚', `Лечение +1 HP <em>${view.healed} / ${SHOP_HEAL_LIMIT}</em>`, `До ${SHOP_HEAL_LIMIT} HP за визит. Не хватает ресурсов — платишь сколько есть, без ресурсов — даром.`];
+    return ['♥', `Закалка <em>за поход: ${view.hardenings}</em>`, `+1 к максимуму HP и +1 HP. Одна за визит; каждая следующая в походе дороже на ${SHOP_HARDEN_STEP}.`];
+  };
+  const goods = view.goods.map(good => {
+    const [icon, title, text] = describe(good);
+    const price = good.price === 0 ? 'ДАРОМ' : good.price < good.fullPrice ? `${good.price} <s>${good.fullPrice}</s>` : String(good.price);
+    const button = good.sold ? 'КУПЛЕНО' : `КУПИТЬ · ${price}`;
+    return `<li class="shop-good${good.available ? '' : ' short'}${good.sold ? ' sold' : ''}" data-good="${good.id}"><span class="reward-icon" aria-hidden="true">${icon}</span>`
+      + `<span class="shop-good-text"><b>${title}</b><small>${text}</small>${good.available || good.sold ? '' : `<em class="event-reason">${escapeHtml(good.reason)}</em>`}</span>`
+      + `<button class="button secondary shop-buy" data-shop-buy="${good.id}"${good.available ? '' : ' disabled aria-disabled="true"'}>${button}</button></li>`;
+  }).join('');
+  const kinds = RESOURCE_KINDS.filter(kind => view.materials[kind] > 0).map(kind => `${RESOURCES[kind].label} ${view.materials[kind]}`).join(', ');
+  return `<p class="eyebrow">ТОРГОВЕЦ</p><h2 id="modal-title">${escapeHtml(nodeName(run, view.nodeId))}</h2>`
+    + `<p class="modal-copy" id="shop-stock">Ресурсы: <b>${view.total}</b>${kinds ? ` (${kinds})` : ''}. Цена — в ресурсах любого вида: сначала уходят самые многочисленные.</p>`
+    + `<ul class="shop-goods">${goods}</ul><button class="button primary" data-action="shop-leave">УЙТИ</button>`;
 }
 
 /** The rest after «Лечение»: HP healed and effects cleared; «Дальше» goes back to the map. */
@@ -347,23 +408,28 @@ export function nodeBattleModalHtml(options: { won: boolean; name: string; turns
     : `<p class="eyebrow">ПОХОД ПО ЛЕСУ · ${escapeHtml(name).toUpperCase()}</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот отступил</h2><p class="modal-copy">Бой открыт вне сохранённого похода. Повтор вернёт поле, здоровье и запас как на входе.</p>${stats}<button class="button primary" data-action="retry">ПОВТОРИТЬ БОЙ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`;
 }
 
-/** End of the run: victory over a boss, a defeat, or the unfinished Troll branch (reported as such, not as a victory). */
-export function runResultHtml(run: ForestRunState): string {
+/**
+ * End of the run: victory over a boss, a defeat, or the unfinished Troll branch (reported as such, not as a victory).
+ * `openedLadder`: the ladder step this victory opened in the profile (shown once, right after the victory).
+ */
+export function runResultHtml(run: ForestRunState, options: { openedLadder?: number | null } = {}): string {
   const view = forestRunView(run), result = run.result;
   if (!result) return '';
   const { hp, maxHp } = run.resources.player;
+  const ladderStat = run.ladder ? `<span id="run-ladder"><b>${run.ladder}</b>СТУПЕНЬ</span>` : '';
+  const opened = options.openedLadder ? `<p class="modal-copy ladder-opened" id="ladder-opened">Открыта ступень клятвы ${options.openedLadder}: ${escapeHtml(LADDER_STEPS[options.openedLadder].charAt(0).toLowerCase() + LADDER_STEPS[options.openedLadder].slice(1))}.</p>` : '';
   if (result.outcome === 'defeat') {
     // A defeat ends the run (decision of 04.10.2026): where it ended, how far it went, no way back into it.
     const lost = runNode(run, result.nodeId);
-    const stats = `<div class="result-stats" id="run-defeat-stats"><span><b>${lost?.row ?? '—'}</b>РЯД</span><span><b>${view.battlesWon}</b>БОЁВ ВЫИГРАНО</span><span><b>${run.score}</b>ОЧКИ</span></div>`;
+    const stats = `<div class="result-stats" id="run-defeat-stats"><span><b>${lost?.row ?? '—'}</b>РЯД</span><span><b>${view.battlesWon}</b>БОЁВ ВЫИГРАНО</span><span><b>${run.score}</b>ОЧКИ</span>${ladderStat}</div>`;
     return `<p class="eyebrow">ПОХОД ОКОНЧЕН</p><div class="outcome-symbol defeat">✕</div><h2 id="modal-title">Кот пал</h2><p class="modal-copy" id="run-result-copy">Поражение в узле «${escapeHtml(lost?.name ?? result.nodeId)}». Этот поход не продолжить: новый начнётся заново.</p>${stats}<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="title">В МЕНЮ</button>`;
   }
-  const stats = `<div class="result-stats"><span><b>${view.battlesWon}</b>БОЁВ ПРОЙДЕНО</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${run.score}</b>ОЧКИ</span></div>`;
+  const stats = `<div class="result-stats"><span><b>${view.battlesWon}</b>БОЁВ ПРОЙДЕНО</span><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${run.score}</b>ОЧКИ</span>${ladderStat}</div>`;
   const buttons = '<button class="button primary" data-action="run-new">НОВЫЙ ПОХОД</button><button class="button secondary" data-action="run-map">СМОТРЕТЬ КАРТУ</button><button class="text-button" data-action="title">В МЕНЮ</button>';
   // The boss of the chosen branch decides the ending text.
   const troll = result.outcome === 'victory' && runNode(run, result.nodeId)?.lane === 'den';
   const [title, copy] = troll ? ['Тролль повержен', 'Логово затихло, дорога к замку открыта.'] : ['Главарь повержен', 'Котелок вернулся, лес позади.'];
   return result.outcome === 'victory'
-    ? `<p class="eyebrow">ПОХОД ЗАВЕРШЁН</p><div class="outcome-symbol">✦</div><h2 id="modal-title">${title}</h2><p class="modal-copy">${copy}</p>${stats}${buttons}`
+    ? `<p class="eyebrow">ПОХОД ЗАВЕРШЁН</p><div class="outcome-symbol">✦</div><h2 id="modal-title">${title}</h2><p class="modal-copy">${copy}</p>${opened}${stats}${buttons}`
     : `<p class="eyebrow">ВЕТКА ПОКА ОБРЫВАЕТСЯ</p><div class="outcome-symbol pending">…</div><h2 id="modal-title">Тролль — в разработке</h2><p class="modal-copy" id="run-result-copy">Путь через логово дошёл до босса, но боя с Троллём ещё нет. Это не победа: поход не завершён победой. Ветка Главаря уже играбельна в новом походе.</p>${stats}${buttons}`;
 }

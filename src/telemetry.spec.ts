@@ -229,6 +229,29 @@ function restChoices() {
   console.log('PASS rest choices are recorded, exported and summed; old journals load');
 }
 
+/** A merchant visit is recorded with its stock and purchases (price and resources paid); exported, summed, shown; off when disabled. */
+function shopVisits() {
+  telemetry.clearTelemetry();
+  const paid = (dew: number, powder = 0) => ({ dew, powder, resin: 0, herbs: 0 });
+  telemetry.recordRunShop({ nodeId: 'r7c1', stock: { items: ['frost', 'bomb'], talisman: 'whetstone' }, seed: 7,
+    bought: [{ good: 'item', slot: 1, item: 'bomb', price: 3, paid: paid(2, 1) }, { good: 'heal', price: 2, paid: paid(1) }] });
+  telemetry.recordRunShop({ nodeId: 'camp-r10c0', stock: { items: ['frost', 'frost'], talisman: null }, seed: 7, bought: [] });
+  const payload = telemetry.exportPayload();
+  assert(payload.runShops.length === 2 && payload.runShops[0].bought[0].item === 'bomb' && payload.runShops[0].stock.talisman === 'whetstone', 'visits are exported in order with stock and purchases');
+  assert(JSON.stringify(payload.shopAggregate) === JSON.stringify({ visits: 2, buying: 1, resources: 4, goods: { item: { count: 1, resources: 3 }, heal: { count: 1, resources: 1 } } }),
+    `visits summed by the resources really paid (the healing cut to the stock): ${JSON.stringify(payload.shopAggregate)}`);
+  assert(telemetry.playtestHtml().includes('id="playtest-shops"') && telemetry.playtestHtml().includes('расходники ×1 за 3'), 'the playtest screen sums the merchants');
+  telemetry.setTelemetryEnabled(false);
+  telemetry.recordRunShop({ nodeId: 'r8c0', stock: { items: [], talisman: null }, seed: 8, bought: [] });
+  assert(telemetry.exportPayload().runShops.length === 2, 'a disabled journal records no visit');
+  telemetry.setTelemetryEnabled(true);
+  // A journal written before the merchant has no visits: it loads with an empty list.
+  storage.set(telemetry.TELEMETRY_KEY, JSON.stringify({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [] }));
+  assert(telemetry.exportPayload().runShops.length === 0 && !telemetry.playtestHtml().includes('playtest-shops'), 'an old journal without merchants loads');
+  telemetry.clearTelemetry();
+  console.log('PASS merchant visits are recorded, exported and summed; old journals load');
+}
+
 /**
  * Talisman choices (shown, taken, refused) and the triggers of a battle: the whetstone on the first chain, the Ash ward
  * saving the cat from lethal quills. Telemetry only observes: a twin engine without it ends identical.
@@ -273,8 +296,26 @@ async function talismans() {
   console.log('PASS talisman choices (shown, taken, refused) and battle triggers (ward, whetstone) are recorded; telemetry only observes');
 }
 
+/** The run's ladder step is written into the attempt of a map battle; step 0 writes nothing. */
+async function ladderStep() {
+  for (const ladder of [0, 4]) {
+    telemetry.clearTelemetry();
+    const setup: RunBattleSetup = { nodeId: 'spec-telemetry', label: 'spec', seed: spread(ladder + 3), template: { kind: 'battle', id: 'spec-telemetry-exit' }, row: 6,
+      player: { hp: 5, maxHp: 5, energy: 0 }, inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [], allowedAbilities: [], ...ladder ? { ladder } : {} };
+    const g = new ForestEngine(); g.animationScale = 0; telemetry.installTelemetry(g);
+    assert(g.startRunBattle(setup), `step ${ladder}: the battle starts`);
+    await chain(g, [...COLUMN, DOOR]);
+    const [record] = journal();
+    assert(record && record.ladder === (ladder || undefined), `step ${ladder}: the attempt records ${ladder ? `ladder ${ladder}` : 'no ladder'}: ${JSON.stringify(record?.ladder)}`);
+  }
+  telemetry.clearTelemetry();
+  console.log('PASS the ladder step is recorded in the attempts of map battles');
+}
+
 eventChoices();
 restChoices();
+shopVisits();
+await ladderStep();
 await talismans();
 await leaveAtOnce();
 await runDefeatEndsTheRun();

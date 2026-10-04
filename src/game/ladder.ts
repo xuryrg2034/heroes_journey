@@ -38,3 +38,17 @@ export const LADDER_REINFORCEMENT_EVERY = 2;
 export const LADDER_GREED_RESOURCES = 6;
 /** Баланс (step 10): the Troll's regeneration. */
 export const LADDER_TROLL_REGEN = 4;
+
+// Run side (forestRun.ts, mapGenerator.ts, merchant.ts): the map, the rest, the start and the merchant read the run's step.
+/** Баланс (step 1): factor of the hard-battle share of the branches in the map generator. */
+export const LADDER_HARD_FACTOR = 1.5;
+/** Баланс (step 5): HP the rest heals less (never below 0). */
+export const LADDER_REST_PENALTY = 1;
+/** Баланс (step 6): HP of the cat at the start of the run (the maximum stays). */
+export const LADDER_START_HP = 4;
+/** Баланс (step 9): added to every price of the merchant. */
+export const LADDER_SHOP_MARKUP = 1;
+/** A run's step `ladder` (absent — 0) has step `step` on. */
+export const runLadderAt = (run: { ladder?: number }, step: number): boolean => (run.ladder ?? 0) >= step;
+/** A valid step of a run or a profile: an integer 0…LADDER_MAX. */
+export const isLadderStep = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= LADDER_MAX;

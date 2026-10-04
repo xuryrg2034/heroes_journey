@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { availableNodes, chooseFindItem, chooseTalisman, createForestRun, enterNode, forestRunView, resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
+import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunMap, forestRunView, resolveBattle, restHeal, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
 
 // Forest map screen (docs/biomes/forest-map.md). The run model is tested in src/game/forestRun.spec.ts and
 // src/game/mapGenerator.spec.ts; here the real page is driven: title entry, map, node battles, rest, find, reload,
@@ -33,8 +33,8 @@ function won(run: ForestRunState, hp = 5): ForestRunState {
   return ok(resolveBattle(run, { nodeId: pending.nodeId, won: true, player: { hp, maxHp: 5, energy: run.resources.player.energy }, inventory: { ...run.resources.inventory } }));
 }
 /** Walk the given node ids: battles are won, finds take the first option, talisman and oath choices are refused, rests heal. */
-function walk(ids: string[], hp = 5, seed = 4242): ForestRunState {
-  let run = createForestRun(seed);
+function walk(ids: string[], hp = 5, seed = 4242, ladder = 0): ForestRunState {
+  let run = createForestRun(seed, { ladder });
   for (const id of ids) {
     run = ok(enterNode(run, id));
     if (run.pending?.kind === 'battle') run = won(run, hp);
@@ -296,7 +296,7 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   expect(await profile()).toBeNull();
   // Entering the first node past the trunk marks it cleared in the profile (a separate key, outside the run save).
   await node(page, 'goblin-archer').click(); await settled(page);
-  expect(await profile()).toEqual({ version: 1, trunkCleared: true });
+  expect(await profile()).toEqual({ version: 1, trunkCleared: true, ladder: 0 });
   expect((await savedRun(page)).trunkCleared).toBeUndefined();
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="title"]').click();
@@ -322,7 +322,7 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   await page.locator('[data-action="profile-reset-trunk"]').click();
   await expect(page.locator('.playtest-note')).toContainText('Отметка ствола сброшена');
   await expect(page.locator('#playtest-profile')).toContainText('ствол не пройден');
-  expect(await profile()).toEqual({ version: 1, trunkCleared: false });
+  expect(await profile()).toEqual({ version: 1, trunkCleared: false, ladder: 0 });
   await page.locator('[data-action="playtest-close"]').click();
   await page.locator('#run-reset-button').click();
   await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
@@ -468,6 +468,54 @@ test('the Chief is a real battle node; beating him ends the run with a victory',
   await page.locator('#modal [data-action="run-map"]').click();
   await expect(node(page, 'camp-chief')).toHaveAttribute('data-status', 'current');
   await page.screenshot({ path: 'artifacts/forest-map-late.png' });
+  expect(errors).toEqual([]);
+});
+
+test('«Ступени клятвы»: the title picks the step (the highest open by default, changes on request), the map and the result show it, a victory opens the next', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  const profile = () => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'));
+  await page.addInitScript(() => { if (!sessionStorage.getItem('laddered')) { localStorage.setItem('ashen-oath-profile-v1', JSON.stringify({ version: 1, trunkCleared: true, ladder: 3 })); sessionStorage.setItem('laddered', '1'); } });
+  await page.goto('/');
+  // The highest open step is chosen; the changes are listed only on request.
+  await expect(page.locator('#ladder-value')).toHaveText('3');
+  await expect(page.locator('#run-start-button')).toContainText('ступень 3');
+  await expect(page.locator('#ladder-pick .ladder-changes')).toBeHidden();
+  await page.locator('#ladder-pick summary').click();
+  await expect(page.locator('#ladder-pick .ladder-changes li')).toHaveCount(3);
+  await expect(page.locator('#ladder-pick .ladder-changes li').nth(0)).toContainText('Трудных боёв');
+  await expect(page.locator('#ladder-pick [data-action="ladder-up"]')).toBeDisabled();
+  expect(await noScroll(page)).toBe(true);
+  await page.screenshot({ path: 'artifacts/forest-map-ladder-title.png' });
+  await page.locator('#ladder-pick [data-action="ladder-down"]').click();
+  await expect(page.locator('#ladder-value')).toHaveText('2');
+  await page.locator('#run-start-button').click();
+  await expect(page.locator('#map-screen')).toBeVisible();
+  expect((await savedRun(page)).ladder).toBe(2);
+  await expect(page.locator('#map-ladder')).toHaveText('Ступень 2');
+  expect(await noScroll(page)).toBe(true);
+  await page.screenshot({ path: 'artifacts/forest-map-ladder-map.png' });
+  await expect(page.locator('#map-ladder')).toHaveAttribute('title', /1\. Трудных боёв.*\n2\. Случайные элиты/s);
+  // A saved run on step 3 right before the Chief: the victory shows the step and opens step 4 in the profile.
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RUN_KEY, serializeForestRun(walk([...TO_JAILER, 'camp-battle', 'camp-rest', 'camp-elite', 'camp-breakthrough'], 5, 4242, 3))]);
+  await page.reload();
+  await expect(page.locator('#run-start-button')).toContainText('ступень 3');
+  await page.locator('#run-start-button').click();
+  await expect(page.locator('#map-ladder')).toHaveText('Ступень 3');
+  await node(page, 'camp-chief').click(); await settled(page);
+  expect((await state(page)).runNode.ladder).toBe(3);
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
+  await expect(page.locator('#modal')).toContainText('Главарь повержен');
+  await expect(page.locator('#run-ladder')).toContainText('3');
+  await expect(page.locator('#ladder-opened')).toContainText('Открыта ступень клятвы 4');
+  expect((await profile()).ladder).toBe(4);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-ladder-victory.png' });
+  // A new run from the result starts on the newly opened (highest) step.
+  await page.locator('#modal [data-action="run-new"]').click();
+  expect((await savedRun(page)).ladder).toBe(4);
+  const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
+  expect(journal.attempts.at(-1)).toMatchObject({ key: 'run:camp-chief', outcome: 'win', ladder: 3 });
   expect(errors).toEqual([]);
 });
 
@@ -632,6 +680,87 @@ test('a map event is chosen by mouse: outcomes shown in advance, an unaffordable
   expect(events[0]).toMatchObject({ nodeId: 'trail-cache', option: 'break', outcome: after.eventChoices[0].outcome });
   expect(errors).toEqual([]);
 });
+/**
+ * A generated run standing right before its first merchant: battles won with the entry resources, the first one leaving
+ * `loot` resources (elite loot) and the cat at `hp`; events take their first option without resources or HP.
+ */
+function beforeShop(seed: number, loot: Record<string, number>, hp: number): { run: ForestRunState; shop: string } {
+  let run = createForestRun(seed, { map: 'generated', skipTrunk: true });
+  const map = forestRunMap(run), shop = map.nodes.find(entry => entry.type === 'shop')!.id;
+  const reaches = (id: string): boolean => id === shop || map.node(id)!.next.some(reaches);
+  let looted = false;
+  for (let guard = 0; guard < 40; guard++) {
+    if (run.pending?.kind === 'battle') {
+      const entry = run.pending.entry;
+      run = ok(resolveBattle(run, { nodeId: run.pending.nodeId, won: true, player: { ...entry.player, hp }, inventory: { ...entry.inventory }, ...looted ? {} : { materials: { dew: 0, powder: 0, resin: 0, herbs: 0, ...loot } } }));
+      looted = true;
+    }
+    if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null));
+    if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]));
+    if (run.pending?.kind === 'rest') run = ok(restHeal(run));
+    if (run.pending?.kind === 'event') { const view = eventView(run)!; run = ok(chooseEventOption(run, view.options.find(option => option.available && /ничего|энерги|Холод/.test(option.outcomes.map(o => o.text).join()))?.id ?? view.options.find(option => option.available)!.id)); }
+    if (run.pending?.kind === 'shop') run = ok(shopLeave(run));
+    if (run.pending) continue;
+    const next = availableNodes(run);
+    if (next.some(node => node.id === shop)) return { run, shop };
+    run = ok(enterNode(run, next.find(node => reaches(node.id))!.id));
+  }
+  throw new Error(`${seed}: the merchant is not reached`);
+}
+
+test('the merchant by mouse: goods with prices in 1280x720, a short stock says why, healing cut to the stock, a reload keeps the visit, leaving is recorded', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // 4 resources (3 dew, 1 resin) and a wounded cat: a consumable (3) is affordable, the talisman and «Закалка» (4+) only as their prices allow.
+  const { run, shop } = beforeShop(Math.imul(1, 2654435761) >>> 0, { dew: 3, resin: 1 }, 2);
+  await seedRun(page, run);
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  await expect(node(page, shop)).toHaveAttribute('data-status', 'available');
+  await expect(node(page, shop)).toContainText('⚖');
+  await node(page, shop).hover();
+  await expect(page.locator('#map-detail')).toContainText('Торговец');
+  await expect(page.locator('.map-legend')).toContainText('Торговец');
+  await node(page, shop).click();
+  await expect(page.locator('#modal .eyebrow')).toHaveText('ТОРГОВЕЦ');
+  await expect(page.locator('#shop-stock')).toContainText('Ресурсы: 4');
+  const goods = page.locator('#modal .shop-good');
+  const count = await goods.count();
+  expect(count).toBeGreaterThanOrEqual(4);
+  expect(await page.evaluate(() => { const box = document.querySelector('#modal')!.getBoundingClientRect(); return box.top >= 0 && box.bottom <= innerHeight; })).toBe(true);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-shop.png' });
+  // «Закалка» costs 4: affordable; buying a consumable first (3) leaves 1 — then «Закалка» says why it is out of reach.
+  await expect(page.locator('#modal [data-shop-buy="item:0"]')).toContainText('КУПИТЬ · 3');
+  await page.locator('#modal [data-shop-buy="item:0"]').click();
+  await expect(page.locator('#shop-stock')).toContainText('Ресурсы: 1');
+  await expect(page.locator('#modal [data-shop-buy="item:0"]')).toBeDisabled();
+  await expect(page.locator('#modal [data-good="harden"] .event-reason')).toContainText('Нужно ресурсов: 4, есть 1');
+  // Healing: the price of 2 is cut to the 1 resource left.
+  await expect(page.locator('#modal [data-shop-buy="heal"]')).toContainText('1');
+  const hp = (await savedRun(page)).resources.player.hp;
+  await page.locator('#modal [data-shop-buy="heal"]').click();
+  await expect(page.locator('#shop-stock')).toContainText('Ресурсы: 0');
+  expect((await savedRun(page)).resources.player.hp).toBe(hp + 1);
+  // The second HP is free with an empty stock.
+  await expect(page.locator('#modal [data-shop-buy="heal"]')).toContainText('ДАРОМ');
+  // A reload brings back the same merchant with the same purchases.
+  await page.reload();
+  await page.locator('#run-start-button').click();
+  await expect(page.locator('#modal .eyebrow')).toHaveText('ТОРГОВЕЦ');
+  await expect(page.locator('#modal [data-shop-buy="item:0"]')).toContainText('КУПЛЕНО');
+  await page.locator('#modal [data-shop-buy="heal"]').click();
+  expect((await savedRun(page)).resources.player.hp).toBe(Math.min(5, hp + 2));
+  await page.locator('#modal [data-action="shop-leave"]').click();
+  await expect(node(page, shop)).toHaveAttribute('data-status', 'current');
+  await expect(page.locator('#map-notice')).toContainText('покупок — 3');
+  const saved = await savedRun(page);
+  expect(saved.shops).toHaveLength(1);
+  expect(saved.shops[0].bought.map((purchase: { good: string }) => purchase.good)).toEqual(['item', 'heal', 'heal']);
+  const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
+  expect(journal.runShops.at(-1)).toMatchObject({ nodeId: shop, bought: [{ good: 'item', price: 3 }, { good: 'heal', price: 2 }, { good: 'heal', price: 2 }] });
+  expect(errors).toEqual([]);
+});
+
 test('rest clears effects on the cat and says so', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   let run = ok(enterNode(walk(TRUNK), 'beast-wolf'));

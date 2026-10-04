@@ -1,7 +1,7 @@
 import { ForestEngine } from './forestEngine';
 import { forestNode } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventResourceKinds, eventOutcomeIndex, eventView, forestRunView,
-  parseForestRun, resolveBattle, restCraft, restFinish, restHeal, restView, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  parseForestRun, resolveBattle, restCraft, restFinish, restHeal, restView, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { forestEvent } from './run/forestEvents';
 import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from './resources';
 import type { ItemKind, ResourceKind } from './forestTypes';
@@ -236,6 +236,7 @@ function generatedMaps() {
       } else if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `generated ${k}: find`);
       else if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `generated ${k}: refuse the talismans`);
       else if (run.pending?.kind === 'event') run = ok(chooseEventOption(run, eventView(run)!.options.find(option => option.available)!.id), `generated ${k}: event`);
+      else if (run.pending?.kind === 'shop') run = ok(shopLeave(run), `generated ${k}: leave the merchant`);
       else if (run.pending?.kind === 'rest') {
         const recipe = restView(run)!.recipes.find(entry => entry.available && entry.opens);
         if (recipe && !item) { item = recipe.item; run = ok(restFinish(ok(restCraft(run, recipe.resource), `generated ${k}: craft`)), `generated ${k}: leave`); }

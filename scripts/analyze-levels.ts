@@ -6,6 +6,7 @@
  *   npm run analyze:levels -- --node den-nest --energy 5         # entered with energy carried from earlier nodes
  *   npm run analyze:levels -- --nodes --elite-move-every 2    # compare elite movement periods (0 — no movement)
  *   npm run analyze:levels -- --nodes --talismans all          # the run's talismans (default: none — the worst case)
+ *   npm run analyze:levels -- --node troll-lair --ladder 4      # on a step of «Ступени клятвы» (default 0)
  *   npm run analyze:levels -- --json my-level.json --seeds 5 --out report.json
  * Levels are analyzed in parallel child processes; every level uses its own engines.
  */
@@ -18,6 +19,9 @@ import { fileURLToPath } from 'node:url';
 import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, type AgentSummary, type AnalysisOptions, type LevelAnalysis, type LevelSource } from '../src/game/levelAnalysis';
 import { allNodeBattleTargets, nodeAnalysisTargets } from '../src/game/run/nodeAnalysis';
 import { ELITE_MOVE_EVERY, setEliteMoveEvery } from '../src/game/elite';
+import { LADDER_MAX } from '../src/game/ladder';
+import { battlePoolEntry } from '../src/game/run/battlePools';
+import { forestNode } from '../src/game/run/forestMap';
 
 /** The game's elite movement period, kept to restore it between tasks. */
 const ELITE_MOVE_EVERY_DEFAULT = ELITE_MOVE_EVERY;
@@ -37,6 +41,10 @@ const HELP = `analyze-levels [options]
   --elite-move-every N  elites move every N turns (0 — not at all); the game's value is ELITE_MOVE_EVERY in elite.ts
   --talismans LIST   node battles: the run holds these talismans (comma-separated ids of talismans.ts, or all; the Ash
                      ward whole); default none — battles are judged with empty hands (docs/talismans.md, section 6)
+  --ladder N         node battles: the run's step of «Ступени клятвы» 0–${LADDER_MAX} (src/game/ladder.ts; default 0 — no
+                     changes). The battle side of the step applies: random elites, hard-battle elites (a hard battle is
+                     a hard node or a hard pool battle), bosses, reinforcements, chests; not the run side (map, start HP,
+                     rest, merchant) and not greed (it depends on the run's stock)
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
   --depth D          search horizon in turns (default ${DEFAULT_ANALYSIS_OPTIONS.depth})
   --beam B           children per internal node (default ${DEFAULT_ANALYSIS_OPTIONS.beam})
@@ -52,7 +60,7 @@ const HELP = `analyze-levels [options]
 
 function parse(argv: string[]) {
   const tasks: LevelSource[] = [], options: Partial<AnalysisOptions> = {};
-  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined, eliteMoveEvery: number | undefined, talismans: TalismanId[] | undefined;
+  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined, eliteMoveEvery: number | undefined, talismans: TalismanId[] | undefined, ladder = 0;
   const nodeIds: string[] = [];
   const number = (flag: string, value: string | undefined, min: number) => {
     const parsed = Number(value);
@@ -75,6 +83,7 @@ function parse(argv: string[]) {
         if (!ids.length || unknown.length) throw new Error(`--talismans: unknown ${unknown.join(', ') || 'list'} (ids of src/game/talismans.ts or all)`);
         talismans = ids as TalismanId[]; i++; break;
       }
+      case '--ladder': ladder = number(flag, value, 0); if (ladder > LADDER_MAX) throw new Error(`--ladder: expected 0–${LADDER_MAX}`); i++; break;
       case '--seeds': options.seeds = number(flag, value, 1); i++; break;
       case '--depth': options.depth = number(flag, value, 1); i++; break;
       case '--beam': options.beam = number(flag, value, 1); i++; break;
@@ -106,6 +115,13 @@ function parse(argv: string[]) {
   if (talismans) {
     if (!tasks.some(task => task.kind === 'run-node')) throw new Error('--talismans: use with --node or --nodes');
     for (const task of tasks) if (task.kind === 'run-node') { task.target.setup.talismans = [...talismans]; task.target.setup.wardReady = talismans.includes('ash-ward'); }
+  }
+  if (ladder) {
+    if (!tasks.some(task => task.kind === 'run-node')) throw new Error('--ladder: use with --node or --nodes');
+    for (const task of tasks) if (task.kind === 'run-node') {
+      const { setup } = task.target, hard = forestNode(setup.nodeId)?.type === 'hard' || battlePoolEntry(setup.template.id)?.type === 'hard';
+      setup.ladder = ladder; if (hard) setup.hard = true;
+    }
   }
   for (const id of skipped) console.log(`skip ${id}: not bound to a map node and not in the pools (battlePools.ts), pass --row R`);
   if (!tasks.length) throw new Error('No level to analyze.');

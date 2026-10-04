@@ -16,7 +16,7 @@ import type { AbilityKind, EnemyColor, ItemKind } from '../forestTypes';
  * `hard` — the hard battle (until 01.10.2026 the node type was called «элита»; «elite» now names the enemy modifier).
  * Node ids `den-elite` and `camp-elite` are kept: the node seed (battle and find) is derived from the id.
  */
-export type ForestNodeType = 'battle' | 'hard' | 'rest' | 'find' | 'event' | 'breakthrough' | 'boss' | 'checkpoint';
+export type ForestNodeType = 'battle' | 'hard' | 'rest' | 'find' | 'event' | 'shop' | 'breakthrough' | 'boss' | 'checkpoint';
 /** Trunk, first-half trails (beasts/goblins/shared) and second-half branches (den → Troll, camp → Chief). */
 export type ForestLane = 'trunk' | 'beasts' | 'goblins' | 'shared' | 'den' | 'camp';
 
@@ -27,6 +27,8 @@ export type ForestNodeContent =
   | { kind: 'find' }
   /** A map event of src/game/run/forestEvents.ts: a scene with a choice, no battle (decision of 04.10.2026). */
   | { kind: 'event'; eventId: string }
+  /** The merchant (docs/roguelike-runs.md, 5б; merchant.ts): goods for crafting resources, no battle. Generated maps only. */
+  | { kind: 'shop' }
   /**
    * A node of the generated map (mapGenerator.ts) whose battle or event is taken from its pool on entering
    * (battlePools.ts, forestEvents.ts); the run records the pick and shows the node with it (forestRun.ts, `runNode`).
@@ -200,8 +202,8 @@ export function victoryChoice(node: ForestMapNode): 'hard' | 'oath' | null {
   return node.type === 'hard' ? 'hard' : node.type === 'checkpoint' ? 'oath' : null;
 }
 
-/** Nodes that are fights (or a planned fight, for the stub boss). Rest, find and event are not battles. */
-export function isBattleNode(node: ForestMapNode): boolean { return node.type !== 'rest' && node.type !== 'find' && node.type !== 'event'; }
+/** Nodes that are fights (or a planned fight, for the stub boss). Rest, find, event and merchant are not battles. */
+export function isBattleNode(node: ForestMapNode): boolean { return node.type !== 'rest' && node.type !== 'find' && node.type !== 'event' && node.type !== 'shop'; }
 
 /** Every route from the start to a terminal node, as node ids. The graph is small and acyclic. */
 export function forestMapPaths(from = FOREST_MAP_START): string[][] {
@@ -260,6 +262,7 @@ export function validateForestMap(): string[] {
     if ((node.type === 'rest') !== (node.content.kind === 'rest')) errors.push(`${node.id}: тип привала и содержимое расходятся.`);
     if ((node.type === 'find') !== (node.content.kind === 'find')) errors.push(`${node.id}: тип находки и содержимое расходятся.`);
     if ((node.type === 'event') !== (node.content.kind === 'event')) errors.push(`${node.id}: тип события и содержимое расходятся.`);
+    if ((node.type === 'shop') !== (node.content.kind === 'shop')) errors.push(`${node.id}: тип торговца и содержимое расходятся.`);
     if (node.content.kind === 'event' && !forestEvent(node.content.eventId)) errors.push(`${node.id}: нет события ${node.content.eventId}.`);
     if (node.type === 'event' && (node.grants || node.rewardGrants)) errors.push(`${node.id}: событие не открывает инструменты.`);
     if (node.content.kind === 'in-development' && node.type !== 'boss') errors.push(`${node.id}: заглушка допустима только для босса.`);

@@ -2,7 +2,7 @@ import { ForestEngine } from './forestEngine';
 import { battlePoolEntry, laneBranches, poolCandidates, rowTools, type PoolBattleType } from './run/battlePools';
 import { authoredRefillPalette, type ForestMapNode, type ForestNodeType } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunView, parseForestRun,
-  resolveBattle, restCraft, restFinish, restHeal, restView, runNode, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  resolveBattle, restCraft, restFinish, restHeal, restView, runNode, serializeForestRun, shopBuy, shopLeave, shopView, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { forestBattle } from './run/forestBattles';
 import { generateForestMap } from './run/mapGenerator';
 import { clearsTrunk } from './run/playerProfile';
@@ -21,8 +21,8 @@ const json = (value: unknown) => JSON.stringify(value);
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
 const SEEDS = Array.from({ length: 1000 }, (_, k) => spread(k + 1));
 const FREE_TYPES: Record<number, readonly ForestNodeType[]> = {
-  5: ['battle'], 6: ['battle', 'rest', 'find', 'event'], 7: ['battle', 'rest', 'find', 'event'], 8: ['battle', 'rest', 'find', 'event'], 9: ['checkpoint'],
-  10: ['battle', 'hard', 'rest'], 11: ['battle', 'hard', 'rest'], 12: ['battle', 'hard', 'rest'], 13: ['breakthrough'], 14: ['boss'],
+  5: ['battle'], 6: ['battle', 'rest', 'find', 'event', 'shop'], 7: ['battle', 'rest', 'find', 'event', 'shop'], 8: ['battle', 'rest', 'find', 'event', 'shop'], 9: ['checkpoint'],
+  10: ['battle', 'hard', 'rest', 'shop'], 11: ['battle', 'hard', 'rest', 'shop'], 12: ['battle', 'hard', 'rest', 'shop'], 13: ['breakthrough'], 14: ['boss'],
 };
 
 /** The map a new generated run shows: every node as the view lists it (picks come later, on entering). */
@@ -72,18 +72,21 @@ function connectivity() {
 }
 
 /**
- * Node types fit their rows; on no route stand two hard battles, two rests or two finds in a row; a route meets at most
+ * Node types fit their rows; on no route stand two hard battles, two rests, two finds or two merchants in a row; a route meets at most
  * as many events as there are; the children of one parent differ in type (the free rows); a rest stands 1–3 rows
  * before every hard battle on every route; each branch has a route without a hard battle and one with a hard battle.
  */
 function typeRules() {
-  let twoHard = 0;
+  let twoHard = 0, shops = 0, free = 0;
   for (const seed of SEEDS) {
     const map = mapOf(seed), routes = paths(map);
+    // The merchant (docs/roguelike-runs.md, 5б): rows 6–12 only, and every map has a route through one.
+    assert(routes.some(route => route.some(node => node.type === 'shop')), `${seed}: a route through a merchant`);
+    for (const node of map.nodes.filter(entry => (FREE_TYPES[entry.row]?.length ?? 1) > 1 && entry.row > 5)) { free++; if (node.type === 'shop') shops++; }
     for (const node of map.nodes.filter(entry => entry.lane !== 'trunk')) assert(FREE_TYPES[node.row].includes(node.type), `${seed}: ${node.id} is ${node.type} on row ${node.row}`);
     for (const route of routes) {
       route.forEach((node, n) => {
-        if (n && ['hard', 'rest', 'find'].includes(node.type)) assert(route[n - 1].type !== node.type, `${seed}: ${route[n - 1].id} → ${node.id}: two ${node.type} in a row`);
+        if (n && ['hard', 'rest', 'find', 'shop'].includes(node.type)) assert(route[n - 1].type !== node.type, `${seed}: ${route[n - 1].id} → ${node.id}: two ${node.type} in a row`);
         if (node.type === 'hard') assert(route.slice(Math.max(0, n - 3), n).some(before => before.type === 'rest'), `${seed}: a rest 1–3 rows before ${node.id}`);
       });
       assert(route.filter(node => node.type === 'event').length <= 2, `${seed}: at most two events on a route`);
@@ -101,7 +104,8 @@ function typeRules() {
       if (Math.max(...through) >= 2) twoHard++;
     }
   }
-  console.log(`PASS node types and route rules on ${SEEDS.length} maps (branches with a two-hard route: ${twoHard})`);
+  assert(shops / free > 0.04 && shops / free < 0.065, `merchants are about 5% of the free nodes: ${(shops / free * 100).toFixed(2)}%`);
+  console.log(`PASS node types and route rules on ${SEEDS.length} maps (branches with a two-hard route: ${twoHard}; merchants ${(shops / free * 100).toFixed(2)}% of the free nodes, a route through one on every map)`);
 }
 
 /** Tools by row on every route: frost from row 5, jump from row 7, spin after the Jailer; every pooled node has fitting battles. */
@@ -190,6 +194,10 @@ async function botRun(seed: number, skipTrunk: boolean, choice: number, lose = f
     } else if (run.pending?.kind === 'event') {
       const view = eventView(run)!, options = view.options.filter(option => option.available);
       run = ok(chooseEventOption(run, options[choice % options.length].id), `${seed}: event ${view.event.id}`);
+    } else if (run.pending?.kind === 'shop') {
+      // At a merchant an odd bot buys the first good it can afford (once per visit, saved between), then leaves.
+      const good = choice % 2 && !run.pending.bought.length ? shopView(run)!.goods.find(entry => entry.available) : undefined;
+      run = good ? ok(shopBuy(run, good.id), `${seed}: buy ${good.id}`) : ok(shopLeave(run), `${seed}: leave the merchant`);
     } else if (run.pending?.kind === 'rest') {
       // An odd bot crafts whatever its resources allow (one recipe per step, saved between them); the rest heals otherwise.
       const recipe = choice % 2 ? restView(run)!.recipes.find(entry => entry.available) : undefined;

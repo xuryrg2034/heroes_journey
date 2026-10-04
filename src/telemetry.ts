@@ -4,6 +4,7 @@ import { isResource } from './game/resources';
 import { forestNode } from './game/run/forestMap';
 import { talisman, type TalismanId } from './game/talismans';
 import type { TalismanOption, TalismanSource } from './game/run/talismanOffers';
+import type { ShopGoodKind, ShopPurchase, ShopStock } from './game/run/merchant';
 
 /**
  * Local playtest telemetry. Nothing leaves the browser: attempts are kept in localStorage only.
@@ -79,6 +80,8 @@ export interface AttemptRecord {
   wardSaved?: boolean;
   /** The Whetstone gave the first ordinary chain of this attempt its power of 1. */
   whetstoneUsed?: boolean;
+  /** The run's step of «Ступени клятвы» (ladder.ts); absent — step 0, or a journal before the ladder. */
+  ladder?: number;
 }
 
 /**
@@ -96,6 +99,13 @@ export interface RunRestRecord { nodeId: string; choice: 'heal' | 'craft'; heale
  * refused), the run seed. Kept beside the battle attempts; journals written before have none.
  */
 export interface RunTalismanRecord { nodeId: string; source: TalismanSource; offered: TalismanOption[]; chosen: TalismanOption | null; seed: number; at: number }
+/**
+ * A completed merchant visit (docs/roguelike-runs.md, 5б): the node, the stock shown, every purchase with its full price
+ * and the resources paid (the healing may cost less than its price), the run seed. Journals written before have none.
+ */
+export interface RunShopRecord { nodeId: string; stock: ShopStock; bought: ShopPurchase[]; seed: number; at: number; /** The run's ladder step; absent — 0. */ ladder?: number }
+/** Merchants over the journal: visits, visits with a purchase, purchases and resources spent per good. */
+export interface ShopAggregate { visits: number; buying: number; resources: number; goods: Partial<Record<ShopGoodKind, { count: number; resources: number }>> }
 /** Per talisman over the journal: shown, taken, refused (shown and not taken); plus the battles where it fired. */
 export interface TalismanAggregate { id: TalismanOption; label: string; shown: number; taken: number; refused: number }
 /** Rests over the journal: how many healed, how many crafted, HP healed and items crafted in total. */
@@ -103,7 +113,7 @@ export interface RestAggregate { rests: number; heals: number; crafts: number; h
 /** Choices per event node and option, with how often each outcome came. */
 export interface EventAggregate { nodeId: string; label: string; option: string; count: number; outcomes: Record<string, number> }
 
-interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[]; runTalismans: RunTalismanRecord[] }
+interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[]; runTalismans: RunTalismanRecord[]; runShops: RunShopRecord[] }
 
 export interface BattleAggregate {
   key: string; label: string; attempts: number; visits: number; wins: number; loses: number;
@@ -120,7 +130,7 @@ export interface BattleAggregate {
   chestOpenRate: number | null;
 }
 
-const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [], runTalismans: [] });
+const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [], runTalismans: [], runShops: [] });
 let memory: Journal = emptyJournal();
 
 function sanitize(value: unknown): Journal {
@@ -140,6 +150,9 @@ function sanitize(value: unknown): Journal {
   if (Array.isArray(raw.runTalismans)) {
     journal.runTalismans = raw.runTalismans.filter(item => item && typeof item === 'object' && typeof item.nodeId === 'string' && Array.isArray(item.offered)).slice(-MAX_ATTEMPTS);
   }
+  if (Array.isArray(raw.runShops)) {
+    journal.runShops = raw.runShops.filter(item => item && typeof item === 'object' && typeof item.nodeId === 'string' && Array.isArray(item.bought)).slice(-MAX_ATTEMPTS);
+  }
   return journal;
 }
 function load(): Journal {
@@ -156,7 +169,7 @@ function store(journal: Journal) {
 
 export const telemetryEnabled = () => load().enabled;
 export function setTelemetryEnabled(enabled: boolean) { const journal = load(); journal.enabled = enabled; store(journal); }
-export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; journal.runRests = []; journal.runTalismans = []; store(journal); }
+export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; journal.runRests = []; journal.runTalismans = []; journal.runShops = []; store(journal); }
 
 /** Record a choice at a map event (called by the map screen after the run model resolved it). Respects `enabled`. */
 export function recordRunEvent(record: Omit<RunEventRecord, 'at'>) {
@@ -180,6 +193,27 @@ export function recordRunTalisman(record: Omit<RunTalismanRecord, 'at'>) {
   if (!journal.enabled) return;
   journal.runTalismans = [...journal.runTalismans, { ...record, offered: [...record.offered], at: Date.now() }].slice(-MAX_ATTEMPTS);
   store(journal);
+}
+
+/** Record a completed merchant visit (called by the map screen after the run model completed it). Respects `enabled`. */
+export function recordRunShop(record: Omit<RunShopRecord, 'at'>) {
+  const journal = load();
+  if (!journal.enabled) return;
+  journal.runShops = [...journal.runShops, { ...structuredClone(record), at: Date.now() }].slice(-MAX_ATTEMPTS);
+  store(journal);
+}
+/** Resources one purchase took. */
+const purchaseCost = (purchase: ShopPurchase) => Object.values(purchase.paid ?? {}).reduce((sum, count) => sum + (typeof count === 'number' ? count : 0), 0);
+export function aggregateShops(records: RunShopRecord[]): ShopAggregate {
+  const total: ShopAggregate = { visits: records.length, buying: 0, resources: 0, goods: {} };
+  for (const record of records) {
+    if (record.bought.length) total.buying++;
+    for (const purchase of record.bought) {
+      const row = total.goods[purchase.good] ??= { count: 0, resources: 0 }, cost = purchaseCost(purchase);
+      row.count++; row.resources += cost; total.resources += cost;
+    }
+  }
+  return total;
 }
 
 /** Shown, taken and refused per talisman (and the «пустышка»), most shown first. */
@@ -278,6 +312,7 @@ export function exportPayload() {
     attempts: journal.attempts, aggregates: aggregate(journal.attempts), runEvents: journal.runEvents, eventAggregates: aggregateEvents(journal.runEvents),
     runRests: journal.runRests, restAggregate: aggregateRests(journal.runRests),
     runTalismans: journal.runTalismans, talismanAggregates: aggregateTalismans(journal.runTalismans),
+    runShops: journal.runShops, shopAggregate: aggregateShops(journal.runShops),
     talismanTriggers: { wardSaved: journal.attempts.filter(item => item.wardSaved).length, whetstoneUsed: journal.attempts.filter(item => item.whetstoneUsed).length } };
 }
 export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
@@ -293,6 +328,8 @@ interface Open {
   /** Kept in step with the engine like `hp`: on a restart the engine already holds the new battle when `start` arrives. */
   materials: Partial<Record<ResourceKind, number>>;
   lootItems: Partial<Record<ItemKind, number>>; chestDropped: boolean; chestOpened: boolean;
+  /** The run's ladder step (0 outside a run or on step 0). */
+  ladder: number;
   /** Talismans held, whether the ward was whole at the start (to notice it crumble) and the triggers seen. */
   talismans: TalismanId[]; wardWhole: boolean; wardSaved: boolean; whetstoneUsed: boolean;
 }
@@ -342,6 +379,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
       materials: current.materials, lootItems: current.lootItems, chestDropped: current.chestDropped, chestOpened: current.chestOpened,
       ...(current.mode === 'run' && outcome === 'lose' ? { runEnded: true } : {}),
       ...(current.talismans.length ? { talismans: current.talismans, wardSaved: current.wardSaved, whetstoneUsed: current.whetstoneUsed } : {}),
+      ...(current.ladder ? { ladder: current.ladder } : {}),
     };
     const journal = load();
     journal.attempts = [...journal.attempts, record].slice(-MAX_ATTEMPTS);
@@ -357,7 +395,8 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     open = { ...info, startedAt: Date.now(), t0: performance.now(), visit: visitCounter, attemptInVisit: attemptCounter,
       turns: 0, hp: engine.state.player.hp, maxHp: engine.state.player.maxHp, damage: 0, chainLengths: [], cancelled: 0, abilities: {}, items: {}, firstMoveMs: null,
       goalTurn: null, hpAtGoal: null, damageAfterGoal: 0, exitTurn: null, materials: {}, lootItems: {}, chestDropped: false, chestOpened: false,
-      talismans: [...engine.state.runNode?.talismans ?? []], wardWhole: !!engine.state.player.ward, wardSaved: false, whetstoneUsed: false };
+      talismans: [...engine.state.runNode?.talismans ?? []], wardWhole: !!engine.state.player.ward, wardSaved: false, whetstoneUsed: false,
+      ladder: engine.state.runNode?.ladder ?? 0 };
   };
   const committed = () => {
     if (!open) return;
@@ -488,12 +527,16 @@ export function playtestHtml(options: { confirmClear?: boolean; notice?: string;
     ? `<div class="playtest-scroll"><table class="playtest-table playtest-talismans" id="playtest-talismans"><thead><tr><th>Талисман</th><th>Показан</th><th>Взят</th><th>Отвергнут</th></tr></thead><tbody>${talismans.map(row =>
       `<tr><th scope="row">${escapeHtml(row.label)}</th><td>${row.shown}</td><td>${row.taken}</td><td>${row.refused}</td></tr>`).join('')}</tbody></table></div>`
     : '';
+  const shops = aggregateShops(journal.runShops), goodName: Record<ShopGoodKind, string> = { item: 'расходники', talisman: 'талисманы', heal: 'лечение', harden: 'закалка' };
+  const shopLine = shops.visits
+    ? `<p class="playtest-rests" id="playtest-shops">Торговцы: ${shops.visits} · с покупкой ${shops.buying} · потрачено ресурсов ${shops.resources}${Object.keys(shops.goods).length ? ` (${(Object.entries(shops.goods) as [ShopGoodKind, { count: number; resources: number }][]).map(([good, row]) => `${goodName[good] ?? good} ×${row.count} за ${row.resources}`).join(', ')})` : ''}</p>`
+    : '';
   const wardSaves = journal.attempts.filter(item => item.wardSaved).length, whetstones = journal.attempts.filter(item => item.whetstoneUsed).length;
   const triggerLine = wardSaves || whetstones ? `<p class="playtest-rests" id="playtest-triggers">Срабатывания талисманов: оберег спас ${wardSaves} · точильный камень в ${whetstones} боях</p>` : '';
   const clear = options.confirmClear
     ? `<div class="playtest-confirm" role="alert"><span>Удалить ${journal.attempts.length} записей?</span><button class="button secondary" data-action="playtest-clear-yes">УДАЛИТЬ</button><button class="text-button" data-action="playtest-clear-no">ОТМЕНА</button></div>`
     : '<button class="text-button" data-action="playtest-clear">ОЧИСТИТЬ</button>';
-  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}${restLine}${talismanTable}${triggerLine}
+  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}${restLine}${shopLine}${talismanTable}${triggerLine}
 <div class="playtest-actions"><button class="button secondary" data-action="playtest-download">СКАЧАТЬ JSON</button><button class="button secondary" data-action="playtest-copy">СКОПИРОВАТЬ JSON</button>${clear}</div>
 <p class="playtest-note" aria-live="polite">${escapeHtml(options.notice ?? 'Данные хранятся только в этом браузере и никуда не отправляются.')}</p>
 <p class="playtest-profile" id="playtest-profile">${options.trunkCleared ? 'Профиль: ствол пройден — новый поход начнётся с развилки троп. <button class="text-button" data-action="profile-reset-trunk">СБРОСИТЬ ОТМЕТКУ СТВОЛА</button>' : 'Профиль: ствол не пройден — новый поход начнётся со ствола.'}</p>
