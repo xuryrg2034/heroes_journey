@@ -11,8 +11,6 @@ import { ForestEngine } from '../forestEngine';
 import type { CustomLevelDefinition } from '../customLevel';
 import { COLOR_FROM_SYMBOL } from '../enemyPalette';
 import type { TerrainKind } from '../forestTypes';
-import { CAMP_BATTLES } from '../run/battles/camp';
-import { DEN_BATTLES } from '../run/battles/den';
 import { nodeAnalysisTargets } from '../run/nodeAnalysis';
 import type { RunBattleSetup } from '../run/runBattle';
 
@@ -41,14 +39,10 @@ export function startForestFixture(seed = 701, patch: Partial<CustomLevelDefinit
   return engine;
 }
 
-/** Row on which unbound branch-pool battles start in the specs (band 10–12). */
-const BRANCH_POOL_ROW = 11;
-
 /** Node setup of a registry battle as the analyzer starts it (first node that plays it), with overrides. */
 export function nodeBattleSetup(battleId: string, overrides: Partial<RunBattleSetup> = {}): RunBattleSetup {
-  // Branch-pool battles (den, camp) are not bound to an authored map node: they start on row 11, the middle of their band.
-  const unbound = [...DEN_BATTLES, ...CAMP_BATTLES].some(battle => battle.id === battleId);
-  const target = nodeAnalysisTargets(battleId, unbound ? BRANCH_POOL_ROW : undefined)[0];
+  // A battle not bound to an authored map node starts on the first row of its pool band (defaultBattleRow, battlePools.ts).
+  const target = nodeAnalysisTargets(battleId)[0];
   return { ...target.setup, ...overrides };
 }
 
