@@ -103,6 +103,7 @@ const sure = (effect: EventEffect): EventOutcome[] => [{ chance: 100, effect }];
 const leave = (label = 'Уйти'): EventOption => ({ id: 'leave', label, outcomes: sure({}) });
 
 export const FOREST_EVENTS: Record<string, ForestEvent> = {
+  // ---------- Trails, rows 6–8 ----------
   brook: {
     id: 'brook', title: 'Ручей у камней', branch: 'trails', rows: [6, 8],
     scene: 'Между мшистых камней бежит холодная вода. Времени хватит только на одно дело.',
@@ -122,6 +123,126 @@ export const FOREST_EVENTS: Record<string, ForestEvent> = {
       ] },
       { id: 'careful', label: 'Разобрать осторожно', cost: { energy: 1 }, outcomes: sure({ resources: 1 }) },
       leave('Пройти мимо'),
+    ],
+  },
+  'owl-hollow': {
+    id: 'owl-hollow', title: 'Дупло совы', branch: 'trails', rows: [6, 8],
+    scene: 'В дупле старой сосны дремлет сова. Она приоткрывает глаз: возьми одно и не шуми.',
+    options: [
+      { id: 'feather', label: 'Перо', outcomes: sure({ energy: 1 }) },
+      { id: 'shell', label: 'Скорлупа', outcomes: sure({ resources: 1 }) },
+      { id: 'advice', label: 'Совет совы', outcomes: sure({ modifier: 'first-chain-power' }) },
+    ],
+  },
+  'old-trap': {
+    id: 'old-trap', title: 'Старый капкан', branch: 'trails', rows: [6, 8],
+    scene: 'В ржавом капкане застряла приманка охотника. Пружина ещё держит.',
+    options: [
+      { id: 'bait', label: 'Вытащить приманку', cost: { hp: 1 }, outcomes: sure({ resources: 2 }) },
+      { id: 'disarm', label: 'Разобрать капкан', cost: { energy: 1 }, outcomes: sure({ items: { bomb: 1 } }) },
+      leave(),
+    ],
+  },
+  'porcupine-nest': {
+    id: 'porcupine-nest', title: 'Гнездо дикобразов', branch: 'trails', rows: [6, 8],
+    scene: 'Дикобразы ушли, в гнезде блестит добыча. Чем глубже шаришь, тем больше игл.',
+    options: [
+      // Баланс: the chance of a prick grows 25% → 50% → 75% (docs/events.md).
+      { id: 'search', label: 'Пошарить', escalation: [[75, 25], [50, 50], [25, 75]], outcomes: [
+        { chance: 75, label: 'обошлось', effect: { resources: 1 } },
+        { chance: 25, label: 'укол', effect: { resources: 1, hp: -1 } },
+      ] },
+      leave(),
+    ],
+  },
+  'wounded-cub': {
+    id: 'wounded-cub', title: 'Раненый волчонок', branch: 'trails', rows: [6, 8],
+    scene: 'В кустах скулит волчонок с порванной лапой. Стая где-то рядом.',
+    options: [
+      { id: 'bandage', label: 'Перевязать', cost: [{ materials: { herbs: 1 } }, { items: { healing: 1 } }], outcomes: sure({ maxHp: 1 }) },
+      { id: 'skin', label: 'Снять шкуру', outcomes: sure({ resources: 2, modifier: 'wrath' }) },
+      leave(),
+    ],
+  },
+  'wandering-grinder': {
+    id: 'wandering-grinder', title: 'Бродячий точильщик', branch: 'trails', rows: [6, 8], requires: { resources: 1 },
+    scene: 'Старик с точильным колесом за спиной. Работает за ресурсы, торговаться не любит.',
+    options: [
+      { id: 'grind', label: 'Заточка', cost: { resources: 2 }, outcomes: sure({ talisman: 'common' }) },
+      { id: 'salve', label: 'Мазь', cost: { resources: 1 }, outcomes: sure({ hp: 2 }) },
+      leave(),
+    ],
+  },
+  'ford-ambush': {
+    id: 'ford-ambush', title: 'Засада у брода', branch: 'trails', rows: [6, 8],
+    scene: 'У брода в камышах шевелятся копья. Засада ещё не знает, что её заметили.',
+    options: [
+      { id: 'fight', label: 'Принять бой', battle: { talismanChoice: 2 }, outcomes: sure({}) },
+      { id: 'around', label: 'Обойти', cost: { energy: 1 }, outcomes: sure({}) },
+      { id: 'bushes', label: 'Обойти по кустам', outcomes: sure({ modifier: 'wrath' }) },
+    ],
+  },
+  // ---------- Branches, rows 10–11 ----------
+  'warm-den': {
+    id: 'warm-den', title: 'Тёплая берлога', branch: 'den', rows: [10, 11],
+    scene: 'Пустая берлога, сухой мох и запах трав. Хозяин ушёл до весны.',
+    options: [
+      { id: 'sleep', label: 'Отоспаться', outcomes: sure({ hp: 2 }) },
+      { id: 'herbs', label: 'Собрать травы', outcomes: sure({ materials: { herbs: 2 } }) },
+    ],
+  },
+  'den-bones': {
+    id: 'den-bones', title: 'Кости у логова', branch: 'den', rows: [10, 11],
+    scene: 'Груда костей у входа в логово. Под ними что-то звякнуло — или кто-то проснулся.',
+    options: [
+      { id: 'search', label: 'Обыскать', outcomes: [
+        { chance: 50, label: 'находка', effect: { talisman: 'uncommon' } },
+        { chance: 50, label: 'разбудил', effect: { modifier: 'start-elite' } },
+      ] },
+      leave(),
+    ],
+  },
+  'drunk-cook': {
+    id: 'drunk-cook', title: 'Пьяный повар', branch: 'camp', rows: [10, 11],
+    scene: 'Гоблин-повар храпит у котла. Похлёбка ещё горячая.',
+    options: [
+      { id: 'stew', label: 'Похлёбка', cost: { resources: 2 }, outcomes: sure({ hp: 2 }) },
+      { id: 'pot', label: 'Утащить котелок', outcomes: sure({ resources: 3, modifier: 'early-reinforcement' }) },
+      leave(),
+    ],
+  },
+  'shaman-idol': {
+    id: 'shaman-idol', title: 'Идол шамана', branch: 'camp', rows: [10, 11],
+    scene: 'Резной идол в бусах и перьях. От него гудит в ушах.',
+    options: [
+      { id: 'bow', label: 'Поклониться', cost: { maxHp: 1 }, outcomes: sure({ energy: 2 }) },
+      { id: 'smash', label: 'Разбить', outcomes: sure({ resources: 1 }) },
+      leave(),
+    ],
+  },
+  // ---------- Common, rows 6–11 ----------
+  'bone-wheel': {
+    id: 'bone-wheel', title: 'Колесо костей', branch: 'common', rows: [6, 11], requires: { resources: 1 },
+    scene: 'Колесо из костей на старом пне. Кто бросит ресурс, тот и крутит.',
+    options: [
+      // Баланс: six outcomes of 1/6 each, in whole percent 17/17/17/17/16/16 (a question to the design, docs/events.md).
+      { id: 'spin', label: 'Крутить', cost: { resources: 1 }, outcomes: [
+        { chance: 17, label: 'клад', effect: { resources: 3 } },
+        { chance: 17, label: 'талисман', effect: { talisman: 'common' } },
+        { chance: 17, label: 'целебный дым', effect: { hp: 2 } },
+        { chance: 17, label: 'кость в лоб', effect: { hp: -1 } },
+        { chance: 16, label: 'азарт', effect: { energy: 2 } },
+        { chance: 16, label: 'пусто', effect: {} },
+      ] },
+      leave(),
+    ],
+  },
+  'traveler-fire': {
+    id: 'traveler-fire', title: 'Костёр путника', branch: 'common', rows: [6, 11],
+    scene: 'Чужой костёр ещё тлеет. Рядом — горшок со смолой.',
+    options: [
+      { id: 'warm', label: 'Погреться', outcomes: sure({ clearEffects: true, hp: 1 }) },
+      { id: 'resin', label: 'Подкинуть смолы', cost: { materials: { resin: 1 } }, outcomes: sure({ items: { fire: 1 } }) },
     ],
   },
 };

@@ -2,9 +2,9 @@ import { ForestEngine } from './forestEngine';
 import { battlePoolEntry, laneBranches, poolCandidates, rowTools, type PoolBattleType } from './run/battlePools';
 import { authoredRefillPalette, type ForestMapNode, type ForestNodeType } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunView, parseForestRun,
-  resolveBattle, restCraft, restFinish, restHeal, restView, runNode, serializeForestRun, shopBuy, shopLeave, shopView, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  nodeBattleId, resolveBattle, restCraft, restFinish, restHeal, restView, runNode, serializeForestRun, shopBuy, shopLeave, shopView, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { forestBattle } from './run/forestBattles';
-import { generateForestMap } from './run/mapGenerator';
+import { EVENTS_PER_PATH, generateForestMap, MAP_GENERATOR_VERSION } from './run/mapGenerator';
 import { clearsTrunk } from './run/playerProfile';
 
 // Generated forest map (docs/roguelike-runs.md, sections 3–4; docs/biomes/forest-map.md, «Генерация карты»).
@@ -22,7 +22,8 @@ const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
 const SEEDS = Array.from({ length: 1000 }, (_, k) => spread(k + 1));
 const FREE_TYPES: Record<number, readonly ForestNodeType[]> = {
   5: ['battle'], 6: ['battle', 'rest', 'find', 'event', 'shop'], 7: ['battle', 'rest', 'find', 'event', 'shop'], 8: ['battle', 'rest', 'find', 'event', 'shop'], 9: ['checkpoint'],
-  10: ['battle', 'hard', 'rest', 'shop'], 11: ['battle', 'hard', 'rest', 'shop'], 12: ['battle', 'hard', 'rest', 'shop'], 13: ['breakthrough'], 14: ['boss'],
+  // Events in the branches stand on rows 10–11 only (generator 3, docs/events.md).
+  10: ['battle', 'hard', 'rest', 'shop', 'event'], 11: ['battle', 'hard', 'rest', 'shop', 'event'], 12: ['battle', 'hard', 'rest', 'shop'], 13: ['breakthrough'], 14: ['boss'],
 };
 
 /** The map a new generated run shows: every node as the view lists it (picks come later, on entering). */
@@ -77,9 +78,11 @@ function connectivity() {
  * before every hard battle on every route; each branch has a route without a hard battle and one with a hard battle.
  */
 function typeRules() {
-  let twoHard = 0, shops = 0, free = 0;
+  let twoHard = 0, shops = 0, free = 0, branchNodes = 0, branchEvents = 0, branchRoutesWithEvent = 0, branchRoutes = 0;
   for (const seed of SEEDS) {
     const map = mapOf(seed), routes = paths(map);
+    for (const node of map.nodes.filter(entry => branchOf(entry) && entry.row <= 12)) { branchNodes++; if (node.type === 'event') branchEvents++; }
+    for (const route of routes) { branchRoutes++; if (route.some(node => branchOf(node) && node.type === 'event')) branchRoutesWithEvent++; }
     // The merchant (docs/roguelike-runs.md, 5б): rows 6–12 only, and every map has a route through one.
     assert(routes.some(route => route.some(node => node.type === 'shop')), `${seed}: a route through a merchant`);
     for (const node of map.nodes.filter(entry => (FREE_TYPES[entry.row]?.length ?? 1) > 1 && entry.row > 5)) { free++; if (node.type === 'shop') shops++; }
@@ -89,7 +92,7 @@ function typeRules() {
         if (n && ['hard', 'rest', 'find', 'shop'].includes(node.type)) assert(route[n - 1].type !== node.type, `${seed}: ${route[n - 1].id} → ${node.id}: two ${node.type} in a row`);
         if (node.type === 'hard') assert(route.slice(Math.max(0, n - 3), n).some(before => before.type === 'rest'), `${seed}: a rest 1–3 rows before ${node.id}`);
       });
-      assert(route.filter(node => node.type === 'event').length <= 2, `${seed}: at most two events on a route`);
+      assert(route.filter(node => node.type === 'event').length <= EVENTS_PER_PATH, `${seed}: no more events on a route than there are events`);
     }
     for (const parent of map.nodes) {
       const free = parent.next.map(id => map.byId.get(id)!).filter(child => (FREE_TYPES[child.row]?.length ?? 1) > 1);
@@ -105,7 +108,9 @@ function typeRules() {
     }
   }
   assert(shops / free > 0.04 && shops / free < 0.065, `merchants are about 5% of the free nodes: ${(shops / free * 100).toFixed(2)}%`);
-  console.log(`PASS node types and route rules on ${SEEDS.length} maps (branches with a two-hard route: ${twoHard}; merchants ${(shops / free * 100).toFixed(2)}% of the free nodes, a route through one on every map)`);
+  // Events in the branches (docs/events.md, section 4): about 15% of a branch's nodes (rows 10–12), on rows 10–11.
+  assert(branchEvents / branchNodes > 0.11 && branchEvents / branchNodes < 0.19, `branch events are about 15% of the branch nodes: ${(branchEvents / branchNodes * 100).toFixed(2)}%`);
+  console.log(`PASS node types and route rules on ${SEEDS.length} maps (branches with a two-hard route: ${twoHard}; merchants ${(shops / free * 100).toFixed(2)}% of the free nodes, a route through one on every map; branch events ${(branchEvents / branchNodes * 100).toFixed(2)}% of the branch nodes, on ${(branchRoutesWithEvent / branchRoutes * 100).toFixed(1)}% of the routes)`);
 }
 
 /** Tools by row on every route: frost from row 5, jump from row 7, spin after the Jailer; every pooled node has fitting battles. */
@@ -172,11 +177,12 @@ async function botRun(seed: number, skipTrunk: boolean, choice: number, lose = f
     assert(json(parseForestRun(serializeForestRun(run))) === json(run), `${seed}: the run survives a save at step ${step}`);
     if (run.pending?.kind === 'battle') {
       const node = runNode(run, run.pending.nodeId)!, setup = battleSetup(run)!;
-      assert(node.content.kind === 'battle' && setup.template.id === node.content.battleId, `${seed}: ${node.id} plays its picked battle`);
-      const battle = forestBattle(setup.template.id)!, entry = battlePoolEntry(setup.template.id);
+      // A battle node plays its pick; an event's reward battle plays the battle its pick keeps (an ordinary trail battle).
+      assert(setup.template.id === nodeBattleId(run, node) && (node.content.kind === 'battle' || node.content.kind === 'event'), `${seed}: ${node.id} plays its picked battle`);
+      const battle = forestBattle(setup.template.id)!, entry = battlePoolEntry(setup.template.id), type = node.content.kind === 'event' ? 'battle' : node.type;
       if (node.lane !== 'trunk') {
         const tools = rowTools(node.row);
-        assert(entry && entry.type === node.type && node.row >= entry.rows[0] && node.row <= entry.rows[1], `${seed}: ${setup.template.id} fits ${node.id}`);
+        assert(entry && entry.type === type && node.row >= entry.rows[0] && node.row <= entry.rows[1], `${seed}: ${setup.template.id} fits ${node.id}`);
         assert([...tools.items, ...tools.abilities].every(tool => [...setup.allowedItems, ...setup.allowedAbilities].includes(tool as never)), `${seed}: ${node.id} opens the row tools`);
         assert(entry!.requires.every(tool => [...setup.allowedItems, ...setup.allowedAbilities].includes(tool as never)), `${seed}: ${node.id} opens what ${setup.template.id} requires`);
         assert(json(setup.paletteWeights) === json(authoredRefillPalette(battle, node.row)) && setup.row === node.row, `${seed}: ${node.id} gets the palette of row ${node.row}`);
@@ -281,6 +287,13 @@ function saves() {
   // The battle in a save stays even if the pools change later: the save carries the pick, not a reroll.
   const other = createForestRun(seed, { map: 'generated' });
   assert(json(parseForestRun(serializeForestRun(other))) === json(other), 'a fresh generated run with the trunk round-trips');
+  // A run saved with a map of generator 2 (no events in the branches) still loads and plays on (generator 3 changed only
+  // the layout of new maps; a save keeps its map).
+  assert(MAP_GENERATOR_VERSION === 3 && run.map.kind === 'generated' && run.map.generator === 3, 'new maps are of generator 3');
+  const old = tamper(v => { v.map.generator = 2; for (const node of v.map.nodes) if (node.type === 'event' && /^(den|camp)-/.test(node.id)) node.type = 'battle'; });
+  assert(old && old.map.kind === 'generated' && old.map.generator === 2, 'a save with a map of generator 2 loads');
+  const resolved = resolveBattle(old!, { nodeId: (old!.pending as { nodeId: string }).nodeId, won: true, player: { ...old!.resources.player }, inventory: { ...old!.resources.inventory } });
+  assert(resolved.ok && availableNodes(resolved.run).length > 0 && json(parseForestRun(serializeForestRun(resolved.run))) === json(resolved.run), 'the generator-2 run plays on and saves');
 }
 
 connectivity();
