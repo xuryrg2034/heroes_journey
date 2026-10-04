@@ -2,7 +2,7 @@ import { ForestEngine } from './forestEngine';
 import { authoredRefillPalette, battle, FOREST_MAP, FOREST_MAP_START, FOREST_REST_HEAL, forestMapPaths, forestNode, forestRowPalette, isBattleNode, nodeRefillPalette,
   validateForestMap, type ForestMapNode } from './run/forestMap';
 import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestNodeSeed, forestRunView, nodeRunTemplate, parseForestRun,
-  resolveBattle, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { buildNodeBattleRegistry, FOREST_NODE_BATTLES, forestBattle, validateForestBattles, validateNodeBattle, type NodeBattle } from './run/forestBattles';
 import { createForestRunStore, FOREST_RUN_STORAGE_KEY, type RunStorage } from './run/forestRunStorage';
 import type { ItemKind } from './forestTypes';
@@ -137,8 +137,10 @@ async function campRoute(seed: number, trace?: string[]) {
     run = ok(enterNode(run, id), `enter ${id}`); log(run); saved(run);
     const node = forestNode(id)!;
     if (node.type === 'rest') {
+      assert(run.pending?.kind === 'rest' && run.resources.player.hp === hpBefore, `${id}: the rest waits for its choice`);
+      run = ok(restHeal(run), `heal at ${id}`); log(run); saved(run);
       assert(run.resources.player.hp === Math.min(run.resources.player.maxHp, hpBefore + FOREST_REST_HEAL), `${id}: rest heals up to the maximum`);
-      assert(run.currentNodeId === id && !run.pending, `${id}: rest completes at once`);
+      assert(run.currentNodeId === id && !run.pending, `${id}: healing completes the rest`);
       continue;
     }
     const setup = launch(e, run); log(e.captureAnalysisSnapshot());
@@ -225,7 +227,7 @@ async function denRoute() {
   e.winLevel(); run = settle(e, run);
   assert(run.resources.inventory.bomb === bombs, 'the spent bomb stays spent');
   for (const id of ['jailer', 'den-battle']) { run = ok(enterNode(run, id), `enter ${id}`); launch(e, run); e.winLevel(); run = settle(e, run); }
-  run = ok(enterNode(run, 'den-rest'), 'den rest');
+  run = ok(restHeal(ok(enterNode(run, 'den-rest'), 'den rest')), 'heal at den rest');
   run = ok(enterNode(run, 'den-elite'), 'enter den-elite'); launch(e, run); e.winLevel(); run = settle(e, run);
   assert(run.pending?.kind === 'find' && json(parseForestRun(serializeForestRun(run))) === json(run), 'the hard-battle reward survives serialization');
   run = ok(chooseFindItem(run, (run.pending as { options: ItemKind[] }).options[1]), 'den hard-battle reward');
@@ -260,7 +262,7 @@ function restCap() {
     const run = createForestRun(3);
     run.visited = ['trunk-1', 'trunk-2', 'trunk-3', 'trunk-4', 'goblin-archer']; run.currentNodeId = 'goblin-archer'; run.resources.player.hp = hp;
     run.resources.player.damageEffects = { burning: 2, burningTurns: 1, poison: 1, bleeding: 1, bleedingSteps: 2 };
-    const step = enterNode(run, 'trail-rest'), rested = ok(step, 'rest');
+    const step = restHeal(ok(enterNode(run, 'trail-rest'), 'rest')), rested = ok(step, 'heal');
     assert(rested.resources.player.hp === expected, `rest from ${hp} HP gives ${expected}, not above the maximum`);
     assert(!rested.resources.player.damageEffects && step.ok && step.events.some(event => event.type === 'effects-cleared'), 'rest removes burning, poison and bleeding');
   }
@@ -330,8 +332,8 @@ async function realEffects() {
   const next = ok(enterNode(run, 'beast-boar'), 'enter boar'), boar = engine(); launch(boar, next);
   const hp = boar.state.player.hp; await boar.waitTurn();
   assert(boar.state.player.hp < hp, 'carried poison keeps ticking in the next battle');
-  const step = enterNode(run, 'trail-rest'), rested = ok(step, 'rest');
-  assert(!rested.resources.player.damageEffects && step.ok && step.events.some(event => event.type === 'effects-cleared'), 'the rest clears the carried poison');
+  const step = restHeal(ok(enterNode(run, 'trail-rest'), 'rest')), rested = ok(step, 'heal');
+  assert(!rested.resources.player.damageEffects && step.ok && step.events.some(event => event.type === 'effects-cleared'), 'healing at the rest clears the carried poison');
 }
 
 /** A hard-battle victory gives +1 HP (up to the maximum) together with the find; the saved run keeps it. */
@@ -342,6 +344,7 @@ async function hardHeart() {
     run = ok(enterNode(run, id), `enter ${id}`);
     if (run.pending?.kind === 'battle') { launch(e, run); e.winLevel(); run = settle(e, run); }
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+    if (run.pending?.kind === 'rest') run = ok(restHeal(run), `heal at ${id}`);
   }
   run = ok(enterNode(run, 'camp-elite'), 'enter the hard battle');
   for (const wound of [2, 0]) {

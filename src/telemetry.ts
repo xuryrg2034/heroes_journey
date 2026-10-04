@@ -78,10 +78,17 @@ export interface AttemptRecord {
  * Kept beside the battle attempts; journals written before have none.
  */
 export interface RunEventRecord { nodeId: string; option: string; outcome: number; text: string; seed: number; at: number }
+/**
+ * A completed rest (04.10.2026): the node, the choice (heal or craft), HP healed and the items crafted (in order), the
+ * run seed. Kept beside the battle attempts; journals written before have none.
+ */
+export interface RunRestRecord { nodeId: string; choice: 'heal' | 'craft'; healed: number; crafted: ItemKind[]; seed: number; at: number }
+/** Rests over the journal: how many healed, how many crafted, HP healed and items crafted in total. */
+export interface RestAggregate { rests: number; heals: number; crafts: number; healed: number; crafted: Partial<Record<ItemKind, number>> }
 /** Choices per event node and option, with how often each outcome came. */
 export interface EventAggregate { nodeId: string; label: string; option: string; count: number; outcomes: Record<string, number> }
 
-interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[] }
+interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[] }
 
 export interface BattleAggregate {
   key: string; label: string; attempts: number; visits: number; wins: number; loses: number;
@@ -98,7 +105,7 @@ export interface BattleAggregate {
   chestOpenRate: number | null;
 }
 
-const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [] });
+const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [] });
 let memory: Journal = emptyJournal();
 
 function sanitize(value: unknown): Journal {
@@ -111,6 +118,9 @@ function sanitize(value: unknown): Journal {
   }
   if (Array.isArray(raw.runEvents)) {
     journal.runEvents = raw.runEvents.filter(item => item && typeof item === 'object' && typeof item.nodeId === 'string' && typeof item.option === 'string').slice(-MAX_ATTEMPTS);
+  }
+  if (Array.isArray(raw.runRests)) {
+    journal.runRests = raw.runRests.filter(item => item && typeof item === 'object' && typeof item.nodeId === 'string' && (item.choice === 'heal' || item.choice === 'craft') && Array.isArray(item.crafted)).slice(-MAX_ATTEMPTS);
   }
   return journal;
 }
@@ -128,7 +138,7 @@ function store(journal: Journal) {
 
 export const telemetryEnabled = () => load().enabled;
 export function setTelemetryEnabled(enabled: boolean) { const journal = load(); journal.enabled = enabled; store(journal); }
-export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; store(journal); }
+export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; journal.runRests = []; store(journal); }
 
 /** Record a choice at a map event (called by the map screen after the run model resolved it). Respects `enabled`. */
 export function recordRunEvent(record: Omit<RunEventRecord, 'at'>) {
@@ -136,6 +146,23 @@ export function recordRunEvent(record: Omit<RunEventRecord, 'at'>) {
   if (!journal.enabled) return;
   journal.runEvents = [...journal.runEvents, { ...record, at: Date.now() }].slice(-MAX_ATTEMPTS);
   store(journal);
+}
+
+/** Record a completed rest (called by the map screen after the run model completed it). Respects `enabled`. */
+export function recordRunRest(record: Omit<RunRestRecord, 'at'>) {
+  const journal = load();
+  if (!journal.enabled) return;
+  journal.runRests = [...journal.runRests, { ...record, crafted: [...record.crafted], at: Date.now() }].slice(-MAX_ATTEMPTS);
+  store(journal);
+}
+
+export function aggregateRests(records: RunRestRecord[]): RestAggregate {
+  const total: RestAggregate = { rests: records.length, heals: 0, crafts: 0, healed: 0, crafted: {} };
+  for (const record of records) {
+    if (record.choice === 'heal') { total.heals++; total.healed += typeof record.healed === 'number' ? record.healed : 0; } else total.crafts++;
+    for (const item of record.crafted) total.crafted[item] = (total.crafted[item] ?? 0) + 1;
+  }
+  return total;
 }
 
 export function aggregateEvents(records: RunEventRecord[]): EventAggregate[] {
@@ -209,7 +236,8 @@ export function aggregate(attempts: AttemptRecord[]): BattleAggregate[] {
 export function exportPayload() {
   const journal = load();
   return { format: 'ashen-oath-playtest', version: 1, exportedAt: new Date().toISOString(), enabled: journal.enabled,
-    attempts: journal.attempts, aggregates: aggregate(journal.attempts), runEvents: journal.runEvents, eventAggregates: aggregateEvents(journal.runEvents) };
+    attempts: journal.attempts, aggregates: aggregate(journal.attempts), runEvents: journal.runEvents, eventAggregates: aggregateEvents(journal.runEvents),
+    runRests: journal.runRests, restAggregate: aggregateRests(journal.runRests) };
 }
 export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
 
@@ -397,10 +425,14 @@ export function playtestHtml(options: { confirmClear?: boolean; notice?: string;
     ? `<div class="playtest-scroll"><table class="playtest-table playtest-events"><thead><tr><th>Событие</th><th>Выбор</th><th>Раз</th><th>Исходы</th></tr></thead><tbody>${events.map(row =>
       `<tr><th scope="row">${escapeHtml(row.label)}</th><td>${escapeHtml(row.option)}</td><td>${row.count}</td><td>${Object.entries(row.outcomes).map(([text, count]) => `${escapeHtml(text)} ×${count}`).join('; ')}</td></tr>`).join('')}</tbody></table></div>`
     : '';
+  const rests = aggregateRests(journal.runRests), itemName: Record<ItemKind, string> = { frost: 'холод', bomb: 'бомба', healing: 'лечение', fire: 'огонь' };
+  const restLine = rests.rests
+    ? `<p class="playtest-rests" id="playtest-rests">Привалы: ${rests.rests} · лечение ${rests.heals} (+${rests.healed} HP) · крафт ${rests.crafts}${Object.keys(rests.crafted).length ? ` (${Object.entries(rests.crafted).map(([item, count]) => `${itemName[item as ItemKind] ?? item} ×${count}`).join(', ')})` : ''}</p>`
+    : '';
   const clear = options.confirmClear
     ? `<div class="playtest-confirm" role="alert"><span>Удалить ${journal.attempts.length} записей?</span><button class="button secondary" data-action="playtest-clear-yes">УДАЛИТЬ</button><button class="text-button" data-action="playtest-clear-no">ОТМЕНА</button></div>`
     : '<button class="text-button" data-action="playtest-clear">ОЧИСТИТЬ</button>';
-  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}
+  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}${restLine}
 <div class="playtest-actions"><button class="button secondary" data-action="playtest-download">СКАЧАТЬ JSON</button><button class="button secondary" data-action="playtest-copy">СКОПИРОВАТЬ JSON</button>${clear}</div>
 <p class="playtest-note" aria-live="polite">${escapeHtml(options.notice ?? 'Данные хранятся только в этом браузере и никуда не отправляются.')}</p>
 <p class="playtest-profile" id="playtest-profile">${options.trunkCleared ? 'Профиль: ствол пройден — новый поход начнётся с развилки троп. <button class="text-button" data-action="profile-reset-trunk">СБРОСИТЬ ОТМЕТКУ СТВОЛА</button>' : 'Профиль: ствол не пройден — новый поход начнётся со ствола.'}</p>

@@ -27,7 +27,7 @@ export const ELITE_TIP='Элита: HP ×2, удар по коту +1; ближ�
 export const CHEST_TIP='Сундук выхода: ресурсы для крафта. Пройди по нему цепью — они уйдут в запас похода. Упадёт на врага — раздавит его без очков.';
 export const REINFORCEMENT_TIP='Подкрепление: после следующего действия здесь появится злой гоблин (обычный гоблин на клетке будет заменён).';
 /** Hover text of dropped loot: a consumable joins the inventory, a resource is kept by the run for crafting. */
-const lootTip=(kind:LootKind)=>isResource(kind)?`${RESOURCES[kind].label}: ресурс на будущее (из двух — ${ITEMS[RESOURCES[kind].crafts].label.toLowerCase()} на привале, когда появится крафт). Пройди по нему цепью — он уйдёт в запас похода.`
+const lootTip=(kind:LootKind)=>isResource(kind)?`${RESOURCES[kind].label}: ресурс крафта (из двух — ${ITEMS[RESOURCES[kind].crafts].label.toLowerCase()} на привале). Пройди по нему цепью — он уйдёт в запас похода.`
   :`${ITEMS[kind].label}: ${ITEMS[kind].description} Пройди по нему цепью — предмет попадёт в запас.`;
 interface Piece {
   view: Container; signature: string; index: number; born: number;

@@ -2,7 +2,7 @@ import { ForestEngine } from './forestEngine';
 import { battlePoolEntry, laneBranches, poolCandidates, rowTools, type PoolBattleType } from './run/battlePools';
 import { authoredRefillPalette, type ForestMapNode, type ForestNodeType } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, createForestRun, enterNode, eventView, forestRunView, parseForestRun,
-  resolveBattle, runNode, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  resolveBattle, restCraft, restFinish, restHeal, restView, runNode, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { forestBattle } from './run/forestBattles';
 import { generateForestMap } from './run/mapGenerator';
 import { clearsTrunk } from './run/playerProfile';
@@ -186,6 +186,10 @@ async function botRun(seed: number, skipTrunk: boolean, choice: number, lose = f
     } else if (run.pending?.kind === 'event') {
       const view = eventView(run)!, options = view.options.filter(option => option.available);
       run = ok(chooseEventOption(run, options[choice % options.length].id), `${seed}: event ${view.event.id}`);
+    } else if (run.pending?.kind === 'rest') {
+      // An odd bot crafts whatever its resources allow (one recipe per step, saved between them); the rest heals otherwise.
+      const recipe = choice % 2 ? restView(run)!.recipes.find(entry => entry.available) : undefined;
+      run = recipe ? ok(restCraft(run, recipe.resource), `${seed}: craft`) : restView(run)!.canFinish ? ok(restFinish(run), `${seed}: leave the rest`) : ok(restHeal(run), `${seed}: heal`);
     } else {
       const next = availableNodes(run);
       assert(next.length > 0, `${seed}: a way on from ${run.currentNodeId}`);

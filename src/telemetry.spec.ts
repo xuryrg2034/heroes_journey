@@ -204,7 +204,30 @@ function eventChoices() {
   console.log('PASS event choices are recorded, exported and aggregated by node and option');
 }
 
+/** A completed rest is recorded with its choice, HP healed and crafted items; exported, summed, shown; off when disabled. */
+function restChoices() {
+  telemetry.clearTelemetry();
+  telemetry.recordRunRest({ nodeId: 'trail-rest', choice: 'heal', healed: 2, crafted: [], seed: 7 });
+  telemetry.recordRunRest({ nodeId: 'camp-rest', choice: 'craft', healed: 0, crafted: ['frost', 'frost', 'bomb'], seed: 7 });
+  const payload = telemetry.exportPayload();
+  assert(payload.runRests.length === 2 && payload.runRests[1].choice === 'craft' && payload.runRests[1].crafted.join() === 'frost,frost,bomb', 'rests are exported in order');
+  assert(JSON.stringify(payload.restAggregate) === JSON.stringify({ rests: 2, heals: 1, crafts: 1, healed: 2, crafted: { frost: 2, bomb: 1 } }), `rests summed: ${JSON.stringify(payload.restAggregate)}`);
+  assert(telemetry.playtestHtml().includes('id="playtest-rests"') && telemetry.playtestHtml().includes('холод ×2'), 'the playtest screen sums the rests');
+  telemetry.setTelemetryEnabled(false);
+  telemetry.recordRunRest({ nodeId: 'den-rest', choice: 'heal', healed: 1, crafted: [], seed: 8 });
+  assert(telemetry.exportPayload().runRests.length === 2, 'a disabled journal records no rest');
+  telemetry.setTelemetryEnabled(true);
+  // A journal written before 04.10.2026 has no rests: it loads with an empty list.
+  storage.set(telemetry.TELEMETRY_KEY, JSON.stringify({ version: 1, enabled: true, attempts: [], runEvents: [] }));
+  assert(telemetry.exportPayload().runRests.length === 0 && !telemetry.playtestHtml().includes('playtest-rests'), 'an old journal without rests loads');
+  telemetry.recordRunRest({ nodeId: 'trail-rest', choice: 'heal', healed: 2, crafted: [], seed: 9 });
+  telemetry.clearTelemetry();
+  assert(telemetry.exportPayload().runRests.length === 0, 'clearing removes rests too');
+  console.log('PASS rest choices are recorded, exported and summed; old journals load');
+}
+
 eventChoices();
+restChoices();
 await leaveAtOnce();
 await runDefeatEndsTheRun();
 await stayThenLeave();

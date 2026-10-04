@@ -18,12 +18,12 @@ import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
 import { CRYSTAL_KILLS, crystalsActive, runPressureInfo } from './game/mapBattleRules';
-import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseEventOption, forestRunView, runNode, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore } from './game/run/playerProfile';
-import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
-import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent } from './telemetry';
-import { lootLabel } from './game/resources';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
+import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest } from './telemetry';
+import { isResource, lootLabel } from './game/resources';
 import { nextReinforcementTurn, REINFORCEMENT_COUNT } from './game/exitRules';
 import { chestLabel } from './render/art';
 
@@ -187,13 +187,48 @@ function chooseEvent(optionId: string) {
   }
   audio.play('reward'); showScreen('map'); showModal(eventResultHtml(step.run, step.events));
 }
-/** Where the player goes after any run step: map, result, battle, find or event. */
+/** The open rest (also after a reload: the saved run keeps it pending with its crafts). */
+function showRest() { if (forestRun?.pending?.kind === 'rest') showModal(restModalHtml(forestRun)); }
+/** A completed rest goes to the playtest journal: the choice, HP healed and the items crafted. */
+function recordRest(run: ForestRunState, events: ForestRunEvent[]) {
+  const done = events.find(event => event.type === 'rest-completed');
+  if (done?.type === 'rest-completed') recordRunRest({ nodeId: done.nodeId, choice: done.choice, healed: done.healed, crafted: [...done.crafted], seed: run.seed });
+}
+function healAtRest() {
+  if (!forestRun || forestRun.pending?.kind !== 'rest') return;
+  const step = commitRun(restHeal(forestRun));
+  if (!step.ok) return;
+  recordRest(step.run, step.events);
+  const healed = step.events.find(event => event.type === 'healed'), amount = healed?.type === 'healed' ? healed.amount : 0, nodeId = healed?.nodeId ?? '';
+  mapNotice = `${runNode(step.run, nodeId)?.name ?? 'Привал'}: ${amount ? `+${amount} HP` : 'здоровье не изменилось'}.`;
+  audio.play('item'); showScreen('map'); showModal(restResultHtml(step.run, nodeId, amount, step.events.some(event => event.type === 'effects-cleared')));
+}
+function craftAtRest(resource: ResourceKind) {
+  if (!forestRun || forestRun.pending?.kind !== 'rest') return;
+  const step = commitRun(restCraft(forestRun, resource));
+  if (!step.ok) return;
+  audio.play('item'); renderMap(); showModal(restModalHtml(step.run));
+  // Keep the focus on the pressed recipe while it can be crafted again, else on «К карте».
+  requestAnimationFrame(() => (el('modal').querySelector<HTMLButtonElement>(`[data-craft="${resource}"]:not(:disabled)`) ?? el('modal').querySelector<HTMLButtonElement>('[data-action="rest-finish"]'))?.focus());
+}
+function finishRest() {
+  if (!forestRun || forestRun.pending?.kind !== 'rest') return;
+  const step = commitRun(restFinish(forestRun));
+  if (!step.ok) return;
+  recordRest(step.run, step.events);
+  const done = step.events.find(event => event.type === 'rest-completed');
+  const crafted = done?.type === 'rest-completed' ? done.crafted : [];
+  mapNotice = `${runNode(step.run, done?.nodeId ?? '')?.name ?? 'Привал'}: создано — ${crafted.map(item => itemNames[item]).join(', ')}.`;
+  audio.play('reward'); showScreen('map');
+}
+/** Where the player goes after any run step: map, result, battle, find, event or rest. */
 function routeRun() {
   if (!forestRun) return;
   if (forestRun.pending?.kind === 'battle') { void playRunBattle(); return; }
   showScreen('map');
   if (forestRun.result) showModal(runResultHtml(forestRun));
   else if (forestRun.pending?.kind === 'event') showEvent();
+  else if (forestRun.pending?.kind === 'rest') showRest();
   else showFind();
 }
 function resumeRun() { if (forestRun) { mapNotice = ''; audio.unlock(); audio.play('click'); routeRun(); } else newRun(); }
@@ -204,11 +239,6 @@ function enterMapNode(id: string) {
   if (clearsTrunk(step.events)) profileStore.markTrunkCleared();
   mapNotice = ''; audio.unlock(); audio.play('click');
   routeRun();
-  const healed = step.events.find(event => event.type === 'healed');
-  if (healed?.type === 'healed') {
-    const { hp, maxHp } = step.run.resources.player;
-    audio.play('item'); showModal(restModalHtml(step.run, healed.nodeId, healed.amount, hp, maxHp, step.events.some(event => event.type === 'effects-cleared')));
-  }
 }
 function chooseFind(item: ItemKind) {
   const pending = forestRun?.pending;
@@ -634,6 +664,7 @@ document.addEventListener('click', event => {
   audio.unlock();
   if (target.dataset.find && itemKeys.includes(target.dataset.find as ItemKind)) { chooseFind(target.dataset.find as ItemKind); return; }
   if (target.dataset.eventOption) { chooseEvent(target.dataset.eventOption); return; }
+  if (target.dataset.craft && isResource(target.dataset.craft)) { craftAtRest(target.dataset.craft); return; }
   switch (target.dataset.action) {
     // The run's own battle is never replayed (a defeat ends the run); retry is for editor levels and debug battles.
     case 'retry': if (!ownsRunBattle()) void openScene(() => engine.restartLevel()); break;
@@ -674,6 +705,9 @@ document.addEventListener('click', event => {
     case 'run-battle': void playRunBattle(); break;
     case 'run-find': showFind(); break;
     case 'run-event': showEvent(); break;
+    case 'run-rest': showRest(); break;
+    case 'rest-heal': healAtRest(); break;
+    case 'rest-finish': finishRest(); break;
     case 'run-map': quietCancel(); showScreen('map'); break;
     case 'playtest': openPlaytest(); break;
     case 'playtest-close': closePlaytest(); break;

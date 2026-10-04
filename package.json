@@ -63,7 +63,8 @@
     "test:player-profile": "tsx src/game/playerProfile.spec.ts",
     "test:forest-events": "tsx src/game/forestEvents.spec.ts",
     "test:battle-pools": "tsx src/game/battlePools.spec.ts",
-    "test:map-generator": "tsx src/game/mapGenerator.spec.ts"
+    "test:map-generator": "tsx src/game/mapGenerator.spec.ts",
+    "test:rest-craft": "tsx src/game/restCraft.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"
