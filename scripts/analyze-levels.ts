@@ -5,10 +5,12 @@
  *   npm run analyze:levels -- --node wolf-ford --row 5          # a registry battle on another map row
  *   npm run analyze:levels -- --node den-nest --energy 5         # entered with energy carried from earlier nodes
  *   npm run analyze:levels -- --nodes --elite-move-every 2    # compare elite movement periods (0 — no movement)
+ *   npm run analyze:levels -- --nodes --talismans all          # the run's talismans (default: none — the worst case)
  *   npm run analyze:levels -- --json my-level.json --seeds 5 --out report.json
  * Levels are analyzed in parallel child processes; every level uses its own engines.
  */
 import { fork } from 'node:child_process';
+import { isTalismanId, TALISMANS, type TalismanId } from '../src/game/talismans';
 import { availableParallelism } from 'node:os';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -33,6 +35,8 @@ const HELP = `analyze-levels [options]
   --row R            map row for registry battles not bound to a node (tools and palette of that row); default: first row of the pool band
   --energy E         node battles: entry energy instead of 0 (the run carries energy between nodes)
   --elite-move-every N  elites move every N turns (0 — not at all); the game's value is ELITE_MOVE_EVERY in elite.ts
+  --talismans LIST   node battles: the run holds these talismans (comma-separated ids of talismans.ts, or all; the Ash
+                     ward whole); default none — battles are judged with empty hands (docs/talismans.md, section 6)
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
   --depth D          search horizon in turns (default ${DEFAULT_ANALYSIS_OPTIONS.depth})
   --beam B           children per internal node (default ${DEFAULT_ANALYSIS_OPTIONS.beam})
@@ -48,7 +52,7 @@ const HELP = `analyze-levels [options]
 
 function parse(argv: string[]) {
   const tasks: LevelSource[] = [], options: Partial<AnalysisOptions> = {};
-  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined, eliteMoveEvery: number | undefined;
+  let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined, eliteMoveEvery: number | undefined, talismans: TalismanId[] | undefined;
   const nodeIds: string[] = [];
   const number = (flag: string, value: string | undefined, min: number) => {
     const parsed = Number(value);
@@ -65,6 +69,12 @@ function parse(argv: string[]) {
       case '--row': row = number(flag, value, 1); i++; break;
       case '--energy': energy = number(flag, value, 0); i++; break;
       case '--elite-move-every': eliteMoveEvery = number(flag, value, 0); i++; break;
+      case '--talismans': {
+        const ids = value === 'all' ? TALISMANS.map(entry => entry.id) : (value ?? '').split(',').filter(Boolean);
+        const unknown = ids.filter(id => !isTalismanId(id));
+        if (!ids.length || unknown.length) throw new Error(`--talismans: unknown ${unknown.join(', ') || 'list'} (ids of src/game/talismans.ts or all)`);
+        talismans = ids as TalismanId[]; i++; break;
+      }
       case '--seeds': options.seeds = number(flag, value, 1); i++; break;
       case '--depth': options.depth = number(flag, value, 1); i++; break;
       case '--beam': options.beam = number(flag, value, 1); i++; break;
@@ -92,6 +102,10 @@ function parse(argv: string[]) {
   if (energy !== undefined) {
     if (!tasks.some(task => task.kind === 'run-node')) throw new Error('--energy: use with --node or --nodes');
     for (const task of tasks) if (task.kind === 'run-node') task.target.setup.player.energy = energy;
+  }
+  if (talismans) {
+    if (!tasks.some(task => task.kind === 'run-node')) throw new Error('--talismans: use with --node or --nodes');
+    for (const task of tasks) if (task.kind === 'run-node') { task.target.setup.talismans = [...talismans]; task.target.setup.wardReady = talismans.includes('ash-ward'); }
   }
   for (const id of skipped) console.log(`skip ${id}: not bound to a map node and not in the pools (battlePools.ts), pass --row R`);
   if (!tasks.length) throw new Error('No level to analyze.');
