@@ -17,6 +17,7 @@ import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedFo
 import { battlePoolEntry, pickPoolBattle, poolCandidates, type PoolBattleType } from './battlePools';
 import { isTalismanId, type TalismanId } from '../talismans';
 import { BLANK_SCORE, talismanOffer, type TalismanOption, type TalismanSource } from './talismanOffers';
+import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, shopPayment, shopPrice, shopStock, stockTotal, type ShopGoodKind, type ShopPurchase, type ShopStock } from './merchant';
 
 /**
  * Version 2 (04.10.2026): the run carries its map (`map`) and the battles and events taken from pools (`picks`).
@@ -56,9 +57,16 @@ export type ForestRunPending =
    * items crafted here so far (non-empty — the craft is chosen and healing is gone); restFinish completes it. A reload
    * offers the same rest with the same crafts.
    */
-  | { kind: 'rest'; nodeId: string; crafted: ItemKind[] };
+  | { kind: 'rest'; nodeId: string; crafted: ItemKind[] }
+  /**
+   * Entered merchant (merchant.ts): the stock rolled on entering and what was bought so far; shopLeave completes it. A
+   * reload offers the same stock with the same purchases.
+   */
+  | { kind: 'shop'; nodeId: string; stock: ShopStock; bought: ShopPurchase[] };
 /** What a completed rest gave: healing, or crafted items (in crafting order). */
 export interface ForestRunRest { nodeId: string; choice: 'heal' | 'craft'; crafted: ItemKind[] }
+/** A completed merchant visit: its purchases in order (the stock is rolled again from the seed when a save is checked). */
+export interface ForestRunShop { nodeId: string; bought: ShopPurchase[] }
 export type ForestRunResult =
   | { outcome: 'victory'; nodeId: string }
   /** The branch ends at a boss that is not implemented yet. This is not a victory. */
@@ -109,6 +117,8 @@ export interface ForestRunState {
    * bound what crafting spent and added. Absent in saves before 04.10.2026 (a rest healed on entering): read as healing.
    */
   rests: ForestRunRest[];
+  /** Completed merchant visits, in visiting order. Absent in saves before the merchant (04.10.2026): read as none. */
+  shops: ForestRunShop[];
   resources: ForestRunResources;
   tools: ForestRunTools;
   /**
@@ -159,6 +169,12 @@ export type ForestRunEvent =
   /** The Ash ward saved the cat in this battle and crumbled. */
   | { type: 'ward-crumbled'; nodeId: string }
   | { type: 'item-chosen'; nodeId: string; item: ItemKind }
+  /** A merchant waits: its stock for this visit. */
+  | { type: 'shop-offered'; nodeId: string; stock: ShopStock }
+  /** One purchase at the merchant: the good, its price and the resources paid. */
+  | { type: 'shop-bought'; nodeId: string; purchase: ShopPurchase }
+  /** The visit is over: what was bought, and the talisman shown and not bought (it leaves the pool). */
+  | { type: 'shop-left'; nodeId: string; stock: ShopStock; bought: ShopPurchase[]; gone: TalismanId[] }
   | { type: 'event-offered'; nodeId: string }
   /** The event option was taken: its rolled outcome and what really changed (HP and energy after the clamps). */
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string;
@@ -187,7 +203,7 @@ export function forestNodeSeed(runSeed: number, nodeId: string): number {
 export function createForestRun(seed: number, options: { skipTrunk?: boolean; map?: 'authored' | 'generated' } = {}): ForestRunState {
   const map: ForestRunMapRef = options.map === 'generated' ? { kind: 'generated', ...generateForestMap(seed) } : { kind: 'authored' };
   return {
-    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], score: 0,
+    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], shops: [], score: 0,
     talismans: [], talismansGone: [], talismanChoices: [],
     resources: { player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
@@ -294,9 +310,14 @@ function offerFind(run: ForestRunState, nodeId: string, events: ForestRunEvent[]
 
 /** Баланс: «Крепкая шкура» raises the maximum HP (and heals as much at once). */
 export const TOUGH_HIDE_HP = 1;
-/** The maximum HP of a run: the start plus «Крепкая шкура». */
-export function runMaxHp(run: Pick<ForestRunState, 'talismans'>): number {
-  return FOREST_RUN_START_HP + (run.talismans?.includes('tough-hide') ? TOUGH_HIDE_HP : 0);
+/** «Закалка» bought at merchants in the run (completed visits and the open one). */
+export function runHardenings(run: Pick<ForestRunState, 'shops' | 'pending'>): number {
+  const bought = [...(run.shops ?? []).flatMap(shop => shop.bought), ...run.pending?.kind === 'shop' ? run.pending.bought : []];
+  return bought.filter(purchase => purchase.good === 'harden').length;
+}
+/** The maximum HP of a run: the start plus «Крепкая шкура» plus each «Закалка» of the merchant. */
+export function runMaxHp(run: Pick<ForestRunState, 'talismans' | 'shops' | 'pending'>): number {
+  return FOREST_RUN_START_HP + (run.talismans?.includes('tough-hide') ? TOUGH_HIDE_HP : 0) + runHardenings(run);
 }
 /** The Ash ward is whole: the run took it and it has not saved the cat yet (the next battle gets it). */
 export function wardReady(run: Pick<ForestRunState, 'talismans' | 'wardSpent'>): boolean {
@@ -355,6 +376,10 @@ export function enterNode(current: ForestRunState, nodeId: string): ForestRunSte
   if (node.content.kind === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
   if (node.content.kind === 'event') {
     run.pending = { kind: 'event', nodeId }; events.push({ type: 'event-offered', nodeId }); return { ok: true, run, events };
+  }
+  if (node.content.kind === 'shop') {
+    const stock = rollShopStock(run, node);
+    run.pending = { kind: 'shop', nodeId, stock, bought: [] }; events.push({ type: 'shop-offered', nodeId, stock: structuredClone(stock) }); return { ok: true, run, events };
   }
   run.pending = { kind: 'battle', nodeId, seed: forestNodeSeed(run.seed, nodeId),
     entry: structuredClone(run.resources), tools: structuredClone(run.tools) };
@@ -533,6 +558,102 @@ export function restFinish(current: ForestRunState): ForestRunStep {
   completeNode(run, runNode(run, nodeId)!, events); return { ok: true, run, events };
 }
 
+// ---------- Merchant (docs/roguelike-runs.md, 5б; data and prices: merchant.ts) ----------
+
+/** The stock a merchant node rolls for this run now: the run seed and node id, the open consumables and the talisman pool. */
+function rollShopStock(run: Pick<ForestRunState, 'seed' | 'talismans' | 'talismansGone' | 'tools'>, node: ForestMapNode): ShopStock {
+  return shopStock(forestNodeSeed(run.seed, node.id), run.tools.items, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
+}
+/** Added to every merchant price in this run. */
+export function shopMarkup(_run: unknown): number { return 0; }
+/** A good on sale: `id` is what shopBuy takes (`item:<slot>`, `talisman`, `heal`, `harden`). */
+export interface ShopGoodView {
+  id: string; good: ShopGoodKind; item?: ItemKind; talisman?: TalismanId;
+  /** The price now: the full price, the healing cut to the stock (0 — free). */
+  price: number;
+  /** The full price before the cut (healing). */
+  fullPrice: number;
+  available: boolean;
+  /** Why it cannot be bought now ('' — it can). */
+  reason: string;
+  /** Bought at this visit (a consumable slot, the talisman, «Закалка»). */
+  sold: boolean;
+}
+export interface ShopView {
+  nodeId: string;
+  goods: ShopGoodView[];
+  /** Resources held in total and per kind. */
+  total: number;
+  materials: Record<ResourceKind, number>;
+  /** HP bought at this visit, and «Закалка» bought in the run so far. */
+  healed: number;
+  hardenings: number;
+  bought: ShopPurchase[];
+}
+/** The open merchant with every good, its price and whether it can be bought now; null without one. */
+export function shopView(run: ForestRunState): ShopView | null {
+  const pending = run.pending;
+  if (pending?.kind !== 'shop') return null;
+  const materials = { ...emptyMaterials(), ...run.resources.materials }, total = stockTotal(materials), markup = shopMarkup(run);
+  const { hp, maxHp } = run.resources.player, hardenings = runHardenings(run);
+  const healed = pending.bought.filter(purchase => purchase.good === 'heal').length;
+  const short = (price: number) => total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
+  const goods: ShopGoodView[] = pending.stock.items.map((item, slot) => {
+    const price = shopPrice('item', { markup }), sold = pending.bought.some(purchase => purchase.good === 'item' && purchase.slot === slot), reason = sold ? 'Куплено' : short(price);
+    return { id: `item:${slot}`, good: 'item', item, price, fullPrice: price, available: !reason, reason, sold };
+  });
+  if (pending.stock.talisman) {
+    const price = shopPrice('talisman', { talisman: pending.stock.talisman, markup }), sold = pending.bought.some(purchase => purchase.good === 'talisman');
+    const reason = sold ? 'Куплено' : short(price);
+    goods.push({ id: 'talisman', good: 'talisman', talisman: pending.stock.talisman, price, fullPrice: price, available: !reason, reason, sold });
+  }
+  const healPrice = shopPrice('heal', { markup }), heal = Math.min(healPrice, total);
+  const healReason = healed >= SHOP_HEAL_LIMIT ? `Не больше ${SHOP_HEAL_LIMIT} HP за визит` : hp >= maxHp ? 'Здоровье полное' : '';
+  goods.push({ id: 'heal', good: 'heal', price: heal, fullPrice: healPrice, available: !healReason, reason: healReason, sold: false });
+  const hardenPrice = shopPrice('harden', { hardenings, markup }), hardenSold = pending.bought.some(purchase => purchase.good === 'harden');
+  const hardenReason = hardenSold ? `Не больше ${SHOP_HARDEN_LIMIT} за визит` : short(hardenPrice);
+  goods.push({ id: 'harden', good: 'harden', price: hardenPrice, fullPrice: hardenPrice, available: !hardenReason, reason: hardenReason, sold: hardenSold });
+  return { nodeId: pending.nodeId, goods, total, materials, healed, hardenings, bought: structuredClone(pending.bought) };
+}
+
+/**
+ * Buy one good at the open merchant (`id` of a ShopGoodView). The price is paid from the most numerous resources; a
+ * consumable goes to the inventory; the talisman is taken (with «Крепкая шкура» the maximum HP rises and heals as
+ * much); healing gives 1 HP (paid what there is, free with an empty stock); «Закалка» +1 to the maximum HP and +1 HP.
+ */
+export function shopBuy(current: ForestRunState, id: string): ForestRunStep {
+  const view = shopView(current);
+  if (!view) return fail('Сейчас нет торговца.');
+  const good = view.goods.find(entry => entry.id === id);
+  if (!good) return fail('Такого товара нет.');
+  if (!good.available) return fail(good.reason);
+  const run = structuredClone(current), pending = run.pending as Extract<ForestRunPending, { kind: 'shop' }>, player = run.resources.player;
+  const paid = shopPayment(run.resources.materials, good.price);
+  if (run.resources.materials) for (const kind of RESOURCE_KINDS) run.resources.materials[kind] -= paid[kind];
+  const purchase: ShopPurchase = { good: good.good, ...good.item ? { slot: Number(id.split(':')[1]), item: good.item } : {}, ...good.talisman ? { talisman: good.talisman } : {}, price: good.fullPrice, paid };
+  if (good.item) run.resources.inventory[good.item]++;
+  if (good.talisman) {
+    run.talismans.push(good.talisman);
+    if (good.talisman === 'tough-hide') { player.maxHp += TOUGH_HIDE_HP; player.hp += TOUGH_HIDE_HP; }
+  }
+  if (good.good === 'heal') player.hp = Math.min(player.maxHp, player.hp + 1);
+  if (good.good === 'harden') { player.maxHp++; player.hp++; }
+  pending.bought.push(purchase);
+  return { ok: true, run, events: [{ type: 'shop-bought', nodeId: pending.nodeId, purchase: structuredClone(purchase) }] };
+}
+
+/** Leave the open merchant: the visit completes; a talisman shown and not bought leaves the pool for the rest of the run. */
+export function shopLeave(current: ForestRunState): ForestRunStep {
+  const pending = current.pending;
+  if (pending?.kind !== 'shop') return fail('Сейчас нет торговца.');
+  const run = structuredClone(current), talisman = pending.stock.talisman;
+  const gone = talisman && !pending.bought.some(purchase => purchase.good === 'talisman') ? [talisman] : [];
+  run.talismansGone.push(...gone);
+  run.shops.push({ nodeId: pending.nodeId, bought: structuredClone(pending.bought) });
+  const events: ForestRunEvent[] = [{ type: 'shop-left', nodeId: pending.nodeId, stock: structuredClone(pending.stock), bought: structuredClone(pending.bought), gone }];
+  completeNode(run, runNode(run, pending.nodeId)!, events); return { ok: true, run, events };
+}
+
 // ---------- Map events (data: forestEvents.ts) ----------
 
 /**
@@ -705,6 +826,40 @@ function inventoryCap(visited: ForestMapNode[], finds: ForestRunState['finds'], 
   return cap;
 }
 
+/**
+ * Purchases of one merchant visit of a save, checked against the stock it rolled: each consumable slot and the talisman
+ * at most once, healing at most SHOP_HEAL_LIMIT times, «Закалка» at most SHOP_HARDEN_LIMIT; every price as at that moment
+ * (`hardenings` bought before, the run's `markup`), paid in full (healing: at most its price, cut to the stock). Returns
+ * what the visit added and spent, or null.
+ */
+function shopPurchases(value: unknown, stock: ShopStock, hardenings: number, markup: number) {
+  if (!Array.isArray(value)) return null;
+  const paidTotal = emptyMaterials(), items: ItemKind[] = [], slots = new Set<number>();
+  let heals = 0, harden = 0, talisman: TalismanId | null = null;
+  for (const purchase of value) {
+    if (!isRecord(purchase) || !isRecord(purchase.paid) || Object.keys(purchase.paid).length !== RESOURCE_KINDS.length) return null;
+    const paid = purchase.paid;
+    if (!RESOURCE_KINDS.every(kind => isCount(paid[kind]))) return null;
+    const sum = RESOURCE_KINDS.reduce((total, kind) => total + (paid[kind] as number), 0), keys = Object.keys(purchase).sort().join();
+    if (purchase.good === 'item') {
+      const slot = purchase.slot as number;
+      if (keys !== 'good,item,paid,price,slot' || !Number.isInteger(slot) || slots.has(slot) || stock.items[slot] === undefined || purchase.item !== stock.items[slot]) return null;
+      if (purchase.price !== shopPrice('item', { markup }) || sum !== purchase.price) return null;
+      slots.add(slot); items.push(stock.items[slot]);
+    } else if (purchase.good === 'talisman') {
+      if (keys !== 'good,paid,price,talisman' || talisman || !stock.talisman || purchase.talisman !== stock.talisman) return null;
+      if (purchase.price !== shopPrice('talisman', { talisman: stock.talisman, markup }) || sum !== purchase.price) return null;
+      talisman = stock.talisman;
+    } else if (purchase.good === 'heal') {
+      if (keys !== 'good,paid,price' || ++heals > SHOP_HEAL_LIMIT || purchase.price !== shopPrice('heal', { markup }) || sum > purchase.price) return null;
+    } else if (purchase.good === 'harden') {
+      if (keys !== 'good,paid,price' || ++harden > SHOP_HARDEN_LIMIT || purchase.price !== shopPrice('harden', { hardenings: hardenings + harden - 1, markup }) || sum !== purchase.price) return null;
+    } else return null;
+    for (const kind of RESOURCE_KINDS) paidTotal[kind] += paid[kind] as number;
+  }
+  return { hardenings: harden, items, talisman, paid: paidTotal };
+}
+
 /** The map of a save: version 1 walks the authored graph; version 2 names it or stores a generated map. Null if invalid. */
 function savedMap(value: Record<string, unknown>): ForestRunMapRef | null {
   if (value.version === 1) return value.map === undefined && value.picks === undefined ? { kind: 'authored' } : null;
@@ -731,7 +886,14 @@ export function parseForestRun(text: string): ForestRunState | null {
   const idList = (list: unknown): list is TalismanId[] => Array.isArray(list) && list.every(isTalismanId);
   if (!idList(talismans) || !idList(talismansGone) || !Array.isArray(talismanChoices)) return null;
   if (value.wardSpent !== undefined && (value.wardSpent !== true || !talismans.includes('ash-ward'))) return null;
-  const maxHp = runMaxHp({ talismans });
+  // Merchant visits (merchant.ts): absent in saves before the merchant. Each «Закалка» raises the maximum HP; the
+  // purchases themselves are replayed below.
+  const shopRecords = value.shops === undefined ? [] : value.shops;
+  if (!Array.isArray(shopRecords)) return null;
+  const hardenIn = (list: unknown) => Array.isArray(list) ? list.filter(entry => isRecord(entry) && entry.good === 'harden').length : 0;
+  const savedHardenings = shopRecords.reduce((sum: number, shop) => sum + (isRecord(shop) ? hardenIn(shop.bought) : 0), 0)
+    + (isRecord(value.pending) && value.pending.kind === 'shop' ? hardenIn(value.pending.bought) : 0);
+  const maxHp = runMaxHp({ talismans, shops: [], pending: null }) + savedHardenings, savedShopMarkup = shopMarkup({});
   if (!Array.isArray(value.visited) || !validResources(value.resources, maxHp) || !validTools(value.tools)) return null;
   if (value.skippedTrunk !== undefined && value.skippedTrunk !== true) return null;
   const mapRef = savedMap(value);
@@ -811,9 +973,29 @@ export function parseForestRun(text: string): ForestRunState | null {
   // the taken talismans and the pool's losses exactly.
   const taken: TalismanId[] = [], gone: TalismanId[] = [];
   const offerFor = (node: ForestMapNode, source: TalismanSource, tools: ForestRunTools) => talismanOffer(forestNodeSeed(seed, node.id), source, { taken, gone, abilities: tools.abilities });
+  // Merchant visits: one record per visited merchant, in order, with purchases from the stock the run seed rolls for
+  // the tools and the talisman pool of that moment, at the prices of that moment. A talisman bought is taken; one shown
+  // and not bought leaves the pool when the visit ends.
+  let hardenings = 0, shopCount = 0;
+  const shopPaid = new Map<string, Record<ResourceKind, number>>(), shopItems: ItemKind[] = [];
+  const replayShop = (node: ForestMapNode, bought: unknown, tools: ForestRunTools, done: boolean): ShopStock | null => {
+    const stock = shopStock(forestNodeSeed(seed, node.id), tools.items, { taken, gone, abilities: tools.abilities });
+    const checked = shopPurchases(bought, stock, hardenings, savedShopMarkup);
+    if (!checked) return null;
+    hardenings += checked.hardenings; shopItems.push(...checked.items); shopPaid.set(node.id, checked.paid);
+    if (checked.talisman) taken.push(checked.talisman);
+    else if (done && stock.talisman) gone.push(stock.talisman);
+    return stock;
+  };
   let choiceCount = 0;
   for (let n = 0; n < visitedNodes.length; n++) {
     const node = visitedNodes[n], source = victoryChoice(node);
+    if (node.content.kind === 'shop') {
+      const record = shopRecords[shopCount++];
+      if (!isRecord(record) || Object.keys(record).length !== 2 || record.nodeId !== node.id) return null;
+      if (!replayShop(node, record.bought, expectedTools(visitedNodes.slice(0, n), typedFinds, node, false, crafts, usesFind), true)) return null;
+      continue;
+    }
     if (!source || legacyAt(node.id)) continue;
     const choice = talismanChoices[choiceCount++];
     if (!isRecord(choice) || Object.keys(choice).length !== 2 || choice.nodeId !== node.id) return null;
@@ -823,7 +1005,12 @@ export function parseForestRun(text: string): ForestRunState | null {
     if (chosen && chosen !== 'blank') taken.push(chosen);
     gone.push(...options.filter((option): option is TalismanId => option !== 'blank' && option !== chosen));
   }
-  if (choiceCount !== talismanChoices.length) return null;
+  if (choiceCount !== talismanChoices.length || shopCount !== shopRecords.length) return null;
+  // The open merchant: the same stock as rolled on entering, and its purchases so far.
+  const openShop = isRecord(pending) && pending.kind === 'shop' && entered?.content.kind === 'shop'
+    ? replayShop(entered, pending.bought, expectedTools(visitedNodes, typedFinds, entered, false, crafts, usesFind), false) : null;
+  if (openShop && (!isRecord(pending) || JSON.stringify(pending.stock) !== JSON.stringify(openShop))) return null;
+  if (hardenings !== savedHardenings) return null;
   const openOffer = isRecord(pending) && pending.kind === 'talisman' && entered && !legacyAt(entered.id) && victoryChoice(entered) === pending.source
     ? offerFor(entered, pending.source as TalismanSource, expectedTools(visitedNodes, typedFinds, entered, true, crafts, usesFind)) : null;
   if (JSON.stringify(taken) !== JSON.stringify(talismans) || JSON.stringify(gone) !== JSON.stringify(talismansGone)) return null;
@@ -858,7 +1045,7 @@ export function parseForestRun(text: string): ForestRunState | null {
     const { effect } = option.outcomes[choice.outcome as number];
     eventGains.push({ items: effect.items ?? {}, materials: eventResourceKinds(seed, node.id, option).slice(0, effect.resources ?? 0) });
   }
-  const crafted = [...crafts.values()].flat();
+  const crafted = [...[...crafts.values()].flat(), ...shopItems];
   const cap = inventoryCap(visitedNodes, typedFinds, entered, typedLoot, eventGains, crafted), inventory = (value.resources as ForestRunResources).inventory;
   if (ITEM_KINDS.some(item => inventory[item] > cap[item])) return null;
   // Resources come from elite loot and exit chests (both recorded in `loot`) and events, and are spent at rests: a rest
@@ -867,6 +1054,11 @@ export function parseForestRun(text: string): ForestRunState | null {
   for (const id of entering) {
     for (const gain of typedLoot) if (gain.nodeId === id && isResource(gain.item)) stock[gain.item] += gain.count;
     for (const kind of eventGains[eventNodes.findIndex(node => node.id === id)]?.materials ?? []) stock[kind]++;
+    for (const resource of RESOURCE_KINDS) {
+      const paid = shopPaid.get(id)?.[resource] ?? 0;
+      stock[resource] -= paid; spent[resource] += paid;
+      if (stock[resource] < 0) return null;
+    }
     for (const item of crafts.get(id) ?? []) {
       const resource = craftSource(item);
       stock[resource] -= CRAFT_COST; spent[resource] += CRAFT_COST;
@@ -885,6 +1077,8 @@ export function parseForestRun(text: string): ForestRunState | null {
       if (JSON.stringify(pending.entry) !== JSON.stringify(value.resources) || !sameTools(pending.tools, value.tools as ForestRunTools)) return null;
     } else if (pending.kind === 'event') {
       if (node.content.kind !== 'event' || Object.keys(pending).length !== 2) return null;
+    } else if (pending.kind === 'shop') {
+      if (node.content.kind !== 'shop' || !openShop || Object.keys(pending).length !== 4) return null;
     } else if (pending.kind === 'rest') {
       if (node.content.kind !== 'rest' || !openRest) return null;
     } else if (pending.kind === 'find') {
@@ -908,7 +1102,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   // Version 1 saves get the version 2 fields in the order a new run has them.
   const { version: _version, seed: _seed, map: _map, picks: _picks, ...rest } = structuredClone(value);
   const run = { version: FOREST_RUN_VERSION, seed, map: mapRef, picks: typedPicks, ...rest, loot: structuredClone(typedLoot),
-    eventChoices: structuredClone(choices), rests: structuredClone(typedRests), score: (value.score as number | undefined) ?? 0,
+    eventChoices: structuredClone(choices), rests: structuredClone(typedRests), shops: structuredClone(shopRecords) as ForestRunShop[], score: (value.score as number | undefined) ?? 0,
     talismans: [...talismans], talismansGone: [...talismansGone], talismanChoices: structuredClone(talismanChoices) } as unknown as ForestRunState;
   if (legacyRewardsUntil) run.legacyRewardsUntil = legacyRewardsUntil as number; else delete run.legacyRewardsUntil;
   // Saves before 04.10.2026 count defeats of the open battle; a defeat now ends the run, so the counter has no meaning.

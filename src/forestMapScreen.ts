@@ -8,7 +8,8 @@ import { summarizeDamageEffects } from './game/damageEffects';
 import { CRAFT_COST, RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { nodeBattleTemplate, forestRowPalette, victoryChoice, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
-import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNode, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
+import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNode, shopView, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView, type ShopGoodView } from './game/run/forestRun';
+import { SHOP_HARDEN_STEP, SHOP_HEAL_LIMIT } from './game/run/merchant';
 import { forestEvent } from './game/run/forestEvents';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
@@ -21,6 +22,7 @@ export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: strin
   rest: { icon: '☾', label: 'Привал', hint: 'Лечение или крафт перед следующим боем.' },
   find: { icon: '◈', label: 'Находка', hint: 'Выбор одного предмета из трёх.' },
   event: { icon: '?', label: 'Событие', hint: 'Сцена с выбором, без боя: исходы видны заранее.' },
+  shop: { icon: '⚖', label: 'Торговец', hint: 'Товары за ресурсы крафта: расходники, талисман, лечение, закалка.' },
   breakthrough: { icon: '⇥', label: 'Прорыв', hint: 'Цель — дойти до выхода, а не победить всех.' },
   checkpoint: { icon: '▣', label: 'Контрольный бой', hint: 'Сюда сходятся обе тропы.' },
   boss: { icon: '♛', label: 'Босс', hint: 'Финал ветки.' },
@@ -138,6 +140,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
       : pending?.kind === 'talisman' ? `${pending.source === 'oath' ? 'Клятва' : 'Талисман'} ждёт выбора.`
       : pending?.kind === 'event' ? 'Событие ждёт выбора.'
       : pending?.kind === 'rest' ? 'Привал ждёт выбора: лечение или крафт.'
+      : pending?.kind === 'shop' ? 'Торговец ждёт: купи или уйди.'
       : view.available.length ? 'Выбери следующий узел: доступные подсвечены. Наведи на узел, чтобы увидеть тип и особенность поля.' : '';
     return `<p class="map-detail-idle">${text}</p>`;
   }
@@ -244,6 +247,8 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
         ? `<div class="map-banner"><span>Событие «${escapeHtml(nodeName(run, pending.nodeId))}» ждёт выбора.</span><button class="button primary" data-action="run-event">ВЫБРАТЬ</button></div>`
       : pending?.kind === 'rest'
         ? `<div class="map-banner"><span>Привал «${escapeHtml(nodeName(run, pending.nodeId))}» не завершён.</span><button class="button primary" data-action="run-rest">К ПРИВАЛУ</button></div>`
+      : pending?.kind === 'shop'
+        ? `<div class="map-banner"><span>Торговец ждёт.</span><button class="button primary" data-action="run-shop">К ТОРГОВЦУ</button></div>`
       : options.notice ? `<div class="map-banner notice" id="map-notice"><span>${escapeHtml(options.notice)}</span></div>` : '';
   const reset = options.confirmReset
     ? `<div class="map-confirm" role="alert"><span>Сбросить поход и начать заново?</span><button class="button secondary" data-action="run-reset-yes">СБРОСИТЬ</button><button class="text-button" data-action="run-reset-no">ОТМЕНА</button></div>`
@@ -293,6 +298,37 @@ export function restModalHtml(run: ForestRunState): string {
   const craftBlock = `<section class="rest-option" id="rest-craft"><h3><span aria-hidden="true">⚒</span> Крафт</h3><ul class="rest-recipes">${recipes}</ul>${crafted}</section>`;
   const finish = view.canFinish ? '<button class="button primary" data-action="rest-finish">К КАРТЕ</button>' : '';
   return `<p class="eyebrow">ПРИВАЛ</p><h2 id="modal-title">${escapeHtml(nodeName(run, view.nodeId))}</h2><div class="rest-options">${healBlock}${craftBlock}</div>${finish}`;
+}
+
+/**
+ * The open merchant (merchant.ts): the resources held, every good with its price (healing cut to the stock), why one
+ * cannot be bought, and «Уйти». Every press buys one good; the stock does not restock. Empty without an open merchant.
+ */
+export function shopModalHtml(run: ForestRunState): string {
+  const view = shopView(run);
+  if (!view) return '';
+  const describe = (good: ShopGoodView): [string, string, string] => {
+    if (good.item) return [ITEM_ICON[good.item], escapeHtml(ITEMS[good.item].label), escapeHtml(ITEMS[good.item].description)];
+    if (good.talisman) {
+      const entry = talisman(good.talisman);
+      return [`<span class="talisman-icon${isOath(good.talisman) ? ' oath' : ''}">${TALISMAN_LETTER[good.talisman]}</span>`, `${escapeHtml(entry.name)} <em>${RARITY_LABEL[entry.rarity]}</em>`,
+        `${escapeHtml(entry.effect)}. Не купишь — уйдёт из пула до конца похода.`];
+    }
+    if (good.good === 'heal') return ['✚', `Лечение +1 HP <em>${view.healed} / ${SHOP_HEAL_LIMIT}</em>`, `До ${SHOP_HEAL_LIMIT} HP за визит. Не хватает ресурсов — платишь сколько есть, без ресурсов — даром.`];
+    return ['♥', `Закалка <em>за поход: ${view.hardenings}</em>`, `+1 к максимуму HP и +1 HP. Одна за визит; каждая следующая в походе дороже на ${SHOP_HARDEN_STEP}.`];
+  };
+  const goods = view.goods.map(good => {
+    const [icon, title, text] = describe(good);
+    const price = good.price === 0 ? 'ДАРОМ' : good.price < good.fullPrice ? `${good.price} <s>${good.fullPrice}</s>` : String(good.price);
+    const button = good.sold ? 'КУПЛЕНО' : `КУПИТЬ · ${price}`;
+    return `<li class="shop-good${good.available ? '' : ' short'}${good.sold ? ' sold' : ''}" data-good="${good.id}"><span class="reward-icon" aria-hidden="true">${icon}</span>`
+      + `<span class="shop-good-text"><b>${title}</b><small>${text}</small>${good.available || good.sold ? '' : `<em class="event-reason">${escapeHtml(good.reason)}</em>`}</span>`
+      + `<button class="button secondary shop-buy" data-shop-buy="${good.id}"${good.available ? '' : ' disabled aria-disabled="true"'}>${button}</button></li>`;
+  }).join('');
+  const kinds = RESOURCE_KINDS.filter(kind => view.materials[kind] > 0).map(kind => `${RESOURCES[kind].label} ${view.materials[kind]}`).join(', ');
+  return `<p class="eyebrow">ТОРГОВЕЦ</p><h2 id="modal-title">${escapeHtml(nodeName(run, view.nodeId))}</h2>`
+    + `<p class="modal-copy" id="shop-stock">Ресурсы: <b>${view.total}</b>${kinds ? ` (${kinds})` : ''}. Цена — в ресурсах любого вида: сначала уходят самые многочисленные.</p>`
+    + `<ul class="shop-goods">${goods}</ul><button class="button primary" data-action="shop-leave">УЙТИ</button>`;
 }
 
 /** The rest after «Лечение»: HP healed and effects cleared; «Дальше» goes back to the map. */

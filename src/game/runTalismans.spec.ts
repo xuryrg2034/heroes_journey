@@ -9,7 +9,7 @@ import { authoredLesson } from './lessonBuilder';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './run/forestBattles';
 import { FOREST_REST_HEAL } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, DEW_FLASK_HEAL, enterNode, forestNodeSeed, forestRunMap, parseForestRun,
-  resolveBattle, restHeal, restView, serializeForestRun, eventView, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  resolveBattle, restHeal, restView, serializeForestRun, eventView, shopLeave, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { BLANK_SCORE, RARITY_CHANCES, talismanOffer, talismansClash, type TalismanOption } from './run/talismanOffers';
 import { isOath, talisman, TALISMANS, type TalismanId } from './talismans';
 import { rewardChoices } from './items';
@@ -106,6 +106,7 @@ function sources() {
       } else if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), 'find');
       else if (run.pending?.kind === 'rest') run = ok(restHeal(run), 'heal');
       else if (run.pending?.kind === 'event') run = skipEvent(run);
+      else if (run.pending?.kind === 'shop') run = ok(shopLeave(run), 'leave the merchant');
       else {
         const next = availableNodes(run), prefer = next.find(node => node.type === 'hard') ?? next[choice % next.length];
         run = ok(enterNode(run, prefer.id), `generated ${k}: enter ${prefer.id}`);
@@ -270,6 +271,7 @@ function walkGeneratedTo(seed: number, target: string): ForestRunState {
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), 'find');
     if (run.pending?.kind === 'rest') run = ok(restHeal(run), 'heal');
     if (run.pending?.kind === 'event') run = skipEvent(run);
+    if (run.pending?.kind === 'shop') run = ok(shopLeave(run), 'leave the merchant');
     if (!run.pending) run = ok(enterNode(run, availableNodes(run).find(node => reaches(node.id))!.id), 'enter');
   }
   throw new Error(`${seed}: ${target} not reached`);

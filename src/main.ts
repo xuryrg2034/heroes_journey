@@ -18,11 +18,11 @@ import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
 import { crystalKills, crystalsActive, runPressureInfo } from './game/mapBattleRules';
-import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseTalisman, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseTalisman, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, shopBuy, shopLeave, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore } from './game/run/playerProfile';
-import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, talismanModalHtml } from './forestMapScreen';
-import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest, recordRunTalisman } from './telemetry';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, talismanModalHtml, shopModalHtml } from './forestMapScreen';
+import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest, recordRunTalisman, recordRunShop } from './telemetry';
 import { isResource, lootLabel } from './game/resources';
 import { nextReinforcementTurn, REINFORCEMENT_COUNT } from './game/exitRules';
 import { chestLabel } from './render/art';
@@ -239,7 +239,29 @@ function finishRest() {
   mapNotice = `${runNode(step.run, done?.nodeId ?? '')?.name ?? 'Привал'}: создано — ${crafted.map(item => itemNames[item]).join(', ')}.`;
   audio.play('reward'); showScreen('map');
 }
-/** Where the player goes after any run step: map, result, battle, find, event or rest. */
+/** The open merchant (also after a reload: the saved run keeps the stock and the purchases). */
+function showShop() { if (forestRun?.pending?.kind === 'shop') showModal(shopModalHtml(forestRun)); }
+function buyAtShop(id: string) {
+  if (!forestRun || forestRun.pending?.kind !== 'shop') return;
+  const step = commitRun(shopBuy(forestRun, id));
+  if (!step.ok) return;
+  audio.play('item'); renderMap(); showModal(shopModalHtml(step.run));
+  // Keep the focus on the pressed good while it can be bought again, else on «Уйти».
+  requestAnimationFrame(() => (el('modal').querySelector<HTMLButtonElement>(`[data-shop-buy="${id}"]:not(:disabled)`) ?? el('modal').querySelector<HTMLButtonElement>('[data-action="shop-leave"]'))?.focus());
+}
+/** Leave the merchant; the visit (stock and purchases) goes to the playtest journal. */
+function leaveShop() {
+  if (!forestRun || forestRun.pending?.kind !== 'shop') return;
+  const step = commitRun(shopLeave(forestRun));
+  if (!step.ok) return;
+  const left = step.events.find(event => event.type === 'shop-left');
+  if (left?.type === 'shop-left') {
+    recordRunShop({ nodeId: left.nodeId, stock: left.stock, bought: left.bought, seed: step.run.seed });
+    mapNotice = `${runNode(step.run, left.nodeId)?.name ?? 'Торговец'}: ${left.bought.length ? `покупок — ${left.bought.length}` : 'ничего не куплено'}.`;
+  }
+  audio.play('click'); showScreen('map');
+}
+/** Where the player goes after any run step: map, result, battle, find, event, rest or merchant. */
 function routeRun() {
   if (!forestRun) return;
   if (forestRun.pending?.kind === 'battle') { void playRunBattle(); return; }
@@ -247,6 +269,7 @@ function routeRun() {
   if (forestRun.result) showModal(runResultHtml(forestRun));
   else if (forestRun.pending?.kind === 'event') showEvent();
   else if (forestRun.pending?.kind === 'rest') showRest();
+  else if (forestRun.pending?.kind === 'shop') showShop();
   else if (forestRun.pending?.kind === 'talisman') showTalisman();
   else showFind();
 }
@@ -698,6 +721,7 @@ document.addEventListener('click', event => {
   if (target.dataset.eventOption) { chooseEvent(target.dataset.eventOption); return; }
   if (target.dataset.talisman) { chooseTalismanOption(target.dataset.talisman as TalismanOption); return; }
   if (target.dataset.craft && isResource(target.dataset.craft)) { craftAtRest(target.dataset.craft); return; }
+  if (target.dataset.shopBuy) { buyAtShop(target.dataset.shopBuy); return; }
   switch (target.dataset.action) {
     // The run's own battle is never replayed (a defeat ends the run); retry is for editor levels and debug battles.
     case 'retry': if (!ownsRunBattle()) void openScene(() => engine.restartLevel()); break;
@@ -743,6 +767,8 @@ document.addEventListener('click', event => {
     case 'run-rest': showRest(); break;
     case 'rest-heal': healAtRest(); break;
     case 'rest-finish': finishRest(); break;
+    case 'run-shop': showShop(); break;
+    case 'shop-leave': leaveShop(); break;
     case 'run-map': quietCancel(); showScreen('map'); break;
     case 'playtest': openPlaytest(); break;
     case 'playtest-close': closePlaytest(); break;
