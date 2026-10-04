@@ -5,7 +5,7 @@
  *   strictly nearer to the cat (Chebyshev) — the melee elite rules; in a strike turn and with the cat beside it, it stays;
  * - the exchange is announced before the player's turn, the forecast shows it and execution does exactly that;
  * - the next heavy strike is announced from the new cell; the shield keeps its fixed facing (down) and moves with it;
- * - frost cancels the announced step; the same seed and actions repeat exactly; previews leave the state untouched.
+ * - frost postpones the announced step (the rest lasts a turn longer, the step is announced again); the same seed and actions repeat exactly; previews leave the state untouched.
  * The battle itself: jailer-gate (sharedBattles.spec.ts); the shield and rest rules: jailerRules.spec.ts.
  */
 import { neighbors } from './boardGeometry';
@@ -94,7 +94,7 @@ async function walksDown() {
   console.log(`PASS the Jailer walks to the resting cat in its rest turns (${steps} steps), stays beside it and strikes`);
 }
 
-/** Frost on the resting Jailer cancels its announced step: the forecast says so and it stays. */
+/** Frost on the resting Jailer postpones its announced step: the forecast says so, it stays and announces the step again. */
 async function frostHolds() {
   const g = calmLevel(spread(2)), jailer = jailerOf(g)!;
   assert(await g.waitTurn(), 'the first strike misses');
@@ -104,7 +104,8 @@ async function frostHolds() {
   const plan = g.previewRest().rotations.find(rotation => rotation.sourceId === jailer.id);
   assert(plan && !plan.active, 'the forecast shows the frozen step cancelled');
   assert(await g.waitTurn() && indexOf(g, jailer) === 3, 'the frozen Jailer stays');
-  console.log('PASS frost cancels the announced step');
+  assert(jailer.behavior.restTurns > 0 && g.state.rotations.some(rotation => rotation.sourceId === jailer.id), 'still resting, it announces the step again');
+  console.log('PASS frost postpones the announced step: the rest lasts a turn longer');
 }
 
 /** Real chains on spread seeds: the rule holds on every turn, the forecast equals execution, the replay is exact. */
@@ -135,9 +136,11 @@ async function gate() {
   assert(indexOf(g, jailer) === at('D1') && !shieldIsActive(jailer) && g.state.player.index === at('C3'), 'after the trap: the Jailer rests on D1, the cat on C3');
   const announced = g.state.rotations.find(rotation => rotation.sourceId === jailer.id);
   const below = g.state.board[at('D2')];
-  if (below && (below.kind === 'melee' || below.kind === 'ranged')) assert(announced?.to === at('D2'), 'it announces the step down to D2');
+  // The seed and the path are fixed: D2 always holds a weak goblin after the trap, so the step is asserted outright.
+  assert(below && (below.kind === 'melee' || below.kind === 'ranged') && announced?.to === at('D2'), 'it announces the step down to D2');
   await turn(g, 'jailer-gate rest window', false);
-  console.log(`PASS jailer-gate: after the pool trap the Jailer ${announced ? 'steps from D1 to D2 after the rest window' : 'has no nearer side cell and stays'}`);
+  assert(indexOf(g, jailer) === at('D2'), 'after the rest window it stands on D2');
+  console.log('PASS jailer-gate: after the pool trap the Jailer steps from D1 to D2 after the rest window');
 }
 
 await walksDown();
