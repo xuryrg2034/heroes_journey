@@ -35,6 +35,12 @@ export interface RunBattleSetup {
   talismans?: TalismanId[];
   /** The Ash ward is still whole (the run holds it and it has not saved the cat yet). */
   wardReady?: boolean;
+  /** The run's ladder step (ladder.ts); absent — 0. */
+  ladder?: number;
+  /** The node is a hard battle (ladder steps 3 and 8). */
+  hard?: boolean;
+  /** Ladder step 8: the run's stock reached LADDER_GREED_RESOURCES — one more random elite at the start. */
+  greedElite?: boolean;
 }
 
 /** Result of a finished node battle, read with ForestEngine.runBattleOutcome(). */

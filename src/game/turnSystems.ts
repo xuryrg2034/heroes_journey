@@ -13,11 +13,12 @@ import { behaviorOf } from './enemyBehaviors';
 import { heroStrikeDamage, rollEliteLoot } from './elite';
 import { emptyMaterials, isResource } from './resources';
 import { hasTalisman } from './talismans';
+import { LADDER_TROLL_REGEN, ladderAt } from './ladder';
 import { chestContents, chestDue, chestSize, nextReinforcementTurn, reinforcementLanding, rollChestCell, rollReinforcementCells } from './exitRules';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
-import { clubCanRaise, isTroll, trollRegeneration } from './troll';
+import { clubCanRaise, isTroll, TROLL_REGEN, trollRegeneration } from './troll';
 import { updateBasicAttack, type BasicAttackOps, type EnemyActor } from './recovered/enemies';
 import type { EngineEvent } from './forestTypes';
 import { stepBleeding, tickDamageEffects } from './damageEffects';
@@ -806,7 +807,8 @@ export function* resolveTrollWindups(ctx: TurnContext, actors: { cell: ForestCel
 export function* resolveTrollRegeneration(ctx: TurnContext): TurnSequence {
   for (const { cell, index } of uniqueEntities(ctx.state.board)) {
     if (!isTroll(cell)) continue;
-    const amount = trollRegeneration(cell);
+    // Ladder step 10: the Troll regrows 4 instead of 3.
+    const amount = trollRegeneration(cell, ladderAt(ctx.state, 10) ? LADDER_TROLL_REGEN : TROLL_REGEN);
     delete cell.behavior.hurtThisTurn;
     if (!amount) continue;
     turnReport(ctx).regenerated.push({ id: cell.id, index, amount });

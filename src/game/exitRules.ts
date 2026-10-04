@@ -18,6 +18,7 @@ import { RESOURCE_KINDS } from './resources';
 import { crystalCellAllowed, nextRandom, runPressureActive } from './mapBattleRules';
 import { isCellAlive } from './cellLife';
 import { hasTalisman } from './talismans';
+import { LADDER_REINFORCEMENT_EVERY, ladderAt } from './ladder';
 import { deviceAt, pitAt } from './devices';
 
 /** Баланс: crafting resources in a chest. */
@@ -45,7 +46,8 @@ export function chestContents(seed: number, size = CHEST_RESOURCES): ResourceKin
 
 /** Resources in this battle's chest: CHEST_RESOURCES, +1 with the Ragman's pouch, none under the Oath of poverty (talismans.ts). */
 export function chestSize(state: Pick<ForestState, 'runNode'>): number {
-  return hasTalisman(state, 'oath-poverty') ? 0 : CHEST_RESOURCES + (hasTalisman(state, 'ragman-pouch') ? 1 : 0);
+  // Ladder step 9: one less.
+  return hasTalisman(state, 'oath-poverty') ? 0 : Math.max(0, CHEST_RESOURCES + (hasTalisman(state, 'ragman-pouch') ? 1 : 0) - (ladderAt(state, 9) ? 1 : 0));
 }
 
 /** The chest's cell: one draw among the cells a crystal may take; none — the chest does not appear (no draw). */
@@ -71,7 +73,9 @@ export function nextReinforcementTurn(state: Pick<ForestState, 'runNode' | 'cust
   if (!exitBattle(state) || !runPressureActive(state) || state.customLevel!.goalCompletedTurn === null) return null;
   // The Hourglass (talismans.ts): the first reinforcement one turn later; then every REINFORCEMENT_EVERY as usual.
   const first = state.customLevel!.goalCompletedTurn + REINFORCEMENT_DELAY + (hasTalisman(state, 'hourglass') ? 1 : 0);
-  return state.turn < first ? first : first + REINFORCEMENT_EVERY * (Math.floor((state.turn - first) / REINFORCEMENT_EVERY) + 1);
+  // Ladder step 7: every 2 turns after the first.
+  const every = ladderAt(state, 7) ? LADDER_REINFORCEMENT_EVERY : REINFORCEMENT_EVERY;
+  return state.turn < first ? first : first + every * (Math.floor((state.turn - first) / every) + 1);
 }
 
 /** A reinforcement may take this cell: an ordinary living goblin (no variant, no elite, no marked target, one cell), not under the cat. */

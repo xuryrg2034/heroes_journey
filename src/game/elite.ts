@@ -14,6 +14,7 @@ import { ITEM_KINDS } from './items';
 import type { ForestCell, ForestState, ItemKind, LootKind } from './forestTypes';
 import { RESOURCE_KINDS } from './resources';
 import { crystalCellAllowed, runPressureActive } from './mapBattleRules';
+import { LADDER_ELITE_CHANCE, ladderAt } from './ladder';
 import { uniqueEntities } from './entityFootprint';
 import type { EnemyId } from './enemyDefinitions';
 
@@ -59,7 +60,8 @@ export function rollRandomElite(state: Pick<ForestState, 'runNode' | 'customLeve
   const afterGoals = (state.customLevel?.goalCompletedTurn ?? null) !== null;
   const living = uniqueEntities(board).filter(({ cell }) => cell.elite).length;
   if (living >= (afterGoals ? ELITE_CAP_AFTER_GOALS : ELITE_CAP)) return false;
-  return draw() < (afterGoals ? RANDOM_ELITE_CHANCE_AFTER_GOALS : RANDOM_ELITE_CHANCE);
+  // Ladder step 2: 5% before the goals.
+  return draw() < (afterGoals ? RANDOM_ELITE_CHANCE_AFTER_GOALS : ladderAt(state, 2) ? LADDER_ELITE_CHANCE : RANDOM_ELITE_CHANCE);
 }
 /** A random elite: HP max(1, own) × 2, armed and angry at once. */
 export function applyRandomElite(cell: ForestCell): void {

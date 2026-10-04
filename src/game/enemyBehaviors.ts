@@ -10,6 +10,7 @@
  * pass and resolved after it.
  */
 import { canSwapEnemies, meleeTargets, neighbors } from './boardGeometry';
+import { ladderAt } from './ladder';
 import { BOAR_CHARGE_LENGTH, BOAR_DAMAGE, chargeDirection, chargeLane } from './boarCharge';
 import { isCellAlive } from './cellLife';
 import { applyDamage, removeDefeated } from './combatRules';
@@ -165,7 +166,14 @@ const ARCHER: EnemyBehavior = {
     strike: archer => ({ creatures: { impacts: board => archerVolley(board, archer), cause: 'arrow' } }) },
 };
 const CHIEF: EnemyBehavior = {
-  intent: ({ state }, cell, index) => sweepIntent(state, cell, index, 1, 'Взмах котелком'),
+  intent: ({ state }, cell, index) => {
+    sweepIntent(state, cell, index, 1, 'Взмах котелком');
+    // Ladder step 10: the sweep also reaches every diagonal neighbour (the side toward the cat plus the four corners).
+    if (!ladderAt(state, 10)) return;
+    const col = index % state.cols, row = Math.floor(index / state.cols);
+    const corners = neighbors(state, index).filter(target => target % state.cols !== col && Math.floor(target / state.cols) !== row);
+    cell.intent.cells = [...new Set([...cell.intent.cells, ...corners])]; state.bossWarning = [...cell.intent.cells];
+  },
   attack: { style: 'strike', source: 'boss' },
 };
 /** Prism: no intent, no attack. */

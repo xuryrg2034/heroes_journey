@@ -59,7 +59,11 @@ export interface ForestState {
     /** Map row of the node (1 = first trunk battle); growing anger applies from RUN_PRESSURE_FIRST_ROW (mapBattleRules.ts). */
     row: number;
     /** The run's talismans and oaths (talismans.ts, docs/talismans.md); absent — none. */
-    talismans?: TalismanId[] };
+    talismans?: TalismanId[];
+    /** The run's ladder step (ladder.ts); absent — 0. */
+    ladder?: number;
+    /** The node is a hard battle (ladder steps 3 and 8). */
+    hard?: true };
 }
 export interface EngineEvent { type: string; effect?: DamageEffectKind; index?: number; from?: number; to?: number; amount?: number; text?: string; indices?: number[]; oldId?: number; newId?: number; geometry?: RotationGeometry }
 export interface ChainHit {

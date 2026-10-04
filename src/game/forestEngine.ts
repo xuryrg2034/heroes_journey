@@ -14,10 +14,13 @@ import type { AbilityKind, CellKind, ChainPreview, EnemyColor, EnemyVariant, Eng
 import type { RunBattleOutcome, RunBattleSetup } from './run/runBattle';
 import { forestBattle } from './run/forestBattles';
 import { cloneState, type World } from './ecs/world';
-import { definitionOf, hasTag, variantDefinition } from './enemyDefinitions';
+import { definitionOf, hasTag, variantDefinition, type EnemyId } from './enemyDefinitions';
 import { applyElite, applyRandomElite, rollRandomElite } from './elite';
 import { emptyMaterials } from './resources';
 import { hasTalisman, OATH_ENERGY, oathCount } from './talismans';
+import { LADDER_BOSS_HP, ladderAt } from './ladder';
+import { PRESSURE_BOSSES } from './mapBattleRules';
+import { reinforcementCellAllowed } from './exitRules';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Seed of an engine before any battle is loaded; every battle replaces it with its own. */
@@ -98,7 +101,7 @@ export class ForestEngine {
       ...(player.damageEffects ? { damageEffects: { ...player.damageEffects } } : {}) };
     state.inventory = { ...setup.inventory };
     state.runNode = { nodeId: setup.nodeId, label: setup.label, row: setup.row, allowedItems: [...setup.allowedItems], allowedAbilities: [...setup.allowedAbilities],
-      ...(setup.talismans?.length ? { talismans: [...setup.talismans] } : {}) };
+      ...(setup.talismans?.length ? { talismans: [...setup.talismans] } : {}), ...(setup.ladder ? { ladder: setup.ladder } : {}), ...(setup.hard ? { hard: true as const } : {}) };
     // Oaths: +OATH_ENERGY at the start of every battle (up to 7); the Ash ward, if still whole (talismans.ts).
     state.player.energy = Math.min(7, state.player.energy + OATH_ENERGY * oathCount(state));
     if (setup.wardReady && hasTalisman(state, 'ash-ward')) state.player.ward = true;
@@ -162,6 +165,10 @@ export class ForestEngine {
         if (enemy.attackEffect) cell.attackEffect = enemy.attackEffect;
         // The elite modifier is baked over the authored HP (elite.ts).
         if (enemy.elite) applyElite(cell);
+        // Ladder step 3: authored elites of a hard battle +1 HP (after the doubling).
+        if (enemy.elite && state.runNode?.hard && ladderAt(state, 3)) { cell.hp++; cell.maxHp++; }
+        // Ladder step 4: the Troll and the Chief +20% HP.
+        if (cell.kind === 'boss' && ladderAt(state, 4) && PRESSURE_BOSSES.includes(definitionOf(cell)?.id as EnemyId)) cell.hp = cell.maxHp = Math.round(cell.hp * LADDER_BOSS_HP);
         if (enemy.footprint) cell.footprint = [...enemy.footprint];
         const indices = cell.footprint ?? [enemy.index]; cell.status.wet = indices.some(index => state.terrain[index] === 'puddle');
         for (const index of indices) state.board[index] = cell;
@@ -170,6 +177,12 @@ export class ForestEngine {
         const footprint = door.footprint ?? [door.index], cell = this.createCell('door', null, door.index);
         cell.hp = cell.maxHp = 1; cell.door = { label: 'Выход', breached: false, footprint: [...footprint] };
         for (const index of footprint) state.board[index] = cell;
+      }
+      // Ladder step 8 (greed): a hard battle starts with one more random elite on an authored ordinary goblin, drawn by
+      // the battle seed (only when the run asks for it, so the RNG of every other battle is unchanged).
+      if (run?.greedElite && state.runNode?.hard && ladderAt(state, 8)) {
+        const pool = state.board.flatMap((cell, index) => cell && reinforcementCellAllowed(state, state.board, index) ? [index] : []);
+        if (pool.length) applyRandomElite(state.board[pool[Math.floor(this.random() * pool.length)]]!);
       }
       // An authored battle must have an opening in its layout, before any generated fill.
       if (lesson && !hasOrdinaryChain(state)) throw new Error('В авторском поле нет начальной цепочки.');

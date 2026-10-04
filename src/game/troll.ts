@@ -95,7 +95,7 @@ export function* clubImpacts(board: (ForestCell | null)[], troll: ForestCell, zo
  * chain, ability, item, lever, arrow, ram, club, effect tick) and carries no burning stacks. Passivity and frost
  * do not stop it.
  */
-export function trollRegeneration(troll: ForestCell): number {
+export function trollRegeneration(troll: ForestCell, regen = TROLL_REGEN): number {
   if (!isTroll(troll) || !isCellAlive(troll) || troll.behavior.hurtThisTurn || (troll.damageEffects?.burning ?? 0) > 0) return 0;
-  return Math.max(0, Math.min(TROLL_REGEN, troll.maxHp - troll.hp));
+  return Math.max(0, Math.min(regen, troll.maxHp - troll.hp));
 }
