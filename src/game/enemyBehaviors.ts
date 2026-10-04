@@ -80,6 +80,11 @@ export interface EnemyBehavior {
   readonly canStrike?: (cell: ForestCell, index: number, world?: BeastWorld) => boolean;
   /** Absent: never strikes in the attack step (the boar charges, the porcupine and the shaman do not attack). */
   readonly attack?: EnemyAttackRule;
+  /**
+   * Its own approach to the cat outside the elite modifier (`announceEliteMoves`, the elite melee rules): `true` in the
+   * turn it may close in. The Jailer closes in during its rest (decision of 04.10.2026).
+   */
+  readonly closesIn?: (cell: ForestCell) => boolean;
 }
 
 const MELEE: EnemyAttackRule = { style: 'melee', source: 'melee' };
@@ -193,8 +198,14 @@ const SENTINEL: EnemyBehavior = {
   attack: MELEE,
 };
 
-/** Jailer: a heavy sweep; frost or rest lowers its shield (`shieldIsActive`) and skips the turn. */
+/**
+ * Jailer: a heavy sweep; frost or rest lowers its shield (`shieldIsActive`) and skips the turn. In its rest it closes in
+ * on the cat like a melee elite (`announceEliteMoves`); the next sweep is announced from the new cell. The shield keeps
+ * its fixed facing and moves with it.
+ */
 const JAILER: EnemyBehavior = {
+  // The one place that chooses the Jailer's approach turn: the rest turn, the only turn without a strike (04.10.2026).
+  closesIn: cell => cell.behavior.restTurns > 0,
   intent({ state }, cell, index) {
     cell.shield ??= { dx: 0, dy: 1 };
     if (cell.status.frozen > 0 || cell.behavior.restTurns > 0) {
@@ -269,9 +280,12 @@ export function announceRites({ state, rites }: IntentPass) {
  * than 3 cells. Ties are drawn from the battle RNG. Frozen, resting (except a resting
  * archer, who retreats instead of its rotation) and passive elites stay; defensive ones hold (`ELITE_MOVEMENT`).
  * Ordinary enemies never close in. Every `ELITE_MOVE_EVERY` turns; draws of the battle RNG come in board order.
+ * An enemy with its own approach (`closesIn`: the Jailer in its rest, decision of 04.10.2026) closes in by the same
+ * melee rules every turn its behaviour allows, elite or not and regardless of `ELITE_MOVE_EVERY`; its reach is every
+ * neighbour (the sweep covers the side toward the cat, corners included).
  */
 export function announceEliteMoves({ state, rand, paired }: IntentPass) {
-  if (ELITE_MOVE_EVERY <= 0 || state.turn % ELITE_MOVE_EVERY !== 0) return;
+  const elitesMove = ELITE_MOVE_EVERY > 0 && state.turn % ELITE_MOVE_EVERY === 0;
   const cols = state.cols, hero = state.player.index;
   const distance = (a: number, b: number) => Math.max(Math.abs(a % cols - b % cols), Math.abs(Math.floor(a / cols) - Math.floor(b / cols)));
   const sides = (index: number) => [index - cols, index + 1, index + cols, index - 1].filter(target => target >= 0 && target < cols * state.rows
@@ -279,17 +293,22 @@ export function announceEliteMoves({ state, rand, paired }: IntentPass) {
   const swappable = (index: number, target: number) => !paired.has(target) && canSwapEnemies(state, index, target);
   for (const { cell, index } of uniqueEntities(state.board)) {
     const id = definitionOf(cell)?.id;
-    if (!cell.elite || !id || !isCellAlive(cell) || cell.status.frozen > 0 || cell.behavior.passive || paired.has(index)) continue;
-    const mode = ELITE_MOVEMENT[id];
+    if (!id || !isCellAlive(cell) || cell.status.frozen > 0 || cell.behavior.passive || paired.has(index)) continue;
+    const own = BEHAVIORS[id].closesIn;
+    if (!own && (!cell.elite || !elitesMove)) continue;
+    const mode = own ? 'close' : ELITE_MOVEMENT[id];
     let target = index, label = '';
     if (mode === 'close') {
-      // The cat in reach (announced strike or a side neighbour, armed or not), a charge or a rest: no closing in.
-      if (cell.behavior.restTurns > 0 || cell.intent.charge || cell.intent.cells.includes(hero) || meleeTargets(state, index).includes(hero)) continue;
+      // Not its turn (an elite's charge or rest; the Jailer outside its rest) or the cat in reach (announced strike, a
+      // side neighbour armed or not; any neighbour of the Jailer): no closing in.
+      if (own ? !own(cell) : cell.behavior.restTurns > 0 || !!cell.intent.charge) continue;
+      if (cell.intent.cells.includes(hero) || (own ? neighbors(state, index) : meleeTargets(state, index)).includes(hero)) continue;
       // Only a neighbour strictly nearer to the cat; the nearest, a tie by the battle RNG; none — the elite stands.
       const near = distance(index, hero), closer = sides(index).filter(side => swappable(index, side) && distance(side, hero) < near);
       if (!closer.length) continue;
       const nearest = Math.min(...closer.map(side => distance(side, hero))), best = closer.filter(side => distance(side, hero) === nearest);
-      target = best.length > 1 ? best[rand(0, best.length)] : best[0]; label = 'Сближение';
+      // The Jailer keeps its rest in the label: «Отдых · щит опущен · сближение».
+      target = best.length > 1 ? best[rand(0, best.length)] : best[0]; label = own ? `${cell.intent.label} · сближение` : 'Сближение';
     } else if (mode === 'retreat') {
       // An archer retreats in its rest turn (it shoots otherwise); a shaman in a turn without a rite.
       if (id === 'archer' ? cell.behavior.restTurns === 0 : cell.behavior.restTurns > 0 || !!cell.intent.empowerIds?.length) continue;

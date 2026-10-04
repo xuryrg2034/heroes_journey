@@ -42,18 +42,26 @@ export function meleeTargets(state: ForestState, index: number): number[] {
   if (footprint && footprint.length > 1) return footprintPerimeter(footprint, state.cols, state.rows).filter(target => isWalkable(state, target));
   return neighbors(state, index).filter(target => target % state.cols === index % state.cols || Math.floor(target / state.cols) === Math.floor(index / state.cols));
 }
-/** A rotation exchanges two living ordinary enemies; empty cells never qualify. */
+/**
+ * Who may stand at an end of an exchange: a single-cell ordinary enemy (melee, ranged) at either end; the Jailer only
+ * as the source of its own approach (decision of 04.10.2026), so no other enemy's rotation or approach moves it.
+ */
+export function rotationParticipant(cell: Pick<ForestCell, 'kind' | 'variant' | 'footprint'>, role: 'source' | 'target'): boolean {
+  if ((cell.footprint?.length ?? 1) > 1) return false;
+  return cell.kind === 'melee' || cell.kind === 'ranged' || role === 'source' && cell.variant === 'jailer';
+}
+/** A rotation exchanges two living enemies that may take part in it (`rotationParticipant`); empty cells never qualify. */
 export function canSwapEnemies(state: ForestState, from: number, to: number): boolean {
   const source = state.board[from], target = state.board[to];
-  const normal = (cell: ForestCell | null | undefined) => {
+  const normal = (cell: ForestCell | null | undefined, role: 'source' | 'target') => {
     if (!cell || !isCellAlive(cell)) return false; // Our rotations require occupied endpoints.
     const properties: Record<number, number> = {};
-    if (cell.kind !== 'melee' && cell.kind !== 'ranged' || (cell.footprint?.length ?? 1) > 1) properties[37] = 1;
+    if (!rotationParticipant(cell, role)) properties[37] = 1;
     if (cell.status.frozen > 0) properties[254] = cell.status.frozen;
     return canMoveTo(0, 0, 0, 0, false, false, { valid: () => true, playableMove: () => true,
       cell: () => ({ subtype: 2, kind: 1, power: cell.hp, col: 0, row: 0, face_dir: 1, attack_mode: 0, properties }) });
   };
-  return !!normal(source) && !!normal(target) && adjacent(state, from, to)
+  return !!normal(source, 'source') && !!normal(target, 'target') && adjacent(state, from, to)
     && (from % state.cols === to % state.cols || Math.floor(from / state.cols) === Math.floor(to / state.cols))
     && from !== state.player.index && to !== state.player.index;
 }

@@ -454,7 +454,7 @@ function updateGuide() {
   const tools = toolRules(state);
   if (state.tutorial && state.customLevel?.definition.completion === 'exit') rows[1] = ['⇥', 'Путь к выходу', 'Выход откроется после цели. Дойди до него цепью; остальных врагов побеждать не обязательно.'];
   if (sentinelPresent) rows.push(['▣', 'Щитоносец', 'Золотая грань закрывает вход цепи спереди. Обойди сбоку или заморозь его.']);
-  if (state.board.some(cell => cell?.variant === 'jailer')) rows.push(['▣', 'Тюремщик', 'Щит закрывает вход цепи спереди. Тяжёлый удар наносит 2 урона по отмеченным клеткам. Затем один ход передышки со снятым щитом — даже после промаха.']);
+  if (state.board.some(cell => cell?.variant === 'jailer')) rows.push(['▣', 'Тюремщик', 'Щит закрывает вход цепи спереди. Тяжёлый удар наносит 2 урона по отмеченным клеткам. Затем один ход передышки со снятым щитом — даже после промаха. В передышке, если кот не рядом, шагает к нему обменом с соседом.']);
   if (state.tutorial && tools.items.includes('frost')) rows.push(['❄', 'Холод', 'Выбери холод, затем любого врага. Он пропустит действие и получит двойной следующий физический удар. После этого проведи цепь.']);
   if (state.tutorial && tools.abilities.includes('jump')) rows.push(['↗', 'Прыжок · 2 энергии', 'Каждый атакованный враг даёт 0,5 энергии. Прыжок наносит 4 урона и переносит кота на выбранную клетку.']);
   if (state.tutorial && state.board.some(cell => cell?.kind === 'prism')) rows.push(['✦', 'Кристалл меняет цвет', `Цепь можно начать с кристалла или пройти через него: цвет меняется, накопленная сила сохраняется, самой силы он не даёт. Число на нём — очки за разрушение. Новый падает прямо по ходу цепи за каждые ${crystalKills(state)} убийств, куда — неизвестно заранее.`]);
@@ -500,7 +500,8 @@ function telegraphNotes(state: typeof engine.state): string[] {
     if (cell.variant === 'jailer' && cell.shield) {
       notes.push(shieldIsActive(cell)
         ? `Тюремщик: щит ${sideName(cell.shield.dx, cell.shield.dy)} — вход цепи с этой стороны закрыт${cell.intent.cells.length ? `; после хода удар ${cell.intent.damage} по отмеченным клеткам, затем отдых` : ''}.`
-        : cell.status.frozen ? 'Тюремщик заморожен: щит опущен, бей сейчас.' : 'Тюремщик отдыхает: щит опущен — бей сейчас!');
+        : cell.status.frozen ? 'Тюремщик заморожен: щит опущен, бей сейчас.'
+        : `Тюремщик отдыхает: щит опущен — бей сейчас!${cell.intent.moveTo !== undefined ? ' После хода шагнёт к коту (обмен).' : ''}`);
     } else if (cell.variant === 'shaman' && isCellAlive(cell)) {
       const ids = cell.intent.empowerIds ?? [];
       notes.push(cell.status.frozen ? 'Шаман заморожен: камлания не будет.'
