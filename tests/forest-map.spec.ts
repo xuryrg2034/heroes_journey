@@ -682,16 +682,16 @@ test('Jailer victory opens the spin and offers oaths; a hard-battle victory offe
   await oath.hover();
   await expect(oath.locator('.talisman-tip')).toBeVisible();
   await expect(oath.locator('.talisman-tip')).toContainText('Клятва ярости');
-  await expect(oath.locator('.talisman-tip')).toContainText('+1 энергия в начале каждого боя');
+  await expect(oath.locator('.talisman-tip')).toContainText('+2 энергии в начале каждого боя');
   await page.screenshot({ path: 'artifacts/forest-map-badges.png' });
   expect((await savedRun(page)).talismans).toEqual(['oath-wrath']);
   const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
   expect(journal.runTalismans.at(-1)).toMatchObject({ nodeId: 'jailer', source: 'oath', chosen: 'oath-wrath' });
   expect(journal.runTalismans.at(-1).offered).toHaveLength(3);
-  // The oath adds 1 energy at the start of the next battle.
+  // The oath adds 2 energy at the start of the next battle.
   const energy = (await savedRun(page)).resources.player.energy;
   await node(page, 'den-battle').click(); await settled(page);
-  expect((await state(page)).player.energy).toBe(Math.min(7, energy + 1));
+  expect((await state(page)).player.energy).toBe(Math.min(7, energy + 2));
   await expect(page.locator('#talisman-row [data-talisman-badge="oath-wrath"]')).toBeVisible();
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
   await page.locator('#modal [data-action="run-map"]').click();
