@@ -17,7 +17,7 @@ import { enemyDefeatCountsForGoal, shieldIsActive } from './game/combatRules';
 import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
-import { CRYSTAL_KILLS, crystalsActive, runPressureInfo } from './game/mapBattleRules';
+import { crystalKills, crystalsActive, runPressureInfo } from './game/mapBattleRules';
 import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseTalisman, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore } from './game/run/playerProfile';
@@ -345,7 +345,7 @@ function updateGuide() {
   if (state.board.some(cell => cell?.variant === 'jailer')) rows.push(['▣', 'Тюремщик', 'Щит закрывает вход цепи спереди. Тяжёлый удар наносит 2 урона по отмеченным клеткам. Затем один ход передышки со снятым щитом — даже после промаха.']);
   if (state.tutorial && tools.items.includes('frost')) rows.push(['❄', 'Холод', 'Выбери холод, затем любого врага. Он пропустит действие и получит двойной следующий физический удар. После этого проведи цепь.']);
   if (state.tutorial && tools.abilities.includes('jump')) rows.push(['↗', 'Прыжок · 2 энергии', 'Каждый атакованный враг даёт 0,5 энергии. Прыжок наносит 4 урона и переносит кота на выбранную клетку.']);
-  if (state.tutorial && state.board.some(cell => cell?.kind === 'prism')) rows.push(['✦', 'Кристалл меняет цвет', 'Цепь можно начать с кристалла или пройти через него: цвет меняется, накопленная сила сохраняется, самой силы он не даёт. Число на нём — очки за разрушение. Новый падает прямо по ходу цепи за каждые 6 убийств, куда — неизвестно заранее.']);
+  if (state.tutorial && state.board.some(cell => cell?.kind === 'prism')) rows.push(['✦', 'Кристалл меняет цвет', `Цепь можно начать с кристалла или пройти через него: цвет меняется, накопленная сила сохраняется, самой силы он не даёт. Число на нём — очки за разрушение. Новый падает прямо по ходу цепи за каждые ${crystalKills(state)} убийств, куда — неизвестно заранее.`]);
   if (state.tutorial && state.board.some(cell => cell?.kind === 'ranged')) rows.push(['⌖', 'Стрелок и обмен', 'Лучник стреляет по отмеченной линии и задевает всех на ней, врагов тоже, затем отдыхает. Знак ⇄ показывает будущий обмен: учитывай его при выборе позиции.']);
   if (elitePresent) rows.push(['♛', 'Элита', 'Золотая рамка и корона. HP ×2, удар по коту на 1 сильнее. Ближняя, когда кот не рядом, сближается обменом с соседом; дальняя отступает от близкого кота. Побеждённая игроком оставляет добычу: авторская — с шансом 50% расходник (нет открытых — ресурс), появившаяся сама (с ряда 5) — всегда ресурс. Пройди по добыче цепью — она попадёт в запас.']);
   if (boarPresent) rows.push(['⇶', 'Кабан', 'Янтарный коридор — рывок до 3 клеток по прямой. Кабан бьёт первого и толкает ряд; клетки, освобождённые цепью, решают, кто уцелеет. Упёрся — оглушён, следующий удар по нему двойной.']);
@@ -533,7 +533,7 @@ function updateHUD() {
   if (lastHit?.attackEffect === 'fire' && !lastHit.killed) el('chain-reward').innerHTML += '<br>+1 горение · урон в конце хода, после ответа врагов.';
   if (whetstoneLine) el('chain-reward').innerHTML += whetstoneLine;
   if (preview.crystals) el('chain-reward').innerHTML += `<br><b>+${preview.crystals} ${preview.crystals === 1 ? 'кристалл упадёт' : 'кристалла упадут'} по ходу цепи</b> · место — сюрприз, смена цвета, очки за разрушение`;
-  if (crystalsActive(state) && !restMode && count > 0 && preview.valid) el('chain-reward').innerHTML += `<br>До кристалла: <b>${preview.kills % CRYSTAL_KILLS} / ${CRYSTAL_KILLS}</b> убийств цепью`;
+  if (crystalsActive(state) && !restMode && count > 0 && preview.valid) el('chain-reward').innerHTML += `<br>До кристалла: <b>${preview.kills % crystalKills(state)} / ${crystalKills(state)}</b> убийств цепью`;
   const lootHits = preview.hits.filter(hit => hit.loot);
   if (lootHits.length) el('chain-reward').innerHTML += `<br>Подберёт: <b>${lootHits.map(hit => lootLabel(hit.loot!)).join(', ')}</b>`;
   const chestHits = preview.hits.filter(hit => hit.chest);
