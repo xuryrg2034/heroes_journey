@@ -8,16 +8,21 @@ import { angerIntent, announceEliteMoves, announceRites, behaviorOf, type Intent
 import { chainAdjacent, isWalkable, neighbors } from './boardGeometry';
 import { THORN_DAMAGE } from './terrain';
 import { chainSpikeDamage } from './forestBeasts';
-import { creditDefeat, applyDamage, defeatOutright, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
+import { creditDefeat, applyDamage, defeatOutright, heroLoss, physicalDamage, removeDefeated, shieldBlocksEntry } from './combatRules';
 export { physicalDamage, shieldBlocksEntry } from './combatRules';
 import { MELEE_AGGRESSION_START_TURN } from './enemyLifecycle';
 import { stepBleeding, type DamageEffects } from './damageEffects';
 import { assignDamageEffects, applyAttackEffect } from './effectRules';
 import { customGoalsMet } from './customLevel';
 import { applyDeviceVolley, deviceAt } from './devices';
-import { angerQueueSize, CRYSTAL_KILLS, crystalCellAllowed, crystalScore, nextRandom } from './mapBattleRules';
+import { angerQueueSize, crystalCellAllowed, crystalKills, crystalScore, nextRandom } from './mapBattleRules';
+import { hasTalisman } from './talismans';
 
 export const ABILITY_COST: Record<AbilityKind, number> = { jump: 2, spin: 3 };
+/** Energy an ability costs in this battle: the Nimble paws make the jump cost 1 (talismans.ts). */
+export function abilityCost(state: Pick<ForestState, 'runNode'>, ability: AbilityKind): number {
+  return ability === 'jump' && hasTalisman(state, 'nimble-paws') ? 1 : ABILITY_COST[ability];
+}
 export const emptyDamageBySource = (): Record<HeroDamageSource, number> => ({ quills: 0, bleeding: 0, thorns: 0, trap: 0, charge: 0, melee: 0, ranged: 0, boss: 0, troll: 0, burning: 0, poison: 0 });
 export const JUMP_RANGE = 3;
 
@@ -73,7 +78,10 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   const preview: ChainPreview = { valid: true, length: path.length, enemies: 0, power: 0, endIndex: state.player.index,
     damage: 0, damageBySource: emptyDamageBySource(), threats: [], createsPrism: false, reason: '', hits: [], kills: 0, endsOnSurvivor: false, rotations: rotationPreview(state), energyCost: 0, energyGain: 0 };
   let color: number | null = null, previous = state.player.index;
-  let chainPower = 0;
+  // The Whetstone (talismans.ts): the first ordinary chain of the battle starts with a power of 1.
+  const whetstone = hasTalisman(state, 'whetstone') && !state.chainStarted;
+  let chainPower = whetstone ? 1 : 0;
+  if (whetstone) preview.whetstone = true;
   let temporaryEffect: 'fire' | undefined;
   const steps: ChainStep[] = [], queuedDevices: InteractionDevice[] = [];
   const seenDevices = new Set<number>();
@@ -147,7 +155,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
         if (killed) {
           removeDefeated(board, cell);
           preview.endIndex = index;
-          if (cell.kind !== 'door') { preview.kills++; if (preview.kills % CRYSTAL_KILLS === 0) pendingCrystals++; }
+          if (cell.kind !== 'door') { preview.kills++; if (preview.kills % crystalKills(state) === 0) pendingCrystals++; }
           if (cell.kind !== 'door') creditDefeat(state, cell, customProgress);
           // An elite killed by the chain may drop a consumable once this step is over (elite.ts).
           if (cell.elite) pendingLoot = cell.elite;
@@ -161,7 +169,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
         preview.endsOnSurvivor = !killed;
         if (spikeDamage) {
           // Quills wound the cat at the moment of the hit; a lethal hit ends the chain before any victory.
-          const taken = Math.min(movingPlayer.hp, spikeDamage);
+          const taken = heroLoss(movingPlayer, spikeDamage);
           movingPlayer.hp -= taken; preview.spikeDamage = (preview.spikeDamage ?? 0) + taken; hurt(preview, 'quills', taken);
           if (movingPlayer.hp === 0) {
             preview.playerDies = true; preview.completesRoom = false; delete preview.opensDoor;
@@ -179,7 +187,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
     if (preview.endIndex === index && movingPlayer.damageEffects?.bleeding) {
       const step = stepBleeding(movingPlayer.damageEffects);
       assignDamageEffects(movingPlayer, step.effects);
-      const damage = Math.min(movingPlayer.hp, step.damage);
+      const damage = heroLoss(movingPlayer, step.damage);
       movingPlayer.hp -= damage;
       preview.movementDamage = (preview.movementDamage ?? 0) + damage;
       hurt(preview, 'bleeding', damage);
@@ -227,7 +235,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
   preview.energyGain = Math.min(7 - state.player.energy, preview.hits.filter(hit => { const cell = state.board[hit.index]; return cell && cell.kind !== 'door' && cell.kind !== 'prism'; }).length * 0.5);
   // An ordinary chain that stops on thorns hurts the cat before any lever resolves.
   if (!preview.playerDies && state.terrain[preview.endIndex] === 'thorns') {
-    const damage = Math.min(movingPlayer.hp, THORN_DAMAGE);
+    const damage = heroLoss(movingPlayer, THORN_DAMAGE);
     movingPlayer.hp -= damage; preview.thornDamage = damage; hurt(preview, 'thorns', damage);
     if (movingPlayer.hp === 0) preview.playerDies = true;
   }
@@ -248,6 +256,7 @@ export function planChain(state: ForestState, path: number[], allowIncomplete = 
     if (forecastState.player.hp <= 0) { preview.playerDies = true; break; }
   }
   if (!preview.playerDies && preview.enemies >= 1 && state.customLevel?.definition.completion === 'direct' && customGoalsMet(state, customProgress)) preview.completesRoom = true;
+  if (state.player.ward && !forecastState.player.ward) preview.wardSaves = true;
   if (preview.playerDies) { preview.completesRoom = false; delete preview.opensDoor; }
   // Only the number of fallen crystals is public; their cells and the crushed enemies stay in the internal steps.
   if (crystalSteps.length) { preview.crystals = crystalSteps.length; preview.createsPrism = true; }
@@ -288,7 +297,7 @@ export function simulateAbility(state: ForestState, ability: AbilityKind, target
 }
 /** The action plan of an ability (jump or spin): validity and hits, replayed by execution. No enemy answer. */
 export function planAbility(state: ForestState, ability: AbilityKind, targetIndex?: number): ChainSimulation & { preview: AbilityPreview } {
-  const board = cloneBoard(state.board), cost = ABILITY_COST[ability] ?? 0;
+  const board = cloneBoard(state.board), cost = Object.hasOwn(ABILITY_COST, ability) ? abilityCost(state, ability) : 0;
   const indices = ability === 'spin' ? neighbors(state, state.player.index).filter(index => board[index] && board[index]!.kind !== 'door' && board[index]!.kind !== 'prism') : targetIndex === undefined ? [] : [targetIndex];
   const preview: AbilityPreview = { ability, cost, indices, targetIndex, valid: true, length: indices.length, enemies: 0, power: 4, endIndex: state.player.index,
     damage: 0, damageBySource: emptyDamageBySource(), threats: [], createsPrism: false, reason: '', hits: [], kills: 0, endsOnSurvivor: false, rotations: [], energyCost: cost, energyGain: 0 };

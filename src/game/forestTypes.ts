@@ -1,5 +1,6 @@
 import type { DamageEffects, DamageEffectKind } from './damageEffects';
 import type { CustomLevelRuntime } from './customLevel';
+import type { TalismanId } from './talismans';
 import type { CellBehaviorComponent, CellFootprintComponent, CellHealthComponent, CellIdentityComponent,
   CellIntentComponent, CellLinkComponent, CellShieldComponent, CellStatusComponent, DamageEffectComponent, CellEliteComponent } from './components';
 export type EnemyColor = 0 | 1 | 2 | 3 | 4;
@@ -35,7 +36,11 @@ export interface TemporaryPit { index: number; closesAfterTurn: number }
 export interface DeviceActivation { index: number; kind: InteractionDevice['kind']; chargesBefore: number; chargesAfter: number }
 export interface ForestState {
   phase: Phase; level: ForestLevel; cols: number; rows: number; board: (ForestCell | null)[];
-  terrain: TerrainKind[]; devices: InteractionDevice[]; pits: TemporaryPit[]; player: { index: number; hp: number; maxHp: number; energy: number } & DamageEffectComponent; chain: number[];
+  terrain: TerrainKind[]; devices: InteractionDevice[]; pits: TemporaryPit[];
+  /** `ward`: the Ash ward is whole (talismans.ts): the next lethal hit leaves the cat with 1 HP and spends it. */
+  player: { index: number; hp: number; maxHp: number; energy: number; ward?: true } & DamageEffectComponent; chain: number[];
+  /** An ordinary chain has resolved in this battle (the Whetstone acts on the first one only). */
+  chainStarted?: true;
   chosenAbility: AbilityKind | null;
   inventory: Record<ItemKind, number>; itemPrepared: boolean;
   /** Resources picked up in this battle (elite loot); absent until the first one. The run keeps them. */
@@ -52,7 +57,9 @@ export interface ForestState {
   /** Forest-map run battle (src/game/run): tools opened by the run, which replace lesson permissions. */
   runNode?: { nodeId: string; label: string; allowedItems: ItemKind[]; allowedAbilities: AbilityKind[];
     /** Map row of the node (1 = first trunk battle); growing anger applies from RUN_PRESSURE_FIRST_ROW (mapBattleRules.ts). */
-    row: number };
+    row: number;
+    /** The run's talismans and oaths (talismans.ts, docs/talismans.md); absent — none. */
+    talismans?: TalismanId[] };
 }
 export interface EngineEvent { type: string; effect?: DamageEffectKind; index?: number; from?: number; to?: number; amount?: number; text?: string; indices?: number[]; oldId?: number; newId?: number; geometry?: RotationGeometry }
 export interface ChainHit {
@@ -111,6 +118,10 @@ export interface ChainPreview {
   crystals?: number;
   /** Score for the crystals this chain breaks (sum of `hits[].crystalScore`). */
   crystalScore?: number;
+  /** The Whetstone gives this first ordinary chain of the battle a starting power of 1. Set only when true. */
+  whetstone?: true;
+  /** The Ash ward saves the cat from a lethal hit of this turn (it crumbles). Set only when true. */
+  wardSaves?: true;
   /**
    * This action meets the goals of an exit battle without entering the door: the door opens and the chest falls
    * (its cell, like a crystal's, is never shown). Set only when true.

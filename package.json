@@ -59,6 +59,7 @@
     "test:exit-door": "tsx src/game/exitDoor.spec.ts",
     "test:pressure": "tsx src/game/pressure.spec.ts",
     "test:single-hit": "tsx src/game/singleHit.spec.ts",
+    "test:talismans": "tsx src/game/talismans.spec.ts",
     "test:telemetry": "tsx src/telemetry.spec.ts",
     "test:player-profile": "tsx src/game/playerProfile.spec.ts",
     "test:forest-events": "tsx src/game/forestEvents.spec.ts",

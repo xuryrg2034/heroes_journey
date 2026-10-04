@@ -36,13 +36,22 @@ export function traceHeroDamage(state: Pick<ForestState, 'player' | 'lastDamage'
  * by its HP and counted in the turn's `lastDamage`; `cause` is the damage source shown by the forecast breakdown.
  * Removal of a dead creature is separate (`removeDefeated` / the `kill` command), so hit handlers still see it.
  */
+/**
+ * Damage the cat actually takes from `amount`, capped by its HP; a lethal hit while the Ash ward is whole (talismans.ts)
+ * leaves the cat with 1 HP and spends the ward. The live hit and the chain plan's own arithmetic both use it.
+ */
+export function heroLoss(player: { hp: number; ward?: true }, amount: number): number {
+  const damage = Math.min(player.hp, Math.max(0, amount));
+  if (damage > 0 && damage >= player.hp && player.ward) { delete player.ward; return player.hp - 1; }
+  return damage;
+}
 export function applyDamage(target: ForestCell, amount: number, source: DamageSource): DamageOutcome;
 export function applyDamage(target: HeroTarget, amount: number, cause: HeroDamageSource): DamageOutcome;
 export function applyDamage(target: ForestCell | HeroTarget, amount: number, source: DamageSource | HeroDamageSource): DamageOutcome {
   if ('hero' in target) {
     // An elite attacker adds its bonus to every attack on the cat (elite.ts).
     const state = target.hero, hpBefore = state.player.hp;
-    const damage = Math.min(state.player.hp, amount + heroDamageBonus(target.from));
+    const damage = heroLoss(state.player, amount + heroDamageBonus(target.from));
     state.player.hp -= damage; state.lastDamage += damage;
     heroTraces.get(state)?.push({ cause: source as HeroDamageSource, damage });
     return { damage, hpBefore, hpAfter: state.player.hp, hpRemoved: damage, killed: state.player.hp === 0 };

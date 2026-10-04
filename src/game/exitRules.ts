@@ -17,6 +17,7 @@ import type { ForestCell, ForestState, ResourceKind } from './forestTypes';
 import { RESOURCE_KINDS } from './resources';
 import { crystalCellAllowed, nextRandom, runPressureActive } from './mapBattleRules';
 import { isCellAlive } from './cellLife';
+import { hasTalisman } from './talismans';
 import { deviceAt, pitAt } from './devices';
 
 /** Баланс: crafting resources in a chest. */
@@ -34,12 +35,17 @@ export const chestDue = (state: Pick<ForestState, 'runNode' | 'customLevel'>): b
  * Contents of the chest by the node's seed (the battle seed of the node): CHEST_RESOURCES crafting resources. A
  * separate generator: the battle RNG is not drawn, so the set does not depend on how the battle went.
  */
-export function chestContents(seed: number): ResourceKind[] {
+export function chestContents(seed: number, size = CHEST_RESOURCES): ResourceKind[] {
   let rng = Math.imul(seed ^ 0x5eed_c4e5, 2654435761) >>> 0;
-  return Array.from({ length: CHEST_RESOURCES }, () => {
+  return Array.from({ length: size }, () => {
     const draw = nextRandom(rng); rng = draw.state;
     return RESOURCE_KINDS[Math.floor(draw.value * RESOURCE_KINDS.length)];
   });
+}
+
+/** Resources in this battle's chest: CHEST_RESOURCES, +1 with the Ragman's pouch, none under the Oath of poverty (talismans.ts). */
+export function chestSize(state: Pick<ForestState, 'runNode'>): number {
+  return hasTalisman(state, 'oath-poverty') ? 0 : CHEST_RESOURCES + (hasTalisman(state, 'ragman-pouch') ? 1 : 0);
 }
 
 /** The chest's cell: one draw among the cells a crystal may take; none — the chest does not appear (no draw). */
@@ -63,7 +69,8 @@ export const REINFORCEMENT_COUNT = 2;
  */
 export function nextReinforcementTurn(state: Pick<ForestState, 'runNode' | 'customLevel' | 'turn'>): number | null {
   if (!exitBattle(state) || !runPressureActive(state) || state.customLevel!.goalCompletedTurn === null) return null;
-  const first = state.customLevel!.goalCompletedTurn + REINFORCEMENT_DELAY;
+  // The Hourglass (talismans.ts): the first reinforcement one turn later; then every REINFORCEMENT_EVERY as usual.
+  const first = state.customLevel!.goalCompletedTurn + REINFORCEMENT_DELAY + (hasTalisman(state, 'hourglass') ? 1 : 0);
   return state.turn < first ? first : first + REINFORCEMENT_EVERY * (Math.floor((state.turn - first) / REINFORCEMENT_EVERY) + 1);
 }
 

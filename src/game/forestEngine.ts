@@ -1,5 +1,5 @@
 import type { AuthoredLesson } from './lessonBuilder';
-import { ABILITY_COST, chainNeighbors, cloneBoard, isWalkable, neighbors, planAbility, planChain, prepareIntents, simulateAbility, simulateChain, simulateRest } from './forestSystems';
+import { ABILITY_COST, abilityCost, chainNeighbors, cloneBoard, isWalkable, neighbors, planAbility, planChain, prepareIntents, simulateAbility, simulateChain, simulateRest } from './forestSystems';
 import { canHeal } from './recovered/combat';
 import { uniqueEntities } from './entityFootprint';
 import { nextRandom, runPressureActive } from './mapBattleRules';
@@ -17,6 +17,7 @@ import { cloneState, type World } from './ecs/world';
 import { definitionOf, hasTag, variantDefinition } from './enemyDefinitions';
 import { applyElite, applyRandomElite, rollRandomElite } from './elite';
 import { emptyMaterials } from './resources';
+import { hasTalisman, OATH_ENERGY, oathCount } from './talismans';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Seed of an engine before any battle is loaded; every battle replaces it with its own. */
@@ -88,14 +89,19 @@ export class ForestEngine {
     if (!node || phase !== 'WIN' && phase !== 'LOSE') return null;
     const { hp, maxHp, energy, damageEffects } = this.state.player;
     return { nodeId: node.nodeId, won: phase === 'WIN', inventory: { ...this.state.inventory }, materials: { ...emptyMaterials(), ...this.state.materials },
-      score: this.state.score, player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
+      score: this.state.score, ...(this.entrySnapshot?.state.player.ward && !this.state.player.ward ? { wardUsed: true as const } : {}),
+      player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
   }
   private applyRunSetup(setup: RunBattleSetup) {
     const { player } = setup, state = this.state;
     state.player = { index: state.player.index, hp: Math.min(player.hp, player.maxHp), maxHp: player.maxHp, energy: player.energy,
       ...(player.damageEffects ? { damageEffects: { ...player.damageEffects } } : {}) };
     state.inventory = { ...setup.inventory };
-    state.runNode = { nodeId: setup.nodeId, label: setup.label, row: setup.row, allowedItems: [...setup.allowedItems], allowedAbilities: [...setup.allowedAbilities] };
+    state.runNode = { nodeId: setup.nodeId, label: setup.label, row: setup.row, allowedItems: [...setup.allowedItems], allowedAbilities: [...setup.allowedAbilities],
+      ...(setup.talismans?.length ? { talismans: [...setup.talismans] } : {}) };
+    // Oaths: +OATH_ENERGY at the start of every battle (up to 7); the Ash ward, if still whole (talismans.ts).
+    state.player.energy = Math.min(7, state.player.energy + OATH_ENERGY * oathCount(state));
+    if (setup.wardReady && hasTalisman(state, 'ash-ward')) state.player.ward = true;
     if (state.tutorial) {
       state.tutorial.allowedItems = [...setup.allowedItems]; state.tutorial.allowedAbilities = [...setup.allowedAbilities];
     }
@@ -215,7 +221,7 @@ export class ForestEngine {
   validStarts() { return this.chainNeighbors(this.state.player.index).filter(index => this.state.board[index] && planChain(this.state, [index], true).preview.valid); }
   setAbility(ability: AbilityKind | null): boolean {
     if (ability !== null && this.abilityLocked(ability)) return false;
-    if (this.state.phase !== 'PLAYER_INPUT' || ability !== null && (!Object.hasOwn(ABILITY_COST, ability) || this.state.player.energy < ABILITY_COST[ability])) return false;
+    if (this.state.phase !== 'PLAYER_INPUT' || ability !== null && (!Object.hasOwn(ABILITY_COST, ability) || this.state.player.energy < abilityCost(this.state, ability))) return false;
     this.state.chain = []; this.state.chosenAbility = this.state.chosenAbility === ability ? null : ability;
     this.emit({ type: 'ability-select', text: this.state.chosenAbility ?? '' }); return true;
   }

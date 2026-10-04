@@ -2,7 +2,7 @@ import './style.css';
 import { ForestEngine } from './game/forestEngine';
 import { ITEMS } from './game/items';
 import { heroStrikeDamage } from './game/elite';
-import { ABILITY_COST, JUMP_RANGE } from './game/forestSystems';
+import { abilityCost, JUMP_RANGE } from './game/forestSystems';
 import { uniqueEntities } from './game/entityFootprint';
 import { archerStrikesCreatures, planEnemyPhase } from './game/enemyPhase';
 import type { LootKind, AbilityKind, ItemKind, ResourceKind } from './game/forestTypes';
@@ -394,7 +394,7 @@ function updateHUD() {
   el('energy-meter').setAttribute('aria-valuetext', `${energyText(state.player.energy)} из 7`);
   el('energy-meter').firstElementChild!.setAttribute('style', `width:${state.player.energy / 7 * 100}%`);
   for (const kind of abilityKeys) {
-    const cost = ABILITY_COST[kind];
+    const cost = abilityCost(state, kind);
     const button = el<HTMLButtonElement>(`${kind}-ability`);
     el(`${kind}-cost`).textContent = energyText(cost);
     button.hidden = !!tutorial && !allowedAbilities.includes(kind);

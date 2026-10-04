@@ -5,6 +5,7 @@
 import type { DamageEffects } from '../damageEffects';
 import type { PaletteWeights } from '../customLevel';
 import type { ResourceKind, AbilityKind, ItemKind } from '../forestTypes';
+import type { TalismanId } from '../talismans';
 
 /** Cat resources carried between map nodes. */
 export interface RunPlayerResources { hp: number; maxHp: number; energy: number; damageEffects?: DamageEffects }
@@ -30,6 +31,10 @@ export interface RunBattleSetup {
   allowedAbilities: AbilityKind[];
   /** Refill palette of an authored template on the map (row palette plus the authored opening colors); absent keeps the template's. */
   paletteWeights?: PaletteWeights;
+  /** The run's talismans and oaths (talismans.ts); absent — none. */
+  talismans?: TalismanId[];
+  /** The Ash ward is still whole (the run holds it and it has not saved the cat yet). */
+  wardReady?: boolean;
 }
 
 /** Result of a finished node battle, read with ForestEngine.runBattleOutcome(). */
@@ -42,4 +47,6 @@ export interface RunBattleOutcome {
   materials?: Record<ResourceKind, number>;
   /** Points of this battle (`state.score`); the run sums them for its result screen. */
   score?: number;
+  /** The Ash ward saved the cat in this battle and crumbled (the run drops it). */
+  wardUsed?: true;
 }

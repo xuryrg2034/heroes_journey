@@ -5,6 +5,7 @@
  * numbers or emits events. Every number marked «баланс» is a balance constant, to be tuned by playtests.
  */
 import { definitionOf, hasTag, type EnemyId } from './enemyDefinitions';
+import { hasTalisman } from './talismans';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
 import type { ForestCell, ForestState } from './forestTypes';
@@ -41,7 +42,8 @@ export function runPressureActive(state: Pick<ForestState, 'runNode'>): boolean 
 function angerAt(state: PressureState, turn: number): number {
   if (!runPressureActive(state)) return 1;
   const goal = state.customLevel?.goalCompletedTurn ?? null;
-  if (goal === null) return pressureBossLives(state.board) ? 0 : RUN_ANGER_BEFORE_GOALS;
+  // The Oath of wrath (talismans.ts): 2 per turn before the goals instead of 1 (a living boss still holds the anger).
+  if (goal === null) return pressureBossLives(state.board) ? 0 : RUN_ANGER_BEFORE_GOALS + (hasTalisman(state, 'oath-wrath') ? 1 : 0);
   return RUN_ANGER_BEFORE_GOALS + Math.max(0, turn - goal);
 }
 /** A living Troll or Chief on the board: the boss is the pressure (no new anger before its battle's goals). */
@@ -85,6 +87,8 @@ export function runPressureInfo(state: PressureState): RunPressureInfo {
 
 /** Баланс: one crystal for every CRYSTAL_KILLS kills by the hits of one ordinary chain (6 → 1, 12 → 2). */
 export const CRYSTAL_KILLS = 6;
+/** Kills per crystal in this battle: CRYSTAL_KILLS, or 5 with the Millstone shard (talismans.ts). */
+export const crystalKills = (state: Pick<ForestState, 'runNode'>): number => hasTalisman(state, 'millstone-shard') ? CRYSTAL_KILLS - 1 : CRYSTAL_KILLS;
 /** Баланс: score for breaking a crystal with a chain = CRYSTAL_SCORE_PER_KILL × kills of the chain that created it. */
 export const CRYSTAL_SCORE_PER_KILL = 20;
 

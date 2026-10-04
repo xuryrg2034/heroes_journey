@@ -116,6 +116,7 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
   }
   // The copy is the turn as it will run: where it ends the battle with the action itself, so does the preview (an
   // incomplete one-enemy path that already meets the goals, which the plan does not mark as a victory).
+  if (state.player.ward && !sim.player.ward) preview.wardSaves = true;
   if (sim.phase === 'LOSE') { preview.playerDies = true; preview.completesRoom = false; delete preview.opensDoor; preview.rotations = []; return; }
   if (sim.phase === 'WIN') preview.completesRoom = true;
   else if (preview.completesRoom) preview.completesRoom = false;
@@ -177,6 +178,7 @@ export function forecastConsequences(state: ForestState, preview: ChainPreview, 
   if (dies && !report.rotations) preview.rotations = preview.rotations.map(plan => ({ ...plan, active: false, reason: 'Кот погибнет до обмена.' }));
   if (effectAware) preview.endEffects = sim.player.damageEffects ? { ...sim.player.damageEffects } : undefined;
   preview.playerDies = dies;
+  if (state.player.ward && !sim.player.ward) preview.wardSaves = true;
   // A cat dying in the answer leaves by no door: the action's goals open nothing for it.
   if (dies) delete preview.unlocksExit;
   // Authored goals met at the end of the turn (forced deaths credited, the turn counted) while the cat lives.

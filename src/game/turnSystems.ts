@@ -12,7 +12,8 @@ import { evaluateEnemyAttack, planEnemyPhase, type EnemyAttack } from './enemyPh
 import { behaviorOf } from './enemyBehaviors';
 import { heroStrikeDamage, rollEliteLoot } from './elite';
 import { emptyMaterials, isResource } from './resources';
-import { chestContents, chestDue, nextReinforcementTurn, reinforcementLanding, rollChestCell, rollReinforcementCells } from './exitRules';
+import { hasTalisman } from './talismans';
+import { chestContents, chestDue, chestSize, nextReinforcementTurn, reinforcementLanding, rollChestCell, rollReinforcementCells } from './exitRules';
 import { HERO_MOVE_ID, resolveCharges, type ChargeImpact } from './boarCharge';
 import { THORN_DAMAGE } from './terrain';
 import { shamanActive, shamanRites } from './forestBeasts';
@@ -242,6 +243,8 @@ const ChainResolve: TurnSystem<TurnContext> = { name: 'ChainResolve', *run(ctx) 
     if (!ctx.current()) return false;
   }
   ctx.state.chain = [];
+  // The Whetstone's first ordinary chain is spent (abilities do not count); without it nothing is recorded.
+  if (!ability && hasTalisman(ctx.state, 'whetstone')) ctx.state.chainStarted = true;
   if (!(yield* dropQueuedLoot(ctx))) return false;
   return yield* dropChest(ctx);
 } };
@@ -345,7 +348,7 @@ function* dropChest(ctx: TurnContext): TurnSequence {
     defeatOutright(roll.victim);
     if (!(yield* defeatCreature(ctx, roll.victim, roll.index, 'none', 'chest'))) return false;
   }
-  const chest = ctx.cmd.placeChest(roll.index, chestContents(ctx.state.level.seed));
+  const chest = ctx.cmd.placeChest(roll.index, chestContents(ctx.state.level.seed, chestSize(ctx.state)));
   turnReport(ctx).chest = true;
   yield { event: { type: 'chest', index: roll.index, newId: chest.id, ...(roll.victim ? { oldId: roll.victim.id } : {}) } };
   return ctx.current();
