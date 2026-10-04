@@ -26,6 +26,7 @@
     "test:items": "tsx src/game/items.spec.ts",
     "test:pits": "tsx src/game/pits.spec.ts",
     "test:jailer-rules": "tsx src/game/jailerRules.spec.ts",
+    "test:jailer-approach": "tsx src/game/jailerApproach.spec.ts",
     "test:shared-battles": "tsx src/game/sharedBattles.spec.ts",
     "test:chief-battle": "tsx src/game/chiefBattle.spec.ts",
     "test:palette-generation": "tsx src/game/palette-generation.spec.ts",
