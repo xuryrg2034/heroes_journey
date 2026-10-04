@@ -1,6 +1,6 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import type { ForestCell, LootKind, ResourceKind, TerrainKind } from '../game/forestTypes';
-import { lootLabel } from '../game/resources';
+import { lootLabel, RESOURCE_KINDS } from '../game/resources';
 import { makeDoor, makeGuardEnemy } from './guardArt';
 import { occupiedIndices, footprintBounds } from '../game/entityFootprint';
 import { meleeCanAttack } from '../game/enemyLifecycle';
@@ -94,10 +94,15 @@ function makeLootPiece(item: LootKind): Container {
   label(c,ITEM_SHORT[item],0,24,9,0xffeaa8);
   return c;
 }
-/** Contents of the exit's chest for the player: «Роса ×2» or «Роса, Порох». */
+/**
+ * Contents of the exit's chest for the player: «Роса ×2» or «Роса, Порох»; «пусто» for an empty chest (the Oath of
+ * poverty: its `chest-open` text is '' and splits into ['']) — an unknown kind used to throw in the renderer and stop
+ * the turn halfway.
+ */
 export function chestLabel(chest: readonly ResourceKind[]): string {
   const counts = new Map<ResourceKind, number>();
-  for (const kind of chest) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  for (const kind of chest) if (RESOURCE_KINDS.includes(kind)) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  if (!counts.size) return 'пусто';
   return [...counts].map(([kind, n]) => n > 1 ? `${lootLabel(kind)} ×${n}` : lootLabel(kind)).join(', ');
 }
 /**

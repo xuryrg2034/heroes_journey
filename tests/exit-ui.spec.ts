@@ -164,3 +164,33 @@ test('playtest 3: the last goal beside the door — selecting it says «ПРОД
   await expect.poll(async () => (await state(page)).phase).toBe('WIN');
   expect(errors).toEqual([]);
 });
+
+// The playtest freeze of 04.10.2026: with the Oath of poverty the chest falls empty; a chain opening it used to throw in
+// the renderer (an empty contents list) and stop the turn halfway, the chain still drawn. Now the turn ends.
+test('an empty chest (Oath of poverty) opens and the turn ends', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('trunk-wake', { row: 6, seed: 4242, player: { hp: 40, maxHp: 40, energy: 0 }, talismans: ['oath-poverty'] }));
+  await ready(page);
+  for (let attempt = 0; attempt < 8 && (await state(page)).customLevel.goalCompletedTurn === null; attempt++) {
+    const path = await findChain(page, 'unlocks') ?? await findChain(page, 'kills');
+    expect(path).not.toBeNull();
+    await holdChain(page, path!);
+    await finishTurn(page);
+  }
+  const s = await state(page);
+  expect(s.board.filter((cell: any) => cell?.chest).length).toBe(1);
+  expect(s.board.find((cell: any) => cell?.chest).chest).toEqual([]);
+  const viaChest = await findChain(page, 'chest');
+  expect(viaChest).not.toBeNull();
+  await holdChain(page, viaChest!);
+  await expect(page.locator('#chain-reward')).toContainText('Откроет сундук: пусто');
+  const turn = (await state(page)).turn;
+  await finishTurn(page);
+  const after = await state(page);
+  expect(after.turn).toBe(turn + 1);
+  expect(after.chain).toEqual([]);
+  expect(after.board.filter((cell: any) => cell?.chest).length).toBe(0);
+  expect(errors).toEqual([]);
+});
