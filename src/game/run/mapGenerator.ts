@@ -23,15 +23,16 @@
  */
 import { mixSeed } from '../items';
 import { TOOL_ROWS } from './battlePools';
-import { FOREST_EVENTS } from './forestEvents';
 import { FOREST_MAP, FOREST_REST_HEAL, FROST, JUMP, SPIN_REWARD, isTrunkNode, type ForestLane, type ForestMapNode, type ForestNodeType, type ForestRunMap } from './forestMap';
 
 /**
  * Version of the generator; a saved run keeps its map, so a newer generator does not change a run in progress.
  * 2 (04.10.2026): the merchant (`shop`) and the ladder's share of hard battles.
  * 3 (04.10.2026): events in the branches, rows 10–11 (BRANCH_SHARES.event); the trails are laid out as in version 2.
+ * 4 (04.10.2026): an event never stands twice in a row on a path, and a whole path (trails and branch) meets at most
+ *   EVENTS_PER_PATH events; the trails and the branches are laid out anew.
  */
-export const MAP_GENERATOR_VERSION = 3;
+export const MAP_GENERATOR_VERSION = 4;
 
 // Баланс: shape of the map.
 /** Trail rows and columns, and the passes walked through them (StS: 6 passes over 7 columns). */
@@ -61,10 +62,14 @@ export const BRANCH_EVENT_LAST_ROW = 11;
 export const SHOP_SHARE = 0.05, SHOPS_PER_MAP_MIN = 1;
 /** A rest stands 1–3 rows before every hard battle on every path (playtest decision 30.09.2026). */
 export const REST_BEFORE_HARD = { min: 1, max: 3 } as const;
-/** Types that never stand twice in a row on a path. */
-export const NO_REPEAT_TYPES: readonly ForestNodeType[] = ['hard', 'rest', 'find', 'shop'];
-/** Events on one path at most: an event does not repeat in a run. */
-export const EVENTS_PER_PATH = Object.keys(FOREST_EVENTS).length;
+/** Types that never stand twice in a row on a path (events from generator 4, decision of 04.10.2026). */
+export const NO_REPEAT_TYPES: readonly ForestNodeType[] = ['hard', 'rest', 'find', 'shop', 'event'];
+/**
+ * Баланс: events on one whole path from row 5 to a boss at most (trails rows 6–8 and branch rows 10–11; decision of
+ * 04.10.2026). The trails are laid first; a branch then holds at most EVENTS_PER_PATH less the most events of a trail
+ * path on any of its paths (every trail path meets every branch path at the Jailer), and none when that is 0.
+ */
+export const EVENTS_PER_PATH = 2;
 const LAYOUT_ATTEMPTS = 200, STRUCTURE_ATTEMPTS = 200;
 
 /** One node of a saved map: everything else (name, lane, place, content, grants) is derived from the id and type. */
@@ -253,13 +258,13 @@ function shuffle<T>(random: Random, list: T[]): T[] {
 }
 
 /** Rule violations of a typed section on its paths and forks (the parent of the first row is the section's entry). */
-function sectionErrors(grid: Grid, types: Map<string, ForestNodeType>, free: (cell: string) => boolean, branch: boolean): string | null {
+function sectionErrors(grid: Grid, types: Map<string, ForestNodeType>, free: (cell: string) => boolean, branch: boolean, maxEvents: number): string | null {
   const paths = sectionPaths(grid);
   let withHard = false, withoutHard = false;
   for (const path of paths) {
     const kinds = path.map(cell => types.get(cell)!);
     for (let n = 1; n < kinds.length; n++) if (kinds[n] === kinds[n - 1] && NO_REPEAT_TYPES.includes(kinds[n])) return `${kinds[n]} twice in a row`;
-    if (kinds.filter(kind => kind === 'event').length > EVENTS_PER_PATH) return 'too many events';
+    if (kinds.filter(kind => kind === 'event').length > maxEvents) return 'too many events';
     for (let n = 0; n < kinds.length; n++) {
       if (kinds[n] !== 'hard') continue;
       const before = kinds.slice(Math.max(0, n - REST_BEFORE_HARD.max), n - REST_BEFORE_HARD.min + 1);
@@ -278,6 +283,9 @@ function sectionErrors(grid: Grid, types: Map<string, ForestNodeType>, free: (ce
   return null;
 }
 
+/** The most events one path of a typed section meets. */
+const pathEvents = (grid: Grid, types: Map<string, ForestNodeType>) => sectionPaths(grid).reduce((most, path) => Math.max(most, path.filter(cell => types.get(cell) === 'event').length), 0);
+
 /** Free cells of a trail section (rows 6–8; row 5 is battles only). */
 const trailFree = (grid: Grid) => cellsOf(grid).filter(([row]) => row > TRAIL_FIRST_ROW).map(([row, column]) => key(row, column));
 
@@ -292,7 +300,7 @@ function layTrails(random: Random, grid: Grid, shops: number): Map<string, Fores
     shuffle(random, bag);
     const types = new Map<string, ForestNodeType>(cells.map(cell => [cell, 'battle']));
     free.forEach((cell, n) => types.set(cell, bag[n]));
-    if (!sectionErrors(grid, types, cell => free.includes(cell), false)) return types;
+    if (!sectionErrors(grid, types, cell => free.includes(cell), false, EVENTS_PER_PATH)) return types;
   }
   return null;
 }
@@ -300,13 +308,13 @@ function layTrails(random: Random, grid: Grid, shops: number): Map<string, Fores
 /**
  * Type layout of a branch: battles, hard battles (`hardShare` of the cells, at least one), rests, `shops` merchants and
  * events (BRANCH_SHARES.event of the cells, on rows up to BRANCH_EVENT_LAST_ROW: those cells are drawn first, the bag
- * fills the rest). Null when no attempt passes the rules.
+ * fills the rest; at most `maxEvents` on a path, none when it is 0). Null when no attempt passes the rules.
  */
-function layBranch(random: Random, grid: Grid, shops: number, hardShare: number): Map<string, ForestNodeType> | null {
+function layBranch(random: Random, grid: Grid, shops: number, hardShare: number, maxEvents: number): Map<string, ForestNodeType> | null {
   const cells = cellsOf(grid).map(([row, column]) => key(row, column)), eventCells = cellsOf(grid).filter(([row]) => row <= BRANCH_EVENT_LAST_ROW).map(([row, column]) => key(row, column));
   for (let attempt = 0; attempt < LAYOUT_ATTEMPTS; attempt++) {
     const hard = Math.max(1, share(random, cells.length, hardShare)), rest = Math.max(1, share(random, cells.length, BRANCH_SHARES.rest));
-    const events = Math.min(eventCells.length, share(random, cells.length, BRANCH_SHARES.event));
+    const drawn = share(random, cells.length, BRANCH_SHARES.event), events = maxEvents > 0 ? Math.min(eventCells.length, drawn) : 0;
     if (hard + rest + shops + events > cells.length) continue;
     const eventAt = new Set(shuffle(random, [...eventCells]).slice(0, events)), others = cells.filter(cell => !eventAt.has(cell));
     const bag: ForestNodeType[] = [...Array<ForestNodeType>(hard).fill('hard'), ...Array<ForestNodeType>(rest).fill('rest'), ...Array<ForestNodeType>(shops).fill('shop')];
@@ -314,7 +322,7 @@ function layBranch(random: Random, grid: Grid, shops: number, hardShare: number)
     shuffle(random, bag);
     const types = new Map<string, ForestNodeType>([...eventAt].map(cell => [cell, 'event']));
     others.forEach((cell, n) => types.set(cell, bag[n]));
-    if (!sectionErrors(grid, types, () => true, true)) return types;
+    if (!sectionErrors(grid, types, () => true, true, maxEvents)) return types;
   }
   return null;
 }
@@ -359,8 +367,10 @@ export function generateForestMap(seed: number, stats?: GenerationStats, options
     shops[part]++;
   }
   const trails = section(firstWalks[0], walkTrails, grid => layTrails(random, grid, shops[0]), 'тропы', seed);
+  // A whole path meets at most EVENTS_PER_PATH events: every trail path joins every branch path at the Jailer.
+  const branchEvents = EVENTS_PER_PATH - pathEvents(trails.grid, trails.types);
   const branches = BRANCHES.map((branch, n) => ({ branch, ...section(firstWalks[n + 1], walkBranch,
-    grid => layBranch(random, grid, shops[n + 1], hardShare), `ветка ${branch}`, seed) }));
+    grid => layBranch(random, grid, shops[n + 1], hardShare, branchEvents), `ветка ${branch}`, seed) }));
   if (stats) { stats.trails = trails.attempts; stats.den = branches[0].attempts; stats.camp = branches[1].attempts; }
   const nodes: StoredMapNode[] = [];
   for (const [row, column] of cellsOf(trails.grid)) {

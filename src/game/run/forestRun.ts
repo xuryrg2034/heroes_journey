@@ -12,8 +12,8 @@ import { CRAFT_COST, craftSource, emptyMaterials, isResource, RESOURCE_KINDS, RE
 import { AUTHORED_RUN_MAP, authoredRefillPalette, victoryChoice, isBattleNode, isTrunkNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, type ForestRunMap, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
-import { attemptChances, battleOption, chanceText, describeCost, describeOutcome, escalationOption, eventFits, eventOption, forestEvent, FOREST_EVENTS, ITEM_NAME as EVENT_ITEM_NAME,
-  optionAttempts, optionCosts, optionNeedsTalisman, type EventCost, type EventEffect, type EventOption, type ForestEvent } from './forestEvents';
+import { attemptChances, battleOption, chanceText, describeCost, describeOutcome, escalationOption, EVENT_RISK_MIN_HP, eventFits, eventOption, forestEvent, FOREST_EVENTS, isSafeOption,
+  ITEM_NAME as EVENT_ITEM_NAME, mayLoseHp, optionAttempts, optionCosts, optionNeedsTalisman, type EventCost, type EventEffect, type EventOption, type ForestEvent } from './forestEvents';
 import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedForestMap } from './mapGenerator';
 import type { AuthoredLesson } from '../lessonBuilder';
 import { battlePoolEntry, pickPoolBattle, poolCandidates, type PoolBattleType } from './battlePools';
@@ -384,9 +384,17 @@ const metEvents = (picks: readonly ForestRunPick[]) => picks.flatMap(pick => pic
  * (resources in stock). An event whose condition fails waits in the pool. In catalogue order.
  */
 export function eventCandidates(run: Pick<ForestRunState, 'picks' | 'unlocks' | 'resources'>, node: Pick<ForestMapNode, 'row' | 'lane'>): string[] {
-  const met = metEvents(run.picks), stock = stockTotal(run.resources.materials);
-  return Object.values(FOREST_EVENTS).filter(event => eventOpen(event.id, run.unlocks) && !met.includes(event.id) && eventFits(event, node)
+  return eventCandidatesAt(run.picks, run.unlocks, stockTotal(run.resources.materials), node);
+}
+/** eventCandidates from the picks before the node, the level of the bar and the resources in stock (a save's replay). */
+function eventCandidatesAt(picks: readonly ForestRunPick[], unlocks: number | undefined, stock: number, node: Pick<ForestMapNode, 'row' | 'lane'>): string[] {
+  const met = metEvents(picks);
+  return Object.values(FOREST_EVENTS).filter(event => eventOpen(event.id, unlocks) && !met.includes(event.id) && eventFits(event, node)
     && stock >= (event.requires?.resources ?? 0)).map(event => event.id);
+}
+/** The pick of an event node from its candidates and the base of its entering draw: an event, or a find with none left. */
+function eventPickOf(nodeId: string, candidates: readonly string[], base: number): ForestRunPick {
+  return candidates.length ? { nodeId, eventId: candidates[mixSeed(base, POOL_EVENT_SALT) % candidates.length] } : { nodeId, find: true };
 }
 /**
  * The pick a pool node gets if entered now: a battle of its row, type and lane with the tools open on entering it
@@ -397,10 +405,7 @@ export function eventCandidates(run: Pick<ForestRunState, 'picks' | 'unlocks' | 
 function nextPick(run: ForestRunState, node: ForestMapNode): ForestRunPick | null {
   if (node.content.kind !== 'pool') return null;
   const base = runRoll(run, node.type === 'event' ? 'events' : 'pool', node.id, false), roll = (salt: number) => mixSeed(base, salt);
-  if (node.type === 'event') {
-    const list = eventCandidates(run, node);
-    return list.length ? { nodeId: node.id, eventId: list[roll(POOL_EVENT_SALT) % list.length] } : { nodeId: node.id, find: true };
-  }
+  if (node.type === 'event') return eventPickOf(node.id, eventCandidates(run, node), base);
   const tools = { items: [...new Set([...run.tools.items, ...node.grants?.items ?? []])], abilities: [...new Set([...run.tools.abilities, ...node.grants?.abilities ?? []])] };
   const candidates = poolCandidates({ row: node.row, type: node.type as PoolBattleType, lane: node.lane }, tools);
   const battleId = pickPoolBattle(candidates, run.picks.flatMap(pick => pick.battleId ? [pick.battleId] : []), roll(POOL_BATTLE_SALT));
@@ -433,15 +438,22 @@ export function addRunModifier(list: readonly ForestRunModifier[] | undefined, m
   if (known) known.battles = Math.max(known.battles, battles); else next.push({ modifier, battles });
   return next;
 }
-/** An entered map battle takes every waiting modifier and counts one battle off each; spent ones are dropped. */
-export function takeRunModifiers(list: readonly ForestRunModifier[] | undefined): { taken: BattleModifier[]; left: ForestRunModifier[] | undefined } {
-  const taken = list?.map(entry => entry.modifier) ?? [];
-  const left = (list ?? []).map(entry => ({ ...entry, battles: entry.battles - 1 })).filter(entry => entry.battles > 0);
+/**
+ * An entered map battle takes every waiting modifier and counts one battle off each; spent ones are dropped. The event's
+ * «злится на 1 больше» (`wrath`) waits for the first battle where it acts (decision of 04.10.2026): a battle under the
+ * gift's calm (no anger before the goals) or a boss battle (`boss`: a living Troll or Chief holds the anger before the
+ * goals, mapBattleRules.ts) leaves it waiting, uncounted; the other modifiers are taken by the nearest battle.
+ */
+export function takeRunModifiers(list: readonly ForestRunModifier[] | undefined, battle: { boss?: boolean } = {}): { taken: BattleModifier[]; left: ForestRunModifier[] | undefined } {
+  const calm = !!list?.some(entry => entry.modifier === 'calm');
+  const waits = (entry: ForestRunModifier) => entry.modifier === 'wrath' && (calm || !!battle.boss);
+  const taken = (list ?? []).filter(entry => !waits(entry)).map(entry => entry.modifier);
+  const left = (list ?? []).map(entry => waits(entry) ? { ...entry } : { ...entry, battles: entry.battles - 1 }).filter(entry => entry.battles > 0);
   return { taken, left: left.length ? left : undefined };
 }
 /** Start the battle of an entered node from the run's resources and tools now; it takes the waiting modifiers. */
 function startNodeBattle(run: ForestRunState, nodeId: string, events: ForestRunEvent[]) {
-  const { taken, left } = takeRunModifiers(run.modifiers);
+  const { taken, left } = takeRunModifiers(run.modifiers, { boss: runNode(run, nodeId)?.type === 'boss' });
   if (left) run.modifiers = left; else delete run.modifiers;
   run.pending = { kind: 'battle', nodeId, seed: forestNodeSeed(run.seed, nodeId),
     entry: structuredClone(run.resources), tools: structuredClone(run.tools), ...taken.length ? { modifiers: taken } : {} };
@@ -996,11 +1008,13 @@ export function eventResourceKinds(eventBase: number, option: EventOption): Reso
 }
 const energyText = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
 
+/** Why an option is closed for the cat's HP: «Нужно HP ≥ 2 (сейчас 1)». */
+const hpShort = (need: number, hp: number) => `Нужно HP ≥ ${need} (сейчас ${hp})`;
 /** Why one cost alternative cannot be paid now ('' — it can). */
 function costBlock(run: ForestRunState, cost: EventCost): string {
   const { energy, hp, maxHp } = run.resources.player, materials = { ...emptyMaterials(), ...run.resources.materials }, total = stockTotal(materials);
   if (cost.energy && energy < cost.energy) return `Нужна энергия: ${energyText(cost.energy)} (сейчас ${energyText(energy)})`;
-  if (cost.hp && hp - cost.hp < 1) return `Нужно больше ${cost.hp} HP`;
+  if (cost.hp && hp - cost.hp < 1) return hpShort(cost.hp + 1, hp);
   if (cost.maxHp && maxHp - cost.maxHp < 1) return 'Максимум HP не может стать меньше 1';
   if (cost.resources && total < cost.resources) return `Нужно ресурсов: ${cost.resources}, есть ${total}`;
   for (const kind of RESOURCE_KINDS) if ((cost.materials?.[kind] ?? 0) > materials[kind]) return `Нужно «${RESOURCES[kind].label}»: ${cost.materials![kind]}, есть ${materials[kind]}`;
@@ -1109,6 +1123,8 @@ export function eventView(run: ForestRunState): EventView | null {
     const optionBase = option.escalation ? viewAttemptBase(run, node.id, Math.min(done, max - 1)) : base, kinds = eventResourceKinds(optionBase, option);
     const chances = attemptChances(option, Math.min(now, max - 1));
     let reason = option.escalation && done >= max ? `Попыток больше нет (${max} из ${max})` : cost.block;
+    // An option that may lose HP is closed at 1 HP (decision of 04.10.2026): the safe option stays.
+    if (!reason && mayLoseHp(option, Math.min(now, max - 1)) && run.resources.player.hp < EVENT_RISK_MIN_HP) reason = hpShort(EVENT_RISK_MIN_HP, run.resources.player.hp);
     if (!reason && optionNeedsTalisman(option) && !talismanLeft(pool)) reason = 'Талисманов не осталось';
     let battle: EventOptionView['battle'];
     if (option.battle) {
@@ -1120,7 +1136,7 @@ export function eventView(run: ForestRunState): EventView | null {
     const outcomes = battle ? [{ chance: 100, odds: '100%', text: `бой «${battle.name}»: ${battle.reward}` }]
       : option.outcomes.map((outcome, n) => ({ chance: chances[n], odds: chanceText(chances, n), text: describeOutcome(outcome, outcome.effect.resources ? kinds : []) }));
     return { id: option.id, label: option.label, available: !reason, reason, outcomes, cost: optionCosts(option).map(describeCost).join(' или '),
-      ...option.escalation ? { attempts: { done, max } } : {}, ...battle ? { battle } : {}, safe: !optionCosts(option).length && !option.battle && option.outcomes.every(outcome => (outcome.effect.hp ?? 0) >= 0) };
+      ...option.escalation ? { attempts: { done, max } } : {}, ...battle ? { battle } : {}, safe: isSafeOption(option) };
   }) };
 }
 
@@ -1486,8 +1502,8 @@ export function parseForestRun(text: string): ForestRunState | null {
     if (base.type === 'event') {
       const keys = Object.keys(pick).sort().join(), met = metEvents(typedPicks);
       if (keys === 'find,nodeId') {
-        // A find only when no event fits: every open event of this place without a condition was met (a condition on the
-        // stock is not replayed here).
+        // A find only when no event fits: every open event of this place without a condition was met (the exact roll,
+        // with the conditions on the stock, is replayed below for the maps of generator 3 on).
         if (pick.find !== true || Object.values(FOREST_EVENTS).some(event => !event.requires && eventOpen(event.id, unlocks) && !met.includes(event.id) && eventFits(event, base))) return null;
         typedPicks.push({ nodeId: base.id, find: true }); continue;
       }
@@ -1557,11 +1573,35 @@ export function parseForestRun(text: string): ForestRunState | null {
   let modifiers: ForestRunModifier[] | undefined, calmAdded = false;
   const addCalm = () => { if (!calmAdded && giftGain.calm) modifiers = addRunModifier(modifiers, 'calm', giftGain.calm); calmAdded = true; };
   const battleTook = new Map<string, BattleModifier[]>();
-  const enterBattle = (id: string) => { const { taken: list, left } = takeRunModifiers(modifiers); modifiers = left; battleTook.set(id, list); };
+  const enterBattle = (id: string) => { const { taken: list, left } = takeRunModifiers(modifiers, { boss: map.node(id)?.type === 'boss' }); modifiers = left; battleTook.set(id, list); };
   // Events: one choice per visited event node, in order. Each entered event node took one `events` draw (its roll), each
   // attempt of an escalation one more; outcomes, costs, gains, talismans and modifiers are replayed from them.
   let eventDraw = 0, eventCount = 0, eventMaxHp = 0;
   const eventGains = new Map<string, { items: Partial<Record<ItemKind, number>>; materials: ResourceKind[] }>(), eventPaid = new Map<string, Record<ResourceKind, number>>();
+  // Resources in stock on entering a node: the gift's, and what every node entered before it gained and spent (loot of
+  // its battle, its event, its merchant and crafts; all recorded before that node in the replay). The ranges of the
+  // records are checked below.
+  const lootRecords = Array.isArray(value.loot) ? value.loot.filter(isRecord) : [];
+  const stockBefore = (id: string): number => {
+    let total = giftGain.resources.length;
+    const add = (paid: Partial<Record<ResourceKind, number>> | undefined, sign: number) => { for (const kind of RESOURCE_KINDS) total += sign * (paid?.[kind] ?? 0); };
+    for (const before of entering.slice(0, entering.indexOf(id))) {
+      for (const gain of lootRecords) if (gain.nodeId === before && isResource(gain.item as string) && isCount(gain.count)) total += gain.count as number;
+      add(eventPaid.get(before), -1); total += eventGains.get(before)?.materials.length ?? 0; add(shopPaid.get(before), -1);
+      total -= (crafts.get(before) ?? []).length * CRAFT_COST;
+    }
+    return total;
+  };
+  // The pick of an event node is replayed from its entering draw (maps of generator 3 on; earlier maps rolled events by
+  // other rules, their picks are checked by the rules above): the open events not met before it, fitting the node, with
+  // their condition on the stock of that moment.
+  const exactEventPicks = mapRef.kind === 'generated' && mapRef.generator >= 3;
+  const eventPickHolds = (node: ForestMapNode): boolean => {
+    if (!exactEventPicks) return true;
+    const index = typedPicks.findIndex(pick => pick.nodeId === node.id), base = streams ? streamValue(seed, 'events', eventDraw) : forestNodeSeed(seed, node.id);
+    const expected = eventPickOf(node.id, eventCandidatesAt(typedPicks.slice(0, index), unlocks, stockBefore(node.id), node), base);
+    return expected.eventId === typedPicks[index]?.eventId && expected.find === typedPicks[index]?.find;
+  };
   const replayEvent = (node: ForestMapNode, choice: Record<string, unknown> | null, attemptsValue: unknown, tools: ForestRunTools): boolean => {
     const event = forestEvent((node.content as { kind: 'event'; eventId: string }).eventId)!, base = streams ? streamValue(seed, 'events', eventDraw) : forestNodeSeed(seed, node.id);
     eventDraw++;
@@ -1616,6 +1656,7 @@ export function parseForestRun(text: string): ForestRunState | null {
       continue;
     }
     if (node.type === 'event') {
+      if (!eventPickHolds(node)) return null;
       // An event node turned find took its entering draw too.
       if (node.content.kind !== 'event') { eventDraw++; continue; }
       const choice = choices[eventCount++], tools = expectedTools(visitedNodes.slice(0, n), typedFinds, node, false, openedBefore(node.id), usesFind, giftItems);
@@ -1638,6 +1679,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   if (entered) {
     if (!isTrunkNode(entered)) addCalm();
     const kind = isRecord(pending) ? pending.kind : null;
+    if (entered.type === 'event' && !eventPickHolds(entered)) return null;
     if (entered.type === 'event' && entered.content.kind === 'event') {
       const tools = expectedTools(visitedNodes, typedFinds, entered, false, openedBefore(entered.id), usesFind, giftItems);
       if (!replayEvent(entered, null, kind === 'event' ? (pending as Record<string, unknown>).attempts : undefined, tools)) return null;

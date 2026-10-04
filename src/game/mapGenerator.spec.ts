@@ -73,12 +73,13 @@ function connectivity() {
 }
 
 /**
- * Node types fit their rows; on no route stand two hard battles, two rests, two finds or two merchants in a row; a route meets at most
- * as many events as there are; the children of one parent differ in type (the free rows); a rest stands 1–3 rows
+ * Node types fit their rows; on no route stand two hard battles, two rests, two finds, two merchants or two events in a
+ * row; a whole route (trails and branch) meets at most 2 events (generator 4, decision of 04.10.2026); the children of one parent differ in type (the free rows); a rest stands 1–3 rows
  * before every hard battle on every route; each branch has a route without a hard battle and one with a hard battle.
  */
 function typeRules() {
   let twoHard = 0, shops = 0, free = 0, branchNodes = 0, branchEvents = 0, branchRoutesWithEvent = 0, branchRoutes = 0;
+  const routeEvents: number[] = [];
   for (const seed of SEEDS) {
     const map = mapOf(seed), routes = paths(map);
     for (const node of map.nodes.filter(entry => branchOf(entry) && entry.row <= 12)) { branchNodes++; if (node.type === 'event') branchEvents++; }
@@ -89,10 +90,12 @@ function typeRules() {
     for (const node of map.nodes.filter(entry => entry.lane !== 'trunk')) assert(FREE_TYPES[node.row].includes(node.type), `${seed}: ${node.id} is ${node.type} on row ${node.row}`);
     for (const route of routes) {
       route.forEach((node, n) => {
-        if (n && ['hard', 'rest', 'find', 'shop'].includes(node.type)) assert(route[n - 1].type !== node.type, `${seed}: ${route[n - 1].id} → ${node.id}: two ${node.type} in a row`);
+        if (n && ['hard', 'rest', 'find', 'shop', 'event'].includes(node.type)) assert(route[n - 1].type !== node.type, `${seed}: ${route[n - 1].id} → ${node.id}: two ${node.type} in a row`);
         if (node.type === 'hard') assert(route.slice(Math.max(0, n - 3), n).some(before => before.type === 'rest'), `${seed}: a rest 1–3 rows before ${node.id}`);
       });
-      assert(route.filter(node => node.type === 'event').length <= EVENTS_PER_PATH, `${seed}: no more events on a route than there are events`);
+      const events = route.filter(node => node.type === 'event').length;
+      assert(events <= 2 && EVENTS_PER_PATH === 2, `${seed}: ${events} events on the route ${route.map(node => node.id).join(' → ')}, at most 2`);
+      routeEvents[events] = (routeEvents[events] ?? 0) + 1;
     }
     for (const parent of map.nodes) {
       const free = parent.next.map(id => map.byId.get(id)!).filter(child => (FREE_TYPES[child.row]?.length ?? 1) > 1);
@@ -110,7 +113,9 @@ function typeRules() {
   assert(shops / free > 0.04 && shops / free < 0.065, `merchants are about 5% of the free nodes: ${(shops / free * 100).toFixed(2)}%`);
   // Events in the branches (docs/events.md, section 4): about 15% of a branch's nodes (rows 10–12), on rows 10–11.
   assert(branchEvents / branchNodes > 0.11 && branchEvents / branchNodes < 0.19, `branch events are about 15% of the branch nodes: ${(branchEvents / branchNodes * 100).toFixed(2)}%`);
-  console.log(`PASS node types and route rules on ${SEEDS.length} maps (branches with a two-hard route: ${twoHard}; merchants ${(shops / free * 100).toFixed(2)}% of the free nodes, a route through one on every map; branch events ${(branchEvents / branchNodes * 100).toFixed(2)}% of the branch nodes, on ${(branchRoutesWithEvent / branchRoutes * 100).toFixed(1)}% of the routes)`);
+  // Both rules leave routes with two events (the cap is reached, not avoided).
+  assert((routeEvents[2] ?? 0) > 0 && (routeEvents[1] ?? 0) > 0, `routes with one and two events exist: ${json(routeEvents)}`);
+  console.log(`PASS node types and route rules on ${SEEDS.length} maps (branches with a two-hard route: ${twoHard}; merchants ${(shops / free * 100).toFixed(2)}% of the free nodes, a route through one on every map; branch events ${(branchEvents / branchNodes * 100).toFixed(2)}% of the branch nodes, on ${(branchRoutesWithEvent / branchRoutes * 100).toFixed(1)}% of the routes; routes by events ${json(routeEvents)})`);
 }
 
 /** Tools by row on every route: frost from row 5, jump from row 7, spin after the Jailer; every pooled node has fitting battles. */
@@ -287,9 +292,27 @@ function saves() {
   // The battle in a save stays even if the pools change later: the save carries the pick, not a reroll.
   const other = createForestRun(seed, { map: 'generated' });
   assert(json(parseForestRun(serializeForestRun(other))) === json(other), 'a fresh generated run with the trunk round-trips');
-  // A run saved with a map of generator 2 (no events in the branches) still loads and plays on (generator 3 changed only
-  // the layout of new maps; a save keeps its map).
-  assert(MAP_GENERATOR_VERSION === 3 && run.map.kind === 'generated' && run.map.generator === 3, 'new maps are of generator 3');
+  // A run saved with a map of generator 2 (no events in the branches) or 3 (events may stand twice in a row, three on a
+  // route) still loads and plays on: generators 3 and 4 changed only the layout of new maps; a save keeps its map.
+  assert(MAP_GENERATOR_VERSION === 4 && run.map.kind === 'generated' && run.map.generator === 4, 'new maps are of generator 4');
+  const v3 = tamper(v => {
+    v.map.generator = 3;
+    // Events on a whole trail route r6 → r7 → r8: two in a row, against the rules of generator 4.
+    let node = v.map.nodes.find((entry: any) => entry.id.startsWith('r6'));
+    while (node && /^r[678]c/.test(node.id)) { node.type = 'event'; node = v.map.nodes.find((entry: any) => entry.id === node.next[0]); }
+  });
+  assert(v3 && v3.map.kind === 'generated' && v3.map.generator === 3, 'a save with a map of generator 3 loads');
+  let played: ForestRunState = ok(resolveBattle(v3, { nodeId: (v3.pending as { nodeId: string }).nodeId, won: true, player: { ...v3.resources.player }, inventory: { ...v3.resources.inventory } }), 'resolve on the generator-3 map');
+  for (let row = 6; row <= 8; row++) {
+    const event = availableNodes(played).find(node => node.type === 'event' && node.row === row);
+    if (!event) break;
+    played = ok(enterNode(played, event.id), `enter ${event.id}`);
+    assert(json(parseForestRun(serializeForestRun(played))) === json(played), `the generator-3 run saves at ${event.id}`);
+    // An event node with no event left became a find.
+    if (played.pending?.kind === 'find') { played = ok(chooseFindItem(played, played.pending.options[0]), 'find'); continue; }
+    played = ok(chooseEventOption(played, eventView(played)!.options.find(option => option.safe && option.available)!.id), 'pass the event');
+  }
+  assert(json(parseForestRun(serializeForestRun(played))) === json(played) && played.visited.filter(id => /^r[678]c/.test(id)).length >= 2, 'the generator-3 run plays its events in a row and saves');
   const old = tamper(v => { v.map.generator = 2; for (const node of v.map.nodes) if (node.type === 'event' && /^(den|camp)-/.test(node.id)) node.type = 'battle'; });
   assert(old && old.map.kind === 'generated' && old.map.generator === 2, 'a save with a map of generator 2 loads');
   const resolved = resolveBattle(old!, { nodeId: (old!.pending as { nodeId: string }).nodeId, won: true, player: { ...old!.resources.player }, inventory: { ...old!.resources.inventory } });

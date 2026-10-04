@@ -3,7 +3,8 @@ import type { ItemKind, ResourceKind } from './forestTypes';
 import { RESOURCE_KINDS } from './resources';
 import { extraAngerBeforeGoals, firstChainPower, reinforcementShift, startsWithElite, talisman, type BattleModifier } from './talismans';
 import { uniqueEntities } from './entityFootprint';
-import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventCandidates, eventView, forestRunScore, forestRunView, nodeBattleId,
+import { angerPerTurn, pressureBossLives } from './mapBattleRules';
+import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseGift, chooseTalisman, createForestRun, enterNode, eventCandidates, eventView, forestRunScore, forestRunView, giftView, nodeBattleId,
   parseForestRun, resolveBattle, restHeal, runNode, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { eventFits, eventOption, forestEvent, FOREST_EVENTS, validateForestEvents } from './run/forestEvents';
 import { CATALOGUE_EVENTS, eventUnlockLevel } from './run/unlocks';
@@ -193,25 +194,38 @@ function everyOption() {
   console.log(`PASS every option of every event changes what the catalogue says (${checked} options)`);
 }
 
-/** HP never below 1: every option that may take HP, from 1 HP; a sure HP price needs the cat above it. */
+/**
+ * HP never below 1 (docs/events.md, rule 3, decision of 04.10.2026): at 1 HP every option that may take HP — a sure price
+ * or a risk («Взломать», «Вытащить приманку», «Пошарить», «Крутить») — is unavailable with «Нужно HP ≥ 2», the safe option
+ * and the options without HP at stake stay; from 2 HP they are taken and HP stays at least 1 (the nest until it closes).
+ */
 function hpFloor() {
-  let checked = 0;
-  for (const id of ['goblin-cache', 'old-trap', 'porcupine-nest', 'bone-wheel']) {
+  const RISKY: Record<string, string> = { 'goblin-cache': 'break', 'old-trap': 'bait', 'porcupine-nest': 'search', 'bone-wheel': 'spin' };
+  let closed = 0, taken = 0;
+  for (const [id, risky] of Object.entries(RISKY)) {
     for (const from of [1, 150, 300]) {
-      const run = reach(id, { hp: 1, energy: 3, loot: { dew: 3 }, from, accept: entry => entry.resources.player.hp === 1 && stockOf(entry) >= 1 });
-      for (const option of eventView(run)!.options.filter(entry => entry.available)) {
-        let after = ok(chooseEventOption(run, option.id), `${id}/${option.id} at 1 HP`);
-        while (after.pending?.kind === 'event' && eventView(after)!.options.find(entry => entry.id === option.id)?.available) after = ok(chooseEventOption(after, option.id), 'again');
-        assert(after.resources.player.hp >= 1, `${id}/${option.id}: HP ${after.resources.player.hp} at 1 HP`);
-        checked++;
+      const weak = reach(id, { hp: 1, energy: 3, loot: { dew: 3 }, from, accept: entry => entry.resources.player.hp === 1 && stockOf(entry) >= 1 }), view = eventView(weak)!;
+      const option = view.options.find(entry => entry.id === risky)!;
+      assert(!option.available && option.reason.includes('HP ≥ 2') && !chooseEventOption(weak, risky).ok, `${id}/${risky} at 1 HP: unavailable — «${option.reason}»`);
+      assert(view.options.some(entry => entry.safe && entry.available), `${id}: a safe option stays at 1 HP`);
+      for (const other of view.options.filter(entry => entry.id !== risky)) {
+        assert(other.available, `${id}/${other.id}: no HP at stake, available at 1 HP (${other.reason})`);
+        assert(ok(chooseEventOption(weak, other.id), `${id}/${other.id} at 1 HP`).resources.player.hp >= 1, `${id}/${other.id}: HP at least 1`);
       }
-      if (id === 'old-trap') {
-        const bait = eventView(run)!.options.find(entry => entry.id === 'bait')!;
-        assert(!bait.available && bait.reason === 'Нужно больше 1 HP' && !chooseEventOption(run, 'bait').ok, `old-trap: the bait costs 1 HP, unavailable at 1 HP (${bait.reason})`);
+      closed++;
+      const able = reach(id, { hp: 2, energy: 3, loot: { dew: 3 }, from, accept: entry => entry.resources.player.hp === 2 && stockOf(entry) >= 1 });
+      let after = ok(chooseEventOption(able, risky), `${id}/${risky} at 2 HP`);
+      // The nest: attempts while the option is open; a prick to 1 HP closes it.
+      while (after.pending?.kind === 'event' && eventView(after)!.options.find(entry => entry.id === risky)!.available) after = ok(chooseEventOption(after, risky), 'again');
+      assert(after.resources.player.hp >= 1, `${id}/${risky}: HP ${after.resources.player.hp} from 2 HP`);
+      if (after.pending?.kind === 'event' && after.resources.player.hp === 1) {
+        const shut = eventView(after)!.options.find(entry => entry.id === risky)!;
+        assert(!shut.available && shut.reason.includes('HP ≥ 2'), `${id}: after a prick to 1 HP the next attempt is closed (${shut.reason})`);
       }
+      taken++;
     }
   }
-  console.log(`PASS events never take the cat below 1 HP (${checked} options taken at 1 HP); a sure HP price needs more`);
+  console.log(`PASS at 1 HP the options that may take HP are closed with «HP ≥ 2» (${closed} events), the others stay; from 2 HP they never take the cat below 1 (${taken})`);
 }
 
 /** An option the cat cannot pay is unavailable and says why; the safe option is always there; a cost alternative is paid. */
@@ -377,6 +391,78 @@ function modifiers() {
   console.log('PASS modifiers of the next battle (first chain 1, anger 2, early reinforcement, start elite) act on exactly one battle in the engine');
 }
 
+/**
+ * «Злится на 1 больше» (`wrath`) waits for the first battle where it acts (decision of 04.10.2026): a battle under the
+ * gift's calm and a boss battle leave it waiting; the next battle without them takes it. The other modifiers go to the
+ * nearest battle. Real commands on generated runs with the full gift's calm; reloads at every step change nothing.
+ */
+function wrathWaits() {
+  const WRATH: Record<string, string> = { 'wounded-cub': 'skin', 'ford-ambush': 'bushes' };
+  const calmLeft = (run: ForestRunState) => run.modifiers?.find(entry => entry.modifier === 'calm')?.battles ?? 0;
+  const wrathOf = (run: ForestRunState) => run.modifiers?.find(entry => entry.modifier === 'wrath');
+  let checked = 0;
+  for (let k = 1; k < 3000 && checked < 3; k++) {
+    let run = createForestRun(spread(k), { map: 'generated', skipTrunk: true, gift: 'full' });
+    if (giftView(run)!.options[1].option.kind !== 'calm') continue;
+    run = ok(chooseGift(run, 1), 'the calm');
+    const state = { battles: 0 }, plan: Plan = { loot: { dew: 2 } };
+    let choice = spread(k + 77), took: string | null = null;
+    // Walk to a wrath event while the calm still holds a battle: battles last, the event first.
+    for (let guard = 0; guard < 20 && !took && !run.result; guard++) {
+      if (run.pending?.kind === 'event') {
+        const id = eventView(run)!.event.id;
+        if (WRATH[id] && calmLeft(run) >= 1) { run = ok(chooseEventOption(run, WRATH[id]), `${id}/${WRATH[id]}`); took = id; break; }
+      }
+      if (run.pending) { run = settle(run, plan, state); continue; }
+      const next = availableNodes(run), target = next.find(node => node.content.kind === 'event' && !!WRATH[node.content.eventId]);
+      const quiet = next.filter(node => node.type !== 'battle' && node.type !== 'hard' && node.type !== 'checkpoint'), list = quiet.length ? quiet : next;
+      choice = spread(choice + 1);
+      run = ok(enterNode(run, (target ?? list[choice % list.length]).id), 'walk');
+    }
+    if (!took) continue;
+    assert(wrathOf(run)?.battles === 1 && calmLeft(run) >= 1 && json(roundTrip(run)) === json(run), `${run.seed}: wrath waits beside the calm`);
+    // Battles under the calm: they take the calm, not the wrath; no anger before the goals in the engine.
+    while (calmLeft(run) >= 1) {
+      run = nextBattle(run);
+      const calm = playBattle(run);
+      assert(json(battleSetup(run)!.modifiers) === json(['calm']) && wrathOf(run)?.battles === 1, `${run.seed}: the battle under the calm leaves the wrath waiting (${json(battleSetup(run)!.modifiers)})`);
+      assert(extraAngerBeforeGoals(calm.engine.state) === 0 && angerPerTurn(calm.engine.state) === 0, `${run.seed}: no anger under the calm in the engine`);
+      assert(json(roundTrip(run)) === json(run), `${run.seed}: the battle under the calm survives a reload`);
+      assert(forge(run, v => { v.pending.modifiers = ['calm', 'wrath']; delete v.modifiers; }) === null, `${run.seed}: a save where the calm battle took the wrath is rejected`);
+      calm.engine.winLevel(); run = ok(resolveBattle(run, calm.engine.runBattleOutcome()!), 'win under the calm');
+      assert(json(roundTrip(run)) === json(run), `${run.seed}: after the calm battle the run survives a reload`);
+    }
+    // The next battle takes the wrath: 2 angry per turn before the goals in the engine.
+    run = nextBattle(run);
+    const wrath = playBattle(run);
+    assert(json(battleSetup(run)!.modifiers) === json(['wrath']) && !run.modifiers, `${run.seed}: the first battle without the calm takes the wrath`);
+    assert(extraAngerBeforeGoals(wrath.engine.state) === 1 && angerPerTurn(wrath.engine.state) === 2, `${run.seed}: the wrath acts in the engine (${angerPerTurn(wrath.engine.state)} per turn)`);
+    assert(json(roundTrip(run)) === json(run), `${run.seed}: the wrath battle survives a reload`);
+    wrath.engine.winLevel(); run = ok(resolveBattle(run, wrath.engine.runBattleOutcome()!), 'win with the wrath');
+    run = nextBattle(run);
+    assert(!battleSetup(run)!.modifiers && extraAngerBeforeGoals(playBattle(run).engine.state) === 0, `${run.seed}: the battle after it has no wrath`);
+    checked++;
+  }
+  assert(checked === 3, `runs with the calm and a wrath event found (${checked})`);
+  // A boss battle (Troll or Chief: no anger before the goals while the boss lives) leaves the wrath waiting; another
+  // modifier is taken. On the generated maps a wrath of rows 6–8 is always taken by the Jailer before a boss, so the
+  // run state before the boss is set as a model.
+  for (const k of [1, 2]) {
+    let run = createForestRun(spread(k + 40), { map: 'generated', skipTrunk: true }), choice = spread(k);
+    const state = { battles: 0 };
+    for (let guard = 0; guard < 80 && !availableNodes(run).some(node => node.type === 'boss'); guard++) {
+      if (run.pending) { run = settle(run, {}, state); continue; }
+      choice = spread(choice + 1); const next = availableNodes(run); run = ok(enterNode(run, next[choice % next.length].id), 'walk');
+    }
+    const boss = availableNodes(run).find(node => node.type === 'boss')!;
+    const model: ForestRunState = { ...structuredClone(run), modifiers: [{ modifier: 'wrath', battles: 1 }, { modifier: 'first-chain-power', battles: 1 }] };
+    const entered = ok(enterNode(model, boss.id), 'enter the boss'), fight = playBattle(entered);
+    assert(json(battleSetup(entered)!.modifiers) === json(['first-chain-power']) && json(entered.modifiers) === json([{ modifier: 'wrath', battles: 1 }]), `${boss.id}: the boss battle takes the first chain, the wrath waits`);
+    assert(pressureBossLives(fight.engine.state.board) && extraAngerBeforeGoals(fight.engine.state) === 0 && angerPerTurn(fight.engine.state) === 0 && firstChainPower(fight.engine.state) === 1, `${boss.id}: in the engine no anger before the goals, the first chain 1`);
+  }
+  console.log(`PASS «wrath» waits for the first battle where it acts: battles under the calm (${checked} runs) and boss battles leave it, the next battle takes it (2 per turn in the engine); reloads change nothing`);
+}
+
 /** «Засада у брода»: a trail battle of the pool; a victory gives its talisman choice; a defeat ends the run; refusal is safe. */
 function rewardBattle() {
   for (const from of [1, 400]) {
@@ -415,8 +501,11 @@ function rewardBattle() {
 
 /** Many random runs: each event at most once, branch events only in their branch and rows, closed events never; a node with no event left becomes a find. */
 function placement() {
-  const walk = (k: number, unlocks: number | undefined, loot: boolean) => {
+  // `crowded`: the run's map as a generator-3 map could be (a saved run keeps it): events on every node of rows 6–8 and of
+  // the branch rows 10–11, so a route meets five events.
+  const walk = (k: number, unlocks: number | undefined, loot: boolean, crowded = false) => {
     let run = createForestRun(spread(k), { map: 'generated', skipTrunk: true, ...unlocks !== undefined ? { unlocks } : {} }), choice = spread(k + 99);
+    if (crowded && run.map.kind === 'generated') run = { ...run, map: { ...run.map, generator: 3, nodes: run.map.nodes.map(node => /^r[678]c|^(den|camp)-r1[01]c/.test(node.id) ? { ...node, type: 'event' as const } : node) } };
     const state = { battles: 0 }, plan: Plan = { loot: loot ? { dew: 2, powder: 1 } : undefined };
     for (let guard = 0; guard < 120 && !run.result; guard++) {
       if (run.pending) { run = settle(run, plan, state); continue; }
@@ -449,11 +538,13 @@ function placement() {
   };
   const closed = seen(0, true, 150);
   for (const id of ['goblin-cache', 'ford-ambush', 'bone-wheel', 'den-bones', 'shaman-idol']) assert(!closed.met.has(id), `level 0: closed ${id} never comes`);
-  // An event node with no open event left to fit it becomes a find (rare: at level 0 a branch has two own or common
-  // events, so it takes a route with two branch events after «Костёр путника» on the trails). Searched, not fixed.
+  // An event node with no open event left to fit it becomes a find. A map of generator 4 holds at most 2 events on a
+  // route, so at level 0 an event node always has one left; a saved generator-3 map could hold more: on such a map (all
+  // free nodes of rows 6–8 and 10–11 events) a branch at level 0 has two own or common events, so a route that met
+  // «Костёр путника» on the trails finds none left on row 11. Searched, not fixed; the save replays the find.
   let found: ForestRunState | null = null, searched = 0;
   for (let k = 1000; k < 6000 && !found; k++, searched++) {
-    const run = walk(k, 0, false), pick = run.picks.find(entry => entry.find);
+    const run = walk(k, 0, false, true), pick = run.picks.find(entry => entry.find);
     if (!pick) continue;
     found = run;
     const node = runNode(run, pick.nodeId)!, before = { ...run, picks: run.picks.slice(0, run.picks.indexOf(pick)) };
@@ -463,7 +554,7 @@ function placement() {
   assert(found, `a node with no open event left becomes a find (searched ${searched} runs)`);
   const open = seen(5, true, 150);
   assert(Object.keys(FOREST_EVENTS).every(id => open.met.has(id)), `level 5: every event comes (${[...open.met].join(', ')})`);
-  console.log(`PASS placement on 300 runs: each event once, branch events in their branch, closed ones never (level 0), all 14 at level 5; a node with no event left became a find (seed ${found!.seed}, ${searched} runs searched)`);
+  console.log(`PASS placement on 300 runs: each event once, branch events in their branch, closed ones never (level 0), all 14 at level 5; a node with no event left became a find on a generator-3 map (seed ${found!.seed}, ${searched} runs searched)`);
 }
 
 /** Forged saves are rejected: another outcome, an extra attempt, a reward without a victory, a closed event, a lost modifier, a find where an event fits. */
@@ -494,11 +585,24 @@ function forgery() {
   assert(forge(stew, v => { const paid = v.eventChoices.at(-1).paid; const kind = Object.keys(paid).find(key => paid[key] > 0)!; paid[kind]--; }) === null, 'a payment short of the price is rejected');
   const bow = ok(chooseEventOption(reach('shaman-idol', RICH), 'bow'), 'bow');
   assert(bow.resources.player.maxHp === 4 && forge(bow, v => { v.resources.player.maxHp = 5; }) === null, 'the maximum HP the idol took is checked');
+  // The pick of an event node is the roll of its entering draw: another event that fits the node is rejected, open and after leaving.
+  let swapped = 0;
+  for (const id of ['old-trap', 'drunk-cook', 'traveler-fire', 'brook']) {
+    const run = reach(id, RICH), nodeId = (run.pending as { nodeId: string }).nodeId, before = { ...run, picks: run.picks.slice(0, -1) };
+    const other = eventCandidates(before, runNode(run, nodeId)!).find(entry => entry !== id && FOREST_EVENTS[entry].options.some(option => option.id === 'leave'));
+    if (!other) continue;
+    const swap = (v: any) => { v.picks.at(-1).eventId = other; };
+    assert(roundTrip(run) && forge(run, swap) === null, `${id} → ${other}: another fitting event in the open node is rejected`);
+    const leave = FOREST_EVENTS[id].options.some(option => option.id === 'leave') ? ok(chooseEventOption(run, 'leave'), 'leave') : null;
+    if (leave) assert(roundTrip(leave) && forge(leave, swap) === null, `${id} → ${other}: another fitting event after leaving is rejected`);
+    swapped++;
+  }
+  assert(swapped >= 3, `swapped picks checked (${swapped})`);
   // Saves of generator 2 (before the catalogue) may repeat an event once the two events of that time open in the run were met; new maps may not.
   const twice = reach('owl-hollow', { ...RICH, unlocks: 0, events: true, accept: run => run.picks.some(pick => pick.eventId === 'brook') });
   const repeat = (generator: number) => forge(twice, v => { v.map.generator = generator; v.picks.at(-1).eventId = 'brook'; });
   assert(repeat(3) === null && repeat(2) !== null, 'a repeated event loads only from a map of generator 2');
-  console.log('PASS forged saves are rejected: outcomes, attempts, a reward without a victory, a closed event, modifiers, payments, the maximum HP; generator-2 repeats load');
+  console.log('PASS forged saves are rejected: outcomes, attempts, a reward without a victory, a closed event, another fitting event, modifiers, payments, the maximum HP; generator-2 repeats load');
 }
 
 data();
@@ -509,6 +613,7 @@ shares();
 escalation();
 reloads();
 modifiers();
+wrathWaits();
 rewardBattle();
 placement();
 forgery();

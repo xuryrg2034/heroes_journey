@@ -11,7 +11,7 @@
 import { battlePoolEntry } from '../src/game/run/battlePools';
 import type { ForestMapNode, ForestNodeType } from '../src/game/run/forestMap';
 import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunView, resolveBattle, restHeal, runNode, shopLeave, type ForestRunState } from '../src/game/run/forestRun';
-import { generateForestMap, type GenerationStats } from '../src/game/run/mapGenerator';
+import { EVENTS_PER_PATH, generateForestMap, type GenerationStats } from '../src/game/run/mapGenerator';
 import { forestEvent } from '../src/game/run/forestEvents';
 import { LADDER_HARD_FACTOR } from '../src/game/ladder';
 
@@ -37,7 +37,9 @@ const nodeCounts: number[] = [], starts: number[] = [], routesToBoss: number[] =
 const shares = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, Object.fromEntries(TYPES.map(type => [type, [] as number[]]))])) as Record<Section, Record<string, number[]>>;
 const battlesWithTrunk: number[] = [], eventsPerRoute: number[] = [], shopsPerRoute: number[] = [], shopsPerMap: number[] = [];
 let mapsWithShopRoute = 0, consecutiveShops = 0, routesWithHard = 0, routeCount = 0;
-const hardPerMap: number[] = [], branchEventsPerRoute: number[] = [];
+const hardPerMap: number[] = [], branchEventsPerRoute: number[] = [], trailEventsPerRoute: number[] = [];
+// Event rules of generator 4 (decision of 04.10.2026): no two events in a row on a route, at most EVENTS_PER_PATH per route.
+let eventsInARow = 0, routesOverEvents = 0, mapsWithoutBranchEvents = 0;
 const worst: GenerationStats = { trails: 0, den: 0, camp: 0 }, attemptsOver1 = { trails: 0, den: 0, camp: 0 };
 const freeTotal = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, 0])) as Record<Section, number>;
 const freeByType = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, Object.fromEntries(TYPES.map(type => [type, 0]))])) as Record<Section, Record<string, number>>;
@@ -64,6 +66,7 @@ for (const seed of SEEDS) {
   routeCount += routes.length; routesWithHard += routes.filter(route => route.some(node => node.type === 'hard')).length;
   if (routes.some(route => route.some(node => node.type === 'shop'))) mapsWithShopRoute++;
   if (routes.some(route => route.some((node, n) => n > 0 && node.type === 'shop' && route[n - 1].type === 'shop'))) consecutiveShops++;
+  if (!nodes.some(node => node.type === 'event' && node.row >= 10)) mapsWithoutBranchEvents++;
   for (const lane of ['den', 'camp']) routesPerBoss.push(routes.filter(route => route[route.length - 1].lane === lane).length);
   for (const route of routes) {
     for (const [section, rows] of Object.entries(SECTIONS) as [Section, readonly number[]][]) {
@@ -73,6 +76,9 @@ for (const seed of SEEDS) {
     battlesWithTrunk.push(4 + route.filter(isBattle).length);
     eventsPerRoute.push(route.filter(node => node.type === 'event').length);
     branchEventsPerRoute.push(route.filter(node => node.type === 'event' && node.row >= 10).length);
+    trailEventsPerRoute.push(route.filter(node => node.type === 'event' && node.row <= 8).length);
+    if (route.some((node, n) => n > 0 && node.type === 'event' && route[n - 1].type === 'event')) eventsInARow++;
+    if (route.filter(node => node.type === 'event').length > EVENTS_PER_PATH) routesOverEvents++;
     shopsPerRoute.push(route.filter(node => node.type === 'shop').length);
   }
 }
@@ -101,7 +107,8 @@ console.log(`\nNodes per map (without the trunk): median ${median(nodeCounts)}, 
 console.log(`Start nodes (row 5): median ${median(starts)}; ${hist(starts)}`);
 console.log(`Routes from row 5 to a boss: median ${median(routesToBoss)}, min ${least(routesToBoss)}, max ${most(routesToBoss)}; per boss median ${median(routesPerBoss)}`);
 console.log(`Battles per route, trunk included (+4): ${hist(battlesWithTrunk)}`);
-console.log(`Events per route: ${hist(eventsPerRoute)}; in the branches (rows 10–11): ${hist(branchEventsPerRoute)}`);
+console.log(`Events per route: ${hist(eventsPerRoute)}; on the trails (rows 6–8): ${hist(trailEventsPerRoute)}; in the branches (rows 10–11): ${hist(branchEventsPerRoute)}`);
+console.log(`Event rules: routes with two events in a row ${eventsInARow}, with more than ${EVENTS_PER_PATH} events ${routesOverEvents} (of ${routeCount}); maps without a branch event ${mapsWithoutBranchEvents} of ${COUNT}`);
 console.log(`Generator attempts (walks of a section): worst trails ${worst.trails}, den ${worst.den}, camp ${worst.camp}; maps needing more than one walk: trails ${attemptsOver1.trails}, den ${attemptsOver1.den}, camp ${attemptsOver1.camp}`);
 if (MAPS_ONLY) process.exit(0);
 console.log(`Merchants: per map ${hist(shopsPerMap)}; maps with a route through a merchant ${mapsWithShopRoute} of ${COUNT}; maps with two merchants in a row on a route ${consecutiveShops}; per route ${hist(shopsPerRoute)}`);

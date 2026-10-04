@@ -236,16 +236,18 @@ function collect(seed: number, level: number) {
 }
 function gating() {
   const closedAt0 = TALISMANS.map(entry => entry.id).filter(id => !UNLOCK_START.talismans.includes(id));
-  const seenAt = (level: number) => {
+  // 40 runs, or more (up to 200) until `enough` holds: a run meets at most 2 events (generator 4), so an opened event
+  // may need more runs to come.
+  const seenAt = (level: number, enough: (seen: { talismans: Set<string>; events: Set<string> }) => boolean = () => true) => {
     const talismans = new Set<string>(), events = new Set<string>();
-    for (let k = 1; k <= 40; k++) { const got = collect(spread(k), level); got.talismans.forEach(id => talismans.add(id)); got.events.forEach(id => events.add(id)); }
+    for (let k = 1; k <= 200 && (k <= 40 || !enough({ talismans, events })); k++) { const got = collect(spread(k), level); got.talismans.forEach(id => talismans.add(id)); got.events.forEach(id => events.add(id)); }
     return { talismans, events };
   };
   const start = seenAt(0);
   assert(!closedAt0.some(id => start.talismans.has(id)) && !start.events.has('goblin-cache'), `level 0: nothing closed comes (${[...start.talismans].join(', ')}; events ${[...start.events].join(', ')})`);
   assert(start.talismans.size >= 4 && start.events.has('brook'), 'level 0: the start set comes');
-  const open = seenAt(5);
   const late: TalismanId[] = ['millstone-shard', 'hourglass', 'oath-wrath'];
+  const open = seenAt(5, seen => late.every(id => seen.talismans.has(id)) && seen.events.has('goblin-cache'));
   assert(late.every(id => open.talismans.has(id)) && open.events.has('goblin-cache'), `level 5: the opened talismans, oath and event come (${[...open.talismans].join(', ')}; ${[...open.events].join(', ')})`);
   // The map meets only events that exist in the game (an opened id without an event would wait).
   assert([...open.events].every(id => FOREST_EVENTS[id]) && unlockedAt(5).events.every(id => CATALOGUE_EVENTS[id]), 'the map meets only events of the game');
