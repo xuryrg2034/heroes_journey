@@ -1,7 +1,7 @@
 import { ForestEngine } from './forestEngine';
 import { forestMapPaths, forestNode, validateForestMap } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, createForestRun, enterNode, eventOutcomeIndex, eventView, forestRunView, parseForestRun,
-  resolveBattle, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { FOREST_EVENTS, isSafeOption, validateForestEvents } from './run/forestEvents';
 
 // Map events (decision of 04.10.2026, docs/roguelike-runs.md, section 5a): two test events on row 8 beside «Три знамени».
@@ -30,6 +30,7 @@ function walk(seed: number, ids: string[], exit: { hp?: number; energy?: number 
       e.winLevel(); run = ok(resolveBattle(run, e.runBattleOutcome()!), `resolve ${id}`);
     }
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+    if (run.pending?.kind === 'rest') run = ok(restHeal(run), `heal at ${id}`);
   }
   return run;
 }
@@ -196,6 +197,7 @@ function throughToJailer() {
         fight.winLevel(); run = ok(resolveBattle(run, fight.runBattleOutcome()!), `resolve ${id}`);
       }
       if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), 'find');
+      if (run.pending?.kind === 'rest') run = ok(restHeal(run), 'heal');
     }
     assert(run.result?.outcome === 'victory' && json(roundTrip(run)) === json(run), `${ids.at(-1)}: the route goes on to the Chief and the save holds`);
     assert(forestRunView(run).battlesWon === ids.filter(id => !['trail-find', 'trail-rest', 'trail-brook', 'trail-cache'].includes(id)).length + 5, 'battles counted without the event');

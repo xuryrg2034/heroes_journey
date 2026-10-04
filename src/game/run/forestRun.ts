@@ -8,7 +8,7 @@ import { ITEM_KINDS, mixSeed, rewardChoices } from '../items';
 import type { LootKind, ResourceKind, AbilityKind, ItemKind } from '../forestTypes';
 import { RUN_PRESSURE_FIRST_ROW } from '../mapBattleRules';
 import { CHEST_RESOURCES } from '../exitRules';
-import { emptyMaterials, isResource, RESOURCE_KINDS } from '../resources';
+import { CRAFT_COST, craftSource, emptyMaterials, isResource, RESOURCE_KINDS, RESOURCES } from '../resources';
 import { AUTHORED_RUN_MAP, nodeBattleTemplate, hasVictoryFind, isBattleNode, isTrunkNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, type ForestRunMap, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
@@ -26,7 +26,7 @@ export const FOREST_RUN_START_HP = 5;
 const MAX_ENERGY = 7;
 const ABILITY_KINDS: AbilityKind[] = ['jump', 'spin'];
 
-/** `materials`: crafting resources kept for the future crafting (elite loot, resources.ts); absent until the first. */
+/** `materials`: crafting resources (elite loot, chests, events; resources.ts), spent at rests; absent until the first. */
 export interface ForestRunResources { player: RunPlayerResources; inventory: Record<ItemKind, number>; materials?: Record<ResourceKind, number> }
 /** Tools opened by run events (grants and finds); a map battle allows only these. */
 export interface ForestRunTools { items: ItemKind[]; abilities: AbilityKind[] }
@@ -40,7 +40,15 @@ export type ForestRunPending =
   /** Item choice of a find node, or the reward of a won hard battle (the node completes after the choice). */
   | { kind: 'find'; nodeId: string; options: ItemKind[] }
   /** Entered event node (forestEvents.ts): its options wait for a choice; a reload offers the same event. */
-  | { kind: 'event'; nodeId: string };
+  | { kind: 'event'; nodeId: string }
+  /**
+   * Entered rest node (decision of 04.10.2026): heal or craft. Healing completes the rest at once; `crafted` lists the
+   * items crafted here so far (non-empty — the craft is chosen and healing is gone); restFinish completes it. A reload
+   * offers the same rest with the same crafts.
+   */
+  | { kind: 'rest'; nodeId: string; crafted: ItemKind[] };
+/** What a completed rest gave: healing, or crafted items (in crafting order). */
+export interface ForestRunRest { nodeId: string; choice: 'heal' | 'craft'; crafted: ItemKind[] }
 export type ForestRunResult =
   | { outcome: 'victory'; nodeId: string }
   /** The branch ends at a boss that is not implemented yet. This is not a victory. */
@@ -86,6 +94,11 @@ export interface ForestRunState {
    * the node id). With the event data they bound what an event may have added. Absent in saves before 04.10.2026.
    */
   eventChoices: { nodeId: string; option: string; outcome: number }[];
+  /**
+   * Completed rests, in visiting order: healing or the crafted items. With the resources gained before each rest they
+   * bound what crafting spent and added. Absent in saves before 04.10.2026 (a rest healed on entering): read as healing.
+   */
+  rests: ForestRunRest[];
   resources: ForestRunResources;
   tools: ForestRunTools;
   /** Points of all finished node battles, the lost one included (the battle's `state.score`). Absent in saves before 04.10.2026: read as 0. */
@@ -102,6 +115,12 @@ export type ForestRunEvent =
   | { type: 'battle-ready'; nodeId: string }
   /** The node battle was lost: the run is over (`result.outcome === 'defeat'`). */
   | { type: 'run-lost'; nodeId: string }
+  /** A rest waits for its choice: heal or craft. */
+  | { type: 'rest-offered'; nodeId: string }
+  /** One recipe at a rest: two `resource` became one `item` (a closed item also opens: `tools-unlocked`). */
+  | { type: 'rest-crafted'; nodeId: string; resource: ResourceKind; item: ItemKind }
+  /** The rest is over: what was chosen, HP healed (0 for a craft or at full HP) and the items crafted. */
+  | { type: 'rest-completed'; nodeId: string; choice: 'heal' | 'craft'; healed: number; crafted: ItemKind[] }
   /** Rest heal, or the hard-battle victory heart (+1 HP); `amount` is 0 at full HP. */
   | { type: 'healed'; nodeId: string; amount: number }
   /** Rest removed burning, poison and bleeding from the cat. */
@@ -136,7 +155,7 @@ export function forestNodeSeed(runSeed: number, nodeId: string): number {
 export function createForestRun(seed: number, options: { skipTrunk?: boolean; map?: 'authored' | 'generated' } = {}): ForestRunState {
   const map: ForestRunMapRef = options.map === 'generated' ? { kind: 'generated', ...generateForestMap(seed) } : { kind: 'authored' };
   return {
-    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], score: 0,
+    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], score: 0,
     resources: { player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
     tools: { items: [], abilities: [] }, pending: null, result: null,
@@ -215,8 +234,8 @@ function completeNode(run: ForestRunState, node: ForestMapNode, events: ForestRu
 }
 
 function unlock(tools: ForestRunTools, items: ItemKind[] = [], abilities: AbilityKind[] = [], events: ForestRunEvent[]) {
-  const newItems = items.filter(item => !tools.items.includes(item));
-  const newAbilities = abilities.filter(ability => !tools.abilities.includes(ability));
+  const newItems = [...new Set(items)].filter(item => !tools.items.includes(item));
+  const newAbilities = [...new Set(abilities)].filter(ability => !tools.abilities.includes(ability));
   tools.items.push(...newItems); tools.abilities.push(...newAbilities);
   if (newItems.length || newAbilities.length) events.push({ type: 'tools-unlocked', items: newItems, abilities: newAbilities });
 }
@@ -258,10 +277,7 @@ export function enterNode(current: ForestRunState, nodeId: string): ForestRunSte
   }
   if (node.grants) applyGrant(run, node.grants, events);
   if (node.content.kind === 'rest') {
-    const { player } = run.resources, amount = Math.max(0, Math.min(node.content.heal, player.maxHp - player.hp));
-    player.hp += amount; events.push({ type: 'healed', nodeId, amount });
-    if (player.damageEffects) { delete player.damageEffects; events.push({ type: 'effects-cleared', nodeId }); }
-    completeNode(run, node, events); return { ok: true, run, events };
+    run.pending = { kind: 'rest', nodeId, crafted: [] }; events.push({ type: 'rest-offered', nodeId }); return { ok: true, run, events };
   }
   if (node.content.kind === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
   if (node.content.kind === 'event') {
@@ -315,7 +331,7 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
     inventory: Object.fromEntries(ITEM_KINDS.map(item => [item, clampCount(outcome.inventory[item])])) as Record<ItemKind, number>,
   };
   // Items picked up in the battle (elite loot) raise the inventory over its entry snapshot; resources picked up are
-  // added to the run's stock for the future crafting.
+  // added to the run's stock for crafting at rests.
   for (const item of ITEM_KINDS) {
     const count = run.resources.inventory[item] - battle.entry.inventory[item];
     if (count > 0) run.loot.push({ nodeId: battle.nodeId, item, count });
@@ -349,6 +365,91 @@ export function chooseFindItem(current: ForestRunState, item: ItemKind): ForestR
   run.finds.push({ nodeId: pending.nodeId, item });
   unlock(run.tools, [item], [], events);
   completeNode(run, runNode(run, pending.nodeId)!, events); return { ok: true, run, events };
+}
+
+// ---------- Rest: heal or craft (decision of 04.10.2026, like a campfire of Slay the Spire) ----------
+
+/**
+ * HP the «heal» choice of a rest restores before the clamp to the maximum: the node's heal today. Run modifiers of the
+ * rest heal (talismans «Фляга росы» +1, «Клятва голода» → 0; docs/talismans.md) belong here, so the rest screen, the
+ * heal and the save check read one number.
+ */
+export function restHealValue(_run: ForestRunState, node: ForestMapNode): number {
+  return node.content.kind === 'rest' ? node.content.heal : 0;
+}
+export interface RestRecipeView {
+  resource: ResourceKind; item: ItemKind; have: number; cost: number;
+  /** Enough of the resource for one more craft now. */
+  available: boolean;
+  /** The item is not open in this run yet: crafting it opens it for the next battles. */
+  opens: boolean;
+}
+export interface RestView {
+  nodeId: string;
+  /** «Лечение»: HP it would restore now (after the clamp), its value before the clamp, effects it would clear; gone once crafting began. */
+  heal: { amount: number; value: number; clearsEffects: boolean; available: boolean };
+  recipes: RestRecipeView[];
+  /** Items crafted at this rest so far. */
+  crafted: ItemKind[];
+  /** The rest can be left now (crafting was chosen); healing completes it by itself. */
+  canFinish: boolean;
+}
+/** The open rest with both choices; null without one. */
+export function restView(run: ForestRunState): RestView | null {
+  const pending = run.pending, node = pending?.kind === 'rest' ? runNode(run, pending.nodeId) : undefined;
+  if (pending?.kind !== 'rest' || !node) return null;
+  const { player, materials } = run.resources, crafting = pending.crafted.length > 0, value = restHealValue(run, node);
+  return { nodeId: node.id,
+    heal: { amount: Math.max(0, Math.min(value, player.maxHp - player.hp)), value, clearsEffects: !!player.damageEffects, available: !crafting },
+    recipes: RESOURCE_KINDS.map(resource => {
+      const have = materials?.[resource] ?? 0, item = RESOURCES[resource].crafts;
+      return { resource, item, have, cost: CRAFT_COST, available: have >= CRAFT_COST, opens: !run.tools.items.includes(item) };
+    }),
+    crafted: [...pending.crafted], canFinish: crafting };
+}
+
+/** Choose «heal» at the open rest: HP up to the maximum, burning, poison and bleeding removed; the rest completes. */
+export function restHeal(current: ForestRunState): ForestRunStep {
+  const view = restView(current);
+  if (!view) return fail('Сейчас нет привала.');
+  if (!view.heal.available) return fail('На этом привале выбран крафт: лечения не будет.');
+  const run = structuredClone(current), nodeId = view.nodeId, player = run.resources.player, events: ForestRunEvent[] = [];
+  player.hp += view.heal.amount; events.push({ type: 'healed', nodeId, amount: view.heal.amount });
+  if (player.damageEffects) { delete player.damageEffects; events.push({ type: 'effects-cleared', nodeId }); }
+  run.rests.push({ nodeId, choice: 'heal', crafted: [] });
+  events.push({ type: 'rest-completed', nodeId, choice: 'heal', healed: view.heal.amount, crafted: [] });
+  completeNode(run, runNode(run, nodeId)!, events); return { ok: true, run, events };
+}
+
+/**
+ * Craft one recipe at the open rest: CRAFT_COST of `resource` become one item. Any number of recipes while resources
+ * last; the first one chooses crafting and cancels the heal of this rest. A closed item opens for the run (the battles'
+ * `allowedItems`, like a find).
+ */
+export function restCraft(current: ForestRunState, resource: ResourceKind): ForestRunStep {
+  const view = restView(current);
+  if (!view) return fail('Сейчас нет привала.');
+  const recipe = view.recipes.find(entry => entry.resource === resource);
+  if (!recipe) return fail('Такого рецепта нет.');
+  if (!recipe.available) return fail(`Нужно ${CRAFT_COST} «${RESOURCES[resource].label}», есть ${recipe.have}.`);
+  const run = structuredClone(current), pending = run.pending as Extract<ForestRunPending, { kind: 'rest' }>;
+  run.resources.materials![resource] -= CRAFT_COST;
+  run.resources.inventory[recipe.item]++;
+  pending.crafted.push(recipe.item);
+  const events: ForestRunEvent[] = [{ type: 'rest-crafted', nodeId: pending.nodeId, resource, item: recipe.item }];
+  unlock(run.tools, [recipe.item], [], events);
+  return { ok: true, run, events };
+}
+
+/** Leave the open rest after crafting («К карте»): the rest completes with its crafted items. */
+export function restFinish(current: ForestRunState): ForestRunStep {
+  const view = restView(current);
+  if (!view) return fail('Сейчас нет привала.');
+  if (!view.canFinish) return fail('Сначала выбери: лечение или крафт.');
+  const run = structuredClone(current), nodeId = view.nodeId;
+  run.rests.push({ nodeId, choice: 'craft', crafted: [...view.crafted] });
+  const events: ForestRunEvent[] = [{ type: 'rest-completed', nodeId, choice: 'craft', healed: 0, crafted: [...view.crafted] }];
+  completeNode(run, runNode(run, nodeId)!, events); return { ok: true, run, events };
 }
 
 // ---------- Map events (data: forestEvents.ts) ----------
@@ -463,18 +564,30 @@ function validTools(value: unknown): value is ForestRunTools {
     && value.items.every(item => ITEM_KINDS.includes(item as ItemKind)) && value.abilities.every(ability => ABILITY_KINDS.includes(ability as AbilityKind));
 }
 
-/** Tools the run must have opened after `visited` (plus the entered node's grants), replayed from the graph and the finds. */
-function expectedTools(visited: ForestMapNode[], finds: ForestRunState['finds'], entered: ForestMapNode | null, won: boolean): ForestRunTools {
+/**
+ * Tools the run must have opened after `visited` (plus the entered node's grants), replayed from the graph, the finds
+ * and the items crafted at rests (`crafts` by rest node id; the open rest included).
+ */
+function expectedTools(visited: ForestMapNode[], finds: ForestRunState['finds'], entered: ForestMapNode | null, won: boolean,
+  crafts: ReadonlyMap<string, ItemKind[]>): ForestRunTools {
   const tools: ForestRunTools = { items: [], abilities: [] }, sink: ForestRunEvent[] = [];
   let taken = 0;
   for (const node of visited) {
     unlock(tools, node.grants?.items, node.grants?.abilities, sink);
     if (isBattleNode(node)) unlock(tools, node.rewardGrants?.items, node.rewardGrants?.abilities, sink);
     if (node.type === 'find' || hasVictoryFind(node)) unlock(tools, [finds[taken++].item], [], sink);
+    unlock(tools, crafts.get(node.id), [], sink);
   }
   if (entered) unlock(tools, entered.grants?.items, entered.grants?.abilities, sink);
   if (entered && won) unlock(tools, entered.rewardGrants?.items, entered.rewardGrants?.abilities, sink);
+  if (entered) unlock(tools, crafts.get(entered.id), [], sink);
   return tools;
+}
+/** A rest record of a save: `heal` with nothing crafted, or `craft` with one or more items. */
+function validRest(value: unknown, nodeId: string): value is ForestRunRest {
+  if (!isRecord(value) || Object.keys(value).length !== 3 || value.nodeId !== nodeId || !Array.isArray(value.crafted)) return false;
+  if (!value.crafted.every(item => ITEM_KINDS.includes(item as ItemKind))) return false;
+  return value.choice === 'heal' ? value.crafted.length === 0 : value.choice === 'craft' && value.crafted.length > 0;
 }
 const sameTools = (a: ForestRunTools, b: ForestRunTools) => a.items.length === b.items.length && a.abilities.length === b.abilities.length
   && a.items.every(item => b.items.includes(item)) && a.abilities.every(ability => b.abilities.includes(ability));
@@ -490,7 +603,7 @@ const randomElitesPossible = (node: ForestMapNode): boolean => !!nodeBattleTempl
 const chestResources = (node: ForestMapNode): number => nodeBattleTemplate(node)?.definition.completion === 'exit' ? CHEST_RESOURCES : 0;
 
 function inventoryCap(visited: ForestMapNode[], finds: ForestRunState['finds'], entered: ForestMapNode | null, loot: ForestRunState['loot'],
-  events: { items: Partial<Record<ItemKind, number>>; materials: ResourceKind[] }[]): Record<LootKind, number> {
+  events: { items: Partial<Record<ItemKind, number>>; materials: ResourceKind[] }[], crafted: ItemKind[]): Record<LootKind, number> {
   const cap: Record<LootKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0, ...emptyMaterials() };
   for (const node of [...visited, ...entered ? [entered] : []]) {
     for (const item of ITEM_KINDS) cap[item] += node.grants?.inventory?.[item] ?? 0;
@@ -501,6 +614,7 @@ function inventoryCap(visited: ForestMapNode[], finds: ForestRunState['finds'], 
     for (const kind of gain.materials) cap[kind]++;
   }
   for (const gain of loot) cap[gain.item] += gain.count;
+  for (const item of crafted) cap[item]++;
   return cap;
 }
 
@@ -555,6 +669,16 @@ export function parseForestRun(text: string): ForestRunState | null {
   if (!Array.isArray(finds) || finds.length !== findNodes.length || finds.some((find, n) => !isRecord(find) || find.nodeId !== findNodes[n].id
     || !findOptions(seed, findNodes[n]).includes(find.item as ItemKind))) return null;
   const typedFinds = finds as ForestRunState['finds'];
+  // Rests: one record per visited rest node, in order (a rest is never a pool node). Saves before 04.10.2026 have none:
+  // their rests healed on entering. The open rest keeps its crafts in `pending`.
+  const restIds = visited.filter(id => map.node(id)!.content.kind === 'rest');
+  const rests = value.rests === undefined ? restIds.map(nodeId => ({ nodeId, choice: 'heal', crafted: [] })) : value.rests;
+  if (!Array.isArray(rests) || rests.length !== restIds.length || rests.some((rest, n) => !validRest(rest, restIds[n]))) return null;
+  const typedRests = rests as ForestRunRest[];
+  const openRest = isRecord(pending) && pending.kind === 'rest' ? pending : null;
+  if (openRest && (Object.keys(openRest).length !== 3 || !Array.isArray(openRest.crafted) || !openRest.crafted.every(item => ITEM_KINDS.includes(item as ItemKind)))) return null;
+  const crafts = new Map<string, ItemKind[]>(typedRests.filter(rest => rest.choice === 'craft').map(rest => [rest.nodeId, rest.crafted]));
+  if (openRest && typeof openRest.nodeId === 'string' && (openRest.crafted as ItemKind[]).length) crafts.set(openRest.nodeId, openRest.crafted as ItemKind[]);
   const typedPicks: ForestRunPick[] = [];
   for (let n = 0; n < picks.length; n++) {
     const pick = picks[n], base = map.node(poolIds[n])!;
@@ -566,7 +690,7 @@ export function parseForestRun(text: string): ForestRunState | null {
       if (met.includes(pick.eventId) && met.length < Object.keys(FOREST_EVENTS).length) return null;
     } else {
       if (Object.keys(pick).length !== 2 || typeof pick.battleId !== 'string') return null;
-      const tools = expectedTools(before, typedFinds, base, false);
+      const tools = expectedTools(before, typedFinds, base, false, crafts);
       if (!poolCandidates({ row: base.row, type: base.type as PoolBattleType, lane: base.lane }, tools).includes(pick.battleId)) return null;
     }
     typedPicks.push(base.type === 'event' ? { nodeId: base.id, eventId: pick.eventId as string } : { nodeId: base.id, battleId: pick.battleId as string });
@@ -577,7 +701,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   const entered = enteredId !== null ? nodeAt(enteredId) ?? null : null;
   const wonHard = pending !== null && isRecord(pending) && pending.kind === 'find' && !!entered && hasVictoryFind(entered);
   const visitedNodes = visited.map(id => nodeAt(id)!);
-  if (!sameTools(value.tools as ForestRunTools, expectedTools(visitedNodes, typedFinds, entered, wonHard))) return null;
+  if (!sameTools(value.tools as ForestRunTools, expectedTools(visitedNodes, typedFinds, entered, wonHard, crafts))) return null;
   // Elite loot of won battles: completed battle nodes, or the hard battle whose find is still pending; one entry per
   // node and kind. Consumables come only from authored elites (at most one each). Resources also come from random
   // elites, which appear in battles from row 5 in any number over a battle: there they are not bounded by count. A
@@ -609,11 +733,23 @@ export function parseForestRun(text: string): ForestRunState | null {
     const { effect } = option.outcomes[choice.outcome as number];
     eventGains.push({ items: effect.items ?? {}, materials: eventResourceKinds(seed, node.id, option).slice(0, effect.resources ?? 0) });
   }
-  const cap = inventoryCap(visitedNodes, typedFinds, entered, typedLoot, eventGains), inventory = (value.resources as ForestRunResources).inventory;
+  const crafted = [...crafts.values()].flat();
+  const cap = inventoryCap(visitedNodes, typedFinds, entered, typedLoot, eventGains, crafted), inventory = (value.resources as ForestRunResources).inventory;
   if (ITEM_KINDS.some(item => inventory[item] > cap[item])) return null;
-  // Resources come from elite loot and exit chests (both recorded in `loot`).
+  // Resources come from elite loot and exit chests (both recorded in `loot`) and events, and are spent at rests: a rest
+  // crafts only from what the run had gained before it, and what is left is at most the gains less the spending.
+  const stock = emptyMaterials(), spent = emptyMaterials();
+  for (const id of entering) {
+    for (const gain of typedLoot) if (gain.nodeId === id && isResource(gain.item)) stock[gain.item] += gain.count;
+    for (const kind of eventGains[eventNodes.findIndex(node => node.id === id)]?.materials ?? []) stock[kind]++;
+    for (const item of crafts.get(id) ?? []) {
+      const resource = craftSource(item);
+      stock[resource] -= CRAFT_COST; spent[resource] += CRAFT_COST;
+      if (stock[resource] < 0) return null;
+    }
+  }
   const materials = (value.resources as ForestRunResources).materials;
-  if (materials && RESOURCE_KINDS.some(resource => materials[resource] > cap[resource])) return null;
+  if (materials && RESOURCE_KINDS.some(resource => materials[resource] > cap[resource] - spent[resource])) return null;
   if (pending !== null) {
     if (!isRecord(pending) || typeof pending.nodeId !== 'string' || !nextIds.includes(pending.nodeId)) return null;
     const node = nodeAt(pending.nodeId)!;
@@ -624,6 +760,8 @@ export function parseForestRun(text: string): ForestRunState | null {
       if (JSON.stringify(pending.entry) !== JSON.stringify(value.resources) || !sameTools(pending.tools, value.tools as ForestRunTools)) return null;
     } else if (pending.kind === 'event') {
       if (node.content.kind !== 'event' || Object.keys(pending).length !== 2) return null;
+    } else if (pending.kind === 'rest') {
+      if (node.content.kind !== 'rest' || !openRest) return null;
     } else if (pending.kind === 'find') {
       if (node.type !== 'find' && !hasVictoryFind(node) || JSON.stringify(pending.options) !== JSON.stringify(findOptions(seed, node))) return null;
     } else return null;
@@ -643,7 +781,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   // Version 1 saves get the version 2 fields in the order a new run has them.
   const { version: _version, seed: _seed, map: _map, picks: _picks, ...rest } = structuredClone(value);
   const run = { version: FOREST_RUN_VERSION, seed, map: mapRef, picks: typedPicks, ...rest, loot: structuredClone(typedLoot),
-    eventChoices: structuredClone(choices), score: (value.score as number | undefined) ?? 0 } as unknown as ForestRunState;
+    eventChoices: structuredClone(choices), rests: structuredClone(typedRests), score: (value.score as number | undefined) ?? 0 } as unknown as ForestRunState;
   // Saves before 04.10.2026 count defeats of the open battle; a defeat now ends the run, so the counter has no meaning.
   if (run.pending?.kind === 'battle') delete (run.pending as { defeats?: number }).defeats;
   return run;

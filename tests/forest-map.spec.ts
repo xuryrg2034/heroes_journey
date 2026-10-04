@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { availableNodes, chooseFindItem, createForestRun, enterNode, forestRunView, resolveBattle, serializeForestRun, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
+import { availableNodes, chooseFindItem, createForestRun, enterNode, forestRunView, resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
 
 // Forest map screen (docs/biomes/forest-map.md). The run model is tested in src/game/forestRun.spec.ts and
 // src/game/mapGenerator.spec.ts; here the real page is driven: title entry, map, node battles, rest, find, reload,
@@ -32,7 +32,7 @@ function won(run: ForestRunState, hp = 5): ForestRunState {
   const pending = run.pending; if (pending?.kind !== 'battle') throw new Error('no battle');
   return ok(resolveBattle(run, { nodeId: pending.nodeId, won: true, player: { hp, maxHp: 5, energy: run.resources.player.energy }, inventory: { ...run.resources.inventory } }));
 }
-/** Walk the given node ids: battles are won, finds take the first option. */
+/** Walk the given node ids: battles are won, finds take the first option, rests heal. */
 function walk(ids: string[], hp = 5, seed = 4242): ForestRunState {
   let run = createForestRun(seed);
   for (const id of ids) {
@@ -40,6 +40,7 @@ function walk(ids: string[], hp = 5, seed = 4242): ForestRunState {
     if (run.pending?.kind === 'battle') run = won(run, hp);
     // A find follows a find node and, in the model, a hard-battle victory.
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]));
+    if (run.pending?.kind === 'rest') run = ok(restHeal(run));
   }
   return run;
 }
@@ -169,8 +170,12 @@ test('HP and items carry between nodes; rest heals and reports the amount; find 
   await expect(page.locator('#map-tools')).toContainText('Холод');
   expect((await savedRun(page)).resources.player.hp).toBe(2);
   await expect(page.locator('#map-notice')).toContainText('Открыто: Холод');
-  // Rest: +2 HP, the modal says how much was healed.
+  // Rest: a choice of heal or craft; the heal gives +2 HP and the modal says how much was healed.
   await node(page, 'trail-rest').click();
+  await expect(page.locator('#rest-heal')).toContainText('+2 HP');
+  await expect(page.locator('#rest-craft [data-craft]')).toHaveCount(4);
+  await expect(page.locator('#rest-craft [data-craft]:disabled')).toHaveCount(4);
+  await page.locator('#modal [data-action="rest-heal"]').click();
   await expect(page.locator('#rest-copy')).toContainText('Вылечено: 2 HP');
   await expect(page.locator('#rest-copy')).toContainText('4 / 5');
   await page.waitForTimeout(600);
@@ -484,6 +489,7 @@ test('Jailer victory reports the opened spin; a hard-battle victory leads to a f
   // A rest always comes right before a hard battle.
   await expect(node(page, 'den-elite')).toHaveAttribute('data-status', 'locked');
   await node(page, 'den-rest').click();
+  await page.locator('#modal [data-action="rest-heal"]').click();
   await page.locator('#modal [data-action="resume"]').click();
   await node(page, 'den-elite').hover();
   await expect(page.locator('#map-detail')).toContainText('находка');
@@ -567,11 +573,71 @@ test('rest clears effects on the cat and says so', async ({ page }) => {
   await page.goto('/'); await page.locator('#run-start-button').click();
   await expect(page.locator('#map-hp .map-effects')).toContainText('Горение ×2');
   await node(page, 'trail-rest').click();
+  await expect(page.locator('#rest-heal')).toContainText('снимет эффекты');
+  await page.locator('#modal [data-action="rest-heal"]').click();
   await expect(page.locator('#rest-copy')).toContainText('Вылечено: 2 HP');
   await expect(page.locator('#rest-copy')).toContainText('Эффекты на коте сняты');
   await page.locator('#modal [data-action="resume"]').click();
   await expect(page.locator('#map-hp .map-effects')).toHaveCount(0);
   expect((await savedRun(page)).resources.player.damageEffects).toBeUndefined();
+  // The playtest journal records the rest: heal, 2 HP.
+  const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
+  expect(journal.runRests.at(-1)).toMatchObject({ nodeId: 'trail-rest', choice: 'heal', healed: 2, crafted: [] });
+  expect(errors).toEqual([]);
+});
+
+test('rest crafting by mouse: several recipes, the heal goes away, a reload keeps the open rest, a closed item opens for the next battle', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // The goblin route without a find; the camp battle left 5 dew and 2 powder (elite loot), the cat at 3 HP.
+  let run = ok(enterNode(walk([...TRUNK, 'goblin-archer', 'goblin-shield', 'goblin-shaman', 'trail-banners', 'jailer']), 'camp-battle'));
+  run = ok(resolveBattle(run, { nodeId: 'camp-battle', won: true, player: { hp: 3, maxHp: 5, energy: run.resources.player.energy }, inventory: { ...run.resources.inventory },
+    materials: { dew: 5, powder: 2, resin: 0, herbs: 0 } }));
+  expect(run.tools.items).not.toContain('bomb');
+  await seedRun(page, run);
+  await page.goto('/'); await page.locator('#run-start-button').click();
+  await expect(page.locator('#map-tools [data-resource="dew"]')).toContainText('×5');
+  await node(page, 'camp-rest').click();
+  const dew = page.locator('#modal [data-craft="dew"]'), powder = page.locator('#modal [data-craft="powder"]');
+  await expect(page.locator('#rest-heal [data-action="rest-heal"]')).toBeEnabled();
+  await expect(page.locator('#modal [data-recipe="powder"]')).toContainText('откроет');
+  await expect(page.locator('#modal [data-craft="resin"]')).toBeDisabled();
+  await expect(page.locator('#modal [data-action="rest-finish"]')).toHaveCount(0);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-rest-choice.png', animations: 'disabled' });
+  await dew.click();
+  await expect(page.locator('#rest-crafted')).toContainText('Холод ×1');
+  await expect(page.locator('#rest-heal [data-action="rest-heal"]')).toBeDisabled();
+  await expect(page.locator('#rest-heal')).toContainText('Выбран крафт');
+  await dew.click();
+  await expect(page.locator('#rest-crafted')).toContainText('Холод ×2');
+  await expect(dew).toBeDisabled();
+  await expect(page.locator('#modal [data-recipe="dew"] .rest-have')).toHaveText('1');
+  await powder.click();
+  await expect(page.locator('#rest-crafted')).toContainText('Бомба ×1');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/forest-map-rest-craft.png' });
+  // A reload restores the same open rest: the crafts, the spent resources, no heal.
+  await page.reload(); await page.locator('#run-start-button').click();
+  await expect(page.locator('#rest-crafted')).toContainText('Холод ×2');
+  await expect(page.locator('#rest-crafted')).toContainText('Бомба ×1');
+  await expect(page.locator('#rest-heal [data-action="rest-heal"]')).toBeDisabled();
+  await expect(dew).toBeDisabled();
+  await page.locator('#modal [data-action="rest-finish"]').click();
+  await expect(page.locator('#map-notice')).toContainText('создано');
+  await expect(page.locator('#map-tools')).toContainText('Бомба ×1');
+  const saved = await savedRun(page);
+  expect(saved.pending).toBeNull();
+  expect(saved.resources.player.hp).toBe(3);
+  expect(saved.resources.materials).toEqual({ dew: 1, powder: 0, resin: 0, herbs: 0 });
+  expect(saved.rests.at(-1)).toEqual({ nodeId: 'camp-rest', choice: 'craft', crafted: ['frost', 'frost', 'bomb'] });
+  const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
+  expect(journal.runRests.at(-1)).toMatchObject({ nodeId: 'camp-rest', choice: 'craft', healed: 0, crafted: ['frost', 'frost', 'bomb'] });
+  // The bomb crafted here is open in the next battle.
+  await node(page, 'camp-elite').click(); await settled(page);
+  expect((await state(page)).runNode.allowedItems).toContain('bomb');
+  expect((await state(page)).inventory.bomb).toBe(1);
+  await expect(page.locator('#bomb-button')).toBeEnabled();
   expect(errors).toEqual([]);
 });
 

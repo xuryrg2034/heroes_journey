@@ -3,7 +3,7 @@ import { ForestEngine } from './forestEngine';
 import { runPressureActive } from './mapBattleRules';
 import { forestBattle, validateNodeBattle } from './run/forestBattles';
 import { forestNode } from './run/forestMap';
-import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestNodeSeed, resolveBattle, type ForestRunState } from './run/forestRun';
+import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestNodeSeed, resolveBattle, restHeal, type ForestRunState } from './run/forestRun';
 import { startNodeBattle } from './testing/fixtures';
 import type { ChainPreview, EngineEvent } from './forestTypes';
 
@@ -267,6 +267,7 @@ async function runVictory() {
     // Earlier nodes are finished with the debug victory: this check is about the last node.
     if (run.pending?.kind === 'battle') { assert(e.startRunBattle(battleSetup(run)!), `${id} starts`); e.winLevel(); run = ok(resolveBattle(run, e.runBattleOutcome()!), `resolve ${id}`); }
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+    if (run.pending?.kind === 'rest') run = ok(restHeal(run), `heal at ${id}`);
   }
   assert(json(availableNodes(run).map(node => node.id)) === json(['camp-chief']), 'the breakthrough leads to the Chief');
   run = ok(enterNode(run, 'camp-chief'), 'enter camp-chief');

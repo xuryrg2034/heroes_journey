@@ -5,10 +5,10 @@
  */
 import { ITEMS } from './game/items';
 import { summarizeDamageEffects } from './game/damageEffects';
-import { RESOURCE_KINDS, RESOURCES } from './game/resources';
+import { CRAFT_COST, RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
 import { nodeBattleTemplate, forestRowPalette, hasVictoryFind, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
-import { eventView, forestRunMap, forestRunView, runNode, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
+import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNode, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
 import { forestEvent } from './game/run/forestEvents';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
@@ -16,7 +16,7 @@ import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type P
 export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: string; hint: string }> = {
   battle: { icon: '⚔', label: 'Бой', hint: 'Обычный бой.' },
   hard: { icon: '☠', label: 'Трудный бой', hint: 'Тяжелее обычного боя.' },
-  rest: { icon: '☾', label: 'Привал', hint: 'Лечение перед следующим боем.' },
+  rest: { icon: '☾', label: 'Привал', hint: 'Лечение или крафт перед следующим боем.' },
   find: { icon: '◈', label: 'Находка', hint: 'Выбор одного предмета из трёх.' },
   event: { icon: '?', label: 'Событие', hint: 'Сцена с выбором, без боя: исходы видны заранее.' },
   breakthrough: { icon: '⇥', label: 'Прорыв', hint: 'Цель — дойти до выхода, а не победить всех.' },
@@ -93,6 +93,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
       : pending?.kind === 'battle' ? `Бой узла «${nodeName(run, pending.nodeId)}» не завершён. Начни его снова кнопкой выше.`
       : pending?.kind === 'find' ? 'Находка ждёт выбора предмета.'
       : pending?.kind === 'event' ? 'Событие ждёт выбора.'
+      : pending?.kind === 'rest' ? 'Привал ждёт выбора: лечение или крафт.'
       : view.available.length ? 'Выбери следующий узел: доступные подсвечены. Наведи на узел, чтобы увидеть тип и особенность поля.' : '';
     return `<p class="map-detail-idle">${text}</p>`;
   }
@@ -105,7 +106,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
   if (content.kind === 'pool') lines.push(poolText(node));
   const main = content.kind === 'battle' ? battlePoolEntry(content.battleId)?.main : undefined;
   if (main && forestRunMap(run).kind === 'generated') lines.push(`Главный враг: ${MAIN_ENEMY_NAMES[main]}`);
-  lines.push(content.kind === 'rest' ? `Лечит на ${content.heal} HP и снимает эффекты (параметр временный)`
+  lines.push(content.kind === 'rest' ? `Выбор: лечение +${restHealValue(run, node)} HP и снятие эффектов или крафт (${CRAFT_COST} ресурса → предмет)`
     : content.kind === 'in-development' ? escapeHtml(content.planned)
     : info.hint);
   // Authored elites in the node's battle (elite.ts): HP ×2, +1 to their attacks, loot.
@@ -171,8 +172,8 @@ function resourcesHtml(view: ForestRunView): string {
   const chips = [
     ...ITEM_KEYS.filter(item => inventory[item] > 0 || tools.items.includes(item)).map(item => `<span class="map-chip${inventory[item] ? '' : ' empty'}" title="${escapeHtml(ITEMS[item].description)}">${ITEM_ICON[item]} ${ITEM_NAME[item]} <b>×${inventory[item]}</b></span>`),
     ...tools.abilities.map(ability => `<span class="map-chip ability">${ABILITY_ICON[ability]} ${ABILITY_NAME[ability]}</span>`),
-    // Crafting resources from elite loot, kept for the future crafting at a rest (resources.ts).
-    ...RESOURCE_KINDS.filter(resource => (materials?.[resource] ?? 0) > 0).map(resource => `<span class="map-chip resource" data-resource="${resource}" title="Ресурс на будущее: из двух — ${escapeHtml(ITEMS[RESOURCES[resource].crafts].label.toLowerCase())} на привале, когда появится крафт">${RESOURCES[resource].label} <b>×${materials![resource]}</b></span>`),
+    // Crafting resources (elite loot, chests, events; resources.ts), spent on crafting at a rest.
+    ...RESOURCE_KINDS.filter(resource => (materials?.[resource] ?? 0) > 0).map(resource => `<span class="map-chip resource" data-resource="${resource}" title="Ресурс крафта: из ${CRAFT_COST} — ${escapeHtml(ITEMS[RESOURCES[resource].crafts].label.toLowerCase())} на привале">${RESOURCES[resource].label} <b>×${materials![resource]}</b></span>`),
   ];
   return `<div class="map-res" id="map-hp"><span class="hud-label">ЗДОРОВЬЕ</span><div class="map-hearts" aria-label="Здоровье: ${player.hp} из ${player.maxHp}">${hearts}</div>${effectText ? `<small class="map-effects">${effectText}</small>` : ''}</div>`
     + `<div class="map-res" id="map-energy"><span class="hud-label">ЭНЕРГИЯ</span><strong>${energyText(player.energy)} / 7</strong></div>`
@@ -193,6 +194,8 @@ export function mapScreenHtml(run: ForestRunState, options: MapHtmlOptions = {})
       ? `<div class="map-banner"><span>Находка ждёт выбора предмета.</span><button class="button primary" data-action="run-find">ВЫБРАТЬ</button></div>`
       : pending?.kind === 'event'
         ? `<div class="map-banner"><span>Событие «${escapeHtml(nodeName(run, pending.nodeId))}» ждёт выбора.</span><button class="button primary" data-action="run-event">ВЫБРАТЬ</button></div>`
+      : pending?.kind === 'rest'
+        ? `<div class="map-banner"><span>Привал «${escapeHtml(nodeName(run, pending.nodeId))}» не завершён.</span><button class="button primary" data-action="run-rest">К ПРИВАЛУ</button></div>`
       : options.notice ? `<div class="map-banner notice" id="map-notice"><span>${escapeHtml(options.notice)}</span></div>` : '';
   const reset = options.confirmReset
     ? `<div class="map-confirm" role="alert"><span>Сбросить поход и начать заново?</span><button class="button secondary" data-action="run-reset-yes">СБРОСИТЬ</button><button class="text-button" data-action="run-reset-no">ОТМЕНА</button></div>`
@@ -220,9 +223,35 @@ export function runEntryHtml(saved: ForestRunState | null, confirmReset: boolean
   return `<button class="button primary run-start" id="run-start-button" data-action="run-start"><span>${saved.result ? 'ИТОГ ПОХОДА' : 'ПРОДОЛЖИТЬ ПОХОД'}</span><small>${status}</small></button>${reset}`;
 }
 
-export function restModalHtml(run: ForestRunState, nodeId: string, healed: number, hp: number, maxHp: number, cleared = false): string {
+/**
+ * The open rest (decision of 04.10.2026): two choices side by side. «Лечение» heals at once; «Крафт» lists the four
+ * recipes with the stock of each resource, every press crafts one item while the resource lasts, and the first craft
+ * takes the heal away. «К карте» leaves after crafting. Empty without an open rest.
+ */
+export function restModalHtml(run: ForestRunState): string {
+  const view = restView(run);
+  if (!view) return '';
+  const { hp, maxHp } = run.resources.player, { heal } = view;
+  const healText = heal.amount > 0 ? `+${heal.amount} HP` : heal.value > 0 ? 'Здоровье полное' : 'Не лечит';
+  const healBlock = `<section class="rest-option${heal.available ? '' : ' spent'}" id="rest-heal"><h3><span aria-hidden="true">${NODE_TYPE_INFO.rest.icon}</span> Лечение</h3>`
+    + `<p class="rest-line"><b>${healText}</b> · сейчас ${hp} / ${maxHp}${heal.clearsEffects ? ' · снимет эффекты' : ''}</p>`
+    + `<button class="button primary" data-action="rest-heal"${heal.available ? '' : ' disabled aria-disabled="true"'}>ЛЕЧИТЬСЯ</button>`
+    + (heal.available ? '' : '<em class="event-reason">Выбран крафт</em>') + '</section>';
+  const recipes = view.recipes.map(recipe => `<li class="rest-recipe${recipe.available ? '' : ' short'}" data-recipe="${recipe.resource}"><span class="rest-recipe-text">${RESOURCES[recipe.resource].label} <b class="rest-have">${recipe.have}</b>/${recipe.cost} → ${ITEM_ICON[recipe.item]} ${ITEM_NAME[recipe.item]}${recipe.opens ? ' <small class="rest-opens">откроет</small>' : ''}</span>`
+    + `<button class="button secondary rest-craft" data-craft="${recipe.resource}"${recipe.available ? '' : ' disabled aria-disabled="true"'}>СОЗДАТЬ</button></li>`).join('');
+  const counts = new Map<ItemKind, number>();
+  for (const item of view.crafted) counts.set(item, (counts.get(item) ?? 0) + 1);
+  const crafted = view.crafted.length ? `<p class="rest-line" id="rest-crafted">Создано: ${[...counts].map(([item, count]) => `${ITEM_ICON[item]} ${ITEM_NAME[item]} ×${count}`).join(', ')}</p>` : '';
+  const craftBlock = `<section class="rest-option" id="rest-craft"><h3><span aria-hidden="true">⚒</span> Крафт</h3><ul class="rest-recipes">${recipes}</ul>${crafted}</section>`;
+  const finish = view.canFinish ? '<button class="button primary" data-action="rest-finish">К КАРТЕ</button>' : '';
+  return `<p class="eyebrow">ПРИВАЛ</p><h2 id="modal-title">${escapeHtml(nodeName(run, view.nodeId))}</h2><div class="rest-options">${healBlock}${craftBlock}</div>${finish}`;
+}
+
+/** The rest after «Лечение»: HP healed and effects cleared; «Дальше» goes back to the map. */
+export function restResultHtml(run: ForestRunState, nodeId: string, healed: number, cleared = false): string {
+  const { hp, maxHp } = run.resources.player;
   return `<p class="eyebrow">ПРИВАЛ</p><div class="outcome-symbol">${NODE_TYPE_INFO.rest.icon}</div><h2 id="modal-title">${escapeHtml(nodeName(run, nodeId))}</h2>`
-    + `<p class="modal-copy" id="rest-copy">${healed > 0 ? `Вылечено: <b>${healed} HP</b>.` : 'Здоровье уже полное: лечить нечего.'} Сейчас <b>${hp} / ${maxHp}</b>.${cleared ? ' Эффекты на коте сняты.' : ''}</p><button class="button primary" data-action="resume">ДАЛЬШЕ</button>`;
+    + `<p class="modal-copy" id="rest-copy">${healed > 0 ? `Вылечено: <b>${healed} HP</b>.` : 'Здоровье не изменилось.'} Сейчас <b>${hp} / ${maxHp}</b>.${cleared ? ' Эффекты на коте сняты.' : ''}</p><button class="button primary" data-action="resume">ДАЛЬШЕ</button>`;
 }
 
 export function findModalHtml(run: ForestRunState, nodeId: string, options: ItemKind[]): string {
