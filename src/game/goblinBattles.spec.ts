@@ -347,17 +347,17 @@ async function shieldWall() {
     assert(loot.length <= 1 && loot.every(cell => cell!.loot === 'frost'), 'the elite drops at most one loot, a consumable open in this setup (frost only)');
     drops.add(loot.length === 1);
     await play2.ability('jump', 'A4');
-    // The jump meets the goals and opens the door A1 in the corner above the shaman's pocket; the battle goes on, so the
-    // dropped loot stays on the field and can be taken on the way out — at the price of turns under growing anger.
+    // The jump meets the goals and opens the door A6 below the shaman's pocket (04.10.2026, was A1); the battle goes on,
+    // so the dropped loot stays on the field and can be taken on the way out — at the price of turns under growing anger.
     play2.goalsMet();
     assert(play2.g.state.board.filter(cell => cell?.loot).length === loot.length, 'the dropped loot waits on the field after the goals');
     if (loot.length) {
       const door = play2.door();
       if (play2.g.availableMoves(16).some(path => path.at(-1) === door && path.some(index => play2.g.state.board[index]?.loot) && play2.g.preview(path).completesRoom)) lootAndLeave++;
     }
-    // The way out is one turn («ход»): the ochre A3–B2 (or B3) beside the pocket leads into the corner.
-    const exit = play2.preview('A3', 'B2', 'A1');
-    assert(exit.valid && exit.completesRoom && exit.damage === 0, 'the ochre chain A3–B2 leaves through A1');
+    // The way out is one turn («ход»): the blue A5 between the pocket and the door leads out.
+    const exit = play2.preview('A5', 'A6');
+    assert(exit.valid && exit.completesRoom && exit.damage === 0, 'the blue A5 leads out through A6');
     assert(await play2.leave(1) === 1, 'the exit is one turn after the jump');
     play2.won(5);
     if (seed === SEEDS[0]) await replayMatches(play2);
@@ -381,7 +381,7 @@ async function shieldWall() {
   assert(frost.g.useItem('frost', frost.at('A7')) && frost.cell('A7')!.status.brittle, 'frost makes the elite brittle');
   await frost.chain('E7', 'D7', 'C7', 'B7', 'B6', 'B5', 'A4');
   await frost.ability('jump', 'A7');
-  // This way ends in the elite's corner A7, far from the door: leaving takes up to two turns across the field.
+  // This way ends in the elite's corner A7, beside the door A6 (04.10.2026; with the door on A1 it took up to two turns).
   frost.goalsMet();
   await frost.leave(2);
   // Energy carries over between nodes. With 3 or 7 at the entry no first action wins at once (the jump from F6 reaches

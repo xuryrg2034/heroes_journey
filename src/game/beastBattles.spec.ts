@@ -332,6 +332,20 @@ async function trapsInForecast() {
   assert(clean.completesRoom && clean.spikeDamage === 1, 'porcupine-thicket: the plug costs one quill and the clean lane kills the leader');
   assert(!greedy.completesRoom && greedy.spikeDamage === 2 && greedy.damage > clean.damage && greedy.enemies > clean.enemies,
     'porcupine-thicket: the longer chain through the second porcupine is shown to hurt more and to leave the leader alive');
+  // 04.10.2026: the bait D5 has 3 HP, so the long chain leaves the leader with 2 HP — a single hit (power 1) no longer
+  // finishes it, and the door stays shut on turn 3 (with 2 HP on D5 the leader kept 1 HP and C7–D6 won on turn 3).
+  const trap = ['F2', 'F3', 'E4', 'D4', 'D5', 'C5', 'C6', 'C7'];
+  for (const refill of [0, 1, 2, 3, 4, 5]) {
+    g = start('porcupine-thicket', refill);
+    await commit(g, PLANS['porcupine-thicket'].route[0], `porcupine-thicket trap setup (refill ${refill})`);
+    const crystal = crystalOnRoute(g, trap);
+    if (crystal) { console.log(`NOTE porcupine-thicket trap, refill ${refill}: a crystal on ${crystal}`); continue; }
+    await commit(g, trap, `porcupine-thicket trap (refill ${refill})`);
+    assert(g.state.board[at(g, 'C7')]?.hp === 2, `porcupine-thicket (refill ${refill}): the trap leaves the leader with 2 HP`);
+    const single = preview(g, ['C7']), withDoor = g.preview(path(g, ['C7', 'D6']));
+    assert(single.valid && !single.unlocksExit && !single.completesRoom && !withDoor.valid,
+      `porcupine-thicket (refill ${refill}): a single hit on the leader neither opens nor enters the door`);
+  }
 
   // Den watch: the porcupine at the leader is an avoidable quill.
   g = start('den-watch');

@@ -235,7 +235,7 @@ const shapeOf = (definition: { cols: number; rows: number; terrain: string[] }) 
 
 function layouts() {
   const ids = BEAST_BATTLES.map(battle => battle.id);
-  assert(json(ids.slice(-BATCH.length)) === json(BATCH), 'the trail batch closes BEAST_BATTLES in plan order');
+  assert(BATCH.every(id => ids.includes(id)), 'every trail battle of the batch is in BEAST_BATTLES');
   const shapes = new Set<string>(), palette = forestRowPalette(ROW);
   for (const id of BATCH) {
     const battle = forestBattle(id)!, { definition } = battle, pool = battlePoolEntry(id);

@@ -49,7 +49,7 @@ export const BATTLE_POOLS: Readonly<Record<string, BattlePoolEntry>> = {
   // Beast trail battles of 04.10.2026 (docs/levels/forest-nodes-beasts.md, «Новые бои тропы»): chains only.
   'beast-wolf-crossing': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'wolf', feature: 'Две стаи у брода' },
   'beast-quill-stop': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'boar', feature: 'Кабан и дикобраз-упор' },
-  'goblin-archer-watch': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'archer', feature: 'Лучник' },
+  'goblin-archer-watch': { rows: [5, 6], type: 'battle', branch: 'goblins', requires: [], main: 'archer', feature: 'Лучник' }, // lesson; from row 7 the jump (4) kills the 3-HP archer off its line (04.10.2026)
   'goblin-shield-flank': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'sentinel', feature: 'Щитоносец' },
   // The last target is taken by a jump into the niche (docs/levels/forest-nodes-goblins.md).
   'goblin-shaman-rite': { rows: [7, 8], type: 'battle', branch: 'goblins', requires: ['jump'], main: 'shaman', feature: 'Шаман' },

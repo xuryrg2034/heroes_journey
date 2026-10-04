@@ -10,6 +10,7 @@
  */
 import { hasOrdinaryChain } from './boardGeneration';
 import { ForestEngine } from './forestEngine';
+import { planChain } from './forestSystems';
 import type { ChainPreview } from './forestTypes';
 import { battlePoolEntry } from './run/battlePools';
 import { GOBLIN_BATTLES } from './run/battles/goblins';
@@ -39,6 +40,28 @@ function setupFor(id: string, seed: number, energy = 0, row = 5, hp = 5): RunBat
 }
 
 type Action = { chain: string[] } | { ability: 'jump' | 'spin'; target?: string };
+
+/**
+ * Every valid chain from the cat, by a full walk over chain neighbours (as beastTrailBattles.spec.ts): `availableMoves`
+ * merges paths with the same result and would miss some first chains.
+ */
+function allChains(g: ForestEngine): number[][] {
+  const found: number[][] = [];
+  let budget = 400_000;
+  const walk = (cells: number[]) => {
+    assert(--budget > 0, 'allChains: the walk fits its budget');
+    const last = cells.length ? cells[cells.length - 1] : g.state.player.index;
+    for (const next of g.chainNeighbors(last)) {
+      if (cells.includes(next) || !g.state.board[next]) continue;
+      const partial = planChain(g.state, [...cells, next], true).preview;
+      if (!partial.valid) continue;
+      found.push([...cells, next]);
+      if (!partial.endsOnSurvivor) walk([...cells, next]);
+    }
+  };
+  walk([]);
+  return found.filter(cells => g.preview(cells).valid);
+}
 
 /** A running battle that records every committed action for the replay check. */
 class Play {
@@ -112,10 +135,10 @@ class Play {
     this.snapshots.push(json(state));
   }
   won(hp: number) { assert(this.g.state.phase === 'WIN' && this.g.state.player.hp === hp, `${this.where}: victory with ${hp} HP, got ${this.g.state.phase} ${this.g.state.player.hp}`); }
-  /** Every action available now (chains, jumps, the spin) with its forecast. */
-  actions() {
+  /** Actions available now (chains, jumps, the spin) with their forecasts; `full` — every chain (allChains). */
+  actions(full = false) {
     const { g } = this, list: { p: ChainPreview; commit: () => Promise<unknown>; kind: 'chain' | 'ability'; label: string }[] = [];
-    for (const path of g.availableMoves(16)) {
+    for (const path of full ? allChains(g) : g.availableMoves(16)) {
       const p = g.preview(path);
       if (p.valid) list.push({ p, kind: 'chain', label: this.labels(path).join('-'), commit: async () => { g.beginChain(path[0]); for (const step of path.slice(1)) g.extendChain(step); await g.releaseChain(); } });
     }
@@ -169,11 +192,15 @@ async function replayMatches(play: Play) {
   }
 }
 
-/** No first action — chain (single hits included), jump or spin — meets the goals, on both ends of the band and energy. */
+/**
+ * No first action — every chain of the full walk (single hits included), jump, spin or rest — meets the goals, on both
+ * ends of the band and energy.
+ */
 function noOneTurnGoals(id: string) {
   for (const row of ROUTE_ROWS) for (const energy of ENERGIES) {
     const play = new Play(id, SEEDS[0], energy, row);
-    const actions = play.actions();
+    const actions = play.actions(true);
+    assert(!Play.meetsGoals(play.g.previewRest()), `${play.where}: resting does not meet the goals`);
     assert(actions.some(action => action.label.split('-').length === 1 && action.kind === 'chain'), `${play.where}: single hits are among the first actions`);
     if (row >= 7 && energy >= 2) assert(actions.some(action => action.kind === 'ability'), `${play.where}: jumps are among the first actions`);
     const instant = actions.filter(action => Play.meetsGoals(action.p));
@@ -240,6 +267,26 @@ function woundedArrival() {
  */
 async function watchRelief() {
   noOneTurnGoals('goblin-watch-relief');
+  // The side of the descent is never a hidden roll: every first action (all chains, jumps on row 8, rest) whose forecast
+  // costs nothing sends the archer to B1; every action that may send it to A2 — a southern end or a cell of the
+  // diagonal A1–F6, where the side is drawn by the battle RNG — shows a blow in the forecast.
+  for (const row of ROUTE_ROWS) for (const energy of ENERGIES) for (const seed of SEEDS) {
+    const play = new Play('goblin-watch-relief', seed, energy, row), { g } = play, root = g.captureAnalysisSnapshot();
+    const sides = new Map<string, Set<string>>();
+    const entries = [...play.actions(true).map(action => ({ label: action.label, p: action.p, commit: action.commit })),
+      { label: 'rest', p: g.previewRest(), commit: () => g.waitTurn() }];
+    for (const action of entries) {
+      await action.commit();
+      const archer = g.state.board[play.at('A1')]!;
+      assert(archer.kind === 'ranged' && archer.intent.moveTo !== undefined, `${play.where}: ${action.label} — the archer announces its descent`);
+      const side = play.label(archer.intent.moveTo);
+      g.restoreAnalysisSnapshot(root);
+      if (action.p.damage === 0) assert(side === 'B1', `${play.where}: the free action ${action.label} sends the archer to B1, not ${side}`);
+      const end = play.label(action.p.endIndex);
+      sides.set(end, new Set([...sides.get(end) ?? [], side]));
+    }
+    for (const [end, seen] of sides) if (seen.has('A2')) assert(entries.filter(entry => play.label(entry.p.endIndex) === end).every(entry => entry.p.damage >= 1), `${play.where}: every action ending on ${end} shows a blow`);
+  }
   for (const row of ROUTE_ROWS) for (const energy of ENERGIES) for (const seed of SEEDS) {
     const play = new Play('goblin-watch-relief', seed, energy, row), archer = play.cell('A1')!, guard = play.cell('B1')!;
     assert(archer.kind === 'ranged' && archer.hp === 5 && guard.hp === 2 && guard.color !== archer.color && play.cell('A2')!.color !== archer.color,

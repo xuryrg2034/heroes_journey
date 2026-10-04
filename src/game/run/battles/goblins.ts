@@ -106,19 +106,21 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
   // behind them. It forks at B6/B7 into two dead-end pockets: the elite archer A7 (3 → 6 HP, its arrow hits the cat
   // for 2, a jump cannot kill it) and the shaman A4 (2 HP). One chain takes only one of them: the lane goes to the
   // elite, the jump (energy from the lane) finishes the shaman. Loot from the elite is a bonus, not part of the answer.
-  // Exit «one turn»: the door A1 above the shaman's pocket (ochre A3–B2 leads in); the loot, dropped elsewhere, now
+  // Exit «one turn»: the door A6 between the two pockets (04.10.2026, was A1 above the shaman, where his rite could
+  // wall it with sturdy goblins in a drawn-out battle); from the shaman's pocket A5/B5 lead in, from the elite's A7
+  // touches it. Arrows fly over the door, so the archer's column still strikes A5 and A4. The loot, dropped elsewhere,
   // waits on the field and costs extra turns under growing anger.
   authoredLesson({
     id: 'camp-shield-wall', name: 'Стена щитов',
     description: 'Два щитоносца перегородили лагерь. За строем камлает шаман, обходную тропу держит элитный лучник.',
     hint: 'Элитный лучник вдвое крепче, его стрела бьёт кота на 2. Прыжок бьёт на 4 и годится, только если цель погибнет. Обходная тропа одна: реши, на кого её потратить.',
     rows: [
-      'DV#RRV',
+      'VV#RRV',
       'VO#BBV',
       'OOSbOO',
       'MBTOOO',
       'BG#OOO',
-      'BG#OrH',
+      'DG#OrH',
       'AGGGGR',
     ],
     legend: {
@@ -155,19 +157,20 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
   // Trail pool, rows 5–8 (04.10.2026, not bound to a node), turn: the archer's rest swap. The archer X on the corner
   // tower A1 (5 HP, beyond a jump) has no neighbour of its color; after its volley it rests and swaps with the side
   // neighbour nearer the cat. A first turn ending east of the diagonal brings it down to B1, beside the moss lane D3–C2
-  // and the door; south of it, to A2, away from both (those ends lie beside the armed goblins D6, E7, F7). The guard Q
-  // is out of reach on the first turn and falls to the red lane E1/E2 on the second.
+  // and the door; south of it, to A2, away from both. Ends south of the diagonal or on it (D4, E5, F6: the side is drawn
+  // by the battle RNG) lie beside the armed goblins D5, D6, E7, F7 (B4 covers the jump to C4), so the forecast shows
+  // a blow. The guard Q is out of reach on the first turn and falls to the red lane E1/E2 on the second.
   // Exit «nearby»: the moss chain that kills the archer on B1 continues into C1.
   authoredLesson({
     id: 'goblin-watch-relief', name: 'Сменный дозор',
     description: 'Лучник засел на угловой вышке. Отстреляв, он спускается сменить караульного.',
-    hint: 'После выстрела лучник отдыхает и меняется местами с соседом — с той стороны, где стоит кот. Подгадай, куда он спустится.',
+    hint: 'Отстреляв, лучник отдыхает и меняется местами с соседом, который ближе к коту: кот дальше по горизонтали — спустится вправо, по вертикали — вниз, на диагонали вышки — как повезёт.',
     rows: [
       'XKDORB',
       'B#GQRO',
       'OGGGOB',
-      'BOGOBH',
-      'OBRBOR',
+      'BoGOBH',
+      'OBRbOR',
       'BROrBO',
       'OBBOrb',
     ],
