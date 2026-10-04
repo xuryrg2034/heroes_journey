@@ -17,7 +17,9 @@
  *
  * Rules held by validateForestEvents:
  * - an event always has a safe option: no cost, no HP loss, no battle — always available;
- * - an event never lowers HP below 1 (forestRun.ts clamps; a sure HP loss is a cost the cat must be able to pay);
+ * - an event never lowers HP below 1: a sure HP loss is a cost (the cat must keep at least 1 after paying it), a random
+ *   one an outcome; an option that may lose HP (a cost or an outcome) is unavailable at 1 HP (decision of 04.10.2026,
+ *   `mayLoseHp`); forestRun.ts still clamps a loss at 1;
  * - outcomes change only what the run already has: HP, maximum HP, energy, consumables (a given one opens for the
  *   run), crafting resources, a talisman of the run's pool, a modifier of the next map battle, the cat's effects.
  */
@@ -269,6 +271,16 @@ export function chanceText(chances: readonly number[], n: number): string {
 export const attemptChances = (option: EventOption, attempt = 0): readonly number[] => option.escalation?.[attempt] ?? option.outcomes.map(outcome => outcome.chance);
 /** Attempts an option allows: the escalation's length, else one. */
 export const optionAttempts = (option: EventOption): number => option.escalation?.length ?? 1;
+/** Least HP the cat needs to take a risky option (decision of 04.10.2026): an option that may lose HP is closed at 1 HP. */
+export const EVENT_RISK_MIN_HP = 2;
+/**
+ * An outcome of the option (of attempt `attempt` of an escalation) with a chance may lose HP: the option needs
+ * EVENT_RISK_MIN_HP. A sure HP price is a cost: it needs one HP more than the price (forestRun.ts, costBlock).
+ */
+export function mayLoseHp(option: EventOption, attempt = 0): boolean {
+  const chances = attemptChances(option, attempt);
+  return option.outcomes.some((outcome, n) => (outcome.effect.hp ?? 0) < 0 && (chances[n] ?? 0) > 0);
+}
 /** A safe option: no cost, no HP loss in any outcome, no battle — it can always be taken. */
 export const isSafeOption = (option: EventOption): boolean => !optionCosts(option).length && !option.battle && option.outcomes.every(outcome => (outcome.effect.hp ?? 0) >= 0);
 /** Every outcome of the option gives a talisman: it needs the pool to hold one. */
@@ -337,6 +349,7 @@ export function validateForestEvents(events: Record<string, ForestEvent> = FORES
       const equal = option.outcomes.length > 1 && option.outcomes.every(outcome => outcome.chance === 1);
       if (!option.outcomes.length || sum !== 100 && !equal || option.outcomes.some(outcome => !Number.isInteger(outcome.chance) || outcome.chance <= 0)) errors.push(`${at}: шансы — целые проценты с суммой 100 или равные доли (все 1).`);
       if (option.outcomes.length > 1 && option.outcomes.some(outcome => !outcome.label)) errors.push(`${at}: у случайного исхода нужна подпись.`);
+      if (option.outcomes.length === 1 && (option.outcomes[0].effect.hp ?? 0) < 0) errors.push(`${at}: верная потеря HP — это цена варианта, а не исход.`);
       for (const cost of optionCosts(option)) {
         if (!Object.keys(cost).length || Object.keys(cost).some(name => !COST_KEYS.includes(name))) errors.push(`${at}: цена — энергия, HP, максимум HP, ресурсы или расходники.`);
         if (['energy', 'hp', 'maxHp', 'resources'].some(name => cost[name as 'hp'] !== undefined && !(Number.isInteger(cost[name as 'hp']) && cost[name as 'hp']! > 0))

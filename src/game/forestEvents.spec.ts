@@ -136,7 +136,7 @@ function cacheOptions() {
   console.log(`PASS the cache: break repeats by seed (${loot}/${traps} of 400), careful needs energy, leave is safe`);
 }
 
-/** The trap never lowers HP below 1; an event never kills the cat. */
+/** The trap never lowers HP below 1; at 1 HP «Взломать» is closed (it may take HP), passing by stays. */
 function hpFloor() {
   const traps: number[] = [];
   for (let k = 1; traps.length < 3 && k < 100; k++) {
@@ -145,12 +145,16 @@ function hpFloor() {
     if (eventOutcomeIndex(streamValue(spread(k), 'events', 0), option) === 1) traps.push(spread(k));
   }
   assert(traps.length === 3, 'seeds with the trap exist');
-  for (const [n, hp] of [1, 2, 5].entries()) {
+  for (const [n, hp] of [2, 3, 5].entries()) {
     const run = walk(traps[n], TO_CACHE, { hp }), after = ok(chooseEventOption(run, 'break'), 'break');
     assert(after.eventChoices.at(-1)!.outcome === 1 && after.resources.player.hp === Math.max(1, hp - 2), `trap at ${hp} HP leaves ${after.resources.player.hp}, never below 1`);
     assert(json(roundTrip(after)) === json(after), 'the trapped run survives a save');
   }
-  console.log('PASS the trap never takes the cat below 1 HP');
+  // At 1 HP the break may take HP: unavailable with the reason (decision of 04.10.2026); passing by is safe.
+  const weak = walk(traps[0], TO_CACHE, { hp: 1 }), view = eventView(weak)!, closed = view.options.find(option => option.id === 'break')!;
+  assert(!closed.available && closed.reason.includes('HP ≥ 2') && !chooseEventOption(weak, 'break').ok, `break at 1 HP is closed (${closed.reason})`);
+  assert(view.options.find(option => option.id === 'leave')!.available && ok(chooseEventOption(weak, 'leave'), 'leave').resources.player.hp === 1, 'passing by stays at 1 HP');
+  console.log('PASS the trap never takes the cat below 1 HP; at 1 HP the break is closed, passing by stays');
 }
 
 /** An open event survives a reload: the same options, and the same outcome as without the reload. */
