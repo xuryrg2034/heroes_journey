@@ -1,12 +1,13 @@
 /**
  * Den branch battles of the generated map (src/game/run/battles/den.ts), design: docs/levels/forest-branch-den.md.
- * They are not bound to a node yet: every battle starts through ForestEngine.startRunBattle as a node battle on row 11
- * (the middle of the branch band 10–12): the row palette (five colors) plus the authored colors, the tools guaranteed
+ * They stand in the den branch pools (battlePools.ts, rows 10–12), not on a fixed node: every battle starts through
+ * ForestEngine.startRunBattle as a node battle on row 11 (rows 10 and 12 in `otherRows` and the old tusker's first-move
+ * sweep): the row palette (five colors) plus the authored colors, the tools guaranteed
  * on the row (frost, jump, spin), 5/5 HP, no items, entry energy 0, 3 or 7 (the run carries energy between nodes).
  * Checks with real commands: the designed routes meet the goals and enter the door on spread refill seeds and every
  * entry energy; the traps of each card are visible in the forecast; forecast equals execution; the same seed and
  * actions replay identically; refills stay random within the palette, are not passive, and survivors keep their
- * colors; the marked targets have different colors. Where the way to the door crosses refilled cells it is found by a
+ * colors; the marked targets have different colors; late goals (turn 10–16) are no dead end. Where the way to the door crosses refilled cells it is found by a
  * search over real chains, never fixed. Heuristic bot results are deliberately not asserted (docs/level-metrics.md).
  */
 import { hasOrdinaryChain } from './boardGeneration';
@@ -25,8 +26,9 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 const json = (value: unknown) => JSON.stringify(value);
 
-/** Branch band 10–12; checked on its middle row (palette and tools are the same on all three). */
+/** Branch band 10–12; checked on its middle row, and on rows 10 and 12 in `otherRows` (same palette and tools). */
 const ROW = 11;
+const BRANCH_ROWS = [10, 11, 12];
 /** Spread refill variants: neighbouring small seeds give almost the same first draws of the battle RNG. */
 const SPREAD = Array.from({ length: 12 }, (_, k) => Math.imul(k + 1, 2654435761) >>> 0);
 const ENERGIES = [0, 3, 7];
@@ -48,22 +50,23 @@ const PLANS: Record<string, Plan> = {
   'den-quill-screen': { route: [['D5', 'C5', 'C4', 'B3', 'C3', 'D2', 'E2', 'F1'], ['E1', 'F2']], hp: 3, door: 'F2', exit: 'near' },
   // Aim the boar along the rut from the left, dig its far end, enter the door after the drag.
   'den-thorn-rut': { route: [['D6', 'C6', 'B6', 'A6'], ['A5', 'A4', 'A3', 'A2'], ['A1']], hp: 5, door: 'A1', exit: 'turn' },
-  // Leave the rut without digging it (the leader falls on the spikes), then the ochre ring into the old boar.
-  'den-old-tusker': { route: [['C6', 'B6', 'A6'], ['B5', 'B4', 'B3', 'C3', 'C4', 'C5', 'D4']], hp: 5, door: 'F7', exit: 'turn', exitSearch: 3 },
+  // Climb out of the rut on the east without digging it (two packmates fall on the spikes, the boar lands on D4 aimed
+  // up again), step beside the ochre ring while the second charge drops the leader, then the ring into the boar on D1.
+  'den-old-tusker': { route: [['E5', 'E4', 'E3'], ['F4'], ['F3', 'G3', 'G2', 'G1', 'F1', 'F2', 'E2', 'E1', 'D1']], hp: 5, door: 'A1', exit: 'turn', exitSearch: 3 },
 };
 /** Pay with energy instead: a chain to a pocket within jump range, the jump onto the leader, the door. */
 const QUILL_JUMP: Step[] = [['E5', 'E6', 'F6', 'F5', 'F4', 'F3'], { jump: 'F1' }, ['E1', 'F2']];
 
-function setupFor(id: string, seed?: number, player: RunPlayerResources = { hp: 5, maxHp: 5, energy: 0 }): RunBattleSetup {
-  const battle = forestBattle(id)!, tools = guaranteedRowTools(ROW)!;
-  return { nodeId: `spec:${id}`, label: battle.name, seed: seed ?? battle.definition.seed, template: { kind: 'battle', id }, row: ROW, player,
+function setupFor(id: string, seed?: number, player: RunPlayerResources = { hp: 5, maxHp: 5, energy: 0 }, row = ROW): RunBattleSetup {
+  const battle = forestBattle(id)!, tools = guaranteedRowTools(row)!;
+  return { nodeId: `spec:${id}`, label: battle.name, seed: seed ?? battle.definition.seed, template: { kind: 'battle', id }, row, player,
     inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 }, allowedItems: [...tools.items], allowedAbilities: [...tools.abilities],
-    paletteWeights: authoredRefillPalette(battle, ROW) };
+    paletteWeights: authoredRefillPalette(battle, row) };
 }
 /** A fresh battle; `variant` replaces the refill RNG as the level analyzer does (the authored start stays). */
-function start(id: string, variant = 0, energy = 0, hp = 5): ForestEngine {
+function start(id: string, variant = 0, energy = 0, hp = 5, row = ROW): ForestEngine {
   const g = new ForestEngine(); g.animationScale = 0;
-  assert(g.startRunBattle(setupFor(id, undefined, { hp, maxHp: 5, energy })), `${id}: starts as a node battle`);
+  assert(g.startRunBattle(setupFor(id, undefined, { hp, maxHp: 5, energy }, row)), `${id}: starts as a node battle on row ${row}`);
   if (variant) { const snap = g.captureAnalysisSnapshot(); snap.rng = variantSeed(snap.rng, variant); g.restoreAnalysisSnapshot(snap); }
   return g;
 }
@@ -147,7 +150,7 @@ function doorChains(g: ForestEngine): { path: number[]; preview: ChainPreview }[
 }
 function copyOf(id: string, g: ForestEngine): ForestEngine {
   const copy = new ForestEngine(); copy.animationScale = 0;
-  assert(copy.startRunBattle(setupFor(id, undefined, { hp: g.state.player.hp, maxHp: 5, energy: g.state.player.energy })), `${id}: copy starts`);
+  assert(copy.startRunBattle(setupFor(id, undefined, { hp: g.state.player.hp, maxHp: 5, energy: g.state.player.energy }, g.state.runNode!.row)), `${id}: copy starts`);
   copy.restoreAnalysisSnapshot(g.captureAnalysisSnapshot());
   return copy;
 }
@@ -326,38 +329,96 @@ async function traps() {
   const inRut = forecast(g, ['A5', 'A4']);
   assert((inRut.thornDamage ?? 0) >= 1 && targetDeaths(g, inRut) < 3, 'den-thorn-rut: stopping in the rut costs thorns and spares wolves');
 
-  // Old tusker: the cat starts in the rut; staying there is a ram of 3. Leaving without digging drops the leader on the
-  // spikes; burning the ochre ring first puts the cat beside the boar's landing; the ring kills the boar next turn.
+  // Old tusker: the cat starts in the rut; staying there is a ram of 3. The first charge drops only the two packmates in
+  // front of the leader, so the boar must charge up twice: the cat has to climb out of the rut to row 3 (east, not into
+  // the bitten west end), and a single hit beside it leaves the cat below the boar — it then charges down, away from the
+  // leader. On turn 2 the cat waits beside the ochre ring; burning it puts the cat in line with the boar's landing.
   g = start('den-old-tusker');
   const boar = g.state.board[at(g, 'D7')]!;
-  assert(boar.elite && boar.hp === 6 && boar.intent.charge?.dy === -1, 'den-old-tusker: the elite boar (6 HP) is aimed up the rut');
+  assert(boar.elite && boar.hp === 8 && boar.intent.charge?.dy === -1, 'den-old-tusker: the elite boar (8 HP) is aimed up the rut');
   const stay = forecast(g, ['D7']);
   assert(stay.chargeDamage === 3 && stay.damageBySource.charge === 3, 'den-old-tusker: a hit that leaves the cat in the rut is shown as a ram of 3');
   const leave = forecast(g, PLANS['den-old-tusker'].route[0] as string[]);
-  assert(leave.damage === 0 && targetDeaths(g, leave) === 1 && leave.enemyPhase?.charges.some(charge => charge.to === at(g, 'D4')), 'den-old-tusker: leaving the rut drops the leader and the boar lands on D4');
-  const dig = forecast(g, ['C6', 'D5']);
-  assert(targetDeaths(g, dig) === 0, 'den-old-tusker: wounding the blocker in the rut spares the leader');
-  const burn = start('den-old-tusker');
-  await chain(burn, ['C5', 'B5', 'B4', 'B3', 'C3', 'C4'], 'den-old-tusker ring burn');
-  const tusk = burn.state.board[at(burn, 'D4')]!;
-  assert(tusk.elite && tusk.intent.cells.includes(burn.state.player.index) && heroStrikeDamage(tusk) === 3, 'den-old-tusker: after burning the ring the boar lands beside the cat and announces a ram of 3');
-  const bitten = start('den-old-tusker');
-  assert(forecast(bitten, ['C5', 'B4', 'B5', 'C4', 'B3', 'C3']).damageBySource.melee >= 1, 'den-old-tusker: a ring burn that ends at the guards is bitten');
-  await chain(g, PLANS['den-old-tusker'].route[0] as string[], 'den-old-tusker leave');
-  const ring = forecast(g, PLANS['den-old-tusker'].route[1] as string[]);
-  assert(ring.hits.some(hit => hit.index === at(g, 'D4') && hit.killed) && ring.damage === 0 && ring.unlocksExit, 'den-old-tusker: the intact ring kills the boar and opens the door');
+  const spiked = (p: ChainPreview) => (p.enemyPhase?.deaths ?? []).filter(death => death.cause === 'spikes').length;
+  assert(leave.damage === 0 && targetDeaths(g, leave) === 0 && spiked(leave) === 2 && leave.enemyPhase?.charges.some(charge => charge.to === at(g, 'D4')),
+    'den-old-tusker: the first charge drops the two packmates, the leader slides to D1 and the boar lands on D4');
+  assert(spiked(forecast(g, ['E6', 'D5'])) < 2, 'den-old-tusker: wounding the blocker in the rut weakens the first charge');
+  assert(forecast(g, ['C5', 'C4', 'C3']).damageBySource.melee === 1, 'den-old-tusker: the west end under the sentry is bitten');
+  for (const single of ['C5', 'E5', 'C6', 'E6']) {
+    const out = start('den-old-tusker');
+    await chain(out, [single], `den-old-tusker single ${single}`);
+    assert(out.state.board[at(out, 'D4')]?.intent.charge?.dy === 1, `den-old-tusker: after the single hit ${single} the boar charges down, away from the leader`);
+  }
+  await chain(g, PLANS['den-old-tusker'].route[0] as string[], 'den-old-tusker climb');
+  assert(g.state.board[at(g, 'D4')]?.intent.charge?.dy === -1, 'den-old-tusker: from E3 the boar aims up again');
+  // Burning the ring on turn 2 (the longest chain) still drops the leader, but the authored fuel for power 9 is gone and
+  // the boar keeps all 8 HP next to the cat (its ram is 3).
+  const burn = copyOf('den-old-tusker', g);
+  const ringIds = ['F3', 'G3', 'G2', 'G1', 'F1', 'F2', 'E2', 'E1'].map(cell => burn.state.board[at(burn, cell)]!.id);
+  await chain(burn, ['F3', 'G3', 'G2', 'G1', 'F1', 'F2', 'E2', 'E1'], 'den-old-tusker ring burn');
+  const tusk = burn.state.board.find(cell => cell?.elite === true)!;
+  assert(tusk && tusk.hp === 8 && heroStrikeDamage(tusk) === 3 && targetsLeft(burn) === 1 && !burn.state.board.some(cell => cell && ringIds.includes(cell.id)),
+    'den-old-tusker: burning the ring on turn 2 leaves the 8-HP boar (ram 3) without the authored fuel');
+  const wait = await chain(g, PLANS['den-old-tusker'].route[1] as string[], 'den-old-tusker wait');
+  assert(targetDeaths(g, wait) === 1 && wait.damage === 0 && g.state.board[at(g, 'D1')]?.elite, 'den-old-tusker: the second charge drops the leader, the boar lands on D1');
+  assert(targetsLeft(g) === 1, 'den-old-tusker: the leader is dead after turn 2');
+  const ring = forecast(g, PLANS['den-old-tusker'].route[2] as string[]);
+  assert(ring.hits.some(hit => hit.index === at(g, 'D1') && hit.killed) && ring.damage === 0 && ring.unlocksExit, 'den-old-tusker: the intact ring (power 9) kills the boar and opens the door');
 }
 
-/** Whatever the entry energy, no first action kills the old boar (out of reach of every first chain, jump and spin). */
+/** Every valid chain from the cat (a full depth-first walk, single hits included) — for exhaustive first-move checks. */
+function allChains(g: ForestEngine): number[][] {
+  const found: number[][] = [];
+  let budget = 400_000;
+  const walk = (cells: number[]) => {
+    assert(--budget > 0, 'allChains: the walk fits its budget');
+    const last = cells.length ? cells[cells.length - 1] : g.state.player.index;
+    for (const next of g.chainNeighbors(last)) {
+      if (cells.includes(next) || !g.state.board[next]) continue;
+      const partial = planChain(g.state, [...cells, next], true).preview;
+      if (!partial.valid) continue;
+      found.push([...cells, next]);
+      if (!partial.endsOnSurvivor) walk([...cells, next]);
+    }
+  };
+  walk([]);
+  return found.filter(cells => g.preview(cells).valid);
+}
+
+/**
+ * Old tusker, exhaustive over the first action on rows 10–12 and entry energy 0/3/7: no first chain (single hits
+ * included), jump or spin kills the boar, and after none of them can a second action (every chain of the second turn's
+ * sample, every jump, the spin) meet both goals — the goals take at least three turns (review 04.10.2026).
+ */
 async function tuskerFirstTurn() {
-  for (const energy of ENERGIES) {
-    const g = start('den-old-tusker', 0, energy), boar = at(g, 'D7'), before = json(g.state);
+  for (const row of BRANCH_ROWS) for (const energy of ENERGIES) {
+    const g = start('den-old-tusker', 0, energy, 5, row), boar = at(g, 'D7'), before = json(g.state), where = `den-old-tusker row ${row} energy ${energy}`;
     const kills = (preview: ChainPreview) => preview.valid && preview.hits.some(hit => hit.index === boar && hit.killed);
-    for (const move of g.availableMoves(16)) assert(!kills(g.preview(move)), `den-old-tusker energy ${energy}: no first chain kills the boar`);
-    for (let cell = 0; cell < g.state.board.length; cell++) assert(!kills(g.previewAbility('jump', cell)), `den-old-tusker energy ${energy}: no first jump kills the boar`);
+    const first: { label: string; commit: (e: ForestEngine) => Promise<unknown> }[] = [];
+    for (const cells of allChains(g)) {
+      assert(!kills(g.preview(cells)), `${where}: no first chain kills the boar`);
+      first.push({ label: cells.map(index => label(g, index)).join('-'), commit: e => chain(e, cells.map(index => label(e, index)), `${where} first`) });
+    }
+    for (let cell = 0; cell < g.state.board.length; cell++) {
+      const jump = g.previewAbility('jump', cell);
+      assert(!kills(jump), `${where}: no first jump kills the boar`);
+      if (jump.valid) first.push({ label: `jump ${label(g, cell)}`, commit: e => step(e, { jump: label(e, cell) }, `${where} first`) });
+    }
     const spin = g.previewAbility('spin');
-    assert(spin.valid === energy >= 3 && !kills(spin), `den-old-tusker energy ${energy}: the first spin does not kill the boar`);
-    assert(json(g.state) === before, `den-old-tusker energy ${energy}: the previews keep the state`);
+    assert(spin.valid === energy >= 3 && !kills(spin), `${where}: the first spin does not kill the boar`);
+    if (spin.valid) first.push({ label: 'spin', commit: e => step(e, { spin: true }, `${where} first`) });
+    assert(json(g.state) === before, `${where}: the previews keep the state`);
+    for (const action of first) {
+      const e = copyOf('den-old-tusker', g);
+      await action.commit(e);
+      if (e.state.phase !== 'PLAYER_INPUT') continue;
+      assert(!goalsMet(e), `${where}: ${action.label} does not meet the goals on turn 1`);
+      const seconds: ChainPreview[] = e.availableMoves(16).map(cells => e.preview(cells));
+      for (let cell = 0; cell < e.state.board.length; cell++) seconds.push(e.previewAbility('jump', cell));
+      seconds.push(e.previewAbility('spin'));
+      assert(!seconds.some(p => p.valid && (p.unlocksExit || p.enemyPhase?.unlocksExit)), `${where}: after ${action.label} no second action meets both goals`);
+    }
+    if (row === ROW && energy === 0) console.log(`den-old-tusker: ${first.length} first actions checked per row and energy`);
   }
 }
 
@@ -382,6 +443,81 @@ async function exits() {
   assert(targetsLeft(start('den-old-tusker')) === 2, 'den-old-tusker: two marked targets (the leader and the old boar)');
 }
 
+/** The designed routes hold on the first and the last row of the branch as well (rows 10 and 12). */
+async function otherRows() {
+  for (const row of [10, 12]) for (const [id, plan] of Object.entries(PLANS)) for (const variant of [0, SPREAD[3]]) {
+    const g = start(id, variant, 0, 5, row), where = `${id} row ${row} seed ${variant}`;
+    const { goalHp } = await playRoute(id, g, plan.route, where);
+    assert(g.state.phase === 'WIN' && goalHp === plan.hp, `${where}: the designed route wins with ${plan.hp} HP at the goals, got ${g.state.phase} ${goalHp}`);
+  }
+}
+
+/**
+ * Protracted variant (as in campBranchBattles.spec.ts): the cat spends nine turns on short safe chains that do not hit
+ * the beasts, the elites, any enemy with HP or a marked target (unless only such a hit still delays the goals), do not
+ * meet the goals and end as far from the targets as possible (a boar may still ram a target in between); then a search over real actions (chains, jump, spin)
+ * meets the goals on turn 10–16, and a second search reaches the door — late goals are no dead end.
+ */
+async function protracted() {
+  const special = (g: ForestEngine, index: number) => {
+    const cell = g.state.board[index];
+    return !!cell && (!!cell.variant || !!cell.elite || cell.hp > 0 || g.state.tutorial!.targetIds.includes(cell.id));
+  };
+  // A waiting cat keeps away from the targets (it does not line up a boar on them by accident).
+  const awayFrom = (g: ForestEngine, p: ChainPreview) => {
+    const end = p.enemyPhase?.heroIndex ?? p.endIndex, cols = g.state.cols;
+    return Math.min(...g.state.board.flatMap((cell, index) => cell && g.state.tutorial!.targetIds.includes(cell.id)
+      ? [Math.max(Math.abs(index % cols - end % cols), Math.abs(Math.floor(index / cols) - Math.floor(end / cols)))] : []));
+  };
+  const lines: string[] = [];
+  let forced = 0, late = 0;
+  for (const id of Object.keys(PLANS)) for (const variant of SPREAD.slice(0, 3)) {
+    const g = start(id, variant), where = `${id} protracted seed ${variant}`;
+    for (let turn = 0; turn < 9; turn++) {
+      const delaying = g.availableMoves(16).map(cells => ({ cells, p: g.preview(cells) }))
+        .filter(move => move.p.valid && !move.p.playerDies && !move.p.unlocksExit && !move.p.enemyPhase?.unlocksExit)
+        .sort((a, b) => a.p.damage - b.p.damage || awayFrom(g, b.p) - awayFrom(g, a.p) || a.cells.length - b.cells.length);
+      // Sparing the special enemies first; when only a hit on one of them still delays the goals (a boar about to
+      // finish the targets), the waiting cat takes it.
+      const spared = delaying.filter(move => !move.p.hits.some(hit => special(g, hit.index)));
+      const moves = spared.length ? spared : delaying;
+      // No delaying chain: every action, a rest included, meets the goals (a boar aimed along the rut finishes the last
+      // wolf). The goals then come early; the exit is still checked below.
+      if (!moves.length) { forced++; break; }
+      await chain(g, moves[0].cells.map(index => label(g, index)), `${where} delay ${turn + 1}`);
+    }
+    const delayed = g.state.turn;
+    assert(g.state.phase === 'PLAYER_INPUT' && !goalsMet(g), `${where}: still fighting after the delaying turns`);
+    const actions = () => {
+      const out: { action: Step; p: ChainPreview }[] = g.availableMoves(16).map(cells => ({ action: cells.map(index => label(g, index)), p: g.preview(cells) }));
+      for (let cell = 0; cell < g.state.board.length; cell++) out.push({ action: { jump: label(g, cell) }, p: g.previewAbility('jump', cell) });
+      out.push({ action: { spin: true }, p: g.previewAbility('spin') });
+      return out.filter(entry => entry.p.valid && !entry.p.playerDies);
+    };
+    const progress = (p: ChainPreview) => targetDeaths(g, p) * 100 + p.hits.reduce((sum, hit) => sum + (special(g, hit.index) ? Math.max(0, hit.hpBefore - hit.hpAfter) * 10 : 0), 0)
+      + (p.enemyPhase?.deaths ?? []).length * 5 - p.damage * 8;
+    const search = async (depth: number): Promise<boolean> => {
+      if (goalsMet(g)) return true;
+      if (depth === 0 || g.state.phase !== 'PLAYER_INPUT') return false;
+      const snapshot = g.captureAnalysisSnapshot();
+      for (const { action } of actions().sort((a, b) => progress(b.p) - progress(a.p)).slice(0, 6)) {
+        await step(g, action, `${where} search`);
+        if (g.state.phase === 'PLAYER_INPUT' && await search(depth - 1)) return true;
+        g.restoreAnalysisSnapshot(snapshot);
+      }
+      return false;
+    };
+    assert(await search(5), `${where}: the goals are still reachable after a slow start`);
+    const goalTurn = g.state.customLevel!.goalCompletedTurn!;
+    assert(goalTurn <= 16 && (delayed < 9 || goalTurn >= 10), `${where}: late goals on turn ${goalTurn}`);
+    if (goalTurn >= 10) late++;
+    const hpAtGoals = g.state.player.hp, turns = await walkToExit(id, g, where, 3);
+    lines.push(`${id} seed ${variant}: goals on turn ${goalTurn} with ${hpAtGoals} HP, door in ${turns} turn(s) with ${g.state.player.hp} HP`);
+  }
+  for (const line of lines) console.log(line);
+  assert(late * 3 >= lines.length * 2, `the protracted runs mostly meet the goals on turn 10 or later (${late} of ${lines.length}; ${forced} forced early)`);
+}
+
 async function main() {
   layouts();
   await traps();
@@ -389,6 +525,8 @@ async function main() {
   await exits();
   await replayAndRandomRefill();
   await routes();
+  await otherRows();
+  await protracted();
   console.log('den branch battles: ok');
 }
 

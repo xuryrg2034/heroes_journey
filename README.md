@@ -155,6 +155,8 @@ npm run test:rest-craft
 npm run test:troll
 npm run test:goblin-battles
 npm run test:beast-battles
+npm run test:den-branch
+npm run test:camp-branch
 npm run test:troll-arena
 npm run test:playtest-rules
 npm run test:sentinel-shield
@@ -177,7 +179,7 @@ npm test
 
 Логические наборы используют общие фикстуры `src/game/testing/fixtures.ts`: `startForestFixture` — лагерь 7×7 как уровень редактора (деревья, пруд, костёр, лужа, пять цветов), `startNodeBattle` — бой реестра, запущенный как узел карты.
 
-- `test:trunk-battles`, `test:shared-battles`, `test:chief-battle`, `test:goblin-battles`, `test:beast-battles`, `test:troll-arena` — авторские бои карты реальными командами: расстановка, палитра ряда, проверенные маршруты, прогноз = исполнение, точный повтор. Карты и маршруты — в `docs/levels/*.md`.
+- `test:trunk-battles`, `test:shared-battles`, `test:chief-battle`, `test:goblin-battles`, `test:beast-battles`, `test:den-branch`, `test:camp-branch`, `test:troll-arena` — авторские бои карты реальными командами: расстановка, палитра ряда, проверенные маршруты, прогноз = исполнение, точный повтор. Карты и маршруты — в `docs/levels/*.md`.
 - `test:forest-run` — граф, модель похода, сохранение и бои узлов в движке; поражение реальной игрой на разнесённых seed заканчивает поход (итог с узлом и рядом, ничего нельзя войти или переиграть, сохранение переживает перезагрузку), старые сохранения со счётчиком `defeats` загружаются и играются по новым правилам; `test:node-tools` — допуск инструментов в боях узлов: движок разрешает только открытые походом предметы и способности (ствол — ничего, тропы и Тюремщик — холод и прыжок, после Тюремщика — ещё круговой удар); `test:items` — бомба, огненная склянка, один предмет за ход и отмена устаревшего хода на лагере-фикстуре.
 - `test:boar`, `test:forest-beasts`, `test:troll`, `test:jailer-rules` — правила лесных врагов и Тюремщика реальными командами, включая прогноз, повтор по seed и отмену устаревшего хода.
 - `test:sentinel-shield` — невооружённый (пассивный) щитоносец на стволе поворачивает щит к коту: вход цепи со стороны щита отклонён, сбоку разрешён, сам страж не атакует.

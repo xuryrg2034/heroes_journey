@@ -60,9 +60,9 @@ export const CAMP_BATTLES: NodeBattle[] = [
     },
     seed: 9702,
   }),
-  // Hard (exam), main enemy: elite shaman M (3 → 6 HP). The cat starts two cells from it, so M retreats to C2 after the
+  // Hard (exam), main enemy: elite shaman M (4 → 8 HP). The cat starts two cells from it, so M retreats to C2 after the
   // first turn; it then announces its rite on C1 and B1 and stands still for the next two actions. The answer: end turn
-  // 1 on B3, run the amethyst lane A2–B1–C1 through both rite targets into M (6 → 2), then spin: it kills M and the
+  // 1 on B3, run the amethyst lane A2–B1–C1 through both rite targets into M (8 → 4), then spin: it kills M and the
   // armed bodyguard D2. The lane D3 → M wounds it too, but the raised escort and the bodyguard then strike a jump on C2;
   // ends on C4–E4 meet the archer A's volley. A turn lost gives M its retreat and the rite its armed goblins.
   // Exit «one turn» (by the analyzer; 1–3 turns over refills): the door F7 in the far corner.
@@ -80,7 +80,7 @@ export const CAMP_BATTLES: NodeBattle[] = [
       'OGGGBD',
     ],
     legend: {
-      M: { color: 4, hp: 3, variant: 'shaman', armed: true, target: true, elite: true },
+      M: { color: 4, hp: 4, variant: 'shaman', armed: true, target: true, elite: true },
       A: { kind: 'ranged', color: 0, hp: 3, armed: true },
       T: { terrain: 'tree' },
       F: { terrain: 'campfire' },
