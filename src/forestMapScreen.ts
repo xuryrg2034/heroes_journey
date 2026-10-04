@@ -16,7 +16,7 @@ import { barView, CATALOGUE_EVENTS, UNLOCK_LEVELS, UNLOCK_THRESHOLDS } from './g
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
 import { isOath, talisman, type TalismanId } from './game/talismans';
-import { BLANK_SCORE, type TalismanOption } from './game/run/talismanOffers';
+import { BLANK_SCORE, type TalismanOption, type TalismanSource } from './game/run/talismanOffers';
 import type { GiftOption, GiftPrice } from './game/run/runGift';
 
 export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: string; hint: string }> = {
@@ -429,7 +429,9 @@ export function eventModalHtml(run: ForestRunState): string {
   const view = eventView(run);
   if (!view) return '';
   const options = view.options.map(option => {
-    const outcomes = option.outcomes.length === 1 ? option.outcomes[0].text : option.outcomes.map(outcome => `${outcome.chance}%: ${outcome.text}`).join(' · ');
+    // The cost and the escalation's attempt are shown before the outcomes (a fuller screen is the interface task's).
+    const outcomes = (option.cost ? `Цена: ${option.cost}. ` : '') + (option.attempts ? `Попытка ${Math.min(option.attempts.done + 1, option.attempts.max)} из ${option.attempts.max}: ` : '')
+      + (option.outcomes.length === 1 ? option.outcomes[0].text : option.outcomes.map(outcome => `${outcome.chance}%: ${outcome.text}`).join(' · '));
     return `<button class="event-choice" data-event-option="${option.id}"${option.available ? '' : ' disabled aria-disabled="true"'}><b>${escapeHtml(option.label)}</b><small>${escapeHtml(outcomes)}</small>${option.available ? '' : `<em class="event-reason">${escapeHtml(option.reason)}</em>`}</button>`;
   }).join('');
   return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(view.event.title)}</h2><p class="modal-copy event-scene">${escapeHtml(view.event.scene)}</p><div class="event-options">${options}</div>`;
@@ -450,9 +452,10 @@ export function eventResultHtml(run: ForestRunState, events: ForestRunEvent[]): 
  * run and shows runResultHtml instead; the defeat branch here is only for a node battle opened outside the saved run
  * (the debug hook `startNodeBattle`), which has no run to end.
  */
-export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; battlesWon: number; grants: string; find?: boolean; choice?: 'hard' | 'oath'; healed?: number; wardCrumbled?: boolean; gift?: boolean }): string {
+export function nodeBattleModalHtml(options: { won: boolean; name: string; turns: number; hp: number; maxHp: number; battlesWon: number; grants: string; find?: boolean; choice?: TalismanSource; healed?: number; wardCrumbled?: boolean; gift?: boolean }): string {
   const { won, name, turns, hp, maxHp, battlesWon, grants, find, choice, healed, wardCrumbled, gift } = options;
-  const choiceText = choice === 'oath' ? ' За победу — клятва: выбери одну из трёх или откажись.' : choice === 'hard' ? ' За победу — талисман: выбери один из трёх или откажись.' : '';
+  const choiceText = choice === 'oath' ? ' За победу — клятва: выбери одну из трёх или откажись.' : choice === 'hard' ? ' За победу — талисман: выбери один из трёх или откажись.'
+    : choice === 'event' ? ' Награда события — талисман: выбери или откажись.' : '';
   const next = find ? '<button class="button primary" data-action="run-find">ВЫБРАТЬ НАХОДКУ</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>'
     : choice ? `<button class="button primary" data-action="run-talisman">${choice === 'oath' ? 'ВЫБРАТЬ КЛЯТВУ' : 'ВЫБРАТЬ ТАЛИСМАН'}</button><button class="button secondary" data-action="run-map">К КАРТЕ</button>`
     // The trunk's last battle: the start gift waits before the trails.

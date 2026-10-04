@@ -266,6 +266,13 @@ function chooseEvent(optionId: string) {
   if (!forestRun || forestRun.pending?.kind !== 'event') return;
   const step = commitRun(chooseEventOption(forestRun, optionId));
   if (!step.ok) return;
+  // An escalation's attempt keeps the event open; an accepted reward battle starts its battle.
+  const attempt = step.events.find(event => event.type === 'event-attempt');
+  if (attempt?.type === 'event-attempt') {
+    mapNotice = `${runNode(step.run, attempt.nodeId)?.name ?? ''}: попытка ${attempt.attempt} — ${attempt.text}.`;
+    audio.play('click'); showScreen('map'); showEvent(); return;
+  }
+  if (step.run.pending?.kind === 'battle') { audio.play('click'); routeRun(); return; }
   const resolved = step.events.find(event => event.type === 'event-resolved');
   if (resolved?.type === 'event-resolved') {
     recordRunEvent({ nodeId: resolved.nodeId, option: resolved.option, outcome: resolved.outcome, text: resolved.text, seed: step.run.seed });

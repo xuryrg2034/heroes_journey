@@ -4,8 +4,8 @@
  * never strength of the cat. At most one level per run; the surplus carries over cut to «next threshold − 1».
  * Pure data and functions: the profile (playerProfile.ts) keeps the bar, a new run keeps its open level (`unlocks`).
  *
- * Events are named by their ids; most of the catalogue (docs/events.md) is not in the code yet (forestEvents.ts has
- * «Ручей у камней» and «Гоблинский тайник»): opening such an event changes nothing until it appears there.
+ * Events are named by their ids (forestEvents.ts holds the whole catalogue of docs/events.md since 04.10.2026); an
+ * event's opening level is read here (`eventUnlockLevel`), not repeated in the event data.
  */
 import { TALISMANS, type TalismanId } from '../talismans';
 
@@ -27,10 +27,7 @@ export const UNLOCK_LEVELS: readonly UnlockSet[] = [
   { talismans: [], events: ['ford-ambush', 'bone-wheel'] },
   { talismans: [], events: ['den-bones', 'shaman-idol'] },
 ];
-/**
- * The events of the catalogue (docs/events.md) by id, with one line for the opening screen. Ids of events already in
- * the code are those of forestEvents.ts; the others name the events the catalogue task will add.
- */
+/** The events of the catalogue (docs/events.md) by id, with one line for the opening screen; the ids of forestEvents.ts. */
 export const CATALOGUE_EVENTS: Readonly<Record<string, { title: string; line: string }>> = {
   brook: { title: 'Ручей у камней', line: 'Выбор из выгод: +2 HP, +1 «Холод» или +1 энергия' },
   'owl-hollow': { title: 'Дупло совы', line: 'Подарок: +1 энергия, ресурс или первая цепь следующего боя с запасом 1' },
@@ -56,6 +53,12 @@ export function unlockedAt(level: number): UnlockSet {
 /** Talismans and oaths a run of open level `level` may get; `undefined` — a run without the bar (saves before it, tests): all. */
 export function openTalismans(level: number | undefined): TalismanId[] | undefined {
   return level === undefined ? undefined : TALISMANS.map(entry => entry.id).filter(id => unlockedAt(level).talismans.includes(id));
+}
+/** The level of the bar that opens event `id`: 0 — open from the start; null — not in the bar. */
+export function eventUnlockLevel(id: string): number | null {
+  if (UNLOCK_START.events.includes(id)) return 0;
+  const at = UNLOCK_LEVELS.findIndex(set => set.events.includes(id));
+  return at < 0 ? null : at + 1;
 }
 /** The event may appear in a run of open level `level` (`undefined` — every event). */
 export function eventOpen(id: string, level: number | undefined): boolean {

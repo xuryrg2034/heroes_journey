@@ -43,7 +43,11 @@ function winBattle(run: ForestRunState, loot: Stock | undefined, hp: number | un
 /** An event option that changes neither HP nor resources (every event has one). */
 function quietEvent(run: ForestRunState): ForestRunState {
   const view = eventView(run)!;
-  const option = view.options.find(entry => entry.available && eventOption(view.event, entry.id)!.outcomes.every(outcome => !outcome.effect.resources && !outcome.effect.hp))!;
+  // An option that neither pays nor gives resources, talismans or the maximum HP (no battle, no escalation); one without HP first.
+  const quiet = (id: string) => { const option = eventOption(view.event, id)!; return !option.battle && !option.escalation && !option.cost
+    && option.outcomes.every(outcome => !outcome.effect.resources && !outcome.effect.materials && !outcome.effect.talisman && !outcome.effect.maxHp); };
+  const option = view.options.find(entry => entry.available && quiet(entry.id) && eventOption(view.event, entry.id)!.outcomes.every(outcome => !outcome.effect.hp))
+    ?? view.options.find(entry => entry.available && quiet(entry.id))!;
   return ok(chooseEventOption(run, option.id), `event ${view.event.id}`);
 }
 /**

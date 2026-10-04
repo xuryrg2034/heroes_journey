@@ -10,8 +10,11 @@ import { TALISMANS, talisman, type TalismanId, type TalismanRarity } from '../ta
 
 /** An offered option: a talisman or oath, or the «пустышка» (BLANK_SCORE run points) when the pool has nothing left. */
 export type TalismanOption = TalismanId | 'blank';
-/** `hard`: a won hard battle offers talismans; `oath`: a won Jailer battle offers oaths. */
-export type TalismanSource = 'hard' | 'oath';
+/**
+ * `hard`: a won hard battle offers talismans; `oath`: a won Jailer battle offers oaths; `event`: a won reward battle of an
+ * event offers common talismans (docs/events.md, «Засада у брода»).
+ */
+export type TalismanSource = 'hard' | 'oath' | 'event';
 /** Баланс: options in one offer. */
 export const TALISMAN_OFFER_SIZE = 3;
 /** Баланс: run points of the «пустышка». */
@@ -88,4 +91,17 @@ export function talismanOffer(nodeSeed: number, source: TalismanSource, pool: Ta
     else if (!options.includes('blank')) options.push('blank');
   }
   return options;
+}
+
+/**
+ * The reward of an event's battle (docs/events.md): `count` different common talismans to choose from (an empty rarity
+ * gives way, as talismanDraw), or the «пустышка» alone when the pool has nothing left. `base` is one `talismans` draw.
+ */
+export function eventTalismanOffer(base: number, count: number, pool: TalismanPool): TalismanOption[] {
+  const drawn = talismanDraw(base, 'common', count, pool);
+  return drawn.length ? drawn : ['blank'];
+}
+/** Some talisman (not an oath) can still be drawn from the pool: an event's sure talisman needs one. */
+export function talismanLeft(pool: TalismanPool): boolean {
+  return TALISMANS.some(entry => entry.rarity !== 'oath' && talismanEligible(entry.id, pool));
 }
