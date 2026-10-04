@@ -468,7 +468,8 @@ export function nodeBattleModalHtml(options: { won: boolean; name: string; turns
 
 /**
  * The score line by line (the step's bonus and the style bonuses apart) and the bar of openings as the profile took the
- * run: «текущее / порог» and the openings left. Without a tally (a save from before) only the score.
+ * run: «текущее / порог» and the openings left. Without a tally (a save from before) only the score; a run with an
+ * entered seed says that it does not move the bar.
  */
 export function runScoreHtml(run: ForestRunState): string {
   const score = forestRunScore(run), tally = run.tally;
@@ -476,7 +477,7 @@ export function runScoreHtml(run: ForestRunState): string {
   const lines = score.lines.map(line => row(line.label, line.points, line.id === 'ladder' ? 'score-ladder' : '')).join('')
     + score.styles.map(line => row(line.label, line.points, 'score-style')).join('');
   const table = `<div class="run-score" id="run-score">${lines || '<span>Очков нет</span><b>0</b>'}</div><p class="run-score-total"><span>Счёт похода</span> <b id="run-score-total">${score.total}</b></p>`;
-  if (!tally) return table;
+  if (!tally) return run.seeded && run.result ? `${table}<p class="meta-note" id="meta-bar">Поход с заданным seed не двигает полосу открытий.</p>` : table;
   if (!tally.saved) return `${table}<p class="meta-note" id="meta-bar">Полоса открытий не сохраняется: хранилище браузера недоступно.</p>`;
   const { next, left } = barView(tally.after), from = tally.after.level ? UNLOCK_THRESHOLDS[tally.after.level - 1] : 0;
   const share = next === null ? 100 : Math.max(0, Math.min(100, (tally.after.points - from) / (next - from) * 100));

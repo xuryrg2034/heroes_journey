@@ -619,7 +619,8 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
   if (outcome.won && !(outcome.player.hp >= 1)) return fail('Победа с 0 HP невозможна.');
   run.score = (run.score ?? 0) + clampCount(outcome.score);
   // The battle log of the score (runScore.ts): damage, consumables used, the chest of this battle.
-  run.battleLog?.push({ nodeId: battle.nodeId, damage: clampCount(outcome.damageTaken), items: clampCount(outcome.itemsUsed), ...outcome.chest === 'dropped' || outcome.chest === 'opened' ? { chest: outcome.chest } : {} });
+  run.battleLog?.push({ nodeId: battle.nodeId, damage: clampCount(outcome.damageTaken), items: clampCount(outcome.itemsUsed), ...outcome.chest === 'dropped' || outcome.chest === 'opened' ? { chest: outcome.chest } : {},
+    points: Math.min(clampCount(outcome.chainPoints), clampCount(outcome.score)) });
   // The Ash ward saved the cat in this battle (also in a battle lost afterwards): it crumbles for the rest of the run.
   if (outcome.wardUsed && wardReady(run)) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: battle.nodeId }); }
   if (!outcome.won) {
@@ -1402,7 +1403,10 @@ export function parseForestRun(text: string): ForestRunState | null {
     const resolved = entering.filter(id => { const node = nodeAt(id)!; return isBattleNode(node) && node.content.kind !== 'in-development' && !(isRecord(pending) && pending.kind === 'battle' && pending.nodeId === id); });
     const log = value.battleLog;
     if (!Array.isArray(log) || log.length !== resolved.length || log.some((entry, n) => !isRecord(entry) || entry.nodeId !== resolved[n] || !isCount(entry.damage) || !isCount(entry.items)
-      || Object.keys(entry).some(key => !['nodeId', 'damage', 'items', 'chest'].includes(key)) || entry.chest !== undefined && entry.chest !== 'dropped' && entry.chest !== 'opened')) return null;
+      || Object.keys(entry).some(key => !['nodeId', 'damage', 'items', 'chest', 'points'].includes(key)) || entry.chest !== undefined && entry.chest !== 'dropped' && entry.chest !== 'opened'
+      || entry.points !== undefined && !isCount(entry.points))) return null;
+    // Kill and crystal points are a part of the battle points.
+    if (log.reduce((sum: number, entry) => sum + ((entry as RunBattleRecord).points ?? 0), 0) > ((value.score as number | undefined) ?? 0)) return null;
   }
   if (value.playMs !== undefined && !isCount(value.playMs)) return null;
   // How the profile took the ended run: only with a result.

@@ -3,7 +3,8 @@
  * screen, won or lost, and added to the bar of openings (unlocks.ts). Pure: it reads the finished run (forestRun.ts).
  *
  * Lines: 5 × the last completed row, 2 per ordinary battle won (battles and breakthroughs, the trunk included), 15 per
- * hard battle, 30 for the Jailer, 100 for a boss, 1 per 10 battle points (rounded down); the ladder step adds 5% of these
+ * hard battle, 30 for the Jailer, 100 for a boss, 1 per 10 battle points of kills and crystals (rounded down; the
+ * engine's turn and win bonuses are not counted — HP and speed are the style bonuses; decision of 04.10.2026); the ladder step adds 5% of these
  * lines per step (rounded down). Style bonuses are not multiplied by the step. A bonus that needs the battle log or the
  * play time is not given to a run that has none (a save from before 04.10.2026).
  */
@@ -18,14 +19,18 @@ export const STYLE_FAST_MS = 25 * 60_000;
 export const STYLE_GREEDY_CHESTS = 3, STYLE_COLLECTOR_TALISMANS = 3;
 
 /** A resolved battle of the run: cat damage taken, consumables used, the exit chest (fell, opened). */
-export interface RunBattleRecord { nodeId: string; damage: number; items: number; chest?: 'dropped' | 'opened' }
+export interface RunBattleRecord {
+  nodeId: string; damage: number; items: number; chest?: 'dropped' | 'opened';
+  /** Battle points of kills and crystals (absent in records before the decision of 04.10.2026: 0). */
+  points?: number;
+}
 /** What the score reads of a run. */
 export interface ScoredRun {
   /** Completed nodes in order and the last one (null before the first). */
   visited: readonly ForestMapNode[];
   current: ForestMapNode | null;
   victory: boolean;
-  /** Battle points of the run (`ForestRunState.score`). */
+  /** Battle points of the run (`ForestRunState.score`): the «очки боёв» line only for a run without a battle log. */
   points: number;
   ladder: number;
   talismans: number;
@@ -51,7 +56,8 @@ export function runScore(run: ScoredRun): RunScore {
   add('hard', `Трудные бои ×${hard.length}`, SCORE_HARD * hard.length);
   add('jailer', 'Тюремщик', SCORE_JAILER * jailer);
   add('boss', 'Босс', SCORE_BOSS * boss.length);
-  add('points', `Очки боёв ${run.points}`, Math.floor(run.points / SCORE_POINTS_PER));
+  const points = run.battles ? run.battles.reduce((sum, entry) => sum + (entry.points ?? 0), 0) : run.points;
+  add('points', `Очки боёв ${points}`, Math.floor(points / SCORE_POINTS_PER));
   const base = lines.reduce((sum, line) => sum + line.points, 0);
   add('ladder', `Ступень клятвы ${run.ladder}: +${SCORE_LADDER_PERCENT * run.ladder}%`, Math.floor(base * SCORE_LADDER_PERCENT * run.ladder / 100));
   const styles: ScoreLine<StyleId>[] = [], battles = run.battles;

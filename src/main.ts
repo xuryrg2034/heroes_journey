@@ -188,12 +188,12 @@ function commitRun(step: ForestRunStep): ForestRunStep {
     let run = step.run;
     if (clockFrom !== null) { const now = performance.now(); run = addPlayTime(run, now - clockFrom); clockFrom = now; }
     // The run has just ended (victory or defeat). The profile remembers whether it reached the Jailer, for the next run's
-    // gift (an entered seed changes nothing), and adds the run's score to the bar of openings; the run keeps the tally
+    // gift (an entered seed changes nothing), and adds the run's score to the bar of openings (not a seeded run); the run keeps the tally
     // for its result screen. Once per run: a reloaded result is not a new end.
     if (run.result && !forestRun?.result) {
       profileStore.endRun({ reachedJailer: runReachedJailer(run), seeded: !!run.seeded });
-      const tallied = recordTally(run, profileStore.addRunScore(forestRunScore(run).total));
-      if (tallied.ok) run = tallied.run;
+      const tally = profileStore.addRunScore(forestRunScore(run).total, !!run.seeded), tallied = tally && recordTally(run, tally);
+      if (tallied?.ok) run = tallied.run;
       clockFrom = null; openedLadderShown = null;
     }
     step = { ...step, run };

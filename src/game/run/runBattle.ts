@@ -61,4 +61,6 @@ export interface RunBattleOutcome {
   damageTaken?: number;
   itemsUsed?: number;
   chest?: 'dropped' | 'opened';
+  /** Battle points of kills and crystals only (no turn or win bonus): the «очки боёв» line of the run's score. */
+  chainPoints?: number;
 }

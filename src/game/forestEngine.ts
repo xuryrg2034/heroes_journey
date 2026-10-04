@@ -54,7 +54,12 @@ export class ForestEngine {
    * Counted from the published events, outside the state: it never changes the battle, the RNG or the forecast. A
    * `start` (a load or a restart) clears it.
    */
-  private battleLog = { damage: 0, lootItems: 0, chestDropped: false, chestOpened: false };
+  /**
+   * What the run's score reads of a battle, kept from the published events outside the state. `points`: the battle
+   * points scored at the chain's hits — kills and crystals (turnSystems.ts adds them just before the `hit`/`collect`
+   * event); the bonus of a turn without damage and the win bonus come before other events and are not counted.
+   */
+  private battleLog = { damage: 0, lootItems: 0, chestDropped: false, chestOpened: false, points: 0, scoreSeen: 0 };
   /** The registry battle of the open map-node battle (null in an editor level): telemetry aggregates attempts by it. */
   private runBattle: string | null = null;
 
@@ -80,7 +85,10 @@ export class ForestEngine {
   private emit(event: EngineEvent = { type: 'state' }) { this.track(event); for (const listener of this.listeners) listener(this.state, event); }
   private track(event: EngineEvent) {
     const log = this.battleLog;
-    if (event.type === 'start') Object.assign(log, { damage: 0, lootItems: 0, chestDropped: false, chestOpened: false });
+    const scored = this.state.score - log.scoreSeen;
+    log.scoreSeen = this.state.score;
+    if (event.type === 'start') Object.assign(log, { damage: 0, lootItems: 0, chestDropped: false, chestOpened: false, points: 0 });
+    else if ((event.type === 'hit' || event.type === 'collect') && scored > 0) log.points += scored;
     else if (event.type === 'damage' && event.index === this.state.player.index) log.damage += event.amount ?? 0;
     else if (event.type === 'loot-pickup' && event.text && !isResource(event.text)) log.lootItems++;
     else if (event.type === 'chest') log.chestDropped = true;
@@ -118,7 +126,7 @@ export class ForestEngine {
     const held = (inventory: Record<ItemKind, number>) => Object.values(inventory).reduce((sum, count) => sum + count, 0);
     const itemsUsed = Math.max(0, held(this.entrySnapshot?.state.inventory ?? this.state.inventory) + log.lootItems - held(this.state.inventory));
     return { nodeId: node.nodeId, won: phase === 'WIN', inventory: { ...this.state.inventory }, materials: { ...emptyMaterials(), ...this.state.materials },
-      damageTaken: log.damage, itemsUsed, ...(log.chestDropped ? { chest: log.chestOpened ? 'opened' as const : 'dropped' as const } : {}),
+      damageTaken: log.damage, itemsUsed, chainPoints: log.points, ...(log.chestDropped ? { chest: log.chestOpened ? 'opened' as const : 'dropped' as const } : {}),
       score: this.state.score, ...(this.entrySnapshot?.state.player.ward && !this.state.player.ward ? { wardUsed: true as const } : {}),
       player: { hp, maxHp, energy, ...(damageEffects ? { damageEffects: { ...damageEffects } } : {}) } };
   }

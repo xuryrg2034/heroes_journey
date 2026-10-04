@@ -41,10 +41,13 @@ const registry = FOREST_NODE_BATTLES as Record<string, NodeBattle>;
 registry['spec-meta-exit'] = authoredLesson({ id: 'spec-meta-exit', name: 'Выход за целью', description: '', hint: '',
   rows: ['DgGGG', 'TGGGG', 'RGGGG', 'RGGGG', 'RHGGG'], legend: { D: { door: true }, T: { color: 0, target: true } }, seed: 7201 });
 const COLUMN = [20, 15, 10, 5], DOOR = 0;
-async function chain(g: ForestEngine, path: number[]) {
+/** Release a chain; returns the battle points its forecast promises for the hits (kills and crystals; loot and a chest score nothing). */
+async function chain(g: ForestEngine, path: number[]): Promise<number> {
   assert(g.beginChain(path[0]), `begin ${path[0]}`);
   for (const index of path.slice(1)) assert(g.extendChain(index), `extend ${index}`);
+  const promised = g.preview(path).hits.reduce((sum, hit) => sum + (hit.loot || hit.chest ? 0 : hit.crystalScore ?? (hit.killed ? 20 + hit.damage * 2 : hit.damage)), 0);
   assert(await g.releaseChain(), 'released');
+  return promised;
 }
 
 /** Damage, consumables used and the chest come from the battle itself (its events), whatever the HP and stock at the end. */
@@ -60,22 +63,25 @@ async function engineReports() {
     if (k % 2 === 0) { g.damagePlayer(1); assert(g.useItem('healing'), 'healing used'); }
     const target = g.state.board.findIndex((_cell, index) => index !== 5 && g.previewItem('bomb', index).valid);
     if (k % 3 === 0 && target >= 0) assert(g.useItem('bomb', target), 'bomb used');
-    await chain(g, COLUMN);
+    let promised = await chain(g, COLUMN);
     assert(g.state.customLevel!.goalCompletedTurn !== null, `seed ${k}: goals met`);
     const chestAt = g.state.board.findIndex(cell => !!cell?.chest);
     const through = k % 2 && chestAt >= 0 ? g.availableMoves(8).find(candidate => candidate.includes(chestAt) && !candidate.includes(DOOR)) : undefined;
-    if (through) await chain(g, through);
+    if (through) promised += await chain(g, through);
     const outcome = (g.winLevel(), g.runBattleOutcome()!);
     const used = 3 - outcome.inventory.bomb - outcome.inventory.healing;
     assert(outcome.damageTaken === damage && outcome.itemsUsed === used, `seed ${k}: damage ${outcome.damageTaken} = ${damage}, items ${outcome.itemsUsed} = ${used}`);
     assert(outcome.chest === (through ? 'opened' : chestAt >= 0 ? 'dropped' : undefined), `seed ${k}: the chest ${outcome.chest} (through ${!!through})`);
+    // Battle points of the score: the chains' kills and crystals only — the bonuses of turns and of the win are not in.
+    const winBonus = outcome.player.hp * 150 + Math.max(0, 12 - g.state.turn) * 70;
+    assert(outcome.chainPoints === promised && promised > 0 && outcome.score! >= promised + winBonus, `seed ${k}: chain points ${outcome.chainPoints} = ${promised}, battle points ${outcome.score} with the win bonus ${winBonus}`);
     if (through) opened++; else if (chestAt >= 0) dropped++;
     // A restart clears the report.
     g.restartLevel();
-    assert(json(g.runBattleOutcome()) === 'null' && (g.winLevel(), g.runBattleOutcome()!.damageTaken === 0 && !g.runBattleOutcome()!.chest), `seed ${k}: a restart clears the report`);
+    assert(json(g.runBattleOutcome()) === 'null' && (g.winLevel(), g.runBattleOutcome()!.damageTaken === 0 && !g.runBattleOutcome()!.chest && g.runBattleOutcome()!.chainPoints === 0), `seed ${k}: a restart clears the report`);
   }
   assert(opened >= 2 && dropped >= 2, `chests opened (${opened}) and left (${dropped})`);
-  console.log(`PASS the engine reports damage, consumables used and the chest of a battle (10 seeds: ${opened} opened, ${dropped} left); a restart clears it`);
+  console.log(`PASS the engine reports damage, consumables used, the chest and the chain points (kills and crystals, no turn or win bonus) of a battle (10 seeds: ${opened} opened, ${dropped} left); a restart clears it`);
 }
 
 // ---------- Score lines and style bonuses on runs built for them (authored graph) ----------
@@ -125,16 +131,17 @@ async function scoreLines() {
   // A defeat at the Jailer: the row of the last completed node, seven ordinary battles, no Jailer line.
   const lost = await walk(TO_JAILER, { lose: 'jailer' });
   assert(lost.result?.outcome === 'defeat', 'the run fell at the Jailer');
-  assert(json(lines(lost)) === json({ row: 5 * 8, battles: 2 * 7, ...lost.score >= 10 ? { points: Math.floor(lost.score / 10) } : {} }), `defeat at the Jailer: ${json(lines(lost))}`);
+  // Battles ended by the debug win score only their win bonus: no «очки боёв» line (decision of 04.10.2026).
+  assert(lost.score >= 10 && json(lines(lost)) === json({ row: 5 * 8, battles: 2 * 7 }), `defeat at the Jailer: ${json(lines(lost))}`);
   // A victory over the Chief: row 14, nine ordinary battles (trunk, trails, the camp battle, the breakthrough), the hard
   // battle, the Jailer and the boss.
   const won = await walk(TO_CHIEF);
   assert(won.result?.outcome === 'victory', 'the run won');
-  const base = 5 * 14 + 2 * 9 + 15 + 30 + 100 + Math.floor(won.score / 10);
-  assert(json(lines(won)) === json({ row: 70, battles: 18, hard: 15, jailer: 30, boss: 100, ...won.score >= 10 ? { points: Math.floor(won.score / 10) } : {} }), `victory: ${json(lines(won))}`);
+  const base = 5 * 14 + 2 * 9 + 15 + 30 + 100;
+  assert(won.score >= 1000 && json(lines(won)) === json({ row: 70, battles: 18, hard: 15, jailer: 30, boss: 100 }), `victory: ${json(lines(won))}`);
   assert(forestRunScore(won).total === base + Object.values(styles(won)).reduce((sum, points) => sum + points, 0), 'the total is the lines plus the bonuses');
-  // Battle points: one per ten, rounded down.
-  const scored = { ...won, score: 137 };
+  // Battle points: the kills and crystals of the battle log, one per ten, rounded down.
+  const scored = { ...won, battleLog: won.battleLog!.map((entry, n) => ({ ...entry, points: n === 0 ? 100 : n === 1 ? 37 : 0 })) };
   assert(lines(scored).points === 13, '137 battle points give 13');
   // The ladder: +5% of the lines per step, rounded down; the bonuses are not multiplied.
   const laddered = await walk(TO_CHIEF, { ladder: 3 });
@@ -185,6 +192,8 @@ function bar() {
   const first = profile.addRunScore(250), second = profile.addRunScore(250), third = profile.addRunScore(0), fourth = profile.addRunScore(1);
   assert(first.opened === 1 && first.after.points === 250 && second.opened === 2 && second.after.points === 449 && third.opened === null && third.after.points === 449
     && fourth.opened === 3 && fourth.after.points === 450 && fourth.saved, `scores gather run by run: ${json([first, second, third, fourth])}`);
+  const before = json(profile.load());
+  assert(profile.addRunScore(500, true) === null && json(profile.load()) === before, 'a run with an entered seed does not move the bar');
   assert(profile.load().meta.level === 3 && profile.resetMeta() && json(profile.load().meta) === json({ points: 0, level: 0 }) && !profile.load().giftFull, 'the playtest reset empties the bar and the gift mark');
   const none = createPlayerProfileStore(null), tally = none.addRunScore(500);
   assert(!tally.saved && tally.opened === null && json(tally.after) === json(tally.before) && none.load().meta.level === 0, 'without storage the bar does not fill');
@@ -193,7 +202,7 @@ function bar() {
   assert(all.length === TALISMANS.length && TALISMANS.every(entry => all.filter(id => id === entry.id).length === 1), 'every talisman opens exactly once');
   const events = [UNLOCK_START, ...UNLOCK_LEVELS].flatMap(set => set.events);
   assert(Object.keys(FOREST_EVENTS).every(id => events.includes(id)) && events.every(id => CATALOGUE_EVENTS[id]) && UNLOCK_THRESHOLDS.length === UNLOCK_LEVELS.length, 'the events of the game are in the table');
-  console.log('PASS the bar: one level per run, the surplus cut, points past the last level; the profile gathers, resets, and without storage stays empty');
+  console.log('PASS the bar: one level per run, the surplus cut, points past the last level; a seeded run moves nothing; the profile gathers, resets, and without storage stays empty');
 }
 
 // ---------- Closed content never comes, opened content does ----------

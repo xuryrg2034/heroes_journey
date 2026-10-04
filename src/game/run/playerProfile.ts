@@ -83,9 +83,11 @@ export interface PlayerProfileStore {
   giftKind(seeded: boolean): 'full' | 'mini';
   /**
    * A run ended with this score: add it to the bar (applyRunScore: at most one level, the surplus cut). The tally says
-   * what changed; without storage nothing is kept (`saved: false`, the bar as it was).
+   * what changed; without storage nothing is kept (`saved: false`, the bar as it was). A run with an entered seed does not
+   * move the bar (decision of 04.10.2026, as a seeded run in StS): null, nothing changes.
    */
   addRunScore(score: number): RunTally;
+  addRunScore(score: number, seeded: boolean): RunTally | null;
   /** The playtest window: empty the bar of openings and clear the gift mark. */
   resetMeta(): boolean;
 }
@@ -111,11 +113,12 @@ export function createPlayerProfileStore(storage: RunStorage | null = browserSto
     },
     endRun: ({ reachedJailer, seeded }) => !seeded && write({ ...read(), giftFull: reachedJailer }),
     giftKind: seeded => seeded || read().giftFull ? 'full' : 'mini',
-    addRunScore: score => {
+    addRunScore: ((score: number, seeded = false) => {
+      if (seeded) return null;
       const profile = read(), before = { ...profile.meta }, next = applyRunScore(before, score), after = { points: next.points, level: next.level };
       const saved = write({ ...profile, meta: after });
       return saved ? { score, before, after, opened: next.opened, saved } : { score, before, after: before, opened: null, saved };
-    },
+    }) as PlayerProfileStore['addRunScore'],
     resetMeta: () => write({ ...read(), giftFull: false, meta: { points: 0, level: 0 } }),
   };
 }
