@@ -18,7 +18,8 @@ import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
 import { crystalKills, crystalsActive, runPressureInfo } from './game/mapBattleRules';
-import { addPlayTime, forestRunScore, recordTally, createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseGift, chooseGiftPick, chooseTalisman, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, runReachedJailer, shopBuy, shopLeave, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { addPlayTime, forestRunScore, recordTally, createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseGift, chooseGiftPick, chooseTalisman, chooseEventOption, eventView, nodeBattleId, forestRunView, restCraft, restFinish, restHeal, runNode, runReachedJailer, shopBuy, shopLeave, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { forestEvent } from './game/run/forestEvents';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore, winsRun } from './game/run/playerProfile';
 import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, talismanModalHtml, shopModalHtml, giftModalHtml, giftOptionText, unlockModalHtml } from './forestMapScreen';
@@ -264,6 +265,8 @@ function pickGift(pick: string) {
 function showEvent() { if (forestRun?.pending?.kind === 'event') showModal(eventModalHtml(forestRun)); }
 function chooseEvent(optionId: string) {
   if (!forestRun || forestRun.pending?.kind !== 'event') return;
+  // The escalation's attempts before this choice go to the playtest journal with it.
+  const before = eventView(forestRun);
   const step = commitRun(chooseEventOption(forestRun, optionId));
   if (!step.ok) return;
   // An escalation's attempt keeps the event open; an accepted reward battle starts its battle.
@@ -275,7 +278,8 @@ function chooseEvent(optionId: string) {
   if (step.run.pending?.kind === 'battle') { audio.play('click'); routeRun(); return; }
   const resolved = step.events.find(event => event.type === 'event-resolved');
   if (resolved?.type === 'event-resolved') {
-    recordRunEvent({ nodeId: resolved.nodeId, option: resolved.option, outcome: resolved.outcome, text: resolved.text, seed: step.run.seed });
+    recordRunEvent({ nodeId: resolved.nodeId, option: resolved.option, outcome: resolved.outcome, text: resolved.text, seed: step.run.seed,
+      ...before ? { eventId: before.event.id } : {}, ...before?.attempts.length ? { attempts: before.attempts } : {} });
     mapNotice = `${runNode(step.run, resolved.nodeId)?.name ?? ''}: ${resolved.text}.`;
   }
   audio.play('reward'); showScreen('map'); showModal(eventResultHtml(step.run, step.events));
@@ -381,6 +385,12 @@ function showRunOutcome(won: boolean) {
   }
   const step = ownsRunBattle() ? commitRun(resolveBattle(forestRun, outcome)) : null;
   const run = forestRun, pending = run.pending, opened = runNode(run, node.nodeId);
+  // The reward battle of an event (docs/events.md): its outcome goes to the playtest journal with the event.
+  const battleId = opened && step?.ok ? nodeBattleId(run, opened) : null;
+  if (step?.ok && opened?.content.kind === 'event' && battleId) {
+    const option = forestEvent(opened.content.eventId)?.options.find(entry => entry.battle);
+    recordRunEvent({ nodeId: opened.id, eventId: opened.content.eventId, option: option?.id ?? 'fight', outcome: 0, text: won ? 'победа' : 'поражение', seed: run.seed, battle: { battleId, won } });
+  }
   if (step?.ok && run.result?.outcome === 'defeat') { showModal(runResultHtml(run)); return; }
   // A won run opens the next ladder step in the profile (once; shown on the result).
   const openedLadder = step?.ok && winsRun(step.events) ? profileStore.winLadder(run.ladder ?? 0) : null;

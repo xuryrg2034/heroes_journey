@@ -2,6 +2,7 @@ import type { ForestEngine } from './game/forestEngine';
 import type { AbilityKind, ItemKind, ResourceKind } from './game/forestTypes';
 import { isResource } from './game/resources';
 import { forestNode } from './game/run/forestMap';
+import { forestEvent } from './game/run/forestEvents';
 import { forestBattle } from './game/run/forestBattles';
 import { talisman, type TalismanId } from './game/talismans';
 import type { TalismanOption, TalismanSource } from './game/run/talismanOffers';
@@ -92,9 +93,15 @@ export interface AttemptRecord {
 
 /**
  * A choice at a map event (04.10.2026): the node, the option, the rolled outcome (index and text) and the run seed.
- * Kept beside the battle attempts; journals written before have none.
+ * Kept beside the battle attempts; journals written before have none. Since the event catalogue (docs/events.md):
+ * `eventId` — the event (a node of a generated map holds any); `attempts` — the escalation's attempts before the
+ * choice (outcome and text); `battle` — the reward battle of the event and whether it was won (recorded when it ends;
+ * a won battle's talisman choice goes to `runTalismans` with the source `event`). Older records have none of them.
  */
-export interface RunEventRecord { nodeId: string; option: string; outcome: number; text: string; seed: number; at: number }
+export interface RunEventRecord {
+  nodeId: string; option: string; outcome: number; text: string; seed: number; at: number;
+  eventId?: string; attempts?: { outcome: number; text: string }[]; battle?: { battleId: string; won: boolean };
+}
 /**
  * A completed rest (04.10.2026): the node, the choice (heal or craft), HP healed and the items crafted (in order), the
  * run seed. Kept beside the battle attempts; journals written before have none.
@@ -123,8 +130,11 @@ export interface ShopAggregate { visits: number; buying: number; resources: numb
 export interface TalismanAggregate { id: TalismanOption; label: string; shown: number; taken: number; refused: number }
 /** Rests over the journal: how many healed, how many crafted, HP healed and items crafted in total. */
 export interface RestAggregate { rests: number; heals: number; crafts: number; healed: number; crafted: Partial<Record<ItemKind, number>> }
-/** Choices per event node and option, with how often each outcome came. */
-export interface EventAggregate { nodeId: string; label: string; option: string; count: number; outcomes: Record<string, number> }
+/**
+ * Choices per event (by its id; old records without one — per node) and option, with how often each outcome came, the
+ * escalation's attempts made before the choice, and the reward battles won and lost.
+ */
+export interface EventAggregate { nodeId: string; label: string; option: string; count: number; outcomes: Record<string, number>; attempts: number; battles: { won: number; lost: number } }
 
 interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[]; runTalismans: RunTalismanRecord[]; runShops: RunShopRecord[]; runGifts: RunGiftRecord[] }
 
@@ -274,9 +284,13 @@ export function aggregateRests(records: RunRestRecord[]): RestAggregate {
 export function aggregateEvents(records: RunEventRecord[]): EventAggregate[] {
   const rows = new Map<string, EventAggregate>();
   for (const record of records) {
-    const key = `${record.nodeId}/${record.option}`;
-    const row = rows.get(key) ?? { nodeId: record.nodeId, label: forestNode(record.nodeId)?.name ?? record.nodeId, option: record.option, count: 0, outcomes: {} };
+    // A record of the catalogue names its event (any node of a generated map may hold it); an old one only its node.
+    const event = typeof record.eventId === 'string' ? forestEvent(record.eventId) : undefined, place = event ? event.id : record.nodeId;
+    const key = `${place}/${record.option}`;
+    const row = rows.get(key) ?? { nodeId: place, label: event?.title ?? forestNode(record.nodeId)?.name ?? record.nodeId, option: record.option, count: 0, outcomes: {}, attempts: 0, battles: { won: 0, lost: 0 } };
     row.count++; row.outcomes[record.text] = (row.outcomes[record.text] ?? 0) + 1;
+    if (Array.isArray(record.attempts)) row.attempts += record.attempts.length;
+    if (record.battle && typeof record.battle === 'object') { if (record.battle.won) row.battles.won++; else row.battles.lost++; }
     rows.set(key, row);
   }
   return [...rows.values()].sort((a, b) => `${a.nodeId}/${a.option}`.localeCompare(`${b.nodeId}/${b.option}`));
@@ -564,7 +578,8 @@ export function playtestHtml(options: { confirmClear?: boolean; notice?: string;
   const events = aggregateEvents(journal.runEvents);
   const eventTable = events.length
     ? `<div class="playtest-scroll"><table class="playtest-table playtest-events"><thead><tr><th>Событие</th><th>Выбор</th><th>Раз</th><th>Исходы</th></tr></thead><tbody>${events.map(row =>
-      `<tr><th scope="row">${escapeHtml(row.label)}</th><td>${escapeHtml(row.option)}</td><td>${row.count}</td><td>${Object.entries(row.outcomes).map(([text, count]) => `${escapeHtml(text)} ×${count}`).join('; ')}</td></tr>`).join('')}</tbody></table></div>`
+      `<tr><th scope="row">${escapeHtml(row.label)}</th><td>${escapeHtml(row.option)}</td><td>${row.count}</td><td>${Object.entries(row.outcomes).map(([text, count]) => `${escapeHtml(text)} ×${count}`).join('; ')}`
+      + `${row.attempts ? ` · попыток ${row.attempts}` : ''}${row.battles.won || row.battles.lost ? ` · бой: побед ${row.battles.won}, поражений ${row.battles.lost}` : ''}</td></tr>`).join('')}</tbody></table></div>`
     : '';
   const rests = aggregateRests(journal.runRests), itemName: Record<ItemKind, string> = { frost: 'холод', bomb: 'бомба', healing: 'лечение', fire: 'огонь' };
   const restLine = rests.rests
