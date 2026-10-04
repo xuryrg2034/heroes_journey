@@ -501,8 +501,11 @@ function rewardBattle() {
 
 /** Many random runs: each event at most once, branch events only in their branch and rows, closed events never; a node with no event left becomes a find. */
 function placement() {
-  const walk = (k: number, unlocks: number | undefined, loot: boolean) => {
+  // `crowded`: the run's map as a generator-3 map could be (a saved run keeps it): events on every node of rows 6–8 and of
+  // the branch rows 10–11, so a route meets five events.
+  const walk = (k: number, unlocks: number | undefined, loot: boolean, crowded = false) => {
     let run = createForestRun(spread(k), { map: 'generated', skipTrunk: true, ...unlocks !== undefined ? { unlocks } : {} }), choice = spread(k + 99);
+    if (crowded && run.map.kind === 'generated') run = { ...run, map: { ...run.map, generator: 3, nodes: run.map.nodes.map(node => /^r[678]c|^(den|camp)-r1[01]c/.test(node.id) ? { ...node, type: 'event' as const } : node) } };
     const state = { battles: 0 }, plan: Plan = { loot: loot ? { dew: 2, powder: 1 } : undefined };
     for (let guard = 0; guard < 120 && !run.result; guard++) {
       if (run.pending) { run = settle(run, plan, state); continue; }
@@ -535,11 +538,13 @@ function placement() {
   };
   const closed = seen(0, true, 150);
   for (const id of ['goblin-cache', 'ford-ambush', 'bone-wheel', 'den-bones', 'shaman-idol']) assert(!closed.met.has(id), `level 0: closed ${id} never comes`);
-  // An event node with no open event left to fit it becomes a find (rare: at level 0 a branch has two own or common
-  // events, so it takes a route with two branch events after «Костёр путника» on the trails). Searched, not fixed.
+  // An event node with no open event left to fit it becomes a find. A map of generator 4 holds at most 2 events on a
+  // route, so at level 0 an event node always has one left; a saved generator-3 map could hold more: on such a map (all
+  // free nodes of rows 6–8 and 10–11 events) a branch at level 0 has two own or common events, so a route that met
+  // «Костёр путника» on the trails finds none left on row 11. Searched, not fixed; the save replays the find.
   let found: ForestRunState | null = null, searched = 0;
   for (let k = 1000; k < 6000 && !found; k++, searched++) {
-    const run = walk(k, 0, false), pick = run.picks.find(entry => entry.find);
+    const run = walk(k, 0, false, true), pick = run.picks.find(entry => entry.find);
     if (!pick) continue;
     found = run;
     const node = runNode(run, pick.nodeId)!, before = { ...run, picks: run.picks.slice(0, run.picks.indexOf(pick)) };
@@ -549,7 +554,7 @@ function placement() {
   assert(found, `a node with no open event left becomes a find (searched ${searched} runs)`);
   const open = seen(5, true, 150);
   assert(Object.keys(FOREST_EVENTS).every(id => open.met.has(id)), `level 5: every event comes (${[...open.met].join(', ')})`);
-  console.log(`PASS placement on 300 runs: each event once, branch events in their branch, closed ones never (level 0), all 14 at level 5; a node with no event left became a find (seed ${found!.seed}, ${searched} runs searched)`);
+  console.log(`PASS placement on 300 runs: each event once, branch events in their branch, closed ones never (level 0), all 14 at level 5; a node with no event left became a find on a generator-3 map (seed ${found!.seed}, ${searched} runs searched)`);
 }
 
 /** Forged saves are rejected: another outcome, an extra attempt, a reward without a victory, a closed event, a lost modifier, a find where an event fits. */
