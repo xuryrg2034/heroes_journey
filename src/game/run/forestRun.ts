@@ -19,6 +19,7 @@ import { isTalismanId, type TalismanId } from '../talismans';
 import { BLANK_SCORE, talismanOffer, type TalismanOption, type TalismanSource } from './talismanOffers';
 import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, shopPayment, shopPrice, shopStock, stockTotal, type ShopGoodKind, type ShopPurchase, type ShopStock } from './merchant';
 import { isLadderStep, LADDER_GREED_RESOURCES, LADDER_HARD_FACTOR, LADDER_REST_PENALTY, LADDER_SHOP_MARKUP, LADDER_START_HP, runLadderAt } from '../ladder';
+import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from './runStreams';
 
 /**
  * Version 2 (04.10.2026): the run carries its map (`map`) and the battles and events taken from pools (`picks`).
@@ -93,6 +94,12 @@ export interface ForestRunState {
    * the merchant; battles get it in their setup.
    */
   ladder?: number;
+  /**
+   * Draws made by each long random stream of the run (runStreams.ts): pool picks, events, talisman offers, merchant
+   * stocks, the start gift. Absent in saves before 04.10.2026: those runs keep the node-seeded rolls (forestNodeSeed with
+   * a salt of each use) to their end, so a loaded run never changes what it had rolled.
+   */
+  streams?: RunStreams;
   map: ForestRunMapRef;
   /** Pool picks of the entered nodes of a generated map, in entering order (empty on the authored graph). */
   picks: ForestRunPick[];
@@ -201,6 +208,26 @@ const textHash = (text: string): number => {
 export function forestNodeSeed(runSeed: number, nodeId: string): number {
   return mixSeed(runSeed >>> 0, textHash(nodeId));
 }
+/**
+ * The base of one run roll of `stream` at node `nodeId` (each use expands it with its own salts). A run with long
+ * streams (runStreams.ts) takes the stream's next draw; `advance` spends it (the run is a clone being changed), a peek
+ * (a preview of the map) does not. A save from before the streams rolls by the node seed, as it always did.
+ */
+function runRoll(run: Pick<ForestRunState, 'seed' | 'streams'>, stream: RunStream, nodeId: string, advance: boolean): number {
+  if (!run.streams) return forestNodeSeed(run.seed, nodeId);
+  const value = streamValue(run.seed, stream, run.streams[stream]);
+  if (advance) run.streams[stream]++;
+  return value;
+}
+/**
+ * The base of the outcomes of the open event: with long streams the `events` draw its node took on entering (the same
+ * draw picked the event of a pool node), else the node seed. Null without an open event.
+ */
+export function eventRollBase(run: Pick<ForestRunState, 'seed' | 'streams' | 'pending'>): number | null {
+  const pending = run.pending;
+  if (pending?.kind !== 'event') return null;
+  return run.streams ? streamValue(run.seed, 'events', run.streams.events - 1) : forestNodeSeed(run.seed, pending.nodeId);
+}
 
 /**
  * `skipTrunk`: the player profile marks the trunk as cleared, so the run starts at the trail fork.
@@ -215,7 +242,7 @@ export function createForestRun(seed: number, options: { skipTrunk?: boolean; ma
     ? { kind: 'generated', ...generateForestMap(seed, undefined, ladder >= 1 ? { hardFactor: LADDER_HARD_FACTOR } : {}) } : { kind: 'authored' };
   const hp = ladder >= 6 ? Math.min(LADDER_START_HP, FOREST_RUN_START_HP) : FOREST_RUN_START_HP;
   return {
-    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], ...ladder ? { ladder } : {}, currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], shops: [], score: 0,
+    version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], ...ladder ? { ladder } : {}, streams: emptyStreams(), currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], shops: [], score: 0,
     talismans: [], talismansGone: [], talismanChoices: [],
     resources: { player: { hp, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
@@ -253,12 +280,13 @@ export function runNode(run: Pick<ForestRunState, 'map' | 'picks'>, id: string):
 const POOL_BATTLE_SALT = 0x5b1d7a3c, POOL_EVENT_SALT = 0x2e9f41d7;
 /**
  * The pick a pool node gets if entered now: a battle of its row, type and lane with the tools open on entering it
- * (battlePools.ts: window of repeats, main enemy), or an event not met in this run. It depends on the run seed, the
- * node id and the battles and events already met — never on the map stream (the map is fixed by the seed).
+ * (battlePools.ts: window of repeats, main enemy), or an event not met in this run. It peeks the next draw of the
+ * `pool` or `events` stream (enterNode spends it; a save before the streams rolls by the node seed) and depends on the
+ * battles and events already met — never on the map (the map is fixed by the seed).
  */
 function nextPick(run: ForestRunState, node: ForestMapNode): ForestRunPick | null {
   if (node.content.kind !== 'pool') return null;
-  const roll = (salt: number) => mixSeed(forestNodeSeed(run.seed, node.id), salt);
+  const base = runRoll(run, node.type === 'event' ? 'events' : 'pool', node.id, false), roll = (salt: number) => mixSeed(base, salt);
   if (node.type === 'event') {
     const met = run.picks.flatMap(pick => pick.eventId ? [pick.eventId] : []), ids = Object.keys(FOREST_EVENTS);
     const fresh = ids.filter(id => !met.includes(id)), list = fresh.length ? fresh : ids;
@@ -336,7 +364,7 @@ export function wardReady(run: Pick<ForestRunState, 'talismans' | 'wardSpent'>):
   return !!run.talismans?.includes('ash-ward') && !run.wardSpent;
 }
 function offerTalismans(run: ForestRunState, node: ForestMapNode, source: TalismanSource, events: ForestRunEvent[]) {
-  const options = talismanOffer(forestNodeSeed(run.seed, node.id), source, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
+  const options = talismanOffer(runRoll(run, 'talismans', node.id, true), source, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
   run.pending = { kind: 'talisman', nodeId: node.id, source, options };
   events.push({ type: 'talisman-offered', nodeId: node.id, source, options: [...options] });
 }
@@ -371,12 +399,16 @@ export function enterNode(current: ForestRunState, nodeId: string): ForestRunSte
   if (current.pending) return fail('Сначала заверши текущий узел.');
   if (!availableNodes(current).some(entry => entry.id === nodeId)) return fail('Этот узел сейчас недоступен.');
   const run = structuredClone(current), events: ForestRunEvent[] = [{ type: 'node-entered', nodeId, row: node.row }];
+  const poolBattle = node.content.kind === 'pool' && node.type !== 'event';
   if (node.content.kind === 'pool') {
     // The battle or event of a generated node is taken from its pool now and kept for the run (and its save).
     const pick = nextPick(run, node);
     if (!pick) return fail('Для этого узла нет ни боя, ни события в пулах.');
     run.picks.push(pick); node = withPick(node, pick);
   }
+  // Long streams: a pool battle spends its `pool` draw, every event node its `events` draw (the pick and the outcomes).
+  if (run.streams && poolBattle) run.streams.pool++;
+  if (run.streams && node.type === 'event') run.streams.events++;
   if (node.content.kind === 'in-development') {
     run.result = { outcome: 'boss-in-development', nodeId };
     events.push({ type: 'boss-in-development', nodeId }); return { ok: true, run, events };
@@ -579,9 +611,9 @@ export function restFinish(current: ForestRunState): ForestRunStep {
 
 // ---------- Merchant (docs/roguelike-runs.md, 5б; data and prices: merchant.ts) ----------
 
-/** The stock a merchant node rolls for this run now: the run seed and node id, the open consumables and the talisman pool. */
-function rollShopStock(run: Pick<ForestRunState, 'seed' | 'talismans' | 'talismansGone' | 'tools'>, node: ForestMapNode): ShopStock {
-  return shopStock(forestNodeSeed(run.seed, node.id), run.tools.items, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
+/** The stock a merchant node rolls on entering: the next `merchant` draw (spent), the open consumables and the talisman pool. */
+function rollShopStock(run: ForestRunState, node: ForestMapNode): ShopStock {
+  return shopStock(runRoll(run, 'merchant', node.id, true), run.tools.items, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
 }
 /** Added to every merchant price in this run: LADDER_SHOP_MARKUP from the ladder's step 9. */
 export function shopMarkup(run: { ladder?: number }): number { return runLadderAt(run, 9) ? LADDER_SHOP_MARKUP : 0; }
@@ -676,20 +708,21 @@ export function shopLeave(current: ForestRunState): ForestRunStep {
 // ---------- Map events (data: forestEvents.ts) ----------
 
 /**
- * Index of the outcome an option gives: rolled from the run seed and the node id (and the option, so options of one
- * event roll apart). The same run always gets the same outcome, also after a reload; nothing else draws from it.
+ * Index of the outcome an option gives: rolled from the event's base (eventRollBase: the node's `events` draw, or the
+ * node seed in a save before the streams) and the option, so options of one event roll apart. The same run always gets
+ * the same outcome, also after a reload; nothing else draws from it.
  */
-export function eventOutcomeIndex(runSeed: number, nodeId: string, option: EventOption): number {
+export function eventOutcomeIndex(base: number, option: EventOption): number {
   if (option.outcomes.length === 1) return 0;
-  const roll = mixSeed(forestNodeSeed(runSeed, nodeId), textHash(option.id)) / 0x100000000 * 100;
+  const roll = mixSeed(base >>> 0, textHash(option.id)) / 0x100000000 * 100;
   let total = 0;
   for (let n = 0; n < option.outcomes.length; n++) { total += option.outcomes[n].chance; if (roll < total) return n; }
   return option.outcomes.length - 1;
 }
-/** Kinds of the crafting resources an option gives (decided by the seed, so they are shown before the choice). */
-export function eventResourceKinds(runSeed: number, nodeId: string, option: EventOption): ResourceKind[] {
+/** Kinds of the crafting resources an option gives (decided by the event's base, so they are shown before the choice). */
+export function eventResourceKinds(eventBase: number, option: EventOption): ResourceKind[] {
   const count = Math.max(0, ...option.outcomes.map(outcome => outcome.effect.resources ?? 0));
-  const base = mixSeed(forestNodeSeed(runSeed, nodeId), textHash(`${option.id}:resources`));
+  const base = mixSeed(eventBase >>> 0, textHash(`${option.id}:resources`));
   return Array.from({ length: count }, (_, n) => RESOURCE_KINDS[mixSeed(base, n) % RESOURCE_KINDS.length]);
 }
 const ITEM_NAME: Record<ItemKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь' };
@@ -709,8 +742,9 @@ export function eventView(run: ForestRunState): { nodeId: string; event: ForestE
   const pending = run.pending, node = pending?.kind === 'event' ? runNode(run, pending.nodeId) : undefined;
   const event = node?.content.kind === 'event' ? forestEvent(node.content.eventId) : undefined;
   if (!node || !event) return null;
+  const base = eventRollBase(run)!;
   return { nodeId: node.id, event, options: event.options.map(option => {
-    const reason = optionBlock(run, option), kinds = eventResourceKinds(run.seed, node.id, option);
+    const reason = optionBlock(run, option), kinds = eventResourceKinds(base, option);
     return { id: option.id, label: option.label, available: !reason, reason,
       outcomes: option.outcomes.map(outcome => ({ chance: outcome.chance, text: describeOutcome(outcome, outcome.effect.resources ? kinds : []) })) };
   }) };
@@ -723,13 +757,13 @@ export function chooseEventOption(current: ForestRunState, optionId: string): Fo
   const option = eventOption(view.event, optionId), state = view.options.find(entry => entry.id === optionId);
   if (!option || !state) return fail('Такого варианта нет.');
   if (!state.available) return fail(state.reason);
-  const run = structuredClone(current), nodeId = view.nodeId, outcome = eventOutcomeIndex(run.seed, nodeId, option);
+  const run = structuredClone(current), nodeId = view.nodeId, base = eventRollBase(run)!, outcome = eventOutcomeIndex(base, option);
   const { effect } = option.outcomes[outcome], player = run.resources.player, before = { hp: player.hp, energy: player.energy };
   player.hp = Math.min(player.maxHp, Math.max(1, player.hp + (effect.hp ?? 0)));
   player.energy = Math.min(MAX_ENERGY, Math.max(0, player.energy + (effect.energy ?? 0)));
   const items: Partial<Record<ItemKind, number>> = {};
   for (const item of ITEM_KINDS) if (effect.items?.[item]) { run.resources.inventory[item] += effect.items[item]!; items[item] = effect.items[item]; }
-  const materials = effect.resources ? eventResourceKinds(run.seed, nodeId, option).slice(0, effect.resources) : [];
+  const materials = effect.resources ? eventResourceKinds(base, option).slice(0, effect.resources) : [];
   for (const kind of materials) (run.resources.materials ??= emptyMaterials())[kind]++;
   run.eventChoices.push({ nodeId, option: option.id, outcome });
   const events: ForestRunEvent[] = [{ type: 'event-resolved', nodeId, option: option.id, outcome, text: state.outcomes[outcome].text,
@@ -897,6 +931,10 @@ export function parseForestRun(text: string): ForestRunState | null {
   let value: unknown;
   try { value = JSON.parse(text); } catch { return null; }
   if (!isRecord(value) || (value.version !== 1 && value.version !== FOREST_RUN_VERSION) || !isSeed(value.seed)) return null;
+  // Long streams (runStreams.ts): absent in saves before them, which keep the node-seeded rolls; the counters are
+  // replayed below.
+  const streams = value.streams === undefined ? null : parseStreams(value.streams);
+  if (value.streams !== undefined && !streams) return null;
   // Talismans (docs/talismans.md): a save from before them has none of their fields and gets empty ones.
   const legacyTalismans = value.talismans === undefined && value.talismansGone === undefined && value.talismanChoices === undefined;
   if (legacyTalismans && (value.wardSpent !== undefined || value.legacyRewardsUntil !== undefined)) return null;
@@ -993,14 +1031,16 @@ export function parseForestRun(text: string): ForestRunState | null {
   // run seed rolls for the pool of that moment (taken, refused, abilities open after the victory). Replayed, they give
   // the taken talismans and the pool's losses exactly.
   const taken: TalismanId[] = [], gone: TalismanId[] = [];
-  const offerFor = (node: ForestMapNode, source: TalismanSource, tools: ForestRunTools) => talismanOffer(forestNodeSeed(seed, node.id), source, { taken, gone, abilities: tools.abilities });
+  // The `index`-th offer of the run takes that draw of the `talismans` stream (or the node seed before the streams).
+  const offerFor = (node: ForestMapNode, source: TalismanSource, tools: ForestRunTools, index: number) =>
+    talismanOffer(streams ? streamValue(seed, 'talismans', index) : forestNodeSeed(seed, node.id), source, { taken, gone, abilities: tools.abilities });
   // Merchant visits: one record per visited merchant, in order, with purchases from the stock the run seed rolls for
   // the tools and the talisman pool of that moment, at the prices of that moment. A talisman bought is taken; one shown
   // and not bought leaves the pool when the visit ends.
   let hardenings = 0, shopCount = 0;
   const shopPaid = new Map<string, Record<ResourceKind, number>>(), shopItems: ItemKind[] = [];
-  const replayShop = (node: ForestMapNode, bought: unknown, tools: ForestRunTools, done: boolean): ShopStock | null => {
-    const stock = shopStock(forestNodeSeed(seed, node.id), tools.items, { taken, gone, abilities: tools.abilities });
+  const replayShop = (node: ForestMapNode, bought: unknown, tools: ForestRunTools, done: boolean, index: number): ShopStock | null => {
+    const stock = shopStock(streams ? streamValue(seed, 'merchant', index) : forestNodeSeed(seed, node.id), tools.items, { taken, gone, abilities: tools.abilities });
     const checked = shopPurchases(bought, stock, hardenings, savedShopMarkup);
     if (!checked) return null;
     hardenings += checked.hardenings; shopItems.push(...checked.items); shopPaid.set(node.id, checked.paid);
@@ -1014,13 +1054,13 @@ export function parseForestRun(text: string): ForestRunState | null {
     if (node.content.kind === 'shop') {
       const record = shopRecords[shopCount++];
       if (!isRecord(record) || Object.keys(record).length !== 2 || record.nodeId !== node.id) return null;
-      if (!replayShop(node, record.bought, expectedTools(visitedNodes.slice(0, n), typedFinds, node, false, crafts, usesFind), true)) return null;
+      if (!replayShop(node, record.bought, expectedTools(visitedNodes.slice(0, n), typedFinds, node, false, crafts, usesFind), true, shopCount - 1)) return null;
       continue;
     }
     if (!source || legacyAt(node.id)) continue;
     const choice = talismanChoices[choiceCount++];
     if (!isRecord(choice) || Object.keys(choice).length !== 2 || choice.nodeId !== node.id) return null;
-    const options = offerFor(node, source, expectedTools(visitedNodes.slice(0, n + 1), typedFinds, null, false, crafts, usesFind));
+    const options = offerFor(node, source, expectedTools(visitedNodes.slice(0, n + 1), typedFinds, null, false, crafts, usesFind), choiceCount - 1);
     const chosen = choice.chosen as TalismanOption | null;
     if (chosen !== null && !options.includes(chosen)) return null;
     if (chosen && chosen !== 'blank') taken.push(chosen);
@@ -1029,11 +1069,11 @@ export function parseForestRun(text: string): ForestRunState | null {
   if (choiceCount !== talismanChoices.length || shopCount !== shopRecords.length) return null;
   // The open merchant: the same stock as rolled on entering, and its purchases so far.
   const openShop = isRecord(pending) && pending.kind === 'shop' && entered?.content.kind === 'shop'
-    ? replayShop(entered, pending.bought, expectedTools(visitedNodes, typedFinds, entered, false, crafts, usesFind), false) : null;
+    ? replayShop(entered, pending.bought, expectedTools(visitedNodes, typedFinds, entered, false, crafts, usesFind), false, shopCount) : null;
   if (openShop && (!isRecord(pending) || JSON.stringify(pending.stock) !== JSON.stringify(openShop))) return null;
   if (hardenings !== savedHardenings) return null;
   const openOffer = isRecord(pending) && pending.kind === 'talisman' && entered && !legacyAt(entered.id) && victoryChoice(entered) === pending.source
-    ? offerFor(entered, pending.source as TalismanSource, expectedTools(visitedNodes, typedFinds, entered, true, crafts, usesFind)) : null;
+    ? offerFor(entered, pending.source as TalismanSource, expectedTools(visitedNodes, typedFinds, entered, true, crafts, usesFind), choiceCount) : null;
   if (JSON.stringify(taken) !== JSON.stringify(talismans) || JSON.stringify(gone) !== JSON.stringify(talismansGone)) return null;
   // Elite loot of won battles: completed battle nodes, or the hard battle whose find is still pending; one entry per
   // node and kind. Consumables come only from authored elites (at most one each). Resources also come from random
@@ -1062,9 +1102,11 @@ export function parseForestRun(text: string): ForestRunState | null {
   for (let n = 0; n < choices.length; n++) {
     const choice = choices[n], node = eventNodes[n], content = node.content as { kind: 'event'; eventId: string };
     const option = isRecord(choice) && typeof choice.option === 'string' ? eventOption(forestEvent(content.eventId)!, choice.option) : undefined;
-    if (!option || !isRecord(choice) || choice.nodeId !== node.id || choice.outcome !== eventOutcomeIndex(seed, node.id, option)) return null;
+    // The n-th event node entered took the n-th `events` draw (or rolls by its node seed before the streams).
+    const base = streams ? streamValue(seed, 'events', n) : forestNodeSeed(seed, node.id);
+    if (!option || !isRecord(choice) || choice.nodeId !== node.id || choice.outcome !== eventOutcomeIndex(base, option)) return null;
     const { effect } = option.outcomes[choice.outcome as number];
-    eventGains.push({ items: effect.items ?? {}, materials: eventResourceKinds(seed, node.id, option).slice(0, effect.resources ?? 0) });
+    eventGains.push({ items: effect.items ?? {}, materials: eventResourceKinds(base, option).slice(0, effect.resources ?? 0) });
   }
   const crafted = [...[...crafts.values()].flat(), ...shopItems];
   const cap = inventoryCap(visitedNodes, typedFinds, entered, typedLoot, eventGains, crafted), inventory = (value.resources as ForestRunResources).inventory;
@@ -1120,6 +1162,13 @@ export function parseForestRun(text: string): ForestRunState | null {
     } else return null;
   }
   if (value.score !== undefined && !isCount(value.score)) return null;
+  // Every stream counts its uses: pool battles and event nodes entered, talisman offers and merchant visits made.
+  if (streams) {
+    const expected: RunStreams = { ...emptyStreams(), pool: typedPicks.filter(pick => pick.battleId).length,
+      events: entering.filter(id => nodeAt(id)?.type === 'event').length,
+      talismans: talismanChoices.length + (openOffer ? 1 : 0), merchant: shopRecords.length + (openShop ? 1 : 0) };
+    if (JSON.stringify(expected) !== JSON.stringify(streams)) return null;
+  }
   // Version 1 saves get the version 2 fields in the order a new run has them.
   const { version: _version, seed: _seed, map: _map, picks: _picks, ...rest } = structuredClone(value);
   const run = { version: FOREST_RUN_VERSION, seed, map: mapRef, picks: typedPicks, ...rest, loot: structuredClone(typedLoot),

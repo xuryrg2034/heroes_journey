@@ -343,7 +343,8 @@ function saves() {
   }
   // A save from before the talismans: a hard battle with its find open, the Jailer passed without an oath.
   const seed = spread(5), before = walk(seed, TO_CAMP_ELITE), old = JSON.parse(serializeForestRun(before));
-  delete old.talismans; delete old.talismansGone; delete old.talismanChoices;
+  // Saves before the talismans came before the long streams too (runStreams.ts): node-seeded rolls.
+  delete old.talismans; delete old.talismansGone; delete old.talismanChoices; delete old.streams;
   old.pending = { kind: 'find', nodeId: 'camp-elite', options: rewardChoices(forestNodeSeed(seed, 'camp-elite'), 1).map(option => option.item) };
   let legacy = parseForestRun(JSON.stringify(old));
   assert(legacy && legacy.legacyRewardsUntil === legacy.visited.length + 1 && legacy.talismans.length === 0, 'an old save with an open hard-battle find loads');
@@ -353,7 +354,7 @@ function saves() {
   assert(battleSetup(breakthrough)!.talismans === undefined, 'the old run has no talismans');
   // An old save whose open battle is a hard one: the victory now offers talismans.
   const oldBattle = JSON.parse(serializeForestRun(ok(enterNode(ok(restHeal(walk(seed, TO_CAMP_ELITE.slice(0, -1))), 'heal'), 'camp-elite'), 'enter')));
-  delete oldBattle.talismans; delete oldBattle.talismansGone; delete oldBattle.talismanChoices;
+  delete oldBattle.talismans; delete oldBattle.talismansGone; delete oldBattle.talismanChoices; delete oldBattle.streams;
   const loaded = parseForestRun(JSON.stringify(oldBattle))!;
   assert(loaded && !loaded.legacyRewardsUntil || loaded.legacyRewardsUntil! <= loaded.visited.length, 'an old open battle keeps no old reward');
   const won = ok(resolveBattle(loaded, quickWin(loaded)), 'win the old open hard battle');

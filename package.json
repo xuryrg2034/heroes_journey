@@ -69,7 +69,8 @@
     "test:map-generator": "tsx src/game/mapGenerator.spec.ts",
     "test:rest-craft": "tsx src/game/restCraft.spec.ts",
     "test:merchant": "tsx src/game/merchant.spec.ts",
-    "test:ladder-run": "tsx src/game/ladderRun.spec.ts"
+    "test:ladder-run": "tsx src/game/ladderRun.spec.ts",
+    "test:run-streams": "tsx src/game/runStreams.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"

@@ -3,6 +3,7 @@ import { forestMapPaths, forestNode, validateForestMap } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventOutcomeIndex, eventView, forestRunView, parseForestRun,
   resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { FOREST_EVENTS, isSafeOption, validateForestEvents } from './run/forestEvents';
+import { streamValue } from './run/runStreams';
 
 // Map events (decision of 04.10.2026, docs/roguelike-runs.md, section 5a): two test events on row 8 beside «Три знамени».
 // Runs are walked with the pure run model; battles are started by the real engine and finished with its debug win
@@ -139,7 +140,8 @@ function hpFloor() {
   const traps: number[] = [];
   for (let k = 1; traps.length < 3 && k < 100; k++) {
     const option = FOREST_EVENTS['goblin-cache'].options[0];
-    if (eventOutcomeIndex(spread(k), 'trail-cache', option) === 1) traps.push(spread(k));
+    // The cache is the run's first event: its outcomes take the first `events` draw (runStreams.ts).
+    if (eventOutcomeIndex(streamValue(spread(k), 'events', 0), option) === 1) traps.push(spread(k));
   }
   assert(traps.length === 3, 'seeds with the trap exist');
   for (const [n, hp] of [1, 2, 5].entries()) {
