@@ -1,6 +1,6 @@
 import { ForestEngine } from './forestEngine';
 import { forestMapPaths, forestNode, validateForestMap } from './run/forestMap';
-import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, createForestRun, enterNode, eventOutcomeIndex, eventView, forestRunView, parseForestRun,
+import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventOutcomeIndex, eventView, forestRunView, parseForestRun,
   resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { FOREST_EVENTS, isSafeOption, validateForestEvents } from './run/forestEvents';
 
@@ -30,6 +30,7 @@ function walk(seed: number, ids: string[], exit: { hp?: number; energy?: number 
       e.winLevel(); run = ok(resolveBattle(run, e.runBattleOutcome()!), `resolve ${id}`);
     }
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+    if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `refuse the talismans at ${id}`);
     if (run.pending?.kind === 'rest') run = ok(restHeal(run), `heal at ${id}`);
   }
   return run;
@@ -190,6 +191,7 @@ function throughToJailer() {
       `${ids.at(-1)}: the event's changes reach the Jailer battle`);
     assert(setup.allowedItems.includes('frost') && setup.allowedAbilities.includes('jump'), 'the tools of the trails stay open');
     e.winLevel(); run = ok(resolveBattle(run, e.runBattleOutcome()!), 'resolve the Jailer');
+    run = ok(chooseTalisman(run, null), 'refuse the oaths');
     for (const id of ['camp-battle', 'camp-rest', 'camp-elite', 'camp-breakthrough', 'camp-chief']) {
       run = ok(enterNode(run, id), `enter ${id}`);
       if (run.pending?.kind === 'battle') {
@@ -197,6 +199,7 @@ function throughToJailer() {
         fight.winLevel(); run = ok(resolveBattle(run, fight.runBattleOutcome()!), `resolve ${id}`);
       }
       if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), 'find');
+      if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), 'refuse the talismans');
       if (run.pending?.kind === 'rest') run = ok(restHeal(run), 'heal');
     }
     assert(run.result?.outcome === 'victory' && json(roundTrip(run)) === json(run), `${ids.at(-1)}: the route goes on to the Chief and the save holds`);

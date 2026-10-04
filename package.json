@@ -60,6 +60,7 @@
     "test:pressure": "tsx src/game/pressure.spec.ts",
     "test:single-hit": "tsx src/game/singleHit.spec.ts",
     "test:talismans": "tsx src/game/talismans.spec.ts",
+    "test:run-talismans": "tsx src/game/runTalismans.spec.ts",
     "test:ladder": "tsx src/game/ladder.spec.ts",
     "test:telemetry": "tsx src/telemetry.spec.ts",
     "test:player-profile": "tsx src/game/playerProfile.spec.ts",

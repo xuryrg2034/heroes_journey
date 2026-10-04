@@ -1,12 +1,14 @@
 import { ForestEngine } from './forestEngine';
 import { authoredRefillPalette, battle, FOREST_MAP, FOREST_MAP_START, FOREST_REST_HEAL, forestMapPaths, forestNode, forestRowPalette, isBattleNode, nodeRefillPalette,
   validateForestMap, type ForestMapNode } from './run/forestMap';
-import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestNodeSeed, forestRunView, nodeRunTemplate, parseForestRun,
+import { availableNodes, battleSetup, chooseFindItem, chooseTalisman, createForestRun, enterNode, forestNodeSeed, forestRunView, nodeRunTemplate, parseForestRun,
   resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { buildNodeBattleRegistry, FOREST_NODE_BATTLES, forestBattle, validateForestBattles, validateNodeBattle, type NodeBattle } from './run/forestBattles';
 import { createForestRunStore, FOREST_RUN_STORAGE_KEY, type RunStorage } from './run/forestRunStorage';
 import type { ItemKind } from './forestTypes';
 import { ELITE_HP_FACTOR } from './elite';
+import { isOath, OATH_ENERGY } from './talismans';
+import type { TalismanOption } from './run/talismanOffers';
 
 // Forest-map run (docs/biomes/forest-map.md). Battles are loaded by the real engine from the run's setup,
 // real chains and items are played, and the finished battle is fed back to the pure run model.
@@ -37,7 +39,9 @@ function launch(e: ForestEngine, run: ForestRunState) {
   assert(e.startRunBattle(setup!), `engine starts ${setup!.nodeId}`);
   const { player, inventory } = run.resources;
   assert(e.state.runNode?.nodeId === setup!.nodeId && e.state.phase === 'PLAYER_INPUT', `${setup!.nodeId} is a live map battle`);
-  assert(e.state.player.hp === player.hp && e.state.player.maxHp === player.maxHp && e.state.player.energy === player.energy,
+  // Oaths add their energy at the start of every battle (docs/talismans.md).
+  const energy = Math.min(7, player.energy + OATH_ENERGY * run.talismans.filter(isOath).length);
+  assert(e.state.player.hp === player.hp && e.state.player.maxHp === player.maxHp && e.state.player.energy === energy,
     `${setup!.nodeId}: HP and energy carried into the battle`);
   assert(json(e.state.inventory) === json(inventory), `${setup!.nodeId}: items carried into the battle`);
   assert(json(e.state.player.damageEffects ?? null) === json(player.damageEffects ?? null), `${setup!.nodeId}: effect stacks carried`);
@@ -182,15 +186,18 @@ async function campRoute(seed: number, trace?: string[]) {
     assert(e.runBattleOutcome()?.won === true && e.runBattleOutcome()?.nodeId === id, `${id}: a won map battle reports its outcome to the run`);
     run = settle(e, run); log(run); saved(run);
     if (id === 'jailer') {
-      assert(json(availableNodes(run).map(node => node.id)) === json(['den-battle', 'camp-battle']), 'after the Jailer the player chooses a branch');
+      // The Jailer offers oaths (docs/talismans.md); the spin opens with the victory, before the choice.
+      const options = run.pending?.kind === 'talisman' && run.pending.source === 'oath' ? run.pending.options : [];
+      assert(options.length === 3 && options.every(option => option !== 'blank' && isOath(option)) && !availableNodes(run).length, 'the Jailer victory offers three oaths before moving on');
       assert(run.tools.abilities.includes('spin'), 'the Jailer victory opens the spin for later battles');
+      run = ok(chooseTalisman(run, null), 'refuse the oaths'); log(run); saved(run);
+      assert(json(availableNodes(run).map(node => node.id)) === json(['den-battle', 'camp-battle']), 'after the Jailer the player chooses a branch');
     }
     if (id === 'camp-elite') {
-      const options = run.pending?.kind === 'find' ? run.pending.options : [];
-      assert(options.length === 3 && run.pending?.nodeId === id && !availableNodes(run).length, 'a hard-battle victory offers a find before moving on');
-      const count = run.resources.inventory[options[0]];
-      run = ok(chooseFindItem(run, options[0]), 'hard-battle reward'); log(run); saved(run);
-      assert(run.resources.inventory[options[0]] === count + 1 && run.currentNodeId === id && availableNodes(run)[0]?.id === 'camp-breakthrough', 'the reward completes the elite node');
+      const options = run.pending?.kind === 'talisman' && run.pending.source === 'hard' ? run.pending.options : [];
+      assert(options.length === 3 && run.pending?.nodeId === id && !availableNodes(run).length, 'a hard-battle victory offers a talisman before moving on');
+      run = ok(chooseTalisman(run, options[0]), 'hard-battle reward'); log(run); saved(run);
+      assert(run.talismans.includes(options[0] as never) && run.currentNodeId === id && availableNodes(run)[0]?.id === 'camp-breakthrough', 'the reward completes the elite node');
     }
   }
   assert(run.result?.outcome === 'victory' && run.result.nodeId === 'camp-chief' && !availableNodes(run).length, 'the Chief ends the run in victory');
@@ -226,11 +233,14 @@ async function denRoute() {
   assert(e.useItem('bomb', target) && e.state.inventory.bomb === bombs, 'real bomb use spends it');
   e.winLevel(); run = settle(e, run);
   assert(run.resources.inventory.bomb === bombs, 'the spent bomb stays spent');
-  for (const id of ['jailer', 'den-battle']) { run = ok(enterNode(run, id), `enter ${id}`); launch(e, run); e.winLevel(); run = settle(e, run); }
+  for (const id of ['jailer', 'den-battle']) {
+    run = ok(enterNode(run, id), `enter ${id}`); launch(e, run); e.winLevel(); run = settle(e, run);
+    if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `refuse at ${id}`);
+  }
   run = ok(restHeal(ok(enterNode(run, 'den-rest'), 'den rest')), 'heal at den rest');
   run = ok(enterNode(run, 'den-elite'), 'enter den-elite'); launch(e, run); e.winLevel(); run = settle(e, run);
-  assert(run.pending?.kind === 'find' && json(parseForestRun(serializeForestRun(run))) === json(run), 'the hard-battle reward survives serialization');
-  run = ok(chooseFindItem(run, (run.pending as { options: ItemKind[] }).options[1]), 'den hard-battle reward');
+  assert(run.pending?.kind === 'talisman' && json(parseForestRun(serializeForestRun(run))) === json(run), 'the hard-battle reward survives serialization');
+  run = ok(chooseTalisman(run, (run.pending as { options: TalismanOption[] }).options[1]), 'den hard-battle reward');
   run = ok(enterNode(run, 'den-breakthrough'), 'enter breakthrough'); launch(e, run);
   assert(e.state.customLevel?.definition.completion === 'exit', 'the breakthrough node is won through the exit');
   e.winLevel(); run = settle(e, run);
@@ -336,7 +346,7 @@ async function realEffects() {
   assert(!rested.resources.player.damageEffects && step.ok && step.events.some(event => event.type === 'effects-cleared'), 'healing at the rest clears the carried poison');
 }
 
-/** A hard-battle victory gives +1 HP (up to the maximum) together with the find; the saved run keeps it. */
+/** A hard-battle victory gives +1 HP (up to the maximum) together with the talisman choice; the saved run keeps it. */
 async function hardHeart() {
   let run = createForestRun(77);
   const e = engine();
@@ -344,6 +354,7 @@ async function hardHeart() {
     run = ok(enterNode(run, id), `enter ${id}`);
     if (run.pending?.kind === 'battle') { launch(e, run); e.winLevel(); run = settle(e, run); }
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+    if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `refuse at ${id}`);
     if (run.pending?.kind === 'rest') run = ok(restHeal(run), `heal at ${id}`);
   }
   run = ok(enterNode(run, 'camp-elite'), 'enter the hard battle');
@@ -359,10 +370,10 @@ async function hardHeart() {
     const expected = Math.min(won.resources.player.maxHp, before + 1);
     assert(won.resources.player.hp === expected, `hard-battle victory from ${before} HP gives ${expected} HP, never above the maximum`);
     assert(step.ok && step.events.some(event => event.type === 'healed' && event.nodeId === 'camp-elite' && event.amount === expected - before), 'the heal is reported to the map screen');
-    assert(won.pending?.kind === 'find', 'the find still follows the hard-battle victory');
+    assert(won.pending?.kind === 'talisman', 'the talisman choice follows the hard-battle victory');
     assert(json(parseForestRun(serializeForestRun(won))) === json(won), 'the healed run round-trips through the save');
-    const picked = ok(chooseFindItem(won, (won.pending as { options: ItemKind[] }).options[0]), 'hard-battle find');
-    assert(picked.resources.player.hp === expected && json(parseForestRun(serializeForestRun(picked))) === json(picked), 'the heal stays after the find and in the save');
+    const picked = ok(chooseTalisman(won, null), 'refuse the talismans');
+    assert(picked.resources.player.hp === expected && json(parseForestRun(serializeForestRun(picked))) === json(picked), 'the heal stays after the choice and in the save');
   }
 }
 

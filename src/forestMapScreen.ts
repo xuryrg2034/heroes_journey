@@ -7,7 +7,7 @@ import { ITEMS } from './game/items';
 import { summarizeDamageEffects } from './game/damageEffects';
 import { CRAFT_COST, RESOURCE_KINDS, RESOURCES } from './game/resources';
 import type { AbilityKind, ItemKind } from './game/forestTypes';
-import { nodeBattleTemplate, forestRowPalette, hasVictoryFind, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
+import { nodeBattleTemplate, forestRowPalette, victoryChoice, nodeRefillPalette, type ForestMapNode, type ForestNodeType } from './game/run/forestMap';
 import { eventView, forestRunMap, forestRunView, restHealValue, restView, runNode, type ForestNodeStatus, type ForestRunEvent, type ForestRunState, type ForestRunView } from './game/run/forestRun';
 import { forestEvent } from './game/run/forestEvents';
 import { forestBattle } from './game/run/forestBattles';
@@ -112,7 +112,8 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
   // Authored elites in the node's battle (elite.ts): HP ×2, +1 to their attacks, loot.
   const elites = nodeBattleTemplate(node)?.definition.enemies.filter(enemy => enemy.elite).length ?? 0;
   if (elites) lines.push(`Элита: <b>${elites === 1 ? 'один противник' : elites < 5 ? `${elites} противника` : `${elites} противников`}</b> — HP ×2, удар по коту +1, может оставить добычу`);
-  if (hasVictoryFind(node)) lines.push('После победы — находка: выбор 1 из 3');
+  const choice = victoryChoice(node);
+  if (choice) lines.push(choice === 'hard' ? 'После победы — талисман: выбор 1 из 3 или отказ' : 'После победы — клятва: выбор 1 из 3 или отказ');
   const grants = grantText(node);
   if (grants) lines.push(`Открывает: <b>${grants}</b>`);
   const reward = rewardGrantText(node);

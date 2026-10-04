@@ -9,12 +9,14 @@ import type { LootKind, ResourceKind, AbilityKind, ItemKind } from '../forestTyp
 import { RUN_PRESSURE_FIRST_ROW } from '../mapBattleRules';
 import { CHEST_RESOURCES } from '../exitRules';
 import { CRAFT_COST, craftSource, emptyMaterials, isResource, RESOURCE_KINDS, RESOURCES } from '../resources';
-import { AUTHORED_RUN_MAP, nodeBattleTemplate, hasVictoryFind, isBattleNode, isTrunkNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, type ForestRunMap, FOREST_HARD_HEAL } from './forestMap';
+import { AUTHORED_RUN_MAP, nodeBattleTemplate, victoryChoice, isBattleNode, isTrunkNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, type ForestRunMap, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
 import { eventOption, forestEvent, optionEnergyCost, optionHpCost, describeOutcome, FOREST_EVENTS, type EventOption, type ForestEvent } from './forestEvents';
 import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedForestMap } from './mapGenerator';
 import { battlePoolEntry, pickPoolBattle, poolCandidates, type PoolBattleType } from './battlePools';
+import { isTalismanId, type TalismanId } from '../talismans';
+import { BLANK_SCORE, talismanOffer, type TalismanOption, type TalismanSource } from './talismanOffers';
 
 /**
  * Version 2 (04.10.2026): the run carries its map (`map`) and the battles and events taken from pools (`picks`).
@@ -37,8 +39,16 @@ export type ForestRunPending =
    * saves made before that may still carry a `defeats` counter, which parseForestRun drops.
    */
   | { kind: 'battle'; nodeId: string; seed: number; entry: ForestRunResources; tools: ForestRunTools }
-  /** Item choice of a find node, or the reward of a won hard battle (the node completes after the choice). */
+  /**
+   * Item choice of a find node (the node completes after the choice). Saves made before the talismans may also hold the
+   * find of a won hard battle (`legacyRewardsUntil`).
+   */
   | { kind: 'find'; nodeId: string; options: ItemKind[] }
+  /**
+   * Talisman choice after a won hard battle, or oath choice after the won Jailer battle (docs/talismans.md): one of the
+   * options or a refusal; the node completes after it. A reload offers the same options.
+   */
+  | { kind: 'talisman'; nodeId: string; source: TalismanSource; options: TalismanOption[] }
   /** Entered event node (forestEvents.ts): its options wait for a choice; a reload offers the same event. */
   | { kind: 'event'; nodeId: string }
   /**
@@ -101,8 +111,24 @@ export interface ForestRunState {
   rests: ForestRunRest[];
   resources: ForestRunResources;
   tools: ForestRunTools;
-  /** Points of all finished node battles, the lost one included (the battle's `state.score`). Absent in saves before 04.10.2026: read as 0. */
+  /**
+   * Points of all finished node battles, the lost one included (the battle's `state.score`), plus BLANK_SCORE for each
+   * «пустышка» taken. Absent in saves before 04.10.2026: read as 0.
+   */
   score: number;
+  /** Talismans and oaths taken, in order (docs/talismans.md). Saves before the talismans have none of the talisman fields. */
+  talismans: TalismanId[];
+  /** Talismans and oaths out of the pool for the rest of the run: shown and refused (the taken ones are in `talismans`). */
+  talismansGone: TalismanId[];
+  /** Talisman and oath choices, one per won hard battle and Jailer, in order: the option taken, or null for a refusal. */
+  talismanChoices: { nodeId: string; chosen: TalismanOption | null }[];
+  /** The Ash ward saved the cat once and crumbled: it is not passed to the next battles. */
+  wardSpent?: true;
+  /**
+   * A save from before the talismans: its first `legacyRewardsUntil` entered nodes kept the old rewards (a hard battle
+   * gave a find, the Jailer no oath). Absent — every reward is a talisman or oath choice.
+   */
+  legacyRewardsUntil?: number;
   pending: ForestRunPending | null;
   result: ForestRunResult | null;
 }
@@ -126,6 +152,12 @@ export type ForestRunEvent =
   /** Rest removed burning, poison and bleeding from the cat. */
   | { type: 'effects-cleared'; nodeId: string }
   | { type: 'find-offered'; nodeId: string; options: ItemKind[] }
+  /** A won hard battle or Jailer offers talismans or oaths. */
+  | { type: 'talisman-offered'; nodeId: string; source: TalismanSource; options: TalismanOption[] }
+  /** The choice was made: the option taken (null — refused) and the options that left the pool. */
+  | { type: 'talisman-chosen'; nodeId: string; source: TalismanSource; options: TalismanOption[]; chosen: TalismanOption | null; gone: TalismanId[] }
+  /** The Ash ward saved the cat in this battle and crumbled. */
+  | { type: 'ward-crumbled'; nodeId: string }
   | { type: 'item-chosen'; nodeId: string; item: ItemKind }
   | { type: 'event-offered'; nodeId: string }
   /** The event option was taken: its rolled outcome and what really changed (HP and energy after the clamps). */
@@ -156,6 +188,7 @@ export function createForestRun(seed: number, options: { skipTrunk?: boolean; ma
   const map: ForestRunMapRef = options.map === 'generated' ? { kind: 'generated', ...generateForestMap(seed) } : { kind: 'authored' };
   return {
     version: FOREST_RUN_VERSION, seed: seed >>> 0, map, picks: [], currentNodeId: null, ...options.skipTrunk ? { skippedTrunk: true as const } : {}, visited: [], finds: [], loot: [], eventChoices: [], rests: [], score: 0,
+    talismans: [], talismansGone: [], talismanChoices: [],
     resources: { player: { hp: FOREST_RUN_START_HP, maxHp: FOREST_RUN_START_HP, energy: 0 },
       inventory: { frost: 0, bomb: 0, healing: 0, fire: 0 } },
     tools: { items: [], abilities: [] }, pending: null, result: null,
@@ -257,6 +290,46 @@ function offerFind(run: ForestRunState, nodeId: string, events: ForestRunEvent[]
   events.push({ type: 'find-offered', nodeId, options: [...options] });
 }
 
+// ---------- Talismans and oaths (docs/talismans.md; offers: talismanOffers.ts) ----------
+
+/** Баланс: «Крепкая шкура» raises the maximum HP (and heals as much at once). */
+export const TOUGH_HIDE_HP = 1;
+/** The maximum HP of a run: the start plus «Крепкая шкура». */
+export function runMaxHp(run: Pick<ForestRunState, 'talismans'>): number {
+  return FOREST_RUN_START_HP + (run.talismans?.includes('tough-hide') ? TOUGH_HIDE_HP : 0);
+}
+/** The Ash ward is whole: the run took it and it has not saved the cat yet (the next battle gets it). */
+export function wardReady(run: Pick<ForestRunState, 'talismans' | 'wardSpent'>): boolean {
+  return !!run.talismans?.includes('ash-ward') && !run.wardSpent;
+}
+function offerTalismans(run: ForestRunState, node: ForestMapNode, source: TalismanSource, events: ForestRunEvent[]) {
+  const options = talismanOffer(forestNodeSeed(run.seed, node.id), source, { taken: run.talismans, gone: run.talismansGone, abilities: run.tools.abilities });
+  run.pending = { kind: 'talisman', nodeId: node.id, source, options };
+  events.push({ type: 'talisman-offered', nodeId: node.id, source, options: [...options] });
+}
+
+/**
+ * Take one of the offered talismans or oaths, or refuse (`null`). The options not taken leave the pool for the rest of
+ * the run; the «пустышка» adds BLANK_SCORE run points; «Крепкая шкура» raises the maximum HP and heals as much. The
+ * node completes.
+ */
+export function chooseTalisman(current: ForestRunState, chosen: TalismanOption | null): ForestRunStep {
+  const pending = current.pending;
+  if (pending?.kind !== 'talisman') return fail('Сейчас нечего выбирать.');
+  if (chosen !== null && !pending.options.includes(chosen)) return fail('Этого варианта нет среди предложенных.');
+  const run = structuredClone(current), player = run.resources.player;
+  const gone = pending.options.filter((option): option is TalismanId => option !== 'blank' && option !== chosen);
+  if (chosen === 'blank') run.score += BLANK_SCORE;
+  else if (chosen) {
+    run.talismans.push(chosen);
+    if (chosen === 'tough-hide') { player.maxHp += TOUGH_HIDE_HP; player.hp += TOUGH_HIDE_HP; }
+  }
+  run.talismansGone.push(...gone);
+  run.talismanChoices.push({ nodeId: pending.nodeId, chosen });
+  const events: ForestRunEvent[] = [{ type: 'talisman-chosen', nodeId: pending.nodeId, source: pending.source, options: [...pending.options], chosen, gone }];
+  completeNode(run, runNode(run, pending.nodeId)!, events); return { ok: true, run, events };
+}
+
 /** Move to one of availableNodes(run). Applies the node's grant, then starts its battle, rest or find. */
 export function enterNode(current: ForestRunState, nodeId: string): ForestRunStep {
   let node = runNode(current, nodeId);
@@ -303,7 +376,8 @@ export function battleSetup(run: ForestRunState): RunBattleSetup | null {
   const entry = structuredClone(pending.entry);
   const paletteWeights = nodeRefillPalette(node);
   return { nodeId: node.id, label: node.name, seed: pending.seed, template, row: node.row, player: entry.player, inventory: entry.inventory,
-    allowedItems: [...pending.tools.items], allowedAbilities: [...pending.tools.abilities], ...(paletteWeights ? { paletteWeights } : {}) };
+    allowedItems: [...pending.tools.items], allowedAbilities: [...pending.tools.abilities], ...(paletteWeights ? { paletteWeights } : {}),
+    ...(run.talismans.length ? { talismans: [...run.talismans] } : {}), ...(wardReady(run) ? { wardReady: true } : {}) };
 }
 
 const clampCount = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
@@ -319,6 +393,8 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
   const battle = run.pending as Extract<ForestRunPending, { kind: 'battle' }>;
   if (outcome.won && !(outcome.player.hp >= 1)) return fail('Победа с 0 HP невозможна.');
   run.score = (run.score ?? 0) + clampCount(outcome.score);
+  // The Ash ward saved the cat in this battle (also in a battle lost afterwards): it crumbles for the rest of the run.
+  if (outcome.wardUsed && wardReady(run)) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: battle.nodeId }); }
   if (!outcome.won) {
     run.pending = null; run.result = { outcome: 'defeat', nodeId: battle.nodeId };
     events.push({ type: 'run-lost', nodeId: battle.nodeId }); return { ok: true, run, events };
@@ -351,7 +427,9 @@ export function resolveBattle(current: ForestRunState, outcome: RunBattleOutcome
     const player = run.resources.player, amount = Math.max(0, Math.min(FOREST_HARD_HEAL, player.maxHp - player.hp));
     player.hp += amount; events.push({ type: 'healed', nodeId: node.id, amount });
   }
-  if (hasVictoryFind(node)) { offerFind(run, node.id, events); return { ok: true, run, events }; }
+  // A won hard battle offers talismans (in place of the find it gave before), the Jailer oaths (docs/talismans.md).
+  const choice = victoryChoice(node);
+  if (choice) { offerTalismans(run, node, choice, events); return { ok: true, run, events }; }
   completeNode(run, node, events); return { ok: true, run, events };
 }
 
@@ -369,13 +447,16 @@ export function chooseFindItem(current: ForestRunState, item: ItemKind): ForestR
 
 // ---------- Rest: heal or craft (decision of 04.10.2026, like a campfire of Slay the Spire) ----------
 
+/** Баланс: «Фляга росы» adds this much to the rest heal. */
+export const DEW_FLASK_HEAL = 1;
 /**
- * HP the «heal» choice of a rest restores before the clamp to the maximum: the node's heal today. Run modifiers of the
- * rest heal (talismans «Фляга росы» +1, «Клятва голода» → 0; docs/talismans.md) belong here, so the rest screen, the
- * heal and the save check read one number.
+ * HP the «heal» choice of a rest restores before the clamp to the maximum: the node's heal, +DEW_FLASK_HEAL with «Фляга
+ * росы», nothing under «Клятва голода» (docs/talismans.md; the two never come together). The rest screen, the map's
+ * node panel and the heal read this one number. Under the oath the choice still clears burning, poison and bleeding.
  */
-export function restHealValue(_run: ForestRunState, node: ForestMapNode): number {
-  return node.content.kind === 'rest' ? node.content.heal : 0;
+export function restHealValue(run: Pick<ForestRunState, 'talismans'>, node: ForestMapNode): number {
+  if (node.content.kind !== 'rest' || run.talismans?.includes('oath-hunger')) return 0;
+  return node.content.heal + (run.talismans?.includes('dew-flask') ? DEW_FLASK_HEAL : 0);
 }
 export interface RestRecipeView {
   resource: ResourceKind; item: ItemKind; have: number; cost: number;
@@ -520,6 +601,9 @@ export function chooseEventOption(current: ForestRunState, optionId: string): Fo
 export type ForestNodeStatus = 'visited' | 'current' | 'in-progress' | 'available' | 'locked' | 'lost' | 'skipped';
 export interface ForestRunView {
   nodes: { node: ForestMapNode; status: ForestNodeStatus }[];
+  /** Talismans and oaths taken, in order, and whether the Ash ward has crumbled. */
+  talismans: TalismanId[];
+  wardSpent: boolean;
   available: string[];
   battlesWon: number;
   resources: ForestRunResources;
@@ -538,7 +622,8 @@ export function forestRunView(run: ForestRunState): ForestRunView {
   // Available pool nodes show the battle or event they would get; entered ones their pick.
   return { nodes: forestRunMap(run).nodes.map(base => { const node = available.includes(base.id) ? previewNode(run, base.id)! : runNode(run, base.id)!; return { node, status: status(node) }; }), available,
     battlesWon: run.visited.filter(id => { const node = runNode(run, id); return !!node && isBattleNode(node); }).length,
-    resources: structuredClone(run.resources), tools: structuredClone(run.tools), pending: structuredClone(run.pending), result: run.result && { ...run.result } };
+    resources: structuredClone(run.resources), tools: structuredClone(run.tools), pending: structuredClone(run.pending), result: run.result && { ...run.result },
+    talismans: [...run.talismans ?? []], wardSpent: !!run.wardSpent };
 }
 
 export function serializeForestRun(run: ForestRunState): string { return JSON.stringify(run); }
@@ -548,11 +633,12 @@ const isCount = (value: unknown) => typeof value === 'number' && Number.isIntege
 const isSeed = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
 const EFFECT_KEYS = ['burning', 'burningTurns', 'poison', 'bleeding', 'bleedingSteps', 'creditedBurning', 'creditedPoison', 'creditedBleeding'];
 
-function validResources(value: unknown): value is ForestRunResources {
+/** `runMax`: the run's maximum HP (runMaxHp: the start plus «Крепкая шкура»). */
+function validResources(value: unknown, runMax: number): value is ForestRunResources {
   if (!isRecord(value) || !isRecord(value.player) || !isRecord(value.inventory)) return false;
   const { hp, maxHp, energy, damageEffects } = value.player;
   // A living cat: a battle is never won at 0 HP, and a defeat keeps the entry resources.
-  if (maxHp !== FOREST_RUN_START_HP || !isCount(hp) || (hp as number) < 1 || (hp as number) > maxHp) return false;
+  if (maxHp !== runMax || !isCount(hp) || (hp as number) < 1 || (hp as number) > maxHp) return false;
   if (typeof energy !== 'number' || !Number.isFinite(energy) || energy < 0 || energy > MAX_ENERGY) return false;
   if (damageEffects !== undefined && (!isRecord(damageEffects) || Object.entries(damageEffects).some(([key, amount]) => !EFFECT_KEYS.includes(key) || !isCount(amount)))) return false;
   const inventory = value.inventory, materials = value.materials;
@@ -566,16 +652,17 @@ function validTools(value: unknown): value is ForestRunTools {
 
 /**
  * Tools the run must have opened after `visited` (plus the entered node's grants), replayed from the graph, the finds
- * and the items crafted at rests (`crafts` by rest node id; the open rest included).
+ * (`usesFind`: the node ended in a find choice) and the items crafted at rests (`crafts` by rest node id; the open rest
+ * included).
  */
 function expectedTools(visited: ForestMapNode[], finds: ForestRunState['finds'], entered: ForestMapNode | null, won: boolean,
-  crafts: ReadonlyMap<string, ItemKind[]>): ForestRunTools {
+  crafts: ReadonlyMap<string, ItemKind[]>, usesFind: (node: ForestMapNode) => boolean): ForestRunTools {
   const tools: ForestRunTools = { items: [], abilities: [] }, sink: ForestRunEvent[] = [];
   let taken = 0;
   for (const node of visited) {
     unlock(tools, node.grants?.items, node.grants?.abilities, sink);
     if (isBattleNode(node)) unlock(tools, node.rewardGrants?.items, node.rewardGrants?.abilities, sink);
-    if (node.type === 'find' || hasVictoryFind(node)) unlock(tools, [finds[taken++].item], [], sink);
+    if (usesFind(node)) unlock(tools, [finds[taken++].item], [], sink);
     unlock(tools, crafts.get(node.id), [], sink);
   }
   if (entered) unlock(tools, entered.grants?.items, entered.grants?.abilities, sink);
@@ -599,8 +686,8 @@ function battleElites(node: ForestMapNode): number {
 }
 /** A battle node where random elites may appear (map rows from RUN_PRESSURE_FIRST_ROW, elite.ts). */
 const randomElitesPossible = (node: ForestMapNode): boolean => !!nodeBattleTemplate(node) && node.row >= RUN_PRESSURE_FIRST_ROW;
-/** Resources a node's exit chest adds (exitRules.ts): CHEST_RESOURCES in a battle with an exit door, else 0. */
-const chestResources = (node: ForestMapNode): number => nodeBattleTemplate(node)?.definition.completion === 'exit' ? CHEST_RESOURCES : 0;
+/** Resources a node's exit chest adds at most (exitRules.ts): CHEST_RESOURCES in a battle with an exit door, +1 with «Кисет старьёвщика»; else 0. */
+const chestResources = (node: ForestMapNode, pouch: boolean): number => nodeBattleTemplate(node)?.definition.completion === 'exit' ? CHEST_RESOURCES + (pouch ? 1 : 0) : 0;
 
 function inventoryCap(visited: ForestMapNode[], finds: ForestRunState['finds'], entered: ForestMapNode | null, loot: ForestRunState['loot'],
   events: { items: Partial<Record<ItemKind, number>>; materials: ResourceKind[] }[], crafted: ItemKind[]): Record<LootKind, number> {
@@ -636,7 +723,16 @@ export function parseForestRun(text: string): ForestRunState | null {
   let value: unknown;
   try { value = JSON.parse(text); } catch { return null; }
   if (!isRecord(value) || (value.version !== 1 && value.version !== FOREST_RUN_VERSION) || !isSeed(value.seed)) return null;
-  if (!Array.isArray(value.visited) || !validResources(value.resources) || !validTools(value.tools)) return null;
+  // Talismans (docs/talismans.md): a save from before them has none of their fields and gets empty ones.
+  const legacyTalismans = value.talismans === undefined && value.talismansGone === undefined && value.talismanChoices === undefined;
+  if (legacyTalismans && (value.wardSpent !== undefined || value.legacyRewardsUntil !== undefined)) return null;
+  const talismans = legacyTalismans ? [] : value.talismans, talismansGone = legacyTalismans ? [] : value.talismansGone;
+  const talismanChoices = legacyTalismans ? [] : value.talismanChoices;
+  const idList = (list: unknown): list is TalismanId[] => Array.isArray(list) && list.every(isTalismanId);
+  if (!idList(talismans) || !idList(talismansGone) || !Array.isArray(talismanChoices)) return null;
+  if (value.wardSpent !== undefined && (value.wardSpent !== true || !talismans.includes('ash-ward'))) return null;
+  const maxHp = runMaxHp({ talismans });
+  if (!Array.isArray(value.visited) || !validResources(value.resources, maxHp) || !validTools(value.tools)) return null;
   if (value.skippedTrunk !== undefined && value.skippedTrunk !== true) return null;
   const mapRef = savedMap(value);
   if (!mapRef) return null;
@@ -662,9 +758,16 @@ export function parseForestRun(text: string): ForestRunState | null {
   const entering = [...visited, ...enteredId !== null ? [enteredId] : []];
   const poolIds = entering.filter(id => map.node(id)!.content.kind === 'pool');
   if (!Array.isArray(picks) || picks.length !== poolIds.length) return null;
-  // Finds: one choice per visited find or hard-battle node, in order, from that node's offered items (the type and id
-  // of a node do not depend on its pick).
-  const findNodes = visited.map(id => map.node(id)!).filter(node => node.type === 'find' || hasVictoryFind(node));
+  // Rewards before the talismans: in a save without them every node entered so far kept its old reward (a won hard
+  // battle gave a find, the Jailer no oath); the open find of such a hard battle included, an open battle not.
+  const legacyRewardsUntil = legacyTalismans ? visited.length + (isRecord(pending) && pending.kind === 'find' ? 1 : 0) : value.legacyRewardsUntil ?? 0;
+  if (!isCount(legacyRewardsUntil) || (legacyRewardsUntil as number) > visited.length + (isRecord(pending) && pending.kind === 'find' ? 1 : 0)) return null;
+  const legacyAt = (id: string) => entering.indexOf(id) < (legacyRewardsUntil as number);
+  /** The node ended (or ends) in a find choice: a find node, or a hard battle with the old reward. */
+  const usesFind = (node: ForestMapNode) => node.type === 'find' || node.type === 'hard' && legacyAt(node.id);
+  // Finds: one choice per visited find node (and old-reward hard battle), in order, from that node's offered items (the
+  // type and id of a node do not depend on its pick).
+  const findNodes = visited.map(id => map.node(id)!).filter(usesFind);
   const finds = value.finds;
   if (!Array.isArray(finds) || finds.length !== findNodes.length || finds.some((find, n) => !isRecord(find) || find.nodeId !== findNodes[n].id
     || !findOptions(seed, findNodes[n]).includes(find.item as ItemKind))) return null;
@@ -690,7 +793,7 @@ export function parseForestRun(text: string): ForestRunState | null {
       if (met.includes(pick.eventId) && met.length < Object.keys(FOREST_EVENTS).length) return null;
     } else {
       if (Object.keys(pick).length !== 2 || typeof pick.battleId !== 'string') return null;
-      const tools = expectedTools(before, typedFinds, base, false, crafts);
+      const tools = expectedTools(before, typedFinds, base, false, crafts, usesFind);
       if (!poolCandidates({ row: base.row, type: base.type as PoolBattleType, lane: base.lane }, tools).includes(pick.battleId)) return null;
     }
     typedPicks.push(base.type === 'event' ? { nodeId: base.id, eventId: pick.eventId as string } : { nodeId: base.id, battleId: pick.battleId as string });
@@ -699,9 +802,31 @@ export function parseForestRun(text: string): ForestRunState | null {
   // A completed node without transitions must carry the run result; otherwise the run would be stuck.
   if (pending === null && result === null && !nextIds.length) return null;
   const entered = enteredId !== null ? nodeAt(enteredId) ?? null : null;
-  const wonHard = pending !== null && isRecord(pending) && pending.kind === 'find' && !!entered && hasVictoryFind(entered);
+  // The entered battle was won and its reward choice is open: a talisman or oath choice, or an old-reward hard find.
+  const wonHard = isRecord(pending) && !!entered && (pending.kind === 'talisman' || pending.kind === 'find' && usesFind(entered) && entered.type === 'hard');
   const visitedNodes = visited.map(id => nodeAt(id)!);
-  if (!sameTools(value.tools as ForestRunTools, expectedTools(visitedNodes, typedFinds, entered, wonHard, crafts))) return null;
+  if (!sameTools(value.tools as ForestRunTools, expectedTools(visitedNodes, typedFinds, entered, wonHard, crafts, usesFind))) return null;
+  // Talisman and oath choices: one per won hard battle and Jailer past the old rewards, in order, from the offer the
+  // run seed rolls for the pool of that moment (taken, refused, abilities open after the victory). Replayed, they give
+  // the taken talismans and the pool's losses exactly.
+  const taken: TalismanId[] = [], gone: TalismanId[] = [];
+  const offerFor = (node: ForestMapNode, source: TalismanSource, tools: ForestRunTools) => talismanOffer(forestNodeSeed(seed, node.id), source, { taken, gone, abilities: tools.abilities });
+  let choiceCount = 0;
+  for (let n = 0; n < visitedNodes.length; n++) {
+    const node = visitedNodes[n], source = victoryChoice(node);
+    if (!source || legacyAt(node.id)) continue;
+    const choice = talismanChoices[choiceCount++];
+    if (!isRecord(choice) || Object.keys(choice).length !== 2 || choice.nodeId !== node.id) return null;
+    const options = offerFor(node, source, expectedTools(visitedNodes.slice(0, n + 1), typedFinds, null, false, crafts, usesFind));
+    const chosen = choice.chosen as TalismanOption | null;
+    if (chosen !== null && !options.includes(chosen)) return null;
+    if (chosen && chosen !== 'blank') taken.push(chosen);
+    gone.push(...options.filter((option): option is TalismanId => option !== 'blank' && option !== chosen));
+  }
+  if (choiceCount !== talismanChoices.length) return null;
+  const openOffer = isRecord(pending) && pending.kind === 'talisman' && entered && !legacyAt(entered.id) && victoryChoice(entered) === pending.source
+    ? offerFor(entered, pending.source as TalismanSource, expectedTools(visitedNodes, typedFinds, entered, true, crafts, usesFind)) : null;
+  if (JSON.stringify(taken) !== JSON.stringify(talismans) || JSON.stringify(gone) !== JSON.stringify(talismansGone)) return null;
   // Elite loot of won battles: completed battle nodes, or the hard battle whose find is still pending; one entry per
   // node and kind. Consumables come only from authored elites (at most one each). Resources also come from random
   // elites, which appear in battles from row 5 in any number over a battle: there they are not bounded by count. A
@@ -719,7 +844,7 @@ export function parseForestRun(text: string): ForestRunState | null {
     if (!(isResource(gain.item) && randomElitesPossible(nodeAt(gain.nodeId)!))) perNode.set(gain.nodeId, (perNode.get(gain.nodeId) ?? 0) + gain.count);
     if (!isResource(gain.item)) perNodeItems.set(gain.nodeId, (perNodeItems.get(gain.nodeId) ?? 0) + gain.count);
   }
-  for (const [nodeId, count] of perNode) if (count > battleElites(nodeAt(nodeId)!) + chestResources(nodeAt(nodeId)!)) return null;
+  for (const [nodeId, count] of perNode) if (count > battleElites(nodeAt(nodeId)!) + chestResources(nodeAt(nodeId)!, talismans.includes('ragman-pouch'))) return null;
   for (const [nodeId, count] of perNodeItems) if (count > battleElites(nodeAt(nodeId)!)) return null;
   // Event choices: one per visited event node, in order, an option of its event with the outcome the seed rolls.
   const eventNodes = visitedNodes.filter(node => node.content.kind === 'event');
@@ -755,7 +880,7 @@ export function parseForestRun(text: string): ForestRunState | null {
     const node = nodeAt(pending.nodeId)!;
     if (pending.kind === 'battle') {
       if (!isBattleNode(node) || node.content.kind === 'in-development' || !isSeed(pending.seed) || pending.seed !== forestNodeSeed(value.seed as number, node.id)
-        || !validResources(pending.entry) || !validTools(pending.tools) || pending.defeats !== undefined && !isCount(pending.defeats)) return null;
+        || !validResources(pending.entry, maxHp) || !validTools(pending.tools) || pending.defeats !== undefined && !isCount(pending.defeats)) return null;
       // While a battle is open the run still holds the entry snapshot: a defeat never changes resources.
       if (JSON.stringify(pending.entry) !== JSON.stringify(value.resources) || !sameTools(pending.tools, value.tools as ForestRunTools)) return null;
     } else if (pending.kind === 'event') {
@@ -763,7 +888,9 @@ export function parseForestRun(text: string): ForestRunState | null {
     } else if (pending.kind === 'rest') {
       if (node.content.kind !== 'rest' || !openRest) return null;
     } else if (pending.kind === 'find') {
-      if (node.type !== 'find' && !hasVictoryFind(node) || JSON.stringify(pending.options) !== JSON.stringify(findOptions(seed, node))) return null;
+      if (!usesFind(node) || JSON.stringify(pending.options) !== JSON.stringify(findOptions(seed, node))) return null;
+    } else if (pending.kind === 'talisman') {
+      if (!openOffer || Object.keys(pending).length !== 4 || JSON.stringify(pending.options) !== JSON.stringify(openOffer)) return null;
     } else return null;
   }
   if (result !== null) {
@@ -781,7 +908,9 @@ export function parseForestRun(text: string): ForestRunState | null {
   // Version 1 saves get the version 2 fields in the order a new run has them.
   const { version: _version, seed: _seed, map: _map, picks: _picks, ...rest } = structuredClone(value);
   const run = { version: FOREST_RUN_VERSION, seed, map: mapRef, picks: typedPicks, ...rest, loot: structuredClone(typedLoot),
-    eventChoices: structuredClone(choices), rests: structuredClone(typedRests), score: (value.score as number | undefined) ?? 0 } as unknown as ForestRunState;
+    eventChoices: structuredClone(choices), rests: structuredClone(typedRests), score: (value.score as number | undefined) ?? 0,
+    talismans: [...talismans], talismansGone: [...talismansGone], talismanChoices: structuredClone(talismanChoices) } as unknown as ForestRunState;
+  if (legacyRewardsUntil) run.legacyRewardsUntil = legacyRewardsUntil as number; else delete run.legacyRewardsUntil;
   // Saves before 04.10.2026 count defeats of the open battle; a defeat now ends the run, so the counter has no meaning.
   if (run.pending?.kind === 'battle') delete (run.pending as { defeats?: number }).defeats;
   return run;

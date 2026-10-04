@@ -8,7 +8,7 @@
  */
 import { battlePoolEntry } from '../src/game/run/battlePools';
 import type { ForestMapNode, ForestNodeType } from '../src/game/run/forestMap';
-import { availableNodes, chooseEventOption, chooseFindItem, createForestRun, enterNode, eventView, forestRunView, resolveBattle, restHeal, runNode, type ForestRunState } from '../src/game/run/forestRun';
+import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunView, resolveBattle, restHeal, runNode, type ForestRunState } from '../src/game/run/forestRun';
 
 const argSeeds = process.argv.indexOf('--seeds');
 const COUNT = argSeeds > 0 ? Number(process.argv[argSeeds + 1]) : 1000;
@@ -93,6 +93,8 @@ for (const [k, seed] of SEEDS.entries()) {
       if (!step.ok) throw new Error(step.reason); run = step.run;
     } else if (run.pending?.kind === 'find') {
       const step = chooseFindItem(run, run.pending.options[0]); if (!step.ok) throw new Error(step.reason); run = step.run;
+    } else if (run.pending?.kind === 'talisman') {
+      const step = chooseTalisman(run, null); if (!step.ok) throw new Error(step.reason); run = step.run;
     } else if (run.pending?.kind === 'rest') {
       const step = restHeal(run); if (!step.ok) throw new Error(step.reason); run = step.run;
     } else if (run.pending?.kind === 'event') {
