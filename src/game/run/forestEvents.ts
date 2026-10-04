@@ -308,7 +308,8 @@ export function describeOutcome(outcome: EventOutcome, kinds: readonly ResourceK
   if (resources > 0) parts.push(`${resources} ${resourceWord(resources)} крафта${kinds.length ? `: ${kinds.map(kind => RESOURCES[kind].label).join(', ')}` : ''}`);
   for (const kind of RESOURCE_KINDS) if (materials[kind]) parts.push(`+${materials[kind]} «${RESOURCES[kind].label}»`);
   if (talisman) parts.push(`случайный ${RARITY_NAME[talisman]} талисман`);
-  if (modifier) parts.push(`в следующем бою: ${BATTLE_MODIFIERS[modifier].charAt(0).toLowerCase()}${BATTLE_MODIFIERS[modifier].slice(1)}`);
+  // «wrath» waits for a battle where it acts (not under the gift's calm, not with a boss; decision of 04.10.2026).
+  if (modifier) parts.push(`${modifier === 'wrath' ? 'в ближайшем бою без «тихого леса» и босса' : 'в следующем бою'}: ${BATTLE_MODIFIERS[modifier].charAt(0).toLowerCase()}${BATTLE_MODIFIERS[modifier].slice(1)}`);
   const text = parts.join(', ') || 'ничего не меняется';
   return outcome.label ? `${outcome.label}, ${text}` : text;
 }

@@ -457,8 +457,10 @@ const MODIFIER_INFO: Record<BattleModifier, { icon: string; name: string }> = {
  * each; the name and the effect line (BATTLE_MODIFIERS) on hover or focus. Empty without any.
  */
 export function modifierBadgesHtml(modifiers: readonly { modifier: BattleModifier; battles?: number }[], when: 'next' | 'now' = 'next'): string {
-  const lead = when === 'next' ? 'Следующий бой' : 'Этот бой';
+  // «Гнев» beside the calm waits for the first battle after it (takeRunModifiers).
+  const calm = when === 'next' && modifiers.some(entry => entry.modifier === 'calm');
   return modifiers.map(({ modifier, battles }) => {
+    const lead = when === 'now' ? 'Этот бой' : modifier === 'wrath' && calm ? 'После затишья' : 'Следующий бой';
     const info = MODIFIER_INFO[modifier], text = BATTLE_MODIFIERS[modifier], many = when === 'next' && (battles ?? 1) > 1 ? ` (боёв: ${battles})` : '';
     return `<span class="talisman-badge modifier" tabindex="0" data-modifier-badge="${modifier}" aria-label="${escapeHtml(`${lead} — ${info.name}${many}: ${text}`)}"><span aria-hidden="true">${info.icon}</span>`
       + `<span class="talisman-tip" role="tooltip"><b>${lead} · ${escapeHtml(info.name)}${many}</b>${escapeHtml(text)}</span></span>`;

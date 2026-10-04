@@ -428,7 +428,10 @@ function wrathWaits() {
       assert(json(battleSetup(run)!.modifiers) === json(['calm']) && wrathOf(run)?.battles === 1, `${run.seed}: the battle under the calm leaves the wrath waiting (${json(battleSetup(run)!.modifiers)})`);
       assert(extraAngerBeforeGoals(calm.engine.state) === 0 && angerPerTurn(calm.engine.state) === 0, `${run.seed}: no anger under the calm in the engine`);
       assert(json(roundTrip(run)) === json(run), `${run.seed}: the battle under the calm survives a reload`);
-      assert(forge(run, v => { v.pending.modifiers = ['calm', 'wrath']; delete v.modifiers; }) === null, `${run.seed}: a save where the calm battle took the wrath is rejected`);
+      // A save of the code before «wrath waits»: the calm battle took the wrath too. It loads (checked by the old rule).
+      const legacy = forge(run, v => { v.pending.modifiers = ['calm', 'wrath']; v.modifiers = v.modifiers.filter((entry: { modifier: string }) => entry.modifier !== 'wrath'); if (!v.modifiers.length) delete v.modifiers; });
+      assert(legacy !== null && json(legacy.pending) === json({ ...run.pending, modifiers: ['calm', 'wrath'] }), `${run.seed}: a save of the old rule (the calm battle took the wrath) loads`);
+      assert(forge(run, v => { v.pending.modifiers = ['calm', 'wrath']; }) === null, `${run.seed}: a wrath both taken and waiting is rejected`);
       calm.engine.winLevel(); run = ok(resolveBattle(run, calm.engine.runBattleOutcome()!), 'win under the calm');
       assert(json(roundTrip(run)) === json(run), `${run.seed}: after the calm battle the run survives a reload`);
     }

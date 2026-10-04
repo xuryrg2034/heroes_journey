@@ -68,7 +68,7 @@ test('an event window shows chances of a random option and why an option cannot 
   await expect(choices.nth(0).locator('.event-reason')).toContainText('Нужно:');
   await expect(choices.nth(0).locator('.event-tag.cost')).toContainText('Цена:');
   await expect(choices.nth(1)).toBeEnabled();
-  await expect(choices.nth(1).locator('.event-outcome')).toContainText('в следующем бою');
+  await expect(choices.nth(1).locator('.event-outcome')).toContainText('в ближайшем бою без «тихого леса» и босса');
   await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-event-option'))).toBe('skin');
   await expectFits(page);
   await page.waitForTimeout(300);

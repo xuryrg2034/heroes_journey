@@ -444,9 +444,10 @@ export function addRunModifier(list: readonly ForestRunModifier[] | undefined, m
  * gift's calm (no anger before the goals) or a boss battle (`boss`: a living Troll or Chief holds the anger before the
  * goals, mapBattleRules.ts) leaves it waiting, uncounted; the other modifiers are taken by the nearest battle.
  */
-export function takeRunModifiers(list: readonly ForestRunModifier[] | undefined, battle: { boss?: boolean } = {}): { taken: BattleModifier[]; left: ForestRunModifier[] | undefined } {
+export function takeRunModifiers(list: readonly ForestRunModifier[] | undefined, battle: { boss?: boolean; legacy?: boolean } = {}): { taken: BattleModifier[]; left: ForestRunModifier[] | undefined } {
+  // `legacy`: the rule before the decision of 04.10.2026 — the next battle took `wrath` too (saves of that code load).
   const calm = !!list?.some(entry => entry.modifier === 'calm');
-  const waits = (entry: ForestRunModifier) => entry.modifier === 'wrath' && (calm || !!battle.boss);
+  const waits = (entry: ForestRunModifier) => !battle.legacy && entry.modifier === 'wrath' && (calm || !!battle.boss);
   const taken = (list ?? []).filter(entry => !waits(entry)).map(entry => entry.modifier);
   const left = (list ?? []).map(entry => waits(entry) ? { ...entry } : { ...entry, battles: entry.battles - 1 }).filter(entry => entry.battles > 0);
   return { taken, left: left.length ? left : undefined };
@@ -1373,6 +1374,12 @@ function savedMap(value: Record<string, unknown>): ForestRunMapRef | null {
  * and authored version 2 saves) or the generated map the save carries.
  */
 export function parseForestRun(text: string): ForestRunState | null {
+  // A save of the code before «wrath waits» (04.10.2026) may have a battle under the gift's calm or a boss battle that
+  // took `wrath`: it is checked again by that rule. A run loaded so plays on by the new rule; a later save mixing both
+  // rules (wrath taken under calm before, and then waiting at a boss) is rejected — rare, accepted.
+  return parseRun(text, false) ?? parseRun(text, true);
+}
+function parseRun(text: string, legacyWrath: boolean): ForestRunState | null {
   let value: unknown;
   try { value = JSON.parse(text); } catch { return null; }
   if (!isRecord(value) || (value.version !== 1 && value.version !== FOREST_RUN_VERSION) || !isSeed(value.seed)) return null;
@@ -1573,7 +1580,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   let modifiers: ForestRunModifier[] | undefined, calmAdded = false;
   const addCalm = () => { if (!calmAdded && giftGain.calm) modifiers = addRunModifier(modifiers, 'calm', giftGain.calm); calmAdded = true; };
   const battleTook = new Map<string, BattleModifier[]>();
-  const enterBattle = (id: string) => { const { taken: list, left } = takeRunModifiers(modifiers, { boss: map.node(id)?.type === 'boss' }); modifiers = left; battleTook.set(id, list); };
+  const enterBattle = (id: string) => { const { taken: list, left } = takeRunModifiers(modifiers, { boss: map.node(id)?.type === 'boss', legacy: legacyWrath }); modifiers = left; battleTook.set(id, list); };
   // Events: one choice per visited event node, in order. Each entered event node took one `events` draw (its roll), each
   // attempt of an escalation one more; outcomes, costs, gains, talismans and modifiers are replayed from them.
   let eventDraw = 0, eventCount = 0, eventMaxHp = 0;
