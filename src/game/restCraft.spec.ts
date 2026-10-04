@@ -1,6 +1,6 @@
 import { ForestEngine } from './forestEngine';
 import { forestNode } from './run/forestMap';
-import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, createForestRun, enterNode, eventResourceKinds, eventOutcomeIndex, eventView, forestRunView,
+import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventResourceKinds, eventOutcomeIndex, eventView, forestRunView,
   parseForestRun, resolveBattle, restCraft, restFinish, restHeal, restView, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { forestEvent } from './run/forestEvents';
 import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from './resources';
@@ -42,6 +42,7 @@ function walk(seed: number, ids: string[], options: { loot?: Record<string, Part
       e.winLevel(); run = ok(resolveBattle(run, e.runBattleOutcome()!), `resolve ${id}`);
     }
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+    if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `refuse the talismans at ${id}`);
     if (run.pending?.kind === 'rest' && n < ids.length - 1) run = ok(restHeal(run), `heal at ${id}`);
   });
   return run;
@@ -167,6 +168,7 @@ function eventResources() {
     for (const id of ['jailer', 'camp-battle', 'camp-rest']) {
       run = ok(enterNode(run, id), `enter ${id}`);
       if (run.pending?.kind === 'battle') { const e = new ForestEngine(); e.animationScale = 0; e.startRunBattle(battleSetup(run)!); e.winLevel(); run = ok(resolveBattle(run, e.runBattleOutcome()!), `resolve ${id}`); }
+      if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `refuse the oaths at ${id}`);
     }
     const item = RESOURCES[kinds[0]].crafts, have = run.resources.inventory[item];
     run = ok(restFinish(ok(restCraft(run, kinds[0]), 'craft from the cache')), 'leave');
@@ -232,6 +234,7 @@ function generatedMaps() {
         if (!run.resources.materials) e.state.materials = { dew: 2, powder: 2, resin: 2, herbs: 2 };
         e.winLevel(); run = ok(resolveBattle(run, e.runBattleOutcome()!), `generated ${k}: resolve`);
       } else if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `generated ${k}: find`);
+      else if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `generated ${k}: refuse the talismans`);
       else if (run.pending?.kind === 'event') run = ok(chooseEventOption(run, eventView(run)!.options.find(option => option.available)!.id), `generated ${k}: event`);
       else if (run.pending?.kind === 'rest') {
         const recipe = restView(run)!.recipes.find(entry => entry.available && entry.opens);

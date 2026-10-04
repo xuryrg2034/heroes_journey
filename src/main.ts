@@ -17,15 +17,18 @@ import { enemyDefeatCountsForGoal, shieldIsActive } from './game/combatRules';
 import { isCellAlive } from './game/cellLife';
 import { SHAMAN_PERIOD } from './game/forestBeasts';
 import { chargeReady } from './game/boarCharge';
-import { CRYSTAL_KILLS, crystalsActive, runPressureInfo } from './game/mapBattleRules';
-import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
+import { crystalKills, crystalsActive, runPressureInfo } from './game/mapBattleRules';
+import { createForestRun, enterNode, battleSetup, resolveBattle, chooseFindItem, chooseTalisman, chooseEventOption, forestRunView, restCraft, restFinish, restHeal, runNode, type ForestRunEvent, type ForestRunState, type ForestRunStep } from './game/run/forestRun';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore } from './game/run/playerProfile';
-import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText } from './forestMapScreen';
-import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest } from './telemetry';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, talismanModalHtml } from './forestMapScreen';
+import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest, recordRunTalisman } from './telemetry';
 import { isResource, lootLabel } from './game/resources';
 import { nextReinforcementTurn, REINFORCEMENT_COUNT } from './game/exitRules';
 import { chestLabel } from './render/art';
+import { talisman } from './game/talismans';
+import type { TalismanOption } from './game/run/talismanOffers';
+import type { ChainPreview } from './game/forestTypes';
 
 const SAVE_KEY = 'ashen-oath-campaign-v1';
 type Save = { sound: boolean };
@@ -49,6 +52,8 @@ let hintTurn: number | null = 0, restHover = false;
 let paused = false, starting = false, outcomeShown = '', previousChain = 0;
 let focusedDoor: number | null = null;
 const itemKeys: ItemKind[] = ['frost', 'bomb', 'healing', 'fire'];
+/** The lethal mark of a forecast: death, or a lethal hit the whole Ash ward will take (talismans.ts, combatRules.heroLoss). */
+const lethalNote = (preview: ChainPreview) => preview.playerDies ? ' · смертельно' : preview.wardSaves ? ' · смертельно — оберег спасёт' : '';
 const itemNames: Record<ItemKind, string> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь' };
 const itemIcons: Record<ItemKind, string> = { frost: '❄', bomb: '✹', healing: '✚', fire: '♨' };
 const abilityKeys: AbilityKind[] = ['jump', 'spin'];
@@ -71,7 +76,7 @@ el('app').innerHTML = `
   <section id="editor-screen" class="editor-screen" hidden></section><section id="map-screen" class="map-screen" hidden></section>
   <section id="game-screen" class="game-screen" hidden>
     <aside class="chapter-panel"><p class="eyebrow" id="chapter-number"></p><h1 id="level-name"></h1><div class="ornament"><span></span>✦<span></span></div><section class="objective-card"><p class="panel-label" id="objective-label">ВЫПОЛНИ ЦЕЛИ</p><div id="objectives"></div></section><div id="pressure-chip" class="pressure-chip" hidden aria-live="polite"><span class="hud-label">ДАВЛЕНИЕ</span><b id="pressure-anger"></b><span id="pressure-refill"></span></div><div id="reinforcement-chip" class="pressure-chip reinforcement-chip" hidden aria-live="polite" title="После выполнения целей в бою приходят подкрепления: отмеченные на поле обычные гоблины заменяются злыми."><span class="hud-label">ПОДКРЕПЛЕНИЕ</span><b id="reinforcement-count"></b><span id="reinforcement-note"></span></div><details class="room-details"><summary>О бое <span aria-hidden="true">⌄</span></summary><p class="level-description" id="level-description"></p><section id="door-guide" class="door-guide" hidden><p class="panel-label">ВЫХОД НА ПОЛЕ</p><div id="door-options"></div><p id="door-detail"></p></section><div class="chapter-note"><span>✦</span><p id="tutorial-message"></p></div></details><button class="text-button chapter-select" data-action="title">← В МЕНЮ</button><button class="text-button editor-return" id="return-editor" data-action="editor" hidden>← В РЕДАКТОР · черновик сохранён</button></aside>
-    <div class="board-column"><div id="compact-room-heading"><b id="compact-room-name"></b><span id="compact-room-goal"></span></div><div class="combat-hud"><div class="vitality"><span class="hud-label">ЗДОРОВЬЕ</span><div id="health" class="hearts"></div><div id="damage-effects-summary" class="damage-effects-summary" aria-live="polite" hidden></div></div><div id="battle-toasts" class="battle-toasts" aria-live="polite"></div><div class="turn-counter"><span class="hud-label">ХОД</span><strong id="turn-number">01</strong></div><div class="score-counter"><span class="hud-label">ОЧКИ</span><strong id="score">0</strong></div><div class="energy-hud"><span class="hud-label">ЭНЕРГИЯ</span><strong id="energy-value">0 / 7</strong><div id="energy-meter" class="energy-meter" role="progressbar" aria-label="Энергия" aria-valuemin="0" aria-valuemax="7"><span></span></div></div><button class="icon-button pause-button" data-action="pause" aria-label="Пауза">Ⅱ</button><div id="mobile-chain-readout" hidden aria-live="polite"><span><small>ЦЕПОЧКА</small><b id="mobile-chain-count">0</b></span><span><small>СИЛА</small><b id="mobile-chain-power">0</b></span><span><small id="mobile-chain-status">ОТВЕТ</small><b id="mobile-chain-damage">0 HP</b></span></div></div><button id="battle-hint" class="battle-hint" data-action="hint-close" hidden aria-label="Скрыть подсказку боя"><span class="hint-goal" id="hint-goal"></span><span class="hint-rule" id="hint-rule"></span><span class="hint-close" aria-hidden="true">✕</span></button><div class="board-frame"><div class="frame-corner corner-tl"></div><div class="frame-corner corner-tr"></div><div class="frame-corner corner-bl"></div><div class="frame-corner corner-br"></div><div id="board-host" role="application" aria-label="Лесная поляна. Начни рядом с котом и веди цепь через врагов одного цвета."></div><div id="phase-banner" class="phase-banner" hidden></div></div><div class="board-status" aria-live="polite"><span class="status-dot"></span><span id="status-message">Начни цепочку рядом с котом.</span></div><div class="action-dock"></div><div class="board-footnote"><span>8 НАПРАВЛЕНИЙ · ОТ 1 ЦЕЛИ</span><span>ШАГ НАЗАД — ОТМЕНА</span></div></div>
+    <div class="board-column"><div id="compact-room-heading"><b id="compact-room-name"></b><span id="compact-room-goal"></span></div><div class="combat-hud"><div class="vitality"><span class="hud-label">ЗДОРОВЬЕ</span><div id="health" class="hearts"></div><div id="damage-effects-summary" class="damage-effects-summary" aria-live="polite" hidden></div><div id="talisman-row" class="talisman-row" aria-label="Талисманы" hidden></div></div><div id="battle-toasts" class="battle-toasts" aria-live="polite"></div><div class="turn-counter"><span class="hud-label">ХОД</span><strong id="turn-number">01</strong></div><div class="score-counter"><span class="hud-label">ОЧКИ</span><strong id="score">0</strong></div><div class="energy-hud"><span class="hud-label">ЭНЕРГИЯ</span><strong id="energy-value">0 / 7</strong><div id="energy-meter" class="energy-meter" role="progressbar" aria-label="Энергия" aria-valuemin="0" aria-valuemax="7"><span></span></div></div><button class="icon-button pause-button" data-action="pause" aria-label="Пауза">Ⅱ</button><div id="mobile-chain-readout" hidden aria-live="polite"><span><small>ЦЕПОЧКА</small><b id="mobile-chain-count">0</b></span><span><small>СИЛА</small><b id="mobile-chain-power">0</b></span><span><small id="mobile-chain-status">ОТВЕТ</small><b id="mobile-chain-damage">0 HP</b></span></div></div><button id="battle-hint" class="battle-hint" data-action="hint-close" hidden aria-label="Скрыть подсказку боя"><span class="hint-goal" id="hint-goal"></span><span class="hint-rule" id="hint-rule"></span><span class="hint-close" aria-hidden="true">✕</span></button><div class="board-frame"><div class="frame-corner corner-tl"></div><div class="frame-corner corner-tr"></div><div class="frame-corner corner-bl"></div><div class="frame-corner corner-br"></div><div id="board-host" role="application" aria-label="Лесная поляна. Начни рядом с котом и веди цепь через врагов одного цвета."></div><div id="phase-banner" class="phase-banner" hidden></div></div><div class="board-status" aria-live="polite"><span class="status-dot"></span><span id="status-message">Начни цепочку рядом с котом.</span></div><div class="action-dock"></div><div class="board-footnote"><span>8 НАПРАВЛЕНИЙ · ОТ 1 ЦЕЛИ</span><span>ШАГ НАЗАД — ОТМЕНА</span></div></div>
     <aside class="guide-panel"><section class="chain-card"><p class="panel-label">ЦЕПОЧКА</p><div class="chain-total"><strong id="chain-number">0</strong><span id="chain-rank">НАЧНИ РЯДОМ С КОТОМ</span></div><div class="chain-meter"><span id="chain-meter-fill"></span></div><p id="chain-reward">Запас силы: <b>+1 за врага · −HP цели</b></p><div id="risk-preview" class="risk-preview">Выбери безопасный последний шаг.</div></section><details class="field-details"><summary>Враги и знаки <span aria-hidden="true">⌄</span></summary><section class="field-guide"></section><div class="sigil-key"><span class="sigil red">▲</span><span class="sigil green">✚</span><span class="sigil blue">□</span><span class="sigil gold">●</span><span class="sigil purple">✕</span><span>ЦВЕТ + ЗНАК</span></div><div class="guide-tip"><b>ПОСЛЕДНЯЯ КЛЕТКА РЕШАЕТ</b><p>Последнего врага можно ранить. Проверь, где закончится цепь и кто сможет ответить.</p></div><div class="intent-legend" aria-label="Обозначения намерений"><span class="intent-attack">! Атака</span><span class="intent-move">⇄ Обмен</span><span class="intent-rest">… Отдых</span></div></details></aside>
   </section>
 </main>
@@ -174,6 +179,19 @@ function showFind() {
   const pending = forestRun?.pending;
   if (forestRun && pending?.kind === 'find') showModal(findModalHtml(forestRun, pending.nodeId, pending.options));
 }
+/** The open talisman or oath choice (also after a reload: the saved run keeps it pending with its options). */
+function showTalisman() { if (forestRun?.pending?.kind === 'talisman') showModal(talismanModalHtml(forestRun)); }
+/** Take an offered talisman or oath (`null` — refuse); the choice goes to the playtest journal. */
+function chooseTalismanOption(option: TalismanOption | null) {
+  const pending = forestRun?.pending;
+  if (!forestRun || pending?.kind !== 'talisman') return;
+  const step = commitRun(chooseTalisman(forestRun, option));
+  if (!step.ok) return;
+  recordRunTalisman({ nodeId: pending.nodeId, source: pending.source, offered: [...pending.options], chosen: option, seed: step.run.seed });
+  mapNotice = option === null ? `${pending.source === 'oath' ? 'Клятвы' : 'Талисманы'} отвергнуты: в этом походе они больше не выпадут.`
+    : option === 'blank' ? 'Пустышка: +5 очков похода.' : `Взято: ${talisman(option).name} — ${talisman(option).effect.charAt(0).toLowerCase()}${talisman(option).effect.slice(1)}.`;
+  audio.play(option ? 'reward' : 'click'); showScreen('map');
+}
 /** The open map event (also after a reload: the saved run keeps it pending). */
 function showEvent() { if (forestRun?.pending?.kind === 'event') showModal(eventModalHtml(forestRun)); }
 function chooseEvent(optionId: string) {
@@ -229,6 +247,7 @@ function routeRun() {
   if (forestRun.result) showModal(runResultHtml(forestRun));
   else if (forestRun.pending?.kind === 'event') showEvent();
   else if (forestRun.pending?.kind === 'rest') showRest();
+  else if (forestRun.pending?.kind === 'talisman') showTalisman();
   else showFind();
 }
 function resumeRun() { if (forestRun) { mapNotice = ''; audio.unlock(); audio.play('click'); routeRun(); } else newRun(); }
@@ -267,10 +286,12 @@ function showRunOutcome(won: boolean) {
   const healedEvent = step?.ok ? step.events.find(event => event.type === 'healed') : undefined;
   const healed = healedEvent?.type === 'healed' ? healedEvent.amount : 0;
   const grants = won ? [opened ? grantText(opened) : '', step?.ok ? unlockedText(step.events) : ''].filter(Boolean).join('; ') : '';
-  if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` +${healed} HP за трудный бой.` : ''}`;
+  const wardCrumbled = !!step?.ok && step.events.some(event => event.type === 'ward-crumbled');
+  if (won) mapNotice = `Узел «${node.label}» пройден.${grants ? ` Открыто: ${grants}.` : ''}${healed ? ` +${healed} HP за трудный бой.` : ''}${wardCrumbled ? ' Пепельный оберег рассыпался.' : ''}`;
   if (won && run.result) { showModal(runResultHtml(run)); return; }
   showModal(nodeBattleModalHtml({ won, name: node.label, turns: engine.state.turn, hp: won ? run.resources.player.hp : outcome.player.hp, maxHp: won ? run.resources.player.maxHp : outcome.player.maxHp,
-    battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', healed: won ? healed : 0 }));
+    battlesWon: forestRunView(run).battlesWon, grants, find: won && pending?.kind === 'find', choice: won && pending?.kind === 'talisman' ? pending.source : undefined,
+    healed: won ? healed : 0, wardCrumbled }));
 }
 /**
  * Pause of a map-node battle or of an editor level. The run's battle has no retry (a defeat ends the run); a node
@@ -324,7 +345,7 @@ function updateGuide() {
   if (state.board.some(cell => cell?.variant === 'jailer')) rows.push(['▣', 'Тюремщик', 'Щит закрывает вход цепи спереди. Тяжёлый удар наносит 2 урона по отмеченным клеткам. Затем один ход передышки со снятым щитом — даже после промаха.']);
   if (state.tutorial && tools.items.includes('frost')) rows.push(['❄', 'Холод', 'Выбери холод, затем любого врага. Он пропустит действие и получит двойной следующий физический удар. После этого проведи цепь.']);
   if (state.tutorial && tools.abilities.includes('jump')) rows.push(['↗', 'Прыжок · 2 энергии', 'Каждый атакованный враг даёт 0,5 энергии. Прыжок наносит 4 урона и переносит кота на выбранную клетку.']);
-  if (state.tutorial && state.board.some(cell => cell?.kind === 'prism')) rows.push(['✦', 'Кристалл меняет цвет', 'Цепь можно начать с кристалла или пройти через него: цвет меняется, накопленная сила сохраняется, самой силы он не даёт. Число на нём — очки за разрушение. Новый падает прямо по ходу цепи за каждые 6 убийств, куда — неизвестно заранее.']);
+  if (state.tutorial && state.board.some(cell => cell?.kind === 'prism')) rows.push(['✦', 'Кристалл меняет цвет', `Цепь можно начать с кристалла или пройти через него: цвет меняется, накопленная сила сохраняется, самой силы он не даёт. Число на нём — очки за разрушение. Новый падает прямо по ходу цепи за каждые ${crystalKills(state)} убийств, куда — неизвестно заранее.`]);
   if (state.tutorial && state.board.some(cell => cell?.kind === 'ranged')) rows.push(['⌖', 'Стрелок и обмен', 'Лучник стреляет по отмеченной линии и задевает всех на ней, врагов тоже, затем отдыхает. Знак ⇄ показывает будущий обмен: учитывай его при выборе позиции.']);
   if (elitePresent) rows.push(['♛', 'Элита', 'Золотая рамка и корона. HP ×2, удар по коту на 1 сильнее. Ближняя, когда кот не рядом, сближается обменом с соседом; дальняя отступает от близкого кота. Побеждённая игроком оставляет добычу: авторская — с шансом 50% расходник (нет открытых — ресурс), появившаяся сама (с ряда 5) — всегда ресурс. Пройди по добыче цепью — она попадёт в запас.']);
   if (boarPresent) rows.push(['⇶', 'Кабан', 'Янтарный коридор — рывок до 3 клеток по прямой. Кабан бьёт первого и толкает ряд; клетки, освобождённые цепью, решают, кто уцелеет. Упёрся — оглушён, следующий удар по нему двойной.']);
@@ -461,6 +482,10 @@ function updateHUD() {
     ? `<span class="health-numeric" aria-hidden="true">${state.player.hp} / ${state.player.maxHp} ♥</span>`
     : Array.from({ length: state.player.maxHp }, (_, i) => `<span class="heart ${i < state.player.hp ? 'full' : 'empty'}" aria-hidden="true">♥</span>`).join('');
   el('health').setAttribute('aria-label', `Здоровье: ${state.player.hp} из ${state.player.maxHp}`);
+  // The run's talismans beside HP (docs/talismans.md); the Ash ward greys out once it has saved the cat.
+  const talismanRow = talismanBadgesHtml(state.runNode?.talismans ?? [], !!state.player.ward);
+  if (el('talisman-row').innerHTML !== talismanRow) el('talisman-row').innerHTML = talismanRow;
+  el('talisman-row').hidden = !talismanRow;
   const activeEffects = summarizeDamageEffects(state.player.damageEffects);
   const effectCounts = [activeEffects.burning ? `Горение ×${activeEffects.burning}` : '', activeEffects.poison ? `Яд ×${activeEffects.poison}` : '', activeEffects.bleeding ? `Кровотечение ×${activeEffects.bleeding}` : ''].filter(Boolean);
   el('damage-effects-summary').hidden = effectCounts.length === 0;
@@ -491,6 +516,8 @@ function updateHUD() {
   const forecastEffects = summarizeDamageEffects(preview.endEffects);
   const pendingEffects = [forecastEffects.burning ? `горение ×${forecastEffects.burning}` : '', forecastEffects.poison ? `яд ×${forecastEffects.poison}` : '', forecastEffects.bleeding ? `кровотечение ×${forecastEffects.bleeding}` : ''].filter(Boolean);
   const lastHit = preview.hits[preview.hits.length - 1];
+  // The Whetstone (talismans.ts) gives this first ordinary chain of the battle a power of 1.
+  const whetstoneLine = !restMode && count > 0 && preview.whetstone ? '<br><b id="whetstone-line">Точильный камень: +1 к запасу</b>' : '';
   el('mobile-chain-readout').hidden = !input || count === 0;
   el('mobile-chain-readout').classList.toggle('danger', preview.damage > 0 || pendingEffects.length > 0);
   el('mobile-chain-count').textContent = String(count);
@@ -504,8 +531,9 @@ function updateHUD() {
   const budgetLine = spinMode ? 'Круговой удар: <b>8 соседей</b>, каждому 4 урона. Кот остаётся на месте.' : restMode ? 'Отдых: <b>+0,5 энергии</b>. Враги и события поля действуют.' : lastHit ? `Запас: <b>${lastHit.availablePower}</b> · потрачено: <b>${lastHit.powerSpent}</b> · осталось: <b>${lastHit.remainingPower}</b>` : 'Каждый враг: <b>+1 к силе</b>. Слабый (0 HP) тратит 0.';
   el('chain-reward').innerHTML = preview.opensDoor !== undefined ? '<b>Выход через дверь</b><br>Бой завершится до ответа врагов.' : preview.completesRoom ? '<b>Противник будет повержен</b><br>Бой завершится до ответа врагов.' : `${budgetLine}${lastHit ? preview.endsOnSurvivor ? `<br>После удара: ${lastHit.hpAfter} HP` : `<br>Побеждено: ${preview.kills}` : ''}`;
   if (lastHit?.attackEffect === 'fire' && !lastHit.killed) el('chain-reward').innerHTML += '<br>+1 горение · урон в конце хода, после ответа врагов.';
+  if (whetstoneLine) el('chain-reward').innerHTML += whetstoneLine;
   if (preview.crystals) el('chain-reward').innerHTML += `<br><b>+${preview.crystals} ${preview.crystals === 1 ? 'кристалл упадёт' : 'кристалла упадут'} по ходу цепи</b> · место — сюрприз, смена цвета, очки за разрушение`;
-  if (crystalsActive(state) && !restMode && count > 0 && preview.valid) el('chain-reward').innerHTML += `<br>До кристалла: <b>${preview.kills % CRYSTAL_KILLS} / ${CRYSTAL_KILLS}</b> убийств цепью`;
+  if (crystalsActive(state) && !restMode && count > 0 && preview.valid) el('chain-reward').innerHTML += `<br>До кристалла: <b>${preview.kills % crystalKills(state)} / ${crystalKills(state)}</b> убийств цепью`;
   const lootHits = preview.hits.filter(hit => hit.loot);
   if (lootHits.length) el('chain-reward').innerHTML += `<br>Подберёт: <b>${lootHits.map(hit => lootLabel(hit.loot!)).join(', ')}</b>`;
   const chestHits = preview.hits.filter(hit => hit.chest);
@@ -547,14 +575,18 @@ function updateHUD() {
   }
   // The panel must not change height while the pointer rests on the button (it would move away): the details go under the field.
   let restText = '';
+  // A lethal hit the Ash ward takes may leave the cat at the same HP (damage 0 at 1 HP): it is still shown as a risk.
+  const hurts = preview.damage > 0 || !!preview.wardSaves, wardShort = preview.wardSaves && !preview.playerDies ? ' · оберег спасёт' : '';
+  /** HP lost, or «смертельно» for a ward-saved hit that leaves the cat at its 1 HP. */
+  const loss = (parts = true) => preview.damage > 0 ? `−${preview.damage} HP${parts && forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${parts ? lethalNote(preview) : wardShort}` : 'смертельно — оберег спасёт';
   if (restMode) {
     const extras = el('chain-reward').innerHTML.split('<br>').slice(1).map(part => part.replace(/<[^>]+>/g, '')).filter(part => part && !part.startsWith('Энергия'));
-    const spinHead = `Круговой удар: целей ${preview.hits.length}, погибнет ${preview.hits.filter(hit => hit.killed).length}; кот ${preview.damage > 0 ? `−${preview.damage} HP${forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${preview.playerDies ? ' · смертельно' : ''}` : 'без урона'}`;
-    restText = spinMode ? `${spinHead}${extras.length ? ` · ${extras.join(' · ')}` : ''}. Ещё раз (кнопка, кот, Enter) — ударить, Esc — отмена.` : `Отдых: ${preview.damage > 0 ? `−${preview.damage} HP${forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${preview.playerDies ? ' · смертельно' : ''}` : 'безопасно'}${extras.length ? ` · ${extras.join(' · ')}` : ''}.`;
+    const spinHead = `Круговой удар: целей ${preview.hits.length}, погибнет ${preview.hits.filter(hit => hit.killed).length}; кот ${hurts ? loss() : 'без урона'}`;
+    restText = spinMode ? `${spinHead}${extras.length ? ` · ${extras.join(' · ')}` : ''}. Ещё раз (кнопка, кот, Enter) — ударить, Esc — отмена.` : `Отдых: ${hurts ? loss() : 'безопасно'}${extras.length ? ` · ${extras.join(' · ')}` : ''}.`;
     el('chain-reward').innerHTML = 'Каждый враг: <b>+1 к силе</b>. Слабый (0 HP) тратит 0.';
   }
-  el('risk-preview').textContent = restMode ? (spinMode ? (preview.damage > 0 ? `⚠ Круговой: −${preview.damage} HP` : '✓ Круговой безопасен') : preview.damage > 0 ? `⚠ Отдых: −${preview.damage} HP` : '✓ Отдых безопасен') : count === 0 ? 'Выбери безопасный последний шаг.' : !preview.valid ? preview.reason : preview.damage > 0 ? `⚠ После цепи: −${preview.damage} HP${forecastParts.length ? ` (${forecastParts.join('; ')})` : ''}${preview.playerDies ? ' · смертельно' : ''}${pendingEffects.length ? `. Останется: ${pendingEffects.join(', ')}` : ''}` : pendingEffects.length ? `⚠ После хода: ${pendingEffects.join(', ')}` : '✓ Конец цепи безопасен';
-  el('risk-preview').classList.toggle('danger', (count > 0 || restMode) && (!preview.valid || preview.damage > 0 || pendingEffects.length > 0));
+  el('risk-preview').textContent = restMode ? (spinMode ? (hurts ? `⚠ Круговой: ${loss(false)}` : '✓ Круговой безопасен') : hurts ? `⚠ Отдых: ${loss(false)}` : '✓ Отдых безопасен') : count === 0 ? 'Выбери безопасный последний шаг.' : !preview.valid ? preview.reason : hurts ? `⚠ После цепи: ${loss()}${pendingEffects.length ? `. Останется: ${pendingEffects.join(', ')}` : ''}` : pendingEffects.length ? `⚠ После хода: ${pendingEffects.join(', ')}` : '✓ Конец цепи безопасен';
+  el('risk-preview').classList.toggle('danger', (count > 0 || restMode) && (!preview.valid || hurts || pendingEffects.length > 0));
   el('status-message').textContent = targeting ? `${ITEMS[targeting].label}: выбери цель на поле.` : chosenAbility === 'jump' ? `Прыжок: выбери клетку приземления в пределах ${JUMP_RANGE}.` : count > 0 ? preview.valid ? `Целей: ${count} · кот остановится: ${gridLabel(preview.endIndex)}` : preview.reason : focusedDoor !== null ? el('door-detail').textContent ?? '' : restMode ? restText : telegraphNotes(state).join(' ') || state.message || 'Начни цепочку рядом с котом.';
   el('status-message').classList.toggle('telegraph', !targeting && !chosenAbility && count === 0 && focusedDoor === null && telegraphNotes(state).length > 0);
   const actors = uniqueEntities(state.board);
@@ -563,7 +595,7 @@ function updateHUD() {
   const frozen = actors.filter(({cell}) => cell.status.frozen > 0).length;
   const swaps = engine.previewRotations().filter(rotation => rotation.active)
     .map(rotation => `${gridLabel(rotation.from)} ↔ ${gridLabel(rotation.to)}`);
-  if (preview.pitCells?.length) el('chain-reward').innerHTML += `<br>Откроются: ${preview.pitCells.map(gridLabel).join(', ')}${preview.pitCells.includes(preview.endIndex) ? '<br><b>ПАДЕНИЕ — СМЕРТЬ</b>' : ''}`;
+  if (preview.pitCells?.length) el('chain-reward').innerHTML += `<br>Откроются: ${preview.pitCells.map(gridLabel).join(', ')}${preview.pitCells.includes(preview.endIndex) ? preview.wardSaves && !preview.playerDies ? '<br><b>ПАДЕНИЕ — ОБЕРЕГ СПАСЁТ</b>' : '<br><b>ПАДЕНИЕ — СМЕРТЬ</b>' : ''}`;
   if (preview.pitImmuneCells?.length) el('chain-reward').innerHTML += `<br>Заклинит: ${preview.pitImmuneCells.map(gridLabel).join(', ')}`;
   const devices = state.devices ?? [];
   el('device-summary').hidden = !devices.length;
@@ -664,6 +696,7 @@ document.addEventListener('click', event => {
   audio.unlock();
   if (target.dataset.find && itemKeys.includes(target.dataset.find as ItemKind)) { chooseFind(target.dataset.find as ItemKind); return; }
   if (target.dataset.eventOption) { chooseEvent(target.dataset.eventOption); return; }
+  if (target.dataset.talisman) { chooseTalismanOption(target.dataset.talisman as TalismanOption); return; }
   if (target.dataset.craft && isResource(target.dataset.craft)) { craftAtRest(target.dataset.craft); return; }
   switch (target.dataset.action) {
     // The run's own battle is never replayed (a defeat ends the run); retry is for editor levels and debug battles.
@@ -704,6 +737,8 @@ document.addEventListener('click', event => {
     case 'map-node': if (target.getAttribute('aria-disabled') !== 'true' && target.dataset.node) enterMapNode(target.dataset.node); break;
     case 'run-battle': void playRunBattle(); break;
     case 'run-find': showFind(); break;
+    case 'run-talisman': showTalisman(); break;
+    case 'talisman-refuse': chooseTalismanOption(null); break;
     case 'run-event': showEvent(); break;
     case 'run-rest': showRest(); break;
     case 'rest-heal': healAtRest(); break;

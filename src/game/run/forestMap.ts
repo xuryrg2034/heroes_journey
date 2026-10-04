@@ -63,7 +63,7 @@ export interface ForestMapNode {
 
 /** Rest heal, HP up to the maximum. TEMPORARY balance parameter, not a tuned value. */
 export const FOREST_REST_HEAL = 2;
-/** Hard-battle victory heal, HP up to the maximum, given together with the find (council review, item 6/9). */
+/** Hard-battle victory heal, HP up to the maximum, given together with the talisman choice (council review, item 6/9). */
 export const FOREST_HARD_HEAL = 1;
 export const FOREST_MAP_START = 'trunk-1';
 /** Colors are added in the same order as in the lessons: red, blue, green, ochre, amethyst. */
@@ -192,8 +192,13 @@ export function nodeRefillPalette(node: ForestMapNode): PaletteWeights | null {
   return template ? authoredRefillPalette(template, node.row) : null;
 }
 
-/** A hard-battle victory is followed by a find (choice of one of three items) before the next transition. */
-export function hasVictoryFind(node: ForestMapNode): boolean { return node.type === 'hard'; }
+/**
+ * The choice that follows a victory before the next transition (docs/talismans.md, decision of 04.10.2026): a hard
+ * battle offers talismans (it offered a find before), the Jailer checkpoint offers oaths; null — none.
+ */
+export function victoryChoice(node: ForestMapNode): 'hard' | 'oath' | null {
+  return node.type === 'hard' ? 'hard' : node.type === 'checkpoint' ? 'oath' : null;
+}
 
 /** Nodes that are fights (or a planned fight, for the stub boss). Rest, find and event are not battles. */
 export function isBattleNode(node: ForestMapNode): boolean { return node.type !== 'rest' && node.type !== 'find' && node.type !== 'event'; }

@@ -1,7 +1,7 @@
 import { ForestEngine } from './forestEngine';
 import { battlePoolEntry, laneBranches, poolCandidates, rowTools, type PoolBattleType } from './run/battlePools';
 import { authoredRefillPalette, type ForestMapNode, type ForestNodeType } from './run/forestMap';
-import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, createForestRun, enterNode, eventView, forestRunView, parseForestRun,
+import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunView, parseForestRun,
   resolveBattle, restCraft, restFinish, restHeal, restView, runNode, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { forestBattle } from './run/forestBattles';
 import { generateForestMap } from './run/mapGenerator';
@@ -183,6 +183,10 @@ async function botRun(seed: number, skipTrunk: boolean, choice: number, lose = f
       run = ok(resolveBattle(run, e.runBattleOutcome()!), `${seed}: resolve ${node.id}`);
     } else if (run.pending?.kind === 'find') {
       run = ok(chooseFindItem(run, run.pending.options[choice % run.pending.options.length]), `${seed}: find`);
+    } else if (run.pending?.kind === 'talisman') {
+      // Talisman and oath choices (docs/talismans.md): any option or a refusal; the save check replays them.
+      const options = [...run.pending.options, null];
+      run = ok(chooseTalisman(run, options[choice % options.length]), `${seed}: talisman`);
     } else if (run.pending?.kind === 'event') {
       const view = eventView(run)!, options = view.options.filter(option => option.available);
       run = ok(chooseEventOption(run, options[choice % options.length].id), `${seed}: event ${view.event.id}`);

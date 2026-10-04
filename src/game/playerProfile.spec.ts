@@ -1,6 +1,6 @@
 import { ForestEngine } from './forestEngine';
 import { FOREST_MAP, forestNode, isTrunkNode, validateForestMap } from './run/forestMap';
-import { availableNodes, battleSetup, chooseFindItem, createForestRun, enterNode, forestRunView, parseForestRun, resolveBattle, serializeForestRun,
+import { availableNodes, battleSetup, chooseFindItem, chooseTalisman, createForestRun, enterNode, forestRunView, parseForestRun, resolveBattle, serializeForestRun,
   restHeal, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { clearsTrunk, createPlayerProfileStore, PLAYER_PROFILE_KEY } from './run/playerProfile';
 import type { RunStorage } from './run/forestRunStorage';
@@ -81,6 +81,7 @@ function markedRunSkipsTheTrunk() {
         run = win(run);
       }
       if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]), `find at ${id}`);
+      if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null), `refuse the talismans at ${id}`);
       if (run.pending?.kind === 'rest') run = ok(restHeal(run), `heal at ${id}`);
       assert(json(parseForestRun(serializeForestRun(run))) === json(run), `seed ${k}: ${id} survives a save`);
       if (id === 'beast-wolf') assert(run.tools.items.includes('frost') && run.resources.inventory.frost === 1, 'the first trail node still opens frost');

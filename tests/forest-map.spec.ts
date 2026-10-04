@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { availableNodes, chooseFindItem, createForestRun, enterNode, forestRunView, resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
+import { availableNodes, chooseFindItem, chooseTalisman, createForestRun, enterNode, forestRunView, resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
 
 // Forest map screen (docs/biomes/forest-map.md). The run model is tested in src/game/forestRun.spec.ts and
 // src/game/mapGenerator.spec.ts; here the real page is driven: title entry, map, node battles, rest, find, reload,
@@ -32,14 +32,15 @@ function won(run: ForestRunState, hp = 5): ForestRunState {
   const pending = run.pending; if (pending?.kind !== 'battle') throw new Error('no battle');
   return ok(resolveBattle(run, { nodeId: pending.nodeId, won: true, player: { hp, maxHp: 5, energy: run.resources.player.energy }, inventory: { ...run.resources.inventory } }));
 }
-/** Walk the given node ids: battles are won, finds take the first option, rests heal. */
+/** Walk the given node ids: battles are won, finds take the first option, talisman and oath choices are refused, rests heal. */
 function walk(ids: string[], hp = 5, seed = 4242): ForestRunState {
   let run = createForestRun(seed);
   for (const id of ids) {
     run = ok(enterNode(run, id));
     if (run.pending?.kind === 'battle') run = won(run, hp);
-    // A find follows a find node and, in the model, a hard-battle victory.
     if (run.pending?.kind === 'find') run = ok(chooseFindItem(run, run.pending.options[0]));
+    // A hard-battle victory offers talismans, the Jailer's oaths (docs/talismans.md).
+    if (run.pending?.kind === 'talisman') run = ok(chooseTalisman(run, null));
     if (run.pending?.kind === 'rest') run = ok(restHeal(run));
   }
   return run;
@@ -470,20 +471,46 @@ test('the Chief is a real battle node; beating him ends the run with a victory',
   expect(errors).toEqual([]);
 });
 
-test('Jailer victory reports the opened spin; a hard-battle victory leads to a find of one of three', async ({ page }) => {
+test('Jailer victory opens the spin and offers oaths; a hard-battle victory offers talismans; badges beside HP show name and effect', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await seedRun(page, walk([...TRUNK, 'beast-wolf', 'beast-boar', 'trail-find', 'trail-banners']));
   await page.goto('/'); await page.locator('#run-start-button').click();
   await node(page, 'jailer').hover();
   await expect(page.locator('#map-detail')).toContainText('После победы открывает: Круговой удар');
+  await expect(page.locator('#map-detail')).toContainText('клятва');
   await node(page, 'jailer').click(); await settled(page);
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
   await expect(page.locator('#modal')).toContainText('Открыто: Круговой удар');
-  await page.locator('#modal [data-action="run-map"]').click();
-  await expect(page.locator('#map-notice')).toContainText('Круговой удар');
+  await page.locator('#modal [data-action="run-talisman"]').click();
+  // The oath choice: three oaths and a refusal; a reload offers the same choice.
+  await expect(page.locator('#modal [data-talisman]')).toHaveCount(3);
+  await expect(page.locator('#modal [data-action="talisman-refuse"]')).toBeVisible();
+  expect((await savedRun(page)).pending).toMatchObject({ kind: 'talisman', nodeId: 'jailer', source: 'oath' });
+  await page.screenshot({ path: 'artifacts/forest-map-oath.png' });
+  await page.reload(); await page.locator('#run-start-button').click();
+  await expect(page.locator('#modal [data-talisman]')).toHaveCount(3);
+  await page.locator('#modal [data-talisman="oath-wrath"]').click();
+  await expect(page.locator('#map-screen')).toBeVisible();
+  await expect(page.locator('#map-notice')).toContainText('Клятва ярости');
   await expect(page.locator('#map-tools')).toContainText('Круговой удар');
+  // The oath's badge beside HP; hovering it shows the name and the effect line.
+  const oath = page.locator('#map-talismans [data-talisman-badge="oath-wrath"]');
+  await expect(oath).toBeVisible();
+  await oath.hover();
+  await expect(oath.locator('.talisman-tip')).toBeVisible();
+  await expect(oath.locator('.talisman-tip')).toContainText('Клятва ярости');
+  await expect(oath.locator('.talisman-tip')).toContainText('+1 энергия в начале каждого боя');
+  await page.screenshot({ path: 'artifacts/forest-map-badges.png' });
+  expect((await savedRun(page)).talismans).toEqual(['oath-wrath']);
+  const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
+  expect(journal.runTalismans.at(-1)).toMatchObject({ nodeId: 'jailer', source: 'oath', chosen: 'oath-wrath' });
+  expect(journal.runTalismans.at(-1).offered).toHaveLength(3);
+  // The oath adds 1 energy at the start of the next battle.
+  const energy = (await savedRun(page)).resources.player.energy;
   await node(page, 'den-battle').click(); await settled(page);
+  expect((await state(page)).player.energy).toBe(Math.min(7, energy + 1));
+  await expect(page.locator('#talisman-row [data-talisman-badge="oath-wrath"]')).toBeVisible();
   await page.evaluate(() => (window as any).__PUZZLE_GAME.winLevel());
   await page.locator('#modal [data-action="run-map"]').click();
   // A rest always comes right before a hard battle.
@@ -492,7 +519,7 @@ test('Jailer victory reports the opened spin; a hard-battle victory leads to a f
   await page.locator('#modal [data-action="rest-heal"]').click();
   await page.locator('#modal [data-action="resume"]').click();
   await node(page, 'den-elite').hover();
-  await expect(page.locator('#map-detail')).toContainText('находка');
+  await expect(page.locator('#map-detail')).toContainText('талисман');
   await node(page, 'den-elite').click(); await settled(page);
   // A wounded cat gets +1 HP for the hard battle (FOREST_HARD_HEAL): shown in the result and kept by the run.
   await page.evaluate(() => (window as any).__PUZZLE_GAME.damagePlayer(2));
@@ -500,15 +527,55 @@ test('Jailer victory reports the opened spin; a hard-battle victory leads to a f
   await expect(page.locator('#hard-heal')).toContainText('+1 HP за трудный бой');
   await expect(page.locator('#modal .result-stats')).toContainText('4/5');
   expect((await savedRun(page)).resources.player.hp).toBe(4);
-  await expect(page.locator('#modal [data-action="run-find"]')).toContainText('ВЫБРАТЬ НАХОДКУ');
-  expect((await savedRun(page)).pending).toMatchObject({ kind: 'find', nodeId: 'den-elite' });
-  await page.locator('#modal [data-action="run-find"]').click();
-  await expect(page.locator('#modal [data-find]')).toHaveCount(3);
-  await page.locator('#modal [data-find]').first().click();
+  await expect(page.locator('#modal [data-action="run-talisman"]')).toContainText('ВЫБРАТЬ ТАЛИСМАН');
+  const pending = (await savedRun(page)).pending;
+  expect(pending).toMatchObject({ kind: 'talisman', nodeId: 'den-elite', source: 'hard' });
+  await page.locator('#modal [data-action="run-talisman"]').click();
+  await expect(page.locator('#modal [data-talisman]')).toHaveCount(3);
+  await page.screenshot({ path: 'artifacts/forest-map-talisman.png' });
+  await page.locator(`#modal [data-talisman="${pending.options[0]}"]`).click();
   await expect(page.locator('#map-screen')).toBeVisible();
   await expect(node(page, 'den-elite')).toHaveAttribute('data-status', 'current');
   await expect(node(page, 'den-breakthrough')).toHaveAttribute('data-status', 'available');
-  expect((await savedRun(page)).pending).toBeNull();
+  const run = await savedRun(page);
+  expect(run.pending).toBeNull(); expect(run.talismans).toEqual(['oath-wrath', pending.options[0]]); expect(run.finds).toHaveLength(1);
+  await expect(page.locator('#map-talismans .talisman-badge')).toHaveCount(2);
+  expect(await noScroll(page)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('talisman forecast: the whetstone line and «смертельно — оберег спасёт» while the chain is held; the ward crumbles as forecast', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.evaluate(() => (window as any).__PUZZLE_GAME.startNodeBattle('wolf-ford', { row: 6, talismans: ['whetstone', 'ash-ward'], wardReady: true, player: { hp: 1, maxHp: 5, energy: 0 } }));
+  await settled(page);
+  await expect(page.locator('#talisman-row .talisman-badge')).toHaveCount(2);
+  const ward = page.locator('#talisman-row [data-talisman-badge="ash-ward"]');
+  await ward.hover();
+  await expect(ward.locator('.talisman-tip')).toContainText('Пепельный оберег');
+  // A move whose damage would kill the cat at 1 HP; the ward takes it.
+  const path: number[] = await page.evaluate(() => { const game = (window as any).__PUZZLE_GAME; return (game.availableMoves() as number[][]).find(move => { const preview = game.preview(move); return preview.wardSaves && !preview.playerDies; }) ?? []; });
+  expect(path.length).toBeGreaterThan(0);
+  const first = await center(page, path[0]);
+  await page.mouse.move(first.x, first.y); await page.mouse.down();
+  for (const index of path.slice(1)) { const point = await center(page, index); await page.mouse.move(point.x, point.y, { steps: 4 }); }
+  await expect.poll(async () => (await state(page)).chain).toEqual(path);
+  await expect(page.locator('#chain-reward')).toContainText('Точильный камень: +1 к запасу');
+  await expect(page.locator('#risk-preview')).toContainText('смертельно — оберег спасёт');
+  await page.screenshot({ path: 'artifacts/talisman-forecast.png' });
+  await page.mouse.up(); await settled(page);
+  const after = await state(page);
+  expect(after.player.hp).toBe(1); expect(after.player.ward).toBeFalsy(); expect(after.phase).not.toBe('LOSE');
+  await expect(ward).toHaveClass(/spent/);
+  // The first chain is done: the next one has no whetstone line.
+  const next: number[] = await page.evaluate(() => ((window as any).__PUZZLE_GAME.availableMoves() as number[][])[0] ?? []);
+  if (next.length && after.phase === 'PLAYER_INPUT') {
+    const point = await center(page, next[0]);
+    await page.mouse.move(point.x, point.y); await page.mouse.down();
+    await expect.poll(async () => (await state(page)).chain.length).toBe(1);
+    await expect(page.locator('#chain-reward')).not.toContainText('Точильный камень');
+    await page.keyboard.press('Escape'); await page.mouse.up();
+  }
   expect(errors).toEqual([]);
 });
 
