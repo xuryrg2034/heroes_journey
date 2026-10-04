@@ -140,7 +140,7 @@ export function giftModalHtml(run: ForestRunState): string {
       return `<button class="reward-choice talisman-choice" data-gift-pick="${entry.id}"><span class="reward-icon talisman-icon" aria-hidden="true">${TALISMAN_LETTER[entry.id]}</span><span><b>${escapeHtml(entry.name)} <em>${RARITY_LABEL[entry.rarity]}</em></b><small>${escapeHtml(entry.effect)}</small></span></button>`;
     }).join('');
     return `<p class="eyebrow">ДАР У КОСТРА</p><h2 id="modal-title">${items ? 'Выбери расходник' : 'Выбери талисман'}</h2>`
-      + `<p class="modal-copy">${items ? 'Взятый предмет откроется для боёв похода.' : `Цена уже уплачена: ${GIFT_PRICE_TEXT[(option as Extract<GiftOption, { kind: 'deal' }>).price]}. Не взятый талисман в этом походе больше не выпадет.`}</p>`
+      + `<p class="modal-copy">${items ? 'Взятый предмет откроется для боёв похода.' : `Цена — ${GIFT_PRICE_TEXT[(option as Extract<GiftOption, { kind: 'deal' }>).price]} — спишется с выбором талисмана. Не взятый талисман в этом походе больше не выпадет.`}</p>`
       + `<div class="reward-options gift-options" id="gift-picks">${picks}</div>`;
   }
   const buttons = view.options.map(({ index, option, available, reason }) => {

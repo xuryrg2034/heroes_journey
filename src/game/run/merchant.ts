@@ -4,7 +4,8 @@
  *
  * - Currency: crafting resources of any kind (resources.ts). A price is paid unit by unit from the kind the run holds
  *   most of at that moment; a tie goes to the first kind in RESOURCE_KINDS. No choice, so no extra clicks.
- * - Stock of one visit, rolled on entering by the run seed and the node id (a stream of its own, SHOP_SALT): two
+ * - Stock of one visit, rolled on entering from a draw of the run's `merchant` stream (runStreams.ts; saves before
+ *   04.10.2026 — the run seed and the node id), with SHOP_SALT: two
  *   consumables of different kinds, of those open in the run first (one open kind — the other slot is a kind not open
  *   yet; buying it opens it for the run, as a craft does), one talisman from the run's pool (talismanOffers.ts: the same eligibility and
  *   rarity roll as the hard-battle offer), healing and «Закалка». Nothing restocks during the visit.

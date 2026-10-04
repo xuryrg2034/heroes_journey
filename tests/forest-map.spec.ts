@@ -270,8 +270,8 @@ test('a defeat ends the run: the result screen shows row, node, points and won b
   await expect(page.locator('#run-score')).toContainText('Обычные бои ×4');
   await expect(page.locator('#run-score-total')).toHaveText(String(total));
   expect(ended.tally).toMatchObject({ score: total, before: { points: 0, level: 0 }, saved: true });
-  await expect(page.locator('#meta-points')).toHaveText(total >= 100 ? '250 / 300'.replace('250', String(Math.min(total, 299))) : `${total} / 100`);
-  await expect(page.locator('#meta-left')).toHaveText(total >= 100 ? '4' : '5');
+  await expect(page.locator('#meta-points')).toHaveText(total >= 80 ? `${Math.min(total, 299)} / 300` : `${total} / 80`);
+  await expect(page.locator('#meta-left')).toHaveText(total >= 80 ? '4' : '5');
   const lastButton = await page.locator('#modal [data-action="title"]').boundingBox();
   expect(lastButton!.y + lastButton!.height).toBeLessThanOrEqual(720);
   await page.waitForTimeout(600);
@@ -397,8 +397,8 @@ test('the score and the bar of openings: a victory shows its lines and bonuses, 
   test.setTimeout(60_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
   const profile = () => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'));
-  // 95 points gathered: this victory crosses 100 (and more), but opens one level only; the surplus is cut to 299.
-  await page.addInitScript(() => { if (!sessionStorage.getItem('metered')) { localStorage.setItem('ashen-oath-profile-v1', JSON.stringify({ version: 1, trunkCleared: true, meta: { points: 95, level: 0 } })); sessionStorage.setItem('metered', '1'); } });
+  // 75 points gathered: this victory crosses 80 (and more), but opens one level only; the surplus is cut to 299.
+  await page.addInitScript(() => { if (!sessionStorage.getItem('metered')) { localStorage.setItem('ashen-oath-profile-v1', JSON.stringify({ version: 1, trunkCleared: true, meta: { points: 75, level: 0 } })); sessionStorage.setItem('metered', '1'); } });
   await seedRun(page, walk([...TO_JAILER, 'camp-battle', 'camp-rest', 'camp-elite', 'camp-breakthrough']));
   await page.goto('/'); await page.locator('#run-start-button').click();
   await node(page, 'camp-chief').click(); await settled(page);
@@ -410,7 +410,7 @@ test('the score and the bar of openings: a victory shows its lines and bonuses, 
   await expect(page.locator('#run-score')).toContainText('Аскет');
   const ended = parseForestRun(JSON.stringify(await savedRun(page)))!;
   await expect(page.locator('#run-score-total')).toHaveText(String(forestRunScore(ended).total));
-  expect(ended.tally).toMatchObject({ before: { points: 95, level: 0 }, after: { points: 299, level: 1 }, opened: 1, saved: true });
+  expect(ended.tally).toMatchObject({ before: { points: 75, level: 0 }, after: { points: 299, level: 1 }, opened: 1, saved: true });
   await expect(page.locator('#meta-points')).toHaveText('299 / 300');
   await expect(page.locator('#meta-left')).toHaveText('4');
   expect(await profile()).toMatchObject({ meta: { points: 299, level: 1 }, giftFull: true });
@@ -441,7 +441,7 @@ test('the score and the bar of openings: a victory shows its lines and bonuses, 
   await expect(page.locator('#playtest-meta')).toContainText('дар следующего похода: полный');
   await page.locator('[data-action="profile-reset-meta"]').click();
   await expect(page.locator('.playtest-note')).toContainText('Полоса открытий и отметка дара сброшены');
-  await expect(page.locator('#playtest-meta')).toContainText('0 / 100');
+  await expect(page.locator('#playtest-meta')).toContainText('0 / 80');
   expect(await profile()).toMatchObject({ meta: { points: 0, level: 0 }, giftFull: false, trunkCleared: true });
   expect(errors).toEqual([]);
 });

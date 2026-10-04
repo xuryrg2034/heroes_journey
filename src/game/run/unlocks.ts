@@ -10,7 +10,7 @@
 import { TALISMANS, type TalismanId } from '../talismans';
 
 /** Баланс: the cumulative thresholds of levels 1–5 (StS: 300/750/1000/1500/2000 at a victory of about 775). */
-export const UNLOCK_THRESHOLDS: readonly number[] = [100, 300, 450, 700, 900];
+export const UNLOCK_THRESHOLDS: readonly number[] = [80, 300, 450, 700, 900];
 export const UNLOCK_MAX_LEVEL = UNLOCK_THRESHOLDS.length;
 
 export interface UnlockSet { talismans: TalismanId[]; events: string[] }

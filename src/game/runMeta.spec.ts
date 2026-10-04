@@ -184,7 +184,8 @@ function bar() {
   // One level per run, the surplus cut to the next threshold − 1.
   assert(json(applyRunScore({ points: 0, level: 0 }, 1000)) === json({ points: 299, level: 1, opened: 1 }), 'a big run opens one level and keeps 299');
   assert(json(applyRunScore({ points: 299, level: 1 }, 1)) === json({ points: 300, level: 2, opened: 2 }), 'one more point opens the next');
-  assert(json(applyRunScore({ points: 0, level: 0 }, 99)) === json({ points: 99, level: 0, opened: null }), '99 opens nothing');
+  assert(json(applyRunScore({ points: 0, level: 0 }, 79)) === json({ points: 79, level: 0, opened: null }), '79 opens nothing');
+  assert(json(applyRunScore({ points: 0, level: 0 }, 80)) === json({ points: 80, level: 1, opened: 1 }), '80 opens the first level (decision of 04.10.2026)');
   assert(json(applyRunScore({ points: 699, level: 4 }, 5000)) === json({ points: 5699, level: 5, opened: 5 }), 'the last level keeps the points');
   assert(json(applyRunScore({ points: 950, level: 5 }, 10)) === json({ points: 960, level: 5, opened: null }), 'past the last level the points gather, nothing opens');
   // Through the profile: runs' scores add up, one opening per run; no storage — nothing gathers, no error.

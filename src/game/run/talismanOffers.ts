@@ -1,8 +1,8 @@
 /**
- * Offers of talismans and oaths in a forest run (docs/talismans.md, sections 2–4). Pure functions of the run seed, the
- * node id and the run's pool state: the same run always gets the same offer, also after a reload, and the save check
- * replays them. The draws are a stream of their own (TALISMAN_SALT over the node seed): the map, the pools of battles
- * and events and the battles' RNG never draw from it, and it never draws from them.
+ * Offers of talismans and oaths in a forest run (docs/talismans.md, sections 2–4). Pure functions of a draw of the run's
+ * `talismans` stream (runStreams.ts; saves before 04.10.2026 — the node seed) and the run's pool state: the same run
+ * always gets the same offer, also after a reload, and the save check replays them. The map, the pools of battles and
+ * events and the battles' RNG never draw from that stream, and it never draws from them.
  */
 import { mixSeed } from '../items';
 import type { AbilityKind } from '../forestTypes';
