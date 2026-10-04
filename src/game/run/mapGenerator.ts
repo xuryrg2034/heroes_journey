@@ -6,7 +6,8 @@
  * - rows 1–4: the trunk of the authored graph (played only in the first run, playerProfile.ts);
  * - rows 5–8: the trails, a grid of 3 columns walked by TRAIL_PASSES passes from bottom to top;
  * - row 9: the Jailer, the only node: every path meets there; its victory opens the spin;
- * - rows 10–12: two branches, den (beasts → Troll) and camp (goblins → Chief), 2 columns each, BRANCH_PASSES passes;
+ * - rows 10–12: two branches, den (beasts → Troll) and camp (goblins → Chief), 3 columns each (decision of 04.10.2026),
+ *   BRANCH_PASSES passes; on a branch path 0–1 hard battle (two do not fit three rows with a rest 1–3 rows before);
  * - row 13: the branch breakthrough; row 14: the branch boss.
  * A pass steps to the same or a neighbouring column and never crosses an edge already drawn (it goes straight
  * instead), so every node has an entry and an exit.
@@ -32,7 +33,7 @@ export const MAP_GENERATOR_VERSION = 1;
 export const TRAIL_FIRST_ROW = 5, TRAIL_LAST_ROW = 8, TRAIL_COLUMNS = 3, TRAIL_PASSES = 4;
 export const CHECKPOINT_ROW = 9;
 /** Rows and columns of each branch and the passes walked through it. */
-export const BRANCH_FIRST_ROW = 10, BRANCH_LAST_ROW = 12, BRANCH_COLUMNS = 2, BRANCH_PASSES = 3;
+export const BRANCH_FIRST_ROW = 10, BRANCH_LAST_ROW = 12, BRANCH_COLUMNS = 3, BRANCH_PASSES = 4;
 export const BREAKTHROUGH_ROW = 13, BOSS_ROW = 14;
 export const BRANCHES = ['den', 'camp'] as const;
 export type MapBranch = typeof BRANCHES[number];
