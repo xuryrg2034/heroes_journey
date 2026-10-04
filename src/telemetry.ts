@@ -5,6 +5,7 @@ import { forestNode } from './game/run/forestMap';
 import { talisman, type TalismanId } from './game/talismans';
 import type { TalismanOption, TalismanSource } from './game/run/talismanOffers';
 import type { ShopGoodKind, ShopPurchase, ShopStock } from './game/run/merchant';
+import type { GiftKind, GiftOption, GiftOptionKind } from './game/run/runGift';
 
 /**
  * Local playtest telemetry. Nothing leaves the browser: attempts are kept in localStorage only.
@@ -104,6 +105,13 @@ export interface RunTalismanRecord { nodeId: string; source: TalismanSource; off
  * and the resources paid (the healing may cost less than its price), the run seed. Journals written before have none.
  */
 export interface RunShopRecord { nodeId: string; stock: ShopStock; bought: ShopPurchase[]; seed: number; at: number; /** The run's ladder step; absent — 0. */ ladder?: number }
+/**
+ * A start gift taken (docs/roguelike-runs.md, 2а): full or mini, the buttons shown (in order), the button taken, what its
+ * own choice took (a consumable or a talisman), the run seed and whether it was entered. Journals written before have none.
+ */
+export interface RunGiftRecord { kind: GiftKind; options: GiftOption[]; chosen: number; pick?: string; seed: number; seeded?: boolean; at: number }
+/** Per gift button kind over the journal: shown and taken (in the full and the mini gift together). */
+export interface GiftAggregate { option: GiftOptionKind; shown: number; taken: number }
 /** Merchants over the journal: visits, visits with a purchase, purchases and resources spent per good. */
 export interface ShopAggregate { visits: number; buying: number; resources: number; goods: Partial<Record<ShopGoodKind, { count: number; resources: number }>> }
 /** Per talisman over the journal: shown, taken, refused (shown and not taken); plus the battles where it fired. */
@@ -113,7 +121,7 @@ export interface RestAggregate { rests: number; heals: number; crafts: number; h
 /** Choices per event node and option, with how often each outcome came. */
 export interface EventAggregate { nodeId: string; label: string; option: string; count: number; outcomes: Record<string, number> }
 
-interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[]; runTalismans: RunTalismanRecord[]; runShops: RunShopRecord[] }
+interface Journal { version: 1; enabled: boolean; attempts: AttemptRecord[]; runEvents: RunEventRecord[]; runRests: RunRestRecord[]; runTalismans: RunTalismanRecord[]; runShops: RunShopRecord[]; runGifts: RunGiftRecord[] }
 
 export interface BattleAggregate {
   key: string; label: string; attempts: number; visits: number; wins: number; loses: number;
@@ -130,7 +138,7 @@ export interface BattleAggregate {
   chestOpenRate: number | null;
 }
 
-const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [], runTalismans: [], runShops: [] });
+const emptyJournal = (): Journal => ({ version: 1, enabled: true, attempts: [], runEvents: [], runRests: [], runTalismans: [], runShops: [], runGifts: [] });
 let memory: Journal = emptyJournal();
 
 function sanitize(value: unknown): Journal {
@@ -153,6 +161,9 @@ function sanitize(value: unknown): Journal {
   if (Array.isArray(raw.runShops)) {
     journal.runShops = raw.runShops.filter(item => item && typeof item === 'object' && typeof item.nodeId === 'string' && Array.isArray(item.bought)).slice(-MAX_ATTEMPTS);
   }
+  if (Array.isArray(raw.runGifts)) {
+    journal.runGifts = raw.runGifts.filter(item => item && typeof item === 'object' && (item.kind === 'full' || item.kind === 'mini') && Array.isArray(item.options) && typeof item.chosen === 'number').slice(-MAX_ATTEMPTS);
+  }
   return journal;
 }
 function load(): Journal {
@@ -169,7 +180,7 @@ function store(journal: Journal) {
 
 export const telemetryEnabled = () => load().enabled;
 export function setTelemetryEnabled(enabled: boolean) { const journal = load(); journal.enabled = enabled; store(journal); }
-export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; journal.runRests = []; journal.runTalismans = []; journal.runShops = []; store(journal); }
+export function clearTelemetry() { const journal = load(); journal.attempts = []; journal.runEvents = []; journal.runRests = []; journal.runTalismans = []; journal.runShops = []; journal.runGifts = []; store(journal); }
 
 /** Record a choice at a map event (called by the map screen after the run model resolved it). Respects `enabled`. */
 export function recordRunEvent(record: Omit<RunEventRecord, 'at'>) {
@@ -201,6 +212,23 @@ export function recordRunShop(record: Omit<RunShopRecord, 'at'>) {
   if (!journal.enabled) return;
   journal.runShops = [...journal.runShops, { ...structuredClone(record), at: Date.now() }].slice(-MAX_ATTEMPTS);
   store(journal);
+}
+/** Record a start gift taken (called by the map screen after the run model applied it). Respects `enabled`. */
+export function recordRunGift(record: Omit<RunGiftRecord, 'at'>) {
+  const journal = load();
+  if (!journal.enabled) return;
+  journal.runGifts = [...journal.runGifts, { ...structuredClone(record), at: Date.now() }].slice(-MAX_ATTEMPTS);
+  store(journal);
+}
+/** Shown and taken per gift button kind, in the order of the full gift's buttons. */
+export function aggregateGifts(records: RunGiftRecord[]): GiftAggregate[] {
+  const order: GiftOptionKind[] = ['pick-item', 'items', 'energy', 'resources', 'max-hp', 'calm', 'deal', 'oath'], rows = new Map<GiftOptionKind, GiftAggregate>();
+  for (const record of records) record.options.forEach((option, index) => {
+    const row = rows.get(option.kind) ?? { option: option.kind, shown: 0, taken: 0 };
+    row.shown++; if (index === record.chosen) row.taken++;
+    rows.set(option.kind, row);
+  });
+  return [...rows.values()].sort((a, b) => order.indexOf(a.option) - order.indexOf(b.option));
 }
 /** Resources one purchase took. */
 const purchaseCost = (purchase: ShopPurchase) => Object.values(purchase.paid ?? {}).reduce((sum, count) => sum + (typeof count === 'number' ? count : 0), 0);
@@ -313,6 +341,7 @@ export function exportPayload() {
     runRests: journal.runRests, restAggregate: aggregateRests(journal.runRests),
     runTalismans: journal.runTalismans, talismanAggregates: aggregateTalismans(journal.runTalismans),
     runShops: journal.runShops, shopAggregate: aggregateShops(journal.runShops),
+    runGifts: journal.runGifts, giftAggregates: aggregateGifts(journal.runGifts),
     talismanTriggers: { wardSaved: journal.attempts.filter(item => item.wardSaved).length, whetstoneUsed: journal.attempts.filter(item => item.whetstoneUsed).length } };
 }
 export const exportJson = () => JSON.stringify(exportPayload(), null, 2);
@@ -531,12 +560,17 @@ export function playtestHtml(options: { confirmClear?: boolean; notice?: string;
   const shopLine = shops.visits
     ? `<p class="playtest-rests" id="playtest-shops">Торговцы: ${shops.visits} · с покупкой ${shops.buying} · потрачено ресурсов ${shops.resources}${Object.keys(shops.goods).length ? ` (${(Object.entries(shops.goods) as [ShopGoodKind, { count: number; resources: number }][]).map(([good, row]) => `${goodName[good] ?? good} ×${row.count} за ${row.resources}`).join(', ')})` : ''}</p>`
     : '';
+  const giftName: Record<GiftOptionKind, string> = { 'pick-item': '1 из 3 расходников', items: '2 расходника', energy: '+2 энергии', resources: 'ресурсы', 'max-hp': '+1 к макс. HP', calm: 'тихий лес', deal: 'талисман за цену', oath: 'клятва' };
+  const gifts = aggregateGifts(journal.runGifts);
+  const giftLine = journal.runGifts.length
+    ? `<p class="playtest-rests" id="playtest-gifts">Дары: ${journal.runGifts.length} (полных ${journal.runGifts.filter(item => item.kind === 'full').length}) · ${gifts.map(row => `${giftName[row.option] ?? row.option} ${row.taken}/${row.shown}`).join(', ')}</p>`
+    : '';
   const wardSaves = journal.attempts.filter(item => item.wardSaved).length, whetstones = journal.attempts.filter(item => item.whetstoneUsed).length;
   const triggerLine = wardSaves || whetstones ? `<p class="playtest-rests" id="playtest-triggers">Срабатывания талисманов: оберег спас ${wardSaves} · точильный камень в ${whetstones} боях</p>` : '';
   const clear = options.confirmClear
     ? `<div class="playtest-confirm" role="alert"><span>Удалить ${journal.attempts.length} записей?</span><button class="button secondary" data-action="playtest-clear-yes">УДАЛИТЬ</button><button class="text-button" data-action="playtest-clear-no">ОТМЕНА</button></div>`
     : '<button class="text-button" data-action="playtest-clear">ОЧИСТИТЬ</button>';
-  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}${restLine}${shopLine}${talismanTable}${triggerLine}
+  return `<p class="eyebrow">ЛОКАЛЬНЫЙ ЖУРНАЛ · ${journal.attempts.length} / ${MAX_ATTEMPTS} ПОПЫТОК</p><h2 id="modal-title">Плейтест</h2>${table}${eventTable}${restLine}${shopLine}${giftLine}${talismanTable}${triggerLine}
 <div class="playtest-actions"><button class="button secondary" data-action="playtest-download">СКАЧАТЬ JSON</button><button class="button secondary" data-action="playtest-copy">СКОПИРОВАТЬ JSON</button>${clear}</div>
 <p class="playtest-note" aria-live="polite">${escapeHtml(options.notice ?? 'Данные хранятся только в этом браузере и никуда не отправляются.')}</p>
 <p class="playtest-profile" id="playtest-profile">${options.trunkCleared ? 'Профиль: ствол пройден — новый поход начнётся с развилки троп. <button class="text-button" data-action="profile-reset-trunk">СБРОСИТЬ ОТМЕТКУ СТВОЛА</button>' : 'Профиль: ствол не пройден — новый поход начнётся со ствола.'}</p>

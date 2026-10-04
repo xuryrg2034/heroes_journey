@@ -296,7 +296,7 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   expect(await profile()).toBeNull();
   // Entering the first node past the trunk marks it cleared in the profile (a separate key, outside the run save).
   await node(page, 'goblin-archer').click(); await settled(page);
-  expect(await profile()).toEqual({ version: 1, trunkCleared: true, ladder: 0 });
+  expect(await profile()).toEqual({ version: 1, trunkCleared: true, ladder: 0, giftFull: false });
   expect((await savedRun(page)).trunkCleared).toBeUndefined();
   await page.locator('[data-action="pause"]').click();
   await page.locator('#modal [data-action="title"]').click();
@@ -305,6 +305,11 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
   await expect(page.locator('#map-screen')).toBeVisible();
   for (const id of TRUNK) await expect(node(page, id)).toHaveAttribute('data-status', 'skipped');
+  // The start gift waits first (the mini gift: the previous run did not reach the Jailer), then row 5 opens.
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(2);
+  await expect(page.locator('#gift-hint')).toHaveText('Дойди до Тюремщика — у костра будет больше.');
+  await page.locator('#gift-options [data-gift="1"]').click();
+  await expect(page.locator('#map-notice')).toContainText('Дар у костра');
   // The new run walks a generated map: its first choice is every node of row 5.
   const fresh = await savedRun(page), firstRow = fresh.map.nodes.filter((entry: { id: string }) => entry.id.startsWith('r5')).map((entry: { id: string }) => entry.id);
   expect(firstRow.length).toBeGreaterThanOrEqual(2);
@@ -322,13 +327,57 @@ test('the trunk is played once: row 5 marks the profile, a new run starts at the
   await page.locator('[data-action="profile-reset-trunk"]').click();
   await expect(page.locator('.playtest-note')).toContainText('Отметка ствола сброшена');
   await expect(page.locator('#playtest-profile')).toContainText('ствол не пройден');
-  expect(await profile()).toEqual({ version: 1, trunkCleared: false, ladder: 0 });
+  expect(await profile()).toEqual({ version: 1, trunkCleared: false, ladder: 0, giftFull: false });
   await page.locator('[data-action="playtest-close"]').click();
   await page.locator('#run-reset-button').click();
   await page.locator('.run-confirm [data-action="run-reset-yes"]').click();
   await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'available');
   const again = await savedRun(page);
   for (const entry of again.map.nodes.filter((item: { id: string }) => item.id.startsWith('r5'))) await expect(node(page, entry.id)).toHaveAttribute('data-status', 'locked');
+  expect(errors).toEqual([]);
+});
+
+test('the start gift by mouse: a seeded run shows four buttons in 1280x720, a consumable of three opens its own choice, a reload keeps it, the item opens for the run', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message)); failOnDialog(page);
+  // A spread seed whose full gift starts with «выбрать 1 из 3 расходников» (searched, not fixed).
+  let seed = 0;
+  for (let k = 1; !seed && k < 200; k++) {
+    const candidate = Math.imul(k, 2654435761) >>> 0;
+    if (createForestRun(candidate, { map: 'generated', skipTrunk: true, gift: 'full' }).gift!.options[0].kind === 'pick-item') seed = candidate;
+  }
+  expect(seed).toBeGreaterThan(0);
+  await page.addInitScript(() => { if (!sessionStorage.getItem('profiled')) { localStorage.setItem('ashen-oath-profile-v1', JSON.stringify({ version: 1, trunkCleared: true })); sessionStorage.setItem('profiled', '1'); } });
+  await page.goto('/');
+  await page.evaluate(value => (window as any).__PUZZLE_GAME.startForestRun(value), seed);
+  await expect(page.locator('#modal .eyebrow')).toHaveText('ДАР У КОСТРА');
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(4);
+  await expect(page.locator('#gift-options [data-gift="0"]')).toContainText('Выбрать 1 из 3 расходников');
+  await expect(page.locator('#gift-options [data-gift="2"]')).toContainText('Талисман за цену');
+  await expect(page.locator('#gift-options [data-gift="3"]')).toContainText('случайная клятва');
+  await expect(page.locator('#gift-hint')).toHaveCount(0);
+  expect(await noScroll(page)).toBe(true);
+  const last = await page.locator('#gift-options [data-gift="3"]').boundingBox();
+  expect(last!.y + last!.height).toBeLessThanOrEqual(720);
+  // Headless frames start with the first input: a pointer move lets the window's fade-in finish before the shot.
+  await page.mouse.move(5, 5); await page.waitForTimeout(400); await page.screenshot({ path: 'artifacts/forest-map-gift.png' });
+  // The row-5 nodes wait for the gift.
+  expect((await savedRun(page)).pending).toEqual({ kind: 'gift' });
+  await page.locator('#gift-options [data-gift="0"]').click();
+  await expect(page.locator('#gift-picks .reward-choice')).toHaveCount(3);
+  const items: string[] = (await savedRun(page)).gift.options[0].items;
+  // A reload keeps the open own choice of the button.
+  await page.reload(); await page.locator('#run-start-button').click();
+  await expect(page.locator('#gift-picks .reward-choice')).toHaveCount(3);
+  await page.locator(`#gift-picks [data-gift-pick="${items[1]}"]`).click();
+  await expect(page.locator('#map-notice')).toContainText('Дар у костра');
+  const run = await savedRun(page);
+  expect(run.gift).toMatchObject({ kind: 'full', chosen: 0, pick: items[1] });
+  expect(run.tools.items).toEqual([items[1]]);
+  expect(run.resources.inventory[items[1]]).toBe(1);
+  await expect(page.locator('.map-node[data-status="available"]').first()).toBeVisible();
+  const journal = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), JOURNAL_KEY);
+  expect(journal.runGifts.at(-1)).toMatchObject({ kind: 'full', chosen: 0, pick: items[1], seed, seeded: true });
   expect(errors).toEqual([]);
 });
 
@@ -354,6 +403,10 @@ test('a generated map is walked by mouse: a pooled battle shown before entering,
   await page.goto('/');
   await page.evaluate(value => (window as any).__PUZZLE_GAME.startForestRun(value), seed);
   await expect(page.locator('#map-board')).toHaveAttribute('data-map', 'generated');
+  // A run with an entered seed gets the full gift; its second button (resources, +1 maximum HP or the calm) opens no
+  // tool, so the pooled battles stay as the plain run of the seed shows them.
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(4);
+  await page.locator('#gift-options [data-gift="1"]').click();
   const map = (await savedRun(page)).map;
   expect(map).toEqual({ kind: 'generated', ...JSON.parse(serializeForestRun(createForestRun(seed, { map: 'generated' }))).map });
   // The available node already names its pooled battle and its feature; the event two steps away is still a pool.
@@ -437,8 +490,12 @@ test('the Troll is a real battle node; beating him wins the run; reset asks for 
   // Entering the Troll's node (past the trunk) marked the trunk as cleared: the new run starts at the trail fork.
   expect(fresh.skippedTrunk).toBe(true);
   await expect(node(page, 'trunk-1')).toHaveAttribute('data-status', 'skipped');
-  // The new run walks a generated map and starts at its first trail row.
+  // The new run walks a generated map and starts at its first trail row, after the start gift: the won run reached the
+  // Jailer, so the gift is the full one.
   expect(fresh.map.kind).toBe('generated');
+  await expect(page.locator('#gift-options .gift-choice')).toHaveCount(4);
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-profile-v1') ?? 'null'))).giftFull).toBe(true);
+  await page.locator('#gift-options [data-gift="1"]').click();
   await expect(node(page, fresh.map.nodes.find((entry: { id: string }) => entry.id.startsWith('r5')).id)).toHaveAttribute('data-status', 'available');
   // The same confirmation on the map.
   await page.locator('.map-actions [data-action="run-reset"]').click();

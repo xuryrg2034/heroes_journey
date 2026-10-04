@@ -315,6 +315,24 @@ async function ladderStep() {
 eventChoices();
 restChoices();
 shopVisits();
+/** Start gifts: the kind, the buttons shown, the button and its own choice taken; summed per button kind; old journals load. */
+function giftRecords() {
+  telemetry.clearTelemetry();
+  telemetry.recordRunGift({ kind: 'full', seed: 5, chosen: 2, pick: 'whetstone', options: [{ kind: 'energy', amount: 2 }, { kind: 'calm', battles: 2 },
+    { kind: 'deal', reward: { kind: 'pick-talisman', talismans: ['dew-flask', 'whetstone'] }, price: 'rest' }, { kind: 'oath', oath: 'oath-hunger' }] });
+  telemetry.recordRunGift({ kind: 'mini', seed: 6, chosen: 1, options: [{ kind: 'items', items: ['bomb', 'frost'] }, { kind: 'max-hp', amount: 1 }] });
+  const payload = telemetry.exportPayload();
+  assert(payload.runGifts.length === 2 && payload.runGifts[0].pick === 'whetstone' && payload.runGifts[1].kind === 'mini', 'gifts are exported in order with the choice');
+  const deal = payload.giftAggregates.find(row => row.option === 'deal'), energy = payload.giftAggregates.find(row => row.option === 'energy');
+  assert(deal?.shown === 1 && deal.taken === 1 && energy?.shown === 1 && energy.taken === 0 && payload.giftAggregates.find(row => row.option === 'max-hp')?.taken === 1, `buttons summed: ${JSON.stringify(payload.giftAggregates)}`);
+  assert(telemetry.playtestHtml().includes('id="playtest-gifts"'), 'the playtest screen sums the gifts');
+  storage.set(telemetry.TELEMETRY_KEY, JSON.stringify({ version: 1, enabled: true, attempts: [], runEvents: [] }));
+  assert(telemetry.exportPayload().runGifts.length === 0 && !telemetry.playtestHtml().includes('playtest-gifts'), 'an old journal without gifts loads');
+  telemetry.clearTelemetry();
+  console.log('PASS start gifts are recorded, exported and summed per button; old journals load');
+}
+
+giftRecords();
 await ladderStep();
 await talismans();
 await leaveAtOnce();

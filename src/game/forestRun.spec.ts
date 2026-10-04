@@ -69,7 +69,7 @@ function settle(e: ForestEngine, run: ForestRunState): ForestRunState {
  * the battle open; `lost` is the run after resolveBattle with the engine's real defeat outcome.
  */
 function assertRunLost(lost: ForestRunState, before: ForestRunState, battleScore: number) {
-  const id = before.pending!.nodeId;
+  const id = before.pending!.nodeId!;
   assert(lost.result?.outcome === 'defeat' && lost.result.nodeId === id && lost.pending === null, `${id}: the defeat ends the run at this node`);
   assert(json(lost.resources) === json(before.resources) && lost.currentNodeId === before.currentNodeId && json(lost.visited) === json(before.visited),
     `${id}: the ended run keeps the entry resources and the route`);

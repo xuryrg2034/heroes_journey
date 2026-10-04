@@ -70,7 +70,8 @@
     "test:rest-craft": "tsx src/game/restCraft.spec.ts",
     "test:merchant": "tsx src/game/merchant.spec.ts",
     "test:ladder-run": "tsx src/game/ladderRun.spec.ts",
-    "test:run-streams": "tsx src/game/runStreams.spec.ts"
+    "test:run-streams": "tsx src/game/runStreams.spec.ts",
+    "test:run-gift": "tsx src/game/runGift.spec.ts"
   },
   "dependencies": {
     "pixi.js": "^8.14.0"

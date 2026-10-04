@@ -54,14 +54,16 @@ export function oathCount(state: Pick<ForestState, 'runNode'>): number {
 
 /**
  * One-battle modifiers of the run (event catalogue, docs/events.md section 5): set by an event, they act on the next
- * map battle only and are dropped after it. They stack with the talismans that do the same.
+ * map battle only and are dropped after it. They stack with the talismans that do the same. `calm` comes from the
+ * start gift (docs/roguelike-runs.md, 2а): «в первых 2 боях злость до целей 0» — the run passes it to two battles.
  */
-export type BattleModifier = 'first-chain-power' | 'wrath' | 'start-elite' | 'early-reinforcement';
+export type BattleModifier = 'first-chain-power' | 'wrath' | 'start-elite' | 'early-reinforcement' | 'calm';
 export const BATTLE_MODIFIERS: Record<BattleModifier, string> = {
   'first-chain-power': 'Первая цепь начинается с запасом силы 1',
   wrath: 'До целей злятся 2 врага за ход',
   'start-elite': 'Бой начинается со случайной элитой',
   'early-reinforcement': 'Первое подкрепление после целей на 1 ход раньше',
+  calm: 'До целей враги не злятся',
 };
 export const isBattleModifier = (value: unknown): value is BattleModifier => typeof value === 'string' && Object.hasOwn(BATTLE_MODIFIERS, value);
 const hasModifier = (state: Pick<ForestState, 'runNode'>, modifier: BattleModifier) => !!state.runNode?.modifiers?.includes(modifier);
@@ -77,3 +79,5 @@ export const reinforcementShift = (state: Pick<ForestState, 'runNode'>): number 
   (hasTalisman(state, 'hourglass') ? 1 : 0) - (hasModifier(state, 'early-reinforcement') ? 1 : 0);
 /** The battle starts with a random elite (the event modifier). */
 export const startsWithElite = (state: Pick<ForestState, 'runNode'>): boolean => hasModifier(state, 'start-elite');
+/** No calm enemy becomes angry before the goals (the gift's modifier): it wins over the anger that talismans and events add. */
+export const calmBeforeGoals = (state: Pick<ForestState, 'runNode'>): boolean => hasModifier(state, 'calm');

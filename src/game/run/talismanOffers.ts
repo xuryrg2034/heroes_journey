@@ -47,6 +47,23 @@ export function rarityOfRoll(roll: number): Exclude<TalismanRarity, 'oath'> {
 const unit = (value: number) => value / 0x100000000;
 
 /**
+ * Up to `count` different talismans of `rarity` from the pool (the start gift, runGift.ts): an empty rarity gives way to
+ * the next one (common → uncommon → rare → common), with all three empty the slot stays empty (no «пустышка»); oaths
+ * draw among the eligible oaths only. `exclude` are not drawn either. `base` is one draw of the caller's stream.
+ */
+export function talismanDraw(base: number, rarity: TalismanRarity, count: number, pool: TalismanPool, exclude: readonly TalismanId[] = []): TalismanId[] {
+  const drawn: TalismanId[] = [];
+  for (let slot = 0; slot < count; slot++) {
+    const eligible = (of: TalismanRarity) => TALISMANS.filter(entry => entry.rarity === of && !exclude.includes(entry.id) && talismanEligible(entry.id, pool, drawn)).map(entry => entry.id);
+    let candidates: TalismanId[] = [];
+    if (rarity === 'oath') candidates = eligible('oath');
+    else for (let step = 0, at = RARITIES.indexOf(rarity); step < RARITIES.length && !candidates.length; step++) candidates = eligible(RARITIES[(at + step) % RARITIES.length]);
+    if (candidates.length) drawn.push(candidates[mixSeed(mixSeed(base >>> 0, slot), PICK_SALT) % candidates.length]);
+  }
+  return drawn;
+}
+
+/**
  * The offer of a node: up to TALISMAN_OFFER_SIZE different talismans (or oaths). A talisman option rolls its rarity;
  * an empty rarity gives way to the next one (common → uncommon → rare → common), and with all three empty the option
  * becomes the «пустышка». The «пустышка» appears at most once: a small pool offers fewer talismans plus one «пустышка».

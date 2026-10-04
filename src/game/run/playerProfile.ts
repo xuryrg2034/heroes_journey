@@ -3,6 +3,8 @@
  * - The trunk (map rows 1–4, the training battles) was cleared once, so later runs start at the trail fork (decision of
  *   04.10.2026, docs/roguelike-runs.md, section 2).
  * - The open step of «Ступени клятвы» (ladder.ts, section 6): 0 at first; a victory on step N opens N+1, up to LADDER_MAX.
+ * - The previous run reached the Jailer (section 2а): the next run gets the full start gift, else the mini one. Set at the
+ *   end of every run (victory or defeat); a run with an entered seed neither reads nor changes it.
  * Storage is optional and every access is guarded: without it the profile reads as a first-time player's and nothing is
  * remembered, so the game plays the trunk and offers step 0 only.
  */
@@ -20,9 +22,11 @@ export interface PlayerProfile {
   trunkCleared: boolean;
   /** The highest step of «Ступени клятвы» a new run may choose (0 — none yet). Absent in profiles before the ladder: 0. */
   ladder: number;
+  /** The previous finished run reached the Jailer (map row GIFT_FULL_ROW) or further: the full start gift. Absent: false. */
+  giftFull: boolean;
 }
 
-export const emptyProfile = (): PlayerProfile => ({ version: PLAYER_PROFILE_VERSION, trunkCleared: false, ladder: 0 });
+export const emptyProfile = (): PlayerProfile => ({ version: PLAYER_PROFILE_VERSION, trunkCleared: false, ladder: 0, giftFull: false });
 
 /** Read a stored profile; anything malformed reads as a first-time player. */
 export function parsePlayerProfile(text: string | null): PlayerProfile {
@@ -30,7 +34,7 @@ export function parsePlayerProfile(text: string | null): PlayerProfile {
   try {
     const value = JSON.parse(text) as Partial<PlayerProfile> | null;
     if (!value || typeof value !== 'object' || value.version !== PLAYER_PROFILE_VERSION) return emptyProfile();
-    return { version: PLAYER_PROFILE_VERSION, trunkCleared: value.trunkCleared === true, ladder: isLadderStep(value.ladder) ? value.ladder : 0 };
+    return { version: PLAYER_PROFILE_VERSION, trunkCleared: value.trunkCleared === true, ladder: isLadderStep(value.ladder) ? value.ladder : 0, giftFull: value.giftFull === true };
   } catch { return emptyProfile(); }
 }
 
@@ -62,6 +66,13 @@ export interface PlayerProfileStore {
    * or null when nothing new opened or it could not be stored.
    */
   winLadder(step: number): number | null;
+  /**
+   * A run ended (victory or defeat): remember whether it reached the Jailer, for the gift of the next run. A run with an
+   * entered seed changes nothing. False when it could not be stored.
+   */
+  endRun(run: { reachedJailer: boolean; seeded: boolean }): boolean;
+  /** The kind of the start gift a new run gets: an entered seed — always the full gift (the profile is not read). */
+  giftKind(seeded: boolean): 'full' | 'mini';
 }
 
 function browserStorage(): RunStorage | null {
@@ -83,5 +94,7 @@ export function createPlayerProfileStore(storage: RunStorage | null = browserSto
       const profile = read(), open = ladderAfterVictory(profile.ladder, isLadderStep(step) ? step : 0);
       return open > profile.ladder && write({ ...profile, ladder: open }) ? open : null;
     },
+    endRun: ({ reachedJailer, seeded }) => !seeded && write({ ...read(), giftFull: reachedJailer }),
+    giftKind: seeded => seeded || read().giftFull ? 'full' : 'mini',
   };
 }

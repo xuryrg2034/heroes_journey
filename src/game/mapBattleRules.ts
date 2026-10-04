@@ -5,7 +5,7 @@
  * numbers or emits events. Every number marked «баланс» is a balance constant, to be tuned by playtests.
  */
 import { definitionOf, hasTag, type EnemyId } from './enemyDefinitions';
-import { extraAngerBeforeGoals, hasTalisman } from './talismans';
+import { calmBeforeGoals, extraAngerBeforeGoals, hasTalisman } from './talismans';
 import { isCellAlive } from './cellLife';
 import { deviceAt, pitAt } from './devices';
 import type { ForestCell, ForestState } from './forestTypes';
@@ -42,8 +42,9 @@ export function runPressureActive(state: Pick<ForestState, 'runNode'>): boolean 
 function angerAt(state: PressureState, turn: number): number {
   if (!runPressureActive(state)) return 1;
   const goal = state.customLevel?.goalCompletedTurn ?? null;
-  // The Oath of wrath (talismans.ts): 2 per turn before the goals instead of 1 (a living boss still holds the anger).
-  if (goal === null) return pressureBossLives(state.board) ? 0 : RUN_ANGER_BEFORE_GOALS + extraAngerBeforeGoals(state);
+  // The Oath of wrath (talismans.ts): 2 per turn before the goals instead of 1 (a living boss still holds the anger); the
+  // gift's calm (the first two battles past it): none before the goals.
+  if (goal === null) return pressureBossLives(state.board) || calmBeforeGoals(state) ? 0 : RUN_ANGER_BEFORE_GOALS + extraAngerBeforeGoals(state);
   return RUN_ANGER_BEFORE_GOALS + Math.max(0, turn - goal);
 }
 /** A living Troll or Chief on the board: the boss is the pressure (no new anger before its battle's goals). */
