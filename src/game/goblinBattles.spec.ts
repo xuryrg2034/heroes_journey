@@ -162,10 +162,14 @@ async function replayMatches(play: Play) {
   }
 }
 
+/** Goblin trail battles of 04.10.2026 (pools of rows 5–8, no fixed node): verified by goblinTrailBattles.spec.ts. */
+const TRAIL_BATCH = ['goblin-watch-relief', 'goblin-pike-gate'];
+const DESIGNED = GOBLIN_BATTLES.filter(battle => !TRAIL_BATCH.includes(battle.id));
+
 function layouts() {
   const frames = new Set<string>();
-  assert(GOBLIN_BATTLES.length === Object.keys(ROWS).length, 'six goblin battles');
-  for (const battle of GOBLIN_BATTLES) {
+  assert(DESIGNED.length === Object.keys(ROWS).length, 'six goblin battles');
+  for (const battle of DESIGNED) {
     const row = ROWS[battle.id], { definition } = battle;
     assert(row !== undefined, `${battle.id}: has a designed row`);
     assert(validateNodeBattle(battle).length === 0, `${battle.id}: ${validateNodeBattle(battle).join(' ')}`);
@@ -182,7 +186,7 @@ function layouts() {
 
 /** A cat arriving with 1 HP has at least one safe first move in every battle: no death from the first turn. */
 function woundedArrival() {
-  for (const battle of GOBLIN_BATTLES) {
+  for (const battle of DESIGNED) {
     const play = new Play(battle.id, SEEDS[0], { hp: 1, maxHp: 5, energy: 0 });
     const safe = play.g.availableMoves(16).some(path => { const p = play.g.preview(path); return p.valid && !p.playerDies && p.damage === 0; });
     assert(safe, `${battle.id}: a safe first chain exists at 1 HP`);

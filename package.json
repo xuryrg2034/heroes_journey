@@ -38,6 +38,7 @@
     "test:forest-run": "tsx src/game/forestRun.spec.ts",
     "test:troll": "tsx src/game/troll.spec.ts",
     "test:goblin-battles": "tsx src/game/goblinBattles.spec.ts",
+    "test:goblin-trails": "tsx src/game/goblinTrailBattles.spec.ts",
     "test:camp-branch": "tsx src/game/campBranchBattles.spec.ts",
     "test:beast-battles": "tsx src/game/beastBattles.spec.ts",
     "test:den-branch": "tsx src/game/denBranchBattles.spec.ts",

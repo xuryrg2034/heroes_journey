@@ -152,4 +152,54 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
     completion: 'exit',
     seed: 9606,
   }),
+  // Trail pool, rows 5–8 (04.10.2026, not bound to a node), turn: the archer's rest swap. The archer X on the corner
+  // tower A1 (5 HP, beyond a jump) has no neighbour of its color; after its volley it rests and swaps with the side
+  // neighbour nearer the cat. A first turn ending east of the diagonal brings it down to B1, beside the moss lane D3–C2
+  // and the door; south of it, to A2, away from both (those ends lie beside the armed goblins D6, E7, F7). The guard Q
+  // is out of reach on the first turn and falls to the red lane E1/E2 on the second.
+  // Exit «nearby»: the moss chain that kills the archer on B1 continues into C1.
+  authoredLesson({
+    id: 'goblin-watch-relief', name: 'Сменный дозор',
+    description: 'Лучник засел на угловой вышке. Отстреляв, он спускается сменить караульного.',
+    hint: 'После выстрела лучник отдыхает и меняется местами с соседом — с той стороны, где стоит кот. Подгадай, куда он спустится.',
+    rows: [
+      'XKDORB',
+      'B#GQRO',
+      'OGGGOB',
+      'BOGOBH',
+      'OBRBOR',
+      'BROrBO',
+      'OBBOrb',
+    ],
+    legend: {
+      X: { kind: 'ranged', color: 1, hp: 5, armed: true, target: true },
+      K: { color: 3, hp: 2 },
+      Q: { color: 0, hp: 2, target: true },
+      D: { door: true },
+    },
+    seed: 9611,
+  }),
+  // Trail pool, rows 5–8 (04.10.2026, not bound to a node), turn: armed goblins strike their four sides only. Both
+  // guards stand between two pikes, so ending on a guard's cell costs two blows: the trail guard P is taken in passing
+  // (the red lane runs through F4 to E4 or F5), the gate guard Q last — that chain continues into the door C1 and wins
+  // before the enemies answer. Exit «nearby».
+  authoredLesson({
+    id: 'goblin-pike-gate', name: 'Копья у ворот',
+    description: 'Караульного у ворот засеки стерегут копейщики. Второй караульный стоит у тропы.',
+    hint: 'Вооружённые гоблины бьют по четырём сторонам, а наискосок не достают. Не заканчивай цепь рядом с ними.',
+    rows: [
+      'OBDR#OG',
+      'RgQoROB',
+      'O#BBOgG',
+      'GORBRPo',
+      'BRBBRRB',
+      'OBHRBOG',
+    ],
+    legend: {
+      Q: { color: 2, hp: 3, target: true },
+      P: { color: 0, hp: 2, target: true },
+      D: { door: true },
+    },
+    seed: 9612,
+  }),
 ];

@@ -53,6 +53,9 @@ export const BATTLE_POOLS: Readonly<Record<string, BattlePoolEntry>> = {
   'goblin-shield-flank': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'sentinel', feature: 'Щитоносец' },
   // The last target is taken by a jump into the niche (docs/levels/forest-nodes-goblins.md).
   'goblin-shaman-rite': { rows: [7, 8], type: 'battle', branch: 'goblins', requires: ['jump'], main: 'shaman', feature: 'Шаман' },
+  // Goblin trail battles of 04.10.2026 (docs/levels/forest-nodes-goblins.md, «Новые бои тропы»): chains only.
+  'goblin-watch-relief': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'archer', feature: 'Лучник на вышке' },
+  'goblin-pike-gate': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'goblin', feature: 'Копейщики у ворот' },
   'three-banners': { rows: [8, 8], type: 'battle', branch: 'shared', requires: [], main: 'goblin', feature: 'Кристалл в проломе' },
   // The checkpoint, row 9.
   'jailer-gate': { rows: [9, 9], type: 'checkpoint', branch: 'shared', requires: [], main: 'jailer', feature: 'Тюремщик за щитом' },
