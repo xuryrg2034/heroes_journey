@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunMap, forestRunScore, forestRunView, parseForestRun, resolveBattle, restHeal, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
+import { availableNodes, chooseEventOption, chooseFindItem, chooseGift, chooseTalisman, createForestRun, enterNode, eventView, forestRunMap, forestRunScore, forestRunView, parseForestRun, resolveBattle, restHeal, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from '../src/game/run/forestRun';
 
 // Forest map screen (docs/biomes/forest-map.md). The run model is tested in src/game/forestRun.spec.ts and
 // src/game/mapGenerator.spec.ts; here the real page is driven: title entry, map, node battles, rest, find, reload,
@@ -446,14 +446,26 @@ test('the score and the bar of openings: a victory shows its lines and bonuses, 
   expect(errors).toEqual([]);
 });
 
-/** A spread seed whose generated map offers, past the trunk, a first battle followed by an event (searched, not fixed). */
+/**
+ * A spread seed whose generated map offers, past the trunk, a first battle followed by an event whose first available
+ * option completes it (not an escalation's attempt or a reward battle): the run of the page is replayed with the pure
+ * model — level 0 of the bar, the full gift of an entered seed with its second button — to know the event it meets.
+ */
 function generatedRoute() {
-  for (let k = 1; k < 200; k++) {
+  for (let k = 1; k < 400; k++) {
     const seed = Math.imul(k, 2654435761) >>> 0, run = createForestRun(seed, { map: 'generated', skipTrunk: true });
     const nodes = new Map(forestRunView(run).nodes.map(entry => [entry.node.id, entry.node]));
     for (const first of availableNodes(run)) {
       const event = first.next.map(id => nodes.get(id)!).find(next => next.type === 'event');
-      if (event) return { seed, first, event };
+      if (!event) continue;
+      const gifted = chooseGift(createForestRun(seed, { map: 'generated', skipTrunk: true, gift: 'full', seeded: true, unlocks: 0 }), 1);
+      if (!gifted.ok || gifted.run.pending) continue;
+      const entered = enterNode(gifted.run, first.id);
+      if (!entered.ok || entered.run.pending?.kind !== 'battle') continue;
+      const entry = entered.run.pending.entry, won = resolveBattle(entered.run, { nodeId: first.id, won: true, player: { ...entry.player }, inventory: { ...entry.inventory } });
+      const atEvent = won.ok && won.run.pending === null ? enterNode(won.run, event.id) : null;
+      const view = atEvent?.ok ? eventView(atEvent.run) : null, option = view?.options.find(entry => entry.available);
+      if (option && !option.attempts && !option.battle) return { seed, first, event };
     }
   }
   throw new Error('no generated map with a battle and then an event');

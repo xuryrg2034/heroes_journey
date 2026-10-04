@@ -13,8 +13,9 @@
  */
 import { ForestEngine } from './forestEngine';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestNodeSeed, forestRunMap, forestRunView,
-  parseForestRun, resolveBattle, restHeal, serializeForestRun, shopBuy, shopLeave, shopView, type ForestRunState, type ForestRunStep } from './run/forestRun';
+  parseForestRun, resolveBattle, restHeal, runNode, serializeForestRun, shopBuy, shopLeave, shopView, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { talismanOffer } from './run/talismanOffers';
+import { eventOption, forestEvent } from './run/forestEvents';
 import { emptyMaterials } from './resources';
 import { RUN_STREAMS } from './run/runStreams';
 
@@ -89,9 +90,14 @@ function sameSeedSameRun() {
     assert(json(first.at(-1)) === json(reloaded.at(-1)), `seed ${k}: reloading after every step gives the same run`);
     const end = first.at(-1)!;
     shops += end.streams!.merchant; events += end.streams!.events; offers += end.streams!.talismans;
-    // Counters are the uses: pool battles and event nodes entered, offers made, merchants visited.
+    // Counters are the uses: pool battles (an event's reward battle too) and event nodes entered, offers made and
+    // talismans an event gave, merchants visited.
+    const eventTalismans = end.eventChoices.filter(choice => {
+      const node = runNode(end, choice.nodeId)!, event = node.content.kind === 'event' ? forestEvent(node.content.eventId)! : undefined;
+      return !!event && !!eventOption(event, choice.option)!.outcomes[choice.outcome].effect.talisman;
+    }).length;
     assert(end.streams!.pool === end.picks.filter(pick => pick.battleId).length && end.streams!.merchant === end.shops.length
-      && end.streams!.talismans === end.talismanChoices.length, `seed ${k}: every stream counts its uses`);
+      && end.streams!.talismans === end.talismanChoices.length + eventTalismans, `seed ${k}: every stream counts its uses`);
   }
   assert(shops > 0 && events > 0 && offers >= 10, `the walks met merchants (${shops}), events (${events}) and offers (${offers})`);
   console.log(`PASS the same seed and actions give the same run; a reload after every step changes nothing (10 seeds: ${shops} merchants, ${events} events, ${offers} offers)`);
@@ -156,8 +162,14 @@ function independence() {
       }
     }
     if (eventSeeds < 4 && map.nodes.some(node => node.type === 'event')) {
-      // Two different options of the first event: the outcome of the event differs, the other streams do not.
-      const options = (run: ForestRunState) => eventView(run)!.options.filter(option => option.available).map(option => option.id);
+      // Two different options of the first event: the outcome of the event differs, the other streams do not. Only options
+      // that draw from no other stream and leave the stock as it is (no talisman, attempt, battle or resources: the stock
+      // decides which events may come later) — those that do are checked in forestEvents.spec.ts.
+      const plain = (run: ForestRunState, id: string) => {
+        const view = eventView(run)!, option = eventOption(view.event, id)!;
+        return !option.battle && !option.escalation && !option.cost && option.outcomes.every(outcome => !outcome.effect.talisman && !outcome.effect.resources && !outcome.effect.materials);
+      };
+      const options = (run: ForestRunState) => { const list = eventView(run)!.options.filter(option => option.available && plain(run, option.id)).map(option => option.id); return list.length ? list : [eventView(run)!.options.find(option => option.available)!.id]; };
       const { a, b } = divergent(seed, 'event', { event: run => options(run)[0], shop: () => [] }, { event: run => options(run).at(-1)!, shop: () => [] });
       const end = { a: a.at(-1)!, b: b.at(-1)! };
       if (end.a.eventChoices.length && end.a.eventChoices[0].option !== end.b.eventChoices[0].option) {

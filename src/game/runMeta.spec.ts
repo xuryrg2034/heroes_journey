@@ -247,9 +247,9 @@ function gating() {
   const open = seenAt(5);
   const late: TalismanId[] = ['millstone-shard', 'hourglass', 'oath-wrath'];
   assert(late.every(id => open.talismans.has(id)) && open.events.has('goblin-cache'), `level 5: the opened talismans, oath and event come (${[...open.talismans].join(', ')}; ${[...open.events].join(', ')})`);
-  // An opened event that is not in the game yet (levels 4–5) changes nothing: the map meets only events that exist.
-  assert(unlockedAt(5).events.some(id => !FOREST_EVENTS[id]) && [...open.events].every(id => FOREST_EVENTS[id]), 'events not in the game wait without breaking the run');
-  console.log(`PASS closed talismans, oaths and events never come (level 0, 40 runs); opened ones come (level 5); events still missing in the game wait`);
+  // The map meets only events that exist in the game (an opened id without an event would wait).
+  assert([...open.events].every(id => FOREST_EVENTS[id]) && unlockedAt(5).events.every(id => CATALOGUE_EVENTS[id]), 'the map meets only events of the game');
+  console.log(`PASS closed talismans, oaths and events never come (level 0, 40 runs); opened ones come (level 5); the map meets only events of the game`);
 }
 
 // ---------- Saves ----------

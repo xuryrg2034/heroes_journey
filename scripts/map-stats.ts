@@ -4,17 +4,22 @@
  *   npm run analyze:map                 # 1000 spread seeds
  *   npm run analyze:map -- --seeds 5000
  *   npm run analyze:map -- --ladder 1   # maps of a run on a step of «Ступени клятвы» (step 1: more hard battles)
+ *   npm run analyze:map -- --seeds 20000 --maps-only   # the maps and the generator's attempts only, no random runs
  * Battles are resolved as won with the entry resources (no engine): the numbers are about the map and the pools,
  * never about how a battle is played.
  */
 import { battlePoolEntry } from '../src/game/run/battlePools';
 import type { ForestMapNode, ForestNodeType } from '../src/game/run/forestMap';
 import { availableNodes, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventView, forestRunView, resolveBattle, restHeal, runNode, shopLeave, type ForestRunState } from '../src/game/run/forestRun';
+import { generateForestMap, type GenerationStats } from '../src/game/run/mapGenerator';
+import { forestEvent } from '../src/game/run/forestEvents';
+import { LADDER_HARD_FACTOR } from '../src/game/ladder';
 
 const argSeeds = process.argv.indexOf('--seeds');
 const COUNT = argSeeds > 0 ? Number(process.argv[argSeeds + 1]) : 1000;
 const argLadder = process.argv.indexOf('--ladder');
 const LADDER = argLadder > 0 ? Number(process.argv[argLadder + 1]) : 0;
+const MAPS_ONLY = process.argv.includes('--maps-only');
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
 const SEEDS = Array.from({ length: COUNT }, (_, k) => spread(k + 1));
 const TYPES: ForestNodeType[] = ['battle', 'hard', 'rest', 'find', 'event', 'shop'];
@@ -23,6 +28,8 @@ const SECTIONS = { 'тропы, ряды 6–8': [6, 7, 8], 'ветки, ряд�
 type Section = keyof typeof SECTIONS;
 const median = (list: number[]) => { const sorted = [...list].sort((a, b) => a - b); return sorted.length ? sorted[sorted.length >> 1] : 0; };
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+// Large seed counts give millions of routes: no spread into Math.min/max (call stack).
+const least = (list: number[]) => list.reduce((a, b) => Math.min(a, b), Infinity), most = (list: number[]) => list.reduce((a, b) => Math.max(a, b), -Infinity);
 const isBattle = (node: ForestMapNode) => !['rest', 'find', 'event', 'shop'].includes(node.type);
 
 const byRow = new Map<number, Record<string, number>>();
@@ -30,11 +37,16 @@ const nodeCounts: number[] = [], starts: number[] = [], routesToBoss: number[] =
 const shares = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, Object.fromEntries(TYPES.map(type => [type, [] as number[]]))])) as Record<Section, Record<string, number[]>>;
 const battlesWithTrunk: number[] = [], eventsPerRoute: number[] = [], shopsPerRoute: number[] = [], shopsPerMap: number[] = [];
 let mapsWithShopRoute = 0, consecutiveShops = 0, routesWithHard = 0, routeCount = 0;
-const hardPerMap: number[] = [];
+const hardPerMap: number[] = [], branchEventsPerRoute: number[] = [];
+const worst: GenerationStats = { trails: 0, den: 0, camp: 0 }, attemptsOver1 = { trails: 0, den: 0, camp: 0 };
 const freeTotal = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, 0])) as Record<Section, number>;
 const freeByType = Object.fromEntries(Object.keys(SECTIONS).map(section => [section, Object.fromEntries(TYPES.map(type => [type, 0]))])) as Record<Section, Record<string, number>>;
 
 for (const seed of SEEDS) {
+  // The generator's attempts per section (a new walk of the section's passes after LAYOUT_ATTEMPTS failed layouts).
+  const stats: GenerationStats = { trails: 0, den: 0, camp: 0 };
+  generateForestMap(seed, stats, LADDER >= 1 ? { hardFactor: LADDER_HARD_FACTOR } : {});
+  for (const part of ['trails', 'den', 'camp'] as const) { worst[part] = Math.max(worst[part], stats[part]); if (stats[part] > 1) attemptsOver1[part]++; }
   const run = createForestRun(seed, { map: 'generated', skipTrunk: true, ladder: LADDER });
   const nodes = forestRunView(run).nodes.map(entry => entry.node).filter(node => node.lane !== 'trunk');
   const byId = new Map(nodes.map(node => [node.id, node]));
@@ -60,6 +72,7 @@ for (const seed of SEEDS) {
     }
     battlesWithTrunk.push(4 + route.filter(isBattle).length);
     eventsPerRoute.push(route.filter(node => node.type === 'event').length);
+    branchEventsPerRoute.push(route.filter(node => node.type === 'event' && node.row >= 10).length);
     shopsPerRoute.push(route.filter(node => node.type === 'shop').length);
   }
 }
@@ -80,19 +93,22 @@ for (const section of Object.keys(SECTIONS) as Section[]) {
   for (const type of TYPES) {
     const list = shares[section][type], avg = list.reduce((a, b) => a + b, 0) / list.length;
     if (!freeByType[section][type]) continue;
-    console.log(`| ${section} | ${type} | ${pct(freeByType[section][type] / freeTotal[section])} | ${pct(Math.min(...list))} | ${pct(avg)} | ${pct(Math.max(...list))} |`);
+    console.log(`| ${section} | ${type} | ${pct(freeByType[section][type] / freeTotal[section])} | ${pct(least(list))} | ${pct(avg)} | ${pct(most(list))} |`);
   }
 }
 const hist = (list: number[]) => { const counts = new Map<number, number>(); for (const value of list) counts.set(value, (counts.get(value) ?? 0) + 1); return [...counts].sort((a, b) => a[0] - b[0]).map(([value, count]) => `${value}: ${pct(count / list.length)}`).join(', '); };
-console.log(`\nNodes per map (without the trunk): median ${median(nodeCounts)}, min ${Math.min(...nodeCounts)}, max ${Math.max(...nodeCounts)}`);
+console.log(`\nNodes per map (without the trunk): median ${median(nodeCounts)}, min ${least(nodeCounts)}, max ${most(nodeCounts)}`);
 console.log(`Start nodes (row 5): median ${median(starts)}; ${hist(starts)}`);
-console.log(`Routes from row 5 to a boss: median ${median(routesToBoss)}, min ${Math.min(...routesToBoss)}, max ${Math.max(...routesToBoss)}; per boss median ${median(routesPerBoss)}`);
+console.log(`Routes from row 5 to a boss: median ${median(routesToBoss)}, min ${least(routesToBoss)}, max ${most(routesToBoss)}; per boss median ${median(routesPerBoss)}`);
 console.log(`Battles per route, trunk included (+4): ${hist(battlesWithTrunk)}`);
-console.log(`Events per route: ${hist(eventsPerRoute)}`);
+console.log(`Events per route: ${hist(eventsPerRoute)}; in the branches (rows 10–11): ${hist(branchEventsPerRoute)}`);
+console.log(`Generator attempts (walks of a section): worst trails ${worst.trails}, den ${worst.den}, camp ${worst.camp}; maps needing more than one walk: trails ${attemptsOver1.trails}, den ${attemptsOver1.den}, camp ${attemptsOver1.camp}`);
+if (MAPS_ONLY) process.exit(0);
 console.log(`Merchants: per map ${hist(shopsPerMap)}; maps with a route through a merchant ${mapsWithShopRoute} of ${COUNT}; maps with two merchants in a row on a route ${consecutiveShops}; per route ${hist(shopsPerRoute)}`);
 
 // Repeats: random runs (a uniform choice at every step), battles resolved as won with the entry resources.
-let runs = 0, runsWithRepeat = 0, pooled = 0, repeats = 0, sameMain = 0, transitions = 0;
+let runs = 0, runsWithRepeat = 0, pooled = 0, repeats = 0, sameMain = 0, transitions = 0, eventNodes = 0, eventFinds = 0, eventRepeats = 0, eventOutOfPlace = 0;
+const eventCounts = new Map<string, number>();
 const repeatsBySection = { trails: 0, branches: 0 }, pooledBySection = { trails: 0, branches: 0 };
 const repeated = new Map<string, number>();
 for (const [k, seed] of SEEDS.entries()) {
@@ -127,8 +143,22 @@ for (const [k, seed] of SEEDS.entries()) {
     }
   }
   runs++; if (met.length !== new Set(met).size) runsWithRepeat++;
+  // Events of the run: each at most once, only of their branch and rows; a node with none left became a find.
+  const events: string[] = [];
+  for (const pick of run.picks) {
+    const node = runNode(run, pick.nodeId)!;
+    if (node.type !== 'event') continue;
+    eventNodes++;
+    if (pick.find) { eventFinds++; continue; }
+    const event = forestEvent(pick.eventId!)!;
+    if (events.includes(event.id)) eventRepeats++;
+    if (node.row < event.rows[0] || node.row > event.rows[1] || (event.branch === 'den' || event.branch === 'camp') && node.lane !== event.branch || event.branch === 'trails' && node.row > 9) eventOutOfPlace++;
+    events.push(event.id); eventCounts.set(event.id, (eventCounts.get(event.id) ?? 0) + 1);
+  }
 }
 console.log(`\nRandom runs (${runs}): pooled battles per run ${(pooled / runs).toFixed(2)}; repeated battles ${repeats} (${pct(repeats / pooled)} of pooled battles); runs with a repeat ${pct(runsWithRepeat / runs)}`);
 console.log(`  trails (rows 5–9): ${pct(repeatsBySection.trails / pooledBySection.trails)} of their battles repeat; branches (rows 10–14): ${pct(repeatsBySection.branches / pooledBySection.branches)}`);
 console.log(`  the same main enemy as the battle before: ${pct(sameMain / transitions)} of transitions`);
 console.log(`  most repeated: ${[...repeated].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, count]) => `${id} ${count}`).join(', ')}`);
+console.log(`Events of the random runs (every event open): ${eventNodes} event nodes, ${eventFinds} became a find (${pct(eventFinds / Math.max(1, eventNodes))}); repeats in a run ${eventRepeats}; out of their branch or rows ${eventOutOfPlace}`);
+console.log(`  met: ${[...eventCounts].sort((a, b) => b[1] - a[1]).map(([id, count]) => `${id} ${count}`).join(', ')}`);

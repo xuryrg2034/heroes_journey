@@ -207,6 +207,29 @@ function eventChoices() {
   console.log('PASS event choices are recorded, exported and aggregated by node and option');
 }
 
+/**
+ * The event catalogue (docs/events.md): a record names its event, the escalation's attempts and the reward battle's
+ * outcome; events are aggregated by event across nodes; a journal written before (no such fields) still loads.
+ */
+function catalogueEvents() {
+  telemetry.clearTelemetry();
+  const old = { nodeId: 'r7c1', option: 'drink', outcome: 0, text: '+2 HP (не выше максимума)', seed: 3, at: 1 };
+  storage.set(telemetry.TELEMETRY_KEY, JSON.stringify({ version: 1, enabled: true, attempts: [], runEvents: [old] }));
+  assert(telemetry.exportPayload().runEvents.length === 1 && telemetry.exportPayload().eventAggregates[0].nodeId === 'r7c1', 'an old journal without the event id loads');
+  telemetry.recordRunEvent({ nodeId: 'r6c0', eventId: 'porcupine-nest', option: 'leave', outcome: 0, text: 'ничего не меняется', seed: 7,
+    attempts: [{ outcome: 0, text: 'обошлось, 1 ресурс крафта: Роса' }, { outcome: 1, text: 'укол, −1 HP (не ниже 1), 1 ресурс крафта: Порох' }] });
+  telemetry.recordRunEvent({ nodeId: 'r8c2', eventId: 'porcupine-nest', option: 'leave', outcome: 0, text: 'ничего не меняется', seed: 8, attempts: [{ outcome: 1, text: 'укол' }] });
+  telemetry.recordRunEvent({ nodeId: 'r7c1', eventId: 'ford-ambush', option: 'fight', outcome: 0, text: 'победа', seed: 9, battle: { battleId: 'wolf-ford', won: true } });
+  telemetry.recordRunEvent({ nodeId: 'r6c1', eventId: 'ford-ambush', option: 'fight', outcome: 0, text: 'поражение', seed: 10, battle: { battleId: 'goblin-pike-gate', won: false } });
+  const payload = telemetry.exportPayload(), nest = payload.eventAggregates.find(row => row.nodeId === 'porcupine-nest')!, ford = payload.eventAggregates.find(row => row.nodeId === 'ford-ambush')!;
+  assert(payload.runEvents.length === 5 && nest.label === 'Гнездо дикобразов' && nest.count === 2 && nest.attempts === 3, `the nest is one row across nodes with its attempts: ${JSON.stringify(nest)}`);
+  assert(ford.count === 2 && ford.battles.won === 1 && ford.battles.lost === 1, `the ambush counts its battles: ${JSON.stringify(ford)}`);
+  const html = telemetry.playtestHtml();
+  assert(html.includes('Гнездо дикобразов') && html.includes('попыток 3') && html.includes('побед 1, поражений 1'), 'the playtest screen shows attempts and battles');
+  telemetry.clearTelemetry();
+  console.log('PASS catalogue events: records name the event, the attempts and the reward battle; aggregated by event; an old journal loads');
+}
+
 /** A completed rest is recorded with its choice, HP healed and crafted items; exported, summed, shown; off when disabled. */
 function restChoices() {
   telemetry.clearTelemetry();
@@ -313,6 +336,7 @@ async function ladderStep() {
 }
 
 eventChoices();
+catalogueEvents();
 restChoices();
 shopVisits();
 /** Start gifts: the kind, the buttons shown, the button and its own choice taken; summed per button kind; old journals load. */

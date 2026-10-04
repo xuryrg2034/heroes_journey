@@ -2,7 +2,7 @@ import { ForestEngine } from './forestEngine';
 import { forestMapPaths, forestNode, validateForestMap } from './run/forestMap';
 import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventOutcomeIndex, eventView, forestRunView, parseForestRun,
   resolveBattle, restHeal, serializeForestRun, type ForestRunState, type ForestRunStep } from './run/forestRun';
-import { FOREST_EVENTS, isSafeOption, validateForestEvents } from './run/forestEvents';
+import { FOREST_EVENTS, isSafeOption, validateForestEvents, type ForestEvent } from './run/forestEvents';
 import { streamValue } from './run/runStreams';
 
 // Map events (decision of 04.10.2026, docs/roguelike-runs.md, section 5a): two test events on row 8 beside «Три знамени».
@@ -51,10 +51,11 @@ function data() {
     && forestNode('trail-find')!.next.includes('trail-cache') && forestNode('goblin-shaman')!.next.includes('trail-cache'), 'event entries as decided');
   assert(forestMapPaths().every(path => path.includes('trail-banners') || path.includes('trail-brook') || path.includes('trail-cache')), 'every route passes row 8');
   // A broken event is caught by the validator.
-  const broken = { bad: { id: 'bad', title: '', scene: '', options: [{ id: 'a', label: 'a', outcomes: [{ chance: 60, label: 'x', effect: { hp: -1 } }, { chance: 30, label: 'y', effect: {} }] },
-    { id: 'b', label: 'b', outcomes: [{ chance: 100, effect: { energy: -1 } }] }] } };
+  const broken: Record<string, ForestEvent> = { bad: { id: 'bad', title: '', scene: '', branch: 'trails', rows: [6, 8], options: [{ id: 'a', label: 'a', outcomes: [{ chance: 60, label: 'x', effect: { hp: -1 } }, { chance: 30, label: 'y', effect: {} }] },
+    { id: 'b', label: 'b', cost: { energy: 1 }, outcomes: [{ chance: 100, effect: {} }] }] } };
   const errors = validateForestEvents(broken);
-  assert(errors.some(error => error.includes('безопасного')) && errors.some(error => error.includes('суммой 100')), `the validator catches a missing safe option and bad chances: ${errors.join(' ')}`);
+  assert(errors.some(error => error.includes('безопасного')) && errors.some(error => error.includes('суммой 100')) && errors.some(error => error.includes('уровня открытия')),
+    `the validator catches a missing safe option, bad chances and an event outside the bar of openings: ${errors.join(' ')}`);
   console.log('PASS event data and map placement: row 8, safe options, every route chooses a battle or an event');
 }
 
@@ -127,11 +128,11 @@ function cacheOptions() {
   }
   const rich = walk(spread(5), TO_CACHE, { energy: 1.5 }), careful = ok(chooseEventOption(rich, 'careful'), 'careful');
   assert(careful.resources.player.energy === 0.5 && Object.values(careful.resources.materials ?? {}).reduce((sum, count) => sum + count, 0) === 1, 'careful: −1 energy, +1 resource');
-  // A consumable an event would give must be opened: with frost closed the flask is unavailable (rule check on a
-  // model state; on the current map frost is always open by row 8).
+  // A consumable an event gives opens for the run (docs/events.md, as a find or a purchase): with frost closed the flask
+  // is still available and opens it (rule check on a model state; on the current map frost is always open by row 8).
   const brook = walk(spread(6), TO_BROOK), closed = { ...structuredClone(brook), tools: { ...brook.tools, items: [] } };
-  const flask = eventView(closed)!.options.find(option => option.id === 'flask')!;
-  assert(!flask.available && flask.reason.includes('Холод') && !chooseEventOption(closed, 'flask').ok, 'an event never gives a closed consumable');
+  const flask = eventView(closed)!.options.find(option => option.id === 'flask')!, filled = chooseEventOption(closed, 'flask');
+  assert(flask.available && filled.ok && filled.run.tools.items.includes('frost') && filled.events.some(event => event.type === 'tools-unlocked'), 'a consumable an event gives opens for the run');
   console.log(`PASS the cache: break repeats by seed (${loot}/${traps} of 400), careful needs energy, leave is safe`);
 }
 

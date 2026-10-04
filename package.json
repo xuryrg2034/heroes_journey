@@ -67,7 +67,7 @@
     "test:ladder": "tsx src/game/ladder.spec.ts",
     "test:telemetry": "tsx src/telemetry.spec.ts",
     "test:player-profile": "tsx src/game/playerProfile.spec.ts",
-    "test:forest-events": "tsx src/game/forestEvents.spec.ts",
+    "test:forest-events": "tsx src/game/forestEvents.spec.ts && tsx src/game/eventCatalogue.spec.ts",
     "test:battle-pools": "tsx src/game/battlePools.spec.ts",
     "test:map-generator": "tsx src/game/mapGenerator.spec.ts",
     "test:rest-craft": "tsx src/game/restCraft.spec.ts",

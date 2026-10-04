@@ -8,6 +8,7 @@
  * - row 9: the Jailer, the only node: every path meets there; its victory opens the spin;
  * - rows 10–12: two branches, den (beasts → Troll) and camp (goblins → Chief), 3 columns each (decision of 04.10.2026),
  *   BRANCH_PASSES passes; on a branch path 0–1 hard battle (two do not fit three rows with a rest 1–3 rows before);
+ *   events stand on rows 10–11 of a branch (event catalogue, docs/events.md, from generator 3);
  * - row 13: the branch breakthrough; row 14: the branch boss.
  * A pass steps to the same or a neighbouring column and never crosses an edge already drawn (it goes straight
  * instead), so every node has an entry and an exit.
@@ -28,8 +29,9 @@ import { FOREST_MAP, FOREST_REST_HEAL, FROST, JUMP, SPIN_REWARD, isTrunkNode, ty
 /**
  * Version of the generator; a saved run keeps its map, so a newer generator does not change a run in progress.
  * 2 (04.10.2026): the merchant (`shop`) and the ladder's share of hard battles.
+ * 3 (04.10.2026): events in the branches, rows 10–11 (BRANCH_SHARES.event); the trails are laid out as in version 2.
  */
-export const MAP_GENERATOR_VERSION = 2;
+export const MAP_GENERATOR_VERSION = 3;
 
 // Баланс: shape of the map.
 /** Trail rows and columns, and the passes walked through them (StS: 6 passes over 7 columns). */
@@ -44,8 +46,13 @@ export type MapBranch = typeof BRANCHES[number];
 // Баланс: shares of the free node types (StS: rest 12%, event 22%, elite 8%; ours are hypotheses for the playtest).
 /** Trails, rows 6–8 (row 5 is battles only): the rest of the bag is battles. */
 export const TRAIL_SHARES = { find: 0.15, rest: 0.15, event: 0.20 } as const;
-/** Branches, rows 10–12: the rest of the bag is battles. At least one hard battle and one rest per branch. */
-export const BRANCH_SHARES = { hard: 0.2, rest: 0.25 } as const;
+/**
+ * Branches, rows 10–12: the rest of the bag is battles. At least one hard battle and one rest per branch. Events
+ * (docs/events.md, section 4): about this share of a branch's nodes, laid on its rows up to BRANCH_EVENT_LAST_ROW.
+ */
+export const BRANCH_SHARES = { hard: 0.2, rest: 0.25, event: 0.15 } as const;
+/** The last branch row an event stands on (rows 10–11; row 12 is the last before the breakthrough). */
+export const BRANCH_EVENT_LAST_ROW = 11;
 /**
  * The merchant (docs/roguelike-runs.md, 5б): about this share of the free nodes of a map (rows 6–8 and 10–12), at least
  * one per map, so every map has a path through a merchant. The count is decided for the whole map and spread over the
@@ -113,6 +120,7 @@ export function placeTypes(place: NodePlace): readonly ForestNodeType[] {
   if (place.row === TRAIL_FIRST_ROW) return ['battle'];
   if (place.row <= TRAIL_LAST_ROW) return ['battle', 'rest', 'find', 'event', 'shop'];
   if (place.row === CHECKPOINT_ROW) return ['checkpoint'];
+  if (place.row <= BRANCH_EVENT_LAST_ROW) return ['battle', 'hard', 'rest', 'shop', 'event'];
   if (place.row <= BRANCH_LAST_ROW) return ['battle', 'hard', 'rest', 'shop'];
   return place.row === BREAKTHROUGH_ROW ? ['breakthrough'] : ['boss'];
 }
@@ -290,18 +298,22 @@ function layTrails(random: Random, grid: Grid, shops: number): Map<string, Fores
 }
 
 /**
- * Type layout of a branch: battles, hard battles (`hardShare` of the cells, at least one), rests and `shops` merchants.
- * Null when no attempt passes the rules.
+ * Type layout of a branch: battles, hard battles (`hardShare` of the cells, at least one), rests, `shops` merchants and
+ * events (BRANCH_SHARES.event of the cells, on rows up to BRANCH_EVENT_LAST_ROW: those cells are drawn first, the bag
+ * fills the rest). Null when no attempt passes the rules.
  */
 function layBranch(random: Random, grid: Grid, shops: number, hardShare: number): Map<string, ForestNodeType> | null {
-  const cells = cellsOf(grid).map(([row, column]) => key(row, column));
+  const cells = cellsOf(grid).map(([row, column]) => key(row, column)), eventCells = cellsOf(grid).filter(([row]) => row <= BRANCH_EVENT_LAST_ROW).map(([row, column]) => key(row, column));
   for (let attempt = 0; attempt < LAYOUT_ATTEMPTS; attempt++) {
     const hard = Math.max(1, share(random, cells.length, hardShare)), rest = Math.max(1, share(random, cells.length, BRANCH_SHARES.rest));
-    if (hard + rest + shops > cells.length) continue;
+    const events = Math.min(eventCells.length, share(random, cells.length, BRANCH_SHARES.event));
+    if (hard + rest + shops + events > cells.length) continue;
+    const eventAt = new Set(shuffle(random, [...eventCells]).slice(0, events)), others = cells.filter(cell => !eventAt.has(cell));
     const bag: ForestNodeType[] = [...Array<ForestNodeType>(hard).fill('hard'), ...Array<ForestNodeType>(rest).fill('rest'), ...Array<ForestNodeType>(shops).fill('shop')];
-    while (bag.length < cells.length) bag.push('battle');
+    while (bag.length < others.length) bag.push('battle');
     shuffle(random, bag);
-    const types = new Map<string, ForestNodeType>(cells.map((cell, n) => [cell, bag[n]]));
+    const types = new Map<string, ForestNodeType>([...eventAt].map(cell => [cell, 'event']));
+    others.forEach((cell, n) => types.set(cell, bag[n]));
     if (!sectionErrors(grid, types, () => true, true)) return types;
   }
   return null;
