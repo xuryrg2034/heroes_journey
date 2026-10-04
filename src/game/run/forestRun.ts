@@ -650,7 +650,8 @@ export function shopBuy(current: ForestRunState, id: string): ForestRunStep {
   const paid = shopPayment(run.resources.materials, good.price);
   if (run.resources.materials) for (const kind of RESOURCE_KINDS) run.resources.materials[kind] -= paid[kind];
   const purchase: ShopPurchase = { good: good.good, ...good.item ? { slot: Number(id.split(':')[1]), item: good.item } : {}, ...good.talisman ? { talisman: good.talisman } : {}, price: good.fullPrice, paid };
-  if (good.item) run.resources.inventory[good.item]++;
+  const events: ForestRunEvent[] = [];
+  if (good.item) { run.resources.inventory[good.item]++; unlock(run.tools, [good.item], [], events); }
   if (good.talisman) {
     run.talismans.push(good.talisman);
     if (good.talisman === 'tough-hide') { player.maxHp += TOUGH_HIDE_HP; player.hp += TOUGH_HIDE_HP; }
@@ -658,7 +659,7 @@ export function shopBuy(current: ForestRunState, id: string): ForestRunStep {
   if (good.good === 'heal') player.hp = Math.min(player.maxHp, player.hp + 1);
   if (good.good === 'harden') { player.maxHp++; player.hp++; }
   pending.bought.push(purchase);
-  return { ok: true, run, events: [{ type: 'shop-bought', nodeId: pending.nodeId, purchase: structuredClone(purchase) }] };
+  return { ok: true, run, events: [{ type: 'shop-bought', nodeId: pending.nodeId, purchase: structuredClone(purchase) }, ...events] };
 }
 
 /** Leave the open merchant: the visit completes; a talisman shown and not bought leaves the pool for the rest of the run. */
@@ -792,8 +793,8 @@ function validTools(value: unknown): value is ForestRunTools {
 
 /**
  * Tools the run must have opened after `visited` (plus the entered node's grants), replayed from the graph, the finds
- * (`usesFind`: the node ended in a find choice) and the items crafted at rests (`crafts` by rest node id; the open rest
- * included).
+ * (`usesFind`: the node ended in a find choice) and the items crafted at rests or bought at merchants (`crafts` by node
+ * id, in order; the open rest or merchant included).
  */
 function expectedTools(visited: ForestMapNode[], finds: ForestRunState['finds'], entered: ForestMapNode | null, won: boolean,
   crafts: ReadonlyMap<string, ItemKind[]>, usesFind: (node: ForestMapNode) => boolean): ForestRunTools {
@@ -965,6 +966,16 @@ export function parseForestRun(text: string): ForestRunState | null {
   if (openRest && (Object.keys(openRest).length !== 3 || !Array.isArray(openRest.crafted) || !openRest.crafted.every(item => ITEM_KINDS.includes(item as ItemKind)))) return null;
   const crafts = new Map<string, ItemKind[]>(typedRests.filter(rest => rest.choice === 'craft').map(rest => [rest.nodeId, rest.crafted]));
   if (openRest && typeof openRest.nodeId === 'string' && (openRest.crafted as ItemKind[]).length) crafts.set(openRest.nodeId, openRest.crafted as ItemKind[]);
+  // Items opened at nodes: the crafts, and the consumables bought at merchants, which open for the run as a craft does
+  // (decision of 04.10.2026); replayShop checks below that each purchase was in that visit's stock.
+  const opened = new Map(crafts), openShopRecord = isRecord(pending) && pending.kind === 'shop' ? pending : null;
+  for (const record of [...shopRecords, ...openShopRecord ? [openShopRecord] : []]) {
+    if (!isRecord(record) || typeof record.nodeId !== 'string' || !Array.isArray(record.bought)) continue;
+    const items = record.bought.flatMap(entry => isRecord(entry) && entry.good === 'item' && ITEM_KINDS.includes(entry.item as ItemKind) ? [entry.item as ItemKind] : []);
+    if (items.length) opened.set(record.nodeId, [...opened.get(record.nodeId) ?? [], ...items]);
+  }
+  /** Without one node's entry: a merchant's stock is rolled with the tools from before its own purchases. */
+  const openedBefore = (id: string) => new Map([...opened].filter(([nodeId]) => nodeId !== id));
   const typedPicks: ForestRunPick[] = [];
   for (let n = 0; n < picks.length; n++) {
     const pick = picks[n], base = map.node(poolIds[n])!;
@@ -976,7 +987,7 @@ export function parseForestRun(text: string): ForestRunState | null {
       if (met.includes(pick.eventId) && met.length < Object.keys(FOREST_EVENTS).length) return null;
     } else {
       if (Object.keys(pick).length !== 2 || typeof pick.battleId !== 'string') return null;
-      const tools = expectedTools(before, typedFinds, base, false, crafts, usesFind);
+      const tools = expectedTools(before, typedFinds, base, false, opened, usesFind);
       if (!poolCandidates({ row: base.row, type: base.type as PoolBattleType, lane: base.lane }, tools).includes(pick.battleId)) return null;
     }
     typedPicks.push(base.type === 'event' ? { nodeId: base.id, eventId: pick.eventId as string } : { nodeId: base.id, battleId: pick.battleId as string });
@@ -988,7 +999,7 @@ export function parseForestRun(text: string): ForestRunState | null {
   // The entered battle was won and its reward choice is open: a talisman or oath choice, or an old-reward hard find.
   const wonHard = isRecord(pending) && !!entered && (pending.kind === 'talisman' || pending.kind === 'find' && usesFind(entered) && entered.type === 'hard');
   const visitedNodes = visited.map(id => nodeAt(id)!);
-  if (!sameTools(value.tools as ForestRunTools, expectedTools(visitedNodes, typedFinds, entered, wonHard, crafts, usesFind))) return null;
+  if (!sameTools(value.tools as ForestRunTools, expectedTools(visitedNodes, typedFinds, entered, wonHard, opened, usesFind))) return null;
   // Talisman and oath choices: one per won hard battle and Jailer past the old rewards, in order, from the offer the
   // run seed rolls for the pool of that moment (taken, refused, abilities open after the victory). Replayed, they give
   // the taken talismans and the pool's losses exactly.
@@ -998,12 +1009,12 @@ export function parseForestRun(text: string): ForestRunState | null {
   // the tools and the talisman pool of that moment, at the prices of that moment. A talisman bought is taken; one shown
   // and not bought leaves the pool when the visit ends.
   let hardenings = 0, shopCount = 0;
-  const shopPaid = new Map<string, Record<ResourceKind, number>>(), shopItems: ItemKind[] = [];
+  const shopPaid = new Map<string, Record<ResourceKind, number>>();
   const replayShop = (node: ForestMapNode, bought: unknown, tools: ForestRunTools, done: boolean): ShopStock | null => {
     const stock = shopStock(forestNodeSeed(seed, node.id), tools.items, { taken, gone, abilities: tools.abilities });
     const checked = shopPurchases(bought, stock, hardenings, savedShopMarkup);
     if (!checked) return null;
-    hardenings += checked.hardenings; shopItems.push(...checked.items); shopPaid.set(node.id, checked.paid);
+    hardenings += checked.hardenings; shopPaid.set(node.id, checked.paid);
     if (checked.talisman) taken.push(checked.talisman);
     else if (done && stock.talisman) gone.push(stock.talisman);
     return stock;
@@ -1014,13 +1025,13 @@ export function parseForestRun(text: string): ForestRunState | null {
     if (node.content.kind === 'shop') {
       const record = shopRecords[shopCount++];
       if (!isRecord(record) || Object.keys(record).length !== 2 || record.nodeId !== node.id) return null;
-      if (!replayShop(node, record.bought, expectedTools(visitedNodes.slice(0, n), typedFinds, node, false, crafts, usesFind), true)) return null;
+      if (!replayShop(node, record.bought, expectedTools(visitedNodes.slice(0, n), typedFinds, node, false, openedBefore(node.id), usesFind), true)) return null;
       continue;
     }
     if (!source || legacyAt(node.id)) continue;
     const choice = talismanChoices[choiceCount++];
     if (!isRecord(choice) || Object.keys(choice).length !== 2 || choice.nodeId !== node.id) return null;
-    const options = offerFor(node, source, expectedTools(visitedNodes.slice(0, n + 1), typedFinds, null, false, crafts, usesFind));
+    const options = offerFor(node, source, expectedTools(visitedNodes.slice(0, n + 1), typedFinds, null, false, opened, usesFind));
     const chosen = choice.chosen as TalismanOption | null;
     if (chosen !== null && !options.includes(chosen)) return null;
     if (chosen && chosen !== 'blank') taken.push(chosen);
@@ -1029,11 +1040,11 @@ export function parseForestRun(text: string): ForestRunState | null {
   if (choiceCount !== talismanChoices.length || shopCount !== shopRecords.length) return null;
   // The open merchant: the same stock as rolled on entering, and its purchases so far.
   const openShop = isRecord(pending) && pending.kind === 'shop' && entered?.content.kind === 'shop'
-    ? replayShop(entered, pending.bought, expectedTools(visitedNodes, typedFinds, entered, false, crafts, usesFind), false) : null;
+    ? replayShop(entered, pending.bought, expectedTools(visitedNodes, typedFinds, entered, false, openedBefore(entered.id), usesFind), false) : null;
   if (openShop && (!isRecord(pending) || JSON.stringify(pending.stock) !== JSON.stringify(openShop))) return null;
   if (hardenings !== savedHardenings) return null;
   const openOffer = isRecord(pending) && pending.kind === 'talisman' && entered && !legacyAt(entered.id) && victoryChoice(entered) === pending.source
-    ? offerFor(entered, pending.source as TalismanSource, expectedTools(visitedNodes, typedFinds, entered, true, crafts, usesFind)) : null;
+    ? offerFor(entered, pending.source as TalismanSource, expectedTools(visitedNodes, typedFinds, entered, true, opened, usesFind)) : null;
   if (JSON.stringify(taken) !== JSON.stringify(talismans) || JSON.stringify(gone) !== JSON.stringify(talismansGone)) return null;
   // Elite loot of won battles: completed battle nodes, or the hard battle whose find is still pending; one entry per
   // node and kind. Consumables come only from authored elites (at most one each). Resources also come from random
@@ -1066,7 +1077,7 @@ export function parseForestRun(text: string): ForestRunState | null {
     const { effect } = option.outcomes[choice.outcome as number];
     eventGains.push({ items: effect.items ?? {}, materials: eventResourceKinds(seed, node.id, option).slice(0, effect.resources ?? 0) });
   }
-  const crafted = [...[...crafts.values()].flat(), ...shopItems];
+  const crafted = [...opened.values()].flat();
   const cap = inventoryCap(visitedNodes, typedFinds, entered, typedLoot, eventGains, crafted), inventory = (value.resources as ForestRunResources).inventory;
   if (ITEM_KINDS.some(item => inventory[item] > cap[item])) return null;
   // Resources come from elite loot and exit chests (both recorded in `loot`) and events, and are spent at rests: a rest

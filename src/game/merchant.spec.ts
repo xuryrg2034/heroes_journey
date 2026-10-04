@@ -72,14 +72,19 @@ function walkTo(run: ForestRunState, target: string, options: { loot?: Stock; hp
 }
 const atShop = (seed: number, shop: string, options: { loot?: Stock; hp?: number } = {}) => walkTo(createForestRun(seed, { map: 'generated', skipTrunk: true }), shop, options);
 
-/** The stock and the prices: two open consumables at 3, the talisman at 4/6/8 by rarity, healing 2, «Закалка» 4. */
+/**
+ * The stock and the prices: two consumables of different kinds at 3 (open ones first), the talisman at 4/6/8 by rarity,
+ * healing 2, «Закалка» 4.
+ */
 function stockAndPrices() {
   let talismans = 0;
   for (const { seed, shop } of SHOP_SEEDS.slice(0, 8)) {
     const run = atShop(seed, shop, { loot: { dew: 4, powder: 3, resin: 2, herbs: 1 }, hp: 2 }), view = shopView(run)!;
     assert(run.pending?.kind === 'shop' && view.total === 10, `${seed}: the merchant opens with the stock of 10`);
     const items = view.goods.filter(good => good.good === 'item');
-    assert(items.length === SHOP_ITEMS && items.every(good => run.tools.items.includes(good.item!) && good.price === SHOP_ITEM_PRICE && good.available), `${seed}: two open consumables at ${SHOP_ITEM_PRICE}`);
+    const open = items.filter(good => run.tools.items.includes(good.item!)).length;
+    assert(items.length === SHOP_ITEMS && items[0].item !== items[1].item && open === Math.min(SHOP_ITEMS, run.tools.items.length)
+      && items.every(good => good.price === SHOP_ITEM_PRICE && good.available), `${seed}: two consumables of different kinds, open ones first, at ${SHOP_ITEM_PRICE}`);
     const offered = view.goods.find(good => good.good === 'talisman');
     if (offered) {
       talismans++;
@@ -100,7 +105,31 @@ function stockAndPrices() {
     assert(left.pending === null && left.currentNodeId === shop && left.resources.player.maxHp === 6 && json(roundTrip(left)) === json(left), `${seed}: the visit completes and the run keeps the new maximum`);
   }
   assert(talismans >= 6, `most merchants offer a talisman (${talismans} of 8)`);
-  console.log(`PASS stock and prices: two open consumables at ${SHOP_ITEM_PRICE}, talismans by rarity, healing ${SHOP_HEAL_PRICE}, «Закалка» ${SHOP_HARDEN_PRICE} (+1 max HP); slots sell once`);
+  console.log(`PASS stock and prices: two consumables of different kinds at ${SHOP_ITEM_PRICE}, talismans by rarity, healing ${SHOP_HEAL_PRICE}, «Закалка» ${SHOP_HARDEN_PRICE} (+1 max HP); slots sell once`);
+}
+
+/**
+ * One open consumable kind (decision of 04.10.2026): the other slot is a kind not open yet, and buying it opens it for
+ * the run, as a craft does. The save keeps it open; a save that drops it from the tools is rejected.
+ */
+function openedByPurchase() {
+  let cases = 0;
+  for (let k = 1; k <= 30 && cases < 4; k++) {
+    const seed = spread(k + 300), shop = shopsOf(seed)[0], run = atShop(seed, shop, { loot: { dew: 4, powder: 4 } });
+    if (run.tools.items.length !== 1) continue;
+    cases++;
+    const view = shopView(run)!, slot = view.goods.findIndex(good => good.good === 'item' && !run.tools.items.includes(good.item!));
+    assert(slot >= 0, `${seed}: with one open kind the other slot sells a kind not open yet`);
+    const item = view.goods[slot].item!, step = shopBuy(run, view.goods[slot].id), bought = ok(step, 'buy the new kind');
+    assert(bought.tools.items.includes(item) && bought.resources.inventory[item] === run.resources.inventory[item] + 1, `${seed}: ${item} is open and in the bag`);
+    assert(step.ok && step.events.some(event => event.type === 'tools-unlocked' && event.items.includes(item)), `${seed}: the purchase reports the opening`);
+    assert(json(roundTrip(bought)) === json(bought), `${seed}: the open merchant with the new kind reloads`);
+    assert(forge(bought, value => { value.tools.items = value.tools.items.filter((entry: string) => entry !== item); value.pending.tools = undefined; }) === null, `${seed}: a save without the opened kind is rejected`);
+    const left = ok(shopLeave(bought), 'leave');
+    assert(left.tools.items.includes(item) && json(roundTrip(left)) === json(left), `${seed}: the kind stays open after the visit`);
+  }
+  assert(cases >= 2, `merchants with one open kind are met (${cases})`);
+  console.log(`PASS opened by purchase: with one open kind the other slot is a new kind; buying it opens it for the run (${cases} merchants)`);
 }
 
 /** With a short stock the goods say why and cannot be bought; healing stays available. */
@@ -251,6 +280,7 @@ function variety() {
     const seed = spread(k + 100), shop = shopsOf(seed)[0], run = atShop(seed, shop);
     const stock = run.pending?.kind === 'shop' ? run.pending.stock : null;
     assert(stock && json(atShop(seed, shop).pending) === json(run.pending), `${seed}: the same seed rolls the same stock`);
+    assert(new Set(stock.items).size === stock.items.length, `${seed}: the slots hold different kinds`);
     stocks.add(json(stock));
     if (stock.talisman) rarities[talisman(stock.talisman).rarity as 'common']++;
   }
@@ -259,6 +289,7 @@ function variety() {
 }
 
 stockAndPrices();
+openedByPurchase();
 shortStock();
 healingCut();
 paymentOrder();

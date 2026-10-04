@@ -41,7 +41,7 @@ export const LADDER_TROLL_REGEN = 4;
 
 // Run side (forestRun.ts, mapGenerator.ts, merchant.ts): the map, the rest, the start and the merchant read the run's step.
 /** Баланс (step 1): factor of the hard-battle share of the branches in the map generator. */
-export const LADDER_HARD_FACTOR = 1.5;
+export const LADDER_HARD_FACTOR = 1.75;
 /** Баланс (step 5): HP the rest heals less (never below 0). */
 export const LADDER_REST_PENALTY = 1;
 /** Баланс (step 6): HP of the cat at the start of the run (the maximum stays). */
