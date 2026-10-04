@@ -9,7 +9,8 @@
  * An option has
  * - a cost (`cost`): paid before the roll; one it cannot pay makes the option unavailable with a reason. Alternatives
  *   (a list) are tried in order and the first payable one is paid («1 трава или «Лечение»»);
- * - outcomes with chances in whole percent (sum 100; one of 100 is a sure thing), shown before the choice;
+ * - outcomes with chances in whole percent (sum 100; one of 100 is a sure thing), or equal shares (every chance 1:
+ *   «1 из n», decision of 04.10.2026 for «Колесо костей»), shown before the choice;
  * - an escalation (`escalation`): the option may be taken again, attempt k rolls the same outcomes with the chances
  *   escalation[k]; the event goes on until another option is taken;
  * - a reward battle (`battle`): a battle of the trails' pool; a victory gives the event's reward, a defeat ends the run.
@@ -69,7 +70,10 @@ export interface EventCost {
   items?: Partial<Record<ItemKind, number>>;
 }
 export interface EventOutcome {
-  /** Percent; the outcomes of an option sum to 100. One outcome of 100 is a sure thing. */
+  /**
+   * A weight: percent (the outcomes of an option sum to 100; one outcome of 100 is a sure thing), or 1 for every
+   * outcome — equal shares, «1 из n». The roll is floor(u × sum): exactly the chance either way.
+   */
   chance: number;
   /** Short name of a random outcome (`ловушка`), shown before its changes. */
   label?: string;
@@ -227,12 +231,13 @@ export const FOREST_EVENTS: Record<string, ForestEvent> = {
     options: [
       // Баланс: six outcomes of 1/6 each, in whole percent 17/17/17/17/16/16 (a question to the design, docs/events.md).
       { id: 'spin', label: 'Крутить', cost: { resources: 1 }, outcomes: [
-        { chance: 17, label: 'клад', effect: { resources: 3 } },
-        { chance: 17, label: 'талисман', effect: { talisman: 'common' } },
-        { chance: 17, label: 'целебный дым', effect: { hp: 2 } },
-        { chance: 17, label: 'кость в лоб', effect: { hp: -1 } },
-        { chance: 16, label: 'азарт', effect: { energy: 2 } },
-        { chance: 16, label: 'пусто', effect: {} },
+        // Exactly 1 of 6 each (decision of 04.10.2026).
+        { chance: 1, label: 'клад', effect: { resources: 3 } },
+        { chance: 1, label: 'талисман', effect: { talisman: 'common' } },
+        { chance: 1, label: 'целебный дым', effect: { hp: 2 } },
+        { chance: 1, label: 'кость в лоб', effect: { hp: -1 } },
+        { chance: 1, label: 'азарт', effect: { energy: 2 } },
+        { chance: 1, label: 'пусто', effect: {} },
       ] },
       leave(),
     ],
@@ -255,6 +260,11 @@ export const optionCosts = (option: EventOption): readonly EventCost[] => !optio
 export const escalationOption = (event: ForestEvent): EventOption | undefined => event.options.find(option => option.escalation);
 /** The reward-battle option of an event (at most one), or undefined. */
 export const battleOption = (event: ForestEvent): EventOption | undefined => event.options.find(option => option.battle);
+/** The chance of outcome `n` as shown: «50%», or «1 из 6» for equal shares (`chances` — the weights of the roll). */
+export function chanceText(chances: readonly number[], n: number): string {
+  const sum = chances.reduce((total, chance) => total + chance, 0);
+  return sum === 100 ? `${chances[n]}%` : `${chances[n]} из ${sum}`;
+}
 /** Outcome chances of attempt `attempt` (0-based) of an option: its escalation row, or its own chances. */
 export const attemptChances = (option: EventOption, attempt = 0): readonly number[] => option.escalation?.[attempt] ?? option.outcomes.map(outcome => outcome.chance);
 /** Attempts an option allows: the escalation's length, else one. */
@@ -324,7 +334,8 @@ export function validateForestEvents(events: Record<string, ForestEvent> = FORES
     if (event.options.filter(option => option.battle).length > 1) errors.push(`${key}: больше одного боя.`);
     for (const option of event.options) {
       const at = `${key}/${option.id}`, sum = option.outcomes.reduce((total, outcome) => total + outcome.chance, 0);
-      if (!option.outcomes.length || sum !== 100 || option.outcomes.some(outcome => !Number.isInteger(outcome.chance) || outcome.chance <= 0)) errors.push(`${at}: шансы — целые проценты с суммой 100.`);
+      const equal = option.outcomes.length > 1 && option.outcomes.every(outcome => outcome.chance === 1);
+      if (!option.outcomes.length || sum !== 100 && !equal || option.outcomes.some(outcome => !Number.isInteger(outcome.chance) || outcome.chance <= 0)) errors.push(`${at}: шансы — целые проценты с суммой 100 или равные доли (все 1).`);
       if (option.outcomes.length > 1 && option.outcomes.some(outcome => !outcome.label)) errors.push(`${at}: у случайного исхода нужна подпись.`);
       for (const cost of optionCosts(option)) {
         if (!Object.keys(cost).length || Object.keys(cost).some(name => !COST_KEYS.includes(name))) errors.push(`${at}: цена — энергия, HP, максимум HP, ресурсы или расходники.`);

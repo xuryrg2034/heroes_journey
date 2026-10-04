@@ -431,7 +431,7 @@ export function eventModalHtml(run: ForestRunState): string {
   const options = view.options.map(option => {
     // The cost and the escalation's attempt are shown before the outcomes (a fuller screen is the interface task's).
     const outcomes = (option.cost ? `Цена: ${option.cost}. ` : '') + (option.attempts ? `Попытка ${Math.min(option.attempts.done + 1, option.attempts.max)} из ${option.attempts.max}: ` : '')
-      + (option.outcomes.length === 1 ? option.outcomes[0].text : option.outcomes.map(outcome => `${outcome.chance}%: ${outcome.text}`).join(' · '));
+      + (option.outcomes.length === 1 ? option.outcomes[0].text : option.outcomes.map(outcome => `${outcome.odds}: ${outcome.text}`).join(' · '));
     return `<button class="event-choice" data-event-option="${option.id}"${option.available ? '' : ' disabled aria-disabled="true"'}><b>${escapeHtml(option.label)}</b><small>${escapeHtml(outcomes)}</small>${option.available ? '' : `<em class="event-reason">${escapeHtml(option.reason)}</em>`}</button>`;
   }).join('');
   return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(view.event.title)}</h2><p class="modal-copy event-scene">${escapeHtml(view.event.scene)}</p><div class="event-options">${options}</div>`;

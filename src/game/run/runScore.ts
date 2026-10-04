@@ -2,7 +2,8 @@
  * The score of a run (design agreed 04.10.2026, docs/roguelike-runs.md, section 7): shown line by line on the result
  * screen, won or lost, and added to the bar of openings (unlocks.ts). Pure: it reads the finished run (forestRun.ts).
  *
- * Lines: 5 × the last completed row, 2 per ordinary battle won (battles and breakthroughs, the trunk included), 15 per
+ * Lines: 5 × the last completed row, 2 per ordinary battle won (battles and breakthroughs, the trunk included, and the
+ * won battle of an event — «Засада у брода», decision of 04.10.2026: a node with a battle record), 15 per
  * hard battle, 30 for the Jailer, 100 for a boss, 1 per 100 battle points of kills and crystals (rounded down; the
  * engine's turn and win bonuses are not counted — HP and speed are the style bonuses; decision of 04.10.2026); the ladder step adds 5% of these
  * lines per step (rounded down). Style bonuses are not multiplied by the step. A bonus that needs the battle log or the
@@ -47,7 +48,8 @@ const ORDINARY = new Set(['battle', 'breakthrough']);
 
 export function runScore(run: ScoredRun): RunScore {
   const won = (test: (node: ForestMapNode) => boolean) => run.visited.filter(test);
-  const ordinary = won(node => ORDINARY.has(node.type)).length, hard = won(node => node.type === 'hard'), jailer = won(node => node.type === 'checkpoint').length;
+  const eventBattles = run.battles ? won(node => node.type === 'event' && run.battles!.some(entry => entry.nodeId === node.id)).length : 0;
+  const ordinary = won(node => ORDINARY.has(node.type)).length + eventBattles, hard = won(node => node.type === 'hard'), jailer = won(node => node.type === 'checkpoint').length;
   const boss = won(node => node.type === 'boss');
   const lines: ScoreLine<ScoreLineId>[] = [];
   const add = (id: ScoreLineId, label: string, points: number) => { if (points) lines.push({ id, label, points }); };

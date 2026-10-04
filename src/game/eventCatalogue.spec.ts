@@ -3,7 +3,7 @@ import type { ItemKind, ResourceKind } from './forestTypes';
 import { RESOURCE_KINDS } from './resources';
 import { extraAngerBeforeGoals, firstChainPower, reinforcementShift, startsWithElite, talisman, type BattleModifier } from './talismans';
 import { uniqueEntities } from './entityFootprint';
-import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventCandidates, eventView, forestRunView, nodeBattleId,
+import { availableNodes, battleSetup, chooseEventOption, chooseFindItem, chooseTalisman, createForestRun, enterNode, eventCandidates, eventView, forestRunScore, forestRunView, nodeBattleId,
   parseForestRun, resolveBattle, restHeal, runNode, serializeForestRun, shopLeave, type ForestRunState, type ForestRunStep } from './run/forestRun';
 import { eventFits, eventOption, forestEvent, FOREST_EVENTS, validateForestEvents } from './run/forestEvents';
 import { CATALOGUE_EVENTS, eventUnlockLevel } from './run/unlocks';
@@ -274,8 +274,11 @@ function shares() {
   const lines = [
     check('goblin-cache/break', count('goblin-cache', 'break', RICH, 3000)[0], [50, 50]),
     check('den-bones/search', count('den-bones', 'search', RICH, 3000)[0], [50, 50]),
-    check('bone-wheel/spin', count('bone-wheel', 'spin', RICH, 6000)[0], [17, 17, 17, 17, 16, 16]),
+    check('bone-wheel/spin', count('bone-wheel', 'spin', RICH, 6000)[0], Array(6).fill(100 / 6)),
   ];
+  // The wheel shows «1 из 6» on every sector (decision of 04.10.2026: exactly 1/6, no 17/16 split).
+  const wheel = eventView(reach('bone-wheel', RICH))!.options.find(option => option.id === 'spin')!;
+  assert(wheel.outcomes.length === 6 && wheel.outcomes.every(outcome => outcome.odds === '1 из 6'), `the wheel shows 1 of 6: ${json(wheel.outcomes.map(outcome => outcome.odds))}`);
   const nest = count('porcupine-nest', 'search', HEALTHY, 3000, 3);
   lines.push(...nest.map((tally, attempt) => check(`porcupine-nest attempt ${attempt + 1}`, tally, [[75, 25], [50, 50], [25, 75]][attempt])));
   // The shortcut (another seed on the same open event) is what a real walk of that seed gives: the roll reads only the seed and the stream.
@@ -393,6 +396,9 @@ function rewardBattle() {
     const options = (offered.pending as { options: string[] }).options, taken = ok(chooseTalisman(offered, options[0] as never), 'take');
     assert(taken.talismans.at(-1) === options[0] && taken.talismansGone.includes(options[1] as never) && taken.pending === null && taken.currentNodeId === node.id
       && taken.eventChoices.at(-1)!.option === 'fight' && forestRunView(taken).battlesWon === forestRunView(run).battlesWon + 1 && json(roundTrip(taken)) === json(taken), 'the talisman is taken, the event completes');
+    // The won battle is an ordinary battle of the run's score (decision of 04.10.2026); a refused fight is not.
+    const ordinary = (entry: ForestRunState) => forestRunScore(entry).lines.find(line => line.id === 'battles')?.points ?? 0;
+    assert(ordinary(taken) === ordinary(run) + 2, `the ambush battle adds 2 to «обычные бои» (${ordinary(run)} → ${ordinary(taken)})`);
     const refused = ok(chooseTalisman(offered, null), 'refuse the reward');
     assert(refused.pending === null && refused.talismans.length === run.talismans.length, 'the reward may be refused');
     // Defeat: the run ends at the event node.
@@ -402,6 +408,7 @@ function rewardBattle() {
     // Refusal: «Обойти по кустам» is always there and free.
     const bushes = ok(chooseEventOption(run, 'bushes'), 'bushes');
     assert(bushes.pending === null && json(bushes.resources) === json(run.resources) && bushes.streams!.pool === run.streams!.pool, 'refusing the battle is free and plays no battle');
+    assert(ordinary(bushes) === ordinary(run), 'a refused fight adds no battle to the score');
   }
   console.log('PASS the reward battle: a trail battle of the pool; a victory offers two common talismans; a defeat ends the run; refusal is free');
 }

@@ -12,7 +12,7 @@ import { CRAFT_COST, craftSource, emptyMaterials, isResource, RESOURCE_KINDS, RE
 import { AUTHORED_RUN_MAP, authoredRefillPalette, victoryChoice, isBattleNode, isTrunkNode, nodeRefillPalette, type ForestMapNode, type ForestNodeGrant, type ForestRunMap, FOREST_HARD_HEAL } from './forestMap';
 import type { RunBattleOutcome, RunBattleSetup, RunBattleTemplate, RunPlayerResources } from './runBattle';
 import { forestBattle } from './forestBattles';
-import { attemptChances, battleOption, describeCost, describeOutcome, escalationOption, eventFits, eventOption, forestEvent, FOREST_EVENTS, ITEM_NAME as EVENT_ITEM_NAME,
+import { attemptChances, battleOption, chanceText, describeCost, describeOutcome, escalationOption, eventFits, eventOption, forestEvent, FOREST_EVENTS, ITEM_NAME as EVENT_ITEM_NAME,
   optionAttempts, optionCosts, optionNeedsTalisman, type EventCost, type EventEffect, type EventOption, type ForestEvent } from './forestEvents';
 import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedForestMap } from './mapGenerator';
 import type { AuthoredLesson } from '../lessonBuilder';
@@ -981,7 +981,9 @@ export function shopLeave(current: ForestRunState): ForestRunStep {
  */
 export function eventOutcomeIndex(base: number, option: EventOption, chances: readonly number[] = attemptChances(option)): number {
   if (chances.length === 1) return 0;
-  const roll = mixSeed(base >>> 0, textHash(option.id)) / 0x100000000 * 100;
+  // floor(u × sum): percent weights roll as before, equal shares exactly 1 of n.
+  const sum = chances.reduce((total, chance) => total + chance, 0);
+  const roll = Math.floor(mixSeed(base >>> 0, textHash(option.id)) / 0x100000000 * sum);
   let total = 0;
   for (let n = 0; n < chances.length; n++) { total += chances[n]; if (roll < total) return n; }
   return chances.length - 1;
@@ -1062,8 +1064,11 @@ export interface EventOptionView {
   id: string; label: string; available: boolean;
   /** Why the option cannot be taken now ('' — it can). */
   reason: string;
-  /** Outcomes with chances in percent (an escalation option: those of its next attempt). */
-  outcomes: { chance: number; text: string }[];
+  /**
+   * Outcomes with their weights and the chance as shown, «50%» or «1 из 6» (an escalation option: those of its next
+   * attempt).
+   */
+  outcomes: { chance: number; odds: string; text: string }[];
   /** What the option costs ('' — free); alternatives joined by «или». */
   cost: string;
   /** Escalation: attempts made and allowed. */
@@ -1112,8 +1117,8 @@ export function eventView(run: ForestRunState): EventView | null {
       battle = { battleId, name: battleId ? forestBattle(battleId)?.name ?? battleId : '', reward };
       if (!reason && !battleId) reason = 'Для засады нет боя';
     }
-    const outcomes = battle ? [{ chance: 100, text: `бой «${battle.name}»: ${battle.reward}` }]
-      : option.outcomes.map((outcome, n) => ({ chance: chances[n], text: describeOutcome(outcome, outcome.effect.resources ? kinds : []) }));
+    const outcomes = battle ? [{ chance: 100, odds: '100%', text: `бой «${battle.name}»: ${battle.reward}` }]
+      : option.outcomes.map((outcome, n) => ({ chance: chances[n], odds: chanceText(chances, n), text: describeOutcome(outcome, outcome.effect.resources ? kinds : []) }));
     return { id: option.id, label: option.label, available: !reason, reason, outcomes, cost: optionCosts(option).map(describeCost).join(' или '),
       ...option.escalation ? { attempts: { done, max } } : {}, ...battle ? { battle } : {}, safe: !optionCosts(option).length && !option.battle && option.outcomes.every(outcome => (outcome.effect.hp ?? 0) >= 0) };
   }) };
