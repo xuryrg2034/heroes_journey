@@ -15,16 +15,18 @@ import { forestEvent } from './game/run/forestEvents';
 import { barView, CATALOGUE_EVENTS, UNLOCK_LEVELS, UNLOCK_THRESHOLDS } from './game/run/unlocks';
 import { forestBattle } from './game/run/forestBattles';
 import { battlePoolEntry, laneBranches, MAIN_ENEMY_NAMES, poolCandidates, type PoolBattleType } from './game/run/battlePools';
-import { isOath, talisman, type TalismanId } from './game/talismans';
+import { BATTLE_MODIFIERS, isOath, talisman, type BattleModifier, type TalismanId } from './game/talismans';
 import { BLANK_SCORE, type TalismanOption, type TalismanSource } from './game/run/talismanOffers';
 import type { GiftOption, GiftPrice } from './game/run/runGift';
 
+/** The type a node is drawn and named with: an event node that found no event became a find (icon and label of a find). */
+const shownType = (node: ForestMapNode): ForestNodeType => node.type === 'event' && node.content.kind === 'find' ? 'find' : node.type;
 export const NODE_TYPE_INFO: Record<ForestNodeType, { icon: string; label: string; hint: string }> = {
   battle: { icon: '⚔', label: 'Бой', hint: 'Обычный бой.' },
   hard: { icon: '☠', label: 'Трудный бой', hint: 'Тяжелее обычного боя.' },
   rest: { icon: '☾', label: 'Привал', hint: 'Лечение или крафт перед следующим боем.' },
   find: { icon: '◈', label: 'Находка', hint: 'Выбор одного предмета из трёх.' },
-  event: { icon: '?', label: 'Событие', hint: 'Сцена с выбором, без боя: исходы видны заранее.' },
+  event: { icon: '?', label: 'Событие', hint: 'Сцена с выбором, исходы видны заранее; иногда бой за награду.' },
   shop: { icon: '⚖', label: 'Торговец', hint: 'Товары за ресурсы крафта: расходники, талисман, лечение, закалка.' },
   breakthrough: { icon: '⇥', label: 'Прорыв', hint: 'Цель — дойти до выхода, а не победить всех.' },
   checkpoint: { icon: '▣', label: 'Контрольный бой', hint: 'Сюда сходятся обе тропы.' },
@@ -207,7 +209,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
       : view.available.length ? 'Выбери следующий узел: доступные подсвечены. Наведи на узел, чтобы увидеть тип и особенность поля.' : '';
     return `<p class="map-detail-idle">${text}</p>`;
   }
-  const info = NODE_TYPE_INFO[node.type], content = node.content;
+  const info = NODE_TYPE_INFO[shownType(node)], content = node.content;
   const lines: string[] = [];
   if (node.feature) lines.push(`Особенность поля: <b>${escapeHtml(node.feature)}</b>`);
   const event = content.kind === 'event' ? forestEvent(content.eventId) : undefined;
@@ -242,7 +244,7 @@ export function nodeDetailHtml(run: ForestRunState, nodeId: string | null): stri
 
 /** What the pool of a generated node holds before its battle or event is known. */
 function poolText(node: ForestMapNode): string {
-  if (node.type === 'event') return 'Событие из ещё не встреченных в этом походе';
+  if (node.type === 'event') return 'Событие из ещё не встреченных в этом походе (если подходящих нет — находка)';
   const ids = poolCandidates({ row: node.row, type: node.type as PoolBattleType, lane: node.lane });
   const where = laneBranches({ row: node.row, type: node.type as PoolBattleType, lane: node.lane });
   const label = where.length > 1 ? 'тропы' : { beasts: 'звери', goblins: 'гоблины', shared: 'общие', den: 'логово', camp: 'лагерь' }[where[0]] ?? '';
@@ -265,10 +267,10 @@ function edgesHtml(view: ForestRunView, rows: number): string {
 }
 
 function nodeHtml(view: ForestRunView, node: ForestMapNode, status: ForestNodeStatus, rows: number): string {
-  const info = NODE_TYPE_INFO[node.type];
+  const info = NODE_TYPE_INFO[shownType(node)];
   const reached = view.result?.outcome === 'boss-in-development' && view.result.nodeId === node.id;
   const label = reached ? 'Достигнут · в разработке' : STATUS_LABEL[status];
-  const classes = ['map-node', `status-${status}`, `type-${node.type}`, `lane-${node.lane}`,
+  const classes = ['map-node', `status-${status}`, `type-${shownType(node)}`, `lane-${node.lane}`,
     node.placeholder ? 'placeholder' : '', node.content.kind === 'in-development' ? 'in-development' : '', reached ? 'reached' : ''].filter(Boolean).join(' ');
   const clickable = status === 'available';
   return `<button class="${classes}" data-action="map-node" data-node="${node.id}" data-status="${status}" style="left:${pct(node.row - 0.5, rows)};top:${pct(nodeY(node), 1)}" ${clickable ? '' : 'tabindex="-1"'} aria-disabled="${clickable ? 'false' : 'true'}" aria-label="${escapeHtml(`${node.name}. ${info.label}. ${label}`)}"><span class="map-node-icon" aria-hidden="true">${info.icon}</span><span class="map-node-name">${escapeHtml(node.name)}</span>${node.content.kind === 'in-development' ? '<span class="map-node-dev">в разработке</span>' : ''}</button>`;
@@ -286,7 +288,7 @@ function resourcesHtml(view: ForestRunView): string {
     // Crafting resources (elite loot, chests, events; resources.ts), spent on crafting at a rest.
     ...RESOURCE_KINDS.filter(resource => (materials?.[resource] ?? 0) > 0).map(resource => `<span class="map-chip resource" data-resource="${resource}" title="Ресурс крафта: из ${CRAFT_COST} — ${escapeHtml(ITEMS[RESOURCES[resource].crafts].label.toLowerCase())} на привале">${RESOURCES[resource].label} <b>×${materials![resource]}</b></span>`),
   ];
-  const badges = talismanBadgesHtml(view.talismans, !view.wardSpent);
+  const badges = talismanBadgesHtml(view.talismans, !view.wardSpent) + modifierBadgesHtml(view.modifiers);
   return `<div class="map-res" id="map-hp"><span class="hud-label">ЗДОРОВЬЕ</span><div class="map-hearts" aria-label="Здоровье: ${player.hp} из ${player.maxHp}">${hearts}</div>${effectText ? `<small class="map-effects">${effectText}</small>` : ''}${badges ? `<div class="talisman-row" id="map-talismans" aria-label="Талисманы">${badges}</div>` : ''}</div>`
     + `<div class="map-res" id="map-energy"><span class="hud-label">ЭНЕРГИЯ</span><strong>${energyText(player.energy)} / 7</strong></div>`
     + `<div class="map-res map-res-tools" id="map-tools"><span class="hud-label">ИНВЕНТАРЬ И ИНСТРУМЕНТЫ</span><div class="map-chips">${chips.join('') || '<span class="map-chip empty">пока закрыты</span>'}</div></div>`
@@ -429,22 +431,48 @@ export function eventModalHtml(run: ForestRunState): string {
   const view = eventView(run);
   if (!view) return '';
   const options = view.options.map(option => {
-    // The cost and the escalation's attempt are shown before the outcomes (a fuller screen is the interface task's).
-    const outcomes = (option.cost ? `Цена: ${option.cost}. ` : '') + (option.attempts ? `Попытка ${Math.min(option.attempts.done + 1, option.attempts.max)} из ${option.attempts.max}: ` : '')
-      + (option.outcomes.length === 1 ? option.outcomes[0].text : option.outcomes.map(outcome => `${outcome.odds}: ${outcome.text}`).join(' · '));
-    return `<button class="event-choice" data-event-option="${option.id}"${option.available ? '' : ' disabled aria-disabled="true"'}><b>${escapeHtml(option.label)}</b><small>${escapeHtml(outcomes)}</small>${option.available ? '' : `<em class="event-reason">${escapeHtml(option.reason)}</em>`}</button>`;
+    // Header: the label, then the cost, the escalation's attempt and the battle mark; below, one row per outcome (docs/events.md, section 6).
+    const tags = [option.cost ? `<span class="event-tag cost">Цена: ${escapeHtml(option.cost)}</span>` : '',
+      option.attempts ? `<span class="event-tag attempt">Попытка ${Math.min(option.attempts.done + 1, option.attempts.max)} из ${option.attempts.max}</span>` : '',
+      option.battle ? '<span class="event-tag battle">Бой</span>' : ''].join('');
+    const rows = option.outcomes.map(outcome => `<span class="event-outcome">${option.outcomes.length > 1 ? `<i>${outcome.odds}</i>` : ''}${escapeHtml(outcome.text)}</span>`).join('');
+    return `<button class="event-choice${option.battle ? ' battle' : ''}" data-event-option="${option.id}"${option.available ? '' : ' disabled aria-disabled="true"'}>`
+      + `<span class="event-choice-head"><b>${escapeHtml(option.label)}</b>${tags}</span><span class="event-outcomes">${rows}</span>${option.available ? '' : `<em class="event-reason">${escapeHtml(option.reason)}</em>`}</button>`;
   }).join('');
-  return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(view.event.title)}</h2><p class="modal-copy event-scene">${escapeHtml(view.event.scene)}</p><div class="event-options">${options}</div>`;
+  // An escalation keeps what its attempts found: the list stays above the options until the event is left.
+  const tries = view.attempts.length ? `<ul class="event-attempts" id="event-attempts" aria-label="Попытки">${view.attempts.map((entry, n) => `<li><b>${n + 1}.</b> ${escapeHtml(entry.text)}</li>`).join('')}</ul>` : '';
+  return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(view.event.title)}</h2><p class="modal-copy event-scene">${escapeHtml(view.event.scene)}</p>${tries}<div class="event-options">${options}</div>`;
+}
+
+/** Icons of the one-battle modifiers (talismans.ts BATTLE_MODIFIERS); temporary glyphs like the talisman letters. */
+const MODIFIER_INFO: Record<BattleModifier, { icon: string; name: string }> = {
+  'first-chain-power': { icon: '+1', name: 'Запас силы' },
+  wrath: { icon: '!!', name: 'Гнев' },
+  'start-elite': { icon: '★', name: 'Элита' },
+  'early-reinforcement': { icon: '»', name: 'Подкрепление' },
+  calm: { icon: '~', name: 'Затишье' },
+};
+/**
+ * Modifiers waiting for the next battle (`'next'`, the map) or taken by the one being played (`'now'`, the HUD): one icon
+ * each; the name and the effect line (BATTLE_MODIFIERS) on hover or focus. Empty without any.
+ */
+export function modifierBadgesHtml(modifiers: readonly { modifier: BattleModifier; battles?: number }[], when: 'next' | 'now' = 'next'): string {
+  const lead = when === 'next' ? 'Следующий бой' : 'Этот бой';
+  return modifiers.map(({ modifier, battles }) => {
+    const info = MODIFIER_INFO[modifier], text = BATTLE_MODIFIERS[modifier], many = when === 'next' && (battles ?? 1) > 1 ? ` (боёв: ${battles})` : '';
+    return `<span class="talisman-badge modifier" tabindex="0" data-modifier-badge="${modifier}" aria-label="${escapeHtml(`${lead} — ${info.name}${many}: ${text}`)}"><span aria-hidden="true">${info.icon}</span>`
+      + `<span class="talisman-tip" role="tooltip"><b>${lead} · ${escapeHtml(info.name)}${many}</b>${escapeHtml(text)}</span></span>`;
+  }).join('');
 }
 
 /** What the chosen event option did; the next step is the map. */
-export function eventResultHtml(run: ForestRunState, events: ForestRunEvent[]): string {
+export function eventResultHtml(run: ForestRunState, events: ForestRunEvent[], attempts: readonly string[] = []): string {
   const resolved = events.find(event => event.type === 'event-resolved');
   if (resolved?.type !== 'event-resolved') return '';
   const node = runNode(run, resolved.nodeId), event = node?.content.kind === 'event' ? forestEvent(node.content.eventId) : undefined;
   const option = event?.options.find(entry => entry.id === resolved.option);
   const { hp, maxHp, energy } = run.resources.player;
-  return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(event?.title ?? nodeName(run, resolved.nodeId))}</h2><p class="modal-copy" id="event-result"><b>${escapeHtml(option?.label ?? resolved.option)}</b>: ${escapeHtml(resolved.text)}.</p><div class="result-stats"><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${energyText(energy)}</b>ЭНЕРГИЯ</span></div><button class="button primary" data-action="run-map">К КАРТЕ</button>`;
+  return `<p class="eyebrow">СОБЫТИЕ</p><h2 id="modal-title">${escapeHtml(event?.title ?? nodeName(run, resolved.nodeId))}</h2><p class="modal-copy" id="event-result"><b>${escapeHtml(option?.label ?? resolved.option)}</b>: ${escapeHtml(resolved.text)}.</p>${attempts.length ? `<ul class="event-attempts" id="event-result-attempts" aria-label="Попытки">${attempts.map((text, n) => `<li><b>${n + 1}.</b> ${escapeHtml(text)}</li>`).join('')}</ul>` : ''}<div class="result-stats"><span><b>${hp}/${maxHp}</b>ЗДОРОВЬЕ</span><span><b>${energyText(energy)}</b>ЭНЕРГИЯ</span></div><button class="button primary" data-action="run-map">К КАРТЕ</button>`;
 }
 
 /**

@@ -780,8 +780,10 @@ test('a map event is chosen by mouse: outcomes shown in advance, an unaffordable
   await expect(page.locator('#modal-title')).toHaveText('Гоблинский тайник');
   const choices = page.locator('#modal .event-choice');
   await expect(choices).toHaveCount(3);
-  await expect(choices.nth(0)).toContainText('50%: добыча, 2 ресурса крафта');
-  await expect(choices.nth(0)).toContainText('50%: ловушка, −2 HP (не ниже 1)');
+  await expect(choices.nth(0).locator('.event-outcome').nth(0)).toContainText('50%');
+  await expect(choices.nth(0).locator('.event-outcome').nth(0)).toContainText('добыча, 2 ресурса крафта');
+  await expect(choices.nth(0).locator('.event-outcome').nth(1)).toContainText('50%');
+  await expect(choices.nth(0).locator('.event-outcome').nth(1)).toContainText('ловушка, −2 HP (не ниже 1)');
   await expect(choices.nth(1)).toBeDisabled();
   await expect(choices.nth(1).locator('.event-reason')).toContainText('Нужна энергия: 1 (сейчас 0)');
   await expect(choices.nth(2)).toContainText('ничего не меняется');

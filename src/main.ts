@@ -22,7 +22,7 @@ import { addPlayTime, forestRunScore, recordTally, createForestRun, enterNode, b
 import { forestEvent } from './game/run/forestEvents';
 import { createForestRunStore } from './game/run/forestRunStorage';
 import { clearsTrunk, createPlayerProfileStore, winsRun } from './game/run/playerProfile';
-import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, talismanModalHtml, shopModalHtml, giftModalHtml, giftOptionText, unlockModalHtml } from './forestMapScreen';
+import { mapScreenHtml, nodeDetailHtml, runEntryHtml, restModalHtml, restResultHtml, findModalHtml, eventModalHtml, eventResultHtml, nodeBattleModalHtml, runResultHtml, grantText, unlockedText, talismanBadgesHtml, modifierBadgesHtml, talismanModalHtml, shopModalHtml, giftModalHtml, giftOptionText, unlockModalHtml } from './forestMapScreen';
 import { applyTelemetryQuery, installTelemetry, playtestHtml, exportJson, clearTelemetry, telemetryEnabled, setTelemetryEnabled, recordRunEvent, recordRunRest, recordRunTalisman, recordRunShop, recordRunGift } from './telemetry';
 import { isResource, lootLabel } from './game/resources';
 import { barView } from './game/run/unlocks';
@@ -282,7 +282,7 @@ function chooseEvent(optionId: string) {
       ...before ? { eventId: before.event.id } : {}, ...before?.attempts.length ? { attempts: before.attempts } : {} });
     mapNotice = `${runNode(step.run, resolved.nodeId)?.name ?? ''}: ${resolved.text}.`;
   }
-  audio.play('reward'); showScreen('map'); showModal(eventResultHtml(step.run, step.events));
+  audio.play('reward'); showScreen('map'); showModal(eventResultHtml(step.run, step.events, before?.attempts.map(entry => entry.text) ?? []));
 }
 /** The open rest (also after a reload: the saved run keeps it pending with its crafts). */
 function showRest() { if (forestRun?.pending?.kind === 'rest') showModal(restModalHtml(forestRun)); }
@@ -595,7 +595,7 @@ function updateHUD() {
     : Array.from({ length: state.player.maxHp }, (_, i) => `<span class="heart ${i < state.player.hp ? 'full' : 'empty'}" aria-hidden="true">♥</span>`).join('');
   el('health').setAttribute('aria-label', `Здоровье: ${state.player.hp} из ${state.player.maxHp}`);
   // The run's talismans beside HP (docs/talismans.md); the Ash ward greys out once it has saved the cat.
-  const talismanRow = talismanBadgesHtml(state.runNode?.talismans ?? [], !!state.player.ward);
+  const talismanRow = talismanBadgesHtml(state.runNode?.talismans ?? [], !!state.player.ward) + modifierBadgesHtml((state.runNode?.modifiers ?? []).map(modifier => ({ modifier })), 'now');
   if (el('talisman-row').innerHTML !== talismanRow) el('talisman-row').innerHTML = talismanRow;
   el('talisman-row').hidden = !talismanRow;
   const activeEffects = summarizeDamageEffects(state.player.damageEffects);
@@ -756,7 +756,7 @@ function showModal(html: string) {
   el('modal').classList.remove('playtest-modal');
   el('modal').innerHTML = html; el('modal-layer').hidden = false;
   document.querySelectorAll<HTMLElement>('.site-header, main, .site-footer').forEach(background => { background.inert = true; });
-  requestAnimationFrame(() => el('modal').querySelector<HTMLButtonElement>('button')?.focus());
+  requestAnimationFrame(() => el('modal').querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus());
 }
 // Playtest screen: opened from the title link or the pause dialog; the game itself never depends on it.
 let playtestFrom: 'title' | 'pause' | null = null;
