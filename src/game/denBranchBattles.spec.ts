@@ -16,7 +16,11 @@ import { ForestEngine } from './forestEngine';
 import { planChain } from './forestSystems';
 import type { ChainPreview } from './forestTypes';
 import { variantSeed } from './levelAnalysis';
-import { DEN_BATTLES } from './run/battles/den';
+import { battlePoolEntry } from './run/battlePools';
+import { DEN_BATTLES as ALL_DEN } from './run/battles/den';
+
+/** Branch battles of rows 10–12 only: the breakthroughs of the same file are checked by test:breakthroughs. */
+const DEN_BATTLES = ALL_DEN.filter(battle => battlePoolEntry(battle.id)?.type !== 'breakthrough');
 import { forestBattle, validateNodeBattle } from './run/forestBattles';
 import { authoredRefillPalette, forestRowPalette, guaranteedRowTools } from './run/forestMap';
 import type { RunBattleSetup, RunPlayerResources } from './run/runBattle';

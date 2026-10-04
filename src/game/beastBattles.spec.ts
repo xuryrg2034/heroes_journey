@@ -227,7 +227,9 @@ async function playRoute(id: string, g: ForestEngine, where: string, affected?: 
   return snapshots;
 }
 
-const DESIGNED = BEAST_BATTLES;
+/** Beast trail battles of 04.10.2026 (pools of rows 5–8, no fixed node): verified by beastTrailBattles.spec.ts. */
+const TRAIL_BATCH = ['beast-wolf-crossing', 'beast-quill-stop'];
+const DESIGNED = BEAST_BATTLES.filter(battle => !TRAIL_BATCH.includes(battle.id));
 
 function layouts() {
   assert(DESIGNED.length === Object.keys(PLANS).length && DESIGNED.every(battle => PLANS[battle.id]), 'every beast battle has a verified plan');

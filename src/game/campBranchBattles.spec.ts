@@ -12,7 +12,11 @@ import { shieldIsActive } from './combatRules';
 import { ELITE_HP_FACTOR } from './elite';
 import { ForestEngine } from './forestEngine';
 import type { ChainPreview } from './forestTypes';
-import { CAMP_BATTLES } from './run/battles/camp';
+import { battlePoolEntry } from './run/battlePools';
+import { CAMP_BATTLES as ALL_CAMP } from './run/battles/camp';
+
+/** Branch battles of rows 10–12 only: the breakthroughs of the same file are checked by test:breakthroughs. */
+const CAMP_BATTLES = ALL_CAMP.filter(battle => battlePoolEntry(battle.id)?.type !== 'breakthrough');
 import { forestBattle, validateNodeBattle } from './run/forestBattles';
 import { authoredRefillPalette, forestRowPalette, guaranteedRowTools } from './run/forestMap';
 import type { RunBattleSetup, RunPlayerResources } from './run/runBattle';

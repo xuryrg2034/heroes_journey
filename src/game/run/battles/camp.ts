@@ -88,4 +88,33 @@ export const CAMP_BATTLES: NodeBattle[] = [
     },
     seed: 9703,
   }),
+  // Breakthrough (row 13), main enemy: archer. The goal is to hold one turn; the gate C1 opens after the enemies answer.
+  // Two archers on the palisade flank the gate; from the cat on C6 they aim down the lanes B2–B4 and D2–D4, so both cells
+  // beside the gate are under fire, and every goblin on a line dies with the volley. Answers: silence the near archer
+  // by a run-up along its own line (C5–B4–B3–B2–B1, power 5 against 3 HP) and stand on its perch; or the dead zone C3
+  // under the campfire, after the guard C4 that bites it (D5–C4–C3); or the far corner A3 after its guard A4. A short
+  // run-up (stopping on B2) and the long moss lane to D2 end under an arrow; after the volley both archers rest a turn.
+  // Exit «one turn» (the goal is met in the enemy phase).
+  authoredLesson({
+    id: 'camp-arrow-gate', name: 'Ворота под стрелами',
+    description: 'Ворота лагеря стерегут два лучника на частоколе. Обе дорожки к воротам простреливаются.',
+    hint: 'Ворота откроются после ответа врагов. Стрела бьёт всех на объявленной линии — и кота, и гоблинов. Встань там, куда стрелы не летят и где не достанет гоблин с замахом, или сними лучника разгоном по его же линии.',
+    rows: [
+      '#WDU#',
+      '#RFG#',
+      'ORVGG',
+      'oRvGv',
+      'OORVG',
+      'OOHGG',
+    ],
+    legend: {
+      W: { kind: 'ranged', color: 0, hp: 3, armed: true },
+      U: { kind: 'ranged', color: 2, hp: 3, armed: true },
+      F: { terrain: 'campfire' },
+      D: { door: true },
+    },
+    goals: [{ key: 'turns', target: 1 }],
+    completion: 'exit',
+    seed: 9704,
+  }),
 ];

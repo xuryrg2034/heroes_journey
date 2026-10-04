@@ -41,6 +41,8 @@
     "test:camp-branch": "tsx src/game/campBranchBattles.spec.ts",
     "test:beast-battles": "tsx src/game/beastBattles.spec.ts",
     "test:den-branch": "tsx src/game/denBranchBattles.spec.ts",
+    "test:breakthroughs": "tsx src/game/breakthroughBattles.spec.ts",
+    "test:beast-trails": "tsx src/game/beastTrailBattles.spec.ts",
     "test:troll-arena": "tsx src/game/trollArena.spec.ts",
     "test:playtest-rules": "tsx src/game/playtestRules.spec.ts",
     "analyze:levels": "tsx scripts/analyze-levels.ts",

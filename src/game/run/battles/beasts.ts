@@ -132,4 +132,47 @@ export const BEAST_BATTLES: NodeBattle[] = [
     completion: 'exit',
     seed: 9513,
   }),
+  // Beast trail battles of 04.10.2026 (pools of rows 5–8): docs/levels/forest-nodes-beasts.md, «Новые бои тропы».
+  authoredLesson({
+    id: 'beast-wolf-crossing', name: 'Волчья переправа', description: 'Две стаи сошлись у брода: вожак брода стоит в воде, северный вожак ждёт за переправой.',
+    hint: 'Волк вооружён, пока рядом живой волк любого цвета. Прежде чем бить вожака, посмотри, кто ещё стоит рядом с его волками.',
+    rows: [
+      'GMLNOOO',
+      'GDXBBOO',
+      '~~qJp~~',
+      'GGNRZOO',
+      'GGOHGGO',
+    ],
+    legend: {
+      L: { color: 2, hp: 3, variant: 'wolf', armed: true, target: true },
+      J: { color: 0, hp: 3, variant: 'wolf', armed: true, target: true, terrain: 'puddle' },
+      X: { color: 0, hp: 0, variant: 'wolf', armed: true },
+      M: { color: 1, hp: 0, variant: 'wolf', armed: true },
+      N: { color: 3, hp: 0, variant: 'wolf', armed: true },
+      Z: { color: 2, hp: 0, variant: 'wolf', armed: true },
+      q: { color: 0, terrain: 'puddle' },
+      p: { color: 2, terrain: 'puddle' },
+      '~': { terrain: 'pond' },
+      D: { door: true },
+    },
+    seed: 9504,
+  }),
+  authoredLesson({
+    id: 'beast-quill-stop', name: 'Колючий упор', description: 'Кабан роет землю у лаза, а между ним и котом засел крепкий дикобраз.',
+    hint: 'Кабан бежит, куда объявил. Если таран не убил переднего и ряду некуда сдвинуться, кабан упрётся: оглушён и хрупок, следующий удар по нему вдвое сильнее.',
+    rows: [
+      'BBBRRR',
+      'GGBDOR',
+      'GGPKOB',
+      'GGRROB',
+      'HRRROB',
+      'GGGBBB',
+    ],
+    legend: {
+      K: { color: 3, hp: 6, variant: 'boar', armed: true, target: true },
+      P: { color: 1, hp: 3, variant: 'porcupine' },
+      D: { door: true },
+    },
+    seed: 9505,
+  }),
 ];

@@ -46,6 +46,9 @@ export const BATTLE_POOLS: Readonly<Record<string, BattlePoolEntry>> = {
   'boar-garden': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'boar', feature: 'Кабан и шипы по краю' },
   // The spec route is chains only: the jump the authored row 7 opens is not needed.
   'porcupine-thicket': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'porcupine', feature: 'Дикобразы' },
+  // Beast trail battles of 04.10.2026 (docs/levels/forest-nodes-beasts.md, «Новые бои тропы»): chains only.
+  'beast-wolf-crossing': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'wolf', feature: 'Две стаи у брода' },
+  'beast-quill-stop': { rows: [5, 8], type: 'battle', branch: 'beasts', requires: [], main: 'boar', feature: 'Кабан и дикобраз-упор' },
   'goblin-archer-watch': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'archer', feature: 'Лучник' },
   'goblin-shield-flank': { rows: [5, 8], type: 'battle', branch: 'goblins', requires: [], main: 'sentinel', feature: 'Щитоносец' },
   // The last target is taken by a jump into the niche (docs/levels/forest-nodes-goblins.md).
@@ -69,6 +72,9 @@ export const BATTLE_POOLS: Readonly<Record<string, BattlePoolEntry>> = {
   // Breakthroughs, row 13, and bosses, row 14.
   'den-breakout': { rows: [13, 13], type: 'breakthrough', branch: 'den', requires: [], main: 'wolf', feature: 'Цель — выход' },
   'camp-gate-run': { rows: [13, 13], type: 'breakthrough', branch: 'camp', requires: [], main: 'sentinel', feature: 'Цель — выход' },
+  // Breakthroughs of 04.10.2026 (docs/levels/forest-branch-den.md, forest-branch-camp.md): the spec routes are chains only.
+  'den-boar-burrow': { rows: [13, 13], type: 'breakthrough', branch: 'den', requires: [], main: 'boar', feature: 'Кабан в лазе' },
+  'camp-arrow-gate': { rows: [13, 13], type: 'breakthrough', branch: 'camp', requires: [], main: 'archer', feature: 'Два лучника у ворот' },
   'troll-lair': { rows: [14, 14], type: 'boss', branch: 'den', requires: [], main: 'troll', feature: 'Тролль, стая и жаровня' },
   'chief-breakfast': { rows: [14, 14], type: 'boss', branch: 'camp', requires: [], main: 'chief', feature: 'Главарь и котелок' },
 };
