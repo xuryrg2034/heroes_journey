@@ -11,7 +11,7 @@ export const LADDER_MAX = 10;
 /** One line per step, as the start screen lists them. */
 export const LADDER_STEPS: readonly string[] = [
   'Без правок',
-  'Трудных боёв на карте в 1,5 раза больше',
+  'Трудных боёв на карте примерно в 1,6 раза больше',
   'Случайные элиты до целей — 5% вместо 3%',
   'Авторские элиты трудных боёв +1 HP',
   'Боссы: +20% HP',

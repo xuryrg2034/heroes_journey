@@ -333,7 +333,7 @@ export function shopModalHtml(run: ForestRunState): string {
   const view = shopView(run);
   if (!view) return '';
   const describe = (good: ShopGoodView): [string, string, string] => {
-    if (good.item) return [ITEM_ICON[good.item], escapeHtml(ITEMS[good.item].label), escapeHtml(ITEMS[good.item].description)];
+    if (good.item) return [ITEM_ICON[good.item], `${escapeHtml(ITEMS[good.item].label)}${good.opens ? ' <small class="rest-opens">откроет</small>' : ''}`, escapeHtml(ITEMS[good.item].description)];
     if (good.talisman) {
       const entry = talisman(good.talisman);
       return [`<span class="talisman-icon${isOath(good.talisman) ? ' oath' : ''}">${TALISMAN_LETTER[good.talisman]}</span>`, `${escapeHtml(entry.name)} <em>${RARITY_LABEL[entry.rarity]}</em>`,

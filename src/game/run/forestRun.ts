@@ -597,6 +597,8 @@ export interface ShopGoodView {
   reason: string;
   /** Bought at this visit (a consumable slot, the talisman, «Закалка»). */
   sold: boolean;
+  /** A consumable not open in this run yet: buying it opens it for the next battles, as a craft does. */
+  opens?: boolean;
 }
 export interface ShopView {
   nodeId: string;
@@ -619,7 +621,7 @@ export function shopView(run: ForestRunState): ShopView | null {
   const short = (price: number) => total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
   const goods: ShopGoodView[] = pending.stock.items.map((item, slot) => {
     const price = shopPrice('item', { markup }), sold = pending.bought.some(purchase => purchase.good === 'item' && purchase.slot === slot), reason = sold ? 'Куплено' : short(price);
-    return { id: `item:${slot}`, good: 'item', item, price, fullPrice: price, available: !reason, reason, sold };
+    return { id: `item:${slot}`, good: 'item', item, price, fullPrice: price, available: !reason, reason, sold, ...run.tools.items.includes(item) ? {} : { opens: true } };
   });
   if (pending.stock.talisman) {
     const price = shopPrice('talisman', { talisman: pending.stock.talisman, markup }), sold = pending.bought.some(purchase => purchase.good === 'talisman');
@@ -854,7 +856,7 @@ function inventoryCap(visited: ForestMapNode[], finds: ForestRunState['finds'], 
  */
 function shopPurchases(value: unknown, stock: ShopStock, hardenings: number, markup: number) {
   if (!Array.isArray(value)) return null;
-  const paidTotal = emptyMaterials(), items: ItemKind[] = [], slots = new Set<number>();
+  const paidTotal = emptyMaterials(), slots = new Set<number>();
   let heals = 0, harden = 0, talisman: TalismanId | null = null;
   for (const purchase of value) {
     if (!isRecord(purchase) || !isRecord(purchase.paid) || Object.keys(purchase.paid).length !== RESOURCE_KINDS.length) return null;
@@ -865,7 +867,7 @@ function shopPurchases(value: unknown, stock: ShopStock, hardenings: number, mar
       const slot = purchase.slot as number;
       if (keys !== 'good,item,paid,price,slot' || !Number.isInteger(slot) || slots.has(slot) || stock.items[slot] === undefined || purchase.item !== stock.items[slot]) return null;
       if (purchase.price !== shopPrice('item', { markup }) || sum !== purchase.price) return null;
-      slots.add(slot); items.push(stock.items[slot]);
+      slots.add(slot);
     } else if (purchase.good === 'talisman') {
       if (keys !== 'good,paid,price,talisman' || talisman || !stock.talisman || purchase.talisman !== stock.talisman) return null;
       if (purchase.price !== shopPrice('talisman', { talisman: stock.talisman, markup }) || sum !== purchase.price) return null;
@@ -877,7 +879,7 @@ function shopPurchases(value: unknown, stock: ShopStock, hardenings: number, mar
     } else return null;
     for (const kind of RESOURCE_KINDS) paidTotal[kind] += paid[kind] as number;
   }
-  return { hardenings: harden, items, talisman, paid: paidTotal };
+  return { hardenings: harden, talisman, paid: paidTotal };
 }
 
 /** The map of a save: version 1 walks the authored graph; version 2 names it or stores a generated map. Null if invalid. */

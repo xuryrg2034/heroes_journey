@@ -119,7 +119,7 @@ function openedByPurchase() {
     if (run.tools.items.length !== 1) continue;
     cases++;
     const view = shopView(run)!, slot = view.goods.findIndex(good => good.good === 'item' && !run.tools.items.includes(good.item!));
-    assert(slot >= 0, `${seed}: with one open kind the other slot sells a kind not open yet`);
+    assert(slot >= 0 && view.goods[slot].opens && view.goods.filter(good => good.opens).length === 1, `${seed}: with one open kind the other slot sells a kind not open yet, marked «откроет»`);
     const item = view.goods[slot].item!, step = shopBuy(run, view.goods[slot].id), bought = ok(step, 'buy the new kind');
     assert(bought.tools.items.includes(item) && bought.resources.inventory[item] === run.resources.inventory[item] + 1, `${seed}: ${item} is open and in the bag`);
     assert(step.ok && step.events.some(event => event.type === 'tools-unlocked' && event.items.includes(item)), `${seed}: the purchase reports the opening`);
