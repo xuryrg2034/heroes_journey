@@ -28,8 +28,10 @@ export type BattleColoring = 'authored' | 'random';
  * (docs/random-coloring.md, «Замеры»): on 200 battle seeds of each of the four battles the first candidate passed in
  * 793 of 800 entries and the second in the other 7 (boar-garden: 5 without a chain of two, 2 with too large a group),
  * i.e. at most 3.5% of candidates fail. With 8 attempts the fallback is practically never taken here (0.035^8 ≈ 2e-12)
- * and stays below 0.4% even for a battle that rejects half its candidates; an attempt costs 4–35 ms (a load and the
- * forecast of the first chains on a private engine), so the worst case on entering stays about a quarter of a second.
+ * and stays below 0.4% even for a battle that rejects half its candidates. An attempt is a load and the forecast of
+ * the first chains on a private engine (availableMoves dominates): measured on entering (review of 05.10.2026, Node,
+ * 200 seeds per battle, nearly always one attempt) median 5–12 ms, p95 41–97 ms, max 194–320 ms; a fallback after 8
+ * attempts could take seconds on the main thread.
  */
 export const RANDOM_COLORING_ATTEMPTS = 8;
 /** Баланс: the largest same-color group holds at most this share of the colored enemies (check 3, `largestComponentShare`). */

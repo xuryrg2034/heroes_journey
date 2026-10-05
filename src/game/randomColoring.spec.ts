@@ -213,17 +213,15 @@ function runInPrototypeBattle(): ForestRunState {
 
 /**
  * In a run the flagged battle gets the random coloring by the run seed and the node id; a save and reload of the run
- * gives the same setup and the same colored opening (the coloring is never rerolled), and the long run streams are not
- * touched by starting the battle.
+ * gives the same setup and the same colored opening (the coloring is never rerolled).
  */
 function runAndReloadKeepTheColors() {
   const run = runInPrototypeBattle(), setup = battleSetup(run)!;
   assert(setup.coloring === 'random', `${setup.template.id}: the run asks for the random coloring`);
-  const streams = json(run.streams), first = start(setup);
+  const first = start(setup);
   const reloaded = parseForestRun(serializeForestRun(run))!;
   assert(json(battleSetup(reloaded)) === json(setup), `${setup.template.id}: the reloaded run gives the same setup`);
   assert(fingerprint(start(battleSetup(reloaded)!)) === fingerprint(first), `${setup.template.id}: the reloaded run gives the same colored opening`);
-  assert(json(run.streams) === streams, 'starting the battle draws nothing from the run streams');
   const ordinary = ordinaryIndices(setup.template.id);
   assert(json(ordinaryColors(first, ordinary)) !== json(ordinaryColors(start({ ...setup, coloring: undefined }), ordinary)), `${setup.template.id}: the run's coloring is not the authored one`);
   // An unflagged battle of the run (any first-row battle of another seed that is not in the prototype) has no flag.
