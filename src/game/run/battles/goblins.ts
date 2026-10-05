@@ -34,14 +34,17 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
   // Row 6, lesson / application. The shield faces the cat, so the red pocket north of the bearer is closed
   // from the start; the ochre chain to the guard Q moves the cat east and turns the shield away from the pocket.
   // Exit «nearby»: the door C5 is the gap the bearer guards; the red chain that kills it continues into it.
+  // Prototype A (random coloring, docs/random-coloring.md, section 9; 05.10.2026): D2 and C3 of the pocket are sturdy
+  // red goblins (1 HP, not targets), so they keep their color and the red chain D2 → C3 → C4 meets the shield on every seed.
+  // Each of them spends 1 power, so B3 is red fuel: the authored route D2 → C2 → B2 → B3 → C3 → C4 → C5 still reaches the bearer.
   authoredLesson({
     id: 'goblin-shield-flank', name: 'Щит у частокола',
     description: 'Щитоносец стережёт проход в частоколе, караульный стоит у ворот засеки.',
     hint: 'Щит смотрит на кота и не пускает цепь со своей стороны. Закончи ход так, чтобы щит отвернулся, и зайди сбоку.',
     rows: [
       'GGBHBB#',
-      'GRRROOO',
-      '#BRGQOO',
+      'GRRKOOO',
+      '#RKGQOO',
       'BBSGOGO',
       '#ODGGBb',
       'OOBBGB#',
@@ -49,6 +52,7 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
     legend: {
       S: { color: 0, hp: 3, variant: 'sentinel', armed: true, target: true },
       Q: { color: 3, hp: 2, target: true },
+      K: { color: 0, hp: 1 },
       D: { door: true },
     },
     seed: 9602,

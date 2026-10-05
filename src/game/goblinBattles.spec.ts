@@ -251,10 +251,11 @@ async function shieldFlank() {
     assert(bait.valid && bait.damage === 1 && bait.damageBySource.melee === 1, 'the forecast shows the bearer striking a chain that stops beside it');
     await play.chain('E2', 'F2', 'G2', 'G3', 'F3', 'E4', 'E3');
     assert(bearer.shield?.dx === 1 && !bearer.shield.dy, 'the cat in the east turns the shield away from the pocket');
-    const stay = play.preview('D2', 'C2', 'B2', 'C3', 'C4');
+    const stay = play.preview('D2', 'C2', 'B2', 'B3', 'C3', 'C4');
     assert(stay.valid && !stay.completesRoom, 'killing the bearer without the door is no victory');
     // The exit C5 is the gap the bearer guards: the chain that kills it continues into the door at once.
-    const out = await play.chain('D2', 'C2', 'B2', 'C3', 'C4', 'C5');
+    // The pocket D2, C3 is sturdy (1 HP each, so it keeps its color under prototype A); B3 is the extra fuel (05.10.2026).
+    const out = await play.chain('D2', 'C2', 'B2', 'B3', 'C3', 'C4', 'C5');
     assert(out.opensDoor === play.at('C5') && out.completesRoom, 'the forecast opens the door behind the bearer mid-chain');
     play.won(5);
     if (seed === SEEDS[0]) await replayMatches(play);
