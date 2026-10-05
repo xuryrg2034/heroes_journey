@@ -184,7 +184,7 @@ export const GOBLIN_BATTLES: NodeBattle[] = [
   }),
   // Trail pool, rows 5–8 (04.10.2026, not bound to a node), turn: armed goblins strike their four sides only. Both
   // guards stand between two pikes, so ending on a guard's cell costs two blows: the trail guard P is taken in passing
-  // (the red lane runs through F4 to E4 or F5), the gate guard Q last — that chain continues into the door C1 and wins
+  // (with the authored colors the red lane runs through F4 to E4 or F5; prototype A recolors the ordinary goblins, the pikes included), the gate guard Q last — that chain continues into the door C1 and wins
   // before the enemies answer. Exit «nearby».
   authoredLesson({
     id: 'goblin-pike-gate', name: 'Копья у ворот',

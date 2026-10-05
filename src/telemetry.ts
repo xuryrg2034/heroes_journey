@@ -89,7 +89,16 @@ export interface AttemptRecord {
   whetstoneUsed?: boolean;
   /** The run's step of «Ступени клятвы» (ladder.ts); absent — step 0, or a journal before the ladder. */
   ladder?: number;
+  /**
+   * Prototype A (docs/random-coloring.md, decision of 05.10.2026): the coloring the map battle was played with —
+   * `random` (its ordinary enemies recolored by the battle seed) or `authored` (no flag, or the random one fell back).
+   * With `firstAction` it answers «did the player decide differently». Absent for editor levels and older journals.
+   */
+  coloring?: 'random' | 'authored';
+  /** The first committed turn: a chain with its cells, an ability with its target, or a rest; absent — none, or older. */
+  firstAction?: FirstAction;
 }
+export type FirstAction = { kind: 'chain'; cells: number[] } | { kind: 'ability'; ability: AbilityKind; target?: number } | { kind: 'rest' };
 
 /**
  * A choice at a map event (04.10.2026): the node, the option, the rolled outcome (index and text) and the run seed.
@@ -392,6 +401,8 @@ interface Open {
   ladder: number;
   /** Talismans held, whether the ward was whole at the start (to notice it crumble) and the triggers seen. */
   talismans: TalismanId[]; wardWhole: boolean; wardSaved: boolean; whetstoneUsed: boolean;
+  /** Map battles: the coloring played (prototype A) and the first committed turn. */
+  coloring?: 'random' | 'authored'; firstAction: FirstAction | null;
 }
 
 export interface TelemetryController {
@@ -443,6 +454,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
       ...(current.mode === 'run' && outcome === 'lose' ? { runEnded: true } : {}),
       ...(current.talismans.length ? { talismans: current.talismans, wardSaved: current.wardSaved, whetstoneUsed: current.whetstoneUsed } : {}),
       ...(current.ladder ? { ladder: current.ladder } : {}),
+      ...(current.coloring ? { coloring: current.coloring } : {}), ...(current.firstAction ? { firstAction: current.firstAction } : {}),
     };
     const journal = load();
     journal.attempts = [...journal.attempts, record].slice(-MAX_ATTEMPTS);
@@ -459,11 +471,14 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
       turns: 0, hp: engine.state.player.hp, maxHp: engine.state.player.maxHp, damage: 0, chainLengths: [], cancelled: 0, abilities: {}, items: {}, firstMoveMs: null,
       goalTurn: null, hpAtGoal: null, damageAfterGoal: 0, exitTurn: null, materials: {}, lootItems: {}, chestDropped: false, chestOpened: false,
       talismans: [...engine.state.runNode?.talismans ?? []], wardWhole: !!engine.state.player.ward, wardSaved: false, whetstoneUsed: false,
-      ladder: engine.state.runNode?.ladder ?? 0 };
+      ladder: engine.state.runNode?.ladder ?? 0,
+      // The engine sets the coloring before it publishes `start` (startRunBattle); a fallback plays the authored colors.
+      ...(info.mode === 'run' ? { coloring: engine.coloring?.attempt != null ? 'random' as const : 'authored' as const } : {}), firstAction: null };
   };
-  const committed = () => {
+  const committed = (action: FirstAction) => {
     if (!open) return;
     open.turns++;
+    open.firstAction ??= action;
     if (open.firstMoveMs === null) open.firstMoveMs = Math.round(performance.now() - open.t0);
   };
   /** After a defeat the attempt is already stored; leaving marks that record as the end of the visit. */
@@ -527,7 +542,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     if (open && s.phase === 'PLAYER_INPUT' && s.chain.length) {
       let whetstone = false;
       if (safe(() => { const preview = engine.preview(); whetstone = !!preview.whetstone; return preview.valid; })) {
-        open.chainLengths.push(s.chain.length); committed(); if (whetstone) open.whetstoneUsed = true;
+        open.chainLengths.push(s.chain.length); committed({ kind: 'chain', cells: [...s.chain] }); if (whetstone) open.whetstoneUsed = true;
       }
       else if (s.chain.length > 1) open.cancelled++; // a single-cell click is inspection, not hesitation
     }
@@ -542,7 +557,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
   const abilityUse = engine.useAbility.bind(engine);
   engine.useAbility = (ability, targetIndex) => {
     if (open && state().phase === 'PLAYER_INPUT' && safe(() => engine.previewAbility(ability, targetIndex).valid)) {
-      open.abilities[ability] = (open.abilities[ability] ?? 0) + 1; committed();
+      open.abilities[ability] = (open.abilities[ability] ?? 0) + 1; committed({ kind: 'ability', ability, ...targetIndex !== undefined ? { target: targetIndex } : {} });
     }
     return abilityUse(ability, targetIndex);
   };
@@ -552,7 +567,7 @@ export function installTelemetry(engine: ForestEngine): TelemetryController {
     return itemUse(item, index);
   };
   const wait = engine.waitTurn.bind(engine);
-  engine.waitTurn = () => { if (open && state().phase === 'PLAYER_INPUT') committed(); return wait(); };
+  engine.waitTurn = () => { if (open && state().phase === 'PLAYER_INPUT') committed({ kind: 'rest' }); return wait(); };
 
   window.addEventListener('pagehide', leave);
   return { leave, quiet: action => { quietDepth++; try { return action(); } finally { quietDepth--; } } };

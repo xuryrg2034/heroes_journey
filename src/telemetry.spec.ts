@@ -8,7 +8,7 @@ import { authoredLesson } from './game/lessonBuilder';
 import { FOREST_NODE_BATTLES, type NodeBattle } from './game/run/forestBattles';
 import type { RunBattleSetup } from './game/run/runBattle';
 import { CHEST_RESOURCES } from './game/exitRules';
-import { forestFixtureLevel } from './game/testing/fixtures';
+import { forestFixtureLevel, nodeBattleSetup } from './game/testing/fixtures';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
@@ -335,6 +335,28 @@ async function ladderStep() {
   console.log('PASS the ladder step is recorded in the attempts of map battles');
 }
 
+/**
+ * Prototype A (decision of 05.10.2026): a map battle's attempt records the coloring played (random by the flag, authored
+ * without it) and the first committed turn — the chain's cells, or a rest — to tell whether the player decided differently.
+ */
+async function coloringAndFirstAction() {
+  for (const coloring of ['random', undefined] as const) {
+    telemetry.clearTelemetry();
+    const g = new ForestEngine(); g.animationScale = 0; const watch = telemetry.installTelemetry(g);
+    assert(g.startRunBattle(nodeBattleSetup('goblin-shield-flank', { seed: spread(11), row: 6, ...coloring ? { coloring } : {} })), 'the prototype battle starts');
+    const path = g.availableMoves()[0];
+    if (coloring) { assert(g.beginChain(path[0]), 'begin'); for (const index of path.slice(1)) assert(g.extendChain(index), 'extend'); assert(await g.releaseChain(), 'release'); }
+    else assert(await g.waitTurn(), 'rest');
+    if (coloring) assert(g.state.phase === 'PLAYER_INPUT' || g.state.phase === 'WIN', 'the turn ends');
+    await g.waitTurn(); watch.leave();
+    const [record] = journal();
+    const expected = coloring ? { coloring: 'random', firstAction: { kind: 'chain', cells: path } } : { coloring: 'authored', firstAction: { kind: 'rest' } };
+    assert(record && JSON.stringify({ coloring: record.coloring, firstAction: record.firstAction }) === JSON.stringify(expected), `${coloring ?? 'authored'}: ${JSON.stringify(record && { coloring: record.coloring, firstAction: record.firstAction })}`);
+  }
+  telemetry.clearTelemetry();
+  console.log('PASS map attempts record the coloring played and the first committed turn (chain cells or a rest)');
+}
+
 eventChoices();
 catalogueEvents();
 restChoices();
@@ -398,6 +420,7 @@ async function battleKeys() {
 
 giftRecords();
 await battleKeys();
+await coloringAndFirstAction();
 await ladderStep();
 await talismans();
 await leaveAtOnce();
