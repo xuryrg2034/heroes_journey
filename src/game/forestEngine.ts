@@ -21,6 +21,8 @@ import { hasTalisman, OATH_ENERGY, oathCount, startsWithElite } from './talisman
 import { LADDER_BOSS_HP, ladderAt } from './ladder';
 import { PRESSURE_BOSSES } from './mapBattleRules';
 import { reinforcementCellAllowed } from './exitRules';
+import { coloringPalette, coloringScenarioCheck, isOrdinaryEnemy, pickRandomColoring, staticColoringProblem, type ColoringChoice } from './randomColoring';
+import { forestRowPalette } from './run/forestMap';
 
 const emptyProgress = () => ({ kills: 0, rangedKills: 0, bossKills: 0, turns: 0, armorKills: 0, prisms: 0, bossHits: 0 });
 /** Seed of an engine before any battle is loaded; every battle replaces it with its own. */
@@ -108,14 +110,40 @@ export class ForestEngine {
   /** Start a forest-map node battle with the run's carried resources and opened tools (src/game/run). */
   startRunBattle(setup: RunBattleSetup): boolean {
     const { template } = setup;
-    const lesson = template?.kind === 'battle' && typeof template.id === 'string' ? forestBattle(template.id) : undefined;
-    if (!lesson) return false;
+    const authored = template?.kind === 'battle' && typeof template.id === 'string' ? forestBattle(template.id) : undefined;
+    if (!authored) return false;
+    // Prototype A (docs/random-coloring.md): the ordinary enemies of a flagged battle get colors drawn by the battle seed.
+    const choice = setup.coloring === 'random' ? this.randomColoring(authored, setup) : null;
+    const lesson = choice?.lesson ?? authored;
     // Set before the load: its `start` event already names the battle; a rejected load keeps the previous one.
-    const previous = this.runBattle;
-    this.runBattle = template.id;
-    const loaded = this.loadCustomLevel({ ...lesson.definition, seed: setup.seed, paletteWeights: [...setup.paletteWeights ?? lesson.definition.paletteWeights] }, lesson, setup);
-    if (!loaded) this.runBattle = previous;
+    const previous = { battle: this.runBattle, coloring: this.coloring };
+    this.runBattle = template.id; this.coloring = choice ? { attempt: choice.attempt } : null;
+    const loaded = this.loadCustomLevel(this.runDefinition(lesson, setup), lesson, setup);
+    if (!loaded) { this.runBattle = previous.battle; this.coloring = previous.coloring; }
     return loaded;
+  }
+  /**
+   * The random coloring of the open map-node battle: the attempt that passed checks 1–5 (1-based), or null when every
+   * attempt failed and the authored colors were kept; null outside a battle with random coloring.
+   */
+  coloring: { attempt: number | null } | null = null;
+  private runDefinition(lesson: AuthoredLesson, setup: RunBattleSetup) {
+    return { ...lesson.definition, seed: setup.seed, paletteWeights: [...setup.paletteWeights ?? lesson.definition.paletteWeights] };
+  }
+  /**
+   * Draw the coloring of a flagged battle (randomColoring.ts): candidates from the coloring seed of the battle seed, each
+   * loaded on a private engine with the same setup and checked (palette, targets of different colors, group bounds, an
+   * ordinary chain of two enemies from the cat, no first chain meeting the goals). Spends nothing of this engine.
+   */
+  private randomColoring(authored: AuthoredLesson, setup: RunBattleSetup): ColoringChoice {
+    const palette = coloringPalette(authored, forestRowPalette(setup.row));
+    return pickRandomColoring(authored, palette, setup.seed, candidate => {
+      const worker = new ForestEngine(); worker.animationScale = 0; worker.runBattle = setup.template.id;
+      if (!worker.loadCustomLevel(worker.runDefinition(candidate, setup), candidate, setup)) return false;
+      if (openingColoringProblem(worker, candidate, palette) !== null) return false;
+      const scenario = coloringScenarioCheck();
+      return !scenario || scenario(setup.template.id, worker);
+    });
   }
   /** Result of a finished map-node battle for the run model; null outside a node or before WIN/LOSE. */
   runBattleOutcome(): RunBattleOutcome | null {
@@ -155,7 +183,11 @@ export class ForestEngine {
     this.generation++; this.world = { state: cloneState(this.entrySnapshot.state), res: { rng: this.entrySnapshot.rng, nextId: this.entrySnapshot.nextId } };
     this.emit({ type: 'start' });
   }
-  startCustomLevel(value: unknown): boolean { return this.loadCustomLevel(value); }
+  startCustomLevel(value: unknown): boolean {
+    const loaded = this.loadCustomLevel(value);
+    if (loaded) this.coloring = null;
+    return loaded;
+  }
   /**
    * Load an editor level, or an authored node battle with its metadata (marked targets, passivity, hint) and the
    * run's resources and tools. The load is atomic: a rejected level restores the previous battle untouched.
@@ -546,4 +578,26 @@ export class ForestEngine {
     this.emit({ type: 'damage', index: this.state.player.index, amount: damage });
     if (this.state.player.hp === 0) { this.generation++; this.finish(false); }
   }
+}
+
+/**
+ * Checks 1–5 of a random coloring (docs/random-coloring.md, section 3) on an engine that has just loaded the candidate
+ * `lesson`: the palette, targets of different colors and the group bounds (randomColoring.ts), then on the first
+ * chains the cat can play (`availableMoves`, forecast by `preview` — the same full turn as execution) at least one
+ * hits two or more enemies, and none meets the goals (wins, opens the door or has the goals met in the enemy phase).
+ * Null when the coloring passes, else the failed check. Reads only: the engine's state and RNG are not advanced.
+ */
+export function openingColoringProblem(engine: ForestEngine, lesson: AuthoredLesson, palette: readonly EnemyColor[]): string | null {
+  const state = engine.state;
+  const ordinary = new Set(lesson.definition.enemies.filter(enemy => isOrdinaryEnemy(enemy, lesson.targetIndices)).flatMap(enemy => state.board[enemy.index] ? [state.board[enemy.index]!.id] : []));
+  const problem = staticColoringProblem(state, palette, ordinary);
+  if (problem) return problem;
+  let pair = false;
+  for (const path of engine.availableMoves()) {
+    const preview = engine.preview(path);
+    if (!preview.valid) continue;
+    if (preview.completesRoom || preview.opensDoor !== undefined || preview.unlocksExit || preview.enemyPhase?.completesObjective || preview.enemyPhase?.unlocksExit) return 'first-win';
+    if (preview.enemies >= 2) pair = true;
+  }
+  return pair ? null : 'no-pair';
 }

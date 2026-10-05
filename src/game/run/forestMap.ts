@@ -178,7 +178,8 @@ export function nodeBattleTemplate(node: ForestMapNode): AuthoredLesson | null {
 
 /**
  * Refill palette of an authored battle placed on map row `row`: the row palette plus every color of its authored
- * opening layout (that layout is never recolored).
+ * opening layout (that layout is never recolored; prototype A recolors only the ordinary enemies of a flagged battle
+ * on entering, from the row palette and the special enemies' colors, randomColoring.ts).
  */
 export function authoredRefillPalette(template: AuthoredLesson, row: number): PaletteWeights {
   const colors = new Set<EnemyColor>([...forestRowPalette(row),

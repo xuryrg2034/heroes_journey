@@ -7,6 +7,7 @@
  *   npm run analyze:levels -- --nodes --elite-move-every 2    # compare elite movement periods (0 — no movement)
  *   npm run analyze:levels -- --nodes --talismans all          # the run's talismans (default: none — the worst case)
  *   npm run analyze:levels -- --node troll-lair --ladder 4      # on a step of «Ступени клятвы» (default 0)
+ *   npm run analyze:levels -- --node boar-garden --coloring random --coloring-seeds 200 --seeds 1 --depth 4  # prototype A
  *   npm run analyze:levels -- --json my-level.json --seeds 5 --out report.json
  * Levels are analyzed in parallel child processes; every level uses its own engines.
  */
@@ -26,8 +27,11 @@ import { forestNode } from '../src/game/run/forestMap';
 /** The game's elite movement period, kept to restore it between tasks. */
 const ELITE_MOVE_EVERY_DEFAULT = ELITE_MOVE_EVERY;
 
-/** `eliteMoveEvery`: elite movement period for this analysis (elite.ts; 0 — no movement); the game uses ELITE_MOVE_EVERY. */
-interface Task { source: LevelSource; options: Partial<AnalysisOptions>; eliteMoveEvery?: number }
+/**
+ * `eliteMoveEvery`: elite movement period for this analysis (elite.ts; 0 — no movement); the game uses ELITE_MOVE_EVERY.
+ * `group`: with --coloring-seeds, the analysis target the task is one battle seed of (the coloring table aggregates by it).
+ */
+interface Task { source: LevelSource; options: Partial<AnalysisOptions>; eliteMoveEvery?: number; group?: string }
 interface Done { index: number; result?: LevelAnalysis; error?: string; ms: number }
 
 const HELP = `analyze-levels [options]
@@ -45,6 +49,11 @@ const HELP = `analyze-levels [options]
                      changes). The battle side of the step applies: random elites, hard-battle elites (a hard battle is
                      a hard node or a hard pool battle), bosses, reinforcements, chests; not the run side (map, start HP,
                      rest, merchant) and not greed (it depends on the run's stock)
+  --coloring C       node battles: random — prototype A's random coloring of the ordinary enemies (docs/random-coloring.md),
+                     drawn by the battle seed under checks 1–5; authored — the authored colors (the default of node battles)
+  --coloring-seeds N node battles: analyze each battle on N battle seeds (Math.imul(k, 2654435761) >>> 0, k = 1..N) instead of
+                     the authored seed; the battle seed draws the coloring (random) and the refill. Prints the coloring
+                     table: share of winnable seeds, check 6 (goals in 2–4 turns), goal turns, traps, greedy agent
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
   --depth D          search horizon in turns (default ${DEFAULT_ANALYSIS_OPTIONS.depth})
   --beam B           children per internal node (default ${DEFAULT_ANALYSIS_OPTIONS.beam})
@@ -61,6 +70,7 @@ const HELP = `analyze-levels [options]
 function parse(argv: string[]) {
   const tasks: LevelSource[] = [], options: Partial<AnalysisOptions> = {};
   let out: string | undefined, workers = Math.max(1, availableParallelism() - 1), allNodes = false, row: number | undefined, energy: number | undefined, eliteMoveEvery: number | undefined, talismans: TalismanId[] | undefined, ladder = 0;
+  let coloring: 'random' | 'authored' | undefined, coloringSeeds: number | undefined;
   const nodeIds: string[] = [];
   const number = (flag: string, value: string | undefined, min: number) => {
     const parsed = Number(value);
@@ -84,6 +94,9 @@ function parse(argv: string[]) {
         talismans = ids as TalismanId[]; i++; break;
       }
       case '--ladder': ladder = number(flag, value, 0); if (ladder > LADDER_MAX) throw new Error(`--ladder: expected 0–${LADDER_MAX}`); i++; break;
+      case '--coloring': if (value !== 'random' && value !== 'authored') throw new Error('--coloring: random or authored');
+        coloring = value; i++; break;
+      case '--coloring-seeds': coloringSeeds = number(flag, value, 1); i++; break;
       case '--seeds': options.seeds = number(flag, value, 1); i++; break;
       case '--depth': options.depth = number(flag, value, 1); i++; break;
       case '--beam': options.beam = number(flag, value, 1); i++; break;
@@ -123,9 +136,24 @@ function parse(argv: string[]) {
       setup.ladder = ladder; if (hard) setup.hard = true;
     }
   }
+  if (coloring || coloringSeeds) {
+    if (!tasks.some(task => task.kind === 'run-node')) throw new Error('--coloring, --coloring-seeds: use with --node or --nodes');
+    for (const task of tasks) if (task.kind === 'run-node') {
+      if (coloring === 'random') task.target.setup.coloring = 'random'; else delete task.target.setup.coloring;
+    }
+  }
   for (const id of skipped) console.log(`skip ${id}: not bound to a map node and not in the pools (battlePools.ts), pass --row R`);
   if (!tasks.length) throw new Error('No level to analyze.');
-  return { tasks: tasks.map(source => ({ source, options, ...(eliteMoveEvery === undefined ? {} : { eliteMoveEvery }) })), out, workers };
+  const extra = eliteMoveEvery === undefined ? {} : { eliteMoveEvery };
+  if (!coloringSeeds) return { tasks: tasks.map(source => ({ source, options, ...extra })), out, workers, coloring };
+  // One task per battle seed: the seed draws the random coloring and the refill (the analyzer's own refill seed 0 is it).
+  const expanded: Task[] = tasks.flatMap(source => source.kind !== 'run-node' ? [{ source, options, ...extra }]
+    : Array.from({ length: coloringSeeds! }, (_, k) => {
+      const seed = Math.imul(k + 1, 2654435761) >>> 0, target = structuredClone(source.target);
+      target.id = `${source.target.id}#${seed}`; target.setup.seed = seed;
+      return { source: { kind: 'run-node' as const, target }, options, ...extra, group: source.target.id };
+    }));
+  return { tasks: expanded, out, workers, coloring };
 }
 
 async function runTask(task: Task, index: number): Promise<Done> {
@@ -223,25 +251,76 @@ function tables(results: Done[]) {
   return [structure, '', agents, '', exit, ...errors].join('\n');
 }
 
+const median = (values: number[]) => {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b), mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+/**
+ * Coloring table (--coloring-seeds): one row per battle over its battle seeds. Check 6 of docs/random-coloring.md: the
+ * goals are reached in 2–4 turns by at least one line (oracle search, seed 0 = the battle seed; needs --depth >= 4).
+ */
+function coloringTable(tasks: Task[], results: Done[], depth: number) {
+  const groups = new Map<string, LevelAnalysis[]>();
+  tasks.forEach((task, index) => {
+    const result = results[index]?.result; if (!task.group || !result) return;
+    if (!groups.has(task.group)) groups.set(task.group, []);
+    groups.get(task.group)!.push(result);
+  });
+  const share = (count: number, total: number) => total ? `${Math.round(count / total * 1000) / 10}` : '-';
+  const fixed = (value: number | null, digits = 2) => value === null ? '-' : value.toFixed(digits);
+  const rows = [...groups].map(([group, list]) => {
+    const searched = list.filter(r => r.search?.[0]), n = searched.length;
+    const goal = searched.map(r => r.search![0].minGoalTurns);
+    const winnable = searched.filter(r => r.search![0].winnable).length;
+    const unresolved = list.filter(r => (r.seedSensitivity?.unresolvedSeeds ?? 0) > 0).length;
+    const check6 = goal.filter(turns => turns !== null && turns >= 2 && turns <= 4).length;
+    const byTurns = [1, 2, 3, 4].map(turns => goal.filter(value => value === turns).length).join('/') + `/${goal.filter(value => value === null).length}`;
+    const greedy = list.flatMap(r => r.agents ? [r.agents.greedy] : []);
+    const traps = list.flatMap(r => r.deception?.greedyTrap === null || r.deception?.greedyTrap === undefined ? [] : [r.deception.greedyTrap]);
+    const fallback = list.filter(r => r.coloring && r.coloring.attempt === null).length;
+    const attempts = list.flatMap(r => r.coloring?.attempt ? [r.coloring.attempt] : []);
+    return [group, String(list.length), list.some(r => r.coloring) ? `${fallback}` : '-', attempts.length ? String(Math.max(...attempts)) : '-',
+      share(winnable, n), String(unresolved), share(check6, n), byTurns, fixed(median(goal.filter((value): value is number => value !== null)), 1),
+      fixed(median(searched.flatMap(r => r.search![0].minTurns === null ? [] : [r.search![0].minTurns!])), 1),
+      share(Math.round((mean(searched.map(r => r.search![0].trapShare)) ?? 0) * 1000), 1000), share(traps.filter(Boolean).length, traps.length),
+      share(greedy.reduce((sum, g) => sum + g.wins, 0), greedy.reduce((sum, g) => sum + g.runs, 0)),
+      fixed(median(greedy.flatMap(g => g.goalTurnsMedian === null ? [] : [g.goalTurnsMedian])), 1),
+      fixed(mean(list.map(r => r.static.largestComponentShare))), fixed(mean(list.map(r => r.static.colorInterleave)))];
+  });
+  const table = render(['battle', 'seeds', 'fallback', 'maxAtt', 'win%', 'unres', 'chk6%', 'goalT 1/2/3/4/-', 'goalT', 'minT', 'trap%', 'gTrap%', 'G1 win%', 'G1 goalT', 'lcs', 'intl'], rows);
+  const note = depth < 4 ? `\nnote: --depth ${depth} < 4, check 6 (goals in 2–4 turns) is cut at the depth.` : '';
+  return `${table}\nColoring table over battle seeds (oracle search, seed 0 = the battle seed): fallback = seeds whose random coloring fell back to the authored one,
+maxAtt = largest passing attempt, win% = seeds winnable within depth, unres = seeds the search budget left unresolved, chk6% = goals in 2–4 turns
+(docs/random-coloring.md, check 6), goalT 1/2/3/4/- = seeds by min turns to the goals (- not within depth), goalT/minT = medians, trap% = mean share
+of first actions that cannot win within depth, gTrap% = seeds whose greedy first move cannot win, G1 = greedy agent (win share, median goal turns),
+lcs/intl = mean largest same-color group share and color interleave of the opening.${note}`;
+}
+
 async function main() {
   if (process.argv.includes('--worker')) { worker(); return; }
   let parsed: ReturnType<typeof parse>;
   try { parsed = parse(process.argv.slice(2)); } catch (error) { console.error(error instanceof Error ? error.message : error); process.exit(2); }
-  const { tasks, out, workers } = parsed;
+  const { tasks, out, workers, coloring } = parsed;
   const options = { ...DEFAULT_ANALYSIS_OPTIONS, ...tasks[0].options };
   console.log(`Analyzing ${tasks.length} level(s): depth ${options.depth}, beam ${options.beam}, budget ${options.nodeBudget}, seeds ${options.seeds}, agents ${options.agentRuns}x${options.seeds} (+greedy), workers ${Math.min(workers, tasks.length)}`);
   const started = performance.now();
   const results = await runAll(tasks, workers, done => console.log(`  done ${done.result?.level.id ?? `#${done.index}`} in ${(done.ms / 1000).toFixed(1)}s${done.error ? ` ERROR ${done.error}` : ''}`));
   const totalMs = Math.round(performance.now() - started);
-  console.log(`\n${tables(results)}\n`);
-  console.log('Percent columns are x100. Definitions: docs/level-metrics.md. Table 1 (oracle search O, seed 0): lcs largest same-color component share, intl color interleave,');
-  console.log('acts distinct first actions, safe first chains with 0 forecast damage, goalT min turns to the goals, minT/hp/sol min turns to the win (exit battles: entering the door) / best HP at min / winning first actions, fwin/trap first actions');
-  console.log('that can / cannot win within depth, crit mean w_t, KM steps with w_t<=0.1, exh exhaustive, requires/benefit restricted search (a/i/d/p), spread minT/HP over seeds.');
-  console.log('Table 2: P(O) oracle, P(S) honest planner, FG = P(O)-P(S), robust = candidates winning under >=80% resampled refills, R random / G1 greedy agent,');
-  console.log('I = -log2 P bits (>= when no win), Dec = 1-P(G1)/P(S), gTrap = greedy first move cannot win, hp = random-agent HP at win, N_X = I(without X)-I(with X).');
-  console.log('Table 3 (exit battles: the win is entering the open door): goalT/exitT/hpExit oracle turns to the goals / to the exit / HP at the exit (seed 0, within depth);');
-  console.log('per agent: goal% runs meeting the goals, win% runs leaving through the door, medians of goalT, exitT, delay = exitT - goalT and hp at the exit;');
-  console.log('G1 stuck = greedy runs that met the goals but did not leave (died or hit the turn limit).');
+  const grouped = tasks.some(task => task.group);
+  if (grouped) console.log(`\nColoring: ${coloring ?? 'authored'}\n${coloringTable(tasks, results, options.depth)}\n`);
+  else console.log(`\n${tables(results)}\n`);
+  if (!grouped) {
+    console.log('Percent columns are x100. Definitions: docs/level-metrics.md. Table 1 (oracle search O, seed 0): lcs largest same-color component share, intl color interleave,');
+    console.log('acts distinct first actions, safe first chains with 0 forecast damage, goalT min turns to the goals, minT/hp/sol min turns to the win (exit battles: entering the door) / best HP at min / winning first actions, fwin/trap first actions');
+    console.log('that can / cannot win within depth, crit mean w_t, KM steps with w_t<=0.1, exh exhaustive, requires/benefit restricted search (a/i/d/p), spread minT/HP over seeds.');
+    console.log('Table 2: P(O) oracle, P(S) honest planner, FG = P(O)-P(S), robust = candidates winning under >=80% resampled refills, R random / G1 greedy agent,');
+    console.log('I = -log2 P bits (>= when no win), Dec = 1-P(G1)/P(S), gTrap = greedy first move cannot win, hp = random-agent HP at win, N_X = I(without X)-I(with X).');
+    console.log('Table 3 (exit battles: the win is entering the open door): goalT/exitT/hpExit oracle turns to the goals / to the exit / HP at the exit (seed 0, within depth);');
+    console.log('per agent: goal% runs meeting the goals, win% runs leaving through the door, medians of goalT, exitT, delay = exitT - goalT and hp at the exit;');
+    console.log('G1 stuck = greedy runs that met the goals but did not leave (died or hit the turn limit).');
+  }
   for (const done of results) for (const note of done.result?.notes ?? []) console.log(`note ${done.result!.level.id}: ${note}`);
   console.log(`Total wall time ${(totalMs / 1000).toFixed(1)}s`);
   if (out) {

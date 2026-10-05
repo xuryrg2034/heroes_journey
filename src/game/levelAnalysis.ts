@@ -11,8 +11,9 @@
  * docs/level-metrics.md for definitions and limits.
  */
 import { cloneAnalysisSnapshot, ForestEngine, type AnalysisSnapshot } from './forestEngine';
-import { chainAdjacent, chainNeighbors, isWalkable, JUMP_RANGE } from './forestSystems';
+import { chainNeighbors, isWalkable, JUMP_RANGE } from './forestSystems';
 import { uniqueEntities } from './entityFootprint';
+import { colorGroupMetrics } from './randomColoring';
 import { isCellAlive } from './cellLife';
 import { enemyDefeatCountsForGoal } from './combatRules';
 import { planEnemyPhase } from './enemyPhase';
@@ -164,6 +165,8 @@ export interface LevelAnalysis {
   seedSensitivity: SeedSensitivity | null;
   fragileCells: { baselineGreedy: number; cells: FragileCell[] } | null;
   notes: string[];
+  /** Random coloring of a flagged node battle (docs/random-coloring.md): the passing attempt, null — authored fallback. */
+  coloring?: { attempt: number | null };
 }
 
 // ---------------------------------------------------------------- helpers
@@ -606,21 +609,10 @@ class TreeSearch {
 export function staticMetrics(state: ForestState, rootActions: ActionInfo[]): StaticMetrics {
   const walkable = state.board.map((_, index) => isWalkable(state, index));
   const entities = uniqueEntities(state.board).filter(({ cell }) => cell.kind !== 'door' && cell.kind !== 'prism' && isCellAlive(cell));
+  // Same-color components use the chain's own adjacency (8 directions, blocked diagonal corners); the random coloring
+  // checks the same numbers (randomColoring.ts).
+  const groups = colorGroupMetrics(state), componentSizes = groups.componentSizes;
   const colored = entities.filter(({ cell }) => cell.color !== null);
-  const touching = (a: number[], b: number[]) => a.some(from => b.some(to => chainAdjacent(state, from, to)));
-  // Same-color components use the chain's own adjacency (8 directions, blocked diagonal corners).
-  const parent = colored.map((_, n) => n);
-  const find = (n: number): number => parent[n] === n ? n : (parent[n] = find(parent[n]));
-  let pairs = 0, mixed = 0;
-  for (let i = 0; i < colored.length; i++) for (let j = i + 1; j < colored.length; j++) {
-    if (!touching(colored[i].indices, colored[j].indices)) continue;
-    pairs++;
-    if (colored[i].cell.color !== colored[j].cell.color) mixed++;
-    else parent[find(i)] = find(j);
-  }
-  const sizes = new Map<number, number>();
-  colored.forEach((_, n) => sizes.set(find(n), (sizes.get(find(n)) ?? 0) + 1));
-  const componentSizes = [...sizes.values()].sort((a, b) => b - a);
   const armed = entities.filter(({ cell }) => !cell.behavior.passive && cell.variant !== 'porcupine' && cell.variant !== 'shaman');
   const attacked = new Set<number>();
   for (const { cell } of armed) if (cell.intent.damage > 0) for (const index of cell.intent.cells) if (walkable[index]) attacked.add(index);
@@ -630,8 +622,7 @@ export function staticMetrics(state: ForestState, rootActions: ActionInfo[]): St
     cols: state.cols, rows: state.rows, walkableCells: walkable.filter(Boolean).length,
     enemies: entities.length, coloredEnemies: colored.length, colors: new Set(colored.map(({ cell }) => cell.color)).size,
     components: componentSizes.length, componentSizes,
-    largestComponentShare: colored.length ? round(componentSizes[0] / colored.length) : 0,
-    colorInterleave: pairs ? round(mixed / pairs) : 0,
+    largestComponentShare: groups.largestComponentShare, colorInterleave: groups.colorInterleave,
     firstActions: { total: rootActions.length, chains: chains.length, jumps: count('jump'), spin: count('spin'), rest: count('rest'), items: count('item') },
     armedEnemies: armed.length,
     attackedCellShare: round(attacked.size / Math.max(1, walkable.filter(Boolean).length)),
@@ -926,5 +917,7 @@ export async function analyzeEngine(engine: ForestEngine, partial: Partial<Analy
 export async function analyzeLevel(source: LevelSource, partial: Partial<AnalysisOptions> = {}): Promise<LevelAnalysis> {
   const engine = startLevelEngine(source);
   if (!engine) throw new Error('The engine rejected the level.');
-  return analyzeEngine(engine, { ...partial }, sourceInfo(source, engine));
+  const result = await analyzeEngine(engine, { ...partial }, sourceInfo(source, engine));
+  if (engine.coloring) result.coloring = { ...engine.coloring };
+  return result;
 }
