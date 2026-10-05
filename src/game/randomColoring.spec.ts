@@ -24,7 +24,7 @@ function assert(condition: unknown, message: string): void { if (!condition) thr
 const json = (value: unknown) => JSON.stringify(value);
 const spread = (k: number) => Math.imul(k, 2654435761) >>> 0;
 
-const PROTOTYPE = ['boar-garden', 'goblin-shield-flank', 'beast-wolf-crossing', 'goblin-pike-gate'];
+const PROTOTYPE = ['boar-garden', 'goblin-shield-flank', 'beast-quill-stop', 'goblin-pike-gate'];
 const SEEDS = Array.from({ length: 60 }, (_, k) => spread(k + 1));
 /** Seeds on which every first chain is played for real (check 5). */
 const PLAYED_SEEDS = SEEDS.slice(0, 8);
