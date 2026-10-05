@@ -9,7 +9,7 @@ import { ForestEngine } from './forestEngine';
 import type { EngineEvent, ItemKind, ResourceKind } from './forestTypes';
 import { ITEM_KINDS } from './items';
 import { isResource } from './resources';
-import { forestFixtureLevel } from './testing/fixtures';
+import { forestFixtureLevel, startNodeBattle } from './testing/fixtures';
 import { availableNodes, createForestRun, enterNode, parseForestRun, resolveBattle, serializeForestRun } from './run/forestRun';
 import { nodeBattleTemplate } from './run/forestMap';
 
@@ -279,6 +279,39 @@ async function resourceLoot() {
   console.log(`PASS no consumable open: an elite leaves a resource (${drops}/60, ${[...kinds].join(', ')}), picked into the battle's materials`);
 }
 
+/**
+ * A dead source does not act (decision of 04.10.2026): a chain killing the archer or elite that announced an exchange
+ * drops that exchange in the forecast (inactive, «погиб») and in execution (no swap from its cell); a chain sparing the
+ * source keeps it. Real chains in map battles with archers and moving elites, spread seeds.
+ */
+async function deadSourceDropsItsExchange() {
+  let dropped = 0, kept = 0;
+  for (const id of ['goblin-archer-watch', 'den-watch', 'three-banners']) for (let k = 1; k <= 10; k++) {
+    const g = startNodeBattle(id, { seed: spread(k + 70), row: 7, player: { hp: 99, maxHp: 99, energy: 0 } });
+    for (let t = 0; t < 10 && g.state.phase === 'PLAYER_INPUT'; t++) {
+      const plans = [...g.state.rotations], moves = g.availableMoves(6);
+      // Prefer a chain that kills a source, else one that spares every source.
+      const kills = (move: number[]) => plans.find(plan => g.preview(move).hits.some(hit => hit.index === plan.from && hit.killed));
+      const move = moves.find(candidate => kills(candidate)) ?? moves.find(candidate => plans.length && !kills(candidate)) ?? moves[0];
+      if (!move) break;
+      const victim = kills(move), forecast = g.preview(move).rotations;
+      const swaps: { from: number; to: number }[] = [];
+      const off = g.subscribe((_state, event: EngineEvent) => { if (event.type === 'enemy-swap') swaps.push({ from: event.from!, to: event.to! }); });
+      assert(g.beginChain(move[0]), 'begin'); for (const index of move.slice(1)) assert(g.extendChain(index), 'extend'); assert(await g.releaseChain(), 'released');
+      off();
+      if (victim) {
+        const shown = forecast.find(plan => plan.from === victim.from && plan.to === victim.to)!;
+        assert(!shown.active && shown.reason === 'Объявивший обмен враг погиб.', `${id} seed ${k}: the forecast drops the dead source's exchange (${JSON.stringify(shown)})`);
+        assert(!swaps.some(swap => swap.from === victim.from && swap.to === victim.to), `${id} seed ${k}: no swap from the dead source's cell`);
+        dropped++;
+      }
+      for (const plan of forecast.filter(entry => entry.active)) { assert(swaps.some(swap => swap.from === plan.from && swap.to === plan.to), `${id} seed ${k}: an active exchange happens`); kept++; }
+    }
+  }
+  assert(dropped >= 3 && kept >= 3, `exchanges dropped with their dead source (${dropped}) and kept (${kept})`);
+  console.log(`PASS a dead source's exchange is dropped in the forecast and in execution (${dropped}); live ones happen (${kept})`);
+}
+
 bakingAndValidation();
 await heroDamageBonus();
 await chainLoot();
@@ -289,4 +322,5 @@ await resourceLoot();
 await abilityForecast();
 await leversForecast();
 runCarriesLoot();
+await deadSourceDropsItsExchange();
 console.log('PASS elite');

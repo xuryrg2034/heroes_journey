@@ -3,16 +3,22 @@
  * Shared by the turn systems, the forecast and the interface.
  */
 import { isWalkable, rotationParticipant } from './boardGeometry';
+import { isCellAlive } from './cellLife';
 import { deviceAt } from './devices';
 import type { ForestState, RotationPlan, RotationPreview } from './forestTypes';
 
-/** Announced cells survive occupant death. Empty endpoints will receive fresh ordinary enemies. A boar push cancels pairs it disturbed. */
+/**
+ * A dead source does not act (decision of 04.10.2026): an exchange whose announcing enemy is no longer on its cell is
+ * dropped, in the forecast and in execution alike. A dead target's cell still receives a fresh ordinary enemy. A boar
+ * push cancels pairs it disturbed.
+ */
 export function rotationPreview(state: ForestState, board = state.board, playerIndex = state.player.index, displaced: ReadonlySet<number> = new Set()): RotationPreview[] {
   const used = new Set<number>();
   return [...state.rotations].sort((a, b) => a.from - b.from || a.to - b.to).map(plan => {
     let reason = '';
     const source = board[plan.from], target = board[plan.to];
-    if (plan.from === playerIndex || plan.to === playerIndex) reason = 'Кот занимает клетку обмена.';
+    if (source?.id !== plan.sourceId && !board.some(cell => cell?.id === plan.sourceId && isCellAlive(cell))) reason = 'Объявивший обмен враг погиб.';
+    else if (plan.from === playerIndex || plan.to === playerIndex) reason = 'Кот занимает клетку обмена.';
     else if ([plan.sourceId, plan.targetId, source?.id, target?.id].some(id => id !== undefined && displaced.has(id))) reason = 'Кабан сбил участника обмена.';
     else if (deviceAt(state, plan.from) || deviceAt(state, plan.to)) reason = 'Устройство занимает клетку обмена.';
     else if (source?.status.frozen || target?.status.frozen) reason = 'Замороженный участник блокирует обмен.';

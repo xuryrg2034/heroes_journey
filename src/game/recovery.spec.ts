@@ -59,10 +59,14 @@ function adapterRules() {
   prepareIntents(paired.state, () => 0);
   assert(paired.state.rotations.length === 1 && canSwapEnemies(paired.state, 17, 24), 'reserved target cannot belong to second pair');
   const before = JSON.stringify(paired.state.rotations);
-  paired.state.board[17] = null; paired.state.board[24] = null;
-  assert(rotationPreview(paired.state)[0].active && JSON.stringify(paired.state.rotations) === before, 'announced pair survives both deaths without new selection');
+  // A dead target: the pair stays (its cell receives a fresh enemy); a dead source does not act (decision of 04.10.2026).
+  paired.state.board[24] = null;
+  assert(rotationPreview(paired.state)[0].active && JSON.stringify(paired.state.rotations) === before, 'announced pair survives the death of its target without new selection');
   assert(!rotationPreview(paired.state, paired.state.board, 24)[0].active, 'hero still cancels announced endpoint');
-  console.log('PASS integrated movement preference, all eligibility protections, disjoint pairs and death/hero semantics');
+  paired.state.board[17] = null;
+  const dead = rotationPreview(paired.state)[0];
+  assert(!dead.active && dead.reason === 'Объявивший обмен враг погиб.' && JSON.stringify(paired.state.rotations) === before, 'a dead source drops its announced pair');
+  console.log('PASS integrated movement preference, all eligibility protections, disjoint pairs, target/source death and hero semantics');
 }
 async function seededReplay() {
   // The camp with two authored archers (A3 and B5, off the opening routes) instead of the removed wave-2 arrivals.
