@@ -320,8 +320,10 @@ async function refillAndPairRegressions() {
 
   for (const [label, path] of [['source', [19, 20, 27]], ['partner', [19, 12, 13, 6]], ['both', [19, 20, 13, 12]]] as const) {
     const g = pairFixture(), oldIds = [g.state.board[20]!.id, g.state.board[13]!.id];
-    const before = JSON.stringify(g.state), preview = g.preview([...path]);
-    assert(preview.valid && preview.rotations[0].active && JSON.stringify(g.state) === before, `${label} death preserves pure cell-pair forecast`);
+    // A dead partner keeps the pair (a fresh occupant swaps in); a dead source drops it (decision of 04.10.2026).
+    const keeps = label === 'partner', before = JSON.stringify(g.state), preview = g.preview([...path]);
+    assert(preview.valid && preview.rotations[0].active === keeps && JSON.stringify(g.state) === before, `${label} death: the pure forecast ${keeps ? 'keeps' : 'drops'} the cell pair`);
+    if (!keeps) assert(preview.rotations[0].reason === 'Объявивший обмен враг погиб.', `${label} death: the forecast names the dead source`);
     let swaps = 0, attacks = 0, pairIds: number[] = [];
     g.subscribe((state, event) => {
       if (event.type === 'attack') attacks++;
@@ -332,10 +334,11 @@ async function refillAndPairRegressions() {
       }
     });
     await commit(g, [...path]); assertDense(g);
-    assert(swaps === 1 && attacks === 0 && g.state.lastDamage === preview.damage, 'replacements rotate once and do not attack on arrival');
-    if (label !== 'partner') assert(!pairIds.includes(oldIds[0]), 'dead initiator gets a fresh ordinary occupant');
-    if (label !== 'source') assert(!pairIds.includes(oldIds[1]), 'dead partner gets a fresh ordinary occupant');
-    assert(pairIds[0] !== pairIds[1], 'two replacement occupants have distinct IDs');
+    assert(attacks === 0 && g.state.lastDamage === preview.damage, 'replacements do not attack on arrival; forecast damage = execution');
+    if (!keeps) { assert(swaps === 0 && !g.state.board.some(cell => cell?.id === oldIds[0]), `${label} death: no swap from the dead source`); continue; }
+    assert(swaps === 1, 'the pair rotates once');
+    assert(!pairIds.includes(oldIds[1]) && pairIds[0] === oldIds[0], 'dead partner gets a fresh ordinary occupant, the source swaps with it');
+    assert(pairIds[0] !== pairIds[1], 'two pair occupants have distinct IDs');
   }
 
   for (const frozenIndex of [20, 13]) {
@@ -345,25 +348,32 @@ async function refillAndPairRegressions() {
     let swaps = 0; g.subscribe((_state, event) => { if (event.type === 'enemy-swap') swaps++; });
     await commit(g, path); assert(swaps === 0, 'frozen cancellation agrees with forecast');
   }
-  const frozenDead = pairFixture(); frozenDead.state.board[20]!.status.frozen = 1; frozenDead.state.board[20]!.status.brittle = true;
-  assert(frozenDead.preview([19, 20, 27]).rotations[0].active, 'dead frozen participant no longer blocks its fresh replacement');
-  let thawed = false; frozenDead.subscribe((state, event) => { if (event.type === 'enemy-swap') thawed = state.board[13]!.status.frozen === 0 && !state.board[13]!.status.brittle; });
-  await commit(frozenDead, [19, 20, 27]); assert(thawed, 'replacement does not inherit frozen or brittle status');
+  // A dead frozen partner no longer blocks the pair: its fresh replacement swaps with the source (a dead source would drop it).
+  const frozenDead = pairFixture(); frozenDead.state.board[13]!.status.frozen = 1; frozenDead.state.board[13]!.status.brittle = true;
+  assert(frozenDead.preview([19, 12, 13, 6]).rotations[0].active, 'dead frozen participant no longer blocks its fresh replacement');
+  let thawed = false; frozenDead.subscribe((state, event) => { if (event.type === 'enemy-swap') thawed = state.board[20]!.status.frozen === 0 && !state.board[20]!.status.brittle; });
+  await commit(frozenDead, [19, 12, 13, 6]); assert(thawed, 'replacement does not inherit frozen or brittle status');
 
-  const item = pairFixture(); item.state.inventory.bomb = 1; item.state.board[20]!.hp = 4;
+  const item = pairFixture(); item.state.inventory.bomb = 1; item.state.board[13]!.hp = 4;
   const itemPair = JSON.stringify(item.state.rotations), victims = [item.state.board[20]!.id, item.state.board[13]!.id];
-  assert(await item.useItem('bomb', 20), 'bomb kills a declared participant before chain');
+  assert(await item.useItem('bomb', 13), 'bomb kills the declared partner before chain');
   assert(JSON.stringify(item.state.rotations) === itemPair && item.previewRotations()[0].active, 'item refill preserves announced geometry and pair');
   const replacements = [item.state.board[20]!.id, item.state.board[13]!.id];
-  assert(!victims.includes(replacements[0]) && replacements[1] === victims[1], 'item replaces killed endpoint and preserves surviving partner');
+  assert(replacements[0] === victims[0] && !victims.includes(replacements[1]), 'item replaces the killed partner and preserves the living source');
   await item.waitTurn(); assert(item.state.board[20]!.id === replacements[1] && item.state.board[13]!.id === replacements[0], 'item replacements execute existing exchange');
+  // A bomb killing the source drops its exchange (decision of 04.10.2026): the fresh occupant of its cell does not swap.
+  const sourceBombed = pairFixture(); sourceBombed.state.inventory.bomb = 1; sourceBombed.state.board[20]!.hp = 4;
+  assert(await sourceBombed.useItem('bomb', 20), 'bomb kills the declared source before chain');
+  assert(!sourceBombed.previewRotations()[0].active, 'a bombed source drops its announced exchange');
+  let sourceSwaps = 0; sourceBombed.subscribe((_state, event) => { if (event.type === 'enemy-swap') sourceSwaps++; });
+  await sourceBombed.waitTurn(); assert(sourceSwaps === 0, 'no swap after the source died');
 
   const cancel = pairFixture(); let oldSwap = false;
   cancel.subscribe((state, event) => {
     if (event.type === 'spawn' && state.phase === 'ENEMY_RESOLVE') cancel.restartLevel();
     if (event.type === 'enemy-swap') oldSwap = true;
   });
-  assert(!await commit(cancel, [19, 20, 13, 12]) && !oldSwap && cancel.state.turn === 0 && cancel.state.player.index === 45, 'restart on pair reinforcement cancels stale swap and remaining phase'); assertDense(cancel);
+  assert(!await commit(cancel, [19, 12, 13, 6]) && !oldSwap && cancel.state.turn === 0 && cancel.state.player.index === 45, 'restart on pair reinforcement cancels stale swap and remaining phase'); assertDense(cancel);
 
   {
     const g = pairFixture();

@@ -251,7 +251,7 @@ test('resting archer exchanges two occupied identities and canceled exchange nev
   const canceled=await game(page);expect(canceled.player.index).toBe(19);expect(canceled.board[20].id).toBe(archerId);expect(canceled.board.some((c:any)=>c?.id===partnerId)).toBe(false);dense(canceled);expect(errors).toEqual([]);
 });
 
-test('announced cell rotations survive either resident dying and cancel only when the cat ends in the pair',async({page})=>{
+test('an announced rotation survives its partner dying, is dropped when its source dies (04.10.2026) and cancels when the cat ends in the pair',async({page})=>{
   test.setTimeout(45_000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await start(page);
   for(const mode of ['partner','source','hero'] as const){
     await page.evaluate(()=>(window as any).__PUZZLE_GAME.restartLevel());await ready(page);await fixture(page,'swap');
@@ -267,13 +267,17 @@ test('announced cell rotations survive either resident dying and cancel only whe
     const path=mode==='partner'?[12,19,18]:mode==='source'?[12,13,20,27]:[12,19];
     await draw(page,path,false);
     const plans=await page.evaluate(()=>(window as any).__PUZZLE_GAME.engine.previewRotations());expect(plans).toHaveLength(1);
-    expect(plans[0]).toMatchObject({from:20,to:19,active:mode!=='hero'});
-    if(mode==='hero')await expect(page.locator('#intent-summary')).not.toContainText('Обмен:');
+    expect(plans[0]).toMatchObject({from:20,to:19,active:mode==='partner'});
+    if(mode==='source')expect(plans[0].reason).toBe('Объявивший обмен враг погиб.');
+    if(mode!=='partner')await expect(page.locator('#intent-summary')).not.toContainText('Обмен:');
     else await expect(page.locator('#intent-summary')).toContainText('G3 ↔ F3');
     await page.screenshot({path:`artifacts/forest-rotation-${mode}-preview.png`,fullPage:true});
     await page.mouse.up();await ready(page);const after=await game(page),events=await page.evaluate(()=>(window as any).__swapEvents);
     if(mode==='hero'){
       expect(events).toHaveLength(0);expect(after.player.index).toBe(19);expect(after.board[19]).toBeNull();expect(after.board[20].id).toBe(source.id);
+    }else if(mode==='source'){
+      // A dead source does not act: no swap; the partner stays on F3, the source is gone.
+      expect(events).toHaveLength(0);expect(after.board[19].id).toBe(partner.id);expect(after.board.some((c:any)=>c?.id===source.id)).toBe(false);
     }else{
       expect(events).toHaveLength(1);const swap=events[0];expect(swap.event).toMatchObject({from:20,to:19});expect(swap.hp).toBe(before.player.hp);
       if(mode==='partner'){

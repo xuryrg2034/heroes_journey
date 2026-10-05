@@ -88,12 +88,16 @@ async function unchangedPlayerTrap() {
 }
 async function pairGeneration() {
   const g = startForestFixture(984);
-  const first = g.state.board[44]!, archer = g.state.board[37]!, last = g.state.board[30]!;
+  // The resting archer on 30 announced a swap with the goblin on 37; the chain kills that partner (and the goblins on 44
+  // and 36) and ends on 36, away from the pair: the living source swaps with a fresh replacement (a dead source would
+  // drop its exchange, decision of 04.10.2026).
+  const first = g.state.board[44]!, partner = g.state.board[37]!, archer = g.state.board[30]!, side = g.state.board[36]!;
   g.state.board.fill(null); g.state.terrain.fill('wall');
-  for (const index of [30, 37, 44, 45]) g.state.terrain[index] = 'floor';
-  first.color = archer.color = last.color = 0; archer.kind = 'ranged'; archer.hp = archer.maxHp = 2; archer.behavior.restTurns = 1;
-  g.state.board[44] = first; g.state.board[37] = archer; g.state.board[30] = last;
-  g.state.rotations = [{ from: 37, to: 44, sourceId: archer.id, targetId: first.id, geometry: 'cardinal' }];
+  for (const index of [30, 36, 37, 44, 45]) g.state.terrain[index] = 'floor';
+  for (const cell of [first, partner, side]) { cell.color = 0; cell.kind = 'melee'; cell.hp = cell.maxHp = 0; }
+  archer.color = 0; archer.kind = 'ranged'; archer.hp = archer.maxHp = 2; archer.behavior.restTurns = 1;
+  g.state.board[44] = first; g.state.board[37] = partner; g.state.board[30] = archer; g.state.board[36] = side;
+  g.state.rotations = [{ from: 30, to: 37, sourceId: archer.id, targetId: partner.id, geometry: 'cardinal' }];
   // Consecutive draws walk through all five colours, so raw replacement colours never form a chain by themselves.
   let draw = 0; (g as unknown as { random(): number }).random = () => [0.1, 0.3, 0.5, 0.7, 0.9][draw++ % 5];
   const published = new Map<number, number | null>(); const events: string[] = [];
@@ -103,8 +107,9 @@ async function pairGeneration() {
       const cell = state.board[index]!; published.set(cell.id, cell.color);
     }
   });
-  await chain(g, [44, 37, 30]);
-  assert(published.size === 2 && events.indexOf('spawn') < events.indexOf('enemy-swap') && hasOrdinaryChain(g.state), 'pair generation validates a post-swap ordinary witness before publishing replacements');
+  await chain(g, [44, 37, 36]);
+  assert(published.size === 1 && events.indexOf('spawn') < events.indexOf('enemy-swap') && hasOrdinaryChain(g.state), 'pair generation validates a post-swap ordinary witness before publishing the replacement');
+  assert(g.state.board[30]?.kind === 'melee' && g.state.board[37]?.id === archer.id, 'the living archer swapped with the fresh replacement');
   for (const [id, color] of published) {
     const survivor = g.state.board.find(cell => cell?.id === id);
     assert(survivor && survivor.color === color, 'later refill cannot repaint a published replacement');
