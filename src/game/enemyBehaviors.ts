@@ -209,8 +209,16 @@ const SENTINEL: EnemyBehavior = {
   // The one place that chooses the shield-bearer's approach turn (06.10.2026): by the battle's turn number, common to
   // every shield-bearer. Intents prepared at the end of turn t are carried out in the enemy phase of turn t + 1, so the
   // step lands in the enemy phase of turns 3, 6, 9… Its swing could only hit a cat in reach, and then it does not
-  // step, so «a turn without an attack» needs no other check; a rest (after a hit) does not stop it.
-  closesIn: { when: (_cell, state) => SENTINEL_STEP_EVERY > 0 && (state.turn + 1) % SENTINEL_STEP_EVERY === 0,
+  // step, so «a turn without an attack» needs no other check. Resting (after a hit) it does not step, as an elite; the
+  // step is owed to the nearest turn without a rest, not to the next multiple (decision of 06.10.2026).
+  closesIn: { when: (cell, state) => {
+    if (SENTINEL_STEP_EVERY <= 0) return false;
+    const due = (state.turn + 1) % SENTINEL_STEP_EVERY === 0 || !!cell.behavior.stepOwed;
+    if (!due) return false;
+    if (cell.behavior.restTurns > 0) { cell.behavior.stepOwed = true; return false; }
+    delete cell.behavior.stepOwed;
+    return true;
+  },
     reach: meleeTargets, label: () => 'Сближение' },
   beforePassive({ state }, cell, index) {
     const actor: EnemyActor = { subtype: 4, kind: 1, power: cell.hp, col: index % state.cols, row: Math.floor(index / state.cols), face_dir: 1, attack_mode: 0, properties: {} };

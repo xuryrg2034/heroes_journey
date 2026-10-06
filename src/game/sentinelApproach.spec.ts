@@ -63,6 +63,8 @@ function facesCat(g: ForestEngine, cell: ForestCell): boolean {
   return Math.abs(dx) > Math.abs(dy) ? cell.shield?.dx === Math.sign(dx) && !cell.shield.dy : cell.shield?.dy === (Math.sign(dy) || 1) && !cell.shield.dx;
 }
 
+/** Per battle: the shield-bearer owed its step before the last intents were announced (it rested in its step turn). */
+const owedBefore = new WeakMap<ForestEngine, boolean>();
 /**
  * What the player sees before acting, then the action, then the result against it. `chain` picks a real move that
  * leaves the shield-bearer alone; none — the cat rests. Returns whether the shield-bearer moved.
@@ -71,9 +73,11 @@ async function turn(g: ForestEngine, label: string, chain: boolean): Promise<boo
   const sentinel = sentinelOf(g)!, from = indexOf(g, sentinel), cat = g.state.player.index, hp = g.state.player.hp;
   const announced = g.state.rotations.filter(rotation => rotation.sourceId === sentinel.id);
   assert(announced.length <= 1, `${label}: at most one step`);
-  // The announcement, judged against the cat where it stood when the enemies announced their intents.
-  if (!stepTurn(g)) assert(!announced.length, `${label}: no step outside its step turns`);
+  // The announcement, judged against the cat where it stood when the enemies announced their intents: a step turn, or
+  // the nearest turn without a rest after a step turn spent resting (the owed step, decision of 06.10.2026).
+  if (!stepTurn(g) && !owedBefore.get(g)) assert(!announced.length, `${label}: no step outside its step turns`);
   else if (meleeTargets(g.state, from).includes(cat)) assert(!announced.length, `${label}: the cat is in reach, it stays`);
+  owedBefore.set(g, !!sentinel.behavior.stepOwed);
   if (announced.length) {
     const [step] = announced;
     assert(step.from === from && chebyshev(step.to, cat) < chebyshev(from, cat), `${label}: the step is strictly nearer to the cat (${from} → ${step.to}, cat ${cat})`);
@@ -111,6 +115,22 @@ async function walksDown(elite: boolean) {
   assert(indexOf(g, sentinel) === at('D6'), `it reached D6 above the cat (at ${indexOf(g, sentinel)})`);
   assert(struck > 0, 'beside the cat, it swings at it');
   console.log(`PASS ${elite ? 'an elite' : 'the'} shield-bearer walks to the resting cat in turns ${stepTurns.join(', ')}, stays beside it and strikes`);
+}
+
+/**
+ * Resting in its step turn, the shield-bearer does not step (as an elite): the step is owed to the nearest turn without
+ * a rest, not to the next multiple (decision of 06.10.2026).
+ */
+function restDefersTheStep() {
+  const g = calm({ seed: spread(5), sentinel: at('D1'), cat: at('D7') }), sentinel = sentinelOf(g)!;
+  while ((g.state.turn + 1) % SENTINEL_STEP_EVERY !== 0) g.state.turn++;
+  sentinel.behavior.restTurns = 1; g.state.rotations = []; prepareIntents(g.state);
+  assert(!g.state.rotations.some(rotation => rotation.sourceId === sentinel.id) && sentinel.behavior.stepOwed === true, 'resting in its step turn: no step, the step is owed');
+  g.state.turn++; sentinel.behavior.restTurns = 0; g.state.rotations = []; prepareIntents(g.state);
+  assert((g.state.turn + 1) % SENTINEL_STEP_EVERY !== 0, 'the next turn is not a step turn');
+  const step = g.state.rotations.find(rotation => rotation.sourceId === sentinel.id);
+  assert(step && step.to === at('D2') && !sentinel.behavior.stepOwed, 'the owed step comes in the nearest turn without a rest');
+  console.log('PASS resting in its step turn, the shield-bearer owes the step and takes it in the nearest turn without a rest');
 }
 
 /** An exact diagonal: no side neighbour is nearer to the cat, so the shield-bearer holds its cell. */
@@ -160,6 +180,7 @@ async function chains() {
 
 await walksDown(false);
 await walksDown(true);
+restDefersTheStep();
 await diagonalHolds();
 await deadDoesNotStep();
 await chains();

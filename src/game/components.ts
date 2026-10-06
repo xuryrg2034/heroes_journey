@@ -63,6 +63,11 @@ export interface CellBehavior {
   club?: { cells: number[]; dx: number; dy: number; raised: boolean };
   /** Troll only: damaged this turn (set by the `troll-hurt-mark` damage observer), cleared by the end-of-phase regeneration step. */
   hurtThisTurn?: boolean;
+  /**
+   * Shield-bearer only: its approach turn came while it rested; it steps in the nearest turn without a rest instead
+   * of waiting for the next one (decision of 06.10.2026). Cleared when that turn comes.
+   */
+  stepOwed?: boolean;
 }
 
 export interface CellBehaviorComponent {
