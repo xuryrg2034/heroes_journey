@@ -160,9 +160,9 @@ async function movement() {
   const distant = far.state.board[0]!;
   assert(await far.waitTurn(), 'the far archer shoots');
   assert(!far.state.rotations.some(rotation => rotation.sourceId === distant.id), 'an elite archer far from the cat stands (no rotation toward the cat either)');
-  // Defensive elites hold.
-  const hold = level([{ index: 2, kind: 'melee', variant: 'porcupine', color: 0, hp: 1, aggressive: true, elite: true }, { index: 4, kind: 'melee', variant: 'sentinel', color: 1, hp: 1, aggressive: true, elite: true }]);
-  assert(!hold.state.rotations.some(rotation => rotation.sourceId === hold.state.board[2]!.id || rotation.sourceId === hold.state.board[4]!.id), 'porcupine and shield-bearer elites hold');
+  // Defensive elites hold. (An elite shield-bearer moves by the shield-bearer's own rule since 06.10.2026: sentinelApproach.spec.ts.)
+  const hold = level([{ index: 2, kind: 'melee', variant: 'porcupine', color: 0, hp: 1, aggressive: true, elite: true }]);
+  assert(!hold.state.rotations.some(rotation => rotation.sourceId === hold.state.board[2]!.id), 'a porcupine elite holds');
   // Every second turn (the fallback value): no move on an odd turn.
   setEliteMoveEvery(2);
   try {

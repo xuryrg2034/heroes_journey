@@ -35,7 +35,9 @@ export let ELITE_MOVE_EVERY = 1;
 export function setEliteMoveEvery(every: number): void { ELITE_MOVE_EVERY = Math.max(0, Math.floor(every)); }
 /**
  * How an elite moves (decision of 01.10.2026): melee closes in on the cat, ranged retreats from it, defensive enemies
- * hold. One table, easy to change. Bosses are never elites; crystals do not move.
+ * hold. One table, easy to change. Bosses are never elites; crystals do not move. An enemy with its own approach
+ * (`closesIn` in enemyBehaviors.ts: the shield-bearer, decision of 06.10.2026; the Jailer) moves by that rule, elite or
+ * not, and its entry here is not used.
  */
 export const ELITE_MOVEMENT: Readonly<Record<EnemyId, 'close' | 'retreat' | 'hold'>> = {
   goblin: 'close', wolf: 'close', boar: 'close',
