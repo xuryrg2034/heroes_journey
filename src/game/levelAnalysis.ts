@@ -648,7 +648,7 @@ class TreeSearch {
       trap: traps.includes(entry) ? true : entry.value.winTurns < Infinity ? false : null,
       ...(entry.aliases.length ? { aliases: entry.aliases } : {}) }));
     // After everything above is fixed: the walk only reads what the search computed (no new action lists, no budget).
-    if (withOutcomes) result.goalStall = await this.goalStall(root, minGoalTurns);
+    if (withOutcomes) result.goalStall = await this.goalStall(root, minGoalTurns, goalReached.map(entry => ({ node: entry.node, goalTurns: goalTurnsOf(entry) })));
     return result;
   }
 
@@ -656,30 +656,38 @@ class TreeSearch {
    * Stall on one fastest goal line (SearchResult.goalStall). From the root, each step takes a move whose subtree still
    * meets the goals in the remaining turns, preferring one with goal progress; the last turn meets the goals.
    */
-  private async goalStall(root: AnalysisNode, minGoalTurns: number | null): Promise<number | null> {
+  private async goalStall(root: AnalysisNode, minGoalTurns: number | null, rootChildren: { node: AnalysisNode; goalTurns: number }[]): Promise<number | null> {
     if (minGoalTurns === null || !progressMark(root.snap.state)) return null;
     this.frozen = true;
     const series = new StallSeries(root.snap.state);
-    let node = root, left = minGoalTurns, first = true;
+    // Moves with goal progress first (stable order otherwise); the first one keeping the minimum is taken.
+    const progressFirst = <T extends { progressed: boolean }>(options: T[]) => [...options.filter(option => option.progressed), ...options.filter(option => !option.progressed)];
+    const progressedFrom = (node: AnalysisNode, child: AnalysisNode) => child.turn > node.turn && goalProgressed(node.snap.state, child.snap.state);
+    // The root's distinct first actions already carry their goal turns from the search.
+    const first = progressFirst(rootChildren.filter(entry => entry.goalTurns === minGoalTurns && entry.node.phase !== 'LOSE')
+      .map(entry => ({ child: entry.node, progressed: progressedFrom(root, entry.node) })))[0];
+    if (!first) return null;
+    series.step(first.child.snap.state);
+    let node = first.child, left = minGoalTurns - (first.child.turn - root.turn);
     // On the last turn the goals are met (by a forecast or an executed leaf): progress, the series cannot grow.
     while (!node.goalsMet && left > 1) {
       if (node.phase !== 'PLAYER_INPUT') return null;
       const infos = this.actions(node);
       if (!infos) return null;
-      let pick: { child: AnalysisNode; turns: number; progressed: boolean } | null = null;
-      for (const info of this.candidates(infos, first, false)) {
+      const options: { child: AnalysisNode; progressed: boolean }[] = [];
+      for (const info of this.candidates(infos, false, false)) {
         const child = await this.analyzer.execute(node, info.action);
-        if (!child || child.phase === 'LOSE') continue;
-        const turns = child.turn - node.turn;
-        const goalTurns = child.goalsMet ? 0 : (await this.evaluate(child, left - turns)).goalTurns;
-        if (goalTurns + turns > left) continue;
-        const progressed = turns > 0 && goalProgressed(node.snap.state, child.snap.state);
-        if (!pick || progressed && !pick.progressed) pick = { child, turns, progressed };
-        if (pick.progressed) break;
+        if (child && child.phase !== 'LOSE') options.push({ child, progressed: progressedFrom(node, child) });
+      }
+      let pick: typeof options[number] | null = null;
+      for (const option of progressFirst(options)) {
+        const turns = option.child.turn - node.turn;
+        const goalTurns = option.child.goalsMet ? 0 : (await this.evaluate(option.child, left - turns)).goalTurns;
+        if (goalTurns + turns <= left) { pick = option; break; }
       }
       if (!pick) return null;
       series.step(pick.child.snap.state);
-      node = pick.child; left -= pick.turns; first = false;
+      left -= pick.child.turn - node.turn; node = pick.child;
     }
     return series.max;
   }
