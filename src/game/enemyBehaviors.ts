@@ -81,10 +81,20 @@ export interface EnemyBehavior {
   /** Absent: never strikes in the attack step (the boar charges, the porcupine and the shaman do not attack). */
   readonly attack?: EnemyAttackRule;
   /**
-   * Its own approach to the cat outside the elite modifier (`announceEliteMoves`, the elite melee rules): `true` in the
-   * turn it may close in. The Jailer closes in during its rest (decision of 04.10.2026).
+   * Its own approach to the cat outside the elite modifier (`announceEliteMoves`, the elite melee rules), elite or not
+   * and regardless of `ELITE_MOVE_EVERY`: the Jailer in its rest (decision of 04.10.2026), the shield-bearer every
+   * `SENTINEL_STEP_EVERY` turns (decision of 06.10.2026).
    */
-  readonly closesIn?: (cell: ForestCell) => boolean;
+  readonly closesIn?: EnemyApproach;
+}
+/** An enemy's own approach to the cat (`EnemyBehavior.closesIn`). */
+export interface EnemyApproach {
+  /** The one place that chooses its approach turn. */
+  readonly when: (cell: ForestCell, state: ForestState) => boolean;
+  /** The cells its strike reaches from `index`: the cat on one of them — no step. */
+  readonly reach: (state: ForestState, index: number) => number[];
+  /** Label of the announced step. */
+  readonly label: (cell: ForestCell) => string;
 }
 
 const MELEE: EnemyAttackRule = { style: 'melee', source: 'melee' };
@@ -184,8 +194,24 @@ const CHIEF: EnemyBehavior = {
 /** Prism: no intent, no attack. */
 const PRISM: EnemyBehavior = {};
 
-/** Shield-bearer: a goblin whose shield turns toward the cat every turn, armed or not (decision of 30.09.2026). */
+/**
+ * Баланс: the shield-bearer closes in on the cat in the enemy phase of every this many turns of the battle (3: turns
+ * 3, 6, 9…; decision of 06.10.2026 after the prototype A playtest). 0 — it never moves.
+ */
+export const SENTINEL_STEP_EVERY = 3;
+/**
+ * Shield-bearer: a goblin whose shield turns toward the cat every turn, armed or not (decision of 30.09.2026). Every
+ * `SENTINEL_STEP_EVERY` turns, with the cat out of its reach (a side neighbour — the cells its swing covers), it closes
+ * in like a melee elite (`announceEliteMoves`); an elite shield-bearer moves by this rule too, not by `ELITE_MOVEMENT`.
+ * The shield moves with it and turns toward the cat again when the next intents are prepared.
+ */
 const SENTINEL: EnemyBehavior = {
+  // The one place that chooses the shield-bearer's approach turn (06.10.2026): by the battle's turn number, common to
+  // every shield-bearer. Intents prepared at the end of turn t are carried out in the enemy phase of turn t + 1, so the
+  // step lands in the enemy phase of turns 3, 6, 9… Its swing could only hit a cat in reach, and then it does not
+  // step, so «a turn without an attack» needs no other check; a rest (after a hit) does not stop it.
+  closesIn: { when: (_cell, state) => SENTINEL_STEP_EVERY > 0 && (state.turn + 1) % SENTINEL_STEP_EVERY === 0,
+    reach: meleeTargets, label: () => 'Сближение' },
   beforePassive({ state }, cell, index) {
     const actor: EnemyActor = { subtype: 4, kind: 1, power: cell.hp, col: index % state.cols, row: Math.floor(index / state.cols), face_dir: 1, attack_mode: 0, properties: {} };
     updateShieldDir(actor, state.player.index % state.cols, Math.floor(state.player.index / state.cols), {
@@ -205,7 +231,8 @@ const SENTINEL: EnemyBehavior = {
  */
 const JAILER: EnemyBehavior = {
   // The one place that chooses the Jailer's approach turn: the rest turn, the only turn without a strike (04.10.2026).
-  closesIn: cell => cell.behavior.restTurns > 0,
+  // Its sweep covers the side toward the cat, corners included: every neighbour is in reach. The label keeps the rest.
+  closesIn: { when: cell => cell.behavior.restTurns > 0, reach: neighbors, label: cell => `${cell.intent.label} · сближение` },
   intent({ state }, cell, index) {
     cell.shield ??= { dx: 0, dy: 1 };
     if (cell.status.frozen > 0 || cell.behavior.restTurns > 0) {
@@ -279,10 +306,12 @@ export function announceRites({ state, rites }: IntentPass) {
  * a neighbour strictly nearer, Chebyshev) when the cat is out of its reach, ranged retreats while the cat is closer
  * than 3 cells. Ties are drawn from the battle RNG. Frozen, resting (except a resting
  * archer, who retreats instead of its rotation) and passive elites stay; defensive ones hold (`ELITE_MOVEMENT`).
- * Ordinary enemies never close in. Every `ELITE_MOVE_EVERY` turns; draws of the battle RNG come in board order.
- * An enemy with its own approach (`closesIn`: the Jailer in its rest, decision of 04.10.2026) closes in by the same
- * melee rules every turn its behaviour allows, elite or not and regardless of `ELITE_MOVE_EVERY`; its reach is every
- * neighbour (the sweep covers the side toward the cat, corners included).
+ * Ordinary enemies without their own approach never close in. Every `ELITE_MOVE_EVERY` turns; draws of the battle
+ * RNG come in board order.
+ * An enemy with its own approach (`closesIn`: the Jailer in its rest, decision of 04.10.2026; the shield-bearer every
+ * `SENTINEL_STEP_EVERY` turns, 06.10.2026) closes in by the same melee rules in the turn its `when` chooses, elite or
+ * not and regardless of `ELITE_MOVE_EVERY` — an elite with its own approach moves once, by its own rule; the cat in its
+ * `reach` stops it.
  */
 export function announceEliteMoves({ state, rand, paired }: IntentPass) {
   const elitesMove = ELITE_MOVE_EVERY > 0 && state.turn % ELITE_MOVE_EVERY === 0;
@@ -299,16 +328,15 @@ export function announceEliteMoves({ state, rand, paired }: IntentPass) {
     const mode = own ? 'close' : ELITE_MOVEMENT[id];
     let target = index, label = '';
     if (mode === 'close') {
-      // Not its turn (an elite's charge or rest; the Jailer outside its rest) or the cat in reach (announced strike, a
-      // side neighbour armed or not; any neighbour of the Jailer): no closing in.
-      if (own ? !own(cell) : cell.behavior.restTurns > 0 || !!cell.intent.charge) continue;
-      if (cell.intent.cells.includes(hero) || (own ? neighbors(state, index) : meleeTargets(state, index)).includes(hero)) continue;
+      // Not its turn (an elite's charge or rest; its own approach: `when`) or the cat in reach (announced strike, a side
+      // neighbour armed or not; its own approach: `reach`): no closing in.
+      if (own ? !own.when(cell, state) : cell.behavior.restTurns > 0 || !!cell.intent.charge) continue;
+      if (cell.intent.cells.includes(hero) || (own ? own.reach(state, index) : meleeTargets(state, index)).includes(hero)) continue;
       // Only a neighbour strictly nearer to the cat; the nearest, a tie by the battle RNG; none — the elite stands.
       const near = distance(index, hero), closer = sides(index).filter(side => swappable(index, side) && distance(side, hero) < near);
       if (!closer.length) continue;
       const nearest = Math.min(...closer.map(side => distance(side, hero))), best = closer.filter(side => distance(side, hero) === nearest);
-      // The Jailer keeps its rest in the label: «Отдых · щит опущен · сближение».
-      target = best.length > 1 ? best[rand(0, best.length)] : best[0]; label = own ? `${cell.intent.label} · сближение` : 'Сближение';
+      target = best.length > 1 ? best[rand(0, best.length)] : best[0]; label = own ? own.label(cell) : 'Сближение';
     } else if (mode === 'retreat') {
       // An archer retreats in its rest turn (it shoots otherwise); a shaman in a turn without a rite.
       if (id === 'archer' ? cell.behavior.restTurns === 0 : cell.behavior.restTurns > 0 || !!cell.intent.empowerIds?.length) continue;
