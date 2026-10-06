@@ -18,7 +18,7 @@ import { isCellAlive } from './cellLife';
 import { enemyDefeatCountsForGoal } from './combatRules';
 import { planEnemyPhase } from './enemyPhase';
 import { applyDamageEffect, tickDamageEffects } from './damageEffects';
-import type { ChainPreview, ForestCell, ForestState, ItemKind } from './forestTypes';
+import type { ChainPreview, ForestCell, ForestState, ItemKind, ObjectiveProgress } from './forestTypes';
 import type { CustomLevelDefinition } from './customLevel';
 import type { NodeAnalysisTarget } from './run/nodeAnalysis';
 
@@ -102,6 +102,13 @@ export interface SearchResult {
   /** Fling-style key moves: steps of the solution line with w_t <= 0.1. */
   keyMoves: number;
   stats: SearchStats; outcomes?: FirstActionOutcome[];
+  /**
+   * Main search only: the longest series of turns without goal progress on one fastest line to the goals (the line
+   * behind `minGoalTurns`; at each step a move keeping that minimum, preferring one that progresses). Bounded by the
+   * horizon: at most `minGoalTurns - 1`. null — no goal line within the horizon (or the budget cut it), or the goals
+   * have nothing to progress (docs/level-metrics.md, «Застревание»).
+   */
+  goalStall?: number | null;
 }
 export interface RestrictedResult {
   applicable: boolean; winnable?: boolean; minTurns?: number | null; bestHp?: number | null; exhaustive?: boolean;
@@ -125,7 +132,15 @@ export interface AgentSummary {
   exitDelayMedian: number | null; hpLostAfterGoalMedian: number | null;
   /** Runs that met the goals but did not win: the cat died or the turn limit came first. */
   goalsNoExit: number;
+  /** Longest series of turns without goal progress per run (StallSeries); null when the goals have nothing to progress. */
+  stall: StallSummary | null;
 }
+/**
+ * Stall over runs: each run's longest series of turns without goal progress before the goals are met (or the run
+ * ends: the cat dies, the turn limit — so a series is cut at `agentTurnLimit`). `histogram[s]` = runs whose longest
+ * series is s turns; `longShare` = share of runs with a series of at least STALL_THRESHOLD turns.
+ */
+export interface StallSummary { runs: number; median: number | null; p90: number | null; longShare: number | null; histogram: number[] }
 export interface PlannerResult {
   resamples: number;
   /** r(A) over resolved resamples; null when the budget resolved none. `unresolved` samples are not counted as losses. */
@@ -244,6 +259,75 @@ function goalWeight(state: ForestState, cell: ForestCell | null | undefined): nu
   if (keys.includes('bossKills') && cell.kind === 'boss') return 1;
   if (keys.includes('rangedKills') && cell.kind === 'ranged') return 1;
   return keys.includes('kills') ? 0.3 : 0;
+}
+
+// ---------------------------------------------------------------- stall: turns without goal progress
+
+/**
+ * A series of this many turns without goal progress is a long stall. 5 turns is more than the whole window the goals
+ * of a trail battle are designed for (check 6 of docs/random-coloring.md: 2–4 turns) and more than one full step
+ * cycle of the shield bearer (every 3 turns): such a series means the field gave nothing to do toward the goals.
+ */
+export const STALL_THRESHOLD = 5;
+
+/**
+ * What goal progress is measured on: the counters of the goals (marked targets of a map battle — `tutorialTargets`;
+ * otherwise the authored goal keys without `turns`, which grows by itself every turn) and the HP of the goal entities
+ * (marked targets; bosses for `bossKills`, archers for `rangedKills`). null — the goals have nothing to progress
+ * (only «survive N turns»).
+ */
+function progressMark(state: ForestState): { counters: number[]; hp: Map<number, number> } | null {
+  const targets = state.tutorial?.targetIds.length ? state.tutorial.targetIds : null;
+  const goalKeys: (keyof ObjectiveProgress)[] = state.customLevel ? state.customLevel.definition.goals.map(goal => goal.key) : ['kills', 'rangedKills', 'bossKills'];
+  const keys: (keyof ObjectiveProgress)[] = targets ? ['tutorialTargets'] : goalKeys.filter(key => key !== 'turns');
+  if (!keys.length) return null;
+  const hp = new Map<number, number>();
+  for (const { cell } of uniqueEntities(state.board)) {
+    if (!isCellAlive(cell)) continue;
+    const goal = targets ? targets.includes(cell.id) : keys.includes('bossKills') && cell.kind === 'boss' || keys.includes('rangedKills') && cell.kind === 'ranged';
+    if (goal) hp.set(cell.id, cell.hp);
+  }
+  return { counters: keys.map(key => state.objective[key] ?? 0), hp };
+}
+/**
+ * Goal progress between two positions: the goals became met, a goal counter grew (a target or a boss died, a kill
+ * for a kill goal), or a goal entity lost HP or died — from any source (chain, ram, arrow, tick, crystal). Healing
+ * is not progress; killing non-target enemies is not progress in a battle with marked targets.
+ */
+export function goalProgressed(before: ForestState, after: ForestState): boolean {
+  if (goalsMet(after) && !goalsMet(before)) return true;
+  const was = progressMark(before), now = progressMark(after);
+  if (!was || !now) return false;
+  if (now.counters.some((value, k) => value > was.counters[k])) return true;
+  for (const [id, hp] of was.hp) { const left = now.hp.get(id); if (left === undefined || left < hp) return true; }
+  return false;
+}
+/**
+ * Longest series of turns without goal progress (goalProgressed between turn boundaries) until the goals are met;
+ * after them the battle waits for the exit — a separate stage, not counted. An item (no turn) is compared together
+ * with the turn it belongs to; the turn the cat dies counts as a turn.
+ */
+export class StallSeries {
+  max = 0;
+  private series = 0;
+  private done: boolean;
+  constructor(private boundary: ForestState) { this.done = goalsMet(boundary); }
+  step(after: ForestState) {
+    if (this.done) return;
+    const turns = after.phase === 'PLAYER_INPUT' ? after.turn - this.boundary.turn : Math.max(1, after.turn - this.boundary.turn);
+    if (turns <= 0) return;
+    if (goalProgressed(this.boundary, after)) this.series = 0;
+    else { this.series += turns; this.max = Math.max(this.max, this.series); }
+    this.boundary = after;
+    if (goalsMet(after)) this.done = true;
+  }
+}
+/** Pooled stall statistics of longest series (one value per run). */
+export function stallSummary(values: number[]): StallSummary {
+  const sorted = [...values].sort((a, b) => a - b), histogram: number[] = [];
+  for (const value of sorted) { while (histogram.length <= value) histogram.push(0); histogram[value]++; }
+  return { runs: sorted.length, median: median(sorted), p90: quantile(sorted, 0.9),
+    longShare: sorted.length ? round(sorted.filter(value => value >= STALL_THRESHOLD).length / sorted.length) : null, histogram };
 }
 
 // ---------------------------------------------------------------- nodes and actions
@@ -441,6 +525,8 @@ class TreeSearch {
   readonly stats: SearchStats = { expansions: 0, executions: 0, memoHits: 0, beamCuts: 0, itemCuts: 0, movesCapHits: 0, budgetExhausted: false, previewMismatches: 0, lateWinChecks: 0 };
   private readonly memo = new Map<string, Value>();
   private readonly executeAll: boolean;
+  /** Only action lists already computed are used: set after the result, so the shared cache is not grown (goalStall). */
+  private frozen = false;
   constructor(private readonly analyzer: Analyzer, private readonly tools: ToolAccess, private readonly options: SearchOptions, root: AnalysisNode) {
     const definition = root.snap.state.customLevel?.definition;
     // A direct "survive N turns" goal is checked after the enemy phase, which no chain forecast reports.
@@ -450,6 +536,7 @@ class TreeSearch {
   actions(node: AnalysisNode): ActionInfo[] | null {
     let infos = this.analyzer.cached(node);
     if (!infos) {
+      if (this.frozen) return null;
       if (this.stats.expansions >= this.options.nodeBudget) { this.stats.budgetExhausted = true; return null; }
       this.stats.expansions++;
       infos = this.analyzer.computeActions(node);
@@ -560,7 +647,41 @@ class TreeSearch {
       dies: entry.node.phase === 'LOSE', resolvedDepth: Math.min(entry.resolved, depth), goalTurns: entry.value.goalTurns < Infinity ? goalTurnsOf(entry) : null,
       trap: traps.includes(entry) ? true : entry.value.winTurns < Infinity ? false : null,
       ...(entry.aliases.length ? { aliases: entry.aliases } : {}) }));
+    // After everything above is fixed: the walk only reads what the search computed (no new action lists, no budget).
+    if (withOutcomes) result.goalStall = await this.goalStall(root, minGoalTurns);
     return result;
+  }
+
+  /**
+   * Stall on one fastest goal line (SearchResult.goalStall). From the root, each step takes a move whose subtree still
+   * meets the goals in the remaining turns, preferring one with goal progress; the last turn meets the goals.
+   */
+  private async goalStall(root: AnalysisNode, minGoalTurns: number | null): Promise<number | null> {
+    if (minGoalTurns === null || !progressMark(root.snap.state)) return null;
+    this.frozen = true;
+    const series = new StallSeries(root.snap.state);
+    let node = root, left = minGoalTurns, first = true;
+    // On the last turn the goals are met (by a forecast or an executed leaf): progress, the series cannot grow.
+    while (!node.goalsMet && left > 1) {
+      if (node.phase !== 'PLAYER_INPUT') return null;
+      const infos = this.actions(node);
+      if (!infos) return null;
+      let pick: { child: AnalysisNode; turns: number; progressed: boolean } | null = null;
+      for (const info of this.candidates(infos, first, false)) {
+        const child = await this.analyzer.execute(node, info.action);
+        if (!child || child.phase === 'LOSE') continue;
+        const turns = child.turn - node.turn;
+        const goalTurns = child.goalsMet ? 0 : (await this.evaluate(child, left - turns)).goalTurns;
+        if (goalTurns + turns > left) continue;
+        const progressed = turns > 0 && goalProgressed(node.snap.state, child.snap.state);
+        if (!pick || progressed && !pick.progressed) pick = { child, turns, progressed };
+        if (pick.progressed) break;
+      }
+      if (!pick) return null;
+      series.step(pick.child.snap.state);
+      node = pick.child; left -= pick.turns; first = false;
+    }
+    return series.max;
   }
 
   /**
@@ -654,10 +775,12 @@ function greedyChoice(infos: ActionInfo[]): ActionInfo | undefined {
     || b.dealt - a.dealt || Number(a.incoming > 0) - Number(b.incoming > 0) || a.incoming - b.incoming)[0];
 }
 /** `goalTurn`: turns until the goals were met with the cat alive (null — not met); `hpAtGoal`: the cat's HP then. */
-interface AgentRun { won: boolean; hp: number; turns: number; lost: boolean; goalTurn: number | null; hpAtGoal: number | null }
+/** `stall`: longest series of turns without goal progress before the goals (StallSeries); null — nothing to progress. */
+interface AgentRun { won: boolean; hp: number; turns: number; lost: boolean; goalTurn: number | null; hpAtGoal: number | null; stall: number | null }
 async function runAgent(analyzer: Analyzer, root: AnalysisNode, kind: 'random' | 'greedy', agentSeed: number, turnLimit: number, tools: ToolAccess = ALL_TOOLS): Promise<AgentRun> {
   const random = mulberry32(agentSeed);
   let node = root, goalTurn: number | null = null, hpAtGoal: number | null = null;
+  const stall = progressMark(root.snap.state) ? new StallSeries(root.snap.state) : null;
   while (node.phase === 'PLAYER_INPUT' && node.turn - root.turn < turnLimit) {
     const infos = analyzer.computeActions(node).filter(info => allowed(info, tools));
     const choice = kind === 'random' ? infos[Math.floor(random() * infos.length)] : greedyChoice(infos);
@@ -665,9 +788,10 @@ async function runAgent(analyzer: Analyzer, root: AnalysisNode, kind: 'random' |
     const next = await analyzer.execute(node, choice.action);
     if (!next) break;
     node = next;
+    stall?.step(node.snap.state);
     if (goalTurn === null && node.goalsMet && node.phase !== 'LOSE') { goalTurn = node.turn - root.turn; hpAtGoal = node.hp; }
   }
-  return { won: node.phase === 'WIN', hp: node.phase === 'LOSE' ? 0 : node.hp, turns: node.turn - root.turn, lost: node.phase === 'LOSE', goalTurn, hpAtGoal };
+  return { won: node.phase === 'WIN', hp: node.phase === 'LOSE' ? 0 : node.hp, turns: node.turn - root.turn, lost: node.phase === 'LOSE', goalTurn, hpAtGoal, stall: stall ? stall.max : null };
 }
 /** Wilson score interval, 95%. */
 export function wilson(wins: number, runs: number): [number, number] {
@@ -705,7 +829,8 @@ function summarize(results: AgentRun[]): AgentSummary {
     goalTurnsMedian: median(goals.map(result => result.goalTurn!)), winTurnsMedian: median(wins.map(result => result.turns)),
     exitDelayMedian: median(wins.flatMap(result => result.goalTurn === null ? [] : [result.turns - result.goalTurn])),
     hpLostAfterGoalMedian: median(wins.flatMap(result => result.hpAtGoal === null ? [] : [result.hpAtGoal - result.hp])),
-    goalsNoExit: goals.filter(result => !result.won).length };
+    goalsNoExit: goals.filter(result => !result.won).length,
+    stall: results.some(result => result.stall !== null) ? stallSummary(results.flatMap(result => result.stall === null ? [] : [result.stall])) : null };
 }
 async function runAgents(analyzer: Analyzer, roots: AnalysisNode[], options: AnalysisOptions, tools: ToolAccess = ALL_TOOLS) {
   const random: AgentRun[] = [], greedy: AgentRun[] = [];

@@ -17,7 +17,7 @@ import { availableParallelism } from 'node:os';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, type AgentSummary, type AnalysisOptions, type LevelAnalysis, type LevelSource } from '../src/game/levelAnalysis';
+import { analyzeLevel, DEFAULT_ANALYSIS_OPTIONS, STALL_THRESHOLD, stallSummary, type AgentSummary, type AnalysisOptions, type LevelAnalysis, type LevelSource, type StallSummary } from '../src/game/levelAnalysis';
 import { allNodeBattleTargets, nodeAnalysisTargets } from '../src/game/run/nodeAnalysis';
 import { ELITE_MOVE_EVERY, setEliteMoveEvery } from '../src/game/elite';
 import { LADDER_MAX } from '../src/game/ladder';
@@ -53,7 +53,7 @@ const HELP = `analyze-levels [options]
                      drawn by the battle seed under checks 1–5; authored — the authored colors (the default of node battles)
   --coloring-seeds N node battles: analyze each battle on N battle seeds (Math.imul(k, 2654435761) >>> 0, k = 1..N) instead of
                      the authored seed; the battle seed draws the coloring (random) and the refill. Prints the coloring
-                     table: share of winnable seeds, check 6 (goals in 2–4 turns), goal turns, traps, greedy agent
+                     table: share of winnable seeds, check 6 (goals in 2–4 turns), goal turns, traps, greedy agent, stall
   --seeds K          refill seeds per level (default ${DEFAULT_ANALYSIS_OPTIONS.seeds})
   --depth D          search horizon in turns (default ${DEFAULT_ANALYSIS_OPTIONS.depth})
   --beam B           children per internal node (default ${DEFAULT_ANALYSIS_OPTIONS.beam})
@@ -212,6 +212,13 @@ function weight(task: Task) {
 const pct = (value: number | null | undefined) => value === null || value === undefined ? '-' : `${Math.round(value * 100)}`;
 const val = (value: number | null | undefined) => value === null || value === undefined ? '-' : String(value);
 const bits = (info: { bits: number | null; atLeast: number } | undefined) => !info ? '-' : info.bits !== null ? info.bits.toFixed(1) : `>=${info.atLeast.toFixed(1)}`;
+/** Stall cells: median / p90 of the longest series without goal progress and the share of runs with >= STALL_THRESHOLD. */
+const stallCells = (stall: StallSummary | null | undefined) => !stall || !stall.runs ? ['-', '-', '-'] : [val(stall.median), val(stall.p90), pct(stall.longShare)];
+/** Pools per-level stall histograms into one summary (the median and p90 of all runs, not of the levels' medians). */
+const pooledStall = (list: (StallSummary | null | undefined)[]) => {
+  const values = list.flatMap(stall => stall ? stall.histogram.flatMap((count, series) => Array<number>(count).fill(series)) : []);
+  return values.length ? stallSummary(values) : null;
+};
 const delta = (need: { bits: number | null; atLeast: number | null } | undefined) => !need ? '' : need.bits !== null ? need.bits.toFixed(1) : need.atLeast !== null ? `>=${need.atLeast.toFixed(1)}` : 'n/a';
 function render(header: string[], rows: string[][]) {
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map(row => (row[i] ?? '').length)));
@@ -247,8 +254,14 @@ function tables(results: Done[]) {
       const agent = (x: AgentSummary | undefined) => !x ? ['-', '-', '-', '-', '-', '-'] : [pct(x.goalRate), pct(x.winRate), val(x.goalTurnsMedian), val(x.winTurnsMedian), val(x.exitDelayMedian), val(x.winHpMedian)];
       return [r.level.id, val(s?.minGoalTurns), val(s?.minTurns), val(s?.bestHpAtMin), ...agent(a?.random), ...agent(a?.greedy), a ? `${a.greedy.goalsNoExit}/${a.greedy.runs}` : '-'];
     }));
+  // Stall: the longest series of turns without goal progress before the goals (docs/level-metrics.md, «Застревание»).
+  const stall = render(['level', 'O stall', 'R med', 'R p90', `R >=${STALL_THRESHOLD}%`, 'G1 med', 'G1 p90', `G1 >=${STALL_THRESHOLD}%`],
+    ok.map(done => {
+      const r = done.result!, a = r.agents;
+      return [r.level.id, val(r.search?.[0]?.goalStall), ...stallCells(a?.random.stall), ...stallCells(a?.greedy.stall)];
+    }));
   const errors = results.filter(done => done.error).map(done => `#${done.index} ERROR ${done.error}`);
-  return [structure, '', agents, '', exit, ...errors].join('\n');
+  return [structure, '', agents, '', exit, '', stall, ...errors].join('\n');
 }
 
 const median = (values: number[]) => {
@@ -287,15 +300,24 @@ function coloringTable(tasks: Task[], results: Done[], depth: number) {
       share(Math.round((mean(searched.map(r => r.search![0].trapShare)) ?? 0) * 1000), 1000), share(traps.filter(Boolean).length, traps.length),
       share(greedy.reduce((sum, g) => sum + g.wins, 0), greedy.reduce((sum, g) => sum + g.runs, 0)),
       fixed(median(greedy.flatMap(g => g.goalTurnsMedian === null ? [] : [g.goalTurnsMedian])), 1),
-      fixed(mean(list.map(r => r.static.largestComponentShare))), fixed(mean(list.map(r => r.static.colorInterleave)))];
+      fixed(mean(list.map(r => r.static.largestComponentShare))), fixed(mean(list.map(r => r.static.colorInterleave))),
+      ...(() => {
+        // Oracle stall over seeds: median / p90 and the share of seeds whose fastest goal line has a turn without progress.
+        const o = searched.flatMap(r => r.search![0].goalStall === null || r.search![0].goalStall === undefined ? [] : [r.search![0].goalStall]);
+        return o.length ? [`${val(stallSummary(o).median)}/${val(stallSummary(o).p90)}`, share(o.filter(value => value > 0).length, o.length)] : ['-', '-'];
+      })(),
+      stallCells(pooledStall(list.map(r => r.agents?.random.stall))).join('/'), stallCells(pooledStall(list.map(r => r.agents?.greedy.stall))).join('/')];
   });
-  const table = render(['battle', 'seeds', 'fallback', 'maxAtt', 'win%', 'unres', 'chk6%', 'goalT 1/2/3/4/-', 'goalT', 'minT', 'trap%', 'gTrap%', 'G1 win%', 'G1 goalT', 'lcs', 'intl'], rows);
+  const table = render(['battle', 'seeds', 'fallback', 'maxAtt', 'win%', 'unres', 'chk6%', 'goalT 1/2/3/4/-', 'goalT', 'minT', 'trap%', 'gTrap%', 'G1 win%', 'G1 goalT', 'lcs', 'intl',
+    'O stall', 'O st>0%', `R stall med/p90/>=${STALL_THRESHOLD}%`, `G1 stall med/p90/>=${STALL_THRESHOLD}%`], rows);
   const note = depth < 4 ? `\nnote: --depth ${depth} < 4, check 6 (goals in 2–4 turns) is cut at the depth.` : '';
   return `${table}\nColoring table over battle seeds (oracle search, seed 0 = the battle seed): fallback = seeds whose random coloring fell back to the authored one,
 maxAtt = largest passing attempt, win% = seeds winnable within depth, unres = seeds the search budget left unresolved, chk6% = goals in 2–4 turns
 (docs/random-coloring.md, check 6), goalT 1/2/3/4/- = seeds by min turns to the goals (- not within depth), goalT/minT = medians, trap% = mean share
 of first actions that cannot win within depth, gTrap% = seeds whose greedy first move cannot win, G1 = greedy agent (win share, median goal turns),
-lcs/intl = mean largest same-color group share and color interleave of the opening.${note}`;
+lcs/intl = mean largest same-color group share and color interleave of the opening. Stall (docs/level-metrics.md): the longest series of turns
+without goal progress before the goals; O stall = median/p90 over seeds on the oracle's fastest goal line (bounded by depth), O st>0% = seeds whose
+line has such a turn; R/G1 stall = median/p90 over all runs of the agent and the share of runs with a series >= ${STALL_THRESHOLD} turns (cut at --turn-limit).${note}`;
 }
 
 async function main() {
@@ -320,6 +342,9 @@ async function main() {
     console.log('Table 3 (exit battles: the win is entering the open door): goalT/exitT/hpExit oracle turns to the goals / to the exit / HP at the exit (seed 0, within depth);');
     console.log('per agent: goal% runs meeting the goals, win% runs leaving through the door, medians of goalT, exitT, delay = exitT - goalT and hp at the exit;');
     console.log('G1 stuck = greedy runs that met the goals but did not leave (died or hit the turn limit).');
+    console.log(`Table 4 (stall): the longest series of turns without goal progress (a target or goal entity hit or killed, a goal counter up) before`);
+    console.log(`the goals are met; O stall on the oracle's fastest goal line (seed 0, bounded by depth); R/G1 median and p90 over runs, >=${STALL_THRESHOLD}% runs with`);
+    console.log('a series of at least that many turns (a run ends at death or --turn-limit, which caps the series).');
   }
   for (const done of results) for (const note of done.result?.notes ?? []) console.log(`note ${done.result!.level.id}: ${note}`);
   console.log(`Total wall time ${(totalMs / 1000).toFixed(1)}s`);

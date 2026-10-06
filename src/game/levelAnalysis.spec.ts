@@ -1,7 +1,7 @@
 // Correctness of the level analyzer itself on small artificial boards.
 // These are not balance assertions about the authored battles.
 import { ForestEngine } from './forestEngine';
-import { analyzeEngine, analyzeLevel, startLevelEngine, type AnalysisOptions } from './levelAnalysis';
+import { analyzeEngine, analyzeLevel, StallSeries, startLevelEngine, type AnalysisOptions } from './levelAnalysis';
 import { FOREST_MAP } from './run/forestMap';
 import { FOREST_NODE_BATTLES } from './run/forestBattles';
 import { nodeAnalysisTargets } from './run/nodeAnalysis';
@@ -235,6 +235,37 @@ async function nodeBattleSource() {
   assert(report.level.id === target.id && report.static.enemies > 0, 'the analyzer reports a node battle');
 }
 
+// Stall (06.10.2026): the longest series of turns without goal progress before the goals. Played with real commands
+// on the walled pocket, where the boss cannot be touched until the cat jumps: rests and fodder kills are no progress.
+async function stallSeries() {
+  const g = start(pocket), series = new StallSeries(g.captureAnalysisSnapshot().state);
+  const step = () => series.step(g.captureAnalysisSnapshot().state), longest = (): number => series.max;
+  for (let rest = 0; rest < 3; rest++) { assert(await g.waitTurn(), 'rest resolves a turn'); step(); }
+  assert(longest() === 3, `three rests next to an unreachable boss are a series of 3, got ${longest()}`);
+  const fodder = g.availableMoves(6).find(path => path.length >= 2)!;
+  g.state.chain = [...fodder]; assert(await g.releaseChain(), 'fodder chain commits'); step();
+  assert(longest() === 4 && g.state.objective.kills > 0, `killing goblins is not progress toward a boss goal: series ${longest()}`);
+  const boss = g.state.board.findIndex(cell => cell?.kind === 'boss');
+  assert(g.state.player.energy >= 2 && await g.useAbility('jump', boss), 'the jump lands on the boss');
+  step();
+  assert(longest() === 4, `the jump hits the boss: progress ends the series, got ${longest()}`);
+
+  // The analyzer reports the same: no first action touches the boss, so every agent run stalls at least one turn,
+  // and the oracle's fastest goal line (chain, then jump) has exactly one turn without progress.
+  const pocketReport = await analyzeEngine(start(pocket), { ...quick, seeds: 2, agentRuns: 4, restricted: false, plannerResamples: 0 });
+  assert(pocketReport.search![0].minGoalTurns === 2 && pocketReport.search![0].goalStall === 1, `oracle goal line stalls one turn, got ${pocketReport.search![0].goalStall}`);
+  const random = pocketReport.agents!.random.stall!;
+  assert(random.runs === 8 && random.histogram[0] === 0 && random.median! >= 1, `no random run reaches the boss on turn 1: ${JSON.stringify(random)}`);
+  assert(random.histogram.reduce((sum, count) => sum + count, 0) === random.runs, 'the histogram covers every run');
+  // Any chain of two meets a kill goal at once: no stall anywhere.
+  const instant = await analyzeEngine(start(oneTurn), { ...quick, restricted: false, plannerResamples: 0 });
+  assert(instant.search![0].goalStall === 0 && instant.agents!.greedy.stall!.median === 0, 'a one-turn kill goal has no stall');
+  // «Survive N turns» has nothing to progress: the stall is not measured.
+  const survive = await analyzeEngine(start(level(['0000', '0000', '0000', '@000'], [{ key: 'turns', target: 3 }], [1, 0, 0, 0, 0])), { ...quick, restricted: false, plannerResamples: 0 });
+  assert(survive.agents!.random.stall === null && (survive.search![0].goalStall ?? null) === null, 'a survival goal reports no stall');
+}
+
+await stallSeries();
 await minimalWin();
 await nodeBattleSource();
 await porcupineQuills();
