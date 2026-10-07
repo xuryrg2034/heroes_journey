@@ -58,7 +58,8 @@ test('realtime page opens, the horde arrives from the edges and walks to the her
   await page.evaluate(() => (window as any).__realtime.burst(30));
   await page.waitForTimeout(2500);
   const crowd = await snapshot(page);
-  const radius = await page.evaluate(() => (window as any).__realtime.params.bodyRadius as number);
+  // Body radius × the enemy size (stage D: 0.8 by default).
+  const radius = await page.evaluate(() => { const p = (window as any).__realtime.params; return p.bodyRadius * p.enemyScale as number; });
   let closest = Infinity;
   for (let i = 0; i < crowd.enemies.length; i++) for (let j = i + 1; j < crowd.enemies.length; j++) {
     const a = crowd.enemies[i], b = crowd.enemies[j];
@@ -499,9 +500,9 @@ test('the boar announces its charge with a lane, shoves the crowd without hurtin
   await page.evaluate(() => { (window as any).__realtime.params.contactDamage = 0; });
   const { x: hx, y: hy, maxHp } = (await arenaSnapshot(page)).hero;
   const boar = await placeKind(page, hx - 3, hy, 0, 2, 'boar');
-  // Two enemies of another color lie on the lane, a bit off its axis.
-  const c1 = await place(page, hx - 1.8, hy + 0.35, 1);
-  const c2 = await place(page, hx - 1.1, hy - 0.4, 1);
+  // Two enemies of another color lie on the lane (half-width = body 0.32 at enemy size 0.8), a bit off its axis.
+  const c1 = await place(page, hx - 1.8, hy + 0.2, 1);
+  const c2 = await place(page, hx - 1.1, hy - 0.25, 1);
   const before = await arenaSnapshot(page);
   const pos = (snap: ArenaSnapshot, id: number) => snap.enemies.find(e => e.id === id)!;
 
@@ -598,11 +599,12 @@ async function hold(page: Page, code: string, seconds: number): Promise<void> {
   await page.keyboard.up(code);
 }
 
+/** Hero circle (a share of the body at size 1, not scaled) + the enemy's touch circle (body × enemy size × touch share). */
 const touchDistance = (page: Page): Promise<number> =>
-  page.evaluate(() => { const p = (window as any).__realtime.params; return p.bodyRadius * p.heroHitFactor + p.bodyRadius * p.touchFactor as number; });
-/** Where the walking hero stops at an enemy: hero circle + the enemy's body circle (design answer 37). */
+  page.evaluate(() => { const p = (window as any).__realtime.params; return p.bodyRadius * p.heroHitFactor + p.bodyRadius * p.enemyScale * p.touchFactor as number; });
+/** Where the walking hero stops at an enemy («сквозь врагов» off): hero circle + the enemy's body circle (design answer 37). */
 const blockDistance = (page: Page): Promise<number> =>
-  page.evaluate(() => { const p = (window as any).__realtime.params; return p.bodyRadius * p.heroHitFactor + p.bodyRadius as number; });
+  page.evaluate(() => { const p = (window as any).__realtime.params; return p.bodyRadius * p.heroHitFactor + p.bodyRadius * p.enemyScale as number; });
 
 test('the hero walks with WASD and arrows, stops at a wall and cannot walk through an enemy', async ({ page }) => {
   const errors: string[] = [];
@@ -635,9 +637,9 @@ test('the hero walks with WASD and arrows, stops at a wall and cannot walk throu
   expect(s.hero.x).toBeLessThan(4 + heroR + 0.05);
   await page.screenshot({ path: 'artifacts/realtime-walk-wall.png' });
 
-  // An enemy is solid: the hero walks up to its body circle and stops (design answer 37) —
-  // outside its touch zone, so bumping into it does not hurt; the enemy is not shoved.
-  await page.evaluate(() => (window as any).__realtime.teleport(6, 6));
+  // «Сквозь врагов» off (on by default since stage D): an enemy is solid — the hero walks up to its
+  // body circle and stops (design answer 37), outside its touch zone, so bumping into it does not hurt; the enemy is not shoved.
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.heroThroughEnemies = false; rt.teleport(6, 6); });
   const block = await blockDistance(page);
   const id = await place(page, 8, 6, 0);
   await hold(page, 'KeyD', 1);
@@ -649,7 +651,7 @@ test('the hero walks with WASD and arrows, stops at a wall and cannot walk throu
   expect(s.hero.hp).toBe(s.hero.maxHp);
   // Walking kills nobody: only the chain kills.
   expect(s.kills).toBe(0);
-  // «Сквозь врагов» on: the hero passes, shoving the body aside.
+  // «Сквозь врагов» on: the hero passes, parting the body aside.
   await page.evaluate(() => { (window as any).__realtime.params.heroThroughEnemies = true; });
   await hold(page, 'KeyD', 1);
   s = await walkSnapshot(page);
@@ -784,17 +786,24 @@ test('the hero brushes past a crowd pressed against it without being hit (design
   const errors: string[] = [];
   await open(page, errors, 1);
   await freeze(page);
-  // A still row of enemies at y = 6; the hero walks down-right into it and slides along.
-  await page.evaluate(() => { const rt = (window as any).__realtime; for (let i = 0; i < 7; i++) rt.place(5 + i * 0.82, 6, i % 4, 0); rt.teleport(4.6, 5.2); });
+  // A still row of touching enemies at y = 6 (bodies 0.02 apart: spacing 2 × body, 0.66 at enemy size 0.8; stage B had 0.82
+  // at body 0.4); the hero walks down-right into it and slides along («сквозь врагов» off).
+  const rowEnd = await page.evaluate(() => {
+    const rt = (window as any).__realtime, step = rt.params.bodyRadius * rt.params.enemyScale * 2 + 0.02;
+    rt.params.heroThroughEnemies = false;
+    for (let i = 0; i < 8; i++) rt.place(5 + i * step, 6, i % 4, 0);
+    rt.teleport(4.6, 5.2);
+    return 5 + 7 * step as number;
+  });
   const block = await blockDistance(page), touch = await touchDistance(page);
   expect(touch + 0.03).toBeLessThan(block);
   await page.keyboard.down('KeyS');
   await hold(page, 'KeyD', 1.2);
   await page.keyboard.up('KeyS');
   const s = await walkSnapshot(page);
-  // Slid along the row (it ends at x ≈ 9.9), still pressed against it, never hit.
+  // Slid along the row (it ends at x ≈ 9.6), still pressed against it, never hit.
   expect(s.hero.x).toBeGreaterThan(6.8);
-  expect(s.hero.x).toBeLessThan(9.9);
+  expect(s.hero.x).toBeLessThan(rowEnd);
   const nearest = Math.min(...s.enemies.map(e => Math.hypot(e.x - s.hero.x, e.y - s.hero.y)));
   expect(nearest).toBeLessThan(block + 0.15);
   expect(nearest).toBeGreaterThanOrEqual(block - 0.02);
@@ -886,5 +895,91 @@ test('a crystal is a link of any color: it changes the chain color, gives score 
   await expect.poll(async () => (await juiceSnapshot(page)).kills, { timeout: 8_000 }).toBe(4);
   s = await juiceSnapshot(page);
   expect(s.lastChain).toMatchObject({ kills: 1, crystals: 1, score: 11 + 40 });
+  expect(errors).toEqual([]);
+});
+
+// ---- Iteration 2, stage D: smaller enemies, walking through the crowd, the R circle (user 07.10.2026) ----
+
+type CrowdSnapshot = JuiceSnapshot & { heroInCrowd: boolean; reachCircles: number; heroReachShown: boolean };
+const crowdSnapshot = (page: Page): Promise<CrowdSnapshot> => page.evaluate(() => (window as any).__realtime.snapshot());
+
+test('the hero walks through a pile of five enemies, slowed to about 0.7 in it, and the touch still hurts', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  // Stage D defaults: walking through enemies, ×0.7 in a crowd, enemies ×0.8.
+  const p = await page.evaluate(() => { const rt = (window as any).__realtime.params; return { through: rt.heroThroughEnemies, slow: rt.crowdSlow, scale: rt.enemyScale }; });
+  expect(p).toEqual({ through: true, slow: 0.7, scale: 0.8 });
+  await freeze(page);
+  // Arena 1, the free bottom lane y = 9: a plus-shaped pile of five standing enemies at x = 6.5; the centre one is right on the way.
+  const spots = [[6.5, 9], [5.85, 9], [7.15, 9], [6.5, 8.35], [6.5, 9.65]];
+  await page.evaluate(() => (window as any).__realtime.teleport(2.5, 9));
+  const ids: number[] = [];
+  for (const [x, y] of spots) ids.push(await place(page, x, y, ids.length % 4));
+  const samples: { t: number; x: number; crowd: boolean }[] = [];
+  let crowdSeen = false;
+  await page.keyboard.down('KeyD');
+  await expect.poll(async () => {
+    const s = await crowdSnapshot(page);
+    samples.push({ t: s.time, x: s.hero.x, crowd: s.heroInCrowd });
+    if (s.heroInCrowd) crowdSeen = true;
+    return s.hero.x;
+  }, { timeout: 15_000, intervals: [20] }).toBeGreaterThan(8.6);
+  await page.keyboard.up('KeyD');
+  expect(crowdSeen).toBe(true);
+  // Speed over consecutive samples: before the pile (free) and while both samples are in the crowd.
+  type Sample = typeof samples[number];
+  const speed = (keep: (a: Sample, b: Sample) => boolean): number => {
+    let dx = 0, dt = 0;
+    for (let i = 1; i < samples.length; i++) {
+      const a = samples[i - 1], b = samples[i];
+      if (b.t > a.t && keep(a, b)) { dx += b.x - a.x; dt += b.t - a.t; }
+    }
+    return dx / dt;
+  };
+  const free = speed((a, b) => !a.crowd && !b.crowd && a.x > 2.6 && b.x < 5);
+  const crowd = speed((a, b) => a.crowd && b.crowd);
+  expect(free).toBeGreaterThan(3.4);
+  expect(crowd / free).toBeGreaterThan(0.6);
+  expect(crowd / free).toBeLessThan(0.8);
+  const s = await crowdSnapshot(page);
+  // Through, not around and not bulldozing: past the pile, every enemy alive and still near its spot (parted aside).
+  expect(s.hero.x).toBeGreaterThan(8.6);
+  expect(Math.abs(s.hero.y - 9)).toBeLessThan(0.05);
+  for (const [i, id] of ids.entries()) {
+    const e = s.enemies.find(x => x.id === id);
+    expect(e).toBeTruthy();
+    expect(Math.hypot(e!.x - spots[i][0], e!.y - spots[i][1])).toBeLessThan(0.8);
+  }
+  // Walking kills nobody; the touch hurts on the way through (a risk, not a free way out).
+  expect(s.kills).toBe(0);
+  expect(s.stats.hitsTaken).toBeGreaterThanOrEqual(1);
+  expect(s.hero.hp).toBeLessThan(s.hero.maxHp);
+  await page.screenshot({ path: 'artifacts/realtime-through-crowd.png' });
+  expect(errors).toEqual([]);
+});
+
+test('the reach circle R is drawn around the hero without a chain; in a chain also around the last link', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  const R = await page.evaluate(() => (window as any).__realtime.params.linkRadius as number);
+  expect(R).toBe(1.875);
+  await freeze(page);
+  const { x: hx, y: hy } = (await crowdSnapshot(page)).hero;
+  const id = await place(page, hx + 1.6, hy, 0);
+  // No chain: one circle R — around the hero.
+  await expect.poll(async () => { const s = await crowdSnapshot(page); return [s.chain.length, s.heroReachShown, s.reachCircles]; }).toEqual([0, true, 1]);
+  await page.screenshot({ path: 'artifacts/realtime-reach.png' });
+  // A chain: the hero's circle plus the circle around the last link.
+  await chainAt(page, [{ x: hx + 1.6, y: hy }]);
+  await expect.poll(async () => { const s = await crowdSnapshot(page); return [s.chain, s.heroReachShown, s.reachCircles]; }).toEqual([[id], true, 2]);
+  await page.screenshot({ path: 'artifacts/realtime-reach-chain.png' });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect.poll(async () => (await crowdSnapshot(page)).reachCircles).toBe(1);
+  // The panel shows the new defaults.
+  await page.keyboard.press('Backquote');
+  await expect(page.locator('[data-param="linkRadius"] output')).toContainText('1.875');
+  await expect(page.locator('[data-param="enemyScale"] output')).toContainText('0.80');
+  await expect(page.locator('[data-param="crowdSlow"] output')).toContainText('0.70');
   expect(errors).toEqual([]);
 });

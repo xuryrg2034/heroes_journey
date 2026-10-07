@@ -6,7 +6,7 @@
  * other groups by their share, capped on the arena.
  */
 import { blockedAt, dist, inWater, type Vec } from './arena';
-import { rollGroupInterval } from './params';
+import { enemyBodyRadius, rollGroupInterval } from './params';
 import { NO_COLOR, type Enemy, type EnemyKind, type World } from './world';
 
 /** Four chain colors, as in the trail palette of the map. */
@@ -36,7 +36,7 @@ const POINT_TRIES = 16;
 
 function randomEdgePoint(world: World): Vec {
   const { width: w, height: h } = world.arena;
-  const inset = world.params.bodyRadius + 0.05;
+  const inset = enemyBodyRadius(world.params) + 0.05;
   let t = Math.random() * (2 * (w + h));
   if (t < w) return { x: t, y: inset };
   t -= w;
@@ -48,20 +48,20 @@ function randomEdgePoint(world: World): Vec {
 }
 
 function randomInsidePoint(world: World): Vec {
-  const r = world.params.bodyRadius;
+  const r = enemyBodyRadius(world.params);
   return { x: r + Math.random() * (world.arena.width - 2 * r), y: r + Math.random() * (world.arena.height - 2 * r) };
 }
 
 /** A spawn point: free of walls and trees, not in the pond (passable since stage B, but markers stay on dry land), outside the hero's radius. */
 function anchorValid(world: World, p: Vec): boolean {
-  return !blockedAt(p, world.params.bodyRadius * 0.99, world.arena) && !inWater(p, world.arena) && dist(p, world.hero) >= world.params.spawnMinDistance;
+  return !blockedAt(p, enemyBodyRadius(world.params) * 0.99, world.arena) && !inWater(p, world.arena) && dist(p, world.hero) >= world.params.spawnMinDistance;
 }
 
 function findAnchor(world: World): Vec | null {
   const inside = world.params.spawnPlace === 'edgesAndInside';
   for (let i = 0; i < ANCHOR_TRIES; i++) {
     const p = inside && Math.random() < 0.5 ? randomInsidePoint(world) : randomEdgePoint(world);
-    const r = world.params.bodyRadius;
+    const r = enemyBodyRadius(world.params);
     p.x = Math.max(r, Math.min(world.arena.width - r, p.x));
     p.y = Math.max(r, Math.min(world.arena.height - r, p.y));
     if (anchorValid(world, p)) return p;
@@ -71,7 +71,7 @@ function findAnchor(world: World): Vec | null {
 
 /** A free point for one marker near the group anchor: not in an obstacle, outside the hero's radius, not on another marker. */
 function pointNear(world: World, anchor: Vec): Vec | null {
-  const r = world.params.bodyRadius, spread = r * 2.6;
+  const r = enemyBodyRadius(world.params), spread = r * 2.6;
   for (let i = 0; i < POINT_TRIES; i++) {
     const a = Math.random() * Math.PI * 2, d = i === 0 ? 0 : Math.sqrt(Math.random()) * spread;
     const p = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };

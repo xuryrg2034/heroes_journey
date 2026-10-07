@@ -67,9 +67,15 @@ export interface Params {
   // Hero walking (iteration 2, stage A): WASD / arrows, solid against obstacles and (toggle) enemies
   heroSpeed: number;
   heroThroughEnemies: boolean;
+  /** Stage D: walking multiplier while the hero's circle overlaps an enemy body (only with `heroThroughEnemies`); stacks with water only. */
+  crowdSlow: number;
   // Enemies
+  /** Art radius at size 1 (`enemyScale` scales it: `enemyDrawRadius`). */
   enemyRadius: number;
+  /** Body radius at size 1 (`enemyScale` scales it: `enemyBodyRadius`); the hero circle is a share of this unscaled value. */
   bodyRadius: number;
+  /** Stage D (user 07.10.2026): enemy size — art, body, touch zone and pushing of every kind (basic, wolf, boar, reaper). */
+  enemyScale: number;
   enemySpeed: number;
   speedSpread: number;
   /** Iteration 2: the flow field leads enemies around obstacles (off — straight at the hero, as in stages 1–3). */
@@ -209,9 +215,11 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   brakeStrength: 0.8,
   brakeRecovery: 0.8,
   heroSpeed: 4,
-  heroThroughEnemies: false,
+  heroThroughEnemies: true,
+  crowdSlow: 0.7,
   enemyRadius: 0.45,
   bodyRadius: 0.4,
+  enemyScale: 0.8,
   enemySpeed: 1.2,
   speedSpread: 0.2,
   pathfinding: true,
@@ -273,7 +281,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shakeDuration: 0.1,
   deathDuration: 0.5,
   dashShake: 3,
-  linkRadius: 1.5,
+  linkRadius: 1.875,
   lineOfSight: true,
   pickSlack: 1.3,
   dashSpeed: 12,
@@ -323,9 +331,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('brakeRecovery', 'Герой и урон', 'Разгон после удара', 0, 3, 0.05, 1, 'с'),
   n('heroSpeed', 'Перемещение', 'Скорость героя (WASD, стрелки)', 0, 10, 0.25, 4, 'ед/с', 'Свободное движение; в фокусе замедлено вместе со временем. На проходе цепи и в прыжке ввод не действует.'),
   { kind: 'bool', key: 'heroThroughEnemies', group: 'Перемещение', label: 'Сквозь врагов', stage: 4,
-    hint: 'Выключено: враги — препятствие, толпа может зажать героя (выход — цепь или прыжок). Включено: герой проходит, расталкивая толпу.' },
-  n('enemyRadius', 'Враги', 'Радиус рисунка врага', 0.2, 0.7, 0.01, 1, 'ед.'),
-  n('bodyRadius', 'Враги', 'Радиус тела (толкание)', 0.15, 0.7, 0.01, 1, 'ед.'),
+    hint: 'Включено (по умолчанию с этапа D): герой проходит сквозь толпу, расталкивая тела, и в толпе идёт медленнее; касание ранит. Выключено: враги — препятствие, толпа может зажать героя (выход — цепь или прыжок).' },
+  n('crowdSlow', 'Перемещение', 'Замедление в толпе', 0.1, 1, 0.05, 4, '×', 'Пока круг героя перекрывает тело хотя бы одного врага (при «Сквозь врагов»), ходьба медленнее. Складывается только с водой: вода × толпа.'),
+  n('enemyScale', 'Враги', 'Размер врага', 0.4, 1.5, 0.05, 4, '×', 'Множитель рисунка и тела всех врагов (кабан, волк, Жнец — тоже); зона касания и расталкивание — вместе с телом. Круг героя не меняется.'),
+  n('enemyRadius', 'Враги', 'Радиус рисунка врага (при размере 1)', 0.2, 0.7, 0.01, 1, 'ед.'),
+  n('bodyRadius', 'Враги', 'Радиус тела (толкание; при размере 1)', 0.15, 0.7, 0.01, 1, 'ед.'),
   n('enemySpeed', 'Враги', 'Скорость врага', 0.2, 4, 0.05, 1, 'ед/с'),
   n('speedSpread', 'Враги', 'Разброс скорости', 0, 0.6, 0.05, 1, '±'),
   { kind: 'bool', key: 'pathfinding', group: 'Враги', label: 'Поиск пути (поле потока)', stage: 4, hint: 'Враги обходят стены и деревья по полю потока к герою; вода дороже по замедлению. Выключено: по прямой, как в этапах 1–3, — упираются в препятствия.' },
@@ -385,7 +395,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('shakeDuration', 'Эффекты', 'Тряска: длительность', 0, 0.5, 0.02, 1, 'с'),
   n('deathDuration', 'Эффекты', 'Смерть врага: оборот и сжатие', 0, 2, 0.05, 2, 'с'),
   n('dashShake', 'Эффекты', 'Тряска при проходе цепи', 0, 10, 1, 2, 'px'),
-  n('linkRadius', 'Цепь', 'Радиус звена R', 0.5, 4, 0.05, 2, 'ед.'),
+  n('linkRadius', 'Цепь', 'Радиус звена R', 0.5, 4, 0.025, 2, 'ед.', 'Круг R тонко виден вокруг героя всегда; при выделении цепи — ещё вокруг последнего звена.'),
   { kind: 'bool', key: 'lineOfSight', group: 'Цепь', label: 'Препятствия рвут звено', stage: 2 },
   n('pickSlack', 'Цепь', 'Запас нажатия по врагу', 1, 2.5, 0.05, 2, '× рисунка'),
   n('dashSpeed', 'Цепь', 'Скорость прохода', 2, 40, 0.5, 2, 'ед/с'),
@@ -432,9 +442,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * v1/v2 values are dropped. v4: mixed-color wolf packs by default. v5 (iteration 2, stage A): hero walking,
  * the flow field on by default — older values are dropped so the new defaults apply. v6 (stage B): passable
  * water, the floor before the goals (28) and higher greed floors. v7 (stage C): crystals and chain juice,
- * density penalty 2 by default (design answer 42).
+ * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
+ * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v8';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v9';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
@@ -488,8 +499,17 @@ export function setParam(params: Params, key: ParamKey, value: unknown): void {
 
 export function setPhases(params: Params, phases: unknown): void { params.phases = sanitizePhases(phases); }
 
-/** Hero circle radius: a share of the enemy body (hitbox in the player's favour). */
+/**
+ * Hero circle radius: a share of the enemy body at size 1 (hitbox in the player's favour).
+ * Not scaled by `enemyScale`: smaller enemies leave the hero as he was (stage D).
+ */
 export function heroRadius(params: Params): number { return params.bodyRadius * params.heroHitFactor; }
+
+/** Enemy body radius (pushing, obstacles, flow field clearance, touch zone): `bodyRadius × enemyScale` (stage D). */
+export function enemyBodyRadius(params: Params): number { return params.bodyRadius * params.enemyScale; }
+
+/** Enemy art radius (drawing, click zone, markers, flashes): `enemyRadius × enemyScale` (stage D). */
+export function enemyDrawRadius(params: Params): number { return params.enemyRadius * params.enemyScale; }
 
 /** Values that follow from time and the base numbers; the panel shows them live. */
 export interface Pressure {

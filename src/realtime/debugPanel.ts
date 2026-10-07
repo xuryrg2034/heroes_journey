@@ -2,7 +2,7 @@
  * Debug panel of the real-time prototype: every tunable number as a slider,
  * live pressure readout, restart and reset. Toggled by ` (Backquote) or F1.
  */
-import { DEFAULT_PARAMS, DEFAULT_PHASES, PARAM_DEFS, PHASE_FIELDS, type ParamDef, type ParamKey, type Params, type Phase } from './params';
+import { DEFAULT_PARAMS, DEFAULT_PHASES, PARAM_DEFS, enemyDrawRadius, PHASE_FIELDS, type ParamDef, type ParamKey, type Params, type Phase } from './params';
 
 export interface PanelCallbacks {
   onChange(key: ParamKey, value: number | boolean | string): void;
@@ -54,7 +54,9 @@ const STAGE_NOTE: Record<number, string> = {};
 
 function formatNumber(def: ParamDef, value: unknown): string {
   if (def.kind !== 'number' || typeof value !== 'number') return String(value);
-  const digits = def.step >= 1 ? 0 : def.step >= 0.1 ? 1 : 2;
+  let digits = def.step >= 1 ? 0 : def.step >= 0.1 ? 1 : 2;
+  // A finer value (R 1.875 with step 0.025) shows its third digit instead of rounding.
+  if (digits === 2 && Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) digits = 3;
   return `${value.toFixed(digits)}${def.unit ? ` ${def.unit}` : ''}`;
 }
 
@@ -247,7 +249,7 @@ export class DebugPanel {
     const value = this.params[def.key];
     if (c.input instanceof HTMLInputElement && c.input.type === 'checkbox') c.input.checked = Boolean(value);
     else c.input.value = String(value);
-    if (c.value) c.value.textContent = formatNumber(def, value) + (def.key === 'linkRadius' ? ` ≈ ${(Number(value) / (2 * this.params.enemyRadius)).toFixed(1)} диам.` : '');
+    if (c.value) c.value.textContent = formatNumber(def, value) + (def.key === 'linkRadius' ? ` ≈ ${(Number(value) / (2 * enemyDrawRadius(this.params))).toFixed(1)} диам.` : '');
     c.row.classList.toggle('rt-changed', value !== DEFAULT_PARAMS[def.key]);
   }
 

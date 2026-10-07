@@ -11,7 +11,7 @@ import { COLORS, PALE, drawTerrain, makePlayer } from '../render/art';
 import { characterSprite } from '../render/characterAssets';
 import { inWater, type ArenaLayout, type Vec } from './arena';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from './chain';
-import { heroRadius, type EnemyLook } from './params';
+import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from './params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from './world';
 
 /** Input state the view shows (pointer line, jump aim); owned by main.ts. */
@@ -115,6 +115,10 @@ export class RealtimeRenderer {
   private flashTotal = 0;
   /** Largest combo number shown so far (tests read it: the counter was on screen). */
   comboShown = 0;
+  /** Stage D: circles of the link radius R drawn in the last frame — around the hero always, plus the last link in a chain. */
+  visibleReachCircles = 0;
+  /** Stage D: the R circle around the hero was drawn in the last frame. */
+  heroReachShown = false;
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -304,7 +308,7 @@ export class RealtimeRenderer {
 
   private syncEnemies(world: World): void {
     const look = world.params.enemyLook, seen = new Set<number>();
-    const scale = world.params.enemyRadius / BASE_ENEMY_RADIUS;
+    const scale = enemyDrawRadius(world.params) / BASE_ENEMY_RADIUS;
     // Crowd readability (design answer 10): while a chain is drawn, other colors are muted.
     const color = world.chain.length ? chainColor(world) : null;
     const mode = world.params.dimMode, strength = world.params.dimStrength;
@@ -345,7 +349,7 @@ export class RealtimeRenderer {
   }
 
   private drawMarkers(world: World): void {
-    const g = this.markerLayer.clear(), r = world.params.enemyRadius * UNIT;
+    const g = this.markerLayer.clear(), r = enemyDrawRadius(world.params) * UNIT;
     for (const m of world.markers) {
       const x = m.x * UNIT, y = m.y * UNIT, k = m.total > 0 ? 1 - m.timeLeft / m.total : 1, s = r * 0.6;
       const pulse = 0.6 + 0.4 * Math.sin(this.clock * 14);
@@ -365,7 +369,7 @@ export class RealtimeRenderer {
    * Wolf pack lines: wolves within the pack radius of each other.
    */
   private drawLanes(world: World): void {
-    const g = this.laneLayer.clear(), p = world.params, half = p.bodyRadius * UNIT;
+    const g = this.laneLayer.clear(), p = world.params, half = enemyBodyRadius(p) * UNIT;
     let lanes = 0, packs = 0;
     for (const e of world.enemies) {
       if (e.kind !== 'boar' || (e.boar !== 'windup' && e.boar !== 'charge')) continue;
@@ -403,7 +407,7 @@ export class RealtimeRenderer {
 
   /** Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. */
   private drawTargets(world: World): void {
-    const g = this.targetLayer.clear(), r = world.params.enemyRadius * UNIT;
+    const g = this.targetLayer.clear(), r = enemyDrawRadius(world.params) * UNIT;
     for (const e of world.enemies) {
       if (!e.marked) continue;
       const x = e.x * UNIT, y = e.y * UNIT, R = r * 1.35, a0 = this.clock * 1.6;
@@ -490,8 +494,8 @@ export class RealtimeRenderer {
     g.circle(world.hero.x * UNIT, world.hero.y * UNIT, heroRadius(p) * UNIT).stroke({ color: 0xffffff, width: 2, alpha: 0.9 });
     g.circle(world.hero.x * UNIT, world.hero.y * UNIT, touchDistance(p) * UNIT).stroke({ color: 0xffd36b, width: 1, alpha: 0.5 });
     for (const e of world.enemies) {
-      g.circle(e.x * UNIT, e.y * UNIT, p.bodyRadius * UNIT).stroke({ color: 0xffd36b, width: 1, alpha: 0.6 });
-      g.circle(e.x * UNIT, e.y * UNIT, p.bodyRadius * p.touchFactor * UNIT).stroke({ color: 0xffffff, width: 1.5, alpha: 0.7 });
+      g.circle(e.x * UNIT, e.y * UNIT, enemyBodyRadius(p) * UNIT).stroke({ color: 0xffd36b, width: 1, alpha: 0.6 });
+      g.circle(e.x * UNIT, e.y * UNIT, enemyBodyRadius(p) * p.touchFactor * UNIT).stroke({ color: 0xffffff, width: 1.5, alpha: 0.7 });
     }
   }
 
@@ -572,11 +576,19 @@ export class RealtimeRenderer {
 
   private drawChain(world: World, ui: RenderUi): void {
     const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
-    const flashR = p.enemyRadius * UNIT;
+    const flashR = enemyDrawRadius(p) * UNIT;
     for (const e of world.enemies) {
       if (e.hurtFlash <= 0) continue;
       g.circle(e.x * UNIT, e.y * UNIT, flashR).fill({ color: 0xffffff, alpha: Math.min(1, e.hurtFlash / Math.max(p.hitFlash, 0.01)) * 0.8 });
     }
+    // Stage D (user 07.10.2026): the reach R of the first link around the hero, always — thin and faint over the crowd.
+    let reach = 0;
+    this.heroReachShown = world.status === 'playing';
+    if (this.heroReachShown) {
+      g.circle(hero.x * UNIT, hero.y * UNIT, p.linkRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+      reach++;
+    }
+    this.visibleReachCircles = reach;
     if (world.move?.kind === 'dash') {
       // Dash: a light halo around the hero (passes through the crowd, cannot be hurt).
       g.circle(hero.x * UNIT, hero.y * UNIT, heroRadius(p) * UNIT * 1.6).fill({ color: 0xffffff, alpha: 0.18 });
@@ -610,13 +622,14 @@ export class RealtimeRenderer {
       if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
       // Reach of the next link and the valid next links (outlined).
       g.circle(anchor.x * UNIT, anchor.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
-      for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, p.enemyRadius * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+      this.visibleReachCircles = ++reach;
+      for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(p) * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
     }
     if (!plan.endsOnSurvivor && !plan.endsOnObject) {
       for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
     }
     // Outcome of each link: dies — white badge with a red cross; wounded — orange ring and «!».
-    const r = p.enemyRadius * UNIT;
+    const r = enemyDrawRadius(p) * UNIT;
     for (const lp of plan.links) {
       const pt = linkPoint(world, lp.link);
       if (!pt || !lp.outcome) continue;
@@ -674,7 +687,7 @@ export class RealtimeRenderer {
     };
     const p = world.params;
     if (inWater(world.hero, world.arena)) ring(world.hero.x, world.hero.y, 0.45, 0);
-    for (const e of world.enemies) if (inWater(e, world.arena)) ring(e.x, e.y, p.enemyRadius, e.id);
+    for (const e of world.enemies) if (inWater(e, world.arena)) ring(e.x, e.y, enemyDrawRadius(p), e.id);
     this.visibleRipples = count;
   }
 

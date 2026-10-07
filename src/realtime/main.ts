@@ -12,7 +12,7 @@ import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhas
 import { RealtimeRenderer, type RenderUi } from './render';
 import { spawnBurst, spawnEnemy } from './spawn';
 import { ChainAudio } from './audio';
-import { completeGoals, createWorld, goalProgress, update, type EnemyKind, type World } from './world';
+import { completeGoals, createWorld, goalProgress, heroInCrowd, update, type EnemyKind, type World } from './world';
 
 const MAX_FRAME = 0.05;
 const SUBSTEP = 1 / 60;
@@ -394,6 +394,9 @@ async function boot(): Promise<void> {
       combo: world.move?.kind === 'dash' ? world.move.kills : 0,
       lastChain: world.lastChain ? { ...world.lastChain } : null,
       comboShown: renderer.comboShown,
+      heroInCrowd: heroInCrowd(world),
+      reachCircles: renderer.visibleReachCircles,
+      heroReachShown: renderer.heroReachShown,
     }),
     restart,
     /** Starts arena `n` (1–3), as keys 1–3 on the menu. */

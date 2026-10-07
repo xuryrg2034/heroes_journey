@@ -7,7 +7,7 @@
  * walks (WASD / arrows → `world.input`), enemies follow the flow field around obstacles.
  */
 import { type ArenaLayout, FlowField, type Vec, blockedAt, dist, inWater, lineOfSight, pushOutOfObstacles } from './arena';
-import { type Params, type Pressure, heroRadius, invulnerabilityFor, pressureAt } from './params';
+import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
 /**
@@ -155,6 +155,8 @@ export interface World {
   flowTimer: number;
   /** Walking input of the hero: WASD / arrows (main.ts), components in −1…1. */
   input: Vec;
+  /** Stage D: unit direction of the hero's walking step this substep (0, 0 when he does not walk); `separate` parts the crowd across it. */
+  heroWalk: Vec;
   events: WorldEvent[];
   stats: { hitsTaken: number; spawned: number; kills: number; markedKills: number; boarHits: number; damageTaken: number; score: number; bestChain: number; crystals: number; finishers: number };
   /** Stage C: real seconds of hit-stop left (the whole simulation waits). */
@@ -205,9 +207,10 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     objects,
     timeScale: 1,
     pressure: pressureAt(params, 0),
-    flow: new FlowField(arena, params.bodyRadius, { waterCost: 1 / Math.max(0.05, params.waterSlow) }),
+    flow: new FlowField(arena, enemyBodyRadius(params), { waterCost: 1 / Math.max(0.05, params.waterSlow) }),
     flowTimer: 0,
     input: { x: 0, y: 0 },
+    heroWalk: { x: 0, y: 0 },
     events: [],
     stats: { hitsTaken: 0, spawned: 0, kills: 0, markedKills: 0, boarHits: 0, damageTaken: 0, score: 0, bestChain: 0, crystals: 0, finishers: 0 },
     hitstop: 0,
@@ -227,7 +230,7 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
   for (const m of arena.marked) {
     const e = spawnEnemy(world, m, m.color, m.hp, 'basic');
     e.marked = true;
-    pushOutOfObstacles(e, params.bodyRadius, arena);
+    pushOutOfObstacles(e, enemyBodyRadius(params), arena);
   }
   world.stats.spawned = 0;
   world.events.length = 0;
@@ -289,25 +292,43 @@ export function touchDamage(world: World, e: Enemy): number {
 }
 
 /**
- * Distance at which an enemy touches the hero: hero circle plus the reduced body circle.
- * Enemies stop exactly here and never push the hero.
+ * Distance at which an enemy touches the hero: hero circle plus the reduced body circle
+ * (the body scales with the enemy size, stage D). Enemies stop exactly here and never push the hero.
  */
 export function touchDistance(params: Params): number {
-  return heroRadius(params) + params.bodyRadius * params.touchFactor;
+  return heroRadius(params) + enemyBodyRadius(params) * params.touchFactor;
 }
 
 /**
- * Distance at which the walking hero stops at an enemy: hero circle plus the full body circle
- * (design answer 37). It exceeds the touch reach (`touchDistance` + contact slack) while
- * touchFactor < 1 − 0.03 ÷ body radius (≈ 0.92 at 0.4): brushing past a crowd does not hurt.
+ * Distance at which the walking hero stops at an enemy (toggle «сквозь врагов» off): hero circle
+ * plus the full body circle (design answer 37). It exceeds the touch reach (`touchDistance` + contact
+ * slack) while touchFactor < 1 − 0.03 ÷ body radius (≈ 0.92 at 0.4, ≈ 0.91 at 0.32 — the enemy
+ * size 0.8 of stage D): brushing past a crowd does not hurt.
  */
 export function heroBlockDistance(params: Params): number {
-  return heroRadius(params) + params.bodyRadius;
+  return heroRadius(params) + enemyBodyRadius(params);
 }
 
 /** Walking speed multiplier at a point: `waterSlow` in the pond (stage B), 1 elsewhere. */
 export function waterFactor(world: World, p: Vec): number {
   return inWater(p, world.arena) ? world.params.waterSlow : 1;
+}
+
+/**
+ * Stage D (user 07.10.2026): the hero's circle overlaps the body circle of at least one enemy
+ * (hero circle + enemy body > distance). Only with «сквозь врагов» on: with it off the hero stops
+ * on the body circle (stage B) and the old walking stays as it was.
+ */
+export function heroInCrowd(world: World): boolean {
+  const { hero, params } = world;
+  if (!params.heroThroughEnemies) return false;
+  const reach = heroRadius(params) + enemyBodyRadius(params);
+  return world.enemies.some(e => dist(e, hero) < reach);
+}
+
+/** Walking multiplier of the crowd: `crowdSlow` while the hero is in it, 1 elsewhere. Stacks with water only. */
+export function crowdFactor(world: World): number {
+  return heroInCrowd(world) ? world.params.crowdSlow : 1;
 }
 
 /** Current speed multiplier of an enemy: personal spread and the slowdown after a strike. */
@@ -378,7 +399,7 @@ function stepBoar(world: World, e: Enemy, dt: number): boolean {
     e.boarTimer = Math.max(0, e.boarTimer - dt);
     const d = dist(e, hero);
     if (e.boarTimer > 0 || d > params.boarTrigger || d < 1e-6 || world.status !== 'playing') return false;
-    if (!lineOfSight(e, hero, arena, params.bodyRadius * 0.5)) return false;
+    if (!lineOfSight(e, hero, arena, enemyBodyRadius(params) * 0.5)) return false;
     e.boar = 'windup'; e.boarTimer = params.boarWindup;
     e.dirX = (hero.x - e.x) / d; e.dirY = (hero.y - e.y) / d;
     world.events.push({ type: 'boarCharge', enemyId: e.id });
@@ -398,7 +419,7 @@ function stepBoar(world: World, e: Enemy, dt: number): boolean {
   // Water slows walking only: the charge keeps its speed in the pond (design answer 41).
   const step = Math.min(params.boarChargeSpeed * dt, Math.max(0, params.boarRange - e.charged));
   const next = { x: e.x + e.dirX * step, y: e.y + e.dirY * step };
-  if (blockedAt(next, params.bodyRadius * 0.95, arena)) { e.boar = 'rest'; e.boarTimer = params.boarRest; return true; }
+  if (blockedAt(next, enemyBodyRadius(params) * 0.95, arena)) { e.boar = 'rest'; e.boarTimer = params.boarRest; return true; }
   e.x = next.x; e.y = next.y; e.charged += step;
   // During the hero's dash or jump the charge passes by (the hero cannot be hit then).
   if (!world.move && dist(e, hero) <= touchDistance(params) + CONTACT_SLACK + step) { boarHitsHero(world, e); return true; }
@@ -408,7 +429,7 @@ function stepBoar(world: World, e: Enemy, dt: number): boolean {
 
 function moveEnemies(world: World, dt: number): void {
   const { hero, params, arena, flow } = world;
-  const r = params.bodyRadius, stop = touchDistance(params);
+  const r = enemyBodyRadius(params), stop = touchDistance(params);
   for (const e of world.enemies) {
     if (e.kind === 'boar' && stepBoar(world, e, dt)) continue;
     if (e.knock > 0) {
@@ -446,14 +467,19 @@ const FLOW_DIR: Vec = { x: 0, y: 0 };
  * wider than the touch zone, so he can brush past a crowd without being hit; the step loses its part
  * that goes into an enemy, so the hero slides along the crowd, and a ring of enemies holds him in
  * place — the way out is a chain or a jump. Kills come only from the chain.
+ * Toggle on (the default since stage D): the hero walks through the crowd — `separate` parts the bodies
+ * in front of him to the sides — at `crowdSlow` (×0.7) while his circle overlaps an enemy body; touch still hurts.
  * Ignored during the dash, the jump and the boar's knockback.
  */
 function stepHeroWalk(world: World, dt: number): void {
   const { hero, params, input } = world;
+  world.heroWalk.x = 0; world.heroWalk.y = 0;
   if (world.status !== 'playing' || world.move || hero.knock > 0) return;
   const len = Math.hypot(input.x, input.y);
   if (len < 1e-6 || params.heroSpeed <= 0) return;
-  const k = params.heroSpeed * waterFactor(world, hero) * dt / Math.max(1, len);
+  world.heroWalk.x = input.x / len; world.heroWalk.y = input.y / len;
+  // Water × crowd (stage D): the only walking multipliers; focus slows the game time itself, not the walk.
+  const k = params.heroSpeed * waterFactor(world, hero) * crowdFactor(world) * dt / Math.max(1, len);
   let mx = input.x * k, my = input.y * k;
   if (!params.heroThroughEnemies) {
     const min = heroBlockDistance(params);
@@ -479,10 +505,15 @@ function stepHeroWalk(world: World, dt: number): void {
   pushOutOfObstacles(hero, heroRadius(params), world.arena);
 }
 
-/** Bodies push each other apart; the hero and obstacles are solid and applied last. */
+/**
+ * Bodies push each other apart; the hero and obstacles are solid and applied last.
+ * Stage D: a body in front of the hero walking through the crowd is pushed across his way (to the side
+ * it already leans to), not along it: radial pushing bulldozed an enemy standing on his line ahead of him.
+ */
 function separate(world: World): void {
   const { enemies, hero, params, arena } = world;
-  const r = params.bodyRadius, min = r * 2, heroMin = touchDistance(params);
+  const r = enemyBodyRadius(params), min = r * 2, heroMin = touchDistance(params);
+  const wx = world.heroWalk.x, wy = world.heroWalk.y, parting = params.heroThroughEnemies && (wx !== 0 || wy !== 0);
   for (let pass = 0; pass < SEPARATION_PASSES; pass++) {
     for (let i = 0; i < enemies.length; i++) {
       const a = enemies[i];
@@ -503,7 +534,13 @@ function separate(world: World): void {
     for (const e of enemies) {
       const dx = e.x - hero.x, dy = e.y - hero.y, d = Math.hypot(dx, dy);
       // While dashing or jumping the hero passes through bodies (design answer 4).
-      if (d < heroMin && !world.move) {
+      const ahead = dx * wx + dy * wy;
+      if (d < heroMin && !world.move && parting && ahead > 0) {
+        // Across the way: keep the distance along it, move sideways onto the touch circle.
+        const side = dx * -wy + dy * wx, sign = Math.abs(side) > 1e-6 ? Math.sign(side) : (e.id % 2 ? 1 : -1);
+        const across = Math.sqrt(Math.max(0, heroMin * heroMin - ahead * ahead));
+        e.x = hero.x + wx * ahead - wy * sign * across; e.y = hero.y + wy * ahead + wx * sign * across;
+      } else if (d < heroMin && !world.move) {
         if (d < 1e-6) { e.x = hero.x + heroMin; }
         else { e.x = hero.x + dx / d * heroMin; e.y = hero.y + dy / d * heroMin; }
       }
@@ -562,8 +599,9 @@ export function completeGoals(world: World): void {
 function updateFlow(world: World, dt: number): void {
   const p = world.params;
   const waterCost = 1 / Math.max(0.05, p.waterSlow);
-  if (Math.abs(world.flow.radius - p.bodyRadius) > 1e-9 || world.flow.options.waterCost !== waterCost) {
-    world.flow = new FlowField(world.arena, p.bodyRadius, { waterCost });
+  const body = enemyBodyRadius(p);
+  if (Math.abs(world.flow.radius - body) > 1e-9 || world.flow.options.waterCost !== waterCost) {
+    world.flow = new FlowField(world.arena, body, { waterCost });
     world.flowTimer = 0;
   }
   if (!p.pathfinding) return;

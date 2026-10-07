@@ -18,7 +18,7 @@
  * multiplier, a rising hit tone (render / audio react to the events here).
  */
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './arena';
-import { heroRadius } from './params';
+import { enemyDrawRadius, heroRadius } from './params';
 import { NO_COLOR, checkGoals, doorOf, doorOpen, findObject, touchDistance, win, type ArenaObject, type ChainLink, type Enemy, type HeroMove, type World } from './world';
 
 /** Energy cap, as in the main game. */
@@ -176,7 +176,7 @@ export function nextObjectCandidates(world: World): ArenaObject[] {
 }
 
 /** Pick radius: the drawn circle with a slack in the player's favour (design answer 27). */
-function pickRadius(world: World): number { return world.params.enemyRadius * world.params.pickSlack; }
+function pickRadius(world: World): number { return enemyDrawRadius(world.params) * world.params.pickSlack; }
 
 /** The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. */
 function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean): ChainLink | null {

@@ -12,7 +12,7 @@
  * Uses the real simulation step `update` of src/realtime/world.ts; randomness is Math.random.
  */
 import { ARENAS, type ArenaLayout, type Vec, blockedAt, dist } from '../src/realtime/arena';
-import { defaultParams, heroRadius, type Params } from '../src/realtime/params';
+import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/params';
 import { spawnBurst, spawnEnemy } from '../src/realtime/spawn';
 import { createWorld, touchDistance, update, type World } from '../src/realtime/world';
 
@@ -54,7 +54,7 @@ function heroSpots(arena: ArenaLayout, params: Params): Vec[] {
 }
 
 function startSpots(arena: ArenaLayout, params: Params): Vec[] {
-  const r = params.bodyRadius, inset = r + 0.05, out: Vec[] = [];
+  const r = enemyBodyRadius(params), inset = r + 0.05, out: Vec[] = [];
   for (let x = 0.5; x < arena.width; x += 1) out.push({ x, y: inset }, { x, y: arena.height - inset });
   for (let y = 0.5; y < arena.height; y += 1) out.push({ x: inset, y }, { x: arena.width - inset, y });
   for (const m of arena.marked) out.push({ x: m.x, y: m.y });
@@ -128,7 +128,7 @@ function crowdReport(mode: CrowdMode): void {
       const n = world.enemies.filter(e => dist(e, world.hero) <= 3).length;
       const still = world.enemies.filter(e => dist(e, world.hero) > 3 && mark.has(e.id) && dist(e, mark.get(e.id)!) < 0.3);
       // Queued behind the pile: pressed against another body. Alone and still — stuck on terrain.
-      const touching = (e: { id: number; x: number; y: number }): boolean => world.enemies.some(o => o.id !== e.id && dist(o, e) < params.bodyRadius * 2 + 0.1);
+      const touching = (e: { id: number; x: number; y: number }): boolean => world.enemies.some(o => o.id !== e.id && dist(o, e) < enemyBodyRadius(params) * 2 + 0.1);
       const alone = still.filter(e => !touching(e)).length;
       near += n; far += still.length; lone += alone; runs++; worst = Math.max(worst, still.length);
     }
