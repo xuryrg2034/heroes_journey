@@ -186,6 +186,8 @@ export interface World {
   chain: ChainLink[];
   /** Dash along the released chain or a jump; contact damage is off meanwhile. */
   move: HeroMove | null;
+  /** The hero touched the door in the last update: walking in needs a new touch (stage G). */
+  heroOnDoor: boolean;
   /** Real seconds of focus left (design answer 14). */
   focus: number;
   /** Links («enemy:id», «object:id») that refreshed focus in the chain being drawn: each once per chain (stage E). */
@@ -231,6 +233,7 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     endTime: null,
     chain: [],
     move: null,
+    heroOnDoor: false,
     focus: params.focusMax,
     focusRefreshed: new Set(),
     focusing: false,
@@ -282,7 +285,10 @@ export function checkGoals(world: World): void {
  * door, the jump lands in it). The closed door is not a body and does nothing: the hero walks over it.
  */
 export function heroTouchesOpenDoor(world: World): boolean {
-  if (!doorOpen(world)) return false;
+  return doorOpen(world) && heroTouchesDoor(world);
+}
+/** The hero's body touches the door, open or closed. */
+export function heroTouchesDoor(world: World): boolean {
   return dist(doorOf(world), world.hero) <= OBJECT_RADIUS + heroRadius(world.params);
 }
 
@@ -662,7 +668,11 @@ export function update(world: World, realDt: number): void {
   updateSpawning(world, dt);
   stepHeroKnock(world, dt);
   stepHeroWalk(world, dt);
-  if (world.params.doorWalkIn && !world.move && heroTouchesOpenDoor(world)) { win(world); return; }
+  // Walking in wins on a NEW touch of the open door only (design 07.10.2026): a hero standing on the door when it opens
+  // keeps the choice to stay greedy — he must step off and touch it again (or enter by a chain or a jump).
+  const onDoor = heroTouchesDoor(world), touchedNow = onDoor && !world.heroOnDoor;
+  world.heroOnDoor = onDoor;
+  if (world.params.doorWalkIn && !world.move && touchedNow && doorOpen(world)) { win(world); return; }
   updateFlow(world, dt);
   moveEnemies(world, dt);
   separate(world);

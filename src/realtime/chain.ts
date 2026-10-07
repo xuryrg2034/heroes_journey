@@ -277,21 +277,34 @@ export function beginChain(world: World, p: Vec): boolean {
 }
 
 /** What a drag point may do: `full` — the pointer event itself (append, truncate, cancel on the hero); `sweep` — a point
- * between two pointer events (append, truncate; no cancel: the hero cancels only under the real pointer); `append` —
+ * between two pointer events (append only: a quick swipe through the crowd must not cut the chain by accident — design
+ * 07.10.2026; the cut and the cancel happen only where the pointer stopped in the frame); `append` —
  * the held still pointer re-checked every frame (only a new link joins: a link drifting under it does not truncate). */
 export type DragMode = 'full' | 'sweep' | 'append';
 
 /** Drag: append a valid link, truncate on a selected one, cancel on the hero. */
 export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (world.status !== 'playing' || world.move) return;
-  if (mode === 'full' && world.chain.length && dist(p, world.hero) <= HERO_CANCEL_RADIUS) { world.chain = []; return; }
-  const plan = planChain(world), truncate = mode !== 'append';
+  // Stage H (user 08.10.2026): the hero is link zero of the step back — with one link the pointer on the hero takes it off
+  // (the chain is cancelled); with two or more it does nothing. Its own toggle «отмена наведением на героя» (off) cancels
+  // any chain there; the right button and Esc always cancel.
+  if (mode === 'full' && world.chain.length && dist(p, world.hero) <= HERO_CANCEL_RADIUS) {
+    if (world.params.cancelOnHero || (world.params.chainStepBack && world.chain.length === 1)) world.chain = [];
+    return;
+  }
+  const plan = planChain(world), truncate = mode === 'full';
   const target = pick(world, p,
     e => (truncate && inChain(world, e) >= 0) || canLink(world, e, plan),
     o => (truncate && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan));
   if (!target) return;
   const index = linkIndex(world, target);
-  if (index >= 0) { world.chain.length = index + 1; return; }
+  if (index >= 0) {
+    // Stage H: one step back only — the second-to-last link takes the last one off; an older link does nothing (after a
+    // crystal the pointer often crosses old links). A link taken off and taken again does not refresh focus (stage E).
+    if (!world.params.chainStepBack) world.chain.length = index + 1;
+    else if (index === world.chain.length - 2) world.chain.length = index + 1;
+    return;
+  }
   // A chain begun by dragging from an empty spot is a new chain: its links refresh focus anew (as `beginChain`).
   if (!world.chain.length) world.focusRefreshed = new Set();
   world.chain.push(target);
@@ -301,7 +314,7 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
 /**
  * Stage G: a fast drag takes every link under the pointer's path from `from` to `to` (toggle «Протяжка по всему пути
  * мыши»): browsers send one pointer event per frame, and a quick swipe used to jump over an enemy between two events.
- * Points in between append or truncate; only the event point `to` may cancel on the hero.
+ * Points in between only append; only the event point `to` may truncate or cancel on the hero.
  */
 export function dragChainAlong(world: World, from: Vec, to: Vec): void {
   const d = dist(from, to), step = 0.15;

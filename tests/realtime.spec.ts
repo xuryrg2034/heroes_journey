@@ -1264,6 +1264,107 @@ test('a fast drag takes the enemy it passed over between two pointer events; an 
   expect(errors).toEqual([]);
 });
 
+// Design 07.10.2026: points of a quick swipe between pointer events only append; only where the pointer stopped in the
+// frame may cut the chain — a swipe through the crowd must not cut it by accident.
+test('a quick swipe back over a taken link does not cut the chain; stopping the pointer on it does', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const { x: hx, y: hy } = (await reachSnapshot(page)).hero;
+  const a = await place(page, hx + 0.8, hy, 2);
+  const b = await place(page, hx + 2.0, hy, 2);
+  const c = await place(page, hx + 3.2, hy, 2);
+  await chainAt(page, [{ x: hx + 0.8, y: hy }, { x: hx + 2.0, y: hy }, { x: hx + 3.2, y: hy }]);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([a, b, c]);
+  // One pointer jump from c back over b to an empty spot between a and b: b is only on the path.
+  const empty = await screen(page, hx + 1.4, hy);
+  await page.mouse.move(empty.x, empty.y);
+  await page.waitForTimeout(150);
+  expect((await reachSnapshot(page)).chain).toEqual([a, b, c]);
+  // The pointer stops on b: now it cuts.
+  const pb = await screen(page, hx + 2.0, hy);
+  await page.mouse.move(pb.x, pb.y);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([a, b]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+// Design 07.10.2026: walking in wins on a NEW touch only — standing on the door when it opens keeps the choice to stay.
+test('a hero standing on the door when it opens does not win; stepping off and touching it again does', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const door = (await reachSnapshot(page)).objects.find(o => o.kind === 'door')!;
+  await teleport(page, door.x, door.y);
+  // Let the world step with the hero on the closed door (the update notes the touch), then open it.
+  const t0 = (await reachSnapshot(page)).time;
+  await expect.poll(async () => (await reachSnapshot(page)).time).toBeGreaterThan(t0 + 0.1);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await page.waitForTimeout(400);
+  let s = await reachSnapshot(page);
+  expect(s.stage).toBe('greed');
+  expect(s.status).toBe('playing');
+  // Step off (walk down) and come back: the new touch wins.
+  await hold(page, 'KeyS', 0.6);
+  s = await reachSnapshot(page);
+  expect(s.status).toBe('playing');
+  expect(Math.hypot(s.hero.x - door.x, s.hero.y - door.y)).toBeGreaterThan(0.75);
+  await page.keyboard.down('KeyW');
+  await expect(page.getByTestId('result')).toBeVisible({ timeout: 5_000 });
+  await page.keyboard.up('KeyW');
+  expect((await reachSnapshot(page)).status).toBe('victory');
+  expect(errors).toEqual([]);
+});
+
+// Stage H (user 08.10.2026): one step back only — the second-to-last link takes the last one off, older links do
+// nothing; the hero is link zero (one link + the hero = cancel; two links + the hero = nothing); the right button cancels.
+test('the chain steps back one link at a time; older links and the hero beside two links do nothing; the right button cancels', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  expect(await page.evaluate(() => { const rt = (window as any).__realtime.params; return [rt.chainStepBack, rt.cancelOnHero]; })).toEqual([true, false]);
+  const { x: hx, y: hy } = (await reachSnapshot(page)).hero;
+  const a = await place(page, hx + 0.8, hy, 2);
+  const b = await place(page, hx + 2.0, hy, 2);
+  const c = await place(page, hx + 3.2, hy, 2);
+  const chain = async () => (await reachSnapshot(page)).chain;
+  const at = (x: number) => screen(page, x, hy);
+  await chainAt(page, [{ x: hx + 0.8, y: hy }, { x: hx + 2.0, y: hy }, { x: hx + 3.2, y: hy }]);
+  await expect.poll(chain).toEqual([a, b, c]);
+  // An older link (a) does nothing — straight there in one pointer jump.
+  let p = await at(hx + 0.8);
+  await page.mouse.move(p.x, p.y);
+  await page.waitForTimeout(150);
+  expect(await chain()).toEqual([a, b, c]);
+  // The second-to-last (b) takes c off.
+  p = await at(hx + 2.0);
+  await page.mouse.move(p.x, p.y);
+  await expect.poll(chain).toEqual([a, b]);
+  // The hero beside two links: nothing.
+  p = await screen(page, hx, hy);
+  await page.mouse.move(p.x, p.y);
+  await page.waitForTimeout(150);
+  expect(await chain()).toEqual([a, b]);
+  // Back on a: one more step back; then the hero (link zero) takes a off — the chain is cancelled.
+  p = await at(hx + 0.8);
+  await page.mouse.move(p.x, p.y);
+  await expect.poll(chain).toEqual([a]);
+  p = await screen(page, hx, hy);
+  await page.mouse.move(p.x, p.y);
+  await expect.poll(chain).toEqual([]);
+  await page.mouse.up();
+  // The right button cancels a held chain.
+  await chainAt(page, [{ x: hx + 0.8, y: hy }, { x: hx + 2.0, y: hy }]);
+  await expect.poll(chain).toEqual([a, b]);
+  await page.mouse.down({ button: 'right' });
+  await expect.poll(chain).toEqual([]);
+  await page.mouse.up({ button: 'right' });
+  await page.mouse.up();
+  expect((await reachSnapshot(page)).kills).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 test('after the goals touching the open door while walking wins; the closed door does not', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 1);

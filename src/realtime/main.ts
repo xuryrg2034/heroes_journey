@@ -70,7 +70,7 @@ async function boot(): Promise<void> {
   const scoreText = el('span', 'rt-score');
   scoreText.setAttribute('data-testid', 'score');
   hud.append(hpBar, hpText, focusBar, energyText, goalText, scoreText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · <kbd>Esc</kbd> отмена · <kbd>Пробел</kbd> прыжок · <kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка');
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка');
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -212,6 +212,9 @@ async function boot(): Promise<void> {
     const from = ui.pointer;
     ui.pointer = arenaPoint(event);
     pointerClient = { x: event.clientX, y: event.clientY };
+    // Stage H: the right button pressed while the left one draws a chain comes as a chorded pointermove (button 2), not a
+    // pointerdown: it cancels the chain too.
+    if (event.button === 2 && running()) { cancelChain(world); dragging = false; ui.jumpMode = false; return; }
     // Stage G: a fast swipe takes the links along its whole path (toggle «Протяжка по всему пути мыши»).
     if (dragging && running()) { if (from) dragChainAlong(world, from, ui.pointer); else dragChain(world, ui.pointer); }
   });

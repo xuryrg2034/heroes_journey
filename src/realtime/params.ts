@@ -178,6 +178,10 @@ export interface Params {
   refusalHint: boolean;
   /** Stage G: after the goals the hero enters the open door by touching it while walking (a chain and a jump still work). */
   doorWalkIn: boolean;
+  /** Stage H (user 08.10.2026): the pointer on the second-to-last link takes the last one off; older links do nothing. */
+  chainStepBack: boolean;
+  /** Stage H: the pointer back on the hero cancels the chain (off: only the right button or Esc cancel). */
+  cancelOnHero: boolean;
   dashSpeed: number;
   survivorKnockback: boolean;
   survivorKnockbackTime: number;
@@ -314,6 +318,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   holdPicks: true,
   refusalHint: true,
   doorWalkIn: true,
+  chainStepBack: true,
+  cancelOnHero: false,
   // 0.36 × 1.65 ≈ 0.59: the press circle of the stage before the enemies shrank (design 07.10.2026: no more misses).
   pickSlack: 1.65,
   dashSpeed: 12,
@@ -425,6 +431,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('reaperDamage', 'Время', 'Урон касания Жнеца', 0, 12, 1),
   n('killGoal', 'Арены', 'Арена «Убить N»: врагов', 1, 200, 1, 3, '', 'Цель первой арены: после стольких убийств цепью открывается дверь и начинается стадия жадности.'),
   n('markedSpeed', 'Арены', 'Скорость отмеченных', 0, 2, 0.05, 3, '×', 'Отмеченные враги третьей арены идут медленнее толпы и не сразу сбиваются в кучу.'),
+  { kind: 'bool', key: 'chainStepBack', group: 'Цепь', label: 'Откат на шаг', stage: 2,
+    hint: 'Курсор на предпоследнем звене снимает последнее; более старые звенья ничего не делают. Выкл. — обрезка до любого звена.' },
+  { kind: 'bool', key: 'cancelOnHero', group: 'Цепь', label: 'Отмена наведением на героя', stage: 2,
+    hint: 'Выкл. — цепь отменяют только правая кнопка и Esc (с якорем у героя курсор часто проходит рядом с ним).' },
   { kind: 'bool', key: 'doorWalkIn', group: 'Арены', label: 'Вход в дверь ходьбой', stage: 4,
     hint: 'После целей касание открытой двери телом героя — победа. Цепью и прыжком — как раньше. Закрытая дверь — не препятствие и ничего не делает.' },
   n('hitFlash', 'Эффекты', 'Вспышка попадания', 0, 0.5, 0.02, 1, 'с'),
@@ -497,7 +507,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
  * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v13';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v15';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
