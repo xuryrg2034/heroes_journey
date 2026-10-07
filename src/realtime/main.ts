@@ -15,6 +15,8 @@ import { completeGoals, createWorld, goalProgress, update, type EnemyKind, type 
 
 const MAX_FRAME = 0.05;
 const SUBSTEP = 1 / 60;
+/** Hero walking keys (physical codes): WASD and arrows. */
+const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight']);
 
 /** Playtest questions (docs/realtime-prototype.md, section 10). */
 const PLAYTEST_QUESTIONS = [
@@ -65,7 +67,7 @@ async function boot(): Promise<void> {
   goalText.setAttribute('data-testid', 'goal');
   const chainText = el('span', 'rt-chain');
   hud.append(hpBar, hpText, focusBar, energyText, goalText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', 'Цепь: нажми на врага у героя, веди по врагам того же цвета, отпусти. Кнопка и открытая дверь — звено любого цвета, последнее. <kbd>Esc</kbd> — отмена, <kbd>Пробел</kbd> — прыжок, <kbd>M</kbd> — арены, <kbd>R</kbd> — заново, <kbd>P</kbd> — пауза, <kbd>`</kbd> — отладка.');
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> — идти. Цепь: нажми на врага у героя, веди по врагам того же цвета, отпусти. Кнопка и открытая дверь — звено любого цвета, последнее. <kbd>Esc</kbd> — отмена, <kbd>Пробел</kbd> — прыжок, <kbd>M</kbd> — арены, <kbd>R</kbd> — заново, <kbd>P</kbd> — пауза, <kbd>`</kbd> — отладка.');
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -209,11 +211,22 @@ async function boot(): Promise<void> {
   window.addEventListener('resize', relayout);
   relayout();
 
+  // Hero walking (iteration 2): WASD and arrows by physical key code, so any keyboard layout works.
+  const held = new Set<string>();
+  window.addEventListener('keyup', event => { held.delete(event.code); });
+  window.addEventListener('blur', () => held.clear());
+
   window.addEventListener('keydown', event => {
     const target = event.target as HTMLElement | null;
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
     if (event.code === 'Backquote' || event.key === 'F1') { event.preventDefault(); panel.toggle(); return; }
     if (typing) return;
+    if (WALK_KEYS.has(event.code)) {
+      // A focused slider or select keeps its arrow keys.
+      const control = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && event.code.startsWith('Arrow');
+      if (!control) { event.preventDefault(); held.add(event.code); }
+      return;
+    }
     const digit = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(event.code);
     const ended = world.status !== 'playing';
     if (digit >= 0 && (menuOpen || ended)) { start(digit % 3); return; }
@@ -255,6 +268,9 @@ async function boot(): Promise<void> {
     if (fpsTime >= 0.5) { fps = fpsFrames / fpsTime; fpsFrames = 0; fpsTime = 0; }
     const workStart = performance.now();
     const live = !paused && !menuOpen;
+    const axis = (minus: string[], plus: string[]): number => (plus.some(k => held.has(k)) ? 1 : 0) - (minus.some(k => held.has(k)) ? 1 : 0);
+    world.input.x = axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']);
+    world.input.y = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
     if (live) {
       const steps = Math.max(1, Math.ceil(realDt / SUBSTEP));
       for (let i = 0; i < steps; i++) { stepHero(world, realDt / steps); update(world, realDt / steps); }
@@ -305,6 +321,7 @@ async function boot(): Promise<void> {
         wolves: world.enemies.filter(e => e.kind === 'wolf').length, boars: world.enemies.filter(e => e.kind === 'boar').length,
         crowdConstant: crowdLifetime(params, 'constant'), crowdByDamage: crowdLifetime(params, 'byDamage'),
         heroHp: hero.hp, heroMaxHp: hero.maxHp, paused,
+        flowMs: params.pathfinding ? world.flow.lastBuildMs : null,
       });
     }
     requestAnimationFrame(frame);
@@ -345,6 +362,8 @@ async function boot(): Promise<void> {
       phaseIndex: world.pressure.phaseIndex,
       panelOpen: panel.open,
       paused,
+      input: { ...world.input },
+      flow: { builds: world.flow.builds, lastBuildMs: world.flow.lastBuildMs },
       lanes: renderer.visibleLanes,
       packLines: renderer.visiblePackLines,
     }),

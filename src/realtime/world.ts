@@ -3,9 +3,10 @@
  * Not deterministic on purpose (prototype): randomness comes from Math.random.
  * The chain, focus and the hero's dash live in chain.ts (`stepHero` runs before `update`
  * on every substep). Stage 3: wolves (pack damage), the boar (announced charge with mass),
- * arena objects (buttons, the door), arena goals and the victory.
+ * arena objects (buttons, the door), arena goals and the victory. Iteration 2, stage A: the hero
+ * walks (WASD / arrows → `world.input`), enemies follow the flow field around obstacles.
  */
-import { type ArenaLayout, FlowField, blockedAt, dist, lineOfSight, pushOutOfObstacles } from './arena';
+import { type ArenaLayout, FlowField, type Vec, blockedAt, dist, lineOfSight, pushOutOfObstacles } from './arena';
 import { type Params, type Pressure, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
@@ -48,6 +49,9 @@ export interface Enemy {
   dirX: number;
   dirY: number;
   charged: number;
+  /** Walking heading (unit vector, 0 before the first step): turns smoothly towards the flow field direction. */
+  headX: number;
+  headY: number;
 }
 
 /** Button or door: a chain link of any color that gives no power and takes no damage (design answer 5). */
@@ -125,6 +129,10 @@ export interface World {
   timeScale: number;
   pressure: Pressure;
   flow: FlowField;
+  /** Game seconds until the next flow field rebuild (`flowRate` per second). */
+  flowTimer: number;
+  /** Walking input of the hero: WASD / arrows (main.ts), components in −1…1. */
+  input: Vec;
   events: WorldEvent[];
   stats: { hitsTaken: number; spawned: number; kills: number; markedKills: number; boarHits: number; damageTaken: number };
   reaperSpawned: boolean;
@@ -170,6 +178,8 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     timeScale: 1,
     pressure: pressureAt(params, 0),
     flow: new FlowField(arena, params.bodyRadius),
+    flowTimer: 0,
+    input: { x: 0, y: 0 },
     events: [],
     stats: { hitsTaken: 0, spawned: 0, kills: 0, markedKills: 0, boarHits: 0, damageTaken: 0 },
     reaperSpawned: false,
@@ -362,17 +372,62 @@ function moveEnemies(world: World, dt: number): void {
     }
     const d = dist(e, hero);
     if (d <= stop + 0.01) continue;
-    let tx = hero.x, ty = hero.y;
-    // Default (Brotato): straight at the hero, obstacles simply block. The toggle restores detours.
-    if (params.pathfinding && !lineOfSight(e, hero, arena, r * 0.9)) {
-      const wp = flow.nextWaypoint(e);
-      if (wp) { tx = wp.x; ty = wp.y; }
+    // Straight at the hero when in sight; otherwise (toggle «поиск пути») along the flow field.
+    let dx = (hero.x - e.x) / d, dy = (hero.y - e.y) / d;
+    if (params.pathfinding) {
+      if (!lineOfSight(e, hero, arena, r * 0.9) && flow.direction(e, FLOW_DIR)) { dx = FLOW_DIR.x; dy = FLOW_DIR.y; }
+      // Smooth turn towards the wanted direction: no zigzag between grid cells.
+      if (e.headX || e.headY) {
+        const k = Math.min(1, params.flowTurn * dt);
+        const hx = e.headX + (dx - e.headX) * k, hy = e.headY + (dy - e.headY) * k, hl = Math.hypot(hx, hy);
+        if (hl > 0.2) { dx = hx / hl; dy = hy / hl; }
+      }
+      e.headX = dx; e.headY = dy;
     }
-    const dx = tx - e.x, dy = ty - e.y, len = Math.hypot(dx, dy);
-    if (len < 1e-6) continue;
     const step = Math.min(enemySpeed(world, e) * dt, Math.max(0, d - stop));
-    e.x += dx / len * step; e.y += dy / len * step;
+    e.x += dx * step; e.y += dy * step;
   }
+}
+
+/** Scratch vector of the flow field direction (no allocation per enemy and step). */
+const FLOW_DIR: Vec = { x: 0, y: 0 };
+
+/**
+ * The hero walks by `world.input` at `heroSpeed` (game time: slower in focus), solid against
+ * obstacles. Enemies are solid too (toggle «сквозь врагов» off): the step loses its part that
+ * goes into a touching enemy, so the hero slides along the crowd and a ring of enemies holds
+ * him in place — the way out is a chain or a jump. Kills come only from the chain.
+ * Ignored during the dash, the jump and the boar's knockback.
+ */
+function stepHeroWalk(world: World, dt: number): void {
+  const { hero, params, input } = world;
+  if (world.status !== 'playing' || world.move || hero.knock > 0) return;
+  const len = Math.hypot(input.x, input.y);
+  if (len < 1e-6 || params.heroSpeed <= 0) return;
+  const k = params.heroSpeed * dt / Math.max(1, len);
+  let mx = input.x * k, my = input.y * k;
+  if (!params.heroThroughEnemies) {
+    const min = touchDistance(params);
+    for (let pass = 0; pass < 3; pass++) {
+      let changed = false;
+      for (const e of world.enemies) {
+        const ex = hero.x - e.x, ey = hero.y - e.y, d = Math.hypot(ex, ey);
+        if (d > min + 0.05 || d < 1e-6) continue;
+        const nx = ex / d, ny = ey / d, into = -(mx * nx + my * ny);
+        // Only the part of the step that goes into the enemy (and would end inside its touch circle).
+        if (into <= 0 || Math.hypot(hero.x + mx - e.x, hero.y + my - e.y) >= min) continue;
+        mx += nx * into; my += ny * into; changed = true;
+      }
+      if (!changed) break;
+    }
+    // Squeezed between several enemies: no step gets out without entering one — stand.
+    for (const e of world.enemies) {
+      const before = dist(hero, e), after = Math.hypot(hero.x + mx - e.x, hero.y + my - e.y);
+      if (after < min - 1e-3 && after < before - 1e-6) { mx = 0; my = 0; break; }
+    }
+  }
+  hero.x += mx; hero.y += my;
+  pushOutOfObstacles(hero, heroRadius(params), world.arena);
 }
 
 /** Bodies push each other apart; the hero and obstacles are solid and applied last. */
@@ -451,6 +506,20 @@ export function completeGoals(world: World): void {
   world.events.push({ type: 'goals' });
 }
 
+/**
+ * Flow field towards the hero, rebuilt `flowRate` times per game second (and at once when the body
+ * radius slider changes). Between rebuilds enemies follow the stale field; in sight of the hero they go straight.
+ */
+function updateFlow(world: World, dt: number): void {
+  const p = world.params;
+  if (Math.abs(world.flow.radius - p.bodyRadius) > 1e-9) { world.flow = new FlowField(world.arena, p.bodyRadius); world.flowTimer = 0; }
+  if (!p.pathfinding) return;
+  world.flowTimer -= dt;
+  if (world.flowTimer > 0 && world.flow.builds > 0) return;
+  world.flowTimer = 1 / Math.max(0.1, p.flowRate);
+  world.flow.setTarget(world.hero);
+}
+
 /** One simulation step of real seconds `realDt` (scaled by timeScale: invulnerability and slowdown run on game time). */
 export function update(world: World, realDt: number): void {
   if (world.status !== 'playing') return;
@@ -461,11 +530,11 @@ export function update(world: World, realDt: number): void {
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
   hero.hurtFlash = Math.max(0, hero.hurtFlash - realDt);
   for (const e of world.enemies) e.hurtFlash = Math.max(0, e.hurtFlash - realDt);
-  if (Math.abs(world.flow.radius - world.params.bodyRadius) > 1e-9) world.flow = new FlowField(world.arena, world.params.bodyRadius);
-  if (world.params.pathfinding) world.flow.setTarget(hero);
   if (world.params.reaperEnabled && world.greedStart !== null && !world.reaperSpawned && world.time - world.greedStart >= world.params.reaperTime) spawnReaper(world);
   updateSpawning(world, dt);
   stepHeroKnock(world, dt);
+  stepHeroWalk(world, dt);
+  updateFlow(world, dt);
   moveEnemies(world, dt);
   separate(world);
   contactDamage(world, dt);

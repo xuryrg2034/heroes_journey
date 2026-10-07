@@ -185,7 +185,7 @@ export function spawnEnemy(world: World, at: Vec, color: number, hp: number, kin
   const enemy: Enemy = {
     id, kind, x: at.x, y: at.y, color, hp, marked: false, speedFactor: 1 + (Math.random() * 2 - 1) * spread,
     brake: 0, age: 0, strikeFlash: 0, hurtFlash: 0, knock: 0, knockVx: 0, knockVy: 0,
-    boar: 'walk', boarTimer: kind === 'boar' ? BOAR_FIRST_DELAY : 0, dirX: 0, dirY: 0, charged: 0,
+    boar: 'walk', boarTimer: kind === 'boar' ? BOAR_FIRST_DELAY : 0, dirX: 0, dirY: 0, charged: 0, headX: 0, headY: 0,
   };
   world.enemies.push(enemy);
   world.stats.spawned++;

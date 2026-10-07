@@ -44,6 +44,8 @@ export interface PanelStats {
   heroHp: number;
   heroMaxHp: number;
   paused: boolean;
+  /** Milliseconds of the last flow field rebuild; null with the pathfinding toggle off. */
+  flowMs: number | null;
 }
 
 const OPEN_KEY = 'ashen-oath-realtime-panel-open';
@@ -278,6 +280,7 @@ export class DebugPanel {
     const rows: [string, string][] = [
       ['FPS', s.fps.toFixed(0)],
       ['Кадр (ЦП), мс', s.workMs.toFixed(2)],
+      ['Поле потока, мс на пересчёт', s.flowMs === null ? 'выключено' : s.flowMs.toFixed(2)],
       ['Врагов', `${s.enemies} / ${s.maxEnemies}${s.markers ? ` +${s.markers} метк.` : ''}${s.queue ? ` +${s.queue} в очереди` : ''}`],
       ['Время', formatTime(s.time)],
       ['HP героя', `${s.heroHp} / ${s.heroMaxHp}`],

@@ -60,12 +60,20 @@ export interface Params {
   touchFactor: number;
   brakeStrength: number;
   brakeRecovery: number;
+  // Hero walking (iteration 2, stage A): WASD / arrows, solid against obstacles and (toggle) enemies
+  heroSpeed: number;
+  heroThroughEnemies: boolean;
   // Enemies
   enemyRadius: number;
   bodyRadius: number;
   enemySpeed: number;
   speedSpread: number;
+  /** Iteration 2: the flow field leads enemies around obstacles (off — straight at the hero, as in stages 1–3). */
   pathfinding: boolean;
+  /** Flow field rebuilds per game second. */
+  flowRate: number;
+  /** How fast an enemy turns to the field direction (1/s): smooths the 8-direction grid. */
+  flowTurn: number;
   // Wolves (stage 3): fast, hit harder next to other wolves, come in packs
   wolfSpeed: number;
   wolfPackMin: number;
@@ -148,7 +156,8 @@ export interface Params {
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
 export type ParamKey = keyof Params;
 
-interface BaseDef { key: ScalarKey; label: string; group: string; stage: 1 | 2 | 3; hint?: string }
+/** Stage that introduced the value: 1–3 — stages of the first build, 4 — iteration 2. */
+interface BaseDef { key: ScalarKey; label: string; group: string; stage: 1 | 2 | 3 | 4; hint?: string }
 export interface NumberDef extends BaseDef { kind: 'number'; min: number; max: number; step: number; unit?: string }
 export interface BoolDef extends BaseDef { kind: 'bool' }
 export interface ChoiceDef extends BaseDef { kind: 'choice'; options: readonly { value: string; label: string }[] }
@@ -163,11 +172,15 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   touchFactor: 0.8,
   brakeStrength: 0.8,
   brakeRecovery: 0.8,
+  heroSpeed: 4,
+  heroThroughEnemies: false,
   enemyRadius: 0.45,
   bodyRadius: 0.4,
   enemySpeed: 1.2,
   speedSpread: 0.2,
-  pathfinding: false,
+  pathfinding: true,
+  flowRate: 4,
+  flowTurn: 8,
   wolfSpeed: 1.6,
   wolfPackMin: 3,
   wolfPackMax: 4,
@@ -235,7 +248,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   boarCooldown: 3,
 });
 
-const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 = 1, unit?: string, hint?: string): NumberDef =>
+const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 = 1, unit?: string, hint?: string): NumberDef =>
   ({ kind: 'number', key, group, label, min, max, step, stage, unit, hint });
 
 export const PARAM_DEFS: readonly ParamDef[] = [
@@ -249,11 +262,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('touchFactor', 'Герой и урон', 'Касание: доля радиуса тела врага', 0.3, 1.2, 0.05, 1, '×', 'Враг ранит, когда его тело, уменьшенное до этой доли, касается круга героя. На этом расстоянии враг упирается в героя.'),
   n('brakeStrength', 'Герой и урон', 'Торможение после удара', 0, 1, 0.05, 1, '×', 'Ударивший враг теряет эту долю скорости и разгоняется заново.'),
   n('brakeRecovery', 'Герой и урон', 'Разгон после удара', 0, 3, 0.05, 1, 'с'),
+  n('heroSpeed', 'Перемещение', 'Скорость героя (WASD, стрелки)', 0, 10, 0.25, 4, 'ед/с', 'Свободное движение; в фокусе замедлено вместе со временем. На проходе цепи и в прыжке ввод не действует.'),
+  { kind: 'bool', key: 'heroThroughEnemies', group: 'Перемещение', label: 'Сквозь врагов', stage: 4,
+    hint: 'Выключено: враги — препятствие, толпа может зажать героя (выход — цепь или прыжок). Включено: герой проходит, расталкивая толпу.' },
   n('enemyRadius', 'Враги', 'Радиус рисунка врага', 0.2, 0.7, 0.01, 1, 'ед.'),
   n('bodyRadius', 'Враги', 'Радиус тела (толкание)', 0.15, 0.7, 0.01, 1, 'ед.'),
   n('enemySpeed', 'Враги', 'Скорость врага', 0.2, 4, 0.05, 1, 'ед/с'),
   n('speedSpread', 'Враги', 'Разброс скорости', 0, 0.6, 0.05, 1, '±'),
-  { kind: 'bool', key: 'pathfinding', group: 'Враги', label: 'Обход препятствий', stage: 1, hint: 'Выключено: враг идёт к герою по прямой и упирается в препятствие.' },
+  { kind: 'bool', key: 'pathfinding', group: 'Враги', label: 'Поиск пути (поле потока)', stage: 4, hint: 'Враги обходят стены, деревья и пруд по полю потока к герою. Выключено: по прямой, как в этапах 1–3, — упираются в препятствия.' },
+  n('flowRate', 'Враги', 'Пересчёт поля потока', 1, 30, 1, 4, 'раз/с'),
+  n('flowTurn', 'Враги', 'Плавность поворота по полю', 1, 30, 1, 4, '1/с', 'Чем больше, тем резче враг поворачивает к направлению поля.'),
   n('baseIntervalMin', 'До целей', 'Интервал групп: от', 0.2, 20, 0.1, 1, 'с'),
   n('baseIntervalMax', 'До целей', 'Интервал групп: до', 0.2, 20, 0.1, 1, 'с'),
   n('baseToughShare', 'До целей', 'Доля крепких', 0, 1, 0.05),
@@ -326,9 +344,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
 
 /**
  * v3 (07.10.2026, stage 3): dimming default 0.65 (design answer 31), wolves replace «fast», boar fields;
- * v1/v2 values are dropped.
+ * v1/v2 values are dropped. v4: mixed-color wolf packs by default. v5 (iteration 2, stage A): hero walking,
+ * the flow field on by default — older values are dropped so the new defaults apply.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v4';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v5';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {

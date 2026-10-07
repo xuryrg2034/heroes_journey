@@ -197,76 +197,213 @@ export function lineOfSight(a: Vec, b: Vec, arena: ArenaLayout, r = 0): boolean 
   return true;
 }
 
-/** Distance field on a fine grid: enemies follow it when the hero is out of sight. */
+/** Water cost of the flow field: `null` — the pond is impassable (iteration 2, stage A); a number — cost multiplier of a water cell (stage B: 1 / water speed). */
+export interface FlowOptions { waterCost: number | null }
+
+/**
+ * Flow field to the hero (iteration 2, stage A; docs/realtime-prototype.md, section 9г):
+ * a grid of 0.5-unit cells, 8 directions, Dijkstra from the hero's cell over cell costs
+ * (water: `waterCost`, laid in for stage B). Each reachable cell stores a unit direction
+ * to its best neighbour; `direction` blends the four nearest cells (bilinear) so a body
+ * turns smoothly instead of zigzagging between cell centers. Arena edges are not blocked
+ * in the grid: the body clamp keeps enemies inside, and edge spawns must stay reachable.
+ */
 export class FlowField {
   readonly cell = 0.5;
   readonly cols: number;
   readonly rows: number;
-  private readonly blocked: Uint8Array;
-  private readonly distance: Float32Array;
-  private target: Vec = { x: -1, y: -1 };
+  /** 1 — no body of the field radius fits (wall, tree, impassable pond). */
+  readonly blocked: Uint8Array;
+  /** Cost multiplier of entering a cell (1 on grass, `waterCost` in water). */
+  readonly cost: Float32Array;
+  readonly distance: Float32Array;
+  private readonly dirX: Float32Array;
+  private readonly dirY: Float32Array;
+  private readonly heap: Int32Array;
+  private readonly heapKey: Float32Array;
+  private targetCell = -1;
+  /** Milliseconds of the last rebuild and the number of rebuilds (debug panel, perf report). */
+  lastBuildMs = 0;
+  builds = 0;
 
-  constructor(arena: ArenaLayout, private readonly bodyRadius: number) {
+  constructor(arena: ArenaLayout, private readonly bodyRadius: number, readonly options: FlowOptions = { waterCost: null }) {
     this.cols = Math.ceil(arena.width / this.cell);
     this.rows = Math.ceil(arena.height / this.cell);
-    this.blocked = new Uint8Array(this.cols * this.rows);
-    this.distance = new Float32Array(this.cols * this.rows).fill(Infinity);
-    for (let row = 0; row < this.rows; row++) for (let col = 0; col < this.cols; col++)
-      this.blocked[row * this.cols + col] = blockedAt(this.center(col, row), bodyRadius * 0.9, arena) ? 1 : 0;
+    const n = this.cols * this.rows;
+    this.blocked = new Uint8Array(n);
+    this.cost = new Float32Array(n).fill(1);
+    this.distance = new Float32Array(n).fill(Infinity);
+    this.dirX = new Float32Array(n);
+    this.dirY = new Float32Array(n);
+    // A cell enters the heap once per improving neighbour: 8 × cells is enough.
+    this.heap = new Int32Array(n * 8 + 8);
+    this.heapKey = new Float32Array(n * 8 + 8);
+    const clearance = bodyRadius * 0.9;
+    for (let row = 0; row < this.rows; row++) for (let col = 0; col < this.cols; col++) {
+      const c = this.center(col, row), i = row * this.cols + col;
+      for (const o of arena.obstacles) {
+        if (o.shape === 'circle') {
+          const d = Math.hypot(c.x - o.x, c.y - o.y);
+          if (o.kind === 'pond' && options.waterCost !== null) { if (d < o.r) this.cost[i] = Math.max(this.cost[i], options.waterCost); continue; }
+          if (d < o.r + clearance) this.blocked[i] = 1;
+        } else {
+          const cx = Math.max(o.x, Math.min(c.x, o.x + o.w)), cy = Math.max(o.y, Math.min(c.y, o.y + o.h));
+          if (Math.hypot(c.x - cx, c.y - cy) < clearance) this.blocked[i] = 1;
+        }
+      }
+    }
   }
 
   get radius(): number { return this.bodyRadius; }
 
   center(col: number, row: number): Vec { return { x: (col + 0.5) * this.cell, y: (row + 0.5) * this.cell }; }
 
-  private index(p: Vec): number {
+  cellOf(p: Vec): number {
     const col = Math.max(0, Math.min(this.cols - 1, Math.floor(p.x / this.cell)));
     const row = Math.max(0, Math.min(this.rows - 1, Math.floor(p.y / this.cell)));
     return row * this.cols + col;
   }
 
-  /** Recomputes the field only when the target cell changes. */
-  setTarget(target: Vec): void {
-    const start = this.index(target);
-    if (start === this.index(this.target)) { this.target = { ...target }; return; }
-    this.target = { ...target };
-    const d = this.distance; d.fill(Infinity); d[start] = 0;
-    // Small grid (≈640 cells): a simple Dijkstra over an array queue is fast enough.
-    const open: number[] = [start];
-    const queued = new Uint8Array(d.length); queued[start] = 1;
-    while (open.length) {
-      let best = 0;
-      for (let i = 1; i < open.length; i++) if (d[open[i]] < d[open[best]]) best = i;
-      const cur = open[best]; open[best] = open[open.length - 1]; open.pop(); queued[cur] = 0;
-      const cc = cur % this.cols, cr = (cur - cc) / this.cols;
+  /** A cell has a usable direction: free and reached by the last rebuild. */
+  reachable(i: number): boolean { return !this.blocked[i] && Number.isFinite(this.distance[i]); }
+
+  /**
+   * Rebuilds the field towards `target` (the hero). Skipped when the target stays in the same
+   * cell, unless `force`. Returns true when the field was rebuilt.
+   */
+  setTarget(target: Vec, force = false): boolean {
+    const start = this.cellOf(target);
+    if (!force && start === this.targetCell) return false;
+    const t0 = performance.now();
+    this.targetCell = start;
+    const d = this.distance, cols = this.cols, rows = this.rows, heap = this.heap, keys = this.heapKey;
+    d.fill(Infinity);
+    let size = 0;
+    const push = (i: number, key: number): void => {
+      let k = size++;
+      while (k > 0) {
+        const parent = (k - 1) >> 1;
+        if (keys[parent] <= key) break;
+        heap[k] = heap[parent]; keys[k] = keys[parent]; k = parent;
+      }
+      heap[k] = i; keys[k] = key;
+    };
+    const pop = (): number => {
+      const top = heap[0], lastI = heap[--size], lastK = keys[size];
+      let k = 0;
+      for (;;) {
+        let c = 2 * k + 1;
+        if (c >= size) break;
+        if (c + 1 < size && keys[c + 1] < keys[c]) c++;
+        if (keys[c] >= lastK) break;
+        heap[k] = heap[c]; keys[k] = keys[c]; k = c;
+      }
+      heap[k] = lastI; keys[k] = lastK;
+      return top;
+    };
+    if (!this.blocked[start]) { d[start] = 0; push(start, 0); }
+    else {
+      // The hero (smaller than an enemy body) stands where no enemy fits: seed the free cells around.
+      const sc = start % cols, sr = (start - sc) / cols;
+      for (let dr = -3; dr <= 3; dr++) for (let dc = -3; dc <= 3; dc++) {
+        const nc = sc + dc, nr = sr + dr;
+        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+        const ni = nr * cols + nc;
+        if (this.blocked[ni]) continue;
+        const c = this.center(nc, nr), key = Math.hypot(c.x - target.x, c.y - target.y) / this.cell;
+        if (key < d[ni]) { d[ni] = key; push(ni, key); }
+      }
+    }
+    while (size > 0) {
+      const key = keys[0], cur = pop();
+      if (key > d[cur]) continue;
+      const cc = cur % cols, cr = (cur - cc) / cols;
       for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
         if (!dr && !dc) continue;
         const nc = cc + dc, nr = cr + dr;
-        if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
-        const ni = nr * this.cols + nc;
+        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+        const ni = nr * cols + nc;
         if (this.blocked[ni]) continue;
-        if (dr && dc && (this.blocked[cr * this.cols + nc] || this.blocked[nr * this.cols + cc])) continue;
-        const nd = d[cur] + (dr && dc ? Math.SQRT2 : 1);
-        if (nd < d[ni]) { d[ni] = nd; if (!queued[ni]) { queued[ni] = 1; open.push(ni); } }
+        // No corner cutting: a diagonal step needs both side cells free.
+        if (dr && dc && (this.blocked[cr * cols + nc] || this.blocked[nr * cols + cc])) continue;
+        const nd = d[cur] + (dr && dc ? Math.SQRT2 : 1) * (this.cost[cur] + this.cost[ni]) * 0.5;
+        if (nd < d[ni]) { d[ni] = nd; push(ni, nd); }
       }
     }
+    // Direction of every reached cell: towards its best neighbour; the hero's cell points at the hero.
+    for (let i = 0; i < d.length; i++) {
+      this.dirX[i] = 0; this.dirY[i] = 0;
+      if (this.blocked[i] || !Number.isFinite(d[i])) continue;
+      const col = i % cols, row = (i - col) / cols;
+      if (i === start) {
+        const c = this.center(col, row), dx = target.x - c.x, dy = target.y - c.y, len = Math.hypot(dx, dy);
+        if (len > 1e-6) { this.dirX[i] = dx / len; this.dirY[i] = dy / len; }
+        continue;
+      }
+      let best = -1, bestD = d[i], bdc = 0, bdr = 0;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+        if (!dr && !dc) continue;
+        const nc = col + dc, nr = row + dr;
+        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+        const ni = nr * cols + nc;
+        if (this.blocked[ni]) continue;
+        if (dr && dc && (this.blocked[row * cols + nc] || this.blocked[nr * cols + col])) continue;
+        if (d[ni] < bestD) { bestD = d[ni]; best = ni; bdc = dc; bdr = dr; }
+      }
+      if (best < 0) {
+        // A seeded cell next to a hero standing in a tight spot: head straight for the hero.
+        const c = this.center(col, row), dx = target.x - c.x, dy = target.y - c.y, len = Math.hypot(dx, dy);
+        if (len > 1e-6) { this.dirX[i] = dx / len; this.dirY[i] = dy / len; }
+        continue;
+      }
+      const len = Math.hypot(bdc, bdr);
+      this.dirX[i] = bdc / len; this.dirY[i] = bdr / len;
+    }
+    this.lastBuildMs = performance.now() - t0;
+    this.builds++;
+    return true;
   }
 
-  /** Point to steer towards: the center of the neighbouring cell closest to the target. */
-  nextWaypoint(p: Vec): Vec | null {
-    const i = this.index(p), col = i % this.cols, row = (i - col) / this.cols;
-    let best = -1, bestD = this.distance[i];
-    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
-      if (!dr && !dc) continue;
-      const nc = col + dc, nr = row + dr;
-      if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
-      const ni = nr * this.cols + nc;
-      if (this.blocked[ni]) continue;
-      if (dr && dc && (this.blocked[row * this.cols + nc] || this.blocked[nr * this.cols + col])) continue;
-      if (this.distance[ni] < bestD) { bestD = this.distance[ni]; best = ni; }
+  /**
+   * Unit direction to follow at `p` into `out`: a bilinear blend of the four nearest reachable
+   * cells. Where the blend cancels out (a split around an obstacle) the own cell decides; a body
+   * pushed into a blocked or unreached cell heads for the nearest reachable one. False — no way known.
+   */
+  direction(p: Vec, out: Vec): boolean {
+    const fx = p.x / this.cell - 0.5, fy = p.y / this.cell - 0.5;
+    const c0 = Math.floor(fx), r0 = Math.floor(fy), tx = fx - c0, ty = fy - r0;
+    let x = 0, y = 0, weight = 0;
+    for (let k = 0; k < 4; k++) {
+      const col = c0 + (k & 1), row = r0 + (k >> 1);
+      if (col < 0 || row < 0 || col >= this.cols || row >= this.rows) continue;
+      const i = row * this.cols + col;
+      if (!this.reachable(i)) continue;
+      const w = ((k & 1) ? tx : 1 - tx) * ((k >> 1) ? ty : 1 - ty);
+      x += this.dirX[i] * w; y += this.dirY[i] * w; weight += w;
     }
-    if (best < 0) return null;
-    const bc = best % this.cols;
-    return this.center(bc, (best - bc) / this.cols);
+    const len = Math.hypot(x, y);
+    if (weight > 1e-6 && len > 0.3 * weight) { out.x = x / len; out.y = y / len; return true; }
+    const own = this.cellOf(p);
+    if (this.reachable(own) && (this.dirX[own] || this.dirY[own])) { out.x = this.dirX[own]; out.y = this.dirY[own]; return true; }
+    // Off the field: steer to the nearest reachable cell (rings up to 3 cells out).
+    const oc = own % this.cols, orow = (own - oc) / this.cols;
+    let best = -1, bestScore = Infinity;
+    for (let ring = 1; ring <= 3 && best < 0; ring++) {
+      for (let dr = -ring; dr <= ring; dr++) for (let dc = -ring; dc <= ring; dc++) {
+        if (Math.max(Math.abs(dr), Math.abs(dc)) !== ring) continue;
+        const nc = oc + dc, nr = orow + dr;
+        if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
+        const ni = nr * this.cols + nc;
+        if (!this.reachable(ni)) continue;
+        const c = this.center(nc, nr), score = Math.hypot(c.x - p.x, c.y - p.y);
+        if (score < bestScore) { bestScore = score; best = ni; }
+      }
+    }
+    if (best < 0) return false;
+    const bc = best % this.cols, c = this.center(bc, (best - bc) / this.cols);
+    const dx = c.x - p.x, dy = c.y - p.y, l = Math.hypot(dx, dy);
+    if (l < 1e-6) return false;
+    out.x = dx / l; out.y = dy / l;
+    return true;
   }
 }
