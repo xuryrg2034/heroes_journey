@@ -474,7 +474,8 @@ test('a button fires only when the chain ends on it; nothing follows a button; t
   await teleport(page, right.x - 1.8, right.y);
   const a = await place(page, right.x - 0.7, right.y, 0);
   const b = await place(page, right.x + 0.7, right.y, 0);
-  await chainAt(page, [{ x: right.x - 0.7, y: right.y }, { x: right.x + 0.7, y: right.y }]);
+  // Stage G: the drag takes links along its whole path, so the pointer goes around the button (straight over it, it would be taken).
+  await chainAt(page, [{ x: right.x - 0.7, y: right.y }, { x: right.x, y: right.y - 1.5 }, { x: right.x + 0.7, y: right.y }]);
   await expect.poll(async () => (await arenaSnapshot(page)).chain).toEqual([a, b]);
   await page.mouse.up();
   await expect.poll(async () => (await arenaSnapshot(page)).kills, { timeout: 5_000 }).toBe(2);
@@ -1093,5 +1094,210 @@ test('the reach circle R is drawn around the hero without a chain; in a chain al
   await expect(page.locator('[data-param="linkRadius"] output')).toContainText('1.875');
   await expect(page.locator('[data-param="enemyScale"] output')).toContainText('0.80');
   await expect(page.locator('[data-param="crowdSlow"] output')).toContainText('0.70');
+  expect(errors).toEqual([]);
+});
+
+// ---- Stage G: «should be taken but is not» (user 07.10.2026) ----
+
+type ReachSnapshot = CrowdSnapshot & { hint: string | null; heroAnchorShown: boolean };
+const reachSnapshot = (page: Page): Promise<ReachSnapshot> => page.evaluate(() => (window as any).__realtime.snapshot());
+const setParams = (page: Page, values: Record<string, unknown>): Promise<void> =>
+  page.evaluate(values => { Object.assign((window as any).__realtime.params, values); }, values);
+/** Drawn enemy radius (art × size): the edge the circle R reaches with «R до края тела». */
+const artRadius = (page: Page): Promise<number> =>
+  page.evaluate(() => { const p = (window as any).__realtime.params; return p.enemyRadius * p.enemyScale as number; });
+
+test('an enemy whose drawing the circle R touches is taken (center beyond R); with «R до края тела» off it is not, and the hint says «далеко»', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const { x: hx, y: hy } = (await reachSnapshot(page)).hero;
+  const R = await page.evaluate(() => (window as any).__realtime.params.linkRadius as number);
+  const r = await artRadius(page);
+  expect(R).toBe(1.875);
+  // Center 0.2 beyond R, the drawn edge 0.16 inside it: the player sees the circle touch the enemy.
+  const edge = await place(page, hx + R + 0.2, hy, 0);
+  await chainAt(page, [{ x: hx + R + 0.2, y: hy }]);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([edge]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // The same press with the toggle off: measured to the center — too far; the hint at the pointer says why.
+  await setParams(page, { linkToEdge: false });
+  await chainAt(page, [{ x: hx + R + 0.2, y: hy }]);
+  await expect.poll(async () => (await reachSnapshot(page)).hint).toBe('far');
+  await expect(page.getByTestId('link-hint')).toHaveText('далеко');
+  expect((await reachSnapshot(page)).chain).toEqual([]);
+  await page.mouse.up();
+  // Toggle on again: an enemy whose drawing stays outside the circle (edge 0.1 beyond R) is still far.
+  await setParams(page, { linkToEdge: true });
+  const beyond = await place(page, hx, hy + R + r + 0.1, 0);
+  await chainAt(page, [{ x: hx, y: hy + R + r + 0.1 }]);
+  await expect.poll(async () => (await reachSnapshot(page)).hint).toBe('far');
+  expect((await reachSnapshot(page)).chain).toEqual([]);
+  await page.mouse.up();
+  expect((await reachSnapshot(page)).enemies.map(e => e.id)).toContain(beyond);
+  expect(errors).toEqual([]);
+});
+
+test('with the hero anchor a link within R of the hero but beyond R of the last link is taken; without it — not («далеко»)', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const { x: hx, y: hy } = (await reachSnapshot(page)).hero;
+  // a and c 3.0 apart (beyond R + edge of 2.235 from a), each 1.5 from the hero.
+  const a = await place(page, hx + 1.5, hy, 0);
+  const c = await place(page, hx - 1.5, hy, 0);
+  // Without the hero anchor: c is not the next link after a. The pointer goes around the hero (it would cancel the chain).
+  await setParams(page, { heroAnchor: false });
+  await chainAt(page, [{ x: hx + 1.5, y: hy }, { x: hx, y: hy + 1.3 }, { x: hx - 1.5, y: hy }]);
+  await expect.poll(async () => (await reachSnapshot(page)).hint).toBe('far');
+  let s = await reachSnapshot(page);
+  expect(s.chain).toEqual([a]);
+  expect(s.heroAnchorShown).toBe(false);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // With it (the default): taken; the hero's circle is drawn as the second anchor.
+  await setParams(page, { heroAnchor: true });
+  await chainAt(page, [{ x: hx + 1.5, y: hy }, { x: hx, y: hy + 1.3 }, { x: hx - 1.5, y: hy }]);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([a, c]);
+  s = await reachSnapshot(page);
+  expect(s.heroAnchorShown).toBe(true);
+  expect(s.hint).toBeNull();
+  await page.screenshot({ path: 'artifacts/realtime-hero-anchor.png' });
+  // The dash goes along the links in order: a, then c; the hero ends on c.
+  await page.mouse.up();
+  await expect.poll(async () => (await reachSnapshot(page)).kills, { timeout: 5_000 }).toBe(2);
+  await expect.poll(async () => (await reachSnapshot(page)).moving).toBeNull();
+  s = await reachSnapshot(page);
+  expect(Math.hypot(s.hero.x - (hx - 1.5), s.hero.y - hy)).toBeLessThan(0.05);
+  expect(errors).toEqual([]);
+});
+
+test('a link ray grazing a tree trunk still sees (sight slack); straight behind the trunk — «нет видимости»', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  // The tree at (5.5, 7.5), trunk radius 0.42: the ray at y = 7.13 passes 0.37 from its center — inside the exact trunk.
+  await teleport(page, 4.5, 7.13);
+  const grazing = await place(page, 6.5, 7.13, 0);
+  await setParams(page, { sightSlack: 0 });
+  await chainAt(page, [{ x: 6.5, y: 7.13 }]);
+  await expect.poll(async () => (await reachSnapshot(page)).hint).toBe('sight');
+  await expect(page.getByTestId('link-hint')).toHaveText('нет видимости');
+  expect((await reachSnapshot(page)).chain).toEqual([]);
+  await page.mouse.up();
+  // The default slack 0.1: the trunk counts 0.32 for the ray — the grazing ray sees.
+  await setParams(page, { sightSlack: 0.1 });
+  await chainAt(page, [{ x: 6.5, y: 7.13 }]);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([grazing]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // Straight behind the trunk: no sight with the slack too.
+  await page.evaluate(() => (window as any).__realtime.clear());
+  await teleport(page, 4.4, 7.5);
+  await place(page, 6.6, 7.5, 1);
+  await chainAt(page, [{ x: 6.6, y: 7.5 }]);
+  await expect.poll(async () => (await reachSnapshot(page)).hint).toBe('sight');
+  expect((await reachSnapshot(page)).chain).toEqual([]);
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+test('the hint at the pointer names a wrong color in a chain; with the toggle off there is no hint', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const { x: hx, y: hy } = (await reachSnapshot(page)).hero;
+  const a = await place(page, hx + 1, hy, 0);
+  await place(page, hx + 1.6, hy + 0.9, 1);
+  await chainAt(page, [{ x: hx + 1, y: hy }, { x: hx + 1.6, y: hy + 0.9 }]);
+  await expect.poll(async () => (await reachSnapshot(page)).hint).toBe('color');
+  const hint = page.getByTestId('link-hint');
+  await expect(hint).toBeVisible();
+  await expect(hint).toHaveText('не тот цвет');
+  expect((await reachSnapshot(page)).chain).toEqual([a]);
+  await page.screenshot({ path: 'artifacts/realtime-refusal-hint.png' });
+  // Back over the link already taken: that is a truncation point, not a refusal.
+  const pa = await screen(page, hx + 1, hy);
+  await page.mouse.move(pa.x, pa.y);
+  await expect.poll(async () => (await reachSnapshot(page)).hint).toBeNull();
+  await expect(hint).toBeHidden();
+  // The toggle off: the wrong color under the pointer gives no hint.
+  await setParams(page, { refusalHint: false });
+  const po = await screen(page, hx + 1.6, hy + 0.9);
+  await page.mouse.move(po.x, po.y);
+  await page.waitForTimeout(150);
+  expect((await reachSnapshot(page)).hint).toBeNull();
+  await expect(hint).toBeHidden();
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+test('a fast drag takes the enemy it passed over between two pointer events; an enemy walking under the held still pointer joins', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const { x: hx, y: hy } = (await reachSnapshot(page)).hero;
+  // One pointer jump from a over b to c: b lies on the path only; c is 2.4 from a — beyond R + edge (2.235), 1.2 from b.
+  const a = await place(page, hx + 0.8, hy, 2);
+  const b = await place(page, hx + 2.0, hy, 2);
+  const c = await place(page, hx + 3.2, hy, 2);
+  await chainAt(page, [{ x: hx + 0.8, y: hy }, { x: hx + 3.2, y: hy }]);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([a, b, c]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // The old sampling (toggle off): c is beyond reach of a, b is skipped.
+  await setParams(page, { dragSweep: false });
+  await chainAt(page, [{ x: hx + 0.8, y: hy }, { x: hx + 3.2, y: hy }]);
+  await page.waitForTimeout(150);
+  expect((await reachSnapshot(page)).chain).toEqual([a]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await setParams(page, { dragSweep: true });
+  // Held still pointer: press on a, hold the pointer on an empty spot; an enemy put there joins without a pointer move.
+  await chainAt(page, [{ x: hx + 0.8, y: hy }, { x: hx + 0.8, y: hy - 1.2 }]);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([a]);
+  const d = await place(page, hx + 0.8, hy - 1.2, 2);
+  await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([a, d]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+test('after the goals touching the open door while walking wins; the closed door does not', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const door = (await reachSnapshot(page)).objects.find(o => o.kind === 'door')!;
+  const walkUp = async (): Promise<void> => {
+    await teleport(page, door.x, door.y + 1.8);
+    await hold(page, 'KeyW', 0.8);
+  };
+  // Closed: the hero walks over it, nothing happens (the door is not a body).
+  await walkUp();
+  let s = await reachSnapshot(page);
+  expect(s.status).toBe('playing');
+  expect(Math.hypot(s.hero.x - door.x, s.hero.y - door.y)).toBeLessThan(0.6);
+  // Open, the toggle off: walking in does nothing (a chain and a jump still enter).
+  await teleport(page, door.x, door.y + 1.8);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await setParams(page, { doorWalkIn: false });
+  await walkUp();
+  s = await reachSnapshot(page);
+  expect(s.stage).toBe('greed');
+  expect(s.status).toBe('playing');
+  expect(Math.hypot(s.hero.x - door.x, s.hero.y - door.y)).toBeLessThan(0.6);
+  // Open, the toggle on (the default): the touch wins.
+  await teleport(page, door.x, door.y + 1.8);
+  await setParams(page, { doorWalkIn: true });
+  await page.keyboard.down('KeyW');
+  await expect(page.getByTestId('result')).toBeVisible({ timeout: 5_000 });
+  await page.keyboard.up('KeyW');
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  s = await reachSnapshot(page);
+  expect(s.status).toBe('victory');
+  // Entered at the touch: the hero's circle reached the door's circle, not its center.
+  expect(Math.hypot(s.hero.x - door.x, s.hero.y - door.y)).toBeGreaterThan(0.5);
+  await page.screenshot({ path: 'artifacts/realtime-door-walk.png' });
   expect(errors).toEqual([]);
 });

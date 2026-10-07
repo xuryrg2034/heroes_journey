@@ -100,3 +100,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Stage E: a link refreshed the focus. */
 .rt-focus.rt-focus-flash { animation: rt-focus-flash 0.25s ease-out; }
 @keyframes rt-focus-flash { 0% { box-shadow: 0 0 0 2px #ffffff, 0 0 14px #bfe3ff; } 100% { box-shadow: none; } }
+
+/* Stage G: why the target under the pointer cannot be the next link. */
+.rt-hint { position: fixed; z-index: 4; padding: 2px 7px; font-size: 12px; color: #f2e6c8; background: #121710e0; border: 1px solid #6a5a3c; pointer-events: none; white-space: nowrap; }

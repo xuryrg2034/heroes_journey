@@ -6,7 +6,7 @@
 import './realtime.css';
 import { loadCharacterArt } from '../render/characterAssets';
 import { ARENAS, inWater, type Vec } from './arena';
-import { ENERGY_MAX, beginChain, cancelChain, canJump, dragChain, jump, planChain, releaseChain, stepHero } from './chain';
+import { ENERGY_MAX, REFUSAL_TEXT, beginChain, cancelChain, canJump, dragChain, dragChainAlong, hoverRefusal, jump, planChain, releaseChain, stepHero, type Refusal } from './chain';
 import { DebugPanel, formatTime } from './debugPanel';
 import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhases, type ParamKey } from './params';
 import { RealtimeRenderer, type RenderUi } from './render';
@@ -107,7 +107,11 @@ async function boot(): Promise<void> {
 
   const pausedBadge = el('div', 'rt-paused', 'Пауза');
   pausedBadge.hidden = true;
-  host.append(stage, hud, help, pausedBadge, openButton, menuButton, jumpButton, result, menu);
+  // Stage G: why the enemy or object under the pointer cannot be the next link (toggle «Подсказка: почему не берётся»).
+  const hint = el('div', 'rt-hint');
+  hint.setAttribute('data-testid', 'link-hint');
+  hint.hidden = true;
+  host.append(stage, hud, help, pausedBadge, openButton, menuButton, jumpButton, hint, result, menu);
 
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
@@ -125,6 +129,9 @@ async function boot(): Promise<void> {
   /** Pointer and the jump aim (render-only); `dragging` — the button is held after a press on the arena. */
   const ui: RenderUi = { pointer: null, jumpMode: false };
   let dragging = false;
+  /** Pointer in page pixels (the hint follows it) and the reason shown last frame (snapshot). */
+  let pointerClient: { x: number; y: number } | null = null;
+  let hintReason: Refusal | null = null;
 
   const start = (index: number): void => {
     arenaIndex = Math.max(0, Math.min(ARENAS.length - 1, index));
@@ -193,6 +200,7 @@ async function boot(): Promise<void> {
   stage.addEventListener('contextmenu', event => event.preventDefault());
   stage.addEventListener('pointerdown', event => {
     ui.pointer = arenaPoint(event);
+    pointerClient = { x: event.clientX, y: event.clientY };
     if (!running()) return;
     if (event.button === 2) { cancelChain(world); dragging = false; ui.jumpMode = false; return; }
     if (event.button !== 0) return;
@@ -201,8 +209,11 @@ async function boot(): Promise<void> {
     beginChain(world, ui.pointer);
   });
   window.addEventListener('pointermove', event => {
+    const from = ui.pointer;
     ui.pointer = arenaPoint(event);
-    if (dragging && running()) dragChain(world, ui.pointer);
+    pointerClient = { x: event.clientX, y: event.clientY };
+    // Stage G: a fast swipe takes the links along its whole path (toggle «Протяжка по всему пути мыши»).
+    if (dragging && running()) { if (from) dragChainAlong(world, from, ui.pointer); else dragChain(world, ui.pointer); }
   });
   window.addEventListener('pointerup', event => {
     if (event.button !== 0 || !dragging) return;
@@ -291,6 +302,17 @@ async function boot(): Promise<void> {
       }
     }
     if (ui.jumpMode && !canJump(world)) ui.jumpMode = false;
+    // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle).
+    if (live && dragging && params.holdPicks && ui.pointer && world.status === 'playing') dragChain(world, ui.pointer, 'append');
+    // Stage G: the reason at the pointer (not in jump aiming, menus or pause).
+    hintReason = params.refusalHint && live && !ui.jumpMode && ui.pointer && pointerClient ? hoverRefusal(world, ui.pointer, dragging) : null;
+    if (hintReason && pointerClient) {
+      hint.textContent = REFUSAL_TEXT[hintReason];
+      hint.dataset.reason = hintReason;
+      hint.style.left = `${pointerClient.x + 14}px`;
+      hint.style.top = `${pointerClient.y + 16}px`;
+      hint.hidden = false;
+    } else if (!hint.hidden) { hint.hidden = true; delete hint.dataset.reason; }
     if (params.sound) {
       for (const ev of world.events) {
         if (ev.type === 'chainHit') audio.hit(ev.combo, ev.killed, params.soundVolume);
@@ -399,6 +421,8 @@ async function boot(): Promise<void> {
       heroInCrowd: heroInCrowd(world),
       reachCircles: renderer.visibleReachCircles,
       heroReachShown: renderer.heroReachShown,
+      heroAnchorShown: renderer.heroAnchorShown,
+      hint: hintReason,
     }),
     restart,
     /** Starts arena `n` (1–3), as keys 1–3 on the menu. */

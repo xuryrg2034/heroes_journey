@@ -162,8 +162,22 @@ export interface Params {
   dashShake: number;
   // Chain (stage 2)
   linkRadius: number;
+  /** Stage G (user 07.10.2026): R reaches the edge of a target — enemy art circle, object circle — not its center. */
+  linkToEdge: boolean;
+  /** Stage G: the next link is also taken within R of the hero (second anchor), not only of the last link. */
+  heroAnchor: boolean;
   lineOfSight: boolean;
+  /** Stage G: obstacles shrink by this much for the link sight ray — a ray grazing a tree or a wall corner still sees (0 — exact). */
+  sightSlack: number;
   pickSlack: number;
+  /** Stage G: a fast drag takes the links under the whole pointer path, not only under the sampled pointer events. */
+  dragSweep: boolean;
+  /** Stage G: while the button is held, an enemy that walks (or comes into reach) under a still pointer joins the chain. */
+  holdPicks: boolean;
+  /** Stage G: a short reason at the pointer why the enemy or object under it cannot be the next link. */
+  refusalHint: boolean;
+  /** Stage G: after the goals the hero enters the open door by touching it while walking (a chain and a jump still work). */
+  doorWalkIn: boolean;
   dashSpeed: number;
   survivorKnockback: boolean;
   survivorKnockbackTime: number;
@@ -292,7 +306,14 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   deathDuration: 0.5,
   dashShake: 3,
   linkRadius: 1.875,
+  linkToEdge: true,
+  heroAnchor: true,
   lineOfSight: true,
+  sightSlack: 0.1,
+  dragSweep: true,
+  holdPicks: true,
+  refusalHint: true,
+  doorWalkIn: true,
   // 0.36 × 1.65 ≈ 0.59: the press circle of the stage before the enemies shrank (design 07.10.2026: no more misses).
   pickSlack: 1.65,
   dashSpeed: 12,
@@ -404,6 +425,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('reaperDamage', 'Время', 'Урон касания Жнеца', 0, 12, 1),
   n('killGoal', 'Арены', 'Арена «Убить N»: врагов', 1, 200, 1, 3, '', 'Цель первой арены: после стольких убийств цепью открывается дверь и начинается стадия жадности.'),
   n('markedSpeed', 'Арены', 'Скорость отмеченных', 0, 2, 0.05, 3, '×', 'Отмеченные враги третьей арены идут медленнее толпы и не сразу сбиваются в кучу.'),
+  { kind: 'bool', key: 'doorWalkIn', group: 'Арены', label: 'Вход в дверь ходьбой', stage: 4,
+    hint: 'После целей касание открытой двери телом героя — победа. Цепью и прыжком — как раньше. Закрытая дверь — не препятствие и ничего не делает.' },
   n('hitFlash', 'Эффекты', 'Вспышка попадания', 0, 0.5, 0.02, 1, 'с'),
   { kind: 'bool', key: 'shakeOnDamage', group: 'Эффекты', label: 'Тряска при уроне', stage: 1 },
   n('shakeAmplitude', 'Эффекты', 'Тряска: сила', 0, 20, 1, 1, 'px'),
@@ -411,8 +434,19 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('deathDuration', 'Эффекты', 'Смерть врага: оборот и сжатие', 0, 2, 0.05, 2, 'с'),
   n('dashShake', 'Эффекты', 'Тряска при проходе цепи', 0, 10, 1, 2, 'px'),
   n('linkRadius', 'Цепь', 'Радиус звена R', 0.5, 4, 0.025, 2, 'ед.', 'Круг R тонко виден вокруг героя всегда; при выделении цепи — ещё вокруг последнего звена.'),
+  { kind: 'bool', key: 'linkToEdge', group: 'Цепь', label: 'R до края тела', stage: 4,
+    hint: 'Враг берётся, если круг R касается его рисунка (центр не дальше R + радиус рисунка); кнопка, дверь, кристалл — до края их круга. Выключено: до центра.' },
+  { kind: 'bool', key: 'heroAnchor', group: 'Цепь', label: 'Якорь у героя', stage: 4,
+    hint: 'Следующее звено берётся в R от последнего звена ИЛИ в R от героя. Проход по цепи — по звеньям по порядку.' },
   { kind: 'bool', key: 'lineOfSight', group: 'Цепь', label: 'Препятствия рвут звено', stage: 2 },
+  n('sightSlack', 'Цепь', 'Допуск видимости у края препятствия', 0, 0.3, 0.01, 4, 'ед.', 'Для луча звена деревья и стены сужены на столько: луч, задевший край ствола или угол стены, не рвёт звено. 0 — точно.'),
   n('pickSlack', 'Цепь', 'Запас нажатия по врагу', 1, 2.5, 0.05, 2, '× рисунка'),
+  { kind: 'bool', key: 'dragSweep', group: 'Цепь', label: 'Протяжка по всему пути мыши', stage: 4,
+    hint: 'Быстрое движение мыши берёт звенья вдоль всего пути, а не только в точках событий мыши.' },
+  { kind: 'bool', key: 'holdPicks', group: 'Цепь', label: 'Взятие под неподвижной мышью', stage: 4,
+    hint: 'Пока кнопка зажата, враг, подошедший под курсор или вошедший в R, добавляется без движения мыши (только добавление, без обрезки).' },
+  { kind: 'bool', key: 'refusalHint', group: 'Цепь', label: 'Подсказка: почему не берётся', stage: 4,
+    hint: 'У курсора над врагом или объектом, который нельзя взять следующим звеном: «далеко», «не тот цвет», «нет видимости», «после выжившего»…' },
   n('dashSpeed', 'Цепь', 'Скорость прохода', 2, 40, 0.5, 2, 'ед/с'),
   { kind: 'bool', key: 'survivorKnockback', group: 'Цепь', label: 'Отброс выживших после удара', stage: 2 },
   n('survivorKnockbackTime', 'Цепь', 'Отброс выживших: время', 0, 0.5, 0.01, 2, 'с'),
@@ -463,7 +497,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
  * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v12';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v13';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
@@ -528,6 +562,14 @@ export function enemyBodyRadius(params: Params): number { return params.bodyRadi
 
 /** Enemy art radius (drawing, click zone, markers, flashes): `enemyRadius × enemyScale` (stage D). */
 export function enemyDrawRadius(params: Params): number { return params.enemyRadius * params.enemyScale; }
+
+/** The boar is drawn larger than its body (render). */
+export const BOAR_ART_SCALE = 1.15;
+
+/** Stage G: radius of the drawn circle of an enemy of `kind` — the edge the link radius R reaches with «R до края тела». */
+export function enemyArtRadius(params: Params, kind: string): number {
+  return enemyDrawRadius(params) * (kind === 'boar' ? BOAR_ART_SCALE : 1);
+}
 
 /** Values that follow from time and the base numbers; the panel shows them live. */
 export interface Pressure {

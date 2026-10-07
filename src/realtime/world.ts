@@ -73,6 +73,9 @@ export interface ArenaObject {
   born?: number;
 }
 
+/** Radius of a button, the door or a crystal (units): the drawn circle, the pick circle, the door entry. */
+export const OBJECT_RADIUS = 0.45;
+
 /** A chain link: an enemy, or an arena object (a button or the door can only be the last link; a crystal anywhere). */
 export type ChainLink = { kind: 'enemy'; id: number } | { kind: 'object'; id: number };
 
@@ -271,6 +274,16 @@ export function checkGoals(world: World): void {
   if (world.stage !== 'goals') return;
   const { done, total } = goalProgress(world);
   if (done >= total) completeGoals(world);
+}
+
+/**
+ * Stage G (user 07.10.2026, toggle «Вход в дверь ходьбой»): after the goals the hero's body touching the open door wins —
+ * walking in (or pushed in by the boar). Not during a dash or a jump: those enter by their own rule (the chain ends on the
+ * door, the jump lands in it). The closed door is not a body and does nothing: the hero walks over it.
+ */
+export function heroTouchesOpenDoor(world: World): boolean {
+  if (!doorOpen(world)) return false;
+  return dist(doorOf(world), world.hero) <= OBJECT_RADIUS + heroRadius(world.params);
 }
 
 /** Entering the open door: the arena is won. */
@@ -649,6 +662,7 @@ export function update(world: World, realDt: number): void {
   updateSpawning(world, dt);
   stepHeroKnock(world, dt);
   stepHeroWalk(world, dt);
+  if (world.params.doorWalkIn && !world.move && heroTouchesOpenDoor(world)) { win(world); return; }
   updateFlow(world, dt);
   moveEnemies(world, dt);
   separate(world);

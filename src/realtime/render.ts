@@ -11,7 +11,7 @@ import { COLORS, PALE, drawTerrain, makePlayer } from '../render/art';
 import { characterSprite } from '../render/characterAssets';
 import { inWater, type ArenaLayout, type Vec } from './arena';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from './chain';
-import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from './params';
+import { BOAR_ART_SCALE, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from './params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from './world';
 
 /** Input state the view shows (pointer line, jump aim); owned by main.ts. */
@@ -35,8 +35,8 @@ const THREAT_OUTLINE = 0x0b0f14;
 const REAPER_FILL = 0x1b1b24;
 const NAVY = 0x18232d;
 const BASE_ENEMY_RADIUS = 0.4;
-/** Boar art is drawn a bit larger than the crowd (its body circle stays the same). */
-const BOAR_SCALE = 1.15;
+/** Boar art is drawn a bit larger than the crowd (its body circle stays the same); the link reach uses the same scale. */
+const BOAR_SCALE = BOAR_ART_SCALE;
 const BONE = 0xeadbb9;
 /** Target reticle of marked enemies: warm gold, outside the chain sigils. */
 const TARGET = 0xffd36b;
@@ -119,6 +119,8 @@ export class RealtimeRenderer {
   visibleReachCircles = 0;
   /** Stage D: the R circle around the hero was drawn in the last frame. */
   heroReachShown = false;
+  /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
+  heroAnchorShown = false;
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -592,6 +594,7 @@ export class RealtimeRenderer {
       reach++;
     }
     this.visibleReachCircles = reach;
+    this.heroAnchorShown = false;
     if (world.move?.kind === 'dash') {
       // Dash: a light halo around the hero (passes through the crowd, cannot be hurt).
       g.circle(hero.x * UNIT, hero.y * UNIT, heroRadius(p) * UNIT * 1.6).fill({ color: 0xffffff, alpha: 0.18 });
@@ -623,9 +626,14 @@ export class RealtimeRenderer {
     const anchor = chainAnchor(world);
     if (!plan.endsOnSurvivor && !plan.endsOnObject) {
       if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
-      // Reach of the next link and the valid next links (outlined).
+      // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
       g.circle(anchor.x * UNIT, anchor.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
       this.visibleReachCircles = ++reach;
+      // Stage G: the hero is a second anchor — his circle (always drawn faint) gets the chain color too.
+      if (p.heroAnchor) {
+        g.circle(hero.x * UNIT, hero.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+        this.heroAnchorShown = true;
+      }
       for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(p) * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
     }
     if (!plan.endsOnSurvivor && !plan.endsOnObject) {
