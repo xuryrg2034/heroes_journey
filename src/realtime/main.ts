@@ -1,25 +1,44 @@
 /**
  * Entry of the real-time prototype (realtime.html). Draft for a feel test only:
  * docs/realtime-prototype.md. Does not touch the main game state or storage.
+ * Stage 3: the arena menu (keys 1–3), arena goals, the door, the result screen.
  */
 import './realtime.css';
 import { loadCharacterArt } from '../render/characterAssets';
-import { TEST_ARENA, type Vec } from './arena';
+import { ARENAS, type Vec } from './arena';
 import { ENERGY_MAX, beginChain, cancelChain, canJump, dragChain, jump, planChain, releaseChain, stepHero } from './chain';
 import { DebugPanel, formatTime } from './debugPanel';
 import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhases, type ParamKey } from './params';
 import { RealtimeRenderer, type RenderUi } from './render';
 import { spawnBurst, spawnEnemy } from './spawn';
-import { completeGoals, createWorld, update, type World } from './world';
+import { completeGoals, createWorld, goalProgress, update, type EnemyKind, type World } from './world';
 
 const MAX_FRAME = 0.05;
 const SUBSTEP = 1 / 60;
+
+/** Playtest questions (docs/realtime-prototype.md, section 10). */
+const PLAYTEST_QUESTIONS = [
+  'Хочется играть ещё?',
+  'Фокус — помогает или превращает игру в паузу?',
+  'Читаются ли цвета в толпе?',
+  'Мышь успевает? Обидные промахи были?',
+  'Что лучше: этот темп или пошаговые бои?',
+];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, html = ''): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   node.className = className;
   if (html) node.innerHTML = html;
   return node;
+}
+
+function button(className: string, html: string, testId: string): HTMLButtonElement {
+  const b = el('button', className, html);
+  b.type = 'button';
+  b.setAttribute('data-testid', testId);
+  // A focused button would be clicked again by Space (the jump key) after its overlay hides.
+  b.addEventListener('click', () => b.blur());
+  return b;
 }
 
 async function boot(): Promise<void> {
@@ -42,47 +61,82 @@ async function boot(): Promise<void> {
   focusBar.setAttribute('data-testid', 'focus');
   focusBar.appendChild(focusFill);
   const energyText = el('span', 'rt-energy');
-  const killsText = el('span', 'rt-kills');
-  killsText.setAttribute('data-testid', 'kills');
+  const goalText = el('span', 'rt-kills');
+  goalText.setAttribute('data-testid', 'goal');
   const chainText = el('span', 'rt-chain');
-  hud.append(hpBar, hpText, focusBar, energyText, killsText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', 'Нажми на врага рядом с героем и веди мышь по врагам того же цвета, отпусти — удар. <kbd>Esc</kbd> или мышь на героя — отмена. <kbd>Пробел</kbd> — прыжок (2 энергии), затем клик. <kbd>`</kbd>/<kbd>F1</kbd> — отладка, <kbd>P</kbd> — пауза, <kbd>R</kbd> — заново.');
-  const jumpButton = el('button', 'rt-jump', 'Прыжок (Пробел)');
-  jumpButton.type = 'button';
-  jumpButton.setAttribute('data-testid', 'jump');
-  const openButton = el('button', 'rt-open', '⚙ Отладка');
-  openButton.type = 'button';
-  openButton.setAttribute('data-testid', 'open-panel');
-  const defeat = el('div', 'rt-defeat');
-  defeat.setAttribute('data-testid', 'defeat');
-  defeat.hidden = true;
-  const defeatCard = el('div', 'rt-defeat-card');
-  const defeatStats = el('p', 'rt-defeat-stats');
-  const again = el('button', 'rt-again', 'Заново (R)');
-  again.type = 'button';
-  again.setAttribute('data-testid', 'defeat-restart');
-  defeatCard.append(el('h2', '', 'Поражение'), defeatStats, again);
-  defeat.appendChild(defeatCard);
+  hud.append(hpBar, hpText, focusBar, energyText, goalText, timeText, infoText, chainText);
+  const help = el('div', 'rt-help', 'Цепь: нажми на врага у героя, веди по врагам того же цвета, отпусти. Кнопка и открытая дверь — звено любого цвета, последнее. <kbd>Esc</kbd> — отмена, <kbd>Пробел</kbd> — прыжок, <kbd>M</kbd> — арены, <kbd>R</kbd> — заново, <kbd>P</kbd> — пауза, <kbd>`</kbd> — отладка.');
+  const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
+  const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
+  const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
+
+  // Arena menu: before the first fight and after a result (keys 1–3).
+  const menu = el('div', 'rt-overlay rt-menu');
+  menu.setAttribute('data-testid', 'menu');
+  const menuCard = el('div', 'rt-card rt-menu-card');
+  menuCard.append(el('h2', '', 'Выбери арену'));
+  const arenaList = el('div', 'rt-arenas');
+  ARENAS.forEach((arena, i) => {
+    const b = button('rt-arena', `<kbd>${i + 1}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, `arena-${i + 1}`);
+    b.addEventListener('click', () => start(i));
+    arenaList.appendChild(b);
+  });
+  const questions = el('details', 'rt-questions');
+  questions.innerHTML = `<summary>Плейтест: 15–20 минут на трёх аренах — вопросы</summary><ol>${PLAYTEST_QUESTIONS.map(q => `<li>${q}</li>`).join('')}</ol>`;
+  menuCard.append(arenaList, el('p', 'rt-menu-note', 'После целей открывается дверь и растёт давление: можно уйти сразу или остаться ради убийств.'), questions);
+  menu.appendChild(menuCard);
+
+  // Result: victory or defeat, time, kills, time spent in the greed stage.
+  const result = el('div', 'rt-overlay rt-result');
+  result.setAttribute('data-testid', 'result');
+  result.hidden = true;
+  const resultCard = el('div', 'rt-card rt-result-card');
+  const resultTitle = el('h2', '');
+  const resultStats = el('dl', 'rt-result-stats');
+  const again = button('rt-again', 'Ещё раз (Enter)', 'result-again');
+  const other = button('rt-other', 'Другая арена (M)', 'result-arenas');
+  const resultButtons = el('div', 'rt-result-buttons');
+  resultButtons.append(again, other);
+  resultCard.append(resultTitle, resultStats, resultButtons);
+  result.appendChild(resultCard);
+
   const pausedBadge = el('div', 'rt-paused', 'Пауза');
   pausedBadge.hidden = true;
-  host.append(stage, hud, help, pausedBadge, openButton, jumpButton, defeat);
+  host.append(stage, hud, help, pausedBadge, openButton, menuButton, jumpButton, result, menu);
 
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
   await renderer.init(stage);
 
-  let world: World = createWorld(TEST_ARENA, params);
+  let arenaIndex = 0;
+  let world: World = createWorld(ARENAS[arenaIndex], params);
   renderer.buildArena(world.arena);
   let paused = false;
+  let menuOpen = true;
   /** Pointer and the jump aim (render-only); `dragging` — the button is held after a press on the arena. */
   const ui: RenderUi = { pointer: null, jumpMode: false };
   let dragging = false;
 
-  const restart = (): void => {
+  const start = (index: number): void => {
+    arenaIndex = Math.max(0, Math.min(ARENAS.length - 1, index));
     renderer.resetEffects();
-    world = createWorld(TEST_ARENA, params);
+    world = createWorld(ARENAS[arenaIndex], params);
+    renderer.buildArena(world.arena);
     paused = false;
-    defeat.hidden = true;
+    menuOpen = false;
+    menu.hidden = true;
+    result.hidden = true;
+    delete result.dataset.outcome;
+    dragging = false;
+    ui.jumpMode = false;
+    relayout();
+  };
+  const restart = (): void => start(arenaIndex);
+  const showMenu = (): void => {
+    menuOpen = true;
+    menu.hidden = false;
+    result.hidden = true;
+    cancelChain(world);
     dragging = false;
     ui.jumpMode = false;
   };
@@ -115,10 +169,14 @@ async function boot(): Promise<void> {
   });
   host.appendChild(panel.el);
   openButton.addEventListener('click', () => panel.setOpen(true));
+  menuButton.addEventListener('click', () => { showMenu(); menuButton.blur(); });
   again.addEventListener('click', restart);
+  other.addEventListener('click', showMenu);
   jumpButton.addEventListener('click', () => { ui.jumpMode = !ui.jumpMode && canJump(world); jumpButton.blur(); });
 
-  // Mouse: press on an enemy near the hero starts the chain, drag adds links, release strikes.
+  const running = (): boolean => !paused && !menuOpen && world.status === 'playing';
+
+  // Mouse: press on an enemy (or a button / the open door) near the hero starts the chain, drag adds links, release strikes.
   const arenaPoint = (event: PointerEvent): Vec => {
     const box = stage.getBoundingClientRect();
     return renderer.toArena(event.clientX - box.left, event.clientY - box.top);
@@ -126,7 +184,7 @@ async function boot(): Promise<void> {
   stage.addEventListener('contextmenu', event => event.preventDefault());
   stage.addEventListener('pointerdown', event => {
     ui.pointer = arenaPoint(event);
-    if (paused || world.status !== 'playing') return;
+    if (!running()) return;
     if (event.button === 2) { cancelChain(world); dragging = false; ui.jumpMode = false; return; }
     if (event.button !== 0) return;
     if (ui.jumpMode) { if (jump(world, ui.pointer)) ui.jumpMode = false; return; }
@@ -135,12 +193,12 @@ async function boot(): Promise<void> {
   });
   window.addEventListener('pointermove', event => {
     ui.pointer = arenaPoint(event);
-    if (dragging && !paused) dragChain(world, ui.pointer);
+    if (dragging && running()) dragChain(world, ui.pointer);
   });
   window.addEventListener('pointerup', event => {
     if (event.button !== 0 || !dragging) return;
     dragging = false;
-    if (!paused) releaseChain(world); else cancelChain(world);
+    if (running()) releaseChain(world); else cancelChain(world);
   });
 
   const relayout = (): void => {
@@ -156,12 +214,38 @@ async function boot(): Promise<void> {
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
     if (event.code === 'Backquote' || event.key === 'F1') { event.preventDefault(); panel.toggle(); return; }
     if (typing) return;
+    const digit = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(event.code);
+    const ended = world.status !== 'playing';
+    if (digit >= 0 && (menuOpen || ended)) { start(digit % 3); return; }
+    if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
+    if (menuOpen) return;
     if (event.key === 'Escape') { cancelChain(world); dragging = false; ui.jumpMode = false; }
     else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world); }
     else if (event.code === 'KeyR') restart();
     else if (event.code === 'KeyP') paused = !paused;
-    else if (event.key === 'Enter' && world.status === 'defeat') restart();
+    else if (event.key === 'Enter' && ended) restart();
   });
+
+  const showResult = (): void => {
+    const won = world.status === 'victory';
+    const end = world.endTime ?? world.time;
+    const greed = world.greedStart !== null ? formatTime(end - world.greedStart) : 'цели не выполнены';
+    result.dataset.outcome = won ? 'victory' : 'defeat';
+    resultCard.classList.toggle('rt-won', won);
+    resultTitle.textContent = won ? 'Победа' : 'Поражение';
+    const goal = goalProgress(world);
+    const rows: [string, string][] = [
+      ['Арена', world.arena.name],
+      ['Время', formatTime(end)],
+      ['Убито', String(world.stats.kills)],
+      ['В стадии жадности', greed],
+      ['Цель', `${goal.label} ${goal.done} / ${goal.total}`],
+      ['Получено урона', `${world.stats.damageTaken} (ударов ${world.stats.hitsTaken})`],
+      ['Врагов пришло', String(world.stats.spawned)],
+    ];
+    resultStats.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    result.hidden = false;
+  };
 
   let last = performance.now(), fpsFrames = 0, fpsTime = 0, fps = 0, statsTimer = 0, workMs = 0;
   const frame = (now: number): void => {
@@ -170,12 +254,13 @@ async function boot(): Promise<void> {
     fpsFrames++; fpsTime += realDt;
     if (fpsTime >= 0.5) { fps = fpsFrames / fpsTime; fpsFrames = 0; fpsTime = 0; }
     const workStart = performance.now();
-    if (!paused) {
+    const live = !paused && !menuOpen;
+    if (live) {
       const steps = Math.max(1, Math.ceil(realDt / SUBSTEP));
       for (let i = 0; i < steps; i++) { stepHero(world, realDt / steps); update(world, realDt / steps); }
     }
     if (ui.jumpMode && !canJump(world)) ui.jumpMode = false;
-    renderer.render(world, paused ? 0 : realDt, ui);
+    renderer.render(world, live ? realDt : 0, ui);
     world.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;
@@ -188,20 +273,22 @@ async function boot(): Promise<void> {
     focusBar.classList.toggle('rt-focus-on', world.focusing);
     energyText.textContent = `⚡ ${world.energy.toFixed(1)} / ${ENERGY_MAX}`;
     energyText.classList.toggle('rt-ready', world.energy >= params.jumpCost);
-    killsText.textContent = world.stage === 'greed' ? `убито ${world.stats.kills} · цель ✓` : `убито ${world.stats.kills} / ${params.killGoal}`;
+    const goal = goalProgress(world);
+    goalText.textContent = world.stage === 'greed' ? `дверь открыта · убито ${world.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
+    goalText.classList.toggle('rt-door-open', world.stage === 'greed');
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(world) && !ui.jumpMode;
     if (world.chain.length) {
       const plan = planChain(world);
-      const last = plan.links[plan.links.length - 1]?.outcome;
-      chainText.textContent = `цепь ${world.chain.length} · сила ${plan.power}${plan.endsOnSurvivor && last ? ` · последний выживет (${last.hpBefore}→${last.hpAfter} HP)` : ''}`;
+      const lastLink = plan.links[plan.links.length - 1];
+      const lastOutcome = lastLink?.outcome;
+      const tail = plan.endsOnSurvivor && lastOutcome ? ` · последний выживет (${lastOutcome.hpBefore}→${lastOutcome.hpAfter} HP)`
+        : plan.endsOnObject ? (world.objects.find(o => o.id === lastLink.link.id)?.kind === 'door' ? ' · в дверь' : ' · на кнопку') : '';
+      chainText.textContent = `цепь ${world.chain.length} · сила ${plan.power}${tail}`;
     } else chainText.textContent = '';
-    infoText.textContent = `врагов ${world.enemies.length} · ${world.stage === 'greed' ? `жадность, фаза ${world.pressure.phaseIndex + 1}` : 'до целей'}`;
-    pausedBadge.hidden = !paused || world.status !== 'playing';
-    if (world.status === 'defeat' && defeat.hidden) {
-      defeatStats.textContent = `Продержался ${formatTime(world.time)} · ударов получено: ${world.stats.hitsTaken} · врагов пришло: ${world.stats.spawned}`;
-      defeat.hidden = false;
-    }
+    infoText.textContent = `${world.arena.name} · врагов ${world.enemies.length} · ${world.stage === 'greed' ? `жадность ${formatTime(world.time - (world.greedStart ?? 0))}, фаза ${world.pressure.phaseIndex + 1}` : 'до целей'}`;
+    pausedBadge.hidden = !paused || world.status !== 'playing' || menuOpen;
+    if (world.status !== 'playing' && result.hidden && !menuOpen) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
@@ -214,7 +301,8 @@ async function boot(): Promise<void> {
         fps, workMs, enemies: world.enemies.length, markers: world.markers.length, queue: world.queue.length, maxEnemies: params.maxEnemies,
         time: world.time, greed, greedTime, phaseIndex: p.phaseIndex, phaseCount: params.phases.length, phaseLeft: p.phaseLeft,
         floor: p.phase.floor, intervalMin: Math.min(p.phase.intervalMin, p.phase.intervalMax), intervalMax: Math.max(p.phase.intervalMin, p.phase.intervalMax),
-        toughShare: p.phase.toughShare, fastShare: p.phase.fastShare, angerTier: p.angerTier, enemySpeed: p.enemySpeed, reaper,
+        toughShare: p.phase.toughShare, wolfShare: p.phase.wolfShare, boarShare: p.phase.boarShare, angerTier: p.angerTier, enemySpeed: p.enemySpeed, reaper,
+        wolves: world.enemies.filter(e => e.kind === 'wolf').length, boars: world.enemies.filter(e => e.kind === 'boar').length,
         crowdConstant: crowdLifetime(params, 'constant'), crowdByDamage: crowdLifetime(params, 'byDamage'),
         heroHp: hero.hp, heroMaxHp: hero.maxHp, paused,
       });
@@ -223,37 +311,59 @@ async function boot(): Promise<void> {
   };
   requestAnimationFrame(frame);
 
+  // `?arena=N` (1–3) skips the menu: handy for manual tuning.
+  const fromUrl = Number(new URLSearchParams(location.search).get('arena'));
+  if (fromUrl >= 1 && fromUrl <= ARENAS.length) start(fromUrl - 1);
+
   // Hook for the Playwright smoke test and manual tuning from the console.
   (window as unknown as { __realtime: unknown }).__realtime = {
     params,
     get fps() { return fps; },
     get workMs() { return workMs; },
     snapshot: () => ({
+      arena: world.arena.id,
+      menuOpen,
       status: world.status,
       time: world.time,
       hero: { ...world.hero },
-      enemies: world.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, fast: e.fast })),
+      enemies: world.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null })),
+      objects: world.objects.map(o => ({ ...o })),
       chain: world.chain.map(l => l.id),
+      chainLinks: world.chain.map(l => ({ ...l })),
       moving: world.move?.kind ?? null,
       focus: world.focus,
       focusing: world.focusing,
       timeScale: world.timeScale,
       energy: world.energy,
       kills: world.stats.kills,
+      stats: { ...world.stats },
+      goal: goalProgress(world),
       markers: world.markers.length,
       queue: world.queue.length,
       stage: world.stage,
+      greedStart: world.greedStart,
       phaseIndex: world.pressure.phaseIndex,
       panelOpen: panel.open,
       paused,
+      lanes: renderer.visibleLanes,
+      packLines: renderer.visiblePackLines,
     }),
     restart,
+    /** Starts arena `n` (1–3), as keys 1–3 on the menu. */
+    selectArena: (n: number) => start(n - 1),
     completeGoals: () => completeGoals(world),
     burst: (count: number) => spawnBurst(world, count),
-    /** Test setup: remove every enemy, marker and queued newcomer. */
-    clear: () => { world.enemies.length = 0; world.markers.length = 0; world.queue.length = 0; world.chain = []; },
-    /** Test setup: put an enemy of `color` with `hp` at an arena point; returns its id. */
-    place: (x: number, y: number, color: number, hp = 0) => { spawnEnemy(world, { x, y }, color, hp, false); return world.enemies[world.enemies.length - 1].id; },
+    /** Test setup: remove every enemy (except the marked ones with `keepMarked`), marker and queued newcomer. */
+    clear: (keepMarked = false) => {
+      world.enemies = keepMarked ? world.enemies.filter(e => e.marked) : [];
+      world.markers.length = 0; world.queue.length = 0; world.chain = [];
+    },
+    /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. */
+    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic') => spawnEnemy(world, { x, y }, color, hp, kind).id,
+    /** Test setup: move the hero. */
+    teleport: (x: number, y: number) => { world.hero.x = x; world.hero.y = y; },
+    /** Test setup: set the jump energy. */
+    setEnergy: (value: number) => { world.energy = value; },
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
   };
 }

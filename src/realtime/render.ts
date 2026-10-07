@@ -3,14 +3,16 @@
  * Terrain and the hero reuse the art of the main game (drawTerrain, makePlayer);
  * enemies are colored discs with the chain sigil (or the melee illustration),
  * which keeps 60+ enemies cheap: each disc is a sprite of one pre-rendered texture per color.
+ * Stage 3: wolf ears and pack lines, boar tusks with the charge lane (threat color, hatched)
+ * and «!», target reticles of marked enemies, buttons and the door.
  */
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../render/art';
 import { characterSprite } from '../render/characterAssets';
 import type { ArenaLayout, Vec } from './arena';
-import { canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, planChain } from './chain';
+import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { heroRadius, type EnemyLook } from './params';
-import { NO_COLOR, touchDistance, type Enemy, type World } from './world';
+import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from './world';
 
 /** Input state the view shows (pointer line, jump aim); owned by main.ts. */
 export interface RenderUi {
@@ -33,10 +35,17 @@ const THREAT_OUTLINE = 0x0b0f14;
 const REAPER_FILL = 0x1b1b24;
 const NAVY = 0x18232d;
 const BASE_ENEMY_RADIUS = 0.4;
+/** Boar art is drawn a bit larger than the crowd (its body circle stays the same). */
+const BOAR_SCALE = 1.15;
+const BONE = 0xeadbb9;
+/** Target reticle of marked enemies: warm gold, outside the chain sigils. */
+const TARGET = 0xffd36b;
 
 interface EnemyView {
   root: Container;
   body: Container;
+  /** Boar: «!» over it while the charge is announced. */
+  exclaim: Text | null;
   /** Grey copy of the disc over the colored one: desaturation by its alpha. */
   grey: Sprite | null;
   hpLabel: Text | null;
@@ -65,6 +74,12 @@ export class RealtimeRenderer {
   private readonly floor = new Graphics();
   private readonly terrain = new Graphics();
   private readonly markerLayer = new Graphics();
+  /** Buttons and the door (under the crowd). */
+  private readonly objectLayer = new Graphics();
+  /** Boar lanes and wolf pack lines (under the crowd). */
+  private readonly laneLayer = new Graphics();
+  /** Target reticles of marked enemies (over the crowd). */
+  private readonly targetLayer = new Graphics();
   private readonly enemyLayer = new Container();
   private readonly heroLayer = new Container();
   private readonly overlay = new Graphics();
@@ -83,6 +98,10 @@ export class RealtimeRenderer {
   private shakeTotal = 0;
   private shakeAmp = 0;
   private readonly base = { x: 0, y: 0 };
+  /** Boar lanes drawn in the last frame (tests read it: the announcement is on screen). */
+  visibleLanes = 0;
+  /** Wolf pack lines drawn in the last frame. */
+  visiblePackLines = 0;
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -95,7 +114,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.markerLayer, this.enemyLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.enemyLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer);
     this.app.stage.addChild(this.root);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -150,12 +169,12 @@ export class RealtimeRenderer {
     this.staticLayer.cacheAsTexture({ resolution: Math.min(window.devicePixelRatio || 1, 2), antialias: true });
   }
 
-  /** Disc sprite of an enemy: vector art rendered once per (look, color, tough, fast) into a texture. */
-  private enemyDisc(color: number, tough: boolean, fast: boolean, look: EnemyLook, grey = false): Sprite {
-    const key = `${look}-${color}-${tough ? 1 : 0}-${fast ? 1 : 0}${grey ? '-grey' : ''}`;
+  /** Disc sprite of an enemy: vector art rendered once per (look, color, tough, kind) into a texture. */
+  private enemyDisc(color: number, tough: boolean, kind: EnemyKind, look: EnemyLook, grey = false): Sprite {
+    const key = `${look}-${color}-${tough ? 1 : 0}-${kind}${grey ? '-grey' : ''}`;
     let entry = this.bodyTextures.get(key);
     if (!entry) {
-      const g = new Graphics(this.enemyContext(color, tough, fast, look, grey)), b = g.getLocalBounds();
+      const g = new Graphics(this.enemyContext(color, tough, kind, look, grey)), b = g.getLocalBounds();
       const texture = this.app.renderer.generateTexture({ target: g, resolution: 2, antialias: true });
       entry = { texture, ax: -b.minX / b.width, ay: -b.minY / b.height };
       this.bodyTextures.set(key, entry);
@@ -166,7 +185,7 @@ export class RealtimeRenderer {
     return sprite;
   }
 
-  private enemyContext(color: number, tough: boolean, fast: boolean, look: EnemyLook, grey = false): GraphicsContext {
+  private enemyContext(color: number, tough: boolean, kind: EnemyKind, look: EnemyLook, grey = false): GraphicsContext {
     const r = BASE_ENEMY_RADIUS * UNIT;
     const ctx = new GraphicsContext();
     ctx.ellipse(0, r * 0.8, r * 0.9, r * 0.32).fill({ color: 0x050a07, alpha: 0.45 });
@@ -178,29 +197,40 @@ export class RealtimeRenderer {
       return ctx;
     }
     const fill = grey ? greyOf(COLORS[color]) : COLORS[color];
-    if (fast) {
-      // Fast enemies: two swept marks trailing behind the disc (silhouette, not a color).
+    if (kind === 'wolf') {
+      // Wolf: two pointed ears and swept speed marks (silhouette, not a color).
       for (const dy of [-r * 0.45, r * 0.15]) ctx.poly([-r * 0.75, dy, -r * 1.35, dy - r * 0.18, -r * 1.2, dy + r * 0.1]).fill(PALE).stroke({ color: NAVY, width: 2 });
+      for (const sx of [-1, 1]) ctx.poly([sx * r * 0.25, -r * 0.8, sx * r * 0.62, -r * 1.42, sx * r * 0.85, -r * 0.55]).fill(fill).stroke({ color: NAVY, width: 3, join: 'round' });
+    }
+    if (kind === 'boar') {
+      // Boar: a bristle ridge on top and two bone tusks below (silhouette, not a color).
+      ctx.poly([-r * 0.55, -r * 0.78, -r * 0.35, -r * 1.25, -r * 0.12, -r * 0.88, r * 0.1, -r * 1.32, r * 0.3, -r * 0.88, r * 0.52, -r * 1.2, r * 0.62, -r * 0.7]).fill(NAVY);
     }
     if (look === 'circle') {
       ctx.circle(0, 0, r).fill(fill).stroke({ color: NAVY, width: 3 });
       ctx.arc(0, 0, r * 0.72, Math.PI * 1.1, Math.PI * 1.6).stroke({ color: 0xffffff, width: 3, alpha: 0.28 });
       if (tough) ctx.circle(0, 0, r - 5).stroke({ color: PALE, width: 2.5, alpha: 0.95 });
       drawSigil(ctx, color, r * 0.36, NAVY);
+      if (kind === 'boar') this.tusks(ctx, r);
     } else {
       ctx.circle(0, 0, r).fill({ color: fill, alpha: 0.9 }).stroke({ color: NAVY, width: 3 });
       if (tough) ctx.circle(0, 0, r - 4).stroke({ color: PALE, width: 2.5, alpha: 0.95 });
+      if (kind === 'boar') this.tusks(ctx, r);
     }
     return ctx;
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; grey: Sprite | null; hpLabel: Text | null } {
+  private tusks(ctx: GraphicsContext, r: number): void {
+    for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
+  }
+
+  private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null } {
     const body = new Container();
-    body.addChild(this.enemyDisc(e.color, e.hp > 0, e.fast, look));
+    body.addChild(this.enemyDisc(e.color, e.hp > 0, e.kind, look));
     let grey: Sprite | null = null;
-    if (e.color !== NO_COLOR) { grey = this.enemyDisc(e.color, e.hp > 0, e.fast, look, true); grey.alpha = 0; body.addChild(grey); }
+    if (e.color !== NO_COLOR) { grey = this.enemyDisc(e.color, e.hp > 0, e.kind, look, true); grey.alpha = 0; body.addChild(grey); }
     const r = BASE_ENEMY_RADIUS * UNIT;
-    if (look === 'sprite' && e.color !== NO_COLOR) {
+    if (look === 'sprite' && e.color !== NO_COLOR && e.kind === 'basic') {
       const sprite = characterSprite('melee', r * 1.75, r * 1.75);
       if (sprite) { sprite.position.set(0, -r * 0.08); body.addChild(sprite); }
       const plaque = new Graphics();
@@ -215,7 +245,14 @@ export class RealtimeRenderer {
       hpLabel.anchor.set(0.5); hpLabel.position.set(r * 0.72, -r * 0.72);
       body.addChild(badge, hpLabel);
     }
-    return { body, grey, hpLabel };
+    let exclaim: Text | null = null;
+    if (e.kind === 'boar') {
+      exclaim = new Text({ text: '!', style: { fontFamily: 'Georgia, serif', fontSize: 40, fontWeight: 'bold', fill: THREAT, stroke: { color: THREAT_OUTLINE, width: 6 } } });
+      exclaim.anchor.set(0.5, 1); exclaim.position.set(0, -r * 1.2); exclaim.visible = false;
+      body.addChild(exclaim);
+    }
+    if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
+    return { body, grey, hpLabel, exclaim };
   }
 
   private syncEnemies(world: World): void {
@@ -229,9 +266,9 @@ export class RealtimeRenderer {
       let view = this.enemyViews.get(e.id);
       if (view && (view.look !== look || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
       if (!view) {
-        const root = new Container(), { body, grey, hpLabel } = this.buildEnemyBody(e, look);
+        const root = new Container(), { body, grey, hpLabel, exclaim } = this.buildEnemyBody(e, look);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, hp: e.hp, look };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -250,6 +287,11 @@ export class RealtimeRenderer {
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
       if (view.grey) view.grey.alpha = mode === 'desaturate' ? dim : 0;
+      // Boar announcing a charge: «!» over it and blinking (design answer 29).
+      const announcing = e.kind === 'boar' && e.boar === 'windup' && world.params.boarExclaim;
+      if (view.exclaim) view.exclaim.visible = announcing;
+      if (announcing && Math.floor(this.clock * 10) % 2 === 0) view.body.alpha = 0.55;
+      else view.body.alpha = 1;
     }
     for (const [id, view] of this.enemyViews) if (!seen.has(id)) { view.root.destroy({ children: true }); this.enemyViews.delete(id); }
     this.enemyLayer.sortableChildren = true;
@@ -266,6 +308,98 @@ export class RealtimeRenderer {
       g.arc(x, y, r * 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ color: rim, width: 4, alpha: 0.95 });
       g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT_OUTLINE, width: 9, alpha: pulse, cap: 'round' });
       g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT, width: 4.5, alpha: pulse, cap: 'round' });
+    }
+  }
+
+  /**
+   * Boar lanes (design answers 18, 21): a white hatched strip with a dark outline from the boar
+   * along the charge; it fills up during the announcement and fades while the boar runs.
+   * Wolf pack lines: wolves within the pack radius of each other.
+   */
+  private drawLanes(world: World): void {
+    const g = this.laneLayer.clear(), p = world.params, half = p.bodyRadius * UNIT;
+    let lanes = 0, packs = 0;
+    for (const e of world.enemies) {
+      if (e.kind !== 'boar' || (e.boar !== 'windup' && e.boar !== 'charge')) continue;
+      lanes++;
+      const left = e.boar === 'windup' ? p.boarRange : Math.max(0, p.boarRange - e.charged);
+      const len = left * UNIT + half, k = e.boar === 'windup' && p.boarWindup > 0 ? 1 - Math.max(0, e.boarTimer) / p.boarWindup : 1;
+      const fade = e.boar === 'charge' ? 0.5 : 1;
+      const ux = e.dirX, uy = e.dirY, nx = -uy, ny = ux, ox = e.x * UNIT, oy = e.y * UNIT;
+      const at = (t: number, s: number): [number, number] => [ox + ux * t + nx * s, oy + uy * t + ny * s];
+      const quad = (t0: number, t1: number): number[] => [...at(t0, -half), ...at(t1, -half), ...at(t1, half), ...at(t0, half)];
+      g.poly(quad(0, len)).fill({ color: THREAT, alpha: 0.12 * fade });
+      g.poly(quad(0, len * k)).fill({ color: THREAT, alpha: 0.22 * fade });
+      const step = 0.32 * UNIT;
+      for (let t = 0; t < len - step * 0.5; t += step) {
+        const [x0, y0] = at(t, -half), [x1, y1] = at(Math.min(len, t + step), half);
+        g.moveTo(x0, y0).lineTo(x1, y1);
+      }
+      g.stroke({ color: THREAT, width: 3, alpha: 0.7 * fade });
+      g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 * fade }).poly(quad(0, len)).stroke({ color: THREAT, width: 2, alpha: 0.95 * fade });
+      // Arrow head at the end of the lane.
+      const [tx, ty] = at(len + half * 0.9, 0), [ax, ay] = at(len, -half), [bx, by] = at(len, half);
+      g.poly([ax, ay, tx, ty, bx, by]).fill({ color: THREAT, alpha: 0.85 * fade }).stroke({ color: THREAT_OUTLINE, width: 2, alpha: fade });
+    }
+    const wolves = world.enemies.filter(e => e.kind === 'wolf');
+    for (let i = 0; i < wolves.length; i++) for (let j = i + 1; j < wolves.length; j++) {
+      const a = wolves[i], b = wolves[j];
+      if (Math.hypot(a.x - b.x, a.y - b.y) > p.wolfPackRadius) continue;
+      packs++;
+      g.moveTo(a.x * UNIT, a.y * UNIT).lineTo(b.x * UNIT, b.y * UNIT);
+    }
+    if (packs) g.stroke({ color: PALE, width: 3, alpha: 0.5, cap: 'round' });
+    this.visibleLanes = lanes;
+    this.visiblePackLines = packs;
+  }
+
+  /** Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. */
+  private drawTargets(world: World): void {
+    const g = this.targetLayer.clear(), r = world.params.enemyRadius * UNIT;
+    for (const e of world.enemies) {
+      if (!e.marked) continue;
+      const x = e.x * UNIT, y = e.y * UNIT, R = r * 1.35, a0 = this.clock * 1.6;
+      g.circle(x, y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.6 }).circle(x, y, R).stroke({ color: TARGET, width: 3 });
+      for (let i = 0; i < 4; i++) {
+        const a = a0 + i * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+        g.moveTo(x + c * R * 0.82, y + s * R * 0.82).lineTo(x + c * R * 1.25, y + s * R * 1.25);
+      }
+      g.stroke({ color: TARGET, width: 4, cap: 'round' });
+      const sx = x + r * 0.78, sy = y + r * 0.82, pts: number[] = [];
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.16 : r * 0.36; pts.push(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr); }
+      g.poly(pts).fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 2 });
+    }
+  }
+
+  /** Buttons (stone plates, sunk and green when pressed) and the door (barred, glowing when open). */
+  private drawObjects(world: World): void {
+    const g = this.objectLayer.clear(), R = OBJECT_RADIUS * UNIT, pulse = 0.5 + 0.5 * Math.sin(this.clock * 4);
+    for (const o of world.objects) {
+      const x = o.x * UNIT, y = o.y * UNIT;
+      if (o.kind === 'button') {
+        g.circle(x, y + 4, R).fill({ color: 0x050a07, alpha: 0.45 });
+        if (o.pressed) {
+          g.circle(x, y + 2, R * 0.9).fill(0x3a4434).stroke({ color: 0x8fd18a, width: 3 });
+          g.moveTo(x - R * 0.35, y + 2).lineTo(x - R * 0.08, y + R * 0.3).lineTo(x + R * 0.4, y - R * 0.3).stroke({ color: 0x8fd18a, width: 5, cap: 'round', join: 'round' });
+        } else {
+          g.circle(x, y, R + 6).stroke({ color: TARGET, width: 3, alpha: 0.35 + 0.5 * pulse });
+          g.circle(x, y, R).fill(0x6d6a58).stroke({ color: NAVY, width: 3 });
+          g.circle(x, y - 2, R * 0.62).fill(0x9a9478).stroke({ color: 0x47463a, width: 2 });
+          g.circle(x, y - 2, R * 0.22).fill(TARGET);
+        }
+        continue;
+      }
+      const open = doorOpen(world), w = R * 2.1, h = R * 2.3;
+      g.roundRect(x - w / 2 - 6, y - h / 2 - 6, w + 12, h + 12, 10).fill(0x3b3326).stroke({ color: NAVY, width: 3 });
+      if (open) {
+        g.circle(x, y, R * 2.1).fill({ color: 0xfff2c4, alpha: 0.12 + 0.12 * pulse });
+        g.roundRect(x - w / 2, y - h / 2, w, h, 8).fill(0xf6e3a2).stroke({ color: 0xfff6d8, width: 3 });
+        g.roundRect(x - w / 2 + 6, y - h / 2 + 6, w - 12, h - 12, 6).fill({ color: 0xffffff, alpha: 0.55 });
+      } else {
+        g.roundRect(x - w / 2, y - h / 2, w, h, 8).fill(0x1b1712);
+        for (let i = 1; i < 4; i++) g.rect(x - w / 2 + w * i / 4 - 2, y - h / 2, 4, h).fill(0x6b5f4c);
+        g.circle(x, y + h * 0.1, R * 0.22).fill(0x8a7a5a).stroke({ color: NAVY, width: 2 });
+      }
     }
   }
 
@@ -315,6 +449,16 @@ export class RealtimeRenderer {
         if (view.grey) view.grey.alpha = 0;
         const total = Math.max(0.01, world.params.deathDuration);
         this.dying.push({ root: view.root, life: total, total, spin: Math.random() < 0.5 ? -1 : 1, scale: view.root.scale.x });
+        continue;
+      }
+      if (ev.type === 'button') {
+        const o = world.objects.find(x => x.id === ev.objectId);
+        if (o) this.floatText('Кнопка!', o.x * UNIT, o.y * UNIT - 40, 0x8fd18a);
+        continue;
+      }
+      if (ev.type === 'goals') {
+        const door = world.objects.find(x => x.kind === 'door');
+        if (door) this.floatText('Дверь открыта', door.x * UNIT, door.y * UNIT + (door.y < world.arena.height / 2 ? 60 : -60), 0xfff2c4);
         continue;
       }
       if (ev.type !== 'hit') continue;
@@ -370,7 +514,11 @@ export class RealtimeRenderer {
         g.circle(at.x * UNIT, at.y * UNIT, heroRadius(p) * UNIT * 1.4).stroke({ color: good ? 0x9ad1ff : 0xd08070, width: 3 });
       }
     }
-    if (!world.chain.length) return;
+    if (!world.chain.length) {
+      // Out of a chain: the reachable buttons / open door get a faint ring (a link of any color).
+      if (world.status === 'playing' && !world.move) for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 2, alpha: 0.45 });
+      return;
+    }
     const plan = planChain(world), color = chainColor(world), ink = color === null ? 0xffffff : COLORS[color];
     // Line hero → links, navy under the chain color.
     const pts: Vec[] = [{ x: hero.x, y: hero.y }];
@@ -381,11 +529,14 @@ export class RealtimeRenderer {
       g.stroke({ color: c, width: w, alpha: 0.95, cap: 'round', join: 'round' });
     }
     const anchor = chainAnchor(world);
-    if (!plan.endsOnSurvivor) {
+    if (!plan.endsOnSurvivor && !plan.endsOnObject) {
       if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
       // Reach of the next link and the valid next links (outlined).
       g.circle(anchor.x * UNIT, anchor.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
       for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, p.enemyRadius * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+    }
+    if (!plan.endsOnSurvivor && !plan.endsOnObject) {
+      for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
     }
     // Outcome of each link: dies — white badge with a red cross; wounded — orange ring and «!».
     const r = p.enemyRadius * UNIT;
@@ -420,8 +571,11 @@ export class RealtimeRenderer {
     this.handleEvents(world);
     this.updateFloating(realDt);
     this.updateDying(realDt);
+    this.drawObjects(world);
     this.drawMarkers(world);
+    this.drawLanes(world);
     this.syncEnemies(world);
+    this.drawTargets(world);
     this.drawChain(world, ui);
     this.drawHero(world);
     this.drawOverlay(world);

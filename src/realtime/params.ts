@@ -1,8 +1,7 @@
 /**
  * Tunable numbers of the real-time prototype (docs/realtime-prototype.md, sections 8, 9a and 11).
  * Every value is a debug-panel control; the panel stores them in localStorage.
- * Stage marks which prototype stage starts using the value: stage 3 fields
- * already exist so the panel layout stays stable, but do nothing yet.
+ * Stage marks which prototype stage introduced the value (all stages are implemented).
  */
 
 export type DimMode = 'darken' | 'alpha' | 'desaturate';
@@ -26,8 +25,10 @@ export interface Phase {
   intervalMax: number;
   /** Share of tough enemies (1–2 HP) among newcomers. */
   toughShare: number;
-  /** Share of fast enemies among newcomers (stage 3: wolves). */
-  fastShare: number;
+  /** Share of groups that come as a wolf pack (stage 3; replaces the stage 1 «fast» share). */
+  wolfShare: number;
+  /** Share of boars among the other newcomers (stage 3; capped by `boarMax` on the arena). */
+  boarShare: number;
 }
 
 export const PHASE_FIELDS: readonly { key: keyof Phase; label: string; min: number; max: number; step: number; percent?: boolean }[] = [
@@ -36,16 +37,17 @@ export const PHASE_FIELDS: readonly { key: keyof Phase; label: string; min: numb
   { key: 'intervalMin', label: 'инт. от', min: 0.2, max: 20, step: 0.1 },
   { key: 'intervalMax', label: 'до', min: 0.2, max: 20, step: 0.1 },
   { key: 'toughShare', label: 'креп. %', min: 0, max: 1, step: 0.05, percent: true },
-  { key: 'fastShare', label: 'быстр. %', min: 0, max: 1, step: 0.05, percent: true },
+  { key: 'wolfShare', label: 'стаи %', min: 0, max: 1, step: 0.05, percent: true },
+  { key: 'boarShare', label: 'кабан %', min: 0, max: 1, step: 0.01, percent: true },
 ];
 
 /** Default table: build-up, a breather (phase 3), then the squeeze. Mean pace ≈ the draft's 1 enemy per 1.5 s at the start. */
 export const DEFAULT_PHASES: readonly Phase[] = Object.freeze([
-  { duration: 25, floor: 6, intervalMin: 3, intervalMax: 5, toughShare: 0.2, fastShare: 0 },
-  { duration: 25, floor: 12, intervalMin: 2.5, intervalMax: 4, toughShare: 0.25, fastShare: 0.05 },
-  { duration: 20, floor: 4, intervalMin: 5, intervalMax: 7, toughShare: 0.2, fastShare: 0 },
-  { duration: 30, floor: 20, intervalMin: 2, intervalMax: 3.5, toughShare: 0.3, fastShare: 0.1 },
-  { duration: 30, floor: 30, intervalMin: 1.5, intervalMax: 3, toughShare: 0.4, fastShare: 0.15 },
+  { duration: 25, floor: 6, intervalMin: 3, intervalMax: 5, toughShare: 0.2, wolfShare: 0.15, boarShare: 0.05 },
+  { duration: 25, floor: 12, intervalMin: 2.5, intervalMax: 4, toughShare: 0.25, wolfShare: 0.2, boarShare: 0.06 },
+  { duration: 20, floor: 4, intervalMin: 5, intervalMax: 7, toughShare: 0.2, wolfShare: 0.1, boarShare: 0 },
+  { duration: 30, floor: 20, intervalMin: 2, intervalMax: 3.5, toughShare: 0.3, wolfShare: 0.25, boarShare: 0.08 },
+  { duration: 30, floor: 30, intervalMin: 1.5, intervalMax: 3, toughShare: 0.4, wolfShare: 0.3, boarShare: 0.1 },
 ].map(p => Object.freeze(p)));
 
 export interface Params {
@@ -63,13 +65,20 @@ export interface Params {
   bodyRadius: number;
   enemySpeed: number;
   speedSpread: number;
-  fastSpeed: number;
   pathfinding: boolean;
+  // Wolves (stage 3): fast, hit harder next to other wolves, come in packs
+  wolfSpeed: number;
+  wolfPackMin: number;
+  wolfPackMax: number;
+  wolfPackRadius: number;
+  wolfPackBonus: number;
+  wolfPackMono: boolean;
   // Spawning before the goals (base pace, no growth)
   baseIntervalMin: number;
   baseIntervalMax: number;
   baseToughShare: number;
-  baseFastShare: number;
+  baseWolfShare: number;
+  baseBoarShare: number;
   // Greed stage after the goals: pressure table `phases`
   phases: Phase[];
   // Spawning, both stages
@@ -87,8 +96,9 @@ export interface Params {
   reaperTime: number;
   reaperSpeed: number;
   reaperDamage: number;
-  // Goal (stage 2 stand-in until the stage 3 arenas)
+  // Arena goals (stage 3)
   killGoal: number;
+  markedSpeed: number;
   // Effects
   hitFlash: number;
   shakeOnDamage: boolean;
@@ -103,6 +113,7 @@ export interface Params {
   dashSpeed: number;
   survivorKnockback: boolean;
   survivorKnockbackTime: number;
+  survivorKnockbackDistance: number;
   // Focus (stage 2)
   focusSlow: number;
   focusMax: number;
@@ -126,6 +137,12 @@ export interface Params {
   boarMass: number;
   boarDamage: number;
   boarKnockback: number;
+  boarHp: number;
+  boarMax: number;
+  boarTrigger: number;
+  boarChargeSpeed: number;
+  boarRest: number;
+  boarCooldown: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -150,12 +167,18 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   bodyRadius: 0.4,
   enemySpeed: 1.2,
   speedSpread: 0.2,
-  fastSpeed: 1.6,
   pathfinding: false,
+  wolfSpeed: 1.6,
+  wolfPackMin: 3,
+  wolfPackMax: 4,
+  wolfPackRadius: 2,
+  wolfPackBonus: 1,
+  wolfPackMono: true,
   baseIntervalMin: 3,
   baseIntervalMax: 5,
   baseToughShare: 0.2,
-  baseFastShare: 0,
+  baseWolfShare: 0.15,
+  baseBoarShare: 0.05,
   phases: DEFAULT_PHASES.map(p => ({ ...p })),
   groupMin: 2,
   groupMax: 4,
@@ -171,6 +194,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   reaperSpeed: 2.5,
   reaperDamage: 3,
   killGoal: 30,
+  markedSpeed: 0.5,
   hitFlash: 0.1,
   shakeOnDamage: true,
   shakeAmplitude: 5,
@@ -183,6 +207,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   dashSpeed: 12,
   survivorKnockback: false,
   survivorKnockbackTime: 0.12,
+  survivorKnockbackDistance: 0.8,
   focusSlow: 0.25,
   focusMax: 3,
   focusRegen: 1,
@@ -193,7 +218,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   jumpCost: 2,
   jumpRadius: 3,
   dimMode: 'alpha',
-  dimStrength: 0.35,
+  dimStrength: 0.65,
   enemyLook: 'circle',
   showHitboxes: false,
   boarWindup: 1,
@@ -202,6 +227,12 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   boarMass: 5,
   boarDamage: 2,
   boarKnockback: 1.5,
+  boarHp: 2,
+  boarMax: 3,
+  boarTrigger: 5,
+  boarChargeSpeed: 8,
+  boarRest: 0.8,
+  boarCooldown: 3,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 = 1, unit?: string, hint?: string): NumberDef =>
@@ -222,12 +253,12 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('bodyRadius', 'Враги', 'Радиус тела (толкание)', 0.15, 0.7, 0.01, 1, 'ед.'),
   n('enemySpeed', 'Враги', 'Скорость врага', 0.2, 4, 0.05, 1, 'ед/с'),
   n('speedSpread', 'Враги', 'Разброс скорости', 0, 0.6, 0.05, 1, '±'),
-  n('fastSpeed', 'Враги', 'Скорость быстрого', 0.2, 5, 0.05, 1, 'ед/с'),
   { kind: 'bool', key: 'pathfinding', group: 'Враги', label: 'Обход препятствий', stage: 1, hint: 'Выключено: враг идёт к герою по прямой и упирается в препятствие.' },
   n('baseIntervalMin', 'До целей', 'Интервал групп: от', 0.2, 20, 0.1, 1, 'с'),
   n('baseIntervalMax', 'До целей', 'Интервал групп: до', 0.2, 20, 0.1, 1, 'с'),
   n('baseToughShare', 'До целей', 'Доля крепких', 0, 1, 0.05),
-  n('baseFastShare', 'До целей', 'Доля быстрых', 0, 1, 0.05),
+  n('baseWolfShare', 'До целей', 'Доля стай волков (групп)', 0, 1, 0.05, 3, '', 'Доля групп, которые приходят стаей волков.'),
+  n('baseBoarShare', 'До целей', 'Доля кабанов', 0, 1, 0.01, 3, '', 'Доля кабанов среди прочих новых врагов (не больше «Кабанов на арене»).'),
   n('groupMin', 'Появление', 'Группа: от', 1, 10, 1),
   n('groupMax', 'Появление', 'Группа: до', 1, 10, 1),
   { kind: 'choice', key: 'spawnPlace', group: 'Появление', label: 'Место', stage: 1,
@@ -243,7 +274,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('reaperTime', 'Время', 'Жнец: через … после целей', 10, 600, 5, 1, 'с'),
   n('reaperSpeed', 'Время', 'Скорость Жнеца', 0.5, 6, 0.1, 1, 'ед/с'),
   n('reaperDamage', 'Время', 'Урон касания Жнеца', 0, 12, 1),
-  n('killGoal', 'Цель', 'Убить врагов (временная цель)', 1, 200, 1, 2, '', 'Пока нет арен этапа 3: после стольких убийств включается стадия жадности.'),
+  n('killGoal', 'Арены', 'Арена «Убить N»: врагов', 1, 200, 1, 3, '', 'Цель первой арены: после стольких убийств цепью открывается дверь и начинается стадия жадности.'),
+  n('markedSpeed', 'Арены', 'Скорость отмеченных', 0, 2, 0.05, 3, '×', 'Отмеченные враги третьей арены идут медленнее толпы и не сразу сбиваются в кучу.'),
   n('hitFlash', 'Эффекты', 'Вспышка попадания', 0, 0.5, 0.02, 1, 'с'),
   { kind: 'bool', key: 'shakeOnDamage', group: 'Эффекты', label: 'Тряска при уроне', stage: 1 },
   n('shakeAmplitude', 'Эффекты', 'Тряска: сила', 0, 20, 1, 1, 'px'),
@@ -255,7 +287,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('pickSlack', 'Цепь', 'Запас нажатия по врагу', 1, 2.5, 0.05, 2, '× рисунка'),
   n('dashSpeed', 'Цепь', 'Скорость прохода', 2, 40, 0.5, 2, 'ед/с'),
   { kind: 'bool', key: 'survivorKnockback', group: 'Цепь', label: 'Отброс выживших после удара', stage: 2 },
-  n('survivorKnockbackTime', 'Цепь', 'Отброс выживших', 0, 0.5, 0.01, 2, 'с'),
+  n('survivorKnockbackTime', 'Цепь', 'Отброс выживших: время', 0, 0.5, 0.01, 2, 'с'),
+  n('survivorKnockbackDistance', 'Цепь', 'Отброс выживших: расстояние', 0, 3, 0.05, 2, 'ед.'),
   n('focusSlow', 'Фокус', 'Замедление в фокусе', 0.02, 1, 0.01, 2, '×'),
   n('focusMax', 'Фокус', 'Запас фокуса', 0, 10, 0.1, 2, 'с'),
   n('focusRegen', 'Фокус', 'Восстановление', 0, 5, 0.1, 2, 'с/с'),
@@ -277,10 +310,25 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('boarMass', 'Кабан', 'Масса на рывке', 1, 20, 0.5, 3, '×'),
   n('boarDamage', 'Кабан', 'Урон рывка', 0, 6, 1, 3),
   n('boarKnockback', 'Кабан', 'Отброс героя', 0, 4, 0.25, 3, 'ед.'),
+  n('boarHp', 'Кабан', 'HP кабана', 0, 6, 1, 3),
+  n('boarMax', 'Кабан', 'Кабанов на арене', 0, 10, 1, 3),
+  n('boarTrigger', 'Кабан', 'Начинает рывок с расстояния', 1, 12, 0.25, 3, 'ед.'),
+  n('boarChargeSpeed', 'Кабан', 'Скорость рывка', 2, 20, 0.5, 3, 'ед/с'),
+  n('boarRest', 'Кабан', 'Стоит после рывка', 0, 3, 0.1, 3, 'с'),
+  n('boarCooldown', 'Кабан', 'Перезарядка рывка', 0, 10, 0.5, 3, 'с'),
+  n('wolfSpeed', 'Волк', 'Скорость волка', 0.2, 5, 0.05, 3, 'ед/с'),
+  n('wolfPackMin', 'Волк', 'Стая: от', 1, 8, 1, 3),
+  n('wolfPackMax', 'Волк', 'Стая: до', 1, 8, 1, 3),
+  n('wolfPackRadius', 'Волк', 'Радиус стаи', 0.5, 6, 0.25, 3, 'ед.', 'Волки ближе этого радиуса друг к другу — стая: линии между ними.'),
+  n('wolfPackBonus', 'Волк', 'Урон за волка рядом', 0, 3, 1, 3, '', 'Удар волка: урон касания + столько за каждого другого волка в радиусе стаи.'),
+  { kind: 'bool', key: 'wolfPackMono', group: 'Волк', label: 'Стая одного цвета', stage: 3, hint: 'Выключено: цвет волков в стае — как у групп (переключатель «Цвет группы»).' },
 ];
 
-/** v2 (07.10.2026): defaults changed after the Brotato and Vampire Survivors reviews; v1 values are dropped. */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v2';
+/**
+ * v3 (07.10.2026, stage 3): dimming default 0.65 (design answer 31), wolves replace «fast», boar fields;
+ * v1/v2 values are dropped.
+ */
+const STORAGE_KEY = 'ashen-oath-realtime-params-v3';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
@@ -350,7 +398,7 @@ export interface Pressure {
 
 /** The base pace before the goals, as a phase without a floor or an end. */
 export function basePhase(params: Params): Phase {
-  return { duration: Infinity, floor: 0, intervalMin: params.baseIntervalMin, intervalMax: params.baseIntervalMax, toughShare: params.baseToughShare, fastShare: params.baseFastShare };
+  return { duration: Infinity, floor: 0, intervalMin: params.baseIntervalMin, intervalMax: params.baseIntervalMax, toughShare: params.baseToughShare, wolfShare: params.baseWolfShare, boarShare: params.baseBoarShare };
 }
 
 /**

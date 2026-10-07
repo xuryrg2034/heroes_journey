@@ -11,23 +11,42 @@ export interface RectObstacle { shape: 'rect'; kind: 'wall'; x: number; y: numbe
 export interface CircleObstacle { shape: 'circle'; kind: 'tree' | 'pond'; x: number; y: number; r: number }
 export type Obstacle = RectObstacle | CircleObstacle;
 
+/**
+ * Goal of an arena (stage 3, docs/realtime-prototype.md section 3): kill N (`killGoal` slider),
+ * press every button, or kill the marked enemies. After the goals the door opens and the greed stage runs.
+ */
+export type ArenaGoal = 'kills' | 'buttons' | 'marked';
+
+/** A marked enemy of the third arena: placed at the start, a visible target mark. */
+export interface MarkedSpec { x: number; y: number; color: number; hp: number }
+
 export interface ArenaLayout {
   id: string;
   name: string;
+  /** One line on the arena menu. */
+  summary: string;
+  goal: ArenaGoal;
   width: number;
   height: number;
   heroStart: Vec;
   obstacles: Obstacle[];
+  /** Buttons: a chain link of any color; pressed once and for all when a chain ends on it. */
+  buttons: Vec[];
+  /** The exit: opens after the goals; entering it (chain end or jump landing) wins. */
+  door: Vec;
+  marked: MarkedSpec[];
 }
 
 const wall = (x: number, y: number, w: number, h: number): RectObstacle => ({ shape: 'rect', kind: 'wall', x, y, w, h });
 const tree = (x: number, y: number): CircleObstacle => ({ shape: 'circle', kind: 'tree', x, y, r: 0.42 });
 const pond = (x: number, y: number, r: number): CircleObstacle => ({ shape: 'circle', kind: 'pond', x, y, r });
 
-/** Stage 1 arena: open middle around the hero, cover at the sides. Stage 3 adds the three goal arenas. */
-export const TEST_ARENA: ArenaLayout = {
-  id: 'clearing',
-  name: 'Поляна',
+/** Arena 1 «Убить 30» (the stage 1 clearing): open middle around the hero, cover at the sides, the door on top. */
+export const KILL_ARENA: ArenaLayout = {
+  id: 'kills',
+  name: 'Убить 30',
+  summary: 'Поляна: убей цепью 30 врагов. Потом откроется дверь сверху.',
+  goal: 'kills',
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 5 },
@@ -42,7 +61,70 @@ export const TEST_ARENA: ArenaLayout = {
     tree(6.5, 1.5),
     pond(12.6, 4.6, 0.95),
   ],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  marked: [],
 };
+
+/** Arena 2 «Нажать 3 кнопки»: two wall screens split the yard, buttons behind them and behind the pond. */
+export const BUTTON_ARENA: ArenaLayout = {
+  id: 'buttons',
+  name: 'Нажать 3 кнопки',
+  summary: 'Двор: закончи цепь на каждой из трёх кнопок (кнопка — звено любого цвета). Дверь — снизу.',
+  goal: 'buttons',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 5 },
+  obstacles: [
+    wall(4, 3, 1, 4),
+    wall(11, 3, 1, 4),
+    wall(6, 8, 1, 1),
+    wall(9, 8, 1, 1),
+    pond(8, 2.3, 0.9),
+    tree(2, 8.2),
+    tree(14, 8.2),
+    tree(2.4, 1.6),
+    tree(13.6, 1.6),
+    tree(6.2, 1.2),
+  ],
+  buttons: [{ x: 1.6, y: 5 }, { x: 14.4, y: 5 }, { x: 8, y: 0.8 }],
+  door: { x: 8, y: 9.3 },
+  marked: [],
+};
+
+/** Arena 3 «Убить отмеченных и выйти в дверь»: a walled den, five marked enemies (three tough), the door far right. */
+export const MARKED_ARENA: ArenaLayout = {
+  id: 'marked',
+  name: 'Отмеченные и дверь',
+  summary: 'Логово: убей 5 отмеченных врагов (трое крепкие), затем выйди в дверь справа.',
+  goal: 'marked',
+  width: 16,
+  height: 10,
+  heroStart: { x: 2.5, y: 4.5 },
+  obstacles: [
+    wall(5, 0, 1, 3),
+    wall(10, 7, 1, 3),
+    wall(2, 6, 3, 1),
+    wall(11, 3, 3, 1),
+    pond(8, 7.6, 0.8),
+    tree(3.5, 2.6),
+    tree(12.5, 6.5),
+    tree(7, 2.5),
+    tree(14.5, 1.5),
+  ],
+  buttons: [],
+  door: { x: 15.3, y: 5.2 },
+  marked: [
+    { x: 7.5, y: 5, color: 0, hp: 0 },
+    { x: 12.5, y: 1.5, color: 1, hp: 2 },
+    { x: 13, y: 8.5, color: 2, hp: 1 },
+    { x: 5.5, y: 8.5, color: 3, hp: 0 },
+    { x: 9, y: 1.2, color: 2, hp: 2 },
+  ],
+};
+
+/** The three arenas of the playtest, keys 1–3 on the menu. */
+export const ARENAS: readonly ArenaLayout[] = [KILL_ARENA, BUTTON_ARENA, MARKED_ARENA];
 
 export function dist(a: Vec, b: Vec): number { return Math.hypot(a.x - b.x, a.y - b.y); }
 

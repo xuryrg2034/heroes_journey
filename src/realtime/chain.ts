@@ -7,17 +7,21 @@
  * When the power is short, the enemy is wounded and survives; the chain cannot pass a
  * survivor, so such a link can only be the last one. The highlight while drawing and
  * the dash use the same `strike`.
+ *
+ * Stage 3 (design answer 5): a button or the open door is a link of any color within R of the
+ * previous link or the hero; it is always the last link. A button is pressed when the chain
+ * ends on it; the chain ending on the open door (or a jump landing on it) wins the arena.
  */
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './arena';
 import { heroRadius } from './params';
-import { NO_COLOR, completeGoals, touchDistance, type ChainLink, type Enemy, type World } from './world';
+import { NO_COLOR, checkGoals, doorOf, doorOpen, findObject, touchDistance, win, type ArenaObject, type ChainLink, type Enemy, type World } from './world';
 
 /** Energy cap, as in the main game. */
 export const ENERGY_MAX = 7;
 /** Pointer this close to the hero cancels the drawn chain (units). */
 const HERO_CANCEL_RADIUS = 0.42;
-/** Knockback distance of a survivor over `survivorKnockbackTime` (units; the panel sets the time). */
-const KNOCKBACK_DISTANCE = 0.8;
+/** Radius of a button or the door (units): the pick circle and the jump entry into the door. */
+export const OBJECT_RADIUS = 0.45;
 /** Jump flight time in real seconds (contact damage is off in flight). */
 const JUMP_TIME = 0.18;
 
@@ -46,6 +50,8 @@ export interface ChainPlan {
   links: LinkPlan[];
   /** The last link survives: nothing may follow it. */
   endsOnSurvivor: boolean;
+  /** The last link is a button or the door: nothing may follow it. */
+  endsOnObject: boolean;
   power: number;
   kills: number;
 }
@@ -54,10 +60,11 @@ export function findEnemy(world: World, id: number): Enemy | undefined {
   return world.enemies.find(e => e.id === id);
 }
 
-/** Position of a link now (enemies keep moving while the chain is drawn). Objects arrive in stage 3. */
+/** Position of a link now (enemies keep moving while the chain is drawn; objects stand). */
 export function linkPoint(world: World, link: ChainLink): Vec | null {
   if (link.kind === 'enemy') { const e = findEnemy(world, link.id); return e ? { x: e.x, y: e.y } : null; }
-  return null;
+  const o = findObject(world, link.id);
+  return o ? { x: o.x, y: o.y } : null;
 }
 
 /** Highlight of the drawn chain: who dies, who is wounded. Same `strike` as the dash. */
@@ -73,7 +80,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     else endsOnSurvivor = true;
     out.push({ link, outcome });
   }
-  return { links: out, endsOnSurvivor, power, kills };
+  return { links: out, endsOnSurvivor, endsOnObject: links.length > 0 && links[links.length - 1].kind === 'object', power, kills };
 }
 
 /** Color of the drawn chain: the first enemy link (objects take any color). */
@@ -99,17 +106,34 @@ export function inChain(world: World, enemy: Enemy): number {
   return world.chain.findIndex(l => l.kind === 'enemy' && l.id === enemy.id);
 }
 
-/** Can `enemy` be the next link: same color, within R of the anchor, in sight (toggle), not taken, not after a survivor. */
+/** Within R of the anchor and in sight (toggle): the reach rule shared by enemies and objects. */
+function inReach(world: World, target: Vec): boolean {
+  const anchor = chainAnchor(world), p = world.params;
+  if (dist(anchor, target) > p.linkRadius) return false;
+  return !p.lineOfSight || lineOfSight(anchor, target, world.arena, 0);
+}
+
+/**
+ * Can `enemy` be the next link: same color, within R of the anchor (the hero for the first
+ * link — so a chain started by dragging from an empty spot also starts only within R of the
+ * hero, design answer 36), in sight (toggle), not taken, not after a survivor or an object.
+ */
 export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(world)): boolean {
   if (world.status !== 'playing' || world.move) return false;
   if (enemy.color === NO_COLOR || enemy.kind === 'reaper') return false;
-  if (inChain(world, enemy) >= 0 || plan.endsOnSurvivor) return false;
+  if (inChain(world, enemy) >= 0 || plan.endsOnSurvivor || plan.endsOnObject) return false;
   const color = chainColor(world);
   if (color !== null && enemy.color !== color) return false;
-  const anchor = chainAnchor(world), p = world.params;
-  if (dist(anchor, enemy) > p.linkRadius) return false;
-  if (p.lineOfSight && !lineOfSight(anchor, enemy, world.arena, 0)) return false;
-  return true;
+  return inReach(world, enemy);
+}
+
+/** Can the object be the next (last) link: an unpressed button or the open door, any color, within R. */
+export function canLinkObject(world: World, object: ArenaObject, plan: ChainPlan = planChain(world)): boolean {
+  if (world.status !== 'playing' || world.move) return false;
+  if (plan.endsOnSurvivor || plan.endsOnObject) return false;
+  if (object.kind === 'button' && object.pressed) return false;
+  if (object.kind === 'door' && !doorOpen(world)) return false;
+  return inReach(world, object);
 }
 
 /** Valid next links right now (render: outline). */
@@ -118,41 +142,54 @@ export function nextCandidates(world: World): Enemy[] {
   return world.enemies.filter(e => canLink(world, e, plan));
 }
 
+export function nextObjectCandidates(world: World): ArenaObject[] {
+  const plan = planChain(world);
+  return world.objects.filter(o => canLinkObject(world, o, plan));
+}
+
 /** Pick radius: the drawn circle with a slack in the player's favour (design answer 27). */
 function pickRadius(world: World): number { return world.params.enemyRadius * world.params.pickSlack; }
 
-/** The enemy under the pointer among those that pass `accept`, nearest to the pointer. */
-function pick(world: World, p: Vec, accept: (e: Enemy) => boolean): Enemy | null {
-  const r = pickRadius(world);
-  let best: Enemy | null = null, bestD = Infinity;
+/** The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. */
+function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean): ChainLink | null {
+  const r = pickRadius(world), ro = OBJECT_RADIUS * world.params.pickSlack;
+  let best: ChainLink | null = null, bestD = Infinity;
   for (const e of world.enemies) {
     const d = dist(e, p);
-    if (d <= r && d < bestD && accept(e)) { best = e; bestD = d; }
+    if (d <= r && d < bestD && acceptEnemy(e)) { best = { kind: 'enemy', id: e.id }; bestD = d; }
+  }
+  for (const o of world.objects) {
+    const d = dist(o, p);
+    if (d <= ro && d < bestD && acceptObject(o)) { best = { kind: 'object', id: o.id }; bestD = d; }
   }
   return best;
 }
 
-/** Press: start a chain on an enemy within R of the hero. Returns true when a chain started. */
+const linkIndex = (world: World, link: ChainLink): number => world.chain.findIndex(l => l.kind === link.kind && l.id === link.id);
+
+/** Press: start a chain on an enemy or an object within R of the hero. Returns true when a chain started. */
 export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
   world.chain = [];
   const plan = planChain(world);
-  const target = pick(world, p, e => canLink(world, e, plan));
+  const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
   if (!target) return false;
-  world.chain = [{ kind: 'enemy', id: target.id }];
+  world.chain = [target];
   return true;
 }
 
-/** Drag: append a valid enemy, truncate on a selected one, cancel on the hero. */
+/** Drag: append a valid link, truncate on a selected one, cancel on the hero. */
 export function dragChain(world: World, p: Vec): void {
   if (world.status !== 'playing' || world.move) return;
   if (world.chain.length && dist(p, world.hero) <= HERO_CANCEL_RADIUS) { world.chain = []; return; }
   const plan = planChain(world);
-  const target = pick(world, p, e => inChain(world, e) >= 0 || canLink(world, e, plan));
+  const target = pick(world, p,
+    e => inChain(world, e) >= 0 || canLink(world, e, plan),
+    o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan));
   if (!target) return;
-  const index = inChain(world, target);
+  const index = linkIndex(world, target);
   if (index >= 0) { world.chain.length = index + 1; return; }
-  world.chain.push({ kind: 'enemy', id: target.id });
+  world.chain.push(target);
 }
 
 export function cancelChain(world: World): void { world.chain = []; }
@@ -189,6 +226,12 @@ export function jump(world: World, p: Vec): boolean {
   return true;
 }
 
+/** A jump landing inside the open door enters it (design answer 5: entry by chain or jump). */
+function landsInDoor(world: World, p: Vec): boolean {
+  const door = doorOf(world);
+  return doorOpen(world) && dist(door, p) <= OBJECT_RADIUS + heroRadius(world.params);
+}
+
 /** Moves the hero towards `target`; true on arrival. */
 function moveHero(world: World, target: Vec, step: number, reach = 0): boolean {
   const hero = world.hero, d = dist(hero, target);
@@ -209,15 +252,16 @@ function hitEnemy(world: World, enemy: Enemy): void {
     move.stop = { x: enemy.x, y: enemy.y };
     world.enemies.splice(world.enemies.indexOf(enemy), 1);
     world.stats.kills++;
+    if (enemy.marked) world.stats.markedKills++;
     world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color });
     if (p.focusKillRefill) world.focus = Math.min(p.focusMax, world.focus + p.focusPerKill);
-    if (world.stage === 'goals' && world.stats.kills >= p.killGoal) completeGoals(world);
+    checkGoals(world);
     return;
   }
   enemy.hp = outcome.hpAfter;
   if (p.survivorKnockback && p.survivorKnockbackTime > 0) {
     const dx = enemy.x - world.hero.x, dy = enemy.y - world.hero.y, d = Math.hypot(dx, dy) || 1;
-    const speed = KNOCKBACK_DISTANCE / p.survivorKnockbackTime;
+    const speed = p.survivorKnockbackDistance / p.survivorKnockbackTime;
     enemy.knock = p.survivorKnockbackTime; enemy.knockVx = dx / d * speed; enemy.knockVy = dy / d * speed;
   }
   // The chain stops on a survivor: the hero goes back to the last freed spot.
@@ -225,11 +269,27 @@ function hitEnemy(world: World, enemy: Enemy): void {
   move.point = { ...move.stop };
 }
 
+/** The chain ended on an object: a button is pressed for good; the open door wins the arena. */
+function reachObject(world: World, object: ArenaObject): void {
+  const move = world.move!;
+  move.stop = { x: object.x, y: object.y };
+  move.links = [];
+  if (object.kind === 'button') {
+    if (object.pressed) return;
+    object.pressed = true;
+    world.events.push({ type: 'button', objectId: object.id });
+    checkGoals(world);
+  } else if (doorOpen(world)) {
+    win(world);
+  }
+}
+
 function finishMove(world: World): void {
   const hero = world.hero, move = world.move!;
   hero.x = move.stop.x; hero.y = move.stop.y;
   pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
   world.move = null;
+  if (move.kind === 'jump' && landsInDoor(world, hero)) win(world);
 }
 
 /** Dash / jump progress in real seconds (the dash ignores focus; contact damage is off). */
@@ -241,7 +301,16 @@ function stepMove(world: World, realDt: number): void {
     const before = { x: world.hero.x, y: world.hero.y };
     if (move.links.length) {
       const link = move.links[0];
-      const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
+      if (link.kind === 'object') {
+        const object = findObject(world, link.id);
+        if (!object) { move.links.shift(); continue; }
+        const arrived = moveHero(world, object, budget);
+        budget -= dist(before, world.hero);
+        if (!arrived) return;
+        reachObject(world, object);
+        continue;
+      }
+      const enemy = findEnemy(world, link.id);
       if (!enemy) { move.links.shift(); continue; }
       // A kill takes the enemy's spot; a survivor is struck from the touch distance.
       const survives = !strike(move.power, enemy.hp).killed;

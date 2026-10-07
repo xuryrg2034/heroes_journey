@@ -5,10 +5,12 @@ import { test, expect, type Page } from '@playwright/test';
  * Runs only through playwright.realtime.config.ts; the main game suite does not include it.
  */
 interface Snapshot {
-  status: 'playing' | 'defeat';
+  arena: string;
+  menuOpen: boolean;
+  status: 'playing' | 'defeat' | 'victory';
   time: number;
   hero: { x: number; y: number; hp: number; maxHp: number };
-  enemies: { id: number; kind: string; x: number; y: number; color: number; hp: number; fast: boolean }[];
+  enemies: { id: number; kind: string; x: number; y: number; color: number; hp: number; marked: boolean; boar: string | null }[];
   markers: number;
   queue: number;
   stage: 'goals' | 'greed';
@@ -18,7 +20,8 @@ interface Snapshot {
 
 const snapshot = (page: Page): Promise<Snapshot> => page.evaluate(() => (window as any).__realtime.snapshot());
 
-async function open(page: Page, errors: string[]): Promise<void> {
+/** Opens the page with clean storage; the arena menu shows first, `arena` (key 1–3) starts a fight. */
+async function open(page: Page, errors: string[], arena: 1 | 2 | 3 | null = 1): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.goto('/realtime.html');
@@ -26,6 +29,10 @@ async function open(page: Page, errors: string[]): Promise<void> {
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect(page.getByTestId('menu')).toBeVisible();
+  if (arena === null) return;
+  await page.keyboard.press(String(arena));
+  await expect(page.getByTestId('menu')).toBeHidden();
 }
 
 test('realtime page opens, the horde arrives from the edges and walks to the hero', async ({ page }) => {
@@ -83,12 +90,14 @@ test('debug panel toggles by key and button, stores values and the defeat screen
   await expect(panel).toBeVisible();
 
   // With 2 HP the crowd kills the standing hero: defeat screen, then restart.
+  await page.keyboard.press('1');
   await page.getByTestId('restart').click();
   await page.getByTestId('burst').click();
-  await expect(page.getByTestId('defeat')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('defeat')).toContainText('Поражение');
-  await page.getByTestId('defeat-restart').click();
-  await expect(page.getByTestId('defeat')).toBeHidden();
+  await expect(page.getByTestId('result')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('result')).toContainText('Поражение');
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat');
+  await page.getByTestId('result-again').click();
+  await expect(page.getByTestId('result')).toBeHidden();
   const fresh = await snapshot(page);
   expect(fresh.status).toBe('playing');
   expect(fresh.hero.hp).toBe(2);
@@ -141,7 +150,7 @@ const chainSnapshot = (page: Page): Promise<ChainSnapshot> => page.evaluate(() =
 async function stillArena(page: Page): Promise<void> {
   await page.evaluate(() => {
     const rt = (window as any).__realtime;
-    rt.params.enemySpeed = 0; rt.params.fastSpeed = 0; rt.params.speedSpread = 0;
+    rt.params.enemySpeed = 0; rt.params.wolfSpeed = 0; rt.params.speedSpread = 0;
     rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000;
     rt.clear();
   });
@@ -265,5 +274,304 @@ test('Esc and the mouse back on the hero cancel the chain; focus slows the world
   expect(snap.focus).toBeLessThan(3);
   await page.keyboard.press('Escape');
   await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+// ---- Stage 3: arenas, buttons, the door, the boar, wolves ----
+
+interface ArenaSnapshot extends ChainSnapshot {
+  objects: { id: number; kind: 'button' | 'door'; x: number; y: number; pressed: boolean }[];
+  chainLinks: { kind: 'enemy' | 'object'; id: number }[];
+  stats: { kills: number; markedKills: number; boarHits: number; damageTaken: number; hitsTaken: number };
+  goal: { done: number; total: number; label: string };
+  lanes: number;
+  packLines: number;
+}
+
+const arenaSnapshot = (page: Page): Promise<ArenaSnapshot> => page.evaluate(() => (window as any).__realtime.snapshot());
+
+/** Freezes the crowd in place; `clear` also removes every enemy (keep it off to keep the marked ones). */
+async function freeze(page: Page, clear = true): Promise<void> {
+  await page.evaluate(clear => {
+    const rt = (window as any).__realtime;
+    rt.params.enemySpeed = 0; rt.params.wolfSpeed = 0; rt.params.speedSpread = 0;
+    rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000;
+    // No newcomer boars: a charge would move the frozen scene.
+    rt.params.boarMax = 0;
+    rt.clear(!clear);
+  }, clear);
+}
+
+const teleport = (page: Page, x: number, y: number): Promise<void> =>
+  page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [x, y] as const);
+
+const placeKind = (page: Page, x: number, y: number, color: number, hp: number, kind: string): Promise<number> =>
+  page.evaluate(([x, y, color, hp, kind]) => (window as any).__realtime.place(x, y, color, hp, kind), [x, y, color, hp, kind] as const);
+
+/** Press on the first point and drag to the others (one pointer move each, no points in between); the caller releases. */
+async function chainAt(page: Page, points: { x: number; y: number }[]): Promise<void> {
+  const screens: { x: number; y: number }[] = [];
+  for (const p of points) screens.push(await screen(page, p.x, p.y));
+  await page.mouse.move(screens[0].x, screens[0].y);
+  await page.mouse.down();
+  for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y);
+}
+
+test('the menu opens each arena by key and by click without errors', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, null);
+  const menu = page.getByTestId('menu');
+  await expect(menu).toContainText('Убить 30');
+  await expect(menu).toContainText('Нажать 3 кнопки');
+  await expect(menu).toContainText('Отмеченные и дверь');
+  await expect(menu.locator('summary')).toContainText('вопросы');
+  await page.screenshot({ path: 'artifacts/realtime-menu.png' });
+  const expected = [
+    { id: 'kills', buttons: 0, marked: 0, goal: 'убито 0 / 30' },
+    { id: 'buttons', buttons: 3, marked: 0, goal: 'кнопки 0 / 3' },
+    { id: 'marked', buttons: 0, marked: 5, goal: 'отмеченные 0 / 5' },
+  ];
+  for (let i = 0; i < 3; i++) {
+    if (i === 1) await page.getByTestId('arena-2').click(); else await page.keyboard.press(String(i + 1));
+    await expect(menu).toBeHidden();
+    const snap = await arenaSnapshot(page);
+    expect(snap.arena).toBe(expected[i].id);
+    expect(snap.objects.filter(o => o.kind === 'button')).toHaveLength(expected[i].buttons);
+    expect(snap.objects.filter(o => o.kind === 'door')).toHaveLength(1);
+    expect(snap.enemies.filter(e => e.marked)).toHaveLength(expected[i].marked);
+    expect(snap.stage).toBe('goals');
+    await expect(page.getByTestId('goal')).toHaveText(expected[i].goal);
+    await page.waitForTimeout(1200);
+    expect((await arenaSnapshot(page)).time).toBeGreaterThan(0.5);
+    await page.screenshot({ path: `artifacts/realtime-arena-${i + 1}.png` });
+    await page.keyboard.press('KeyM');
+    await expect(menu).toBeVisible();
+  }
+  expect(errors).toEqual([]);
+});
+
+test('a button fires only when the chain ends on it; nothing follows a button; three buttons open the door', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 2);
+  await freeze(page);
+  const objects = (await arenaSnapshot(page)).objects;
+  const [left, right, top] = objects.filter(o => o.kind === 'button');
+  const door = objects.find(o => o.kind === 'door')!;
+
+  // The closed door is not a link before the goals.
+  await teleport(page, door.x, door.y - 1);
+  await chainAt(page, [door]);
+  expect((await arenaSnapshot(page)).chainLinks).toEqual([]);
+  await page.mouse.up();
+
+  // A chain of one button next to the hero presses it; the hero stands on it.
+  await teleport(page, left.x + 1.2, left.y);
+  await chainAt(page, [left]);
+  await expect.poll(async () => (await arenaSnapshot(page)).chainLinks).toEqual([{ kind: 'object', id: left.id }]);
+  await page.mouse.up();
+  await expect.poll(async () => (await arenaSnapshot(page)).objects.find(o => o.id === left.id)!.pressed, { timeout: 5_000 }).toBe(true);
+  await expect.poll(async () => (await arenaSnapshot(page)).moving).toBeNull();
+  let snap = await arenaSnapshot(page);
+  expect(Math.hypot(snap.hero.x - left.x, snap.hero.y - left.y)).toBeLessThan(0.05);
+  expect(snap.goal.done).toBe(1);
+  // Pressed once and for all: it is no longer a link.
+  await teleport(page, left.x + 1.2, left.y);
+  await chainAt(page, [left]);
+  expect((await arenaSnapshot(page)).chainLinks).toEqual([]);
+  await page.mouse.up();
+
+  // The dash runs over the right button but the chain ends on an enemy behind it: not pressed.
+  await teleport(page, right.x - 1.8, right.y);
+  const a = await place(page, right.x - 0.7, right.y, 0);
+  const b = await place(page, right.x + 0.7, right.y, 0);
+  await chainAt(page, [{ x: right.x - 0.7, y: right.y }, { x: right.x + 0.7, y: right.y }]);
+  await expect.poll(async () => (await arenaSnapshot(page)).chain).toEqual([a, b]);
+  await page.mouse.up();
+  await expect.poll(async () => (await arenaSnapshot(page)).kills, { timeout: 5_000 }).toBe(2);
+  await expect.poll(async () => (await arenaSnapshot(page)).moving).toBeNull();
+  snap = await arenaSnapshot(page);
+  expect(snap.objects.find(o => o.id === right.id)!.pressed).toBe(false);
+  expect(snap.goal.done).toBe(1);
+
+  // Enemy → button: the button ends the chain, a same-colored enemy past it does not join.
+  const c = await place(page, right.x, right.y + 1.2, 1);
+  const d = await place(page, right.x - 1, right.y, 1);
+  await chainAt(page, [{ x: right.x, y: right.y + 1.2 }, right, { x: right.x - 1, y: right.y }]);
+  await expect.poll(async () => (await arenaSnapshot(page)).chainLinks).toEqual([{ kind: 'enemy', id: c }, { kind: 'object', id: right.id }]);
+  await page.screenshot({ path: 'artifacts/realtime-button-chain.png' });
+  await page.mouse.up();
+  await expect.poll(async () => (await arenaSnapshot(page)).objects.find(o => o.id === right.id)!.pressed, { timeout: 5_000 }).toBe(true);
+  await expect.poll(async () => (await arenaSnapshot(page)).moving).toBeNull();
+  snap = await arenaSnapshot(page);
+  expect(snap.enemies.map(e => e.id)).not.toContain(c);
+  expect(snap.enemies.map(e => e.id)).toContain(d);
+  expect(Math.hypot(snap.hero.x - right.x, snap.hero.y - right.y)).toBeLessThan(0.05);
+
+  // The third button completes the goals: greed stage, the door opens, entering it wins.
+  await teleport(page, top.x - 0.9, top.y);
+  await chainAt(page, [top]);
+  await page.mouse.up();
+  await expect.poll(async () => (await arenaSnapshot(page)).stage, { timeout: 5_000 }).toBe('greed');
+  await expect(page.getByTestId('goal')).toContainText('дверь открыта');
+  await expect.poll(async () => (await arenaSnapshot(page)).moving).toBeNull();
+  await teleport(page, door.x, door.y - 1);
+  await chainAt(page, [door]);
+  await expect.poll(async () => (await arenaSnapshot(page)).chainLinks).toEqual([{ kind: 'object', id: door.id }]);
+  await page.mouse.up();
+  await expect(page.getByTestId('result')).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  expect(errors).toEqual([]);
+});
+
+test('after the kill goal the door opens and a chain into it wins; another arena: marked kills and a jump into the door', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  await page.evaluate(() => { (window as any).__realtime.params.killGoal = 2; });
+  const door = (await arenaSnapshot(page)).objects.find(o => o.kind === 'door')!;
+  await teleport(page, door.x, door.y + 1.1);
+  // Closed before the goals.
+  await chainAt(page, [door]);
+  expect((await arenaSnapshot(page)).chainLinks).toEqual([]);
+  await page.mouse.up();
+  const a = await place(page, door.x + 0.8, door.y + 1.1, 3);
+  const b = await place(page, door.x + 0.8, door.y + 2.3, 3);
+  await chainAt(page, [{ x: door.x + 0.8, y: door.y + 1.1 }, { x: door.x + 0.8, y: door.y + 2.3 }]);
+  await expect.poll(async () => (await arenaSnapshot(page)).chain).toEqual([a, b]);
+  await page.mouse.up();
+  await expect.poll(async () => (await arenaSnapshot(page)).stage, { timeout: 5_000 }).toBe('greed');
+  await expect.poll(async () => (await arenaSnapshot(page)).moving).toBeNull();
+  await page.waitForTimeout(600);
+  await teleport(page, door.x, door.y + 1.1);
+  await chainAt(page, [door]);
+  await expect.poll(async () => (await arenaSnapshot(page)).chainLinks.map(l => l.kind)).toEqual(['object']);
+  await page.screenshot({ path: 'artifacts/realtime-door-open.png' });
+  await page.mouse.up();
+  const result = page.getByTestId('result');
+  await expect(result).toBeVisible({ timeout: 5_000 });
+  await expect(result).toContainText('Победа');
+  await expect(result).toContainText('В стадии жадности');
+  await page.screenshot({ path: 'artifacts/realtime-victory.png' });
+  expect((await arenaSnapshot(page)).status).toBe('victory');
+
+  // «Другая арена» → menu → arena 3.
+  await page.getByTestId('result-arenas').click();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  await page.keyboard.press('3');
+  await expect(page.getByTestId('menu')).toBeHidden();
+  await freeze(page, false);
+  let snap = await arenaSnapshot(page);
+  expect(snap.arena).toBe('marked');
+  // A weak marked enemy killed by a chain counts towards the goal.
+  const weak = snap.enemies.find(e => e.marked && e.hp === 0)!;
+  await teleport(page, weak.x - 1, weak.y);
+  await chainAt(page, [weak]);
+  await page.mouse.up();
+  await expect.poll(async () => (await arenaSnapshot(page)).goal.done, { timeout: 5_000 }).toBe(1);
+  await expect(page.getByTestId('goal')).toHaveText('отмеченные 1 / 5');
+  await expect.poll(async () => (await arenaSnapshot(page)).moving).toBeNull();
+  // The rest through the hook; the door opens, a jump onto it wins.
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  const door3 = (await arenaSnapshot(page)).objects.find(o => o.kind === 'door')!;
+  await teleport(page, door3.x - 1.8, door3.y);
+  await page.evaluate(() => (window as any).__realtime.setEnergy(2));
+  await page.keyboard.press('Space');
+  const pd = await screen(page, door3.x, door3.y);
+  await page.mouse.click(pd.x, pd.y);
+  await expect(page.getByTestId('result')).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  snap = await arenaSnapshot(page);
+  expect(snap.status).toBe('victory');
+  expect(errors).toEqual([]);
+});
+
+test('the boar announces its charge with a lane, shoves the crowd without hurting it and knocks the hero back', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  // Only the charge hurts here: a shoved enemy touching the hero must not spend its invulnerability first.
+  await page.evaluate(() => { (window as any).__realtime.params.contactDamage = 0; });
+  const { x: hx, y: hy, maxHp } = (await arenaSnapshot(page)).hero;
+  const boar = await placeKind(page, hx - 3, hy, 0, 2, 'boar');
+  // Two enemies of another color lie on the lane, a bit off its axis.
+  const c1 = await place(page, hx - 1.8, hy + 0.35, 1);
+  const c2 = await place(page, hx - 1.1, hy - 0.4, 1);
+  const before = await arenaSnapshot(page);
+  const pos = (snap: ArenaSnapshot, id: number) => snap.enemies.find(e => e.id === id)!;
+
+  await expect.poll(async () => pos(await arenaSnapshot(page), boar).boar, { timeout: 5_000 }).toBe('windup');
+  // The lane (and the «!») is drawn while the charge is announced; the boar stands.
+  await expect.poll(async () => (await arenaSnapshot(page)).lanes).toBeGreaterThan(0);
+  await page.screenshot({ path: 'artifacts/realtime-boar-lane.png' });
+  let snap = await arenaSnapshot(page);
+  expect(Math.hypot(pos(snap, boar).x - (hx - 3), pos(snap, boar).y - hy)).toBeLessThan(0.05);
+  expect(snap.hero.hp).toBe(maxHp);
+
+  await expect.poll(async () => (await arenaSnapshot(page)).stats.boarHits, { timeout: 5_000 }).toBe(1);
+  await page.waitForTimeout(400);
+  snap = await arenaSnapshot(page);
+  // Damage 2 and a knockback of ~1.5 along the charge (to +x).
+  expect(snap.stats.damageTaken).toBe(2);
+  expect(snap.hero.hp).toBe(maxHp - 2);
+  expect(snap.hero.x - hx).toBeGreaterThan(1.0);
+  // The crowd on the lane is shoved, not hurt: both alive with their HP, nobody killed.
+  for (const id of [c1, c2]) {
+    const was = pos(before, id), now = pos(snap, id);
+    expect(now).toBeTruthy();
+    expect(now.hp).toBe(was.hp);
+    expect(Math.hypot(now.x - was.x, now.y - was.y)).toBeGreaterThan(0.25);
+  }
+  expect(snap.kills).toBe(0);
+  // The boar is a chain link of its color with its HP.
+  expect(pos(snap, boar).hp).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test('wolves hit harder next to other wolves and their pack is drawn', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const { x: hx, y: hy } = (await arenaSnapshot(page)).hero;
+  // A lone wolf touching the hero: base damage 1.
+  await placeKind(page, hx + 0.55, hy, 2, 0, 'wolf');
+  await expect.poll(async () => (await arenaSnapshot(page)).stats.damageTaken, { timeout: 5_000 }).toBe(1);
+  await page.evaluate(() => (window as any).__realtime.clear());
+  // Two wolves next to each other (one pack line), not touching the hero.
+  await placeKind(page, hx + 1.4, hy, 2, 0, 'wolf');
+  await placeKind(page, hx + 1.0, hy + 0.9, 2, 0, 'wolf');
+  await expect.poll(async () => (await arenaSnapshot(page)).packLines).toBe(1);
+  expect((await arenaSnapshot(page)).stats.damageTaken).toBe(1);
+  // A third wolf touches the hero with two packmates in the radius: every hit is 1 + 2 = 3.
+  await placeKind(page, hx - 0.55, hy, 2, 0, 'wolf');
+  await expect.poll(async () => (await arenaSnapshot(page)).stats.hitsTaken, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
+  const snap = await arenaSnapshot(page);
+  expect(snap.packLines).toBe(3);
+  expect(snap.stats.damageTaken).toBe(1 + 3 * (snap.stats.hitsTaken - 1));
+  await page.screenshot({ path: 'artifacts/realtime-wolves.png' });
+  expect(errors).toEqual([]);
+});
+
+test('a chain dragged from an empty spot starts only on an enemy within R of the hero (design answer 36)', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  const { x: hx, y: hy } = (await arenaSnapshot(page)).hero;
+  const R = await page.evaluate(() => (window as any).__realtime.params.linkRadius as number);
+  const far = await place(page, hx, hy + R + 0.6, 0);
+  const near = await place(page, hx + R - 0.3, hy, 0);
+  // Press on an empty spot, drag onto the far enemy: no chain.
+  await chainAt(page, [{ x: hx - 0.9, y: hy + 0.9 }, { x: hx, y: hy + R + 0.6 }]);
+  expect((await arenaSnapshot(page)).chain).toEqual([]);
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  expect((await arenaSnapshot(page)).enemies.map(e => e.id)).toContain(far);
+  // The same gesture onto the near one starts the chain.
+  await chainAt(page, [{ x: hx - 0.9, y: hy + 0.9 }, { x: hx + R - 0.3, y: hy }]);
+  await expect.poll(async () => (await arenaSnapshot(page)).chain).toEqual([near]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // Defaults of the stage 2 answers: other colors at 35% opacity (strength 0.65), survivor knockback distance 0.8.
+  const p = await page.evaluate(() => { const rt = (window as any).__realtime.params; return { dim: rt.dimStrength, mode: rt.dimMode, knock: rt.survivorKnockbackDistance }; });
+  expect(p).toEqual({ dim: 0.65, mode: 'alpha', knock: 0.8 });
   expect(errors).toEqual([]);
 });

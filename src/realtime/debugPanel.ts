@@ -32,7 +32,10 @@ export interface PanelStats {
   intervalMin: number;
   intervalMax: number;
   toughShare: number;
-  fastShare: number;
+  wolfShare: number;
+  boarShare: number;
+  wolves: number;
+  boars: number;
   angerTier: number;
   enemySpeed: number;
   reaper: string;
@@ -44,7 +47,8 @@ export interface PanelStats {
 }
 
 const OPEN_KEY = 'ashen-oath-realtime-panel-open';
-const STAGE_NOTE: Record<number, string> = { 3: 'этап 3 — пока не действует' };
+/** Notes for groups whose values do nothing yet (all stages are implemented: empty). */
+const STAGE_NOTE: Record<number, string> = {};
 
 function formatNumber(def: ParamDef, value: unknown): string {
   if (def.kind !== 'number' || typeof value !== 'number') return String(value);
@@ -100,7 +104,7 @@ export class DebugPanel {
     button('+20 врагов', () => callbacks.onBurst(20), 'burst');
     button('Сбросить по умолчанию', () => callbacks.onReset(), 'reset-params');
     this.goalsButton = button('Цели выполнены', () => callbacks.onCompleteGoals(), 'complete-goals');
-    this.goalsButton.title = 'Проверка стадии жадности: таблица фаз и Жнец. Этапы 2–3 включат её по настоящим целям.';
+    this.goalsButton.title = 'Сразу выполнить цели арены: дверь открывается, начинается стадия жадности (таблица фаз и Жнец).';
     el.appendChild(actions);
 
     let group = '';
@@ -121,7 +125,7 @@ export class DebugPanel {
         el.appendChild(section);
       }
       section.appendChild(this.buildRow(def));
-      if (def.key === 'baseFastShare') el.appendChild(this.buildPhaseSection());
+      if (def.key === 'baseBoarShare') el.appendChild(this.buildPhaseSection());
     }
     this.el = el;
     let open = false;
@@ -280,7 +284,8 @@ export class DebugPanel {
       ['Стадия', stage],
       ['Пол плотности', String(s.floor)],
       ['Интервал групп', `${s.intervalMin.toFixed(1)}–${s.intervalMax.toFixed(1)} с`],
-      ['Крепких / быстрых', `${Math.round(s.toughShare * 100)}% / ${Math.round(s.fastShare * 100)}%`],
+      ['Крепких / стай / кабанов', `${Math.round(s.toughShare * 100)}% / ${Math.round(s.wolfShare * 100)}% / ${Math.round(s.boarShare * 100)}%`],
+      ['Волков / кабанов на арене', `${s.wolves} / ${s.boars}`],
       ['Скорость врага', `${s.enemySpeed.toFixed(2)} ед/с${s.angerTier ? ` (ступень ${s.angerTier})` : ''}`],
       ['Жнец', s.reaper],
       ['В куче до смерти: постоянная', life(s.crowdConstant)],
