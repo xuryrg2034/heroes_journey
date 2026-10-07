@@ -281,6 +281,48 @@ test('Esc and the mouse back on the hero cancel the chain; focus slows the world
   expect(errors).toEqual([]);
 });
 
+// Stage E (user 07.10.2026): each new link refreshes focus to the full reserve, once per link per chain; a new chain
+// starts full. Truncating and adding the same enemy again gives nothing back.
+test('a new link refreshes focus to the full reserve; truncating and re-adding the same enemy does not', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await stillArena(page);
+  expect(await page.evaluate(() => { const rt = (window as any).__realtime.params; return [rt.linkRefreshesFocus, rt.focusPerLink]; })).toEqual([true, 0]);
+  const { x: hx, y: hy } = (await chainSnapshot(page)).hero;
+  const a = await place(page, hx, hy + 1.1, 1), b = await place(page, hx, hy + 2.2, 1);
+  const pa = await screen(page, hx, hy + 1.1), pb = await screen(page, hx, hy + 2.2);
+  const focus = async () => (await chainSnapshot(page)).focus;
+  // Drain: hold a chain on A, then cancel; a new chain on A starts with the full reserve again.
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
+  await page.waitForTimeout(900);
+  expect(await focus()).toBeLessThan(2.6);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.mouse.down();
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
+  expect(await focus()).toBeGreaterThan(2.9);
+  // Drain again, then add B: back to the full reserve.
+  await page.waitForTimeout(900);
+  expect(await focus()).toBeLessThan(2.6);
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a, b]);
+  expect(await focus()).toBeGreaterThan(2.9);
+  // Drain, cut back to A and add B again: no refill (each link once per chain).
+  await page.waitForTimeout(900);
+  const drained = await focus();
+  expect(drained).toBeLessThan(2.6);
+  await page.mouse.move(pa.x, pa.y, { steps: 6 });
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a, b]);
+  expect(await focus()).toBeLessThanOrEqual(drained + 0.01);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
 // ---- Stage 3: arenas, buttons, the door, the boar, wolves ----
 
 interface ArenaSnapshot extends ChainSnapshot {

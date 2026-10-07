@@ -298,6 +298,8 @@ async function boot(): Promise<void> {
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
       }
     }
+    // Stage E: a short flash of the focus bar when a link refreshes it.
+    if (world.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
     renderer.render(world, live ? realDt : 0, ui);
     world.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.

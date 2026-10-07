@@ -129,6 +129,7 @@ export type WorldEvent =
   | { type: 'chainEnd'; kills: number; score: number }
   | { type: 'kill'; enemyId: number; x: number; y: number; color: number }
   | { type: 'jump' }
+  | { type: 'focusRefill' }
   | { type: 'defeat' };
 
 export interface World {
@@ -181,6 +182,8 @@ export interface World {
   move: HeroMove | null;
   /** Real seconds of focus left (design answer 14). */
   focus: number;
+  /** Links («enemy:id», «object:id») that refreshed focus in the chain being drawn: each once per chain (stage E). */
+  focusRefreshed: Set<string>;
   /** True while focus slows the world (a chain is drawn and focus is left). */
   focusing: boolean;
   /** Energy for the jump: +energyPerKill per attacked enemy, up to ENERGY_MAX. */
@@ -223,6 +226,7 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     chain: [],
     move: null,
     focus: params.focusMax,
+    focusRefreshed: new Set(),
     focusing: false,
     energy: 0,
   };

@@ -96,3 +96,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-jump { position: absolute; bottom: 34px; right: 18px; padding: 8px 14px; background: #1c2630; border: 1px solid #4a6378; color: #bfe3ff; }
 .rt-jump.rt-on { background: #2c4a63; border-color: #9ad1ff; }
 .rt-jump:disabled { opacity: .45; cursor: default; }
+
+/* Stage E: a link refreshed the focus. */
+.rt-focus.rt-focus-flash { animation: rt-focus-flash 0.25s ease-out; }
+@keyframes rt-focus-flash { 0% { box-shadow: 0 0 0 2px #ffffff, 0 0 14px #bfe3ff; } 100% { box-shadow: none; } }

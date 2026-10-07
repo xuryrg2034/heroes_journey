@@ -196,6 +196,22 @@ function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptOb
 
 const linkIndex = (world: World, link: ChainLink): number => world.chain.findIndex(l => l.kind === link.kind && l.id === link.id);
 
+/**
+ * Stage E (user 07.10.2026): a new link of the chain — an enemy or a crystal — refreshes focus (to the full reserve, or
+ * +focusPerLink). Once per link per chain: truncating and adding the same enemy again gives nothing; a button or the
+ * door (the end of the chain) gives nothing. The set resets when a new chain begins.
+ */
+function refreshFocus(world: World, link: ChainLink): void {
+  const p = world.params;
+  if (!p.linkRefreshesFocus) return;
+  if (link.kind === 'object' && world.objects.find(o => o.id === link.id)?.kind !== 'crystal') return;
+  const key = `${link.kind}:${link.id}`;
+  if (world.focusRefreshed.has(key)) return;
+  world.focusRefreshed.add(key);
+  world.focus = p.focusPerLink > 0 ? Math.min(p.focusMax, world.focus + p.focusPerLink) : p.focusMax;
+  world.events.push({ type: 'focusRefill' });
+}
+
 /** Press: start a chain on an enemy or an object within R of the hero. Returns true when a chain started. */
 export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
@@ -204,6 +220,9 @@ export function beginChain(world: World, p: Vec): boolean {
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
   if (!target) return false;
   world.chain = [target];
+  // A chain always starts with the full reserve: its first link refreshes focus too.
+  world.focusRefreshed = new Set();
+  refreshFocus(world, target);
   return true;
 }
 
@@ -219,6 +238,7 @@ export function dragChain(world: World, p: Vec): void {
   const index = linkIndex(world, target);
   if (index >= 0) { world.chain.length = index + 1; return; }
   world.chain.push(target);
+  refreshFocus(world, target);
 }
 
 export function cancelChain(world: World): void { world.chain = []; }

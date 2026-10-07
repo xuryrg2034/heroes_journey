@@ -171,6 +171,10 @@ export interface Params {
   focusKillRefill: boolean;
   focusPerKill: number;
   focusNoDamage: boolean;
+  /** Stage E (user 07.10.2026): each new link of a chain (an enemy or a crystal, once per chain) refreshes focus. */
+  linkRefreshesFocus: boolean;
+  /** Focus a new link gives back: 0 — to the full reserve, otherwise +N s up to the maximum. */
+  focusPerLink: number;
   // Jump (stage 2)
   energyPerKill: number;
   jumpCost: number;
@@ -295,6 +299,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   focusKillRefill: false,
   focusPerKill: 0.3,
   focusNoDamage: false,
+  linkRefreshesFocus: true,
+  focusPerLink: 0,
   energyPerKill: 0.5,
   jumpCost: 2,
   jumpRadius: 3,
@@ -408,6 +414,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('focusRegen', 'Фокус', 'Восстановление', 0, 5, 0.1, 2, 'с/с'),
   { kind: 'bool', key: 'focusKillRefill', group: 'Фокус', label: 'Восстановление за убийства', stage: 2 },
   n('focusPerKill', 'Фокус', 'Фокус за убийство', 0, 2, 0.05, 2, 'с'),
+  { kind: 'bool', key: 'linkRefreshesFocus', group: 'Фокус', label: 'Звено обновляет фокус', stage: 2,
+    hint: 'Каждое новое звено цепи (враг или кристалл) восстанавливает фокус — один раз за цепь; кнопка и дверь — нет.' },
+  n('focusPerLink', 'Фокус', 'Сколько восстанавливает звено', 0, 3, 0.1, 2, 'с', '0 — до полного запаса.'),
   { kind: 'bool', key: 'focusNoDamage', group: 'Фокус', label: 'В фокусе враги не ранят', stage: 2 },
   n('energyPerKill', 'Прыжок', 'Энергия за врага', 0, 3, 0.1, 2),
   n('jumpCost', 'Прыжок', 'Цена прыжка', 0, 10, 0.5, 2),
@@ -446,7 +455,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
  * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v10';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v11';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
