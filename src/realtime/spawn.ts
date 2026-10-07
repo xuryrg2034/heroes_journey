@@ -2,7 +2,7 @@
  * Horde arrival (Brotato-style): groups of 2–4 every 3–5 s, each enemy announced by a
  * marker; the enemy steps out after the marker delay. Under the arena limit the
  * rest waits in a queue. Pace and composition come from `pressureAt`.
- * Stage 3: a share of groups comes as a wolf pack (one color by default); boars join
+ * Stage 3: a share of groups comes as a wolf pack (mixed colors by default, as the pack rule of the main game: a pack does not tell colors apart); boars join
  * other groups by their share, capped on the arena.
  */
 import { blockedAt, dist, type Vec } from './arena';

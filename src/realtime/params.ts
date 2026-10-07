@@ -173,7 +173,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   wolfPackMax: 4,
   wolfPackRadius: 2,
   wolfPackBonus: 1,
-  wolfPackMono: true,
+  wolfPackMono: false,
   baseIntervalMin: 3,
   baseIntervalMax: 5,
   baseToughShare: 0.2,
@@ -328,7 +328,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * v3 (07.10.2026, stage 3): dimming default 0.65 (design answer 31), wolves replace «fast», boar fields;
  * v1/v2 values are dropped.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v3';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v4';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
