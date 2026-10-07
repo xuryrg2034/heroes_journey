@@ -284,18 +284,24 @@ function segmentDistance(a: Vec, b: Vec, p: Vec): number {
 }
 
 /**
- * A crystal falls at a random point of the arena (as the random cell of the main game): off walls
+ * A crystal falls at a random point within `crystalDropRadius` of the kill (0 — anywhere on the arena, as the random
+ * cell of the main game; design 07.10.2026: near the same crowd, to carry the combo on): off walls
  * and trees (water is fine), at least CRYSTAL_CLEARANCE from the rest of the chain's path (the
  * polyline hero → links ahead), the hero and other objects. Enemies may stand there: the crystal
  * is not a body. No point found — no crystal (rare).
  */
-function dropCrystal(world: World): void {
-  const move = world.move!, arena = world.arena;
+function dropCrystal(world: World, at: Vec): void {
+  const move = world.move!, arena = world.arena, radius = world.params.crystalDropRadius;
   const path: Vec[] = [{ x: world.hero.x, y: world.hero.y }];
   for (const l of move.links) { const pt = linkPoint(world, l); if (pt) path.push(pt); }
   const margin = OBJECT_RADIUS;
   for (let i = 0; i < CRYSTAL_TRIES; i++) {
-    const p = { x: margin + Math.random() * (arena.width - 2 * margin), y: margin + Math.random() * (arena.height - 2 * margin) };
+    let p: Vec;
+    if (radius > 0) {
+      // Uniform in the disc around the kill, kept inside the arena.
+      const r = radius * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+      p = { x: Math.min(arena.width - margin, Math.max(margin, at.x + r * Math.cos(a))), y: Math.min(arena.height - margin, Math.max(margin, at.y + r * Math.sin(a))) };
+    } else p = { x: margin + Math.random() * (arena.width - 2 * margin), y: margin + Math.random() * (arena.height - 2 * margin) };
     if (blockedAt(p, OBJECT_RADIUS * 0.6, arena)) continue;
     if (world.objects.some(o => dist(o, p) < CRYSTAL_CLEARANCE + OBJECT_RADIUS)) continue;
     let near = dist(path[0], p) < CRYSTAL_CLEARANCE;
@@ -344,7 +350,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     if (p.focusKillRefill) world.focus = Math.min(p.focusMax, world.focus + p.focusPerKill);
     checkGoals(world);
     // A crystal at every N-th kill of this chain (main game: 6th, 12th…), off the rest of its path.
-    if (p.crystals && p.crystalEvery > 0 && move.kills % p.crystalEvery === 0) dropCrystal(world);
+    if (p.crystals && p.crystalEvery > 0 && move.kills % p.crystalEvery === 0) dropCrystal(world, { x: enemy.x, y: enemy.y });
     world.hitstop = Math.max(world.hitstop, hitstopFor(world, move.kills));
     maybeFinisher(world);
     return;

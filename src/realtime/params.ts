@@ -91,6 +91,8 @@ export interface Params {
   crystalLife: number;
   /** Score for breaking a crystal = this × kills of the chain that dropped it (main game: 20). */
   crystalScorePerKill: number;
+  /** Radius around the kill where the crystal falls; 0 — anywhere on the arena (design 07.10.2026: keep the combo at the same crowd). */
+  crystalDropRadius: number;
   // Chain juice (stage C): every effect is a toggle
   comboCounter: boolean;
   hitstop: boolean;
@@ -222,6 +224,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   crystalEvery: 6,
   crystalLife: 0,
   crystalScorePerKill: 20,
+  crystalDropRadius: 4,
   comboCounter: true,
   hitstop: true,
   hitstopMin: 0.02,
@@ -337,6 +340,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('crystalEvery', 'Кристаллы', 'Кристалл за каждые … убийств цепи', 2, 20, 1, 4),
   n('crystalLife', 'Кристаллы', 'Срок жизни кристалла', 0, 120, 5, 4, 'с', '0 — лежит, пока цепь его не разобьёт.'),
   n('crystalScorePerKill', 'Кристаллы', 'Очки за кристалл, × убийств породившей цепи', 0, 100, 5, 4),
+  n('crystalDropRadius', 'Кристаллы', 'Радиус падения от места убийства', 0, 16, 0.5, 4, 'ед.', '0 — вся арена. Кристалл рядом с кучей продолжает комбо.'),
   { kind: 'bool', key: 'comboCounter', group: 'Сок цепи', label: 'Счётчик комбо у героя', stage: 4 },
   { kind: 'bool', key: 'hitstop', group: 'Сок цепи', label: 'Остановка кадра на убийстве', stage: 4 },
   n('hitstopMin', 'Сок цепи', 'Остановка: первое убийство', 0, 0.1, 0.005, 4, 'с'),
@@ -430,7 +434,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * water, the floor before the goals (28) and higher greed floors. v7 (stage C): crystals and chain juice,
  * density penalty 2 by default (design answer 42).
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v7';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v8';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {

@@ -836,6 +836,8 @@ test('the 6th kill of one chain drops a crystal off the rest of the path; a long
   expect(c[0].value).toBe(7);
   const dx = Math.max(7, Math.min(8, c[0].x)) - c[0].x, dy = 9.2 - c[0].y;
   expect(Math.hypot(dx, dy)).toBeGreaterThanOrEqual(0.6);
+  // Near the crowd (design 07.10.2026): within the drop radius 4 of the 6th kill at (7, 9.2).
+  expect(Math.hypot(c[0].x - 7, c[0].y - 9.2)).toBeLessThanOrEqual(4.001);
   // Score: 10 × 7 × (1 + 0.1 × 7) = 119; the combo counter showed ×7.
   expect(s.lastChain).toMatchObject({ kills: 7, score: 119 });
   expect(s.stats.score).toBe(119);
