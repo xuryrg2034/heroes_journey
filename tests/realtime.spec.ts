@@ -323,6 +323,47 @@ test('a new link refreshes focus to the full reserve; truncating and re-adding t
   expect(errors).toEqual([]);
 });
 
+// Stage F (user 07.10.2026): after a chain that killed, the hero is untouchable for 0.5 game seconds — a touching enemy
+// does not hurt him then, and does right after.
+test('after a chain a touching enemy does not hurt the hero for 0.5 s, and does afterwards', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await stillArena(page);
+  expect(await page.evaluate(() => { const rt = (window as any).__realtime.params; return [rt.chainShield, rt.chainShieldMinKills]; })).toEqual([0.5, 1]);
+  const { x: hx, y: hy } = (await chainSnapshot(page)).hero;
+  // The chain target A to the right; B (another color, not in the chain) a body away beyond it, walking in once the chain ends.
+  const a = await place(page, hx + 1.1, hy, 0);
+  await place(page, hx + 1.1 + 0.7, hy, 1);
+  const pa = await screen(page, hx + 1.1, hy);
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
+  await page.mouse.up();
+  // In the page: wait for the chain to end, let enemies walk again, then sample every frame for 1.5 game seconds.
+  const samples = await page.evaluate(async () => {
+    const rt = (window as any).__realtime;
+    const frame = () => new Promise(r => requestAnimationFrame(r));
+    while (!rt.snapshot().lastChain) await frame();
+    rt.params.enemySpeed = 1.2;
+    const end = rt.snapshot().lastChain.time, hp0 = rt.snapshot().hero.hp, out: { t: number; hp: number; shield: number; d: number }[] = [];
+    while (rt.snapshot().time < end + 1.5) {
+      const s = rt.snapshot(), e = s.enemies[0];
+      out.push({ t: s.time - end, hp: s.hero.hp - hp0, shield: s.hero.chainShield, d: e ? Math.hypot(e.x - s.hero.x, e.y - s.hero.y) : 99 });
+      await frame();
+    }
+    return out;
+  });
+  const reach = await page.evaluate(() => 0.28 + 0.8 * 0.32 * (window as any).__realtime.params.enemyScale / 0.8 + 0.03);
+  expect(samples[0].shield).toBeGreaterThan(0.4);
+  // Touching during the shield, unhurt; the first wound comes only after 0.5 s.
+  expect(samples.some(x => x.t < 0.48 && x.d < reach)).toBe(true);
+  expect(samples.filter(x => x.t < 0.48).every(x => x.hp === 0)).toBe(true);
+  const firstWound = samples.find(x => x.hp < 0);
+  expect(firstWound).toBeTruthy();
+  expect(firstWound!.t).toBeGreaterThanOrEqual(0.48);
+  expect(errors).toEqual([]);
+});
+
 // ---- Stage 3: arenas, buttons, the door, the boar, wolves ----
 
 interface ArenaSnapshot extends ChainSnapshot {

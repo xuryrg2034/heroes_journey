@@ -60,6 +60,10 @@ export interface Params {
   heroHitFactor: number;
   contactDamage: number;
   invulnerabilityMode: InvulnerabilityMode;
+  /** Stage F (user 07.10.2026): game seconds of invulnerability after a chain that killed (to walk out of the crowd). */
+  chainShield: number;
+  /** Kills a chain needs to give that invulnerability. */
+  chainShieldMinKills: number;
   invulnerability: number;
   touchFactor: number;
   brakeStrength: number;
@@ -214,6 +218,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   heroHitFactor: 0.7,
   contactDamage: 1,
   invulnerabilityMode: 'constant',
+  chainShield: 0.5,
+  chainShieldMinKills: 1,
   invulnerability: 0.5,
   touchFactor: 0.8,
   brakeStrength: 0.8,
@@ -333,6 +339,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'По доле HP (Brotato): (урон ÷ макс. HP) ÷ 0,15 × 0,4 с, в пределах 0,2–0,4 с.',
     options: [{ value: 'constant', label: 'постоянная' }, { value: 'byDamage', label: 'по доле HP' }] },
   n('invulnerability', 'Герой и урон', 'Постоянная неуязвимость', 0, 2, 0.05, 1, 'с'),
+  n('chainShield', 'Герой и урон', 'Неуязвимость после цепи', 0, 1.5, 0.05, 2, 'с', 'После цепи, убившей врага: шанс выйти из толпы ходьбой. Новая заменяет остаток.'),
+  n('chainShieldMinKills', 'Герой и урон', 'Мин. убийств цепи для неуязвимости', 1, 10, 1, 2),
   n('touchFactor', 'Герой и урон', 'Касание: доля радиуса тела врага', 0.3, 1.2, 0.05, 1, '×', 'Враг ранит, когда его тело, уменьшенное до этой доли, касается круга героя. На этом расстоянии враг упирается в героя.'),
   n('brakeStrength', 'Герой и урон', 'Торможение после удара', 0, 1, 0.05, 1, '×', 'Ударивший враг теряет эту долю скорости и разгоняется заново.'),
   n('brakeRecovery', 'Герой и урон', 'Разгон после удара', 0, 3, 0.05, 1, 'с'),
@@ -455,7 +463,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
  * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v11';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v12';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {

@@ -427,6 +427,10 @@ function finishMove(world: World): void {
     world.stats.bestChain = Math.max(world.stats.bestChain, move.kills);
     world.lastChain = { kills: move.kills, hits: move.hits, crystals: move.broken, score, time: world.time };
     world.events.push({ type: 'chainEnd', kills: move.kills, score });
+    // Stage F (user 07.10.2026): a chain that killed leaves the hero untouchable for a moment to walk out of the crowd;
+    // a new one replaces the rest (no stacking); the hurt invulnerability runs on its own, the larger protects.
+    const p = world.params;
+    if (p.chainShield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) hero.chainShield = p.chainShield;
   }
   if (move.kind === 'jump' && landsInDoor(world, hero)) win(world);
 }

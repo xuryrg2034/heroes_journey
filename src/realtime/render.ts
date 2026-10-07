@@ -480,6 +480,9 @@ export class RealtimeRenderer {
     const ring = this.heroRing.clear();
     ring.ellipse(0, 26, 30, 9).fill({ color: 0x050a07, alpha: 0.4 });
     if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: 0xffffff, alpha: 0.55 * hurt });
+    // Stage F: the after-chain invulnerability — a blinking gold rim, unlike the hurt blink, while it lasts.
+    if (hero.chainShield > 0 && world.status === 'playing' && Math.floor(this.clock * 12) % 2 === 0)
+      ring.circle(0, 0, UNIT * 0.6).stroke({ color: 0xffd36b, width: 3, alpha: 0.9 });
     // Small HP bar under the hero: the eye stays near the action.
     const w = 58, frac = hero.maxHp > 0 ? hero.hp / hero.maxHp : 0;
     ring.roundRect(-w / 2, 40, w, 7, 3).fill(0x1a1d17).stroke({ color: 0x0b0d0a, width: 1 });

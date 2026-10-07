@@ -105,6 +105,9 @@ export interface Hero {
   hp: number;
   maxHp: number;
   invulnerable: number;
+  /** Stage F: game seconds left of the invulnerability after a chain (shown by its own blink); the larger of it and
+   * `invulnerable` protects. */
+  chainShield: number;
   /** Real seconds left of the hurt flash (render). */
   hurtFlash: number;
   /** Knockback from a boar charge: velocity and game seconds left. */
@@ -199,7 +202,7 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
   const world: World = {
     arena,
     params,
-    hero: { x: arena.heroStart.x, y: arena.heroStart.y, hp: params.heroHp, maxHp: params.heroHp, invulnerable: 0, hurtFlash: 0, knockVx: 0, knockVy: 0, knock: 0 },
+    hero: { x: arena.heroStart.x, y: arena.heroStart.y, hp: params.heroHp, maxHp: params.heroHp, invulnerable: 0, chainShield: 0, hurtFlash: 0, knockVx: 0, knockVy: 0, knock: 0 },
     enemies: [],
     markers: [],
     queue: [],
@@ -361,7 +364,7 @@ function massOf(e: Enemy, params: Params): number {
 }
 
 function canBeHurt(world: World): boolean {
-  if (world.status !== 'playing' || world.hero.invulnerable > 0 || world.move) return false;
+  if (world.status !== 'playing' || world.hero.invulnerable > 0 || world.hero.chainShield > 0 || world.move) return false;
   return !(world.params.focusNoDamage && world.focusing);
 }
 
@@ -634,6 +637,7 @@ export function update(world: World, realDt: number): void {
   world.pressure = pressureAt(world.params, world.time, world.greedStart);
   const hero = world.hero;
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
+  hero.chainShield = Math.max(0, hero.chainShield - dt);
   hero.hurtFlash = Math.max(0, hero.hurtFlash - realDt);
   for (const e of world.enemies) e.hurtFlash = Math.max(0, e.hurtFlash - realDt);
   // Crystals with a lifetime (slider; 0 — they lie until a chain breaks them).
