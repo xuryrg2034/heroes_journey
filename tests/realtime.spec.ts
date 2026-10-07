@@ -958,6 +958,35 @@ test('the hero walks through a pile of five enemies, slowed to about 0.7 in it, 
   expect(errors).toEqual([]);
 });
 
+// Design 07.10.2026: only enemies ahead slow the hero; one touching him from behind does not, or there is no getting away.
+// The enemy press circle is back to about 0.59 (enemies are drawn smaller, misses must not grow).
+test('an enemy touching the hero from behind does not slow his walk away; the enemy press circle stays 0.59', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  const press = await page.evaluate(() => { const rt = (window as any).__realtime.params; return rt.pickSlack * 0.45 * rt.enemyScale; });
+  expect(press).toBeGreaterThan(0.58);
+  expect(press).toBeLessThan(0.6);
+  await freeze(page);
+  await page.evaluate(() => (window as any).__realtime.teleport(4, 9));
+  await place(page, 3.55, 9, 0);
+  const start = await crowdSnapshot(page);
+  let crowdSeen = false;
+  await page.keyboard.down('KeyD');
+  const samples: { t: number; x: number }[] = [];
+  await expect.poll(async () => {
+    const s = await crowdSnapshot(page);
+    samples.push({ t: s.time, x: s.hero.x });
+    if (s.heroInCrowd) crowdSeen = true;
+    return s.hero.x;
+  }, { timeout: 10_000, intervals: [20] }).toBeGreaterThan(6);
+  await page.keyboard.up('KeyD');
+  expect(crowdSeen).toBe(false);
+  const moving = samples.filter(x => x.x > start.hero.x + 0.05);
+  const v = (moving.at(-1)!.x - moving[0].x) / (moving.at(-1)!.t - moving[0].t);
+  expect(v).toBeGreaterThan(3.4);
+  expect(errors).toEqual([]);
+});
+
 test('the reach circle R is drawn around the hero without a chain; in a chain also around the last link', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 1);

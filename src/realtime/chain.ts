@@ -180,7 +180,8 @@ function pickRadius(world: World): number { return enemyDrawRadius(world.params)
 
 /** The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. */
 function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean): ChainLink | null {
-  const r = pickRadius(world), ro = OBJECT_RADIUS * world.params.pickSlack;
+  // Buttons, the door and crystals keep their press circle of before (× 1.3): only the enemy one grew back to 0.59.
+  const r = pickRadius(world), ro = OBJECT_RADIUS * 1.3;
   let best: ChainLink | null = null, bestD = Infinity;
   for (const e of world.enemies) {
     const d = dist(e, p);

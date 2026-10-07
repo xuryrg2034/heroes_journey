@@ -316,14 +316,16 @@ export function waterFactor(world: World, p: Vec): number {
 
 /**
  * Stage D (user 07.10.2026): the hero's circle overlaps the body circle of at least one enemy
- * (hero circle + enemy body > distance). Only with «сквозь врагов» on: with it off the hero stops
- * on the body circle (stage B) and the old walking stays as it was.
+ * (hero circle + enemy body > distance) AHEAD of him — in the half-plane of his walk (design
+ * 07.10.2026: one catching up from behind or the side does not slow him, or there is no getting away;
+ * its touch still hurts). Only with «сквозь врагов» on: with it off the hero stops on the body
+ * circle (stage B) and the old walking stays as it was. Standing still — not slowed.
  */
 export function heroInCrowd(world: World): boolean {
-  const { hero, params } = world;
-  if (!params.heroThroughEnemies) return false;
+  const { hero, params, heroWalk } = world;
+  if (!params.heroThroughEnemies || (heroWalk.x === 0 && heroWalk.y === 0)) return false;
   const reach = heroRadius(params) + enemyBodyRadius(params);
-  return world.enemies.some(e => dist(e, hero) < reach);
+  return world.enemies.some(e => dist(e, hero) < reach && (e.x - hero.x) * heroWalk.x + (e.y - hero.y) * heroWalk.y > 0);
 }
 
 /** Walking multiplier of the crowd: `crowdSlow` while the hero is in it, 1 elsewhere. Stacks with water only. */

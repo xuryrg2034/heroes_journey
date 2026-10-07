@@ -283,7 +283,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   dashShake: 3,
   linkRadius: 1.875,
   lineOfSight: true,
-  pickSlack: 1.3,
+  // 0.36 × 1.65 ≈ 0.59: the press circle of the stage before the enemies shrank (design 07.10.2026: no more misses).
+  pickSlack: 1.65,
   dashSpeed: 12,
   survivorKnockback: false,
   survivorKnockbackTime: 0.12,
@@ -445,7 +446,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
  * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v9';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v10';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
