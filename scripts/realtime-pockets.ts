@@ -1,11 +1,12 @@
 /**
- * Pocket check of the real-time prototype's enemy pathing (iteration 2, stage A;
+ * Pocket check of the real-time prototype's enemy pathing (iteration 2, stages A–B;
  * docs/realtime-prototype.md, section 11): on every arena, a single enemy starts from
- * every spawn point (edge points every 1 unit, the marked posts, inner points every 2 units)
- * and walks to the hero standing at a grid of positions. A pair that does not reach the
+ * every spawn point (edge points every 1 unit, the marked posts, the pond centers, inner
+ * points every 2 units) and walks to the hero standing at a grid of positions (and in the
+ * pond: water is passable and slow since stage B). A pair that does not reach the
  * hero in `TIMEOUT` game seconds is a pocket. Then crowds: 40 enemies at once, how many
- * end near the hero and how many stand still far from him. Last — the cost per step
- * with 60 enemies (flow field on and off).
+ * end near the hero and how many stand still far from him (flow field with and without
+ * the density penalty). Last — the cost per step with 60 enemies.
  *
  * Run: `npm run realtime:pockets` (add `--straight` to see the old straight-line walk too).
  * Uses the real simulation step `update` of src/realtime/world.ts; randomness is Math.random.
@@ -27,17 +28,24 @@ function quietWorld(arena: ArenaLayout, params: Params, hero: Vec): World {
   return world;
 }
 
-function testParams(pathfinding: boolean): Params {
+function testParams(pathfinding: boolean, density = false): Params {
   const p = defaultParams();
   p.pathfinding = pathfinding;
+  p.flowDensity = density;
   p.contactDamage = 0;
+  // No boars: a charge knocks the hero away and its damage could end the run, which freezes the world mid-measure.
+  p.boarMax = 0;
   p.speedSpread = 0;
-  p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6;
+  // No newcomers: no groups and no density floor (stage B: 28 before the goals) — only the enemies under test.
+  p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.baseFloor = 0;
   return p;
 }
 
+/** Pond centers (stage B: the pond is passable): the hero may stand there and an enemy may start there. */
+const pondCenters = (arena: ArenaLayout): Vec[] => arena.obstacles.filter(o => o.kind === 'pond').map(o => ({ x: o.x, y: o.y }));
+
 function heroSpots(arena: ArenaLayout, params: Params): Vec[] {
-  const spots: Vec[] = [{ ...arena.heroStart }];
+  const spots: Vec[] = [{ ...arena.heroStart }, ...pondCenters(arena)];
   for (let y = 1.2; y < arena.height; y += 2.5) for (let x = 1.2; x < arena.width; x += 2.4) {
     const p = { x, y };
     if (!blockedAt(p, heroRadius(params) + 0.05, arena)) spots.push(p);
@@ -50,6 +58,7 @@ function startSpots(arena: ArenaLayout, params: Params): Vec[] {
   for (let x = 0.5; x < arena.width; x += 1) out.push({ x, y: inset }, { x, y: arena.height - inset });
   for (let y = 0.5; y < arena.height; y += 1) out.push({ x: inset, y }, { x: arena.width - inset, y });
   for (const m of arena.marked) out.push({ x: m.x, y: m.y });
+  out.push(...pondCenters(arena));
   for (let y = 1; y < arena.height; y += 2) for (let x = 1; x < arena.width; x += 2) out.push({ x, y });
   return out.filter(p => !blockedAt(p, r * 0.99, arena));
 }
@@ -95,12 +104,15 @@ function pocketReport(pathfinding: boolean): void {
   if (misses.length) console.log(`Examples of pockets:\n- ${misses.join('\n- ')}`);
 }
 
-function crowdReport(pathfinding: boolean): void {
-  console.log(`\n## Crowds of 40 — ${pathfinding ? 'flow field' : 'straight line'}; 25 s, 3 runs per hero spot`);
+type CrowdMode = 'flow' | 'density' | 'straight';
+const CROWD_TITLE: Record<CrowdMode, string> = { flow: 'flow field', density: 'flow field + density penalty', straight: 'straight line' };
+
+function crowdReport(mode: CrowdMode): void {
+  console.log(`\n## Crowds of 40 — ${CROWD_TITLE[mode]}; 25 s, 3 runs per hero spot`);
   console.log('| Arena | Hero spots | Near the hero (≤ 3 u), mean | Standing far (> 3 u, moved < 0.3 u in the last 3 s), mean | Worst run: standing far | Of them alone (no body touching) — stuck on terrain, mean |');
   console.log('| --- | --- | --- | --- | --- | --- |');
   for (const arena of ARENAS) {
-    const params = testParams(pathfinding);
+    const params = testParams(mode !== 'straight', mode === 'density');
     params.maxEnemies = 60;
     const heroes = heroSpots(arena, params).filter((_, i) => i % 3 === 0);
     let near = 0, far = 0, lone = 0, runs = 0, worst = 0;
@@ -128,8 +140,9 @@ function perfReport(): void {
   console.log('\n## Cost with 60 enemies (Node, one 1/60 s step of `update`; the browser frame also renders)');
   console.log('| Arena | Flow field | Step, ms (mean) | Field rebuild, ms (mean / max) | Rebuilds in 10 s |');
   console.log('| --- | --- | --- | --- | --- |');
-  for (const arena of ARENAS) for (const pathfinding of [true, false]) {
-    const params = testParams(pathfinding);
+  for (const arena of ARENAS) for (const mode of ['flow', 'density', 'straight'] as CrowdMode[]) {
+    const pathfinding = mode !== 'straight';
+    const params = testParams(pathfinding, mode === 'density');
     params.maxEnemies = 60;
     const world = quietWorld(arena, params, arena.heroStart);
     spawnBurst(world, 60);
@@ -143,12 +156,13 @@ function perfReport(): void {
       if (world.flow.builds !== lastBuilds) { rebuilds++; rebuildSum += world.flow.lastBuildMs; rebuildMax = Math.max(rebuildMax, world.flow.lastBuildMs); lastBuilds = world.flow.builds; }
     }
     const per = (performance.now() - t0) / steps;
-    console.log(`| ${arena.name} | ${pathfinding ? 'on' : 'off'} | ${per.toFixed(3)} | ${rebuilds ? `${(rebuildSum / rebuilds).toFixed(3)} / ${rebuildMax.toFixed(3)}` : '—'} | ${rebuilds} |`);
+    console.log(`| ${arena.name} | ${mode === 'straight' ? 'off' : mode === 'density' ? 'on + density' : 'on'} | ${per.toFixed(3)} | ${rebuilds ? `${(rebuildSum / rebuilds).toFixed(3)} / ${rebuildMax.toFixed(3)}` : '—'} | ${rebuilds} |`);
   }
 }
 
 pocketReport(true);
 if (withStraight) pocketReport(false);
-crowdReport(true);
-if (withStraight) crowdReport(false);
+crowdReport('flow');
+crowdReport('density');
+if (withStraight) crowdReport('straight');
 perfReport();

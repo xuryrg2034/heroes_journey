@@ -128,9 +128,22 @@ export const ARENAS: readonly ArenaLayout[] = [KILL_ARENA, BUTTON_ARENA, MARKED_
 
 export function dist(a: Vec, b: Vec): number { return Math.hypot(a.x - b.x, a.y - b.y); }
 
-/** Moves a circle out of every obstacle and keeps it inside the arena bounds. */
+/**
+ * Solid obstacles: walls and trees. The pond is passable water since iteration 2, stage B
+ * (docs/realtime-prototype.md, section 9г, item 3): it slows walkers (`waterSlow`) and blocks nothing.
+ */
+export function isSolid(o: Obstacle): boolean { return o.kind !== 'pond'; }
+
+/** True when the point is in a pond (the center of a body decides). */
+export function inWater(p: Vec, arena: ArenaLayout): boolean {
+  for (const o of arena.obstacles) if (o.kind === 'pond' && Math.hypot(p.x - o.x, p.y - o.y) < o.r) return true;
+  return false;
+}
+
+/** Moves a circle out of every solid obstacle and keeps it inside the arena bounds. */
 export function pushOutOfObstacles(p: Vec, r: number, arena: ArenaLayout): void {
   for (const o of arena.obstacles) {
+    if (!isSolid(o)) continue;
     if (o.shape === 'circle') {
       const dx = p.x - o.x, dy = p.y - o.y, d = Math.hypot(dx, dy), min = o.r + r;
       if (d < min) {
@@ -152,10 +165,11 @@ export function pushOutOfObstacles(p: Vec, r: number, arena: ArenaLayout): void 
   p.y = Math.max(r, Math.min(arena.height - r, p.y));
 }
 
-/** True when a circle of radius r at p overlaps an obstacle or the arena edge. */
+/** True when a circle of radius r at p overlaps a solid obstacle or the arena edge (water is passable). */
 export function blockedAt(p: Vec, r: number, arena: ArenaLayout): boolean {
   if (p.x < r || p.y < r || p.x > arena.width - r || p.y > arena.height - r) return true;
   for (const o of arena.obstacles) {
+    if (!isSolid(o)) continue;
     if (o.shape === 'circle') { if (Math.hypot(p.x - o.x, p.y - o.y) < o.r + r) return true; }
     else {
       const cx = Math.max(o.x, Math.min(p.x, o.x + o.w)), cy = Math.max(o.y, Math.min(p.y, o.y + o.h));
@@ -187,23 +201,26 @@ function segmentHitsRect(a: Vec, b: Vec, x0: number, y0: number, x1: number, y1:
 
 /**
  * Line of sight between two points for a body of radius r (0 for a thin ray).
- * Stage 2 uses it with r = 0 for chain links when obstacles break links.
+ * Stage 2 uses it with r = 0 for chain links when obstacles break links. Water does not break
+ * sight (iteration 2, stage B); `waterBlocks` makes the pond count — the enemies' straight-walk
+ * shortcut uses it, so a walk across slow water is left to the flow field and its water cost.
  */
-export function lineOfSight(a: Vec, b: Vec, arena: ArenaLayout, r = 0): boolean {
+export function lineOfSight(a: Vec, b: Vec, arena: ArenaLayout, r = 0, waterBlocks = false): boolean {
   for (const o of arena.obstacles) {
+    if (!waterBlocks && !isSolid(o)) continue;
     if (o.shape === 'circle') { if (segmentPointDistance(a, b, o) < o.r + r) return false; }
     else if (segmentHitsRect(a, b, o.x - r, o.y - r, o.x + o.w + r, o.y + o.h + r)) return false;
   }
   return true;
 }
 
-/** Water cost of the flow field: `null` — the pond is impassable (iteration 2, stage A); a number — cost multiplier of a water cell (stage B: 1 / water speed). */
+/** Water cost of the flow field: `null` — the pond is impassable (stage A); a number — cost multiplier of a water cell (stage B: 1 ÷ water speed). */
 export interface FlowOptions { waterCost: number | null }
 
 /**
- * Flow field to the hero (iteration 2, stage A; docs/realtime-prototype.md, section 9г):
+ * Flow field to the hero (iteration 2, stages A–B; docs/realtime-prototype.md, section 9г):
  * a grid of 0.5-unit cells, 8 directions, Dijkstra from the hero's cell over cell costs
- * (water: `waterCost`, laid in for stage B). Each reachable cell stores a unit direction
+ * (water: `waterCost`; the crowd: `extra`, the density penalty toggle). Each reachable cell stores a unit direction
  * to its best neighbour; `direction` blends the four nearest cells (bilinear) so a body
  * turns smoothly instead of zigzagging between cell centers. Arena edges are not blocked
  * in the grid: the body clamp keeps enemies inside, and edge spawns must stay reachable.
@@ -216,6 +233,8 @@ export class FlowField {
   readonly blocked: Uint8Array;
   /** Cost multiplier of entering a cell (1 on grass, `waterCost` in water). */
   readonly cost: Float32Array;
+  /** Extra cost per cell set by the caller before a rebuild (density penalty: enemies standing there); 0 by default. */
+  readonly extra: Float32Array;
   readonly distance: Float32Array;
   private readonly dirX: Float32Array;
   private readonly dirY: Float32Array;
@@ -232,6 +251,7 @@ export class FlowField {
     const n = this.cols * this.rows;
     this.blocked = new Uint8Array(n);
     this.cost = new Float32Array(n).fill(1);
+    this.extra = new Float32Array(n);
     this.distance = new Float32Array(n).fill(Infinity);
     this.dirX = new Float32Array(n);
     this.dirY = new Float32Array(n);
@@ -326,7 +346,7 @@ export class FlowField {
         if (this.blocked[ni]) continue;
         // No corner cutting: a diagonal step needs both side cells free.
         if (dr && dc && (this.blocked[cr * cols + nc] || this.blocked[nr * cols + cc])) continue;
-        const nd = d[cur] + (dr && dc ? Math.SQRT2 : 1) * (this.cost[cur] + this.cost[ni]) * 0.5;
+        const nd = d[cur] + (dr && dc ? Math.SQRT2 : 1) * (this.cost[cur] + this.extra[cur] + this.cost[ni] + this.extra[ni]) * 0.5;
         if (nd < d[ni]) { d[ni] = nd; push(ni, nd); }
       }
     }

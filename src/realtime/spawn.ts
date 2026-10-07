@@ -5,7 +5,7 @@
  * Stage 3: a share of groups comes as a wolf pack (mixed colors by default, as the pack rule of the main game: a pack does not tell colors apart); boars join
  * other groups by their share, capped on the arena.
  */
-import { blockedAt, dist, type Vec } from './arena';
+import { blockedAt, dist, inWater, type Vec } from './arena';
 import { rollGroupInterval } from './params';
 import { NO_COLOR, type Enemy, type EnemyKind, type World } from './world';
 
@@ -52,8 +52,9 @@ function randomInsidePoint(world: World): Vec {
   return { x: r + Math.random() * (world.arena.width - 2 * r), y: r + Math.random() * (world.arena.height - 2 * r) };
 }
 
+/** A spawn point: free of walls and trees, not in the pond (passable since stage B, but markers stay on dry land), outside the hero's radius. */
 function anchorValid(world: World, p: Vec): boolean {
-  return !blockedAt(p, world.params.bodyRadius * 0.99, world.arena) && dist(p, world.hero) >= world.params.spawnMinDistance;
+  return !blockedAt(p, world.params.bodyRadius * 0.99, world.arena) && !inWater(p, world.arena) && dist(p, world.hero) >= world.params.spawnMinDistance;
 }
 
 function findAnchor(world: World): Vec | null {

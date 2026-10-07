@@ -5,7 +5,7 @@
  */
 import './realtime.css';
 import { loadCharacterArt } from '../render/characterAssets';
-import { ARENAS, type Vec } from './arena';
+import { ARENAS, inWater, type Vec } from './arena';
 import { ENERGY_MAX, beginChain, cancelChain, canJump, dragChain, jump, planChain, releaseChain, stepHero } from './chain';
 import { DebugPanel, formatTime } from './debugPanel';
 import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhases, type ParamKey } from './params';
@@ -67,7 +67,7 @@ async function boot(): Promise<void> {
   goalText.setAttribute('data-testid', 'goal');
   const chainText = el('span', 'rt-chain');
   hud.append(hpBar, hpText, focusBar, energyText, goalText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> — идти. Цепь: нажми на врага у героя, веди по врагам того же цвета, отпусти. Кнопка и открытая дверь — звено любого цвета, последнее. <kbd>Esc</kbd> — отмена, <kbd>Пробел</kbd> — прыжок, <kbd>M</kbd> — арены, <kbd>R</kbd> — заново, <kbd>P</kbd> — пауза, <kbd>`</kbd> — отладка.');
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кнопка, открытая дверь — последнее звено · <kbd>Esc</kbd> отмена · <kbd>Пробел</kbd> прыжок · <kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка');
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -343,7 +343,7 @@ async function boot(): Promise<void> {
       status: world.status,
       time: world.time,
       hero: { ...world.hero },
-      enemies: world.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null })),
+      enemies: world.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age })),
       objects: world.objects.map(o => ({ ...o })),
       chain: world.chain.map(l => l.id),
       chainLinks: world.chain.map(l => ({ ...l })),
@@ -366,6 +366,8 @@ async function boot(): Promise<void> {
       flow: { builds: world.flow.builds, lastBuildMs: world.flow.lastBuildMs },
       lanes: renderer.visibleLanes,
       packLines: renderer.visiblePackLines,
+      ripples: renderer.visibleRipples,
+      heroInWater: inWater(world.hero, world.arena),
     }),
     restart,
     /** Starts arena `n` (1–3), as keys 1–3 on the menu. */

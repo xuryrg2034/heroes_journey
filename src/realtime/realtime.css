@@ -14,7 +14,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-hp-text { font-family: Georgia, serif; font-size: 17px; color: #e5c8a8; min-width: 54px; }
 .rt-time { font-family: Georgia, serif; font-size: 17px; color: var(--rt-gold); }
 .rt-info { color: var(--rt-muted); }
-.rt-help { position: absolute; bottom: 10px; left: 18px; font-size: 12px; color: var(--rt-muted); pointer-events: none; }
+/* One line under the arena: never wraps up under the jump button (iteration 2, stage B). */
+.rt-help { position: absolute; bottom: 10px; left: 18px; right: 18px; font-size: 12px; color: var(--rt-muted); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rt-help kbd { font: inherit; color: var(--rt-ink); border: 1px solid var(--rt-line); padding: 0 4px; }
 .rt-open { position: absolute; top: 14px; right: 18px; padding: 7px 12px; background: #20241b; border: 1px solid #444837; color: #c9c5a8; }
 .rt-open:hover { border-color: #a39364; }

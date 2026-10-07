@@ -6,7 +6,7 @@
  * arena objects (buttons, the door), arena goals and the victory. Iteration 2, stage A: the hero
  * walks (WASD / arrows → `world.input`), enemies follow the flow field around obstacles.
  */
-import { type ArenaLayout, FlowField, type Vec, blockedAt, dist, lineOfSight, pushOutOfObstacles } from './arena';
+import { type ArenaLayout, FlowField, type Vec, blockedAt, dist, inWater, lineOfSight, pushOutOfObstacles } from './arena';
 import { type Params, type Pressure, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
@@ -177,7 +177,7 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     objects,
     timeScale: 1,
     pressure: pressureAt(params, 0),
-    flow: new FlowField(arena, params.bodyRadius),
+    flow: new FlowField(arena, params.bodyRadius, { waterCost: 1 / Math.max(0.05, params.waterSlow) }),
     flowTimer: 0,
     input: { x: 0, y: 0 },
     events: [],
@@ -259,10 +259,24 @@ export function touchDamage(world: World, e: Enemy): number {
 
 /**
  * Distance at which an enemy touches the hero: hero circle plus the reduced body circle.
- * The hero is a static circle: enemies stop exactly here and never push it.
+ * Enemies stop exactly here and never push the hero.
  */
 export function touchDistance(params: Params): number {
   return heroRadius(params) + params.bodyRadius * params.touchFactor;
+}
+
+/**
+ * Distance at which the walking hero stops at an enemy: hero circle plus the full body circle
+ * (design answer 37). It exceeds the touch reach (`touchDistance` + contact slack) while
+ * touchFactor < 1 − 0.03 ÷ body radius (≈ 0.92 at 0.4): brushing past a crowd does not hurt.
+ */
+export function heroBlockDistance(params: Params): number {
+  return heroRadius(params) + params.bodyRadius;
+}
+
+/** Walking speed multiplier at a point: `waterSlow` in the pond (stage B), 1 elsewhere. */
+export function waterFactor(world: World, p: Vec): number {
+  return inWater(p, world.arena) ? world.params.waterSlow : 1;
 }
 
 /** Current speed multiplier of an enemy: personal spread and the slowdown after a strike. */
@@ -350,7 +364,8 @@ function stepBoar(world: World, e: Enemy, dt: number): boolean {
     return true;
   }
   // Charge: straight along the announced line for boarRange units; walls and trees stop it.
-  const step = Math.min(params.boarChargeSpeed * dt, Math.max(0, params.boarRange - e.charged));
+  // In water the charge is slowed like any walk (same range, more time to step aside).
+  const step = Math.min(params.boarChargeSpeed * waterFactor(world, e) * dt, Math.max(0, params.boarRange - e.charged));
   const next = { x: e.x + e.dirX * step, y: e.y + e.dirY * step };
   if (blockedAt(next, params.bodyRadius * 0.95, arena)) { e.boar = 'rest'; e.boarTimer = params.boarRest; return true; }
   e.x = next.x; e.y = next.y; e.charged += step;
@@ -375,7 +390,8 @@ function moveEnemies(world: World, dt: number): void {
     // Straight at the hero when in sight; otherwise (toggle «поиск пути») along the flow field.
     let dx = (hero.x - e.x) / d, dy = (hero.y - e.y) / d;
     if (params.pathfinding) {
-      if (!lineOfSight(e, hero, arena, r * 0.9) && flow.direction(e, FLOW_DIR)) { dx = FLOW_DIR.x; dy = FLOW_DIR.y; }
+      // Water counts here: whether to wade across or walk around is the field's call (water cost).
+      if (!lineOfSight(e, hero, arena, r * 0.9, true) && flow.direction(e, FLOW_DIR)) { dx = FLOW_DIR.x; dy = FLOW_DIR.y; }
       // Smooth turn towards the wanted direction: no zigzag between grid cells.
       if (e.headX || e.headY) {
         const k = Math.min(1, params.flowTurn * dt);
@@ -384,7 +400,7 @@ function moveEnemies(world: World, dt: number): void {
       }
       e.headX = dx; e.headY = dy;
     }
-    const step = Math.min(enemySpeed(world, e) * dt, Math.max(0, d - stop));
+    const step = Math.min(enemySpeed(world, e) * waterFactor(world, e) * dt, Math.max(0, d - stop));
     e.x += dx * step; e.y += dy * step;
   }
 }
@@ -394,9 +410,11 @@ const FLOW_DIR: Vec = { x: 0, y: 0 };
 
 /**
  * The hero walks by `world.input` at `heroSpeed` (game time: slower in focus), solid against
- * obstacles. Enemies are solid too (toggle «сквозь врагов» off): the step loses its part that
- * goes into a touching enemy, so the hero slides along the crowd and a ring of enemies holds
- * him in place — the way out is a chain or a jump. Kills come only from the chain.
+ * obstacles; water slows him (`waterSlow`, stage B). Enemies are solid too (toggle «сквозь врагов»
+ * off): the hero stops on the enemy's body circle (`heroBlockDistance`, design answer 37), which is
+ * wider than the touch zone, so he can brush past a crowd without being hit; the step loses its part
+ * that goes into an enemy, so the hero slides along the crowd, and a ring of enemies holds him in
+ * place — the way out is a chain or a jump. Kills come only from the chain.
  * Ignored during the dash, the jump and the boar's knockback.
  */
 function stepHeroWalk(world: World, dt: number): void {
@@ -404,17 +422,17 @@ function stepHeroWalk(world: World, dt: number): void {
   if (world.status !== 'playing' || world.move || hero.knock > 0) return;
   const len = Math.hypot(input.x, input.y);
   if (len < 1e-6 || params.heroSpeed <= 0) return;
-  const k = params.heroSpeed * dt / Math.max(1, len);
+  const k = params.heroSpeed * waterFactor(world, hero) * dt / Math.max(1, len);
   let mx = input.x * k, my = input.y * k;
   if (!params.heroThroughEnemies) {
-    const min = touchDistance(params);
+    const min = heroBlockDistance(params);
     for (let pass = 0; pass < 3; pass++) {
       let changed = false;
       for (const e of world.enemies) {
         const ex = hero.x - e.x, ey = hero.y - e.y, d = Math.hypot(ex, ey);
         if (d > min + 0.05 || d < 1e-6) continue;
         const nx = ex / d, ny = ey / d, into = -(mx * nx + my * ny);
-        // Only the part of the step that goes into the enemy (and would end inside its touch circle).
+        // Only the part of the step that goes into the enemy (and would end inside its body circle).
         if (into <= 0 || Math.hypot(hero.x + mx - e.x, hero.y + my - e.y) >= min) continue;
         mx += nx * into; my += ny * into; changed = true;
       }
@@ -512,12 +530,25 @@ export function completeGoals(world: World): void {
  */
 function updateFlow(world: World, dt: number): void {
   const p = world.params;
-  if (Math.abs(world.flow.radius - p.bodyRadius) > 1e-9) { world.flow = new FlowField(world.arena, p.bodyRadius); world.flowTimer = 0; }
+  const waterCost = 1 / Math.max(0.05, p.waterSlow);
+  if (Math.abs(world.flow.radius - p.bodyRadius) > 1e-9 || world.flow.options.waterCost !== waterCost) {
+    world.flow = new FlowField(world.arena, p.bodyRadius, { waterCost });
+    world.flowTimer = 0;
+  }
   if (!p.pathfinding) return;
   world.flowTimer -= dt;
   if (world.flowTimer > 0 && world.flow.builds > 0) return;
   world.flowTimer = 1 / Math.max(0.1, p.flowRate);
-  world.flow.setTarget(world.hero);
+  const flow = world.flow;
+  // Density penalty (toggle, design answer 39): cells with enemies cost more, so the crowd spreads to side ways.
+  const density = p.flowDensity && p.flowDensityCost > 0;
+  const hadExtra = flow.extra.some(v => v !== 0);
+  if (density || hadExtra) {
+    flow.extra.fill(0);
+    if (density) for (const e of world.enemies) flow.extra[flow.cellOf(e)] += p.flowDensityCost;
+  }
+  // With the penalty the crowd changes the field even while the hero stands in one cell (and once more when it is switched off).
+  flow.setTarget(world.hero, density || hadExtra);
 }
 
 /** One simulation step of real seconds `realDt` (scaled by timeScale: invulnerability and slowdown run on game time). */

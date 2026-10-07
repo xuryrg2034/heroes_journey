@@ -41,13 +41,17 @@ export const PHASE_FIELDS: readonly { key: keyof Phase; label: string; min: numb
   { key: 'boarShare', label: 'кабан %', min: 0, max: 1, step: 0.01, percent: true },
 ];
 
-/** Default table: build-up, a breather (phase 3), then the squeeze. Mean pace ≈ the draft's 1 enemy per 1.5 s at the start. */
+/**
+ * Default table: build-up, a breather (phase 3), then the squeeze. Iteration 2, stage B: every floor is at
+ * least the floor before the goals (`baseFloor`, 28) — greed never thins the arena; the breather keeps
+ * the base floor and only slows the groups (stage 1–3 floors were 6, 12, 4, 20, 30).
+ */
 export const DEFAULT_PHASES: readonly Phase[] = Object.freeze([
-  { duration: 25, floor: 6, intervalMin: 3, intervalMax: 5, toughShare: 0.2, wolfShare: 0.15, boarShare: 0.05 },
-  { duration: 25, floor: 12, intervalMin: 2.5, intervalMax: 4, toughShare: 0.25, wolfShare: 0.2, boarShare: 0.06 },
-  { duration: 20, floor: 4, intervalMin: 5, intervalMax: 7, toughShare: 0.2, wolfShare: 0.1, boarShare: 0 },
-  { duration: 30, floor: 20, intervalMin: 2, intervalMax: 3.5, toughShare: 0.3, wolfShare: 0.25, boarShare: 0.08 },
-  { duration: 30, floor: 30, intervalMin: 1.5, intervalMax: 3, toughShare: 0.4, wolfShare: 0.3, boarShare: 0.1 },
+  { duration: 25, floor: 30, intervalMin: 3, intervalMax: 5, toughShare: 0.2, wolfShare: 0.15, boarShare: 0.05 },
+  { duration: 25, floor: 34, intervalMin: 2.5, intervalMax: 4, toughShare: 0.25, wolfShare: 0.2, boarShare: 0.06 },
+  { duration: 20, floor: 28, intervalMin: 5, intervalMax: 7, toughShare: 0.2, wolfShare: 0.1, boarShare: 0 },
+  { duration: 30, floor: 40, intervalMin: 2, intervalMax: 3.5, toughShare: 0.3, wolfShare: 0.25, boarShare: 0.08 },
+  { duration: 30, floor: 48, intervalMin: 1.5, intervalMax: 3, toughShare: 0.4, wolfShare: 0.3, boarShare: 0.1 },
 ].map(p => Object.freeze(p)));
 
 export interface Params {
@@ -74,6 +78,12 @@ export interface Params {
   flowRate: number;
   /** How fast an enemy turns to the field direction (1/s): smooths the 8-direction grid. */
   flowTurn: number;
+  /** Stage B (design answer 39): enemies in a cell make it dearer, so the crowd spreads instead of queueing (off). */
+  flowDensity: boolean;
+  /** Extra cost of a cell per enemy standing in it. */
+  flowDensityCost: number;
+  /** Stage B: walking speed multiplier in the pond (hero, enemies, the boar's charge). */
+  waterSlow: number;
   // Wolves (stage 3): fast, hit harder next to other wolves, come in packs
   wolfSpeed: number;
   wolfPackMin: number;
@@ -82,6 +92,8 @@ export interface Params {
   wolfPackBonus: number;
   wolfPackMono: boolean;
   // Spawning before the goals (base pace, no growth)
+  /** Stage B: density floor before the goals — fewer living enemies (with markers and queue) are topped up at once. */
+  baseFloor: number;
   baseIntervalMin: number;
   baseIntervalMax: number;
   baseToughShare: number;
@@ -181,12 +193,16 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   pathfinding: true,
   flowRate: 4,
   flowTurn: 8,
+  flowDensity: false,
+  flowDensityCost: 0.5,
+  waterSlow: 0.5,
   wolfSpeed: 1.6,
   wolfPackMin: 3,
   wolfPackMax: 4,
   wolfPackRadius: 2,
   wolfPackBonus: 1,
   wolfPackMono: false,
+  baseFloor: 28,
   baseIntervalMin: 3,
   baseIntervalMax: 5,
   baseToughShare: 0.2,
@@ -269,9 +285,14 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('bodyRadius', 'Враги', 'Радиус тела (толкание)', 0.15, 0.7, 0.01, 1, 'ед.'),
   n('enemySpeed', 'Враги', 'Скорость врага', 0.2, 4, 0.05, 1, 'ед/с'),
   n('speedSpread', 'Враги', 'Разброс скорости', 0, 0.6, 0.05, 1, '±'),
-  { kind: 'bool', key: 'pathfinding', group: 'Враги', label: 'Поиск пути (поле потока)', stage: 4, hint: 'Враги обходят стены, деревья и пруд по полю потока к герою. Выключено: по прямой, как в этапах 1–3, — упираются в препятствия.' },
+  { kind: 'bool', key: 'pathfinding', group: 'Враги', label: 'Поиск пути (поле потока)', stage: 4, hint: 'Враги обходят стены и деревья по полю потока к герою; вода дороже по замедлению. Выключено: по прямой, как в этапах 1–3, — упираются в препятствия.' },
   n('flowRate', 'Враги', 'Пересчёт поля потока', 1, 30, 1, 4, 'раз/с'),
   n('flowTurn', 'Враги', 'Плавность поворота по полю', 1, 30, 1, 4, '1/с', 'Чем больше, тем резче враг поворачивает к направлению поля.'),
+  { kind: 'bool', key: 'flowDensity', group: 'Враги', label: 'Штраф за плотность (поле потока)', stage: 4,
+    hint: 'Клетка с врагами дороже: толпа растекается по обходным путям, а не стоит очередью в узком месте. Поле пересчитывается и когда герой стоит.' },
+  n('flowDensityCost', 'Враги', 'Штраф за врага в клетке', 0, 5, 0.1, 4, '', 'Добавка к стоимости клетки поля за каждого врага в ней (клетка травы стоит 1).'),
+  n('waterSlow', 'Местность', 'Скорость в воде', 0.1, 1, 0.05, 4, '×', 'Пруд проходим: герой, враги и рывок кабана в воде медленнее. Поле потока считает клетку воды дороже во столько же раз.'),
+  n('baseFloor', 'До целей', 'Пол плотности', 0, 150, 1, 4, 'живых', 'Если врагов вместе с метками и очередью меньше, недостающие сразу встают в очередь меток (не больше предела арены).'),
   n('baseIntervalMin', 'До целей', 'Интервал групп: от', 0.2, 20, 0.1, 1, 'с'),
   n('baseIntervalMax', 'До целей', 'Интервал групп: до', 0.2, 20, 0.1, 1, 'с'),
   n('baseToughShare', 'До целей', 'Доля крепких', 0, 1, 0.05),
@@ -345,9 +366,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
 /**
  * v3 (07.10.2026, stage 3): dimming default 0.65 (design answer 31), wolves replace «fast», boar fields;
  * v1/v2 values are dropped. v4: mixed-color wolf packs by default. v5 (iteration 2, stage A): hero walking,
- * the flow field on by default — older values are dropped so the new defaults apply.
+ * the flow field on by default — older values are dropped so the new defaults apply. v6 (stage B): passable
+ * water, the floor before the goals (28) and higher greed floors.
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v5';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v6';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
@@ -417,7 +439,7 @@ export interface Pressure {
 
 /** The base pace before the goals, as a phase without a floor or an end. */
 export function basePhase(params: Params): Phase {
-  return { duration: Infinity, floor: 0, intervalMin: params.baseIntervalMin, intervalMax: params.baseIntervalMax, toughShare: params.baseToughShare, wolfShare: params.baseWolfShare, boarShare: params.baseBoarShare };
+  return { duration: Infinity, floor: params.baseFloor, intervalMin: params.baseIntervalMin, intervalMax: params.baseIntervalMax, toughShare: params.baseToughShare, wolfShare: params.baseWolfShare, boarShare: params.baseBoarShare };
 }
 
 /**

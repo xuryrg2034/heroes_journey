@@ -9,7 +9,7 @@
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../render/art';
 import { characterSprite } from '../render/characterAssets';
-import type { ArenaLayout, Vec } from './arena';
+import { inWater, type ArenaLayout, type Vec } from './arena';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { heroRadius, type EnemyLook } from './params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from './world';
@@ -78,6 +78,8 @@ export class RealtimeRenderer {
   private readonly objectLayer = new Graphics();
   /** Boar lanes and wolf pack lines (under the crowd). */
   private readonly laneLayer = new Graphics();
+  /** Ripples around bodies wading in the pond (iteration 2, stage B; under the crowd). */
+  private readonly rippleLayer = new Graphics();
   /** Target reticles of marked enemies (over the crowd). */
   private readonly targetLayer = new Graphics();
   private readonly enemyLayer = new Container();
@@ -102,6 +104,8 @@ export class RealtimeRenderer {
   visibleLanes = 0;
   /** Wolf pack lines drawn in the last frame. */
   visiblePackLines = 0;
+  /** Bodies drawn with water ripples in the last frame. */
+  visibleRipples = 0;
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -114,7 +118,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.enemyLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer);
     this.app.stage.addChild(this.root);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -208,7 +212,7 @@ export class RealtimeRenderer {
     }
     if (look === 'circle') {
       ctx.circle(0, 0, r).fill(fill).stroke({ color: NAVY, width: 3 });
-      ctx.arc(0, 0, r * 0.72, Math.PI * 1.1, Math.PI * 1.6).stroke({ color: 0xffffff, width: 3, alpha: 0.28 });
+      ctx.moveTo(Math.cos(Math.PI * 1.1) * r * 0.72, Math.sin(Math.PI * 1.1) * r * 0.72).arc(0, 0, r * 0.72, Math.PI * 1.1, Math.PI * 1.6).stroke({ color: 0xffffff, width: 3, alpha: 0.28 });
       if (tough) ctx.circle(0, 0, r - 5).stroke({ color: PALE, width: 2.5, alpha: 0.95 });
       drawSigil(ctx, color, r * 0.36, NAVY);
       if (kind === 'boar') this.tusks(ctx, r);
@@ -305,7 +309,8 @@ export class RealtimeRenderer {
       const rim = m.color === NO_COLOR ? THREAT : COLORS[m.color];
       // Rim in the color of the coming enemy, filling up as the countdown runs.
       g.circle(x, y, r * 0.95).stroke({ color: rim, width: 3, alpha: 0.35 });
-      g.arc(x, y, r * 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ color: rim, width: 4, alpha: 0.95 });
+      // moveTo first: otherwise the arc is joined by a line from the previous path point (the arena corner).
+      g.moveTo(x, y - r * 0.95).arc(x, y, r * 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ color: rim, width: 4, alpha: 0.95 });
       g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT_OUTLINE, width: 9, alpha: pulse, cap: 'round' });
       g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT, width: 4.5, alpha: pulse, cap: 'round' });
     }
@@ -574,11 +579,30 @@ export class RealtimeRenderer {
     this.drawObjects(world);
     this.drawMarkers(world);
     this.drawLanes(world);
+    this.drawRipples(world);
     this.syncEnemies(world);
     this.drawTargets(world);
     this.drawChain(world, ui);
     this.drawHero(world);
     this.drawOverlay(world);
+  }
+
+  /** Water stays water: bodies wading in the pond get two widening rings (walking there is slower). */
+  private drawRipples(world: World): void {
+    const g = this.rippleLayer.clear();
+    let count = 0;
+    const ring = (x: number, y: number, r: number, seed: number): void => {
+      count++;
+      for (let k = 0; k < 2; k++) {
+        const t = (this.clock * 0.9 + seed * 0.37 + k * 0.5) % 1;
+        g.ellipse(x * UNIT, (y + r * 0.45) * UNIT, (r * 0.8 + t * r * 0.7) * UNIT, (r * 0.32 + t * r * 0.28) * UNIT)
+          .stroke({ color: 0xcfe9ff, width: 2, alpha: 0.55 * (1 - t) });
+      }
+    };
+    const p = world.params;
+    if (inWater(world.hero, world.arena)) ring(world.hero.x, world.hero.y, 0.45, 0);
+    for (const e of world.enemies) if (inWater(e, world.arena)) ring(e.x, e.y, p.enemyRadius, e.id);
+    this.visibleRipples = count;
   }
 
   /** Camera shake: random offset of the arena, fading over its duration. */
