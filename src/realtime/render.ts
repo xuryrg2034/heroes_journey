@@ -7,9 +7,23 @@
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../render/art';
 import { characterSprite } from '../render/characterAssets';
-import type { ArenaLayout } from './arena';
+import type { ArenaLayout, Vec } from './arena';
+import { canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, planChain } from './chain';
 import { heroRadius, type EnemyLook } from './params';
 import { NO_COLOR, touchDistance, type Enemy, type World } from './world';
+
+/** Input state the view shows (pointer line, jump aim); owned by main.ts. */
+export interface RenderUi {
+  pointer: Vec | null;
+  jumpMode: boolean;
+}
+
+/** Grey of the same lightness: the desaturated variant of a chain color. */
+function greyOf(color: number): number {
+  const r = (color >> 16) & 255, g = (color >> 8) & 255, b = color & 255;
+  const l = Math.round(0.3 * r + 0.59 * g + 0.11 * b);
+  return (l << 16) | (l << 8) | l;
+}
 
 /** Pixels per arena unit before fitting to the window (one board cell of the main game). */
 export const UNIT = 72;
@@ -23,10 +37,15 @@ const BASE_ENEMY_RADIUS = 0.4;
 interface EnemyView {
   root: Container;
   body: Container;
+  /** Grey copy of the disc over the colored one: desaturation by its alpha. */
+  grey: Sprite | null;
   hpLabel: Text | null;
   hp: number;
   look: EnemyLook;
 }
+
+/** A killed enemy: spins and shrinks for `deathDuration` (design answer 22). */
+interface DyingView { root: Container; life: number; total: number; spin: number; scale: number }
 
 interface FloatingText { text: Text; life: number; vy: number }
 
@@ -49,6 +68,9 @@ export class RealtimeRenderer {
   private readonly enemyLayer = new Container();
   private readonly heroLayer = new Container();
   private readonly overlay = new Graphics();
+  /** Chain lines, link highlights, candidate outlines, jump aim. */
+  private readonly chainLayer = new Graphics();
+  private readonly dying: DyingView[] = [];
   private readonly fxLayer = new Container();
   private readonly enemyViews = new Map<number, EnemyView>();
   private readonly bodyTextures = new Map<string, { texture: Texture; ax: number; ay: number }>();
@@ -73,7 +95,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.markerLayer, this.enemyLayer, this.heroLayer, this.overlay, this.fxLayer);
+    this.root.addChild(this.staticLayer, this.markerLayer, this.enemyLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer);
     this.app.stage.addChild(this.root);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -129,11 +151,11 @@ export class RealtimeRenderer {
   }
 
   /** Disc sprite of an enemy: vector art rendered once per (look, color, tough, fast) into a texture. */
-  private enemyDisc(color: number, tough: boolean, fast: boolean, look: EnemyLook): Sprite {
-    const key = `${look}-${color}-${tough ? 1 : 0}-${fast ? 1 : 0}`;
+  private enemyDisc(color: number, tough: boolean, fast: boolean, look: EnemyLook, grey = false): Sprite {
+    const key = `${look}-${color}-${tough ? 1 : 0}-${fast ? 1 : 0}${grey ? '-grey' : ''}`;
     let entry = this.bodyTextures.get(key);
     if (!entry) {
-      const g = new Graphics(this.enemyContext(color, tough, fast, look)), b = g.getLocalBounds();
+      const g = new Graphics(this.enemyContext(color, tough, fast, look, grey)), b = g.getLocalBounds();
       const texture = this.app.renderer.generateTexture({ target: g, resolution: 2, antialias: true });
       entry = { texture, ax: -b.minX / b.width, ay: -b.minY / b.height };
       this.bodyTextures.set(key, entry);
@@ -144,7 +166,7 @@ export class RealtimeRenderer {
     return sprite;
   }
 
-  private enemyContext(color: number, tough: boolean, fast: boolean, look: EnemyLook): GraphicsContext {
+  private enemyContext(color: number, tough: boolean, fast: boolean, look: EnemyLook, grey = false): GraphicsContext {
     const r = BASE_ENEMY_RADIUS * UNIT;
     const ctx = new GraphicsContext();
     ctx.ellipse(0, r * 0.8, r * 0.9, r * 0.32).fill({ color: 0x050a07, alpha: 0.45 });
@@ -155,7 +177,7 @@ export class RealtimeRenderer {
       ctx.moveTo(-s, -s).lineTo(s, s).moveTo(s, -s).lineTo(-s, s).stroke({ color: THREAT, width: 6, cap: 'round' });
       return ctx;
     }
-    const fill = COLORS[color];
+    const fill = grey ? greyOf(COLORS[color]) : COLORS[color];
     if (fast) {
       // Fast enemies: two swept marks trailing behind the disc (silhouette, not a color).
       for (const dy of [-r * 0.45, r * 0.15]) ctx.poly([-r * 0.75, dy, -r * 1.35, dy - r * 0.18, -r * 1.2, dy + r * 0.1]).fill(PALE).stroke({ color: NAVY, width: 2 });
@@ -172,9 +194,11 @@ export class RealtimeRenderer {
     return ctx;
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; hpLabel: Text | null } {
+  private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; grey: Sprite | null; hpLabel: Text | null } {
     const body = new Container();
     body.addChild(this.enemyDisc(e.color, e.hp > 0, e.fast, look));
+    let grey: Sprite | null = null;
+    if (e.color !== NO_COLOR) { grey = this.enemyDisc(e.color, e.hp > 0, e.fast, look, true); grey.alpha = 0; body.addChild(grey); }
     const r = BASE_ENEMY_RADIUS * UNIT;
     if (look === 'sprite' && e.color !== NO_COLOR) {
       const sprite = characterSprite('melee', r * 1.75, r * 1.75);
@@ -191,20 +215,23 @@ export class RealtimeRenderer {
       hpLabel.anchor.set(0.5); hpLabel.position.set(r * 0.72, -r * 0.72);
       body.addChild(badge, hpLabel);
     }
-    return { body, hpLabel };
+    return { body, grey, hpLabel };
   }
 
   private syncEnemies(world: World): void {
     const look = world.params.enemyLook, seen = new Set<number>();
     const scale = world.params.enemyRadius / BASE_ENEMY_RADIUS;
+    // Crowd readability (design answer 10): while a chain is drawn, other colors are muted.
+    const color = world.chain.length ? chainColor(world) : null;
+    const mode = world.params.dimMode, strength = world.params.dimStrength;
     for (const e of world.enemies) {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
       if (view && (view.look !== look || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
       if (!view) {
-        const root = new Container(), { body, hpLabel } = this.buildEnemyBody(e, look);
+        const root = new Container(), { body, grey, hpLabel } = this.buildEnemyBody(e, look);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, hpLabel, hp: e.hp, look };
+        view = { root, body, grey, hpLabel, hp: e.hp, look };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -218,6 +245,11 @@ export class RealtimeRenderer {
       const pop = Math.min(1, 0.35 + e.age / 0.2 * 0.65);
       view.root.scale.set(scale * pop);
       view.root.zIndex = e.y;
+      const dim = color !== null && e.color !== color ? strength : 0;
+      view.root.alpha = mode === 'alpha' ? 1 - dim : 1;
+      const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
+      view.root.tint = (shade << 16) | (shade << 8) | shade;
+      if (view.grey) view.grey.alpha = mode === 'desaturate' ? dim : 0;
     }
     for (const [id, view] of this.enemyViews) if (!seen.has(id)) { view.root.destroy({ children: true }); this.enemyViews.delete(id); }
     this.enemyLayer.sortableChildren = true;
@@ -269,6 +301,22 @@ export class RealtimeRenderer {
 
   private handleEvents(world: World): void {
     for (const ev of world.events) {
+      if (ev.type === 'chainHit') {
+        // Dash shake stays light: not stronger than dashShake (design answer 22).
+        if (world.params.dashShake > 0 && this.shakeLeft <= 0.02) { this.shakeLeft = this.shakeTotal = 0.08; this.shakeAmp = world.params.dashShake; }
+        if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xffd36b);
+        continue;
+      }
+      if (ev.type === 'kill') {
+        const view = this.enemyViews.get(ev.enemyId);
+        if (!view) continue;
+        this.enemyViews.delete(ev.enemyId);
+        view.root.alpha = 1; view.root.tint = 0xffffff;
+        if (view.grey) view.grey.alpha = 0;
+        const total = Math.max(0.01, world.params.deathDuration);
+        this.dying.push({ root: view.root, life: total, total, spin: Math.random() < 0.5 ? -1 : 1, scale: view.root.scale.x });
+        continue;
+      }
       if (ev.type !== 'hit') continue;
       if (world.params.shakeOnDamage && world.params.shakeDuration > 0) {
         this.shakeLeft = this.shakeTotal = world.params.shakeDuration;
@@ -281,6 +329,82 @@ export class RealtimeRenderer {
     }
   }
 
+  private floatText(value: string, x: number, y: number, fill: number): void {
+    const text = new Text({ text: value, style: { fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 'bold', fill, stroke: { color: 0x200c08, width: 4 } } });
+    text.anchor.set(0.5); text.position.set(x, y);
+    this.fxLayer.addChild(text);
+    this.floating.push({ text, life: 0.7, vy: -45 });
+  }
+
+  /** Death of an enemy: a full turn and a shrink to nothing. */
+  private updateDying(dt: number): void {
+    for (let i = this.dying.length - 1; i >= 0; i--) {
+      const d = this.dying[i];
+      d.life -= dt;
+      if (d.life <= 0) { d.root.destroy({ children: true }); this.dying.splice(i, 1); continue; }
+      const k = d.life / d.total;
+      d.root.rotation = d.spin * (1 - k) * Math.PI * 2;
+      d.root.scale.set(d.scale * k);
+      d.root.alpha = Math.min(1, k * 1.5);
+    }
+  }
+
+  private drawChain(world: World, ui: RenderUi): void {
+    const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
+    const flashR = p.enemyRadius * UNIT;
+    for (const e of world.enemies) {
+      if (e.hurtFlash <= 0) continue;
+      g.circle(e.x * UNIT, e.y * UNIT, flashR).fill({ color: 0xffffff, alpha: Math.min(1, e.hurtFlash / Math.max(p.hitFlash, 0.01)) * 0.8 });
+    }
+    if (world.move?.kind === 'dash') {
+      // Dash: a light halo around the hero (passes through the crowd, cannot be hurt).
+      g.circle(hero.x * UNIT, hero.y * UNIT, heroRadius(p) * UNIT * 1.6).fill({ color: 0xffffff, alpha: 0.18 });
+    }
+    if (ui.jumpMode && world.status === 'playing' && !world.move) {
+      const ok = canJump(world);
+      g.circle(hero.x * UNIT, hero.y * UNIT, p.jumpRadius * UNIT).fill({ color: 0x9ad1ff, alpha: 0.06 }).stroke({ color: ok ? 0x9ad1ff : 0x8a8a8a, width: 2, alpha: 0.8 });
+      if (ui.pointer) {
+        const land = jumpLanding(world, ui.pointer);
+        const at = land ?? ui.pointer, good = ok && !!land;
+        g.moveTo(hero.x * UNIT, hero.y * UNIT).lineTo(at.x * UNIT, at.y * UNIT).stroke({ color: good ? 0x9ad1ff : 0xd08070, width: 2, alpha: 0.6 });
+        g.circle(at.x * UNIT, at.y * UNIT, heroRadius(p) * UNIT * 1.4).stroke({ color: good ? 0x9ad1ff : 0xd08070, width: 3 });
+      }
+    }
+    if (!world.chain.length) return;
+    const plan = planChain(world), color = chainColor(world), ink = color === null ? 0xffffff : COLORS[color];
+    // Line hero → links, navy under the chain color.
+    const pts: Vec[] = [{ x: hero.x, y: hero.y }];
+    for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
+    for (const [w, c] of [[9, NAVY], [4.5, ink]] as const) {
+      g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
+      g.stroke({ color: c, width: w, alpha: 0.95, cap: 'round', join: 'round' });
+    }
+    const anchor = chainAnchor(world);
+    if (!plan.endsOnSurvivor) {
+      if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
+      // Reach of the next link and the valid next links (outlined).
+      g.circle(anchor.x * UNIT, anchor.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+      for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, p.enemyRadius * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+    }
+    // Outcome of each link: dies — white badge with a red cross; wounded — orange ring and «!».
+    const r = p.enemyRadius * UNIT;
+    for (const lp of plan.links) {
+      const pt = linkPoint(world, lp.link);
+      if (!pt || !lp.outcome) continue;
+      const x = pt.x * UNIT, y = pt.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75;
+      if (lp.outcome.killed) {
+        const s = r * 0.2;
+        g.circle(cx, cy, r * 0.32).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
+        g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
+      } else {
+        g.circle(x, y, r + 4).stroke({ color: 0xffa040, width: 4 });
+        g.circle(cx, cy, r * 0.32).fill(0xffa040).stroke({ color: NAVY, width: 2 });
+        g.rect(cx - 2, cy - r * 0.18, 4, r * 0.22).rect(cx - 2, cy + r * 0.1, 4, 4).fill(NAVY);
+      }
+    }
+  }
+
   private updateFloating(dt: number): void {
     for (let i = this.floating.length - 1; i >= 0; i--) {
       const f = this.floating[i];
@@ -290,13 +414,15 @@ export class RealtimeRenderer {
   }
 
   /** Draws the current world. Consumes world.events (render-only effects). */
-  render(world: World, realDt: number): void {
+  render(world: World, realDt: number, ui: RenderUi = { pointer: null, jumpMode: false }): void {
     this.clock += realDt;
     this.applyShake(realDt);
     this.handleEvents(world);
     this.updateFloating(realDt);
+    this.updateDying(realDt);
     this.drawMarkers(world);
     this.syncEnemies(world);
+    this.drawChain(world, ui);
     this.drawHero(world);
     this.drawOverlay(world);
   }
@@ -318,5 +444,7 @@ export class RealtimeRenderer {
     this.floating.length = 0;
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });
     this.enemyViews.clear();
+    for (const d of this.dying) d.root.destroy({ children: true });
+    this.dying.length = 0;
   }
 }

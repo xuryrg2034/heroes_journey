@@ -123,3 +123,147 @@ test('before the goals the pace stays base; the goals button starts the greed ta
   expect(snap.enemies.length + snap.markers).toBeLessThanOrEqual(4);
   expect(errors).toEqual([]);
 });
+
+// ---- Stage 2: chain, focus, dash ----
+
+interface ChainSnapshot extends Snapshot {
+  chain: number[];
+  moving: 'dash' | 'jump' | null;
+  focus: number;
+  focusing: boolean;
+  energy: number;
+  kills: number;
+}
+
+const chainSnapshot = (page: Page): Promise<ChainSnapshot> => page.evaluate(() => (window as any).__realtime.snapshot());
+
+/** A still arena: enemies stand where they are put, no newcomers walk in. */
+async function stillArena(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    rt.params.enemySpeed = 0; rt.params.fastSpeed = 0; rt.params.speedSpread = 0;
+    rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000;
+    rt.clear();
+  });
+}
+
+const place = (page: Page, x: number, y: number, color: number, hp = 0): Promise<number> =>
+  page.evaluate(([x, y, color, hp]) => (window as any).__realtime.place(x, y, color, hp), [x, y, color, hp] as const);
+
+const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> =>
+  page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
+
+test('a chain drawn with the mouse over two enemies of one color kills both and moves the hero', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await stillArena(page);
+  const start = await chainSnapshot(page);
+  const { x: hx, y: hy } = start.hero;
+  const a = await place(page, hx + 1, hy, 0);
+  const b = await place(page, hx + 2.2, hy, 0);
+  // A different color next to the first link cannot join the chain.
+  const other = await place(page, hx + 1.6, hy + 0.9, 1);
+  const pa = await screen(page, hx + 1, hy), pb = await screen(page, hx + 2.2, hy), po = await screen(page, hx + 1.6, hy + 0.9);
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
+  await page.mouse.move(po.x, po.y, { steps: 4 });
+  expect((await chainSnapshot(page)).chain).toEqual([a]);
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a, b]);
+  await page.screenshot({ path: 'artifacts/realtime-chain.png' });
+  await page.mouse.up();
+  await expect.poll(async () => (await chainSnapshot(page)).kills, { timeout: 5_000 }).toBe(2);
+  const after = await chainSnapshot(page);
+  expect(after.enemies.map(e => e.id)).not.toContain(a);
+  expect(after.enemies.map(e => e.id)).not.toContain(b);
+  expect(after.enemies.map(e => e.id)).toContain(other);
+  // The hero stops on the last killed link; two attacked enemies give 2 × 0.5 energy.
+  await expect.poll(async () => (await chainSnapshot(page)).moving).toBeNull();
+  const end = await chainSnapshot(page);
+  expect(Math.hypot(end.hero.x - (hx + 2.2), end.hero.y - hy)).toBeLessThan(0.05);
+  expect(end.energy).toBeCloseTo(1, 5);
+  expect(errors).toEqual([]);
+});
+
+test('a tough link spends the power; a survivor stays and the hero returns to the previous spot', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await stillArena(page);
+  const { x: hx, y: hy } = (await chainSnapshot(page)).hero;
+  const a = await place(page, hx + 1, hy, 2);
+  const tough = await place(page, hx + 2.2, hy, 2, 2);
+  const pa = await screen(page, hx + 1, hy), pt = await screen(page, hx + 2.2, hy);
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await page.mouse.move(pt.x, pt.y, { steps: 6 });
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a, tough]);
+  await page.mouse.up();
+  // Power: 1 after the weak one (0 HP), +1 = 2 at the tough one with 2 HP — it dies.
+  await expect.poll(async () => (await chainSnapshot(page)).kills, { timeout: 5_000 }).toBe(2);
+  await expect.poll(async () => (await chainSnapshot(page)).moving).toBeNull();
+
+  // A single tough enemy with 2 HP: power 1 wounds it to 1 HP; the hero comes back to where it stood.
+  const here = (await chainSnapshot(page)).hero;
+  const lone = await place(page, here.x - 1.2, here.y, 3, 2);
+  const pl = await screen(page, here.x - 1.2, here.y);
+  await page.mouse.move(pl.x, pl.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect.poll(async () => (await chainSnapshot(page)).enemies.find(e => e.id === lone)?.hp, { timeout: 5_000 }).toBe(1);
+  await expect.poll(async () => (await chainSnapshot(page)).moving).toBeNull();
+  const end = await chainSnapshot(page);
+  expect(end.kills).toBe(2);
+  expect(Math.hypot(end.hero.x - here.x, end.hero.y - here.y)).toBeLessThan(0.05);
+  expect(errors).toEqual([]);
+});
+
+test('Esc and the mouse back on the hero cancel the chain; focus slows the world while a chain is held', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await stillArena(page);
+  const { x: hx, y: hy } = (await chainSnapshot(page)).hero;
+  const a = await place(page, hx, hy + 1.1, 1);
+  const pa = await screen(page, hx, hy + 1.1), ph = await screen(page, hx, hy);
+
+  // Esc cancels: releasing afterwards strikes nobody.
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
+  await page.keyboard.press('Escape');
+  expect((await chainSnapshot(page)).chain).toEqual([]);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  let snap = await chainSnapshot(page);
+  expect(snap.kills).toBe(0);
+  expect(snap.enemies.map(e => e.id)).toContain(a);
+  expect(Math.hypot(snap.hero.x - hx, snap.hero.y - hy)).toBeLessThan(0.01);
+
+  // The mouse back on the hero cancels too.
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
+  await page.mouse.move(ph.x, ph.y, { steps: 5 });
+  expect((await chainSnapshot(page)).chain).toEqual([]);
+  await page.mouse.up();
+
+  // Focus: world time runs at about a quarter of real time while the chain is held.
+  const rate = () => page.evaluate(async () => {
+    const rt = (window as any).__realtime;
+    const t0 = rt.snapshot().time, r0 = performance.now();
+    await new Promise(resolve => setTimeout(resolve, 600));
+    return (rt.snapshot().time - t0) / ((performance.now() - r0) / 1000);
+  });
+  const normal = await rate();
+  expect(normal).toBeGreaterThan(0.6);
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await chainSnapshot(page)).focusing).toBe(true);
+  const slowed = await rate();
+  expect(slowed).toBeLessThan(normal * 0.5);
+  snap = await chainSnapshot(page);
+  expect(snap.focus).toBeLessThan(3);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});

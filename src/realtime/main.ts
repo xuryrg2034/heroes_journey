@@ -4,11 +4,12 @@
  */
 import './realtime.css';
 import { loadCharacterArt } from '../render/characterAssets';
-import { TEST_ARENA } from './arena';
+import { TEST_ARENA, type Vec } from './arena';
+import { ENERGY_MAX, beginChain, cancelChain, canJump, dragChain, jump, planChain, releaseChain, stepHero } from './chain';
 import { DebugPanel, formatTime } from './debugPanel';
 import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhases, type ParamKey } from './params';
-import { RealtimeRenderer } from './render';
-import { spawnBurst } from './spawn';
+import { RealtimeRenderer, type RenderUi } from './render';
+import { spawnBurst, spawnEnemy } from './spawn';
 import { completeGoals, createWorld, update, type World } from './world';
 
 const MAX_FRAME = 0.05;
@@ -35,8 +36,20 @@ async function boot(): Promise<void> {
   const hpText = el('b', 'rt-hp-text');
   const timeText = el('span', 'rt-time');
   const infoText = el('span', 'rt-info');
-  hud.append(hpBar, hpText, timeText, infoText);
-  const help = el('div', 'rt-help', 'Этап 1: герой стоит, орда давит. Цепь и прыжок — этап 2. <kbd>`</kbd>/<kbd>F1</kbd> — отладка, <kbd>P</kbd> — пауза, <kbd>R</kbd> — заново.');
+  const focusFill = el('span', 'rt-focus-fill');
+  const focusBar = el('div', 'rt-focus');
+  focusBar.title = 'Фокус: замедление, пока выделяется цепь';
+  focusBar.setAttribute('data-testid', 'focus');
+  focusBar.appendChild(focusFill);
+  const energyText = el('span', 'rt-energy');
+  const killsText = el('span', 'rt-kills');
+  killsText.setAttribute('data-testid', 'kills');
+  const chainText = el('span', 'rt-chain');
+  hud.append(hpBar, hpText, focusBar, energyText, killsText, timeText, infoText, chainText);
+  const help = el('div', 'rt-help', 'Нажми на врага рядом с героем и веди мышь по врагам того же цвета, отпусти — удар. <kbd>Esc</kbd> или мышь на героя — отмена. <kbd>Пробел</kbd> — прыжок (2 энергии), затем клик. <kbd>`</kbd>/<kbd>F1</kbd> — отладка, <kbd>P</kbd> — пауза, <kbd>R</kbd> — заново.');
+  const jumpButton = el('button', 'rt-jump', 'Прыжок (Пробел)');
+  jumpButton.type = 'button';
+  jumpButton.setAttribute('data-testid', 'jump');
   const openButton = el('button', 'rt-open', '⚙ Отладка');
   openButton.type = 'button';
   openButton.setAttribute('data-testid', 'open-panel');
@@ -52,7 +65,7 @@ async function boot(): Promise<void> {
   defeat.appendChild(defeatCard);
   const pausedBadge = el('div', 'rt-paused', 'Пауза');
   pausedBadge.hidden = true;
-  host.append(stage, hud, help, pausedBadge, openButton, defeat);
+  host.append(stage, hud, help, pausedBadge, openButton, jumpButton, defeat);
 
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
@@ -61,12 +74,17 @@ async function boot(): Promise<void> {
   let world: World = createWorld(TEST_ARENA, params);
   renderer.buildArena(world.arena);
   let paused = false;
+  /** Pointer and the jump aim (render-only); `dragging` — the button is held after a press on the arena. */
+  const ui: RenderUi = { pointer: null, jumpMode: false };
+  let dragging = false;
 
   const restart = (): void => {
     renderer.resetEffects();
     world = createWorld(TEST_ARENA, params);
     paused = false;
     defeat.hidden = true;
+    dragging = false;
+    ui.jumpMode = false;
   };
 
   const panel = new DebugPanel(params, {
@@ -98,6 +116,32 @@ async function boot(): Promise<void> {
   host.appendChild(panel.el);
   openButton.addEventListener('click', () => panel.setOpen(true));
   again.addEventListener('click', restart);
+  jumpButton.addEventListener('click', () => { ui.jumpMode = !ui.jumpMode && canJump(world); jumpButton.blur(); });
+
+  // Mouse: press on an enemy near the hero starts the chain, drag adds links, release strikes.
+  const arenaPoint = (event: PointerEvent): Vec => {
+    const box = stage.getBoundingClientRect();
+    return renderer.toArena(event.clientX - box.left, event.clientY - box.top);
+  };
+  stage.addEventListener('contextmenu', event => event.preventDefault());
+  stage.addEventListener('pointerdown', event => {
+    ui.pointer = arenaPoint(event);
+    if (paused || world.status !== 'playing') return;
+    if (event.button === 2) { cancelChain(world); dragging = false; ui.jumpMode = false; return; }
+    if (event.button !== 0) return;
+    if (ui.jumpMode) { if (jump(world, ui.pointer)) ui.jumpMode = false; return; }
+    dragging = true;
+    beginChain(world, ui.pointer);
+  });
+  window.addEventListener('pointermove', event => {
+    ui.pointer = arenaPoint(event);
+    if (dragging && !paused) dragChain(world, ui.pointer);
+  });
+  window.addEventListener('pointerup', event => {
+    if (event.button !== 0 || !dragging) return;
+    dragging = false;
+    if (!paused) releaseChain(world); else cancelChain(world);
+  });
 
   const relayout = (): void => {
     const panelWidth = panel.open ? panel.el.getBoundingClientRect().width : 0;
@@ -112,7 +156,9 @@ async function boot(): Promise<void> {
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
     if (event.code === 'Backquote' || event.key === 'F1') { event.preventDefault(); panel.toggle(); return; }
     if (typing) return;
-    if (event.code === 'KeyR') restart();
+    if (event.key === 'Escape') { cancelChain(world); dragging = false; ui.jumpMode = false; }
+    else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world); }
+    else if (event.code === 'KeyR') restart();
     else if (event.code === 'KeyP') paused = !paused;
     else if (event.key === 'Enter' && world.status === 'defeat') restart();
   });
@@ -126,9 +172,10 @@ async function boot(): Promise<void> {
     const workStart = performance.now();
     if (!paused) {
       const steps = Math.max(1, Math.ceil(realDt / SUBSTEP));
-      for (let i = 0; i < steps; i++) update(world, realDt / steps);
+      for (let i = 0; i < steps; i++) { stepHero(world, realDt / steps); update(world, realDt / steps); }
     }
-    renderer.render(world, paused ? 0 : realDt);
+    if (ui.jumpMode && !canJump(world)) ui.jumpMode = false;
+    renderer.render(world, paused ? 0 : realDt, ui);
     world.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;
@@ -137,6 +184,18 @@ async function boot(): Promise<void> {
     hpFill.style.width = `${hero.maxHp > 0 ? hero.hp / hero.maxHp * 100 : 0}%`;
     hpText.textContent = `${hero.hp} / ${hero.maxHp}`;
     timeText.textContent = formatTime(world.time);
+    focusFill.style.width = `${params.focusMax > 0 ? world.focus / params.focusMax * 100 : 0}%`;
+    focusBar.classList.toggle('rt-focus-on', world.focusing);
+    energyText.textContent = `⚡ ${world.energy.toFixed(1)} / ${ENERGY_MAX}`;
+    energyText.classList.toggle('rt-ready', world.energy >= params.jumpCost);
+    killsText.textContent = world.stage === 'greed' ? `убито ${world.stats.kills} · цель ✓` : `убито ${world.stats.kills} / ${params.killGoal}`;
+    jumpButton.classList.toggle('rt-on', ui.jumpMode);
+    jumpButton.disabled = !canJump(world) && !ui.jumpMode;
+    if (world.chain.length) {
+      const plan = planChain(world);
+      const last = plan.links[plan.links.length - 1]?.outcome;
+      chainText.textContent = `цепь ${world.chain.length} · сила ${plan.power}${plan.endsOnSurvivor && last ? ` · последний выживет (${last.hpBefore}→${last.hpAfter} HP)` : ''}`;
+    } else chainText.textContent = '';
     infoText.textContent = `врагов ${world.enemies.length} · ${world.stage === 'greed' ? `жадность, фаза ${world.pressure.phaseIndex + 1}` : 'до целей'}`;
     pausedBadge.hidden = !paused || world.status !== 'playing';
     if (world.status === 'defeat' && defeat.hidden) {
@@ -174,6 +233,13 @@ async function boot(): Promise<void> {
       time: world.time,
       hero: { ...world.hero },
       enemies: world.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, fast: e.fast })),
+      chain: world.chain.map(l => l.id),
+      moving: world.move?.kind ?? null,
+      focus: world.focus,
+      focusing: world.focusing,
+      timeScale: world.timeScale,
+      energy: world.energy,
+      kills: world.stats.kills,
       markers: world.markers.length,
       queue: world.queue.length,
       stage: world.stage,
@@ -184,6 +250,10 @@ async function boot(): Promise<void> {
     restart,
     completeGoals: () => completeGoals(world),
     burst: (count: number) => spawnBurst(world, count),
+    /** Test setup: remove every enemy, marker and queued newcomer. */
+    clear: () => { world.enemies.length = 0; world.markers.length = 0; world.queue.length = 0; world.chain = []; },
+    /** Test setup: put an enemy of `color` with `hp` at an arena point; returns its id. */
+    place: (x: number, y: number, color: number, hp = 0) => { spawnEnemy(world, { x, y }, color, hp, false); return world.enemies[world.enemies.length - 1].id; },
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
   };
 }

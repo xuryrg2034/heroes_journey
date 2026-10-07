@@ -44,7 +44,7 @@ export interface PanelStats {
 }
 
 const OPEN_KEY = 'ashen-oath-realtime-panel-open';
-const STAGE_NOTE: Record<number, string> = { 2: 'этап 2 — пока не действует', 3: 'этап 3 — пока не действует' };
+const STAGE_NOTE: Record<number, string> = { 3: 'этап 3 — пока не действует' };
 
 function formatNumber(def: ParamDef, value: unknown): string {
   if (def.kind !== 'number' || typeof value !== 'number') return String(value);
@@ -112,7 +112,7 @@ export class DebugPanel {
         section.className = 'rt-group';
         const title = document.createElement('h3');
         title.textContent = group;
-        if (def.stage > 1) {
+        if (STAGE_NOTE[def.stage]) {
           section.classList.add('rt-later');
           const note = document.createElement('small'); note.textContent = STAGE_NOTE[def.stage];
           title.appendChild(note);

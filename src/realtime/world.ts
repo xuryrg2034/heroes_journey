@@ -1,8 +1,8 @@
 /**
  * World state and simulation step of the real-time prototype.
  * Not deterministic on purpose (prototype): randomness comes from Math.random.
- * Stage 2 adds the chain/focus state machine on top of `update` (timeScale, dash),
- * stage 3 adds enemy kinds (boar, wolf) through `EnemyKind`.
+ * The chain, focus and the hero's dash live in chain.ts (`stepHero` runs before `update`
+ * on every substep); stage 3 adds enemy kinds (boar, wolf) through `EnemyKind`.
  */
 import { type ArenaLayout, FlowField, dist, lineOfSight, pushOutOfObstacles } from './arena';
 import { type Params, type Pressure, heroRadius, invulnerabilityFor, pressureAt } from './params';
@@ -30,6 +30,32 @@ export interface Enemy {
   age: number;
   /** Seconds left of the strike animation. */
   strikeFlash: number;
+  /** Real seconds left of the white flash after a chain hit (render). */
+  hurtFlash: number;
+  /** Game seconds left of the knockback after surviving a chain hit (toggle, design answer 26). */
+  knock: number;
+  knockVx: number;
+  knockVy: number;
+}
+
+/**
+ * A chain link: an enemy now; stage 3 adds objects (buttons, the door) — a link of any color
+ * that gives no power and takes no damage.
+ */
+export type ChainLink = { kind: 'enemy'; id: number } | { kind: 'object'; id: number };
+
+/** A hero move without contact damage: the dash along the chain or a jump. */
+export interface HeroMove {
+  kind: 'dash' | 'jump';
+  /** Chain links still to strike (dash) — struck in order on arrival. */
+  links: ChainLink[];
+  /** Power carried to the next link: +1 per enemy, HP spend it (docs/chain-budget.md). */
+  power: number;
+  /** Where the hero stops: the last killed link, or the start when nothing died yet. */
+  stop: { x: number; y: number };
+  /** Fixed point to reach (jump, or the way back after striking a survivor). */
+  point: { x: number; y: number } | null;
+  speed: number;
 }
 
 export interface Hero {
@@ -45,6 +71,9 @@ export interface Hero {
 export type WorldEvent =
   | { type: 'hit'; enemyId: number; damage: number; x: number; y: number }
   | { type: 'spawn'; enemyId: number }
+  | { type: 'chainHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number }
+  | { type: 'kill'; enemyId: number; x: number; y: number; color: number }
+  | { type: 'jump' }
   | { type: 'defeat' };
 
 export interface World {
@@ -75,6 +104,16 @@ export interface World {
   stage: 'goals' | 'greed';
   /** Game time when the goals were completed (null before). */
   greedStart: number | null;
+  /** Links selected so far; non-empty while the player draws a chain (focus runs). */
+  chain: ChainLink[];
+  /** Dash along the released chain or a jump; contact damage is off meanwhile. */
+  move: HeroMove | null;
+  /** Real seconds of focus left (design answer 14). */
+  focus: number;
+  /** True while focus slows the world (a chain is drawn and focus is left). */
+  focusing: boolean;
+  /** Energy for the jump: +energyPerKill per attacked enemy, up to ENERGY_MAX. */
+  energy: number;
 }
 
 export function createWorld(arena: ArenaLayout, params: Params): World {
@@ -97,6 +136,11 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     reaperSpawned: false,
     stage: 'goals',
     greedStart: null,
+    chain: [],
+    move: null,
+    focus: params.focusMax,
+    focusing: false,
+    energy: 0,
   };
 }
 
@@ -128,6 +172,11 @@ function moveEnemies(world: World, dt: number): void {
   const { hero, params, arena, flow } = world;
   const r = params.bodyRadius, stop = touchDistance(params);
   for (const e of world.enemies) {
+    if (e.knock > 0) {
+      const t = Math.min(dt, e.knock);
+      e.x += e.knockVx * t; e.y += e.knockVy * t; e.knock -= t;
+      continue;
+    }
     const d = dist(e, hero);
     if (d <= stop + 0.01) continue;
     let tx = hero.x, ty = hero.y;
@@ -164,7 +213,8 @@ function separate(world: World): void {
     }
     for (const e of enemies) {
       const dx = e.x - hero.x, dy = e.y - hero.y, d = Math.hypot(dx, dy);
-      if (d < heroMin) {
+      // While dashing or jumping the hero passes through bodies (design answer 4).
+      if (d < heroMin && !world.move) {
         if (d < 1e-6) { e.x = hero.x + heroMin; }
         else { e.x = hero.x + dx / d * heroMin; e.y = hero.y + dy / d * heroMin; }
       }
@@ -181,11 +231,15 @@ function contactDamage(world: World, dt: number): void {
     e.strikeFlash = Math.max(0, e.strikeFlash - dt);
     e.age += dt;
   }
-  if (world.status !== 'playing' || hero.invulnerable > 0) return;
+  if (world.status !== 'playing' || hero.invulnerable > 0 || world.move) return;
+  if (params.focusNoDamage && world.focusing) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.
-  const striker = world.enemies.find(e => dist(e, hero) <= reach);
-  if (!striker) return;
-  const damage = params.contactDamage;
+  // The reaper hits harder (design answer 30): when it touches, its hit counts.
+  const strikers = world.enemies.filter(e => dist(e, hero) <= reach);
+  if (!strikers.length) return;
+  const striker = strikers.find(e => e.kind === 'reaper') ?? strikers[0];
+  const damage = striker.kind === 'reaper' ? params.reaperDamage : params.contactDamage;
+  if (damage <= 0) return;
   hero.hp = Math.max(0, hero.hp - damage);
   hero.invulnerable = invulnerabilityFor(params, params.invulnerabilityMode, damage, hero.maxHp);
   hero.hurtFlash = Math.max(params.hitFlash, 0.01);
@@ -199,7 +253,7 @@ function contactDamage(world: World, dt: number): void {
   }
 }
 
-/** Goals of the arena are done: the greed stage starts (phase table, reaper). Stages 2–3 call it from real goals. */
+/** Goals of the arena are done: the greed stage starts (phase table, reaper). Stage 2: the kill goal (chain.ts); stage 3: arena goals. */
 export function completeGoals(world: World): void {
   if (world.stage === 'greed') return;
   world.stage = 'greed';
@@ -216,6 +270,7 @@ export function update(world: World, realDt: number): void {
   const hero = world.hero;
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
   hero.hurtFlash = Math.max(0, hero.hurtFlash - realDt);
+  for (const e of world.enemies) e.hurtFlash = Math.max(0, e.hurtFlash - realDt);
   if (Math.abs(world.flow.radius - world.params.bodyRadius) > 1e-9) world.flow = new FlowField(world.arena, world.params.bodyRadius);
   if (world.params.pathfinding) world.flow.setTarget(hero);
   if (world.params.reaperEnabled && world.greedStart !== null && !world.reaperSpawned && world.time - world.greedStart >= world.params.reaperTime) spawnReaper(world);

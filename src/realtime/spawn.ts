@@ -160,7 +160,7 @@ export function spawnReaper(world: World): void {
 
 export function spawnEnemy(world: World, at: Vec, color: number, hp: number, fast: boolean, kind: EnemyKind = 'basic'): void {
   const id = world.nextId++, spread = kind === 'reaper' ? 0 : world.params.speedSpread;
-  world.enemies.push({ id, kind, x: at.x, y: at.y, color, hp, fast, speedFactor: 1 + (Math.random() * 2 - 1) * spread, brake: 0, age: 0, strikeFlash: 0 });
+  world.enemies.push({ id, kind, x: at.x, y: at.y, color, hp, fast, speedFactor: 1 + (Math.random() * 2 - 1) * spread, brake: 0, age: 0, strikeFlash: 0, hurtFlash: 0, knock: 0, knockVx: 0, knockVy: 0 });
   world.stats.spawned++;
   world.events.push({ type: 'spawn', enemyId: id });
 }

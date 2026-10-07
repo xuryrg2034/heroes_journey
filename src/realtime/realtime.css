@@ -58,3 +58,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-phases tr.rt-current td { background: #4a3f2266; }
 .rt-phase-tools { margin-top: 4px; }
 .rt-phase-tools button { padding: 3px 8px; background: #262b20; border: 1px solid #4a4d39; font-size: 11px; }
+
+/* Stage 2: focus, energy, kills, chain readout, jump button. */
+.rt-focus { width: 90px; height: 8px; background: #22282c; border: 1px solid #0b0d0a; }
+.rt-focus-fill { display: block; height: 100%; width: 100%; background: #7fb2d6; }
+.rt-focus.rt-focus-on .rt-focus-fill { background: #bfe3ff; box-shadow: 0 0 8px #9ad1ff; }
+.rt-energy { font-family: Georgia, serif; font-size: 15px; color: #8e947b; }
+.rt-energy.rt-ready { color: #9ad1ff; }
+.rt-kills { font-family: Georgia, serif; font-size: 15px; color: #e5c8a8; }
+.rt-chain { color: #f2dfb4; }
+.rt-jump { position: absolute; bottom: 34px; right: 18px; padding: 8px 14px; background: #1c2630; border: 1px solid #4a6378; color: #bfe3ff; }
+.rt-jump.rt-on { background: #2c4a63; border-color: #9ad1ff; }
+.rt-jump:disabled { opacity: .45; cursor: default; }

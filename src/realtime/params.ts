@@ -1,7 +1,7 @@
 /**
  * Tunable numbers of the real-time prototype (docs/realtime-prototype.md, sections 8, 9a and 11).
  * Every value is a debug-panel control; the panel stores them in localStorage.
- * Stage marks which prototype stage starts using the value: stage 2 and 3 fields
+ * Stage marks which prototype stage starts using the value: stage 3 fields
  * already exist so the panel layout stays stable, but do nothing yet.
  */
 
@@ -86,6 +86,9 @@ export interface Params {
   reaperEnabled: boolean;
   reaperTime: number;
   reaperSpeed: number;
+  reaperDamage: number;
+  // Goal (stage 2 stand-in until the stage 3 arenas)
+  killGoal: number;
   // Effects
   hitFlash: number;
   shakeOnDamage: boolean;
@@ -166,6 +169,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   reaperEnabled: false,
   reaperTime: 130,
   reaperSpeed: 2.5,
+  reaperDamage: 3,
+  killGoal: 30,
   hitFlash: 0.1,
   shakeOnDamage: true,
   shakeAmplitude: 5,
@@ -237,6 +242,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'reaperEnabled', group: 'Время', label: 'Жнец (после целей)', stage: 1 },
   n('reaperTime', 'Время', 'Жнец: через … после целей', 10, 600, 5, 1, 'с'),
   n('reaperSpeed', 'Время', 'Скорость Жнеца', 0.5, 6, 0.1, 1, 'ед/с'),
+  n('reaperDamage', 'Время', 'Урон касания Жнеца', 0, 12, 1),
+  n('killGoal', 'Цель', 'Убить врагов (временная цель)', 1, 200, 1, 2, '', 'Пока нет арен этапа 3: после стольких убийств включается стадия жадности.'),
   n('hitFlash', 'Эффекты', 'Вспышка попадания', 0, 0.5, 0.02, 1, 'с'),
   { kind: 'bool', key: 'shakeOnDamage', group: 'Эффекты', label: 'Тряска при уроне', stage: 1 },
   n('shakeAmplitude', 'Эффекты', 'Тряска: сила', 0, 20, 1, 1, 'px'),
