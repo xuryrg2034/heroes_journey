@@ -611,12 +611,15 @@ test('the hero walks with WASD and arrows, stops at a wall and cannot walk throu
   // Arena 1: the wall x 3–4, y 2–5 left of the start. A limit of 1 keeps newcomers away.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.maxEnemies = 1; rt.teleport(5.5, 3.5); });
   const heroR = await page.evaluate(() => { const p = (window as any).__realtime.params; return p.bodyRadius * p.heroHitFactor as number; });
-  // D walks right at 4 u/s of game time, straight.
+  // D walks right at 4 u/s of game time, straight (measured between two snapshots while the key is held).
+  await page.keyboard.down('KeyD');
+  await expect.poll(async () => (await walkSnapshot(page)).hero.x, { intervals: [20] }).toBeGreaterThan(5.55);
   const a = await walkSnapshot(page);
-  await hold(page, 'KeyD', 0.4);
+  await expect.poll(async () => (await walkSnapshot(page)).time, { intervals: [20] }).toBeGreaterThan(a.time + 0.3);
   let s = await walkSnapshot(page);
+  await page.keyboard.up('KeyD');
   const speed = (s.hero.x - a.hero.x) / (s.time - a.time);
-  expect(speed).toBeGreaterThan(3.2);
+  expect(speed).toBeGreaterThan(3.4);
   expect(speed).toBeLessThan(4.2);
   expect(Math.abs(s.hero.y - 3.5)).toBeLessThan(0.01);
   await hold(page, 'ArrowUp', 0.2);
@@ -715,12 +718,16 @@ test('the pond is passable: the hero and an enemy wade in slowed, with ripples; 
   await page.evaluate(() => (window as any).__realtime.teleport(12.2, 4.6));
   const slow = await page.evaluate(() => (window as any).__realtime.params.waterSlow as number);
   expect(slow).toBe(0.5);
-  let a = await waterSnapshot(page);
-  expect(a.heroInWater).toBe(true);
-  await hold(page, 'KeyD', 0.2);
+  expect((await waterSnapshot(page)).heroInWater).toBe(true);
+  // Speed between two snapshots taken while the key is held (no key latency in the measure).
+  await page.keyboard.down('KeyD');
+  await expect.poll(async () => (await waterSnapshot(page)).hero.x, { intervals: [20] }).toBeGreaterThan(12.25);
+  const a = await waterSnapshot(page);
+  await expect.poll(async () => (await waterSnapshot(page)).time, { intervals: [20] }).toBeGreaterThan(a.time + 0.25);
   let s = await waterSnapshot(page);
+  await page.keyboard.up('KeyD');
   const heroSpeed = (s.hero.x - a.hero.x) / (s.time - a.time);
-  expect(heroSpeed).toBeGreaterThan(1.5);
+  expect(heroSpeed).toBeGreaterThan(1.7);
   expect(heroSpeed).toBeLessThan(2.2);
   expect(s.heroInWater).toBe(true);
   expect(s.ripples).toBeGreaterThan(0);
@@ -793,5 +800,89 @@ test('the hero brushes past a crowd pressed against it without being hit (design
   expect(nearest).toBeGreaterThanOrEqual(block - 0.02);
   expect(s.hero.hp).toBe(s.hero.maxHp);
   expect(s.stats.hitsTaken).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// ---- Iteration 2, stage C: crystals, chain juice ----
+
+type JuiceSnapshot = Omit<WalkSnapshot, 'stats' | 'objects'> & {
+  objects: { id: number; kind: string; x: number; y: number; value?: number }[];
+  stats: { kills: number; score: number; bestChain: number; crystals: number; finishers: number; hitsTaken: number };
+  lastChain: { kills: number; hits: number; crystals: number; score: number } | null;
+  comboShown: number;
+};
+const juiceSnapshot = (page: Page): Promise<JuiceSnapshot> => page.evaluate(() => (window as any).__realtime.snapshot());
+const crystals = (s: JuiceSnapshot) => s.objects.filter(o => o.kind === 'crystal');
+
+test('the 6th kill of one chain drops a crystal off the rest of the path; a long chain scores with the length bonus', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  // Arena 1, the free bottom row: the hero and seven enemies of one color 1 unit apart.
+  await page.evaluate(() => (window as any).__realtime.teleport(1, 9.2));
+  const ids: number[] = [];
+  for (let i = 0; i < 7; i++) ids.push(await place(page, 2 + i, 9.2, 0));
+  await chainAt(page, ids.map((_, i) => ({ x: 2 + i, y: 9.2 })));
+  await expect.poll(async () => (await juiceSnapshot(page)).chain.length).toBe(7);
+  expect(crystals(await juiceSnapshot(page))).toHaveLength(0);
+  await page.mouse.up();
+  await expect.poll(async () => (await juiceSnapshot(page)).kills, { timeout: 8_000 }).toBe(7);
+  await expect.poll(async () => (await juiceSnapshot(page)).moving).toBeNull();
+  const s = await juiceSnapshot(page);
+  // One crystal (6 kills → 1), worth the chain's final length; it fell off the rest of the path (the 6th spot → the 7th enemy).
+  const c = crystals(s);
+  expect(c).toHaveLength(1);
+  expect(s.stats.crystals).toBe(1);
+  expect(c[0].value).toBe(7);
+  const dx = Math.max(7, Math.min(8, c[0].x)) - c[0].x, dy = 9.2 - c[0].y;
+  expect(Math.hypot(dx, dy)).toBeGreaterThanOrEqual(0.6);
+  // Score: 10 × 7 × (1 + 0.1 × 7) = 119; the combo counter showed ×7.
+  expect(s.lastChain).toMatchObject({ kills: 7, score: 119 });
+  expect(s.stats.score).toBe(119);
+  expect(s.stats.bestChain).toBe(7);
+  expect(s.comboShown).toBe(7);
+  await page.screenshot({ path: 'artifacts/realtime-crystal-drop.png' });
+  expect(errors).toEqual([]);
+});
+
+test('a crystal is a link of any color: it changes the chain color, gives score when broken and can start a chain', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.finisherLinks = 3; rt.teleport(1, 9.2); });
+  // Color 0 → crystal (worth 6) → color 1 → color 1.
+  const a = await place(page, 2, 9.2, 0);
+  const crystal = await page.evaluate(() => (window as any).__realtime.placeCrystal(3, 9.2, 6) as number);
+  const b = await place(page, 4, 9.2, 1), c = await place(page, 5, 9.2, 1);
+  // Without the crystal the color-1 enemy is no link after a color-0 one.
+  const off = await place(page, 2.8, 8.2, 1);
+  await chainAt(page, [{ x: 2, y: 9.2 }, { x: 2.8, y: 8.2 }]);
+  expect((await juiceSnapshot(page)).chain).toEqual([a]);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await chainAt(page, [{ x: 2, y: 9.2 }, { x: 3, y: 9.2 }, { x: 4, y: 9.2 }, { x: 5, y: 9.2 }]);
+  await expect.poll(async () => (await juiceSnapshot(page)).chain).toEqual([a, crystal, b, c]);
+  await page.screenshot({ path: 'artifacts/realtime-crystal-chain.png' });
+  await page.mouse.up();
+  await expect.poll(async () => (await juiceSnapshot(page)).kills, { timeout: 8_000 }).toBe(3);
+  await expect.poll(async () => (await juiceSnapshot(page)).moving).toBeNull();
+  let s = await juiceSnapshot(page);
+  expect(crystals(s)).toHaveLength(0);
+  expect(s.enemies.map(e => e.id)).toContain(off);
+  // Chain 10 × 3 × 1.3 = 39, the crystal 20 × 6 = 120; 3 kills reach the finisher threshold (lowered to 3).
+  expect(s.lastChain).toMatchObject({ kills: 3, crystals: 1, score: 159 });
+  expect(s.stats.finishers).toBe(1);
+  expect(Math.hypot(s.hero.x - 5, s.hero.y - 9.2)).toBeLessThan(0.05);
+
+  // A chain starts on a crystal next to the hero; the next enemy sets the color.
+  await page.evaluate(() => (window as any).__realtime.teleport(10, 9.2));
+  const start = await page.evaluate(() => (window as any).__realtime.placeCrystal(11, 9.2, 2) as number);
+  const d = await place(page, 12, 9.2, 2);
+  await chainAt(page, [{ x: 11, y: 9.2 }, { x: 12, y: 9.2 }]);
+  await expect.poll(async () => (await juiceSnapshot(page)).chain).toEqual([start, d]);
+  await page.mouse.up();
+  await expect.poll(async () => (await juiceSnapshot(page)).kills, { timeout: 8_000 }).toBe(4);
+  s = await juiceSnapshot(page);
+  expect(s.lastChain).toMatchObject({ kills: 1, crystals: 1, score: 11 + 40 });
   expect(errors).toEqual([]);
 });

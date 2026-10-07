@@ -11,6 +11,7 @@ import { DebugPanel, formatTime } from './debugPanel';
 import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhases, type ParamKey } from './params';
 import { RealtimeRenderer, type RenderUi } from './render';
 import { spawnBurst, spawnEnemy } from './spawn';
+import { ChainAudio } from './audio';
 import { completeGoals, createWorld, goalProgress, update, type EnemyKind, type World } from './world';
 
 const MAX_FRAME = 0.05;
@@ -66,8 +67,10 @@ async function boot(): Promise<void> {
   const goalText = el('span', 'rt-kills');
   goalText.setAttribute('data-testid', 'goal');
   const chainText = el('span', 'rt-chain');
-  hud.append(hpBar, hpText, focusBar, energyText, goalText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кнопка, открытая дверь — последнее звено · <kbd>Esc</kbd> отмена · <kbd>Пробел</kbd> прыжок · <kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка');
+  const scoreText = el('span', 'rt-score');
+  scoreText.setAttribute('data-testid', 'score');
+  hud.append(hpBar, hpText, focusBar, energyText, goalText, scoreText, timeText, infoText, chainText);
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · <kbd>Esc</kbd> отмена · <kbd>Пробел</kbd> прыжок · <kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка');
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -108,6 +111,10 @@ async function boot(): Promise<void> {
 
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
+  const audio = new ChainAudio();
+  // The audio context may start only after a user gesture.
+  window.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
+  window.addEventListener('keydown', () => audio.unlock(), { capture: true });
   await renderer.init(stage);
 
   let arenaIndex = 0;
@@ -251,6 +258,9 @@ async function boot(): Promise<void> {
       ['Арена', world.arena.name],
       ['Время', formatTime(end)],
       ['Убито', String(world.stats.kills)],
+      ['Очки', String(world.stats.score)],
+      ['Лучшая цепь', `${world.stats.bestChain} убийств`],
+      ['Кристаллов выпало', String(world.stats.crystals)],
       ['В стадии жадности', greed],
       ['Цель', `${goal.label} ${goal.done} / ${goal.total}`],
       ['Получено урона', `${world.stats.damageTaken} (ударов ${world.stats.hitsTaken})`],
@@ -273,9 +283,21 @@ async function boot(): Promise<void> {
     world.input.y = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
     if (live) {
       const steps = Math.max(1, Math.ceil(realDt / SUBSTEP));
-      for (let i = 0; i < steps; i++) { stepHero(world, realDt / steps); update(world, realDt / steps); }
+      for (let i = 0; i < steps; i++) {
+        const dt = realDt / steps;
+        // Hit-stop (stage C): the whole simulation waits a few dozen milliseconds after a chain kill.
+        if (world.hitstop > 0) { world.hitstop = Math.max(0, world.hitstop - dt); continue; }
+        stepHero(world, dt); update(world, dt);
+      }
     }
     if (ui.jumpMode && !canJump(world)) ui.jumpMode = false;
+    if (params.sound) {
+      for (const ev of world.events) {
+        if (ev.type === 'chainHit') audio.hit(ev.combo, ev.killed, params.soundVolume);
+        else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
+        else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
+      }
+    }
     renderer.render(world, live ? realDt : 0, ui);
     world.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
@@ -290,6 +312,7 @@ async function boot(): Promise<void> {
     energyText.textContent = `⚡ ${world.energy.toFixed(1)} / ${ENERGY_MAX}`;
     energyText.classList.toggle('rt-ready', world.energy >= params.jumpCost);
     const goal = goalProgress(world);
+    scoreText.textContent = `очки ${world.stats.score}`;
     goalText.textContent = world.stage === 'greed' ? `дверь открыта · убито ${world.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
     goalText.classList.toggle('rt-door-open', world.stage === 'greed');
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
@@ -368,6 +391,9 @@ async function boot(): Promise<void> {
       packLines: renderer.visiblePackLines,
       ripples: renderer.visibleRipples,
       heroInWater: inWater(world.hero, world.arena),
+      combo: world.move?.kind === 'dash' ? world.move.kills : 0,
+      lastChain: world.lastChain ? { ...world.lastChain } : null,
+      comboShown: renderer.comboShown,
     }),
     restart,
     /** Starts arena `n` (1–3), as keys 1–3 on the menu. */
@@ -385,6 +411,12 @@ async function boot(): Promise<void> {
     teleport: (x: number, y: number) => { world.hero.x = x; world.hero.y = y; },
     /** Test setup: set the jump energy. */
     setEnergy: (value: number) => { world.energy = value; },
+    /** Test setup: put a crystal worth `value` kills at an arena point (a fixed spot instead of the random drop); returns its id. */
+    placeCrystal: (x: number, y: number, value = 6) => {
+      const id = world.nextId++;
+      world.objects.push({ id, kind: 'crystal', x, y, pressed: false, value, born: world.time });
+      return id;
+    },
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
   };
 }

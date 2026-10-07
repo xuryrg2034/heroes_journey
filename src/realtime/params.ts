@@ -82,8 +82,30 @@ export interface Params {
   flowDensity: boolean;
   /** Extra cost of a cell per enemy standing in it. */
   flowDensityCost: number;
-  /** Stage B: walking speed multiplier in the pond (hero, enemies, the boar's charge). */
+  /** Stage B: walking speed multiplier in the pond (hero and enemies walking; not the charge, dash or jump — design answer 41). */
   waterSlow: number;
+  // Crystals (stage C): a colour-change crystal for every N kills of one chain, as in the main game
+  crystals: boolean;
+  crystalEvery: number;
+  /** Game seconds a crystal lies on the arena; 0 — until a chain breaks it. */
+  crystalLife: number;
+  /** Score for breaking a crystal = this × kills of the chain that dropped it (main game: 20). */
+  crystalScorePerKill: number;
+  // Chain juice (stage C): every effect is a toggle
+  comboCounter: boolean;
+  hitstop: boolean;
+  hitstopMin: number;
+  hitstopMax: number;
+  hitstopGrowth: number;
+  finisher: boolean;
+  finisherLinks: number;
+  finisherTime: number;
+  finisherSlow: number;
+  chainScoreMultiplier: boolean;
+  scorePerKill: number;
+  scoreLengthBonus: number;
+  sound: boolean;
+  soundVolume: number;
   // Wolves (stage 3): fast, hit harder next to other wolves, come in packs
   wolfSpeed: number;
   wolfPackMin: number;
@@ -194,8 +216,26 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   flowRate: 4,
   flowTurn: 8,
   flowDensity: false,
-  flowDensityCost: 0.5,
+  flowDensityCost: 2,
   waterSlow: 0.5,
+  crystals: true,
+  crystalEvery: 6,
+  crystalLife: 0,
+  crystalScorePerKill: 20,
+  comboCounter: true,
+  hitstop: true,
+  hitstopMin: 0.02,
+  hitstopMax: 0.04,
+  hitstopGrowth: 0.002,
+  finisher: true,
+  finisherLinks: 10,
+  finisherTime: 0.3,
+  finisherSlow: 0.2,
+  chainScoreMultiplier: true,
+  scorePerKill: 10,
+  scoreLengthBonus: 0.1,
+  sound: true,
+  soundVolume: 0.3,
   wolfSpeed: 1.6,
   wolfPackMin: 3,
   wolfPackMax: 4,
@@ -291,7 +331,27 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'flowDensity', group: 'Враги', label: 'Штраф за плотность (поле потока)', stage: 4,
     hint: 'Клетка с врагами дороже: толпа растекается по обходным путям, а не стоит очередью в узком месте. Поле пересчитывается и когда герой стоит.' },
   n('flowDensityCost', 'Враги', 'Штраф за врага в клетке', 0, 5, 0.1, 4, '', 'Добавка к стоимости клетки поля за каждого врага в ней (клетка травы стоит 1).'),
-  n('waterSlow', 'Местность', 'Скорость в воде', 0.1, 1, 0.05, 4, '×', 'Пруд проходим: герой, враги и рывок кабана в воде медленнее. Поле потока считает клетку воды дороже во столько же раз.'),
+  n('waterSlow', 'Местность', 'Скорость в воде', 0.1, 1, 0.05, 4, '×', 'Пруд проходим: ходьба героя и врагов в воде медленнее (рывок кабана, проход цепи и прыжок — нет). Поле потока считает клетку воды дороже во столько же раз.'),
+  { kind: 'bool', key: 'crystals', group: 'Кристаллы', label: 'Кристаллы смены цвета', stage: 4,
+    hint: 'На каждом N-м убийстве одной цепью падает кристалл в случайной точке вне оставшегося пути цепи. Кристалл — звено любого цвета: меняет цвет цепи, силы не даёт, убийством не считается.' },
+  n('crystalEvery', 'Кристаллы', 'Кристалл за каждые … убийств цепи', 2, 20, 1, 4),
+  n('crystalLife', 'Кристаллы', 'Срок жизни кристалла', 0, 120, 5, 4, 'с', '0 — лежит, пока цепь его не разобьёт.'),
+  n('crystalScorePerKill', 'Кристаллы', 'Очки за кристалл, × убийств породившей цепи', 0, 100, 5, 4),
+  { kind: 'bool', key: 'comboCounter', group: 'Сок цепи', label: 'Счётчик комбо у героя', stage: 4 },
+  { kind: 'bool', key: 'hitstop', group: 'Сок цепи', label: 'Остановка кадра на убийстве', stage: 4 },
+  n('hitstopMin', 'Сок цепи', 'Остановка: первое убийство', 0, 0.1, 0.005, 4, 'с'),
+  n('hitstopMax', 'Сок цепи', 'Остановка: не дольше', 0, 0.2, 0.005, 4, 'с'),
+  n('hitstopGrowth', 'Сок цепи', 'Остановка: прибавка за убийство', 0, 0.02, 0.001, 4, 'с'),
+  { kind: 'bool', key: 'finisher', group: 'Сок цепи', label: 'Добивание: замедление и вспышка', stage: 4 },
+  n('finisherLinks', 'Сок цепи', 'Добивание: от … убийств', 2, 40, 1, 4),
+  n('finisherTime', 'Сок цепи', 'Добивание: замедление', 0, 2, 0.05, 4, 'с'),
+  n('finisherSlow', 'Сок цепи', 'Добивание: скорость мира', 0.02, 1, 0.02, 4, '×'),
+  { kind: 'bool', key: 'chainScoreMultiplier', group: 'Сок цепи', label: 'Очки с множителем длины', stage: 4,
+    hint: 'Очки цепи = очки за убийство × K × (1 + бонус × K), K — убийства цепи. Выключено: очки за убийство × K.' },
+  n('scorePerKill', 'Сок цепи', 'Очки за убийство', 0, 100, 1, 4),
+  n('scoreLengthBonus', 'Сок цепи', 'Бонус длины за убийство', 0, 1, 0.01, 4),
+  { kind: 'bool', key: 'sound', group: 'Сок цепи', label: 'Звук удара (тон растёт по цепи)', stage: 4 },
+  n('soundVolume', 'Сок цепи', 'Громкость', 0, 1, 0.05, 4),
   n('baseFloor', 'До целей', 'Пол плотности', 0, 150, 1, 4, 'живых', 'Если врагов вместе с метками и очередью меньше, недостающие сразу встают в очередь меток (не больше предела арены).'),
   n('baseIntervalMin', 'До целей', 'Интервал групп: от', 0.2, 20, 0.1, 1, 'с'),
   n('baseIntervalMax', 'До целей', 'Интервал групп: до', 0.2, 20, 0.1, 1, 'с'),
@@ -367,9 +427,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
  * v3 (07.10.2026, stage 3): dimming default 0.65 (design answer 31), wolves replace «fast», boar fields;
  * v1/v2 values are dropped. v4: mixed-color wolf packs by default. v5 (iteration 2, stage A): hero walking,
  * the flow field on by default — older values are dropped so the new defaults apply. v6 (stage B): passable
- * water, the floor before the goals (28) and higher greed floors.
+ * water, the floor before the goals (28) and higher greed floors. v7 (stage C): crystals and chain juice,
+ * density penalty 2 by default (design answer 42).
  */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v6';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v7';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {

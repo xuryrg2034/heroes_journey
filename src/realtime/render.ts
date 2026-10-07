@@ -106,6 +106,15 @@ export class RealtimeRenderer {
   visiblePackLines = 0;
   /** Bodies drawn with water ripples in the last frame. */
   visibleRipples = 0;
+  /** Stage C: the combo counter over the hero (kills of the dash), its fade after the dash, the finisher flash. */
+  private comboText: Text | null = null;
+  private comboLife = 0;
+  private comboValue = 0;
+  private readonly flash = new Graphics();
+  private flashLeft = 0;
+  private flashTotal = 0;
+  /** Largest combo number shown so far (tests read it: the counter was on screen). */
+  comboShown = 0;
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -118,10 +127,44 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
+    this.comboText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 46, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: 0x200c08, width: 7 } } });
+    this.comboText.anchor.set(0.5, 1);
+    this.comboText.visible = false;
+    this.root.addChild(this.comboText);
+  }
+
+  /**
+   * Stage C juice: the combo counter «×N» big over the hero while the dash kills (toggle), held and faded
+   * after the dash; the finisher flash over the arena.
+   */
+  private drawJuice(world: World, dt: number): void {
+    const text = this.comboText;
+    if (text) {
+      const dashing = world.move?.kind === 'dash';
+      const kills = dashing ? world.move!.kills : world.lastChain?.kills ?? 0;
+      if (!dashing) this.comboLife = Math.max(0, this.comboLife - dt);
+      const show = world.params.comboCounter && kills > 0 && (dashing || this.comboLife > 0);
+      text.visible = show;
+      if (show) {
+        if (kills !== this.comboValue) { this.comboValue = kills; text.text = `×${kills}`; text.scale.set(1.35); }
+        this.comboShown = Math.max(this.comboShown, kills);
+        const s = Math.max(1, text.scale.x - dt * 3);
+        text.scale.set(s);
+        text.position.set(world.hero.x * UNIT, world.hero.y * UNIT - 52);
+        text.alpha = dashing ? 1 : Math.min(1, this.comboLife / 0.4);
+        text.style.fill = kills >= world.params.finisherLinks ? 0xffd36b : 0xfff2c4;
+      } else this.comboValue = 0;
+    }
+    const g = this.flash.clear();
+    if (this.flashLeft > 0) {
+      this.flashLeft = Math.max(0, this.flashLeft - dt);
+      const a = this.flashTotal > 0 ? this.flashLeft / this.flashTotal : 0;
+      g.rect(0, 0, world.arena.width * UNIT, world.arena.height * UNIT).fill({ color: 0xffffff, alpha: 0.45 * a });
+    }
   }
 
   /** Fits the arena into the free part of the canvas (the debug panel may cover the right side). */
@@ -381,6 +424,20 @@ export class RealtimeRenderer {
     const g = this.objectLayer.clear(), R = OBJECT_RADIUS * UNIT, pulse = 0.5 + 0.5 * Math.sin(this.clock * 4);
     for (const o of world.objects) {
       const x = o.x * UNIT, y = o.y * UNIT;
+      if (o.kind === 'crystal') {
+        // Colour-change crystal (stage C): a faceted prism in all four chain colors, glowing; fits any chain.
+        const h = R * 1.05, w = R * 0.72, bob = Math.sin(this.clock * 3 + o.id) * 3, cy = y + bob;
+        g.ellipse(x, y + R * 0.75, R * 0.6, R * 0.2).fill({ color: 0x050a07, alpha: 0.4 });
+        g.circle(x, cy, R * 1.15).fill({ color: 0xffffff, alpha: 0.08 + 0.1 * pulse });
+        const top = [x, cy - h], right = [x + w, cy], bottom = [x, cy + h], left = [x - w, cy], mid = [x, cy];
+        g.poly([...top, ...right, ...mid]).fill(COLORS[0]);
+        g.poly([...right, ...bottom, ...mid]).fill(COLORS[1]);
+        g.poly([...bottom, ...left, ...mid]).fill(COLORS[2]);
+        g.poly([...left, ...top, ...mid]).fill(COLORS[3]);
+        g.poly([...top, ...right, ...bottom, ...left]).stroke({ color: NAVY, width: 3 });
+        g.poly([x - w * 0.35, cy - h * 0.45, x - w * 0.1, cy - h * 0.75, x, cy - h * 0.3]).fill({ color: 0xffffff, alpha: 0.7 });
+        continue;
+      }
       if (o.kind === 'button') {
         g.circle(x, y + 4, R).fill({ color: 0x050a07, alpha: 0.45 });
         if (o.pressed) {
@@ -454,6 +511,21 @@ export class RealtimeRenderer {
         if (view.grey) view.grey.alpha = 0;
         const total = Math.max(0.01, world.params.deathDuration);
         this.dying.push({ root: view.root, life: total, total, spin: Math.random() < 0.5 ? -1 : 1, scale: view.root.scale.x });
+        continue;
+      }
+      if (ev.type === 'crystal') { this.floatText('◆ кристалл', ev.x * UNIT, ev.y * UNIT - 36, 0xf4efe0); continue; }
+      if (ev.type === 'crystalBreak') {
+        this.floatText(ev.score > 0 ? `◆ +${ev.score}` : '◆', ev.x * UNIT, ev.y * UNIT - 36, 0xf4efe0);
+        continue;
+      }
+      if (ev.type === 'finisher') {
+        if (world.params.finisher) { this.flashLeft = this.flashTotal = Math.max(0.15, world.params.finisherTime); }
+        continue;
+      }
+      if (ev.type === 'chainEnd') {
+        // Above the combo counter (its text ends ~100 px over the hero).
+        if (ev.score > 0) this.floatText(`+${ev.score}`, world.hero.x * UNIT, world.hero.y * UNIT - 122, 0xfff2c4);
+        this.comboLife = ev.kills > 0 ? 0.9 : 0;
         continue;
       }
       if (ev.type === 'button') {
@@ -585,6 +657,7 @@ export class RealtimeRenderer {
     this.drawChain(world, ui);
     this.drawHero(world);
     this.drawOverlay(world);
+    this.drawJuice(world, realDt);
   }
 
   /** Water stays water: bodies wading in the pond get two widening rings (walking there is slower). */
@@ -618,6 +691,9 @@ export class RealtimeRenderer {
 
   resetEffects(): void {
     this.shakeLeft = 0;
+    this.flashLeft = 0;
+    this.comboLife = 0;
+    this.comboValue = 0;
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });

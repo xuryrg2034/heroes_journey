@@ -54,18 +54,30 @@ export interface Enemy {
   headY: number;
 }
 
-/** Button or door: a chain link of any color that gives no power and takes no damage (design answer 5). */
+/**
+ * Button or door: a chain link of any color that gives no power and takes no damage (design answer 5),
+ * always the last link. Crystal (iteration 2, stage C): a colour-change link of any color anywhere in
+ * the chain — the next enemy sets the new color; no power, not a kill; breaking it gives score.
+ * Not a body: enemies and the walking hero pass over it.
+ */
 export interface ArenaObject {
   id: number;
-  kind: 'button' | 'door';
+  kind: 'button' | 'door' | 'crystal';
   x: number;
   y: number;
   /** Button: pressed once and for all. */
   pressed: boolean;
+  /** Crystal: kills of the chain that dropped it (its final length; score = crystalScorePerKill × value). */
+  value?: number;
+  /** Crystal: game time it fell (the lifetime slider). */
+  born?: number;
 }
 
-/** A chain link: an enemy, or an arena object (it can only be the last link). */
+/** A chain link: an enemy, or an arena object (a button or the door can only be the last link; a crystal anywhere). */
 export type ChainLink = { kind: 'enemy'; id: number } | { kind: 'object'; id: number };
+
+/** The last finished dash (render: combo counter, score popup; result screen). */
+export interface ChainSummary { kills: number; hits: number; crystals: number; score: number; time: number }
 
 /** A hero move without contact damage: the dash along the chain or a jump. */
 export interface HeroMove {
@@ -79,6 +91,12 @@ export interface HeroMove {
   /** Fixed point to reach (jump, or the way back after striking a survivor). */
   point: { x: number; y: number } | null;
   speed: number;
+  /** Stage C: kills and hits of this dash (combo counter, crystal drops), crystals it dropped and broke, crystal score so far. */
+  kills: number;
+  hits: number;
+  dropped: number[];
+  broken: number;
+  crystalScore: number;
 }
 
 export interface Hero {
@@ -104,7 +122,11 @@ export type WorldEvent =
   | { type: 'goals' }
   | { type: 'victory' }
   | { type: 'spawn'; enemyId: number }
-  | { type: 'chainHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number }
+  | { type: 'chainHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number; combo: number }
+  | { type: 'crystal'; objectId: number; x: number; y: number }
+  | { type: 'crystalBreak'; objectId: number; x: number; y: number; score: number; combo: number }
+  | { type: 'finisher'; kills: number }
+  | { type: 'chainEnd'; kills: number; score: number }
   | { type: 'kill'; enemyId: number; x: number; y: number; color: number }
   | { type: 'jump' }
   | { type: 'defeat' };
@@ -134,7 +156,13 @@ export interface World {
   /** Walking input of the hero: WASD / arrows (main.ts), components in −1…1. */
   input: Vec;
   events: WorldEvent[];
-  stats: { hitsTaken: number; spawned: number; kills: number; markedKills: number; boarHits: number; damageTaken: number };
+  stats: { hitsTaken: number; spawned: number; kills: number; markedKills: number; boarHits: number; damageTaken: number; score: number; bestChain: number; crystals: number; finishers: number };
+  /** Stage C: real seconds of hit-stop left (the whole simulation waits). */
+  hitstop: number;
+  /** Stage C: real seconds of the finisher slow-motion left. */
+  slowmo: number;
+  /** Stage C: the last finished dash. */
+  lastChain: ChainSummary | null;
   reaperSpawned: boolean;
   /**
    * Arena stage: `goals` — base pace; `greed` — goals done, the door is open (stages 2–3),
@@ -181,7 +209,10 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     flowTimer: 0,
     input: { x: 0, y: 0 },
     events: [],
-    stats: { hitsTaken: 0, spawned: 0, kills: 0, markedKills: 0, boarHits: 0, damageTaken: 0 },
+    stats: { hitsTaken: 0, spawned: 0, kills: 0, markedKills: 0, boarHits: 0, damageTaken: 0, score: 0, bestChain: 0, crystals: 0, finishers: 0 },
+    hitstop: 0,
+    slowmo: 0,
+    lastChain: null,
     reaperSpawned: false,
     stage: 'goals',
     greedStart: null,
@@ -364,8 +395,8 @@ function stepBoar(world: World, e: Enemy, dt: number): boolean {
     return true;
   }
   // Charge: straight along the announced line for boarRange units; walls and trees stop it.
-  // In water the charge is slowed like any walk (same range, more time to step aside).
-  const step = Math.min(params.boarChargeSpeed * waterFactor(world, e) * dt, Math.max(0, params.boarRange - e.charged));
+  // Water slows walking only: the charge keeps its speed in the pond (design answer 41).
+  const step = Math.min(params.boarChargeSpeed * dt, Math.max(0, params.boarRange - e.charged));
   const next = { x: e.x + e.dirX * step, y: e.y + e.dirY * step };
   if (blockedAt(next, params.bodyRadius * 0.95, arena)) { e.boar = 'rest'; e.boarTimer = params.boarRest; return true; }
   e.x = next.x; e.y = next.y; e.charged += step;
@@ -561,6 +592,11 @@ export function update(world: World, realDt: number): void {
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
   hero.hurtFlash = Math.max(0, hero.hurtFlash - realDt);
   for (const e of world.enemies) e.hurtFlash = Math.max(0, e.hurtFlash - realDt);
+  // Crystals with a lifetime (slider; 0 — they lie until a chain breaks them).
+  const life = world.params.crystalLife;
+  if (life > 0 && world.objects.some(o => o.kind === 'crystal' && world.time - (o.born ?? 0) >= life)) {
+    world.objects = world.objects.filter(o => o.kind !== 'crystal' || world.time - (o.born ?? 0) < life);
+  }
   if (world.params.reaperEnabled && world.greedStart !== null && !world.reaperSpawned && world.time - world.greedStart >= world.params.reaperTime) spawnReaper(world);
   updateSpawning(world, dt);
   stepHeroKnock(world, dt);
