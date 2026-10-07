@@ -32,8 +32,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-panel-head b { font: 600 18px Georgia, serif; color: #e0d4b5; }
 .rt-panel-head span { color: var(--rt-muted); }
 .rt-close { margin-left: auto; width: 28px; height: 28px; background: transparent; border: 1px solid var(--rt-line); font-size: 16px; line-height: 1; }
-.rt-stats { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin: 0 0 10px; padding: 8px 10px; background: #10140ecc; border: 1px solid var(--rt-line); }
-.rt-stats dt { color: var(--rt-muted); }
+.rt-stats { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 0 0 10px; padding: 8px 10px; background: #10140ecc; border: 1px solid var(--rt-line); }
+.rt-stats dt { color: var(--rt-muted); white-space: nowrap; }
 .rt-stats dd { margin: 0; text-align: right; color: #e5dcc0; font-variant-numeric: tabular-nums; }
 .rt-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
 .rt-actions button { padding: 6px 8px; background: #262b20; border: 1px solid #4a4d39; font-size: 12px; }
@@ -49,3 +49,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-name { color: #c2c5a9; }
 .rt-value { color: #e5dcc0; font-variant-numeric: tabular-nums; }
 .rt-changed .rt-name::after { content: ' •'; color: #e3b45a; }
+.rt-actions button:disabled { opacity: .6; cursor: default; }
+.rt-phases table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.rt-phases th { color: var(--rt-muted); font-weight: 400; text-align: left; padding: 2px 1px; }
+.rt-phases td { padding: 1px; }
+.rt-phases input { width: 100%; min-width: 0; background: #20241b; color: var(--rt-ink); border: 1px solid #4a4d39; padding: 2px; font-size: 11px; }
+.rt-phases td button { background: transparent; border: 1px solid var(--rt-line); width: 20px; padding: 0; }
+.rt-phases tr.rt-current td { background: #4a3f2266; }
+.rt-phase-tools { margin-top: 4px; }
+.rt-phase-tools button { padding: 3px 8px; background: #262b20; border: 1px solid #4a4d39; font-size: 11px; }

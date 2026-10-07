@@ -6,10 +6,10 @@ import './realtime.css';
 import { loadCharacterArt } from '../render/characterAssets';
 import { TEST_ARENA } from './arena';
 import { DebugPanel, formatTime } from './debugPanel';
-import { DEFAULT_PARAMS, crowdLifetime, loadParams, saveParams, setParam, type ParamKey } from './params';
+import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhases, type ParamKey } from './params';
 import { RealtimeRenderer } from './render';
 import { spawnBurst } from './spawn';
-import { createWorld, update, type World } from './world';
+import { completeGoals, createWorld, update, type World } from './world';
 
 const MAX_FRAME = 0.05;
 const SUBSTEP = 1 / 60;
@@ -84,7 +84,7 @@ async function boot(): Promise<void> {
     },
     onRestart: restart,
     onReset() {
-      Object.assign(params, DEFAULT_PARAMS);
+      Object.assign(params, defaultParams());
       saveParams(params);
       panel.refresh();
       restart();
@@ -92,6 +92,8 @@ async function boot(): Promise<void> {
     onBurst(count) { if (world.status === 'playing') spawnBurst(world, count); },
     onTogglePause() { paused = !paused; },
     onOpenChange() { relayout(); },
+    onCompleteGoals() { if (world.status === 'playing') completeGoals(world); },
+    onPhasesChange(phases) { setPhases(params, phases); saveParams(params); },
   });
   host.appendChild(panel.el);
   openButton.addEventListener('click', () => panel.setOpen(true));
@@ -135,7 +137,7 @@ async function boot(): Promise<void> {
     hpFill.style.width = `${hero.maxHp > 0 ? hero.hp / hero.maxHp * 100 : 0}%`;
     hpText.textContent = `${hero.hp} / ${hero.maxHp}`;
     timeText.textContent = formatTime(world.time);
-    infoText.textContent = `врагов ${world.enemies.length} · злость ${world.pressure.angerTier}`;
+    infoText.textContent = `врагов ${world.enemies.length} · ${world.stage === 'greed' ? `жадность, фаза ${world.pressure.phaseIndex + 1}` : 'до целей'}`;
     pausedBadge.hidden = !paused || world.status !== 'playing';
     if (world.status === 'defeat' && defeat.hidden) {
       defeatStats.textContent = `Продержался ${formatTime(world.time)} · ударов получено: ${world.stats.hitsTaken} · врагов пришло: ${world.stats.spawned}`;
@@ -144,11 +146,18 @@ async function boot(): Promise<void> {
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
-      const p = world.pressure;
+      const p = world.pressure, greed = world.greedStart !== null, greedTime = greed ? world.time - (world.greedStart ?? 0) : 0;
+      const reaper = !params.reaperEnabled ? 'выключен'
+        : world.enemies.some(e => e.kind === 'reaper') ? 'на арене'
+        : world.reaperSpawned ? 'метка'
+        : greed ? `через ${Math.max(0, Math.ceil(params.reaperTime - greedTime))} с` : `через ${params.reaperTime} с после целей`;
       panel.updateStats({
-        fps, workMs, enemies: world.enemies.length, markers: world.markers.length, maxEnemies: params.maxEnemies, time: world.time,
-        angerTier: p.angerTier, spawnInterval: p.spawnInterval, enemySpeed: p.enemySpeed, enemyCooldown: p.enemyCooldown,
-        toughShare: p.toughShare, crowdLifetime: crowdLifetime(params), heroHp: hero.hp, heroMaxHp: hero.maxHp, paused,
+        fps, workMs, enemies: world.enemies.length, markers: world.markers.length, queue: world.queue.length, maxEnemies: params.maxEnemies,
+        time: world.time, greed, greedTime, phaseIndex: p.phaseIndex, phaseCount: params.phases.length, phaseLeft: p.phaseLeft,
+        floor: p.phase.floor, intervalMin: Math.min(p.phase.intervalMin, p.phase.intervalMax), intervalMax: Math.max(p.phase.intervalMin, p.phase.intervalMax),
+        toughShare: p.phase.toughShare, fastShare: p.phase.fastShare, angerTier: p.angerTier, enemySpeed: p.enemySpeed, reaper,
+        crowdConstant: crowdLifetime(params, 'constant'), crowdByDamage: crowdLifetime(params, 'byDamage'),
+        heroHp: hero.hp, heroMaxHp: hero.maxHp, paused,
       });
     }
     requestAnimationFrame(frame);
@@ -164,12 +173,16 @@ async function boot(): Promise<void> {
       status: world.status,
       time: world.time,
       hero: { ...world.hero },
-      enemies: world.enemies.map(e => ({ id: e.id, x: e.x, y: e.y, color: e.color, hp: e.hp })),
+      enemies: world.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, fast: e.fast })),
       markers: world.markers.length,
+      queue: world.queue.length,
+      stage: world.stage,
+      phaseIndex: world.pressure.phaseIndex,
       panelOpen: panel.open,
       paused,
     }),
     restart,
+    completeGoals: () => completeGoals(world),
     burst: (count: number) => spawnBurst(world, count),
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
   };

@@ -2,7 +2,7 @@
  * Debug panel of the real-time prototype: every tunable number as a slider,
  * live pressure readout, restart and reset. Toggled by ` (Backquote) or F1.
  */
-import { DEFAULT_PARAMS, PARAM_DEFS, type ParamDef, type ParamKey, type Params } from './params';
+import { DEFAULT_PARAMS, DEFAULT_PHASES, PARAM_DEFS, PHASE_FIELDS, type ParamDef, type ParamKey, type Params, type Phase } from './params';
 
 export interface PanelCallbacks {
   onChange(key: ParamKey, value: number | boolean | string): void;
@@ -11,6 +11,8 @@ export interface PanelCallbacks {
   onBurst(count: number): void;
   onTogglePause(): void;
   onOpenChange(open: boolean): void;
+  onCompleteGoals(): void;
+  onPhasesChange(phases: Phase[]): void;
 }
 
 export interface PanelStats {
@@ -19,13 +21,23 @@ export interface PanelStats {
   enemies: number;
   markers: number;
   maxEnemies: number;
+  queue: number;
   time: number;
-  angerTier: number;
-  spawnInterval: number;
-  enemySpeed: number;
-  enemyCooldown: number;
+  greed: boolean;
+  greedTime: number;
+  phaseIndex: number;
+  phaseCount: number;
+  phaseLeft: number;
+  floor: number;
+  intervalMin: number;
+  intervalMax: number;
   toughShare: number;
-  crowdLifetime: number;
+  fastShare: number;
+  angerTier: number;
+  enemySpeed: number;
+  reaper: string;
+  crowdConstant: number;
+  crowdByDamage: number;
   heroHp: number;
   heroMaxHp: number;
   paused: boolean;
@@ -51,6 +63,9 @@ export class DebugPanel {
   private readonly statsEl: HTMLElement;
   private readonly pauseButton: HTMLButtonElement;
   private isOpen = false;
+  private readonly goalsButton: HTMLButtonElement;
+  private phaseBody: HTMLElement | null = null;
+  private phaseRows: HTMLElement[] = [];
 
   constructor(private readonly params: Params, private readonly callbacks: PanelCallbacks) {
     const el = document.createElement('aside');
@@ -84,6 +99,8 @@ export class DebugPanel {
     this.pauseButton = button('Пауза (P)', () => callbacks.onTogglePause(), 'pause');
     button('+20 врагов', () => callbacks.onBurst(20), 'burst');
     button('Сбросить по умолчанию', () => callbacks.onReset(), 'reset-params');
+    this.goalsButton = button('Цели выполнены', () => callbacks.onCompleteGoals(), 'complete-goals');
+    this.goalsButton.title = 'Проверка стадии жадности: таблица фаз и Жнец. Этапы 2–3 включат её по настоящим целям.';
     el.appendChild(actions);
 
     let group = '';
@@ -104,11 +121,81 @@ export class DebugPanel {
         el.appendChild(section);
       }
       section.appendChild(this.buildRow(def));
+      if (def.key === 'baseFastShare') el.appendChild(this.buildPhaseSection());
     }
     this.el = el;
     let open = false;
     try { open = localStorage.getItem(OPEN_KEY) === '1'; } catch { /* storage may be unavailable */ }
     this.setOpen(open, false);
+  }
+
+  /** Editable pressure table of the greed stage (after the goals). */
+  private buildPhaseSection(): HTMLElement {
+    const section = document.createElement('section');
+    section.className = 'rt-group rt-phases';
+    section.setAttribute('data-testid', 'phase-table');
+    const title = document.createElement('h3');
+    title.textContent = 'После целей — фазы';
+    const note = document.createElement('small'); note.textContent = 'пол, интервал, состав; последняя держится';
+    title.appendChild(note);
+    const table = document.createElement('table');
+    const head = document.createElement('tr');
+    head.innerHTML = '<th>#</th>' + PHASE_FIELDS.map(f => `<th>${f.label}</th>`).join('') + '<th></th>';
+    const thead = document.createElement('thead'); thead.appendChild(head);
+    const body = document.createElement('tbody');
+    table.append(thead, body);
+    const tools = document.createElement('div');
+    tools.className = 'rt-phase-tools';
+    const add = document.createElement('button');
+    add.type = 'button'; add.textContent = '+ фаза';
+    add.addEventListener('click', () => {
+      const last = this.params.phases[this.params.phases.length - 1] ?? DEFAULT_PHASES[0];
+      this.callbacks.onPhasesChange([...this.params.phases, { ...last }]);
+      this.renderPhases();
+    });
+    tools.appendChild(add);
+    section.append(title, table, tools);
+    this.phaseBody = body;
+    this.renderPhases();
+    return section;
+  }
+
+  private renderPhases(): void {
+    const body = this.phaseBody;
+    if (!body) return;
+    body.innerHTML = '';
+    this.phaseRows = this.params.phases.map((phase, index) => {
+      const tr = document.createElement('tr');
+      const num = document.createElement('td'); num.textContent = String(index + 1); tr.appendChild(num);
+      for (const f of PHASE_FIELDS) {
+        const td = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = String(f.percent ? f.min * 100 : f.min); input.max = String(f.percent ? f.max * 100 : f.max);
+        input.step = String(f.percent ? f.step * 100 : f.step);
+        input.value = String(f.percent ? Math.round(phase[f.key] * 100) : phase[f.key]);
+        input.addEventListener('change', () => {
+          const raw = Number(input.value);
+          if (!Number.isFinite(raw)) return;
+          const next = this.params.phases.map(p => ({ ...p }));
+          next[index][f.key] = f.percent ? raw / 100 : raw;
+          this.callbacks.onPhasesChange(next);
+          this.renderPhases();
+        });
+        td.appendChild(input); tr.appendChild(td);
+      }
+      const td = document.createElement('td');
+      const remove = document.createElement('button');
+      remove.type = 'button'; remove.textContent = '×'; remove.title = 'Убрать фазу';
+      remove.disabled = this.params.phases.length <= 1;
+      remove.addEventListener('click', () => {
+        this.callbacks.onPhasesChange(this.params.phases.filter((_, i) => i !== index));
+        this.renderPhases();
+      });
+      td.appendChild(remove); tr.appendChild(td);
+      body.appendChild(tr);
+      return tr;
+    });
   }
 
   private buildRow(def: ParamDef): HTMLElement {
@@ -126,7 +213,7 @@ export class DebugPanel {
       const input = document.createElement('input');
       input.type = 'range'; input.min = String(def.min); input.max = String(def.max); input.step = String(def.step);
       input.value = String(current);
-      input.addEventListener('input', () => { this.callbacks.onChange(def.key, Number(input.value)); this.syncRow(def); });
+      input.addEventListener('input', () => { this.callbacks.onChange(def.key, Number(input.value)); this.refreshRows(); });
       row.append(value, input);
       this.controls.set(def.key, { input, value, row });
     } else if (def.kind === 'bool') {
@@ -154,12 +241,14 @@ export class DebugPanel {
     const value = this.params[def.key];
     if (c.input instanceof HTMLInputElement && c.input.type === 'checkbox') c.input.checked = Boolean(value);
     else c.input.value = String(value);
-    if (c.value) c.value.textContent = formatNumber(def, value);
+    if (c.value) c.value.textContent = formatNumber(def, value) + (def.key === 'linkRadius' ? ` ≈ ${(Number(value) / (2 * this.params.enemyRadius)).toFixed(1)} диам.` : '');
     c.row.classList.toggle('rt-changed', value !== DEFAULT_PARAMS[def.key]);
   }
 
   /** Re-reads every control from params (after reset to defaults). */
-  refresh(): void { for (const def of PARAM_DEFS) this.syncRow(def); }
+  refresh(): void { this.refreshRows(); this.renderPhases(); }
+
+  private refreshRows(): void { for (const def of PARAM_DEFS) this.syncRow(def); }
 
   get open(): boolean { return this.isOpen; }
 
@@ -174,19 +263,28 @@ export class DebugPanel {
 
   updateStats(s: PanelStats): void {
     this.pauseButton.textContent = s.paused ? 'Продолжить (P)' : 'Пауза (P)';
+    this.goalsButton.disabled = s.greed;
+    this.goalsButton.textContent = s.greed ? 'Цели выполнены ✓' : 'Цели выполнены';
+    this.phaseRows.forEach((row, i) => row.classList.toggle('rt-current', s.greed && i === s.phaseIndex));
     if (!this.isOpen) return;
+    const life = (v: number): string => Number.isFinite(v) ? `≈ ${v.toFixed(1)} с` : '∞';
+    const stage = s.greed
+      ? `жадность ${formatTime(s.greedTime)} · фаза ${s.phaseIndex + 1}/${s.phaseCount}${Number.isFinite(s.phaseLeft) ? ` (ещё ${Math.ceil(s.phaseLeft)} с)` : ''}`
+      : 'до целей (базовый темп)';
     const rows: [string, string][] = [
       ['FPS', s.fps.toFixed(0)],
       ['Кадр (ЦП), мс', s.workMs.toFixed(2)],
-      ['Врагов', `${s.enemies} / ${s.maxEnemies}${s.markers ? ` (+${s.markers} метк.)` : ''}`],
+      ['Врагов', `${s.enemies} / ${s.maxEnemies}${s.markers ? ` +${s.markers} метк.` : ''}${s.queue ? ` +${s.queue} в очереди` : ''}`],
       ['Время', formatTime(s.time)],
       ['HP героя', `${s.heroHp} / ${s.heroMaxHp}`],
-      ['Злость, ступень', String(s.angerTier)],
-      ['Темп появления', `1 в ${s.spawnInterval.toFixed(2)} с`],
-      ['Скорость врага', `${s.enemySpeed.toFixed(2)} ед/с`],
-      ['Перезарядка удара', `${s.enemyCooldown.toFixed(2)} с`],
-      ['Доля крепких', `${Math.round(s.toughShare * 100)}%`],
-      ['Время жизни в куче', Number.isFinite(s.crowdLifetime) ? `≈ ${s.crowdLifetime.toFixed(1)} с` : '∞'],
+      ['Стадия', stage],
+      ['Пол плотности', String(s.floor)],
+      ['Интервал групп', `${s.intervalMin.toFixed(1)}–${s.intervalMax.toFixed(1)} с`],
+      ['Крепких / быстрых', `${Math.round(s.toughShare * 100)}% / ${Math.round(s.fastShare * 100)}%`],
+      ['Скорость врага', `${s.enemySpeed.toFixed(2)} ед/с${s.angerTier ? ` (ступень ${s.angerTier})` : ''}`],
+      ['Жнец', s.reaper],
+      ['В куче до смерти: постоянная', life(s.crowdConstant)],
+      ['В куче до смерти: по доле HP', life(s.crowdByDamage)],
     ];
     this.statsEl.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   }

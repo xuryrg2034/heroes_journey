@@ -8,13 +8,15 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../render/art';
 import { characterSprite } from '../render/characterAssets';
 import type { ArenaLayout } from './arena';
-import type { EnemyLook } from './params';
-import { touchDistance, type Enemy, type World } from './world';
+import { heroRadius, type EnemyLook } from './params';
+import { NO_COLOR, touchDistance, type Enemy, type World } from './world';
 
 /** Pixels per arena unit before fitting to the window (one board cell of the main game). */
 export const UNIT = 72;
-/** Threat color outside the chain palette: spawn markers (stage 3: boar lanes). */
-export const THREAT = 0xff4fd8;
+/** Threat color outside the chain palette (design answer 18): white with a dark outline — spawn markers, stage 3 boar lanes. */
+export const THREAT = 0xffffff;
+const THREAT_OUTLINE = 0x0b0f14;
+const REAPER_FILL = 0x1b1b24;
 const NAVY = 0x18232d;
 const BASE_ENEMY_RADIUS = 0.4;
 
@@ -55,6 +57,10 @@ export class RealtimeRenderer {
   private readonly heroRing = new Graphics();
   private arena: ArenaLayout | null = null;
   private clock = 0;
+  private shakeLeft = 0;
+  private shakeTotal = 0;
+  private shakeAmp = 0;
+  private readonly base = { x: 0, y: 0 };
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -79,7 +85,8 @@ export class RealtimeRenderer {
     const margin = 12, w = this.arena.width * UNIT, h = this.arena.height * UNIT;
     const scale = Math.max(0.1, Math.min((freeWidth - margin * 2) / w, (height - margin * 2) / h));
     this.root.scale.set(scale);
-    this.root.position.set(Math.round((freeWidth - w * scale) / 2), Math.round((height - h * scale) / 2));
+    this.base.x = Math.round((freeWidth - w * scale) / 2); this.base.y = Math.round((height - h * scale) / 2);
+    this.root.position.set(this.base.x, this.base.y);
   }
 
   /** Screen position of an arena point (tests and stage 2 input use the inverse). */
@@ -121,12 +128,12 @@ export class RealtimeRenderer {
     this.staticLayer.cacheAsTexture({ resolution: Math.min(window.devicePixelRatio || 1, 2), antialias: true });
   }
 
-  /** Disc sprite of an enemy: vector art rendered once per (look, color, tough) into a texture. */
-  private enemyDisc(color: number, tough: boolean, look: EnemyLook): Sprite {
-    const key = `${look}-${color}-${tough ? 1 : 0}`;
+  /** Disc sprite of an enemy: vector art rendered once per (look, color, tough, fast) into a texture. */
+  private enemyDisc(color: number, tough: boolean, fast: boolean, look: EnemyLook): Sprite {
+    const key = `${look}-${color}-${tough ? 1 : 0}-${fast ? 1 : 0}`;
     let entry = this.bodyTextures.get(key);
     if (!entry) {
-      const g = new Graphics(this.enemyContext(color, tough, look)), b = g.getLocalBounds();
+      const g = new Graphics(this.enemyContext(color, tough, fast, look)), b = g.getLocalBounds();
       const texture = this.app.renderer.generateTexture({ target: g, resolution: 2, antialias: true });
       entry = { texture, ax: -b.minX / b.width, ay: -b.minY / b.height };
       this.bodyTextures.set(key, entry);
@@ -137,10 +144,22 @@ export class RealtimeRenderer {
     return sprite;
   }
 
-  private enemyContext(color: number, tough: boolean, look: EnemyLook): GraphicsContext {
-    const r = BASE_ENEMY_RADIUS * UNIT, fill = COLORS[color];
+  private enemyContext(color: number, tough: boolean, fast: boolean, look: EnemyLook): GraphicsContext {
+    const r = BASE_ENEMY_RADIUS * UNIT;
     const ctx = new GraphicsContext();
     ctx.ellipse(0, r * 0.8, r * 0.9, r * 0.32).fill({ color: 0x050a07, alpha: 0.45 });
+    if (color === NO_COLOR) {
+      // The reaper: dark, outside the palette, a white cross — cannot be chained.
+      ctx.circle(0, 0, r * 1.1).fill(REAPER_FILL).stroke({ color: THREAT, width: 4 });
+      const s = r * 0.45;
+      ctx.moveTo(-s, -s).lineTo(s, s).moveTo(s, -s).lineTo(-s, s).stroke({ color: THREAT, width: 6, cap: 'round' });
+      return ctx;
+    }
+    const fill = COLORS[color];
+    if (fast) {
+      // Fast enemies: two swept marks trailing behind the disc (silhouette, not a color).
+      for (const dy of [-r * 0.45, r * 0.15]) ctx.poly([-r * 0.75, dy, -r * 1.35, dy - r * 0.18, -r * 1.2, dy + r * 0.1]).fill(PALE).stroke({ color: NAVY, width: 2 });
+    }
     if (look === 'circle') {
       ctx.circle(0, 0, r).fill(fill).stroke({ color: NAVY, width: 3 });
       ctx.arc(0, 0, r * 0.72, Math.PI * 1.1, Math.PI * 1.6).stroke({ color: 0xffffff, width: 3, alpha: 0.28 });
@@ -155,9 +174,9 @@ export class RealtimeRenderer {
 
   private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; hpLabel: Text | null } {
     const body = new Container();
-    body.addChild(this.enemyDisc(e.color, e.hp > 0, look));
+    body.addChild(this.enemyDisc(e.color, e.hp > 0, e.fast, look));
     const r = BASE_ENEMY_RADIUS * UNIT;
-    if (look === 'sprite') {
+    if (look === 'sprite' && e.color !== NO_COLOR) {
       const sprite = characterSprite('melee', r * 1.75, r * 1.75);
       if (sprite) { sprite.position.set(0, -r * 0.08); body.addChild(sprite); }
       const plaque = new Graphics();
@@ -209,8 +228,12 @@ export class RealtimeRenderer {
     for (const m of world.markers) {
       const x = m.x * UNIT, y = m.y * UNIT, k = m.total > 0 ? 1 - m.timeLeft / m.total : 1, s = r * 0.6;
       const pulse = 0.6 + 0.4 * Math.sin(this.clock * 14);
-      g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT, width: 5, alpha: pulse });
-      g.arc(x, y, r * 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ color: THREAT, width: 3, alpha: 0.85 });
+      const rim = m.color === NO_COLOR ? THREAT : COLORS[m.color];
+      // Rim in the color of the coming enemy, filling up as the countdown runs.
+      g.circle(x, y, r * 0.95).stroke({ color: rim, width: 3, alpha: 0.35 });
+      g.arc(x, y, r * 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ color: rim, width: 4, alpha: 0.95 });
+      g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT_OUTLINE, width: 9, alpha: pulse, cap: 'round' });
+      g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT, width: 4.5, alpha: pulse, cap: 'round' });
     }
   }
 
@@ -221,9 +244,10 @@ export class RealtimeRenderer {
       art.scale.set(0.95);
       art.alpha = hero.invulnerable > 0 && world.status === 'playing' ? (Math.floor(this.clock * 20) % 2 ? 0.4 : 1) : 1;
     }
-    const ring = this.heroRing.clear(), hurt = hero.hurtFlash / 0.25;
+    const flash = Math.max(world.params.hitFlash, 0.01), hurt = Math.min(1, hero.hurtFlash / flash);
+    const ring = this.heroRing.clear();
     ring.ellipse(0, 26, 30, 9).fill({ color: 0x050a07, alpha: 0.4 });
-    if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: 0xd2453b, alpha: 0.35 * hurt });
+    if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: 0xffffff, alpha: 0.55 * hurt });
     // Small HP bar under the hero: the eye stays near the action.
     const w = 58, frac = hero.maxHp > 0 ? hero.hp / hero.maxHp : 0;
     ring.roundRect(-w / 2, 40, w, 7, 3).fill(0x1a1d17).stroke({ color: 0x0b0d0a, width: 1 });
@@ -234,14 +258,22 @@ export class RealtimeRenderer {
     const g = this.overlay.clear();
     if (!world.params.showHitboxes) return;
     const p = world.params;
-    g.circle(world.hero.x * UNIT, world.hero.y * UNIT, p.heroRadius * UNIT).stroke({ color: 0xffffff, width: 2, alpha: 0.8 });
+    // White: hero circle and enemy touch circles; yellow: enemy bodies (pushing); dashed-ish: touch reach around the hero.
+    g.circle(world.hero.x * UNIT, world.hero.y * UNIT, heroRadius(p) * UNIT).stroke({ color: 0xffffff, width: 2, alpha: 0.9 });
     g.circle(world.hero.x * UNIT, world.hero.y * UNIT, touchDistance(p) * UNIT).stroke({ color: 0xffd36b, width: 1, alpha: 0.5 });
-    for (const e of world.enemies) g.circle(e.x * UNIT, e.y * UNIT, p.enemyRadius * p.touchFactor * UNIT).stroke({ color: 0xffffff, width: 1.5, alpha: 0.7 });
+    for (const e of world.enemies) {
+      g.circle(e.x * UNIT, e.y * UNIT, p.bodyRadius * UNIT).stroke({ color: 0xffd36b, width: 1, alpha: 0.6 });
+      g.circle(e.x * UNIT, e.y * UNIT, p.bodyRadius * p.touchFactor * UNIT).stroke({ color: 0xffffff, width: 1.5, alpha: 0.7 });
+    }
   }
 
   private handleEvents(world: World): void {
     for (const ev of world.events) {
       if (ev.type !== 'hit') continue;
+      if (world.params.shakeOnDamage && world.params.shakeDuration > 0) {
+        this.shakeLeft = this.shakeTotal = world.params.shakeDuration;
+        this.shakeAmp = world.params.shakeAmplitude;
+      }
       const text = new Text({ text: `−${ev.damage}`, style: { fontFamily: 'Georgia, serif', fontSize: 26, fontWeight: 'bold', fill: 0xff8a73, stroke: { color: 0x200c08, width: 4 } } });
       text.anchor.set(0.5); text.position.set(ev.x * UNIT + (Math.random() - 0.5) * 20, ev.y * UNIT - 40);
       this.fxLayer.addChild(text);
@@ -260,6 +292,7 @@ export class RealtimeRenderer {
   /** Draws the current world. Consumes world.events (render-only effects). */
   render(world: World, realDt: number): void {
     this.clock += realDt;
+    this.applyShake(realDt);
     this.handleEvents(world);
     this.updateFloating(realDt);
     this.drawMarkers(world);
@@ -268,7 +301,19 @@ export class RealtimeRenderer {
     this.drawOverlay(world);
   }
 
+  /** Camera shake: random offset of the arena, fading over its duration. */
+  private applyShake(dt: number): void {
+    let ox = 0, oy = 0;
+    if (this.shakeLeft > 0) {
+      this.shakeLeft = Math.max(0, this.shakeLeft - dt);
+      const a = this.shakeAmp * (this.shakeTotal > 0 ? this.shakeLeft / this.shakeTotal : 0);
+      ox = (Math.random() * 2 - 1) * a; oy = (Math.random() * 2 - 1) * a;
+    }
+    this.root.position.set(this.base.x + ox, this.base.y + oy);
+  }
+
   resetEffects(): void {
+    this.shakeLeft = 0;
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });
