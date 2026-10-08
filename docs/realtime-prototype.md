@@ -883,7 +883,8 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 | Крючок | Где | Что делает |
 | --- | --- | --- |
 | `Loadout`, `World.kit`, `createWorld(…, loadout)`, `Journal.loadout` | `kit.ts`, `world.ts`, `simulation.ts`, `hash.ts` | Что арена получает на старте: расходники и энергию (поход — свои, песочница — число панели). Запас в руках — `kit`; в хэше только у мира с `loadout` |
-| `strike(power, hp, factor)`, `chainFactor(world, enemy)`, `Enemy.brittle` | `chain.ts` | Удар цепи ×`frostFactor` по замёрзшему после холода; одна функция для подсветки и прохода; ×2 тратится ударом и пропадает с оттаиванием |
+| `strike(power, hp, factor)`, `chainFactor(world, enemy)`, `dashFactor`, `HeroMove.brittle`, `Enemy.brittle` | `chain.ts` | Удар цепи ×`frostFactor` по замёрзшему после холода; подсветка — `chainFactor`, проход — ×2, зафиксированный на отпускании (`HeroMove.brittle`: звено, растаявшее по пути, всё равно ×2); ×2 тратится ударом |
+| `RUN_FORCED`, `runParams` | `params.ts`, `view/main.ts` | Арена похода играет с сохранённой панелью, но переключатели песочницы, подменяющие правила похода (якорь у героя, песочничные элиты, талисман песочницы), выключены |
 | `Enemy.burn`, `updateBurning` | `items.ts`, `world.ts` (`update` после взрывов) | Горение: тики по игровому времени, урон через `damageEnemy` с зачётом игроку |
 | `useItem`, `itemRefusal`, `itemTargets` | `items.ts` | Расходники 1–4: цель, отказ с причиной, применение |
 | `spin`, `canSpin` | `abilities.ts` | Круговой удар Q |

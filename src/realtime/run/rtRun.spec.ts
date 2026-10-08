@@ -711,7 +711,7 @@ check('talisman offers: a hard battle offers three by the rarity roll (rare «Я
   // The oath offer of the Jailer's row: only «Клятва голода» has its price in real time.
   assert(same(rtTalismanOffer(seedOf32(7), 'oath', { taken: [], gone: [] }), ['oath-hunger']), 'oaths: hunger only');
   assert(rtTalismanOffer(seedOf32(7), 'oath', { taken: ['oath-hunger'], gone: [] }).length === 0, 'no oath left: an empty offer (refusal only)');
-  // The pool runs dry: the «пустышка».
+  // The pool runs dry: fewer options, no «пустышка» (design answer 10).
   const all = ['whetstone', 'dew-flask', 'tough-hide', 'millstone-shard', 'hourglass', 'nimble-paws', 'ash-ward', 'hero-anchor'];
   assert(rtTalismanOffer(seedOf32(8), 'hard', { taken: all, gone: [] }).length === 0, 'an empty pool: no option, no «пустышка» (design answer 10)');
   assert(rtTalismanOffer(seedOf32(8), 'hard', { taken: all.slice(1), gone: [] }).length === 1, 'one left: one option');

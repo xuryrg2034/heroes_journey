@@ -250,7 +250,7 @@ function offerTalismans(run: RtRunState, nodeId: string, source: 'hard' | 'oath'
 }
 /**
  * Take one of the offered talismans or refuse (`null`). The options not taken leave the pool for the rest of the run; the
- * «пустышка» gives nothing (no run score in the slice). An event's reward battle completes its event; the node completes.
+ * slice has no «пустышка» (design answer 10). An event's reward battle completes its event; the node completes.
  */
 export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption | null): RtRunStep {
   const pending = current.pending;
