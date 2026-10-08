@@ -9,6 +9,7 @@
  * last checks replay a bot's fight from its journal to the same hash.
  */
 import { registerArena } from './arenas';
+import { LYNX_DEN_ARENA, SHAMAN_CIRCLE_ARENA } from './arenasStage3';
 import { chainAnchor, nextCandidates, planChain } from './chain';
 import { dist, type Vec } from './geometry';
 import { defaultParams, runParams, type Params } from './params';
@@ -491,6 +492,64 @@ check('П1: a bot fight of 40 s with wolf packs (arena 1, «Логово») repl
     assert(finals[0] !== finals[1], `${arena}: two seeds, two fights`);
     assert(howls > 0, `${arena}: wolves howled`);
     console.log(`   ${arena}: howls ${howls}`);
+  }
+});
+
+// ---- The arenas of the new enemies (sandbox, ⇧6 and ⇧7) ----
+
+/** Kinds of the newcomers that stepped out in `seconds` on `arena` (its own pace; the hero cannot fall). */
+function newcomerKinds(arena: string, k: number, seconds: number): string[] {
+  const p = Object.assign(defaultParams(), { heroHp: 40, contactDamage: 0, lynxDamage: 0, wolfPackBonus: 0 });
+  const sim = new Simulation({ arena, params: p, seed: seedOf(k) }), seen = new Map<number, string>();
+  const start = new Set(sim.world.enemies.map(e => e.id));
+  for (let i = 0; i < seconds * 60; i++) {
+    sim.tick();
+    for (const ev of sim.world.events) {
+      const kind = ev.type === 'spawn' && !start.has(ev.enemyId) ? sim.world.enemies.find(e => e.id === ev.enemyId)?.kind : undefined;
+      if (ev.type === 'spawn' && kind) seen.set(ev.enemyId, kind);
+    }
+    sim.world.events.length = 0;
+  }
+  return [...seen.values()];
+}
+const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
+
+check('«Рысье логово»: kill 25, two lynxes from the start; newcomers — lynxes (about 20%) and basic enemies, no packs or boars; gaps of 2', () => {
+  const sim = new Simulation({ arena: LYNX_DEN_ARENA.id, params: defaultParams(), seed: seedOf(201) }), w = sim.world;
+  assert(w.arena.goal === 'kills' && w.arena.killGoal === 25 && w.enemies.filter(e => e.kind === 'lynx').length === 2, 'goal and start lynxes');
+  // Gaps between the walls of each ridge (walls of one column): not narrower than 2 (the rule of step 2).
+  const walls = w.arena.obstacles.filter(o => o.shape === 'rect');
+  for (const x of new Set(walls.map(o => o.x))) {
+    const ridge = walls.filter(o => o.x === x).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < ridge.length; i++) assert(ridge[i].y - (ridge[i - 1].y + ridge[i - 1].h) >= 2 - 1e-9, `ridge at x ${x}: gap ${ridge[i].y - ridge[i - 1].y - ridge[i - 1].h}`);
+  }
+  const all = [1, 2, 3, 4, 5, 6].flatMap(k => newcomerKinds(LYNX_DEN_ARENA.id, 210 + k, 25)), share = (kind: string): number => all.filter(x => x === kind).length / all.length;
+  assert(all.length >= 150 && share('lynx') > 0.12 && share('lynx') < 0.28 && all.every(kind => kind === 'lynx' || kind === 'basic'), `lynxes ${pct(share('lynx'))} of ${all.length}: ${[...new Set(all)]}`);
+  console.log(`   ${all.length} newcomers: lynxes ${pct(share('lynx'))}`);
+});
+
+check('«Круг шамана»: three marked shamans along the top, three braziers; newcomers — shamans (about 10%) and basic enemies', () => {
+  const sim = new Simulation({ arena: SHAMAN_CIRCLE_ARENA.id, params: defaultParams(), seed: seedOf(221) }), w = sim.world;
+  const marked = w.enemies.filter(e => e.marked);
+  assert(w.arena.goal === 'marked' && marked.length === 3 && marked.every(e => e.kind === 'shaman' && e.y < 2), `marked ${marked.map(e => e.kind)}`);
+  assert(w.objects.filter(o => o.kind === 'brazier').length === 3, 'braziers');
+  const all = [1, 2, 3, 4, 5, 6].flatMap(k => newcomerKinds(SHAMAN_CIRCLE_ARENA.id, 230 + k, 25)), share = (kind: string): number => all.filter(x => x === kind).length / all.length;
+  assert(all.length >= 150 && share('shaman') > 0.05 && share('shaman') < 0.16 && all.every(kind => kind === 'shaman' || kind === 'basic'), `shamans ${pct(share('shaman'))} of ${all.length}: ${[...new Set(all)]}`);
+  console.log(`   ${all.length} newcomers: shamans ${pct(share('shaman'))}`);
+});
+
+check('the new arenas: a bot fight of 40 s replays from its journal at every checkpoint; seeds differ; lynxes leap, shamans beam', () => {
+  for (const [arena, signal] of [[LYNX_DEN_ARENA.id, 'leap'], [SHAMAN_CIRCLE_ARENA.id, 'beam']] as const) {
+    const finals: string[] = [];
+    let count = 0;
+    for (const k of [241, 242]) {
+      const f = botFight(arena, k, 40);
+      assert(f.checkpoints.length >= 2 && replaysAtCheckpoints(f), `${arena} seed ${k}: replay`);
+      finals.push(f.sim.hash());
+      count += f.counts[signal] ?? 0;
+    }
+    assert(finals[0] !== finals[1] && count > 0, `${arena}: two fights, ${signal} ${count}`);
+    console.log(`   ${arena}: ${signal} ${count}`);
   }
 });
 

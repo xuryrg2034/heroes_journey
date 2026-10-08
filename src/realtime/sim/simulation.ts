@@ -15,6 +15,8 @@
  *   → the same hash (hash.ts) after the same ticks, in the browser and in Node.
  */
 import { arenaTemplate, type ArenaTemplate } from './arenas';
+// Stage 3a, step 4: the arenas of the new enemies register on import (a journal names them by id).
+import './arenasStage3';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';
 import { hashWorld } from './hash';

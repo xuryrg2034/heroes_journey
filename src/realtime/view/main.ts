@@ -14,6 +14,7 @@
 import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
 import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
+import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -32,10 +33,10 @@ import { RunView, type ArenaItemNotice } from './runView';
 
 /**
  * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
- * and 4); then the terrain samples of stage 3a (river, cliff, thorns, braziers, gorge), keys ⇧1–⇧5. `?arena=1…15` opens
- * one at once.
+ * and 4); then the terrain samples of stage 3a (river, cliff, thorns, braziers, gorge), keys ⇧1–⇧5, and the arenas of its
+ * new enemies («Рысье логово», «Круг шамана»), keys ⇧6–⇧7. `?arena=1…17` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -45,7 +46,7 @@ function phaseOverrideText(override: NonNullable<ArenaTemplate['phaseOverride']>
   if (override.boarShare === 0 && keys.length === 1) return 'кабанов нет (доля 0)';
   return 'с поправками арены';
 }
-/** The menu key of sandbox arena `i` (from 0): 1–9, then 0 for the tenth; the terrain samples — ⇧1…⇧5. */
+/** The menu key of sandbox arena `i` (from 0): 1–9, then 0 for the tenth; the arenas of stage 3a — ⇧1…⇧7. */
 const arenaKey = (i: number): string => (i < DIGIT_ARENAS ? String((i + 1) % 10) : `⇧${i - DIGIT_ARENAS + 1}`);
 /** The sandbox arena of a digit key (Shift — the terrain samples); −1 — none. */
 function arenaOfKey(code: string, shift: boolean): number {
@@ -203,6 +204,7 @@ async function boot(): Promise<void> {
   SANDBOX_ARENAS.forEach((arena, i) => {
     // Stage 3a: the terrain samples under their own heading (sandbox only, not in the run).
     if (i === DIGIT_ARENAS) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Местность этапа 3а — образцы (только песочница)'));
+    if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Новые враги этапа 3а — рысь и шаман (пока только песочница)'));
     const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
@@ -632,7 +634,7 @@ async function boot(): Promise<void> {
   };
   requestAnimationFrame(frame);
 
-  // `?arena=N` (1–15) skips the menu: handy for manual tuning.
+  // `?arena=N` (1–17) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
 
@@ -708,7 +710,7 @@ async function boot(): Promise<void> {
     },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
     restart: (seed?: number) => restart(seed),
-    /** Starts arena `n` (1–15), as keys 1–9, 0 and ⇧1–⇧5 on the menu; `seed` fixes its seed. */
+    /** Starts arena `n` (1–17), as keys 1–9, 0 and ⇧1–⇧7 on the menu; `seed` fixes its seed. */
     selectArena: (n: number, seed?: number) => start(n - 1, seed),
     completeGoals: () => command({ t: 'goals' }),
     burst: (count: number) => command({ t: 'burst', count }),

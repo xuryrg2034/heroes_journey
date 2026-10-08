@@ -13,9 +13,10 @@
  * so the report repeats exactly); the last table times a whole tick (`Simulation.tick`: the hero step and `update`).
  */
 import { ARENAS as PROTOTYPE_ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, markedCount, type ArenaLayout } from '../src/realtime/sim/arenas';
+import { BEHAVIOR_ARENAS } from '../src/realtime/sim/arenasStage3';
 // The prototype arenas 1–3, the slice arenas 4–10 (stage 2 of the transition, steps 2 and 4) and the terrain samples of
 // stage 3a, step 1 (river, cliff, thorns, braziers, gorge).
-const ARENAS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS];
+const ARENAS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS];
 import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
