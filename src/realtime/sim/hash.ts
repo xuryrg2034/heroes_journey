@@ -1,6 +1,6 @@
 /**
  * World hash of the real-time simulation: a canonical JSON of everything that decides the future (positions, timers,
- * the chain, the dash, spawning, objects, stats, random stream states), hashed with two FNV-1a passes into 16 hex
+ * the chain, the dash, spawning, objects, stats, random stream states, the live panel values), hashed with two FNV-1a passes into 16 hex
  * digits. Events (an output buffer the view clears) and the flow field's wall-clock build time are left out.
  * Same seed and the same journal must give the same hash after the same number of ticks — in Node and in the browser.
  */
@@ -41,6 +41,8 @@ export function worldState(world: World): unknown {
     flowBuilds: world.flow.builds,
     phaseIndex: world.pressure.phaseIndex,
     rng: world.rng.states(),
+    // The live panel values decide the future too (a `param` command changes them).
+    params: world.params,
   };
 }
 

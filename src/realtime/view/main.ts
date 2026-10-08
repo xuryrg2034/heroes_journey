@@ -12,9 +12,9 @@ import { loadCharacterArt } from '../../render/characterAssets';
 import { ARENAS } from '../sim/arenas';
 import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, planChain, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
-import { inWater, type Vec } from '../sim/geometry';
+import { inWater, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
-import { SIM_DT, Simulation } from '../sim/simulation';
+import { Simulation } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
@@ -57,18 +57,23 @@ function nextSeed(fixed: number | null): number {
 }
 
 /**
- * Positions before the last tick, to draw between ticks while ticks are sparse (focus ×0.25: a tick every four frames;
- * the finisher slow-motion). Drawing only: the world is put back right after the frame is drawn.
+ * Positions before the last tick: every frame draws the hero and enemies between the last two ticks (classic fixed
+ * timestep; `alpha` — the paid share of the next tick). Ticks do not line up with frames — a tick every four frames in
+ * focus, 0-1-0-1 frames at 120 Hz — and drawing only tick positions would stutter. Drawing only: the world is put back
+ * right after the frame is drawn.
  */
 class Motion {
-  private hero = { x: 0, y: 0 };
+  private hero: { x: number; y: number } | null = null;
   private readonly enemies = new Map<number, { x: number; y: number }>();
 
   save(world: World): void {
-    this.hero.x = world.hero.x; this.hero.y = world.hero.y;
+    this.hero = { x: world.hero.x, y: world.hero.y };
     this.enemies.clear();
     for (const e of world.enemies) this.enemies.set(e.id, { x: e.x, y: e.y });
   }
+
+  /** A new fight: nothing to draw from (ids of the old world must not pull the new one). */
+  clear(): void { this.hero = null; this.enemies.clear(); }
 
   /** Runs `draw` with the hero and enemies placed `alpha` of the way from their previous tick to the current one. */
   drawBetween(world: World, alpha: number, draw: () => void): void {
@@ -79,7 +84,7 @@ class Motion {
       saved.push([o, o.x, o.y]);
       o.x = from.x + (o.x - from.x) * alpha; o.y = from.y + (o.y - from.y) * alpha;
     };
-    place(world.hero, this.hero);
+    if (this.hero) place(world.hero, this.hero);
     for (const e of world.enemies) place(e, this.enemies.get(e.id));
     try { draw(); } finally { for (const [o, x, y] of saved) { o.x = x; o.y = y; } }
   }
@@ -88,6 +93,8 @@ class Motion {
 async function boot(): Promise<void> {
   const host = document.getElementById('rt-app');
   if (!host) throw new Error('#rt-app is missing');
+  // The panel shows the flow field rebuild time: the view lends the simulation its clock (diagnostics only).
+  setFlowClock(() => performance.now());
   const params = loadParams();
   const urlParams = new URLSearchParams(location.search);
   const seedText = urlParams.get('seed');
@@ -166,8 +173,10 @@ async function boot(): Promise<void> {
   await renderer.init(stage);
 
   const motion = new Motion();
-  const newSimulation = (index: number, seed: number): Simulation =>
-    new Simulation({ arena: ARENAS[index], params, seed, record: true, beforeTick: world => motion.save(world) });
+  const newSimulation = (index: number, seed: number): Simulation => {
+    motion.clear();
+    return new Simulation({ arena: ARENAS[index], params, seed, record: true, beforeTick: world => motion.save(world) });
+  };
 
   let arenaIndex = 0;
   let sim = newSimulation(arenaIndex, nextSeed(fixedSeed));
@@ -371,10 +380,8 @@ async function boot(): Promise<void> {
     }
     // Stage E: a short flash of the focus bar when a link refreshes it.
     if (w.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
-    // While ticks are sparse (focus, the finisher slow-motion) the hero and enemies are drawn between the last two ticks.
-    const sparse = live && sim.nextTickCost() > SIM_DT * 1.5;
-    if (sparse) motion.drawBetween(w, sim.alpha, () => renderer.render(w, realDt, ui));
-    else renderer.render(w, live ? realDt : 0, ui);
+    // The hero and enemies are drawn between the last two ticks (the world is put back after drawing).
+    motion.drawBetween(w, sim.alpha, () => renderer.render(w, live ? realDt : 0, ui));
     w.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;

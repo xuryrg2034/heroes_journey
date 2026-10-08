@@ -13,13 +13,15 @@
  * so the report repeats exactly); the last table times a whole tick (`Simulation.tick`: the hero step and `update`).
  */
 import { ARENAS, markedCount, type ArenaLayout } from '../src/realtime/sim/arenas';
-import { type Vec, blockedAt, dist } from '../src/realtime/sim/geometry';
+import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
 import { spawnBurst, spawnEnemy } from '../src/realtime/sim/spawn';
 import { createWorld, touchDistance, update, type World } from '../src/realtime/sim/world';
 
 const DT = 1 / 60;
+// The report times flow field rebuilds: lend the simulation a clock (it reads none by itself).
+setFlowClock(() => performance.now());
 const TIMEOUT = 30;
 const withStraight = process.argv.includes('--straight');
 

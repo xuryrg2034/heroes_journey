@@ -219,6 +219,46 @@ check('a frame pays real time for whole ticks: 1/60 s of game time each, four fr
   // A stall is not caught up: one frame runs at most MAX_TICKS_PER_FRAME ticks.
   sim.command({ t: 'cancel' });
   assert(sim.advance(5) === MAX_TICKS_PER_FRAME, 'stall');
+  assert(sim.advance(1 / 60) <= 1, 'the dropped stall does not come back in the next frame');
+});
+
+/** Ticks per 60 Hz frame for `frames` frames. */
+const frameTicks = (sim: Simulation, frames: number): number[] => Array.from({ length: frames }, () => sim.advance(1 / 60));
+
+check('a change of the tick price does not turn the paid remainder into extra ticks (focus → normal, slow-motion → normal)', () => {
+  // Focus → normal: the chain is held for frame counts that leave 1–3 quarters of a focused tick paid, then released.
+  for (const held of [5, 6, 7, 9, 10, 11]) {
+    const sim = new Simulation({ arena: 'kills', params: quiet(), seed: 21 });
+    sim.command({ t: 'clear', keepMarked: false });
+    const { x, y } = sim.world.hero;
+    sim.command({ t: 'place', x: x + 1, y, color: 0, hp: 0, kind: 'basic' });
+    sim.command({ t: 'begin', x: x + 1, y });
+    const focused = frameTicks(sim, held);
+    assert(focused.every(n => n <= 1) && sim.alpha > 0.2, `focus: ${focused.join(',')}, alpha ${sim.alpha}`);
+    sim.command({ t: 'release' });
+    const after = frameTicks(sim, 10);
+    assert(after.every(n => n <= 2) && after[0] <= 1, `after release (held ${held}): ${after.join(',')}`);
+  }
+  // Slow-motion → normal: a finisher (threshold 2 kills) slows the world; the frames right after it ends tick at most twice.
+  const p = quiet();
+  p.finisherLinks = 2; p.hitstop = false;
+  const sim = new Simulation({ arena: 'kills', params: p, seed: 22 });
+  sim.command({ t: 'clear', keepMarked: false });
+  const { x, y } = sim.world.hero;
+  sim.command({ t: 'place', x: x + 1, y, color: 0, hp: 0, kind: 'basic' });
+  sim.command({ t: 'place', x: x + 2.2, y, color: 0, hp: 0, kind: 'basic' });
+  sim.command({ t: 'begin', x: x + 1, y });
+  sim.command({ t: 'drag', x: x + 2.2, y, mode: 'full' });
+  sim.command({ t: 'release' });
+  let slowed = 0, guard = 0;
+  while (sim.world.slowmo <= 0 && guard++ < 120) sim.advance(1 / 60);
+  assert(sim.world.slowmo > 0 && sim.world.stats.finishers === 1, 'the finisher slowed the world');
+  while (sim.world.slowmo > 0 && guard++ < 240) { sim.advance(1 / 60); slowed++; }
+  assert(slowed >= 10, `slow-motion frames ${slowed}`);
+  const after = frameTicks(sim, 10);
+  assert(after.every(n => n <= 2), `after the slow-motion: ${after.join(',')}`);
+  // Drawing between ticks: alpha stays in 0…1 every frame.
+  for (let i = 0; i < 30; i++) { sim.advance(1 / 144); assert(sim.alpha >= 0 && sim.alpha <= 1, 'alpha'); }
 });
 
 check('the hit-stop freezes whole ticks: no game time passes until it runs out', () => {

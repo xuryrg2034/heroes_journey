@@ -6,9 +6,10 @@
  *   shorten the tick: a tick stands for more real seconds (`SIM_DT ÷ scale`), so fewer ticks run per real second. The
  *   hit-stop is a run of frozen ticks: no game time passes, each takes `SIM_DT` of real time off the hit-stop.
  *   Walking, the dash, knockbacks, spawning — everything moves inside ticks only.
- * - **Frames.** The browser frame only adds real time to an accumulator (`advance`): it runs as many whole ticks as
- *   that time pays for (at most `MAX_TICKS_PER_FRAME`); what is left waits for the next frame (`alpha` — how far into
- *   the next tick, for drawing between ticks).
+ * - **Frames.** The browser frame only pays real time into an accumulator (`advance`): each tick is paid at its own
+ *   price, as many whole ticks run as the frame pays for (at most `MAX_TICKS_PER_FRAME`); what is left is kept as a
+ *   share of the next tick (`alpha`, 0…1 — for drawing between ticks), not as seconds: when the price changes (the end of
+ *   focus or of the slow-motion) the remainder never turns into extra game time.
  * - **Commands.** Input reaches the world only as commands (commands.ts), applied at once between ticks and journalled
  *   with the number of the tick they come before. `replay(journal)` rebuilds the same world: same seed + same journal
  *   → the same hash (hash.ts) after the same ticks, in the browser and in Node.
@@ -61,7 +62,7 @@ export class Simulation {
   readonly seed: number;
   private readonly journal: Journal | null;
   private readonly beforeTick?: (world: World) => void;
-  /** Real seconds paid in but not yet spent on ticks. */
+  /** Share of the next tick already paid for (0…1; slightly below 0 after a tick that started early). */
   private acc = 0;
 
   constructor(options: SimulationOptions) {
@@ -106,27 +107,28 @@ export class Simulation {
     world.tick++;
   }
 
-  /** A frame: adds `realDt` real seconds and runs the ticks they pay for. Returns the number of ticks run. */
+  /**
+   * A frame: pays `realDt` real seconds for ticks, each at its own price (`nextTickCost` at the moment it runs).
+   * The rest stays as a share of the next tick. Returns the number of ticks run.
+   */
   advance(realDt: number, maxTicks = MAX_TICKS_PER_FRAME): number {
-    this.acc += Math.max(0, realDt);
-    let ran = 0;
+    let left = Math.max(0, realDt), ran = 0;
     while (ran < maxTicks) {
-      const cost = this.nextTickCost();
-      if (this.acc < cost - EARLY) break;
-      this.acc -= cost;
+      const cost = this.nextTickCost(), need = (1 - this.acc) * cost;
+      if (left < need - EARLY) { this.acc += left / cost; left = 0; break; }
+      left -= need;
+      this.acc = 0;
       this.tick();
       ran++;
+      // Started early: the borrowed time is owed by the next tick, at its price.
+      if (left < 0) { this.acc = left / this.nextTickCost(); left = 0; }
     }
     // A long stall is not caught up: what one frame cannot pay for is dropped.
-    if (ran >= maxTicks) this.acc = Math.min(this.acc, this.nextTickCost());
     return ran;
   }
 
-  /** How far the paid real time is into the next tick, 0…1 (drawing between ticks). */
-  get alpha(): number {
-    const cost = this.nextTickCost();
-    return cost > 0 ? Math.max(0, Math.min(1, this.acc / cost)) : 0;
-  }
+  /** How far the paid time is into the next tick, 0…1 (drawing between ticks). */
+  get alpha(): number { return Math.max(0, Math.min(1, this.acc)); }
 
   /** Drops the paid time (pause, menu: the world waits). */
   resetClock(): void { this.acc = 0; }

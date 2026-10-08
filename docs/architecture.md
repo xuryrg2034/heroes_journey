@@ -155,13 +155,13 @@
 
 Бой в реальном времени — отдельный модуль ([realtime-prototype.md](realtime-prototype.md), раздел 12; план — [realtime-transition.md](realtime-transition.md)). Он не использует пошаговое ядро выше и не меняет его: из пошаговой игры вид только импортирует арт (`src/render/art.ts`, `characterAssets.ts`).
 
-- **Симуляция `src/realtime/sim/`** без DOM, PixiJS, часов и `Math.random`, работает в браузере и в Node.
+- **Симуляция `src/realtime/sim/`** без DOM, PixiJS, часов и `Math.random`, работает в браузере и в Node. Время пересчёта поля потока для панели измеряется часами, которые даёт вид (`setFlowClock`).
   - `Simulation` (`simulation.ts`) идёт фиксированным тактом 1/60 с игрового времени.
   - Фокус и добивание делают такт дороже в реальном времени, остановка кадра — замороженные такты.
   - Случайность — именованные потоки по seed (`rng.ts`).
   - Ввод — команды (`commands.ts`), которые применяются между тактами и пишутся в журнал с номером такта. `replay(journal)` даёт тот же хэш мира (`hash.ts`).
 - **Данные.** Виды врагов — описание и поведение по id (`enemies/`, `registerEnemyKind`, `registerBehavior`), арены — шаблоны (`arenas.ts`, `registerArena`). Новые враг и арена добавляются регистрацией без правки `world.ts`, `chain.ts`, `spawn.ts`.
-- **Вид `src/realtime/view/`** — ввод, HUD, PixiJS, панель отладки, звук. Кадр копит реальное время и запускает целые такты (`advance`).
+- **Вид `src/realtime/view/`** — ввод, HUD, PixiJS, панель отладки, звук. Кадр платит реальное время за целые такты (`advance`; остаток — доля следующего такта) и рисует героя и врагов между двумя последними тактами.
 - **Проверки** — `npm run test:realtime-sim` (Node: повтор журнала, seed, такт, регистрация вида и арены, журнал из браузера), `npx playwright test -c playwright.realtime.config.ts`, `npm run realtime:pockets`.
 
 ## Мир и реестр компонентов (этап 1 переноса на ECS)

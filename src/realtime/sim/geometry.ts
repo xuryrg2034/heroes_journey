@@ -23,8 +23,13 @@ export const wall = (x: number, y: number, w: number, h: number): RectObstacle =
 export const tree = (x: number, y: number): CircleObstacle => ({ shape: 'circle', kind: 'tree', x, y, r: 0.42 });
 export const pond = (x: number, y: number, r: number): CircleObstacle => ({ shape: 'circle', kind: 'pond', x, y, r });
 
-/** Wall clock for the rebuild time shown on the debug panel only (never part of the simulation state). */
-const clockMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+/**
+ * Clock for the rebuild time shown on the debug panel and in the pockets report. The simulation reads no clock: the view
+ * (and the report script) injects one; without it `lastBuildMs` stays 0. Never part of the simulation state or hash.
+ */
+let measureClock: (() => number) | null = null;
+export function setFlowClock(clock: (() => number) | null): void { measureClock = clock; }
+const clockMs = (): number => (measureClock ? measureClock() : 0);
 
 export function dist(a: Vec, b: Vec): number { return Math.hypot(a.x - b.x, a.y - b.y); }
 
