@@ -8,7 +8,8 @@
  * цепь с силой 1», «бой со случайной элитой», «злость» (+3 enemies in the first wave), «подкрепление раньше» (before the
  * goals groups 1.5 times as often). So:
  * - a cost alternative the run can pay: HP, maximum HP, resources, energy (banked), consumables (in hand);
- * - «снять горение, яд и кровотечение» has nothing to clear (the hero has no such effects) and changes nothing;
+ * - «снять горение, яд и кровотечение» has nothing to clear (the hero has no such effects): its text is not shown (rtRun.ts,
+ *   `outcomeText`; «Погреться» keeps its +3 HP — design answer 3 to step 4);
  * - a reward battle («Засада у брода») is an arena of the node's row.
  * A talisman outcome draws from the slice's pool (rtTalismans.ts); the reward battle gives its talisman choice.
  * The data of the catalogue is not changed: the slice reads it through these checks.

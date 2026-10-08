@@ -30,7 +30,7 @@ import { NODE_TYPE_INFO } from '../../forestMapScreen';
 import { RT_NODE_TYPES } from '../view/nodeTypes';
 import { EVENT_RISK_MIN_HP } from '../../game/run/forestEvents';
 import { replay, Simulation } from '../sim/simulation';
-import { arenaCandidates, arenaNewKinds, ARENA_POOLS, arenaTitle, FINAL_ARENA, HARD_ARENA, metKinds, NEW_KINDS, OWN_ARENAS, runRow, RUN_ARENAS } from './arenaPools';
+import { arenaCandidates, arenaNewKinds, ARENA_POOLS, ordinaryArenaChoices, arenaTitle, FINAL_ARENA, HARD_ARENA, metKinds, NEW_KINDS, OWN_ARENAS, runRow, RUN_ARENAS } from './arenaPools';
 import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
@@ -42,7 +42,7 @@ import type { ItemKind } from '../sim/kit';
 import type { GiftOption } from '../../game/run/runGift';
 import { RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer } from './rtTalismans';
 import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from './rtRunStorage';
-import { SLICE_EVENTS, SLICE_EVENTS_OFF, sliceEventOn } from './sliceEvents';
+import { SLICE_EVENTS, SLICE_EVENTS_OFF } from './sliceEvents';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -367,13 +367,19 @@ check('different seeds give different arena sequences; every arena of the pools 
   assert(seeds.size === walks.length, 'arena seeds differ between runs');
 });
 
-check('«снять горение, яд и кровотечение» (review of step 4): its option «Погреться» stays — without it «Костёр путника» keeps one option and no safe one (a question to the design)', () => {
-  const fire = forestEvent('traveler-fire')!, warm = fire.options.find(option => option.outcomes.some(outcome => outcome.effect.clearEffects))!;
-  assert(warm.id === 'warm' && warm.outcomes.length === 1 && warm.outcomes[0].effect.hp === 1, 'the cleansing outcome also heals (+3 here)');
-  assert(SLICE_EVENTS.includes(fire.id), 'the event is in the pool');
-  assert(!sliceEventOn({ ...fire, options: fire.options.filter(option => option !== warm) }), 'turned off, it would take the event out of the pool');
-  // No other outcome of the catalogue cleanses.
-  assert(SLICE_EVENTS.every(id => forestEvent(id)!.options.every(option => option === warm || !option.outcomes.some(outcome => outcome.effect.clearEffects))), 'the only cleansing outcome');
+check('«Костёр путника» → «Погреться» (design answer 3 to step 4): +3 HP (the turn-based +1 ×2.4), no «снять горение, яд и кровотечение» in the text; the event stays in the pool', () => {
+  assert(SLICE_EVENTS.includes('traveler-fire'), 'the event is in the pool');
+  // A real event node on the trails, its event set to «Костёр путника»; the hero hurt by 5 on entering.
+  const base = openNode(731, 'event');
+  assert(base && base.pending?.kind === 'event', 'an event node');
+  const setup: RtRunState = structuredClone(base);
+  setup.picks.find(entry => entry.nodeId === (base.pending as { nodeId: string }).nodeId)!.eventId = 'traveler-fire';
+  setup.hp = setup.maxHp - 5;
+  const view = rtEventView(setup)!, warm = view.options.find(option => option.id === 'warm')!;
+  assert(warm.available && warm.safe && warm.outcomes.length === 1, '«Погреться» is on and safe');
+  assert(warm.outcomes[0].text === '+3 HP (не выше максимума)' && !warm.outcomes.some(outcome => outcome.text.includes('горение')), `the text: ${warm.outcomes[0].text}`);
+  const step = rtChooseEventOption(setup, 'warm');
+  assert(step.ok && step.run.hp === setup.hp + rtHp(1) && step.events.every(event => event.type !== 'event-resolved' || !event.text.includes('горение')), 'warmed: +3 HP, no cleansing in the result');
 });
 
 check('events: only the slice pool comes; off options are refused; HP outcomes arrive ×2.4', () => {
@@ -421,7 +427,16 @@ function arenaPath(seed: number, k: number): { path: PathArena[]; previews: numb
   return { path, previews };
 }
 
-check('design answer 1 to step 4: on ordinary nodes a new enemy is first met on its own arena (300 runs: 0 otherwise); hard battles and the final — counted', () => {
+check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first met on its own arena (300 runs: 0 otherwise), an overdue kind takes any ordinary node; hard battles and the final — counted', () => {
+  // The order of the rule, on the rows themselves: an overdue kind first (the shieldbearer past rows 3–6 — «Стена щитов» on
+  // row 7, whatever the pool), then own arenas of unmet kinds (also outside their rows), then arenas without unmet kinds.
+  const all = ['shields', 'archers', 'powder', 'thorns'];
+  assert(ordinaryArenaChoices(7, ['glade']).join() === 'shields', `row 7, nothing met: ${ordinaryArenaChoices(7, ['glade'])}`);
+  assert(ordinaryArenaChoices(9, ['glade']).join() === all.join(), `row 9, nothing met: ${ordinaryArenaChoices(9, ['glade'])}`);
+  assert(ordinaryArenaChoices(8, ['shields', 'powder', 'thorns']).join() === 'archers', `row 8, the archer unmet: ${ordinaryArenaChoices(8, ['shields', 'powder', 'thorns'])}`);
+  assert(ordinaryArenaChoices(6, ['shields']).join() === 'archers,powder,thorns', `row 6, the shield met: ${ordinaryArenaChoices(6, ['shields'])}`);
+  assert(ordinaryArenaChoices(6, all).join() === 'shields,archers,powder,thorns,ford', `row 6, all met: ${ordinaryArenaChoices(6, all)}`);
+  assert(ordinaryArenaChoices(2, []).join() === 'glade,buttons,marked', 'row 2: the pool');
   // The hard battles stand on map rows 11–12 (run rows 7–8): a rest 1–3 rows before a hard battle; the final — run row 10.
   let hardMin = Infinity;
   for (let k = 1; k <= 200; k++) for (const node of rtMapNodes(createRtRun(Math.imul(k, 2654435761) >>> 0))) if (node.type === 'hard') hardMin = Math.min(hardMin, runRow(node.row));
@@ -430,10 +445,12 @@ check('design answer 1 to step 4: on ordinary nodes a new enemy is first met on 
   // Where each new kind is met first, by the type of the node: an own arena, or a mixed one (Брод, Застава, the final).
   const runs = 300, ordinary = new Map<string, number>(), hard = new Map<string, number>(), final = new Map<string, number>();
   const runsWith = { hard: 0, final: 0 };
-  let outside = 0, previews = 0;
+  let outside = 0, previews = 0, overdueTaken = 0, fordRuns = 0, ordinaryLate = 0, ordinaryLateOwn = 0;
   for (let k = 1; k <= runs; k++) {
     const walked = arenaPath(Math.imul(k, 2654435761) >>> 0, k), met = new Set<string>();
     previews += walked.previews;
+    if (walked.path.some(entry => entry.arena === 'ford')) fordRuns++;
+    for (const entry of walked.path) if (entry.type !== 'hard' && entry.type !== 'boss' && entry.row >= 7) { ordinaryLate++; if (['shields', 'archers', 'powder', 'thorns'].includes(entry.arena)) ordinaryLateOwn++; }
     const firstOn = { hard: false, final: false };
     for (const { row, type, arena } of walked.path) {
       if (type !== 'hard' && type !== 'boss' && !arenaCandidates(row).includes(arena)) outside++;
@@ -444,6 +461,17 @@ check('design answer 1 to step 4: on ordinary nodes a new enemy is first met on 
         const table = type === 'hard' ? hard : type === 'boss' ? final : ordinary, key = `${kind}@${type}:${row}:${arena}`;
         table.set(key, (table.get(key) ?? 0) + 1);
         if (type === 'hard') firstOn.hard = true; else if (type === 'boss') firstOn.final = true;
+        // Design answer 2: a kind still unmet on the final had no ordinary node of its own after the rows of its own arena —
+        // every ordinary node past them played the own arena of another overdue kind.
+        if (type === 'boss') {
+          const last = ARENA_POOLS.find(entry => entry.arena === OWN_ARENAS[kind])!.rows[1];
+          for (const before of walked.path.slice(0, walked.path.findIndex(entry => entry.type === 'boss'))) {
+            if (before.type === 'hard' || before.row <= last) continue;
+            const other = arenaNewKinds(before.arena);
+            assert(other.length === 1 && OWN_ARENAS[other[0]] === before.arena && other[0] !== kind, `${kind} unmet on the final: row ${before.row} played ${before.arena}`);
+            overdueTaken++;
+          }
+        }
       }
     }
     if (firstOn.hard) runsWith.hard++;
@@ -451,7 +479,7 @@ check('design answer 1 to step 4: on ordinary nodes a new enemy is first met on 
   }
   const total = (table: Map<string, number>) => [...table.values()].reduce((a, b) => a + b, 0);
   const byKind = (table: Map<string, number>) => NEW_KINDS.map(kind => `${kind} ${[...table].filter(([key]) => key.startsWith(`${kind}@`)).reduce((a, [, n]) => a + n, 0)}`).join(', ');
-  console.log(`   ${runs} runs, ${previews} previews equal the arena played; own arenas outside their rows ${outside} times`);
+  console.log(`   ${runs} runs, ${previews} previews equal the arena played; own arenas outside their rows ${outside} times; ordinary nodes past the rows of a kind unmet on the final, taken by another overdue kind: ${overdueTaken}; «Брод» in ${fordRuns} runs; ordinary nodes of rows 7–9: ${ordinaryLate}, own arenas 4–7 there: ${ordinaryLateOwn}`);
   console.log(`   first met on a mixed arena — ordinary nodes: ${total(ordinary)}; hard battle: ${byKind(hard)} (runs ${runsWith.hard}); final: ${byKind(final)} (runs ${runsWith.final})`);
   assert(total(ordinary) === 0, `ordinary nodes: ${[...ordinary].map(([key, n]) => `${key} ×${n}`).join(', ')}`);
 });

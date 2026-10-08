@@ -33,7 +33,7 @@ import { eventTalismanOffer, talismanDraw, talismanLeft, type TalismanPool } fro
 import { isRtOath, isRtTalisman, RT_DEW_FLASK_HEAL, RT_OATH_ENERGY, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
-import { arenaCandidates, arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, RUN_ARENAS, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, RUN_ARENAS, runRow } from './arenaPools';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
@@ -326,12 +326,12 @@ export function arenaPreview(run: RtRunState, node: ForestMapNode): { arena: str
  * The arenas a node may play now (step 4), `history` — the arenas the run entered so far: a hard battle — «Застава», a
  * boss node — the final arena «Последний рубеж» (no guarantee of meeting a kind first on its own arena); a battle, the
  * Jailer's row, the breakthrough and an event's reward battle — the pool of its run row under the rule «a new enemy
- * first on its own arena» (`ordinaryArenaChoices`, design answer 1 to step 4).
+ * first on its own arena» (`ordinaryArenaChoices`, design answers 1 and 2 to step 4).
  */
 export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = []): string[] {
   if (node.type === 'hard') return [HARD_ARENA];
   if (node.type === 'boss') return [FINAL_ARENA];
-  return ordinaryArenaChoices(arenaCandidates(runRow(node.row)), history);
+  return ordinaryArenaChoices(runRow(node.row), history);
 }
 /** The arena of a node by draw `roll` of the pool stream after `history` (a save is checked with it too). */
 function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number): string {
@@ -647,12 +647,15 @@ function payableCost(run: RtRunState, option: EventOption): { cost: EventCost | 
   const blocks = costs.map(cost => costBlock(run, cost)), index = blocks.findIndex(block => !block);
   return index >= 0 ? { cost: costs[index], block: '' } : { cost: null, block: costs.length === 1 ? blocks[0] : `Нужно: ${costs.map(describeCost).join(' или ')}` };
 }
-/** An outcome text in real-time numbers: HP and maximum HP ×2.4; energy goes to the next arena. */
+/**
+ * An outcome text in real-time numbers: HP and maximum HP ×2.4; energy goes to the next arena. «Снять горение, яд и
+ * кровотечение» is not shown: the hero has no such effects in the slice (design answer 3 to step 4, «Погреться»).
+ */
 function outcomeText(outcome: EventOption['outcomes'][number], kinds: readonly ResourceKind[]): string {
   const effect = outcome.effect;
   // Design answers to step 3: every modifier acts on the next arena — the price of a reward, shown in advance.
   const modifier = isRtModifier(effect.modifier) ? effect.modifier : undefined;
-  let text = describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {}, modifier: undefined } }, kinds);
+  let text = describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {}, modifier: undefined, clearEffects: undefined } }, kinds);
   if (modifier) text = `${text === 'ничего не меняется' ? '' : `${text}; `}${RT_MODIFIER_TEXT[modifier]}`;
   return effect.energy ? `${text} — к началу следующей арены` : text;
 }
