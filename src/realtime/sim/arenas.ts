@@ -168,5 +168,11 @@ export function registeredArenas(): ArenaTemplate[] { return [...registry.values
 /** The three arenas of the playtest, keys 1–3 on the menu. */
 export const ARENAS: readonly ArenaTemplate[] = [KILL_ARENA, BUTTON_ARENA, MARKED_ARENA].map(registerArena);
 
+/**
+ * «Поляна» of the real-time run (stage 2, docs/realtime-slice.md, section 5): arena 1 «Убить 30» with the goal of the
+ * template — kill 20 (design answer 08.10.2026). The sandbox keeps arena 1 with the panel slider «Арена «Убить N»».
+ */
+export const GLADE_ARENA: ArenaTemplate = registerArena({ ...KILL_ARENA, id: 'glade', name: 'Поляна', summary: 'Поляна: убей цепью 20 врагов. Потом откроется дверь сверху.', killGoal: 20 });
+
 /** Marked enemies of the arena (the `marked` goal counts them). */
 export function markedCount(arena: ArenaTemplate): number { return arena.enemies.filter(e => e.marked).length; }

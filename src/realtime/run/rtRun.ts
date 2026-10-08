@@ -25,9 +25,9 @@ import { attemptChances, battleOption, chanceText, describeCost, describeOutcome
   optionAttempts, type EventCost, type EventOption, type ForestEvent } from '../../game/run/forestEvents';
 import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedForestMap } from '../../game/run/mapGenerator';
 import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, shopPayment, shopPrice, shopStock, stockTotal } from '../../game/run/merchant';
-import { GIFT_FULL_ROW, GIFT_STREAMS, rollGift, type GiftKind, type GiftOption, type RunGift } from '../../game/run/runGift';
+import { GIFT_FULL_ROW, GIFT_MAX_HP, GIFT_STREAMS, rollGift, type GiftKind, type GiftOption, type RunGift } from '../../game/run/runGift';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
-import { arenaCandidates, pickArena, runRow, TEMPORARY_FINAL_ARENAS } from './arenaPools';
+import { arenaCandidates, arenaTitle, pickArena, RUN_ARENAS, runRow, TEMPORARY_FINAL_ARENAS } from './arenaPools';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 
@@ -35,14 +35,17 @@ export const RT_RUN_VERSION = 1;
 
 /** What kind of arena a battle node plays: an ordinary or hard battle, the final arena of a boss, an event's reward battle. */
 export type RtBattleKind = 'battle' | 'hard' | 'final' | 'event';
+const BATTLE_KINDS: readonly RtBattleKind[] = ['battle', 'hard', 'final', 'event'];
+/** Why an arena is a temporary stand-in: no arena of its row yet (`any` of arenas 1–3), or the final arena of step 4. */
+export type RtStandIn = 'any' | 'final';
 
 export type RtRunPending =
   /**
    * The entered battle node: its arena and seed (the run seed and the node id). The arena starts from the run's HP now;
-   * a reload starts it again from the start (the arena in progress is not saved). `stand-in`: why the arena is
-   * temporary — `nearest` (no arena of the row exists yet) or `final` (arena 10 comes at step 4).
+   * a reload starts it again from the start (the arena in progress is not saved). `standIn`: why the arena is
+   * temporary — `any` (no arena of the row exists yet: any of arenas 1–3) or `final` (arena 10 comes at step 4).
    */
-  | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; standIn?: 'nearest' | 'final' }
+  | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; standIn?: RtStandIn }
   | { kind: 'rest'; nodeId: string }
   /** A find: step 1 has no consumables, the find gives nothing (the screen says so). */
   | { kind: 'find'; nodeId: string }
@@ -153,24 +156,28 @@ function draw(run: RtRunState, stream: RunStream, advance: boolean): number {
   return value;
 }
 
-/** The arena a node would play if entered now (a peek: no draw spent) or plays (once entered). */
-export function arenaPreview(run: RtRunState, node: ForestMapNode): { arena: string; standIn?: 'nearest' | 'final' } | null {
+/**
+ * The arena a node plays (once entered) or would play if entered now — only for an available node: the peek reads the
+ * next `pool` draw (spending nothing), and a node further on gets another draw when it opens. Null for a node that has
+ * no arena or whose arena is not known yet («станет известна, когда узел откроется», as the turn-based map says).
+ */
+export function arenaPreview(run: RtRunState, node: ForestMapNode): { arena: string; standIn?: RtStandIn } | null {
   const picked = run.picks.find(pick => pick.nodeId === node.id);
   if (picked?.arena) return { arena: picked.arena, ...standInOf(node) };
-  if (!isArenaNode(node) || picked) return null;
+  if (!isArenaNode(node) || picked || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return null;
   return arenaPick(run, node, false);
 }
-function standInOf(node: ForestMapNode): { standIn?: 'nearest' | 'final' } {
+function standInOf(node: ForestMapNode): { standIn?: RtStandIn } {
   if (node.type === 'boss') return { standIn: 'final' };
-  return arenaCandidates(runRow(node.row)).nearest ? { standIn: 'nearest' } : {};
+  return arenaCandidates(runRow(node.row)).any ? { standIn: 'any' } : {};
 }
 /** The arena of a battle node (or an event's reward battle): the pool of its run row, or the temporary final arena of a boss. */
-function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): { arena: string; standIn?: 'nearest' | 'final' } {
+function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): { arena: string; standIn?: RtStandIn } {
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
   const roll = draw(run, 'pool', advance);
   if (node.type === 'boss') return { arena: pickArena(TEMPORARY_FINAL_ARENAS, history, roll), standIn: 'final' };
-  const { arenas, nearest } = arenaCandidates(runRow(node.row));
-  return { arena: pickArena(arenas, history, roll), ...nearest ? { standIn: 'nearest' as const } : {} };
+  const { arenas, any } = arenaCandidates(runRow(node.row));
+  return { arena: pickArena(arenas, history, roll), ...any ? { standIn: 'any' as const } : {} };
 }
 
 /** The arena seed of a node: the run seed and the node id, as the battles of the turn-based run (forestNodeSeed). */
@@ -383,7 +390,7 @@ export interface RtEventOptionView {
   outcomes: { odds: string; text: string }[];
   cost: string;
   attempts?: { done: number; max: number };
-  battle?: { arena: string; standIn?: 'nearest' | 'final' };
+  battle?: { arena: string; standIn?: RtStandIn };
   safe: boolean;
 }
 export interface RtEventView { nodeId: string; event: ForestEvent; options: RtEventOptionView[]; attempts: string[] }
@@ -407,10 +414,10 @@ export function rtEventView(run: RtRunState): RtEventView | null {
     const cost = payableCost(run, option), optionBase = option.escalation ? attemptBase(run, pending.draw, now) : base;
     const chances = attemptChances(option, now), kinds = eventResourceKinds(optionBase, option);
     let reason = gap ? `Нет в срезе: ${gap}` : option.escalation && done >= max ? `Попыток больше нет (${max} из ${max})` : cost.block;
-    // An option that may lose HP is closed at 1 HP (the turn-based rule: a risk needs EVENT_RISK_MIN_HP).
-    if (!reason && mayLoseHp(option, now) && run.hp < EVENT_RISK_MIN_HP) reason = hpShort(EVENT_RISK_MIN_HP, run.hp);
+    // An option that may lose HP needs EVENT_RISK_MIN_HP of the turn-based run, scaled as every HP threshold (2 → 5).
+    if (!reason && mayLoseHp(option, now) && run.hp < rtHp(EVENT_RISK_MIN_HP)) reason = hpShort(rtHp(EVENT_RISK_MIN_HP), run.hp);
     const battle = option.battle ? arenaPick(run, { ...node, type: 'battle' }, false) : undefined;
-    const outcomes = battle ? [{ odds: '100%', text: `арена «${battle.arena}»: победа завершает событие (награда-талисман — вместе с талисманами), поражение заканчивает поход` }]
+    const outcomes = battle ? [{ odds: '100%', text: `арена «${arenaTitle(battle.arena)}»: победа завершает событие (награда-талисман — вместе с талисманами), поражение заканчивает поход` }]
       : option.outcomes.map((outcome, n) => ({ odds: chanceText(chances, n), text: outcomeText(outcome, outcome.effect.resources ? kinds : []) }));
     return { id: option.id, label: option.label, available: !reason, reason, off: !!gap, outcomes, cost: sliceCosts(option).map(rtCost).map(describeCost).join(' или '),
       ...option.escalation ? { attempts: { done, max } } : {}, ...battle ? { battle } : {}, safe: !gap && isSafeOption(option) };
@@ -471,11 +478,21 @@ export function giftOptionGap(option: GiftOption): string {
     case 'deal': case 'oath': return 'талисманы';
   }
 }
+/**
+ * The buttons of the gift in the slice: the rolled buttons of the turn-based gift (runGift.ts, the same draws), and —
+ * a temporary rule until step 3 (design answer 08.10.2026: the full gift is never worse than the mini one) — a full gift
+ * whose rolled buttons hold no «+1 к максимуму HP» gets the mini gift's button at the end. No draw is added.
+ */
+export function rtGiftOptions(gift: RunGift): GiftOption[] {
+  const options = gift.options.map(option => structuredClone(option));
+  if (gift.kind === 'full' && !options.some(option => option.kind === 'max-hp')) options.push({ kind: 'max-hp', amount: GIFT_MAX_HP });
+  return options;
+}
 export interface RtGiftView { kind: GiftKind; options: { index: number; option: GiftOption; available: boolean; reason: string }[]; canSkip: boolean }
 /** The open gift: its buttons (those without an analogue off); with none on, it can be passed by. */
 export function rtGiftView(run: RtRunState): RtGiftView | null {
   if (run.pending?.kind !== 'gift' || !run.gift) return null;
-  const options = run.gift.options.map((option, index) => { const gap = giftOptionGap(option); return { index, option: structuredClone(option), available: !gap, reason: gap ? `Нет в срезе: ${gap}` : '' }; });
+  const options = rtGiftOptions(run.gift).map((option, index) => { const gap = giftOptionGap(option); return { index, option, available: !gap, reason: gap ? `Нет в срезе: ${gap}` : '' }; });
   return { kind: run.gift.kind, options, canSkip: !options.some(entry => entry.available) };
 }
 /** Take a gift button (`null` — pass the gift by, only when no button is on). */
@@ -490,7 +507,7 @@ export function rtChooseGift(current: RtRunState, index: number | null): RtRunSt
     if (!entry) return fail('Такого дара нет.');
     if (!entry.available) return fail(entry.reason);
     run.gift!.chosen = index;
-    const option = run.gift!.options[index];
+    const option = entry.option;
     if (option.kind === 'resources') for (const kind of option.resources) run.materials[kind]++;
     if (option.kind === 'max-hp') { run.maxHp += rtHp(option.amount); run.hp += rtHp(option.amount); }
   }
@@ -523,21 +540,36 @@ export function serializeRtRun(run: RtRunState): string { return JSON.stringify(
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
 const isSeed = (value: unknown): value is number => isCount(value) && value <= 0xffffffff;
+const isMaterials = (value: unknown): value is Record<ResourceKind, number> =>
+  isRecord(value) && Object.keys(value).length === RESOURCE_KINDS.length && RESOURCE_KINDS.every(kind => isCount(value[kind]));
+/** Escalation outcomes of attempts: indexes of the escalation option's outcomes, at most its attempts. */
+function validAttempts(value: unknown, event: ForestEvent | undefined): boolean {
+  if (value === undefined) return true;
+  const escalation = event?.options.find(option => option.escalation);
+  return Array.isArray(value) && !!escalation && value.length <= optionAttempts(escalation) && value.every(index => isCount(index) && index < escalation.outcomes.length);
+}
 
 /**
  * Reads a saved run; anything malformed reads as no run (the screen offers a new one). It checks the structure: the
  * version, the map (the turn-based check of a stored map), the streams, the walked path along the map's edges, HP within
- * 1…maximum, resources, the open node. It does not replay the run (a save of the real-time slice is not an anti-cheat).
+ * 1…maximum, resources, the gift (the same roll as the seed's), the picks (known arenas and events), the battles and
+ * event choices, the open node (its arena, seed, kind, attempts, purchases) and the result. It does not replay the run
+ * (a save of the real-time slice is not an anti-cheat).
  */
 export function parseRtRun(text: string | null): RtRunState | null {
   if (!text) return null;
   let value: unknown;
   try { value = JSON.parse(text); } catch { return null; }
+  try { return checkRun(value); } catch { return null; }
+}
+
+function checkRun(value: unknown): RtRunState | null {
   if (!isRecord(value) || value.version !== RT_RUN_VERSION || !isSeed(value.seed) || validateStoredMap(value.map).length) return null;
+  if (value.seeded !== undefined && value.seeded !== true) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;
   const run = value as unknown as RtRunState;
-  const map = rtRunMap(run), known = (id: unknown) => typeof id === 'string' && !!map.node(id) && map.node(id)!.lane !== 'trunk';
+  const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id) && map.node(id)!.lane !== 'trunk';
   if (!Array.isArray(run.visited) || !run.visited.every(known) || !(run.currentNodeId === null || known(run.currentNodeId))) return null;
   if ((run.currentNodeId ?? null) !== (run.visited[run.visited.length - 1] ?? null)) return null;
   // The path goes along the map's edges from a row-5 node.
@@ -546,23 +578,59 @@ export function parseRtRun(text: string | null): RtRunState | null {
     if (!from.includes(run.visited[n])) return null;
   }
   if (!isCount(run.maxHp) || run.maxHp < 1 || !isCount(run.hp) || run.hp > run.maxHp || (run.hp < 1 && run.result?.outcome !== 'defeat')) return null;
-  if (!isRecord(run.materials) || RESOURCE_KINDS.some(kind => !isCount(run.materials[kind])) || Object.keys(run.materials).length !== RESOURCE_KINDS.length) return null;
-  if (!isCount(run.hardenings) || !Array.isArray(run.picks) || !Array.isArray(run.eventChoices) || !Array.isArray(run.battles)) return null;
-  if (run.picks.some(pick => !isRecord(pick) || !known(pick.nodeId) || (pick.eventId !== undefined && !forestEvent(pick.eventId)))) return null;
-  const pending = run.pending;
-  if (pending !== null) {
-    if (!isRecord(pending)) return null;
-    if (pending.kind === 'gift') { if (!run.gift || run.visited.length) return null; }
-    else {
-      if (!known(pending.nodeId)) return null;
-      const next = run.currentNodeId === null ? map.starts(true) : map.node(run.currentNodeId)!.next;
-      if (!next.includes(pending.nodeId)) return null;
-      if (pending.kind === 'battle' && (typeof pending.arena !== 'string' || !isSeed(pending.seed) || pending.seed !== arenaSeed(run, pending.nodeId))) return null;
-      if (pending.kind === 'event' && (!isCount(pending.draw) || !eventOf(run, pending.nodeId))) return null;
-      if (pending.kind === 'shop' && !Array.isArray(pending.bought)) return null;
-      if (!['battle', 'rest', 'find', 'event', 'shop'].includes(pending.kind)) return null;
-    }
+  if (!isMaterials(run.materials) || !isCount(run.hardenings)) return null;
+  // The gift: the roll of this seed and kind, a chosen button among the slice's buttons.
+  if (run.gift !== undefined) {
+    const gift = run.gift as unknown;
+    if (!isRecord(gift) || (gift.kind !== 'full' && gift.kind !== 'mini') || Object.keys(gift).some(key => key !== 'kind' && key !== 'options' && key !== 'chosen')) return null;
+    const rolled = rollGift(run.seed, gift.kind, { taken: [], gone: [], abilities: [] });
+    if (JSON.stringify(gift.options) !== JSON.stringify(rolled.options)) return null;
+    if (gift.chosen !== undefined && !(isCount(gift.chosen) && gift.chosen < rtGiftOptions(rolled).length && !giftOptionGap(rtGiftOptions(rolled)[gift.chosen]))) return null;
+  }
+  if (!Array.isArray(run.picks) || !Array.isArray(run.eventChoices) || !Array.isArray(run.battles)) return null;
+  for (const pick of run.picks) {
+    if (!isRecord(pick) || !known(pick.nodeId) || run.picks.filter(other => other.nodeId === pick.nodeId).length > 1) return null;
+    if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena)) return null;
+    if (pick.eventId !== undefined && !forestEvent(pick.eventId)) return null;
+    if (pick.find !== undefined && pick.find !== true) return null;
+  }
+  const eventOf = (nodeId: string) => { const id = run.picks.find(pick => pick.nodeId === nodeId)?.eventId; return id ? forestEvent(id) : undefined; };
+  for (const record of run.battles as unknown[]) {
+    if (!isRecord(record) || !known(record.nodeId) || typeof record.arena !== 'string' || !RUN_ARENAS.includes(record.arena) || typeof record.won !== 'boolean'
+      || !isCount(record.kills) || !isCount(record.damage) || typeof record.time !== 'number' || !Number.isFinite(record.time) || record.time < 0) return null;
+  }
+  for (const choice of run.eventChoices as unknown[]) {
+    if (!isRecord(choice) || !known(choice.nodeId) || typeof choice.option !== 'string') return null;
+    const event = eventOf(choice.nodeId), option = event ? eventOption(event, choice.option) : undefined;
+    if (!option || !isCount(choice.outcome) || choice.outcome >= option.outcomes.length || !validAttempts(choice.attempts, event)) return null;
   }
   if (run.result !== null && (!isRecord(run.result) || !['victory', 'defeat'].includes(run.result.outcome) || !known(run.result.nodeId))) return null;
+  const pending = run.pending as unknown;
+  if (pending === null) return { ...run, streams };
+  // An ended run has nothing open.
+  if (run.result !== null || !isRecord(pending)) return null;
+  if (pending.kind === 'gift') return run.gift && run.gift.chosen === undefined && !run.visited.length ? { ...run, streams } : null;
+  if (!known(pending.nodeId)) return null;
+  const next = run.currentNodeId === null ? map.starts(true) : map.node(run.currentNodeId)!.next;
+  if (!next.includes(pending.nodeId)) return null;
+  const node = map.node(pending.nodeId)!, pick = run.picks.find(entry => entry.nodeId === pending.nodeId);
+  switch (pending.kind) {
+    case 'battle': {
+      if (typeof pending.arena !== 'string' || !RUN_ARENAS.includes(pending.arena) || pick?.arena !== pending.arena) return null;
+      if (!isSeed(pending.seed) || pending.seed !== arenaSeed(run, pending.nodeId)) return null;
+      if (!BATTLE_KINDS.includes(pending.battle as RtBattleKind) || (pending.battle === 'event') !== (node.type === 'event')) return null;
+      if (pending.standIn !== undefined && pending.standIn !== 'any' && pending.standIn !== 'final') return null;
+      break;
+    }
+    case 'rest': if (node.type !== 'rest') return null; break;
+    case 'find': if (node.type !== 'find' && !(node.type === 'event' && pick?.find)) return null; break;
+    case 'event': if (!isCount(pending.draw) || !eventOf(pending.nodeId) || !validAttempts(pending.attempts, eventOf(pending.nodeId))) return null; break;
+    case 'shop': {
+      if (node.type !== 'shop' || !Array.isArray(pending.bought)) return null;
+      if (!pending.bought.every(entry => isRecord(entry) && (entry.good === 'heal' || entry.good === 'harden') && isCount(entry.price) && isMaterials(entry.paid))) return null;
+      break;
+    }
+    default: return null;
+  }
   return { ...run, streams };
 }

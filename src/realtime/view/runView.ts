@@ -5,10 +5,9 @@
  * the arena (main.ts, `RunHost.startArena`).
  *
  * The turn-based map screen (src/forestMapScreen.ts) builds its HTML from the turn-based run state and its CSS lives in
- * the turn-based stylesheet, so the real-time game has its own small copy here; it borrows only the node icons and labels
- * (`NODE_TYPE_INFO`).
+ * the turn-based stylesheet, so the real-time game has its own small copy here. The node icons and labels are its own
+ * table (nodeTypes.ts) equal to the turn-based ones (checked by rtRun.spec.ts), so this page does not load that screen.
  */
-import { NODE_TYPE_INFO } from '../../forestMapScreen';
 import { FOREST_HARD_HEAL, FOREST_REST_HEAL, type ForestMapNode } from '../../game/run/forestMap';
 import { RESOURCE_KINDS, RESOURCES } from '../../game/resources';
 import type { GiftOption } from '../../game/run/runGift';
@@ -16,11 +15,12 @@ import { arenaTemplate } from '../sim/arenas';
 import { arenaTitle, runRow } from '../run/arenaPools';
 import { rtHp } from '../run/hpScale';
 import {
-  arenaPreview, createRtRun, isArenaNode, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseGift, rtEnterNode, rtEventView, rtFindLeave, rtGiftView, rtMapNodes,
+  arenaPreview, createRtRun, isArenaNode, resolveArena, type RtStandIn, rtAvailableNodes, rtChooseEventOption, rtChooseGift, rtEnterNode, rtEventView, rtFindLeave, rtGiftView, rtMapNodes,
   rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import type { HeroStart } from '../sim/world';
+import { RT_NODE_TYPES } from './nodeTypes';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -40,14 +40,15 @@ const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
   hard: `Трудный бой: арена своего ряда (Застава — шаг 4). Победа: +${rtHp(FOREST_HARD_HEAL)} HP.`,
   checkpoint: 'Тюремщика в срезе нет: обычная арена своего ряда.',
   breakthrough: 'Прорыв: обычная арена своего ряда.',
+  battle: 'Обычный бой: арена пула своего ряда.',
   boss: 'Босса в срезе нет: финальная арена (временно одна из арен 1–3; «Последний рубеж» — шаг 4). Победа завершает поход.',
 };
 
 /** Arena line of a battle node: its name, goal and why it is temporary. */
-function arenaLine(arena: string, standIn?: 'nearest' | 'final'): string {
+function arenaLine(arena: string, standIn?: RtStandIn): string {
   let summary = '';
   try { summary = arenaTemplate(arena).summary; } catch { /* unknown arena: name only */ }
-  const note = standIn === 'final' ? ' <em>(временно: финальная арена — шаг 4)</em>' : standIn === 'nearest' ? ' <em>(временно: арен этого ряда ещё нет, ближайшая)</em>' : '';
+  const note = standIn === 'final' ? ' <em>(временно: финальная арена — шаг 4)</em>' : standIn === 'any' ? ' <em>(временно: арен этого ряда ещё нет, любая из 1–3)</em>' : '';
   return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${note}<br><small>${escapeHtml(summary)}</small>`;
 }
 function giftText(option: GiftOption): string {
@@ -119,15 +120,18 @@ export class RunView {
 
   enter(nodeId: string): string { return this.run ? this.apply(rtEnterNode(this.run, nodeId)) : 'Нет похода.'; }
 
-  /** The arena of the open battle node is over: its outcome goes back to the run and the map returns. */
-  finishArena(outcome: Omit<RtArenaOutcome, 'nodeId'>): string {
+  /**
+   * The arena of the open battle node is over: its outcome goes into the run and is saved at once (the frame the arena
+   * ended in, main.ts) — a reload on the arena's result screen keeps the victory or the end of the run. The screen stays
+   * on the arena until `leaveArena`.
+   */
+  recordArena(outcome: Omit<RtArenaOutcome, 'nodeId'>): string {
     const pending = this.run?.pending;
     if (!this.run || pending?.kind !== 'battle') return 'Нет открытого боя.';
-    this.inArena = false;
-    this.el.hidden = false;
-    this.host.onScreenChange(true);
     return this.apply(resolveArena(this.run, { ...outcome, nodeId: pending.nodeId }));
   }
+  /** From the arena's result screen to the run screen: the map, or the end of the run. */
+  leaveArena(): void { if (this.inArena) this.open(); }
 
   /** Start (or start again after a reload) the arena of the open battle node. */
   enterArena(): void {
@@ -205,7 +209,7 @@ export class RunView {
       return `<line x1="${x(node)}" y1="${y(node)}" x2="${x(next)}" y2="${y(next)}" class="${walked ? 'rt-edge rt-walked' : 'rt-edge'}"/>`;
     })).join('');
     const circles = nodes.map(node => {
-      const status = rtNodeStatus(run, node, available), info = NODE_TYPE_INFO[node.type], shown = node.type === 'event' && rtNodeTitle(run, node) === 'Находка' ? NODE_TYPE_INFO.find : info;
+      const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type], shown = node.type === 'event' && rtNodeTitle(run, node) === 'Находка' ? RT_NODE_TYPES.find : info;
       return `<g class="rt-node rt-${status}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${node.type}" transform="translate(${x(node)},${y(node)})">`
         + `<circle r="17"/><text dy="6">${shown.icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title></g>`;
     }).join('');
@@ -217,12 +221,12 @@ export class RunView {
     const available = rtAvailableNodes(run);
     const hint = run.result ? '' : available.length ? 'Выбери узел на карте (подсвечены доступные).' : '';
     if (!node) return `<aside class="rt-run-detail"><p>${hint}</p></aside>`;
-    const status = rtNodeStatus(run, node, available), info = NODE_TYPE_INFO[node.type];
+    const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type];
     const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
     return `<aside class="rt-run-detail" data-testid="run-detail"><h3>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h3>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
-      + (arena ? `<p>${arenaLine(arena.arena, arena.standIn)}</p>` : '')
-      + `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type] ?? info.hint)}</p>`
+      + (arena ? `<p>${arenaLine(arena.arena, arena.standIn)}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
+      + (STEP1_HINT[node.type] ? `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type]!)}</p>` : '')
       + (status === 'available' ? `<button class="rt-again" data-action="enter" data-testid="run-enter">Идти</button>` : '')
       + `</aside>`;
   }

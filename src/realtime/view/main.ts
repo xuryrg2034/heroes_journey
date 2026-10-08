@@ -266,6 +266,7 @@ async function boot(): Promise<void> {
   const runView = sandbox ? null : new RunView({
     startArena(arenaId, seed, hero, label) {
       runLabel = label;
+      runArenaRecorded = false;
       startArena(arenaTemplate(arenaId), seed, hero);
     },
     onScreenChange(open) {
@@ -273,11 +274,22 @@ async function boot(): Promise<void> {
       if (open) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; result.hidden = true; }
     },
   }, fixedSeed);
-  /** The finished run arena goes back to the run: HP, kills, damage, time. */
-  const finishRunArena = (): void => {
+  /**
+   * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
+   * reload on the result screen keeps the victory or the end of the run. `runArenaRecorded` — the current arena is in.
+   */
+  let runArenaRecorded = false;
+  const recordRunArena = (): void => {
     const w = world();
-    if (!runView || w.status === 'playing') return;
-    runView.finishArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time });
+    if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
+    runArenaRecorded = true;
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time });
+  };
+  /** The result's button only switches the screen: to the map, or to the end of the run. */
+  const finishRunArena = (): void => {
+    if (!runView || world().status === 'playing') return;
+    recordRunArena();
+    runView.leaveArena();
   };
   toMap.addEventListener('click', finishRunArena);
   if (runView) {
@@ -462,6 +474,7 @@ async function boot(): Promise<void> {
     } else chainText.textContent = '';
     infoText.textContent = `${runLabel && !sandbox ? runLabel : w.arena.name} · врагов ${w.enemies.length} · ${w.stage === 'greed' ? `жадность ${formatTime(w.time - (w.greedStart ?? 0))}, фаза ${w.pressure.phaseIndex + 1}` : 'до целей'}`;
     pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen || runScreenOpen;
+    if (w.status !== 'playing' && !runScreenOpen) recordRunArena();
     if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {

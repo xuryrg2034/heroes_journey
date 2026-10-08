@@ -117,6 +117,50 @@ test('run: a lost arena ends the run, and the end survives a reload', async ({ p
   expect(errors).toEqual([]);
 });
 
+test('run: the arena counts when it ends — a reload on «Поражение» ends the run, a reload on «Победа» keeps the victory', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await newRun(page);
+  // Victory: reload on the result screen, before «К карте».
+  const won = await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  const hp = (await snapshot(page)).hero.hp;
+  await page.reload();
+  await expect(page.getByTestId('run')).toBeVisible();
+  await expect(page.getByTestId('run-battle-modal')).toHaveCount(0);
+  await expect(page.getByTestId(`node-${won}`)).toHaveAttribute('data-status', 'current');
+  const after = await runState(page);
+  expect(after.visited).toEqual([won]);
+  expect(after.pending).toBeNull();
+  expect(after.hp).toBe(hp);
+  // Defeat: walk on to the next arena node and reload on «Поражение».
+  for (let step = 0; step < 8; step++) {
+    const state = await runState(page);
+    if (state.pending?.kind === 'battle') break;
+    if (state.pending) {
+      // A node screen of the trails: take its first button that is on (a rest, a find, an event, the merchant's «Уйти»).
+      const leave = page.locator('[data-testid="find-leave"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first();
+      await leave.click();
+      continue;
+    }
+    await enterFirstNode(page);
+  }
+  expect((await runState(page)).pending?.kind).toBe('battle');
+  await expect(page.getByTestId('run')).toBeHidden();
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime, hero = rt.snapshot().hero;
+    for (let k = 0; k < 8; k++) rt.place(hero.x + Math.cos(k * Math.PI / 4) * 0.6, hero.y + Math.sin(k * Math.PI / 4) * 0.6, k % 4, 2, 'basic');
+  });
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
+  await page.reload();
+  await expect(page.getByTestId('run-result-defeat')).toBeVisible();
+  await expect(page.getByTestId('run-battle-modal')).toHaveCount(0);
+  expect((await runState(page)).result?.outcome).toBe('defeat');
+  expect(errors).toEqual([]);
+});
+
 test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the debug panel, without the run', async ({ page }) => {
   await page.goto('/realtime.html?sandbox=1');
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);

@@ -2,7 +2,8 @@
  * HP of a run of the real-time game (stage 2 of the transition, docs/realtime-slice.md, section 3). The run's HP is 12;
  * every turn-based number that changes HP (the rest heal, the hard-battle heart, the merchant, events, the start gift;
  * later the healing consumable and talismans) is multiplied by one factor RT_HP_SCALE = 12 ÷ 5 = 2.4 and its magnitude
- * rounded up. This file is the only place of the factor: the run model reads every HP number through `rtHp`.
+ * rounded up. HP thresholds scale the same way (design answer 08.10.2026: the event risk threshold 2 → 5). This file is
+ * the only place of the factor: the run model reads every HP number and threshold through `rtHp`.
  */
 import { FOREST_RUN_START_HP } from '../../game/run/forestRun';
 

@@ -153,7 +153,7 @@
 
 ## Модуль реального времени (`src/realtime`, этапы 1–2 перехода, 08.10.2026)
 
-Бой в реальном времени — отдельный модуль ([realtime-prototype.md](realtime-prototype.md), раздел 12; план — [realtime-transition.md](realtime-transition.md)). Он не использует пошаговое ядро выше и не меняет его: из пошаговой игры вид только импортирует арт (`src/render/art.ts`, `characterAssets.ts`).
+Бой в реальном времени — отдельный модуль ([realtime-prototype.md](realtime-prototype.md), раздел 12; план — [realtime-transition.md](realtime-transition.md)). Он не использует пошаговое ядро выше и не меняет его. Из пошаговой игры он импортирует арт (`src/render/art.ts`, `characterAssets.ts`), а с этапа 2 — код похода `src/game/run/*` (генератор карты, потоки, каталог событий, торговец, дар) и через него данные боёв карты; экран карты пошаговой игры не импортирует.
 
 - **Симуляция `src/realtime/sim/`** без DOM, PixiJS, часов и `Math.random`, работает в браузере и в Node. Время пересчёта поля потока для панели измеряется часами, которые даёт вид (`setFlowClock`).
   - `Simulation` (`simulation.ts`) идёт фиксированным тактом 1/60 с игрового времени.
