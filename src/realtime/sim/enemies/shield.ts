@@ -1,17 +1,24 @@
 /**
  * The shieldbearer (stage 2 of the transition, docs/realtime-slice.md, section 4): HP 1, walks at ×0.8. Its shield is an
- * arc of 120° in front of it that turns to the hero at 90° per game second; a chain link cannot be taken while its anchor
- * (the previous link or the hero) stands in the arc. The hero (4 u/s) walks around it faster than the shield turns and
- * takes it from the side or the back. The cold switches the shield off (`enemyFrozen`). Numbers — the panel group
- * «Щитоносец».
+ * arc of 120° in front of it; a chain link cannot be taken while its anchor (the previous link or the hero) stands in the
+ * arc. The cold switches the shield off (`enemyFrozen`). Numbers — the panel group «Щитоносец».
  *
- * State in `enemy.vars`: `facing` — direction of the shield, radians (0 — towards +x).
+ * Iteration 2.1 (08.10.2026, docs/realtime-slice.md, section 12): the shield wanders — it does not follow the hero. On
+ * appearing the bearer faces a random direction; every 2–4 game seconds (uniform, sliders) it picks a new random
+ * direction and turns the shield to it at `shieldTurn` (90°/s). Both rolls read the stream `behavior:shield`. The sandbox
+ * toggle `shieldFollowsHero` brings back the shield of step 2 (it turns to the hero); a run forces it off. A frozen
+ * bearer's step does not run: the shield and the timer wait.
+ *
+ * State in `enemy.vars`: `facing` — direction of the shield, radians (0 — towards +x); `want` — the direction it turns
+ * to; `timer` — game seconds to the next new direction.
  */
 import type { Vec } from '../geometry';
 import { enemyFrozen, type Enemy, type World } from '../world';
 import { registerBehavior, registerEnemyKind } from './kinds';
 
 const DEG = Math.PI / 180;
+/** Timers reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */
+const TIME_EPS = 1e-9;
 
 /** Angle from `from` to `to`, radians. */
 const angleTo = (from: Vec, to: Vec): number => Math.atan2(to.y - from.y, to.x - from.x);
@@ -36,14 +43,36 @@ export function inShieldArc(world: World, e: Enemy, p: Vec): boolean {
   return Math.abs(angleDiff(angleTo(e, p), e.vars.facing ?? 0)) <= world.params.shieldArc * DEG / 2 + 1e-9;
 }
 
+/** Game seconds to the next new direction: uniform in [shieldWanderMin, shieldWanderMax]. */
+function rollInterval(world: World): number {
+  const p = world.params, lo = Math.min(p.shieldWanderMin, p.shieldWanderMax), hi = Math.max(p.shieldWanderMin, p.shieldWanderMax);
+  return lo + world.rng.stream('behavior:shield').next() * (hi - lo);
+}
+
+/** A random direction, radians in (−π, π]. */
+const rollDirection = (world: World): number => angleDiff(world.rng.stream('behavior:shield').next() * 2 * Math.PI, 0);
+
+/** Turns the shield of `e` towards `want` no faster than `shieldTurn` this step. */
+function turnTo(world: World, e: Enemy, want: number, dt: number): void {
+  const facing = e.vars.facing ?? want;
+  const d = angleDiff(want, facing), turn = world.params.shieldTurn * DEG * dt;
+  e.vars.facing = Math.abs(d) <= turn ? want : angleDiff(facing + Math.sign(d) * turn, 0);
+}
+
 registerBehavior({
   id: 'shield',
-  onSpawn(world, e) { e.vars.facing = angleTo(e, world.hero); },
-  // The shield turns to the hero no faster than `shieldTurn`; the bearer walks as everyone (return false).
+  // The direction and the first interval are rolled in both modes: the sandbox toggle does not shift the stream.
+  onSpawn(world, e) {
+    e.vars.want = rollDirection(world);
+    e.vars.timer = rollInterval(world);
+    e.vars.facing = world.params.shieldFollowsHero ? angleTo(e, world.hero) : e.vars.want;
+  },
+  // The shield wanders (or, with the sandbox toggle, turns to the hero); the bearer walks as everyone (return false).
   step(world, e, dt) {
-    const want = angleTo(e, world.hero), facing = e.vars.facing ?? want;
-    const d = angleDiff(want, facing), turn = world.params.shieldTurn * DEG * dt;
-    e.vars.facing = Math.abs(d) <= turn ? want : angleDiff(facing + Math.sign(d) * turn, 0);
+    if (world.params.shieldFollowsHero) { turnTo(world, e, angleTo(e, world.hero), dt); return false; }
+    e.vars.timer = (e.vars.timer ?? 0) - dt;
+    if (e.vars.timer <= TIME_EPS) { e.vars.want = rollDirection(world); e.vars.timer += rollInterval(world); }
+    turnTo(world, e, e.vars.want ?? e.vars.facing ?? 0, dt);
     return false;
   },
   canBeLinkedFrom: (world, e, anchor) => !inShieldArc(world, e, anchor),

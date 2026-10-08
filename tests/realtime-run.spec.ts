@@ -46,14 +46,15 @@ test('run: a saved sandbox panel with the hero anchor and random elites on does 
   const errors: string[] = [];
   await openRun(page, errors);
   // The panel as a sandbox session saved it.
-  await page.evaluate(() => localStorage.setItem('ashen-oath-realtime-params-v16', JSON.stringify({ heroAnchor: true, eliteSandbox: true, eliteChance: 0.5, sandboxTalismans: 'hero-anchor' })));
+  await page.evaluate(() => localStorage.setItem('ashen-oath-realtime-params-v17', JSON.stringify({ heroAnchor: true, eliteSandbox: true, eliteChance: 0.5, sandboxTalismans: 'hero-anchor', shieldFollowsHero: true })));
   await page.reload();
   await expect(page.getByTestId('run')).toBeVisible();
   await newRun(page);
   await enterFirstNode(page);
   await expect(page.getByTestId('run')).toBeHidden();
-  const params = await page.evaluate(() => { const p = (window as any).__realtime.params; return { heroAnchor: p.heroAnchor, eliteSandbox: p.eliteSandbox, eliteChance: p.eliteChance }; });
-  expect(params).toEqual({ heroAnchor: false, eliteSandbox: false, eliteChance: 0.5 });
+  const params = await page.evaluate(() => { const p = (window as any).__realtime.params; return { heroAnchor: p.heroAnchor, eliteSandbox: p.eliteSandbox, eliteChance: p.eliteChance, shieldFollowsHero: p.shieldFollowsHero }; });
+  // Iteration 2.1: «Песочница: щит следит за героем» is a stand-in too — off in a run.
+  expect(params).toEqual({ heroAnchor: false, eliteSandbox: false, eliteChance: 0.5, shieldFollowsHero: false });
   // Newcomers keep coming for a few seconds of game time: none is an elite; no second anchor is drawn in a chain.
   await page.evaluate(() => (window as any).__realtime.setParam('contactDamage', 0));
   // Game time, not wall time: the software renderer of the tests may run the crowd slowly.
@@ -62,7 +63,7 @@ test('run: a saved sandbox panel with the hero anchor and random elites on does 
   expect(s.enemies.length).toBeGreaterThan(5);
   expect(s.enemies.some(e => e.elite)).toBe(false);
   // The saved panel itself is untouched (the sandbox keeps its toggles).
-  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('ashen-oath-realtime-params-v16')))!).heroAnchor).toBe(true);
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('ashen-oath-realtime-params-v17')))!).heroAnchor).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -71,8 +72,9 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   await openRun(page, errors);
   const start = await newRun(page);
   expect(start.visited).toEqual([]);
-  expect(start.hp).toBe(15);
-  expect(start.maxHp).toBe(15);
+  // Iteration 2.1: the run HP 15 and the gift +3 to the maximum (1 × 3): 18 / 18 (12 + 3 before).
+  expect(start.hp).toBe(18);
+  expect(start.maxHp).toBe(18);
   await expect(page.locator('[data-status="available"]')).not.toHaveCount(0);
   // Row 5 holds battles only: the first node starts an arena.
   const nodeId = await enterFirstNode(page);
@@ -83,8 +85,8 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   let snap = await snapshot(page);
   expect(snap.seed).toBe(entered.pending!.seed);
   expect(snap.arena).toBe(entered.pending!.arena);
-  expect(snap.hero.hp).toBe(15);
-  expect(snap.hero.maxHp).toBe(15);
+  expect(snap.hero.hp).toBe(18);
+  expect(snap.hero.maxHp).toBe(18);
   await expect.poll(async () => (await snapshot(page)).time, { timeout: 10_000 }).toBeGreaterThan(1);
 
   // A reload in the middle of the arena: the open battle node waits, its arena starts again from the start.

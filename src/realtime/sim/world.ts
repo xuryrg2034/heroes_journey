@@ -150,6 +150,12 @@ export interface HeroMove {
   fallen?: FallenLink[];
   /** Stage 2, step 3: links frozen and brittle at the release — struck ×2 even if they thaw on the way (absent when none). */
   brittle?: number[];
+  /**
+   * Iteration 2.1 (docs/realtime-slice.md, section 12): links armed at the release (`EnemyBehavior.armed`: porcupines with
+   * their quills up) — their chain
+   * hit hurts the hero even if the quills went down on the way; others do not, even if the quills went up (absent when none).
+   */
+  armed?: number[];
 }
 
 export interface Hero {

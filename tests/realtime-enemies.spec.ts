@@ -56,10 +56,16 @@ test('shieldbearer: arena 4 opens; its shield arc is drawn, the hint says «щи
   // The panel's phase table is this arena's: the note says what the arena forces over it.
   await expect(page.getByTestId('phase-arena-note')).toHaveText(/Стена щитов.*стай волков и кабанов нет/);
   await quiet(page);
+  // Iteration 2.1: the shield faces a random direction and wanders; «Поворот щита» 0 keeps it where it faced at first,
+  // so the test can stand in front of it and behind it (journalled param command).
+  await page.evaluate(() => (window as any).__realtime.setParam('shieldTurn', 0));
   const id = await place(page, 9.2, 5, 'shield', 1, 1);
   await expect.poll(async () => (await snap(page)).signals.shields).toBe(1);
+  const facing = (await snap(page)).enemies.find(e => e.id === id)!.vars.facing;
   // In front of the shield: the pointer on it says «щит», a press takes nothing.
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [9.2 + Math.cos(facing) * 1.2, 5 + Math.sin(facing) * 1.2]);
   const at = await screen(page, 9.2, 5);
+  await page.mouse.move(at.x, at.y + 1);
   await page.mouse.move(at.x, at.y);
   await expect.poll(async () => (await snap(page)).hint).toBe('guarded');
   await expect(page.getByTestId('link-hint')).toHaveText('щит');
@@ -67,8 +73,8 @@ test('shieldbearer: arena 4 opens; its shield arc is drawn, the hint says «щи
   await page.mouse.down();
   expect((await snap(page)).chain).toEqual([]);
   await page.mouse.up();
-  // From behind (the shield turns at 90°/s: right after the hero gets there it still faces away) the link is taken.
-  await page.evaluate(() => (window as any).__realtime.teleport(10.5, 5));
+  // From behind it the link is taken.
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [9.2 - Math.cos(facing) * 1.2, 5 - Math.sin(facing) * 1.2]);
   await page.mouse.move(at.x, at.y + 1);
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();
@@ -126,13 +132,16 @@ test('sapper: arena 6 opens; a sapper touching the hero lights its fuse — the 
   expect(errors).toEqual([]);
 });
 
-test('porcupine: arena 7 opens; a porcupine link shows «−1 HP» while the chain is drawn, and the dash through it costs the hero 1 HP', async ({ page }) => {
+test('porcupine: arena 7 opens; with the quills up a porcupine link shows «−1 HP» while the chain is drawn, and the dash through it costs the hero 1 HP', async ({ page }) => {
   const errors: string[] = [];
   await openArena(page, errors, 7);
   expect((await snap(page)).arena).toBe('thorns');
   await expect(page.getByTestId('goal')).toHaveText('кнопки 0 / 3');
   await quiet(page);
+  // Iteration 2.1: the quills go up and down; a long «иглы подняты» keeps them up through the test once they rise.
+  await page.evaluate(() => (window as any).__realtime.setParam('porcupineUpTime', 10));
   const id = await place(page, 9, 5, 'porcupine', 1, 1);
+  await expect.poll(async () => (await snap(page)).signals.quillsRaised, { timeout: 10_000 }).toBe(1);
   const at = await screen(page, 9, 5);
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();
@@ -146,5 +155,34 @@ test('porcupine: arena 7 opens; a porcupine link shows «−1 HP» while the cha
   const after = await snap(page);
   expect(after.hero.hp).toBe(after.hero.maxHp - 1);
   expect(after.signals.quillBadges).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('porcupine (iteration 2.1): with the quills down no «−1 HP» and no wound; before rising the quills tremble', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 7);
+  await quiet(page);
+  // «Иглы подняты» 0: the quills never rise — drawn lying flat, no badge, the dash costs nothing.
+  await page.evaluate(() => (window as any).__realtime.setParam('porcupineUpTime', 0));
+  const id = await place(page, 9, 5, 'porcupine', 1, 1);
+  await expect.poll(async () => (await snap(page)).enemies.some(e => e.id === id)).toBe(true);
+  const at = await screen(page, 9, 5);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain).toEqual([id]);
+  const held = await snap(page);
+  expect(held.signals.quillBadges).toBe(0);
+  expect(held.signals.quillsRaised).toBe(0);
+  await page.screenshot({ path: 'artifacts/realtime-porcupine-down.png' });
+  await page.mouse.up();
+  await expect.poll(async () => (await snap(page)).kills).toBe(1);
+  const after = await snap(page);
+  expect(after.hero.hp).toBe(after.hero.maxHp);
+  // The cycle again with a long warning (3 s ≥ the 2 s down): every moment of the down part trembles.
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('porcupineUpTime', 2.5); rt.setParam('porcupineWarn', 3); });
+  await place(page, 10, 6, 'porcupine', 2, 1);
+  await expect.poll(async () => (await snap(page)).signals.quillsTrembling, { timeout: 10_000 }).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-porcupine-trembling.png' });
+  await expect.poll(async () => (await snap(page)).signals.quillsRaised, { timeout: 10_000 }).toBe(1);
   expect(errors).toEqual([]);
 });

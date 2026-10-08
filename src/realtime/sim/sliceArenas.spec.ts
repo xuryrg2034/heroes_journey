@@ -59,7 +59,11 @@ function newcomerKinds(arena: string, seed: number, seconds: number): string[] {
   const start = new Set(sim.world.enemies.map(e => e.id));
   for (let i = 0; i < seconds * 60; i++) {
     sim.tick();
-    for (const ev of sim.world.events) if (ev.type === 'spawn' && !start.has(ev.enemyId)) seen.set(ev.enemyId, sim.world.enemies.find(e => e.id === ev.enemyId)?.kind ?? '?');
+    // A newcomer killed in the tick it stepped out (an arrow, a blast) is gone before it can be looked at: it is skipped.
+    for (const ev of sim.world.events) {
+      const kind = ev.type === 'spawn' && !start.has(ev.enemyId) ? sim.world.enemies.find(e => e.id === ev.enemyId)?.kind : undefined;
+      if (ev.type === 'spawn' && kind) seen.set(ev.enemyId, kind);
+    }
     sim.world.events.length = 0;
   }
   return [...seen.values()];

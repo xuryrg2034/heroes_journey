@@ -2,12 +2,14 @@
  * The run of the real-time game (stage 2 of the transition, step 1; docs/realtime-slice.md, «Реализация (шаг 1)»).
  * Node only: `npm run test:realtime-run`. Everything goes through the run's commands and, on battle nodes, through the
  * arena simulation driven by journalled commands — the same path the page takes (runView.ts → main.ts):
- * - the map is the turn-based generator's map of the run seed; the run starts past the trunk with 12 HP and the gift;
+ * - the map is the turn-based generator's map of the run seed; the run starts past the trunk with 15 HP (iteration 2.1;
+ *   12 before it) and the gift;
  * - a battle node plays an arena of the pool of its run row (step 4: a hard battle «Застава», a boss node the final arena
  *   «Последний рубеж» — its victory wins the run; no temporary stand-ins), seeded by the run seed and the node id; the hero enters it with the run's HP; a victory returns to the map, a defeat ends the run;
  * - whole runs walk to the final arena on spread seeds; saves load back at every step; a reload starts the open arena again;
  * - a run arena replays from its journal (with the hero's starting HP) to the same hash;
- * - HP numbers of the turn-based run arrive ×2.4 rounded up: rest, merchant, gift, hard battle, events;
+ * - HP numbers of the turn-based run arrive ×3 (15 ÷ 5; ×2.4 before iteration 2.1) rounded up: rest, merchant, gift, hard
+ *   battle, events, the healing consumable;
  * - events without an analogue in the slice never come; their off options cannot be taken;
  * - step 3: consumables come from a find, a craft, the merchant, the gift and events, open as in the turn-based run,
  *   go into the arena as its loadout, are used there through commands and come back; the energy of the gift and events
@@ -171,7 +173,7 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
     }
     if (pending?.kind === 'rest') {
       const view = rtRestView(run)!, before = run.hp, recipe = view.recipes.find(entry => entry.available);
-      // Rest heal ×2.4; «Фляга росы» +3, «Клятва голода» and the gift's price «следующий привал не лечит» — 0.
+      // Rest heal ×3; «Фляга росы» +3, «Клятва голода» and the gift's price «следующий привал не лечит» — 0.
       const expectedHeal = run.talismans.includes('oath-hunger') || run.restNoHeal ? 0 : rtHp(FOREST_REST_HEAL) + (run.talismans.includes('dew-flask') ? rtHp(1) : 0);
       assert(view.heal.value === expectedHeal, `rest heal ${view.heal.value}, expected ${expectedHeal}`);
       // Craft when a recipe is ready (every other walk), else heal.
@@ -199,8 +201,8 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       for (const good of view.goods) if (good.available) {
         const before = { hp: run.hp, maxHp: run.maxHp, items: { ...run.items } };
         run = ok(rtShopBuy(run, good.id), 'buy');
-        if (good.id === 'heal') assert(run.hp === Math.min(run.maxHp, before.hp + rtHp(1)), 'merchant heal ×2.4');
-        else if (good.id === 'harden') assert(run.maxHp === before.maxHp + rtHp(1) && run.hp === before.hp + rtHp(1), 'hardening ×2.4');
+        if (good.id === 'heal') assert(run.hp === Math.min(run.maxHp, before.hp + rtHp(1)), 'merchant heal ×3');
+        else if (good.id === 'harden') assert(run.maxHp === before.maxHp + rtHp(1) && run.hp === before.hp + rtHp(1), 'hardening ×3');
         else if (good.item) { assert(run.items[good.item] === before.items[good.item] + 1 && run.openItems.includes(good.item), 'a consumable bought: +1, open'); walk.bought++; }
       }
       run = ok(rtShopLeave(run), 'leave shop');
@@ -215,7 +217,7 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       const choice = options[(k + step) % options.length];
       const option = view.event.options.find(entry => entry.id === choice.id)!, before = run.hp;
       run = ok(rtChooseEventOption(run, choice.id), 'event');
-      // A sure outcome with HP arrives ×2.4 (never below 1, never above the maximum).
+      // A sure outcome with HP arrives ×3 (never below 1, never above the maximum).
       if (!option.battle && !option.escalation && option.outcomes.length === 1 && !option.cost) {
         const effect = option.outcomes[0].effect;
         const expected = Math.min(run.maxHp, Math.max(1, before + rtHp(effect.maxHp ?? 0) + rtHp(effect.hp ?? 0)));
@@ -237,11 +239,14 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
 
 // ---- Checks ----
 
-check('HP of the run: 12, turn-based HP numbers ×2.4 rounded up (one factor)', () => {
-  assert(RT_RUN_HP === 12, 'run HP 12');
-  assert([1, 2, 3, 5, -1, -2].map(rtHp).join() === '3,5,8,12,-3,-5', 'rtHp');
+check('HP of the run (iteration 2.1): 15, turn-based HP numbers ×3 rounded up (one factor); the healing consumable +9', () => {
+  assert(RT_RUN_HP === 15, 'run HP 15');
+  // The turn-based numbers: 1, 2, 3, 5 HP and their losses; ×3 (15 ÷ 5).
+  assert([1, 2, 3, 5, -1, -2].map(rtHp).join() === '3,6,9,15,-3,-6', 'rtHp');
   const run = createRtRun(SEEDS[0]);
-  assert(run.hp === 12 && run.maxHp === 12, 'a run starts with 12 / 12');
+  assert(run.hp === 15 && run.maxHp === 15, 'a run starts with 15 / 15');
+  // The healing consumable heals the turn-based elixir's 3 HP (game/items.ts) ×3: the panel default the run arena takes.
+  assert(defaultParams().itemHeal === rtHp(3) && rtHp(3) === 9, `healing ${defaultParams().itemHeal}`);
 });
 
 check('the map is the turn-based generator\'s map of the run seed; the run starts past the trunk', () => {
@@ -262,7 +267,7 @@ check('the start gift: its usual buttons (consumables, energy, resources, maximu
   assert(rtAvailableNodes(mini).length === 0, 'the gift waits before the row-5 nodes');
   assert(!rtChooseGift(mini, null).ok, 'a pass is refused while a button is on');
   const taken = ok(rtChooseGift(mini, 1), 'gift');
-  assert(taken.maxHp === 12 + rtHp(1) && taken.hp === 12 + rtHp(1), 'max HP gift ×2.4');
+  assert(taken.maxHp === 15 + rtHp(1) && taken.hp === 15 + rtHp(1) && taken.maxHp === 18, 'max HP gift +3 (1 × 3)');
   const items = (mini.gift!.options[0] as { items: ItemKind[] }).items, withItems = ok(rtChooseGift(mini, 0), 'items gift');
   assert(items.every(item => withItems.items[item] === items.filter(other => other === item).length) && withItems.openItems.length === new Set(items).size, 'two consumables: in hand and open');
   const kinds = new Set<string>();
@@ -367,7 +372,7 @@ check('different seeds give different arena sequences; every arena of the pools 
   assert(seeds.size === walks.length, 'arena seeds differ between runs');
 });
 
-check('«Костёр путника» → «Погреться» (design answer 3 to step 4): +3 HP (the turn-based +1 ×2.4), no «снять горение, яд и кровотечение» in the text; the event stays in the pool', () => {
+check('«Костёр путника» → «Погреться» (design answer 3 to step 4): +3 HP (the turn-based +1 ×3), no «снять горение, яд и кровотечение» in the text; the event stays in the pool', () => {
   assert(SLICE_EVENTS.includes('traveler-fire'), 'the event is in the pool');
   // A real event node on the trails, its event set to «Костёр путника»; the hero hurt by 5 on entering.
   const base = openNode(731, 'event');
@@ -382,7 +387,7 @@ check('«Костёр путника» → «Погреться» (design answer
   assert(step.ok && step.run.hp === setup.hp + rtHp(1) && step.events.every(event => event.type !== 'event-resolved' || !event.text.includes('горение')), 'warmed: +3 HP, no cleansing in the result');
 });
 
-check('events: only the slice pool comes; off options are refused; HP outcomes arrive ×2.4', () => {
+check('events: only the slice pool comes; off options are refused; HP outcomes arrive ×3', () => {
   const met = walks.flatMap(walk => walk.events);
   assert(met.length > 0, 'events were met');
   for (const id of met) assert(SLICE_EVENTS.includes(id) && !SLICE_EVENTS_OFF.includes(id), `event ${id} in the slice pool`);
@@ -555,7 +560,7 @@ check('a run arena replays from its journal: the starting HP is part of it', () 
   assert(old.world.hero.maxHp === defaultParams().heroHp, 'a journal without `hero` (stage 1) starts with the panel HP');
 });
 
-check('rest and merchant through real visits (HP and resources prepared on entering): heal 5, merchant heal 3, hardening +3 / +3 at 4', () => {
+check('rest and merchant through real visits (HP and resources prepared on entering): heal 6, merchant heal 3, hardening +3 / +3 at 4', () => {
   // Find a seed whose first trail rows reach a rest and a merchant; play to them. On entering, the test sets the HP low
   // (and gives resources at the merchant) so every good can be bought: a setup, the visit itself goes through commands.
   let rested = false, shopped = false;
@@ -571,7 +576,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
       if (run.pending?.kind === 'rest') {
         run = { ...run, hp: 2 };
         const view = rtRestView(run)!;
-        assert(view.heal.amount === rtHp(FOREST_REST_HEAL), 'rest heals 5 from 2');
+        assert(view.heal.amount === rtHp(FOREST_REST_HEAL) && view.heal.amount === 6, 'rest heals 6 (the turn-based 2 × 3)');
         run = ok(rtRestHeal(run), 'rest'); assert(run.hp === 2 + rtHp(FOREST_REST_HEAL), 'healed'); rested = true;
         continue;
       }
@@ -580,7 +585,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
         const view = rtShopView(run)!;
         assert(view.goods.find(good => good.id === 'harden')!.price === 4, 'first hardening costs 4');
         run = ok(rtShopBuy(run, 'heal'), 'heal'); assert(run.hp === 1 + rtHp(1), 'merchant heal +3');
-        run = ok(rtShopBuy(run, 'harden'), 'harden'); assert(run.maxHp === 15 + rtHp(1) && run.hp === 1 + 2 * rtHp(1), 'hardening +3 / +3');
+        run = ok(rtShopBuy(run, 'harden'), 'harden'); assert(run.maxHp === 18 + rtHp(1) && run.hp === 1 + 2 * rtHp(1), 'hardening +3 / +3 (the max HP gift made it 18)');
         assert(run.materials.dew + run.materials.powder === 6 - 2 - 4, 'paid 2 + 4 resources');
         assert(!rtShopBuy(run, 'harden').ok, 'one hardening a visit');
         run = ok(rtShopLeave(run), 'leave'); shopped = true;
@@ -644,7 +649,7 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
   assert(run.pending === null && run.talismans.includes(reward.options[0]) && run.visited.includes(node.id) && run.eventChoices.some(choice => choice.nodeId === node.id && choice.option === 'fight'), 'the choice completes the event');
 });
 
-check('the risk threshold of events is scaled: an option that may lose HP needs 5 HP (2 × 2.4)', () => {
+check('the risk threshold of events is scaled: an option that may lose HP needs 6 HP (2 × 3)', () => {
   let found = false;
   for (let k = 0; k < 60 && !found; k++) {
     let run = ok(rtChooseGift(createRtRun(Math.imul(k + 301, 2654435761) >>> 0, { gift: 'mini' }), 1), 'gift');
@@ -656,8 +661,8 @@ check('the risk threshold of events is scaled: an option that may lose HP needs 
         // Setup: the HP on entering the event, one below and at the threshold.
         const need = rtHp(EVENT_RISK_MIN_HP), low = rtEventView({ ...run, hp: need - 1 })!.options.find(option => option.id === risky.id)!;
         const enough = rtEventView({ ...run, hp: need })!.options.find(option => option.id === risky.id)!;
-        assert(need === 5 && !low.available && low.reason.includes('HP ≥ 5') && enough.available, `${risky.id}: closed at 4 HP, open at 5`);
-        assert(!rtChooseEventOption({ ...run, hp: need - 1 }, risky.id).ok, 'refused at 4 HP');
+        assert(need === 6 && !low.available && low.reason.includes('HP ≥ 6') && enough.available, `${risky.id}: closed at 5 HP, open at 6`);
+        assert(!rtChooseEventOption({ ...run, hp: need - 1 }, risky.id).ok, 'refused at 5 HP');
         found = true; break;
       }
       if (run.pending) break;
@@ -968,8 +973,8 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
       if (rtGiftView(taken)) taken = ok(rtChooseGiftPick(taken, rtGiftView(taken)!.picks[0]), 'pick');
       const option = deal.option as Extract<GiftOption, { kind: 'deal' }>;
       assert(taken.talismans.length === 1, 'the deal gives a talisman');
-      if (option.price === 'hp') assert(taken.hp === 12 - 3 + (taken.talismans[0] === 'tough-hide' ? 3 : 0), `price −3 HP: ${taken.hp}`);
-      if (option.price === 'max-hp') assert(taken.maxHp === 12 - 3, 'price −3 maximum');
+      if (option.price === 'hp') assert(taken.hp === 15 - 3 + (taken.talismans[0] === 'tough-hide' ? 3 : 0), `price −3 HP: ${taken.hp}`);
+      if (option.price === 'max-hp') assert(taken.maxHp === 15 - 3, 'price −3 maximum');
       if (option.price === 'rest') assert(taken.restNoHeal === true, 'price: the next rest');
       assert(same(roundTrip(taken), taken), 'saved');
       dealt++;
@@ -983,9 +988,9 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
 
 check('a run ignores the sandbox stand-ins of its rules (review finding B): a saved panel with the anchor and random elites on — no anchor, no elites on row 1', () => {
   // The panel as a sandbox session saved it: the hero anchor, random elites (50%), the sandbox talisman.
-  const saved = Object.assign(defaultParams(), { heroAnchor: true, eliteSandbox: true, eliteChance: 0.5, eliteChanceAfter: 0.5, sandboxTalismans: 'hero-anchor' });
+  const saved = Object.assign(defaultParams(), { heroAnchor: true, eliteSandbox: true, eliteChance: 0.5, eliteChanceAfter: 0.5, sandboxTalismans: 'hero-anchor', shieldFollowsHero: true });
   const params = runParams(saved);
-  assert(!params.heroAnchor && !params.eliteSandbox && params.sandboxTalismans === '' && saved.heroAnchor, 'the run copy has them off, the saved panel is untouched');
+  assert(!params.heroAnchor && !params.eliteSandbox && params.sandboxTalismans === '' && !params.shieldFollowsHero && saved.heroAnchor && saved.shieldFollowsHero, 'the run copy has them off (iteration 2.1: «щит следит за героем» too), the saved panel is untouched');
   let checked = 0;
   for (let k = 1; k <= 4; k++) {
     const run = nextArena(takeGift(createRtRun(seedOf32(k + 1800), { gift: 'mini' })));

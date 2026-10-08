@@ -16,5 +16,5 @@ export { packmates } from './basic';
 export { inShieldArc, shieldUp } from './shield';
 export { archerLine } from './archer';
 export { sapperFuse } from './sapper';
-export { quillsUp } from './porcupine';
+export { quillsUp, quillsWarning } from './porcupine';
 export * from './kinds';

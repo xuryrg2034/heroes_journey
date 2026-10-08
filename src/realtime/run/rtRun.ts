@@ -8,7 +8,7 @@
  * run seed), the long random streams (`runStreams.ts`), the node seed (`forestNodeSeed`: the arena seed from the run seed
  * and the node id), the event catalogue and its rolls (`forestEvents.ts`, `eventOutcomeIndex`, `eventResourceKinds`), the
  * merchant's prices and payment (`merchant.ts`), the start gift (`runGift.ts`) and the window of repeats of the pools.
- * Its own: the HP of the run (12, `hpScale.ts`), the arena pools (`arenaPools.ts`), the events in the slice
+ * Its own: the HP of the run (15, `hpScale.ts`), the arena pools (`arenaPools.ts`), the events in the slice
  * (`sliceEvents.ts`). The turn-based run state (`forestRun.ts`) is not used: its HP, energy, consumables, tools and
  * talismans are numbers of the turn-based game.
  *
@@ -186,7 +186,7 @@ export interface RtArenaOutcome {
 
 // ---------- Creating a run, the map ----------
 
-/** A new run of `seed`: the map by the seed, 12 HP, the start gift of `gift` kind waiting before the row-5 nodes. */
+/** A new run of `seed`: the map by the seed, 15 HP, the start gift of `gift` kind waiting before the row-5 nodes. */
 export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean } = {}): RtRunState {
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(),
@@ -432,7 +432,7 @@ export function rtNodeTitle(run: RtRunState, node: ForestMapNode): string {
 
 /**
  * Feed a finished arena back. A defeat ends the run. A victory keeps the hero's HP (1 … maximum); a hard battle adds its
- * heart (FOREST_HARD_HEAL, ×2.4); an event's reward battle completes the event; the boss's final arena wins the run.
+ * heart (FOREST_HARD_HEAL, ×RT_HP_SCALE); an event's reward battle completes the event; the boss's final arena wins the run.
  */
 export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRunStep {
   const pending = current.pending;
@@ -478,7 +478,7 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
 // ---------- Rest, find ----------
 
 /**
- * HP the rest heals before the clamp: the node's heal (the turn-based FOREST_REST_HEAL, ×2.4), +3 with «Фляга росы»;
+ * HP the rest heals before the clamp: the node's heal (the turn-based FOREST_REST_HEAL, ×RT_HP_SCALE), +3 with «Фляга росы»;
  * nothing under «Клятва голода» or the gift's price «следующий привал не лечит» (restHealValue of the turn-based run).
  */
 export function rtRestHealValue(node: ForestMapNode, run?: Pick<RtRunState, 'talismans' | 'restNoHeal'>): number {
@@ -624,7 +624,7 @@ export function rtShopLeave(current: RtRunState): RtRunStep {
 // ---------- Events: the choice ----------
 
 const hpShort = (need: number, hp: number) => `Нужно HP ≥ ${need} (сейчас ${hp})`;
-/** A cost in real-time numbers: HP and maximum HP ×2.4 (rounded up), resources as they are. */
+/** A cost in real-time numbers: HP and maximum HP ×RT_HP_SCALE (rounded up), resources as they are. */
 export function rtCost(cost: EventCost): EventCost {
   return { ...cost, ...cost.hp ? { hp: rtHp(cost.hp) } : {}, ...cost.maxHp ? { maxHp: rtHp(cost.maxHp) } : {} };
 }
@@ -648,7 +648,7 @@ function payableCost(run: RtRunState, option: EventOption): { cost: EventCost | 
   return index >= 0 ? { cost: costs[index], block: '' } : { cost: null, block: costs.length === 1 ? blocks[0] : `Нужно: ${costs.map(describeCost).join(' или ')}` };
 }
 /**
- * An outcome text in real-time numbers: HP and maximum HP ×2.4; energy goes to the next arena. «Снять горение, яд и
+ * An outcome text in real-time numbers: HP and maximum HP ×RT_HP_SCALE; energy goes to the next arena. «Снять горение, яд и
  * кровотечение» is not shown: the hero has no such effects in the slice (design answer 3 to step 4, «Погреться»).
  */
 function outcomeText(outcome: EventOption['outcomes'][number], kinds: readonly ResourceKind[]): string {
@@ -676,7 +676,7 @@ const eventOf = (run: RtRunState, nodeId: string) => { const id = run.picks.find
 /** The base of attempt `attempt` (from 0) of the open event's escalation: the draws after the entering one. */
 const attemptBase = (run: RtRunState, entering: number, attempt: number) => streamValue(run.seed, 'events', entering + 1 + attempt);
 
-/** The open event with every option: outcomes and chances (HP ×2.4), cost, availability, the slice's off options. No draw spent. */
+/** The open event with every option: outcomes and chances (HP ×RT_HP_SCALE), cost, availability, the slice's off options. No draw spent. */
 export function rtEventView(run: RtRunState): RtEventView | null {
   const pending = run.pending;
   if (pending?.kind !== 'event') return null;
@@ -706,7 +706,7 @@ export function rtEventView(run: RtRunState): RtEventView | null {
  * Take an event option. The reward battle starts the arena of the node's row (the event completes with its victory; a
  * defeat ends the run). An escalation option pays and rolls one attempt (its own `events` draw) and keeps the event open.
  * Any other option pays its cost, rolls its outcome (eventOutcomeIndex of the turn-based run), applies it — HP and the
- * maximum ×2.4, HP never below 1 or above the maximum, resources — and completes the node.
+ * maximum ×RT_HP_SCALE, HP never below 1 or above the maximum, resources — and completes the node.
  */
 export function rtChooseEventOption(current: RtRunState, optionId: string): RtRunStep {
   const view = rtEventView(current);
@@ -810,7 +810,7 @@ function applyGift(run: RtRunState, option: GiftOption, pick: string | undefined
   if (option.kind === 'energy') run.energy = Math.min(ENERGY_MAX, run.energy + option.amount);
   if (option.kind === 'oath' && option.oath) takeTalisman(run, option.oath, events);
   if (option.kind === 'deal') {
-    // The price (×2.4 for HP): −3 HP now (not below 1), −3 to the maximum HP, or the next rest does not heal.
+    // The price (×RT_HP_SCALE for HP): −3 HP now (not below 1), −3 to the maximum HP, or the next rest does not heal.
     if (option.price === 'hp') run.hp = Math.max(1, run.hp - rtHp(GIFT_HP_PRICE));
     if (option.price === 'max-hp') { run.maxHp -= rtHp(GIFT_MAX_HP_PRICE); run.hp = Math.min(run.hp, run.maxHp); }
     if (option.price === 'rest') run.restNoHeal = true;

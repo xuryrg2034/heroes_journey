@@ -14,7 +14,7 @@ import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE, archerLine, quillsUp, sapperFuse, shieldUp } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, archerLine, quillsUp, quillsWarning, sapperFuse, shieldUp } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
 import { inWater, type Vec } from '../sim/geometry';
@@ -59,7 +59,8 @@ const LOOT_TITLE: Readonly<Record<string, string>> = { frost: 'Холод', bomb
 const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f46, healing: 0x8fd18a, fire: SPARK, dew: 0xbfe3ff, powder: 0x6d6a58, resin: 0xc88a3a, herbs: 0x6fae5a };
 
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number }
+/** `quillsRaised` / `quillsTrembling` (iteration 2.1): porcupines drawn with their quills up / trembling before going up. */
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number }
 
 interface EnemyView {
   root: Container;
@@ -71,6 +72,8 @@ interface EnemyView {
   hpLabel: Text | null;
   hp: number;
   look: EnemyLook;
+  /** Porcupine (iteration 2.1): the raised crown of quills and the lowered quills lying flat (one of them shown). */
+  quills: { up: Graphics; down: Graphics } | null;
 }
 
 /** A killed enemy: spins and shrinks for `deathDuration` (design answer 22). */
@@ -112,6 +115,8 @@ export class RealtimeRenderer {
   private readonly dying: DyingView[] = [];
   private readonly fxLayer = new Container();
   private readonly enemyViews = new Map<number, EnemyView>();
+  /** Iteration 2.1: porcupines drawn with raised / trembling quills in the last `syncEnemies`. */
+  private quillCounts = { quillsRaised: 0, quillsTrembling: 0 };
   private readonly bodyTextures = new Map<string, { texture: Texture; ax: number; ay: number }>();
   private readonly floating: FloatingText[] = [];
   /** Stage 2, step 2: blast flashes fading out. */
@@ -148,7 +153,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0 };
   /** Stage 2, step 3: consumable flashes drawn so far, by kind (tests read it: the effect was on screen). */
   readonly itemsShown: Record<ItemKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0 };
   /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
@@ -297,13 +302,7 @@ export class RealtimeRenderer {
       ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: BONE, width: 3.5, cap: 'round' });
       ctx.moveTo(r * 0.55, -r * 1.15).lineTo(r * 0.55, r * 1.15).stroke({ color: PALE, width: 1.5 });
     }
-    if (kind === 'porcupine') {
-      // Porcupine: a crown of bone quills all around (silhouette, not a color).
-      for (let i = 0; i < 14; i++) {
-        const a = -Math.PI * 0.95 + i * (Math.PI * 1.9 / 13), c = Math.cos(a), s = Math.sin(a), w = 0.16;
-        ctx.poly([Math.cos(a - w) * r * 0.85, Math.sin(a - w) * r * 0.85, c * r * 1.5, s * r * 1.5, Math.cos(a + w) * r * 0.85, Math.sin(a + w) * r * 0.85]).fill(BONE).stroke({ color: NAVY, width: 2, join: 'round' });
-      }
-    }
+    // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
       // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
       ctx.circle(-r * 0.62, -r * 0.62, r * 0.48).fill(0x22262c).stroke({ color: NAVY, width: 3 });
@@ -323,12 +322,34 @@ export class RealtimeRenderer {
     return ctx;
   }
 
+  /**
+   * Iteration 2.1: the porcupine's quills as two drawings behind its disc — a crown of long bone quills all around
+   * (raised) and short quills lying flat along its back (lowered, not sticking out). One of them is shown each frame.
+   */
+  private quillGraphics(): { up: Graphics; down: Graphics } {
+    const r = BASE_ENEMY_RADIUS * UNIT, up = new Graphics(), down = new Graphics();
+    for (let i = 0; i < 14; i++) {
+      const a = -Math.PI * 0.95 + i * (Math.PI * 1.9 / 13), c = Math.cos(a), s = Math.sin(a), w = 0.16;
+      up.poly([Math.cos(a - w) * r * 0.85, Math.sin(a - w) * r * 0.85, c * r * 1.5, s * r * 1.5, Math.cos(a + w) * r * 0.85, Math.sin(a + w) * r * 0.85]).fill(BONE).stroke({ color: NAVY, width: 2, join: 'round' });
+    }
+    // Lowered: short quills laid back along the top of the body, hardly past its edge.
+    for (let i = 0; i < 9; i++) {
+      const a = -Math.PI * 0.85 + i * (Math.PI * 0.7 / 8), w = 0.2, t = a + 0.5;
+      down.poly([Math.cos(a - w) * r * 0.82, Math.sin(a - w) * r * 0.82, Math.cos(t) * r * 1.16, Math.sin(t) * r * 1.16, Math.cos(a + w) * r * 0.82, Math.sin(a + w) * r * 0.82]).fill(BONE).stroke({ color: NAVY, width: 1.5, join: 'round' });
+    }
+    down.visible = false;
+    return { up, down };
+  }
+
   private tusks(ctx: GraphicsContext, r: number): void {
     for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null } {
+  private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null } {
     const body = new Container();
+    // Iteration 2.1: the porcupine's quills behind its disc (raised or lowered each frame).
+    const quills = e.kind === 'porcupine' ? this.quillGraphics() : null;
+    if (quills) body.addChild(quills.up, quills.down);
     body.addChild(this.enemyDisc(e.color, e.hp > 0, e.kind, look));
     let grey: Sprite | null = null;
     if (e.color !== NO_COLOR) { grey = this.enemyDisc(e.color, e.hp > 0, e.kind, look, true); grey.alpha = 0; body.addChild(grey); }
@@ -355,11 +376,12 @@ export class RealtimeRenderer {
       body.addChild(exclaim);
     }
     if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
-    return { body, grey, hpLabel, exclaim };
+    return { body, grey, hpLabel, exclaim, quills };
   }
 
   private syncEnemies(world: World): void {
     const look = world.params.enemyLook, seen = new Set<number>();
+    let quillsRaised = 0, quillsTrembling = 0;
     const scale = enemyDrawRadius(world.params) / BASE_ENEMY_RADIUS;
     // Crowd readability (design answer 10): while a chain is drawn, other colors are muted.
     const color = world.chain.length ? chainColor(world) : null;
@@ -369,9 +391,9 @@ export class RealtimeRenderer {
       let view = this.enemyViews.get(e.id);
       if (view && (view.look !== look || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
       if (!view) {
-        const root = new Container(), { body, grey, hpLabel, exclaim } = this.buildEnemyBody(e, look);
+        const root = new Container(), { body, grey, hpLabel, exclaim, quills } = this.buildEnemyBody(e, look);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, quills };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -396,7 +418,20 @@ export class RealtimeRenderer {
       if (view.exclaim) view.exclaim.visible = announcing;
       if (announcing && Math.floor(this.clock * 10) % 2 === 0) view.body.alpha = 0.55;
       else view.body.alpha = 1;
+      // Iteration 2.1: the quills up — the crown; down — lying flat; trembling (going up soon) — the flat quills shake and
+      // half rise. Frozen: down (the cold takes them off).
+      if (view.quills) {
+        const up = quillsUp(world, e), trembling = !up && quillsWarning(world, e);
+        view.quills.up.visible = up; view.quills.down.visible = !up;
+        if (trembling) {
+          const shake = Math.sin(this.clock * 70 + e.id) * 3;
+          view.quills.down.position.set(shake, -Math.abs(shake) * 0.4); view.quills.down.scale.set(1.22);
+        } else { view.quills.down.position.set(0, 0); view.quills.down.scale.set(1); }
+        if (up) quillsRaised++;
+        if (trembling) quillsTrembling++;
+      }
     }
+    this.quillCounts = { quillsRaised, quillsTrembling };
     for (const [id, view] of this.enemyViews) if (!seen.has(id)) { view.root.destroy({ children: true }); this.enemyViews.delete(id); }
     this.enemyLayer.sortableChildren = true;
   }
@@ -467,7 +502,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts };
     const fuse = (x: number, y: number, left: number, total: number): void => {
       counts.fuses++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = p.sapperRadius * UNIT, X = x * UNIT, Y = y * UNIT;

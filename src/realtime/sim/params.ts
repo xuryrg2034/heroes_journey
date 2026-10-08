@@ -84,6 +84,7 @@ export interface Params {
   /** Stage D (user 07.10.2026): enemy size — art, body, touch zone and pushing of every kind (basic, wolf, boar, reaper). */
   enemyScale: number;
   enemySpeed: number;
+  /** Personal speed spread of newcomers: ×(1 ± this), uniform (iteration 2.1, 08.10.2026: ±0.35; ±0.2 before it). */
   speedSpread: number;
   /** Iteration 2: the flow field leads enemies around obstacles (off — straight at the hero, as in stages 1–3). */
   pathfinding: boolean;
@@ -222,7 +223,7 @@ export interface Params {
   bombDamage: number;
   /** Bomb: the enemy must be within this distance of the hero. */
   bombRange: number;
-  /** Healing: HP restored (the turn-based elixir +3 × 2.4, rounded up). */
+  /** Healing: HP restored (the turn-based elixir +3 × RT_HP_SCALE 3 = 9, iteration 2.1; 8 = +3 × 2.4 before it). */
   itemHeal: number;
   /** Fire: radius around the enemy under the pointer within which other enemies catch fire too. */
   fireRadius: number;
@@ -280,10 +281,18 @@ export interface Params {
   shieldHp: number;
   /** Width of the shield arc in front of it, degrees: a link whose anchor stands in it cannot be taken. */
   shieldArc: number;
-  /** How fast the shield turns to the hero, degrees per game second. */
+  /** How fast the shield turns (to its wandering direction, or to the hero with `shieldFollowsHero`), degrees per game second. */
   shieldTurn: number;
   /** Walking speed multiplier of the shieldbearer. */
   shieldSpeed: number;
+  /**
+   * Iteration 2.1 (08.10.2026): the shield wanders — every `shieldWanderMin`…`shieldWanderMax` game seconds (uniform) the
+   * bearer picks a new random direction (stream `behavior:shield`) and turns the shield to it at `shieldTurn`.
+   */
+  shieldWanderMin: number;
+  shieldWanderMax: number;
+  /** Sandbox: the old shield (stage 2, step 2) — it turns to the hero. Off by default; a run forces it off (`RUN_FORCED`). */
+  shieldFollowsHero: boolean;
   // Archer (stage 2 of the transition, docs/realtime-slice.md, section 4)
   archerHp: number;
   /** Nearer than this to the hero the archer backs away. */
@@ -318,6 +327,14 @@ export interface Params {
   porcupineHp: number;
   /** Damage of the quills to the hero for every chain hit on a porcupine (invulnerability does not protect). */
   porcupineQuills: number;
+  /**
+   * Iteration 2.1 (08.10.2026): the quills go up and down in a cycle — up `porcupineUpTime`, down `porcupineDownTime` game
+   * seconds, the start phase random (stream `behavior:porcupine`); `porcupineWarn` seconds before they go up they tremble.
+   * Down time 0 — always up (the quills of step 2); up time 0 — never up.
+   */
+  porcupineUpTime: number;
+  porcupineDownTime: number;
+  porcupineWarn: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -348,7 +365,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   bodyRadius: 0.4,
   enemyScale: 0.8,
   enemySpeed: 1.2,
-  speedSpread: 0.2,
+  speedSpread: 0.35,
   pathfinding: true,
   flowRate: 4,
   flowTurn: 8,
@@ -449,7 +466,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   frostFactor: 2,
   bombDamage: 6,
   bombRange: 5,
-  itemHeal: 8,
+  itemHeal: 9,
   fireRadius: 1,
   fireDamage: 1,
   fireInterval: 1.5,
@@ -489,6 +506,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shieldArc: 120,
   shieldTurn: 90,
   shieldSpeed: 0.8,
+  shieldWanderMin: 2,
+  shieldWanderMax: 4,
+  shieldFollowsHero: false,
   archerHp: 0,
   archerNear: 4,
   archerFar: 6,
@@ -506,6 +526,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   sapperDamage: 2,
   porcupineHp: 1,
   porcupineQuills: 1,
+  porcupineUpTime: 2.5,
+  porcupineDownTime: 2,
+  porcupineWarn: 0.5,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -634,7 +657,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('frostFactor', 'Расходники', 'Холод: следующий удар цепи по замёрзшему', 1, 4, 0.5, 5, '×'),
   n('bombDamage', 'Расходники', 'Бомба (2): урон врагу под курсором', 0, 20, 1, 5),
   n('bombRange', 'Расходники', 'Бомба: не дальше от героя', 1, 16, 0.25, 5, 'ед.'),
-  n('itemHeal', 'Расходники', 'Лечение (3): HP', 0, 20, 1, 5, '', 'Эликсир пошаговой игры +3 × 2,4, вверх. Не выше максимума; при полном здоровье не тратится.'),
+  n('itemHeal', 'Расходники', 'Лечение (3): HP', 0, 20, 1, 5, '', 'Эликсир пошаговой игры +3 × 3 (HP похода 15 ÷ 5). Не выше максимума; при полном здоровье не тратится.'),
   n('fireRadius', 'Расходники', 'Огонь (4): радиус вокруг цели', 0, 4, 0.05, 5, 'ед.'),
   n('fireDamage', 'Расходники', 'Огонь: урон за раз', 0, 6, 1, 5),
   n('fireInterval', 'Расходники', 'Огонь: раз в', 0.1, 5, 0.1, 5, 'с'),
@@ -681,8 +704,12 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'wolfPackMono', group: 'Волк', label: 'Стая одного цвета', stage: 3, hint: 'Выключено: цвет волков в стае — как у групп (переключатель «Цвет группы»).' },
   n('shieldHp', 'Щитоносец', 'HP щитоносца', 0, 6, 1, 5),
   n('shieldArc', 'Щитоносец', 'Дуга щита', 0, 360, 5, 5, '°', 'Звено нельзя взять, если якорь (предыдущее звено или герой) стоит в этой дуге перед щитоносцем.'),
-  n('shieldTurn', 'Щитоносец', 'Поворот щита к герою', 0, 720, 5, 5, '°/с', 'Герой (4 ед/с) обходит щитоносца быстрее, чем поворачивается щит.'),
+  n('shieldTurn', 'Щитоносец', 'Поворот щита', 0, 720, 5, 5, '°/с', 'Щит поворачивается к новому направлению (или к герою, если щит следит за ним) не быстрее этого. Герой (4 ед/с) обходит щитоносца быстрее, чем поворачивается щит.'),
   n('shieldSpeed', 'Щитоносец', 'Скорость щитоносца', 0.1, 2, 0.05, 5, '×'),
+  n('shieldWanderMin', 'Щитоносец', 'Смена направления щита: от', 0.1, 20, 0.1, 5, 'с', 'Раз в случайный срок от … до … щитоносец выбирает новое случайное направление щита.'),
+  n('shieldWanderMax', 'Щитоносец', 'Смена направления щита: до', 0.1, 20, 0.1, 5, 'с'),
+  { kind: 'bool', key: 'shieldFollowsHero', group: 'Щитоносец', label: 'Песочница: щит следит за героем', stage: 5,
+    hint: 'Только песочница: прежний щит (шаг 2) — поворачивается к герою. В походе выключен.' },
   n('archerHp', 'Лучник', 'HP лучника', 0, 6, 1, 5),
   n('archerNear', 'Лучник', 'Отходит, если герой ближе', 0, 10, 0.25, 5, 'ед.'),
   n('archerFar', 'Лучник', 'Подходит, если герой дальше', 0, 12, 0.25, 5, 'ед.'),
@@ -699,7 +726,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('sapperRadius', 'Сапёр', 'Радиус взрыва', 0.25, 4, 0.05, 5, 'ед.'),
   n('sapperDamage', 'Сапёр', 'Урон взрыва', 0, 6, 1, 5, '', 'Всем в радиусе: герою (неуязвимость защищает) и врагам. Убийства взрывом сапёра, убитого игроком, засчитываются; подожжённого касанием — нет.'),
   n('porcupineHp', 'Дикобраз', 'HP дикобраза', 0, 6, 1, 5),
-  n('porcupineQuills', 'Дикобраз', 'Иглы: урон герою за удар цепи', 0, 6, 1, 5, '', 'Каждый удар цепи по дикобразу ранит героя — и на проходе, и при неуязвимости.'),
+  n('porcupineQuills', 'Дикобраз', 'Иглы: урон герою за удар цепи', 0, 6, 1, 5, '', 'Удар цепи по дикобразу ранит героя, если иглы были подняты в момент отпускания цепи, — и на проходе, и при неуязвимости.'),
+  n('porcupineUpTime', 'Дикобраз', 'Иглы подняты', 0, 10, 0.1, 5, 'с', '0 — иглы никогда не поднимаются.'),
+  n('porcupineDownTime', 'Дикобраз', 'Иглы опущены', 0, 10, 0.1, 5, 'с', '0 — иглы подняты всегда (как на шаге 2).'),
+  n('porcupineWarn', 'Дикобраз', 'Иглы дрожат перед подъёмом', 0, 3, 0.1, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;
@@ -739,10 +769,11 @@ export function defaultParams(): Params { return sanitizeParams(null); }
 /**
  * Panel values that stand in for rules of the run (review finding B of step 3; design: in a run the hero anchor comes only
  * from its talisman, elites only from the arena template, the event and the random elites from run row 3): the sandbox
- * toggles «Якорь у героя», «Песочница: случайные элиты» and the sandbox talisman. A run arena gets them off whatever the
+ * toggles «Якорь у героя», «Песочница: случайные элиты», the sandbox talisman and (iteration 2.1) «Песочница: щит следит
+ * за героем». A run arena gets them off whatever the
  * saved panel holds.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '' });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false });
 /** The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`). */
 export function runParams(params: Params): Params { return Object.assign(copyParams(params), RUN_FORCED); }
 

@@ -54,7 +54,8 @@ const statusOf = (w: World): string => w.status;
 
 check('spin: 4 to every enemy within 1.2 of the hero — any colour, a shield facing the hero — for 3 energy, kills credited', () => {
   for (let k = 1; k <= 4; k++) {
-    const sim = fight('shields', quiet(), seedOf(k)), w = sim.world;
+    // The toggle «щит следит за героем» (iteration 2.1) turns the shield to the hero: the spin ignores it all the same.
+    const sim = fight('shields', quiet({ shieldFollowsHero: true }), seedOf(k)), w = sim.world;
     sim.command({ t: 'teleport', x: 8, y: 5 });
     const weak = place(sim, 9, 5, 'basic', 0, 0);
     const four = place(sim, 7, 5, 'basic', 1, 4);
@@ -117,7 +118,8 @@ check('spin: not during the dash or a jump; while a chain is drawn it works and 
 });
 
 check('spin: a porcupine struck by it does not hurt the hero (quills answer the chain only); a sapper it kills blows up as the player\'s', () => {
-  const sim = fight('powder', quiet(), seedOf(7)), w = sim.world;
+  // Quills always up (slider «иглы опущены» 0, iteration 2.1): a chain hit would hurt.
+  const sim = fight('powder', quiet({ porcupineDownTime: 0 }), seedOf(7)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   const porcupine = place(sim, 8.9, 5, 'porcupine', 0, 1);
   const sapper = place(sim, 7.1, 5, 'sapper', 1, 0);
@@ -190,7 +192,7 @@ check('cold: the next chain hit on a frozen enemy is ×2 (the highlight shows it
 check('cold switches off the mechanic of each new enemy: the shield, the arrow, the fuse of a living sapper, the quills', () => {
   // Shield: frozen, it is taken from the front.
   {
-    const sim = armed('shields', quiet(), seedOf(15)), w = sim.world;
+    const sim = armed('shields', quiet({ shieldFollowsHero: true }), seedOf(15)), w = sim.world;
     sim.command({ t: 'teleport', x: 8, y: 5 });
     const shield = place(sim, 9.2, 5, 'shield', 1, 1);
     assert(!sim.command({ t: 'begin', x: shield.x, y: shield.y }), 'the shield faces the hero');
@@ -237,7 +239,7 @@ check('cold switches off the mechanic of each new enemy: the shield, the arrow, 
   }
   // Porcupine: a frozen one does not hurt the hero when struck.
   {
-    const sim = armed('thorns', quiet(), seedOf(19)), w = sim.world;
+    const sim = armed('thorns', quiet({ porcupineDownTime: 0 }), seedOf(19)), w = sim.world;
     sim.command({ t: 'teleport', x: 8, y: 5 });
     const porcupine = place(sim, 9.2, 5, 'porcupine', 0, 1);
     const hp = hpOf(w);
@@ -260,10 +262,10 @@ check('bomb: 6 to the enemy under the pointer within 5 of the hero; farther — 
   }
 });
 
-check('healing: +8, not above the maximum; at full HP it is not spent', () => {
-  const sim = fight('kills', quiet(), seedOf(24), { hero: { hp: 3, maxHp: 12 }, loadout: { items: { healing: 2 } } }), w = sim.world;
-  assert(use(sim, 'healing', 0, 0) && hpOf(w) === 11 && itemsOf(w, 'healing') === 1, `3 → ${hpOf(w)}`);
-  assert(use(sim, 'healing', 0, 0) && hpOf(w) === 12 && itemsOf(w, 'healing') === 0, 'capped at 12');
+check('healing: +9 (the turn-based elixir +3 × 3, iteration 2.1), not above the maximum; at full HP it is not spent', () => {
+  const sim = fight('kills', quiet(), seedOf(24), { hero: { hp: 3, maxHp: 15 }, loadout: { items: { healing: 2 } } }), w = sim.world;
+  assert(use(sim, 'healing', 0, 0) && hpOf(w) === 12 && itemsOf(w, 'healing') === 1, `3 → ${hpOf(w)}`);
+  assert(use(sim, 'healing', 0, 0) && hpOf(w) === 15 && itemsOf(w, 'healing') === 0, 'capped at 15');
   const full = fight('kills', quiet(), seedOf(25), { loadout: { items: { healing: 1 } } }), wf = full.world;
   assert(itemRefusal(wf, 'healing', wf.hero) === 'full' && !use(full, 'healing', 0, 0) && itemsOf(wf, 'healing') === 1, 'full HP: refused');
   assert(replays(sim), 'replay');
@@ -292,7 +294,7 @@ check('fire: the enemy under the pointer and those within 1 of it burn — 1 eve
   }
 });
 
-check('cold ×2 is fixed at the release (review finding A): a link that thaws on the way still takes ×2; its mechanic comes back with the thaw', () => {
+check('cold ×2 is fixed at the release (review finding A): a link that thaws on the way still takes ×2; the quills are fixed at the release too (iteration 2.1)', () => {
   // The reviewer's scenario: three weak links, then an HP 6 enemy frozen 170 ticks before the release (0.17 s of cold left).
   for (const wait of [0, 150, 170, 175, 178]) {
     const sim = fight('kills', quiet(), 77, { loadout: { items: { frost: 3 } } }), w = sim.world;
@@ -309,8 +311,10 @@ check('cold ×2 is fixed at the release (review finding A): a link that thaws on
     if (wait === 170) assert(frozen && !alive(w, tough), 'thawed on the way, still ×2');
     assert(replays(sim), 'replay');
   }
-  // Only the ×2 is fixed: a porcupine frozen at the release that thaws on the way gets its quills back (the hero −1).
-  const sim = fight('thorns', quiet(), seedOf(78), { loadout: { items: { frost: 1 } } }), w = sim.world;
+  // Iteration 2.1 (design decision 3): the quills are fixed at the release as the ×2 — a porcupine frozen at the release has
+  // no quills then, and thawing on the way does not bring them back for this dash (step 3 gave them back: the hero −1).
+  // Quills always up (slider «иглы опущены» 0): they are up as soon as it thaws (on the way, as step 3 showed).
+  const sim = fight('thorns', quiet({ porcupineDownTime: 0 }), seedOf(78), { loadout: { items: { frost: 1 } } }), w = sim.world;
   sim.command({ t: 'teleport', x: 3, y: 2 });
   const weak = [place(sim, 4.2, 2, 'basic', 0, 0), place(sim, 5.6, 2, 'basic', 0, 0)];
   const porcupine = place(sim, 7, 2, 'porcupine', 0, 6);
@@ -321,7 +325,7 @@ check('cold ×2 is fixed at the release (review finding A): a link that thaws on
   sim.command({ t: 'drag', x: porcupine.x, y: porcupine.y, mode: 'full' });
   const hp = hpOf(w);
   sim.command({ t: 'release' }); settle(sim);
-  assert(!alive(w, porcupine) && hpOf(w) === hp - 1, `×2 kept (power 3 × 2 kills HP 6), quills back: HP ${hp} → ${hpOf(w)}`);
+  assert(!alive(w, porcupine) && hpOf(w) === hp, `×2 kept (power 3 × 2 kills HP 6), no quills (frozen at the release): HP ${hp} → ${hpOf(w)}`);
 });
 
 check('cold ×2 follows the turn-based brittleness (design answer 7): the spin 4 → 8 and spends it; a bomb neither doubles nor spends it', () => {
@@ -380,7 +384,8 @@ const lootOf = (w: World) => w.objects.filter(o => o.kind === 'loot');
 const hpOfE = (e: Enemy): number => e.hp;
 
 check('elite: HP ×2 (a weak one gets 1), +1 to every hit on the hero (touch here), a larger press circle; an elite shieldbearer keeps its shield', () => {
-  const sim = fight('shields', quiet({ contactDamage: 1 }), seedOf(40)), w = sim.world;
+  // The toggle «щит следит за героем» (iteration 2.1) puts the shield in front of the hero.
+  const sim = fight('shields', quiet({ contactDamage: 1, shieldFollowsHero: true }), seedOf(40)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   const weak = placeElite(sim, 3, 8.5, 'basic', 0, 0), two = placeElite(sim, 13, 8.5, 'basic', 1, 2);
   assert(weak.elite && weak.hp === 1 && two.hp === 4, `HP ${weak.hp}, ${two.hp}`);
@@ -422,7 +427,7 @@ check('elite +1 to every hit on the hero (design answer 5): the arrow, the boar 
   }
   // A porcupine struck by a chain: quills 1 → 2.
   for (const [elite, loss] of [[false, 1], [true, 2]] as const) {
-    const sim = fight('thorns', quiet(), seedOf(72)), w = sim.world;
+    const sim = fight('thorns', quiet({ porcupineDownTime: 0 }), seedOf(72)), w = sim.world;
     sim.command({ t: 'teleport', x: 8, y: 5 });
     const p = elite ? placeElite(sim, 9.2, 5, 'porcupine', 0, 1) : place(sim, 9.2, 5, 'porcupine', 0, 1);
     const hp = hpOf(w);
