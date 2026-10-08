@@ -16,7 +16,16 @@ export const RT_HP_SCALE = RT_RUN_HP / FOREST_RUN_START_HP;
  * A turn-based HP number in real-time HP: ×RT_HP_SCALE, the magnitude rounded up (1 → 3, 2 → 6, −1 → −3, 0 → 0).
  * Multiplication comes first, so whole numbers divide exactly (5 → 15).
  */
+/** The turn-based elixir heals 3 HP (game/items.ts, «Лечебный эликсир»). */
+const TURN_ELIXIR_HEAL = 3;
+
 export function rtHp(turnBased: number): number {
   if (!turnBased) return 0;
   return Math.sign(turnBased) * Math.ceil(Math.abs(turnBased) * RT_RUN_HP / FOREST_RUN_START_HP);
 }
+
+/**
+ * Iteration 2.1 (design answer 08.10.2026): the healing consumable of a run arena heals the elixir in run HP — rtHp(3) = 9,
+ * whatever the saved panel holds (the panel slider «Лечение» acts only in the sandbox), as the run sets the HP.
+ */
+export const RT_ITEM_HEAL = rtHp(TURN_ELIXIR_HEAL);

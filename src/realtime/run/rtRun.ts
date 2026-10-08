@@ -34,7 +34,8 @@ import { isRtOath, isRtTalisman, RT_DEW_FLASK_HEAL, RT_OATH_ENERGY, RT_TOUGH_HID
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
 import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, RUN_ARENAS, runRow } from './arenaPools';
-import { rtHp, RT_RUN_HP } from './hpScale';
+import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
+import { runParams, type Params } from '../sim/params';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
@@ -45,6 +46,11 @@ import type { Loadout } from '../sim/kit';
  * stock. A version 1 save (step 1–2) reads as no run: the slice is a prototype, its runs are short (decision of step 3).
  */
 export const RT_RUN_VERSION = 2;
+
+/** Iteration 2.1: numbers a run arena takes from the run, not from the saved panel (the healing consumable: rtHp(3) = 9). */
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL });
+/** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
+export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
 /**
  * What kind of arena a battle node plays: an ordinary battle (the pool of its row), a hard battle («Застава»), the final

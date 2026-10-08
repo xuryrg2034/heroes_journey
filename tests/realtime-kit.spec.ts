@@ -114,7 +114,7 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 0); });
   const hurt = (await kitSnap(page)).hero.hp;
   await page.keyboard.press('3');
-  await expect.poll(async () => (await kitSnap(page)).hero.hp).toBe(Math.min(12, hurt + 9));
+  await expect.poll(async () => (await kitSnap(page)).hero.hp).toBe(Math.min(15, hurt + 9));
   await expect(page.getByTestId('item-healing')).toHaveText(/×2/);
   const s = await kitSnap(page);
   expect(s.itemsShown).toEqual({ frost: 1, bomb: 1, healing: 1, fire: 1 });

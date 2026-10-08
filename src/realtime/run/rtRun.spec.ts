@@ -37,7 +37,7 @@ import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
   arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
-  rtChooseTalisman, rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue,
+  rtChooseTalisman, rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
 } from './rtRun';
 import type { ItemKind } from '../sim/kit';
@@ -1241,6 +1241,25 @@ check('consumables noticed (iteration 2.1): gained kinds wait for the next arena
     checked++;
   }
   assert(checked === 2, `runs checked ${checked}`);
+});
+
+check('a run arena heals rtHp(3) = 9 with the healing consumable whatever the saved panel says; the sandbox keeps its slider (iteration 2.1)', () => {
+  const saved = Object.assign(defaultParams(), { itemHeal: 4 });
+  assert(rtRunParams(saved).itemHeal === 9 && saved.itemHeal === 4 && defaultParams().heroHp === 15, 'the run copy heals 9, the panel keeps 4; sandbox HP 15');
+  let checked = 0;
+  for (let k = 1; k <= 3; k++) {
+    // A run with a healing consumable in hand, its first arena with the saved panel as the page builds it.
+    let run = nextArena(takeGift(createRtRun(seedOf32(k + 2300), { gift: 'mini' })));
+    run = { ...run, hp: 2, items: { ...run.items, healing: 1 }, openItems: run.openItems.includes('healing') ? run.openItems : [...run.openItems, 'healing'] };
+    const sim = startArena(run, rtRunParams(saved)), w = sim.world;
+    assert(sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y }) === true, 'healing used');
+    assert(w.hero.hp === Math.min(run.maxHp, 2 + rtHp(3)) && w.hero.hp === 11, `run arena: 2 → ${w.hero.hp}`);
+    // The sandbox: the same saved panel heals by its slider.
+    const box = new Simulation({ arena: 'kills', params: saved, seed: seedOf32(k), hero: { hp: 2, maxHp: 15 }, loadout: { items: { healing: 1 } } });
+    assert(box.command({ t: 'item', kind: 'healing', x: box.world.hero.x, y: box.world.hero.y }) === true && box.world.hero.hp === 6, `sandbox: 2 → ${box.world.hero.hp}`);
+    checked++;
+  }
+  assert(checked === 3, 'checked');
 });
 
 console.log(`realtime-run: ${checks} checks passed`);

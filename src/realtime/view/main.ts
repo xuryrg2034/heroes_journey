@@ -20,7 +20,8 @@ import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit
 import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, jumpCostOf, planChain, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inWater, setFlowClock, type Vec } from '../sim/geometry';
-import { crowdLifetime, defaultParams, runParams, type ParamKey } from '../sim/params';
+import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
+import { rtRunParams } from '../run/rtRun';
 import { Simulation } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
@@ -129,7 +130,8 @@ async function boot(): Promise<void> {
   const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
   // Review finding B of step 3: a run plays the saved panel with the sandbox stand-ins of run rules off (the hero anchor
   // only from its talisman, elites only from the template, events and run row 3); the run has no panel, nothing is saved.
-  const params = sandbox ? loadParams() : runParams(loadParams());
+  // Iteration 2.1: and the run's own numbers (the healing consumable heals rtHp(3) = 9 whatever the panel says).
+  const params = sandbox ? loadParams() : rtRunParams(loadParams());
   // An anchor link does not reload the page: switching between the run and the sandbox by the anchor boots again.
   window.addEventListener('hashchange', () => { if ((location.hash === '#sandbox') !== sandbox && urlParams.get('sandbox') !== '1') location.reload(); });
 
