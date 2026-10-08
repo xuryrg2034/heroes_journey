@@ -58,6 +58,7 @@
     "test:realtime-terrain": "tsx src/realtime/sim/terrain.spec.ts",
     "test:realtime-slice-terrain": "tsx src/realtime/sim/sliceTerrain.spec.ts",
     "test:realtime-behavior": "tsx src/realtime/sim/behavior.spec.ts",
+    "test:realtime-camera": "tsx src/realtime/view/camera.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",
