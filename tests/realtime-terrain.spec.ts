@@ -97,6 +97,40 @@ test('terrain samples: the menu lists them under their heading; ⇧1–⇧5 open
   expect(errors).toEqual([]);
 });
 
+/** Stage 3a, step 2: the terrain of the slice arenas 4–10 (one feature each; 9 and 10 two). The gorge is walls only. */
+const SLICE = [
+  { n: 4, id: 'shields', terrain: { river: 0, cliff: 0, thorns: 0 }, braziers: 2 },
+  { n: 5, id: 'archers', terrain: { river: 0, cliff: 0, thorns: 0 }, braziers: 0 },
+  { n: 6, id: 'powder', terrain: { river: 0, cliff: 2, thorns: 0 }, braziers: 0 },
+  { n: 7, id: 'thorns', terrain: { river: 0, cliff: 0, thorns: 3 }, braziers: 0 },
+  { n: 8, id: 'ford', terrain: { river: 1, cliff: 0, thorns: 0 }, braziers: 0 },
+  { n: 9, id: 'outpost', terrain: { river: 0, cliff: 1, thorns: 0 }, braziers: 0 },
+  { n: 10, id: 'last-stand', terrain: { river: 0, cliff: 0, thorns: 0 }, braziers: 2 },
+];
+
+test('arenas 4–10 (stage 3a, step 2): `?arena=4…10` opens each with its terrain drawn and its braziers lit; the horde comes; no errors', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  for (const s of SLICE) {
+    await page.goto(`/realtime.html?sandbox=1&arena=${s.n}`);
+    await expect.poll(() => page.evaluate(() => (window as any).__realtime?.snapshot().arena)).toBe(s.id);
+    await expect(page.getByTestId('menu')).toBeHidden();
+    const start = await snap(page);
+    expect(start.terrain, `${s.id}: terrain drawn`).toEqual(s.terrain);
+    expect(start.objects.filter(o => o.kind === 'brazier').length, `${s.id}: braziers`).toBe(s.braziers);
+    if (s.braziers) await expect.poll(async () => (await snap(page)).signals.braziersLit).toBe(s.braziers);
+    // Nothing hurts the standing hero: the horde comes and the fight goes on.
+    await page.evaluate(() => { const rt = (window as any).__realtime; for (const key of ['contactDamage', 'archerDamage', 'sapperDamage', 'thornDamage', 'eliteDamageBonus', 'porcupineQuills']) rt.setParam(key, 0); });
+    await expect.poll(async () => (await snap(page)).time, { timeout: 30_000 }).toBeGreaterThan(3);
+    const later = await snap(page);
+    expect(later.enemies.length, `${s.id}: enemies`).toBeGreaterThan(0);
+    expect(later.status).toBe('playing');
+    expect(later.heroOverCliff).toBe(false);
+    await page.screenshot({ path: `artifacts/realtime-terrain-arena-${s.n}.png` });
+  }
+  expect(errors).toEqual([]);
+});
+
 test('terrain samples: `?arena=11…15` opens each at once', async ({ page }) => {
   const errors = collectErrors(page);
   for (const s of SAMPLES) {

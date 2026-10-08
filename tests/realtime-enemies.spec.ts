@@ -92,7 +92,8 @@ test('archer: arena 5 opens with three marked archers; its line is drawn for abo
   expect(start.enemies.filter(e => e.kind === 'archer')).toHaveLength(3);
   await expect(page.getByTestId('goal')).toHaveText('отмеченные 0 / 3');
   await quiet(page);
-  await place(page, 3, 5, 'archer', 2);
+  // Stage 3a, step 2: below the hero between the ridges (x 6–10 is open) — at (3, 5) the left ridge hides him now.
+  await place(page, 8, 9.2, 'archer', 2);
   // The line appears after the first delay (1 s) and fills up while it stands.
   await expect.poll(async () => (await snap(page)).signals.arrowLanes, { timeout: 5_000, intervals: [20] }).toBe(1);
   const announced = await snap(page);

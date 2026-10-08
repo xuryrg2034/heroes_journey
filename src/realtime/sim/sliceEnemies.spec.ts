@@ -243,7 +243,12 @@ function newcomerKinds(arena: string, seed: number, seconds: number): string[] {
   const sim = new Simulation({ arena, params: p, seed }), seen = new Map<number, string>();
   for (let i = 0; i < seconds * 60; i++) {
     sim.tick();
-    for (const ev of sim.world.events) if (ev.type === 'spawn') seen.set(ev.enemyId, sim.world.enemies.find(e => e.id === ev.enemyId)?.kind ?? '?');
+    // A newcomer killed in the tick it stepped out (an arrow, a blast) is gone before it can be looked at: it is skipped
+    // (stage 3a, step 2: on the new layout of «Стрелковая гряда» an arrow met one at its step out).
+    for (const ev of sim.world.events) {
+      const kind = ev.type === 'spawn' ? sim.world.enemies.find(e => e.id === ev.enemyId)?.kind : undefined;
+      if (ev.type === 'spawn' && kind) seen.set(ev.enemyId, kind);
+    }
     sim.world.events.length = 0;
   }
   return [...seen.values()];
@@ -276,8 +281,9 @@ const hits = (w: World, source: string) => w.events.filter(ev => ev.type === 'hi
 check('archer: keeps 4–6 units from the hero — backs away when he comes nearer, walks up when he is farther', () => {
   const sim = fight('archers', quiet({ enemySpeed: 1.2, heroHp: 40, archerCooldown: 10 }), seedOf(6)), w = sim.world;
   sim.command({ t: 'clear', keepMarked: false });
-  sim.command({ t: 'teleport', x: 4, y: 5 });
-  const archer = place(sim, 6, 5.2, 'archer', 1);
+  // Stage 3a, step 2: the rows of the left ridge's gap (y 2–4) — the old open row y 5 is a ridge wall now.
+  sim.command({ t: 'teleport', x: 4, y: 3 });
+  const archer = place(sim, 6, 3.2, 'archer', 1);
   ticks(sim, 300);
   const near = dist(archer, w.hero);
   assert(near >= 3.95 && near <= 4.3, `backed away to ${near.toFixed(2)}`);
@@ -294,8 +300,9 @@ check('archer: announces a line for 1 s, then the arrow hurts the hero on it (1 
   for (let k = 7; k <= 9; k++) {
     const sim = fight('archers', quiet(), seedOf(k)), w = sim.world;
     sim.command({ t: 'clear', keepMarked: false });
-    sim.command({ t: 'teleport', x: 3, y: 5 });
-    const archer = place(sim, 8, 5, 'archer', 0);
+    // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
+    sim.command({ t: 'teleport', x: 3, y: 3 });
+    const archer = place(sim, 8, 3, 'archer', 0);
     const before = runUntil(sim, () => archer.vars.aim === 1);
     assert(before === 60, `announced after ${before} ticks (first delay 1 s)`);
     const len = archer.vars.len;
@@ -320,11 +327,12 @@ check('archer: announces a line for 1 s, then the arrow hurts the hero on it (1 
 check('archer: the arrow strikes enemies on the line — weak ones die, a tough one loses 1 HP; the kills are not the player\'s', () => {
   const sim = fight('archers', quiet(), seedOf(10)), w = sim.world;
   sim.command({ t: 'clear', keepMarked: false });
-  sim.command({ t: 'teleport', x: 2, y: 5 });
-  const archer = place(sim, 8.5, 5, 'archer', 0);
-  const weak = place(sim, 6.5, 5.3, 'basic', 1, 0);
-  const tough = place(sim, 4.5, 4.7, 'basic', 2, 2);
-  const off = place(sim, 5.5, 6.4, 'basic', 3, 0);
+  // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
+  sim.command({ t: 'teleport', x: 2, y: 3 });
+  const archer = place(sim, 8.5, 3, 'archer', 0);
+  const weak = place(sim, 6.5, 3.3, 'basic', 1, 0);
+  const tough = place(sim, 4.5, 2.7, 'basic', 2, 2);
+  const off = place(sim, 7, 4.4, 'basic', 3, 0);
   const kills: { credited?: boolean; source?: string }[] = [];
   runUntil(sim, () => { for (const ev of w.events) if (ev.type === 'kill') kills.push(ev); w.events.length = 0; return archer.vars.aim === 1; });
   runUntil(sim, () => { for (const ev of w.events) if (ev.type === 'kill') kills.push(ev); w.events.length = 0; return archer.vars.aim !== 1; });
@@ -341,16 +349,17 @@ check('archer: the arrow strikes enemies on the line — weak ones die, a tough 
 check('archer: the arrow respects the hero\'s invulnerability (after a chain), and the cold stops the shot', () => {
   const sim = fight('archers', quiet(), seedOf(11)), w = sim.world;
   sim.command({ t: 'clear', keepMarked: false });
-  sim.command({ t: 'teleport', x: 3, y: 5 });
-  const archer = place(sim, 8, 5, 'archer', 0);
-  const prey = place(sim, 4, 5, 'basic', 1, 0);
+  // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
+  sim.command({ t: 'teleport', x: 3, y: 3 });
+  const archer = place(sim, 8, 3, 'archer', 0);
+  const prey = place(sim, 4, 3, 'basic', 1, 0);
   runUntil(sim, () => archer.vars.aim === 1);
   ticks(sim, 50);
   // 10 ticks before the arrow: a chain kill on the line leaves the hero 0.5 s of invulnerability.
   sim.command({ t: 'begin', x: prey.x, y: prey.y });
   sim.command({ t: 'release' });
   runUntil(sim, () => archer.vars.aim !== 1);
-  assert(!alive(w, prey) && w.hero.chainShield > 0 && Math.abs(w.hero.y - 5) < 1e-6, 'the hero stands on the line, shielded');
+  assert(!alive(w, prey) && w.hero.chainShield > 0 && Math.abs(w.hero.y - 3) < 1e-6, 'the hero stands on the line, shielded');
   assert(w.hero.hp === w.hero.maxHp, `invulnerable: HP ${w.hero.hp}`);
   // The next line: frozen in the middle of the announcement, the archer does not shoot until it thaws.
   runUntil(sim, () => archer.vars.aim === 1);
@@ -373,8 +382,9 @@ check('arena 5 «Стрелковая гряда»: three marked archers are the
   const sim = new Simulation({ arena: 'archers', params: quiet(), seed: seedOf(12), record: true }), w = sim.world;
   sim.command({ t: 'clear', keepMarked: true });
   // The marked archer at the top left (7.8, 1.2); the hero to its right, another archer to its left: the line passes it.
+  // Stage 3a, step 2: the hero stands between the ridges (x 9.6) — the right ridge (x 10–11) would hide him at x 11.5.
   const target = w.enemies.find(e => e.marked && e.x < 9)!;
-  sim.command({ t: 'teleport', x: 11.5, y: target.y });
+  sim.command({ t: 'teleport', x: 9.6, y: target.y });
   const shooter = place(sim, 6.6, target.y, 'archer', 1);
   runUntil(sim, () => shooter.vars.aim === 1);
   runUntil(sim, () => shooter.vars.aim !== 1);
@@ -707,30 +717,32 @@ check('Поляна of the run: only basic enemies come (no wolf packs, no boars
 });
 
 check('archer: a pond does not cut its line (the arrow flies over the water), a tree does; the first delay is the slider', () => {
-  // Arena 5: the pond at (12.6, 8.4), r 0.7. The archer east of it, the hero west: the line crosses the water.
-  const sim = fight('archers', quiet({ archerFirstDelay: 0.5 }), seedOf(30)), w = sim.world;
-  sim.command({ t: 'teleport', x: 9.6, y: 8.4 });
-  const archer = place(sim, 15, 8.4, 'archer', 0);
+  // Stage 3a, step 2: arena 5 has no pond and no tree any more (its ridges are walls) — the check plays on arena 1
+  // «Убить 30»: the pond at (12.6, 4.6), r 0.95. The archer east of it, the hero west: the line crosses the water.
+  const sim = fight('kills', quiet({ archerFirstDelay: 0.5 }), seedOf(30)), w = sim.world;
+  sim.command({ t: 'teleport', x: 9.6, y: 4.6 });
+  const archer = place(sim, 15, 4.6, 'archer', 0);
   const first = runUntil(sim, () => archer.vars.aim === 1);
   assert(first === 30, `first line after ${first} ticks (slider 0.5 s)`);
   assert(Math.abs(archer.vars.len - 7) < 1e-9, `over the pond the line is whole: ${archer.vars.len}`);
   runUntil(sim, () => archer.vars.aim !== 1);
   assert(w.hero.hp === w.hero.maxHp - 1, 'the arrow over the water hits the hero');
-  // A tree (8, 2.4) behind the hero: the line stops at its trunk (len ≈ 14 − 8 − 0.42), the hero in front of it is hit.
-  const tree = fight('archers', quiet(), seedOf(31)), tw = tree.world;
-  tree.command({ t: 'teleport', x: 10, y: 2.4 });
-  const behind = place(tree, 14, 2.4, 'archer', 0);
+  // Arena 1: a tree (5.5, 7.5) behind the hero: the line stops at its trunk (len ≈ 9.6 − 5.5 − 0.42), the hero in front of it is hit.
+  const tree = fight('kills', quiet(), seedOf(31)), tw = tree.world;
+  tree.command({ t: 'teleport', x: 7.5, y: 7.5 });
+  const behind = place(tree, 9.6, 7.5, 'archer', 0);
   runUntil(tree, () => behind.vars.aim === 1);
-  assert(Math.abs(behind.vars.len - 5.58) < 0.06, `the trunk cuts the line: ${behind.vars.len.toFixed(2)}`);
+  assert(Math.abs(behind.vars.len - 3.68) < 0.06, `the trunk cuts the line: ${behind.vars.len.toFixed(2)}`);
   runUntil(tree, () => behind.vars.aim !== 1);
   assert(tw.hero.hp === tw.hero.maxHp - 1, 'the hero in front of the tree is hit');
 });
 
 check('review: an enemy killed by an arrow in the walk loop does not make the next enemy skip its step', () => {
   const sim = fight('archers', quiet({ enemySpeed: 1.2 }), seedOf(32)), w = sim.world;
-  sim.command({ t: 'teleport', x: 2, y: 5 });
+  // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
+  sim.command({ t: 'teleport', x: 2, y: 3 });
   // The order of the list: the victim on the line, the archer, a walker off the line (index after the victim).
-  const victim = place(sim, 6, 5, 'basic', 1, 0), archer = place(sim, 8, 5, 'archer', 0), walker = place(sim, 4, 8.5, 'basic', 2, 5);
+  const victim = place(sim, 6, 3, 'basic', 1, 0), archer = place(sim, 8, 3, 'archer', 0), walker = place(sim, 4, 8.5, 'basic', 2, 5);
   let shot = false, guard = 0, prev = 0;
   while (!shot && guard++ < 300) {
     const before = { x: walker.x, y: walker.y }, aiming = archer.vars.aim === 1;
@@ -842,9 +854,10 @@ check('A: links of the released chain killed on the way by the chain\'s own sapp
 
 check('A: links killed on the way by an arrow give power but are not the player\'s; the chain shield counts the chain\'s own kills', () => {
   const sim = fight('powder', quiet({ chainShieldMinKills: 4 }), seedOf(41)), w = sim.world;
-  sim.command({ t: 'teleport', x: 3, y: 5 });
-  const archer = place(sim, 9.9, 5, 'archer', 1);
-  const a = place(sim, 4.2, 6, 'basic', 0), b = place(sim, 5.5, 5, 'basic', 0), c = place(sim, 6.8, 5, 'basic', 0), d = place(sim, 8, 6.2, 'basic', 0), e = place(sim, 9, 7.2, 'basic', 0, 4);
+  // Stage 3a, step 2: the scenario runs along the top of «Пороховой склад» (y 1.6–3.8) — the old row y 5–7 crosses its west ravine now.
+  sim.command({ t: 'teleport', x: 3, y: 1.6 });
+  const archer = place(sim, 9.6, 1.6, 'archer', 1);
+  const a = place(sim, 4.2, 2.6, 'basic', 0), b = place(sim, 5.5, 1.6, 'basic', 0), c = place(sim, 6.8, 1.6, 'basic', 0), d = place(sim, 8, 2.8, 'basic', 0), e = place(sim, 9, 3.8, 'basic', 0, 4);
   runUntil(sim, () => archer.vars.aim === 1);
   runUntil(sim, () => archer.vars.timer <= 3 / 60 + 1e-9);
   const kills: { enemyId: number; source?: string; credited?: boolean }[] = [];
@@ -862,18 +875,19 @@ check('A: links killed on the way by an arrow give power but are not the player\
 check('A: a porcupine link killed on the way gives no quills; links lost while the chain is drawn drop out', () => {
   // Quills always up (slider «иглы опущены» 0): the porcupine would hurt if it were struck.
   const sim = fight('powder', quiet({ porcupineDownTime: 0 }), seedOf(42)), w = sim.world;
-  sim.command({ t: 'teleport', x: 3, y: 5 });
-  const archer = place(sim, 9.9, 5, 'archer', 1);
-  const a = place(sim, 4.2, 6, 'basic', 0), quill = place(sim, 5.5, 5, 'porcupine', 0, 0), d = place(sim, 6.6, 6.2, 'basic', 0);
+  // Stage 3a, step 2: the scenario runs along the top of «Пороховой склад» (y 1.6–3.8) — the old row y 5–7 crosses its west ravine now.
+  sim.command({ t: 'teleport', x: 3, y: 1.6 });
+  const archer = place(sim, 9.6, 1.6, 'archer', 1);
+  const a = place(sim, 4.2, 2.6, 'basic', 0), quill = place(sim, 5.5, 1.6, 'porcupine', 0, 0), d = place(sim, 6.6, 2.8, 'basic', 0);
   runUntil(sim, () => archer.vars.aim === 1);
   runUntil(sim, () => archer.vars.timer <= 3 / 60 + 1e-9);
   dashAll(sim, [a, quill, d]);
   assert(!alive(w, quill) && hits(w, 'quills') === 0 && w.hero.hp === w.hero.maxHp, 'no quills from a porcupine killed by the arrow');
   // While drawing: a link killed by the arrow drops out of the drawn chain (it is not released yet).
   const sim2 = fight('powder', quiet(), seedOf(43)), w2 = sim2.world;
-  sim2.command({ t: 'teleport', x: 3, y: 5 });
-  const archer2 = place(sim2, 9.9, 5, 'archer', 1);
-  const x1 = place(sim2, 4.2, 6, 'basic', 0), x2 = place(sim2, 5.5, 5, 'basic', 0);
+  sim2.command({ t: 'teleport', x: 3, y: 1.6 });
+  const archer2 = place(sim2, 9.6, 1.6, 'archer', 1);
+  const x1 = place(sim2, 4.2, 2.6, 'basic', 0), x2 = place(sim2, 5.5, 1.6, 'basic', 0);
   runUntil(sim2, () => archer2.vars.aim === 1);
   sim2.command({ t: 'begin', x: x1.x, y: x1.y });
   sim2.command({ t: 'drag', x: x2.x, y: x2.y, mode: 'full' });
