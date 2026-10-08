@@ -11,17 +11,24 @@
  * arenas 4–7 of the new enemies, step 4 the mixed arenas 8–10 (sim/arenas.ts SLICE_ARENAS): «Брод» joins the pools of run
  * rows 6–9, every hard battle plays «Застава» (`HARD_ARENA`), every boss node the final arena «Последний рубеж»
  * (`FINAL_ARENA`). Every run row 1–9 has arenas of its own: the temporary stand-ins of steps 1–3 are gone.
+ *
+ * Stage 3a (design answer 4б, 09.10.2026): the behaviour arenas «Рысье логово» (rows 4–7) and «Круг шамана» (rows 5–8)
+ * join the pools as ordinary candidates of their rows. The lynx and the shaman are not among `NEW_KINDS`: the rule of
+ * the first meeting and of the overdue kind does not apply to them (no mixed arena has them).
  */
 import { FOREST_TRUNK_LAST_ROW } from '../../game/run/forestMap';
 import { pickPoolBattle } from '../../game/run/battlePools';
 import { arenaTemplate } from '../sim/arenas';
+// The behaviour arenas register themselves (the pools name them without going through the simulation).
+import '../sim/arenasStage3';
 
 /** An arena of a pool and the run rows it stands on (inclusive). */
 export interface ArenaPoolEntry { arena: string; rows: readonly [number, number] }
 
 /**
  * Баланс: the pools (docs/realtime-slice.md, section 5: Поляна 1–3, Двор кнопок 1–4, Логово 2–5; step 2: Стена щитов 3–6,
- * Стрелковая гряда 4–7, Пороховой склад 4–8, Колючие заросли 5–8; step 4: Брод 6–9).
+ * Стрелковая гряда 4–7, Пороховой склад 4–8, Колючие заросли 5–8; step 4: Брод 6–9; stage 3a: Рысье логово 4–7, Круг
+ * шамана 5–8 — at the end of the list, so the order of the earlier candidates stays).
  */
 export const ARENA_POOLS: readonly ArenaPoolEntry[] = [
   { arena: 'glade', rows: [1, 3] },
@@ -32,6 +39,8 @@ export const ARENA_POOLS: readonly ArenaPoolEntry[] = [
   { arena: 'powder', rows: [4, 8] },
   { arena: 'thorns', rows: [5, 8] },
   { arena: 'ford', rows: [6, 9] },
+  { arena: 'lynx-den', rows: [4, 7] },
+  { arena: 'shaman-circle', rows: [5, 8] },
 ];
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */
 export const HARD_ARENA = 'outpost';
@@ -40,7 +49,7 @@ export const FINAL_ARENA = 'last-stand';
 /** Names of the arenas on the run's map (docs/realtime-slice.md, section 5); the sandbox menu keeps the templates' names. */
 export const ARENA_TITLES: Readonly<Record<string, string>> = {
   glade: 'Поляна', buttons: 'Двор кнопок', marked: 'Логово', shields: 'Стена щитов', archers: 'Стрелковая гряда', powder: 'Пороховой склад', thorns: 'Колючие заросли',
-  ford: 'Брод', outpost: 'Застава', 'last-stand': 'Последний рубеж',
+  ford: 'Брод', outpost: 'Застава', 'last-stand': 'Последний рубеж', 'lynx-den': 'Рысье логово', 'shaman-circle': 'Круг шамана',
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Every arena a run may play (a save naming another one is malformed). */

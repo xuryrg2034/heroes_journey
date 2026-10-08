@@ -6,8 +6,11 @@
 import type { RunStorage } from '../../game/run/forestRunStorage';
 import { parseRtRun, serializeRtRun, type RtRunState } from './rtRun';
 
-/** Iteration 2.1: `-v3` (save version 3, the run HP 15); `-v2` (step 3) and `-v1` (steps 1–2) are not read. */
-export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v3';
+/**
+ * Stage 3a: `-v4` (save version 4, the lynx's and the shaman's arenas in the pools); `-v3` (iteration 2.1, the run HP 15),
+ * `-v2` (step 3) and `-v1` (steps 1–2) are not read.
+ */
+export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v4';
 export const RT_PROFILE_STORAGE_KEY = 'ashen-oath-rt-profile-v1';
 export const RT_PROFILE_VERSION = 1;
 

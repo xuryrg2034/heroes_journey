@@ -110,7 +110,7 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   expect(after.pending).toBeNull();
   expect(after.hp).toBe(won.hero.hp);
   const keys = await page.evaluate(() => Object.keys(localStorage));
-  expect(keys).toContain('ashen-oath-rt-run-v3');
+  expect(keys).toContain('ashen-oath-rt-run-v4');
   expect(keys).not.toContain('ashen-oath-forest-run-v1');
   expect(keys).not.toContain('ashen-oath-profile-v1');
 
@@ -190,9 +190,9 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
   expect(errors).toEqual([]);
 });
 
-/** Run rows of the arena pools (docs/realtime-slice.md, section 5; step 4: «Брод» 6–9). Hard battles play «Застава», boss nodes «Последний рубеж». */
+/** Run rows of the arena pools (docs/realtime-slice.md, section 5; step 4: «Брод» 6–9; stage 3a: «Рысье логово» 4–7, «Круг шамана» 5–8). Hard battles play «Застава», boss nodes «Последний рубеж». */
 const POOL_ROWS: Record<string, [number, number]> = {
-  glade: [1, 3], buttons: [1, 4], marked: [2, 5], shields: [3, 6], archers: [4, 7], powder: [4, 8], thorns: [5, 8], ford: [6, 9],
+  glade: [1, 3], buttons: [1, 4], marked: [2, 5], shields: [3, 6], archers: [4, 7], powder: [4, 8], thorns: [5, 8], ford: [6, 9], 'lynx-den': [4, 7], 'shaman-circle': [5, 8],
 };
 /** The new kinds each arena brings (section 5); own arenas 4–7 bring one each. */
 const ALL_FOUR = ['shield', 'archer', 'sapper', 'porcupine'];
