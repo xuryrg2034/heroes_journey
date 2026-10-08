@@ -97,30 +97,44 @@ test('`?arena=16…17` opens «Рысье логово» and «Круг шама
   expect(errors).toEqual([]);
 });
 
+/**
+ * The signals last a fraction of a second at the default numbers (the howl 0.6 s, the windup 0.6 s, the stun 1 s) and come
+ * in a steady rhythm: a poll every second may keep missing them. The test lengthens them through journalled panel values
+ * (it checks that the signal is drawn, not its timing — that is Node's) and polls often.
+ */
+const SIGNAL_POLL = { timeout: 20_000, intervals: [50] };
+
 test('signals on screen: the wolves\' howl circle, the lynx\'s leap line and stun stars, the shaman\'s beam', async ({ page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
   const errors = collectErrors(page);
+  const lengthen = (): Promise<void> => page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [key, value] of [['wolfHowl', 2.5], ['lynxWindup', 2], ['lynxStun', 3], ['shamanBeam', 3]] as const) rt.setParam(key, value);
+  });
   // Wolves: three round the hero on an open patch of arena 1 — they spread and howl.
   await openSandbox(page, '&arena=1');
   await quiet(page, { x: 8, y: 5 });
+  await lengthen();
   for (const deg of [-150, -90, -30]) await place(page, 8 + Math.cos(deg * Math.PI / 180) * 3, 5 + Math.sin(deg * Math.PI / 180) * 3, 0, 0, 'wolf');
-  await expect.poll(async () => (await snap(page)).signals.howls, { timeout: 20_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await snap(page)).signals.howls, SIGNAL_POLL).toBeGreaterThan(0);
   await page.screenshot({ path: 'artifacts/realtime-behavior-howl.png' });
   // The lynx: 3.2 from the hero — its line, then the stars of its stun.
   await openSandbox(page, '&arena=16');
   await quiet(page, { x: 7.8, y: 5 });
+  await lengthen();
   await place(page, 7.8, 1.8, 1, 0, 'lynx');
-  await expect.poll(async () => (await snap(page)).signals.leapLines, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await snap(page)).signals.leapLines, SIGNAL_POLL).toBeGreaterThan(0);
   await page.screenshot({ path: 'artifacts/realtime-behavior-leap.png' });
-  await expect.poll(async () => (await snap(page)).signals.stunned, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await snap(page)).signals.stunned, SIGNAL_POLL).toBeGreaterThan(0);
   // The shaman: a weak enemy next to it — the beam, then it is tough.
   await openSandbox(page, '&arena=17');
   await quiet(page, { x: 8, y: 8.3 });
+  await lengthen();
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('shamanFirstMin', 0.5); rt.setParam('shamanFirstMax', 0.5); });
   await place(page, 8, 2.6, 2, 1, 'shaman');
   const target = await place(page, 9.4, 2.6, 0, 0, 'basic');
-  await expect.poll(async () => (await snap(page)).signals.beams, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await snap(page)).signals.beams, SIGNAL_POLL).toBeGreaterThan(0);
   await page.screenshot({ path: 'artifacts/realtime-behavior-beam.png' });
-  await expect.poll(async () => (await snap(page)).enemies.find(e => e.id === target)?.hp, { timeout: 10_000 }).toBe(2);
+  await expect.poll(async () => (await snap(page)).enemies.find(e => e.id === target)?.hp, SIGNAL_POLL).toBe(2);
   expect(errors).toEqual([]);
 });
