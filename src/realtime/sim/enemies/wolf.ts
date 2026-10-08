@@ -18,13 +18,15 @@
  * - **Back.** After the rush it walks straight back out to the ring radius, reaching it within `wolfBack` s (faster than
  *   its walk when it must), then rings again.
  * The cold puts a frozen wolf out of the ring and drops its howl or rush (it rings again when it thaws). A knockback (the
- * chain's survivor knockback) runs as for everyone and drops its howl or rush too. No randomness.
+ * chain's survivor knockback) runs as for everyone and drops its howl or rush too. No randomness. Angles every tick go
+ * through `detMath.ts` (the same bits in the browser and in Node: a journal replays across engines).
  *
  * State in `enemy.vars` (only with the ring on; none without it — the prototype wolf hashes as before): `st` — 0 ring,
  * 1 howl, 2 rush, 3 back; `slot` — its angle on the ring (radians; only while it is in the ring); `wait` — seconds in the
  * ring; `t` — seconds of the howl or the back walk left; `pack` — id of the first wolf of a pack's howl; `dx`, `dy` — the
  * rush line; `ran` — distance run.
  */
+import { datan2, dcos, dsin } from '../detMath';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles } from '../geometry';
 import { CONTACT_SLACK, enemyFrozen, enemyGroundFactor, enemySpeed, touchDistanceOf, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
@@ -73,17 +75,17 @@ function inRing(world: World, e: Enemy): boolean {
  */
 function assignSlots(world: World, ring: Enemy[]): void {
   const h = world.hero, n = ring.length;
-  const placed = ring.map(e => ({ e, a: Math.atan2(e.y - h.y, e.x - h.x) })).sort((u, v) => u.a - v.a || u.e.id - v.e.id);
+  const placed = ring.map(e => ({ e, a: datan2(e.y - h.y, e.x - h.x) })).sort((u, v) => u.a - v.a || u.e.id - v.e.id);
   let sx = 0, sy = 0;
-  placed.forEach(({ a }, i) => { const b = a - 2 * Math.PI * i / n; sx += Math.cos(b); sy += Math.sin(b); });
-  const base = Math.hypot(sx, sy) > 1e-9 ? Math.atan2(sy, sx) : placed[0].a;
+  placed.forEach(({ a }, i) => { const b = a - 2 * Math.PI * i / n; sx += dcos(b); sy += dsin(b); });
+  const base = Math.hypot(sx, sy) > 1e-9 ? datan2(sy, sx) : placed[0].a;
   placed.forEach(({ e }, i) => { e.vars.slot = angleDiff(base + 2 * Math.PI * i / n, 0); });
 }
 
 /** The wolf stands at its slot: within `wolfRingSettle` degrees of it (it has spread out around the hero). */
 function settled(world: World, e: Enemy): boolean {
   const h = world.hero;
-  return Math.abs(angleDiff(e.vars.slot ?? 0, Math.atan2(e.y - h.y, e.x - h.x))) <= world.params.wolfRingSettle * Math.PI / 180 + 1e-9;
+  return Math.abs(angleDiff(e.vars.slot ?? 0, datan2(e.y - h.y, e.x - h.x))) <= world.params.wolfRingSettle * Math.PI / 180 + 1e-9;
 }
 
 /** The howl of `wolves` — a pack (`pack` true: it breaks when fewer than `wolfRushPack` of it are left howling) or lone ones. */
@@ -138,8 +140,8 @@ function ringStep(world: World, wolves: readonly Enemy[], dt: number): void {
 /** Walks a ringing wolf along the circle to its slot and in to the radius (never out: it does not back away). */
 function walkRing(world: World, e: Enemy, dt: number): void {
   const p = world.params, h = world.hero;
-  const d = Math.max(1e-6, dist(e, h)), phi = Math.atan2(e.y - h.y, e.x - h.x);
-  const rx = Math.cos(phi), ry = Math.sin(phi), tangent = angleDiff(e.vars.slot, phi) * d, radial = Math.min(0, p.wolfRingRadius - d);
+  const d = Math.max(1e-6, dist(e, h)), phi = datan2(e.y - h.y, e.x - h.x);
+  const rx = dcos(phi), ry = dsin(phi), tangent = angleDiff(e.vars.slot, phi) * d, radial = Math.min(0, p.wolfRingRadius - d);
   let vx = rx * radial - ry * tangent, vy = ry * radial + rx * tangent;
   const len = Math.hypot(vx, vy), max = enemySpeed(world, e) * enemyGroundFactor(world, e) * dt;
   if (len < 1e-9) return;

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
  * Enemy behaviour of stage 3a, steps 3–4 in the sandbox (docs/realtime-stage3.md, section 9): the wolves' howl circle,
@@ -136,5 +137,33 @@ test('signals on screen: the wolves\' howl circle, the lynx\'s leap line and stu
   await expect.poll(async () => (await snap(page)).signals.beams, SIGNAL_POLL).toBeGreaterThan(0);
   await page.screenshot({ path: 'artifacts/realtime-behavior-beam.png' });
   await expect.poll(async () => (await snap(page)).enemies.find(e => e.id === target)?.hp, SIGNAL_POLL).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Engines differ in the last bits of `Math.sin`/`Math.cos`/`Math.atan2`: behaviour that turns angles every tick (the
+ * wolves' ring) once drifted between Chromium and Node, and a recorded fight no longer replayed. Behaviour code uses
+ * `sim/detMath.ts`; this records fights with the new enemies in the browser and replays them in Node (the wolves — the
+ * journal test of realtime.spec.ts on arena 1).
+ */
+test('fights on «Рысье логово» and «Круг шамана» recorded in the browser replay in Node to the same world hash', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  for (const n of [16, 17]) {
+    await page.goto(`/realtime.html?sandbox=1&seed=777&arena=${n}`);
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+    await page.evaluate(() => (window as any).__realtime.setParam('heroHp', 40));
+    for (const key of ['KeyD', 'KeyS', 'KeyA', 'KeyW', 'KeyD']) {
+      const t0 = (await snap(page)).time;
+      await page.keyboard.down(key);
+      await expect.poll(async () => (await snap(page)).time, { timeout: 10_000, intervals: [50] }).toBeGreaterThan(t0 + 1.4);
+      await page.keyboard.up(key);
+    }
+    const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+    expect(recorded.journal.ticks).toBeGreaterThan(300);
+    expect(replay(recorded.journal).hash(), `arena ${n}`).toBe(recorded.hash);
+  }
   expect(errors).toEqual([]);
 });
