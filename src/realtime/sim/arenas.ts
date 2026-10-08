@@ -202,28 +202,28 @@ export const GLADE_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * Arena 4 «Стена щитов» (run rows 3–6): kill 25; a quarter of newcomers are shieldbearers. Short palisades at the corners
- * and single trees leave the middle open: there is room to walk around a shield.
+ * Arena 4 «Стена щитов» (run rows 3–6): kill 25; a quarter of newcomers are shieldbearers. Stage 3a, step 2 (М4): two
+ * braziers on the flanks of the open middle, 3 units left and right of the hero's start, where the crowd comes in. A
+ * brazier is a link of any colour and an anchor of its own: a chain through it comes at a shieldbearer from its side or
+ * back (the shield refuses the previous link standing in its arc) and with +2 power. Palisades at the corners, 2 units
+ * off the edges.
  */
 export const SHIELD_ARENA: ArenaTemplate = registerArena({
   id: 'shields',
   name: 'Стена щитов',
-  summary: 'Убей цепью 25 врагов. Щитоносец не берётся спереди — обойди его. Дверь сверху.',
+  summary: 'Убей цепью 25 врагов. Щитоносец не берётся спереди — зайди цепью через жаровню сбоку (+2 к силе). Дверь сверху.',
   goal: 'kills',
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 5 },
   obstacles: [
-    wall(3, 2, 2, 1),
-    wall(11, 2, 2, 1),
-    wall(3, 7, 2, 1),
-    wall(11, 7, 2, 1),
-    tree(1.5, 5),
-    tree(14.5, 5),
-    tree(8, 8.6),
-    tree(5.8, 1.4),
-    tree(10.2, 1.4),
+    wall(2.5, 2, 2, 1),
+    wall(11.5, 2, 2, 1),
+    wall(2.5, 7, 2, 1),
+    wall(11.5, 7, 2, 1),
+    tree(8, 7.5),
   ],
+  braziers: [{ x: 5, y: 5 }, { x: 11, y: 5 }],
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [],
@@ -234,26 +234,26 @@ export const SHIELD_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * Arena 5 «Стрелковая гряда» (run rows 4–7): kill the three marked archers; 15% of newcomers are archers. Two ridges of
- * walls with gaps give cover from the arrows (a wall cuts the line); the hero starts on the left, the door is on the right.
+ * Arena 5 «Стрелковая гряда» (run rows 4–7): kill the three marked archers; 15% of newcomers are archers. Stage 3a,
+ * step 2 (М5 «Теснина»): two ridges of walls cross the arena from edge to edge, each with two gaps of 2 units (the left
+ * one at y 2–4 and 6–8, the right one at y 3–5 and 8–10, offset so a line through both rarely opens). A wall cuts the
+ * archer's line: the ridges are cover, the gaps are the way to the marked. The hero starts on the left, the door is on
+ * the right.
  */
 export const ARCHER_ARENA: ArenaTemplate = registerArena({
   id: 'archers',
   name: 'Стрелковая гряда',
-  summary: 'Убей трёх отмеченных лучников — они держат дистанцию и стреляют по линии. Стены укрывают. Дверь справа.',
+  summary: 'Убей трёх отмеченных лучников — они держат дистанцию и стреляют по линии. Гряды стен режут линию, проходы ведут к ним. Дверь справа.',
   goal: 'marked',
   width: 16,
   height: 10,
   heroStart: { x: 2.5, y: 5 },
   obstacles: [
-    wall(5, 1, 1, 3),
-    wall(5, 6, 1, 3),
-    wall(10, 3, 1, 4),
-    tree(8, 2.4),
-    tree(8, 7.6),
-    tree(13, 5.2),
-    tree(2, 8.5),
-    pond(12.6, 8.4, 0.7),
+    wall(5, 0, 1, 2),
+    wall(5, 4, 1, 2),
+    wall(5, 8, 1, 2),
+    wall(10, 0, 1, 3),
+    wall(10, 5, 1, 3),
   ],
   buttons: [],
   door: { x: 15.3, y: 5 },
@@ -269,28 +269,24 @@ export const ARCHER_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * Arena 6 «Пороховой склад» (run rows 4–8): kill 25; 15% of newcomers are sappers. Crates (single wall cells) in two rows
- * and a pond: where a chain ends decides who stands in the blast. The door is on the left.
+ * Arena 6 «Пороховой склад» (run rows 4–8): kill 25; 15% of newcomers are sappers. Stage 3a, step 2 (М2 «Обрыв»): two
+ * ravines — one falls from the top edge right of the hero's start, one rises from the bottom edge left of it — and the way
+ * round each runs along its edge, so the crowd walks the brink. A blast throws survivors 0.8 off its center: a sapper
+ * killed in that file throws its neighbours into the drop. Each ravine narrows to a neck of 1.3 units (y 4.2 and 5.8):
+ * a chain reaches across it there. The door is on the left.
  */
 export const SAPPER_ARENA: ArenaTemplate = registerArena({
   id: 'powder',
   name: 'Пороховой склад',
-  summary: 'Убей цепью 25 врагов. Убитый сапёр взрывается через 0,8 с — не заканчивай цепь рядом. Дверь слева.',
+  summary: 'Убей цепью 25 врагов. Убитый сапёр взрывается через 0,8 с и отбрасывает выживших — у края они падают в обрыв. Дверь слева.',
   goal: 'kills',
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 5 },
-  obstacles: [
-    wall(3, 2, 1, 1),
-    wall(5, 2, 1, 1),
-    wall(10, 2, 1, 1),
-    wall(12, 2, 1, 1),
-    wall(3, 7, 1, 1),
-    wall(5, 7, 1, 1),
-    wall(10, 7, 1, 1),
-    wall(12, 7, 1, 1),
-    tree(14.6, 5),
-    pond(8, 8.6, 0.7),
+  obstacles: [],
+  terrain: [
+    zone('cliff', polygon(9.8, 0, 12.6, 0, 12.2, 2.4, 11.65, 4.2, 12, 6.2, 11, 7.2, 10, 6.2, 10.35, 4.2, 10.2, 2.4)),
+    zone('cliff', polygon(3.4, 10, 6.2, 10, 5.8, 7.6, 5.65, 5.8, 6, 3.8, 5, 2.8, 4, 3.8, 4.35, 5.8, 4.2, 7.6)),
   ],
   buttons: [],
   door: { x: 0.7, y: 5 },
@@ -302,29 +298,25 @@ export const SAPPER_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * Arena 7 «Колючие заросли» (run rows 5–8): press three buttons; 20% of newcomers are porcupines. Thickets of trees on
- * both sides and below; buttons in the top corners and at the bottom, the door at the top.
+ * Arena 7 «Колючие заросли» (run rows 5–8): press three buttons; 20% of newcomers are porcupines. Stage 3a, step 2 (М3
+ * «Терновник»): two hedges of thorns fall from the top edge to y ≈ 7.8 and fence the top corners off, where two buttons
+ * stand; a third thicket lies between the hero's start and the bottom button. On foot the corners are a long way round
+ * below the hedges (a dry corridor of 2.2 units along the bottom edge) or a walk through thorns; a chain or a jump crosses
+ * a hedge unhurt — but a porcupine link with its quills up costs HP. The door is at the top.
  */
 export const PORCUPINE_ARENA: ArenaTemplate = registerArena({
   id: 'thorns',
   name: 'Колючие заросли',
-  summary: 'Закончи цепь на каждой из трёх кнопок. Удар цепи по дикобразу ранит героя — строй цепь в обход. Дверь сверху.',
+  summary: 'Закончи цепь на каждой из трёх кнопок. Терновник колет идущего героя, цепь проходит над ним, но удар цепи по дикобразу ранит. Дверь сверху.',
   goal: 'buttons',
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 5 },
-  obstacles: [
-    tree(3, 4),
-    tree(3.8, 5.3),
-    tree(2.6, 6.4),
-    tree(13, 4),
-    tree(12.2, 5.3),
-    tree(13.4, 6.4),
-    tree(6, 7.4),
-    tree(10, 7.4),
-    tree(6.2, 2.6),
-    tree(9.8, 2.6),
-    wall(7, 9, 2, 1),
+  obstacles: [],
+  terrain: [
+    zone('thorns', polygon(3, 0, 4.3, 0, 4.4, 2.5, 4.1, 5, 4.3, 7, 3.6, 7.8, 2.9, 7, 3.1, 5, 2.8, 2.5)),
+    zone('thorns', polygon(11.7, 0, 13, 0, 13.2, 2.5, 12.9, 5, 13.1, 7, 12.4, 7.8, 11.7, 7, 11.9, 5, 11.6, 2.5)),
+    zone('thorns', polygon(7, 6.5, 9, 6.5, 9.4, 7.1, 9, 7.6, 7, 7.6, 6.6, 7.1)),
   ],
   buttons: [{ x: 1.5, y: 1.5 }, { x: 14.5, y: 1.5 }, { x: 8, y: 8.2 }],
   door: { x: 8, y: 0.7 },
@@ -365,28 +357,28 @@ export const FORD_WOLF_SHARE = 0.25;
 const ALL_FOUR = sharesOfAll([['shield', MIXED_KIND_SHARE], ['archer', MIXED_KIND_SHARE], ['sapper', MIXED_KIND_SHARE], ['porcupine', MIXED_KIND_SHARE]]);
 
 /**
- * Arena 8 «Брод» (run rows 6–9): kill the five marked — three archers on the far bank and two wolves at the water. A big
- * pond fills the middle: water slows walking (the hero and the enemies), it does not cut an archer's line (step 2), so the
- * archers shoot across it. Dry banks above and below the pond (2.4 units) and the water itself keep every way open.
+ * Arena 8 «Брод» (run rows 6–9): kill the five marked — three archers on the far bank and two wolves at the water.
+ * Stage 3a, step 2 (М1 «Река»): a river band 3 units wide winds across the arena from the top edge to the bottom one — no
+ * dry way round. Walking in it is ×0.5 for the hero and the enemies, and an arrow flies over water, so a crossing on foot
+ * is long under the archers' lines; a chain (links in the water or on the far bank) or a jump crosses at full speed.
  * Newcomers: archers by their share, wolf packs, no boars. The hero starts on the left bank, the door is on the right.
  */
 export const FORD_ARENA: ArenaTemplate = registerArena({
   id: 'ford',
   name: 'Брод',
-  summary: 'Убей пятерых отмеченных: лучников на том берегу и волков у воды. Вода замедляет, стрелы летят над ней. Дверь справа.',
+  summary: 'Убей пятерых отмеченных: лучников на том берегу и волков у воды. Вброд — вдвое медленнее и под стрелами, цепью — быстро. Дверь справа.',
   goal: 'marked',
   width: 16,
   height: 10,
   heroStart: { x: 2.2, y: 5 },
   obstacles: [
-    pond(8, 5, 2.6),
     tree(4.2, 2.8),
     tree(4.4, 7.4),
-    tree(1.6, 8.6),
-    tree(11.9, 2.4),
-    tree(12.1, 7.8),
-    tree(14.5, 1.3),
+    tree(12, 2.6),
+    tree(12.1, 7.5),
   ],
+  // The band leaves the arena through its top and bottom edges straight (flat ends on the edges).
+  terrain: [riverBand([{ x: 8.2, y: 0 }, { x: 8.2, y: 0.5 }, { x: 9, y: 2.6 }, { x: 8, y: 5.4 }, { x: 9, y: 8.2 }, { x: 9, y: 10 }], 3)],
   buttons: [],
   door: { x: 15.3, y: 5 },
   enemies: [
@@ -404,27 +396,31 @@ export const FORD_ARENA: ArenaTemplate = registerArena({
 
 /**
  * Arena 9 «Застава» (the hard battle): kill 30; all four new kinds come, and two elites of the template stand in the yard
- * from the start (their loot — as an elite of the template, section 7). Two palisades with gates cross the arena; the
- * sides are open. The hero starts below, the door is on top.
+ * from the start (their loot — as an elite of the template, section 7). Stage 3a, step 2 (М2 «Обрыв» + М5 «Теснина»):
+ * a fortress on the brink. A ravine runs down the west side from the top edge to y ≈ 7.6; the yard of the outpost stands
+ * on its edge, walled north, south and east. Its ways in are narrow: a gate of 2 units in the north and in the south
+ * palisade and a ledge of ≈ 2.2 units between the ravine and the north palisade. The crowd files through the gates and
+ * along the brink, where a blast throws survivors into the drop. The hero starts below, the door is on top.
  */
 export const OUTPOST_ARENA: ArenaTemplate = registerArena({
   id: 'outpost',
   name: 'Застава',
-  summary: 'Трудный бой: убей цепью 30 врагов. Все четыре новых врага и две элиты во дворе заставы. Дверь сверху.',
+  summary: 'Трудный бой: убей цепью 30 врагов. Все четыре новых врага и две элиты во дворе заставы на краю обрыва; во двор ведут узкие ворота. Дверь сверху.',
   goal: 'kills',
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 8.9 },
   obstacles: [
-    wall(3, 2, 4, 1),
-    wall(9, 2, 4, 1),
-    wall(3, 7, 4, 1),
-    wall(9, 7, 4, 1),
-    tree(5.4, 4.6),
-    tree(10.6, 5.4),
-    tree(1.4, 1.4),
-    tree(14.6, 8.6),
+    // North palisade with its gate (x 7–9), the ledge (x ≈ 3.35–5.6, ≈ 2.2 units) between it and the ravine.
+    wall(5.6, 2.2, 1.4, 1),
+    wall(9, 2.2, 4.4, 1),
+    // East wall of the yard.
+    wall(12.4, 3.2, 1, 4.2),
+    // South palisade from the ravine (overlapping its edge: no notch) to the east wall, with its gate (x 7–9).
+    wall(2.2, 6.4, 4.8, 1),
+    wall(9, 6.4, 3.4, 1),
   ],
+  terrain: [zone('cliff', polygon(0, 0, 3, 0, 3.4, 2, 3, 4.5, 3.5, 6, 2.4, 7.4, 0, 7.6))],
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [
@@ -451,30 +447,25 @@ export const FINAL_PHASES: readonly Phase[] = Object.freeze([
 
 /**
  * Arena 10 «Последний рубеж» (the final of the run, the boss nodes): kill 40, then the door; all four new kinds and two
- * elites of the template from the start; after the goals its own dense phase table (`FINAL_PHASES`). The hero starts in
- * a ring of ruins with six gaps; the door is on top.
+ * elites of the template from the start; after the goals its own dense phase table (`FINAL_PHASES`). Stage 3a, step 2
+ * (М1 + М4): a big pond (radius 2.4) east of the hero's start — the crowd from the east wades it at ×0.5 or goes round it
+ * along the banks — and two braziers at its west corners, where the ways round meet the middle: long chains through the
+ * crowd at the water take +2 there. Two ruined walls on the west with a gate of 2 units. The door is on top.
  */
 export const LAST_STAND_ARENA: ArenaTemplate = registerArena({
   id: 'last-stand',
   name: 'Последний рубеж',
-  summary: 'Финал похода: убей цепью 40 врагов, затем выйди в дверь сверху. После цели давление плотнее обычного.',
+  summary: 'Финал похода: убей цепью 40 врагов, затем выйди в дверь сверху. Пруд замедляет толпу, жаровни у берега дают цепи +2. После цели давление плотнее обычного.',
   goal: 'kills',
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 5 },
   obstacles: [
-    wall(5, 2, 2, 1),
-    wall(9, 2, 2, 1),
-    wall(5, 7, 2, 1),
-    wall(9, 7, 2, 1),
-    wall(3.6, 4, 1, 2),
-    wall(11.4, 4, 1, 2),
-    tree(1.8, 2),
-    tree(14.2, 8),
-    tree(2, 8.2),
-    tree(14, 1.8),
-    pond(13.8, 5, 0.8),
+    wall(3.6, 2, 1, 2),
+    wall(3.6, 6, 1, 2),
+    pond(11, 5, 2.4),
   ],
+  braziers: [{ x: 8, y: 2.2 }, { x: 8, y: 7.8 }],
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [

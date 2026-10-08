@@ -78,13 +78,13 @@ const startElites = (w: World): Enemy[] => w.enemies.filter(e => e.elite === tru
 
 // ---- Arena 8 «Брод» ----
 
-check('«Брод»: five marked — three archers on the far bank, two wolves at the water; the big pond slows walking and the arrows fly over it', () => {
+check('«Брод»: five marked — three archers on the far bank, two wolves at the water; the river (stage 3a, step 2; a big pond before) slows walking and the arrows fly over it', () => {
   const sim = new Simulation({ arena: 'ford', params: quiet(), seed: seedOf(1), record: true }), w = sim.world;
   const goal = goalProgress(w), marked = w.enemies.filter(e => e.marked);
   assert(goal.label === 'отмеченные' && goal.total === 5, `goal ${goal.label} ${goal.total}`);
   assert(marked.filter(e => e.kind === 'archer').length === 3 && marked.filter(e => e.kind === 'wolf').length === 2, `marked: ${marked.map(e => e.kind)}`);
   assert(marked.every(e => e.x > 10.6), 'the marked stand on the far bank');
-  // The hero walks one second on the bank and one in the middle of the pond: the water slows him by its factor.
+  // The hero walks one second on the bank and one in the river: the water slows him by its factor.
   const walked = (from: Vec): number => {
     sim.command({ t: 'teleport', x: from.x, y: from.y });
     sim.command({ t: 'walk', x: 0, y: 1 });
@@ -94,16 +94,16 @@ check('«Брод»: five marked — three archers on the far bank, two wolves a
   };
   const dry = walked({ x: 2.2, y: 4 }), wet = walked({ x: 8, y: 4 });
   assert(inWater({ x: 8, y: 4 }, w.arena) && Math.abs(wet / dry - w.params.waterSlow) < 0.05, `in the water ${wet.toFixed(2)} vs ${dry.toFixed(2)} on the bank`);
-  console.log(`   0.5 s of walking: ${dry.toFixed(2)} on the bank, ${wet.toFixed(2)} in the pond`);
+  console.log(`   0.5 s of walking: ${dry.toFixed(2)} on the bank, ${wet.toFixed(2)} in the river`);
   // An archer on the far bank, the hero on this one: the line crosses the water whole, the arrow hurts him.
   const shot = new Simulation({ arena: 'ford', params: quiet({ archerFirstDelay: 0.5 }), seed: seedOf(2), record: true }), sw = shot.world;
   shot.command({ t: 'clear', keepMarked: false });
   shot.command({ t: 'teleport', x: 4.6, y: 5 });
   const archer = place(shot, 11.2, 5, 'archer', 0);
   runUntil(shot, () => archer.vars.aim === 1);
-  assert(Math.abs(archer.vars.len - 7) < 1e-9, `over the pond the line is whole: ${archer.vars.len}`);
+  assert(Math.abs(archer.vars.len - 7) < 1e-9, `over the river the line is whole: ${archer.vars.len}`);
   runUntil(shot, () => archer.vars.aim !== 1);
-  assert(sw.hero.hp === sw.hero.maxHp - 1, 'the arrow across the pond hits the hero');
+  assert(sw.hero.hp === sw.hero.maxHp - 1, 'the arrow across the river hits the hero');
   assert(replays(sim) && replays(shot), 'replay');
 });
 
@@ -245,7 +245,10 @@ check('arenas 8–10: a bot fight of 50 s (with a run loadout: consumables, rand
     }
     const again: string[] = [];
     const replayed = replay(JSON.parse(JSON.stringify(sim.exportJournal()!)), s => { s.world.events.length = 0; if (s.world.tick % 300 === 0) again.push(s.hash()); });
-    assert(checkpoints.length >= 5 && checkpoints.every((h, i) => again[i] === h), `${arena}: checkpoints`);
+    // Five checkpoints (25 s) — or fewer when the fight ended sooner (stage 3a, step 2: on the new layouts of «Брод» and
+    // «Застава» this bot meets the goal and walks out at 16–18 s).
+    const ended = sim.world.status !== 'playing';
+    assert((checkpoints.length >= 5 || (ended && checkpoints.length >= 2)) && checkpoints.length === again.length && checkpoints.every((h, i) => again[i] === h), `${arena}: checkpoints ${checkpoints.length} vs ${again.length}, status ${sim.world.status} at ${sim.world.tick}`);
     assert(replayed.hash() === sim.hash(), `${arena}: final hash`);
     // The same seed and journal on another run of the simulation: the same world (no hidden state between fights).
     assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), `${arena}: the second replay`);
