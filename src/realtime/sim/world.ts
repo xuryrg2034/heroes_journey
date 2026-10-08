@@ -11,7 +11,7 @@ import { type ArenaTemplate, markedCount } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
 import type { BoarState } from './enemies/boar';
-import { behaviorOf, bodyRadiusOf, enemyKind, kindOf } from './enemies/kinds';
+import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
@@ -227,6 +227,11 @@ export type WorldEvent =
   /** Stage 2, step 3: «Пепельный оберег» saved the hero from a lethal hit (1 HP left) and crumbled. */
   | { type: 'ward' }
   | { type: 'focusRefill' }
+  /**
+   * Stage 3a, steps 3–4: a kind's own signal for the view and the sound — the wolves' howl (`howl`), the lynx announcing
+   * its leap (`leap`), the shaman's beam (`beam`) and its end (`empower`). The rules never read it.
+   */
+  | { type: 'enemySignal'; enemyId: number; signal: string; x: number; y: number }
   | { type: 'defeat' };
 
 export interface World {
@@ -675,6 +680,11 @@ export function knockHero(world: World, dirX: number, dirY: number, distance: nu
 function moveEnemies(world: World, dt: number): Set<Enemy> | null {
   const { hero, params, arena, flow } = world;
   const knocked = hasZone(arena, 'cliff') ? new Set<Enemy>() : null;
+  // Stage 3a, step 3: group steps of the behaviours that have one (the wolves' ring), once per tick before anyone moves.
+  for (const group of groupBehaviors()) {
+    const members = world.enemies.filter(e => behaviorOf(e) === group);
+    if (members.length) group.beforeStep!(world, members, dt);
+  }
   // A behaviour's step may kill (the archer's arrow): walk over a copy, so the list shrinking never skips the next enemy's
   // step; an enemy killed earlier in this step does not move.
   const list = [...world.enemies];
