@@ -161,6 +161,56 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
   expect(errors).toEqual([]);
 });
 
+/** Run rows of the arena pools (docs/realtime-slice.md, section 5); rows no arena covers play any of arenas 1–3. */
+const POOL_ROWS: Record<string, [number, number]> = {
+  glade: [1, 3], buttons: [1, 4], marked: [2, 5], shields: [3, 6], archers: [4, 7], powder: [4, 8], thorns: [5, 8],
+};
+
+test('run: arenas 4–7 of the new enemies come on their run rows; a row without its own arena plays one of arenas 1–3 «временно»', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  await openRun(page, errors);
+  const met: { row: number; arena: string; standIn?: string }[] = [];
+  // Two runs (seeds spread apart) up to the breakthrough row: battles are won by the test hook, other nodes take their first button.
+  for (const seed of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0]) {
+    await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
+    for (let step = 0; step < 80; step++) {
+      const state = await page.evaluate(() => (window as any).__realtime.run.state()) as RunState & { pending: { kind: string; nodeId?: string; arena?: string; standIn?: string } | null };
+      if (state.result) break;
+      const pending = state.pending;
+      if (pending?.kind === 'battle') {
+        // Node ids carry the map row (`r6c1`, `den-r11c0`); the run row is the map row less the trunk (4).
+        const row = Number(/r(\d+)c/.exec(pending.nodeId!)![1]) - 4;
+        if (row > 9) break;
+        met.push({ row, arena: pending.arena!, standIn: pending.standIn });
+        await expect(page.getByTestId('run')).toBeHidden();
+        expect((await snapshot(page)).arena).toBe(pending.arena);
+        expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+        await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+        await page.getByTestId('result-map').click();
+        continue;
+      }
+      if (pending) {
+        // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
+        await page.locator('[data-action="gift"]:not([disabled]), [data-testid="find-leave"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        continue;
+      }
+      await enterFirstNode(page);
+    }
+  }
+  for (const { row, arena, standIn } of met) {
+    if (standIn) expect(['glade', 'buttons', 'marked'], `row ${row}: stand-in ${arena}`).toContain(arena);
+    else expect(row >= POOL_ROWS[arena][0] && row <= POOL_ROWS[arena][1], `row ${row}: ${arena}`).toBe(true);
+    // Rows 1–8 have arenas of their own after step 2; only row 9 stands in.
+    expect(!!standIn, `row ${row}: stand-in ${standIn}`).toBe(row === 9);
+  }
+  const rows = met.map(m => m.row);
+  expect(Math.max(...rows)).toBe(9);
+  const fresh = new Set(met.map(m => m.arena).filter(arena => ['shields', 'archers', 'powder', 'thorns'].includes(arena)));
+  expect(fresh.size, `arenas met: ${met.map(m => `${m.row}:${m.arena}`).join(', ')}`).toBeGreaterThanOrEqual(3);
+  expect(errors).toEqual([]);
+});
+
 test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the debug panel, without the run', async ({ page }) => {
   await page.goto('/realtime.html?sandbox=1');
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
