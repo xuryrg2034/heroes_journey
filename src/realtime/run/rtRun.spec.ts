@@ -11,7 +11,7 @@
  * - events without an analogue in the slice never come; their off options cannot be taken;
  * - step 3: consumables come from a find, a craft, the merchant, the gift and events, open as in the turn-based run,
  *   go into the arena as its loadout, are used there through commands and come back; the energy of the gift and events
- *   starts the next arena; the full gift holds the mini one;
+ *   starts the next arena; the full gift is the turn-based roll as it is;
  * - different seeds give different maps and arena sequences; the real-time keys only are written.
  */
 import { generateForestMap } from '../../game/run/mapGenerator';
@@ -279,24 +279,15 @@ check('the start gift: its usual buttons (consumables, energy, resources, maximu
   assert(['pick-item', 'items', 'energy', 'resources', 'max-hp', 'deal', 'oath'].every(kind => kinds.has(kind)), `full gift kinds met: ${[...kinds]}`);
 });
 
-check('the full gift holds the mini one on spread seeds (design answer to step 1): every mini button is among the full ones', () => {
-  let added = 0;
-  for (let k = 1; k <= 60; k++) {
-    const seed = Math.imul(k, 2654435761) >>> 0;
-    const mini = rtGiftView(createRtRun(seed, { gift: 'mini' }))!.options.map(entry => JSON.stringify(entry.option));
-    const fullRun = createRtRun(seed, { gift: 'full' }), full = rtGiftView(fullRun)!;
-    const shown = full.options.map(entry => JSON.stringify(entry.option));
-    for (const option of mini) assert(shown.includes(option), `seed ${seed}: the full gift lacks ${option}`);
-    for (const entry of full.options) if (mini.includes(JSON.stringify(entry.option))) assert(entry.available, `seed ${seed}: the mini button is on in the full gift`);
-    added += full.options.length - fullRun.gift!.options.length;
-    // The added buttons are taken like the rolled ones and load back.
-    for (const entry of full.options.slice(fullRun.gift!.options.length)) {
-      const taken = ok(rtChooseGift(fullRun, entry.index), 'added button'), done = rtGiftView(taken) ? ok(rtChooseGiftPick(taken, rtGiftView(taken)!.picks[0]), 'pick') : taken;
-      assert(done.pending === null && same(roundTrip(done), done), 'taken, loads back');
-    }
+check('the full gift is the turn-based roll as it is (design answer to step 3): four buttons, a −3 maximum deal never beside +3 maximum', () => {
+  let maxHpDeals = 0;
+  for (let k = 1; k <= 500; k++) {
+    const seed = Math.imul(k, 2654435761) >>> 0, run = createRtRun(seed, { gift: 'full' }), view = rtGiftView(run)!;
+    assert(same(view.options.map(entry => entry.option), rollGift(seed, 'full', GIFT_POOL).options) && view.options.length === 4, `seed ${seed}: the roll as it is`);
+    const deal = view.options[2].option as Extract<GiftOption, { kind: 'deal' }>;
+    if (deal.price === 'max-hp') { maxHpDeals++; assert(!view.options.some(entry => entry.option.kind === 'max-hp'), `seed ${seed}: −3 maximum beside +3 maximum`); }
   }
-  assert(added > 0, 'some full gifts needed the mini buttons added');
-  console.log(`   ${added} mini buttons added to 60 full gifts`);
+  assert(maxHpDeals > 0, 'deals for the maximum came');
   assert(rtGiftOptions(SEEDS[0], createRtRun(SEEDS[0], { gift: 'mini' }).gift!).length === 2, 'the mini gift is as rolled');
 });
 

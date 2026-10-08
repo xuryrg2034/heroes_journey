@@ -716,17 +716,13 @@ export function giftOptionGap(option: GiftOption): string {
   }
 }
 /**
- * The buttons of the gift in the slice: the rolled buttons of the turn-based gift (runGift.ts, the same draws), and the
- * full gift holds the mini one (design answer 08.10.2026 to step 1: the full gift is never worse than the mini one):
- * a button of the mini gift of this seed that the full gift did not roll is added at its end. The mini gift draws the
- * first value of `gift-item`, as the full one does, so no draw is added.
+ * The buttons of the gift in the slice: the rolled buttons of the turn-based gift (runGift.ts, the same draws), as they
+ * are. Design answer to step 3: «полный ⊇ малый» was a temporary rule of steps 1–2 — the full gift is the turn-based one
+ * again (its own rule holds: a «−1 к максимуму HP» deal never comes beside «+1 к максимуму HP»). `seed` is kept for the
+ * callers.
  */
-export function rtGiftOptions(seed: number, gift: Pick<RunGift, 'kind' | 'options'>): GiftOption[] {
-  const options = gift.options.map(option => structuredClone(option));
-  if (gift.kind !== 'full') return options;
-  const mini = rollGift(seed, 'mini', GIFT_POOL).options, has = new Set(options.map(option => JSON.stringify(option)));
-  for (const option of mini) if (!has.has(JSON.stringify(option))) options.push(structuredClone(option));
-  return options;
+export function rtGiftOptions(_seed: number, gift: Pick<RunGift, 'kind' | 'options'>): GiftOption[] {
+  return gift.options.map(option => structuredClone(option));
 }
 /** The gift is taken: a button chosen, and its own choice made if it has one. */
 export function rtGiftDone(seed: number, gift: RunGift | undefined): boolean {
