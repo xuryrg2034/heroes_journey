@@ -41,11 +41,12 @@ export interface EnemyBehavior {
    */
   onChainHit?(world: World, enemy: Enemy, outcome: StrikeOutcome): void;
   /**
-   * Iteration 2.1: the enemy's reaction to a chain hit is armed now (the porcupine's quills are up). Read at the release of
-   * the chain for each enemy link and fixed for the dash (`HeroMove.armed`), as the ×2 of the cold: `onChainHit` reads the
-   * fixed list, the drawn chain's highlight reads this function now.
+   * Iteration 2.1: the damage to the hero the enemy's reaction to a chain hit would do now (the porcupine with its quills
+   * up: its quills, +1 for an elite); 0 — not armed. Read at the release of the chain for each enemy link and fixed for the
+   * dash (`HeroMove.armed`), as the ×2 of the cold: `onChainHit` reads the fixed list, the drawn chain's «−N HP» badge
+   * reads this function now.
    */
-  armed?(world: World, enemy: Enemy): boolean;
+  armed?(world: World, enemy: Enemy): number;
 }
 
 export interface EnemyKindDef {

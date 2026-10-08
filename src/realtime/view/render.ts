@@ -13,7 +13,7 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, quillsUp, quillsWarning, sapperFuse, shieldUp } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
@@ -852,16 +852,19 @@ export class RealtimeRenderer {
     }
     // Outcome of each link: dies — white badge with a red cross; wounded — orange ring and «!».
     const r = enemyDrawRadius(p) * UNIT;
-    // Stage 2, step 2: a porcupine link will hurt the hero — a red «−1 HP» badge over it while the chain is drawn.
+    // Stage 2, step 2: a link that will hurt the hero (the porcupine's quills) — a red «−N HP» badge over it while the chain
+    // is drawn. Iteration 2.1: through the common hook (`armedDamage` → `EnemyBehavior.armed`): the damage it really does now
+    // (an elite +1), and any kind with an armed reaction gets the badge.
     let quills = 0;
     for (const lp of plan.links) {
       const pt = linkPoint(world, lp.link);
       if (!pt || !lp.outcome) continue;
       const linked = lp.link.kind === 'enemy' ? world.enemies.find(e => e.id === lp.link.id) : undefined;
-      if (linked && quillsUp(world, linked)) {
+      const armed = linked ? armedDamage(world, linked) : 0;
+      if (armed > 0) {
         quills++;
         const label = this.quillLabel(quills - 1);
-        label.text = `−${p.porcupineQuills} HP`;
+        label.text = `−${armed} HP`;
         label.position.set(pt.x * UNIT, pt.y * UNIT - r * 1.55);
         label.visible = true;
       }

@@ -404,6 +404,12 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
 
 export function cancelChain(world: World): void { world.chain = []; }
 
+/**
+ * Iteration 2.1: the damage to the hero a chain hit on `enemy` would do now through its armed reaction (`EnemyBehavior.armed`:
+ * the porcupine's quills, +1 for an elite); 0 — none. The release fixes the links with it; the «−N HP» badge shows it.
+ */
+export function armedDamage(world: World, enemy: Enemy): number { return Math.max(0, behaviorOf(enemy).armed?.(world, enemy) ?? 0); }
+
 /** Release: the hero dashes along the chain. */
 export function releaseChain(world: World): boolean {
   const links = world.chain.filter(l => linkPoint(world, l));
@@ -414,7 +420,7 @@ export function releaseChain(world: World): boolean {
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;
   // Iteration 2.1: links whose chain-hit reaction is armed now (the porcupine with its quills up) — fixed at the release, as the ×2.
-  const armed = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && behaviorOf(e).armed?.(world, e) ? [e.id] : []; });
+  const armed = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && armedDamage(world, e) > 0 ? [e.id] : []; });
   if (armed.length) world.move.armed = armed;
   // Stage 2, step 3 («Точильный камень»): the first chain with an enemy starts with its power; it is spent by that chain.
   if (world.kit?.firstPower && links.some(l => l.kind === 'enemy')) { world.move.power = world.kit.firstPower; world.kit.firstPower = 0; }
