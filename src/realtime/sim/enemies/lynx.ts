@@ -11,6 +11,7 @@
  * State in `enemy.vars`: `st` — 0 walk, 1 windup, 2 leap, 3 stun; `t` — seconds left of the windup or the stun, or of
  * the cooldown while walking; `dx`, `dy` — the line; `len` — its length (cut by obstacles); `ran` — distance leapt.
  */
+import { dhypot } from '../detMath';
 import { blockedAt, dist, lineOfSight, type Vec } from '../geometry';
 import { CONTACT_SLACK, canBeHurt, hurtHero, touchDistanceOf, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
@@ -25,7 +26,7 @@ const LINE_STEP = 0.05;
 function segmentDistance(a: Vec, b: Vec, p: Vec): number {
   const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
   const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
-  return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+  return dhypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
 }
 
 /** Length of the leap from `e` along (dx, dy) up to the range: the first wall, tree or cliff edge cuts it. */

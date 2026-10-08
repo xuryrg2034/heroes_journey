@@ -7,6 +7,7 @@
  * (enemies/*), the arena is a template (arenas.ts). Iteration 2, stage A: the hero walks (the `walk` command →
  * `world.input`), enemies follow the flow field around obstacles.
  */
+import { dcos, dhypot, dsin } from './detMath';
 import { type ArenaTemplate, markedCount } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
@@ -650,7 +651,7 @@ function detonate(world: World, b: Blast): void {
   if (push <= 0) return;
   for (const e of struck) {
     if (!world.enemies.includes(e)) continue;
-    const dx = e.x - b.x, dy = e.y - b.y, d = Math.hypot(dx, dy);
+    const dx = e.x - b.x, dy = e.y - b.y, d = dhypot(dx, dy);
     if (d < 1e-6) continue;
     e.x += dx / d * push; e.y += dy / d * push;
     pushOutOfObstacles(e, bodyRadiusOf(p, e), world.arena, false);
@@ -714,7 +715,7 @@ function moveEnemies(world: World, dt: number): Set<Enemy> | null {
       // Smooth turn towards the wanted direction: no zigzag between grid cells.
       if (e.headX || e.headY) {
         const k = Math.min(1, params.flowTurn * dt);
-        const hx = e.headX + (dx - e.headX) * k, hy = e.headY + (dy - e.headY) * k, hl = Math.hypot(hx, hy);
+        const hx = e.headX + (dx - e.headX) * k, hy = e.headY + (dy - e.headY) * k, hl = dhypot(hx, hy);
         if (hl > 0.2) { dx = hx / hl; dy = hy / hl; }
       }
       e.headX = dx; e.headY = dy;
@@ -745,7 +746,7 @@ function stepHeroWalk(world: World, dt: number): void {
   const { hero, params, input } = world;
   world.heroWalk.x = 0; world.heroWalk.y = 0;
   if (world.status !== 'playing' || world.move || hero.knock > 0) return;
-  const len = Math.hypot(input.x, input.y);
+  const len = dhypot(input.x, input.y);
   if (len < 1e-6 || params.heroSpeed <= 0) return;
   world.heroWalk.x = input.x / len; world.heroWalk.y = input.y / len;
   // Water × crowd (stage D): the only walking multipliers; focus slows the game time itself, not the walk.
@@ -756,11 +757,11 @@ function stepHeroWalk(world: World, dt: number): void {
       let changed = false;
       for (const e of world.enemies) {
         const min = heroBlockDistance(params, e);
-        const ex = hero.x - e.x, ey = hero.y - e.y, d = Math.hypot(ex, ey);
+        const ex = hero.x - e.x, ey = hero.y - e.y, d = dhypot(ex, ey);
         if (d > min + 0.05 || d < 1e-6) continue;
         const nx = ex / d, ny = ey / d, into = -(mx * nx + my * ny);
         // Only the part of the step that goes into the enemy (and would end inside its body circle).
-        if (into <= 0 || Math.hypot(hero.x + mx - e.x, hero.y + my - e.y) >= min) continue;
+        if (into <= 0 || dhypot(hero.x + mx - e.x, hero.y + my - e.y) >= min) continue;
         mx += nx * into; my += ny * into; changed = true;
       }
       if (!changed) break;
@@ -768,7 +769,7 @@ function stepHeroWalk(world: World, dt: number): void {
     // Squeezed between several enemies: no step gets out without entering one — stand.
     for (const e of world.enemies) {
       const min = heroBlockDistance(params, e);
-      const before = dist(hero, e), after = Math.hypot(hero.x + mx - e.x, hero.y + my - e.y);
+      const before = dist(hero, e), after = dhypot(hero.x + mx - e.x, hero.y + my - e.y);
       if (after < min - 1e-3 && after < before - 1e-6) { mx = 0; my = 0; break; }
     }
   }
@@ -800,7 +801,7 @@ function separate(world: World): Map<Enemy, Enemy> | null {
         const d2 = dx * dx + dy * dy;
         if (d2 >= min * min) continue;
         let d = Math.sqrt(d2);
-        if (d < 1e-6) { const ang = rng.next() * Math.PI * 2; dx = Math.cos(ang); dy = Math.sin(ang); d = 0; }
+        if (d < 1e-6) { const ang = rng.next() * Math.PI * 2; dx = dcos(ang); dy = dsin(ang); d = 0; }
         else { dx /= d; dy /= d; }
         // Overlap split by mass: the charging boar barely yields, the crowd gets shoved aside.
         const ma = kindOf(a).mass(world, a), mb = kindOf(b).mass(world, b), overlap = min - d;
@@ -811,7 +812,7 @@ function separate(world: World): Map<Enemy, Enemy> | null {
     }
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i], heroMin = touch[i];
-      const dx = e.x - hero.x, dy = e.y - hero.y, d = Math.hypot(dx, dy);
+      const dx = e.x - hero.x, dy = e.y - hero.y, d = dhypot(dx, dy);
       // While dashing or jumping the hero passes through bodies (design answer 4).
       const ahead = dx * wx + dy * wy;
       if (d < heroMin && !world.move && parting && ahead > 0) {

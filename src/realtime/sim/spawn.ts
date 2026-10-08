@@ -7,6 +7,7 @@
  * Deterministic: places read the seeded `spawnPlace` stream, composition (interval, size, kind, colour, HP) — `spawnRoll`,
  * the personal speed spread — `speed` (rng.ts).
  */
+import { dcos, dsin } from './detMath';
 import { behaviorOf, enemyKind } from './enemies/kinds';
 import { rollRandomElite } from './elites';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR } from './kit';
@@ -89,7 +90,7 @@ function pointNear(world: World, anchor: Vec): Vec | null {
   const r = enemyBodyRadius(world.params), spread = r * 2.6, rng = placeRng(world);
   for (let i = 0; i < POINT_TRIES; i++) {
     const a = rng.next() * Math.PI * 2, d = i === 0 ? 0 : Math.sqrt(rng.next()) * spread;
-    const p = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
+    const p = { x: anchor.x + dcos(a) * d, y: anchor.y + dsin(a) * d };
     if (!anchorValid(world, p)) continue;
     if (world.markers.some(m => dist(m, p) < r * 1.8)) continue;
     if (world.enemies.some(e => dist(e, p) < r * 1.5)) continue;

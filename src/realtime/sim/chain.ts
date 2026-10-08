@@ -26,6 +26,7 @@
  * `beginChain`, `dragChain`, `dragChainAlong`, `releaseChain`, `cancelChain`, `jump`. The crystal drop point reads the
  * seeded `crystal` stream; `stepHero` takes the real seconds of the tick (`SIM_DT ÷ timeScale`).
  */
+import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { eliteDeath, pickLoot } from './elites';
 import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
@@ -519,7 +520,7 @@ const CRYSTAL_TRIES = 60;
 function segmentDistance(a: Vec, b: Vec, p: Vec): number {
   const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
   const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
-  return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+  return dhypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
 }
 
 /**
@@ -539,7 +540,7 @@ function dropCrystal(world: World, at: Vec): void {
     if (radius > 0) {
       // Uniform in the disc around the kill, kept inside the arena.
       const r = radius * Math.sqrt(rng.next()), a = rng.next() * Math.PI * 2;
-      p = { x: Math.min(arena.width - margin, Math.max(margin, at.x + r * Math.cos(a))), y: Math.min(arena.height - margin, Math.max(margin, at.y + r * Math.sin(a))) };
+      p = { x: Math.min(arena.width - margin, Math.max(margin, at.x + r * dcos(a))), y: Math.min(arena.height - margin, Math.max(margin, at.y + r * dsin(a))) };
     } else {
       const x = margin + rng.next() * (arena.width - 2 * margin);
       p = { x, y: margin + rng.next() * (arena.height - 2 * margin) };
@@ -608,7 +609,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
   }
   enemy.hp = outcome.hpAfter;
   if (p.survivorKnockback && p.survivorKnockbackTime > 0) {
-    const dx = enemy.x - world.hero.x, dy = enemy.y - world.hero.y, d = Math.hypot(dx, dy) || 1;
+    const dx = enemy.x - world.hero.x, dy = enemy.y - world.hero.y, d = dhypot(dx, dy) || 1;
     const speed = p.survivorKnockbackDistance / p.survivorKnockbackTime;
     enemy.knock = p.survivorKnockbackTime; enemy.knockVx = dx / d * speed; enemy.knockVy = dy / d * speed;
   }

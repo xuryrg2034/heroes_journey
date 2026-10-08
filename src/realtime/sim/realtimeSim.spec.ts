@@ -11,10 +11,12 @@
  *   hit-stop freezes ticks, a stall is not caught up; the frame pattern does not change the world;
  * - a test enemy kind (own behaviour, size, damage, mass) and a test arena (own pace, phase table, newcomers) are
  *   registered from here — the core is not edited;
- * - a journal recorded in the browser (tests/fixtures/realtime-browser-journal.json, written by tests/realtime.spec.ts)
+ * - journals recorded in the browser (tests/fixtures/realtime-browser-journal.json and, stage 3a, the fight with
+ *   shieldbearers and the wolves' ring realtime-browser-journal-shields-wolves.json; written by tests/realtime.spec.ts)
  *   replays to its hash.
  */
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
+import shieldsWolvesJournal from '../../../tests/fixtures/realtime-browser-journal-shields-wolves.json';
 import { registerArena } from './arenas';
 import { canJump, chainAnchor, hoverRefusal, jumpLanding, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { registerBehavior, registerEnemyKind } from './enemies/index';
@@ -387,6 +389,20 @@ check('a journal recorded in the browser replays in Node to the browser hash', (
   const sim = replay(fixture.journal);
   assert(sim.hash() === fixture.hash, `browser ${fixture.hash}, Node ${sim.hash()} after ${fixture.journal.ticks} ticks`);
   console.log(`   ${fixture.journal.ticks} ticks, ${fixture.journal.commands.length} commands, hash ${fixture.hash}`);
+});
+
+check('a fight with shieldbearers and the wolves\' ring recorded in the browser replays in Node to the browser hash (detMath in the whole simulation)', () => {
+  // Stage 3a (decision 09.10.2026): every angle and distance comes from sim/detMath.ts. Shields turn and the ring howls every
+  // tick — with Math.sin/cos/atan2/hypot the last bits of Chromium and Node differ. Re-record as the journal above.
+  const fixture = shieldsWolvesJournal as unknown as { journal: Journal; hash: string };
+  let shields = 0, howls = 0;
+  const sim = replay(fixture.journal, r => {
+    shields = Math.max(shields, r.world.enemies.filter(e => e.kind === 'shield').length);
+    for (const ev of r.world.events) if (ev.type === 'enemySignal' && ev.signal === 'howl') howls++;
+  });
+  assert(fixture.journal.arena === 'shields' && shields > 0 && howls > 0, `the fight has shieldbearers (${shields}) and a howl (${howls})`);
+  assert(sim.hash() === fixture.hash, `browser ${fixture.hash}, Node ${sim.hash()} after ${fixture.journal.ticks} ticks`);
+  console.log(`   ${fixture.journal.ticks} ticks, ${fixture.journal.commands.length} commands, shieldbearers up to ${shields}, howls ${howls}, hash ${fixture.hash}`);
 });
 
 // ---- Cost ----

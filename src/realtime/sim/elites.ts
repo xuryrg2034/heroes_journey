@@ -21,6 +21,7 @@
  *   live (start elites counted). On in a run from its row 3 (`Kit.randomElites`) and in the sandbox by the toggle
  *   `eliteSandbox`. One draw of the arena's `elite` stream per newcomer that may roll (none at the cap).
  */
+import { dcos, dhypot, dsin } from './detMath';
 import { kindOf } from './enemies/kinds';
 import { blockedAt, dist, overCliff, pushOutOfCliffs, type Vec } from './geometry';
 import { heroRadius } from './params';
@@ -67,7 +68,7 @@ export function rollRandomElite(world: World, e: Enemy): void {
 function segmentDistance(a: Vec, b: Vec, p: Vec): number {
   const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
   const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
-  return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+  return dhypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
 }
 
 /** The rest of the dash as points (hero → links ahead), or just the hero. */
@@ -85,7 +86,7 @@ function lootSpot(world: World, at: Vec): Vec {
   const arena = world.arena, radius = world.params.eliteLootRadius, margin = OBJECT_RADIUS, rng = world.rng.stream('loot'), path = restOfDash(world);
   for (let i = 0; i < LOOT_TRIES && radius > 0; i++) {
     const r = radius * Math.sqrt(rng.next()), a = rng.next() * Math.PI * 2;
-    const p = { x: Math.min(arena.width - margin, Math.max(margin, at.x + r * Math.cos(a))), y: Math.min(arena.height - margin, Math.max(margin, at.y + r * Math.sin(a))) };
+    const p = { x: Math.min(arena.width - margin, Math.max(margin, at.x + r * dcos(a))), y: Math.min(arena.height - margin, Math.max(margin, at.y + r * dsin(a))) };
     if (blockedAt(p, OBJECT_RADIUS * 0.6, arena)) continue;
     if (world.objects.some(o => dist(o, p) < LOOT_CLEARANCE + OBJECT_RADIUS)) continue;
     let near = dist(path[0], p) < LOOT_CLEARANCE;

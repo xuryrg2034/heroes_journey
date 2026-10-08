@@ -29,7 +29,7 @@
  * ring; `t` — seconds of the howl or the back walk left; `pack` — id of the first wolf of a pack's howl; `dx`, `dy` — the
  * rush line; `ran` — distance run; `away` — seconds out of the ring after a rush into a cliff edge.
  */
-import { datan2, dcos, dsin } from '../detMath';
+import { datan2, dcos, dhypot, dsin } from '../detMath';
 import { blockedAt, cliffAt, dist, hasZone, lineOfSight, pushOutOfObstacles, segmentTouchesArea } from '../geometry';
 import { CONTACT_SLACK, enemyFrozen, enemyGroundFactor, enemySpeed, touchDistanceOf, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
@@ -97,7 +97,7 @@ function assignSlots(world: World, ring: Enemy[]): void {
   const placed = ring.map(e => ({ e, a: datan2(e.y - h.y, e.x - h.x) })).sort((u, v) => u.a - v.a || u.e.id - v.e.id);
   let sx = 0, sy = 0;
   placed.forEach(({ a }, i) => { const b = a - 2 * Math.PI * i / n; sx += dcos(b); sy += dsin(b); });
-  const base = Math.hypot(sx, sy) > 1e-9 ? datan2(sy, sx) : placed[0].a;
+  const base = dhypot(sx, sy) > 1e-9 ? datan2(sy, sx) : placed[0].a;
   placed.forEach(({ e }, i) => { e.vars.slot = angleDiff(base + 2 * Math.PI * i / n, 0); });
 }
 
@@ -165,7 +165,7 @@ function walkRing(world: World, e: Enemy, dt: number): void {
   const d = Math.max(1e-6, dist(e, h)), phi = datan2(e.y - h.y, e.x - h.x);
   const rx = dcos(phi), ry = dsin(phi), tangent = angleDiff(e.vars.slot, phi) * d, radial = Math.min(0, p.wolfRingRadius - d);
   let vx = rx * radial - ry * tangent, vy = ry * radial + rx * tangent;
-  const len = Math.hypot(vx, vy), max = enemySpeed(world, e) * enemyGroundFactor(world, e) * dt;
+  const len = dhypot(vx, vy), max = enemySpeed(world, e) * enemyGroundFactor(world, e) * dt;
   if (len < 1e-9) return;
   if (len > max) { vx *= max / len; vy *= max / len; }
   e.x += vx; e.y += vy;

@@ -4,6 +4,8 @@
  * Units: 1 unit ≈ one cell of the turn-based board. Arena templates live in arenas.ts.
  */
 
+import { dhypot } from './detMath';
+
 export interface Vec { x: number; y: number }
 
 export type ObstacleKind = 'wall' | 'tree' | 'pond';
@@ -65,7 +67,7 @@ function closestOnPolyline(points: readonly Vec[], p: Vec, closed: boolean): Vec
   let best = points[0], bestD = Infinity;
   const n = points.length, edges = closed ? n : n - 1;
   for (let i = 0; i < edges; i++) {
-    const q = closestOnSegment(points[i], points[(i + 1) % n], p), d = Math.hypot(q.x - p.x, q.y - p.y);
+    const q = closestOnSegment(points[i], points[(i + 1) % n], p), d = dhypot(q.x - p.x, q.y - p.y);
     if (d < bestD) { bestD = d; best = q; }
   }
   return best;
@@ -106,10 +108,10 @@ function farFrom(area: Area, p: Vec, margin: number): boolean {
 export function areaContains(area: Area, p: Vec): boolean {
   if (farFrom(area, p, 0)) return false;
   switch (area.shape) {
-    case 'circle': return Math.hypot(p.x - area.x, p.y - area.y) < area.r;
+    case 'circle': return dhypot(p.x - area.x, p.y - area.y) < area.r;
     case 'rect': return p.x > area.x && p.x < area.x + area.w && p.y > area.y && p.y < area.y + area.h;
     case 'poly': return insidePolygon(area.points, p);
-    case 'band': { const q = closestOnPolyline(area.points, p, false); return Math.hypot(q.x - p.x, q.y - p.y) < area.width / 2; }
+    case 'band': { const q = closestOnPolyline(area.points, p, false); return dhypot(q.x - p.x, q.y - p.y) < area.width / 2; }
   }
 }
 
@@ -121,15 +123,15 @@ export function areaContains(area: Area, p: Vec): boolean {
 export function areaDistance(area: Area, p: Vec): { d: number; nx: number; ny: number } {
   let qx: number, qy: number, inside: boolean;
   if (area.shape === 'circle') {
-    const dx = p.x - area.x, dy = p.y - area.y, d = Math.hypot(dx, dy);
+    const dx = p.x - area.x, dy = p.y - area.y, d = dhypot(dx, dy);
     if (d < 1e-9) return { d: -area.r, nx: 1, ny: 0 };
     return { d: d - area.r, nx: dx / d, ny: dy / d };
   }
   if (area.shape === 'band') {
-    const q = closestOnPolyline(area.points, p, false), dx = p.x - q.x, dy = p.y - q.y, d = Math.hypot(dx, dy), half = area.width / 2;
+    const q = closestOnPolyline(area.points, p, false), dx = p.x - q.x, dy = p.y - q.y, d = dhypot(dx, dy), half = area.width / 2;
     if (d > 1e-9) return { d: d - half, nx: dx / d, ny: dy / d };
     // On the spine: out across the first segment.
-    const a = area.points[0], b = area.points[Math.min(1, area.points.length - 1)], sx = b.x - a.x, sy = b.y - a.y, sl = Math.hypot(sx, sy) || 1;
+    const a = area.points[0], b = area.points[Math.min(1, area.points.length - 1)], sx = b.x - a.x, sy = b.y - a.y, sl = dhypot(sx, sy) || 1;
     return { d: -half, nx: -sy / sl, ny: sx / sl };
   }
   if (area.shape === 'rect') {
@@ -147,9 +149,9 @@ export function areaDistance(area: Area, p: Vec): { d: number; nx: number; ny: n
     const q = closestOnPolyline(area.points, p, true);
     qx = q.x; qy = q.y;
   }
-  const dx = qx - p.x, dy = qy - p.y, d = Math.hypot(dx, dy);
+  const dx = qx - p.x, dy = qy - p.y, d = dhypot(dx, dy);
   if (d > 1e-9) return inside ? { d: -d, nx: dx / d, ny: dy / d } : { d, nx: -dx / d, ny: -dy / d };
-  const mid = areaMiddle(area), mx = p.x - mid.x, my = p.y - mid.y, ml = Math.hypot(mx, my) || 1;
+  const mid = areaMiddle(area), mx = p.x - mid.x, my = p.y - mid.y, ml = dhypot(mx, my) || 1;
   return { d: 0, nx: mx / ml, ny: my / ml };
 }
 
@@ -165,7 +167,7 @@ function segmentSegmentDistance(a: Vec, b: Vec, c: Vec, d: Vec): number {
   const cross = (o: Vec, p: Vec, q: Vec): number => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
   const d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
   if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
-  const pd = (p: Vec, s: Vec, t: Vec): number => { const q = closestOnSegment(s, t, p); return Math.hypot(q.x - p.x, q.y - p.y); };
+  const pd = (p: Vec, s: Vec, t: Vec): number => { const q = closestOnSegment(s, t, p); return dhypot(q.x - p.x, q.y - p.y); };
   return Math.min(pd(a, c, d), pd(b, c, d), pd(c, a, b), pd(d, a, b));
 }
 
@@ -230,7 +232,7 @@ let measureClock: (() => number) | null = null;
 export function setFlowClock(clock: (() => number) | null): void { measureClock = clock; }
 const clockMs = (): number => (measureClock ? measureClock() : 0);
 
-export function dist(a: Vec, b: Vec): number { return Math.hypot(a.x - b.x, a.y - b.y); }
+export function dist(a: Vec, b: Vec): number { return dhypot(a.x - b.x, a.y - b.y); }
 
 /**
  * Solid obstacles: walls and trees. The pond is passable water since iteration 2, stage B
@@ -240,7 +242,7 @@ export function isSolid(o: Obstacle): boolean { return o.kind !== 'pond'; }
 
 /** True when the point is in a pond or a river (stage 3a, М1) — the center of a body decides. */
 export function inWater(p: Vec, arena: ArenaShape): boolean {
-  for (const o of arena.obstacles) if (o.kind === 'pond' && Math.hypot(p.x - o.x, p.y - o.y) < o.r) return true;
+  for (const o of arena.obstacles) if (o.kind === 'pond' && dhypot(p.x - o.x, p.y - o.y) < o.r) return true;
   return arena.terrain ? inZone(p, arena, 'river') : false;
 }
 
@@ -252,14 +254,14 @@ export function pushOutOfObstacles(p: Vec, r: number, arena: ArenaShape, cliffs 
   for (const o of arena.obstacles) {
     if (!isSolid(o)) continue;
     if (o.shape === 'circle') {
-      const dx = p.x - o.x, dy = p.y - o.y, d = Math.hypot(dx, dy), min = o.r + r;
+      const dx = p.x - o.x, dy = p.y - o.y, d = dhypot(dx, dy), min = o.r + r;
       if (d < min) {
         if (d < 1e-6) { p.x = o.x + min; continue; }
         p.x = o.x + dx / d * min; p.y = o.y + dy / d * min;
       }
     } else {
       const cx = Math.max(o.x, Math.min(p.x, o.x + o.w)), cy = Math.max(o.y, Math.min(p.y, o.y + o.h));
-      const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
+      const dx = p.x - cx, dy = p.y - cy, d = dhypot(dx, dy);
       if (d >= r) continue;
       if (d > 1e-6) { p.x = cx + dx / d * r; p.y = cy + dy / d * r; continue; }
       // Center inside the rectangle: leave through the nearest side.
@@ -282,10 +284,10 @@ export function blockedAt(p: Vec, r: number, arena: ArenaShape, cliffs = true): 
   if (p.x < r || p.y < r || p.x > arena.width - r || p.y > arena.height - r) return true;
   for (const o of arena.obstacles) {
     if (!isSolid(o)) continue;
-    if (o.shape === 'circle') { if (Math.hypot(p.x - o.x, p.y - o.y) < o.r + r) return true; }
+    if (o.shape === 'circle') { if (dhypot(p.x - o.x, p.y - o.y) < o.r + r) return true; }
     else {
       const cx = Math.max(o.x, Math.min(p.x, o.x + o.w)), cy = Math.max(o.y, Math.min(p.y, o.y + o.h));
-      if (Math.hypot(p.x - cx, p.y - cy) < r) return true;
+      if (dhypot(p.x - cx, p.y - cy) < r) return true;
     }
   }
   return false;
@@ -294,7 +296,7 @@ export function blockedAt(p: Vec, r: number, arena: ArenaShape, cliffs = true): 
 function segmentPointDistance(a: Vec, b: Vec, p: Vec): number {
   const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
   const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
-  return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+  return dhypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
 }
 
 function segmentHitsRect(a: Vec, b: Vec, x0: number, y0: number, x1: number, y1: number): boolean {
@@ -381,12 +383,12 @@ export class FlowField {
       const c = this.center(col, row), i = row * this.cols + col;
       for (const o of arena.obstacles) {
         if (o.shape === 'circle') {
-          const d = Math.hypot(c.x - o.x, c.y - o.y);
+          const d = dhypot(c.x - o.x, c.y - o.y);
           if (o.kind === 'pond' && options.waterCost !== null) { if (d < o.r) this.cost[i] = Math.max(this.cost[i], options.waterCost); continue; }
           if (d < o.r + clearance) this.blocked[i] = 1;
         } else {
           const cx = Math.max(o.x, Math.min(c.x, o.x + o.w)), cy = Math.max(o.y, Math.min(c.y, o.y + o.h));
-          if (Math.hypot(c.x - cx, c.y - cy) < clearance) this.blocked[i] = 1;
+          if (dhypot(c.x - cx, c.y - cy) < clearance) this.blocked[i] = 1;
         }
       }
       // Stage 3a: a cliff blocks as a wall (with the body clearance); a river costs as the pond; thorns cost `thornCost`.
@@ -455,7 +457,7 @@ export class FlowField {
         if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
         const ni = nr * cols + nc;
         if (this.blocked[ni]) continue;
-        const c = this.center(nc, nr), key = Math.hypot(c.x - target.x, c.y - target.y) / this.cell;
+        const c = this.center(nc, nr), key = dhypot(c.x - target.x, c.y - target.y) / this.cell;
         if (key < d[ni]) { d[ni] = key; push(ni, key); }
       }
     }
@@ -481,7 +483,7 @@ export class FlowField {
       if (this.blocked[i] || !Number.isFinite(d[i])) continue;
       const col = i % cols, row = (i - col) / cols;
       if (i === start) {
-        const c = this.center(col, row), dx = target.x - c.x, dy = target.y - c.y, len = Math.hypot(dx, dy);
+        const c = this.center(col, row), dx = target.x - c.x, dy = target.y - c.y, len = dhypot(dx, dy);
         if (len > 1e-6) { this.dirX[i] = dx / len; this.dirY[i] = dy / len; }
         continue;
       }
@@ -497,11 +499,11 @@ export class FlowField {
       }
       if (best < 0) {
         // A seeded cell next to a hero standing in a tight spot: head straight for the hero.
-        const c = this.center(col, row), dx = target.x - c.x, dy = target.y - c.y, len = Math.hypot(dx, dy);
+        const c = this.center(col, row), dx = target.x - c.x, dy = target.y - c.y, len = dhypot(dx, dy);
         if (len > 1e-6) { this.dirX[i] = dx / len; this.dirY[i] = dy / len; }
         continue;
       }
-      const len = Math.hypot(bdc, bdr);
+      const len = dhypot(bdc, bdr);
       this.dirX[i] = bdc / len; this.dirY[i] = bdr / len;
     }
     this.lastBuildMs = clockMs() - t0;
@@ -526,7 +528,7 @@ export class FlowField {
       const w = ((k & 1) ? tx : 1 - tx) * ((k >> 1) ? ty : 1 - ty);
       x += this.dirX[i] * w; y += this.dirY[i] * w; weight += w;
     }
-    const len = Math.hypot(x, y);
+    const len = dhypot(x, y);
     if (weight > 1e-6 && len > 0.3 * weight) { out.x = x / len; out.y = y / len; return true; }
     const own = this.cellOf(p);
     if (this.reachable(own) && (this.dirX[own] || this.dirY[own])) { out.x = this.dirX[own]; out.y = this.dirY[own]; return true; }
@@ -540,13 +542,13 @@ export class FlowField {
         if (nc < 0 || nr < 0 || nc >= this.cols || nr >= this.rows) continue;
         const ni = nr * this.cols + nc;
         if (!this.reachable(ni)) continue;
-        const c = this.center(nc, nr), score = Math.hypot(c.x - p.x, c.y - p.y);
+        const c = this.center(nc, nr), score = dhypot(c.x - p.x, c.y - p.y);
         if (score < bestScore) { bestScore = score; best = ni; }
       }
     }
     if (best < 0) return false;
     const bc = best % this.cols, c = this.center(bc, (best - bc) / this.cols);
-    const dx = c.x - p.x, dy = c.y - p.y, l = Math.hypot(dx, dy);
+    const dx = c.x - p.x, dy = c.y - p.y, l = dhypot(dx, dy);
     if (l < 1e-6) return false;
     out.x = dx / l; out.y = dy / l;
     return true;

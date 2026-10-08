@@ -1490,3 +1490,68 @@ test('a fight recorded in the browser replays in Node to the same world hash (th
   }
   expect(errors).toEqual([]);
 });
+
+/**
+ * Stage 3a (decision 09.10.2026: determinism is a rule of the project): every angle and distance of the simulation comes
+ * from `sim/detMath.ts`. A fight on «Стена щитов» (arena 4: shieldbearers turn their shields every tick) with four wolves
+ * placed around the hero (their ring, howl and rush turn angles every tick), a chain through an elite (its loot spot), the
+ * crowd arriving by the seed (spawn points), a jump and walking is recorded in the browser and replayed in Node to the
+ * same hash. With RT_RECORD_JOURNAL=1 it writes tests/fixtures/realtime-browser-journal-shields-wolves.json, which
+ * `npm run test:realtime-sim` replays without a browser.
+ */
+test('a fight with shieldbearers and the wolves\' ring recorded in the browser replays in Node to the same world hash', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/realtime.html?sandbox=1&seed=5151&arena=4');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect.poll(async () => (await snapshot(page)).arena).toBe('shields');
+  const snap = () => page.evaluate(() => (window as any).__realtime.snapshot());
+  await page.evaluate(() => (window as any).__realtime.setParam('heroHp', 60));
+  // Four wolves on the ring around the hero (8; 5), 3.2 units off: they take their places, howl and rush.
+  for (const [i, deg] of [30, 120, 210, 300].entries()) {
+    const a = deg * Math.PI / 180;
+    await placeKind(page, 8 + 3.2 * Math.cos(a), 5 + 3.2 * Math.sin(a), i % 4, 1, 'wolf');
+  }
+  const t0 = (await snap()).time;
+  await expect.poll(async () => (await snap()).time, { timeout: 15_000, intervals: [100] }).toBeGreaterThan(t0 + 5);
+  // A chain drawn with the mouse over three weak enemies and an elite of one colour (its loot spot is rolled by angle).
+  await teleport(page, 8, 4);
+  const links = [{ x: 9, y: 4 }, { x: 10.2, y: 4 }, { x: 11.4, y: 4 }];
+  for (const p of links) await place(page, p.x, p.y, 3);
+  await page.evaluate(() => (window as any).__realtime.place(12.6, 4, 3, 0, 'basic', true));
+  await chainAt(page, [...links, { x: 12.6, y: 4 }]);
+  await page.mouse.up();
+  await expect.poll(async () => (await snap()).moving, { timeout: 5_000 }).toBeNull();
+  // A jump aimed with the mouse, then a loop on foot through the crowd and the shields.
+  await page.evaluate(() => (window as any).__realtime.setEnergy(4));
+  const here = (await snap()).hero;
+  await page.keyboard.press('Space');
+  const target = await screen(page, here.x < 8 ? here.x + 2 : here.x - 2, here.y);
+  await page.mouse.click(target.x, target.y);
+  await expect.poll(async () => (await snap()).energy).toBeLessThan(4);
+  for (const key of ['KeyA', 'KeyS', 'KeyD', 'KeyW', 'KeyD']) await hold(page, key, 1.2);
+  const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+  const { journal, hash } = recorded;
+  expect(journal.arena).toBe('shields');
+  expect(journal.ticks).toBeGreaterThan(600);
+  // What the replay went through: shieldbearers on the arena, the wolves' howl and rush.
+  let shields = 0, howls = 0;
+  const sim = replay(journal, r => {
+    shields = Math.max(shields, r.world.enemies.filter(e => e.kind === 'shield').length);
+    for (const ev of r.world.events) if (ev.type === 'enemySignal' && ev.signal === 'howl') howls++;
+    r.world.events.length = 0;
+  });
+  expect(shields).toBeGreaterThan(0);
+  expect(howls).toBeGreaterThan(0);
+  expect(sim.hash()).toBe(hash);
+  if (process.env.RT_RECORD_JOURNAL) {
+    const file = fileURLToPath(new URL('./fixtures/realtime-browser-journal-shields-wolves.json', import.meta.url));
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify({ recorded: 'tests/realtime.spec.ts (Chromium), stage 3a: detMath in the whole simulation', hash, journal }) + '\n');
+  }
+  expect(errors).toEqual([]);
+});

@@ -12,6 +12,7 @@
  * State in `enemy.vars`: `facing` — direction of the shield, radians (0 — towards +x); `want` — the direction it turns
  * to; `timer` — game seconds to the next new direction.
  */
+import { datan2, dhypot } from '../detMath';
 import type { Vec } from '../geometry';
 import { enemyFrozen, type Enemy, type World } from '../world';
 import { registerBehavior, registerEnemyKind } from './kinds';
@@ -21,7 +22,7 @@ const DEG = Math.PI / 180;
 const TIME_EPS = 1e-9;
 
 /** Angle from `from` to `to`, radians. */
-const angleTo = (from: Vec, to: Vec): number => Math.atan2(to.y - from.y, to.x - from.x);
+const angleTo = (from: Vec, to: Vec): number => datan2(to.y - from.y, to.x - from.x);
 
 /** Signed difference a − b brought into (−π, π]. */
 function angleDiff(a: number, b: number): number {
@@ -39,7 +40,7 @@ export function shieldUp(world: World, e: Enemy): boolean {
 /** The point stands in the shield arc of `e` (within half the arc of its facing). */
 export function inShieldArc(world: World, e: Enemy, p: Vec): boolean {
   if (!shieldUp(world, e)) return false;
-  if (Math.hypot(p.x - e.x, p.y - e.y) < 1e-6) return false;
+  if (dhypot(p.x - e.x, p.y - e.y) < 1e-6) return false;
   return Math.abs(angleDiff(angleTo(e, p), e.vars.facing ?? 0)) <= world.params.shieldArc * DEG / 2 + 1e-9;
 }
 

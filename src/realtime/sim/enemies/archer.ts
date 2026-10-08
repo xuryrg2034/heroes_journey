@@ -9,6 +9,7 @@
  * State in `enemy.vars`: `aim` (1 — the line is announced), `timer` (seconds: to the next announcement, or of the
  * announcement left), `dx`, `dy` (unit direction of the line), `len` (its length).
  */
+import { dhypot } from '../detMath';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius } from '../params';
 import { canBeHurt, damageEnemy, enemyGroundFactor, enemySpeed, hurtHero, type Enemy, type World } from '../world';
@@ -23,7 +24,7 @@ const TIME_EPS = 1e-9;
 function segmentDistance(a: Vec, b: Vec, p: Vec): number {
   const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
   const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
-  return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+  return dhypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
 }
 
 /** The archer's line now: start, end and half width; null when it does not aim. */

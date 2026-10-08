@@ -4,6 +4,7 @@
  * Stage marks which prototype stage introduced the value (all stages are implemented).
  * No DOM here: the simulation (src/realtime/sim) runs in Node too.
  */
+import { dpowi } from './detMath';
 import type { ArenaTemplate } from './arenas';
 import type { Rng } from './rng';
 
@@ -979,7 +980,7 @@ export function basePhase(params: Params, arena?: ArenaTemplate): Phase {
  */
 export function pressureAt(params: Params, time: number, greedStart: number | null = null, arena?: ArenaTemplate, delay = 0): Pressure {
   const angerTier = Math.floor(time / params.angerTierSeconds);
-  const enemySpeed = params.enemySpeed * Math.pow(1 + params.angerSpeedStep, angerTier);
+  const enemySpeed = params.enemySpeed * dpowi(1 + params.angerSpeedStep, angerTier);
   // Stage 2, step 3 («Песочные часы»): the table starts `delay` game seconds after the goals; the base pace goes on until then.
   if (greedStart !== null && delay > 0) greedStart += delay;
   if (greedStart === null || time < greedStart) return { phaseIndex: -1, phase: basePhase(params, arena), phaseLeft: Infinity, angerTier, enemySpeed };
