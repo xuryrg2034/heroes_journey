@@ -17,7 +17,7 @@ import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAncho
 import { BOAR_ART_SCALE, archerLine, quillsUp, quillsWarning, sapperFuse, shieldUp } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
-import { inWater, type Vec } from '../sim/geometry';
+import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
 
@@ -60,7 +60,30 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
 /** `quillsRaised` / `quillsTrembling` (iteration 2.1): porcupines drawn with their quills up / trembling before going up. */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number }
+/** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number }
+
+/** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
+export interface TerrainCounts { river: number; cliff: number; thorns: number }
+
+/** Stage 3a: colours of the terrain — water as the pond, a dark drop with a pale rim, thorny scrub. */
+const WATER = 0x243c3d, WATER_RIM = 0x73918a, WATER_LIGHT = 0x548b88;
+const CHASM = 0x07090a, CHASM_RIM = 0x9a8a66;
+const THORN = 0x2b3a1d, THORN_INK = 0x9a8452;
+/** Stage 3a (М4): the brazier's fire and the grey of a brazier put out. */
+const EMBER = 0xff8a3a, FLAME = 0xffd36b, ASH = 0x7a7a72;
+
+/** Path of a zone outline (a band is a stroke along its spine, drawn by the caller). */
+function areaPath(g: Graphics, area: Area): Graphics {
+  if (area.shape === 'circle') return g.circle(area.x * UNIT, area.y * UNIT, area.r * UNIT);
+  if (area.shape === 'rect') return g.rect(area.x * UNIT, area.y * UNIT, area.w * UNIT, area.h * UNIT);
+  return g.poly(area.points.flatMap(p => [p.x * UNIT, p.y * UNIT]));
+}
+function spinePath(g: Graphics, points: readonly Vec[]): Graphics {
+  g.moveTo(points[0].x * UNIT, points[0].y * UNIT);
+  for (let i = 1; i < points.length; i++) g.lineTo(points[i].x * UNIT, points[i].y * UNIT);
+  return g;
+}
 
 interface EnemyView {
   root: Container;
@@ -76,7 +99,7 @@ interface EnemyView {
   quills: { up: Graphics; down: Graphics } | null;
 }
 
-/** A killed enemy: spins and shrinks for `deathDuration` (design answer 22). */
+/** A killed enemy: spins and shrinks for `deathDuration` (design answer 22); one that fell into a cliff also darkens. */
 interface DyingView { root: Container; life: number; total: number; spin: number; scale: number }
 
 interface FloatingText { text: Text; life: number; vy: number }
@@ -153,7 +176,11 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0 };
+  /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
+  readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
+  /** Stage 3a (М2): enemies seen falling into a cliff so far. */
+  fallsShown = 0;
   /** Stage 2, step 3: consumable flashes drawn so far, by kind (tests read it: the effect was on screen). */
   readonly itemsShown: Record<ItemKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0 };
   /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
@@ -255,8 +282,55 @@ export class RealtimeRenderer {
         for (let n = 0; n < 6; n++) { const a = n / 6 * Math.PI * 2 + 0.3; t.ellipse(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 7, 4).fill(0x78806b); }
       }
     }
+    this.drawTerrainZones(arena.terrain ?? []);
     this.staticLayer.cacheAsTexture(false);
     this.staticLayer.cacheAsTexture({ resolution: Math.min(window.devicePixelRatio || 1, 2), antialias: true });
+  }
+
+  /**
+   * Stage 3a: terrain zones under everything (simple shapes): water as the pond (a band — a wide stroke along its spine),
+   * a cliff — a dark drop with a pale rim and a shadow over its edge, thorns — scrub with thorny hatching. Enemy colours stay
+   * readable: the zones are darker and less saturated than the chain colours.
+   */
+  private drawTerrainZones(zones: readonly TerrainZone[]): void {
+    const t = this.terrain, counts: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
+    for (const z of zones) {
+      counts[z.kind]++;
+      if (z.kind === 'river') {
+        if (z.shape === 'band') {
+          const w = z.width * UNIT;
+          spinePath(t, z.points).stroke({ color: WATER_RIM, width: w + 6, alpha: 0.6, cap: 'butt', join: 'round' });
+          spinePath(t, z.points).stroke({ color: WATER, width: w, cap: 'butt', join: 'round' });
+          spinePath(t, z.points).stroke({ color: WATER_LIGHT, width: w * 0.55, alpha: 0.3, cap: 'butt', join: 'round' });
+          spinePath(t, z.points).stroke({ color: 0x91b7ac, width: 1.5, alpha: 0.5, cap: 'butt', join: 'round' });
+        } else {
+          areaPath(t, z).fill(WATER).stroke({ color: WATER_RIM, width: 3, alpha: 0.6 });
+        }
+        continue;
+      }
+      if (z.kind === 'cliff') {
+        if (z.shape === 'band') spinePath(t, z.points).stroke({ color: CHASM, width: z.width * UNIT, cap: 'butt', join: 'round' });
+        else {
+          // The shadow straddles the edge (darkens the ground near the drop), then the drop and its pale crumbling rim.
+          areaPath(t, z).stroke({ color: 0x000000, width: 16, alpha: 0.35, join: 'round' });
+          areaPath(t, z).fill(CHASM);
+          areaPath(t, z).stroke({ color: CHASM_RIM, width: 4, join: 'round' });
+          areaPath(t, z).stroke({ color: 0xd8c690, width: 1.5, alpha: 0.5, join: 'round' });
+        }
+        continue;
+      }
+      // Thorns: dark scrub, then thorny ticks on a grid inside the zone.
+      if (z.shape === 'band') spinePath(t, z.points).stroke({ color: THORN, width: z.width * UNIT, alpha: 0.8, cap: 'butt', join: 'round' });
+      else areaPath(t, z).fill({ color: THORN, alpha: 0.8 }).stroke({ color: THORN_INK, width: 2, alpha: 0.7 });
+      const step = 0.45, box = zoneBox(z);
+      for (let y = box.y0 + step / 2; y < box.y1; y += step) for (let x = box.x0 + step / 2 + ((Math.round(y / step) % 2) * step) / 2; x < box.x1; x += step) {
+        if (!areaContains(z, { x, y })) continue;
+        const cx = x * UNIT, cy = y * UNIT, a = 7;
+        t.moveTo(cx - a, cy + a * 0.6).lineTo(cx + a, cy - a * 0.6).moveTo(cx - a * 0.4, cy - a * 0.8).lineTo(cx + a * 0.3, cy + a * 0.7);
+      }
+      t.stroke({ color: THORN_INK, width: 2, alpha: 0.8, cap: 'round' });
+    }
+    Object.assign(this.terrainShown, counts);
   }
 
   /** Disc sprite of an enemy: vector art rendered once per (look, color, tough, kind) into a texture. */
@@ -502,7 +576,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut };
     const fuse = (x: number, y: number, left: number, total: number): void => {
       counts.fuses++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = p.sapperRadius * UNIT, X = x * UNIT, Y = y * UNIT;
@@ -586,8 +660,28 @@ export class RealtimeRenderer {
   /** Buttons (stone plates, sunk and green when pressed) and the door (barred, glowing when open). */
   private drawObjects(world: World): void {
     const g = this.objectLayer.clear(), R = OBJECT_RADIUS * UNIT, pulse = 0.5 + 0.5 * Math.sin(this.clock * 4);
+    let lit = 0, out = 0;
     for (const o of world.objects) {
       const x = o.x * UNIT, y = o.y * UNIT;
+      if (o.kind === 'brazier') {
+        // Stage 3a (М4): an iron bowl on three legs; burning — flickering flames; put out — grey ash and the ring of its cooldown.
+        g.ellipse(x, y + R * 0.75, R * 0.8, R * 0.25).fill({ color: 0x050a07, alpha: 0.45 });
+        g.moveTo(x - R * 0.5, y + R * 0.75).lineTo(x - R * 0.3, y + R * 0.2).moveTo(x + R * 0.5, y + R * 0.75).lineTo(x + R * 0.3, y + R * 0.2).stroke({ color: NAVY, width: 4, cap: 'round' });
+        g.ellipse(x, y + R * 0.15, R * 0.85, R * 0.42).fill(o.out === undefined ? 0x3a3530 : 0x45443f).stroke({ color: NAVY, width: 3 });
+        if (o.out === undefined) {
+          lit++;
+          const f = 0.85 + 0.15 * Math.sin(this.clock * 11 + o.id * 1.7), h = R * 1.25 * f;
+          g.circle(x, y - R * 0.2, R * 1.25).fill({ color: EMBER, alpha: 0.1 + 0.08 * pulse });
+          g.poly([x - R * 0.6, y + R * 0.05, x - R * 0.15, y - h, x + R * 0.1, y - h * 0.35, x + R * 0.35, y - h * 0.85, x + R * 0.62, y + R * 0.05]).fill(EMBER).stroke({ color: 0x5a1e0c, width: 2 });
+          g.poly([x - R * 0.3, y + R * 0.05, x - R * 0.05, y - h * 0.6, x + R * 0.3, y + R * 0.05]).fill(FLAME);
+        } else {
+          out++;
+          g.ellipse(x, y + R * 0.08, R * 0.6, R * 0.22).fill(ASH);
+          const total = Math.max(0.01, world.params.brazierCooldown), k = Math.max(0, Math.min(1, o.out / total));
+          g.arc(x, y, R * 1.2, -Math.PI / 2, -Math.PI / 2 + (1 - k) * Math.PI * 2).stroke({ color: ASH, width: 3, alpha: 0.8 });
+        }
+        continue;
+      }
       if (o.kind === 'loot') {
         // Stage 2, step 3: the loot of an elite — a consumable (a flask of its colour) or a resource (a small bundle), bobbing.
         const bob = Math.sin(this.clock * 3 + o.id) * 2, cy = y + bob, color = LOOT_COLOR[o.loot ?? ''] ?? 0xd8c690, item = ['frost', 'bomb', 'healing', 'fire'].includes(o.loot ?? '');
@@ -636,6 +730,7 @@ export class RealtimeRenderer {
         g.circle(x, y + h * 0.1, R * 0.22).fill(0x8a7a5a).stroke({ color: NAVY, width: 2 });
       }
     }
+    this.signals.braziersLit = lit; this.signals.braziersOut = out;
   }
 
   private drawHero(world: World): void {
@@ -725,6 +820,8 @@ export class RealtimeRenderer {
         view.root.alpha = 1; view.root.tint = 0xffffff;
         if (view.grey) view.grey.alpha = 0;
         const total = Math.max(0.01, world.params.deathDuration);
+        // Stage 3a (М2): a fall into a cliff — the body darkens as it spins down.
+        if (ev.fall) { view.root.tint = 0x3a3a3a; this.fallsShown++; }
         this.dying.push({ root: view.root, life: total, total, spin: Math.random() < 0.5 ? -1 : 1, scale: view.root.scale.x });
         continue;
       }
@@ -976,4 +1073,12 @@ export class RealtimeRenderer {
     for (const d of this.dying) d.root.destroy({ children: true });
     this.dying.length = 0;
   }
+}
+
+/** Bounding box of a zone (units). */
+function zoneBox(area: Area): { x0: number; y0: number; x1: number; y1: number } {
+  if (area.shape === 'circle') return { x0: area.x - area.r, y0: area.y - area.r, x1: area.x + area.r, y1: area.y + area.r };
+  if (area.shape === 'rect') return { x0: area.x, y0: area.y, x1: area.x + area.w, y1: area.y + area.h };
+  const pad = area.shape === 'band' ? area.width / 2 : 0, xs = area.points.map(p => p.x), ys = area.points.map(p => p.y);
+  return { x0: Math.min(...xs) - pad, y0: Math.min(...ys) - pad, x1: Math.max(...xs) + pad, y1: Math.max(...ys) + pad };
 }
