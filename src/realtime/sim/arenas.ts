@@ -353,7 +353,10 @@ export function sharesOfAll(shares: readonly (readonly [kind: string, share: num
  * enemies). Arenas 4–7 meet one kind at 15–25%; a mixed arena meets all four at a lower share each.
  */
 export const MIXED_KIND_SHARE = 0.1;
-/** Баланс: archers of all newcomers on «Брод» (as on «Стрелковая гряда»). */
+/**
+ * Баланс: «Брод» — the share of a single newcomer's roll that comes as an archer (as on «Стрелковая гряда»). Wolf packs are
+ * not single newcomers, so of all newcomers archers are fewer (about 12% at the default shares, `test:realtime-arenas`).
+ */
 export const FORD_ARCHER_SHARE = 0.15;
 /** Баланс: wolf packs among the groups on «Брод» before the goals (the panel's «стаи %» of the base pace is 0.15). */
 export const FORD_WOLF_SHARE = 0.25;

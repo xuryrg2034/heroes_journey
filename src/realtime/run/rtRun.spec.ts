@@ -30,7 +30,7 @@ import { NODE_TYPE_INFO } from '../../forestMapScreen';
 import { RT_NODE_TYPES } from '../view/nodeTypes';
 import { EVENT_RISK_MIN_HP } from '../../game/run/forestEvents';
 import { replay, Simulation } from '../sim/simulation';
-import { arenaCandidates, ARENA_POOLS, arenaTitle, FINAL_ARENA, HARD_ARENA, runRow, RUN_ARENAS } from './arenaPools';
+import { arenaCandidates, arenaNewKinds, ARENA_POOLS, arenaTitle, FINAL_ARENA, HARD_ARENA, metKinds, NEW_KINDS, OWN_ARENAS, runRow, RUN_ARENAS } from './arenaPools';
 import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
@@ -42,7 +42,7 @@ import type { ItemKind } from '../sim/kit';
 import type { GiftOption } from '../../game/run/runGift';
 import { RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer } from './rtTalismans';
 import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from './rtRunStorage';
-import { SLICE_EVENTS, SLICE_EVENTS_OFF } from './sliceEvents';
+import { SLICE_EVENTS, SLICE_EVENTS_OFF, sliceEventOn } from './sliceEvents';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -102,11 +102,11 @@ function takeGift(run: RtRunState, prefer?: (kind: string) => boolean): RtRunSta
 
 // ---- A bot that walks a whole run through the run's commands ----
 
-interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number; offers: string[]; atFinal?: RtRunState }
+interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: string[]; rowArenas: [number, string][]; outOfRow: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number; offers: string[]; atFinal?: RtRunState }
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   let run = createRtRun(seed, { gift: options.gift ?? 'mini' });
-  const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [] };
+  const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], outOfRow: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [] };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
     save();
@@ -121,8 +121,15 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       if (pending.battle === 'final') { assert(node.type === 'boss' && pending.arena === FINAL_ARENA, `boss: the final arena (${pending.arena})`); walk.finals.push(pending.arena); }
       else if (pending.battle === 'hard') { assert(node.type === 'hard' && pending.arena === HARD_ARENA, `hard: Застава (${pending.arena})`); walk.hards.push(pending.arena); }
       else {
-        assert(arenaCandidates(runRow(node.row)).includes(pending.arena), `${node.id}: arena ${pending.arena} outside the pool of run row ${runRow(node.row)}`);
-        walk.rowArenas.push([runRow(node.row), pending.arena]);
+        // Design answer 1 to step 4: the pool of the row, or the own arena of a kind not met yet (even outside its rows).
+        const before = walk.arenas;
+        assert(nodeArenas(node.type === 'event' ? { ...node, type: 'battle' } : node, before).includes(pending.arena), `${node.id}: arena ${pending.arena} not a choice of run row ${runRow(node.row)}`);
+        if (arenaCandidates(runRow(node.row)).includes(pending.arena)) walk.rowArenas.push([runRow(node.row), pending.arena]);
+        else {
+          const kinds = arenaNewKinds(pending.arena), met = metKinds(before);
+          assert(kinds.length === 1 && OWN_ARENAS[kinds[0]] === pending.arena && !met.has(kinds[0]), `${node.id}: ${pending.arena} outside its rows is the own arena of a kind not met`);
+          walk.outOfRow.push([runRow(node.row), pending.arena]);
+        }
       }
       walk.arenas.push(pending.arena);
       const hpBefore = run.hp, sim = startArena(run);
@@ -332,13 +339,14 @@ check('step 4 pools: every run row 1–9 has its own arenas, «Брод» on row
       if (node.type === 'hard') assert(arenas.join() === HARD_ARENA, `${node.id}: Застава`);
     }
   }
+  // In its rows an arena comes from the pool; outside them only an own arena 4–7 of a kind not met yet (checked in the walk).
   const rowsOf = (arena: string) => new Set(walks.flatMap(walk => walk.rowArenas.filter(([, a]) => a === arena).map(([row]) => row)));
   for (const entry of ARENA_POOLS) {
     const rows = rowsOf(entry.arena);
     assert(rows.size > 0 && [...rows].every(row => row >= entry.rows[0] && row <= entry.rows[1]), `${entry.arena} on rows ${[...rows].join(', ')} (pool ${entry.rows.join('–')})`);
   }
-  assert(rowsOf('ford').has(9), 'Брод plays the breakthrough row 9');
-  console.log(`   hard ${hards.length} × Застава, final ${finals.length} × Последний рубеж; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}`);
+  const outside = walks.flatMap(walk => walk.outOfRow);
+  console.log(`   hard ${hards.length} × Застава, final ${finals.length} × Последний рубеж; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}; own arenas outside their rows: ${outside.map(([row, arena]) => `${arena}@${row}`).join(', ') || 'none'}`);
   const glade = new Simulation({ arena: 'glade', params: defaultParams(), seed: 5 });
   assert(goalProgress(glade.world).total === 20, 'Поляна of the run: kill 20');
   assert(goalProgress(new Simulation({ arena: 'kills', params: defaultParams(), seed: 5 }).world).total === defaultParams().killGoal, 'the sandbox arena keeps the slider');
@@ -359,6 +367,15 @@ check('different seeds give different arena sequences; every arena of the pools 
   assert(seeds.size === walks.length, 'arena seeds differ between runs');
 });
 
+check('«снять горение, яд и кровотечение» (review of step 4): its option «Погреться» stays — without it «Костёр путника» keeps one option and no safe one (a question to the design)', () => {
+  const fire = forestEvent('traveler-fire')!, warm = fire.options.find(option => option.outcomes.some(outcome => outcome.effect.clearEffects))!;
+  assert(warm.id === 'warm' && warm.outcomes.length === 1 && warm.outcomes[0].effect.hp === 1, 'the cleansing outcome also heals (+3 here)');
+  assert(SLICE_EVENTS.includes(fire.id), 'the event is in the pool');
+  assert(!sliceEventOn({ ...fire, options: fire.options.filter(option => option !== warm) }), 'turned off, it would take the event out of the pool');
+  // No other outcome of the catalogue cleanses.
+  assert(SLICE_EVENTS.every(id => forestEvent(id)!.options.every(option => option === warm || !option.outcomes.some(outcome => outcome.effect.clearEffects))), 'the only cleansing outcome');
+});
+
 check('events: only the slice pool comes; off options are refused; HP outcomes arrive ×2.4', () => {
   const met = walks.flatMap(walk => walk.events);
   assert(met.length > 0, 'events were met');
@@ -371,55 +388,75 @@ check('events: only the slice pool comes; off options are refused; HP outcomes a
   console.log(`   ${met.length} events met: ${[...new Set(met)].join(', ')}`);
 });
 
+/** One arena of a run: its run row, the node type and the arena, in entering order. */
+interface PathArena { row: number; type: string; arena: string }
 /**
  * The arenas a run meets in order, its arena outcomes faked as victories (the run's commands only, no simulation): the
  * first button of every screen, the next node by `(k + step)`. For counting what a player meets first.
  */
-function arenaPath(seed: number, k: number): { row: number; arena: string }[] {
+function arenaPath(seed: number, k: number): { path: PathArena[]; previews: number } {
   let run = createRtRun(seed, { gift: 'mini' });
-  const path: { row: number; arena: string }[] = [];
+  const path: PathArena[] = [];
+  let previews = 0;
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
     if (pending?.kind === 'gift') run = takeGift(run);
     else if (pending?.kind === 'battle') {
-      path.push({ row: runRow(rtNode(run, pending.nodeId)!.row), arena: pending.arena });
+      const node = rtNode(run, pending.nodeId)!;
+      path.push({ row: runRow(node.row), type: node.type, arena: pending.arena });
       run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
+      assert(same(roundTrip(run), run), 'the save loads back');
     } else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]), 'find');
     else if (pending?.kind === 'shop') run = ok(rtShopLeave(run), 'shop');
     else if (pending?.kind === 'event') run = ok(rtChooseEventOption(run, rtEventView(run)!.options.find(option => option.available)!.id), 'event');
-    else { const next = rtAvailableNodes(run); run = ok(rtEnterNode(run, next[(k + step) % next.length].id), 'enter'); }
-  }
-  return path;
-}
-
-check('a new enemy meets the player on its own arena (4–7) on earlier rows than on the mixed ones (8–10): by the pools, and how often in runs', () => {
-  // Own arenas of the four new kinds and the mixed arenas that bring them (section 5).
-  const OWN: Record<string, string> = { shield: 'shields', archer: 'archers', sapper: 'powder', porcupine: 'thorns' };
-  const kindsOf = (arena: string): string[] => { const t = arenaTemplate(arena); return [...new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')])]; };
-  // The hard battles stand on the branch rows (map rows 10–12, run rows 6–8) of every generated map; the final — run row 10.
-  let hardMin = Infinity;
-  for (let k = 1; k <= 200; k++) for (const node of rtMapNodes(createRtRun(Math.imul(k, 2654435761) >>> 0))) if (node.type === 'hard') hardMin = Math.min(hardMin, runRow(node.row));
-  const firstRow = (arena: string): number => arena === HARD_ARENA ? hardMin : arena === FINAL_ARENA ? 10 : ARENA_POOLS.find(entry => entry.arena === arena)!.rows[0];
-  for (const [kind, own] of Object.entries(OWN)) {
-    assert(kindsOf(own).includes(kind), `${own} brings ${kind}`);
-    for (const mixed of ['ford', HARD_ARENA, FINAL_ARENA].filter(arena => kindsOf(arena).includes(kind)))
-      assert(firstRow(own) < firstRow(mixed), `${kind}: own ${own} from row ${firstRow(own)}, mixed ${mixed} from row ${firstRow(mixed)}`);
-  }
-  // In a given run the pools are random: count how often a kind is first met on a mixed arena (a measurement, no bound).
-  const runs = 300, mixedFirst: Record<string, number> = { shield: 0, archer: 0, sapper: 0, porcupine: 0 };
-  for (let k = 1; k <= runs; k++) {
-    const path = arenaPath(Math.imul(k, 2654435761) >>> 0, k);
-    for (const [kind, own] of Object.entries(OWN)) {
-      const first = path.find(entry => kindsOf(entry.arena).includes(kind));
-      if (first && first.arena !== own) mixedFirst[kind]++;
+    else {
+      // The map shows the arena of an available node: the one it plays under the rule.
+      const next = rtAvailableNodes(run), chosen = next[(k + step) % next.length], preview = arenaPreview(run, chosen);
+      run = ok(rtEnterNode(run, chosen.id), 'enter');
+      if (run.pending?.kind === 'battle') { assert(preview?.arena === run.pending.arena, `${chosen.id}: previewed ${preview?.arena}, played ${run.pending.arena}`); previews++; }
     }
   }
-  console.log(`   hard battles from run row ${hardMin}; first met on a mixed arena in ${runs} runs: ${Object.entries(mixedFirst).map(([kind, n]) => `${kind} ${n}`).join(', ')}`);
+  return { path, previews };
+}
+
+check('design answer 1 to step 4: on ordinary nodes a new enemy is first met on its own arena (300 runs: 0 otherwise); hard battles and the final — counted', () => {
+  // The hard battles stand on map rows 11–12 (run rows 7–8): a rest 1–3 rows before a hard battle; the final — run row 10.
+  let hardMin = Infinity;
+  for (let k = 1; k <= 200; k++) for (const node of rtMapNodes(createRtRun(Math.imul(k, 2654435761) >>> 0))) if (node.type === 'hard') hardMin = Math.min(hardMin, runRow(node.row));
+  assert(hardMin === 7, `hard battles from run row ${hardMin}`);
+  for (const kind of NEW_KINDS) assert(arenaNewKinds(OWN_ARENAS[kind]).join() === kind, `${OWN_ARENAS[kind]} brings ${kind} only`);
+  // Where each new kind is met first, by the type of the node: an own arena, or a mixed one (Брод, Застава, the final).
+  const runs = 300, ordinary = new Map<string, number>(), hard = new Map<string, number>(), final = new Map<string, number>();
+  const runsWith = { hard: 0, final: 0 };
+  let outside = 0, previews = 0;
+  for (let k = 1; k <= runs; k++) {
+    const walked = arenaPath(Math.imul(k, 2654435761) >>> 0, k), met = new Set<string>();
+    previews += walked.previews;
+    const firstOn = { hard: false, final: false };
+    for (const { row, type, arena } of walked.path) {
+      if (type !== 'hard' && type !== 'boss' && !arenaCandidates(row).includes(arena)) outside++;
+      for (const kind of arenaNewKinds(arena)) {
+        if (met.has(kind)) continue;
+        met.add(kind);
+        if (arena === OWN_ARENAS[kind]) continue;
+        const table = type === 'hard' ? hard : type === 'boss' ? final : ordinary, key = `${kind}@${type}:${row}:${arena}`;
+        table.set(key, (table.get(key) ?? 0) + 1);
+        if (type === 'hard') firstOn.hard = true; else if (type === 'boss') firstOn.final = true;
+      }
+    }
+    if (firstOn.hard) runsWith.hard++;
+    if (firstOn.final) runsWith.final++;
+  }
+  const total = (table: Map<string, number>) => [...table.values()].reduce((a, b) => a + b, 0);
+  const byKind = (table: Map<string, number>) => NEW_KINDS.map(kind => `${kind} ${[...table].filter(([key]) => key.startsWith(`${kind}@`)).reduce((a, [, n]) => a + n, 0)}`).join(', ');
+  console.log(`   ${runs} runs, ${previews} previews equal the arena played; own arenas outside their rows ${outside} times`);
+  console.log(`   first met on a mixed arena — ordinary nodes: ${total(ordinary)}; hard battle: ${byKind(hard)} (runs ${runsWith.hard}); final: ${byKind(final)} (runs ${runsWith.final})`);
+  assert(total(ordinary) === 0, `ordinary nodes: ${[...ordinary].map(([key, n]) => `${key} ×${n}`).join(', ')}`);
 });
 
-check('the final arena «Последний рубеж»: a save at it loads back, a loss there ends the run as a defeat; a save of steps 1–3 with a temporary mark loads without it', () => {
+check('the final arena «Последний рубеж»: a save at it loads back, a loss there ends the run as a defeat; a save of steps 1–3 with a temporary arena reads as no run', () => {
   const walk = walks.find(entry => entry.atFinal)!, atFinal = walk.atFinal!;
   const pending = atFinal.pending as Extract<RtRunState['pending'], { kind: 'battle' }>;
   assert(pending.battle === 'final' && pending.arena === FINAL_ARENA && same(roundTrip(atFinal), atFinal), 'the open final arena is saved');
@@ -428,11 +465,15 @@ check('the final arena «Последний рубеж»: a save at it loads bac
   loseArena(sim);
   const lost = ok(resolveArena(atFinal, outcomeOf(atFinal, sim)), 'lose the final');
   assert(lost.result?.outcome === 'defeat' && lost.result.nodeId === pending.nodeId && rtAvailableNodes(lost).length === 0 && same(roundTrip(lost), lost), 'a lost final ends the run as a defeat');
-  // A run saved at steps 1–3 named a temporary arena with `standIn`: the arena stays, the mark goes.
-  const legacy = JSON.parse(serializeRtRun(atFinal)) as { pending: Record<string, unknown> };
-  legacy.pending.standIn = 'final';
-  const loaded = parseRtRun(JSON.stringify(legacy));
-  assert(loaded && same(loaded, atFinal), 'a save of steps 1–3 loads without the mark');
+  // A run saved at steps 1–3 at a boss node: a temporary arena (one of 1–7, `standIn: 'final'`) — the step-4 rule would
+  // not choose it, the save reads as no run (review of step 4).
+  const legacy = JSON.parse(serializeRtRun(atFinal)) as { pending: Record<string, unknown>; picks: { nodeId: string; arena?: string }[] };
+  legacy.pending.standIn = 'final'; legacy.pending.arena = 'glade';
+  legacy.picks = legacy.picks.map(pick => pick.nodeId === pending.nodeId ? { ...pick, arena: 'glade' } : pick);
+  assert(parseRtRun(JSON.stringify(legacy)) === null, 'a temporary final arena of steps 1–3: no run');
+  const marked = JSON.parse(serializeRtRun(atFinal)) as { pending: Record<string, unknown> };
+  marked.pending.standIn = 'final';
+  assert(parseRtRun(JSON.stringify(marked)) === null, 'a mark of steps 1–3 on the right arena: no run either');
 });
 
 check('a lost arena ends the run: nothing more to enter, the save keeps the end, the profile keeps the gift mark', () => {
@@ -1045,6 +1086,16 @@ check('a malformed save reads as no run: arena, open node, result, gift, picks, 
     ['unknown battle kind', { ...atBattle, pending: { ...pending, battle: 'boss' } }],
     ['an event battle on a battle node', { ...atBattle, pending: { ...pending, battle: 'event' } }],
     ['unknown stand-in (a mark of steps 1–3)', { ...atBattle, pending: { ...pending, standIn: 'nearest' } }],
+    // Review of step 4: the arena and the battle kind follow the node — an ordinary battle of row 1 is neither the final
+    // nor «Застава», and its heart (a hard battle's +3 HP) is not given.
+    ['the final arena on an ordinary node', { ...atBattle, pending: { ...pending, arena: 'last-stand' }, picks: atBattle.picks.map(pick => pick.nodeId === pending.nodeId ? { ...pick, arena: 'last-stand' } : pick) }],
+    ['«Застава» on an ordinary node', { ...atBattle, pending: { ...pending, arena: 'outpost' }, picks: atBattle.picks.map(pick => pick.nodeId === pending.nodeId ? { ...pick, arena: 'outpost' } : pick) }],
+    ['another arena of the row than the rule chose', { ...atBattle, pending: { ...pending, arena: pending.arena === 'glade' ? 'buttons' : 'glade' }, picks: atBattle.picks.map(pick => pick.nodeId === pending.nodeId ? { ...pick, arena: pending.arena === 'glade' ? 'buttons' : 'glade' } : pick) }],
+    ['a hard battle kind on an ordinary node', { ...atBattle, pending: { ...pending, battle: 'hard' } }],
+    ['a final battle kind on an ordinary node', { ...atBattle, pending: { ...pending, battle: 'final' } }],
+    ['the pool stream not the number of arenas', { ...atBattle, streams: { ...atBattle.streams, pool: atBattle.streams.pool + 1 } }],
+    ['a battle record of another arena than its pick', { ...ended, battles: [{ ...ended.battles[0], arena: ended.battles[0].arena === 'glade' ? 'buttons' : 'glade' }, ...ended.battles.slice(1)] }],
+    ['a past arena the rule would not choose', { ...ended, picks: ended.picks.map((pick, i) => i === ended.picks.findIndex(entry => entry.arena) ? { ...pick, arena: pick.arena === 'glade' ? 'buttons' : 'glade' } : pick) }],
     ['a result with an open battle', { ...atBattle, result: { outcome: 'victory', nodeId: pending.nodeId } }],
     ['an unknown open kind', { ...atBattle, pending: { kind: 'tavern', nodeId: pending.nodeId } }],
     ['a rest open on a battle node', { ...atBattle, pending: { kind: 'rest', nodeId: pending.nodeId } }],

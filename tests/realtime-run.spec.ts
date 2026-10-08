@@ -190,12 +190,16 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
 const POOL_ROWS: Record<string, [number, number]> = {
   glade: [1, 3], buttons: [1, 4], marked: [2, 5], shields: [3, 6], archers: [4, 7], powder: [4, 8], thorns: [5, 8], ford: [6, 9],
 };
+/** The new kinds each arena brings (section 5); own arenas 4–7 bring one each. */
+const ALL_FOUR = ['shield', 'archer', 'sapper', 'porcupine'];
+const ARENA_KINDS: Record<string, string[]> = { shields: ['shield'], archers: ['archer'], powder: ['sapper'], thorns: ['porcupine'], ford: ['archer'], outpost: ALL_FOUR, 'last-stand': ALL_FOUR };
+const OWN_ARENA: Record<string, string> = { shield: 'shields', archer: 'archers', sapper: 'powder', porcupine: 'thorns' };
 
-test('run: two runs walk to the final arena — every arena from its pool (hard → «Застава», boss → «Последний рубеж», no «временно»); the final victory ends the run, a reload keeps the end', async ({ page }) => {
+test('run: two runs walk to the final arena — every arena from its pool or the own arena of a kind not met yet (hard → «Застава», boss → «Последний рубеж», no «временно»); the final victory ends the run, a reload keeps the end', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   await openRun(page, errors);
-  const met: { row: number; arena: string; type: string }[] = [];
+  const met: { run: number; row: number; arena: string; type: string }[] = [];
   // Two runs (seeds spread apart) to the end: battles are won by the test hook, other nodes take their first button.
   for (const seed of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0]) {
     await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
@@ -208,7 +212,7 @@ test('run: two runs walk to the final arena — every arena from its pool (hard 
         // Node ids carry the map row (`r6c1`, `den-r11c0`); the run row is the map row less the trunk (4).
         const row = Number(/r(\d+)c/.exec(pending.nodeId!)![1]) - 4;
         expect(pending.standIn, `${pending.nodeId}: no temporary arena`).toBeUndefined();
-        met.push({ row, arena: pending.arena!, type: pending.battle! });
+        met.push({ run: seed, row, arena: pending.arena!, type: pending.battle! });
         await expect(page.getByTestId('run')).toBeHidden();
         expect((await snapshot(page)).arena).toBe(pending.arena);
         // The map screen named the arena without «временно».
@@ -241,10 +245,16 @@ test('run: two runs walk to the final arena — every arena from its pool (hard 
     await expect(page.getByTestId('run-result-victory')).toBeVisible();
     expect(await runState(page)).toEqual(ended);
   }
-  for (const { row, arena, type } of met) {
+  for (const [i, { run, row, arena, type }] of met.entries()) {
+    const seen = new Set(met.slice(0, i).filter(m => m.run === run).flatMap(m => ARENA_KINDS[m.arena] ?? []));
     if (type === 'hard') expect(arena, `row ${row}: hard`).toBe('outpost');
     else if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
-    else expect(row >= POOL_ROWS[arena][0] && row <= POOL_ROWS[arena][1], `row ${row}: ${arena}`).toBe(true);
+    else {
+      // Design answer 1 to step 4: an ordinary node meets a new kind first on its own arena — even outside its rows.
+      const inRows = row >= POOL_ROWS[arena][0] && row <= POOL_ROWS[arena][1], kinds = ARENA_KINDS[arena] ?? [];
+      expect(inRows || (kinds.length === 1 && OWN_ARENA[kinds[0]] === arena && !seen.has(kinds[0])), `row ${row}: ${arena}`).toBe(true);
+      for (const kind of kinds) if (!seen.has(kind)) expect(arena, `row ${row}: ${kind} first met`).toBe(OWN_ARENA[kind]);
+    }
   }
   expect(met.filter(m => m.type === 'final').length).toBe(2);
   expect(Math.max(...met.filter(m => m.type !== 'final').map(m => m.row))).toBe(9);

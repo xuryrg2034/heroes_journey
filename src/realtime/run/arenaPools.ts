@@ -14,6 +14,7 @@
  */
 import { FOREST_TRUNK_LAST_ROW } from '../../game/run/forestMap';
 import { pickPoolBattle } from '../../game/run/battlePools';
+import { arenaTemplate } from '../sim/arenas';
 
 /** An arena of a pool and the run rows it stands on (inclusive). */
 export interface ArenaPoolEntry { arena: string; rows: readonly [number, number] }
@@ -51,6 +52,38 @@ export const runRow = (mapRow: number): number => mapRow - FOREST_TRUNK_LAST_ROW
 /** The arenas a run row may play: those whose rows hold it (empty for a row outside the run, 1–9). */
 export function arenaCandidates(row: number, pools: readonly ArenaPoolEntry[] = ARENA_POOLS): string[] {
   return pools.filter(entry => row >= entry.rows[0] && row <= entry.rows[1]).map(entry => entry.arena);
+}
+
+/** The four new kinds of the slice (section 4) and their own arenas 4–7 (section 5). */
+export const NEW_KINDS = ['shield', 'archer', 'sapper', 'porcupine'] as const;
+export const OWN_ARENAS: Readonly<Record<string, string>> = { shield: 'shields', archer: 'archers', sapper: 'powder', porcupine: 'thorns' };
+/** The new kinds an arena brings: its newcomers and the enemies standing on it from the start. */
+export function arenaNewKinds(arena: string): string[] {
+  const t = arenaTemplate(arena), kinds = new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')]);
+  return NEW_KINDS.filter(kind => kinds.has(kind));
+}
+/** The new kinds the run has met: those of the arenas it entered (`history`). */
+export const metKinds = (history: readonly string[]): Set<string> => new Set(history.flatMap(arenaNewKinds));
+
+/**
+ * The arenas an ordinary node (a battle, the Jailer's row, the breakthrough, an event's reward battle) may play — the
+ * rule «a new enemy teaches its rule on its own arena» (design answer 1 to step 4, 08.10.2026):
+ * - own arenas (4–7) of kinds the run has not met yet come first: those in the row's pool, and — when a candidate of
+ *   the row brings an unmet kind (a mixed arena, «Брод») — the own arena of that kind even outside its rows;
+ * - otherwise the candidates that bring no unmet kind;
+ * - otherwise the whole pool of the row (cannot happen while every new kind has its own arena).
+ * The pool stream then chooses among them with the window of repeats (`pickArena`). Hard battles and the final are not
+ * ordinary nodes: they play their one arena whatever was met.
+ */
+export function ordinaryArenaChoices(candidates: readonly string[], history: readonly string[]): string[] {
+  const met = metKinds(history), unmet = (arena: string) => arenaNewKinds(arena).filter(kind => !met.has(kind));
+  const own = new Set<string>();
+  for (const arena of candidates) for (const kind of unmet(arena)) own.add(OWN_ARENAS[kind]);
+  // Keep the order of the pools (the stream's choice depends on it): the row's own arenas first, then those from outside.
+  const ordered = [...candidates.filter(arena => own.has(arena)), ...[...own].filter(arena => !candidates.includes(arena))];
+  if (ordered.length) return ordered;
+  const fitting = candidates.filter(arena => !unmet(arena).length);
+  return fitting.length ? fitting : [...candidates];
 }
 
 /**

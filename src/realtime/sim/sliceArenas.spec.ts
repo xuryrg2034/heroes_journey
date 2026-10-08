@@ -103,7 +103,7 @@ check('«Брод»: five marked — three archers on the far bank, two wolves a
   assert(replays(sim) && replays(shot), 'replay');
 });
 
-check('«Брод»: newcomers are archers (about 15%), wolf packs and basic enemies — no boars, no other kinds', () => {
+check('«Брод»: newcomers are archers (15% of the rolls of single newcomers, about 12% of all with the packs), wolf packs and basic enemies — no boars, no other kinds', () => {
   const { share, kinds, total } = composition('ford');
   assert(total >= 150 && share('archer') > 0.07 && share('archer') < 0.25, `archers ${pct(share('archer'))} of ${total}`);
   assert(share('wolf') > 0.1, `wolves ${pct(share('wolf'))} of ${total}`);
