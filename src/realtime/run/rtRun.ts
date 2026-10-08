@@ -37,7 +37,7 @@ import { arenaCandidates, arenaTitle, pickArena, RUN_ARENAS, runRow, TEMPORARY_F
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
-import { ITEM_TITLES } from '../sim/kit';
+import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
 import type { Loadout } from '../sim/kit';
 
 /**
@@ -76,8 +76,15 @@ export type RtRunPending =
   | { kind: 'talisman'; nodeId: string; source: 'hard' | 'oath' | 'event'; options: RtTalismanOption[] };
 
 /** One-arena modifiers of events with an analogue in real time (design answer 3 to step 3). */
-export type RtModifier = 'first-chain-power' | 'start-elite';
-export const RT_MODIFIERS: readonly RtModifier[] = ['first-chain-power', 'start-elite'];
+export type RtModifier = 'first-chain-power' | 'start-elite' | 'wrath' | 'early-reinforcement';
+export const RT_MODIFIERS: readonly RtModifier[] = ['first-chain-power', 'start-elite', 'wrath', 'early-reinforcement'];
+/** What a modifier does to the next arena, as the event shows it (the price of the reward is seen in advance). */
+export const RT_MODIFIER_TEXT: Readonly<Record<RtModifier, string>> = {
+  'first-chain-power': 'Следующая арена: первая цепь начинается с силой 1',
+  'start-elite': 'Следующая арена: одна случайная элита в первой волне',
+  wrath: `Следующая арена: +${EVENT_EXTRA_ENEMIES} врага в начале`,
+  'early-reinforcement': `Следующая арена: враги до цели приходят в ${String(EVENT_PACE_FACTOR).replace('.', ',')} раза чаще`,
+};
 const isRtModifier = (value: unknown): value is RtModifier => typeof value === 'string' && (RT_MODIFIERS as readonly string[]).includes(value);
 
 /** What one merchant visit offers besides healing and «Закалка»: consumables by slot (and, with talismans, one talisman). */
@@ -129,8 +136,10 @@ export interface RtRunState {
   /** Step 3: the gift's price «следующий привал не лечит» waits for the next rest. */
   restNoHeal?: true;
   /**
-   * Step 3 (design answer 3): one-arena modifiers from events, taken by the next arena (each once): `first-chain-power` —
-   * its first chain starts with power 1 more; `start-elite` — one random elite in its first wave.
+   * Step 3 (design answers): one-arena modifiers from events, taken by the next arena (each once; they add up):
+   * `first-chain-power` — its first chain starts with power 1 more; `start-elite` — one random elite in its first wave;
+   * `wrath` («злость») — +3 enemies in its first wave; `early-reinforcement` («подкрепление раньше») — before the goals
+   * groups come 1.5 times as often.
    */
   modifiers?: RtModifier[];
   gift?: RunGift;
@@ -231,6 +240,8 @@ export function rtArenaLoadout(run: RtRunState): Loadout {
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
     ...run.modifiers?.includes('start-elite') ? { startElite: true } : {},
+    ...run.modifiers?.includes('wrath') ? { extraStart: true } : {},
+    ...run.modifiers?.includes('early-reinforcement') ? { earlyPace: true } : {},
   };
 }
 
@@ -624,12 +635,10 @@ function payableCost(run: RtRunState, option: EventOption): { cost: EventCost | 
 /** An outcome text in real-time numbers: HP and maximum HP ×2.4; energy goes to the next arena. */
 function outcomeText(outcome: EventOption['outcomes'][number], kinds: readonly ResourceKind[]): string {
   const effect = outcome.effect;
-  // Design answer 3 to step 3: «первая цепь с силой 1» and «бой со случайной элитой» act on the next arena; «злость» and
-  // «подкрепление на ход раньше» have no analogue — the option stays, that part does nothing (shown).
-  const slice = effect.modifier && !isRtModifier(effect.modifier);
-  let text = describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {}, ...slice ? { modifier: undefined } : {} } }, kinds);
-  if (slice) text = `${text === 'ничего не меняется' ? '' : `${text}; `}«${effect.modifier === 'wrath' ? 'злость' : 'подкрепление раньше'}» в срезе не действует`;
-  else if (effect.modifier) text = text.replace('в следующем бою', 'в следующей арене');
+  // Design answers to step 3: every modifier acts on the next arena — the price of a reward, shown in advance.
+  const modifier = isRtModifier(effect.modifier) ? effect.modifier : undefined;
+  let text = describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {}, modifier: undefined } }, kinds);
+  if (modifier) text = `${text === 'ничего не меняется' ? '' : `${text}; `}${RT_MODIFIER_TEXT[modifier]}`;
   return effect.energy ? `${text} — к началу следующей арены` : text;
 }
 

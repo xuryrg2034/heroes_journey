@@ -9,6 +9,7 @@
  */
 import { behaviorOf, enemyKind } from './enemies/kinds';
 import { rollRandomElite } from './elites';
+import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR } from './kit';
 import { blockedAt, dist, inWater, type Vec } from './geometry';
 import { enemyBodyRadius, rollGroupInterval } from './params';
 import type { Rng } from './rng';
@@ -26,6 +27,8 @@ export interface SpawnMarker {
   hp: number;
   timeLeft: number;
   total: number;
+  /** Stage 2, step 3: an extra enemy of the event modifier «злость» — never an elite. Absent otherwise. */
+  plain?: true;
 }
 
 export interface QueuedSpawn {
@@ -34,6 +37,8 @@ export interface QueuedSpawn {
   hp: number;
   /** Group center: members appear around it while it stays valid. */
   anchor: Vec | null;
+  /** Stage 2, step 3: an extra enemy of the event modifier «злость» — never an elite. Absent otherwise. */
+  plain?: true;
 }
 
 const ANCHOR_TRIES = 24;
@@ -151,7 +156,7 @@ function placeQueued(world: World): void {
     const p = q.anchor ? pointNear(world, q.anchor) : null;
     if (!p) { q.anchor = null; return; }
     world.queue.shift();
-    world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: delay, total: delay });
+    world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: delay, total: delay, ...q.plain ? { plain: true as const } : {} });
   }
 }
 
@@ -176,9 +181,18 @@ function topUpToFloor(world: World): void {
 
 export function updateSpawning(world: World, dt: number): void {
   world.groupTimer -= dt;
+  const kit = world.kit;
   while (world.groupTimer <= 0) {
-    world.groupTimer += rollGroupInterval(world.pressure.phase, rollRng(world));
+    // Stage 2, step 3 (event modifier «подкрепление раньше»): before the goals the groups come EVENT_PACE_FACTOR times as often.
+    const pace = kit?.earlyPace && world.stage === 'goals' ? 1 / EVENT_PACE_FACTOR : 1;
+    world.groupTimer += rollGroupInterval(world.pressure.phase, rollRng(world)) * pace;
     rollGroup(world);
+    // Stage 2, step 3 (event modifier «злость»): the first wave brings EVENT_EXTRA_ENEMIES more — singles of the arena's
+    // own composition (its kinds by their shares, `rollSingle`), never elites; the spawn streams decide them.
+    if (kit?.extraStart) {
+      kit.extraStart = false;
+      for (let i = 0; i < EVENT_EXTRA_ENEMIES; i++) world.queue.push({ ...rollSingle(world, rollColor(world), null), plain: true });
+    }
   }
   topUpToFloor(world);
   placeQueued(world);
@@ -189,8 +203,9 @@ export function updateSpawning(world: World, dt: number): void {
     if (m.timeLeft > 0) continue;
     world.markers.splice(i, 1);
     const e = spawnEnemy(world, m, m.color, m.hp, m.kind);
-    // Stage 2, step 3: a newcomer may be a random elite (a run from its row 3, or the sandbox toggle).
-    rollRandomElite(world, e);
+    // Stage 2, step 3: a newcomer may be a random elite (a run from its row 3, or the sandbox toggle) — not an extra
+    // enemy of «злость».
+    if (!m.plain) rollRandomElite(world, e);
   }
 }
 

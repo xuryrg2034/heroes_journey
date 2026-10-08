@@ -626,6 +626,40 @@ check('event modifier «первая цепь с силой 1» adds to «Точ
   assert(replays(elite), 'replay');
 });
 
+check('event prices in the arena: «злость» — +3 enemies of the arena\'s composition in the first wave, never elites; «подкрепление раньше» — groups before the goals ×1.5, after them the same', () => {
+  // «злость» on arena 4 (a quarter of its newcomers are shieldbearers) with random elites at 100%: the extras are no elites.
+  let shields = 0;
+  for (let k = 1; k <= 30; k++) {
+    const params = Object.assign(defaultParams(), { eliteSandbox: true, eliteChance: 1, eliteCap: 999, contactDamage: 0 });
+    const sim = new Simulation({ arena: 'shields', params, seed: seedOf(500 + k), record: true, loadout: { extraStart: true } }), w = sim.world;
+    sim.tick();
+    const plain = [...w.queue, ...w.markers].filter(entry => entry.plain);
+    assert(plain.length === 3 && !w.kit!.extraStart, `three extras with the first wave: ${plain.length}`);
+    shields += plain.filter(entry => entry.kind === 'shield').length;
+    // Every other newcomer of that moment becomes an elite (100%); the three extras do not.
+    for (let i = 0; i < 70; i++) sim.tick();
+    assert(w.enemies.filter(e => !e.elite).length === 3 && w.enemies.filter(e => e.elite).length > 3, `extras are no elites: ${w.enemies.filter(e => !e.elite).length} plain of ${w.enemies.length}`);
+    if (k === 1) assert(replays(sim), 'replay');
+  }
+  assert(shields > 5 && shields < 45, `the arena's composition: ${shields} shieldbearers of 90 extras`);
+  // «подкрепление раньше»: count the groups (newcomers with groups of one, no floor) over 60 s before and after the goals.
+  const groups = (earlyPace: boolean, greed: boolean): number => {
+    let n = 0;
+    for (let k = 1; k <= 6; k++) {
+      const params = Object.assign(defaultParams(), { baseFloor: 0, groupMin: 1, groupMax: 1, baseWolfShare: 0, maxEnemies: 150, contactDamage: 0, enemySpeed: 0, spawnMinDistance: 0 });
+      for (const phase of params.phases) { phase.floor = 0; phase.wolfShare = 0; }
+      const sim = new Simulation({ arena: 'glade', params, seed: seedOf(600 + k), loadout: earlyPace ? { earlyPace: true } : {} }), w = sim.world;
+      if (greed) sim.command({ t: 'goals' });
+      for (let i = 0; i < 60 * 60; i++) { sim.tick(); for (const ev of w.events) if (ev.type === 'spawn') n++; w.events.length = 0; if (i % 600 === 599) sim.command({ t: 'clear', keepMarked: false }); }
+    }
+    return n;
+  };
+  const before = groups(false, false), early = groups(true, false), afterPlain = groups(false, true), afterEarly = groups(true, true);
+  console.log(`   groups before the goals ${before} → ${early} (×${(early / before).toFixed(2)}); after the goals ${afterPlain} → ${afterEarly}`);
+  assert(early / before > 1.35 && early / before < 1.65, `before the goals ×${early / before}`);
+  assert(afterEarly / afterPlain > 0.9 && afterEarly / afterPlain < 1.1, `after the goals ×${afterEarly / afterPlain}`);
+});
+
 check('«Осколок жернова»: a crystal falls at the 5th kill of a chain instead of the 6th', () => {
   for (const [talismans, crystals] of [[['millstone-shard'], 1], [[], 0]] as const) {
     const sim = withTalismans('kills', [...talismans], seedOf(62)), w = sim.world;

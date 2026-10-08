@@ -38,6 +38,10 @@ export interface Loadout {
   firstPower?: number;
   /** The event modifier «бой со случайной элитой»: the first newcomer of the arena is a random elite. */
   startElite?: boolean;
+  /** The event modifier «злость» (design answer to step 3): EVENT_EXTRA_ENEMIES more enemies in the first wave. */
+  extraStart?: boolean;
+  /** The event modifier «подкрепление раньше»: before the goals groups come EVENT_PACE_FACTOR times as often. */
+  earlyPace?: boolean;
 }
 
 /**
@@ -58,7 +62,16 @@ export interface Kit {
   wardUsed: boolean;
   /** The event modifier «бой со случайной элитой» still waits for the first newcomer. */
   startElite: boolean;
+  /** The event modifier «злость» still waits for the first wave (its extra enemies are queued with it). */
+  extraStart: boolean;
+  /** The event modifier «подкрепление раньше» acts in this arena (before the goals). */
+  earlyPace: boolean;
 }
+
+/** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
+export const EVENT_EXTRA_ENEMIES = 3;
+/** Баланс: «подкрепление раньше» — before the goals groups come this many times as often (the interval × 1 / it). */
+export const EVENT_PACE_FACTOR = 1.5;
 
 // Баланс (section 8): the talismans in the arena, numbers of the turn-based talismans (talismans.ts) in real time.
 /** «Точильный камень»: the first chain of an arena starts with this power. */
@@ -84,6 +97,7 @@ export function kitOf(loadout: Loadout): Kit {
     items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites, talismans,
     firstPower: (talismans.includes('whetstone') ? WHETSTONE_POWER : 0) + count(loadout.firstPower),
     ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false, startElite: !!loadout.startElite,
+    extraStart: !!loadout.extraStart, earlyPace: !!loadout.earlyPace,
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

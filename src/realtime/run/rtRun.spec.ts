@@ -467,12 +467,13 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
   const setup: RtRunState = structuredClone(base);
   setup.picks.find(entry => entry.nodeId === (base!.pending as { nodeId: string }).nodeId)!.eventId = 'ford-ambush';
   const view = rtEventView(setup)!, fight = view.options.find(option => option.id === 'fight')!;
-  // Step 3: «Обойти» (1 energy) — banked energy, none here; «Обойти по кустам» is the safe way (its «злость» does nothing).
+  // Step 3: «Обойти» (1 energy) — banked energy, none here; «Обойти по кустам» is the safe way: no HP, its price «злость»
+  // (+3 enemies at the start of the next arena) is shown in advance.
   const around = view.options.find(option => option.id === 'around')!, bushes = view.options.find(option => option.id === 'bushes')!;
   assert(fight.available && fight.battle && !view.options.some(option => option.off), 'every option on');
-  assert(bushes.available && bushes.safe && bushes.outcomes[0].text.includes('в срезе не действует'), `the safe way: ${bushes.outcomes[0].text}`);
+  assert(bushes.available && bushes.safe && bushes.outcomes[0].text === 'Следующая арена: +3 врага в начале', `the safe way: ${bushes.outcomes[0].text}`);
   const passed = ok(rtChooseEventOption(setup, 'bushes'), 'bushes');
-  assert(passed.pending === null && !passed.modifiers, 'passed by, no modifier');
+  assert(passed.pending === null && same(passed.modifiers, ['wrath']) && passed.hp === setup.hp, 'passed by: no HP, the price waits for the next arena');
   assert(!around.off && !around.available && around.reason.includes('энергия'), `around: ${around.reason}`);
   assert(rtEventView({ ...setup, energy: 1 })!.options.find(option => option.id === 'around')!.available, 'with 1 banked energy it can be taken');
   assert(fight.outcomes[0].text.includes(`«${arenaTitle(fight.battle.arena)}»`), `the arena is named: ${fight.outcomes[0].text}`);
@@ -870,7 +871,7 @@ check('event modifiers (design answer 3): «первая цепь с силой 
   const owl: RtRunState = structuredClone(atEvent);
   owl.picks.find(entry => entry.nodeId === (atEvent!.pending as { nodeId: string }).nodeId)!.eventId = 'owl-hollow';
   const advice = rtEventView(owl)!.options.find(option => option.id === 'advice')!;
-  assert(advice.available && advice.outcomes[0].text.includes('следующей арене'), `advice: ${advice.outcomes[0].text}`);
+  assert(advice.available && advice.outcomes[0].text === 'Следующая арена: первая цепь начинается с силой 1', `advice: ${advice.outcomes[0].text}`);
   let run = ok(rtChooseEventOption(owl, 'advice'), 'advice');
   assert(same(run.modifiers, ['first-chain-power']) && same(roundTrip(run), run), 'the modifier waits, saved');
   run = nextArena(run);
@@ -898,7 +899,46 @@ check('event modifiers (design answer 3): «первая цепь с силой 
   winArena(sim);
   run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
   assert(!run.modifiers && !rtArenaLoadout(nextArena(run)).startElite, 'one arena only');
-  assert(parseRtRun(JSON.stringify({ ...run, modifiers: ['wrath'] })) === null, 'an unknown modifier in a save');
+  assert(parseRtRun(JSON.stringify({ ...run, modifiers: ['calm'] })) === null && parseRtRun(JSON.stringify({ ...run, modifiers: ['wrath', 'wrath'] })) === null, 'an unknown or repeated modifier in a save');
+});
+
+check('event prices «злость» and «подкрепление раньше» (design, variant б): the next arena only — +3 enemies at the start (not elites), groups before the goals ×1.5; both add up; saved', () => {
+  // Real trail events with these prices, put on a real event node: «Раненый волчонок» — «Снять шкуру» (2 resources, «злость»),
+  // «Пьяный повар» — «Утащить котелок» (3 resources, «подкрепление раньше»; its branch rows 10–11 do not matter to the option).
+  let atEvent: RtRunState | null = null;
+  for (let salt = 3001; salt < 4000 && !atEvent; salt += 100) {
+    const next = openNode(salt, 'event');
+    if (next?.pending?.kind === 'event' && rtNode(next, next.pending.nodeId)!.row <= 8) atEvent = next;
+  }
+  assert(atEvent && atEvent.pending?.kind === 'event', 'a trail event');
+  const nodeId = (atEvent.pending as { nodeId: string }).nodeId;
+  const withEvent = (id: string): RtRunState => { const run: RtRunState = structuredClone(atEvent!); run.picks.find(entry => entry.nodeId === nodeId)!.eventId = id; return run; };
+  const cub = withEvent('wounded-cub'), skin = rtEventView(cub)!.options.find(option => option.id === 'skin')!;
+  assert(skin.available && skin.outcomes[0].text.endsWith('Следующая арена: +3 врага в начале') && skin.outcomes[0].text.includes('2 ресурса'), `skin: ${skin.outcomes[0].text}`);
+  const cook = withEvent('drunk-cook'), pot = rtEventView(cook)!.options.find(option => option.id === 'pot')!;
+  assert(pot.outcomes[0].text.endsWith('Следующая арена: враги до цели приходят в 1,5 раза чаще'), `pot: ${pot.outcomes[0].text}`);
+  for (const view of [rtEventView(cub)!, rtEventView(cook)!]) assert(view.options.every(option => !option.outcomes.some(outcome => outcome.text.includes('не действует'))), 'no «не действует»');
+  // «злость»: the next arena starts with +3 enemies of the arena's composition, not elites; the arena after it — none.
+  let run = ok(rtChooseEventOption(cub, 'skin'), 'skin');
+  assert(same(run.modifiers, ['wrath']) && same(roundTrip(run), run), 'the price waits, saved');
+  run = nextArena(run);
+  assert(rtArenaLoadout(run).extraStart === true && !rtArenaLoadout(run).earlyPace, 'the next arena gets it');
+  const firstWave = (sim: Simulation) => { const w = sim.world; for (let i = 0; i < 2; i++) sim.tick(); return [...w.queue, ...w.markers, ...w.enemies].filter(entry => (entry as { plain?: true }).plain).length; };
+  let sim = startArena(run, Object.assign(defaultParams(), { eliteSandbox: false }));
+  assert(firstWave(sim) === 3, 'three extra enemies in the first wave');
+  for (let i = 0; i < 60 * 6; i++) sim.tick();
+  const replayed = replay(JSON.parse(JSON.stringify(sim.exportJournal()!)));
+  assert(replayed.hash() === sim.hash(), 'the arena with the modifier replays to the same hash');
+  winArena(sim);
+  run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
+  assert(!run.modifiers, 'spent');
+  run = nextArena(run);
+  assert(!rtArenaLoadout(run).extraStart && firstWave(startArena(run)) === 0, 'the arena after it: none');
+  // Both together (another event before the arena): both act on the same arena.
+  const both = nextArena({ ...ok(rtChooseEventOption(cook, 'pot'), 'pot'), modifiers: ['wrath', 'early-reinforcement'] });
+  assert(same(roundTrip(both), both) && rtArenaLoadout(both).extraStart && rtArenaLoadout(both).earlyPace, 'both in the loadout, saved');
+  sim = startArena(both);
+  assert(firstWave(sim) === 3 && sim.world.kit!.earlyPace, 'both act');
 });
 
 check('icons and labels of the node types equal the turn-based map screen\'s', () => {

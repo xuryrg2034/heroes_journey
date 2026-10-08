@@ -4,9 +4,9 @@
  * the pool while it keeps a choice — at least two options on and a safe one among them.
  *
  * The slice has HP, the maximum HP, crafting resources, arenas and (step 3) consumables and the energy banked for the
- * next arena (an arena starts with it; rtRun.ts) and the one-arena modifiers «первая цепь с силой 1» and «бой со
- * случайной элитой» (design answer 3). «Злость» and «подкрепление на ход раньше» have no analogue: that part of an outcome
- * does nothing, the option stays. So:
+ * next arena (an arena starts with it; rtRun.ts) and the one-arena modifiers of the next arena (design answers): «первая
+ * цепь с силой 1», «бой со случайной элитой», «злость» (+3 enemies in the first wave), «подкрепление раньше» (before the
+ * goals groups 1.5 times as often). So:
  * - a cost alternative the run can pay: HP, maximum HP, resources, energy (banked), consumables (in hand);
  * - «снять горение, яд и кровотечение» has nothing to clear (the hero has no such effects) and changes nothing;
  * - a reward battle («Засада у брода») is an arena of the node's row.
@@ -17,8 +17,7 @@ import { FOREST_EVENTS, isSafeOption, optionCosts, type EventCost, type EventOpt
 
 /** Why an outcome effect has no analogue in the slice ('' — it has one). */
 function effectGap(_effect: EventOption['outcomes'][number]['effect']): string {
-  // Design answer 3 to step 3: «первая цепь с силой 1» and «бой со случайной элитой» act on the next arena; «злость» and
-  // «подкрепление на ход раньше» have no analogue and do nothing (rtRun.ts shows it) — no outcome turns an option off.
+  // Design answers to step 3: every modifier acts on the next arena (rtRun.ts, `RtModifier`) — no outcome turns an option off.
   return '';
 }
 /** A cost alternative the slice can pay: every kind of the catalogue has an analogue since step 3. */
