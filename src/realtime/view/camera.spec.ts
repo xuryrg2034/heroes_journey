@@ -136,7 +136,7 @@ check('edge markers: a danger aimed at the hero from off screen, goals off scree
   base.x = 1;
   assert(collectEdgeMarkers(world, sees).length === 0, 'a boar that is not aiming needs none');
   // A marked enemy far away is a goal.
-  world.enemies.push({ ...base, id: 2, kind: 'basic', boar: null, marked: true, x: 22, y: 2 } as typeof base);
+  world.enemies.push({ ...base, id: 2, kind: 'basic', boar: 'walk', marked: true, x: 22, y: 2 } as typeof base);
   m = collectEdgeMarkers(world, sees);
   assert(m.length === 1 && m[0].kind === 'goal', 'a marked enemy off screen');
 });
@@ -158,7 +158,7 @@ check('a fight with the pointer mapped through a moving camera replays to the sa
     }
   }
   assert(cam.x > 12.5, `the camera followed the hero: ${cam.x}`);
-  const journal = sim.exportJournal(), hash = sim.hash();
+  const journal = sim.exportJournal()!, hash = sim.hash();
   const back = replay(journal);
   assert(back.hash() === hash, 'replay hash');
   assert(JSON.stringify(journal).includes('"begin"'), 'journal holds the arena-space commands');

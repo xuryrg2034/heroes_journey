@@ -18,6 +18,8 @@ import { BOAR_ART_SCALE, archerLine, lynxLine, lynxStunned, quillsUp, quillsWarn
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
+import { Camera, CAMERA, edgeArrow, type CameraBounds } from './camera';
+import { collectEdgeMarkers } from './edgeMarkers';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
 
@@ -25,6 +27,10 @@ import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type Wor
 export interface RenderUi {
   pointer: Vec | null;
   jumpMode: boolean;
+  /** Camera (docs/realtime-stage3.md, section 11): the pointer in stage pixels; `render` turns it into `pointer` after moving the camera. */
+  pointerScreen?: Vec | null;
+  /** The camera stands (a chain is being drawn). */
+  cameraFrozen?: boolean;
 }
 
 /** Grey of the same lightness: the desaturated variant of a chain color. */
@@ -156,7 +162,16 @@ export class RealtimeRenderer {
   private shakeLeft = 0;
   private shakeTotal = 0;
   private shakeAmp = 0;
+  /** Screen position of the arena origin without the shake (the camera's view of the arena). */
   private readonly base = { x: 0, y: 0 };
+  /** Camera: follows the hero; the view is `viewW × viewH` units, its centre is the middle of the free part of the window. */
+  readonly camera = new Camera();
+  private scale = 1;
+  private freeW = 1280;
+  private freeH = 720;
+  private readonly edgeLayer = new Graphics();
+  /** Off-screen pointers drawn in the last frame, by kind (tests read it). */
+  readonly edgeShown = { threat: 0, goal: 0 };
   /** Boar lanes drawn in the last frame (tests read it: the announcement is on screen). */
   visibleLanes = 0;
   /** Wolf pack lines drawn in the last frame. */
@@ -201,7 +216,7 @@ export class RealtimeRenderer {
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
     this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
-    this.app.stage.addChild(this.root);
+    this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
     this.comboText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 46, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: 0x200c08, width: 7 } } });
@@ -240,23 +255,88 @@ export class RealtimeRenderer {
     }
   }
 
-  /** Fits the arena into the free part of the canvas (the debug panel may cover the right side). */
+  /**
+   * Sets the scale and the view (the debug panel may cover the right side). The scale fits the reference view (16×10 units,
+   * `CAMERA.refW/refH`) into the free part, as the whole arena was fitted before the camera: a 16×10 arena looks the same.
+   * The view shows `freeWidth / (UNIT·scale)` units across; a larger arena scrolls under the camera.
+   */
   layout(freeWidth: number, height: number): void {
-    if (!this.arena) return;
-    const margin = 12, w = this.arena.width * UNIT, h = this.arena.height * UNIT;
-    const scale = Math.max(0.1, Math.min((freeWidth - margin * 2) / w, (height - margin * 2) / h));
-    this.root.scale.set(scale);
-    this.base.x = Math.round((freeWidth - w * scale) / 2); this.base.y = Math.round((height - h * scale) / 2);
+    const margin = 12;
+    this.scale = Math.max(0.1, Math.min((freeWidth - margin * 2) / (CAMERA.refW * UNIT), (height - margin * 2) / (CAMERA.refH * UNIT)));
+    this.freeW = freeWidth; this.freeH = height;
+    this.root.scale.set(this.scale);
+    this.camera.clamp(this.bounds());
+    this.placeRoot();
+  }
+
+  /** The view in units and the arena it stays inside. */
+  private bounds(): CameraBounds {
+    const k = UNIT * this.scale;
+    return { viewW: this.freeW / k, viewH: this.freeH / k, arenaW: this.arena?.width ?? CAMERA.refW, arenaH: this.arena?.height ?? CAMERA.refH };
+  }
+
+  /** The origin of the arena on screen from the camera: the camera's point is in the middle of the free area. */
+  private placeRoot(): void {
+    const k = UNIT * this.scale;
+    this.base.x = Math.round(this.freeW / 2 - this.camera.x * k);
+    this.base.y = Math.round(this.freeH / 2 - this.camera.y * k);
     this.root.position.set(this.base.x, this.base.y);
   }
 
-  /** Screen position of an arena point (tests and stage 2 input use the inverse). */
+  /** A new fight or a jump of the hero: the camera stands on him at once. */
+  snapCamera(hero: Vec): void {
+    this.camera.snap(hero, this.bounds());
+    this.placeRoot();
+  }
+
+  /** One camera step on the drawn hero; the pointer in stage pixels becomes an arena point again for the new view. */
+  private updateCamera(world: World, dt: number, ui: RenderUi): void {
+    const hero = world.hero;
+    let lead: Vec | null = null;
+    if (ui.pointerScreen) {
+      const p = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
+      lead = { x: p.x - hero.x, y: p.y - hero.y };
+    }
+    this.camera.update(dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds());
+    this.placeRoot();
+    if (ui.pointerScreen) ui.pointer = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
+  }
+
+  /** Is the arena point in the view (grown by `margin` units). */
+  sees(p: Vec, margin = 0): boolean { return this.camera.sees(p, this.bounds(), margin); }
+
+  /** Screen position of an arena point (tests and input use the inverse); the shake is not part of the mapping. */
   toScreen(x: number, y: number): { x: number; y: number } {
-    return { x: this.root.position.x + x * UNIT * this.root.scale.x, y: this.root.position.y + y * UNIT * this.root.scale.y };
+    return { x: this.base.x + x * UNIT * this.scale, y: this.base.y + y * UNIT * this.scale };
   }
 
   toArena(sx: number, sy: number): { x: number; y: number } {
-    return { x: (sx - this.root.position.x) / (UNIT * this.root.scale.x), y: (sy - this.root.position.y) / (UNIT * this.root.scale.y) };
+    return { x: (sx - this.base.x) / (UNIT * this.scale), y: (sy - this.base.y) / (UNIT * this.scale) };
+  }
+
+  /** Camera state for tests: its centre and the view in units. */
+  cameraState(): { x: number; y: number; viewW: number; viewH: number; scale: number } {
+    const b = this.bounds();
+    return { x: this.camera.x, y: this.camera.y, viewW: b.viewW, viewH: b.viewH, scale: this.scale };
+  }
+
+  /**
+   * Pointers on the border of the view to dangers aimed at the hero and to the goals of the arena that are off screen
+   * (edgeMarkers.ts): a white arrow with a dark outline for a danger (blinks), a gold one for a goal.
+   */
+  private drawEdgeMarkers(world: World): void {
+    const g = this.edgeLayer.clear(), b = this.bounds(), counts = { threat: 0, goal: 0 };
+    const cx = this.freeW / 2, cy = this.freeH / 2;
+    for (const m of collectEdgeMarkers(world, (p, margin) => this.camera.sees(p, b, margin))) {
+      const at = this.toScreen(m.x, m.y);
+      const a = edgeArrow(cx, cy, at.x - cx, at.y - cy, 26, 70, this.freeW - 26, this.freeH - 60);
+      counts[m.kind]++;
+      const color = m.kind === 'threat' ? THREAT : TARGET, alpha = m.kind === 'threat' ? 0.6 + 0.4 * Math.abs(Math.sin(this.clock * 7)) : 0.9;
+      const c = Math.cos(a.angle), sn = Math.sin(a.angle), L = 15, W = 10;
+      const pts = [a.x + c * L, a.y + sn * L, a.x - c * L * 0.6 - sn * W, a.y - sn * L * 0.6 + c * W, a.x - c * L * 0.25, a.y - sn * L * 0.25, a.x - c * L * 0.6 + sn * W, a.y - sn * L * 0.6 - c * W];
+      g.poly(pts).fill({ color, alpha }).stroke({ color: THREAT_OUTLINE, width: 3, alpha });
+    }
+    Object.assign(this.edgeShown, counts);
   }
 
   buildArena(arena: ArenaLayout): void {
@@ -500,6 +580,8 @@ export class RealtimeRenderer {
       // Stage 2, step 3: an elite is drawn larger (its body stays).
       view.root.scale.set(scale * pop * (e.elite ? world.params.eliteArtScale : 1));
       view.root.zIndex = e.y;
+      // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).
+      view.root.visible = this.sees(e, 1.5);
       const dim = color !== null && e.color !== color ? strength : 0;
       view.root.alpha = mode === 'alpha' ? 1 - dim : 1;
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
@@ -531,6 +613,7 @@ export class RealtimeRenderer {
   private drawMarkers(world: World): void {
     const g = this.markerLayer.clear(), r = enemyDrawRadius(world.params) * UNIT;
     for (const m of world.markers) {
+      if (!this.sees(m, 1.5)) continue;
       const x = m.x * UNIT, y = m.y * UNIT, k = m.total > 0 ? 1 - m.timeLeft / m.total : 1, s = r * 0.6;
       const pulse = 0.6 + 0.4 * Math.sin(this.clock * 14);
       const rim = m.color === NO_COLOR ? THREAT : COLORS[m.color];
@@ -1076,6 +1159,7 @@ export class RealtimeRenderer {
   /** Draws the current world. Consumes world.events (render-only effects). */
   render(world: World, realDt: number, ui: RenderUi = { pointer: null, jumpMode: false }): void {
     this.clock += realDt;
+    this.updateCamera(world, realDt, ui);
     this.applyShake(realDt);
     this.handleEvents(world);
     this.updateFloating(realDt);
@@ -1092,6 +1176,7 @@ export class RealtimeRenderer {
     this.drawHero(world);
     this.drawOverlay(world);
     this.drawJuice(world, realDt);
+    this.drawEdgeMarkers(world);
   }
 
   /** Water stays water: bodies wading in the pond get two widening rings (walking there is slower). */

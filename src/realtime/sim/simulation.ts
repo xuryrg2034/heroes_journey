@@ -17,6 +17,8 @@
 import { arenaTemplate, type ArenaTemplate } from './arenas';
 // Stage 3a, step 4: the arenas of the new enemies register on import (a journal names them by id).
 import './arenasStage3';
+// Camera step: «Большая поляна» 24×15 registers on import too.
+import './arenasCamera';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';
 import { hashWorld } from './hash';
