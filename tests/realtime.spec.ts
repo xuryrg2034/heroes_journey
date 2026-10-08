@@ -395,6 +395,8 @@ async function freeze(page: Page, clear = true): Promise<void> {
     for (const phase of rt.params.phases) phase.floor = 0;
     // No newcomer boars: a charge would move the frozen scene.
     rt.params.boarMax = 0;
+    // Stage 3a (П1): no wolf ring — its howl and rush would move the frozen scene too (the ring has its own tests).
+    rt.params.wolfRing = false;
     rt.clear(!clear);
   }, clear);
 }

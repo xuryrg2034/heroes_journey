@@ -47,6 +47,13 @@ export interface EnemyBehavior {
    * reads this function now.
    */
   armed?(world: World, enemy: Enemy): number;
+  /**
+   * Stage 3a, step 3 (docs/realtime-stage3.md, section 10): once per tick, before the enemies move, with every living enemy
+   * of this behaviour (frozen ones too — the behaviour decides), in the order of the arena's list. A group decision of a
+   * kind (the wolves' ring: slots around the hero, the pack's howl) is taken here once, not by whichever member steps
+   * first. State lives in `enemy.vars`.
+   */
+  beforeStep?(world: World, members: readonly Enemy[], dt: number): void;
 }
 
 export interface EnemyKindDef {
@@ -105,6 +112,9 @@ export function kindOf(enemy: Enemy): EnemyKindDef { return enemyKind(enemy.kind
 export function behaviorOf(enemy: Enemy): EnemyBehavior { return behaviors.get(kindOf(enemy).behavior)!; }
 
 export function registeredEnemyKinds(): EnemyKindDef[] { return [...kinds.values()]; }
+
+/** Behaviours with a group step (`beforeStep`), in the order they were registered. */
+export function groupBehaviors(): EnemyBehavior[] { return [...behaviors.values()].filter(b => b.beforeStep); }
 
 /** Body radius of this enemy: the common body (`bodyRadius × enemyScale`) × its kind's share. */
 export function bodyRadiusOf(params: Params, enemy: Enemy): number { return enemyBodyRadius(params) * kindOf(enemy).bodyScale; }

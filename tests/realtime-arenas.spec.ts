@@ -36,8 +36,9 @@ test('arenas 8–10: the sandbox menu lists ten arenas on the digit keys; keys 8
   await expect(page.locator('#rt-app canvas')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect(page.getByTestId('menu')).toBeVisible();
-  // Ten arenas on the digit keys; since stage 3a five terrain samples follow on ⇧1–⇧5 (tests/realtime-terrain.spec.ts).
-  await expect(page.locator('[data-testid^="arena-"]')).toHaveCount(15);
+  // Ten arenas on the digit keys; since stage 3a five terrain samples follow on ⇧1–⇧5 (tests/realtime-terrain.spec.ts) and the
+  // arenas of the new enemies on ⇧6–⇧7 (tests/realtime-behavior.spec.ts).
+  await expect(page.locator('[data-testid^="arena-"]')).toHaveCount(17);
   for (const arena of ARENAS) {
     await expect(page.getByTestId(`arena-${arena.n}`)).toContainText(arena.name);
     await expect(page.getByTestId(`arena-${arena.n}`).locator('kbd')).toHaveText(arena.key);

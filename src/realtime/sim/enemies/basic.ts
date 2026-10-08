@@ -1,10 +1,8 @@
 /**
- * Prototype kinds that only walk to the hero (`chase`): the basic enemy, the wolf (fast, hits harder next to other
- * wolves — prototype stage 3) and the reaper (the time limit after the goals: fast, colourless, cannot be killed).
- * Behaviour unchanged from the prototype (f27cd4b); the numbers are the debug-panel params.
+ * Prototype kinds that only walk to the hero (`chase`): the basic enemy and the reaper (the time limit after the goals:
+ * fast, colourless, cannot be killed). Behaviour unchanged from the prototype (f27cd4b); the numbers are the debug-panel
+ * params. The wolf has its own module since stage 3a (wolf.ts: the ring).
  */
-import { dist } from '../geometry';
-import type { Enemy, World } from '../world';
 import { registerEnemyKind } from './kinds';
 
 registerEnemyKind({
@@ -19,28 +17,6 @@ registerEnemyKind({
   spread: true,
   chainable: true,
   hitSource: 'touch',
-});
-
-/** Wolves within the pack radius of `wolf` (not counting itself). */
-export function packmates(world: World, wolf: Enemy): number {
-  let count = 0;
-  const r = world.params.wolfPackRadius;
-  for (const e of world.enemies) if (e !== wolf && e.kind === 'wolf' && dist(e, wolf) <= r) count++;
-  return count;
-}
-
-registerEnemyKind({
-  id: 'wolf',
-  behavior: 'chase',
-  hp: () => null,
-  speed: world => world.params.wolfSpeed,
-  bodyScale: 1,
-  artScale: 1,
-  touchDamage: (world, e) => world.params.contactDamage + world.params.wolfPackBonus * packmates(world, e),
-  mass: () => 1,
-  spread: true,
-  chainable: true,
-  hitSource: 'wolf',
 });
 
 registerEnemyKind({
