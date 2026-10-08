@@ -218,6 +218,9 @@ async function boot(): Promise<void> {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero);
     renderer.buildArena(world().arena);
+    // The panel's phase table is the current arena's: say what the arena forces over it, or that it keeps its own.
+    panel.setArenaPhaseNote(arena.phases?.length ? `«${arena.name}»: своя таблица фаз, эта таблица на неё не действует.`
+      : arena.phaseOverride ? `«${arena.name}»: таблица ниже, ${Object.keys(arena.phaseOverride).includes('wolfShare') ? 'стай волков и кабанов нет (доли 0)' : 'с поправками арены'}.` : null);
     paused = false;
     menuOpen = false;
     menu.hidden = true;

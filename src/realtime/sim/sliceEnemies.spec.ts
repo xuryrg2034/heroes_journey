@@ -552,6 +552,137 @@ check('shieldbearer: a crystal as the previous link is the anchor — in front o
   }
 });
 
+// ---- Design answers A–C (08.10.2026) ----
+
+/** The polyline of the hero's tick positions passes within 0.05 of `p` (the dash moves 0.2 a tick). */
+function passes(path: Vec[], p: Vec): boolean {
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i], vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
+    if (Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y) < 0.05) return true;
+  }
+  return false;
+}
+
+/** Draws a chain through `links`, releases it and runs until the dash ends and no fuse burns; returns the dash. */
+function dashAll(sim: Simulation, links: Enemy[], kills: { enemyId: number; source?: string; credited?: boolean }[] = []) {
+  const w = sim.world;
+  sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+  for (const e of links.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+  assert(w.chain.length === links.length, `chain ${w.chain.length} of ${links.length}`);
+  const plan = planChain(w);
+  sim.command({ t: 'release' });
+  const move = w.move!;
+  const path: Vec[] = [{ x: w.hero.x, y: w.hero.y }];
+  for (let i = 0; i < 300 && (w.move || w.blasts.length) && w.status === 'playing'; i++) {
+    sim.tick();
+    path.push({ x: w.hero.x, y: w.hero.y });
+    for (const ev of w.events) if (ev.type === 'kill') kills.push(ev);
+    w.events.length = 0;
+  }
+  return { plan, move, path };
+}
+
+check('A: links of the released chain killed on the way by the chain\'s own sapper blast stay links: +1 power, kills of the chain', () => {
+  // The reviewer's scenario: a sapper, 8 weak enemies in a loop, the last one HP 9. Planned: the last one dies.
+  const sim = fight('shields', quiet(), seedOf(40)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const pts = [[8.8, 5, 'sapper', 0], [10.3, 5.6, 'basic', 0], [11.5, 4.5, 'basic', 0], [10.5, 3.3, 'basic', 0], [9, 3.0, 'basic', 0], [7.5, 3.5, 'basic', 0], [7.0, 4.9, 'basic', 0], [7.6, 6.2, 'basic', 0], [8.6, 6.4, 'basic', 0], [9.6, 7.6, 'basic', 9]] as const;
+  const links = pts.map(([x, y, kind, hp]) => place(sim, x, y, kind, 0, hp));
+  const kills: { enemyId: number; source?: string; credited?: boolean }[] = [];
+  const { plan, move, path } = dashAll(sim, links, kills);
+  const blastKills = kills.filter(ev => ev.source === 'blast');
+  assert(blastKills.length >= 1 && blastKills.every(ev => ev.credited === true), `links killed by the blast on the way: ${blastKills.length}`);
+  assert(plan.links[plan.links.length - 1].outcome?.killed, 'planned: the last link dies');
+  assert(!alive(w, links[links.length - 1]) && move.power === plan.power, `the last link died; power ${move.power} = planned ${plan.power}`);
+  assert(move.kills === 10 && w.lastChain?.kills === 10 && w.stats.kills === 10, `chain kills ${move.kills}, last chain ${w.lastChain?.kills}, counter ${w.stats.kills}`);
+  assert(w.stats.crystals === 1, `the 6th kill of the chain dropped a crystal: ${w.stats.crystals}`);
+  // The hero passed the last point of every link killed on the way.
+  for (const ev of blastKills) {
+    const at = links.find(e => e.id === ev.enemyId)!;
+    assert(passes(path, at), `the hero passed link ${ev.enemyId}`);
+  }
+  assert(replays(sim), 'replay');
+});
+
+check('A: links killed on the way by an arrow give power but are not the player\'s; the chain shield counts the chain\'s own kills', () => {
+  const sim = fight('powder', quiet({ chainShieldMinKills: 4 }), seedOf(41)), w = sim.world;
+  sim.command({ t: 'teleport', x: 3, y: 5 });
+  const archer = place(sim, 9.9, 5, 'archer', 1);
+  const a = place(sim, 4.2, 6, 'basic', 0), b = place(sim, 5.5, 5, 'basic', 0), c = place(sim, 6.8, 5, 'basic', 0), d = place(sim, 8, 6.2, 'basic', 0), e = place(sim, 9, 7.2, 'basic', 0, 4);
+  runUntil(sim, () => archer.vars.aim === 1);
+  runUntil(sim, () => archer.vars.timer <= 3 / 60 + 1e-9);
+  const kills: { enemyId: number; source?: string; credited?: boolean }[] = [];
+  const { plan, move, path } = dashAll(sim, [a, b, c, d, e], kills);
+  const arrowKills = kills.filter(ev => ev.source === 'arrow').map(ev => ev.enemyId).sort();
+  assert(JSON.stringify(arrowKills) === JSON.stringify([b.id, c.id].sort()), `the arrow killed b and c on the way: ${arrowKills.join(',')}`);
+  assert(!alive(w, e) && move.power === plan.power, `power with the fallen links: ${move.power} = planned ${plan.power}; e dead`);
+  assert(move.kills === 3 && w.stats.kills === 3, `only the chain's own kills: ${move.kills}, counter ${w.stats.kills}`);
+  assert(passes(path, b) && passes(path, c), 'the hero passed b and c');
+  // Shield after a chain needs 4 kills of the chain: 3 — none.
+  assert(w.hero.chainShield === 0, `chain shield ${w.hero.chainShield}`);
+  assert(replays(sim), 'replay');
+});
+
+check('A: a porcupine link killed on the way gives no quills; links lost while the chain is drawn drop out', () => {
+  const sim = fight('powder', quiet(), seedOf(42)), w = sim.world;
+  sim.command({ t: 'teleport', x: 3, y: 5 });
+  const archer = place(sim, 9.9, 5, 'archer', 1);
+  const a = place(sim, 4.2, 6, 'basic', 0), quill = place(sim, 5.5, 5, 'porcupine', 0, 0), d = place(sim, 6.6, 6.2, 'basic', 0);
+  runUntil(sim, () => archer.vars.aim === 1);
+  runUntil(sim, () => archer.vars.timer <= 3 / 60 + 1e-9);
+  dashAll(sim, [a, quill, d]);
+  assert(!alive(w, quill) && hits(w, 'quills') === 0 && w.hero.hp === w.hero.maxHp, 'no quills from a porcupine killed by the arrow');
+  // While drawing: a link killed by the arrow drops out of the drawn chain (it is not released yet).
+  const sim2 = fight('powder', quiet(), seedOf(43)), w2 = sim2.world;
+  sim2.command({ t: 'teleport', x: 3, y: 5 });
+  const archer2 = place(sim2, 9.9, 5, 'archer', 1);
+  const x1 = place(sim2, 4.2, 6, 'basic', 0), x2 = place(sim2, 5.5, 5, 'basic', 0);
+  runUntil(sim2, () => archer2.vars.aim === 1);
+  sim2.command({ t: 'begin', x: x1.x, y: x1.y });
+  sim2.command({ t: 'drag', x: x2.x, y: x2.y, mode: 'full' });
+  assert(w2.chain.length === 2, 'drawn');
+  runUntil(sim2, () => !alive(w2, x2));
+  sim2.tick();
+  assert(chainLength(w2) === 1 && w2.chain[0].id === x1.id, `the dead link dropped out: ${JSON.stringify(w2.chain)}`);
+});
+
+check('B: the panel\'s phase table reaches arenas 4–7 and Поляна; their wolf and boar shares stay 0', () => {
+  for (const arena of ['glade', 'shields', 'archers', 'powder', 'thorns']) {
+    const sim = new Simulation({ arena, params: quiet(), seed: seedOf(44) }), w = sim.world;
+    const table = defaultParams().phases.map(phase => ({ ...phase, floor: 7, wolfShare: 0.5, boarShare: 0.5 }));
+    sim.command({ t: 'phases', phases: table });
+    sim.command({ t: 'goals' });
+    sim.tick();
+    assert(w.pressure.phase.floor === 7 && w.pressure.phase.wolfShare === 0 && w.pressure.phase.boarShare === 0, `${arena}: ${JSON.stringify(w.pressure.phase)}`);
+    assert(arenaTemplate(arena).phases === undefined, `${arena}: no copy of the table`);
+  }
+  const sandbox = new Simulation({ arena: 'kills', params: defaultParams(), seed: seedOf(44) });
+  assert(sandbox.world.pressure.phase.wolfShare === defaultParams().baseWolfShare, 'the sandbox arena keeps the panel shares');
+});
+
+check('C: the shield is checked from the previous link even with «Якорь у героя» — the hero anchor widens the reach only', () => {
+  // The shield faces west. The previous link west of it (in front), the hero east of it (behind) and within R: refused.
+  const sim = fight('shields', quiet({ heroAnchor: true }), seedOf(45)), w = sim.world;
+  sim.command({ t: 'teleport', x: 7.4, y: 5 });
+  const shield = place(sim, 9.2, 5, 'shield', 1, 1);
+  ticks(sim, 150);
+  const front = place(sim, 8.3, 5.4, 'basic', 1);
+  sim.command({ t: 'teleport', x: 10.4, y: 5.3 });
+  sim.command({ t: 'begin', x: front.x, y: front.y });
+  sim.command({ t: 'drag', x: shield.x, y: shield.y, mode: 'full' });
+  assert(chainLength(w) === 1 && hoverRefusal(w, shield, true) === 'guarded', `from the front with the hero behind: ${chainLength(w)}, ${hoverRefusal(w, shield, true)}`);
+  sim.command({ t: 'cancel' });
+  // The previous link behind it, the hero in front: taken (the strike comes from behind).
+  const back = place(sim, 10.2, 4.6, 'basic', 1);
+  sim.command({ t: 'teleport', x: 8.7, y: 3.6 });
+  ticks(sim, 1);
+  sim.command({ t: 'begin', x: back.x, y: back.y });
+  sim.command({ t: 'drag', x: shield.x, y: shield.y, mode: 'full' });
+  assert(chainLength(w) === 2, `from behind: chain ${chainLength(w)}`);
+  assert(replays(sim), 'replay');
+});
+
 // ---- Determinism of the new arenas ----
 
 /** Builds the longest chain it greedily can (enemies and crystals), then releases it — as the bot of realtimeSim.spec.ts. */

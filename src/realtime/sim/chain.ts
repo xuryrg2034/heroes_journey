@@ -24,7 +24,7 @@
 import { artRadiusOf, behaviorOf, kindOf } from './enemies/kinds';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type HeroMove, type World } from './world';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type World } from './world';
 
 export { OBJECT_RADIUS };
 
@@ -170,21 +170,17 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
  * Within R of an anchor and in sight from that same anchor (toggle): the reach rule shared by enemies and objects.
  * With «R до края тела» R reaches the edge of the target (`edge` — its drawn radius), not its center. With «Якорь у
  * героя» any of the two anchors will do. Sight: a thin ray; obstacles shrink by `sightSlack` so a ray grazing a trunk
- * or a wall corner still sees. `guard` (stage 2 of the transition): the target's own say about the anchor (a behaviour's
- * `canBeLinkedFrom`). Null — reachable; `far` — no anchor is close enough; `sight` — close, but blocked; `guarded` —
- * close and seen, but the target refuses every such anchor.
+ * or a wall corner still sees. Null — reachable; `far` — no anchor is close enough; `sight` — close, but blocked.
  */
-function reachRefusal(world: World, target: Vec, edge: number, guard?: (anchor: Vec) => boolean): Refusal | null {
+function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
   const p = world.params, reach = p.linkRadius + (p.linkToEdge ? edge : 0);
-  let near = false, guarded = false;
+  let near = false;
   for (const anchor of chainAnchors(world)) {
     if (dist(anchor, target) > reach) continue;
     near = true;
-    if (p.lineOfSight && !lineOfSight(anchor, target, world.arena, -p.sightSlack)) continue;
-    if (guard && !guard(anchor)) { guarded = true; continue; }
-    return null;
+    if (!p.lineOfSight || lineOfSight(anchor, target, world.arena, -p.sightSlack)) return null;
   }
-  return guarded ? 'guarded' : near ? 'sight' : 'far';
+  return near ? 'sight' : 'far';
 }
 
 /**
@@ -200,8 +196,12 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (plan.endsOnObject) return 'afterObject';
   const color = chainColor(world);
   if (color !== null && enemy.color !== color) return 'color';
+  const reach = reachRefusal(world, enemy, artRadiusOf(world.params, enemy.kind));
+  if (reach) return reach;
+  // Stage 2 of the transition (design answer 08.10.2026): the kind's say about the direction of the strike — always from
+  // the previous link (the hero for the first one); «Якорь у героя» widens the reach only, it does not get round a shield.
   const guard = behaviorOf(enemy).canBeLinkedFrom;
-  return reachRefusal(world, enemy, artRadiusOf(world.params, enemy.kind), guard && (anchor => guard(world, enemy, anchor)));
+  return guard && !guard(world, enemy, chainAnchor(world)) ? 'guarded' : null;
 }
 
 export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(world)): boolean {
@@ -512,6 +512,21 @@ function hitEnemy(world: World, enemy: Enemy): void {
   maybeFinisher(world);
 }
 
+/**
+ * The dash reaches a link that died on the way (a blast, an arrow; `killEnemy` kept its last point): +1 power as a weak
+ * enemy, the hero takes its spot. Its death was the player's — a kill of this chain (combo, crystal at every N-th, chain
+ * score; the kill counter was counted at its death); otherwise power only. No hit: no energy, no quills, no hit-stop.
+ */
+function passFallen(world: World, fallen: FallenLink): void {
+  const move = world.move!, p = world.params;
+  move.power += 1;
+  move.stop = { x: fallen.x, y: fallen.y };
+  if (!fallen.credited) return;
+  move.kills++;
+  if (p.crystals && p.crystalEvery > 0 && move.kills % p.crystalEvery === 0) dropCrystal(world, { x: fallen.x, y: fallen.y });
+  maybeFinisher(world);
+}
+
 /** The dash reaches a crystal: it breaks (score by the chain that dropped it), the hero takes its spot; the chain goes on. */
 function breakCrystal(world: World, crystal: ArenaObject): void {
   const move = world.move!, p = world.params;
@@ -579,7 +594,17 @@ function stepMove(world: World, realDt: number): void {
         continue;
       }
       const enemy = findEnemy(world, link.id);
-      if (!enemy) { move.links.shift(); continue; }
+      if (!enemy) {
+        // Died on the way (stage 2 of the transition): the hero still passes its last point and takes its +1.
+        const fallen = move.fallen?.find(f => f.id === link.id);
+        if (!fallen) { move.links.shift(); continue; }
+        const arrived = moveHero(world, fallen, budget);
+        budget -= dist(before, world.hero);
+        if (!arrived) return;
+        move.links.shift();
+        passFallen(world, fallen);
+        continue;
+      }
       // A kill takes the enemy's spot; a survivor is struck from the touch distance.
       const survives = !strike(move.power, enemy.hp).killed;
       const reach = survives ? touchDistanceOf(world.params, enemy) : 0;

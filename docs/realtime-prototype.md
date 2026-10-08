@@ -854,7 +854,7 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 - **Как добавить врага.** Файл в `sim/enemies/` вызывает `registerBehavior({ id, step, … })` и `registerEnemyKind({ id, behavior, … })`, а `sim/enemies/index.ts` его импортирует. Враг появляется на арене из `enemies` или `newcomers` шаблона, а также командой `place`. `world.ts`, `chain.ts` и `spawn.ts` не правятся. Рисунок — в `view/render.ts`; без своего рисунка новый вид — круг цвета со знаком. Пример — тестовый вид `test-stone` в `realtimeSim.spec.ts`: своё движение, тело ×1,5, урон 2, масса 4.
 - **Пример на враге среза — щитоносец** (`enemies/shield.ts`, около 60 строк):
   1. Числа — поля `Params` с группой панели «Щитоносец» (`params.ts`: `Params`, `DEFAULT_PARAMS`, `PARAM_DEFS`).
-  2. `registerBehavior({ id: 'shield', onSpawn, step, canBeLinkedFrom })`: `onSpawn` ставит `vars.facing` к герою; `step` поворачивает щит к герою не быстрее `shieldTurn` и возвращает `false` (дальше общая ходьба); `canBeLinkedFrom` запрещает якорь в дуге.
+  2. `registerBehavior({ id: 'shield', onSpawn, step, canBeLinkedFrom })`: `onSpawn` ставит `vars.facing` к герою; `step` поворачивает щит к герою не быстрее `shieldTurn` и возвращает `false` (дальше общая ходьба); `canBeLinkedFrom` запрещает удар из дуги.
   3. `registerEnemyKind({ id: 'shield', behavior: 'shield', hp: p => p.shieldHp, speed: w => w.pressure.enemySpeed × shieldSpeed, … })`.
   4. Импорт в `enemies/index.ts`; рисунок сигнала — `drawSignals` в `view/render.ts`.
   5. Арена — `registerArena` с `newcomers: [{ kind: 'shield', share: 0.25 }]` (`arenas.ts`, `SHIELD_ARENA`).
@@ -866,7 +866,9 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 
 | Крючок | Где | Что делает | Кто использует |
 | --- | --- | --- | --- |
-| `EnemyBehavior.canBeLinkedFrom(world, enemy, anchor)` | `chain.ts`, `reachRefusal` | `false` — звено нельзя взять от этого якоря; после дальности и видимости; отказ `guarded`, подсказка «щит» | щитоносец |
+| `EnemyBehavior.canBeLinkedFrom(world, enemy, from)` | `chain.ts`, `enemyRefusal` | `false` — удар с этой точки запрещён; `from` — предыдущее звено (для первого — герой), «Якорь у героя» только расширяет досягаемость; после дальности и видимости; отказ `guarded`, подсказка «щит» | щитоносец |
+| `HeroMove.fallen`, `FallenLink` | `world.ts` (`killEnemy`), `chain.ts` (`passFallen`) | Звено отпущенной цепи, погибшее на проходе, остаётся звеном: точка гибели, +1 силы, убийство цепи — только при зачёте | взрыв сапёра, стрела |
+| `ArenaTemplate.phaseOverride` | `params.ts` (`basePhase`, `pressureAt`) | Поля, которые шаблон держит поверх темпа и таблицы фаз панели (доли волков и кабанов 0); таблица остаётся панельной | Поляна похода, арены 4–7 |
 | `damageEnemy(world, enemy, damage, cause)`, `killEnemy(world, enemy, cause)`, `KillCause { source, credited }` | `world.ts` | Удар и гибель врага вне цепи. Убивает удар не меньше HP (как удар цепи), иначе HP падают. Засчитанная гибель — убийство игрока (счётчик, очки за убийство, цель «убить N»); отмеченный засчитывается в цель всегда. События `enemyHit` и `kill` с `source` и `credited` | лучник (стрела) |
 | `EnemyKindDef.immune` | `kinds.ts` | Удары вне цепи вида не ранят | Жнец |
 | `EnemyBehavior.onDeath(world, enemy, cause)` | `chain.ts` (`hitEnemy`), `world.ts` (`killEnemy`) | Реакция вида на свою гибель (враг уже снят с арены); `cause.credited` — гибель от игрока | сапёр (фитиль) |

@@ -8,7 +8,7 @@
  * their sliders keep working as before.
  */
 import { type ArenaShape, type Vec, pond, tree, wall } from './geometry';
-import { DEFAULT_PHASES, type Phase } from './params';
+import type { Phase } from './params';
 
 /**
  * Goal of an arena (prototype stage 3, docs/realtime-prototype.md section 3): kill N (`killGoal`), press every button,
@@ -58,6 +58,11 @@ export interface ArenaTemplate extends ArenaShape {
   phases?: Phase[];
   /** Kills for a `kills` goal; omitted — the panel slider «Арена «Убить N»». */
   killGoal?: number;
+  /**
+   * Stage 2 of the transition: fields forced over the base pace and every phase of the table in use (the panel's, or the
+   * arena's own): arenas without wolf packs and boars set their shares to 0 and keep the panel's table editable.
+   */
+  phaseOverride?: Partial<Pace>;
   /** Newcomers of other kinds by share; omitted — only the prototype composition (basic, wolf packs, boars). */
   newcomers?: NewcomerShare[];
 }
@@ -176,13 +181,11 @@ export function markedCount(arena: ArenaTemplate): number { return arena.enemies
 // ---- Arenas of the slice (stage 2 of the transition, docs/realtime-slice.md, section 5) ----
 
 /**
- * Pace and phase table of an arena that meets one new enemy: the panel's base pace and the default phase table, but no
- * wolf packs and no boars — the newcomers are basic enemies and the arena's own kind by its share (assumption of step 2:
- * section 5 names only the new kind for arenas 4–7). The phase table is the template's own: panel edits of the table do
- * not reach these arenas.
+ * An arena that meets one new enemy (and Поляна of the run): the panel's base pace and phase table, but no wolf packs and
+ * no boars — the newcomers are basic enemies and the arena's own kind by its share (design answers 08.10.2026). The
+ * table stays the panel's: its edits reach these arenas, the two shares stay 0.
  */
-const ONE_KIND_PACE: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
-const oneKindPhases = (): Phase[] => DEFAULT_PHASES.map(phase => ({ ...phase, wolfShare: 0, boarShare: 0 }));
+const ONE_KIND: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
 
 /**
  * «Поляна» of the real-time run (stage 2, docs/realtime-slice.md, section 5): arena 1 «Убить 30» with the goal of the
@@ -191,7 +194,7 @@ const oneKindPhases = (): Phase[] => DEFAULT_PHASES.map(phase => ({ ...phase, wo
  */
 export const GLADE_ARENA: ArenaTemplate = registerArena({
   ...KILL_ARENA, id: 'glade', name: 'Поляна', summary: 'Поляна: убей цепью 20 врагов. Потом откроется дверь сверху.', killGoal: 20,
-  pace: ONE_KIND_PACE, phases: oneKindPhases(),
+  phaseOverride: ONE_KIND,
 });
 
 /**
@@ -220,8 +223,7 @@ export const SHIELD_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [],
-  pace: ONE_KIND_PACE,
-  phases: oneKindPhases(),
+  phaseOverride: ONE_KIND,
   killGoal: 25,
   // Баланс: section 5 — shieldbearers 25% of newcomers.
   newcomers: [{ kind: 'shield', share: 0.25 }],
@@ -257,8 +259,7 @@ export const ARCHER_ARENA: ArenaTemplate = registerArena({
     { x: 13, y: 2.4, color: 2, kind: 'archer', marked: true },
     { x: 13.6, y: 7.4, color: 3, kind: 'archer', marked: true },
   ],
-  pace: ONE_KIND_PACE,
-  phases: oneKindPhases(),
+  phaseOverride: ONE_KIND,
   // Баланс: section 5 — archers 15% of newcomers.
   newcomers: [{ kind: 'archer', share: 0.15 }],
 });
@@ -290,8 +291,7 @@ export const SAPPER_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 0.7, y: 5 },
   enemies: [],
-  pace: ONE_KIND_PACE,
-  phases: oneKindPhases(),
+  phaseOverride: ONE_KIND,
   killGoal: 25,
   // Баланс: section 5 — sappers 15% of newcomers.
   newcomers: [{ kind: 'sapper', share: 0.15 }],
@@ -325,8 +325,7 @@ export const PORCUPINE_ARENA: ArenaTemplate = registerArena({
   buttons: [{ x: 1.5, y: 1.5 }, { x: 14.5, y: 1.5 }, { x: 8, y: 8.2 }],
   door: { x: 8, y: 0.7 },
   enemies: [],
-  pace: ONE_KIND_PACE,
-  phases: oneKindPhases(),
+  phaseOverride: ONE_KIND,
   // Баланс: section 5 — porcupines 20% of newcomers.
   newcomers: [{ kind: 'porcupine', share: 0.2 }],
 });

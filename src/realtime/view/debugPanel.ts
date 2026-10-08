@@ -74,6 +74,8 @@ export class DebugPanel {
   private readonly goalsButton: HTMLButtonElement;
   private phaseBody: HTMLElement | null = null;
   private phaseRows: HTMLElement[] = [];
+  /** Stage 2 of the transition: what the current arena changes in the table (null — it plays the table as it is). */
+  private readonly arenaPhaseNote = document.createElement('p');
 
   constructor(private readonly params: Params, private readonly callbacks: PanelCallbacks) {
     const el = document.createElement('aside');
@@ -162,10 +164,19 @@ export class DebugPanel {
       this.renderPhases();
     });
     tools.appendChild(add);
-    section.append(title, table, tools);
+    this.arenaPhaseNote.className = 'rt-phase-note';
+    this.arenaPhaseNote.setAttribute('data-testid', 'phase-arena-note');
+    this.arenaPhaseNote.hidden = true;
+    section.append(title, this.arenaPhaseNote, table, tools);
     this.phaseBody = body;
     this.renderPhases();
     return section;
+  }
+
+  /** The current arena's say about the table (main.ts on every arena start): shown over it; null hides the note. */
+  setArenaPhaseNote(text: string | null): void {
+    this.arenaPhaseNote.textContent = text ?? '';
+    this.arenaPhaseNote.hidden = !text;
   }
 
   private renderPhases(): void {

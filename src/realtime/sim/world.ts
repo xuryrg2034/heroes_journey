@@ -101,6 +101,13 @@ export type ChainLink = { kind: 'enemy'; id: number } | { kind: 'object'; id: nu
 /** The last finished dash (render: combo counter, score popup; result screen). */
 export interface ChainSummary { kills: number; hits: number; crystals: number; score: number; time: number }
 
+/**
+ * Stage 2 of the transition (design answer 08.10.2026): a link of the released chain killed during the dash by something
+ * else (a blast, an arrow) stays a link: the hero passes its last point and it gives +1 power; it is a kill of the chain
+ * (combo, crystal, score) only when its death is the player's (`credited`).
+ */
+export interface FallenLink { id: number; x: number; y: number; credited: boolean }
+
 /** A hero move without contact damage: the dash along the chain or a jump. */
 export interface HeroMove {
   kind: 'dash' | 'jump';
@@ -119,6 +126,8 @@ export interface HeroMove {
   dropped: number[];
   broken: number;
   crystalScore: number;
+  /** Links of this dash killed before the hero reached them (absent when none: dashes without them hash as before). */
+  fallen?: FallenLink[];
 }
 
 export interface Hero {
@@ -480,7 +489,10 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   if (index < 0) return;
   world.enemies.splice(index, 1);
   world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited });
-  if (cause.credited) { world.stats.kills++; world.stats.score += world.params.scorePerKill; }
+  // A link of the dash ahead of the hero stays a link (chain.ts, `passFallen`): its score comes with the chain's.
+  const move = world.move, link = move?.kind === 'dash' && move.links.some(l => l.kind === 'enemy' && l.id === e.id);
+  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited });
+  if (cause.credited) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
   if (e.marked) world.stats.markedKills++;
   checkGoals(world);
   behaviorOf(e).onDeath?.(world, e, cause);

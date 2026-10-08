@@ -669,6 +669,7 @@ export function basePhase(params: Params, arena?: ArenaTemplate): Phase {
     toughShare: own?.toughShare ?? params.baseToughShare,
     wolfShare: own?.wolfShare ?? params.baseWolfShare,
     boarShare: own?.boarShare ?? params.baseBoarShare,
+    ...arena?.phaseOverride,
   };
 }
 
@@ -688,7 +689,8 @@ export function pressureAt(params: Params, time: number, greedStart: number | nu
     if (t < start + phases[i].duration) { phaseIndex = i; phaseLeft = start + phases[i].duration - t; break; }
     start += phases[i].duration;
   }
-  return { phaseIndex, phase: phases[phaseIndex], phaseLeft, angerTier, enemySpeed };
+  const override = arena?.phaseOverride;
+  return { phaseIndex, phase: override ? { ...phases[phaseIndex], ...override } : phases[phaseIndex], phaseLeft, angerTier, enemySpeed };
 }
 
 /** Rolls the interval to the next group: uniform in the phase's [min, max] (the seeded `spawnRoll` stream). */

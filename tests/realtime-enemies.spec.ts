@@ -53,6 +53,8 @@ test('shieldbearer: arena 4 opens; its shield arc is drawn, the hint says «щи
   await openArena(page, errors, 4);
   expect((await snap(page)).arena).toBe('shields');
   await expect(page.getByTestId('goal')).toHaveText('убито 0 / 25');
+  // The panel's phase table is this arena's: the note says what the arena forces over it.
+  await expect(page.getByTestId('phase-arena-note')).toHaveText(/Стена щитов.*стай волков и кабанов нет/);
   await quiet(page);
   const id = await place(page, 9.2, 5, 'shield', 1, 1);
   await expect.poll(async () => (await snap(page)).signals.shields).toBe(1);

@@ -24,9 +24,10 @@ export interface EnemyBehavior {
   /** False — its touch does not hurt right now (the charging boar: its hit is the charge). */
   touches?(world: World, enemy: Enemy): boolean;
   /**
-   * Stage 2 of the transition (docs/realtime-slice.md, section 4): false — the enemy cannot be the next link taken from
-   * this anchor (the previous link or the hero), the pointer hint says why (`guarded`: the shieldbearer's shield). The
-   * rule of reach and sight (chain.ts) runs first; any anchor that passes all of them takes the link.
+   * Stage 2 of the transition (docs/realtime-slice.md, section 4): false — the enemy cannot be struck from this point (the
+   * previous link of the chain, or the hero for the first link — the direction of the strike), the pointer hint says why
+   * (`guarded`: the shieldbearer's shield). Checked after reach and sight (chain.ts); the hero anchor talisman only widens
+   * the reach, the strike still comes from the previous link.
    */
   canBeLinkedFrom?(world: World, enemy: Enemy, anchor: Vec): boolean;
   /**
