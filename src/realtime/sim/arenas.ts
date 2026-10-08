@@ -307,7 +307,7 @@ export const SAPPER_ARENA: ArenaTemplate = registerArena({
 export const PORCUPINE_ARENA: ArenaTemplate = registerArena({
   id: 'thorns',
   name: 'Колючие заросли',
-  summary: 'Закончи цепь на каждой из трёх кнопок. Терновник колет идущего героя, цепь проходит над ним, но удар цепи по дикобразу ранит. Дверь сверху.',
+  summary: 'Закончи цепь на каждой из трёх кнопок. Терновник колет героя на ногах (и стоящего), цепь проходит над ним, но удар цепи по дикобразу ранит. Дверь сверху.',
   goal: 'buttons',
   width: 16,
   height: 10,

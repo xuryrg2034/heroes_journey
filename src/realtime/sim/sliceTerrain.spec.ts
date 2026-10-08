@@ -138,7 +138,12 @@ function blockers(arena: ArenaTemplate): Blocker[] {
   );
   return out;
 }
-/** The least gap between two blockers (0 when they touch or overlap). */
+/**
+ * The least gap between two blockers (0 when they touch or overlap). Blind spots (review 09.10.2026): a pair that
+ * overlaps somewhere reads 0 everywhere, and a concave polygon is not checked against itself — a narrow bay inside one
+ * cliff or thicket would pass. On arenas 4–10 the reviewer checked those spots by a grid of free circles (1.94 across):
+ * no passage narrower than 2.
+ */
 function gapBetween(a: Blocker, b: Blocker): number {
   let g = Infinity;
   for (const s of a.samples) g = Math.min(g, b.d(s.p) - s.off);

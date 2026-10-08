@@ -246,8 +246,9 @@ check('arenas 8–10: a bot fight of 50 s (with a run loadout: consumables, rand
     const again: string[] = [];
     const replayed = replay(JSON.parse(JSON.stringify(sim.exportJournal()!)), s => { s.world.events.length = 0; if (s.world.tick % 300 === 0) again.push(s.hash()); });
     // Five checkpoints (25 s) — or fewer when the fight ended sooner (stage 3a, step 2: on the new layouts of «Брод» and
-    // «Застава» this bot meets the goal and walks out at 16–18 s).
-    const ended = sim.world.status !== 'playing';
+    // «Застава» this bot meets the goal and walks out at 15–18 s). Only a victory may end it sooner: a defeat would hide
+    // a regression of the layout.
+    const ended = sim.world.status === 'victory';
     assert((checkpoints.length >= 5 || (ended && checkpoints.length >= 2)) && checkpoints.length === again.length && checkpoints.every((h, i) => again[i] === h), `${arena}: checkpoints ${checkpoints.length} vs ${again.length}, status ${sim.world.status} at ${sim.world.tick}`);
     assert(replayed.hash() === sim.hash(), `${arena}: final hash`);
     // The same seed and journal on another run of the simulation: the same world (no hidden state between fights).
