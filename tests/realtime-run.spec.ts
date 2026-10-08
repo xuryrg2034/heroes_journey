@@ -354,3 +354,61 @@ test('the sandbox opens by the anchor too: the run screen links to #sandbox, the
   await expect.poll(() => page.evaluate(() => (window as any).__realtime?.run)).toBeNull();
   expect(errors).toEqual([]);
 });
+
+test('run (iteration 2.1): consumables are noticed — the map says their key, the arena blinks their slots bright and shows the hint; after one is used the next arena has no hint', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  await openRun(page, errors);
+  // The first run: the mini gift, its first button «2 расходника».
+  await page.getByTestId('run-new').click();
+  await expect(page.getByTestId('run-gift')).toBeVisible();
+  await page.getByTestId('gift-0').click();
+  await expect(page.getByTestId('run-gift')).toBeHidden();
+  const items = (await page.evaluate(() => (window as any).__realtime.run.state())).items as Record<string, number>;
+  const gained = Object.keys(items).filter(kind => items[kind] > 0);
+  expect(gained.length).toBeGreaterThan(0);
+  // The map's notice names the key each consumable is used with in a fight.
+  await expect(page.getByTestId('run-notice')).toContainText(/\(клавиша [1-4] в бою\)/);
+  await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  // Arena 1: the hint is on; slots with a consumable are bright, the others dim; only gained ones blink at the start.
+  await expect(page.getByTestId('item-hint')).toBeVisible();
+  await expect(page.getByTestId('item-hint')).toHaveText('Предметы: клавиши 1–4, бьют в точку курсора');
+  const first = await page.evaluate(() => (window as any).__realtime.snapshot()) as { slotsBright: string[]; slotsBlinking: string[] };
+  expect([...first.slotsBright].sort()).toEqual([...gained].sort());
+  expect([...first.slotsBlinking].sort()).toEqual([...gained].sort());
+  for (const kind of ['frost', 'bomb', 'healing', 'fire']) await expect(page.getByTestId(`item-${kind}`)).toHaveClass(gained.includes(kind) ? /rt-has/ : /rt-empty/);
+  await page.screenshot({ path: 'artifacts/realtime-item-hint.png' });
+  // Use one: a bomb, frost or fire on an enemy next to the hero (a bomb is given if the gift held only healing).
+  const kind = await page.evaluate(() => {
+    const rt = (window as any).__realtime, s = rt.snapshot();
+    rt.setParam('contactDamage', 0);
+    let k = (['bomb', 'frost', 'fire'] as const).find(x => (s.items[x] ?? 0) > 0) as string | undefined;
+    if (!k) { rt.setItems('bomb', 1); k = 'bomb'; }
+    rt.place(s.hero.x + 2, s.hero.y, 0, 5, 'basic');
+    return k;
+  });
+  const hero = (await snapshot(page)).hero;
+  const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [hero.x + 2, hero.y]);
+  await page.mouse.move(at.x, at.y);
+  await page.keyboard.press(String(['frost', 'bomb', 'healing', 'fire'].indexOf(kind) + 1));
+  await expect(page.getByTestId('item-hint')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  await page.getByTestId('result-map').click();
+  expect((await page.evaluate(() => (window as any).__realtime.run.state())).itemUsed).toBe(true);
+  // The next arena: no hint (a consumable was used in this run).
+  for (let step = 0; step < 10; step++) {
+    const state = await runState(page);
+    if (state.pending?.kind === 'battle') break;
+    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    const battle = page.locator('[data-status="available"][data-type="battle"]');
+    const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
+    await node.click();
+    await page.getByTestId('run-enter').click();
+  }
+  await expect(page.getByTestId('run')).toBeHidden();
+  await expect.poll(async () => (await snapshot(page)).time).toBeGreaterThan(0.2);
+  await expect(page.getByTestId('item-hint')).toBeHidden();
+  expect(errors).toEqual([]);
+});

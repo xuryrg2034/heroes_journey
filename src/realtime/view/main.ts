@@ -27,7 +27,7 @@ import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadParams, saveParams } from './paramStorage';
 import { RealtimeRenderer, type RenderUi } from './render';
-import { RunView } from './runView';
+import { RunView, type ArenaItemNotice } from './runView';
 
 /**
  * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
@@ -46,6 +46,9 @@ const arenaKey = (i: number): string => String((i + 1) % 10);
 
 /** A frame adds at most this much real time (a stalled tab does not fast-forward the fight). */
 const MAX_FRAME = 0.05;
+/** Iteration 2.1 (interface): a slot blinks this long (s) for a consumable gained; the item hint stays this long (s). */
+const ITEM_BLINK = 1;
+const ITEM_HINT_TIME = 4;
 /** Hero walking keys (physical codes): WASD and arrows. */
 const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight']);
 
@@ -161,7 +164,8 @@ async function boot(): Promise<void> {
   const itemBar = el('span', 'rt-items');
   itemBar.setAttribute('data-testid', 'items');
   const itemSlots = SLOT_ITEMS.map((kind, i) => {
-    const slot = el('span', 'rt-item', `<kbd>${i + 1}</kbd> ${ITEM_TITLES[kind]} <b>×0</b>`);
+    // Iteration 2.1: an icon of the kind before the key; the slot is bright with one in hand, dim with none.
+    const slot = el('span', `rt-item rt-empty rt-item-${kind}`, `<i class="rt-item-icon"></i><kbd>${i + 1}</kbd> ${ITEM_TITLES[kind]} <b>×0</b>`);
     slot.setAttribute('data-testid', `item-${kind}`);
     itemBar.appendChild(slot);
     return slot;
@@ -214,7 +218,11 @@ async function boot(): Promise<void> {
   const hint = el('div', 'rt-hint');
   hint.setAttribute('data-testid', 'link-hint');
   hint.hidden = true;
-  host.append(stage, hud, actionBar, help, pausedBadge, jumpButton, hint, result);
+  // Iteration 2.1 (docs/realtime-slice.md, section 12): a short hint over the consumables at the start of a run arena.
+  const itemHint = el('div', 'rt-item-hint', 'Предметы: клавиши <kbd>1</kbd>–<kbd>4</kbd>, бьют в точку курсора');
+  itemHint.setAttribute('data-testid', 'item-hint');
+  itemHint.hidden = true;
+  host.append(stage, hud, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result);
   if (sandbox) host.append(openButton, menuButton, menu);
 
   await loadCharacterArt();
@@ -255,10 +263,23 @@ async function boot(): Promise<void> {
   let pointerClient: { x: number; y: number } | null = null;
   let hintReason: Refusal | null = null;
 
+  /**
+   * Iteration 2.1 (interface): seconds left of each slot's blink and of the item hint (real time while the arena runs),
+   * the counts the panel showed last frame (a count that grew in the fight — loot — blinks too), consumables used on this
+   * arena and whether it showed the hint (both go into the run with the outcome).
+   */
+  const slotBlink = SLOT_ITEMS.map(() => 0);
+  let lastSlotCounts: number[] | null = null;
+  let itemHintLeft = 0, arenaItemsUsed = 0, arenaHintShown = false;
   /** Starts a fight on `arena` (the sandbox's menu, or the arena of a run node with the run's HP). */
-  const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout): void => {
+  const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout);
+    SLOT_ITEMS.forEach((kind, i) => { slotBlink[i] = notice?.blink.includes(kind) ? ITEM_BLINK : 0; });
+    lastSlotCounts = null;
+    arenaItemsUsed = 0;
+    arenaHintShown = !!notice?.hint;
+    itemHintLeft = arenaHintShown ? ITEM_HINT_TIME : 0;
     renderer.buildArena(world().arena);
     // The panel's phase table is the current arena's: say what the arena forces over it, or that it keeps its own.
     panel.setArenaPhaseNote(arena.phases?.length ? `«${arena.name}»: своя таблица фаз, эта таблица на неё не действует.`
@@ -315,10 +336,10 @@ async function boot(): Promise<void> {
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
   const runView = sandbox ? null : new RunView({
-    startArena(arenaId, seed, hero, label, loadout) {
+    startArena(arenaId, seed, hero, label, loadout, notice) {
       runLabel = label;
       runArenaRecorded = false;
-      startArena(arenaTemplate(arenaId), seed, hero, loadout);
+      startArena(arenaTemplate(arenaId), seed, hero, loadout, notice);
     },
     onScreenChange(open) {
       runScreenOpen = open;
@@ -334,7 +355,7 @@ async function boot(): Promise<void> {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
     runArenaRecorded = true;
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {} });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -513,6 +534,9 @@ async function boot(): Promise<void> {
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
       }
     }
+    // Iteration 2.1: a used consumable counts for the run and ends the hint at once.
+    const used = w.events.filter(ev => ev.type === 'item').length;
+    if (used) { arenaItemsUsed += used; itemHintLeft = 0; }
     // Stage E: a short flash of the focus bar when a link refreshes it.
     if (w.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
     // The hero and enemies are drawn between the last two ticks (the world is put back after drawing).
@@ -540,7 +564,15 @@ async function boot(): Promise<void> {
       const count = w.kit?.items[kind] ?? 0, b = itemSlots[i].querySelector('b');
       if (b && b.textContent !== `×${count}`) b.textContent = `×${count}`;
       itemSlots[i].classList.toggle('rt-empty', count < 1);
+      itemSlots[i].classList.toggle('rt-has', count >= 1);
+      // Iteration 2.1: a consumable gained in the fight (loot) blinks its slot at once; the blink runs while the arena does.
+      if (lastSlotCounts && count > lastSlotCounts[i]) slotBlink[i] = ITEM_BLINK;
+      if (live) slotBlink[i] = Math.max(0, slotBlink[i] - realDt);
+      itemSlots[i].classList.toggle('rt-blink', slotBlink[i] > 0);
     });
+    lastSlotCounts = SLOT_ITEMS.map(kind => w.kit?.items[kind] ?? 0);
+    if (live) itemHintLeft = Math.max(0, itemHintLeft - realDt);
+    itemHint.hidden = !(itemHintLeft > 0 && !runScreenOpen);
     spinAbility.classList.toggle('rt-ready', canSpin(w));
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(w) && !ui.jumpMode;
@@ -629,6 +661,10 @@ async function boot(): Promise<void> {
         items: w.kit ? { ...w.kit.items } : null,
         materials: w.kit ? { ...w.kit.materials } : null,
         itemsShown: { ...renderer.itemsShown },
+        /** Iteration 2.1: the item hint is on screen; slots blinking; slots bright (one in hand). */
+        itemHint: !itemHint.hidden,
+        slotsBlinking: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-blink')),
+        slotsBright: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-has')),
         packLines: renderer.visiblePackLines,
         ripples: renderer.visibleRipples,
         heroInWater: inWater(w.hero, w.arena),

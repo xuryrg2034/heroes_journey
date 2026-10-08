@@ -142,6 +142,14 @@ export interface RtRunState {
    * groups come 1.5 times as often.
    */
   modifiers?: RtModifier[];
+  /**
+   * Iteration 2.1 (interface only, docs/realtime-slice.md, section 12): consumable kinds gained since the last arena — their
+   * slots blink 1 s when the next arena shows (absent when none). Arenas that showed the start hint «Предметы: клавиши
+   * 1–4…» (1–RT_ITEM_HINT_ARENAS; absent — none) and whether a consumable was used in the run (absent — not yet).
+   */
+  itemsNew?: ItemKind[];
+  itemHints?: number;
+  itemUsed?: true;
   gift?: RunGift;
   eventChoices: RtEventChoice[];
   battles: RtBattleRecord[];
@@ -182,6 +190,9 @@ export interface RtArenaOutcome {
   materials?: Partial<Record<ResourceKind, number>>;
   /** Step 3: «Пепельный оберег» saved the hero on this arena (it crumbles for the run). */
   wardUsed?: boolean;
+  /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
+  itemsUsed?: number;
+  itemHint?: boolean;
 }
 
 // ---------- Creating a run, the map ----------
@@ -216,7 +227,18 @@ function gainItems(run: RtRunState, items: readonly ItemKind[], events: RtRunEve
   const opened = [...new Set(items)].filter(item => !run.openItems.includes(item));
   for (const item of items) run.items[item]++;
   run.openItems.push(...opened);
+  // Iteration 2.1: the kinds blink on the panel of the next arena.
+  run.itemsNew = [...new Set([...run.itemsNew ?? [], ...items])];
   events.push({ type: 'items-gained', items: [...items], opened });
+}
+/** Баланс (interface): the start hint of the consumables shows on at most this many arenas of a run. */
+export const RT_ITEM_HINT_ARENAS = 3;
+/**
+ * Iteration 2.1: the arena of the open battle node starts with the hint «Предметы: клавиши 1–4, бьют в точку курсора» —
+ * the hero has a consumable, none was used in this run yet, and fewer than RT_ITEM_HINT_ARENAS arenas showed it.
+ */
+export function rtItemHintDue(run: RtRunState): boolean {
+  return !run.itemUsed && (run.itemHints ?? 0) < RT_ITEM_HINT_ARENAS && ITEM_KINDS.some(kind => run.items[kind] > 0);
 }
 /** The three consumables a find offers: the turn-based find of the node (slot 0, `rewardChoices` by the node seed). */
 export function rtFindOptions(run: Pick<RtRunState, 'seed'>, nodeId: string): ItemKind[] {
@@ -443,6 +465,10 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0) });
   // Step 3: the modifiers of events acted on this arena (they act on one arena).
   delete run.modifiers;
+  // Iteration 2.1 (interface): this arena showed the new consumables and maybe the hint; a used consumable ends the hints.
+  delete run.itemsNew;
+  if (outcome.itemHint && !run.itemUsed) run.itemHints = Math.min(RT_ITEM_HINT_ARENAS, (run.itemHints ?? 0) + 1);
+  if ((Number(outcome.itemsUsed) || 0) > 0) run.itemUsed = true;
   // Step 3: «Пепельный оберег» saved the hero on this arena (also on an arena lost afterwards): it crumbles.
   if (outcome.wardUsed && run.talismans.includes('ash-ward') && !run.wardSpent) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: pending.nodeId }); }
   if (!outcome.won) {
@@ -932,6 +958,10 @@ function checkRun(value: unknown): RtRunState | null {
   // Talismans: known ids of the slice, each once, taken and gone apart; the ward and the rest price — flags.
   if (!isTalismanList(run.talismans) || !isTalismanList(run.talismansGone) || run.talismans.some(id => run.talismansGone.includes(id))) return null;
   if ((run.wardSpent !== undefined && (run.wardSpent !== true || !run.talismans.includes('ash-ward'))) || (run.restNoHeal !== undefined && run.restNoHeal !== true)) return null;
+  // Iteration 2.1 (interface): new kinds — known, each once, open; the hint count 1–3; the used flag.
+  if (run.itemsNew !== undefined && !(isItemList(run.itemsNew) && run.itemsNew.length && new Set(run.itemsNew).size === run.itemsNew.length && run.itemsNew.every(item => run.openItems.includes(item)))) return null;
+  if (run.itemHints !== undefined && !(isCount(run.itemHints) && run.itemHints >= 1 && run.itemHints <= RT_ITEM_HINT_ARENAS)) return null;
+  if (run.itemUsed !== undefined && run.itemUsed !== true) return null;
   if (run.modifiers !== undefined && !(Array.isArray(run.modifiers) && run.modifiers.length && run.modifiers.every(isRtModifier) && new Set(run.modifiers).size === run.modifiers.length)) return null;
   // The gift: the roll of this seed and kind, a chosen button among the slice's buttons, its own choice among its picks.
   if (run.gift !== undefined) {

@@ -37,10 +37,11 @@ import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
   arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
-  rtChooseTalisman, rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun,
+  rtChooseTalisman, rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue,
   type RtRunState, type RtRunStep,
 } from './rtRun';
 import type { ItemKind } from '../sim/kit';
+import { ITEM_KINDS } from '../../game/items';
 import type { GiftOption } from '../../game/run/runGift';
 import { RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer } from './rtTalismans';
 import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from './rtRunStorage';
@@ -1184,6 +1185,62 @@ check('saving uses the real-time keys only; the turn-based saves are neither rea
   assert(storage.keys().sort().join() === [FOREST_RUN_STORAGE_KEY, PLAYER_PROFILE_KEY, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY].sort().join(), 'only the real-time keys added');
   assert(storage.getItem(FOREST_RUN_STORAGE_KEY) === turnBasedRun && storage.getItem(PLAYER_PROFILE_KEY) === turnBasedProfile, 'turn-based saves untouched');
   assert(!profile.endRun({ reachedJailer: false, seeded: true }) && profile.giftKind(false) === 'full', 'a seeded run does not change the gift mark');
+});
+
+// ---- Iteration 2.1: the consumables are noticed (interface; docs/realtime-slice.md, section 12) ----
+
+/** Plays the open arena as the page does and resolves it: used consumables are the `item` events of the world. */
+function playNoticed(run: RtRunState, useOne: boolean): RtRunState {
+  const hint = rtItemHintDue(run), sim = startArena(run), w = sim.world;
+  let used = 0;
+  if (useOne) {
+    // The healing item at the hero after a touch hurt him (refused at full HP), else a bomb on an enemy.
+    for (let i = 0; i < 600 && w.status === 'playing' && !used; i++) {
+      sim.tick();
+      const kind = (['bomb', 'frost', 'fire', 'healing'] as const).find(k => (w.kit?.items[k] ?? 0) > 0);
+      const target = w.enemies[0];
+      if (kind && target && sim.command({ t: 'item', kind, x: kind === 'healing' ? w.hero.x : target.x, y: kind === 'healing' ? w.hero.y : target.y })) used++;
+    }
+  }
+  winArena(sim);
+  assert(w.status === 'victory', 'won');
+  return ok(resolveArena(run, { ...outcomeOf(run, sim), itemsUsed: used, itemHint: hint }), 'resolve');
+}
+
+check('consumables noticed (iteration 2.1): gained kinds wait for the next arena; the start hint comes with an item in hand, at most on 3 arenas, never after one was used; saved strictly', () => {
+  let checked = 0;
+  for (let k = 1; k <= 6 && checked < 2; k++) {
+    let run = createRtRun(seedOf32(k + 2100), { gift: 'mini' });
+    // The mini gift's «2 расходника»: they are new for the first arena, and the hint is due.
+    run = takeGift(run, kind => kind === 'items');
+    const gained = ITEM_KINDS.filter(kind => run.items[kind] > 0);
+    if (!gained.length) continue;
+    assert(same([...run.itemsNew!].sort(), [...gained].sort()), `new kinds ${run.itemsNew}`);
+    assert(rtItemHintDue(run) && same(roundTrip(run), run), 'the hint is due; saved');
+    // Three arenas without using them: the hint on each, then no more.
+    let arenas = 0;
+    for (; arenas < 4 && !run.result; arenas++) {
+      run = nextArena(run);
+      if (arenas < 3) assert(rtItemHintDue(run), `arena ${arenas + 1}: hint due`);
+      else assert(!rtItemHintDue(run) && run.itemHints === 3, `arena ${arenas + 1}: no hint after 3 (${run.itemHints})`);
+      run = playNoticed(run, false);
+      assert(run.itemsNew === undefined, 'the arena showed the new kinds');
+      assert(same(roundTrip(run), run), 'saved');
+    }
+    assert(run.itemHints === 3, `hints ${run.itemHints}`);
+    // Another run: an item used on the first arena ends the hints for the run.
+    let used = takeGift(createRtRun(seedOf32(k + 2100), { gift: 'mini' }), kind => kind === 'items');
+    used = playNoticed(nextArena(used), true);
+    assert(used.itemUsed === true && used.itemHints === 1 && !rtItemHintDue(nextArena(used)), 'used: no more hints');
+    // Strict save: a hint count out of 1–3, a stray flag, an unknown or not open new kind — no run.
+    const base = JSON.parse(serializeRtRun(run)) as Record<string, unknown>;
+    const closed = ITEM_KINDS.find(kind => !run.openItems.includes(kind));
+    for (const bad of [{ itemHints: 0 }, { itemHints: 4 }, { itemHints: 1.5 }, { itemUsed: false }, { itemsNew: [] }, { itemsNew: ['sword'] }, { itemsNew: [run.openItems[0], run.openItems[0]] }, ...closed ? [{ itemsNew: [closed] }] : []])
+      assert(parseRtRun(JSON.stringify({ ...base, ...bad })) === null, `tampered ${JSON.stringify(bad)}`);
+    assert(same(parseRtRun(JSON.stringify({ ...base, itemsNew: [run.openItems[0]] }))?.itemsNew, [run.openItems[0]]), 'a valid new kind reads');
+    checked++;
+  }
+  assert(checked === 2, `runs checked ${checked}`);
 });
 
 console.log(`realtime-run: ${checks} checks passed`);
