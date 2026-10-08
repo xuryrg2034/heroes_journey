@@ -69,7 +69,7 @@ test('terrain samples: the menu lists them under their heading; ⇧1–⇧5 open
   const errors = collectErrors(page);
   await openSandbox(page);
   await expect(page.locator('[data-testid^="arena-"]')).toHaveCount(17);
-  await expect(page.locator('.rt-arenas-head')).toContainText('Местность');
+  await expect(page.locator('.rt-arenas-head').first()).toContainText('Местность');
   for (const s of SAMPLES) {
     await expect(page.getByTestId(`arena-${s.n}`)).toContainText(s.name);
     await expect(page.getByTestId(`arena-${s.n}`).locator('kbd')).toHaveText(`⇧${s.key}`);
