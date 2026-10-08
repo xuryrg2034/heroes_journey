@@ -29,9 +29,10 @@ export const ARENA_POOLS: readonly ArenaPoolEntry[] = [
   { arena: 'shields', rows: [3, 6] },
   { arena: 'archers', rows: [4, 7] },
   { arena: 'powder', rows: [4, 8] },
+  { arena: 'thorns', rows: [5, 8] },
 ];
 /** Names of the arenas on the run's map (docs/realtime-slice.md, section 5); the sandbox menu keeps the templates' names. */
-export const ARENA_TITLES: Readonly<Record<string, string>> = { glade: 'Поляна', buttons: 'Двор кнопок', marked: 'Логово', shields: 'Стена щитов', archers: 'Стрелковая гряда', powder: 'Пороховой склад' };
+export const ARENA_TITLES: Readonly<Record<string, string>> = { glade: 'Поляна', buttons: 'Двор кнопок', marked: 'Логово', shields: 'Стена щитов', archers: 'Стрелковая гряда', powder: 'Пороховой склад', thorns: 'Колючие заросли' };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Temporary final arena of the boss nodes (step 1): one of arenas 1–3 by the pool stream; arena 10 comes at step 4. */
 export const TEMPORARY_FINAL_ARENAS: readonly string[] = ['glade', 'buttons', 'marked'];

@@ -402,6 +402,67 @@ check('arena 6 «Пороховой склад»: kill 25; sappers are about 15%
   assert([...kinds].every(kind => kind === 'basic' || kind === 'sapper'), `kinds ${[...kinds].join(', ')}`);
 });
 
+// ---- Porcupine (arena 7 «Колючие заросли») ----
+
+/** Draws a chain through `links` from the hero and releases it; runs until the dash ends. Returns the quill hits. */
+function dashThrough(sim: Simulation, links: Enemy[]): number {
+  const w = sim.world;
+  sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+  for (const e of links.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+  assert(w.chain.length === links.length, `chain ${w.chain.length} of ${links.length}`);
+  sim.command({ t: 'release' });
+  let quills = 0;
+  for (let i = 0; i < 240 && w.move && w.status === 'playing'; i++) {
+    sim.tick();
+    quills += hits(w, 'quills');
+    w.events.length = 0;
+  }
+  return quills;
+}
+
+check('porcupine: every chain hit on it hurts the hero for 1 — during the dash and through invulnerability', () => {
+  for (let k = 21; k <= 23; k++) {
+    const sim = fight('thorns', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    // basic → porcupine → porcupine → basic: two quill hits in one dash, the second within the first one's invulnerability.
+    const a = place(sim, 9, 4.5, 'basic', 2), p1 = place(sim, 10.1, 4.3, 'porcupine', 2, 1), p2 = place(sim, 11.1, 4, 'porcupine', 2, 1), b = place(sim, 11.6, 3, 'basic', 2);
+    const quills = dashThrough(sim, [a, p1, p2, b]);
+    assert(quills === 2 && w.hero.hp === w.hero.maxHp - 2, `two porcupines: quills ${quills}, HP ${w.hero.hp}`);
+    assert(w.stats.kills === 4 && !alive(w, p1) && !alive(w, p2), 'the porcupines die to the chain as everyone');
+    // A wounded porcupine hurts too: HP 3 as the first link survives the strike of 1.
+    const tough = place(sim, w.hero.x + 1, w.hero.y, 'porcupine', 1, 3);
+    ticks(sim, 40);
+    const before = w.hero.hp;
+    assert(dashThrough(sim, [tough]) === 1 && alive(w, tough) && tough.hp === 2 && w.hero.hp === before - 1, `wounded: HP ${w.hero.hp}, its HP ${tough.hp}`);
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('porcupine: the quills can kill — the hero falls before the strike lands; the cold takes the quills off', () => {
+  const sim = fight('thorns', quiet({ heroHp: 1 }), seedOf(24)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const porcupine = place(sim, 9, 5, 'porcupine', 0, 1), after = place(sim, 10.2, 5, 'basic', 0);
+  dashThrough(sim, [porcupine, after]);
+  assert(w.status === 'defeat' && w.hero.hp === 0, `defeat by the quills: ${w.status}`);
+  assert(alive(w, porcupine) && alive(w, after) && w.stats.kills === 0, 'the strike did not land, the dash stopped');
+  assert(replays(sim), 'replay');
+  // Frozen: no quills.
+  const cold = fight('thorns', quiet(), seedOf(25)), cw = cold.world;
+  cold.command({ t: 'teleport', x: 8, y: 5 });
+  const frozen = place(cold, 9, 5, 'porcupine', 0, 1);
+  cold.command({ t: 'chill', id: frozen.id, seconds: 2 });
+  assert(dashThrough(cold, [frozen]) === 0 && cw.hero.hp === cw.hero.maxHp && !alive(cw, frozen), 'frozen: killed without quills');
+  assert(replays(cold), 'replay');
+});
+
+check('arena 7 «Колючие заросли»: three buttons; porcupines are about 20% of newcomers', () => {
+  const t = arenaTemplate('thorns');
+  assert(t.goal === 'buttons' && t.buttons.length === 3, 'three buttons');
+  const { share, kinds, total } = shareOf('thorns', 'porcupine');
+  assert(total >= 80 && share > 0.1 && share < 0.3, `porcupines ${(share * 100).toFixed(0)}% of ${total}`);
+  assert([...kinds].every(kind => kind === 'basic' || kind === 'porcupine'), `kinds ${[...kinds].join(', ')}`);
+});
+
 // ---- Determinism of the new arenas ----
 
 /** Builds the longest chain it greedily can (enemies and crystals), then releases it — as the bot of realtimeSim.spec.ts. */
@@ -427,7 +488,7 @@ function playChain(sim: Simulation): void {
 const WALK = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]];
 
 check('each new arena: a bot fight of 50 s replays from its journal to the same hash at every checkpoint', () => {
-  for (const [k, arena] of ['shields', 'archers', 'powder'].entries()) {
+  for (const [k, arena] of ['shields', 'archers', 'powder', 'thorns'].entries()) {
     const p = defaultParams();
     p.heroHp = 40;
     const sim = new Simulation({ arena, params: p, seed: seedOf(20 + k), record: true });

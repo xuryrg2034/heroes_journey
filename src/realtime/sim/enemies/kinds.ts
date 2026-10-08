@@ -7,6 +7,7 @@
  *
  * Speeds, HP and damage are functions of the live params: the debug-panel sliders keep working for the prototype kinds.
  */
+import type { StrikeOutcome } from '../chain';
 import type { Vec } from '../geometry';
 import { enemyBodyRadius, enemyDrawRadius, type Params } from '../params';
 import type { Enemy, KillCause, World } from '../world';
@@ -33,6 +34,11 @@ export interface EnemyBehavior {
    * or outside it (`killEnemy`: an arrow, a blast). The sapper lights its fuse here.
    */
   onDeath?(world: World, enemy: Enemy, cause: KillCause): void;
+  /**
+   * Stage 2 of the transition: a chain hit lands on the enemy (`outcome` — the strike about to apply), before its result.
+   * The porcupine's quills hurt the hero here. If the hero falls, the strike does not land and the dash stops.
+   */
+  onChainHit?(world: World, enemy: Enemy, outcome: StrikeOutcome): void;
 }
 
 export interface EnemyKindDef {

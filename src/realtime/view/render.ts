@@ -6,14 +6,15 @@
  * Stage 3: wolf ears and pack lines, boar tusks with the charge lane (threat color, hatched)
  * and «!», target reticles of marked enemies, buttons and the door.
  * Stage 2 of the transition, step 2 (docs/realtime-slice.md, section 4): the signals of the new enemies — the shield
- * arc of the shieldbearer, the archer's line, the sapper's fuse and blast ring (`drawSignals`).
+ * arc of the shieldbearer, the archer's line, the sapper's fuse and blast ring (`drawSignals`); the porcupine's quills (its
+ * drawing) and the «−1 HP» badge on a porcupine link of the drawn chain (`drawChain`).
  */
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE, archerLine, sapperFuse, shieldUp } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, archerLine, quillsUp, sapperFuse, shieldUp } from '../sim/enemies/index';
 import { inWater, type Vec } from '../sim/geometry';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
@@ -50,7 +51,7 @@ const STEEL = 0xa9b8c6;
 const SPARK = 0xffb04a;
 
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number }
 
 interface EnemyView {
   root: Container;
@@ -107,6 +108,8 @@ export class RealtimeRenderer {
   private readonly floating: FloatingText[] = [];
   /** Stage 2, step 2: blast flashes fading out. */
   private readonly bursts: { g: Graphics; life: number; total: number }[] = [];
+  /** Stage 2, step 2: «−1 HP» badges over porcupine links of the drawn chain (reused texts). */
+  private readonly quillLabels: Text[] = [];
   private heroArt: Container | null = null;
   private readonly heroRing = new Graphics();
   private arena: ArenaLayout | null = null;
@@ -137,7 +140,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0 };
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -281,6 +284,13 @@ export class RealtimeRenderer {
       ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: NAVY, width: 7, cap: 'round' });
       ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: BONE, width: 3.5, cap: 'round' });
       ctx.moveTo(r * 0.55, -r * 1.15).lineTo(r * 0.55, r * 1.15).stroke({ color: PALE, width: 1.5 });
+    }
+    if (kind === 'porcupine') {
+      // Porcupine: a crown of bone quills all around (silhouette, not a color).
+      for (let i = 0; i < 14; i++) {
+        const a = -Math.PI * 0.95 + i * (Math.PI * 1.9 / 13), c = Math.cos(a), s = Math.sin(a), w = 0.16;
+        ctx.poly([Math.cos(a - w) * r * 0.85, Math.sin(a - w) * r * 0.85, c * r * 1.5, s * r * 1.5, Math.cos(a + w) * r * 0.85, Math.sin(a + w) * r * 0.85]).fill(BONE).stroke({ color: NAVY, width: 2, join: 'round' });
+      }
     }
     if (kind === 'sapper') {
       // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
@@ -444,7 +454,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges };
     const fuse = (x: number, y: number, left: number, total: number): void => {
       counts.fuses++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = p.sapperRadius * UNIT, X = x * UNIT, Y = y * UNIT;
@@ -673,6 +683,8 @@ export class RealtimeRenderer {
 
   private drawChain(world: World, ui: RenderUi): void {
     const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
+    for (const label of this.quillLabels) label.visible = false;
+    this.signals.quillBadges = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
     for (const e of world.enemies) {
       if (e.hurtFlash <= 0) continue;
@@ -733,9 +745,19 @@ export class RealtimeRenderer {
     }
     // Outcome of each link: dies — white badge with a red cross; wounded — orange ring and «!».
     const r = enemyDrawRadius(p) * UNIT;
+    // Stage 2, step 2: a porcupine link will hurt the hero — a red «−1 HP» badge over it while the chain is drawn.
+    let quills = 0;
     for (const lp of plan.links) {
       const pt = linkPoint(world, lp.link);
       if (!pt || !lp.outcome) continue;
+      const linked = lp.link.kind === 'enemy' ? world.enemies.find(e => e.id === lp.link.id) : undefined;
+      if (linked && quillsUp(world, linked)) {
+        quills++;
+        const label = this.quillLabel(quills - 1);
+        label.text = `−${p.porcupineQuills} HP`;
+        label.position.set(pt.x * UNIT, pt.y * UNIT - r * 1.55);
+        label.visible = true;
+      }
       const x = pt.x * UNIT, y = pt.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75;
       if (lp.outcome.killed) {
         const s = r * 0.2;
@@ -747,6 +769,19 @@ export class RealtimeRenderer {
         g.rect(cx - 2, cy - r * 0.18, 4, r * 0.22).rect(cx - 2, cy + r * 0.1, 4, 4).fill(NAVY);
       }
     }
+    this.signals.quillBadges = quills;
+  }
+
+  /** Stage 2, step 2: the `i`-th «−1 HP» badge of porcupine links (a pool of texts over the chain layer). */
+  private quillLabel(i: number): Text {
+    while (this.quillLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 20, fontWeight: 'bold', fill: 0xff8a73, stroke: { color: 0x200c08, width: 5 } } });
+      text.anchor.set(0.5, 1);
+      text.visible = false;
+      this.root.addChild(text);
+      this.quillLabels.push(text);
+    }
+    return this.quillLabels[i];
   }
 
   private updateBursts(dt: number): void {

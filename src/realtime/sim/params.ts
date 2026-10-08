@@ -258,6 +258,10 @@ export interface Params {
   sapperRadius: number;
   /** Damage of the blast (the hero and enemies). */
   sapperDamage: number;
+  // Porcupine (stage 2 of the transition, docs/realtime-slice.md, section 4)
+  porcupineHp: number;
+  /** Damage of the quills to the hero for every chain hit on a porcupine (invulnerability does not protect). */
+  porcupineQuills: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -412,6 +416,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   sapperTouchFuse: 1.2,
   sapperRadius: 1.5,
   sapperDamage: 2,
+  porcupineHp: 1,
+  porcupineQuills: 1,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -574,6 +580,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('sapperTouchFuse', 'Сапёр', 'Фитиль от касания героя', 0, 3, 0.05, 5, 'с', 'Коснувшись героя, сапёр сам поджигает фитиль и стоит; его касание не ранит — ранит взрыв.'),
   n('sapperRadius', 'Сапёр', 'Радиус взрыва', 0.25, 4, 0.05, 5, 'ед.'),
   n('sapperDamage', 'Сапёр', 'Урон взрыва', 0, 6, 1, 5, '', 'Всем в радиусе: герою (неуязвимость защищает) и врагам. Убийства взрывом сапёра, убитого игроком, засчитываются; подожжённого касанием — нет.'),
+  n('porcupineHp', 'Дикобраз', 'HP дикобраза', 0, 6, 1, 5),
+  n('porcupineQuills', 'Дикобраз', 'Иглы: урон герою за удар цепи', 0, 6, 1, 5, '', 'Каждый удар цепи по дикобразу ранит героя — и на проходе, и при неуязвимости.'),
 ];
 
 const MAX_PHASES = 8;

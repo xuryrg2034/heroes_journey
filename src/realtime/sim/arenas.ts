@@ -290,5 +290,39 @@ export const SAPPER_ARENA: ArenaTemplate = registerArena({
   newcomers: [{ kind: 'sapper', share: 0.15 }],
 });
 
+/**
+ * Arena 7 «Колючие заросли» (run rows 5–8): press three buttons; 20% of newcomers are porcupines. Thickets of trees on
+ * both sides and below; buttons in the top corners and at the bottom, the door at the top.
+ */
+export const PORCUPINE_ARENA: ArenaTemplate = registerArena({
+  id: 'thorns',
+  name: 'Колючие заросли',
+  summary: 'Закончи цепь на каждой из трёх кнопок. Удар цепи по дикобразу ранит героя — строй цепь в обход. Дверь сверху.',
+  goal: 'buttons',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 5 },
+  obstacles: [
+    tree(3, 4),
+    tree(3.8, 5.3),
+    tree(2.6, 6.4),
+    tree(13, 4),
+    tree(12.2, 5.3),
+    tree(13.4, 6.4),
+    tree(6, 7.4),
+    tree(10, 7.4),
+    tree(6.2, 2.6),
+    tree(9.8, 2.6),
+    wall(7, 9, 2, 1),
+  ],
+  buttons: [{ x: 1.5, y: 1.5 }, { x: 14.5, y: 1.5 }, { x: 8, y: 8.2 }],
+  door: { x: 8, y: 0.7 },
+  enemies: [],
+  pace: ONE_KIND_PACE,
+  phases: oneKindPhases(),
+  // Баланс: section 5 — porcupines 20% of newcomers.
+  newcomers: [{ kind: 'porcupine', share: 0.2 }],
+});
+
 /** Arenas 4–7 of the slice on the sandbox menu (keys 4–7), after the three prototype arenas. */
-export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA, SAPPER_ARENA];
+export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA, SAPPER_ARENA, PORCUPINE_ARENA];

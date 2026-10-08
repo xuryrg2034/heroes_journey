@@ -123,3 +123,26 @@ test('sapper: arena 6 opens; a sapper touching the hero lights its fuse — the 
   expect(after.kills).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('porcupine: arena 7 opens; a porcupine link shows «−1 HP» while the chain is drawn, and the dash through it costs the hero 1 HP', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 7);
+  expect((await snap(page)).arena).toBe('thorns');
+  await expect(page.getByTestId('goal')).toHaveText('кнопки 0 / 3');
+  await quiet(page);
+  const id = await place(page, 9, 5, 'porcupine', 1, 1);
+  const at = await screen(page, 9, 5);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain).toEqual([id]);
+  await expect.poll(async () => (await snap(page)).signals.quillBadges).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-porcupine-badge.png' });
+  const before = await snap(page);
+  expect(before.hero.hp).toBe(before.hero.maxHp);
+  await page.mouse.up();
+  await expect.poll(async () => (await snap(page)).kills).toBe(1);
+  const after = await snap(page);
+  expect(after.hero.hp).toBe(after.hero.maxHp - 1);
+  expect(after.signals.quillBadges).toBe(0);
+  expect(errors).toEqual([]);
+});

@@ -475,6 +475,9 @@ function maybeFinisher(world: World): void {
 function hitEnemy(world: World, enemy: Enemy): void {
   const move = world.move!, p = world.params;
   const outcome = strike(move.power, enemy.hp);
+  // Stage 2 of the transition: the kind's reaction to the hit (the porcupine's quills); the hero's death comes first.
+  behaviorOf(enemy).onChainHit?.(world, enemy, outcome);
+  if (world.status !== 'playing') return;
   move.power = outcome.powerAfter;
   move.hits++;
   world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
@@ -585,6 +588,7 @@ function stepMove(world: World, realDt: number): void {
       if (!arrived) return;
       move.links.shift();
       hitEnemy(world, enemy);
+      if (world.status !== 'playing') return;
       // Hit-stop: the rest of this tick's dash waits with the world (the next ticks are frozen while it lasts).
       if (world.hitstop > 0) break;
       continue;
