@@ -821,7 +821,7 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 | `item {kind, x, y}` | Расходник <kbd>1</kbd>–<kbd>4</kbd> в точку курсора (этап 2, шаг 3, `sim/items.ts`) |
 | `param {key, value}`, `phases {phases}` | Панель отладки, хук `setParam` |
 | `goals`, `burst {count}` | Кнопки панели «Цели выполнены», «+20 врагов» |
-| `clear`, `place`, `teleport`, `energy`, `crystal`, `chill`, `items` | Тестовые хуки `__realtime` (`chill` — заморозка врага, этап 2; `items` — запас расходника, шаг 3) |
+| `clear`, `place`, `teleport`, `energy`, `crystal`, `chill`, `items` | Тестовые хуки `__realtime` (`chill` — заморозка врага, этап 2; `items` — запас расходника, `place {elite}` — элита, шаг 3) |
 
 - **Формат.** Журнал — JSON: `{ version: 1, seed, arena, params, ticks, commands: [{ tick, cmd }] }`. Здесь `params` — значения на старте боя, `ticks` — сколько тактов прошло. Необязательные поля этапа 2: `hero` — HP на входе (шаг 1), `loadout` — расходники и энергия на старте арены (шаг 3); журналы без них повторяются как раньше.
 - **Повтор.** `replay(journal)` создаёт бой заново, проигрывает ровно `ticks` тактов и применяет команды по номерам. В браузере журнал отдаёт `__realtime.journal()`, хэш мира — `__realtime.hash()`.
@@ -887,6 +887,7 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 | `Enemy.burn`, `updateBurning` | `items.ts`, `world.ts` (`update` после взрывов) | Горение: тики по игровому времени, урон через `damageEnemy` с зачётом игроку |
 | `useItem`, `itemRefusal`, `itemTargets` | `items.ts` | Расходники 1–4: цель, отказ с причиной, применение |
 | `spin`, `canSpin` | `abilities.ts` | Круговой удар Q |
+| `Enemy.elite`, `makeElite`, `enemyArtRadius`, `eliteDeath`, `rollRandomElite`, `ArenaObject` вида `loot`, `pickLoot`, `touchLoot`, `passObject` | `elites.ts`, `world.ts` (`touchDamage`, `killEnemy`, `update`), `chain.ts` (`hitEnemy`, `stepMove`), `spawn.ts` | Элиты: модификатор поверх вида, добыча при убийстве игроком, подбор цепью (звено как кристалл без смены цвета) и касанием, случайные элиты при выходе из метки |
 
 ### Шаблоны арен (`sim/arenas.ts`)
 

@@ -317,7 +317,7 @@ async function boot(): Promise<void> {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
     runArenaRecorded = true;
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items } } : {} });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials } } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -582,7 +582,7 @@ async function boot(): Promise<void> {
         seed: sim.seed,
         ticksPerFrame,
         hero: { ...w.hero },
-        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0 })),
+        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0, elite: !!e.elite })),
         objects: w.objects.map(o => ({ ...o })),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
@@ -609,6 +609,7 @@ async function boot(): Promise<void> {
         /** Stage 2, step 3: spin flashes drawn so far, consumables in hand, item flashes drawn so far, frozen and burning on screen. */
         spinsShown: renderer.spinsShown,
         items: w.kit ? { ...w.kit.items } : null,
+        materials: w.kit ? { ...w.kit.materials } : null,
         itemsShown: { ...renderer.itemsShown },
         packLines: renderer.visiblePackLines,
         ripples: renderer.visibleRipples,
@@ -634,7 +635,7 @@ async function boot(): Promise<void> {
     /** Test setup: remove every enemy (except the marked ones with `keepMarked`), marker and queued newcomer. */
     clear: (keepMarked = false) => command({ t: 'clear', keepMarked }),
     /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. */
-    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic') => command({ t: 'place', x, y, color, hp, kind }),
+    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite = false) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite: true } : {} }),
     /** Test setup: move the hero. */
     teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
     /** Test setup: set the jump energy. */

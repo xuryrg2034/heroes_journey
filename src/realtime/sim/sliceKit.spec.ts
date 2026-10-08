@@ -323,4 +323,158 @@ check('loadout: the arena starts with the consumables and the banked energy it i
   assert(JSON.stringify(journal.loadout) === JSON.stringify({ items: { frost: 1, fire: 2 }, energy: 9 }), 'the loadout is journalled');
 });
 
+// ---- Elites ----
+
+const placeElite = (sim: Simulation, x: number, y: number, kind = 'basic', color = 0, hp = 0): Enemy => {
+  const id = sim.command({ t: 'place', x, y, color, hp, kind, elite: true }) as number;
+  return sim.world.enemies.find(e => e.id === id)!;
+};
+const lootOf = (w: World) => w.objects.filter(o => o.kind === 'loot');
+const hpOfE = (e: Enemy): number => e.hp;
+
+check('elite: HP ×2 (a weak one gets 1), its touch +1, a larger press circle; an elite shieldbearer keeps its shield', () => {
+  const sim = fight('shields', quiet({ contactDamage: 1 }), seedOf(40)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const weak = placeElite(sim, 3, 8.5, 'basic', 0, 0), two = placeElite(sim, 13, 8.5, 'basic', 1, 2);
+  assert(weak.elite && weak.hp === 1 && two.hp === 4, `HP ${weak.hp}, ${two.hp}`);
+  const shield = placeElite(sim, 9.2, 5, 'shield', 2, 1);
+  assert(shield.hp === 2 && !sim.command({ t: 'begin', x: shield.x, y: shield.y }), 'an elite shieldbearer: HP 2, still not taken from the front');
+  // The press circle is its drawing × 1.25: a press 0.66 from its centre takes it (0.59 for an ordinary enemy).
+  sim.command({ t: 'chill', id: shield.id, seconds: 5 });
+  assert(sim.command({ t: 'begin', x: shield.x - 0.66, y: shield.y }) === true, 'the larger circle of an elite');
+  sim.command({ t: 'cancel' });
+  const plain = place(sim, 8, 6.4, 'basic', 3, 3);
+  assert(!sim.command({ t: 'begin', x: plain.x, y: plain.y + 0.66 }), 'an ordinary enemy: not at 0.66');
+  // Touch: an elite next to the hero hits for 1 + 1.
+  sim.command({ t: 'clear', keepMarked: false });
+  const hp = w.hero.hp;
+  placeElite(sim, 8.5, 5, 'basic', 0, 3);
+  ticks(sim, 2);
+  assert(w.hero.hp === hp - 2, `elite touch: ${hp} → ${w.hero.hp}`);
+  assert(replays(sim), 'replay');
+});
+
+check('elite loot: killed by the player — 50% a consumable open in the run, else a resource (by seed); by an enemy — nothing', () => {
+  const tally = { item: 0, resource: 0 }, kinds = new Set<string>();
+  for (let k = 1; k <= 80; k++) {
+    const sim = fight('kills', quiet(), seedOf(100 + k), { loadout: { items: { bomb: 1 }, openItems: ['fire', 'bomb'] } }), w = sim.world;
+    sim.command({ t: 'teleport', x: 4.5, y: 5 });
+    const elite = placeElite(sim, 8, 5, 'basic', 0, 2);
+    assert(sim.command({ t: 'item', kind: 'bomb', x: elite.x, y: elite.y }) === true && !alive(w, elite), 'the bomb kills the elite');
+    const [loot] = lootOf(w);
+    assert(loot && lootOf(w).length === 1 && Math.hypot(loot.x - 8, loot.y - 5) <= w.params.eliteLootRadius + 1e-9, 'one loot near the kill');
+    kinds.add(loot.loot!);
+    if (loot.loot === 'fire' || loot.loot === 'bomb') tally.item++; else tally.resource++;
+    assert(['fire', 'bomb', 'dew', 'powder', 'resin', 'herbs'].includes(loot.loot!), `loot ${loot.loot}`);
+    if (k <= 3) assert(replays(sim), 'replay');
+  }
+  assert(tally.item >= 28 && tally.item <= 52 && kinds.size === 6, `consumables ${tally.item} of 80, kinds ${[...kinds]}`);
+  // Nothing open in the run: always a resource.
+  for (let k = 1; k <= 10; k++) {
+    const sim = fight('kills', quiet(), seedOf(200 + k), { loadout: { items: { bomb: 1 } } }), w = sim.world;
+    sim.command({ t: 'teleport', x: 4.5, y: 5 });
+    const elite = placeElite(sim, 8, 5, 'basic', 0, 2);
+    sim.command({ t: 'item', kind: 'bomb', x: elite.x, y: elite.y });
+    assert(['dew', 'powder', 'resin', 'herbs'].includes(lootOf(w)[0]?.loot ?? ''), 'nothing open: a resource');
+  }
+  // Killed by an archer's arrow: not the player's — no loot.
+  const sim = fight('kills', quiet(), seedOf(300)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  place(sim, 8, 9.2, 'archer', 0, 0);
+  const victim = placeElite(sim, 8, 7.5, 'basic', 1, 0);
+  for (let i = 0; i < 200 && alive(w, victim); i++) sim.tick();
+  assert(!alive(w, victim) && lootOf(w).length === 0 && w.stats.kills === 0, 'an elite killed by an arrow drops nothing');
+});
+
+check('elite loot is picked up by a chain (a link of any colour, no power, no colour change) or by the walking hero', () => {
+  const sim = fight('kills', quiet(), seedOf(41), { loadout: { items: { bomb: 2 }, openItems: ['bomb'] } }), w = sim.world;
+  sim.command({ t: 'teleport', x: 4.5, y: 5 });
+  // Two elites by bomb: two loot objects; the test then moves them to fixed spots (a setup through commands is not needed: the spot is random).
+  const a = placeElite(sim, 8, 5, 'basic', 0, 2);
+  sim.command({ t: 'item', kind: 'bomb', x: a.x, y: a.y });
+  const loot = lootOf(w)[0];
+  assert(loot, 'loot fell');
+  // A chain hero → enemy → the loot → enemy of the same colour with HP 3: the loot keeps the colour and gives no power (power 2 wounds the HP 3).
+  sim.command({ t: 'teleport', x: loot.x - 1.2, y: loot.y });
+  const first = place(sim, loot.x - 0.6, loot.y + 0.9, 'basic', 1, 0), last = place(sim, loot.x + 1.0, loot.y + 0.3, 'basic', 1, 3);
+  const other = place(sim, loot.x + 0.9, loot.y - 0.6, 'basic', 2, 0);
+  sim.command({ t: 'begin', x: first.x, y: first.y });
+  sim.command({ t: 'drag', x: loot.x, y: loot.y, mode: 'full' });
+  assert(chainOf(w).length === 2, 'the loot is a link');
+  sim.command({ t: 'drag', x: other.x, y: other.y, mode: 'full' });
+  assert(chainOf(w).length === 2, 'another colour after the loot: refused (the colour stays)');
+  sim.command({ t: 'drag', x: last.x, y: last.y, mode: 'full' });
+  assert(chainOf(w).length === 3 && planChain(w).links[2].outcome!.available === 2 && !planChain(w).links[2].outcome!.killed, 'power 2 after the loot (no power from it)');
+  const before = w.kit!.items.bomb + w.kit!.materials.dew + w.kit!.materials.powder + w.kit!.materials.resin + w.kit!.materials.herbs;
+  sim.command({ t: 'release' }); settle(sim);
+  assert(lootOf(w).length === 0 && hpOfE(last) === 1, 'the dash picked it up; the last link wounded to 1');
+  const after = w.kit!.items.bomb + w.kit!.materials.dew + w.kit!.materials.powder + w.kit!.materials.resin + w.kit!.materials.herbs;
+  assert(after === before + 1, 'one thing more in the kit');
+  // By touch: a second elite's loot, the hero walks onto it.
+  const b = placeElite(sim, 4, 3, 'basic', 3, 0);
+  sim.command({ t: 'teleport', x: 6.5, y: 3 });
+  sim.command({ t: 'item', kind: 'bomb', x: b.x, y: b.y });
+  const second = lootOf(w)[0];
+  assert(second, 'second loot');
+  sim.command({ t: 'teleport', x: second.x + 1.2, y: second.y });
+  sim.command({ t: 'walk', x: -1, y: 0 });
+  for (let i = 0; i < 40 && lootOf(w).length; i++) sim.tick();
+  assert(lootOf(w).length === 0, 'picked up by walking into it');
+  assert(replays(sim), 'replay');
+});
+
+check('elite loot falls off the rest of the dash (as a crystal)', () => {
+  for (let k = 1; k <= 6; k++) {
+    const sim = fight('kills', quiet(), seedOf(50 + k), { loadout: { openItems: ['frost'] } }), w = sim.world;
+    sim.command({ t: 'teleport', x: 4, y: 5 });
+    const elite = placeElite(sim, 5.2, 5, 'basic', 0, 0);
+    const rest = [place(sim, 6.4, 5, 'basic', 0, 0), place(sim, 7.6, 5, 'basic', 0, 0), place(sim, 8.8, 5, 'basic', 0, 0)];
+    sim.command({ t: 'begin', x: elite.x, y: elite.y });
+    for (const e of rest) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+    sim.command({ t: 'release' });
+    for (let i = 0; i < 60 && !lootOf(w).length; i++) sim.tick();
+    const loot = lootOf(w)[0];
+    assert(loot, 'loot fell in the dash');
+    // The rest of the dash when the elite died: from its spot (the hero takes it) along y = 5 to the last link at x = 8.8.
+    const tx = Math.max(elite.x, Math.min(8.8, loot.x)), off = Math.hypot(loot.x - tx, loot.y - 5);
+    assert(off >= 0.6 - 1e-9, `loot at ${loot.x.toFixed(2)}, ${loot.y.toFixed(2)} is ${off.toFixed(2)} from the rest of the dash`);
+    settle(sim);
+  }
+});
+
+check('random elites: 3% of newcomers before the goals, 12% after (many seeds); at most 2 / 4 living; off without the run or the toggle', () => {
+  /** A fast horde that never reaches the hero: newcomers pour in, the test clears them every second. */
+  const horde = (extra: Partial<Params> = {}): Params => Object.assign(defaultParams(), {
+    baseFloor: 40, baseIntervalMin: 0.3, baseIntervalMax: 0.3, maxEnemies: 60, markerDelay: 0.1, spawnMinDistance: 0, enemySpeed: 0, speedSpread: 0, contactDamage: 0,
+    baseWolfShare: 0, baseBoarShare: 0, groupMin: 4, groupMax: 4, hitstop: false,
+  }, extra);
+  const count = (loadout: object, params: Params, greed: boolean, seeds: number, cleared = true) => {
+    let newcomers = 0, elites = 0, most = 0;
+    for (let k = 1; k <= seeds; k++) {
+      const sim = new Simulation({ arena: 'glade', params, seed: seedOf(400 + k + (greed ? 50 : 0)), record: true, loadout }), w = sim.world;
+      if (greed) sim.command({ t: 'goals' });
+      for (let i = 0; i < 60 * 30; i++) {
+        sim.tick();
+        for (const ev of w.events) { if (ev.type === 'spawn') newcomers++; if (ev.type === 'elite') elites++; }
+        w.events.length = 0;
+        most = Math.max(most, w.enemies.filter(e => e.elite).length);
+        if (cleared && i % 60 === 59) sim.command({ t: 'clear', keepMarked: false });
+      }
+      if (k === 1) assert(replays(sim), 'replay');
+    }
+    return { newcomers, elites, most, share: elites / Math.max(1, newcomers) };
+  };
+  // Shares with the caps out of the way (caps are sliders).
+  const before = count({ randomElites: true }, horde({ eliteCap: 99 }), false, 6), after = count({ randomElites: true }, horde({ eliteCapAfter: 99 }), true, 4);
+  console.log(`   before the goals ${before.elites}/${before.newcomers} (${(before.share * 100).toFixed(1)}%), after ${after.elites}/${after.newcomers} (${(after.share * 100).toFixed(1)}%)`);
+  assert(before.newcomers > 1500 && before.share > 0.018 && before.share < 0.045, `before the goals: ${before.share}`);
+  assert(after.newcomers > 1000 && after.share > 0.09 && after.share < 0.15, `after the goals: ${after.share}`);
+  // Caps: never more than 2 / 4 living elites (enemies are not cleared: they pile up to the arena limit).
+  const capBefore = count({ randomElites: true }, horde({ eliteChance: 0.5 }), false, 2, false), capAfter = count({ randomElites: true }, horde({ eliteChanceAfter: 0.5 }), true, 2, false);
+  assert(capBefore.most === 2 && capAfter.most === 4, `living elites at most ${capBefore.most} / ${capAfter.most}`);
+  // Off: no loadout flag and no toggle — no elites; the sandbox toggle turns them on.
+  assert(count({}, horde({ eliteChance: 0.5 }), false, 1).elites === 0, 'off without the run flag');
+  assert(count({}, horde({ eliteChance: 0.5, eliteSandbox: true }), false, 1).elites > 0, 'the sandbox toggle');
+});
+
 console.log(`realtime-kit: ${checks} checks passed`);

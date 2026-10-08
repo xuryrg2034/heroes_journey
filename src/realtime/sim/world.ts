@@ -14,7 +14,8 @@ import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, inWater, lineOfSight, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
-import { kitOf, type ItemKind, type Kit, type Loadout } from './kit';
+import { kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
+import { eliteDeath, makeElite, touchLoot } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
@@ -77,6 +78,11 @@ export interface Enemy {
   brittle?: true;
   /** Stage 2, step 3: burning from the fire consumable — ticks left and game seconds to the next one. Absent otherwise. */
   burn?: { left: number; timer: number };
+  /**
+   * Stage 2, step 3: the elite modifier (docs/realtime-slice.md, section 7; elites.ts): HP ×2 (set when it became one),
+   * art ×1.25, touch +1, loot when the player kills it. Absent on an ordinary enemy.
+   */
+  elite?: true;
 }
 
 /** The enemy is frozen now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off. */
@@ -90,7 +96,8 @@ export function enemyFrozen(e: Enemy): boolean { return (e.chill ?? 0) > 0; }
  */
 export interface ArenaObject {
   id: number;
-  kind: 'button' | 'door' | 'crystal';
+  /** Stage 2, step 3: `loot` — what an elite dropped (a consumable or a crafting resource), picked up by a chain or a touch. */
+  kind: 'button' | 'door' | 'crystal' | 'loot';
   x: number;
   y: number;
   /** Button: pressed once and for all. */
@@ -99,6 +106,8 @@ export interface ArenaObject {
   value?: number;
   /** Crystal: game time it fell (the lifetime slider). */
   born?: number;
+  /** Loot (stage 2, step 3): a consumable (`frost`, `bomb`, `healing`, `fire`) or a crafting resource (`dew`, `powder`, `resin`, `herbs`). */
+  loot?: ItemKind | ResourceKind;
 }
 
 /** Radius of a button, the door or a crystal (units): the drawn circle, the pick circle, the door entry. */
@@ -181,6 +190,10 @@ export type WorldEvent =
   | { type: 'spin'; x: number; y: number; radius: number; hits: number }
   /** Stage 2, step 3: a consumable used — its kind, where it acts, its circle (0 — one target or the hero) and targets. */
   | { type: 'item'; kind: ItemKind; x: number; y: number; radius: number; targets: number }
+  /** Stage 2, step 3: an elite dropped its loot (`dropped`) or the hero picked it up. */
+  | { type: 'loot'; objectId: number; loot: ItemKind | ResourceKind; x: number; y: number; picked: boolean }
+  /** Stage 2, step 3: a newcomer became an elite (a random elite). */
+  | { type: 'elite'; enemyId: number }
   | { type: 'focusRefill' }
   | { type: 'defeat' };
 
@@ -342,6 +355,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     const kind = s.kind ?? 'basic';
     const e = spawnEnemy(world, s, s.color, s.hp ?? enemyKind(kind).hp(params) ?? 0, kind);
     e.marked = !!s.marked;
+    // Stage 2, step 3: an elite from the start (arenas 9–10 of step 4).
+    if (s.elite) makeElite(world, e);
     pushOutOfObstacles(e, bodyRadiusOf(params, e), arena);
   }
   world.stats.spawned = 0;
@@ -403,7 +418,8 @@ export function win(world: World): void {
 
 /** Contact damage of one enemy now: its kind decides (the reaper, a wolf with its pack bonus, the base touch). */
 export function touchDamage(world: World, e: Enemy): number {
-  return kindOf(e).touchDamage(world, e);
+  // Stage 2, step 3: an elite's touch hits harder (section 7).
+  return kindOf(e).touchDamage(world, e) + (e.elite ? world.params.eliteTouchBonus : 0);
 }
 
 /**
@@ -522,6 +538,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   if (e.marked) world.stats.markedKills++;
   checkGoals(world);
   behaviorOf(e).onDeath?.(world, e, cause);
+  // Stage 2, step 3: an elite killed by the player drops its loot.
+  eliteDeath(world, e, cause);
 }
 
 /**
@@ -806,6 +824,8 @@ export function update(world: World, dt: number, realDt = dt): void {
   updateSpawning(world, dt);
   stepHeroKnock(world, dt);
   stepHeroWalk(world, dt);
+  // Stage 2, step 3: the walking hero picks up the loot he touches.
+  touchLoot(world);
   // Walking in wins on a NEW touch of the open door only (design 07.10.2026): a hero standing on the door when it opens
   // keeps the choice to stay greedy — he must step off and touch it again (or enter by a chain or a jump).
   const onDoor = heroTouchesDoor(world), touchedNow = onDoor && !world.heroOnDoor;

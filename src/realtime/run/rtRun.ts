@@ -138,8 +138,10 @@ const fail = (reason: string): RtRunStep => ({ ok: false, reason });
 /** What an arena gives back to the run (main.ts reads it from the finished world). */
 export interface RtArenaOutcome {
   nodeId: string; won: boolean; hp: number; kills: number; damage: number; time: number;
-  /** Step 3: consumables in hand at the end (used ones gone); absent — as carried in. */
+  /** Step 3: consumables in hand at the end (used ones gone, picked-up loot added); absent — as carried in. */
   items?: Partial<Record<ItemKind, number>>;
+  /** Step 3: crafting resources picked up on the arena (the loot of elites). */
+  materials?: Partial<Record<ResourceKind, number>>;
 }
 
 // ---------- Creating a run, the map ----------
@@ -180,12 +182,19 @@ function gainItems(run: RtRunState, items: readonly ItemKind[], events: RtRunEve
 export function rtFindOptions(run: Pick<RtRunState, 'seed'>, nodeId: string): ItemKind[] {
   return rewardChoices(forestNodeSeed(run.seed, nodeId), 0).map(option => option.item);
 }
+/** Баланс: random elites come from this run row on (design answer 08.10.2026, docs/realtime-slice.md, section 7). */
+export const RT_RANDOM_ELITE_ROW = 3;
 /**
- * What the arena of the open battle node starts with (step 3): the run's consumables and the energy it banked (up to 7).
+ * What the arena of the open battle node starts with (step 3): the run's consumables, the energy it banked (up to 7),
+ * the consumables open in the run (an elite drops one of them) and whether random elites come (run row 3 and later).
  * Computed from the run as it is, so a reload starts the arena again with the same loadout.
  */
 export function rtArenaLoadout(run: RtRunState): Loadout {
-  return { items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy) };
+  const pending = run.pending, node = pending && 'nodeId' in pending && pending.nodeId ? rtNode(run, pending.nodeId) : undefined;
+  return {
+    items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy), openItems: [...run.openItems],
+    randomElites: !!node && runRow(node.row) >= RT_RANDOM_ELITE_ROW,
+  };
 }
 
 const mapCache = new WeakMap<object, ForestRunMap>();
@@ -339,6 +348,7 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   run.hp = Math.max(1, Math.min(run.maxHp, Math.floor(outcome.hp)));
   // Step 3: the consumables left in hand go on; the banked energy was spent at the start of this arena.
   if (outcome.items) for (const item of ITEM_KINDS) run.items[item] = Math.max(0, Math.floor(Number(outcome.items[item]) || 0));
+  for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.materials?.[kind]) || 0));
   run.energy = 0;
   const node = rtNode(run, pending.nodeId)!;
   if (pending.battle === 'hard') {

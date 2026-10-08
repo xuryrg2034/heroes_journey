@@ -637,6 +637,42 @@ check('events: a consumable outcome joins the run and opens; energy is banked fo
   }
 });
 
+check('elites in the run: random ones from run row 3; the loot of an elite picked up on the arena comes into the run', () => {
+  // Every battle of the walks: the arena of run rows 1–2 has no random elites, from row 3 it has.
+  let low = 0, high = 0;
+  for (const walk of walks.slice(0, 3)) {
+    let run = takeGift(createRtRun(walk.run.seed, { gift: 'mini' }));
+    for (let step = 0; step < 6; step++) {
+      run = nextArena(run);
+      const pending = run.pending as Extract<RtRunState['pending'], { kind: 'battle' }>, row = runRow(rtNode(run, pending.nodeId)!.row);
+      const loadout = rtArenaLoadout(run);
+      assert(loadout.randomElites === (row >= 3), `run row ${row}: random elites ${loadout.randomElites}`);
+      if (row >= 3) high++; else low++;
+      const sim = startArena(run); winArena(sim);
+      run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
+    }
+  }
+  assert(low > 0 && high > 0, `rows below 3: ${low}, from 3: ${high}`);
+  // The loot: an elite placed on a run arena, killed by a bomb of the run, its loot walked onto — into the run.
+  let run = nextArena(takeGift(createRtRun(SEEDS[7], { gift: 'mini' })));
+  run = { ...run, items: { ...run.items, bomb: 1 }, openItems: ['bomb'] }; // setup: a bomb in hand, open
+  const sim = startArena(run), w = sim.world;
+  sim.command({ t: 'teleport', x: 3, y: 5 });
+  const id = sim.command({ t: 'place', x: 5.5, y: 5, color: 0, hp: 2, kind: 'basic', elite: true }) as number;
+  assert(sim.command({ t: 'item', kind: 'bomb', x: 5.5, y: 5 }) === true && !w.enemies.some(e => e.id === id), 'the elite killed by the bomb');
+  const loot = w.objects.find(o => o.kind === 'loot')!;
+  assert(loot, 'loot fell');
+  sim.command({ t: 'teleport', x: loot.x, y: loot.y });
+  sim.tick();
+  assert(!w.objects.some(o => o.kind === 'loot'), 'picked up');
+  winArena(sim);
+  const before = { items: { ...run.items, bomb: 0 }, materials: { ...run.materials } };
+  run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
+  const gained = (Object.keys(run.items) as ItemKind[]).reduce((sum, kind) => sum + run.items[kind] - before.items[kind], 0)
+    + (Object.keys(run.materials) as (keyof typeof run.materials)[]).reduce((sum, kind) => sum + run.materials[kind] - before.materials[kind], 0);
+  assert(gained === 1 && same(roundTrip(run), run), `the loot came into the run (${loot.loot}), loads back`);
+});
+
 check('icons and labels of the node types equal the turn-based map screen\'s', () => {
   for (const [type, info] of Object.entries(NODE_TYPE_INFO)) {
     const own = RT_NODE_TYPES[type as keyof typeof RT_NODE_TYPES];

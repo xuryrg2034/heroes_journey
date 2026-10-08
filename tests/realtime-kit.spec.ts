@@ -123,3 +123,32 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   await page.screenshot({ path: 'artifacts/realtime-items.png' });
   expect(errors).toEqual([]);
 });
+
+test('elite: a gold rim on a larger drawing; killed by the bomb it drops loot on screen, the hero walks onto it and takes it', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  await quiet(page);
+  const id = await page.evaluate(() => (window as any).__realtime.place(10, 5, 0, 2, 'basic', true)) as number;
+  await expect.poll(async () => (await kitSnap(page)).signals.elites).toBe(1);
+  const elite = (await kitSnap(page)).enemies.find(e => e.id === id) as KitSnap['enemies'][number] & { elite: boolean };
+  expect(elite.elite).toBe(true);
+  expect(elite.hp).toBe(4);
+  await page.screenshot({ path: 'artifacts/realtime-elite.png' });
+  // Two bombs: 4 HP.
+  await pointAt(page, 10, 5);
+  await page.keyboard.press('2');
+  await page.keyboard.press('2');
+  await expect.poll(async () => (await kitSnap(page)).enemies.some(e => e.id === id)).toBe(false);
+  await expect.poll(async () => (await kitSnap(page)).signals.loot).toBe(1);
+  const before = await kitSnap(page) as KitSnap & { materials: Record<string, number> | null };
+  const loot = (await page.evaluate(() => (window as any).__realtime.snapshot().objects)).find((o: { kind: string }) => o.kind === 'loot') as { x: number; y: number; loot: string };
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x - 1.2, y), [loot.x, loot.y]);
+  await page.keyboard.down('d');
+  await expect.poll(async () => (await kitSnap(page)).signals.loot, { timeout: 5_000 }).toBe(0);
+  await page.keyboard.up('d');
+  const after = await kitSnap(page) as KitSnap & { materials: Record<string, number> | null };
+  const total = (s: { items: Record<string, number> | null; materials: Record<string, number> | null }) =>
+    Object.values(s.items ?? {}).reduce((a, b) => a + b, 0) + Object.values(s.materials ?? {}).reduce((a, b) => a + b, 0);
+  expect(total(after)).toBe(total(before) + 1);
+  expect(errors).toEqual([]);
+});

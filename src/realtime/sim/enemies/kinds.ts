@@ -105,5 +105,10 @@ export function bodyRadiusOf(params: Params, enemy: Enemy): number { return enem
 /** Drawn radius of an enemy of `kind` — the edge the link radius R reaches with «R до края тела» (prototype stage G). */
 export function artRadiusOf(params: Params, kind: string): number { return enemyDrawRadius(params) * enemyKind(kind).artScale; }
 
+/** Drawn radius of this enemy: its kind's, × `eliteArtScale` for an elite (stage 2, step 3: the body stays). */
+export function enemyArtRadius(params: Params, enemy: Enemy): number {
+  return artRadiusOf(params, enemy.kind) * (enemy.elite ? params.eliteArtScale : 1);
+}
+
 /** The common walk only: no own step. */
 export const CHASE = registerBehavior({ id: 'chase' });

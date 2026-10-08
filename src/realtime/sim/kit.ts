@@ -26,11 +26,21 @@ export interface Loadout {
   items?: Partial<Record<ItemKind, number>>;
   /** Energy at the start (0–7): energy the run banked for this arena (gift, events). */
   energy?: number;
+  /** Consumables open in the run (an elite drops one of them; none open — a crafting resource). */
+  openItems?: ItemKind[];
+  /** Random elites among the newcomers (a run from its row 3, section 7). */
+  randomElites?: boolean;
 }
 
-/** The kit of a running arena: consumables in hand now (used ones are gone). Hashed with the world. */
+/**
+ * The kit of a running arena (hashed with the world): consumables in hand now (used ones gone, picked-up loot added),
+ * crafting resources picked up here, and what the run decided for the arena.
+ */
 export interface Kit {
   items: Record<ItemKind, number>;
+  materials: Record<ResourceKind, number>;
+  openItems: ItemKind[];
+  randomElites: boolean;
 }
 
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
@@ -39,5 +49,9 @@ const count = (value: unknown): number => typeof value === 'number' && Number.is
 export function kitOf(loadout: Loadout): Kit {
   const items = emptyItems();
   for (const kind of SLOT_ITEMS) items[kind] = count(loadout.items?.[kind]);
-  return { items };
+  // In the run's opening order (the loot draws by it), each once.
+  const openItems = [...new Set(loadout.openItems ?? [])].filter(kind => SLOT_ITEMS.includes(kind));
+  return { items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites };
 }
+/** A kit with nothing (test setup on a world without a loadout). */
+export const emptyKit = (): Kit => kitOf({});

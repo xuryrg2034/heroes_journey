@@ -8,6 +8,7 @@
  * the personal speed spread — `speed` (rng.ts).
  */
 import { behaviorOf, enemyKind } from './enemies/kinds';
+import { rollRandomElite } from './elites';
 import { blockedAt, dist, inWater, type Vec } from './geometry';
 import { enemyBodyRadius, rollGroupInterval } from './params';
 import type { Rng } from './rng';
@@ -187,7 +188,9 @@ export function updateSpawning(world: World, dt: number): void {
     m.timeLeft -= dt;
     if (m.timeLeft > 0) continue;
     world.markers.splice(i, 1);
-    spawnEnemy(world, m, m.color, m.hp, m.kind);
+    const e = spawnEnemy(world, m, m.color, m.hp, m.kind);
+    // Stage 2, step 3: a newcomer may be a random elite (a run from its row 3, or the sandbox toggle).
+    rollRandomElite(world, e);
   }
 }
 

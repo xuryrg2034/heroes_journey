@@ -53,9 +53,13 @@ const STEEL = 0xa9b8c6;
 const SPARK = 0xffb04a;
 /** Stage 2, step 3: the cold consumable — pale ice blue. */
 const ICE = 0x9fd8ff;
+/** Stage 2, step 3: colours of the loot of elites — consumables and crafting resources. */
+/** Stage 2, step 3: names of the loot shown when it is picked up. */
+const LOOT_TITLE: Readonly<Record<string, string>> = { frost: 'Холод', bomb: 'Бомба', healing: 'Лечение', fire: 'Огонь', dew: 'Роса', powder: 'Порох', resin: 'Смола', herbs: 'Травы' };
+const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f46, healing: 0x8fd18a, fire: SPARK, dew: 0xbfe3ff, powder: 0x6d6a58, resin: 0xc88a3a, herbs: 0x6fae5a };
 
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number }
 
 interface EnemyView {
   root: Container;
@@ -144,7 +148,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0 };
   /** Stage 2, step 3: consumable flashes drawn so far, by kind (tests read it: the effect was on screen). */
   readonly itemsShown: Record<ItemKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0 };
   /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
@@ -379,7 +383,8 @@ export class RealtimeRenderer {
       }
       view.root.position.set((e.x + ox) * UNIT, (e.y + oy) * UNIT);
       const pop = Math.min(1, 0.35 + e.age / 0.2 * 0.65);
-      view.root.scale.set(scale * pop);
+      // Stage 2, step 3: an elite is drawn larger (its body stays).
+      view.root.scale.set(scale * pop * (e.elite ? world.params.eliteArtScale : 1));
       view.root.zIndex = e.y;
       const dim = color !== null && e.color !== color ? strength : 0;
       view.root.alpha = mode === 'alpha' ? 1 - dim : 1;
@@ -462,7 +467,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length };
     const fuse = (x: number, y: number, left: number, total: number): void => {
       counts.fuses++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = p.sapperRadius * UNIT, X = x * UNIT, Y = y * UNIT;
@@ -492,6 +497,12 @@ export class RealtimeRenderer {
         // The arrow head at the filling front.
         const tx = ox + ux * len * line.progress, ty = oy + uy * len * line.progress;
         g.poly([tx + ux * half * 1.6, ty + uy * half * 1.6, tx - nx * half * 1.3, ty - ny * half * 1.3, tx + nx * half * 1.3, ty + ny * half * 1.3]).fill(THREAT).stroke({ color: THREAT_OUTLINE, width: 2 });
+      }
+      // Stage 2, step 3: an elite — a thick gold rim around its (larger) drawing.
+      if (e.elite) {
+        counts.elites++;
+        const R = r * p.eliteArtScale * 1.06;
+        g.circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: NAVY, width: 7, alpha: 0.9 }).circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: TARGET, width: 4 });
       }
       // Stage 2, step 3: the cold — an icy ring (a double ring while the next chain hit on it is ×2); burning — flames.
       if ((e.chill ?? 0) > 0) {
@@ -542,6 +553,15 @@ export class RealtimeRenderer {
     const g = this.objectLayer.clear(), R = OBJECT_RADIUS * UNIT, pulse = 0.5 + 0.5 * Math.sin(this.clock * 4);
     for (const o of world.objects) {
       const x = o.x * UNIT, y = o.y * UNIT;
+      if (o.kind === 'loot') {
+        // Stage 2, step 3: the loot of an elite — a consumable (a flask of its colour) or a resource (a small bundle), bobbing.
+        const bob = Math.sin(this.clock * 3 + o.id) * 2, cy = y + bob, color = LOOT_COLOR[o.loot ?? ''] ?? 0xd8c690, item = ['frost', 'bomb', 'healing', 'fire'].includes(o.loot ?? '');
+        g.ellipse(x, y + R * 0.7, R * 0.55, R * 0.18).fill({ color: 0x050a07, alpha: 0.4 });
+        g.circle(x, cy, R * 1.05).fill({ color: TARGET, alpha: 0.12 + 0.12 * pulse }).stroke({ color: TARGET, width: 2, alpha: 0.6 });
+        if (item) g.roundRect(x - R * 0.42, cy - R * 0.5, R * 0.84, R * 1.05, R * 0.3).fill(color).stroke({ color: NAVY, width: 3 }).rect(x - R * 0.16, cy - R * 0.78, R * 0.32, R * 0.3).fill(BONE).stroke({ color: NAVY, width: 2 });
+        else g.poly([x - R * 0.55, cy + R * 0.4, x, cy - R * 0.55, x + R * 0.55, cy + R * 0.4]).fill(color).stroke({ color: NAVY, width: 3 });
+        continue;
+      }
       if (o.kind === 'crystal') {
         // Colour-change crystal (stage C): a faceted prism in all four chain colors, glowing; fits any chain.
         const h = R * 1.05, w = R * 0.72, bob = Math.sin(this.clock * 3 + o.id) * 3, cy = y + bob;
@@ -651,6 +671,11 @@ export class RealtimeRenderer {
         burst.position.set(ev.x * UNIT, ev.y * UNIT);
         this.fxLayer.addChild(burst);
         this.bursts.push({ g: burst, life: 0.35, total: 0.35 });
+        continue;
+      }
+      if (ev.type === 'loot') {
+        // Stage 2, step 3: the loot of an elite fell, or the hero picked it up.
+        if (ev.picked) this.floatText(`+ ${LOOT_TITLE[ev.loot] ?? ev.loot}`, ev.x * UNIT, ev.y * UNIT - 36, 0xffd36b);
         continue;
       }
       if (ev.type === 'enemyHit') {

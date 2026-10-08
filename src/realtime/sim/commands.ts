@@ -8,7 +8,8 @@
  */
 import { spin } from './abilities';
 import { useItem } from './items';
-import { emptyItems, type ItemKind } from './kit';
+import { emptyKit, type ItemKind } from './kit';
+import { makeElite } from './elites';
 import { beginChain, cancelChain, dragChain, dragChainAlong, jump, releaseChain, type DragMode } from './chain';
 import { setParam, setPhases, type ParamKey, type Phase } from './params';
 import { spawnBurst, spawnEnemy } from './spawn';
@@ -43,8 +44,8 @@ export type Command =
   | { t: 'burst'; count: number }
   /** Test setup: remove every enemy (keep the marked ones with `keepMarked`), marker, queued newcomer and the chain. */
   | { t: 'clear'; keepMarked: boolean }
-  /** Test setup: an enemy of `kind` at a point. */
-  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind }
+  /** Test setup: an enemy of `kind` at a point; `elite` (stage 2, step 3) — with the elite modifier over its HP. */
+  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind; elite?: boolean }
   /** Test setup: move the hero. */
   | { t: 'teleport'; x: number; y: number }
   /** Test setup: the jump energy. */
@@ -93,7 +94,11 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       world.enemies = cmd.keepMarked ? world.enemies.filter(e => e.marked) : [];
       world.markers.length = 0; world.queue.length = 0; world.chain = [];
       return;
-    case 'place': return spawnEnemy(world, { x: cmd.x, y: cmd.y }, cmd.color, cmd.hp, cmd.kind).id;
+    case 'place': {
+      const e = spawnEnemy(world, { x: cmd.x, y: cmd.y }, cmd.color, cmd.hp, cmd.kind);
+      if (cmd.elite) makeElite(world, e);
+      return e.id;
+    }
     case 'teleport': world.hero.x = cmd.x; world.hero.y = cmd.y; return;
     case 'energy': world.energy = cmd.value; return;
     case 'crystal': {
@@ -108,7 +113,7 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       return true;
     }
     case 'items': {
-      world.kit ??= { items: emptyItems() };
+      world.kit ??= emptyKit();
       if (Object.hasOwn(world.kit.items, cmd.kind)) world.kit.items[cmd.kind] = Math.max(0, Math.floor(cmd.count));
       return;
     }

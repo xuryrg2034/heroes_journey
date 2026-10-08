@@ -21,7 +21,8 @@
  * `beginChain`, `dragChain`, `dragChainAlong`, `releaseChain`, `cancelChain`, `jump`. The crystal drop point reads the
  * seeded `crystal` stream; `stepHero` takes the real seconds of the tick (`SIM_DT ÷ timeScale`).
  */
-import { artRadiusOf, behaviorOf, kindOf } from './enemies/kinds';
+import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
+import { eliteDeath, pickLoot } from './elites';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type World } from './world';
@@ -100,13 +101,23 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     out.push({ link, outcome });
   }
   const last = links[links.length - 1];
-  const endsOnObject = !!last && last.kind === 'object' && !isCrystal(world, last);
+  const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
   return { links: out, endsOnSurvivor, endsOnObject, power, kills };
 }
 
 /** A crystal link (stage C): any color, anywhere in the chain; the chain goes on after it. */
 export function isCrystal(world: World, link: ChainLink): boolean {
   return link.kind === 'object' && findObject(world, link.id)?.kind === 'crystal';
+}
+
+/**
+ * A link the chain goes on after: a crystal (it changes the colour) or the loot of an elite (stage 2, step 3: picked up as
+ * a crystal, any colour, anywhere in the chain; it does not change the colour, gives no power, is not a kill).
+ */
+export function passObject(world: World, link: ChainLink): boolean {
+  if (link.kind !== 'object') return false;
+  const kind = findObject(world, link.id)?.kind;
+  return kind === 'crystal' || kind === 'loot';
 }
 
 /**
@@ -205,7 +216,7 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (plan.endsOnObject) return 'afterObject';
   const color = chainColor(world);
   if (color !== null && enemy.color !== color) return 'color';
-  const reach = reachRefusal(world, enemy, artRadiusOf(world.params, enemy.kind));
+  const reach = reachRefusal(world, enemy, enemyArtRadius(world.params, enemy));
   if (reach) return reach;
   // Stage 2 of the transition (design answer 08.10.2026): the kind's say about the direction of the strike — always from
   // the previous link (the hero for the first one); «Якорь у героя» widens the reach only, it does not get round a shield.
@@ -247,7 +258,7 @@ export function nextObjectCandidates(world: World): ArenaObject[] {
 }
 
 /** Pick radius: the drawn circle with a slack in the player's favour (design answer 27); the boar is drawn larger. */
-function pickRadius(world: World, e: Enemy): number { return artRadiusOf(world.params, e.kind) * world.params.pickSlack; }
+function pickRadius(world: World, e: Enemy): number { return enemyArtRadius(world.params, e) * world.params.pickSlack; }
 
 /** The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. */
 function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean): ChainLink | null {
@@ -275,7 +286,7 @@ const linkIndex = (world: World, link: ChainLink): number => world.chain.findInd
 function refreshFocus(world: World, link: ChainLink): void {
   const p = world.params;
   if (!p.linkRefreshesFocus) return;
-  if (link.kind === 'object' && world.objects.find(o => o.id === link.id)?.kind !== 'crystal') return;
+  if (link.kind === 'object' && !passObject(world, link)) return;
   const key = `${link.kind}:${link.id}`;
   if (world.focusRefreshed.has(key)) return;
   world.focusRefreshed.add(key);
@@ -504,8 +515,9 @@ function hitEnemy(world: World, enemy: Enemy): void {
     move.kills++;
     if (enemy.marked) world.stats.markedKills++;
     world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true });
-    // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse).
+    // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse); an elite's loot (step 3).
     behaviorOf(enemy).onDeath?.(world, enemy, { source: 'chain', credited: true });
+    eliteDeath(world, enemy, { source: 'chain', credited: true });
     if (p.focusKillRefill) world.focus = Math.min(p.focusMax, world.focus + p.focusPerKill);
     checkGoals(world);
     // A crystal at every N-th kill of this chain (main game: 6th, 12th…), off the rest of its path.
@@ -604,6 +616,8 @@ function stepMove(world: World, realDt: number): void {
         budget -= dist(before, world.hero);
         if (!arrived) return;
         if (object.kind === 'crystal') { move.links.shift(); breakCrystal(world, object); continue; }
+        // Stage 2, step 3: the loot of an elite — picked up, the hero takes its spot, the chain goes on.
+        if (object.kind === 'loot') { move.links.shift(); move.stop = { x: object.x, y: object.y }; pickLoot(world, object); continue; }
         reachObject(world, object);
         continue;
       }

@@ -26,6 +26,8 @@ export interface StartEnemy {
   /** Enemy kind id (enemies.ts registry); `basic` when omitted. */
   kind?: string;
   marked?: boolean;
+  /** Stage 2, step 3: an elite from the start (the modifier over its HP; arenas 9–10 of step 4 stand two). */
+  elite?: boolean;
 }
 
 /** A share of single newcomers that comes as another registered kind (checked in order, one roll each). */

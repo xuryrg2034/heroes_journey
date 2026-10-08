@@ -21,7 +21,7 @@
  * - the cold does not stop the fuse of a dead sapper (a blast of the world, design answer 5 to step 2): only the living
  *   one's fuse waits; a burning enemy burns on while frozen (burning is not its mechanic).
  */
-import { artRadiusOf, bodyRadiusOf, kindOf } from './enemies/kinds';
+import { bodyRadiusOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
 import { damageEnemy, enemyFrozen, type Enemy, type World } from './world';
 import type { ItemKind } from './kit';
@@ -44,7 +44,7 @@ export function enemyAt(world: World, p: Vec): Enemy | null {
   let best: Enemy | null = null, bestD = Infinity;
   for (const e of world.enemies) {
     const d = dist(e, p);
-    if (d <= artRadiusOf(world.params, e.kind) * world.params.pickSlack && d < bestD && affectable(e)) { best = e; bestD = d; }
+    if (d <= enemyArtRadius(world.params, e) * world.params.pickSlack && d < bestD && affectable(e)) { best = e; bestD = d; }
   }
   return best;
 }

@@ -234,6 +234,25 @@ export interface Params {
   fireTicks: number;
   /** Sandbox only: consumables of each kind an arena of the sandbox starts with (a run carries its own). */
   sandboxItems: number;
+  // Elites (stage 2 of the transition, step 3, docs/realtime-slice.md, section 7)
+  /** HP of an elite: the enemy's HP × this (a weak one, 0 HP, gets 1). */
+  eliteHpFactor: number;
+  /** Extra damage of an elite's touch. */
+  eliteTouchBonus: number;
+  /** Art of an elite (drawing, the link reach edge, the press circle) × this; its body stays. */
+  eliteArtScale: number;
+  /** Chance that the loot of an elite killed by the player is a consumable open in the run; otherwise a crafting resource. */
+  eliteLootChance: number;
+  /** The loot falls within this radius of the kill (off obstacles, objects and the rest of the dash). */
+  eliteLootRadius: number;
+  /** Random elites: chance that a newcomer is an elite before the goals, and after them. */
+  eliteChance: number;
+  eliteChanceAfter: number;
+  /** Random elites: none while this many elites live (start ones counted) — before the goals, and after them. */
+  eliteCap: number;
+  eliteCapAfter: number;
+  /** Sandbox: random elites among the newcomers (a run turns them on from its row 3). */
+  eliteSandbox: boolean;
   // Look
   dimMode: DimMode;
   dimStrength: number;
@@ -430,6 +449,17 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   fireInterval: 1.5,
   fireTicks: 3,
   sandboxItems: 3,
+  // Баланс: section 7 — HP ×2, art ×1.25, touch +1, loot 50% a consumable; random elites 3% / 12%, at most 2 / 4.
+  eliteHpFactor: 2,
+  eliteTouchBonus: 1,
+  eliteArtScale: 1.25,
+  eliteLootChance: 0.5,
+  eliteLootRadius: 1.5,
+  eliteChance: 0.03,
+  eliteChanceAfter: 0.12,
+  eliteCap: 2,
+  eliteCapAfter: 4,
+  eliteSandbox: false,
   dimMode: 'alpha',
   dimStrength: 0.65,
   enemyLook: 'circle',
@@ -601,6 +631,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('fireInterval', 'Расходники', 'Огонь: раз в', 0.1, 5, 0.1, 5, 'с'),
   n('fireTicks', 'Расходники', 'Огонь: сколько раз', 1, 10, 1, 5),
   n('sandboxItems', 'Расходники', 'Песочница: расходников каждого вида на старте арены', 0, 9, 1, 5, '', 'Только песочница: в походе количество переносится между аренами.'),
+  n('eliteHpFactor', 'Элиты', 'HP элиты', 1, 5, 0.5, 5, '×', 'Слабый враг (0 HP) — 1.'),
+  n('eliteTouchBonus', 'Элиты', 'Касание элиты: прибавка урона', 0, 5, 1, 5),
+  n('eliteArtScale', 'Элиты', 'Рисунок элиты', 1, 2, 0.05, 5, '×', 'Рисунок, край для R и круг нажатия; тело то же.'),
+  n('eliteLootChance', 'Элиты', 'Добыча: доля расходника', 0, 1, 0.05, 5, '', 'Убийство элиты игроком: расходник из открытых в походе (нет открытых — ресурс), иначе ресурс крафта.'),
+  n('eliteLootRadius', 'Элиты', 'Добыча падает в радиусе', 0, 4, 0.25, 5, 'ед.', 'Вне оставшегося пути цепи; подбирается цепью (как кристалл) или касанием.'),
+  n('eliteChance', 'Элиты', 'Случайная элита до целей', 0, 0.5, 0.01, 5, '', 'Доля новичков-элит. В походе — с ряда 3.'),
+  n('eliteChanceAfter', 'Элиты', 'Случайная элита после целей', 0, 0.5, 0.01, 5),
+  n('eliteCap', 'Элиты', 'Не больше элит до целей', 0, 10, 1, 5),
+  n('eliteCapAfter', 'Элиты', 'Не больше элит после целей', 0, 10, 1, 5),
+  { kind: 'bool', key: 'eliteSandbox', group: 'Элиты', label: 'Песочница: случайные элиты', stage: 5, hint: 'В походе случайные элиты идут с ряда похода 3; в песочнице — по этому переключателю.' },
   { kind: 'choice', key: 'dimMode', group: 'Вид', label: 'Приглушение не того цвета', stage: 2,
     options: [{ value: 'darken', label: 'затемнение' }, { value: 'alpha', label: 'полупрозрачность' }, { value: 'desaturate', label: 'обесцвечивание' }] },
   n('dimStrength', 'Вид', 'Сила приглушения', 0, 1, 0.05, 2),
