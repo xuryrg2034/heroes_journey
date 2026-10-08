@@ -12,9 +12,10 @@
  * Uses the real simulation step `update` of src/realtime/sim/world.ts with fixed seeds (the crowd runs use seeds 1–3,
  * so the report repeats exactly); the last table times a whole tick (`Simulation.tick`: the hero step and `update`).
  */
-import { ARENAS as PROTOTYPE_ARENAS, SLICE_ARENAS, markedCount, type ArenaLayout } from '../src/realtime/sim/arenas';
-// The prototype arenas 1–3 and the slice arenas 4–10 (stage 2 of the transition, steps 2 and 4).
-const ARENAS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS];
+import { ARENAS as PROTOTYPE_ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, markedCount, type ArenaLayout } from '../src/realtime/sim/arenas';
+// The prototype arenas 1–3, the slice arenas 4–10 (stage 2 of the transition, steps 2 and 4) and the terrain samples of
+// stage 3a, step 1 (river, cliff, thorns, braziers, gorge).
+const ARENAS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS];
 import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
@@ -46,14 +47,23 @@ function testParams(pathfinding: boolean, density = false): Params {
   p.archerDamage = 0; p.sapperDamage = 0;
   // Step 4: the elites of arenas 9–10 add +1 to every hit — none here either.
   p.eliteDamageBonus = 0;
+  // Stage 3a: thorns prick a hero standing in them — none here either (his death would freeze the world).
+  p.thornDamage = 0;
   p.speedSpread = 0;
   // No newcomers: no groups and no density floor (stage B: 28 before the goals) — only the enemies under test.
   p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.baseFloor = 0;
   return p;
 }
 
-/** Pond centers (stage B: the pond is passable): the hero may stand there and an enemy may start there. */
-const pondCenters = (arena: ArenaLayout): Vec[] => arena.obstacles.filter(o => o.kind === 'pond').map(o => ({ x: o.x, y: o.y }));
+/**
+ * Pond centers (stage B: the pond is passable) and the inner bends of a river band (stage 3a): the hero may stand there and
+ * an enemy may start there.
+ */
+const pondCenters = (arena: ArenaLayout): Vec[] => [
+  ...arena.obstacles.filter(o => o.kind === 'pond').map(o => ({ x: o.x, y: o.y })),
+  ...(arena.terrain ?? []).flatMap(z => (z.kind === 'river' && z.shape === 'band' ? z.points : []))
+    .filter(p => p.x > 0.5 && p.y > 0.5 && p.x < arena.width - 0.5 && p.y < arena.height - 0.5),
+];
 
 function heroSpots(arena: ArenaLayout, params: Params): Vec[] {
   const spots: Vec[] = [{ ...arena.heroStart }, ...pondCenters(arena)];
@@ -183,7 +193,7 @@ function tickReport(): void {
   console.log('| --- | --- | --- |');
   for (const arena of ARENAS) {
     const params = defaultParams();
-    params.contactDamage = 0; params.boarDamage = 0; params.archerDamage = 0; params.sapperDamage = 0; params.eliteDamageBonus = 0; params.porcupineQuills = 0;
+    params.contactDamage = 0; params.boarDamage = 0; params.archerDamage = 0; params.sapperDamage = 0; params.eliteDamageBonus = 0; params.porcupineQuills = 0; params.thornDamage = 0;
     params.baseFloor = 60; params.maxEnemies = 60;
     const sim = new Simulation({ arena, params, seed: 7 });
     sim.command({ t: 'burst', count: 60 });

@@ -7,7 +7,7 @@
  * The three prototype arenas (keys 1–3 on the menu) leave pace, phases and the kill goal to the debug panel (params):
  * their sliders keep working as before.
  */
-import { type ArenaShape, type Vec, pond, tree, wall } from './geometry';
+import { type ArenaShape, type Vec, polygon, pond, riverBand, tree, wall, zone } from './geometry';
 import type { Phase } from './params';
 
 /**
@@ -67,6 +67,8 @@ export interface ArenaTemplate extends ArenaShape {
   phaseOverride?: Partial<Pace>;
   /** Newcomers of other kinds by share; omitted — only the prototype composition (basic, wolf packs, boars). */
   newcomers?: NewcomerShare[];
+  /** Stage 3a (М4): braziers — links of any colour, +power to the rest of the chain, out for a while after a dash. */
+  braziers?: Vec[];
 }
 
 /** Old name of the template (prototype stages 1–3). */
@@ -488,3 +490,109 @@ export const LAST_STAND_ARENA: ArenaTemplate = registerArena({
 
 /** Arenas 4–10 of the slice on the sandbox menu (keys 4–9 and 0), after the three prototype arenas. */
 export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA, SAPPER_ARENA, PORCUPINE_ARENA, FORD_ARENA, OUTPOST_ARENA, LAST_STAND_ARENA];
+
+// ---- Terrain samples of stage 3a, step 1 (docs/realtime-stage3.md, sections 2 and 5): one feature per arena ----
+// Sandbox only (keys ⇧1–⇧5, `?arena=11…15`): the run pools (run/arenaPools.ts) do not take them. The panel's pace, phase
+// table and composition (basic enemies, wolf packs, boars) — as the prototype arenas; their own goal «kill 20».
+
+/** М1 «Река»: a river band winds across the middle from top to bottom; walking in it is ×0.5, the chain crosses at full speed. */
+export const RIVER_ARENA: ArenaTemplate = registerArena({
+  id: 'river',
+  name: 'Река',
+  summary: 'Образец М1: река через всю арену. Ходьба в воде вдвое медленнее, проход цепи и прыжок — нет. Убей 20, дверь справа.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 3, y: 5 },
+  obstacles: [tree(2, 2), tree(4.5, 8.4), tree(13, 2.2), tree(13.4, 7.6)],
+  // The band leaves the arena through its top and bottom edges straight (flat ends on the edges).
+  terrain: [riverBand([{ x: 7.4, y: 0 }, { x: 7.4, y: 0.6 }, { x: 8.6, y: 3.4 }, { x: 7.4, y: 6.6 }, { x: 8.6, y: 9.4 }, { x: 8.6, y: 10 }], 2.6)],
+  buttons: [],
+  door: { x: 15.3, y: 5 },
+  enemies: [],
+  killGoal: 20,
+});
+
+/**
+ * М2 «Обрыв»: a ravine falls from the top edge to the middle — 2.4 units wide at the top, 1.4 at its neck (y ≈ 4.4), where
+ * a chain reaches across (links on both banks: the chain is a bridge); the way round on foot is the strip of land below it
+ * (2.8 units). A body pushed over the edge falls.
+ */
+export const CLIFF_ARENA: ArenaTemplate = registerArena({
+  id: 'cliff',
+  name: 'Обрыв',
+  summary: 'Образец М2: обрыв. Ходить по нему нельзя, цепь и прыжок перелетают. Враг, столкнутый в обрыв (рывок кабана, толпа), гибнет. Убей 20, дверь справа.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 4, y: 4.4 },
+  obstacles: [tree(1.6, 8.4), tree(14.4, 8.4), tree(12.8, 1.4)],
+  terrain: [zone('cliff', polygon(6.8, 0, 9.2, 0, 8.9, 2.4, 8.7, 4.4, 9.1, 6.4, 8, 7.2, 7, 6.4, 7.3, 4.4, 7.1, 2.4))],
+  buttons: [],
+  door: { x: 15.3, y: 3 },
+  enemies: [],
+  killGoal: 20,
+});
+
+/** М3 «Терновник»: a thicket in the middle and two bushes; the hero on foot in them is pricked, the chain crosses unhurt. */
+export const THICKET_ARENA: ArenaTemplate = registerArena({
+  id: 'thicket',
+  name: 'Терновник',
+  summary: 'Образец М3: терновник. Герой на ногах теряет 1 HP при входе и раз в секунду, проход цепи и прыжок — без урона. Враги в нём медленнее. Убей 20, дверь справа.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 2.5, y: 5 },
+  obstacles: [tree(1.5, 1.5), tree(14.5, 8.5)],
+  terrain: [
+    zone('thorns', polygon(6, 3, 9.8, 2.6, 10.6, 5.2, 9.6, 7.4, 6.4, 7.2, 5.4, 5)),
+    zone('thorns', { shape: 'circle', x: 3.6, y: 1.8, r: 1.1 }),
+    zone('thorns', { shape: 'circle', x: 12.8, y: 8, r: 1.2 }),
+  ],
+  buttons: [],
+  door: { x: 15.3, y: 5 },
+  enemies: [],
+  killGoal: 20,
+});
+
+/** М4 «Жаровни»: three braziers between the walls; a chain through one gives its rest +2 power. */
+export const BRAZIER_ARENA: ArenaTemplate = registerArena({
+  id: 'braziers',
+  name: 'Жаровни',
+  summary: 'Образец М4: жаровня — звено любого цвета, цвет цепи не меняет, остаток цепи после неё +2 к силе; после прохода гаснет на 6 с. Убей 25, дверь сверху.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 7.5 },
+  obstacles: [wall(3, 2, 1, 2), wall(12, 2, 1, 2), wall(6.5, 8.6, 3, 1), tree(1.5, 8), tree(14.5, 8)],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [],
+  braziers: [{ x: 5, y: 3.5 }, { x: 11, y: 3.5 }, { x: 8, y: 4.6 }],
+  killGoal: 25,
+});
+
+/**
+ * М5 «Теснина»: two ridges of walls with narrow gaps (1.75 and 1.5 units): only geometry, no new rules — the crowd comes
+ * through a gap in a file.
+ */
+export const GORGE_ARENA: ArenaTemplate = registerArena({
+  id: 'gorge',
+  name: 'Теснина',
+  summary: 'Образец М5: два гребня стен с узкими проходами (1,5–2 ед.) — в проходе враги идут цепочкой. Убей 20, дверь справа.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 5 },
+  obstacles: [
+    wall(5, 0, 1, 4), wall(5, 5.75, 1, 4.25),
+    wall(10, 0, 1, 2), wall(10, 3.5, 1, 3), wall(10, 8.25, 1, 1.75),
+  ],
+  buttons: [],
+  door: { x: 15.3, y: 5 },
+  enemies: [],
+  killGoal: 20,
+});
+
+/** The terrain samples on the sandbox menu (keys ⇧1–⇧5), after arenas 1–10. Not in the run. */
+export const TERRAIN_ARENAS: readonly ArenaTemplate[] = [RIVER_ARENA, CLIFF_ARENA, THICKET_ARENA, BRAZIER_ARENA, GORGE_ARENA];

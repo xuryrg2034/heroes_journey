@@ -55,6 +55,7 @@
     "test:realtime-enemies": "tsx src/realtime/sim/sliceEnemies.spec.ts",
     "test:realtime-kit": "tsx src/realtime/sim/sliceKit.spec.ts",
     "test:realtime-arenas": "tsx src/realtime/sim/sliceArenas.spec.ts",
+    "test:realtime-terrain": "tsx src/realtime/sim/terrain.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",
