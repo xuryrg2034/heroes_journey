@@ -292,6 +292,51 @@ check('fire: the enemy under the pointer and those within 1 of it burn — 1 eve
   }
 });
 
+check('cold ×2 is fixed at the release (review finding A): a link that thaws on the way still takes ×2; its mechanic comes back with the thaw', () => {
+  // The reviewer's scenario: three weak links, then an HP 6 enemy frozen 170 ticks before the release (0.17 s of cold left).
+  for (const wait of [0, 150, 170, 175, 178]) {
+    const sim = fight('kills', quiet(), 77, { loadout: { items: { frost: 3 } } }), w = sim.world;
+    sim.command({ t: 'teleport', x: 4, y: 5 });
+    const links = [0, 1, 2].map(i => place(sim, 5.2 + i * 1.4, 5, 'basic', 0, 0));
+    const tough = place(sim, 5.2 + 3 * 1.4, 5, 'basic', 0, 6);
+    assert(use(sim, 'frost', tough.x, tough.y), 'cold');
+    ticks(sim, wait);
+    sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+    for (const e of [...links.slice(1), tough]) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+    const planned = planChain(w).links[3].outcome!, frozen = (tough.chill ?? 0) > 0;
+    sim.command({ t: 'release' }); settle(sim);
+    assert(planned.killed === frozen && alive(w, tough) === !frozen, `wait ${wait}: frozen ${frozen}, planned ${planned.killed}, ${alive(w, tough) ? `alive HP ${tough.hp}` : 'dead'}`);
+    if (wait === 170) assert(frozen && !alive(w, tough), 'thawed on the way, still ×2');
+    assert(replays(sim), 'replay');
+  }
+  // Only the ×2 is fixed: a porcupine frozen at the release that thaws on the way gets its quills back (the hero −1).
+  const sim = fight('thorns', quiet(), seedOf(78), { loadout: { items: { frost: 1 } } }), w = sim.world;
+  sim.command({ t: 'teleport', x: 3, y: 2 });
+  const weak = [place(sim, 4.2, 2, 'basic', 0, 0), place(sim, 5.6, 2, 'basic', 0, 0)];
+  const porcupine = place(sim, 7, 2, 'porcupine', 0, 6);
+  assert(use(sim, 'frost', porcupine.x, porcupine.y), 'cold');
+  ticks(sim, 175);
+  sim.command({ t: 'begin', x: weak[0].x, y: weak[0].y });
+  sim.command({ t: 'drag', x: weak[1].x, y: weak[1].y, mode: 'full' });
+  sim.command({ t: 'drag', x: porcupine.x, y: porcupine.y, mode: 'full' });
+  const hp = hpOf(w);
+  sim.command({ t: 'release' }); settle(sim);
+  assert(!alive(w, porcupine) && hpOf(w) === hp - 1, `×2 kept (power 3 × 2 kills HP 6), quills back: HP ${hp} → ${hpOf(w)}`);
+});
+
+check('cold ×2 follows the turn-based brittleness (design answer 7): the spin 4 → 8 and spends it; a bomb neither doubles nor spends it', () => {
+  const sim = armed('kills', quiet(), seedOf(79)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const eight = place(sim, 9, 5, 'basic', 0, 8), plain = place(sim, 7, 5, 'basic', 1, 5);
+  assert(use(sim, 'frost', eight.x, eight.y) && !plain.chill, 'cold on one');
+  sim.command({ t: 'energy', value: 3 });
+  assert(sim.command({ t: 'spin' }) === true && !alive(w, eight) && plain.hp === 1, `frozen HP 8 dies (8), the other 5 → ${plain.hp}`);
+  // A bomb on a frozen enemy: 6, and the ×2 is still there for the chain.
+  const ten = place(sim, 10, 5, 'basic', 2, 10);
+  assert(use(sim, 'frost', ten.x, ten.y) && use(sim, 'bomb', ten.x, ten.y) && ten.hp === 4 && ten.brittle, `bomb 6 on a frozen HP 10: ${ten.hp}, still ×2`);
+  assert(replays(sim), 'replay');
+});
+
 check('consumables: not during the dash; while a chain is drawn they work and focus goes on', () => {
   const sim = armed('kills', quiet(), seedOf(30)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });

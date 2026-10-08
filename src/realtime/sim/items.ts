@@ -15,6 +15,9 @@
  * - not during the dash or a jump (`world.move`); while a chain is drawn — allowed (focus goes on);
  * - a consumable is spent only when it acts: a cold or fire with no enemy in reach, a bomb with no enemy under the pointer
  *   or too far, healing at full HP — refused, nothing spent (`itemRefusal` names why; the view shows it at the pointer);
+ * - the cold's ×2 is the brittleness of the turn-based game: it doubles the chain and the spin (physical hits) and is
+ *   spent by them; a bomb, burning, an arrow or a blast neither double nor spend it (`item`, `effect` sources there);
+ * - burning goes on during the dash: a link it wounds on the way only gets easier than the highlight showed;
  * - kills by a bomb and by burning are the player's (`credited`, as the turn-based items and the player's burning):
  *   kill counter, score per kill, the kill goal, a sapper blows up as the player's;
  * - the reaper (`immune`) is not a target: a bomb does not hurt it, cold and fire do not take it;
@@ -27,8 +30,9 @@ import { damageEnemy, enemyFrozen, type Enemy, type World } from './world';
 import type { ItemKind } from './kit';
 
 /** Why the consumable cannot be used at `p` now (the view shows it); null — it can. */
-export type ItemRefusal = 'none' | 'move' | 'target' | 'far' | 'full';
+export type ItemRefusal = 'over' | 'none' | 'move' | 'target' | 'far' | 'full';
 export const ITEM_REFUSAL_TEXT: Readonly<Record<ItemRefusal, string>> = {
+  over: 'бой окончен',
   none: 'нет в запасе',
   move: 'идёт проход',
   target: 'нет цели',
@@ -67,7 +71,7 @@ export function itemTargets(world: World, kind: ItemKind, p: Vec): Enemy[] {
 
 /** Why `kind` cannot be used at `p` now; null — it can (playing, not moving, one in hand, something to act on). */
 export function itemRefusal(world: World, kind: ItemKind, p: Vec): ItemRefusal | null {
-  if (world.status !== 'playing') return 'move';
+  if (world.status !== 'playing') return 'over';
   if ((world.kit?.items[kind] ?? 0) < 1) return 'none';
   if (world.move) return 'move';
   if (kind === 'healing') return world.hero.hp >= world.hero.maxHp ? 'full' : null;

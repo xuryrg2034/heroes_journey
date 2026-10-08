@@ -148,6 +148,8 @@ export interface HeroMove {
   crystalScore: number;
   /** Links of this dash killed before the hero reached them (absent when none: dashes without them hash as before). */
   fallen?: FallenLink[];
+  /** Stage 2, step 3: links frozen and brittle at the release — struck ×2 even if they thaw on the way (absent when none). */
+  brittle?: number[];
 }
 
 export interface Hero {

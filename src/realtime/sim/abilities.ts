@@ -4,8 +4,8 @@
  * **Spin, key Q** (`spin` command): `spinCost` energy (3); a hit of `spinDamage` (4) on every enemy whose body touches
  * the circle of `spinRadius` (1.2) around the hero. Colour and the shieldbearer's shield do not matter. It is the
  * player's: its kills are credited (kill counter, score per kill, the kill goal; a sapper it kills blows up as the
- * player's). It is not a chain hit: no energy, no crystal, no combo, no porcupine quills, and the ×2 of the cold is not
- * spent on it (the cold doubles the next chain hit only). Interaction with the other moves (decision of step 3):
+ * player's). It is not a chain hit: no energy, no crystal, no combo, no porcupine quills. A frozen brittle enemy takes it
+ * ×2 (4 → 8) and the ×2 is spent (design answer 7). Interaction with the other moves (decision of step 3):
  * - not during the dash along a chain or a jump (`world.move`);
  * - while a chain is being drawn — allowed: focus goes on, a link it kills drops out of the drawn chain (as any link
  *   killed before the release);
@@ -14,6 +14,7 @@
  */
 import { bodyRadiusOf } from './enemies/kinds';
 import { dist } from './geometry';
+import { brittleNow } from './items';
 import { damageEnemy, type World } from './world';
 
 /** The spin can be used now: playing, no dash or jump, enough energy. */
@@ -35,6 +36,12 @@ export function spin(world: World): boolean {
   // Collected first: a kill (a sapper's fuse, a fallen link) changes the list.
   const struck = spinTargets(world);
   world.events.push({ type: 'spin', x: hero.x, y: hero.y, radius: p.spinRadius, hits: struck.length });
-  for (const e of struck) damageEnemy(world, e, p.spinDamage, { source: 'spin', credited: true });
+  for (const e of struck) {
+    // Design answer 7 to step 3: the cold's ×2 holds for the spin too (the brittleness of the turn-based game doubles
+    // abilities) and is spent by it.
+    const factor = brittleNow(e) ? Math.max(1, p.frostFactor) : 1;
+    if (e.brittle) delete e.brittle;
+    damageEnemy(world, e, p.spinDamage * factor, { source: 'spin', credited: true });
+  }
   return true;
 }

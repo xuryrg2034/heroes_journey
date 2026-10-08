@@ -65,6 +65,15 @@ export function chainFactor(world: World, enemy: Enemy): number {
   return enemy.brittle && enemyFrozen(enemy) ? Math.max(1, world.params.frostFactor) : 1;
 }
 
+/**
+ * The multiplier of the dash's hit on `enemy` (finding A of the step 3 review): the ×2 is fixed when the chain is released —
+ * a link frozen and brittle at the release is struck ×`frostFactor` even if it thawed on the way (the highlight promised
+ * it); only the ×2 is fixed, the enemy's mechanic comes back with the thaw as usual.
+ */
+export function dashFactor(world: World, enemy: Enemy): number {
+  return world.move?.brittle?.includes(enemy.id) ? Math.max(1, world.params.frostFactor) : 1;
+}
+
 export interface LinkPlan { link: ChainLink; outcome: StrikeOutcome | null }
 
 export interface ChainPlan {
@@ -401,6 +410,9 @@ export function releaseChain(world: World): boolean {
   world.chain = [];
   if (!links.length || world.status !== 'playing' || world.move) return false;
   world.move = { ...newMove('dash', { x: world.hero.x, y: world.hero.y }, null, world.params.dashSpeed), links };
+  // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
+  const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
+  if (brittle.length) world.move.brittle = brittle;
   // Stage 2, step 3 («Точильный камень»): the first chain with an enemy starts with its power; it is spent by that chain.
   if (world.kit?.firstPower && links.some(l => l.kind === 'enemy')) { world.move.power = world.kit.firstPower; world.kit.firstPower = 0; }
   return true;
@@ -517,12 +529,13 @@ function maybeFinisher(world: World): void {
 
 function hitEnemy(world: World, enemy: Enemy): void {
   const move = world.move!, p = world.params;
-  const outcome = strike(move.power, enemy.hp, chainFactor(world, enemy));
+  const outcome = strike(move.power, enemy.hp, dashFactor(world, enemy));
   // Stage 2 of the transition: the kind's reaction to the hit (the porcupine's quills); the hero's death comes first.
   behaviorOf(enemy).onChainHit?.(world, enemy, outcome);
   if (world.status !== 'playing') return;
-  // Stage 2, step 3: the ×2 of the cold is spent by this hit (a survivor stays frozen, its next hit is plain).
+  // Stage 2, step 3: the ×2 of the cold is spent by this hit (a survivor stays frozen while the cold lasts, its next hit is plain).
   delete enemy.brittle;
+  if (move.brittle) { move.brittle = move.brittle.filter(id => id !== enemy.id); if (!move.brittle.length) delete move.brittle; }
   move.power = outcome.powerAfter;
   move.hits++;
   world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
@@ -654,7 +667,7 @@ function stepMove(world: World, realDt: number): void {
         continue;
       }
       // A kill takes the enemy's spot; a survivor is struck from the touch distance.
-      const survives = !strike(move.power, enemy.hp, chainFactor(world, enemy)).killed;
+      const survives = !strike(move.power, enemy.hp, dashFactor(world, enemy)).killed;
       const reach = survives ? touchDistanceOf(world.params, enemy) : 0;
       const arrived = moveHero(world, enemy, budget, reach);
       budget -= dist(before, world.hero);
