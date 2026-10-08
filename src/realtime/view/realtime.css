@@ -154,3 +154,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-abilities { display: inline-flex; gap: 6px; }
 .rt-ability { padding: 1px 6px; font-size: 12px; color: #8e947b; border: 1px solid #3a3f30; background: #151a12cc; white-space: nowrap; }
 .rt-ability.rt-ready { color: #bfe3ff; border-color: #4a6378; }
+/* Stage 2, step 3: the consumables on keys 1–4 with their count; an empty slot is dim. */
+.rt-items { display: inline-flex; gap: 4px; }
+.rt-item { padding: 1px 6px; font-size: 12px; color: #e5dcc0; border: 1px solid #4a4d39; background: #151a12cc; white-space: nowrap; }
+.rt-item kbd { font-size: 10px; color: #c8a56b; }
+.rt-item.rt-empty { opacity: .45; }
+.rt-run-items { color: #cfe3c0; }
+.rt-run-energy { color: #9ad1ff; }
+/* Stage 2, step 3: the action bar above the help line — abilities and consumables. */
+.rt-actionbar { position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 5px 10px; background: #121710d9; border: 1px solid var(--rt-line); pointer-events: none; }

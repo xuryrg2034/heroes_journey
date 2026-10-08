@@ -7,6 +7,8 @@
  * Commands are plain JSON (a journal is a JSON file). The simulation reads nothing else — no DOM, no clock.
  */
 import { spin } from './abilities';
+import { useItem } from './items';
+import { emptyItems, type ItemKind } from './kit';
 import { beginChain, cancelChain, dragChain, dragChainAlong, jump, releaseChain, type DragMode } from './chain';
 import { setParam, setPhases, type ParamKey, type Phase } from './params';
 import { spawnBurst, spawnEnemy } from './spawn';
@@ -29,6 +31,8 @@ export type Command =
   | { t: 'jump'; x: number; y: number }
   /** Stage 2, step 3: the spin around the hero (key Q, abilities.ts). */
   | { t: 'spin' }
+  /** Stage 2, step 3: a consumable aimed at the point (keys 1–4 with the pointer, items.ts). */
+  | { t: 'item'; kind: ItemKind; x: number; y: number }
   /** A debug-panel value (the view saves it to storage itself). */
   | { t: 'param'; key: ParamKey; value: unknown }
   /** The debug-panel phase table. */
@@ -51,7 +55,9 @@ export type Command =
    * Test setup (stage 2 of the transition): the enemy `id` frozen for `seconds` of game time — the common cold state
    * (`Enemy.chill`) the cold consumable of step 3 will set; 0 thaws it.
    */
-  | { t: 'chill'; id: number; seconds: number };
+  | { t: 'chill'; id: number; seconds: number }
+  /** Test setup (stage 2, step 3): the number of consumables of `kind` in hand (a world without a kit gets one). */
+  | { t: 'items'; kind: ItemKind; count: number };
 
 /** What a command returned: true/false for the chain, the jump and the spin, the new id for `place` and `crystal`. */
 export type CommandResult = boolean | number | void;
@@ -67,6 +73,7 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
     case 'cancel': cancelChain(world); return;
     case 'jump': return jump(world, { x: cmd.x, y: cmd.y });
     case 'spin': return spin(world);
+    case 'item': return useItem(world, cmd.kind, { x: cmd.x, y: cmd.y });
     case 'param': {
       const params = world.params, oldMax = params.heroHp;
       setParam(params, cmd.key, cmd.value);
@@ -97,8 +104,13 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
     case 'chill': {
       const e = world.enemies.find(x => x.id === cmd.id);
       if (!e) return false;
-      if (cmd.seconds > 0) e.chill = cmd.seconds; else delete e.chill;
+      if (cmd.seconds > 0) e.chill = cmd.seconds; else { delete e.chill; delete e.brittle; }
       return true;
+    }
+    case 'items': {
+      world.kit ??= { items: emptyItems() };
+      if (Object.hasOwn(world.kit.items, cmd.kind)) world.kit.items[cmd.kind] = Math.max(0, Math.floor(cmd.count));
+      return;
     }
   }
 }

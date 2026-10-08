@@ -15,6 +15,8 @@ import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
 import { ARENAS, SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
 import { canSpin } from '../sim/abilities';
+import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
+import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, jumpCostOf, planChain, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inWater, setFlowClock, type Vec } from '../sim/geometry';
@@ -141,8 +143,21 @@ async function boot(): Promise<void> {
   const spinAbility = el('span', 'rt-ability');
   spinAbility.setAttribute('data-testid', 'ability-spin');
   abilities.append(jumpAbility, spinAbility);
-  hud.append(hpBar, hpText, focusBar, energyText, abilities, goalText, scoreText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза'));
+  // Stage 2, step 3: the consumables on keys 1–4 with how many are in hand.
+  const itemBar = el('span', 'rt-items');
+  itemBar.setAttribute('data-testid', 'items');
+  const itemSlots = SLOT_ITEMS.map((kind, i) => {
+    const slot = el('span', 'rt-item', `<kbd>${i + 1}</kbd> ${ITEM_TITLES[kind]} <b>×0</b>`);
+    slot.setAttribute('data-testid', `item-${kind}`);
+    itemBar.appendChild(slot);
+    return slot;
+  });
+  hud.append(hpBar, hpText, focusBar, energyText, goalText, scoreText, timeText, infoText, chainText);
+  // The action bar at the bottom: abilities (Space, Q) and consumables (1–4) — the top HUD keeps its width.
+  const actionBar = el('div', 'rt-actionbar');
+  actionBar.setAttribute('data-testid', 'action-bar');
+  actionBar.append(abilities, itemBar);
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · <kbd>1</kbd>–<kbd>4</kbd> расходник в точку курсора · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза'));
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -185,7 +200,7 @@ async function boot(): Promise<void> {
   const hint = el('div', 'rt-hint');
   hint.setAttribute('data-testid', 'link-hint');
   hint.hidden = true;
-  host.append(stage, hud, help, pausedBadge, jumpButton, hint, result);
+  host.append(stage, hud, actionBar, help, pausedBadge, jumpButton, hint, result);
   if (sandbox) host.append(openButton, menuButton, menu);
 
   await loadCharacterArt();
@@ -197,9 +212,11 @@ async function boot(): Promise<void> {
   await renderer.init(stage);
 
   const motion = new Motion();
-  const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart): Simulation => {
+  /** The sandbox's loadout (stage 2, step 3): the panel's number of each consumable; a run passes its own. */
+  const sandboxLoadout = (): Loadout => ({ items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])) });
+  const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout: Loadout = sandboxLoadout()): Simulation => {
     motion.clear();
-    return new Simulation({ arena, params, seed, record: true, beforeTick: world => motion.save(world), ...hero ? { hero } : {} });
+    return new Simulation({ arena, params, seed, record: true, beforeTick: world => motion.save(world), ...hero ? { hero } : {}, loadout });
   };
 
   let arenaIndex = 0;
@@ -222,9 +239,9 @@ async function boot(): Promise<void> {
   let hintReason: Refusal | null = null;
 
   /** Starts a fight on `arena` (the sandbox's menu, or the arena of a run node with the run's HP). */
-  const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart): void => {
+  const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout): void => {
     renderer.resetEffects();
-    sim = newSimulation(arena, seed, hero);
+    sim = newSimulation(arena, seed, hero, loadout);
     renderer.buildArena(world().arena);
     // The panel's phase table is the current arena's: say what the arena forces over it, or that it keeps its own.
     panel.setArenaPhaseNote(arena.phases?.length ? `«${arena.name}»: своя таблица фаз, эта таблица на неё не действует.`
@@ -281,10 +298,10 @@ async function boot(): Promise<void> {
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
   const runView = sandbox ? null : new RunView({
-    startArena(arenaId, seed, hero, label) {
+    startArena(arenaId, seed, hero, label, loadout) {
       runLabel = label;
       runArenaRecorded = false;
-      startArena(arenaTemplate(arenaId), seed, hero);
+      startArena(arenaTemplate(arenaId), seed, hero, loadout);
     },
     onScreenChange(open) {
       runScreenOpen = open;
@@ -300,7 +317,7 @@ async function boot(): Promise<void> {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
     runArenaRecorded = true;
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items } } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -363,6 +380,21 @@ async function boot(): Promise<void> {
   window.addEventListener('keyup', event => { held.delete(event.code); });
   window.addEventListener('blur', () => held.clear());
 
+  /** Stage 2, step 3: keys 1–4 (top row or numpad) — the consumable of that slot; −1 for any other key. */
+  const itemKey = (code: string): number => SLOT_ITEMS.findIndex((_, i) => code === `Digit${i + 1}` || code === `Numpad${i + 1}`);
+  /**
+   * The consumable of slot `index` aimed at the pointer now (healing needs no aim). Allowed while a chain is drawn (the
+   * button stays held); a refusal says why at the pointer for a moment and spends nothing.
+   */
+  const useItemKey = (index: number): void => {
+    if (!running()) return;
+    const kind = SLOT_ITEMS[index], w = world(), p = ui.pointer ?? { x: w.hero.x, y: w.hero.y };
+    const why = itemRefusal(w, kind, p);
+    if (why) { renderer.notice(ITEM_REFUSAL_TEXT[why], p.x, p.y); return; }
+    command({ t: 'item', kind, x: p.x, y: p.y });
+    ui.jumpMode = false;
+  };
+
   window.addEventListener('keydown', event => {
     const target = event.target as HTMLElement | null;
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
@@ -381,6 +413,7 @@ async function boot(): Promise<void> {
       if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
       else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
       else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
+      else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
       else if (event.code === 'KeyP') paused = !paused;
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
       return;
@@ -392,6 +425,7 @@ async function boot(): Promise<void> {
     if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
     else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
     else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
+    else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
     else if (event.code === 'KeyR') restart();
     else if (event.code === 'KeyP') paused = !paused;
     else if (event.key === 'Enter' && ended) restart();
@@ -484,6 +518,11 @@ async function boot(): Promise<void> {
     jumpAbility.textContent = `Пробел прыжок · ${jumpCostOf(w)} ⚡`;
     jumpAbility.classList.toggle('rt-ready', w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w));
     spinAbility.textContent = `Q круговой · ${params.spinCost} ⚡`;
+    SLOT_ITEMS.forEach((kind, i) => {
+      const count = w.kit?.items[kind] ?? 0, b = itemSlots[i].querySelector('b');
+      if (b && b.textContent !== `×${count}`) b.textContent = `×${count}`;
+      itemSlots[i].classList.toggle('rt-empty', count < 1);
+    });
     spinAbility.classList.toggle('rt-ready', canSpin(w));
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(w) && !ui.jumpMode;
@@ -543,7 +582,7 @@ async function boot(): Promise<void> {
         seed: sim.seed,
         ticksPerFrame,
         hero: { ...w.hero },
-        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0 })),
+        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0 })),
         objects: w.objects.map(o => ({ ...o })),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
@@ -567,8 +606,10 @@ async function boot(): Promise<void> {
         lanes: renderer.visibleLanes,
         /** Stage 2, step 2: signals of the new enemies drawn in the last frame (shield arcs, archer lines, …). */
         signals: { ...renderer.signals },
-        /** Stage 2, step 3: spin flashes drawn so far. */
+        /** Stage 2, step 3: spin flashes drawn so far, consumables in hand, item flashes drawn so far, frozen and burning on screen. */
         spinsShown: renderer.spinsShown,
+        items: w.kit ? { ...w.kit.items } : null,
+        itemsShown: { ...renderer.itemsShown },
         packLines: renderer.visiblePackLines,
         ripples: renderer.visibleRipples,
         heroInWater: inWater(w.hero, w.arena),
@@ -604,6 +645,8 @@ async function boot(): Promise<void> {
     chill: (id: number, seconds: number) => command({ t: 'chill', id, seconds }),
     /** Stage 2, step 3: the spin (as the key Q). */
     spin: () => command({ t: 'spin' }),
+    /** Test setup (stage 2, step 3): the number of consumables of `kind` in hand. */
+    setItems: (kind: string, count: number) => command({ t: 'items', kind: kind as ItemKind, count }),
     /** The journal of the current fight: seed, arena, starting values, commands by tick (replay in Node: sim/simulation.ts). */
     journal: () => sim.exportJournal(),
     /** Hash of the current world (sim/hash.ts). */

@@ -15,6 +15,8 @@ import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, quillsUp, sapperFuse, shieldUp } from '../sim/enemies/index';
+import { brittleNow } from '../sim/items';
+import type { ItemKind } from '../sim/kit';
 import { inWater, type Vec } from '../sim/geometry';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
@@ -49,9 +51,11 @@ const TARGET = 0xffd36b;
 const STEEL = 0xa9b8c6;
 /** Fuse sparks and the blast ring of the sapper: hot orange (outside the chain palette). */
 const SPARK = 0xffb04a;
+/** Stage 2, step 3: the cold consumable — pale ice blue. */
+const ICE = 0x9fd8ff;
 
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number }
 
 interface EnemyView {
   root: Container;
@@ -140,7 +144,9 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0 };
+  /** Stage 2, step 3: consumable flashes drawn so far, by kind (tests read it: the effect was on screen). */
+  readonly itemsShown: Record<ItemKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0 };
   /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
   spinsShown = 0;
 
@@ -456,7 +462,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0 };
     const fuse = (x: number, y: number, left: number, total: number): void => {
       counts.fuses++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = p.sapperRadius * UNIT, X = x * UNIT, Y = y * UNIT;
@@ -486,6 +492,21 @@ export class RealtimeRenderer {
         // The arrow head at the filling front.
         const tx = ox + ux * len * line.progress, ty = oy + uy * len * line.progress;
         g.poly([tx + ux * half * 1.6, ty + uy * half * 1.6, tx - nx * half * 1.3, ty - ny * half * 1.3, tx + nx * half * 1.3, ty + ny * half * 1.3]).fill(THREAT).stroke({ color: THREAT_OUTLINE, width: 2 });
+      }
+      // Stage 2, step 3: the cold — an icy ring (a double ring while the next chain hit on it is ×2); burning — flames.
+      if ((e.chill ?? 0) > 0) {
+        counts.frozen++;
+        const X = e.x * UNIT, Y = e.y * UNIT;
+        g.circle(X, Y, r * 1.08).fill({ color: ICE, alpha: 0.32 }).stroke({ color: 0xeaf6ff, width: 3, alpha: 0.95 });
+        if (brittleNow(e)) g.circle(X, Y, r * 1.3).stroke({ color: ICE, width: 2, alpha: 0.9 });
+      }
+      if (e.burn) {
+        counts.burning++;
+        const X = e.x * UNIT, Y = e.y * UNIT - r * 0.9;
+        for (let i = 0; i < 3; i++) {
+          const fx = X + (i - 1) * r * 0.42, h = r * (0.55 + 0.25 * Math.abs(Math.sin(this.clock * 11 + i * 1.7 + e.id)));
+          g.poly([fx - r * 0.18, Y, fx, Y - h, fx + r * 0.18, Y]).fill({ color: SPARK, alpha: 0.95 }).stroke({ color: 0x7a2a12, width: 1.5 });
+        }
       }
       if (!shieldUp(world, e)) continue;
       counts.shields++;
@@ -620,6 +641,18 @@ export class RealtimeRenderer {
         this.spinsShown++;
         continue;
       }
+      if (ev.type === 'item') {
+        // Stage 2, step 3: a consumable acts — cold: an icy circle; bomb: a hot burst on the target; fire: an orange ring;
+        // healing: «+N» over the hero.
+        this.itemsShown[ev.kind]++;
+        if (ev.kind === 'healing') { this.floatText(`+${world.params.itemHeal} HP`, ev.x * UNIT, ev.y * UNIT - 46, 0x8fd18a); continue; }
+        const color = ev.kind === 'frost' ? ICE : SPARK, radius = Math.max(ev.radius, 0.6) * UNIT;
+        const burst = new Graphics().circle(0, 0, radius).fill({ color, alpha: ev.kind === 'bomb' ? 0.55 : 0.25 }).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+        burst.position.set(ev.x * UNIT, ev.y * UNIT);
+        this.fxLayer.addChild(burst);
+        this.bursts.push({ g: burst, life: 0.35, total: 0.35 });
+        continue;
+      }
       if (ev.type === 'enemyHit') {
         // Stage 2, step 2: an arrow or a blast wounds an enemy (a kill comes as its own `kill` event).
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xff8a73);
@@ -671,6 +704,9 @@ export class RealtimeRenderer {
       this.floating.push({ text, life: 0.8, vy: -50 });
     }
   }
+
+  /** Stage 2, step 3: a short note at an arena point (why a consumable was not used). */
+  notice(text: string, x: number, y: number): void { this.floatText(text, x * UNIT, y * UNIT - 30, 0xf2e6c8); }
 
   private floatText(value: string, x: number, y: number, fill: number): void {
     const text = new Text({ text: value, style: { fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 'bold', fill, stroke: { color: 0x200c08, width: 4 } } });

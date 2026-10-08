@@ -3,26 +3,26 @@
  * an outcome or a cost that refers to a rule without an analogue in the slice turns its option off; an event stays in
  * the pool while it keeps a choice — at least two options on and a safe one among them.
  *
- * Step 1 of stage 2 has HP, the maximum HP, crafting resources and arenas; it has no run energy (an arena starts with
- * 0, section 6), no consumables, no talismans and no battle modifiers. So:
- * - an outcome with energy, consumables, a talisman or a modifier — the option is off;
- * - a cost alternative with energy or consumables is dropped; an option left without a payable kind of cost is off;
+ * The slice has HP, the maximum HP, crafting resources, arenas and (step 3) consumables and the energy banked for the
+ * next arena (an arena starts with it; rtRun.ts). It has no battle modifiers (no analogue in real time: no anger, no
+ * turns). So:
+ * - an outcome with a modifier — the option is off;
+ * - a cost alternative the run can pay: HP, maximum HP, resources, energy (banked), consumables (in hand);
  * - «снять горение, яд и кровотечение» has nothing to clear (the hero has no such effects) and changes nothing;
- * - a reward battle («Засада у брода») is an arena of the node's row (its talisman reward has no analogue yet).
+ * - a reward battle («Засада у брода») is an arena of the node's row.
+ * Talismans come with the last block of step 3; until then an outcome with a talisman is off.
  * The data of the catalogue is not changed: the slice reads it through these checks.
  */
 import { FOREST_EVENTS, isSafeOption, optionCosts, type EventCost, type EventOption, type ForestEvent } from '../../game/run/forestEvents';
 
 /** Why an outcome effect has no analogue in the slice ('' — it has one). */
 function effectGap(effect: EventOption['outcomes'][number]['effect']): string {
-  if (effect.energy) return 'энергия похода';
-  if (effect.items && Object.values(effect.items).some(Boolean)) return 'расходники';
   if (effect.talisman) return 'талисманы';
   if (effect.modifier) return 'модификаторы боя';
   return '';
 }
-/** A cost alternative the slice can pay: HP, maximum HP, crafting resources (no energy, no consumables). */
-export const sliceCost = (cost: EventCost): boolean => !cost.energy && !(cost.items && Object.values(cost.items).some(Boolean));
+/** A cost alternative the slice can pay: every kind of the catalogue has an analogue since step 3. */
+export const sliceCost = (cost: EventCost): boolean => !!cost;
 /** The cost alternatives of an option the slice keeps, in their order. */
 export const sliceCosts = (option: EventOption): EventCost[] => optionCosts(option).filter(sliceCost);
 
@@ -32,8 +32,6 @@ export function sliceOptionGap(option: EventOption): string {
     const gap = effectGap(outcome.effect);
     if (gap) return gap;
   }
-  const costs = optionCosts(option);
-  if (costs.length && !costs.some(sliceCost)) return costs.some(cost => cost.energy) ? 'энергия похода' : 'расходники';
   return '';
 }
 

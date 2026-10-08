@@ -9,34 +9,38 @@
  * table (nodeTypes.ts) equal to the turn-based ones (checked by rtRun.spec.ts), so this page does not load that screen.
  */
 import { FOREST_HARD_HEAL, FOREST_REST_HEAL, type ForestMapNode } from '../../game/run/forestMap';
+import { ITEM_KINDS } from '../../game/items';
 import { RESOURCE_KINDS, RESOURCES } from '../../game/resources';
+import type { ResourceKind } from '../../game/forestTypes';
 import type { GiftOption } from '../../game/run/runGift';
 import { arenaTemplate } from '../sim/arenas';
 import { arenaTitle, runRow } from '../run/arenaPools';
 import { rtHp } from '../run/hpScale';
 import {
-  arenaPreview, createRtRun, isArenaNode, resolveArena, type RtStandIn, rtAvailableNodes, rtChooseEventOption, rtChooseGift, rtEnterNode, rtEventView, rtFindLeave, rtGiftView, rtMapNodes,
-  rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
+  arenaPreview, createRtRun, isArenaNode, resolveArena, type RtStandIn, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtEnterNode,
+  rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView,
+  type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
+import { ITEM_TITLES, type ItemKind, type Loadout } from '../sim/kit';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
-  /** Start the arena of the entered battle node (the run's HP, the node's seed) and show it. */
-  startArena(arena: string, seed: number, hero: HeroStart, label: string): void;
+  /** Start the arena of the entered battle node (the run's HP, the node's seed, the run's consumables and energy) and show it. */
+  startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout): void;
   /** The run screen covers the arena (true) or the arena is on screen (false). */
   onScreenChange(open: boolean): void;
 }
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
 const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', open: 'Открыт', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение' } as const;
-/** Step 1 hints where the node works differently from the turn-based run. */
+/** Hints where the node works differently from the turn-based run. */
 const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
-  find: 'Находка даёт расходник — в срезе их пока нет (шаг 2): узел пустой.',
-  rest: `Лечение +${rtHp(FOREST_REST_HEAL)} HP. Крафт делает расходники — в срезе их пока нет.`,
-  shop: `Лечение и «Закалка» за ресурсы крафта. Расходники и талисман — позже.`,
+  find: 'Находка: один из трёх расходников.',
+  rest: `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`,
+  shop: `Расходники, лечение и «Закалка» за ресурсы крафта.`,
   hard: `Трудный бой: арена своего ряда (Застава — шаг 4). Победа: +${rtHp(FOREST_HARD_HEAL)} HP.`,
   checkpoint: 'Тюремщика в срезе нет: обычная арена своего ряда.',
   breakthrough: 'Прорыв: обычная арена своего ряда.',
@@ -55,9 +59,9 @@ function giftText(option: GiftOption): string {
   switch (option.kind) {
     case 'resources': return `${option.resources.length} ресурса крафта: ${option.resources.map(kind => RESOURCES[kind].label).join(', ')}`;
     case 'max-hp': return `+${rtHp(option.amount)} к максимуму HP и +${rtHp(option.amount)} HP`;
-    case 'pick-item': return 'Выбрать 1 из 3 расходников';
-    case 'items': return `${option.items.length} случайных расходника`;
-    case 'energy': return `+${option.amount} энергии`;
+    case 'pick-item': return `Выбрать 1 из 3 расходников: ${option.items.map(item => ITEM_TITLES[item]).join(', ')}`;
+    case 'items': return `${option.items.length} расходника: ${option.items.map(item => ITEM_TITLES[item]).join(', ')}`;
+    case 'energy': return `+${option.amount} энергии к началу первой арены`;
     case 'calm': return `Тихий лес: ${option.battles} боя без злости до целей`;
     case 'deal': return 'Талисман за цену';
     case 'oath': return 'Случайная клятва';
@@ -142,7 +146,7 @@ export class RunView {
     this.el.hidden = true;
     this.host.onScreenChange(false);
     const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}${pending.standIn ? ' (временно)' : ''}`;
-    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label);
+    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run));
   }
 
   private describe(events: RtRunEvent[]): string {
@@ -150,7 +154,9 @@ export class RunView {
     for (const event of events) {
       if (event.type === 'healed' && event.amount > 0) parts.push(`+${event.amount} HP`);
       if (event.type === 'event-resolved' || event.type === 'event-attempt') parts.push(event.text);
-      if (event.type === 'shop-bought') parts.push(event.purchase.good === 'heal' ? `Лечение +${rtHp(1)} HP` : `Закалка: +${rtHp(1)} к максимуму HP`);
+      if (event.type === 'shop-bought' && event.purchase.good === 'heal') parts.push(`Лечение +${rtHp(1)} HP`);
+      if (event.type === 'shop-bought' && event.purchase.good === 'harden') parts.push(`Закалка: +${rtHp(1)} к максимуму HP`);
+      if (event.type === 'items-gained') parts.push(`+ ${event.items.map(item => ITEM_TITLES[item]).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
     return parts.join(' · ');
   }
@@ -170,9 +176,12 @@ export class RunView {
     if (action === 'enter' && this.selected) { this.enter(this.selected); return; }
     if (action === 'battle') { this.enterArena(); return; }
     if (action === 'rest-heal') { this.apply(rtRestHeal(run)); return; }
-    if (action === 'find-leave') { this.apply(rtFindLeave(run)); return; }
+    if (action === 'rest-craft') { this.apply(rtRestCraft(run, target.dataset.resource as ResourceKind)); return; }
+    if (action === 'rest-finish') { this.apply(rtRestFinish(run)); return; }
+    if (action === 'find') { this.apply(rtChooseFind(run, target.dataset.item as ItemKind)); return; }
+    if (action === 'gift-pick') { this.apply(rtChooseGiftPick(run, target.dataset.pick!)); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
-    if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good as 'heal' | 'harden')); return; }
+    if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
     if (action === 'event-option') { this.apply(rtChooseEventOption(run, target.dataset.option!)); return; }
     if (action === 'gift') { this.apply(rtChooseGift(run, target.dataset.index === 'skip' ? null : Number(target.dataset.index))); return; }
   }
@@ -193,10 +202,13 @@ export class RunView {
 
   private headerHtml(run: RtRunState): string {
     const resources = RESOURCE_KINDS.map(kind => `${RESOURCES[kind].label} ${run.materials[kind]}`).join(' · ');
+    // Step 3: consumables carried between arenas and the energy banked for the next one.
+    const items = ITEM_KINDS.map(kind => `${ITEM_TITLES[kind]} ${run.items[kind]}`).join(' · ');
     const reset = this.confirmReset
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
       : `<button data-action="new-run" data-testid="run-reset">Новый поход</button>`;
     return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>`
+      + `<span class="rt-run-items" data-testid="run-items">${items}</span>${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '');
   }
@@ -248,6 +260,11 @@ export class RunView {
     }
     if (pending.kind === 'gift') {
       const view = rtGiftView(run)!;
+      if (view.chosen !== null) {
+        // The taken button has a choice of its own: a consumable of three.
+        const picks = view.picks.map(pick => `<button class="rt-run-choice" data-action="gift-pick" data-pick="${pick}" data-testid="gift-pick-${pick}"><b>${escapeHtml(ITEM_TITLES[pick as ItemKind] ?? pick)}</b></button>`).join('');
+        return card(`<h2>Дар в дорогу</h2><p>${escapeHtml(giftText(view.options[view.chosen].option))}: выбери один.</p><div class="rt-run-choices">${picks}</div>`, 'run-gift');
+      }
       const buttons = view.options.map(entry => `<button class="rt-run-choice" data-action="gift" data-index="${entry.index}" data-testid="gift-${entry.index}" ${entry.available ? '' : 'disabled'}>`
         + `<b>${escapeHtml(giftText(entry.option))}</b>${entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}</button>`).join('');
       return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Кнопки без аналога в срезе выключены.</p><div class="rt-run-choices">${buttons}</div>`
@@ -255,19 +272,23 @@ export class RunView {
     }
     if (pending.kind === 'rest') {
       const view = rtRestView(run)!;
-      return card(`<h2>Привал</h2><div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal"><b>Лечение +${view.heal.amount} HP</b>`
-        + `<small>${view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>`
-        + `<button class="rt-run-choice" disabled><b>Крафт</b><small>${escapeHtml(view.craft.reason)}</small></button></div>`, 'run-rest');
+      const recipes = view.recipes.map(recipe => `<button class="rt-run-choice" data-action="rest-craft" data-resource="${recipe.resource}" data-testid="craft-${recipe.resource}" ${recipe.available ? '' : 'disabled'}>`
+        + `<b>Крафт: ${escapeHtml(ITEM_TITLES[recipe.item])}</b><small>${recipe.cost} «${escapeHtml(RESOURCES[recipe.resource].label)}» (есть ${recipe.have})${recipe.opens ? ' · откроется в походе' : ''}</small></button>`).join('');
+      return card(`<h2>Привал</h2><p>Лечение или крафт: первый рецепт отменяет лечение этого привала.${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
+        + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal" ${view.heal.available ? '' : 'disabled'}><b>Лечение +${view.heal.amount} HP</b>`
+        + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>${recipes}</div>`
+        + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
     }
     if (pending.kind === 'find') {
-      return card(`<h2>Находка</h2><p>Находка даёт расходник на выбор — в срезе расходников пока нет (шаг 2). Здесь пусто.</p>`
-        + `<button class="rt-again" data-action="find-leave" data-testid="find-leave">Дальше</button>`, 'run-find');
+      const options = pending.options.map(item => `<button class="rt-run-choice" data-action="find" data-item="${item}" data-testid="find-${item}"><b>${escapeHtml(ITEM_TITLES[item])}</b>`
+        + `<small>${run.openItems.includes(item) ? `в запасе ${run.items[item]}` : 'откроется в походе'}</small></button>`).join('');
+      return card(`<h2>Находка</h2><p>Возьми один расходник.</p><div class="rt-run-choices">${options}</div>`, 'run-find');
     }
     if (pending.kind === 'shop') {
       const view = rtShopView(run)!;
       const goods = view.goods.map(good => `<button class="rt-run-choice" data-action="shop-buy" data-good="${good.id}" data-testid="shop-${good.id}" ${good.available ? '' : 'disabled'}>`
         + `<b>${good.label} — ${good.price === 0 ? 'даром' : `${good.price} рес.`}</b><small>${escapeHtml(good.text)}${good.reason ? ` · ${escapeHtml(good.reason)}` : ''}</small></button>`).join('');
-      return card(`<h2>Торговец</h2><p>Ресурсов: ${view.total}. ${escapeHtml(view.off)}</p><div class="rt-run-choices">${goods}</div>`
+      return card(`<h2>Торговец</h2><p>Ресурсов: ${view.total}.</p><div class="rt-run-choices">${goods}</div>`
         + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
     }
     const view = rtEventView(run);

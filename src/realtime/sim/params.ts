@@ -211,6 +211,29 @@ export interface Params {
   spinDamage: number;
   /** Radius of the spin around the hero. */
   spinRadius: number;
+  // Consumables, keys 1–4 (stage 2 of the transition, step 3, docs/realtime-slice.md, section 6)
+  /** Cold: radius of the circle at the pointer. */
+  frostRadius: number;
+  /** Cold: game seconds an enemy stays frozen. */
+  frostTime: number;
+  /** Cold: the next chain hit on a frozen enemy is multiplied by this. */
+  frostFactor: number;
+  /** Bomb: damage to the enemy under the pointer. */
+  bombDamage: number;
+  /** Bomb: the enemy must be within this distance of the hero. */
+  bombRange: number;
+  /** Healing: HP restored (the turn-based elixir +3 × 2.4, rounded up). */
+  itemHeal: number;
+  /** Fire: radius around the enemy under the pointer within which other enemies catch fire too. */
+  fireRadius: number;
+  /** Fire: damage of one burn tick. */
+  fireDamage: number;
+  /** Fire: game seconds between ticks. */
+  fireInterval: number;
+  /** Fire: ticks of one burning. */
+  fireTicks: number;
+  /** Sandbox only: consumables of each kind an arena of the sandbox starts with (a run carries its own). */
+  sandboxItems: number;
   // Look
   dimMode: DimMode;
   dimStrength: number;
@@ -395,6 +418,18 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   spinCost: 3,
   spinDamage: 4,
   spinRadius: 1.2,
+  // Баланс: section 6 — cold 1.5 / 3 s / ×2, bomb 6 within 5, healing +8 (rtHp(3)), fire 1 every 1.5 s three times, radius 1.
+  frostRadius: 1.5,
+  frostTime: 3,
+  frostFactor: 2,
+  bombDamage: 6,
+  bombRange: 5,
+  itemHeal: 8,
+  fireRadius: 1,
+  fireDamage: 1,
+  fireInterval: 1.5,
+  fireTicks: 3,
+  sandboxItems: 3,
   dimMode: 'alpha',
   dimStrength: 0.65,
   enemyLook: 'circle',
@@ -555,6 +590,17 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('spinCost', 'Круговой удар', 'Цена кругового удара (Q)', 0, 7, 0.5, 5, '', 'Не во время прохода цепи и прыжка; во время выделения цепи — можно.'),
   n('spinDamage', 'Круговой удар', 'Удар по врагу', 0, 12, 1, 5, '', 'Всем врагам, чьё тело касается круга: цвет и щит не учитываются. Убийства засчитываются; энергии, кристаллов и игл дикобраза нет.'),
   n('spinRadius', 'Круговой удар', 'Радиус', 0.25, 4, 0.05, 5, 'ед.'),
+  n('frostRadius', 'Расходники', 'Холод (1): радиус у курсора', 0.25, 4, 0.05, 5, 'ед.', 'Расходники — клавиши 1–4, цель под курсором; не во время прохода цепи и прыжка, во время выделения — можно.'),
+  n('frostTime', 'Расходники', 'Холод: заморозка', 0.5, 10, 0.5, 5, 'с', 'Замёрзший стоит, не ранит касанием, его механика выключена (щит, выстрел, фитиль живого сапёра, иглы).'),
+  n('frostFactor', 'Расходники', 'Холод: следующий удар цепи по замёрзшему', 1, 4, 0.5, 5, '×'),
+  n('bombDamage', 'Расходники', 'Бомба (2): урон врагу под курсором', 0, 20, 1, 5),
+  n('bombRange', 'Расходники', 'Бомба: не дальше от героя', 1, 16, 0.25, 5, 'ед.'),
+  n('itemHeal', 'Расходники', 'Лечение (3): HP', 0, 20, 1, 5, '', 'Эликсир пошаговой игры +3 × 2,4, вверх. Не выше максимума; при полном здоровье не тратится.'),
+  n('fireRadius', 'Расходники', 'Огонь (4): радиус вокруг цели', 0, 4, 0.05, 5, 'ед.'),
+  n('fireDamage', 'Расходники', 'Огонь: урон за раз', 0, 6, 1, 5),
+  n('fireInterval', 'Расходники', 'Огонь: раз в', 0.1, 5, 0.1, 5, 'с'),
+  n('fireTicks', 'Расходники', 'Огонь: сколько раз', 1, 10, 1, 5),
+  n('sandboxItems', 'Расходники', 'Песочница: расходников каждого вида на старте арены', 0, 9, 1, 5, '', 'Только песочница: в походе количество переносится между аренами.'),
   { kind: 'choice', key: 'dimMode', group: 'Вид', label: 'Приглушение не того цвета', stage: 2,
     options: [{ value: 'darken', label: 'затемнение' }, { value: 'alpha', label: 'полупрозрачность' }, { value: 'desaturate', label: 'обесцвечивание' }] },
   n('dimStrength', 'Вид', 'Сила приглушения', 0, 1, 0.05, 2),

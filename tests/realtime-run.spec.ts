@@ -23,11 +23,11 @@ async function openRun(page: Page, errors: string[]): Promise<void> {
   await expect(page.getByTestId('run')).toBeVisible();
 }
 
-/** A new run from the start screen; the start gift takes its first button that is on (a first run: the mini gift, +3 max HP). */
+/** A new run from the start screen; the start gift takes «+3 к максимуму HP» (a first run: the mini gift, its second button). */
 async function newRun(page: Page): Promise<RunState> {
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
-  await page.locator('[data-action="gift"]:not([disabled])').first().click();
+  await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   return runState(page);
 }
@@ -83,7 +83,7 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   expect(after.pending).toBeNull();
   expect(after.hp).toBe(won.hero.hp);
   const keys = await page.evaluate(() => Object.keys(localStorage));
-  expect(keys).toContain('ashen-oath-rt-run-v1');
+  expect(keys).toContain('ashen-oath-rt-run-v2');
   expect(keys).not.toContain('ashen-oath-forest-run-v1');
   expect(keys).not.toContain('ashen-oath-profile-v1');
 
@@ -141,7 +141,7 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
     if (state.pending?.kind === 'battle') break;
     if (state.pending) {
       // A node screen of the trails: take its first button that is on (a rest, a find, an event, the merchant's «Уйти»).
-      const leave = page.locator('[data-testid="find-leave"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first();
+      const leave = page.locator('[data-action="find"], [data-action="gift-pick"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first();
       await leave.click();
       continue;
     }
@@ -192,7 +192,7 @@ test('run: arenas 4–7 of the new enemies come on their run rows; a row without
       }
       if (pending) {
         // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
-        await page.locator('[data-action="gift"]:not([disabled]), [data-testid="find-leave"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
         continue;
       }
       await enterFirstNode(page);
@@ -208,6 +208,72 @@ test('run: arenas 4–7 of the new enemies come on their run rows; a row without
   expect(Math.max(...rows)).toBe(9);
   const fresh = new Set(met.map(m => m.arena).filter(arena => ['shields', 'archers', 'powder', 'thorns'].includes(arena)));
   expect(fresh.size, `arenas met: ${met.map(m => `${m.row}:${m.arena}`).join(', ')}`).toBeGreaterThanOrEqual(3);
+  expect(errors).toEqual([]);
+});
+
+test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and is used there with the key at the mouse', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  await openRun(page, errors);
+  // A spread seed; battles are won by the test hook, find nodes are preferred on the map.
+  await page.evaluate(s => (window as any).__realtime.run.newRun(s), Math.imul(3, 2654435761) >>> 0);
+  let found = false;
+  for (let step = 0; step < 60 && !found; step++) {
+    const state = await page.evaluate(() => (window as any).__realtime.run.state()) as RunState & { pending: { kind: string } | null; items: Record<string, number> };
+    if (state.result) break;
+    const pending = state.pending;
+    if (pending?.kind === 'find') {
+      await expect(page.getByTestId('run-find')).toBeVisible();
+      await page.getByTestId('find-bomb').click();
+      expect((await page.evaluate(() => (window as any).__realtime.run.state())).items.bomb).toBe(state.items.bomb + 1);
+      found = true;
+      break;
+    }
+    if (pending?.kind === 'battle') {
+      await expect(page.getByTestId('run')).toBeHidden();
+      expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+      await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+      await page.getByTestId('result-map').click();
+      continue;
+    }
+    if (pending) {
+      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      continue;
+    }
+    const find = page.locator('[data-status="available"][data-type="find"]');
+    const node = (await find.count()) ? find.first() : page.locator('[data-status="available"]').first();
+    await node.click();
+    await page.getByTestId('run-enter').click();
+  }
+  expect(found).toBe(true);
+  const bombs = (await page.evaluate(() => (window as any).__realtime.run.state())).items.bomb as number;
+  await expect(page.getByTestId('run-items')).toContainText(`Бомба ${bombs}`);
+  // The next battle node: the arena starts with the bomb in the HUD.
+  for (let step = 0; step < 10; step++) {
+    const state = await runState(page);
+    if (state.pending?.kind === 'battle') break;
+    if (state.pending) { await page.locator('[data-action="find"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    const battle = page.locator('[data-status="available"][data-type="battle"]');
+    const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
+    await node.click();
+    await page.getByTestId('run-enter').click();
+  }
+  await expect(page.getByTestId('run')).toBeHidden();
+  await expect(page.getByTestId('item-bomb')).toHaveText(new RegExp(`×${bombs}`));
+  const target = await page.evaluate(() => {
+    const rt = (window as any).__realtime, hero = rt.snapshot().hero;
+    rt.setParam('contactDamage', 0);
+    return { id: rt.place(hero.x + 2, hero.y, 0, 5, 'basic') as number, x: hero.x + 2, y: hero.y };
+  });
+  const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [target.x, target.y]);
+  await page.mouse.move(at.x, at.y);
+  await page.keyboard.press('2');
+  await expect(page.getByTestId('item-bomb')).toHaveText(new RegExp(`×${bombs - 1}`));
+  expect((await page.evaluate(() => (window as any).__realtime.snapshot())).enemies.some((e: { id: number }) => e.id === target.id)).toBe(false);
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  await page.getByTestId('result-map').click();
+  expect((await page.evaluate(() => (window as any).__realtime.run.state())).items.bomb).toBe(bombs - 1);
   expect(errors).toEqual([]);
 });
 

@@ -9,6 +9,9 @@
  * - a run arena replays from its journal (with the hero's starting HP) to the same hash;
  * - HP numbers of the turn-based run arrive ×2.4 rounded up: rest, merchant, gift, hard battle, events;
  * - events without an analogue in the slice never come; their off options cannot be taken;
+ * - step 3: consumables come from a find, a craft, the merchant, the gift and events, open as in the turn-based run,
+ *   go into the arena as its loadout, are used there through commands and come back; the energy of the gift and events
+ *   starts the next arena; the full gift holds the mini one;
  * - different seeds give different maps and arena sequences; the real-time keys only are written.
  */
 import { generateForestMap } from '../../game/run/mapGenerator';
@@ -20,6 +23,9 @@ import { PLAYER_PROFILE_KEY } from '../../game/run/playerProfile';
 import { defaultParams } from '../sim/params';
 import { goalProgress } from '../sim/world';
 import { GIFT_STREAMS, rollGift } from '../../game/run/runGift';
+import { rewardChoices } from '../../game/items';
+import { shopStock } from '../../game/run/merchant';
+import { streamValue } from '../../game/run/runStreams';
 import { NODE_TYPE_INFO } from '../../forestMapScreen';
 import { RT_NODE_TYPES } from '../view/nodeTypes';
 import { EVENT_RISK_MIN_HP } from '../../game/run/forestEvents';
@@ -27,9 +33,11 @@ import { replay, Simulation } from '../sim/simulation';
 import { arenaCandidates, ARENA_POOLS, arenaTitle, runRow, STAND_IN_ARENAS, TEMPORARY_FINAL_ARENAS } from './arenaPools';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
-  arenaPreview, arenaSeed, createRtRun, rtMapNodes, parseRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseGift, rtEnterNode, rtEventView, rtFindLeave, rtGiftView, rtNode,
-  rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, type RtRunState, type RtRunStep,
+  arenaPreview, arenaSeed, createRtRun, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun,
+  type RtRunState, type RtRunStep,
 } from './rtRun';
+import type { ItemKind } from '../sim/kit';
 import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from './rtRunStorage';
 import { SLICE_EVENTS, SLICE_EVENTS_OFF } from './sliceEvents';
 
@@ -49,11 +57,11 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 // ---- The arena of a node, played through commands ----
 
-/** The arena of the open battle node, as main.ts starts it: the pending arena and seed, the run's HP. */
+/** The arena of the open battle node, as main.ts starts it: the pending arena and seed, the run's HP and loadout. */
 function startArena(run: RtRunState): Simulation {
   const pending = run.pending;
   assert(pending?.kind === 'battle', 'no open battle');
-  return new Simulation({ arena: pending.arena, params: defaultParams(), seed: pending.seed, record: true, hero: { hp: run.hp, maxHp: run.maxHp } });
+  return new Simulation({ arena: pending.arena, params: defaultParams(), seed: pending.seed, record: true, hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run) });
 }
 /**
  * Plays the arena a while (the horde arrives and touches the hero), then the goals are marked done and the hero walks into
@@ -77,25 +85,30 @@ function loseArena(sim: Simulation): void {
 }
 const outcomeOf = (run: RtRunState, sim: Simulation) => {
   const w = sim.world, pending = run.pending!;
-  return { nodeId: (pending as { nodeId: string }).nodeId, won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time };
+  return { nodeId: (pending as { nodeId: string }).nodeId, won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time,
+    ...w.kit ? { items: { ...w.kit.items } } : {} };
 };
+/** Takes the first gift button that is on (and the first of its own choice, if it has one), or passes the gift by. */
+function takeGift(run: RtRunState, prefer?: (kind: string) => boolean): RtRunState {
+  const view = rtGiftView(run)!, on = view.options.filter(entry => entry.available), first = on.find(entry => prefer?.(entry.option.kind)) ?? on[0];
+  let next = ok(rtChooseGift(run, first ? first.index : null), 'gift');
+  const open = rtGiftView(next);
+  if (open && open.chosen !== null) next = ok(rtChooseGiftPick(next, open.picks[0]), 'gift pick');
+  return next;
+}
 
 // ---- A bot that walks a whole run through the run's commands ----
 
-interface Walk { run: RtRunState; arenas: string[]; standIns: string[]; finals: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number }
+interface Walk { run: RtRunState; arenas: string[]; standIns: string[]; finals: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number }
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   let run = createRtRun(seed, { gift: options.gift ?? 'mini' });
-  const walk: Walk = { run, arenas: [], standIns: [], finals: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0 };
+  const walk: Walk = { run, arenas: [], standIns: [], finals: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
     save();
     const pending = run.pending;
-    if (pending?.kind === 'gift') {
-      const view = rtGiftView(run)!, first = view.options.find(entry => entry.available);
-      run = ok(rtChooseGift(run, first ? first.index : null), 'gift');
-      continue;
-    }
+    if (pending?.kind === 'gift') { run = takeGift(run); continue; }
     if (pending?.kind === 'battle') {
       const node = rtNode(run, pending.nodeId)!;
       assert(pending.seed === forestNodeSeed(seed, node.id), 'arena seed is the run seed and the node id');
@@ -110,6 +123,11 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       walk.arenas.push(pending.arena);
       const hpBefore = run.hp, sim = startArena(run);
       assert(sim.world.hero.hp === run.hp && sim.world.hero.maxHp === run.maxHp, 'the hero enters with the run HP');
+      assert(same(sim.world.kit!.items, run.items) && sim.world.energy === Math.min(7, run.energy), 'the hero enters with the run\'s consumables and banked energy');
+      // Step 3: a consumable in hand is used on the arena (healing when hurt, else a bomb on the nearest enemy).
+      for (let i = 0; i < 30; i++) sim.tick();
+      const target = sim.world.enemies[0];
+      if (run.items.bomb && target) sim.command({ t: 'teleport', x: target.x - 1, y: target.y }), sim.command({ t: 'item', kind: 'bomb', x: target.x, y: target.y });
       winArena(sim);
       // Every fourth arena of the walk also replays from its journal.
       if (walk.arenas.length % 4 === 1) {
@@ -125,23 +143,40 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       assert(run.pending === null && run.visited[run.visited.length - 1] === node.id, 'victory returns to the map');
       const heart = pending.battle === 'hard' ? Math.min(rtHp(FOREST_HARD_HEAL), run.maxHp - outcome.hp) : 0;
       assert(run.hp === outcome.hp + heart && run.hp <= run.maxHp, `HP after the arena: ${run.hp} (arena ${outcome.hp}, before ${hpBefore})`);
+      assert(same(run.items, outcome.items) && run.energy === 0, 'the consumables left come back; the banked energy is spent');
       continue;
     }
     if (pending?.kind === 'rest') {
-      const view = rtRestView(run)!, before = run.hp;
+      const view = rtRestView(run)!, before = run.hp, recipe = view.recipes.find(entry => entry.available);
       assert(view.heal.value === rtHp(FOREST_REST_HEAL), 'rest heal ×2.4');
+      // Craft when a recipe is ready (every other walk), else heal.
+      if (recipe && k % 2 === 0) {
+        const had = run.items[recipe.item];
+        run = ok(rtRestCraft(run, recipe.resource), 'craft');
+        assert(run.items[recipe.item] === had + 1 && run.openItems.includes(recipe.item) && !rtRestView(run)!.heal.available, 'craft: +1, open, no heal');
+        run = ok(rtRestFinish(run), 'rest finish');
+        walk.crafts++;
+        continue;
+      }
       run = ok(rtRestHeal(run), 'rest');
       assert(run.hp === Math.min(run.maxHp, before + rtHp(FOREST_REST_HEAL)), 'rest heals up to the maximum');
       continue;
     }
-    if (pending?.kind === 'find') { run = ok(rtFindLeave(run), 'find'); continue; }
+    if (pending?.kind === 'find') {
+      const item = pending.options[(k + step) % pending.options.length], had = run.items[item];
+      run = ok(rtChooseFind(run, item), 'find');
+      assert(run.items[item] === had + 1 && run.openItems.includes(item), 'find: +1, open');
+      walk.finds++;
+      continue;
+    }
     if (pending?.kind === 'shop') {
       const view = rtShopView(run)!;
       for (const good of view.goods) if (good.available) {
-        const before = { hp: run.hp, maxHp: run.maxHp };
+        const before = { hp: run.hp, maxHp: run.maxHp, items: { ...run.items } };
         run = ok(rtShopBuy(run, good.id), 'buy');
         if (good.id === 'heal') assert(run.hp === Math.min(run.maxHp, before.hp + rtHp(1)), 'merchant heal ×2.4');
-        else assert(run.maxHp === before.maxHp + rtHp(1) && run.hp === before.hp + rtHp(1), 'hardening ×2.4');
+        else if (good.id === 'harden') assert(run.maxHp === before.maxHp + rtHp(1) && run.hp === before.hp + rtHp(1), 'hardening ×2.4');
+        else if (good.item) { assert(run.items[good.item] === before.items[good.item] + 1 && run.openItems.includes(good.item), 'a consumable bought: +1, open'); walk.bought++; }
       }
       run = ok(rtShopLeave(run), 'leave shop');
       continue;
@@ -195,25 +230,57 @@ check('the map is the turn-based generator\'s map of the run seed; the run start
   assert(maps.size === SEEDS.length, `different seeds, different maps (${maps.size} of ${SEEDS.length})`);
 });
 
-check('the start gift: only buttons with an analogue in the slice; the maximum HP button gives +3 / +3', () => {
+check('the start gift: its usual buttons (consumables, energy, resources, maximum HP); «тихий лес», deals and oaths off until talismans', () => {
   const mini = createRtRun(SEEDS[1], { gift: 'mini' });
   const view = rtGiftView(mini)!;
-  assert(view.options.filter(entry => entry.available).map(entry => entry.option.kind).join() === 'max-hp', 'mini gift: consumables off, max HP on');
+  assert(view.options.map(entry => `${entry.option.kind}:${entry.available}`).join() === 'items:true,max-hp:true', `mini gift: ${view.options.map(entry => entry.option.kind)}`);
   assert(rtAvailableNodes(mini).length === 0, 'the gift waits before the row-5 nodes');
-  assert(!rtChooseGift(mini, 0).ok && !rtChooseGift(mini, null).ok, 'an off button and a pass are refused while a button is on');
+  assert(!rtChooseGift(mini, null).ok, 'a pass is refused while a button is on');
   const taken = ok(rtChooseGift(mini, 1), 'gift');
   assert(taken.maxHp === 12 + rtHp(1) && taken.hp === 12 + rtHp(1), 'max HP gift ×2.4');
+  const items = (mini.gift!.options[0] as { items: ItemKind[] }).items, withItems = ok(rtChooseGift(mini, 0), 'items gift');
+  assert(items.every(item => withItems.items[item] === items.filter(other => other === item).length) && withItems.openItems.length === new Set(items).size, 'two consumables: in hand and open');
+  const kinds = new Set<string>();
   for (const seed of SEEDS) {
-    const full = rtGiftView(createRtRun(seed, { gift: 'full' }))!;
-    for (const entry of full.options) assert(entry.available === ['resources', 'max-hp'].includes(entry.option.kind), `full gift: ${entry.option.kind}`);
-    // Until step 3 the full gift always holds the mini gift's button (+3 maximum HP): never empty, never worse.
-    const maxHp = full.options.filter(entry => entry.available && entry.option.kind === 'max-hp');
-    assert(maxHp.length === 1 && !full.canSkip, `seed ${seed}: the full gift holds the mini one's button`);
-    const run = createRtRun(seed, { gift: 'full' });
-    assert(GIFT_STREAMS.full.every(stream => run.streams[stream] === 1) && same(run.gift!.options, rollGift(seed, 'full', { taken: [], gone: [], abilities: [] }).options), 'no extra draw');
-    const taken = ok(rtChooseGift(run, maxHp[0].index), 'full gift');
-    assert(taken.maxHp === 12 + rtHp(1) && same(roundTrip(taken), taken), 'the added button gives +3 and loads back');
+    const run = createRtRun(seed, { gift: 'full' }), full = rtGiftView(run)!;
+    for (const entry of full.options) {
+      kinds.add(entry.option.kind);
+      assert(entry.available === !['calm', 'deal', 'oath'].includes(entry.option.kind), `full gift: ${entry.option.kind} ${entry.available}`);
+    }
+    assert(GIFT_STREAMS.full.every(stream => run.streams[stream] === 1) && same(run.gift!.options, rollGift(seed, 'full', GIFT_POOL).options), 'no extra draw');
+    // A button with a choice of its own: the gift stays open until the consumable is picked.
+    const pickEntry = full.options.find(entry => entry.option.kind === 'pick-item');
+    if (pickEntry) {
+      const chosen = ok(rtChooseGift(run, pickEntry.index), 'pick button'), open = rtGiftView(chosen)!;
+      assert(chosen.pending?.kind === 'gift' && open.picks.length === 3 && same(roundTrip(chosen), chosen), 'the own choice is open and loads back');
+      const done = ok(rtChooseGiftPick(chosen, open.picks[2]), 'pick');
+      assert(done.pending === null && done.items[open.picks[2] as ItemKind] === 1, 'the picked consumable is in hand');
+    }
+    const energy = full.options.find(entry => entry.option.kind === 'energy');
+    if (energy) assert(ok(rtChooseGift(run, energy.index), 'energy').energy === 2, 'energy banked for the first arena');
   }
+  assert(['pick-item', 'items', 'energy', 'resources', 'max-hp'].every(kind => kinds.has(kind)), `full gift kinds met: ${[...kinds]}`);
+});
+
+check('the full gift holds the mini one on spread seeds (design answer to step 1): every mini button is among the full ones', () => {
+  let added = 0;
+  for (let k = 1; k <= 60; k++) {
+    const seed = Math.imul(k, 2654435761) >>> 0;
+    const mini = rtGiftView(createRtRun(seed, { gift: 'mini' }))!.options.map(entry => JSON.stringify(entry.option));
+    const fullRun = createRtRun(seed, { gift: 'full' }), full = rtGiftView(fullRun)!;
+    const shown = full.options.map(entry => JSON.stringify(entry.option));
+    for (const option of mini) assert(shown.includes(option), `seed ${seed}: the full gift lacks ${option}`);
+    for (const entry of full.options) if (mini.includes(JSON.stringify(entry.option))) assert(entry.available, `seed ${seed}: the mini button is on in the full gift`);
+    added += full.options.length - fullRun.gift!.options.length;
+    // The added buttons are taken like the rolled ones and load back.
+    for (const entry of full.options.slice(fullRun.gift!.options.length)) {
+      const taken = ok(rtChooseGift(fullRun, entry.index), 'added button'), done = rtGiftView(taken) ? ok(rtChooseGiftPick(taken, rtGiftView(taken)!.picks[0]), 'pick') : taken;
+      assert(done.pending === null && same(roundTrip(done), done), 'taken, loads back');
+    }
+  }
+  assert(added > 0, 'some full gifts needed the mini buttons added');
+  console.log(`   ${added} mini buttons added to 60 full gifts`);
+  assert(rtGiftOptions(SEEDS[0], createRtRun(SEEDS[0], { gift: 'mini' }).gift!).length === 2, 'the mini gift is as rolled');
 });
 
 let walks: Walk[] = [];
@@ -270,7 +337,9 @@ check('events: only the slice pool comes; off options are refused; HP outcomes a
   const met = walks.flatMap(walk => walk.events);
   assert(met.length > 0, 'events were met');
   for (const id of met) assert(SLICE_EVENTS.includes(id) && !SLICE_EVENTS_OFF.includes(id), `event ${id} in the slice pool`);
-  assert(SLICE_EVENTS_OFF.join() === 'brook,owl-hollow,ford-ambush,den-bones,bone-wheel,traveler-fire', `off: ${SLICE_EVENTS_OFF.join()}`);
+  // Step 3: energy and consumables have their analogues — events left without a safe option on stay out («Колесо костей»
+  // waits for the talismans: its only paid option may give one).
+  assert(SLICE_EVENTS_OFF.join() === 'ford-ambush,den-bones,bone-wheel', `off: ${SLICE_EVENTS_OFF.join()}`);
   // A sure risky cost in HP: «Вытащить приманку» costs 1 HP of the turn-based run — 3 here.
   const trap = forestEvent('old-trap')!.options.find(option => option.id === 'bait')!;
   assert(trap.cost && !Array.isArray(trap.cost) && (trap.cost as { hp: number }).hp === 1, 'catalogue: the bait costs 1 HP');
@@ -303,7 +372,7 @@ check('a reload in the middle of an arena starts the same arena again from the s
   assert(again.hash() === fresh.hash() && again.world.tick === 0, 'the arena starts again from its start');
   const text = serializeRtRun(run);
   const broken = [
-    text.replace('"version":1', '"version":2'),
+    text.replace('"version":2', '"version":1'),
     JSON.stringify({ ...run, hp: run.maxHp + 1 }),
     JSON.stringify({ ...run, visited: ['r6c0'], currentNodeId: 'r6c0' }),
     JSON.stringify({ ...run, pending: { ...run.pending, seed: 1 } }),
@@ -359,7 +428,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
         run = ok(rtShopLeave(run), 'leave'); shopped = true;
         continue;
       }
-      if (run.pending?.kind === 'find') { run = ok(rtFindLeave(run), 'find'); continue; }
+      if (run.pending?.kind === 'find') { run = ok(rtChooseFind(run, run.pending.options[0]), 'find'); continue; }
       if (run.pending?.kind === 'event') {
         const view = rtEventView(run)!, safe = view.options.find(option => option.safe && option.available)!;
         run = ok(rtChooseEventOption(run, safe.id), 'safe option'); continue;
@@ -390,7 +459,11 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
   const setup: RtRunState = structuredClone(base);
   setup.picks.find(entry => entry.nodeId === (base!.pending as { nodeId: string }).nodeId)!.eventId = 'ford-ambush';
   const view = rtEventView(setup)!, fight = view.options.find(option => option.id === 'fight')!;
-  assert(fight.available && fight.battle && view.options.filter(option => option.off).length === 2, 'fight on, the two ways around off');
+  // Step 3: «Обойти» (1 energy) has its analogue — banked energy, none here; «Обойти по кустам» (a modifier) stays off.
+  const around = view.options.find(option => option.id === 'around')!;
+  assert(fight.available && fight.battle && view.options.filter(option => option.off).map(option => option.id).join() === 'bushes', 'fight on, the way through the bushes off');
+  assert(!around.off && !around.available && around.reason.includes('энергия'), `around: ${around.reason}`);
+  assert(rtEventView({ ...setup, energy: 1 })!.options.find(option => option.id === 'around')!.available, 'with 1 banked energy it can be taken');
   assert(fight.outcomes[0].text.includes(`«${arenaTitle(fight.battle.arena)}»`), `the arena is named: ${fight.outcomes[0].text}`);
   let run = ok(rtChooseEventOption(setup, 'fight'), 'fight');
   const node = rtNode(run, (setup.pending as { nodeId: string }).nodeId)!;
@@ -428,6 +501,142 @@ check('the risk threshold of events is scaled: an option that may lose HP needs 
   assert(found, 'an event with a risky option was met');
 });
 
+/**
+ * Walks spread seeds (offset `salt`) through their runs — battles won, finds take their first option, events their safe
+ * option, rests heal, merchants are left — choosing nodes of `type` when they can, until a node of `type` is open.
+ * `prepare` may set the state up on entering it (a setup, as the HP of the rest test). Null — none met.
+ */
+function openNode(salt: number, type: 'find' | 'shop' | 'rest' | 'event', prepare: (run: RtRunState) => RtRunState = run => run): RtRunState | null {
+  for (let k = 0; k < 60; k++) {
+    let run = ok(rtChooseGift(createRtRun(Math.imul(k + salt, 2654435761) >>> 0, { gift: 'mini' }), 1), 'gift');
+    for (let step = 0; step < 40 && !run.result; step++) {
+      const pending = run.pending;
+      if (pending?.kind === type) return prepare(run);
+      if (pending?.kind === 'battle') { const sim = startArena(run); winArena(sim); run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve'); continue; }
+      if (pending?.kind === 'find') { run = ok(rtChooseFind(run, pending.options[0]), 'find'); continue; }
+      if (pending?.kind === 'rest') { run = ok(rtRestHeal(run), 'rest'); continue; }
+      if (pending?.kind === 'shop') { run = ok(rtShopLeave(run), 'shop'); continue; }
+      if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; run = ok(rtChooseEventOption(run, safe.id), 'event'); continue; }
+      const next = rtAvailableNodes(run), pick = next.find(node => node.type === type) ?? next.find(node => node.type === 'battle') ?? next[0];
+      run = ok(rtEnterNode(run, pick.id), 'enter');
+    }
+  }
+  return null;
+}
+/** Enters the first battle node reachable from `run` (other nodes on the way are passed as `openNode` does). */
+function nextArena(run: RtRunState): RtRunState {
+  for (let step = 0; step < 20; step++) {
+    if (run.pending?.kind === 'battle') return run;
+    const pending = run.pending;
+    if (pending?.kind === 'find') { run = ok(rtChooseFind(run, pending.options[0]), 'find'); continue; }
+    if (pending?.kind === 'rest') { run = ok(rtRestHeal(run), 'rest'); continue; }
+    if (pending?.kind === 'shop') { run = ok(rtShopLeave(run), 'shop'); continue; }
+    if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; run = ok(rtChooseEventOption(run, safe.id), 'event'); continue; }
+    const next = rtAvailableNodes(run);
+    run = ok(rtEnterNode(run, (next.find(node => isBattle(node.type)) ?? next[0]).id), 'enter');
+  }
+  throw new Error('no arena reached');
+}
+const bombsOf = (sim: Simulation): number => sim.world.kit?.items.bomb ?? 0;
+const isBattle = (type: string) => ['battle', 'hard', 'checkpoint', 'breakthrough', 'boss'].includes(type);
+
+check('a find offers the turn-based three; the consumable taken goes into the next arena, is used there and the rest comes back', () => {
+  let checked = 0;
+  for (const salt of [501, 601, 701]) {
+    const atFind = openNode(salt, 'find');
+    assert(atFind && atFind.pending?.kind === 'find', 'a find was met');
+    const nodeId = atFind.pending.nodeId;
+    assert(same(atFind.pending.options, rewardChoices(forestNodeSeed(atFind.seed, nodeId), 0).map(option => option.item)), 'the turn-based find of the node');
+    assert(atFind.pending.options.includes('bomb') && same(roundTrip(atFind), atFind), 'a bomb is always offered; the open find loads back');
+    let run = ok(rtChooseFind(atFind, 'bomb'), 'take the bomb');
+    run = { ...run, items: { ...run.items, bomb: 2 } }; // setup: a second bomb, to see one used and one carried
+    assert(run.openItems.includes('bomb') && same(roundTrip(run), run), 'open, saved');
+    run = nextArena(run);
+    const sim = startArena(run), w = sim.world;
+    assert(bombsOf(sim) === 2, 'the arena starts with the bombs of the run');
+    for (let i = 0; i < 60 && !w.enemies.length; i++) sim.tick();
+    const target = w.enemies[0];
+    sim.command({ t: 'teleport', x: target.x - 1.5, y: target.y });
+    assert(sim.command({ t: 'item', kind: 'bomb', x: target.x, y: target.y }) === true && bombsOf(sim) === 1, 'a bomb used on the arena');
+    winArena(sim);
+    const journal = sim.exportJournal()!;
+    assert(same(journal.loadout, rtArenaLoadout(run)) && replay(JSON.parse(JSON.stringify(journal))).hash() === sim.hash(), 'the arena with its loadout replays to the same hash');
+    run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
+    assert(run.items.bomb === 1 && same(roundTrip(run), run), 'one bomb carried on');
+    checked++;
+  }
+  assert(checked === 3, 'three runs');
+});
+
+check('merchant: consumables of the open kinds (one open — the other slot closed), buying a closed one opens it', () => {
+  const atShop = openNode(801, 'shop', run => ({ ...run, materials: { dew: 4, powder: 4, resin: 0, herbs: 0 } }));
+  assert(atShop && atShop.pending?.kind === 'shop', 'a merchant was met');
+  // The stock of the turn-based merchant from the merchant draw and the open consumables on entering.
+  const draw = atShop.streams.merchant - 1, expected = shopStock(streamValue(atShop.seed, 'merchant', draw), atShop.openItems, GIFT_POOL);
+  assert(same(atShop.pending.stock.items, expected.items), `stock ${atShop.pending.stock.items} = ${expected.items}`);
+  // A setup visit with exactly one open kind: one slot of it, one of a closed kind.
+  const one: RtRunState = { ...atShop, openItems: ['frost'] };
+  const stock = shopStock(streamValue(one.seed, 'merchant', draw), one.openItems, GIFT_POOL);
+  assert(stock.items.length === 2 && stock.items[0] === 'frost' && stock.items[1] !== 'frost', `one open: ${stock.items}`);
+  const visit: RtRunState = { ...one, pending: { ...atShop.pending, stock: { items: stock.items, talisman: null } } };
+  const view = rtShopView(visit)!, closed = view.goods.find(good => good.opens)!;
+  assert(closed && closed.price === 3, 'the closed one is on sale for 3');
+  const bought = ok(rtShopBuy(visit, closed.id), 'buy');
+  assert(bought.items[closed.item!] === 1 && bought.openItems.includes(closed.item!) && !rtShopView(bought)!.goods.find(good => good.id === closed.id)!.available, 'bought: in hand, open, sold');
+  assert(same(roundTrip(bought), bought), 'the visit with a purchase loads back');
+  // None open: no consumables on sale.
+  assert(shopStock(streamValue(one.seed, 'merchant', draw), [], GIFT_POOL).items.length === 0, 'none open — none sold');
+});
+
+check('rest: craft 2 of a resource into its consumable (any number of recipes), it opens; crafting cancels the heal', () => {
+  const atRest = openNode(901, 'rest', run => ({ ...run, hp: 3, materials: { dew: 4, powder: 1, resin: 2, herbs: 0 } }));
+  assert(atRest && atRest.pending?.kind === 'rest', 'a rest was met');
+  const view = rtRestView(atRest)!;
+  assert(view.recipes.map(recipe => `${recipe.resource}>${recipe.item}:${recipe.available}`).join() === 'dew>frost:true,powder>bomb:false,resin>fire:true,herbs>healing:false', 'recipes');
+  let run = ok(rtRestCraft(atRest, 'dew'), 'frost');
+  run = ok(rtRestCraft(run, 'dew'), 'frost again');
+  run = ok(rtRestCraft(run, 'resin'), 'fire');
+  assert(run.items.frost === 2 && run.items.fire === 1 && run.materials.dew === 0 && run.materials.resin === 0 && run.openItems.includes('frost'), 'crafted');
+  assert(!rtRestCraft(run, 'powder').ok && !rtRestHeal(run).ok && run.hp === 3, 'no recipe without resources; no heal after crafting');
+  assert(same(roundTrip(run), run), 'the open rest with crafts loads back');
+  run = ok(rtRestFinish(run), 'finish');
+  assert(run.pending === null && run.items.frost === 2, 'the rest completes');
+});
+
+check('events: a consumable outcome joins the run and opens; energy is banked for the next arena, which starts with it and spends it', () => {
+  // A real event node on the trails (rows 6–8), where «Ручей у камней» and «Старый капкан» stand.
+  let atEvent: RtRunState | null = null;
+  for (let salt = 1001; salt < 2000 && !atEvent; salt += 100) {
+    const run = openNode(salt, 'event');
+    if (run?.pending?.kind === 'event' && rtNode(run, run.pending.nodeId)!.row <= 8) atEvent = run;
+  }
+  assert(atEvent && atEvent.pending?.kind === 'event', 'a trail event was met');
+  const nodeId = atEvent.pending.nodeId;
+  // Setup: «Ручей у камней» on this real event node (a trail event: rows 6–8).
+  const brook: RtRunState = structuredClone(atEvent);
+  brook.picks.find(entry => entry.nodeId === nodeId)!.eventId = 'brook';
+  {
+    const flask = ok(rtChooseEventOption(brook, 'flask'), 'flask');
+    assert(flask.items.frost === brook.items.frost + 1 && flask.openItems.includes('frost'), 'the flask: +1 cold, open');
+    let run = ok(rtChooseEventOption(brook, 'sharpen'), 'sharpen');
+    assert(run.energy === 1 && rtEventView(brook)!.options.find(option => option.id === 'sharpen')!.outcomes[0].text.includes('следующей арены'), 'energy +1 banked');
+    run = nextArena(run);
+    const sim = startArena(run);
+    assert(sim.world.energy === 1, 'the next arena starts with 1 energy');
+    winArena(sim);
+    run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
+    assert(run.energy === 0, 'spent by that arena');
+  }
+  // An energy cost is paid from the banked energy: «Разобрать капкан» (1 energy → a bomb) on a trail node.
+  {
+    const trap: RtRunState = structuredClone(atEvent);
+    trap.picks.find(entry => entry.nodeId === nodeId)!.eventId = 'old-trap';
+    assert(!rtEventView(trap)!.options.find(option => option.id === 'disarm')!.available, 'no banked energy: closed');
+    const paid = ok(rtChooseEventOption({ ...trap, energy: 1 }, 'disarm'), 'disarm');
+    assert(paid.energy === 0 && paid.items.bomb === trap.items.bomb + 1, 'paid 1 energy, got a bomb');
+  }
+});
+
 check('icons and labels of the node types equal the turn-based map screen\'s', () => {
   for (const [type, info] of Object.entries(NODE_TYPE_INFO)) {
     const own = RT_NODE_TYPES[type as keyof typeof RT_NODE_TYPES];
@@ -438,7 +647,8 @@ check('icons and labels of the node types equal the turn-based map screen\'s', (
 
 check('a malformed save reads as no run: arena, open node, result, gift, picks, battles, event choices, attempts', () => {
   // Real states to tamper with: a run at an open battle, one at an open event with an attempt, one that ended.
-  const atBattle = (() => { const run = ok(rtChooseGift(createRtRun(SEEDS[6], { gift: 'full' }), rtGiftView(createRtRun(SEEDS[6], { gift: 'full' }))!.options.find(entry => entry.available)!.index), 'gift'); return ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); })();
+  // A full gift whose off buttons exist (deals and oaths until talismans): the tampered choice below takes one of them.
+  const atBattle = (() => { const run = takeGift(createRtRun(SEEDS[6], { gift: 'full' }), kind => kind === 'resources' || kind === 'max-hp'); return ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); })();
   assert(atBattle.pending?.kind === 'battle' && same(roundTrip(atBattle), atBattle), 'the untouched open battle loads');
   const ended = walks.find(walk => walk.run.battles.length && walk.run.eventChoices.length)!.run;
   assert(same(roundTrip(ended), ended), 'the untouched ended run loads');
@@ -454,7 +664,13 @@ check('a malformed save reads as no run: arena, open node, result, gift, picks, 
     ['a rest open on a battle node', { ...atBattle, pending: { kind: 'rest', nodeId: pending.nodeId } }],
     ['gift options not the roll', { ...atBattle, gift: { ...atBattle.gift!, options: [{ kind: 'max-hp', amount: 5 }] } }],
     ['gift button out of range', { ...atBattle, gift: { ...atBattle.gift!, chosen: 9 } }],
-    ['gift button off in the slice', { ...atBattle, gift: { ...atBattle.gift!, chosen: rtGiftView({ ...atBattle, pending: { kind: 'gift' } })!.options.findIndex(entry => !entry.available) } }],
+    ['gift button off in the slice', { ...atBattle, gift: { ...atBattle.gift!, chosen: rtGiftView({ ...atBattle, gift: { ...atBattle.gift!, chosen: undefined }, pending: { kind: 'gift' } })!.options.findIndex(entry => !entry.available) } }],
+    ['a gift pick not among its picks', { ...atBattle, gift: { ...atBattle.gift!, pick: 'sword' } }],
+    ['consumables of an unknown kind', { ...atBattle, items: { ...atBattle.items, sword: 1 } }],
+    ['a negative consumable count', { ...atBattle, items: { ...atBattle.items, bomb: -1 } }],
+    ['an unknown open consumable', { ...atBattle, openItems: ['sword'] }],
+    ['an open consumable twice', { ...atBattle, openItems: ['bomb', 'bomb'] }],
+    ['banked energy over 7', { ...atBattle, energy: 8 }],
     ['a pick of an unknown event', { ...ended, picks: [...ended.picks, { nodeId: ended.visited[0], eventId: 'no-such-event' }] }],
     ['a battle record of an unknown arena', { ...ended, battles: [{ ...ended.battles[0], arena: 'nope' }, ...ended.battles.slice(1)] }],
     ['a battle record without kills', { ...ended, battles: [{ ...ended.battles[0], kills: -1 }, ...ended.battles.slice(1)] }],

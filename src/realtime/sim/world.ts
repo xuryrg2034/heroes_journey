@@ -14,6 +14,8 @@ import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, inWater, lineOfSight, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
+import { kitOf, type ItemKind, type Kit, type Loadout } from './kit';
+import { updateBurning } from './items';
 import { RngStreams } from './rng';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
@@ -68,6 +70,13 @@ export interface Enemy {
    * the cold consumable (step 3).
    */
   chill?: number;
+  /**
+   * Stage 2, step 3: the cold consumable made it brittle — the next chain hit on it while it is frozen is ×`frostFactor`
+   * (docs/realtime-slice.md, section 6). Spent by that hit; gone when the cold thaws. Absent otherwise.
+   */
+  brittle?: true;
+  /** Stage 2, step 3: burning from the fire consumable — ticks left and game seconds to the next one. Absent otherwise. */
+  burn?: { left: number; timer: number };
 }
 
 /** The enemy is frozen now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off. */
@@ -170,6 +179,8 @@ export type WorldEvent =
   | { type: 'blast'; x: number; y: number; radius: number; source: string }
   /** Stage 2, step 3: the hero's spin (Q) — its circle and how many enemies it struck (render: the flash). */
   | { type: 'spin'; x: number; y: number; radius: number; hits: number }
+  /** Stage 2, step 3: a consumable used — its kind, where it acts, its circle (0 — one target or the hero) and targets. */
+  | { type: 'item'; kind: ItemKind; x: number; y: number; radius: number; targets: number }
   | { type: 'focusRefill' }
   | { type: 'defeat' };
 
@@ -237,6 +248,11 @@ export interface World {
   energy: number;
   /** Stage 2 of the transition: delayed blasts (lit fuses) on the arena. Hashed only when not empty. */
   blasts: Blast[];
+  /**
+   * Stage 2, step 3: what the hero brought into the arena and holds now (consumables; kit.ts). Absent — an arena started
+   * without a loadout (journals before step 3): no consumables, the world hashes as before.
+   */
+  kit?: Kit;
 }
 
 /**
@@ -259,6 +275,9 @@ export interface Blast {
   ownerId: number;
 }
 
+/** Energy cap (chain.ts `ENERGY_MAX`, as in the main game). */
+const ENERGY_CAP = 7;
+
 /** HP the hero enters an arena with: a run carries its HP and maximum between arenas (stage 2 of the transition). */
 export interface HeroStart { hp: number; maxHp: number }
 
@@ -267,7 +286,7 @@ export interface HeroStart { hp: number; maxHp: number }
  * the debug panel in the browser (its changes come as journalled `param` commands, simulation.ts). `start`: the hero's
  * HP and maximum (a run arena; the HP is kept within 1…maximum); absent — the panel's `heroHp`, full.
  */
-export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, start?: HeroStart): World {
+export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, start?: HeroStart, loadout?: Loadout): World {
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   let nextId = 1;
@@ -313,6 +332,11 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     energy: 0,
     blasts: [],
   };
+  // Stage 2, step 3: the loadout of the arena — its consumables and the energy the run banked for it (up to the cap).
+  if (loadout) {
+    world.kit = kitOf(loadout);
+    world.energy = Math.max(0, Math.min(ENERGY_CAP, Number.isFinite(loadout.energy) ? loadout.energy! : 0));
+  }
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   for (const s of arena.enemies) {
     const kind = s.kind ?? 'basic';
@@ -691,7 +715,8 @@ function contactDamage(world: World, dt: number): void {
     e.brake = Math.max(0, e.brake - dt);
     e.strikeFlash = Math.max(0, e.strikeFlash - dt);
     e.age += dt;
-    if (e.chill !== undefined) { e.chill -= dt; if (e.chill <= 1e-9) delete e.chill; }
+    // The cold thaws on game time; the brittleness of the cold consumable goes with it.
+    if (e.chill !== undefined) { e.chill -= dt; if (e.chill <= 1e-9) { delete e.chill; delete e.brittle; } }
   }
   if (!canBeHurt(world)) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.
@@ -791,5 +816,7 @@ export function update(world: World, dt: number, realDt = dt): void {
   separate(world);
   updateBlasts(world, dt);
   if (world.status !== 'playing') return;
+  // Stage 2, step 3: burning enemies (the fire consumable) take their ticks after the blasts, before the touches.
+  updateBurning(world, dt);
   contactDamage(world, dt);
 }

@@ -12,26 +12,36 @@
  * (`sliceEvents.ts`). The turn-based run state (`forestRun.ts`) is not used: its HP, energy, consumables, tools and
  * talismans are numbers of the turn-based game.
  *
- * Step 1 has no consumables and no talismans: finds give nothing, a rest only heals, the merchant sells healing and
- * «Закалка», the gift offers only its resources and maximum HP buttons, a hard battle gives its heart (no talisman
- * choice). The trunk, the bosses, the ladder and the bar of openings are not in the slice.
+ * Step 3 (docs/realtime-slice.md, section 11, «Шаг 3») brings the consumables: the run carries them between arenas
+ * (`items`), opens them as the turn-based run does (`openItems`: a find, a craft, a purchase, the gift, an event), and
+ * banks energy for the next arena (`energy`: the gift, events). A find offers three consumables, a rest heals or crafts,
+ * the merchant sells consumables, the gift has its usual buttons. The trunk, the bosses, the ladder and the bar of
+ * openings are not in the slice.
  */
-import { mixSeed } from '../../game/items';
-import type { ResourceKind } from '../../game/forestTypes';
-import { emptyMaterials, RESOURCE_KINDS, RESOURCES } from '../../game/resources';
+import { ITEM_KINDS, mixSeed, rewardChoices } from '../../game/items';
+import type { ItemKind, ResourceKind } from '../../game/forestTypes';
+import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from '../../game/resources';
 import { FOREST_HARD_HEAL, type ForestMapNode, type ForestRunMap } from '../../game/run/forestMap';
 import { eventOutcomeIndex, eventResourceKinds, forestNodeSeed } from '../../game/run/forestRun';
 import { attemptChances, battleOption, chanceText, describeCost, describeOutcome, eventFits, eventOption, EVENT_RISK_MIN_HP, forestEvent, isSafeOption, mayLoseHp,
   optionAttempts, type EventCost, type EventOption, type ForestEvent } from '../../game/run/forestEvents';
 import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedForestMap } from '../../game/run/mapGenerator';
-import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, shopPayment, shopPrice, shopStock, stockTotal } from '../../game/run/merchant';
-import { GIFT_FULL_ROW, GIFT_MAX_HP, GIFT_STREAMS, rollGift, type GiftKind, type GiftOption, type RunGift } from '../../game/run/runGift';
+import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, SHOP_ITEMS, shopPayment, shopPrice, shopStock, stockTotal } from '../../game/run/merchant';
+import { GIFT_FULL_ROW, GIFT_STREAMS, giftNeedsPick, giftPicks, rollGift, type GiftKind, type GiftOption, type RunGift } from '../../game/run/runGift';
+import type { TalismanPool } from '../../game/run/talismanOffers';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
 import { arenaCandidates, arenaTitle, pickArena, RUN_ARENAS, runRow, TEMPORARY_FINAL_ARENAS } from './arenaPools';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
+import { ENERGY_MAX } from '../sim/chain';
+import { ITEM_TITLES } from '../sim/kit';
+import type { Loadout } from '../sim/kit';
 
-export const RT_RUN_VERSION = 1;
+/**
+ * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
+ * stock. A version 1 save (step 1–2) reads as no run: the slice is a prototype, its runs are short (decision of step 3).
+ */
+export const RT_RUN_VERSION = 2;
 
 /** What kind of arena a battle node plays: an ordinary or hard battle, the final arena of a boss, an event's reward battle. */
 export type RtBattleKind = 'battle' | 'hard' | 'final' | 'event';
@@ -46,17 +56,21 @@ export type RtRunPending =
    * temporary — `any` (no arena of the row exists yet: any of arenas 1–7) or `final` (arena 10 comes at step 4).
    */
   | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; standIn?: RtStandIn }
-  | { kind: 'rest'; nodeId: string }
-  /** A find: step 1 has no consumables, the find gives nothing (the screen says so). */
-  | { kind: 'find'; nodeId: string }
+  /** A rest: heal, or craft (`crafted` — the consumables made here so far; non-empty — the heal is gone). */
+  | { kind: 'rest'; nodeId: string; crafted: ItemKind[] }
+  /** A find: one of three consumables (the turn-based find: healing, a bomb, cold or fire by the node seed). */
+  | { kind: 'find'; nodeId: string; options: ItemKind[] }
   /** The entered event: `draw` — the index of the `events` draw it took on entering; `attempts` — escalation outcomes so far. */
   | { kind: 'event'; nodeId: string; draw: number; attempts?: number[] }
-  /** The merchant: what was bought at this visit (in order). */
-  | { kind: 'shop'; nodeId: string; bought: RtShopPurchase[] }
+  /** The merchant: the stock rolled on entering and what was bought at this visit (in order). */
+  | { kind: 'shop'; nodeId: string; stock: RtShopStock; bought: RtShopPurchase[] }
   /** The start gift waits for its choice (before the row-5 nodes). */
   | { kind: 'gift' };
 
-export interface RtShopPurchase { good: 'heal' | 'harden'; price: number; paid: Record<ResourceKind, number> }
+/** What one merchant visit offers besides healing and «Закалка»: consumables by slot (and, with talismans, one talisman). */
+export interface RtShopStock { items: ItemKind[]; talisman: string | null }
+export type RtShopGoodKind = 'heal' | 'harden' | 'item' | 'talisman';
+export interface RtShopPurchase { good: RtShopGoodKind; slot?: number; item?: ItemKind; talisman?: string; price: number; paid: Record<ResourceKind, number> }
 /** One arena of the run, won or lost: what the result screen shows. */
 export interface RtBattleRecord { nodeId: string; arena: string; won: boolean; kills: number; damage: number; time: number }
 /** The arena (or event) a node got when entered. */
@@ -79,6 +93,18 @@ export interface RtRunState {
   hp: number;
   maxHp: number;
   materials: Record<ResourceKind, number>;
+  /** Step 3: consumables carried between arenas (keys 1–4 on the arena). */
+  items: Record<ItemKind, number>;
+  /**
+   * Step 3: consumables open in the run, in opening order — as the turn-based run's `tools.items`: a find, a craft, a
+   * purchase, the gift or an event opens one. The merchant offers the open ones first; an elite drops an open one.
+   */
+  openItems: ItemKind[];
+  /**
+   * Step 3: energy banked for the next arena (0–7): the gift's «+2 энергии» and events give it, events may cost it. The
+   * next arena starts with it (an arena starts with 0 otherwise, section 6) and spends it.
+   */
+  energy: number;
   /** «Закалка» bought in the run (its price rises with each). */
   hardenings: number;
   gift?: RunGift;
@@ -93,6 +119,10 @@ export type RtRunEvent =
   | { type: 'battle-ready'; nodeId: string; arena: string }
   | { type: 'healed'; nodeId: string; amount: number }
   | { type: 'find-empty'; nodeId: string }
+  | { type: 'find-offered'; nodeId: string; options: ItemKind[] }
+  /** Consumables gained (a find, a craft, a purchase, the gift, an event, an arena's loot) and those it opened. */
+  | { type: 'items-gained'; items: ItemKind[]; opened: ItemKind[] }
+  | { type: 'rest-crafted'; nodeId: string; resource: ResourceKind; item: ItemKind }
   | { type: 'event-offered'; nodeId: string }
   | { type: 'event-attempt'; nodeId: string; option: string; attempt: number; outcome: number; text: string }
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
@@ -106,7 +136,11 @@ export type RtRunStep = { ok: true; run: RtRunState; events: RtRunEvent[] } | { 
 const fail = (reason: string): RtRunStep => ({ ok: false, reason });
 
 /** What an arena gives back to the run (main.ts reads it from the finished world). */
-export interface RtArenaOutcome { nodeId: string; won: boolean; hp: number; kills: number; damage: number; time: number }
+export interface RtArenaOutcome {
+  nodeId: string; won: boolean; hp: number; kills: number; damage: number; time: number;
+  /** Step 3: consumables in hand at the end (used ones gone); absent — as carried in. */
+  items?: Partial<Record<ItemKind, number>>;
+}
 
 // ---------- Creating a run, the map ----------
 
@@ -114,16 +148,44 @@ export interface RtArenaOutcome { nodeId: string; won: boolean; hp: number; kill
 export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean } = {}): RtRunState {
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(),
-    picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), hardenings: 0,
+    picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0,
     eventChoices: [], battles: [], pending: null, result: null,
   };
   if (options.gift) {
-    // The gift of the turn-based run, rolled the same way (nothing is taken yet: an empty talisman pool).
-    run.gift = rollGift(run.seed, options.gift, { taken: [], gone: [], abilities: [] });
+    // The gift of the turn-based run, rolled the same way (nothing is taken yet: the slice's starting talisman pool).
+    run.gift = rollGift(run.seed, options.gift, GIFT_POOL);
     for (const stream of GIFT_STREAMS[options.gift]) run.streams[stream]++;
     run.pending = { kind: 'gift' };
   }
   return run;
+}
+
+// ---------- Consumables (step 3) ----------
+
+export const emptyItemCounts = (): Record<ItemKind, number> => ({ frost: 0, bomb: 0, healing: 0, fire: 0 });
+/**
+ * The talisman pool the gift is rolled with: nothing taken; both abilities (the jump and the spin) are open from the start
+ * of a real-time run (section 6), so «Ловкие лапы» may come.
+ */
+export const GIFT_POOL: TalismanPool = { taken: [], gone: [], abilities: ['jump', 'spin'] };
+/** Consumables join the run: counted and opened (as a find, a craft, a purchase, the gift, an event of the turn-based run). */
+function gainItems(run: RtRunState, items: readonly ItemKind[], events: RtRunEvent[]): void {
+  if (!items.length) return;
+  const opened = [...new Set(items)].filter(item => !run.openItems.includes(item));
+  for (const item of items) run.items[item]++;
+  run.openItems.push(...opened);
+  events.push({ type: 'items-gained', items: [...items], opened });
+}
+/** The three consumables a find offers: the turn-based find of the node (slot 0, `rewardChoices` by the node seed). */
+export function rtFindOptions(run: Pick<RtRunState, 'seed'>, nodeId: string): ItemKind[] {
+  return rewardChoices(forestNodeSeed(run.seed, nodeId), 0).map(option => option.item);
+}
+/**
+ * What the arena of the open battle node starts with (step 3): the run's consumables and the energy it banked (up to 7).
+ * Computed from the run as it is, so a reload starts the arena again with the same loadout.
+ */
+export function rtArenaLoadout(run: RtRunState): Loadout {
+  return { items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy) };
 }
 
 const mapCache = new WeakMap<object, ForestRunMap>();
@@ -221,19 +283,19 @@ export function rtEnterNode(current: RtRunState, nodeId: string): RtRunStep {
     startArena(run, node, node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : 'battle', events);
     return { ok: true, run, events };
   }
-  if (node.type === 'rest') { run.pending = { kind: 'rest', nodeId }; return { ok: true, run, events }; }
-  if (node.type === 'find') { run.pending = { kind: 'find', nodeId }; events.push({ type: 'find-empty', nodeId }); return { ok: true, run, events }; }
+  if (node.type === 'rest') { run.pending = { kind: 'rest', nodeId, crafted: [] }; return { ok: true, run, events }; }
+  if (node.type === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
   if (node.type === 'shop') {
-    // The stock of the turn-based merchant is rolled from the `merchant` stream (spent, as there), so the streams of a
-    // run stay the same when consumables and talismans join the slice; step 1 sells only healing and «Закалка».
-    shopStock(draw(run, 'merchant', true), [], { taken: [], gone: [], abilities: [] });
-    run.pending = { kind: 'shop', nodeId, bought: [] };
+    // The stock of the turn-based merchant from the `merchant` stream (spent, as there): consumables of the open kinds
+    // first (none open — none; one open — the other slot a closed kind, buying it opens it).
+    const stock = shopStock(draw(run, 'merchant', true), run.openItems, GIFT_POOL);
+    run.pending = { kind: 'shop', nodeId, stock: { items: stock.items, talisman: null }, bought: [] };
     return { ok: true, run, events };
   }
   // An event node: one `events` draw picks the event (and is the base of its outcomes); none left — a find.
   const index = run.streams.events, base = draw(run, 'events', true), candidates = rtEventCandidates(run, node);
   if (!candidates.length) {
-    run.picks.push({ nodeId, find: true }); run.pending = { kind: 'find', nodeId }; events.push({ type: 'find-empty', nodeId });
+    run.picks.push({ nodeId, find: true }); offerFind(run, nodeId, events);
     return { ok: true, run, events };
   }
   const eventId = candidates[mixSeed(base, EVENT_PICK_SALT) % candidates.length];
@@ -241,6 +303,12 @@ export function rtEnterNode(current: RtRunState, nodeId: string): RtRunStep {
   run.pending = { kind: 'event', nodeId, draw: index };
   events.push({ type: 'event-offered', nodeId });
   return { ok: true, run, events };
+}
+
+function offerFind(run: RtRunState, nodeId: string, events: RtRunEvent[]): void {
+  const options = rtFindOptions(run, nodeId);
+  run.pending = { kind: 'find', nodeId, options };
+  events.push({ type: 'find-offered', nodeId, options: [...options] });
 }
 
 /** The node as the map shows it: an entered event node with its event's title, an event node that became a find as a find. */
@@ -269,6 +337,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     events.push({ type: 'run-lost', nodeId: pending.nodeId }); return { ok: true, run, events };
   }
   run.hp = Math.max(1, Math.min(run.maxHp, Math.floor(outcome.hp)));
+  // Step 3: the consumables left in hand go on; the banked energy was spent at the start of this arena.
+  if (outcome.items) for (const item of ITEM_KINDS) run.items[item] = Math.max(0, Math.floor(Number(outcome.items[item]) || 0));
+  run.energy = 0;
   const node = rtNode(run, pending.nodeId)!;
   if (pending.battle === 'hard') {
     const amount = Math.max(0, Math.min(rtHp(FOREST_HARD_HEAL), run.maxHp - run.hp));
@@ -288,65 +359,123 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
 
 /** HP the rest heals before the clamp: the node's heal (the turn-based FOREST_REST_HEAL, ×2.4). */
 export function rtRestHealValue(node: ForestMapNode): number { return node.content.kind === 'rest' ? rtHp(node.content.heal) : 0; }
-export interface RtRestView { nodeId: string; heal: { amount: number; value: number }; craft: { available: false; reason: string } }
+/** One recipe of the rest (the turn-based craft: CRAFT_COST of a resource make one consumable; a closed one opens). */
+export interface RtRecipeView { resource: ResourceKind; item: ItemKind; have: number; cost: number; available: boolean; opens: boolean }
+export interface RtRestView {
+  nodeId: string;
+  /** Healing: HP it restores now, its value before the clamp; gone once crafting began. */
+  heal: { amount: number; value: number; available: boolean };
+  recipes: RtRecipeView[];
+  crafted: ItemKind[];
+  /** Crafting was chosen: «К карте» completes the rest. */
+  canFinish: boolean;
+}
 export function rtRestView(run: RtRunState): RtRestView | null {
   const pending = run.pending, node = pending?.kind === 'rest' ? rtNode(run, pending.nodeId) : undefined;
   if (!node || pending?.kind !== 'rest') return null;
-  const value = rtRestHealValue(node);
-  return { nodeId: node.id, heal: { amount: Math.max(0, Math.min(value, run.maxHp - run.hp)), value },
-    craft: { available: false, reason: 'Крафт делает расходники — их в срезе пока нет (шаг 2).' } };
+  const value = rtRestHealValue(node), crafting = pending.crafted.length > 0;
+  return { nodeId: node.id, heal: { amount: Math.max(0, Math.min(value, run.maxHp - run.hp)), value, available: !crafting },
+    recipes: RESOURCE_KINDS.map(resource => {
+      const have = run.materials[resource], item = RESOURCES[resource].crafts;
+      return { resource, item, have, cost: CRAFT_COST, available: have >= CRAFT_COST, opens: !run.openItems.includes(item) };
+    }),
+    crafted: [...pending.crafted], canFinish: crafting };
 }
-/** Heal at the open rest (HP up to the maximum); the rest completes. */
+/** Heal at the open rest (HP up to the maximum); the rest completes. Not after crafting began. */
 export function rtRestHeal(current: RtRunState): RtRunStep {
   const view = rtRestView(current);
   if (!view) return fail('Сейчас нет привала.');
+  if (!view.heal.available) return fail('На этом привале выбран крафт: лечения не будет.');
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'healed', nodeId: view.nodeId, amount: view.heal.amount }];
   run.hp += view.heal.amount;
   completeNode(run, rtNode(run, view.nodeId)!, events); return { ok: true, run, events };
 }
-/** Leave the open find (step 1: nothing to take). */
-export function rtFindLeave(current: RtRunState): RtRunStep {
+/**
+ * Craft one recipe at the open rest (the turn-based craft): CRAFT_COST of `resource` make one consumable, any number of
+ * recipes while resources last; the first one chooses crafting and cancels the heal. A closed consumable opens.
+ */
+export function rtRestCraft(current: RtRunState, resource: ResourceKind): RtRunStep {
+  const view = rtRestView(current);
+  if (!view) return fail('Сейчас нет привала.');
+  const recipe = view.recipes.find(entry => entry.resource === resource);
+  if (!recipe) return fail('Такого рецепта нет.');
+  if (!recipe.available) return fail(`Нужно ${CRAFT_COST} «${RESOURCES[resource].label}», есть ${recipe.have}.`);
+  const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'rest' }>;
+  run.materials[resource] -= CRAFT_COST;
+  pending.crafted.push(recipe.item);
+  const events: RtRunEvent[] = [{ type: 'rest-crafted', nodeId: pending.nodeId, resource, item: recipe.item }];
+  gainItems(run, [recipe.item], events);
+  return { ok: true, run, events };
+}
+/** Leave the open rest after crafting: the rest completes with its crafted consumables. */
+export function rtRestFinish(current: RtRunState): RtRunStep {
+  const view = rtRestView(current);
+  if (!view) return fail('Сейчас нет привала.');
+  if (!view.canFinish) return fail('Сначала выбери: лечение или крафт.');
+  const run = structuredClone(current), events: RtRunEvent[] = [];
+  completeNode(run, rtNode(run, view.nodeId)!, events); return { ok: true, run, events };
+}
+/** Take one of the three consumables of the open find: +1, it opens for the run; the find completes. */
+export function rtChooseFind(current: RtRunState, item: ItemKind): RtRunStep {
   const pending = current.pending;
   if (pending?.kind !== 'find') return fail('Сейчас нет находки.');
+  if (!pending.options.includes(item)) return fail('Этого предмета нет среди находок.');
   const run = structuredClone(current), events: RtRunEvent[] = [];
+  gainItems(run, [item], events);
   completeNode(run, rtNode(run, pending.nodeId)!, events); return { ok: true, run, events };
 }
 
 // ---------- Merchant ----------
 
-export interface RtShopGood { id: 'heal' | 'harden'; label: string; text: string; price: number; fullPrice: number; available: boolean; reason: string }
-export interface RtShopView { nodeId: string; goods: RtShopGood[]; total: number; materials: Record<ResourceKind, number>; healed: number; hardenings: number; off: string }
-/** The open merchant: healing (+3 HP, at most SHOP_HEAL_LIMIT a visit, the price cut to the stock) and «Закалка» (+3 to the maximum and +3 HP). */
+/** A good on sale: `id` is what rtShopBuy takes (`item:<slot>`, `talisman`, `heal`, `harden`). */
+export interface RtShopGood {
+  id: string; good: RtShopGoodKind; label: string; text: string; price: number; fullPrice: number; available: boolean; reason: string;
+  item?: ItemKind; talisman?: string;
+  /** A consumable not open in the run yet: buying it opens it. */
+  opens?: boolean;
+  sold?: boolean;
+}
+export interface RtShopView { nodeId: string; goods: RtShopGood[]; total: number; materials: Record<ResourceKind, number>; healed: number; hardenings: number }
+/**
+ * The open merchant: the consumables of its stock (price SHOP_ITEM_PRICE each, one per slot), healing (+3 HP, at most
+ * SHOP_HEAL_LIMIT a visit, the price cut to the stock) and «Закалка» (+3 to the maximum and +3 HP).
+ */
 export function rtShopView(run: RtRunState): RtShopView | null {
   const pending = run.pending;
   if (pending?.kind !== 'shop') return null;
   const total = stockTotal(run.materials), healed = pending.bought.filter(entry => entry.good === 'heal').length;
+  const short = (price: number) => total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
+  const goods: RtShopGood[] = pending.stock.items.map((item, slot) => {
+    const price = shopPrice('item'), sold = pending.bought.some(entry => entry.good === 'item' && entry.slot === slot), reason = sold ? 'Куплено' : short(price);
+    return { id: `item:${slot}`, good: 'item', item, label: ITEM_TITLES[item], text: `расходник «${ITEM_TITLES[item]}»${run.openItems.includes(item) ? '' : ' (откроется в походе)'}`,
+      price, fullPrice: price, available: !reason, reason, sold, ...run.openItems.includes(item) ? {} : { opens: true } };
+  });
   const healPrice = shopPrice('heal'), heal = Math.min(healPrice, total);
   const healReason = healed >= SHOP_HEAL_LIMIT ? `Не больше ${SHOP_HEAL_LIMIT} лечений за визит` : run.hp >= run.maxHp ? 'Здоровье полное' : '';
   const hardenPrice = shopPrice('harden', { hardenings: run.hardenings }), hardenSold = pending.bought.some(entry => entry.good === 'harden');
-  const hardenReason = hardenSold ? `Не больше ${SHOP_HARDEN_LIMIT} за визит` : total < hardenPrice ? `Нужно ресурсов: ${hardenPrice}, есть ${total}` : '';
-  return { nodeId: pending.nodeId, total, materials: { ...run.materials }, healed, hardenings: run.hardenings,
-    off: 'Расходники и талисман торговца появятся вместе с ними (шаги 2–3).',
-    goods: [
-      { id: 'heal', label: 'Лечение', text: `+${rtHp(1)} HP (не выше максимума)`, price: heal, fullPrice: healPrice, available: !healReason, reason: healReason },
-      { id: 'harden', label: 'Закалка', text: `+${rtHp(1)} к максимуму HP и +${rtHp(1)} HP`, price: hardenPrice, fullPrice: hardenPrice, available: !hardenReason, reason: hardenReason },
-    ] };
+  const hardenReason = hardenSold ? `Не больше ${SHOP_HARDEN_LIMIT} за визит` : short(hardenPrice);
+  goods.push(
+    { id: 'heal', good: 'heal', label: 'Лечение', text: `+${rtHp(1)} HP (не выше максимума)`, price: heal, fullPrice: healPrice, available: !healReason, reason: healReason },
+    { id: 'harden', good: 'harden', label: 'Закалка', text: `+${rtHp(1)} к максимуму HP и +${rtHp(1)} HP`, price: hardenPrice, fullPrice: hardenPrice, available: !hardenReason, reason: hardenReason },
+  );
+  return { nodeId: pending.nodeId, total, materials: { ...run.materials }, healed, hardenings: run.hardenings, goods };
 }
 /** Buy a good at the open merchant, paid from the most numerous resources (merchant.ts, shopPayment). */
-export function rtShopBuy(current: RtRunState, id: 'heal' | 'harden'): RtRunStep {
+export function rtShopBuy(current: RtRunState, id: string): RtRunStep {
   const view = rtShopView(current);
   if (!view) return fail('Сейчас нет торговца.');
   const good = view.goods.find(entry => entry.id === id);
   if (!good) return fail('Такого товара нет.');
   if (!good.available) return fail(good.reason);
-  const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'shop' }>;
+  const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'shop' }>, events: RtRunEvent[] = [];
   const paid = shopPayment(run.materials, good.price);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
-  if (id === 'heal') run.hp = Math.min(run.maxHp, run.hp + rtHp(1));
-  else { run.maxHp += rtHp(1); run.hp += rtHp(1); run.hardenings++; }
-  const purchase: RtShopPurchase = { good: id, price: good.fullPrice, paid };
+  if (good.good === 'heal') run.hp = Math.min(run.maxHp, run.hp + rtHp(1));
+  if (good.good === 'harden') { run.maxHp += rtHp(1); run.hp += rtHp(1); run.hardenings++; }
+  if (good.item) gainItems(run, [good.item], events);
+  const purchase: RtShopPurchase = { good: good.good, ...good.item ? { slot: Number(id.split(':')[1]), item: good.item } : {}, ...good.talisman ? { talisman: good.talisman } : {}, price: good.fullPrice, paid };
   pending.bought.push(purchase);
-  return { ok: true, run, events: [{ type: 'shop-bought', nodeId: pending.nodeId, purchase: structuredClone(purchase) }] };
+  return { ok: true, run, events: [{ type: 'shop-bought', nodeId: pending.nodeId, purchase: structuredClone(purchase) }, ...events] };
 }
 export function rtShopLeave(current: RtRunState): RtRunStep {
   const pending = current.pending;
@@ -363,8 +492,12 @@ export function rtCost(cost: EventCost): EventCost {
   return { ...cost, ...cost.hp ? { hp: rtHp(cost.hp) } : {}, ...cost.maxHp ? { maxHp: rtHp(cost.maxHp) } : {} };
 }
 /** Why a (real-time) cost cannot be paid now ('' — it can). */
+const energyText = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: 1 });
 function costBlock(run: RtRunState, cost: EventCost): string {
   const total = stockTotal(run.materials);
+  // Step 3: energy is the energy banked for the next arena; consumables — those in hand.
+  if (cost.energy && run.energy < cost.energy) return `Нужна энергия: ${energyText(cost.energy)} (запас к следующей арене ${energyText(run.energy)})`;
+  for (const item of ITEM_KINDS) if ((cost.items?.[item] ?? 0) > run.items[item]) return `Нужен «${ITEM_TITLES[item]}»: ${cost.items![item]}, есть ${run.items[item]}`;
   if (cost.hp && run.hp - cost.hp < 1) return hpShort(cost.hp + 1, run.hp);
   if (cost.maxHp && run.maxHp - cost.maxHp < 1) return 'Максимум HP не может стать меньше 1';
   if (cost.resources && total < cost.resources) return `Нужно ресурсов: ${cost.resources}, есть ${total}`;
@@ -377,10 +510,11 @@ function payableCost(run: RtRunState, option: EventOption): { cost: EventCost | 
   const blocks = costs.map(cost => costBlock(run, cost)), index = blocks.findIndex(block => !block);
   return index >= 0 ? { cost: costs[index], block: '' } : { cost: null, block: costs.length === 1 ? blocks[0] : `Нужно: ${costs.map(describeCost).join(' или ')}` };
 }
-/** An outcome text in real-time numbers: HP and maximum HP ×2.4. */
+/** An outcome text in real-time numbers: HP and maximum HP ×2.4; energy goes to the next arena. */
 function outcomeText(outcome: EventOption['outcomes'][number], kinds: readonly ResourceKind[]): string {
   const effect = outcome.effect;
-  return describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {} } }, kinds);
+  const text = describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {} } }, kinds);
+  return effect.energy ? `${text} — к началу следующей арены` : text;
 }
 
 export interface RtEventOptionView {
@@ -440,6 +574,8 @@ export function rtChooseEventOption(current: RtRunState, optionId: string): RtRu
   if (option.battle) { startArena(run, { ...node, type: 'battle' }, 'event', events); return { ok: true, run, events }; }
   const cost = payableCost(run, option).cost;
   if (cost) {
+    if (cost.energy) run.energy -= cost.energy;
+    for (const item of ITEM_KINDS) if (cost.items?.[item]) run.items[item] -= cost.items[item]!;
     if (cost.hp) run.hp -= cost.hp;
     if (cost.maxHp) { run.maxHp -= cost.maxHp; run.hp = Math.min(run.hp, run.maxHp); }
     if (cost.resources || cost.materials) {
@@ -456,63 +592,107 @@ export function rtChooseEventOption(current: RtRunState, optionId: string): RtRu
   if (effect.maxHp) { run.maxHp += rtHp(effect.maxHp); run.hp += rtHp(effect.maxHp); }
   run.hp = Math.min(run.maxHp, Math.max(1, run.hp + rtHp(effect.hp ?? 0)));
   for (const kind of [...kinds.slice(0, effect.resources ?? 0), ...RESOURCE_KINDS.flatMap(kind => Array<ResourceKind>(effect.materials?.[kind] ?? 0).fill(kind))]) run.materials[kind]++;
+  // Step 3: energy is banked for the next arena (up to 7); a consumable joins the run and opens.
+  run.energy = Math.min(ENERGY_MAX, run.energy + (effect.energy ?? 0));
+  const gained: RtRunEvent[] = [];
+  gainItems(run, ITEM_KINDS.flatMap(item => Array<ItemKind>(effect.items?.[item] ?? 0).fill(item)), gained);
   const text = outcomeText(rolled, effect.resources ? kinds : []);
   if (option.escalation) {
     (pending.attempts ??= []).push(outcome);
-    return { ok: true, run, events: [{ type: 'event-attempt', nodeId, option: option.id, attempt: attempt + 1, outcome, text }] };
+    return { ok: true, run, events: [{ type: 'event-attempt', nodeId, option: option.id, attempt: attempt + 1, outcome, text }, ...gained] };
   }
   run.eventChoices.push({ nodeId, option: option.id, outcome, ...pending.attempts?.length ? { attempts: [...pending.attempts] } : {} });
-  events.push({ type: 'event-resolved', nodeId, option: option.id, outcome, text });
+  events.push({ type: 'event-resolved', nodeId, option: option.id, outcome, text }, ...gained);
   completeNode(run, node, events); return { ok: true, run, events };
 }
 
 // ---------- The start gift ----------
 
-/** Why a gift button has no analogue in the slice ('' — it has one): resources and maximum HP do. */
+/**
+ * Why a gift button has no analogue in the slice ('' — it has one). Step 3: consumables and the energy banked for the
+ * next arena have one; «тихий лес» (no anger before the goals) has none — there is no anger in real time.
+ */
 export function giftOptionGap(option: GiftOption): string {
   switch (option.kind) {
-    case 'resources': case 'max-hp': return '';
-    case 'pick-item': case 'items': return 'расходники';
-    case 'energy': return 'энергия похода';
+    case 'resources': case 'max-hp': case 'pick-item': case 'items': case 'energy': return '';
     case 'calm': return 'модификаторы боя';
     case 'deal': case 'oath': return 'талисманы';
   }
 }
 /**
- * The buttons of the gift in the slice: the rolled buttons of the turn-based gift (runGift.ts, the same draws), and —
- * a temporary rule until step 3 (design answer 08.10.2026: the full gift is never worse than the mini one) — a full gift
- * whose rolled buttons hold no «+1 к максимуму HP» gets the mini gift's button at the end. No draw is added.
+ * The buttons of the gift in the slice: the rolled buttons of the turn-based gift (runGift.ts, the same draws), and the
+ * full gift holds the mini one (design answer 08.10.2026 to step 1: the full gift is never worse than the mini one):
+ * a button of the mini gift of this seed that the full gift did not roll is added at its end. The mini gift draws the
+ * first value of `gift-item`, as the full one does, so no draw is added.
  */
-export function rtGiftOptions(gift: RunGift): GiftOption[] {
+export function rtGiftOptions(seed: number, gift: Pick<RunGift, 'kind' | 'options'>): GiftOption[] {
   const options = gift.options.map(option => structuredClone(option));
-  if (gift.kind === 'full' && !options.some(option => option.kind === 'max-hp')) options.push({ kind: 'max-hp', amount: GIFT_MAX_HP });
+  if (gift.kind !== 'full') return options;
+  const mini = rollGift(seed, 'mini', GIFT_POOL).options, has = new Set(options.map(option => JSON.stringify(option)));
+  for (const option of mini) if (!has.has(JSON.stringify(option))) options.push(structuredClone(option));
   return options;
 }
-export interface RtGiftView { kind: GiftKind; options: { index: number; option: GiftOption; available: boolean; reason: string }[]; canSkip: boolean }
+/** The gift is taken: a button chosen, and its own choice made if it has one. */
+export function rtGiftDone(seed: number, gift: RunGift | undefined): boolean {
+  if (!gift || gift.chosen === undefined) return false;
+  const option = rtGiftOptions(seed, gift)[gift.chosen];
+  return !!option && (!giftNeedsPick(option) || gift.pick !== undefined);
+}
+export interface RtGiftView {
+  kind: GiftKind;
+  options: { index: number; option: GiftOption; available: boolean; reason: string }[];
+  canSkip: boolean;
+  /** The button taken whose own choice is open (a consumable of three), or null. */
+  chosen: number | null;
+  picks: string[];
+}
 /** The open gift: its buttons (those without an analogue off); with none on, it can be passed by. */
 export function rtGiftView(run: RtRunState): RtGiftView | null {
   if (run.pending?.kind !== 'gift' || !run.gift) return null;
-  const options = rtGiftOptions(run.gift).map((option, index) => { const gap = giftOptionGap(option); return { index, option, available: !gap, reason: gap ? `Нет в срезе: ${gap}` : '' }; });
-  return { kind: run.gift.kind, options, canSkip: !options.some(entry => entry.available) };
+  const all = rtGiftOptions(run.seed, run.gift);
+  const options = all.map((option, index) => { const gap = giftOptionGap(option); return { index, option, available: !gap, reason: gap ? `Нет в срезе: ${gap}` : '' }; });
+  const chosen = run.gift.chosen ?? null;
+  return { kind: run.gift.kind, options, canSkip: !options.some(entry => entry.available), chosen, picks: chosen === null ? [] : giftPicks(all[chosen]).map(String) };
 }
-/** Take a gift button (`null` — pass the gift by, only when no button is on). */
+/** Apply a taken gift button (its own choice `pick` made) and close the gift. */
+function applyGift(run: RtRunState, option: GiftOption, pick: string | undefined, events: RtRunEvent[]): void {
+  if (option.kind === 'resources') for (const kind of option.resources) run.materials[kind]++;
+  if (option.kind === 'max-hp') { run.maxHp += rtHp(option.amount); run.hp += rtHp(option.amount); }
+  if (option.kind === 'pick-item') gainItems(run, [pick as ItemKind], events);
+  if (option.kind === 'items') gainItems(run, option.items, events);
+  if (option.kind === 'energy') run.energy = Math.min(ENERGY_MAX, run.energy + option.amount);
+  run.pending = null;
+}
+/**
+ * Take a gift button (`null` — pass the gift by, only when no button is on). A button with a choice of its own (a
+ * consumable of three) keeps the gift open for rtChooseGiftPick; any other is applied at once.
+ */
 export function rtChooseGift(current: RtRunState, index: number | null): RtRunStep {
   const view = rtGiftView(current);
   if (!view) return fail('Сейчас нет дара.');
-  const run = structuredClone(current);
+  if (view.chosen !== null) return fail('Дар уже выбран: осталось выбрать, что взять.');
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'gift-chosen', index }];
   if (index === null) {
     if (!view.canSkip) return fail('Дар нельзя пропустить: выбери кнопку.');
-  } else {
-    const entry = view.options[index];
-    if (!entry) return fail('Такого дара нет.');
-    if (!entry.available) return fail(entry.reason);
-    run.gift!.chosen = index;
-    const option = entry.option;
-    if (option.kind === 'resources') for (const kind of option.resources) run.materials[kind]++;
-    if (option.kind === 'max-hp') { run.maxHp += rtHp(option.amount); run.hp += rtHp(option.amount); }
+    run.pending = null;
+    return { ok: true, run, events };
   }
-  run.pending = null;
-  return { ok: true, run, events: [{ type: 'gift-chosen', index }] };
+  const entry = view.options[index];
+  if (!entry) return fail('Такого дара нет.');
+  if (!entry.available) return fail(entry.reason);
+  run.gift!.chosen = index;
+  if (!giftNeedsPick(entry.option)) applyGift(run, entry.option, undefined, events);
+  return { ok: true, run, events };
+}
+/** The own choice of the taken gift button: a consumable of three. */
+export function rtChooseGiftPick(current: RtRunState, pick: string): RtRunStep {
+  const view = rtGiftView(current);
+  if (!view || view.chosen === null) return fail('Сейчас нечего выбирать.');
+  if (!view.picks.includes(pick)) return fail('Этого варианта нет среди предложенных.');
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'gift-chosen', index: view.chosen }];
+  run.gift!.pick = pick as RunGift['pick'];
+  applyGift(run, view.options[view.chosen].option, pick, events);
+  return { ok: true, run, events };
 }
 
 // ---------- Views ----------
@@ -542,6 +722,10 @@ const isCount = (value: unknown): value is number => typeof value === 'number' &
 const isSeed = (value: unknown): value is number => isCount(value) && value <= 0xffffffff;
 const isMaterials = (value: unknown): value is Record<ResourceKind, number> =>
   isRecord(value) && Object.keys(value).length === RESOURCE_KINDS.length && RESOURCE_KINDS.every(kind => isCount(value[kind]));
+const isItem = (value: unknown): value is ItemKind => typeof value === 'string' && (ITEM_KINDS as readonly string[]).includes(value);
+const isItems = (value: unknown): value is Record<ItemKind, number> =>
+  isRecord(value) && Object.keys(value).length === ITEM_KINDS.length && ITEM_KINDS.every(kind => isCount(value[kind]));
+const isItemList = (value: unknown): value is ItemKind[] => Array.isArray(value) && value.every(isItem);
 /** Escalation outcomes of attempts: indexes of the escalation option's outcomes, at most its attempts. */
 function validAttempts(value: unknown, event: ForestEvent | undefined): boolean {
   if (value === undefined) return true;
@@ -563,6 +747,9 @@ export function parseRtRun(text: string | null): RtRunState | null {
   try { return checkRun(value); } catch { return null; }
 }
 
+/** A talisman the merchant's stock may hold (step 3: none yet — talismans come in the next block). */
+const validShopTalisman = (value: unknown): boolean => value === null;
+
 function checkRun(value: unknown): RtRunState | null {
   if (!isRecord(value) || value.version !== RT_RUN_VERSION || !isSeed(value.seed) || validateStoredMap(value.map).length) return null;
   if (value.seeded !== undefined && value.seeded !== true) return null;
@@ -579,13 +766,17 @@ function checkRun(value: unknown): RtRunState | null {
   }
   if (!isCount(run.maxHp) || run.maxHp < 1 || !isCount(run.hp) || run.hp > run.maxHp || (run.hp < 1 && run.result?.outcome !== 'defeat')) return null;
   if (!isMaterials(run.materials) || !isCount(run.hardenings)) return null;
-  // The gift: the roll of this seed and kind, a chosen button among the slice's buttons.
+  // Step 3: consumables in hand, the open ones (each once), the energy banked for the next arena (0–7).
+  if (!isItems(run.items) || !isItemList(run.openItems) || new Set(run.openItems).size !== run.openItems.length) return null;
+  if (typeof run.energy !== 'number' || !Number.isFinite(run.energy) || run.energy < 0 || run.energy > ENERGY_MAX) return null;
+  // The gift: the roll of this seed and kind, a chosen button among the slice's buttons, its own choice among its picks.
   if (run.gift !== undefined) {
     const gift = run.gift as unknown;
-    if (!isRecord(gift) || (gift.kind !== 'full' && gift.kind !== 'mini') || Object.keys(gift).some(key => key !== 'kind' && key !== 'options' && key !== 'chosen')) return null;
-    const rolled = rollGift(run.seed, gift.kind, { taken: [], gone: [], abilities: [] });
+    if (!isRecord(gift) || (gift.kind !== 'full' && gift.kind !== 'mini') || Object.keys(gift).some(key => !['kind', 'options', 'chosen', 'pick'].includes(key))) return null;
+    const rolled = rollGift(run.seed, gift.kind, GIFT_POOL), all = rtGiftOptions(run.seed, rolled);
     if (JSON.stringify(gift.options) !== JSON.stringify(rolled.options)) return null;
-    if (gift.chosen !== undefined && !(isCount(gift.chosen) && gift.chosen < rtGiftOptions(rolled).length && !giftOptionGap(rtGiftOptions(rolled)[gift.chosen]))) return null;
+    if (gift.chosen !== undefined && !(isCount(gift.chosen) && gift.chosen < all.length && !giftOptionGap(all[gift.chosen]))) return null;
+    if (gift.pick !== undefined && !(gift.chosen !== undefined && giftPicks(all[gift.chosen as number]).map(String).includes(gift.pick as string))) return null;
   }
   if (!Array.isArray(run.picks) || !Array.isArray(run.eventChoices) || !Array.isArray(run.battles)) return null;
   for (const pick of run.picks) {
@@ -609,7 +800,7 @@ function checkRun(value: unknown): RtRunState | null {
   if (pending === null) return { ...run, streams };
   // An ended run has nothing open.
   if (run.result !== null || !isRecord(pending)) return null;
-  if (pending.kind === 'gift') return run.gift && run.gift.chosen === undefined && !run.visited.length ? { ...run, streams } : null;
+  if (pending.kind === 'gift') return run.gift && !rtGiftDone(run.seed, run.gift) && !run.visited.length ? { ...run, streams } : null;
   if (!known(pending.nodeId)) return null;
   const next = run.currentNodeId === null ? map.starts(true) : map.node(run.currentNodeId)!.next;
   if (!next.includes(pending.nodeId)) return null;
@@ -622,12 +813,22 @@ function checkRun(value: unknown): RtRunState | null {
       if (pending.standIn !== undefined && pending.standIn !== 'any' && pending.standIn !== 'final') return null;
       break;
     }
-    case 'rest': if (node.type !== 'rest') return null; break;
-    case 'find': if (node.type !== 'find' && !(node.type === 'event' && pick?.find)) return null; break;
+    case 'rest': if (node.type !== 'rest' || !isItemList(pending.crafted)) return null; break;
+    case 'find': {
+      if (node.type !== 'find' && !(node.type === 'event' && pick?.find)) return null;
+      if (JSON.stringify(pending.options) !== JSON.stringify(rtFindOptions(run, pending.nodeId))) return null;
+      break;
+    }
     case 'event': if (!isCount(pending.draw) || !eventOf(pending.nodeId) || !validAttempts(pending.attempts, eventOf(pending.nodeId))) return null; break;
     case 'shop': {
-      if (node.type !== 'shop' || !Array.isArray(pending.bought)) return null;
-      if (!pending.bought.every(entry => isRecord(entry) && (entry.good === 'heal' || entry.good === 'harden') && isCount(entry.price) && isMaterials(entry.paid))) return null;
+      if (node.type !== 'shop' || !Array.isArray(pending.bought) || !isRecord(pending.stock)) return null;
+      const stock = pending.stock;
+      if (!isItemList(stock.items) || stock.items.length > SHOP_ITEMS || new Set(stock.items).size !== stock.items.length) return null;
+      if (stock.talisman !== null && !validShopTalisman(stock.talisman)) return null;
+      const items = stock.items as ItemKind[];
+      if (!pending.bought.every(entry => isRecord(entry) && isCount(entry.price) && isMaterials(entry.paid) && (entry.good === 'heal' || entry.good === 'harden'
+        || entry.good === 'item' && isCount(entry.slot) && entry.slot < items.length && entry.item === items[entry.slot]
+        || entry.good === 'talisman' && entry.talisman === stock.talisman))) return null;
       break;
     }
     default: return null;

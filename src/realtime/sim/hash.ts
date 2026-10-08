@@ -45,6 +45,8 @@ export function worldState(world: World): unknown {
     params: world.params,
     // Stage 2 of the transition: lit fuses (absent when there are none — worlds without them hash as before).
     ...world.blasts.length ? { blasts: world.blasts } : {},
+    // Stage 2, step 3: the kit of an arena with a loadout (absent before: those worlds hash as before).
+    ...world.kit ? { kit: world.kit } : {},
   };
 }
 
