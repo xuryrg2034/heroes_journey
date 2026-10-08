@@ -212,11 +212,17 @@ export interface World {
   energy: number;
 }
 
+/** HP the hero enters an arena with: a run carries its HP and maximum between arenas (stage 2 of the transition). */
+export interface HeroStart { hp: number; maxHp: number }
+
 /**
  * A fresh arena from its template. `seed` drives every random choice (rng.ts streams); `params` is the live object of
- * the debug panel in the browser (its changes come as journalled `param` commands, simulation.ts).
+ * the debug panel in the browser (its changes come as journalled `param` commands, simulation.ts). `start`: the hero's
+ * HP and maximum (a run arena; the HP is kept within 1…maximum); absent — the panel's `heroHp`, full.
  */
-export function createWorld(arena: ArenaTemplate, params: Params, seed = 1): World {
+export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, start?: HeroStart): World {
+  const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
+  const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   let nextId = 1;
   const objects: ArenaObject[] = [
     ...arena.buttons.map(b => ({ id: nextId++, kind: 'button' as const, x: b.x, y: b.y, pressed: false })),
@@ -226,7 +232,7 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1): Wor
     arena,
     params,
     rng: new RngStreams(seed),
-    hero: { x: arena.heroStart.x, y: arena.heroStart.y, hp: params.heroHp, maxHp: params.heroHp, invulnerable: 0, chainShield: 0, hurtFlash: 0, knockVx: 0, knockVy: 0, knock: 0 },
+    hero: { x: arena.heroStart.x, y: arena.heroStart.y, hp, maxHp, invulnerable: 0, chainShield: 0, hurtFlash: 0, knockVx: 0, knockVy: 0, knock: 0 },
     enemies: [],
     markers: [],
     queue: [],

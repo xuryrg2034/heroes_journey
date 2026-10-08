@@ -6,20 +6,25 @@
  * only turns keys, the mouse and the debug panel into journalled commands (`sim.command`), adds the real time of each
  * frame to the simulation's accumulator (`sim.advance` — whole fixed ticks of 1/60 s of game time), draws between
  * ticks while time runs slower (focus, finisher), and plays sounds and effects from the world's events.
+ *
+ * Stage 2, step 1 (docs/realtime-slice.md): the page plays a run — the map (runView.ts), arenas of its battle nodes with
+ * the run's HP; a victory returns to the map, a defeat ends the run. `?sandbox=1` keeps the prototype's arena menu, the
+ * debug panel and its hooks for development.
  */
 import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
-import { ARENAS } from '../sim/arenas';
+import { ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
 import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, planChain, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inWater, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
 import { Simulation } from '../sim/simulation';
-import { goalProgress, heroInCrowd, type EnemyKind, type World } from '../sim/world';
+import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadParams, saveParams } from './paramStorage';
 import { RealtimeRenderer, type RenderUi } from './render';
+import { RunView } from './runView';
 
 /** A frame adds at most this much real time (a stalled tab does not fast-forward the fight). */
 const MAX_FRAME = 0.05;
@@ -99,6 +104,8 @@ async function boot(): Promise<void> {
   const urlParams = new URLSearchParams(location.search);
   const seedText = urlParams.get('seed');
   const fixedSeed = seedText !== null && Number.isFinite(Number(seedText)) ? Number(seedText) >>> 0 : null;
+  /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. */
+  const sandbox = urlParams.get('sandbox') === '1';
 
   const stage = el('div', 'rt-stage');
   const hud = el('div', 'rt-hud');
@@ -121,7 +128,7 @@ async function boot(): Promise<void> {
   const scoreText = el('span', 'rt-score');
   scoreText.setAttribute('data-testid', 'score');
   hud.append(hpBar, hpText, focusBar, energyText, goalText, scoreText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка');
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза'));
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -151,8 +158,10 @@ async function boot(): Promise<void> {
   const resultStats = el('dl', 'rt-result-stats');
   const again = button('rt-again', 'Ещё раз (Enter)', 'result-again');
   const other = button('rt-other', 'Другая арена (M)', 'result-arenas');
+  // A run arena: the result leads back to the map (victory) or to the end of the run (defeat).
+  const toMap = button('rt-again', 'К карте', 'result-map');
   const resultButtons = el('div', 'rt-result-buttons');
-  resultButtons.append(again, other);
+  if (sandbox) resultButtons.append(again, other); else resultButtons.append(toMap);
   resultCard.append(resultTitle, resultStats, resultButtons);
   result.appendChild(resultCard);
 
@@ -162,7 +171,8 @@ async function boot(): Promise<void> {
   const hint = el('div', 'rt-hint');
   hint.setAttribute('data-testid', 'link-hint');
   hint.hidden = true;
-  host.append(stage, hud, help, pausedBadge, openButton, menuButton, jumpButton, hint, result, menu);
+  host.append(stage, hud, help, pausedBadge, jumpButton, hint, result);
+  if (sandbox) host.append(openButton, menuButton, menu);
 
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
@@ -173,19 +183,23 @@ async function boot(): Promise<void> {
   await renderer.init(stage);
 
   const motion = new Motion();
-  const newSimulation = (index: number, seed: number): Simulation => {
+  const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart): Simulation => {
     motion.clear();
-    return new Simulation({ arena: ARENAS[index], params, seed, record: true, beforeTick: world => motion.save(world) });
+    return new Simulation({ arena, params, seed, record: true, beforeTick: world => motion.save(world), ...hero ? { hero } : {} });
   };
 
   let arenaIndex = 0;
-  let sim = newSimulation(arenaIndex, nextSeed(fixedSeed));
+  let sim = newSimulation(ARENAS[arenaIndex], nextSeed(fixedSeed));
+  /** A run arena: the node and arena names for the HUD (null in the sandbox). */
+  let runLabel: string | null = null;
+  /** The run screen (map, node screens) covers the arena. */
+  let runScreenOpen = !sandbox;
   /** The world of the current fight (read-only here: changes go through `sim.command`). */
   const world = (): World => sim.world;
   const command = (cmd: Command) => sim.command(cmd);
   renderer.buildArena(world().arena);
   let paused = false;
-  let menuOpen = true;
+  let menuOpen = sandbox;
   /** Pointer and the jump aim (render-only); `dragging` — the button is held after a press on the arena. */
   const ui: RenderUi = { pointer: null, jumpMode: false };
   let dragging = false;
@@ -193,10 +207,10 @@ async function boot(): Promise<void> {
   let pointerClient: { x: number; y: number } | null = null;
   let hintReason: Refusal | null = null;
 
-  const start = (index: number, seed = nextSeed(fixedSeed)): void => {
-    arenaIndex = Math.max(0, Math.min(ARENAS.length - 1, index));
+  /** Starts a fight on `arena` (the sandbox's menu, or the arena of a run node with the run's HP). */
+  const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart): void => {
     renderer.resetEffects();
-    sim = newSimulation(arenaIndex, seed);
+    sim = newSimulation(arena, seed, hero);
     renderer.buildArena(world().arena);
     paused = false;
     menuOpen = false;
@@ -207,7 +221,11 @@ async function boot(): Promise<void> {
     ui.jumpMode = false;
     relayout();
   };
-  const restart = (seed?: number): void => start(arenaIndex, seed);
+  const start = (index: number, seed = nextSeed(fixedSeed)): void => {
+    arenaIndex = Math.max(0, Math.min(ARENAS.length - 1, index));
+    startArena(ARENAS[arenaIndex], seed);
+  };
+  const restart = (seed?: number): void => { if (sandbox) start(arenaIndex, seed); };
   const showMenu = (): void => {
     menuOpen = true;
     menu.hidden = false;
@@ -235,14 +253,38 @@ async function boot(): Promise<void> {
     onCompleteGoals() { command({ t: 'goals' }); },
     onPhasesChange(phases) { command({ t: 'phases', phases }); saveParams(params); },
   });
-  host.appendChild(panel.el);
+  if (sandbox) host.appendChild(panel.el);
   openButton.addEventListener('click', () => panel.setOpen(true));
   menuButton.addEventListener('click', () => { showMenu(); menuButton.blur(); });
   again.addEventListener('click', () => restart());
   other.addEventListener('click', showMenu);
   jumpButton.addEventListener('click', () => { ui.jumpMode = !ui.jumpMode && canJump(world()); jumpButton.blur(); });
 
-  const running = (): boolean => !paused && !menuOpen && world().status === 'playing';
+  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && world().status === 'playing';
+
+  // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
+  const runView = sandbox ? null : new RunView({
+    startArena(arenaId, seed, hero, label) {
+      runLabel = label;
+      startArena(arenaTemplate(arenaId), seed, hero);
+    },
+    onScreenChange(open) {
+      runScreenOpen = open;
+      if (open) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; result.hidden = true; }
+    },
+  }, fixedSeed);
+  /** The finished run arena goes back to the run: HP, kills, damage, time. */
+  const finishRunArena = (): void => {
+    const w = world();
+    if (!runView || w.status === 'playing') return;
+    runView.finishArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time });
+  };
+  toMap.addEventListener('click', finishRunArena);
+  if (runView) {
+    host.appendChild(runView.el);
+    // A reload in the middle of an arena: the run shows its open battle node, whose arena starts again from the start.
+    runView.open();
+  }
 
   // Mouse: press on an enemy (or a button / the open door) near the hero starts the chain, drag adds links, release strikes.
   const arenaPoint = (event: PointerEvent): Vec => {
@@ -295,7 +337,7 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', event => {
     const target = event.target as HTMLElement | null;
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
-    if (event.code === 'Backquote' || event.key === 'F1') { event.preventDefault(); panel.toggle(); return; }
+    if (event.code === 'Backquote' || event.key === 'F1') { event.preventDefault(); if (sandbox) panel.toggle(); return; }
     if (typing) return;
     if (WALK_KEYS.has(event.code)) {
       // A focused slider or select keeps its arrow keys.
@@ -303,8 +345,17 @@ async function boot(): Promise<void> {
       if (!control) { event.preventDefault(); held.add(event.code); }
       return;
     }
-    const digit = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(event.code);
     const ended = world().status !== 'playing';
+    if (!sandbox) {
+      // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
+      if (runScreenOpen) return;
+      if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
+      else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
+      else if (event.code === 'KeyP') paused = !paused;
+      else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
+      return;
+    }
+    const digit = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(event.code);
     if (digit >= 0 && (menuOpen || ended)) { start(digit % 3); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
@@ -323,9 +374,10 @@ async function boot(): Promise<void> {
     result.dataset.outcome = won ? 'victory' : 'defeat';
     resultCard.classList.toggle('rt-won', won);
     resultTitle.textContent = won ? 'Победа' : 'Поражение';
+    toMap.textContent = won ? 'К карте (Enter)' : 'Итог похода (Enter)';
     const goal = goalProgress(w);
     const rows: [string, string][] = [
-      ['Арена', w.arena.name],
+      ['Арена', runLabel && !sandbox ? runLabel : w.arena.name],
       ['Время', formatTime(end)],
       ['Убито', String(w.stats.kills)],
       ['Очки', String(w.stats.score)],
@@ -347,7 +399,7 @@ async function boot(): Promise<void> {
     fpsFrames++; fpsTime += realDt;
     if (fpsTime >= 0.5) { fps = fpsFrames / fpsTime; fpsFrames = 0; fpsTime = 0; }
     const workStart = performance.now();
-    const live = !paused && !menuOpen;
+    const live = !paused && !menuOpen && !runScreenOpen;
     const axis = (minus: string[], plus: string[]): number => (plus.some(k => held.has(k)) ? 1 : 0) - (minus.some(k => held.has(k)) ? 1 : 0);
     const walkX = axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']), walkY = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
     // Walking is a command too, journalled only when the held keys change.
@@ -408,9 +460,9 @@ async function boot(): Promise<void> {
         : plan.endsOnObject ? (w.objects.find(o => o.id === lastLink.link.id)?.kind === 'door' ? ' · в дверь' : ' · на кнопку') : '';
       chainText.textContent = `цепь ${w.chain.length} · сила ${plan.power}${tail}`;
     } else chainText.textContent = '';
-    infoText.textContent = `${w.arena.name} · врагов ${w.enemies.length} · ${w.stage === 'greed' ? `жадность ${formatTime(w.time - (w.greedStart ?? 0))}, фаза ${w.pressure.phaseIndex + 1}` : 'до целей'}`;
-    pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen;
-    if (w.status !== 'playing' && result.hidden && !menuOpen) showResult();
+    infoText.textContent = `${runLabel && !sandbox ? runLabel : w.arena.name} · врагов ${w.enemies.length} · ${w.stage === 'greed' ? `жадность ${formatTime(w.time - (w.greedStart ?? 0))}, фаза ${w.pressure.phaseIndex + 1}` : 'до целей'}`;
+    pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen || runScreenOpen;
+    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
@@ -436,7 +488,7 @@ async function boot(): Promise<void> {
 
   // `?arena=N` (1–3) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
-  if (fromUrl >= 1 && fromUrl <= ARENAS.length) start(fromUrl - 1);
+  if (sandbox && fromUrl >= 1 && fromUrl <= ARENAS.length) start(fromUrl - 1);
 
   // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
   // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.
@@ -513,6 +565,26 @@ async function boot(): Promise<void> {
     /** Hash of the current world (sim/hash.ts). */
     hash: () => sim.hash(),
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
+    /**
+     * The run (stage 2; null in the sandbox): its state, a new run, entering a node, and the test hook `winArena` — the
+     * goals done and the hero put on the open door through journalled commands (the next tick walks him in).
+     */
+    run: runView ? {
+      state: () => runView.state ? JSON.parse(JSON.stringify(runView.state)) : null,
+      newRun: (seed?: number) => { runView.newRun(seed); },
+      enter: (nodeId: string) => runView.enter(nodeId),
+      arenaOpen: () => runView.arenaOpen,
+      winArena: () => {
+        const w = world();
+        if (!runView.arenaOpen || w.status !== 'playing') return false;
+        command({ t: 'cancel' });
+        if (w.stage === 'goals') command({ t: 'goals' });
+        const door = w.objects.find(o => o.kind === 'door')!;
+        command({ t: 'teleport', x: door.x, y: door.y });
+        return true;
+      },
+      toMap: () => finishRunArena(),
+    } : null,
   };
 }
 

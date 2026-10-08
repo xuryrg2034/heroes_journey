@@ -51,6 +51,7 @@
     "analyze:map": "tsx scripts/map-stats.ts",
     "realtime:pockets": "tsx scripts/realtime-pockets.ts",
     "test:realtime-sim": "tsx src/realtime/sim/realtimeSim.spec.ts",
+    "test:realtime-run": "tsx src/realtime/run/rtRun.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",

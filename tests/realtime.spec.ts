@@ -29,7 +29,8 @@ const snapshot = (page: Page): Promise<Snapshot> => page.evaluate(() => (window 
 async function open(page: Page, errors: string[], arena: 1 | 2 | 3 | null = 1): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html');
+  // The arena menu and the debug panel live in the sandbox since stage 2 (the page itself plays a run).
+  await page.goto('/realtime.html?sandbox=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();
@@ -1434,7 +1435,7 @@ test('a fight recorded in the browser replays in Node to the same world hash (th
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html?seed=4242');
+  await page.goto('/realtime.html?sandbox=1&seed=4242');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);

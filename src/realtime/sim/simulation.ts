@@ -19,7 +19,7 @@ import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';
 import { hashWorld } from './hash';
 import { copyParams, type Params } from './params';
-import { createWorld, update, type World } from './world';
+import { createWorld, update, type HeroStart, type World } from './world';
 
 /** Game seconds per tick. */
 export const SIM_DT = 1 / 60;
@@ -33,7 +33,10 @@ export const JOURNAL_VERSION = 1;
 /** A command and the tick it was applied before. */
 export interface JournalEntry { tick: number; cmd: Command }
 
-/** Everything a replay needs: the seed, the arena, the values the run started with, the commands and the tick count. */
+/**
+ * Everything a replay needs: the seed, the arena, the values the run started with, the hero's starting HP (a run arena),
+ * the commands and the tick count. `hero` is optional: journals of stage 1 replay unchanged (version 1).
+ */
 export interface Journal {
   version: number;
   seed: number;
@@ -42,12 +45,19 @@ export interface Journal {
   /** Ticks run when the journal was taken; a replay runs exactly as many. */
   ticks: number;
   commands: JournalEntry[];
+  /**
+   * HP the hero entered the arena with (an arena of a run, stage 2 of the transition: the run's HP and maximum). Absent —
+   * the panel's `heroHp`, full (the sandbox and journals before stage 2).
+   */
+  hero?: HeroStart;
 }
 
 export interface SimulationOptions {
   arena: ArenaTemplate | string;
   params: Params;
   seed: number;
+  /** HP and maximum HP of the hero at the start (a run arena); absent — the panel's `heroHp`, full. */
+  hero?: HeroStart;
   /** Keep a journal of the commands (the browser always does; a replay does not need one). */
   record?: boolean;
   /** Called before every tick (the view saves positions to draw between ticks). */
@@ -68,10 +78,10 @@ export class Simulation {
   constructor(options: SimulationOptions) {
     const arena = typeof options.arena === 'string' ? arenaTemplate(options.arena) : options.arena;
     this.seed = options.seed >>> 0;
-    this.world = createWorld(arena, options.params, this.seed);
+    this.world = createWorld(arena, options.params, this.seed, options.hero);
     this.beforeTick = options.beforeTick;
     this.journal = options.record
-      ? { version: JOURNAL_VERSION, seed: this.seed, arena: arena.id, params: copyParams(options.params), ticks: 0, commands: [] }
+      ? { version: JOURNAL_VERSION, seed: this.seed, arena: arena.id, params: copyParams(options.params), ticks: 0, commands: [], ...options.hero ? { hero: { ...options.hero } } : {} }
       : null;
   }
 
@@ -149,7 +159,7 @@ export class Simulation {
  */
 export function replay(journal: Journal, onTick?: (sim: Simulation) => void): Simulation {
   if (journal.version !== JOURNAL_VERSION) throw new Error(`journal version ${journal.version}, expected ${JOURNAL_VERSION}`);
-  const sim = new Simulation({ arena: journal.arena, params: copyParams(journal.params), seed: journal.seed });
+  const sim = new Simulation({ arena: journal.arena, params: copyParams(journal.params), seed: journal.seed, ...journal.hero ? { hero: { ...journal.hero } } : {} });
   let next = 0;
   const applyUpTo = (tick: number): void => {
     while (next < journal.commands.length && journal.commands[next].tick <= tick) sim.command(journal.commands[next++].cmd);

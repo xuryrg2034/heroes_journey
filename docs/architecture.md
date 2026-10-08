@@ -151,7 +151,7 @@
 
 Устройства хранятся отдельно в `state.devices`, вне массива сущностей. Их клетки исключены из пополнения и обменов. Общее описание формата, источника урона и прогноза — в [devices.md](devices.md).
 
-## Модуль реального времени (`src/realtime`, этап 1 перехода, 08.10.2026)
+## Модуль реального времени (`src/realtime`, этапы 1–2 перехода, 08.10.2026)
 
 Бой в реальном времени — отдельный модуль ([realtime-prototype.md](realtime-prototype.md), раздел 12; план — [realtime-transition.md](realtime-transition.md)). Он не использует пошаговое ядро выше и не меняет его: из пошаговой игры вид только импортирует арт (`src/render/art.ts`, `characterAssets.ts`).
 
@@ -162,7 +162,10 @@
   - Ввод — команды (`commands.ts`), которые применяются между тактами и пишутся в журнал с номером такта. `replay(journal)` даёт тот же хэш мира (`hash.ts`).
 - **Данные.** Виды врагов — описание и поведение по id (`enemies/`, `registerEnemyKind`, `registerBehavior`), арены — шаблоны (`arenas.ts`, `registerArena`). Новые враг и арена добавляются регистрацией без правки `world.ts`, `chain.ts`, `spawn.ts`.
 - **Вид `src/realtime/view/`** — ввод, HUD, PixiJS, панель отладки, звук. Кадр платит реальное время за целые такты (`advance`; остаток — доля следующего такта) и рисует героя и врагов между двумя последними тактами.
-- **Проверки** — `npm run test:realtime-sim` (Node: повтор журнала, seed, такт, регистрация вида и арены, журнал из браузера), `npx playwright test -c playwright.realtime.config.ts`, `npm run realtime:pockets`.
+- **Поход `src/realtime/run/`** (этап 2, шаг 1, 08.10.2026; [realtime-slice.md](realtime-slice.md), раздел 11) — модель без DOM и симуляции. Карта — генератор пошаговой игры по seed похода; узел боя — арена из пула ряда похода (`arenaPools.ts`), seed арены — seed похода и id узла (`forestNodeSeed`); HP похода 12, числа HP пошаговой игры — через один коэффициент ×2,4 (`hpScale.ts`); события — каталог пошаговой игры без вариантов, у которых нет аналога в срезе (`sliceEvents.ts`). Из `src/game/run/*` берутся генератор, потоки, каталог событий, торговец и дар без правок; состояние пошагового похода (`forestRun.ts`) не используется. Сохранение — свои ключи (`ashen-oath-rt-run-v1`, `ashen-oath-rt-profile-v1`, `rtRunStorage.ts`).
+  - Арена узла стартует с HP похода: `new Simulation({ …, hero: { hp, maxHp } })`; поле `hero` пишется в журнал, и `replay` его повторяет. Итог арены возвращается в поход (`resolveArena`). Середина арены не сохраняется: после перезагрузки та же арена начинается с начала.
+  - Вид: `realtime.html` — поход (экран карты `view/runView.ts`), `realtime.html?sandbox=1` — песочница прототипа с меню арен и панелью.
+- **Проверки** — `npm run test:realtime-sim` (Node: повтор журнала, seed, такт, регистрация вида и арены, журнал из браузера), `npm run test:realtime-run` (Node: поход и его арены), `npx playwright test -c playwright.realtime.config.ts` (песочница и поход), `npm run realtime:pockets`.
 
 ## Мир и реестр компонентов (этап 1 переноса на ECS)
 
