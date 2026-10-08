@@ -104,8 +104,11 @@ async function boot(): Promise<void> {
   const urlParams = new URLSearchParams(location.search);
   const seedText = urlParams.get('seed');
   const fixedSeed = seedText !== null && Number.isFinite(Number(seedText)) ? Number(seedText) >>> 0 : null;
-  /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. */
-  const sandbox = urlParams.get('sandbox') === '1';
+  /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. `#sandbox` too: a published
+   * build passes a plain anchor to the page but not the query (design 08.10.2026). */
+  const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
+  // An anchor link does not reload the page: switching between the run and the sandbox by the anchor boots again.
+  window.addEventListener('hashchange', () => { if ((location.hash === '#sandbox') !== sandbox && urlParams.get('sandbox') !== '1') location.reload(); });
 
   const stage = el('div', 'rt-stage');
   const hud = el('div', 'rt-hud');

@@ -188,7 +188,7 @@ export class RunView {
   private startHtml(): string {
     return `<div class="rt-run-start rt-card"><h2>Поход</h2><p>Карта леса, арены в реальном времени, привалы, события и торговец. Поражение на арене заканчивает поход.</p>`
       + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>`
-      + `<p class="rt-run-note">Песочница арен прототипа с панелью отладки — <a href="?sandbox=1">realtime.html?sandbox=1</a>.</p></div>`;
+      + `<p class="rt-run-note">Песочница арен прототипа с панелью отладки — <a href="#sandbox">realtime.html#sandbox</a>.</p></div>`;
   }
 
   private headerHtml(run: RtRunState): string {
@@ -197,7 +197,7 @@ export class RunView {
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
       : `<button data-action="new-run" data-testid="run-reset">Новый поход</button>`;
     return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>`
-      + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}<a class="rt-run-sandbox" href="?sandbox=1">Песочница</a></header>`
+      + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '');
   }
 

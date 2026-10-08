@@ -169,3 +169,18 @@ test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the d
   await expect(page.getByTestId('run')).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__realtime.run)).toBeNull();
 });
+
+test('the sandbox opens by the anchor too: the run screen links to #sandbox, the link boots the sandbox (a published build keeps no query)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/realtime.html');
+  await expect(page.getByTestId('run-new')).toBeVisible();
+  await page.locator('a[href="#sandbox"]').first().click();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  await expect(page.getByTestId('open-panel')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime?.run)).toBeNull();
+  await page.reload();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime?.run)).toBeNull();
+  expect(errors).toEqual([]);
+});
