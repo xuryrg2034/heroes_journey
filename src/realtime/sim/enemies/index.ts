@@ -4,6 +4,8 @@
  * of world.ts, chain.ts or spawn.ts.
  */
 import './basic';
+// Stage 3a, step 3: the wolf's ring (П1).
+import './wolf';
 import './boar';
 // Stage 2 of the transition (docs/realtime-slice.md, section 4): the new enemies of the slice, one module each.
 import './shield';
@@ -12,7 +14,7 @@ import './sapper';
 import './porcupine';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
-export { packmates } from './basic';
+export { packmates, wolfHowl, wolfState, WOLF_RUSH } from './wolf';
 export { inShieldArc, shieldUp } from './shield';
 export { archerLine } from './archer';
 export { sapperFuse } from './sapper';

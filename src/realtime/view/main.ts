@@ -552,6 +552,7 @@ async function boot(): Promise<void> {
         if (ev.type === 'chainHit') audio.hit(ev.combo, ev.killed, params.soundVolume);
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
+        else if (ev.type === 'enemySignal') audio.signal(ev.signal, params.soundVolume);
       }
     }
     // Iteration 2.1: a used consumable counts for the run and ends the hint at once.

@@ -348,6 +348,58 @@ export interface Params {
   porcupineUpTime: number;
   porcupineDownTime: number;
   porcupineWarn: number;
+  // Wolf ring (stage 3a, step 3, docs/realtime-stage3.md, П1 and section 9)
+  /**
+   * The wolves' ring: they come up to `wolfRingRadius`, spread around the hero at equal angles; `wolfRushPack` of them in
+   * the ring howl `wolfHowl` s, then all rush at once along a line fixed at the end of the howl. Off — the wolf of the
+   * prototype (walks straight at the hero); journals without this value replay without the ring. A run forces it on.
+   */
+  wolfRing: boolean;
+  wolfRingRadius: number;
+  /** A wolf this much farther than the ring radius (and nearer) counts as one in the ring. */
+  wolfRingSlack: number;
+  /** A wolf within this many degrees of its slot stands at it; the pack howls once `wolfRushPack` of them do. */
+  wolfRingSettle: number;
+  wolfRushPack: number;
+  wolfHowl: number;
+  wolfRushSpeed: number;
+  wolfRushRange: number;
+  /** After the rush the wolf walks back out to the ring for this long. */
+  wolfBack: number;
+  /** A wolf alone in the ring (fewer than `wolfRushPack`) howls and rushes by itself after this long. */
+  wolfLoneWait: number;
+  // Lynx (stage 3a, step 4, П2)
+  lynxHp: number;
+  /** × the enemy speed of the pace. */
+  lynxSpeed: number;
+  /** It announces a leap when the hero is this close and in sight. */
+  lynxTrigger: number;
+  lynxWindup: number;
+  lynxRange: number;
+  lynxLeapTime: number;
+  lynxDamage: number;
+  lynxStun: number;
+  /** From the end of the stun to the next possible announcement. */
+  lynxCooldown: number;
+  lynxFirstDelay: number;
+  /** Mass in the leap (it shoves the crowd, as the charging boar). */
+  lynxMass: number;
+  // Shaman (stage 3a, step 4, П4)
+  shamanHp: number;
+  /** × the enemy speed of the pace. */
+  shamanSpeed: number;
+  shamanNear: number;
+  shamanFar: number;
+  /** One beam every … game seconds (the beam is part of it). */
+  shamanCooldown: number;
+  shamanBeam: number;
+  /** It picks a weak enemy (0 HP) within this radius of itself. */
+  shamanRadius: number;
+  /** HP the target gets at the end of the beam. */
+  shamanEmpowerHp: number;
+  /** The first beam after appearing: uniform in [min, max] (stream `behavior:shaman`), so shamans standing together do not beam at once. */
+  shamanFirstMin: number;
+  shamanFirstMax: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -550,6 +602,37 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   porcupineUpTime: 2.5,
   porcupineDownTime: 2,
   porcupineWarn: 0.5,
+  wolfRing: true,
+  wolfRingRadius: 3,
+  wolfRingSlack: 0.75,
+  wolfRingSettle: 15,
+  wolfRushPack: 3,
+  wolfHowl: 0.6,
+  wolfRushSpeed: 6,
+  wolfRushRange: 4,
+  wolfBack: 1,
+  wolfLoneWait: 4,
+  lynxHp: 0,
+  lynxSpeed: 1,
+  lynxTrigger: 3.5,
+  lynxWindup: 0.6,
+  lynxRange: 3,
+  lynxLeapTime: 0.25,
+  lynxDamage: 2,
+  lynxStun: 1,
+  lynxCooldown: 3,
+  lynxFirstDelay: 0.6,
+  lynxMass: 5,
+  shamanHp: 1,
+  shamanSpeed: 0.7,
+  shamanNear: 5,
+  shamanFar: 6,
+  shamanCooldown: 6,
+  shamanBeam: 1.5,
+  shamanRadius: 3,
+  shamanEmpowerHp: 2,
+  shamanFirstMin: 2,
+  shamanFirstMax: 6,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -757,6 +840,38 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('porcupineUpTime', 'Дикобраз', 'Иглы подняты', 0, 10, 0.1, 5, 'с', '0 — иглы никогда не поднимаются.'),
   n('porcupineDownTime', 'Дикобраз', 'Иглы опущены', 0, 10, 0.1, 5, 'с', '0 — иглы подняты всегда (как на шаге 2).'),
   n('porcupineWarn', 'Дикобраз', 'Иглы дрожат перед подъёмом', 0, 3, 0.1, 5, 'с'),
+  { kind: 'bool', key: 'wolfRing', group: 'Волк', label: 'Кольцо волков (этап 3а)', stage: 5,
+    hint: 'Волки подходят на радиус кольца, расходятся по кругу вокруг героя; когда в кольце достаточно волков — вой, затем все бросаются разом. Выключено — прежний волк (идёт прямо). В походе включено всегда.' },
+  n('wolfRingRadius', 'Волк', 'Кольцо: радиус', 1, 8, 0.25, 5, 'ед.'),
+  n('wolfRingSlack', 'Волк', 'Кольцо: допуск', 0, 3, 0.05, 5, 'ед.', 'Волк не дальше радиуса + допуска (и видит героя) — в кольце.'),
+  n('wolfRingSettle', 'Волк', 'Кольцо: волк на месте в пределах', 0, 180, 5, 5, '°', 'Стая воет, когда столько волков стоят на своих местах кольца (равные углы вокруг героя).'),
+  n('wolfRushPack', 'Волк', 'Бросок: волков в кольце', 1, 8, 1, 5),
+  n('wolfHowl', 'Волк', 'Вой перед броском', 0, 3, 0.05, 5, 'с', 'Круг вокруг героя. Направление броска фиксируется в конце воя.'),
+  n('wolfRushSpeed', 'Волк', 'Бросок: скорость', 0.5, 20, 0.25, 5, 'ед/с', 'По прямой; вода и терновник не замедляют, стена и обрыв останавливают.'),
+  n('wolfRushRange', 'Волк', 'Бросок: длина', 0.5, 10, 0.25, 5, 'ед.'),
+  n('wolfBack', 'Волк', 'После броска отходит к кольцу', 0, 5, 0.1, 5, 'с'),
+  n('wolfLoneWait', 'Волк', 'Одиночка бросается через', 0, 20, 0.5, 5, 'с', 'Волк в кольце, пока волков меньше, чем нужно для броска стаи.'),
+  n('lynxHp', 'Рысь', 'HP рыси', 0, 6, 1, 5),
+  n('lynxSpeed', 'Рысь', 'Скорость рыси', 0.1, 3, 0.05, 5, '×'),
+  n('lynxTrigger', 'Рысь', 'Замирает, если герой ближе', 0.5, 10, 0.25, 5, 'ед.'),
+  n('lynxWindup', 'Рысь', 'Замах (линия прыжка)', 0, 3, 0.05, 5, 'с'),
+  n('lynxRange', 'Рысь', 'Длина прыжка', 0.5, 10, 0.25, 5, 'ед.', 'Стена и обрыв обрезают прыжок; вода и терновник — нет.'),
+  n('lynxLeapTime', 'Рысь', 'Прыжок длится', 0.05, 2, 0.05, 5, 'с'),
+  n('lynxDamage', 'Рысь', 'Урон прыжка', 0, 6, 1, 5),
+  n('lynxStun', 'Рысь', 'Оглушена после прыжка', 0, 5, 0.1, 5, 'с', 'Оглушённая стоит и не ранит касанием.'),
+  n('lynxCooldown', 'Рысь', 'Перезарядка прыжка', 0, 10, 0.25, 5, 'с', 'От конца оглушения.'),
+  n('lynxFirstDelay', 'Рысь', 'Первый прыжок: через … после появления', 0, 10, 0.1, 5, 'с'),
+  n('lynxMass', 'Рысь', 'Масса в прыжке', 1, 20, 0.5, 5, '×'),
+  n('shamanHp', 'Шаман', 'HP шамана', 0, 6, 1, 5),
+  n('shamanSpeed', 'Шаман', 'Скорость шамана', 0.1, 3, 0.05, 5, '×'),
+  n('shamanNear', 'Шаман', 'Отходит, если герой ближе', 0, 12, 0.25, 5, 'ед.'),
+  n('shamanFar', 'Шаман', 'Подходит, если герой дальше', 0, 14, 0.25, 5, 'ед.'),
+  n('shamanCooldown', 'Шаман', 'Луч раз в', 0.5, 20, 0.25, 5, 'с', 'Луч входит в этот срок.'),
+  n('shamanBeam', 'Шаман', 'Луч длится', 0.1, 5, 0.1, 5, 'с', 'Убить шамана или цель до конца луча — отмена. Цепь луч не рубит.'),
+  n('shamanRadius', 'Шаман', 'Цель: слабый враг в радиусе', 0.5, 8, 0.25, 5, 'ед.'),
+  n('shamanEmpowerHp', 'Шаман', 'HP цели после луча', 1, 6, 1, 5),
+  n('shamanFirstMin', 'Шаман', 'Первый луч: от', 0, 20, 0.5, 5, 'с'),
+  n('shamanFirstMax', 'Шаман', 'Первый луч: до', 0, 20, 0.5, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;
@@ -798,9 +913,9 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * from its talisman, elites only from the arena template, the event and the random elites from run row 3): the sandbox
  * toggles «Якорь у героя», «Песочница: случайные элиты», the sandbox talisman and (iteration 2.1) «Песочница: щит следит
  * за героем». A run arena gets them off whatever the
- * saved panel holds.
+ * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off).
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

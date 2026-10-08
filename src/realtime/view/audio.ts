@@ -33,6 +33,14 @@ export class ChainAudio {
     this.tone(110, 'sine', 0.35, volume);
   }
 
+  /** Stage 3a: an enemy announces a threat — the wolves' howl (a low falling tone), the lynx's leap, the shaman's beam. */
+  signal(kind: string, volume: number): void {
+    if (kind === 'howl') this.tone(220, 'sawtooth', 0.45, volume * 0.35);
+    else if (kind === 'leap') this.tone(520, 'square', 0.12, volume * 0.35);
+    else if (kind === 'beam') this.tone(660, 'sine', 0.4, volume * 0.4);
+    else if (kind === 'empower') this.tone(180, 'triangle', 0.25, volume * 0.6);
+  }
+
   private tone(freq: number, type: OscillatorType, length: number, volume: number): void {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running' || volume <= 0) return;
