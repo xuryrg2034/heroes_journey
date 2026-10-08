@@ -7,6 +7,7 @@
  *
  * Speeds, HP and damage are functions of the live params: the debug-panel sliders keep working for the prototype kinds.
  */
+import type { Vec } from '../geometry';
 import { enemyBodyRadius, enemyDrawRadius, type Params } from '../params';
 import type { Enemy, World } from '../world';
 
@@ -21,6 +22,12 @@ export interface EnemyBehavior {
   step?(world: World, enemy: Enemy, dt: number): boolean;
   /** False — its touch does not hurt right now (the charging boar: its hit is the charge). */
   touches?(world: World, enemy: Enemy): boolean;
+  /**
+   * Stage 2 of the transition (docs/realtime-slice.md, section 4): false — the enemy cannot be the next link taken from
+   * this anchor (the previous link or the hero), the pointer hint says why (`guarded`: the shieldbearer's shield). The
+   * rule of reach and sight (chain.ts) runs first; any anchor that passes all of them takes the link.
+   */
+  canBeLinkedFrom?(world: World, enemy: Enemy, anchor: Vec): boolean;
 }
 
 export interface EnemyKindDef {

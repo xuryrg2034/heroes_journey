@@ -8,7 +8,7 @@
  * their sliders keep working as before.
  */
 import { type ArenaShape, type Vec, pond, tree, wall } from './geometry';
-import type { Phase } from './params';
+import { DEFAULT_PHASES, type Phase } from './params';
 
 /**
  * Goal of an arena (prototype stage 3, docs/realtime-prototype.md section 3): kill N (`killGoal`), press every button,
@@ -176,3 +176,50 @@ export const GLADE_ARENA: ArenaTemplate = registerArena({ ...KILL_ARENA, id: 'gl
 
 /** Marked enemies of the arena (the `marked` goal counts them). */
 export function markedCount(arena: ArenaTemplate): number { return arena.enemies.filter(e => e.marked).length; }
+
+// ---- Arenas of the slice (stage 2 of the transition, docs/realtime-slice.md, section 5) ----
+
+/**
+ * Pace and phase table of an arena that meets one new enemy: the panel's base pace and the default phase table, but no
+ * wolf packs and no boars — the newcomers are basic enemies and the arena's own kind by its share (assumption of step 2:
+ * section 5 names only the new kind for arenas 4–7). The phase table is the template's own: panel edits of the table do
+ * not reach these arenas.
+ */
+const ONE_KIND_PACE: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
+const oneKindPhases = (): Phase[] => DEFAULT_PHASES.map(phase => ({ ...phase, wolfShare: 0, boarShare: 0 }));
+
+/**
+ * Arena 4 «Стена щитов» (run rows 3–6): kill 25; a quarter of newcomers are shieldbearers. Short palisades at the corners
+ * and single trees leave the middle open: there is room to walk around a shield.
+ */
+export const SHIELD_ARENA: ArenaTemplate = registerArena({
+  id: 'shields',
+  name: 'Стена щитов',
+  summary: 'Убей цепью 25 врагов. Щитоносец не берётся спереди — обойди его. Дверь сверху.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 5 },
+  obstacles: [
+    wall(3, 2, 2, 1),
+    wall(11, 2, 2, 1),
+    wall(3, 7, 2, 1),
+    wall(11, 7, 2, 1),
+    tree(1.5, 5),
+    tree(14.5, 5),
+    tree(8, 8.6),
+    tree(5.8, 1.4),
+    tree(10.2, 1.4),
+  ],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [],
+  pace: ONE_KIND_PACE,
+  phases: oneKindPhases(),
+  killGoal: 25,
+  // Баланс: section 5 — shieldbearers 25% of newcomers.
+  newcomers: [{ kind: 'shield', share: 0.25 }],
+});
+
+/** Arenas 4–7 of the slice on the sandbox menu (keys 4–7), after the three prototype arenas. */
+export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA];

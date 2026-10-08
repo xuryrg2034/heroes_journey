@@ -24,7 +24,7 @@ import { NODE_TYPE_INFO } from '../../forestMapScreen';
 import { RT_NODE_TYPES } from '../view/nodeTypes';
 import { EVENT_RISK_MIN_HP } from '../../game/run/forestEvents';
 import { replay, Simulation } from '../sim/simulation';
-import { arenaCandidates, ARENA_POOLS, arenaTitle, runRow, TEMPORARY_FINAL_ARENAS } from './arenaPools';
+import { arenaCandidates, ARENA_POOLS, arenaTitle, runRow, STAND_IN_ARENAS, TEMPORARY_FINAL_ARENAS } from './arenaPools';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
   arenaPreview, arenaSeed, createRtRun, rtMapNodes, parseRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseGift, rtEnterNode, rtEventView, rtFindLeave, rtGiftView, rtNode,
@@ -82,11 +82,11 @@ const outcomeOf = (run: RtRunState, sim: Simulation) => {
 
 // ---- A bot that walks a whole run through the run's commands ----
 
-interface Walk { run: RtRunState; arenas: string[]; lateArenas: string[]; events: string[]; saves: number; replays: number; previews: number }
+interface Walk { run: RtRunState; arenas: string[]; standIns: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number }
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   let run = createRtRun(seed, { gift: options.gift ?? 'mini' });
-  const walk: Walk = { run, arenas: [], lateArenas: [], events: [], saves: 0, replays: 0, previews: 0 };
+  const walk: Walk = { run, arenas: [], standIns: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
     save();
@@ -104,7 +104,8 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
         const { arenas, any } = arenaCandidates(runRow(node.row));
         assert(arenas.includes(pending.arena), `${node.id}: arena ${pending.arena} outside the pool of run row ${runRow(node.row)}`);
         assert(!!pending.standIn === any, 'stand-in marked exactly when the row has no arena');
-        if (runRow(node.row) > 5) walk.lateArenas.push(pending.arena);
+        if (any) walk.standIns.push(pending.arena); else
+          walk.rowArenas.push([runRow(node.row), pending.arena]);
       }
       walk.arenas.push(pending.arena);
       const hpBefore = run.hp, sim = startArena(run);
@@ -229,16 +230,24 @@ check('whole runs walk to the boss: arenas of the row pools, seeds of the node, 
   console.log(`   ${won.length}/${walks.length} won, ${walks.reduce((sum, walk) => sum + walk.arenas.length, 0)} arenas, ${replays} replayed, ${saves} saves loaded back`);
 });
 
-check('rows without an arena yet play any of arenas 1–3 (not only the nearest); Поляна of the run kills 20', () => {
-  const late = new Set(walks.flatMap(walk => walk.lateArenas));
-  assert(late.size === 3, `run rows 6–9 play: ${[...late].join(', ')}`);
+check('arenas of the new enemies come on their rows; rows without an arena yet play any of arenas 1–3; Поляна of the run kills 20', () => {
+  // Step 2: arenas 4–7 stand on their rows (section 5); only rows no arena covers (run row 9 until arena 8) play a stand-in.
+  const standIns = new Set(walks.flatMap(walk => walk.standIns));
+  assert(standIns.size === STAND_IN_ARENAS.length && [...standIns].every(arena => STAND_IN_ARENAS.includes(arena)), `stand-in rows play: ${[...standIns].join(', ')}`);
+  for (let row = 1; row <= 6; row++) assert(!arenaCandidates(row).any, `run row ${row} has arenas of its own`);
+  const rowsOf = (arena: string) => new Set(walks.flatMap(walk => walk.rowArenas.filter(([, a]) => a === arena).map(([row]) => row)));
+  for (const entry of ARENA_POOLS) {
+    const rows = rowsOf(entry.arena);
+    assert(rows.size > 0 && [...rows].every(row => row >= entry.rows[0] && row <= entry.rows[1]), `${entry.arena} on rows ${[...rows].join(', ')} (pool ${entry.rows.join('–')})`);
+  }
+  console.log(`   stand-ins: ${[...standIns].join(', ')}; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}`);
   const glade = new Simulation({ arena: 'glade', params: defaultParams(), seed: 5 });
   assert(goalProgress(glade.world).total === 20, 'Поляна of the run: kill 20');
   assert(goalProgress(new Simulation({ arena: 'kills', params: defaultParams(), seed: 5 }).world).total === defaultParams().killGoal, 'the sandbox arena keeps the slider');
   console.log(`   ${walks.reduce((sum, walk) => sum + walk.previews, 0)} previews equal the arena played`);
 });
 
-check('different seeds give different arena sequences; every arena of step 1 comes', () => {
+check('different seeds give different arena sequences; every arena of the pools comes', () => {
   // Three arenas and short pools (run rows 6–9 have only Логово at step 1): coincidences between runs are allowed, a
   // fixed sequence is not.
   const sequences = new Set(walks.map(walk => walk.arenas.join(',')));

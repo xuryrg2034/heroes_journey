@@ -61,7 +61,17 @@ export interface Enemy {
   headY: number;
   /** Own numbers of a registered behaviour (new kinds keep their state here; part of the world hash). */
   vars: Record<string, number>;
+  /**
+   * Game seconds left of the cold (stage 2 of the transition, docs/realtime-slice.md, section 4: «холод выключает
+   * механику»). A frozen enemy stands, does not touch and its behaviour's mechanic is off (`enemyFrozen`); the field is
+   * absent when the enemy is not frozen (worlds without cold hash as before). Set only by the test command `chill` until
+   * the cold consumable (step 3).
+   */
+  chill?: number;
 }
+
+/** The enemy is frozen now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off. */
+export function enemyFrozen(e: Enemy): boolean { return (e.chill ?? 0) > 0; }
 
 /**
  * Button or door: a chain link of any color that gives no power and takes no damage (design answer 5),
@@ -432,6 +442,8 @@ export function knockHero(world: World, dirX: number, dirY: number, distance: nu
 function moveEnemies(world: World, dt: number): void {
   const { hero, params, arena, flow } = world;
   for (const e of world.enemies) {
+    // A frozen enemy stands: no own step (its timers wait), no walk.
+    if (enemyFrozen(e)) continue;
     // A behaviour with its own movement (the boar's windup, charge and rest) skips the common walk this step.
     const own = behaviorOf(e).step;
     if (own && own(world, e, dt)) continue;
@@ -564,6 +576,7 @@ function contactDamage(world: World, dt: number): void {
     e.brake = Math.max(0, e.brake - dt);
     e.strikeFlash = Math.max(0, e.strikeFlash - dt);
     e.age += dt;
+    if (e.chill !== undefined) { e.chill -= dt; if (e.chill <= 0) delete e.chill; }
   }
   if (!canBeHurt(world)) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.
@@ -571,7 +584,7 @@ function contactDamage(world: World, dt: number): void {
   // A behaviour may say its touch does not hurt now: the charging boar's hit is the charge (enemies/boar.ts).
   let striker: Enemy | null = null, damage = 0;
   for (const e of world.enemies) {
-    if (dist(e, hero) > touchDistanceOf(params, e) + CONTACT_SLACK) continue;
+    if (dist(e, hero) > touchDistanceOf(params, e) + CONTACT_SLACK || enemyFrozen(e)) continue;
     const touches = behaviorOf(e).touches;
     if (touches && !touches(world, e)) continue;
     const dmg = touchDamage(world, e);

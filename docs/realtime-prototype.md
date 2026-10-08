@@ -819,7 +819,7 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 | `jump {x, y}` | Прыжок в точку |
 | `param {key, value}`, `phases {phases}` | Панель отладки, хук `setParam` |
 | `goals`, `burst {count}` | Кнопки панели «Цели выполнены», «+20 врагов» |
-| `clear`, `place`, `teleport`, `energy`, `crystal` | Тестовые хуки `__realtime` |
+| `clear`, `place`, `teleport`, `energy`, `crystal`, `chill` | Тестовые хуки `__realtime` (`chill` — заморозка врага, этап 2) |
 
 - **Формат.** Журнал — JSON: `{ version: 1, seed, arena, params, ticks, commands: [{ tick, cmd }] }`. Здесь `params` — значения на старте боя, `ticks` — сколько тактов прошло.
 - **Повтор.** `replay(journal)` создаёт бой заново, проигрывает ровно `ticks` тактов и применяет команды по номерам. В браузере журнал отдаёт `__realtime.journal()`, хэш мира — `__realtime.hash()`.
@@ -842,14 +842,32 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 - **Поведение** (`EnemyBehavior`) — модуль:
   - `onSpawn` — при появлении (первая задержка кабана);
   - `step` — своё движение в такте; `true` — общая ходьба к герою в этом такте пропускается (объявление, рывок, отдых кабана);
-  - `touches` — ранит ли касание сейчас (кабан на рывке ранит рывком, а не касанием).
+  - `touches` — ранит ли касание сейчас (кабан на рывке ранит рывком, а не касанием);
+  - крючки этапа 2 — ниже, «Крючки ядра этапа 2».
 - **Свои данные** нового поведения хранятся в `enemy.vars` и входят в хэш.
 - **Виды прототипа** перенесены без изменения поведения:
   - `basic` — обычный враг;
   - `wolf` — стая;
   - `reaper` — Жнец, не берётся цепью;
   - `boar` — кабан, рисунок ×1,15, масса на рывке, цикл рывка в `enemies/boar.ts`.
+- **Виды среза** (этап 2, шаг 2, [realtime-slice.md](realtime-slice.md), раздел 11, «Шаг 2»): `shield` — щитоносец (`enemies/shield.ts`).
 - **Как добавить врага.** Файл в `sim/enemies/` вызывает `registerBehavior({ id, step, … })` и `registerEnemyKind({ id, behavior, … })`, а `sim/enemies/index.ts` его импортирует. Враг появляется на арене из `enemies` или `newcomers` шаблона, а также командой `place`. `world.ts`, `chain.ts` и `spawn.ts` не правятся. Рисунок — в `view/render.ts`; без своего рисунка новый вид — круг цвета со знаком. Пример — тестовый вид `test-stone` в `realtimeSim.spec.ts`: своё движение, тело ×1,5, урон 2, масса 4.
+- **Пример на враге среза — щитоносец** (`enemies/shield.ts`, около 60 строк):
+  1. Числа — поля `Params` с группой панели «Щитоносец» (`params.ts`: `Params`, `DEFAULT_PARAMS`, `PARAM_DEFS`).
+  2. `registerBehavior({ id: 'shield', onSpawn, step, canBeLinkedFrom })`: `onSpawn` ставит `vars.facing` к герою; `step` поворачивает щит к герою не быстрее `shieldTurn` и возвращает `false` (дальше общая ходьба); `canBeLinkedFrom` запрещает якорь в дуге.
+  3. `registerEnemyKind({ id: 'shield', behavior: 'shield', hp: p => p.shieldHp, speed: w => w.pressure.enemySpeed × shieldSpeed, … })`.
+  4. Импорт в `enemies/index.ts`; рисунок сигнала — `drawSignals` в `view/render.ts`.
+  5. Арена — `registerArena` с `newcomers: [{ kind: 'shield', share: 0.25 }]` (`arenas.ts`, `SHIELD_ARENA`).
+  6. Тест — команды журнала (`place`, `teleport`, `walk`, `begin`, `drag`, `release`, `chill`): `sliceEnemies.spec.ts`.
+
+### Крючки ядра этапа 2 (шаг 2, 08.10.2026)
+
+Новые враги среза не уложились в прежние `onSpawn`, `step`, `touches`. Ядро получило общие крючки — по одному на правило, без имён видов в ядре. Враги прототипа их не используют; их поведение и хэш мира без новых врагов не изменились.
+
+| Крючок | Где | Что делает | Кто использует |
+| --- | --- | --- | --- |
+| `EnemyBehavior.canBeLinkedFrom(world, enemy, anchor)` | `chain.ts`, `reachRefusal` | `false` — звено нельзя взять от этого якоря; после дальности и видимости; отказ `guarded`, подсказка «щит» | щитоносец |
+| `Enemy.chill`, `enemyFrozen(e)`, команда `chill` | `world.ts`, `commands.ts` | Холод: замёрзший враг стоит, не ранит касанием, его `step` не идёт; механику поведения выключает само поведение по `enemyFrozen`. Поле есть только у замёрзшего | все враги среза; расходник — шаг 3 |
 
 ### Шаблоны арен (`sim/arenas.ts`)
 

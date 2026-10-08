@@ -12,7 +12,9 @@
  * Uses the real simulation step `update` of src/realtime/sim/world.ts with fixed seeds (the crowd runs use seeds 1–3,
  * so the report repeats exactly); the last table times a whole tick (`Simulation.tick`: the hero step and `update`).
  */
-import { ARENAS, markedCount, type ArenaLayout } from '../src/realtime/sim/arenas';
+import { ARENAS as PROTOTYPE_ARENAS, SLICE_ARENAS, markedCount, type ArenaLayout } from '../src/realtime/sim/arenas';
+// The prototype arenas 1–3 and the slice arenas 4–7 (stage 2 of the transition, step 2).
+const ARENAS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS];
 import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';

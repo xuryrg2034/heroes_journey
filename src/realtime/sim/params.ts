@@ -222,13 +222,21 @@ export interface Params {
   boarChargeSpeed: number;
   boarRest: number;
   boarCooldown: number;
+  // Shieldbearer (stage 2 of the transition, docs/realtime-slice.md, section 4)
+  shieldHp: number;
+  /** Width of the shield arc in front of it, degrees: a link whose anchor stands in it cannot be taken. */
+  shieldArc: number;
+  /** How fast the shield turns to the hero, degrees per game second. */
+  shieldTurn: number;
+  /** Walking speed multiplier of the shieldbearer. */
+  shieldSpeed: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
 export type ParamKey = keyof Params;
 
-/** Stage that introduced the value: 1–3 — stages of the first build, 4 — iteration 2. */
-interface BaseDef { key: ScalarKey; label: string; group: string; stage: 1 | 2 | 3 | 4; hint?: string }
+/** Stage that introduced the value: 1–3 — stages of the first build, 4 — iteration 2, 5 — stage 2 of the transition (the slice). */
+interface BaseDef { key: ScalarKey; label: string; group: string; stage: 1 | 2 | 3 | 4 | 5; hint?: string }
 export interface NumberDef extends BaseDef { kind: 'number'; min: number; max: number; step: number; unit?: string }
 export interface BoolDef extends BaseDef { kind: 'bool' }
 export interface ChoiceDef extends BaseDef { kind: 'choice'; options: readonly { value: string; label: string }[] }
@@ -358,9 +366,13 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   boarChargeSpeed: 8,
   boarRest: 0.8,
   boarCooldown: 3,
+  shieldHp: 1,
+  shieldArc: 120,
+  shieldTurn: 90,
+  shieldSpeed: 0.8,
 });
 
-const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 = 1, unit?: string, hint?: string): NumberDef =>
+const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
   ({ kind: 'number', key, group, label, min, max, step, stage, unit, hint });
 
 export const PARAM_DEFS: readonly ParamDef[] = [
@@ -502,6 +514,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('wolfPackRadius', 'Волк', 'Радиус стаи', 0.5, 6, 0.25, 3, 'ед.', 'Волки ближе этого радиуса друг к другу — стая: линии между ними.'),
   n('wolfPackBonus', 'Волк', 'Урон за волка рядом', 0, 3, 1, 3, '', 'Удар волка: урон касания + столько за каждого другого волка в радиусе стаи.'),
   { kind: 'bool', key: 'wolfPackMono', group: 'Волк', label: 'Стая одного цвета', stage: 3, hint: 'Выключено: цвет волков в стае — как у групп (переключатель «Цвет группы»).' },
+  n('shieldHp', 'Щитоносец', 'HP щитоносца', 0, 6, 1, 5),
+  n('shieldArc', 'Щитоносец', 'Дуга щита', 0, 360, 5, 5, '°', 'Звено нельзя взять, если якорь (предыдущее звено или герой) стоит в этой дуге перед щитоносцем.'),
+  n('shieldTurn', 'Щитоносец', 'Поворот щита к герою', 0, 720, 5, 5, '°/с', 'Герой (4 ед/с) обходит щитоносца быстрее, чем поворачивается щит.'),
+  n('shieldSpeed', 'Щитоносец', 'Скорость щитоносца', 0.1, 2, 0.05, 5, '×'),
 ];
 
 const MAX_PHASES = 8;

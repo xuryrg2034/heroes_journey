@@ -21,7 +21,7 @@
  * `beginChain`, `dragChain`, `dragChainAlong`, `releaseChain`, `cancelChain`, `jump`. The crystal drop point reads the
  * seeded `crystal` stream; `stepHero` takes the real seconds of the tick (`SIM_DT ÷ timeScale`).
  */
-import { artRadiusOf, kindOf } from './enemies/kinds';
+import { artRadiusOf, behaviorOf, kindOf } from './enemies/kinds';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type HeroMove, type World } from './world';
@@ -150,7 +150,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'color' | 'far' | 'sight';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'color' | 'far' | 'sight' | 'guarded';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -162,23 +162,29 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   color: 'не тот цвет',
   far: 'далеко',
   sight: 'нет видимости',
+  // Stage 2 of the transition: the behaviour refuses the anchor (`canBeLinkedFrom` — the shieldbearer's shield faces it).
+  guarded: 'щит',
 };
 
 /**
  * Within R of an anchor and in sight from that same anchor (toggle): the reach rule shared by enemies and objects.
  * With «R до края тела» R reaches the edge of the target (`edge` — its drawn radius), not its center. With «Якорь у
  * героя» any of the two anchors will do. Sight: a thin ray; obstacles shrink by `sightSlack` so a ray grazing a trunk
- * or a wall corner still sees. Null — reachable; `far` — no anchor is close enough; `sight` — close, but blocked.
+ * or a wall corner still sees. `guard` (stage 2 of the transition): the target's own say about the anchor (a behaviour's
+ * `canBeLinkedFrom`). Null — reachable; `far` — no anchor is close enough; `sight` — close, but blocked; `guarded` —
+ * close and seen, but the target refuses every such anchor.
  */
-function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
+function reachRefusal(world: World, target: Vec, edge: number, guard?: (anchor: Vec) => boolean): Refusal | null {
   const p = world.params, reach = p.linkRadius + (p.linkToEdge ? edge : 0);
-  let near = false;
+  let near = false, guarded = false;
   for (const anchor of chainAnchors(world)) {
     if (dist(anchor, target) > reach) continue;
     near = true;
-    if (!p.lineOfSight || lineOfSight(anchor, target, world.arena, -p.sightSlack)) return null;
+    if (p.lineOfSight && !lineOfSight(anchor, target, world.arena, -p.sightSlack)) continue;
+    if (guard && !guard(anchor)) { guarded = true; continue; }
+    return null;
   }
-  return near ? 'sight' : 'far';
+  return guarded ? 'guarded' : near ? 'sight' : 'far';
 }
 
 /**
@@ -194,7 +200,8 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (plan.endsOnObject) return 'afterObject';
   const color = chainColor(world);
   if (color !== null && enemy.color !== color) return 'color';
-  return reachRefusal(world, enemy, artRadiusOf(world.params, enemy.kind));
+  const guard = behaviorOf(enemy).canBeLinkedFrom;
+  return reachRefusal(world, enemy, artRadiusOf(world.params, enemy.kind), guard && (anchor => guard(world, enemy, anchor)));
 }
 
 export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(world)): boolean {

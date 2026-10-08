@@ -43,7 +43,12 @@ export type Command =
   /** Test setup: the jump energy. */
   | { t: 'energy'; value: number }
   /** Test setup: a crystal worth `value` kills at a point. */
-  | { t: 'crystal'; x: number; y: number; value: number };
+  | { t: 'crystal'; x: number; y: number; value: number }
+  /**
+   * Test setup (stage 2 of the transition): the enemy `id` frozen for `seconds` of game time — the common cold state
+   * (`Enemy.chill`) the cold consumable of step 3 will set; 0 thaws it.
+   */
+  | { t: 'chill'; id: number; seconds: number };
 
 /** What a command returned: true/false for the chain and the jump, the new id for `place` and `crystal`. */
 export type CommandResult = boolean | number | void;
@@ -84,6 +89,12 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       const id = world.nextId++;
       world.objects.push({ id, kind: 'crystal', x: cmd.x, y: cmd.y, pressed: false, value: cmd.value, born: world.time });
       return id;
+    }
+    case 'chill': {
+      const e = world.enemies.find(x => x.id === cmd.id);
+      if (!e) return false;
+      if (cmd.seconds > 0) e.chill = cmd.seconds; else delete e.chill;
+      return true;
     }
   }
 }

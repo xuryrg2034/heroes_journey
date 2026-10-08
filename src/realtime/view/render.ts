@@ -5,13 +5,15 @@
  * which keeps 60+ enemies cheap: each disc is a sprite of one pre-rendered texture per color.
  * Stage 3: wolf ears and pack lines, boar tusks with the charge lane (threat color, hatched)
  * and «!», target reticles of marked enemies, buttons and the door.
+ * Stage 2 of the transition, step 2 (docs/realtime-slice.md, section 4): the signals of the new enemies — the shield
+ * arc of the shieldbearer (`drawSignals`).
  */
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, shieldUp } from '../sim/enemies/index';
 import { inWater, type Vec } from '../sim/geometry';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
@@ -42,6 +44,11 @@ const BOAR_SCALE = BOAR_ART_SCALE;
 const BONE = 0xeadbb9;
 /** Target reticle of marked enemies: warm gold, outside the chain sigils. */
 const TARGET = 0xffd36b;
+/** Shield of the shieldbearer: cold steel with a pale rim (outside the chain palette). */
+const STEEL = 0xa9b8c6;
+
+/** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
+export interface SignalCounts { shields: number }
 
 interface EnemyView {
   root: Container;
@@ -84,6 +91,8 @@ export class RealtimeRenderer {
   private readonly rippleLayer = new Graphics();
   /** Target reticles of marked enemies (over the crowd). */
   private readonly targetLayer = new Graphics();
+  /** Stage 2, step 2: signals of the new enemies over the crowd (shield arcs). */
+  private readonly signalLayer = new Graphics();
   private readonly enemyLayer = new Container();
   private readonly heroLayer = new Container();
   private readonly overlay = new Graphics();
@@ -123,6 +132,8 @@ export class RealtimeRenderer {
   heroReachShown = false;
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
+  /** Stage 2, step 2: signals of the new enemies in the last frame. */
+  readonly signals: SignalCounts = { shields: 0 };
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -135,7 +146,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -409,6 +420,25 @@ export class RealtimeRenderer {
     this.visiblePackLines = packs;
   }
 
+  /**
+   * Signals of the new enemies (stage 2, step 2; docs/realtime-slice.md, section 4, column «Сигнал»):
+   * - the shieldbearer: a thick steel arc of the shield width in front of it, turning with the shield (gone while frozen).
+   */
+  private drawSignals(world: World): void {
+    const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
+    const counts: SignalCounts = { shields: 0 };
+    for (const e of world.enemies) {
+      if (!shieldUp(world, e)) continue;
+      counts.shields++;
+      const x = e.x * UNIT, y = e.y * UNIT, half = Math.min(Math.PI, p.shieldArc * Math.PI / 360), f = e.vars.facing ?? 0, R = r * 1.22;
+      g.moveTo(x + Math.cos(f - half) * R, y + Math.sin(f - half) * R).arc(x, y, R, f - half, f + half).stroke({ color: NAVY, width: 11, cap: 'round' });
+      g.moveTo(x + Math.cos(f - half) * R, y + Math.sin(f - half) * R).arc(x, y, R, f - half, f + half).stroke({ color: STEEL, width: 6, cap: 'round' });
+      // A faint wedge of the arc: where an anchor cannot take it from.
+      g.moveTo(x, y).arc(x, y, R * 1.9, f - half, f + half).lineTo(x, y).fill({ color: STEEL, alpha: 0.1 });
+    }
+    Object.assign(this.signals, counts);
+  }
+
   /** Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. */
   private drawTargets(world: World): void {
     const g = this.targetLayer.clear(), r = enemyDrawRadius(world.params) * UNIT;
@@ -679,6 +709,7 @@ export class RealtimeRenderer {
     this.drawLanes(world);
     this.drawRipples(world);
     this.syncEnemies(world);
+    this.drawSignals(world);
     this.drawTargets(world);
     this.drawChain(world, ui);
     this.drawHero(world);

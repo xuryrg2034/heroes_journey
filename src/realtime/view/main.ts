@@ -13,7 +13,7 @@
  */
 import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
-import { ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
+import { ARENAS, SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
 import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, planChain, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inWater, setFlowClock, type Vec } from '../sim/geometry';
@@ -25,6 +25,9 @@ import { DebugPanel, formatTime } from './debugPanel';
 import { loadParams, saveParams } from './paramStorage';
 import { RealtimeRenderer, type RenderUi } from './render';
 import { RunView } from './runView';
+
+/** Arenas of the sandbox menu, keys 1–7: the three prototype arenas and arenas 4–7 of the slice (stage 2, step 2). */
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS];
 
 /** A frame adds at most this much real time (a stalled tab does not fast-forward the fight). */
 const MAX_FRAME = 0.05;
@@ -136,13 +139,13 @@ async function boot(): Promise<void> {
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
 
-  // Arena menu: before the first fight and after a result (keys 1–3).
+  // Arena menu: before the first fight and after a result (keys 1–7).
   const menu = el('div', 'rt-overlay rt-menu');
   menu.setAttribute('data-testid', 'menu');
   const menuCard = el('div', 'rt-card rt-menu-card');
   menuCard.append(el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
-  ARENAS.forEach((arena, i) => {
+  SANDBOX_ARENAS.forEach((arena, i) => {
     const b = button('rt-arena', `<kbd>${i + 1}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
@@ -192,7 +195,7 @@ async function boot(): Promise<void> {
   };
 
   let arenaIndex = 0;
-  let sim = newSimulation(ARENAS[arenaIndex], nextSeed(fixedSeed));
+  let sim = newSimulation(SANDBOX_ARENAS[arenaIndex], nextSeed(fixedSeed));
   /** A run arena: the node and arena names for the HUD (null in the sandbox). */
   let runLabel: string | null = null;
   /** The run screen (map, node screens) covers the arena. */
@@ -225,8 +228,8 @@ async function boot(): Promise<void> {
     relayout();
   };
   const start = (index: number, seed = nextSeed(fixedSeed)): void => {
-    arenaIndex = Math.max(0, Math.min(ARENAS.length - 1, index));
-    startArena(ARENAS[arenaIndex], seed);
+    arenaIndex = Math.max(0, Math.min(SANDBOX_ARENAS.length - 1, index));
+    startArena(SANDBOX_ARENAS[arenaIndex], seed);
   };
   const restart = (seed?: number): void => { if (sandbox) start(arenaIndex, seed); };
   const showMenu = (): void => {
@@ -370,8 +373,8 @@ async function boot(): Promise<void> {
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
       return;
     }
-    const digit = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(event.code);
-    if (digit >= 0 && (menuOpen || ended)) { start(digit % 3); return; }
+    const keys = SANDBOX_ARENAS.map((_, i) => `Digit${i + 1}`), digit = Math.max(keys.indexOf(event.code), keys.indexOf(event.code.replace('Numpad', 'Digit')));
+    if (digit >= 0 && (menuOpen || ended)) { start(digit); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
     if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
@@ -502,9 +505,9 @@ async function boot(): Promise<void> {
   };
   requestAnimationFrame(frame);
 
-  // `?arena=N` (1–3) skips the menu: handy for manual tuning.
+  // `?arena=N` (1–7) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
-  if (sandbox && fromUrl >= 1 && fromUrl <= ARENAS.length) start(fromUrl - 1);
+  if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
 
   // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
   // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.
@@ -523,7 +526,7 @@ async function boot(): Promise<void> {
         seed: sim.seed,
         ticksPerFrame,
         hero: { ...w.hero },
-        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age })),
+        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0 })),
         objects: w.objects.map(o => ({ ...o })),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
@@ -545,6 +548,8 @@ async function boot(): Promise<void> {
         input: { ...w.input },
         flow: { builds: w.flow.builds, lastBuildMs: w.flow.lastBuildMs },
         lanes: renderer.visibleLanes,
+        /** Stage 2, step 2: signals of the new enemies drawn in the last frame (shield arcs, …). */
+        signals: { ...renderer.signals },
         packLines: renderer.visiblePackLines,
         ripples: renderer.visibleRipples,
         heroInWater: inWater(w.hero, w.arena),
@@ -560,7 +565,7 @@ async function boot(): Promise<void> {
     },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
     restart: (seed?: number) => restart(seed),
-    /** Starts arena `n` (1–3), as keys 1–3 on the menu; `seed` fixes its seed. */
+    /** Starts arena `n` (1–7), as keys 1–7 on the menu; `seed` fixes its seed. */
     selectArena: (n: number, seed?: number) => start(n - 1, seed),
     completeGoals: () => command({ t: 'goals' }),
     burst: (count: number) => command({ t: 'burst', count }),
@@ -576,6 +581,8 @@ async function boot(): Promise<void> {
     setEnergy: (value: number) => command({ t: 'energy', value }),
     /** Test setup: put a crystal worth `value` kills at an arena point (a fixed spot instead of the random drop); returns its id. */
     placeCrystal: (x: number, y: number, value = 6) => command({ t: 'crystal', x, y, value }),
+    /** Test setup (stage 2, step 2): freeze the enemy `id` for `seconds` of game time — the cold state of step 3. */
+    chill: (id: number, seconds: number) => command({ t: 'chill', id, seconds }),
     /** The journal of the current fight: seed, arena, starting values, commands by tick (replay in Node: sim/simulation.ts). */
     journal: () => sim.exportJournal(),
     /** Hash of the current world (sim/hash.ts). */
