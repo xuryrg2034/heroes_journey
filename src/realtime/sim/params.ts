@@ -1,8 +1,11 @@
 /**
- * Tunable numbers of the real-time prototype (docs/realtime-prototype.md, sections 8, 9a and 11).
- * Every value is a debug-panel control; the panel stores them in localStorage.
+ * Tunable numbers of the real-time simulation (docs/realtime-prototype.md, sections 8, 9a and 11).
+ * Every value is a debug-panel control; the view stores them in localStorage (view/paramStorage.ts).
  * Stage marks which prototype stage introduced the value (all stages are implemented).
+ * No DOM here: the simulation (src/realtime/sim) runs in Node too.
  */
+import type { ArenaTemplate } from './arenas';
+import type { Rng } from './rng';
 
 export type DimMode = 'darken' | 'alpha' | 'desaturate';
 export type EnemyLook = 'circle' | 'sprite';
@@ -311,7 +314,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   dashShake: 3,
   linkRadius: 1.875,
   linkToEdge: true,
-  heroAnchor: true,
+  // Stage 1 of the transition (user 08.10.2026, docs/realtime-transition.md, decision 3): the hero anchor becomes a
+  // talisman; the base rule takes the next link only within R of the last link. The panel toggle stays until stage 2.
+  heroAnchor: false,
   lineOfSight: true,
   sightSlack: 0.1,
   dragSweep: true,
@@ -499,15 +504,6 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'wolfPackMono', group: 'Волк', label: 'Стая одного цвета', stage: 3, hint: 'Выключено: цвет волков в стае — как у групп (переключатель «Цвет группы»).' },
 ];
 
-/**
- * v3 (07.10.2026, stage 3): dimming default 0.65 (design answer 31), wolves replace «fast», boar fields;
- * v1/v2 values are dropped. v4: mixed-color wolf packs by default. v5 (iteration 2, stage A): hero walking,
- * the flow field on by default — older values are dropped so the new defaults apply. v6 (stage B): passable
- * water, the floor before the goals (28) and higher greed floors. v7 (stage C): crystals and chain juice,
- * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
- * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875.
- */
-const STORAGE_KEY = 'ashen-oath-realtime-params-v15';
 const MAX_PHASES = 8;
 
 function sanitizePhases(raw: unknown): Phase[] {
@@ -524,7 +520,8 @@ function sanitizePhases(raw: unknown): Phase[] {
   });
 }
 
-function sanitize(raw: unknown): Params {
+/** Clamps stored or journalled values to the panel ranges; unknown or broken values fall back to the defaults. */
+export function sanitizeParams(raw: unknown): Params {
   const out: Params = { ...DEFAULT_PARAMS, phases: DEFAULT_PHASES.map(p => ({ ...p })) };
   if (!raw || typeof raw !== 'object') return out;
   const src = raw as Record<string, unknown>;
@@ -539,23 +536,13 @@ function sanitize(raw: unknown): Params {
   return out;
 }
 
-export function defaultParams(): Params { return sanitize(null); }
+export function defaultParams(): Params { return sanitizeParams(null); }
 
-export function loadParams(): Params {
-  try {
-    const text = localStorage.getItem(STORAGE_KEY);
-    return sanitize(text ? JSON.parse(text) : null);
-  } catch {
-    return defaultParams();
-  }
-}
-
-export function saveParams(params: Params): void {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(params)); } catch { /* storage may be unavailable */ }
-}
+/** A deep copy (the journal keeps the values a run started with). */
+export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
 
 export function setParam(params: Params, key: ParamKey, value: unknown): void {
-  const next = sanitize({ ...params, [key]: value });
+  const next = sanitizeParams({ ...params, [key]: value });
   (params as unknown as Record<string, unknown>)[key] = (next as unknown as Record<string, unknown>)[key];
 }
 
@@ -573,14 +560,6 @@ export function enemyBodyRadius(params: Params): number { return params.bodyRadi
 /** Enemy art radius (drawing, click zone, markers, flashes): `enemyRadius × enemyScale` (stage D). */
 export function enemyDrawRadius(params: Params): number { return params.enemyRadius * params.enemyScale; }
 
-/** The boar is drawn larger than its body (render). */
-export const BOAR_ART_SCALE = 1.15;
-
-/** Stage G: radius of the drawn circle of an enemy of `kind` — the edge the link radius R reaches with «R до края тела». */
-export function enemyArtRadius(params: Params, kind: string): number {
-  return enemyDrawRadius(params) * (kind === 'boar' ? BOAR_ART_SCALE : 1);
-}
-
 /** Values that follow from time and the base numbers; the panel shows them live. */
 export interface Pressure {
   /** Index of the current greed phase (holds at the last one); -1 before the goals (base pace). */
@@ -592,20 +571,33 @@ export interface Pressure {
   enemySpeed: number;
 }
 
-/** The base pace before the goals, as a phase without a floor or an end. */
-export function basePhase(params: Params): Phase {
-  return { duration: Infinity, floor: params.baseFloor, intervalMin: params.baseIntervalMin, intervalMax: params.baseIntervalMax, toughShare: params.baseToughShare, wolfShare: params.baseWolfShare, boarShare: params.baseBoarShare };
+/**
+ * The base pace before the goals, as a phase without an end: the panel values, or the arena template's own pace
+ * (stage 1 of the transition: arenas are data) where it sets a field.
+ */
+export function basePhase(params: Params, arena?: ArenaTemplate): Phase {
+  const own = arena?.pace;
+  return {
+    duration: Infinity,
+    floor: own?.floor ?? params.baseFloor,
+    intervalMin: own?.intervalMin ?? params.baseIntervalMin,
+    intervalMax: own?.intervalMax ?? params.baseIntervalMax,
+    toughShare: own?.toughShare ?? params.baseToughShare,
+    wolfShare: own?.wolfShare ?? params.baseWolfShare,
+    boarShare: own?.boarShare ?? params.baseBoarShare,
+  };
 }
 
 /**
  * Pressure at game time `time`. `greedStart` is the time the goals were completed
  * (null before): only then the phase table runs, counted from that moment.
  */
-export function pressureAt(params: Params, time: number, greedStart: number | null = null): Pressure {
+export function pressureAt(params: Params, time: number, greedStart: number | null = null, arena?: ArenaTemplate): Pressure {
   const angerTier = Math.floor(time / params.angerTierSeconds);
   const enemySpeed = params.enemySpeed * Math.pow(1 + params.angerSpeedStep, angerTier);
-  if (greedStart === null) return { phaseIndex: -1, phase: basePhase(params), phaseLeft: Infinity, angerTier, enemySpeed };
-  const phases = params.phases.length ? params.phases : DEFAULT_PHASES;
+  if (greedStart === null) return { phaseIndex: -1, phase: basePhase(params, arena), phaseLeft: Infinity, angerTier, enemySpeed };
+  const own = arena?.phases;
+  const phases = own && own.length ? own : params.phases.length ? params.phases : DEFAULT_PHASES;
   const t = Math.max(0, time - greedStart);
   let start = 0, phaseIndex = phases.length - 1, phaseLeft = Infinity;
   for (let i = 0; i < phases.length - 1; i++) {
@@ -615,10 +607,10 @@ export function pressureAt(params: Params, time: number, greedStart: number | nu
   return { phaseIndex, phase: phases[phaseIndex], phaseLeft, angerTier, enemySpeed };
 }
 
-/** Rolls the interval to the next group: uniform in the phase's [min, max]. */
-export function rollGroupInterval(phase: Phase): number {
+/** Rolls the interval to the next group: uniform in the phase's [min, max] (the seeded `spawnRoll` stream). */
+export function rollGroupInterval(phase: Phase, rng: Rng): number {
   const lo = Math.min(phase.intervalMin, phase.intervalMax), hi = Math.max(phase.intervalMin, phase.intervalMax);
-  return lo + Math.random() * (hi - lo);
+  return lo + rng.next() * (hi - lo);
 }
 
 /** Brotato rule: (damage ÷ max HP) ÷ 0.15 × 0.4 s, clamped to 0.2–0.4 s. */

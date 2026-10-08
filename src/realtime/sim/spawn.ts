@@ -1,12 +1,16 @@
 /**
  * Horde arrival (Brotato-style): groups of 2–4 every 3–5 s, each enemy announced by a
  * marker; the enemy steps out after the marker delay. Under the arena limit the
- * rest waits in a queue. Pace and composition come from `pressureAt`.
+ * rest waits in a queue. Pace and composition come from `pressureAt` (the panel values or the arena template's own).
  * Stage 3: a share of groups comes as a wolf pack (mixed colors by default, as the pack rule of the main game: a pack does not tell colors apart); boars join
- * other groups by their share, capped on the arena.
+ * other groups by their share, capped on the arena. An arena template may add newcomers of other registered kinds.
+ * Deterministic: places read the seeded `spawnPlace` stream, composition (interval, size, kind, colour, HP) — `spawnRoll`,
+ * the personal speed spread — `speed` (rng.ts).
  */
-import { blockedAt, dist, inWater, type Vec } from './arena';
+import { behaviorOf, enemyKind } from './enemies/kinds';
+import { blockedAt, dist, inWater, type Vec } from './geometry';
 import { enemyBodyRadius, rollGroupInterval } from './params';
+import type { Rng } from './rng';
 import { NO_COLOR, type Enemy, type EnemyKind, type World } from './world';
 
 /** Four chain colors, as in the trail palette of the map. */
@@ -34,10 +38,13 @@ export interface QueuedSpawn {
 const ANCHOR_TRIES = 24;
 const POINT_TRIES = 16;
 
+const placeRng = (world: World): Rng => world.rng.stream('spawnPlace');
+const rollRng = (world: World): Rng => world.rng.stream('spawnRoll');
+
 function randomEdgePoint(world: World): Vec {
   const { width: w, height: h } = world.arena;
   const inset = enemyBodyRadius(world.params) + 0.05;
-  let t = Math.random() * (2 * (w + h));
+  let t = placeRng(world).next() * (2 * (w + h));
   if (t < w) return { x: t, y: inset };
   t -= w;
   if (t < h) return { x: w - inset, y: t };
@@ -49,7 +56,9 @@ function randomEdgePoint(world: World): Vec {
 
 function randomInsidePoint(world: World): Vec {
   const r = enemyBodyRadius(world.params);
-  return { x: r + Math.random() * (world.arena.width - 2 * r), y: r + Math.random() * (world.arena.height - 2 * r) };
+  const rng = placeRng(world);
+  const x = r + rng.next() * (world.arena.width - 2 * r);
+  return { x, y: r + rng.next() * (world.arena.height - 2 * r) };
 }
 
 /** A spawn point: free of walls and trees, not in the pond (passable since stage B, but markers stay on dry land), outside the hero's radius. */
@@ -60,7 +69,7 @@ function anchorValid(world: World, p: Vec): boolean {
 function findAnchor(world: World): Vec | null {
   const inside = world.params.spawnPlace === 'edgesAndInside';
   for (let i = 0; i < ANCHOR_TRIES; i++) {
-    const p = inside && Math.random() < 0.5 ? randomInsidePoint(world) : randomEdgePoint(world);
+    const p = inside && placeRng(world).next() < 0.5 ? randomInsidePoint(world) : randomEdgePoint(world);
     const r = enemyBodyRadius(world.params);
     p.x = Math.max(r, Math.min(world.arena.width - r, p.x));
     p.y = Math.max(r, Math.min(world.arena.height - r, p.y));
@@ -71,9 +80,9 @@ function findAnchor(world: World): Vec | null {
 
 /** A free point for one marker near the group anchor: not in an obstacle, outside the hero's radius, not on another marker. */
 function pointNear(world: World, anchor: Vec): Vec | null {
-  const r = enemyBodyRadius(world.params), spread = r * 2.6;
+  const r = enemyBodyRadius(world.params), spread = r * 2.6, rng = placeRng(world);
   for (let i = 0; i < POINT_TRIES; i++) {
-    const a = Math.random() * Math.PI * 2, d = i === 0 ? 0 : Math.sqrt(Math.random()) * spread;
+    const a = rng.next() * Math.PI * 2, d = i === 0 ? 0 : Math.sqrt(rng.next()) * spread;
     const p = { x: anchor.x + Math.cos(a) * d, y: anchor.y + Math.sin(a) * d };
     if (!anchorValid(world, p)) continue;
     if (world.markers.some(m => dist(m, p) < r * 1.8)) continue;
@@ -84,39 +93,51 @@ function pointNear(world: World, anchor: Vec): Vec | null {
 }
 
 function rollHp(world: World): number {
-  if (Math.random() >= world.pressure.phase.toughShare) return 0;
-  return Math.random() < 0.5 ? 1 : 2;
+  const rng = rollRng(world);
+  if (rng.next() >= world.pressure.phase.toughShare) return 0;
+  return rng.next() < 0.5 ? 1 : 2;
 }
 
-function rollSize(min: number, max: number): number {
+function rollSize(world: World, min: number, max: number): number {
   const lo = Math.min(min, max), hi = Math.max(min, max);
-  return lo + Math.floor(Math.random() * (hi - lo + 1));
+  return lo + Math.floor(rollRng(world).next() * (hi - lo + 1));
 }
+
+/** A random chain colour (spawnRoll). */
+function rollColor(world: World): number { return Math.floor(rollRng(world).next() * COLOR_COUNT); }
 
 /** Boars on the arena, at markers and in the queue: the cap `boarMax` counts all of them. */
 function boarCount(world: World): number {
   return world.enemies.filter(e => e.kind === 'boar').length + world.markers.filter(m => m.kind === 'boar').length + world.queue.filter(q => q.kind === 'boar').length;
 }
 
-/** A newcomer outside a pack: a boar by its share (under the cap), otherwise a basic enemy. */
+/**
+ * A newcomer outside a pack: the arena template's own kinds by their shares (stage 1 of the transition: new kinds join
+ * without a change here), then a boar by its share (under the cap), otherwise a basic enemy.
+ */
 function rollSingle(world: World, color: number, anchor: Vec | null): QueuedSpawn {
   const p = world.params;
-  if (Math.random() < world.pressure.phase.boarShare && boarCount(world) < p.boarMax) return { kind: 'boar', color, hp: p.boarHp, anchor };
+  for (const extra of world.arena.newcomers ?? []) {
+    if (rollRng(world).next() >= extra.share) continue;
+    const hp = extra.hp ?? enemyKind(extra.kind).hp(p) ?? rollHp(world);
+    return { kind: extra.kind, color, hp, anchor };
+  }
+  if (rollRng(world).next() < world.pressure.phase.boarShare && boarCount(world) < p.boarMax) return { kind: 'boar', color, hp: p.boarHp, anchor };
   return { kind: 'basic', color, hp: rollHp(world), anchor };
 }
 
 /** A group of newcomers: a wolf pack by the share of packs, otherwise 2–4 basic enemies (boars by their share). */
 function rollGroup(world: World, forceSingle = false): void {
   const p = world.params;
-  const pack = !forceSingle && Math.random() < world.pressure.phase.wolfShare;
-  const size = forceSingle ? 1 : pack ? rollSize(p.wolfPackMin, p.wolfPackMax) : rollSize(p.groupMin, p.groupMax);
-  const monoColor = Math.floor(Math.random() * COLOR_COUNT);
+  const pack = !forceSingle && rollRng(world).next() < world.pressure.phase.wolfShare;
+  const size = forceSingle ? 1 : pack ? rollSize(world, p.wolfPackMin, p.wolfPackMax) : rollSize(world, p.groupMin, p.groupMax);
+  const monoColor = rollColor(world);
   const anchor = forceSingle ? null : findAnchor(world);
   for (let i = 0; i < size; i++) {
     // Waiting enemies are capped by the arena limit: an endless stand would otherwise grow the queue forever.
     if (world.queue.length >= p.maxEnemies) break;
     const sameColor = pack ? p.wolfPackMono || p.groupColor === 'mono' : p.groupColor === 'mono';
-    const color = sameColor ? monoColor : Math.floor(Math.random() * COLOR_COUNT);
+    const color = sameColor ? monoColor : rollColor(world);
     world.queue.push(pack ? { kind: 'wolf', color, hp: rollHp(world), anchor } : rollSingle(world, color, anchor));
   }
 }
@@ -147,7 +168,7 @@ function topUpToFloor(world: World): void {
   const present = (): number => world.enemies.filter(e => e.kind !== 'reaper').length + world.markers.length + world.queue.length;
   for (let guard = 0; guard < 200 && present() < floor; guard++) {
     const before = world.queue.length;
-    rollGroup(world, Math.random() >= world.pressure.phase.wolfShare);
+    rollGroup(world, rollRng(world).next() >= world.pressure.phase.wolfShare);
     if (world.queue.length === before) break;
   }
 }
@@ -155,7 +176,7 @@ function topUpToFloor(world: World): void {
 export function updateSpawning(world: World, dt: number): void {
   world.groupTimer -= dt;
   while (world.groupTimer <= 0) {
-    world.groupTimer += rollGroupInterval(world.pressure.phase);
+    world.groupTimer += rollGroupInterval(world.pressure.phase, rollRng(world));
     rollGroup(world);
   }
   topUpToFloor(world);
@@ -178,17 +199,17 @@ export function spawnReaper(world: World): void {
   world.markers.push({ id: world.nextId++, kind: 'reaper', x: anchor.x, y: anchor.y, color: NO_COLOR, hp: 0, timeLeft: delay, total: delay });
 }
 
-/** Boars wait this long after appearing before the first charge can be announced. */
-const BOAR_FIRST_DELAY = 0.6;
-
+/** A new enemy of a registered kind at a point; its behaviour's `onSpawn` runs (the boar's first-charge delay). */
 export function spawnEnemy(world: World, at: Vec, color: number, hp: number, kind: EnemyKind = 'basic'): Enemy {
-  const id = world.nextId++, spread = kind === 'reaper' ? 0 : world.params.speedSpread;
+  const def = enemyKind(kind);
+  const id = world.nextId++, spread = def.spread ? world.params.speedSpread : 0;
   const enemy: Enemy = {
-    id, kind, x: at.x, y: at.y, color, hp, marked: false, speedFactor: 1 + (Math.random() * 2 - 1) * spread,
+    id, kind, x: at.x, y: at.y, color, hp, marked: false, speedFactor: 1 + (world.rng.stream('speed').next() * 2 - 1) * spread,
     brake: 0, age: 0, strikeFlash: 0, hurtFlash: 0, knock: 0, knockVx: 0, knockVy: 0,
-    boar: 'walk', boarTimer: kind === 'boar' ? BOAR_FIRST_DELAY : 0, dirX: 0, dirY: 0, charged: 0, headX: 0, headY: 0,
+    boar: 'walk', boarTimer: 0, dirX: 0, dirY: 0, charged: 0, headX: 0, headY: 0, vars: {},
   };
   world.enemies.push(enemy);
+  behaviorOf(enemy).onSpawn?.(world, enemy);
   world.stats.spawned++;
   world.events.push({ type: 'spawn', enemyId: id });
   return enemy;
@@ -201,7 +222,7 @@ export function spawnBurst(world: World, count: number): void {
     const anchor = findAnchor(world);
     const p = anchor ? pointNear(world, anchor) : null;
     if (!p) continue;
-    const q = rollSingle(world, Math.floor(Math.random() * COLOR_COUNT), null);
+    const q = rollSingle(world, rollColor(world), null);
     spawnEnemy(world, p, q.color, q.hp, q.kind);
   }
 }

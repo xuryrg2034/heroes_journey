@@ -1,21 +1,28 @@
 /**
- * Entry of the real-time prototype (realtime.html). Draft for a feel test only:
- * docs/realtime-prototype.md. Does not touch the main game state or storage.
- * Stage 3: the arena menu (keys 1–3), arena goals, the door, the result screen.
+ * Entry of the real-time arena (realtime.html): input, the frame loop, HUD, menus and the debug hooks.
+ * docs/realtime-prototype.md. Does not touch the turn-based game state or storage.
+ *
+ * Stage 1 of the transition («Ядро реального времени»): the simulation lives in src/realtime/sim (no DOM). This file
+ * only turns keys, the mouse and the debug panel into journalled commands (`sim.command`), adds the real time of each
+ * frame to the simulation's accumulator (`sim.advance` — whole fixed ticks of 1/60 s of game time), draws between
+ * ticks while time runs slower (focus, finisher), and plays sounds and effects from the world's events.
  */
 import './realtime.css';
-import { loadCharacterArt } from '../render/characterAssets';
-import { ARENAS, inWater, type Vec } from './arena';
-import { ENERGY_MAX, REFUSAL_TEXT, beginChain, cancelChain, canJump, dragChain, dragChainAlong, hoverRefusal, jump, planChain, releaseChain, stepHero, type Refusal } from './chain';
-import { DebugPanel, formatTime } from './debugPanel';
-import { crowdLifetime, defaultParams, loadParams, saveParams, setParam, setPhases, type ParamKey } from './params';
-import { RealtimeRenderer, type RenderUi } from './render';
-import { spawnBurst, spawnEnemy } from './spawn';
+import { loadCharacterArt } from '../../render/characterAssets';
+import { ARENAS } from '../sim/arenas';
+import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, planChain, type Refusal } from '../sim/chain';
+import type { Command } from '../sim/commands';
+import { inWater, type Vec } from '../sim/geometry';
+import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
+import { SIM_DT, Simulation } from '../sim/simulation';
+import { goalProgress, heroInCrowd, type EnemyKind, type World } from '../sim/world';
 import { ChainAudio } from './audio';
-import { completeGoals, createWorld, goalProgress, heroInCrowd, update, type EnemyKind, type World } from './world';
+import { DebugPanel, formatTime } from './debugPanel';
+import { loadParams, saveParams } from './paramStorage';
+import { RealtimeRenderer, type RenderUi } from './render';
 
+/** A frame adds at most this much real time (a stalled tab does not fast-forward the fight). */
 const MAX_FRAME = 0.05;
-const SUBSTEP = 1 / 60;
 /** Hero walking keys (physical codes): WASD and arrows. */
 const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight']);
 
@@ -44,10 +51,47 @@ function button(className: string, html: string, testId: string): HTMLButtonElem
   return b;
 }
 
+/** A seed for a new fight: `?seed=N` in the address fixes it (replays, tests); otherwise a random one. */
+function nextSeed(fixed: number | null): number {
+  return fixed ?? Math.floor(Math.random() * 0x100000000) >>> 0;
+}
+
+/**
+ * Positions before the last tick, to draw between ticks while ticks are sparse (focus ×0.25: a tick every four frames;
+ * the finisher slow-motion). Drawing only: the world is put back right after the frame is drawn.
+ */
+class Motion {
+  private hero = { x: 0, y: 0 };
+  private readonly enemies = new Map<number, { x: number; y: number }>();
+
+  save(world: World): void {
+    this.hero.x = world.hero.x; this.hero.y = world.hero.y;
+    this.enemies.clear();
+    for (const e of world.enemies) this.enemies.set(e.id, { x: e.x, y: e.y });
+  }
+
+  /** Runs `draw` with the hero and enemies placed `alpha` of the way from their previous tick to the current one. */
+  drawBetween(world: World, alpha: number, draw: () => void): void {
+    const saved: [{ x: number; y: number }, number, number][] = [];
+    const place = (o: { x: number; y: number }, from: { x: number; y: number } | undefined): void => {
+      // A jump of more than 1.5 units in one tick (teleport, restart) is not smoothed.
+      if (!from || Math.hypot(o.x - from.x, o.y - from.y) > 1.5) return;
+      saved.push([o, o.x, o.y]);
+      o.x = from.x + (o.x - from.x) * alpha; o.y = from.y + (o.y - from.y) * alpha;
+    };
+    place(world.hero, this.hero);
+    for (const e of world.enemies) place(e, this.enemies.get(e.id));
+    try { draw(); } finally { for (const [o, x, y] of saved) { o.x = x; o.y = y; } }
+  }
+}
+
 async function boot(): Promise<void> {
   const host = document.getElementById('rt-app');
   if (!host) throw new Error('#rt-app is missing');
   const params = loadParams();
+  const urlParams = new URLSearchParams(location.search);
+  const seedText = urlParams.get('seed');
+  const fixedSeed = seedText !== null && Number.isFinite(Number(seedText)) ? Number(seedText) >>> 0 : null;
 
   const stage = el('div', 'rt-stage');
   const hud = el('div', 'rt-hud');
@@ -121,9 +165,16 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', () => audio.unlock(), { capture: true });
   await renderer.init(stage);
 
+  const motion = new Motion();
+  const newSimulation = (index: number, seed: number): Simulation =>
+    new Simulation({ arena: ARENAS[index], params, seed, record: true, beforeTick: world => motion.save(world) });
+
   let arenaIndex = 0;
-  let world: World = createWorld(ARENAS[arenaIndex], params);
-  renderer.buildArena(world.arena);
+  let sim = newSimulation(arenaIndex, nextSeed(fixedSeed));
+  /** The world of the current fight (read-only here: changes go through `sim.command`). */
+  const world = (): World => sim.world;
+  const command = (cmd: Command) => sim.command(cmd);
+  renderer.buildArena(world().arena);
   let paused = false;
   let menuOpen = true;
   /** Pointer and the jump aim (render-only); `dragging` — the button is held after a press on the arena. */
@@ -133,11 +184,11 @@ async function boot(): Promise<void> {
   let pointerClient: { x: number; y: number } | null = null;
   let hintReason: Refusal | null = null;
 
-  const start = (index: number): void => {
+  const start = (index: number, seed = nextSeed(fixedSeed)): void => {
     arenaIndex = Math.max(0, Math.min(ARENAS.length - 1, index));
     renderer.resetEffects();
-    world = createWorld(ARENAS[arenaIndex], params);
-    renderer.buildArena(world.arena);
+    sim = newSimulation(arenaIndex, seed);
+    renderer.buildArena(world().arena);
     paused = false;
     menuOpen = false;
     menu.hidden = true;
@@ -147,50 +198,42 @@ async function boot(): Promise<void> {
     ui.jumpMode = false;
     relayout();
   };
-  const restart = (): void => start(arenaIndex);
+  const restart = (seed?: number): void => start(arenaIndex, seed);
   const showMenu = (): void => {
     menuOpen = true;
     menu.hidden = false;
     result.hidden = true;
-    cancelChain(world);
+    command({ t: 'cancel' });
     dragging = false;
     ui.jumpMode = false;
   };
 
   const panel = new DebugPanel(params, {
     onChange(key: ParamKey, value) {
-      const oldMax = params.heroHp;
-      setParam(params, key, value);
-      if (key === 'heroHp') {
-        const hero = world.hero;
-        hero.maxHp = params.heroHp;
-        // Shift current HP by the change of the maximum; a living hero keeps at least 1.
-        const floor = hero.hp > 0 ? 1 : 0;
-        hero.hp = Math.max(floor, Math.min(params.heroHp, hero.hp + params.heroHp - oldMax));
-      }
+      command({ t: 'param', key, value });
       saveParams(params);
     },
-    onRestart: restart,
+    onRestart: () => restart(),
     onReset() {
       Object.assign(params, defaultParams());
       saveParams(params);
       panel.refresh();
       restart();
     },
-    onBurst(count) { if (world.status === 'playing') spawnBurst(world, count); },
+    onBurst(count) { command({ t: 'burst', count }); },
     onTogglePause() { paused = !paused; },
     onOpenChange() { relayout(); },
-    onCompleteGoals() { if (world.status === 'playing') completeGoals(world); },
-    onPhasesChange(phases) { setPhases(params, phases); saveParams(params); },
+    onCompleteGoals() { command({ t: 'goals' }); },
+    onPhasesChange(phases) { command({ t: 'phases', phases }); saveParams(params); },
   });
   host.appendChild(panel.el);
   openButton.addEventListener('click', () => panel.setOpen(true));
   menuButton.addEventListener('click', () => { showMenu(); menuButton.blur(); });
-  again.addEventListener('click', restart);
+  again.addEventListener('click', () => restart());
   other.addEventListener('click', showMenu);
-  jumpButton.addEventListener('click', () => { ui.jumpMode = !ui.jumpMode && canJump(world); jumpButton.blur(); });
+  jumpButton.addEventListener('click', () => { ui.jumpMode = !ui.jumpMode && canJump(world()); jumpButton.blur(); });
 
-  const running = (): boolean => !paused && !menuOpen && world.status === 'playing';
+  const running = (): boolean => !paused && !menuOpen && world().status === 'playing';
 
   // Mouse: press on an enemy (or a button / the open door) near the hero starts the chain, drag adds links, release strikes.
   const arenaPoint = (event: PointerEvent): Vec => {
@@ -202,11 +245,11 @@ async function boot(): Promise<void> {
     ui.pointer = arenaPoint(event);
     pointerClient = { x: event.clientX, y: event.clientY };
     if (!running()) return;
-    if (event.button === 2) { cancelChain(world); dragging = false; ui.jumpMode = false; return; }
+    if (event.button === 2) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; return; }
     if (event.button !== 0) return;
-    if (ui.jumpMode) { if (jump(world, ui.pointer)) ui.jumpMode = false; return; }
+    if (ui.jumpMode) { if (command({ t: 'jump', x: ui.pointer.x, y: ui.pointer.y })) ui.jumpMode = false; return; }
     dragging = true;
-    beginChain(world, ui.pointer);
+    command({ t: 'begin', x: ui.pointer.x, y: ui.pointer.y });
   });
   window.addEventListener('pointermove', event => {
     const from = ui.pointer;
@@ -214,14 +257,17 @@ async function boot(): Promise<void> {
     pointerClient = { x: event.clientX, y: event.clientY };
     // Stage H: the right button pressed while the left one draws a chain comes as a chorded pointermove (button 2), not a
     // pointerdown: it cancels the chain too.
-    if (event.button === 2 && running()) { cancelChain(world); dragging = false; ui.jumpMode = false; return; }
+    if (event.button === 2 && running()) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; return; }
     // Stage G: a fast swipe takes the links along its whole path (toggle «Протяжка по всему пути мыши»).
-    if (dragging && running()) { if (from) dragChainAlong(world, from, ui.pointer); else dragChain(world, ui.pointer); }
+    if (dragging && running()) {
+      const p = ui.pointer;
+      command(from ? { t: 'sweep', fx: from.x, fy: from.y, x: p.x, y: p.y } : { t: 'drag', x: p.x, y: p.y, mode: 'full' });
+    }
   });
   window.addEventListener('pointerup', event => {
     if (event.button !== 0 || !dragging) return;
     dragging = false;
-    if (running()) releaseChain(world); else cancelChain(world);
+    command(running() ? { t: 'release' } : { t: 'cancel' });
   });
 
   const relayout = (): void => {
@@ -249,42 +295,43 @@ async function boot(): Promise<void> {
       return;
     }
     const digit = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(event.code);
-    const ended = world.status !== 'playing';
+    const ended = world().status !== 'playing';
     if (digit >= 0 && (menuOpen || ended)) { start(digit % 3); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
-    if (event.key === 'Escape') { cancelChain(world); dragging = false; ui.jumpMode = false; }
-    else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world); }
+    if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
+    else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
     else if (event.code === 'KeyR') restart();
     else if (event.code === 'KeyP') paused = !paused;
     else if (event.key === 'Enter' && ended) restart();
   });
 
   const showResult = (): void => {
-    const won = world.status === 'victory';
-    const end = world.endTime ?? world.time;
-    const greed = world.greedStart !== null ? formatTime(end - world.greedStart) : 'цели не выполнены';
+    const w = world();
+    const won = w.status === 'victory';
+    const end = w.endTime ?? w.time;
+    const greed = w.greedStart !== null ? formatTime(end - w.greedStart) : 'цели не выполнены';
     result.dataset.outcome = won ? 'victory' : 'defeat';
     resultCard.classList.toggle('rt-won', won);
     resultTitle.textContent = won ? 'Победа' : 'Поражение';
-    const goal = goalProgress(world);
+    const goal = goalProgress(w);
     const rows: [string, string][] = [
-      ['Арена', world.arena.name],
+      ['Арена', w.arena.name],
       ['Время', formatTime(end)],
-      ['Убито', String(world.stats.kills)],
-      ['Очки', String(world.stats.score)],
-      ['Лучшая цепь', `${world.stats.bestChain} убийств`],
-      ['Кристаллов выпало', String(world.stats.crystals)],
+      ['Убито', String(w.stats.kills)],
+      ['Очки', String(w.stats.score)],
+      ['Лучшая цепь', `${w.stats.bestChain} убийств`],
+      ['Кристаллов выпало', String(w.stats.crystals)],
       ['В стадии жадности', greed],
       ['Цель', `${goal.label} ${goal.done} / ${goal.total}`],
-      ['Получено урона', `${world.stats.damageTaken} (ударов ${world.stats.hitsTaken})`],
-      ['Врагов пришло', String(world.stats.spawned)],
+      ['Получено урона', `${w.stats.damageTaken} (ударов ${w.stats.hitsTaken})`],
+      ['Врагов пришло', String(w.stats.spawned)],
     ];
     resultStats.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
     result.hidden = false;
   };
 
-  let last = performance.now(), fpsFrames = 0, fpsTime = 0, fps = 0, statsTimer = 0, workMs = 0;
+  let last = performance.now(), fpsFrames = 0, fpsTime = 0, fps = 0, statsTimer = 0, workMs = 0, ticksPerFrame = 0;
   const frame = (now: number): void => {
     const realDt = Math.min(MAX_FRAME, Math.max(0, (now - last) / 1000));
     last = now;
@@ -293,22 +340,21 @@ async function boot(): Promise<void> {
     const workStart = performance.now();
     const live = !paused && !menuOpen;
     const axis = (minus: string[], plus: string[]): number => (plus.some(k => held.has(k)) ? 1 : 0) - (minus.some(k => held.has(k)) ? 1 : 0);
-    world.input.x = axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']);
-    world.input.y = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
-    if (live) {
-      const steps = Math.max(1, Math.ceil(realDt / SUBSTEP));
-      for (let i = 0; i < steps; i++) {
-        const dt = realDt / steps;
-        // Hit-stop (stage C): the whole simulation waits a few dozen milliseconds after a chain kill.
-        if (world.hitstop > 0) { world.hitstop = Math.max(0, world.hitstop - dt); continue; }
-        stepHero(world, dt); update(world, dt);
-      }
+    const walkX = axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']), walkY = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
+    // Walking is a command too, journalled only when the held keys change.
+    if (walkX !== world().input.x || walkY !== world().input.y) command({ t: 'walk', x: walkX, y: walkY });
+    // Real time → whole fixed ticks (focus and the finisher make a tick cost more real time; the hit-stop freezes ticks).
+    ticksPerFrame = live ? sim.advance(realDt) : 0;
+    const w = world();
+    if (ui.jumpMode && !canJump(w)) ui.jumpMode = false;
+    // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle). Journalled
+    // only when it took a link: an append that found nothing changes nothing.
+    if (live && dragging && params.holdPicks && ui.pointer && w.status === 'playing') {
+      const before = w.chain.length, p = ui.pointer;
+      sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'append' }, { onlyIfChanged: () => w.chain.length !== before });
     }
-    if (ui.jumpMode && !canJump(world)) ui.jumpMode = false;
-    // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle).
-    if (live && dragging && params.holdPicks && ui.pointer && world.status === 'playing') dragChain(world, ui.pointer, 'append');
     // Stage G: the reason at the pointer (not in jump aiming, menus or pause).
-    hintReason = params.refusalHint && live && !ui.jumpMode && ui.pointer && pointerClient ? hoverRefusal(world, ui.pointer, dragging) : null;
+    hintReason = params.refusalHint && live && !ui.jumpMode && ui.pointer && pointerClient ? hoverRefusal(w, ui.pointer, dragging) : null;
     if (hintReason && pointerClient) {
       hint.textContent = REFUSAL_TEXT[hintReason];
       hint.dataset.reason = hintReason;
@@ -317,61 +363,64 @@ async function boot(): Promise<void> {
       hint.hidden = false;
     } else if (!hint.hidden) { hint.hidden = true; delete hint.dataset.reason; }
     if (params.sound) {
-      for (const ev of world.events) {
+      for (const ev of w.events) {
         if (ev.type === 'chainHit') audio.hit(ev.combo, ev.killed, params.soundVolume);
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
       }
     }
     // Stage E: a short flash of the focus bar when a link refreshes it.
-    if (world.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
-    renderer.render(world, live ? realDt : 0, ui);
-    world.events.length = 0;
+    if (w.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
+    // While ticks are sparse (focus, the finisher slow-motion) the hero and enemies are drawn between the last two ticks.
+    const sparse = live && sim.nextTickCost() > SIM_DT * 1.5;
+    if (sparse) motion.drawBetween(w, sim.alpha, () => renderer.render(w, realDt, ui));
+    else renderer.render(w, live ? realDt : 0, ui);
+    w.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;
 
-    const hero = world.hero;
+    const hero = w.hero;
     hpFill.style.width = `${hero.maxHp > 0 ? hero.hp / hero.maxHp * 100 : 0}%`;
     hpText.textContent = `${hero.hp} / ${hero.maxHp}`;
-    timeText.textContent = formatTime(world.time);
-    focusFill.style.width = `${params.focusMax > 0 ? world.focus / params.focusMax * 100 : 0}%`;
-    focusBar.classList.toggle('rt-focus-on', world.focusing);
-    energyText.textContent = `⚡ ${world.energy.toFixed(1)} / ${ENERGY_MAX}`;
-    energyText.classList.toggle('rt-ready', world.energy >= params.jumpCost);
-    const goal = goalProgress(world);
-    scoreText.textContent = `очки ${world.stats.score}`;
-    goalText.textContent = world.stage === 'greed' ? `дверь открыта · убито ${world.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
-    goalText.classList.toggle('rt-door-open', world.stage === 'greed');
+    timeText.textContent = formatTime(w.time);
+    focusFill.style.width = `${params.focusMax > 0 ? w.focus / params.focusMax * 100 : 0}%`;
+    focusBar.classList.toggle('rt-focus-on', w.focusing);
+    energyText.textContent = `⚡ ${w.energy.toFixed(1)} / ${ENERGY_MAX}`;
+    energyText.classList.toggle('rt-ready', w.energy >= params.jumpCost);
+    const goal = goalProgress(w);
+    scoreText.textContent = `очки ${w.stats.score}`;
+    goalText.textContent = w.stage === 'greed' ? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
+    goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
-    jumpButton.disabled = !canJump(world) && !ui.jumpMode;
-    if (world.chain.length) {
-      const plan = planChain(world);
+    jumpButton.disabled = !canJump(w) && !ui.jumpMode;
+    if (w.chain.length) {
+      const plan = planChain(w);
       const lastLink = plan.links[plan.links.length - 1];
       const lastOutcome = lastLink?.outcome;
       const tail = plan.endsOnSurvivor && lastOutcome ? ` · последний выживет (${lastOutcome.hpBefore}→${lastOutcome.hpAfter} HP)`
-        : plan.endsOnObject ? (world.objects.find(o => o.id === lastLink.link.id)?.kind === 'door' ? ' · в дверь' : ' · на кнопку') : '';
-      chainText.textContent = `цепь ${world.chain.length} · сила ${plan.power}${tail}`;
+        : plan.endsOnObject ? (w.objects.find(o => o.id === lastLink.link.id)?.kind === 'door' ? ' · в дверь' : ' · на кнопку') : '';
+      chainText.textContent = `цепь ${w.chain.length} · сила ${plan.power}${tail}`;
     } else chainText.textContent = '';
-    infoText.textContent = `${world.arena.name} · врагов ${world.enemies.length} · ${world.stage === 'greed' ? `жадность ${formatTime(world.time - (world.greedStart ?? 0))}, фаза ${world.pressure.phaseIndex + 1}` : 'до целей'}`;
-    pausedBadge.hidden = !paused || world.status !== 'playing' || menuOpen;
-    if (world.status !== 'playing' && result.hidden && !menuOpen) showResult();
+    infoText.textContent = `${w.arena.name} · врагов ${w.enemies.length} · ${w.stage === 'greed' ? `жадность ${formatTime(w.time - (w.greedStart ?? 0))}, фаза ${w.pressure.phaseIndex + 1}` : 'до целей'}`;
+    pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen;
+    if (w.status !== 'playing' && result.hidden && !menuOpen) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
-      const p = world.pressure, greed = world.greedStart !== null, greedTime = greed ? world.time - (world.greedStart ?? 0) : 0;
+      const p = w.pressure, greed = w.greedStart !== null, greedTime = greed ? w.time - (w.greedStart ?? 0) : 0;
       const reaper = !params.reaperEnabled ? 'выключен'
-        : world.enemies.some(e => e.kind === 'reaper') ? 'на арене'
-        : world.reaperSpawned ? 'метка'
+        : w.enemies.some(e => e.kind === 'reaper') ? 'на арене'
+        : w.reaperSpawned ? 'метка'
         : greed ? `через ${Math.max(0, Math.ceil(params.reaperTime - greedTime))} с` : `через ${params.reaperTime} с после целей`;
       panel.updateStats({
-        fps, workMs, enemies: world.enemies.length, markers: world.markers.length, queue: world.queue.length, maxEnemies: params.maxEnemies,
-        time: world.time, greed, greedTime, phaseIndex: p.phaseIndex, phaseCount: params.phases.length, phaseLeft: p.phaseLeft,
+        fps, workMs, enemies: w.enemies.length, markers: w.markers.length, queue: w.queue.length, maxEnemies: params.maxEnemies,
+        time: w.time, greed, greedTime, phaseIndex: p.phaseIndex, phaseCount: params.phases.length, phaseLeft: p.phaseLeft,
         floor: p.phase.floor, intervalMin: Math.min(p.phase.intervalMin, p.phase.intervalMax), intervalMax: Math.max(p.phase.intervalMin, p.phase.intervalMax),
         toughShare: p.phase.toughShare, wolfShare: p.phase.wolfShare, boarShare: p.phase.boarShare, angerTier: p.angerTier, enemySpeed: p.enemySpeed, reaper,
-        wolves: world.enemies.filter(e => e.kind === 'wolf').length, boars: world.enemies.filter(e => e.kind === 'boar').length,
+        wolves: w.enemies.filter(e => e.kind === 'wolf').length, boars: w.enemies.filter(e => e.kind === 'boar').length,
         crowdConstant: crowdLifetime(params, 'constant'), crowdByDamage: crowdLifetime(params, 'byDamage'),
         heroHp: hero.hp, heroMaxHp: hero.maxHp, paused,
-        flowMs: params.pathfinding ? world.flow.lastBuildMs : null,
+        flowMs: params.pathfinding ? w.flow.lastBuildMs : null,
       });
     }
     requestAnimationFrame(frame);
@@ -379,76 +428,83 @@ async function boot(): Promise<void> {
   requestAnimationFrame(frame);
 
   // `?arena=N` (1–3) skips the menu: handy for manual tuning.
-  const fromUrl = Number(new URLSearchParams(location.search).get('arena'));
+  const fromUrl = Number(urlParams.get('arena'));
   if (fromUrl >= 1 && fromUrl <= ARENAS.length) start(fromUrl - 1);
 
-  // Hook for the Playwright smoke test and manual tuning from the console.
+  // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
+  // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.
   (window as unknown as { __realtime: unknown }).__realtime = {
     params,
     get fps() { return fps; },
     get workMs() { return workMs; },
-    snapshot: () => ({
-      arena: world.arena.id,
-      menuOpen,
-      status: world.status,
-      time: world.time,
-      hero: { ...world.hero },
-      enemies: world.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age })),
-      objects: world.objects.map(o => ({ ...o })),
-      chain: world.chain.map(l => l.id),
-      chainLinks: world.chain.map(l => ({ ...l })),
-      moving: world.move?.kind ?? null,
-      focus: world.focus,
-      focusing: world.focusing,
-      timeScale: world.timeScale,
-      energy: world.energy,
-      kills: world.stats.kills,
-      stats: { ...world.stats },
-      goal: goalProgress(world),
-      markers: world.markers.length,
-      queue: world.queue.length,
-      stage: world.stage,
-      greedStart: world.greedStart,
-      phaseIndex: world.pressure.phaseIndex,
-      panelOpen: panel.open,
-      paused,
-      input: { ...world.input },
-      flow: { builds: world.flow.builds, lastBuildMs: world.flow.lastBuildMs },
-      lanes: renderer.visibleLanes,
-      packLines: renderer.visiblePackLines,
-      ripples: renderer.visibleRipples,
-      heroInWater: inWater(world.hero, world.arena),
-      combo: world.move?.kind === 'dash' ? world.move.kills : 0,
-      lastChain: world.lastChain ? { ...world.lastChain } : null,
-      comboShown: renderer.comboShown,
-      heroInCrowd: heroInCrowd(world),
-      reachCircles: renderer.visibleReachCircles,
-      heroReachShown: renderer.heroReachShown,
-      heroAnchorShown: renderer.heroAnchorShown,
-      hint: hintReason,
-    }),
-    restart,
-    /** Starts arena `n` (1–3), as keys 1–3 on the menu. */
-    selectArena: (n: number) => start(n - 1),
-    completeGoals: () => completeGoals(world),
-    burst: (count: number) => spawnBurst(world, count),
+    snapshot: () => {
+      const w = world();
+      return {
+        arena: w.arena.id,
+        menuOpen,
+        status: w.status,
+        time: w.time,
+        tick: w.tick,
+        seed: sim.seed,
+        ticksPerFrame,
+        hero: { ...w.hero },
+        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age })),
+        objects: w.objects.map(o => ({ ...o })),
+        chain: w.chain.map(l => l.id),
+        chainLinks: w.chain.map(l => ({ ...l })),
+        moving: w.move?.kind ?? null,
+        focus: w.focus,
+        focusing: w.focusing,
+        timeScale: w.timeScale,
+        energy: w.energy,
+        kills: w.stats.kills,
+        stats: { ...w.stats },
+        goal: goalProgress(w),
+        markers: w.markers.length,
+        queue: w.queue.length,
+        stage: w.stage,
+        greedStart: w.greedStart,
+        phaseIndex: w.pressure.phaseIndex,
+        panelOpen: panel.open,
+        paused,
+        input: { ...w.input },
+        flow: { builds: w.flow.builds, lastBuildMs: w.flow.lastBuildMs },
+        lanes: renderer.visibleLanes,
+        packLines: renderer.visiblePackLines,
+        ripples: renderer.visibleRipples,
+        heroInWater: inWater(w.hero, w.arena),
+        combo: w.move?.kind === 'dash' ? w.move.kills : 0,
+        lastChain: w.lastChain ? { ...w.lastChain } : null,
+        comboShown: renderer.comboShown,
+        heroInCrowd: heroInCrowd(w),
+        reachCircles: renderer.visibleReachCircles,
+        heroReachShown: renderer.heroReachShown,
+        heroAnchorShown: renderer.heroAnchorShown,
+        hint: hintReason,
+      };
+    },
+    /** Restarts the arena; `seed` fixes the new fight's seed. */
+    restart: (seed?: number) => restart(seed),
+    /** Starts arena `n` (1–3), as keys 1–3 on the menu; `seed` fixes its seed. */
+    selectArena: (n: number, seed?: number) => start(n - 1, seed),
+    completeGoals: () => command({ t: 'goals' }),
+    burst: (count: number) => command({ t: 'burst', count }),
+    /** A debug-panel value through the journal (direct writes to `params` are not journalled). */
+    setParam: (key: ParamKey, value: unknown) => command({ t: 'param', key, value }),
     /** Test setup: remove every enemy (except the marked ones with `keepMarked`), marker and queued newcomer. */
-    clear: (keepMarked = false) => {
-      world.enemies = keepMarked ? world.enemies.filter(e => e.marked) : [];
-      world.markers.length = 0; world.queue.length = 0; world.chain = [];
-    },
+    clear: (keepMarked = false) => command({ t: 'clear', keepMarked }),
     /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. */
-    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic') => spawnEnemy(world, { x, y }, color, hp, kind).id,
+    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic') => command({ t: 'place', x, y, color, hp, kind }),
     /** Test setup: move the hero. */
-    teleport: (x: number, y: number) => { world.hero.x = x; world.hero.y = y; },
+    teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
     /** Test setup: set the jump energy. */
-    setEnergy: (value: number) => { world.energy = value; },
+    setEnergy: (value: number) => command({ t: 'energy', value }),
     /** Test setup: put a crystal worth `value` kills at an arena point (a fixed spot instead of the random drop); returns its id. */
-    placeCrystal: (x: number, y: number, value = 6) => {
-      const id = world.nextId++;
-      world.objects.push({ id, kind: 'crystal', x, y, pressed: false, value, born: world.time });
-      return id;
-    },
+    placeCrystal: (x: number, y: number, value = 6) => command({ t: 'crystal', x, y, value }),
+    /** The journal of the current fight: seed, arena, starting values, commands by tick (replay in Node: sim/simulation.ts). */
+    journal: () => sim.exportJournal(),
+    /** Hash of the current world (sim/hash.ts). */
+    hash: () => sim.hash(),
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
   };
 }

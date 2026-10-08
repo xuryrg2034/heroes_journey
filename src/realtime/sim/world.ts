@@ -1,22 +1,29 @@
 /**
- * World state and simulation step of the real-time prototype.
- * Not deterministic on purpose (prototype): randomness comes from Math.random.
- * The chain, focus and the hero's dash live in chain.ts (`stepHero` runs before `update`
- * on every substep). Stage 3: wolves (pack damage), the boar (announced charge with mass),
- * arena objects (buttons, the door), arena goals and the victory. Iteration 2, stage A: the hero
- * walks (WASD / arrows → `world.input`), enemies follow the flow field around obstacles.
+ * World state and the game-time step of the real-time simulation (no DOM; stage 1 of the transition,
+ * docs/realtime-prototype.md, «Ядро реального времени»). Deterministic: every random choice reads a seeded stream
+ * (`world.rng`, rng.ts), and the step runs on a fixed game time (`SIM_DT` ticks of simulation.ts).
+ * The chain, focus and the hero's dash live in chain.ts (`stepHero` runs before `update` on every tick).
+ * Enemy kinds and their behaviours (the wolf's pack, the boar's charge, the reaper) are registered data and modules
+ * (enemies/*), the arena is a template (arenas.ts). Iteration 2, stage A: the hero walks (the `walk` command →
+ * `world.input`), enemies follow the flow field around obstacles.
  */
-import { type ArenaLayout, FlowField, type Vec, blockedAt, dist, inWater, lineOfSight, pushOutOfObstacles } from './arena';
+import { type ArenaTemplate, markedCount } from './arenas';
+// The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
+import './enemies/index';
+import type { BoarState } from './enemies/boar';
+import { behaviorOf, bodyRadiusOf, kindOf } from './enemies/kinds';
+import { FlowField, type Vec, dist, inWater, lineOfSight, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
+import { RngStreams } from './rng';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
 /**
- * `wolf`: fast, hits harder next to other wolves (pack); `boar`: announces a charge along a line,
- * then runs with extra mass; `reaper`: the time limit (design answer 25) — fast, cannot be killed, colorless.
+ * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
+ * `boar` (announces a charge along a line, then runs with extra mass), `reaper` (the time limit, design answer 25 —
+ * fast, cannot be killed, colorless).
  */
-export type EnemyKind = 'basic' | 'wolf' | 'boar' | 'reaper';
-/** Boar cycle: walk -> windup (lane, «!») -> charge -> rest -> walk (with a cooldown). */
-export type BoarState = 'walk' | 'windup' | 'charge' | 'rest';
+export type EnemyKind = string;
+export type { BoarState };
 /** Color of enemies outside the chain palette (the reaper). */
 export const NO_COLOR = -1;
 
@@ -52,6 +59,8 @@ export interface Enemy {
   /** Walking heading (unit vector, 0 before the first step): turns smoothly towards the flow field direction. */
   headX: number;
   headY: number;
+  /** Own numbers of a registered behaviour (new kinds keep their state here; part of the world hash). */
+  vars: Record<string, number>;
 }
 
 /**
@@ -119,7 +128,8 @@ export interface Hero {
   knock: number;
 }
 
-export type HitSource = 'touch' | 'wolf' | 'boar' | 'reaper';
+/** Source of a hit on the hero: `touch`, `wolf`, `reaper` (a kind's touch), `boar` (the charge) or a new kind's own. */
+export type HitSource = string;
 
 export type WorldEvent =
   | { type: 'hit'; enemyId: number; damage: number; x: number; y: number; source: HitSource }
@@ -139,22 +149,26 @@ export type WorldEvent =
   | { type: 'defeat' };
 
 export interface World {
-  arena: ArenaLayout;
+  arena: ArenaTemplate;
   params: Params;
+  /** Seeded random streams (rng.ts): every random choice of the simulation. */
+  rng: RngStreams;
   hero: Hero;
   enemies: Enemy[];
   markers: SpawnMarker[];
   /** Enemies of rolled groups waiting for room under the arena limit. */
   queue: QueuedSpawn[];
-  /** Game time in seconds (stage 2: runs slower in focus). */
+  /** Game time in seconds: `SIM_DT` per tick (real time runs faster in focus and the finisher slow-motion). */
   time: number;
+  /** Ticks run so far (simulation.ts); journal commands are stamped with the tick they come before. */
+  tick: number;
   /** Game seconds until the next group. */
   groupTimer: number;
   nextId: number;
   status: 'playing' | 'defeat' | 'victory';
   /** Buttons and the door of the arena. */
   objects: ArenaObject[];
-  /** Multiplier on simulation speed; stage 2 sets it from focus. */
+  /** Game seconds per real second in the last tick: focus (×0.25) and the finisher slow-motion lower it (`stepHero`). */
   timeScale: number;
   pressure: Pressure;
   flow: FlowField;
@@ -166,7 +180,7 @@ export interface World {
   heroWalk: Vec;
   events: WorldEvent[];
   stats: { hitsTaken: number; spawned: number; kills: number; markedKills: number; boarHits: number; damageTaken: number; score: number; bestChain: number; crystals: number; finishers: number };
-  /** Stage C: real seconds of hit-stop left (the whole simulation waits). */
+  /** Stage C: real seconds of hit-stop left: the following ticks are frozen (no game time) until it runs out. */
   hitstop: number;
   /** Stage C: real seconds of the finisher slow-motion left. */
   slowmo: number;
@@ -198,7 +212,11 @@ export interface World {
   energy: number;
 }
 
-export function createWorld(arena: ArenaLayout, params: Params): World {
+/**
+ * A fresh arena from its template. `seed` drives every random choice (rng.ts streams); `params` is the live object of
+ * the debug panel in the browser (its changes come as journalled `param` commands, simulation.ts).
+ */
+export function createWorld(arena: ArenaTemplate, params: Params, seed = 1): World {
   let nextId = 1;
   const objects: ArenaObject[] = [
     ...arena.buttons.map(b => ({ id: nextId++, kind: 'button' as const, x: b.x, y: b.y, pressed: false })),
@@ -207,17 +225,19 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
   const world: World = {
     arena,
     params,
+    rng: new RngStreams(seed),
     hero: { x: arena.heroStart.x, y: arena.heroStart.y, hp: params.heroHp, maxHp: params.heroHp, invulnerable: 0, chainShield: 0, hurtFlash: 0, knockVx: 0, knockVy: 0, knock: 0 },
     enemies: [],
     markers: [],
     queue: [],
     time: 0,
+    tick: 0,
     groupTimer: 0,
     nextId,
     status: 'playing',
     objects,
     timeScale: 1,
-    pressure: pressureAt(params, 0),
+    pressure: pressureAt(params, 0, null, arena),
     flow: new FlowField(arena, enemyBodyRadius(params), { waterCost: 1 / Math.max(0.05, params.waterSlow) }),
     flowTimer: 0,
     input: { x: 0, y: 0 },
@@ -239,11 +259,11 @@ export function createWorld(arena: ArenaLayout, params: Params): World {
     focusing: false,
     energy: 0,
   };
-  // Marked enemies of the third arena stand at their posts from the start (no markers).
-  for (const m of arena.marked) {
-    const e = spawnEnemy(world, m, m.color, m.hp, 'basic');
-    e.marked = true;
-    pushOutOfObstacles(e, enemyBodyRadius(params), arena);
+  // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
+  for (const s of arena.enemies) {
+    const e = spawnEnemy(world, s, s.color, s.hp, s.kind ?? 'basic');
+    e.marked = !!s.marked;
+    pushOutOfObstacles(e, bodyRadiusOf(params, e), arena);
   }
   world.stats.spawned = 0;
   world.events.length = 0;
@@ -268,8 +288,9 @@ export function goalProgress(world: World): { done: number; total: number; label
     const buttons = world.objects.filter(o => o.kind === 'button');
     return { done: buttons.filter(b => b.pressed).length, total: buttons.length, label: 'кнопки' };
   }
-  if (goal === 'marked') return { done: world.stats.markedKills, total: world.arena.marked.length, label: 'отмеченные' };
-  return { done: Math.min(world.stats.kills, world.params.killGoal), total: world.params.killGoal, label: 'убито' };
+  if (goal === 'marked') return { done: world.stats.markedKills, total: markedCount(world.arena), label: 'отмеченные' };
+  const total = world.arena.killGoal ?? world.params.killGoal;
+  return { done: Math.min(world.stats.kills, total), total, label: 'убито' };
 }
 
 /** Called after a chain kill or a button press: the arena goals complete the stage. */
@@ -301,28 +322,22 @@ export function win(world: World): void {
   world.events.push({ type: 'victory' });
 }
 
-/** Wolves within the pack radius of `wolf` (not counting itself). */
-export function packmates(world: World, wolf: Enemy): number {
-  let count = 0;
-  const r = world.params.wolfPackRadius;
-  for (const e of world.enemies) if (e !== wolf && e.kind === 'wolf' && dist(e, wolf) <= r) count++;
-  return count;
-}
-
-/** Contact damage of one enemy now: the reaper, a wolf with its pack bonus, or the base touch. */
+/** Contact damage of one enemy now: its kind decides (the reaper, a wolf with its pack bonus, the base touch). */
 export function touchDamage(world: World, e: Enemy): number {
-  const p = world.params;
-  if (e.kind === 'reaper') return p.reaperDamage;
-  if (e.kind === 'wolf') return p.contactDamage + p.wolfPackBonus * packmates(world, e);
-  return p.contactDamage;
+  return kindOf(e).touchDamage(world, e);
 }
 
 /**
- * Distance at which an enemy touches the hero: hero circle plus the reduced body circle
+ * Distance at which an enemy of the common size touches the hero: hero circle plus the reduced body circle
  * (the body scales with the enemy size, stage D). Enemies stop exactly here and never push the hero.
  */
 export function touchDistance(params: Params): number {
   return heroRadius(params) + enemyBodyRadius(params) * params.touchFactor;
+}
+
+/** `touchDistance` for this enemy's own body (a kind may be larger or smaller; the prototype kinds are all 1). */
+export function touchDistanceOf(params: Params, e: Enemy): number {
+  return heroRadius(params) + bodyRadiusOf(params, e) * params.touchFactor;
 }
 
 /**
@@ -331,8 +346,8 @@ export function touchDistance(params: Params): number {
  * slack) while touchFactor < 1 − 0.03 ÷ body radius (≈ 0.92 at 0.4, ≈ 0.91 at 0.32 — the enemy
  * size 0.8 of stage D): brushing past a crowd does not hurt.
  */
-export function heroBlockDistance(params: Params): number {
-  return heroRadius(params) + enemyBodyRadius(params);
+export function heroBlockDistance(params: Params, e?: Enemy): number {
+  return heroRadius(params) + (e ? bodyRadiusOf(params, e) : enemyBodyRadius(params));
 }
 
 /** Walking speed multiplier at a point: `waterSlow` in the pond (stage B), 1 elsewhere. */
@@ -350,8 +365,8 @@ export function waterFactor(world: World, p: Vec): number {
 export function heroInCrowd(world: World): boolean {
   const { hero, params, heroWalk } = world;
   if (!params.heroThroughEnemies || (heroWalk.x === 0 && heroWalk.y === 0)) return false;
-  const reach = heroRadius(params) + enemyBodyRadius(params);
-  return world.enemies.some(e => dist(e, hero) < reach && (e.x - hero.x) * heroWalk.x + (e.y - hero.y) * heroWalk.y > 0);
+  const hr = heroRadius(params);
+  return world.enemies.some(e => dist(e, hero) < hr + bodyRadiusOf(params, e) && (e.x - hero.x) * heroWalk.x + (e.y - hero.y) * heroWalk.y > 0);
 }
 
 /** Walking multiplier of the crowd: `crowdSlow` while the hero is in it, 1 elsewhere. Stacks with water only. */
@@ -365,30 +380,26 @@ export function enemySpeedFactor(e: Enemy, params: Params): number {
   return e.speedFactor * (1 - params.brakeStrength * braking);
 }
 
-/** Speed of an enemy right now, in units per game second. */
+/** Speed of an enemy right now, in units per game second: its kind's speed × spread and braking × the marked slowdown. */
 export function enemySpeed(world: World, e: Enemy): number {
   const p = world.params;
-  const base = e.kind === 'reaper' ? p.reaperSpeed : e.kind === 'wolf' ? p.wolfSpeed : world.pressure.enemySpeed;
-  return base * enemySpeedFactor(e, p) * (e.marked ? p.markedSpeed : 1);
+  return kindOf(e).speed(world, e) * enemySpeedFactor(e, p) * (e.marked ? p.markedSpeed : 1);
 }
 
 const SEPARATION_PASSES = 4;
-const CONTACT_SLACK = 0.03;
-/** Game seconds over which the boar's knockback moves the hero. */
+/** Slack of the touch reach (and of the boar charge reaching the hero). */
+export const CONTACT_SLACK = 0.03;
+/** Game seconds over which a knockback (the boar's charge) moves the hero. */
 const HERO_KNOCK_TIME = 0.15;
 
-/** The charging boar is heavier: it shoves the crowd (design answer 21). */
-function massOf(e: Enemy, params: Params): number {
-  return e.kind === 'boar' && e.boar === 'charge' ? params.boarMass : 1;
-}
-
-function canBeHurt(world: World): boolean {
+/** The hero can be hurt now: playing, no invulnerability or after-chain shield, not dashing or jumping, not spared by focus. */
+export function canBeHurt(world: World): boolean {
   if (world.status !== 'playing' || world.hero.invulnerable > 0 || world.hero.chainShield > 0 || world.move) return false;
   return !(world.params.focusNoDamage && world.focusing);
 }
 
 /** Applies damage to the hero: invulnerability, flash, stats, defeat. */
-function hurtHero(world: World, striker: Enemy, damage: number, source: HitSource): void {
+export function hurtHero(world: World, striker: Enemy, damage: number, source: HitSource): void {
   const { hero, params } = world;
   if (damage <= 0) return;
   hero.hp = Math.max(0, hero.hp - damage);
@@ -404,67 +415,26 @@ function hurtHero(world: World, striker: Enemy, damage: number, source: HitSourc
   }
 }
 
-/** The charge reached the hero: damage 2 and a knockback of 1.5 along the charge (design answer 7); the boar stops. */
-function boarHitsHero(world: World, boar: Enemy): void {
-  const { hero, params } = world;
-  boar.boar = 'rest'; boar.boarTimer = params.boarRest;
-  world.stats.boarHits++;
-  if (params.boarKnockback > 0) {
-    hero.knock = HERO_KNOCK_TIME;
-    hero.knockVx = boar.dirX * params.boarKnockback / HERO_KNOCK_TIME;
-    hero.knockVy = boar.dirY * params.boarKnockback / HERO_KNOCK_TIME;
-  }
-  if (canBeHurt(world)) { hurtHero(world, boar, params.boarDamage, 'boar'); boar.strikeFlash = 0.18; }
-}
-
-/**
- * Boar cycle on game time (slowed in focus like everything else). Returns true when the boar
- * moved by itself this step (windup, charge, rest) — otherwise it walks like a basic enemy.
- */
-function stepBoar(world: World, e: Enemy, dt: number): boolean {
-  const { hero, params, arena } = world;
-  if (e.boar === 'walk') {
-    e.boarTimer = Math.max(0, e.boarTimer - dt);
-    const d = dist(e, hero);
-    if (e.boarTimer > 0 || d > params.boarTrigger || d < 1e-6 || world.status !== 'playing') return false;
-    if (!lineOfSight(e, hero, arena, enemyBodyRadius(params) * 0.5)) return false;
-    e.boar = 'windup'; e.boarTimer = params.boarWindup;
-    e.dirX = (hero.x - e.x) / d; e.dirY = (hero.y - e.y) / d;
-    world.events.push({ type: 'boarCharge', enemyId: e.id });
-    return true;
-  }
-  if (e.boar === 'windup') {
-    e.boarTimer -= dt;
-    if (e.boarTimer <= 0) { e.boar = 'charge'; e.charged = 0; }
-    return true;
-  }
-  if (e.boar === 'rest') {
-    e.boarTimer -= dt;
-    if (e.boarTimer <= 0) { e.boar = 'walk'; e.boarTimer = params.boarCooldown; }
-    return true;
-  }
-  // Charge: straight along the announced line for boarRange units; walls and trees stop it.
-  // Water slows walking only: the charge keeps its speed in the pond (design answer 41).
-  const step = Math.min(params.boarChargeSpeed * dt, Math.max(0, params.boarRange - e.charged));
-  const next = { x: e.x + e.dirX * step, y: e.y + e.dirY * step };
-  if (blockedAt(next, enemyBodyRadius(params) * 0.95, arena)) { e.boar = 'rest'; e.boarTimer = params.boarRest; return true; }
-  e.x = next.x; e.y = next.y; e.charged += step;
-  // During the hero's dash or jump the charge passes by (the hero cannot be hit then).
-  if (!world.move && dist(e, hero) <= touchDistance(params) + CONTACT_SLACK + step) { boarHitsHero(world, e); return true; }
-  if (e.charged >= params.boarRange - 1e-6) { e.boar = 'rest'; e.boarTimer = params.boarRest; }
-  return true;
+/** Knocks the hero `distance` units along the unit direction over `HERO_KNOCK_TIME` game seconds (the boar's charge). */
+export function knockHero(world: World, dirX: number, dirY: number, distance: number): void {
+  const hero = world.hero;
+  hero.knock = HERO_KNOCK_TIME;
+  hero.knockVx = dirX * distance / HERO_KNOCK_TIME;
+  hero.knockVy = dirY * distance / HERO_KNOCK_TIME;
 }
 
 function moveEnemies(world: World, dt: number): void {
   const { hero, params, arena, flow } = world;
-  const r = enemyBodyRadius(params), stop = touchDistance(params);
   for (const e of world.enemies) {
-    if (e.kind === 'boar' && stepBoar(world, e, dt)) continue;
+    // A behaviour with its own movement (the boar's windup, charge and rest) skips the common walk this step.
+    const own = behaviorOf(e).step;
+    if (own && own(world, e, dt)) continue;
     if (e.knock > 0) {
       const t = Math.min(dt, e.knock);
       e.x += e.knockVx * t; e.y += e.knockVy * t; e.knock -= t;
       continue;
     }
+    const r = bodyRadiusOf(params, e), stop = touchDistanceOf(params, e);
     const d = dist(e, hero);
     if (d <= stop + 0.01) continue;
     // Straight at the hero when in sight; otherwise (toggle «поиск пути») along the flow field.
@@ -510,10 +480,10 @@ function stepHeroWalk(world: World, dt: number): void {
   const k = params.heroSpeed * waterFactor(world, hero) * crowdFactor(world) * dt / Math.max(1, len);
   let mx = input.x * k, my = input.y * k;
   if (!params.heroThroughEnemies) {
-    const min = heroBlockDistance(params);
     for (let pass = 0; pass < 3; pass++) {
       let changed = false;
       for (const e of world.enemies) {
+        const min = heroBlockDistance(params, e);
         const ex = hero.x - e.x, ey = hero.y - e.y, d = Math.hypot(ex, ey);
         if (d > min + 0.05 || d < 1e-6) continue;
         const nx = ex / d, ny = ey / d, into = -(mx * nx + my * ny);
@@ -525,6 +495,7 @@ function stepHeroWalk(world: World, dt: number): void {
     }
     // Squeezed between several enemies: no step gets out without entering one — stand.
     for (const e of world.enemies) {
+      const min = heroBlockDistance(params, e);
       const before = dist(hero, e), after = Math.hypot(hero.x + mx - e.x, hero.y + my - e.y);
       if (after < min - 1e-3 && after < before - 1e-6) { mx = 0; my = 0; break; }
     }
@@ -537,29 +508,33 @@ function stepHeroWalk(world: World, dt: number): void {
  * Bodies push each other apart; the hero and obstacles are solid and applied last.
  * Stage D: a body in front of the hero walking through the crowd is pushed across his way (to the side
  * it already leans to), not along it: radial pushing bulldozed an enemy standing on his line ahead of him.
+ * Two bodies at the very same point part in a random direction (the seeded `separate` stream).
  */
 function separate(world: World): void {
   const { enemies, hero, params, arena } = world;
-  const r = enemyBodyRadius(params), min = r * 2, heroMin = touchDistance(params);
   const wx = world.heroWalk.x, wy = world.heroWalk.y, parting = params.heroThroughEnemies && (wx !== 0 || wy !== 0);
+  const rng = world.rng.stream('separate');
+  // Body radii once per step (a kind may have its own size; the prototype kinds share one).
+  const radii = enemies.map(e => bodyRadiusOf(params, e)), touch = enemies.map(e => touchDistanceOf(params, e));
   for (let pass = 0; pass < SEPARATION_PASSES; pass++) {
     for (let i = 0; i < enemies.length; i++) {
-      const a = enemies[i];
+      const a = enemies[i], ra = radii[i];
       for (let j = i + 1; j < enemies.length; j++) {
-        const b = enemies[j];
+        const b = enemies[j], min = ra + radii[j];
         let dx = b.x - a.x, dy = b.y - a.y;
         const d2 = dx * dx + dy * dy;
         if (d2 >= min * min) continue;
         let d = Math.sqrt(d2);
-        if (d < 1e-6) { const ang = Math.random() * Math.PI * 2; dx = Math.cos(ang); dy = Math.sin(ang); d = 0; }
+        if (d < 1e-6) { const ang = rng.next() * Math.PI * 2; dx = Math.cos(ang); dy = Math.sin(ang); d = 0; }
         else { dx /= d; dy /= d; }
         // Overlap split by mass: the charging boar barely yields, the crowd gets shoved aside.
-        const ma = massOf(a, params), mb = massOf(b, params), overlap = min - d;
+        const ma = kindOf(a).mass(world, a), mb = kindOf(b).mass(world, b), overlap = min - d;
         const pa = overlap * mb / (ma + mb), pb = overlap * ma / (ma + mb);
         a.x -= dx * pa; a.y -= dy * pa; b.x += dx * pb; b.y += dy * pb;
       }
     }
-    for (const e of enemies) {
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i], heroMin = touch[i];
       const dx = e.x - hero.x, dy = e.y - hero.y, d = Math.hypot(dx, dy);
       // While dashing or jumping the hero passes through bodies (design answer 4).
       const ahead = dx * wx + dy * wy;
@@ -572,14 +547,13 @@ function separate(world: World): void {
         if (d < 1e-6) { e.x = hero.x + heroMin; }
         else { e.x = hero.x + dx / d * heroMin; e.y = hero.y + dy / d * heroMin; }
       }
-      pushOutOfObstacles(e, r, arena);
+      pushOutOfObstacles(e, radii[i], arena);
     }
   }
 }
 
 function contactDamage(world: World, dt: number): void {
   const { hero, params } = world;
-  const reach = touchDistance(params) + CONTACT_SLACK;
   for (const e of world.enemies) {
     e.brake = Math.max(0, e.brake - dt);
     e.strikeFlash = Math.max(0, e.strikeFlash - dt);
@@ -588,17 +562,19 @@ function contactDamage(world: World, dt: number): void {
   if (!canBeHurt(world)) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.
   // The strongest touching enemy counts: the reaper (design answer 30) or a wolf with its pack.
-  // A charging boar is not a touch: its hit is the charge (stepBoar).
+  // A behaviour may say its touch does not hurt now: the charging boar's hit is the charge (enemies/boar.ts).
   let striker: Enemy | null = null, damage = 0;
   for (const e of world.enemies) {
-    if (dist(e, hero) > reach || (e.kind === 'boar' && e.boar === 'charge')) continue;
+    if (dist(e, hero) > touchDistanceOf(params, e) + CONTACT_SLACK) continue;
+    const touches = behaviorOf(e).touches;
+    if (touches && !touches(world, e)) continue;
     const dmg = touchDamage(world, e);
     if (!striker || dmg > damage) { striker = e; damage = dmg; }
   }
   if (!striker || damage <= 0) return;
   striker.brake = params.brakeRecovery;
   striker.strikeFlash = 0.18;
-  hurtHero(world, striker, damage, striker.kind === 'reaper' ? 'reaper' : striker.kind === 'wolf' ? 'wolf' : 'touch');
+  hurtHero(world, striker, damage, kindOf(striker).hitSource);
 }
 
 /** The boar's knockback slides the hero (game time), stopped by obstacles; a dash or jump cancels it. */
@@ -648,12 +624,15 @@ function updateFlow(world: World, dt: number): void {
   flow.setTarget(world.hero, density || hadExtra);
 }
 
-/** One simulation step of real seconds `realDt` (scaled by timeScale: invulnerability and slowdown run on game time). */
-export function update(world: World, realDt: number): void {
+/**
+ * One game-time step: `dt` game seconds (the fixed `SIM_DT` of simulation.ts), `realDt` — the real seconds it stands
+ * for (`dt ÷ timeScale`: longer in focus). Invulnerability, braking and walking run on game time; render flashes on
+ * real time. `stepHero` (chain.ts) runs first on every tick.
+ */
+export function update(world: World, dt: number, realDt = dt): void {
   if (world.status !== 'playing') return;
-  const dt = realDt * world.timeScale;
   world.time += dt;
-  world.pressure = pressureAt(world.params, world.time, world.greedStart);
+  world.pressure = pressureAt(world.params, world.time, world.greedStart, world.arena);
   const hero = world.hero;
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
   hero.chainShield = Math.max(0, hero.chainShield - dt);
@@ -678,4 +657,3 @@ export function update(world: World, realDt: number): void {
   separate(world);
   contactDamage(world, dt);
 }
-

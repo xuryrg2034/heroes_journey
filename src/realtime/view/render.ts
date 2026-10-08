@@ -1,5 +1,5 @@
 /**
- * PixiJS view of the real-time arena. Reads the world, never changes it.
+ * PixiJS view of the real-time arena (src/realtime/view). Reads the simulation's world, never changes it.
  * Terrain and the hero reuse the art of the main game (drawTerrain, makePlayer);
  * enemies are colored discs with the chain sigil (or the melee illustration),
  * which keeps 60+ enemies cheap: each disc is a sprite of one pre-rendered texture per color.
@@ -7,12 +7,14 @@
  * and «!», target reticles of marked enemies, buttons and the door.
  */
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
-import { COLORS, PALE, drawTerrain, makePlayer } from '../render/art';
-import { characterSprite } from '../render/characterAssets';
-import { inWater, type ArenaLayout, type Vec } from './arena';
-import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from './chain';
-import { BOAR_ART_SCALE, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from './params';
-import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from './world';
+import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
+import { characterSprite } from '../../render/characterAssets';
+import type { ArenaLayout } from '../sim/arenas';
+import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
+import { BOAR_ART_SCALE } from '../sim/enemies/index';
+import { inWater, type Vec } from '../sim/geometry';
+import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
+import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
 
 /** Input state the view shows (pointer line, jump aim); owned by main.ts. */
 export interface RenderUi {

@@ -16,10 +16,15 @@
  * crystal falls at every 6th, 12th… kill of one chain (as `mapBattleRules.ts` of the main game);
  * chain juice — combo counter, hit-stop, the finisher slow-motion, chain score with a length
  * multiplier, a rising hit tone (render / audio react to the events here).
+ *
+ * Stage 1 of the transition: no DOM — the view turns pointer input into journalled commands (simulation.ts) that call
+ * `beginChain`, `dragChain`, `dragChainAlong`, `releaseChain`, `cancelChain`, `jump`. The crystal drop point reads the
+ * seeded `crystal` stream; `stepHero` takes the real seconds of the tick (`SIM_DT ÷ timeScale`).
  */
-import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './arena';
-import { enemyArtRadius, heroRadius } from './params';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, findObject, touchDistance, win, type ArenaObject, type ChainLink, type Enemy, type HeroMove, type World } from './world';
+import { artRadiusOf, kindOf } from './enemies/kinds';
+import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './geometry';
+import { heroRadius, type Params } from './params';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type HeroMove, type World } from './world';
 
 export { OBJECT_RADIUS };
 
@@ -183,13 +188,13 @@ function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
  */
 export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planChain(world)): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
-  if (enemy.color === NO_COLOR || enemy.kind === 'reaper') return 'colorless';
+  if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
   if (inChain(world, enemy) >= 0) return 'inChain';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
   if (plan.endsOnObject) return 'afterObject';
   const color = chainColor(world);
   if (color !== null && enemy.color !== color) return 'color';
-  return reachRefusal(world, enemy, enemyArtRadius(world.params, enemy.kind));
+  return reachRefusal(world, enemy, artRadiusOf(world.params, enemy.kind));
 }
 
 export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(world)): boolean {
@@ -226,7 +231,7 @@ export function nextObjectCandidates(world: World): ArenaObject[] {
 }
 
 /** Pick radius: the drawn circle with a slack in the player's favour (design answer 27); the boar is drawn larger. */
-function pickRadius(world: World, e: Enemy): number { return enemyArtRadius(world.params, e.kind) * world.params.pickSlack; }
+function pickRadius(world: World, e: Enemy): number { return artRadiusOf(world.params, e.kind) * world.params.pickSlack; }
 
 /** The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. */
 function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean): ChainLink | null {
@@ -419,14 +424,17 @@ function dropCrystal(world: World, at: Vec): void {
   const move = world.move!, arena = world.arena, radius = world.params.crystalDropRadius;
   const path: Vec[] = [{ x: world.hero.x, y: world.hero.y }];
   for (const l of move.links) { const pt = linkPoint(world, l); if (pt) path.push(pt); }
-  const margin = OBJECT_RADIUS;
+  const margin = OBJECT_RADIUS, rng = world.rng.stream('crystal');
   for (let i = 0; i < CRYSTAL_TRIES; i++) {
     let p: Vec;
     if (radius > 0) {
       // Uniform in the disc around the kill, kept inside the arena.
-      const r = radius * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+      const r = radius * Math.sqrt(rng.next()), a = rng.next() * Math.PI * 2;
       p = { x: Math.min(arena.width - margin, Math.max(margin, at.x + r * Math.cos(a))), y: Math.min(arena.height - margin, Math.max(margin, at.y + r * Math.sin(a))) };
-    } else p = { x: margin + Math.random() * (arena.width - 2 * margin), y: margin + Math.random() * (arena.height - 2 * margin) };
+    } else {
+      const x = margin + rng.next() * (arena.width - 2 * margin);
+      p = { x, y: margin + rng.next() * (arena.height - 2 * margin) };
+    }
     if (blockedAt(p, OBJECT_RADIUS * 0.6, arena)) continue;
     if (world.objects.some(o => dist(o, p) < CRYSTAL_CLEARANCE + OBJECT_RADIUS)) continue;
     let near = dist(path[0], p) < CRYSTAL_CLEARANCE;
@@ -562,13 +570,13 @@ function stepMove(world: World, realDt: number): void {
       if (!enemy) { move.links.shift(); continue; }
       // A kill takes the enemy's spot; a survivor is struck from the touch distance.
       const survives = !strike(move.power, enemy.hp).killed;
-      const reach = survives ? touchDistance(world.params) : 0;
+      const reach = survives ? touchDistanceOf(world.params, enemy) : 0;
       const arrived = moveHero(world, enemy, budget, reach);
       budget -= dist(before, world.hero);
       if (!arrived) return;
       move.links.shift();
       hitEnemy(world, enemy);
-      // Hit-stop: the rest of this step's dash waits with the world (main.ts skips frames while it lasts).
+      // Hit-stop: the rest of this tick's dash waits with the world (the next ticks are frozen while it lasts).
       if (world.hitstop > 0) break;
       continue;
     }
@@ -585,8 +593,23 @@ function stepMove(world: World, realDt: number): void {
 }
 
 /**
- * Hero step before `update` on every substep: focus decides the time scale,
- * then the dash or the jump moves the hero. Focus runs on real seconds.
+ * Game seconds per real second of the next tick, from the state before it: focus while a chain is drawn and focus is
+ * left (×focusSlow), the finisher slow-motion (×finisherSlow, the smaller wins), otherwise 1. The runner charges a tick
+ * `SIM_DT ÷ scale` of real time (simulation.ts) — focus and the slow-motion are fewer ticks per real second, not
+ * skipped render frames.
+ */
+export function tickScale(world: World): number {
+  const p: Params = world.params;
+  if (world.status !== 'playing') return 1;
+  const selecting = world.chain.length > 0 && !world.move;
+  let scale = selecting && Math.min(world.focus, p.focusMax) > 0 ? p.focusSlow : 1;
+  if (world.slowmo > 0) scale = Math.min(scale, p.finisherSlow);
+  return scale;
+}
+
+/**
+ * Hero step before `update` on every tick: focus decides the time scale (`tickScale`), then the dash or the jump moves
+ * the hero. Focus, the dash, the jump and the slow-motion run on real seconds: `realDt` = `SIM_DT ÷ tickScale`.
  */
 export function stepHero(world: World, realDt: number): void {
   const p = world.params;

@@ -2,7 +2,7 @@
  * Debug panel of the real-time prototype: every tunable number as a slider,
  * live pressure readout, restart and reset. Toggled by ` (Backquote) or F1.
  */
-import { DEFAULT_PARAMS, DEFAULT_PHASES, PARAM_DEFS, enemyDrawRadius, PHASE_FIELDS, type ParamDef, type ParamKey, type Params, type Phase } from './params';
+import { DEFAULT_PARAMS, DEFAULT_PHASES, PARAM_DEFS, enemyDrawRadius, PHASE_FIELDS, type ParamDef, type ParamKey, type Params, type Phase } from '../sim/params';
 
 export interface PanelCallbacks {
   onChange(key: ParamKey, value: number | boolean | string): void;

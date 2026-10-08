@@ -1,8 +1,13 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
+import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
  * Smoke test of the draft real-time prototype (realtime.html, docs/realtime-prototype.md).
  * Runs only through playwright.realtime.config.ts; the main game suite does not include it.
+ * The last test records a fight in the browser and replays its journal here, in Node (stage 1 of the transition).
  */
 interface Snapshot {
   arena: string;
@@ -780,7 +785,9 @@ test('an enemy behind a wall walks around it to the hero along the flow field; s
 test('a crowd follows a walking hero around the den walls', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 3);
-  await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.contactDamage = 0; rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000; rt.burst(40); });
+  // No damage at all: besides the touch, a wolf's pack bonus (wolves of the density floor) and a boar's charge hurt too,
+  // and a defeat stops the game time this test waits for (seen once in 105 runs, 08.10.2026).
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.contactDamage = 0; rt.params.wolfPackBonus = 0; rt.params.boarDamage = 0; rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000; rt.burst(40); });
   await hold(page, 'KeyD', 1.5);
   const t = (await walkSnapshot(page)).time;
   await expect.poll(async () => (await walkSnapshot(page)).time, { timeout: 20_000 }).toBeGreaterThan(t + 6);
@@ -881,8 +888,16 @@ test('the hero brushes past a crowd pressed against it without being hit (design
   });
   const block = await blockDistance(page), touch = await touchDistance(page);
   expect(touch + 0.03).toBeLessThan(block);
+  // Both keys go down while paused, so the walk starts diagonal on the same tick. With «сквозь врагов» off a few ticks of
+  // straight-down walking first can lodge the hero in the notch between two bodies (known since stage D): the outcome
+  // then hung on how many frames passed between the two key presses (the fixed tick of stage 1 made it reproducible).
+  await page.keyboard.press('KeyP');
   await page.keyboard.down('KeyS');
-  await hold(page, 'KeyD', 1.2);
+  await page.keyboard.down('KeyD');
+  const t0 = (await walkSnapshot(page)).time;
+  await page.keyboard.press('KeyP');
+  await expect.poll(async () => (await walkSnapshot(page)).time, { timeout: 10_000, intervals: [50] }).toBeGreaterThan(t0 + 1.2);
+  await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyS');
   const s = await walkSnapshot(page);
   // Slid along the row (it ends at x ≈ 9.6), still pressed against it, never hit.
@@ -1143,11 +1158,14 @@ test('with the hero anchor a link within R of the hero but beyond R of the last 
   const errors: string[] = [];
   await open(page, errors, 1);
   await freeze(page);
+  // Stage 1 of the transition (user 08.10.2026): the hero anchor becomes a talisman — off by default, the toggle stays.
+  expect(await page.evaluate(() => (window as any).__realtime.params.heroAnchor)).toBe(false);
   const { x: hx, y: hy } = (await reachSnapshot(page)).hero;
   // a and c 3.0 apart (beyond R + edge of 2.235 from a), each 1.5 from the hero.
   const a = await place(page, hx + 1.5, hy, 0);
   const c = await place(page, hx - 1.5, hy, 0);
-  // Without the hero anchor: c is not the next link after a. The pointer goes around the hero (it would cancel the chain).
+  // Without the hero anchor (the default): c is not the next link after a. The pointer goes around the hero (it would
+  // cancel the chain).
   await setParams(page, { heroAnchor: false });
   await chainAt(page, [{ x: hx + 1.5, y: hy }, { x: hx, y: hy + 1.3 }, { x: hx - 1.5, y: hy }]);
   await expect.poll(async () => (await reachSnapshot(page)).hint).toBe('far');
@@ -1156,7 +1174,7 @@ test('with the hero anchor a link within R of the hero but beyond R of the last 
   expect(s.heroAnchorShown).toBe(false);
   await page.keyboard.press('Escape');
   await page.mouse.up();
-  // With it (the default): taken; the hero's circle is drawn as the second anchor.
+  // With it (the toggle on, the future talisman): taken; the hero's circle is drawn as the second anchor.
   await setParams(page, { heroAnchor: true });
   await chainAt(page, [{ x: hx + 1.5, y: hy }, { x: hx, y: hy + 1.3 }, { x: hx - 1.5, y: hy }]);
   await expect.poll(async () => (await reachSnapshot(page)).chain).toEqual([a, c]);
@@ -1400,5 +1418,71 @@ test('after the goals touching the open door while walking wins; the closed door
   // Entered at the touch: the hero's circle reached the door's circle, not its center.
   expect(Math.hypot(s.hero.x - door.x, s.hero.y - door.y)).toBeGreaterThan(0.5);
   await page.screenshot({ path: 'artifacts/realtime-door-walk.png' });
+  expect(errors).toEqual([]);
+});
+
+// ---- Stage 1 of the transition: the fixed-step core, a journal recorded here replays in Node ----
+
+/**
+ * A fight with real input — walking keys, a chain drawn with the mouse, a jump aimed with the mouse, a boar's charge,
+ * the crowd arriving by the seed — is recorded by the page (`journal()`: seed, arena, starting values, commands by
+ * tick). The test replays the journal in Node (src/realtime/sim, no browser) and gets the page's world hash. With
+ * RT_RECORD_JOURNAL=1 it also writes the journal to tests/fixtures/realtime-browser-journal.json, which
+ * `npm run test:realtime-sim` replays without a browser.
+ */
+test('a fight recorded in the browser replays in Node to the same world hash (the journal)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/realtime.html?seed=4242');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.keyboard.press('1');
+  await expect(page.getByTestId('menu')).toBeHidden();
+  const snap = () => page.evaluate(() => (window as any).__realtime.snapshot());
+  expect((await snap()).seed).toBe(4242);
+  // A panel value through the journal: the hero lives through the whole recording (the crowd and the boar hurt).
+  await page.evaluate(() => (window as any).__realtime.setParam('heroHp', 40));
+  // The crowd arrives by the seed; the hero walks.
+  await hold(page, 'KeyD', 0.6);
+  await hold(page, 'KeyS', 0.4);
+  // A chain with the mouse over three enemies of one colour put next to the hero (test setup goes through the journal).
+  const { x: hx, y: hy } = (await snap()).hero;
+  for (const dx of [1, 2.2, 3.4]) await place(page, Math.min(15, hx + dx), hy, 3);
+  await chainAt(page, [1, 2.2, 3.4].map(dx => ({ x: Math.min(15, hx + dx), y: hy })));
+  await page.mouse.up();
+  await expect.poll(async () => (await snap()).moving, { timeout: 5_000 }).toBeNull();
+  // A jump aimed with the mouse.
+  await page.evaluate(() => (window as any).__realtime.setEnergy(4));
+  const here = (await snap()).hero;
+  await page.keyboard.press('Space');
+  const target = await screen(page, here.x < 8 ? here.x + 2 : here.x - 2, here.y);
+  await page.mouse.click(target.x, target.y);
+  await expect.poll(async () => (await snap()).energy).toBeLessThan(4);
+  // A boar charges at the hero.
+  const after = (await snap()).hero;
+  await placeKind(page, after.x < 8 ? after.x + 3.4 : after.x - 3.4, after.y, 1, 2, 'boar');
+  const boarAt = (await snap()).time;
+  await expect.poll(async () => (await snap()).time, { timeout: 10_000 }).toBeGreaterThan(boarAt + 2.5);
+  // A few seconds of walking a loop through the crowd (pushing, the flow field, touches).
+  for (const key of ['KeyA', 'KeyW', 'KeyD', 'KeyS']) await hold(page, key, 1.2);
+  // Journal and hash taken in one evaluate: the page keeps ticking between calls.
+  const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+  const { journal, hash } = recorded;
+  expect(journal.seed).toBe(4242);
+  expect(journal.ticks).toBeGreaterThan(200);
+  expect(journal.commands.some(c => c.cmd.t === 'walk')).toBe(true);
+  expect(journal.commands.some(c => c.cmd.t === 'begin')).toBe(true);
+  expect(journal.commands.some(c => c.cmd.t === 'release')).toBe(true);
+  expect(journal.commands.some(c => c.cmd.t === 'jump')).toBe(true);
+  const sim = replay(journal);
+  expect(sim.world.stats.kills).toBeGreaterThanOrEqual(3);
+  expect(sim.hash()).toBe(hash);
+  if (process.env.RT_RECORD_JOURNAL) {
+    const file = fileURLToPath(new URL('./fixtures/realtime-browser-journal.json', import.meta.url));
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify({ recorded: 'tests/realtime.spec.ts (Chromium), stage 1 of the transition', hash, journal }) + '\n');
+  }
   expect(errors).toEqual([]);
 });

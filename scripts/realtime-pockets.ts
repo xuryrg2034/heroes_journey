@@ -9,19 +9,22 @@
  * the density penalty). Last — the cost per step with 60 enemies.
  *
  * Run: `npm run realtime:pockets` (add `--straight` to see the old straight-line walk too).
- * Uses the real simulation step `update` of src/realtime/world.ts; randomness is Math.random.
+ * Uses the real simulation step `update` of src/realtime/sim/world.ts with fixed seeds (the crowd runs use seeds 1–3,
+ * so the report repeats exactly); the last table times a whole tick (`Simulation.tick`: the hero step and `update`).
  */
-import { ARENAS, type ArenaLayout, type Vec, blockedAt, dist } from '../src/realtime/arena';
-import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/params';
-import { spawnBurst, spawnEnemy } from '../src/realtime/spawn';
-import { createWorld, touchDistance, update, type World } from '../src/realtime/world';
+import { ARENAS, markedCount, type ArenaLayout } from '../src/realtime/sim/arenas';
+import { type Vec, blockedAt, dist } from '../src/realtime/sim/geometry';
+import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
+import { Simulation } from '../src/realtime/sim/simulation';
+import { spawnBurst, spawnEnemy } from '../src/realtime/sim/spawn';
+import { createWorld, touchDistance, update, type World } from '../src/realtime/sim/world';
 
 const DT = 1 / 60;
 const TIMEOUT = 30;
 const withStraight = process.argv.includes('--straight');
 
-function quietWorld(arena: ArenaLayout, params: Params, hero: Vec): World {
-  const world = createWorld(arena, params);
+function quietWorld(arena: ArenaLayout, params: Params, hero: Vec, seed = 1): World {
+  const world = createWorld(arena, params, seed);
   world.enemies = [];
   world.groupTimer = 1e9;
   world.hero.x = hero.x; world.hero.y = hero.y;
@@ -57,7 +60,7 @@ function startSpots(arena: ArenaLayout, params: Params): Vec[] {
   const r = enemyBodyRadius(params), inset = r + 0.05, out: Vec[] = [];
   for (let x = 0.5; x < arena.width; x += 1) out.push({ x, y: inset }, { x, y: arena.height - inset });
   for (let y = 0.5; y < arena.height; y += 1) out.push({ x: inset, y }, { x: arena.width - inset, y });
-  for (const m of arena.marked) out.push({ x: m.x, y: m.y });
+  for (const m of arena.enemies) out.push({ x: m.x, y: m.y });
   out.push(...pondCenters(arena));
   for (let y = 1; y < arena.height; y += 2) for (let x = 1; x < arena.width; x += 2) out.push({ x, y });
   return out.filter(p => !blockedAt(p, r * 0.99, arena));
@@ -117,7 +120,7 @@ function crowdReport(mode: CrowdMode): void {
     const heroes = heroSpots(arena, params).filter((_, i) => i % 3 === 0);
     let near = 0, far = 0, lone = 0, runs = 0, worst = 0;
     for (const hero of heroes) for (let run = 0; run < 3; run++) {
-      const world = quietWorld(arena, params, hero);
+      const world = quietWorld(arena, params, hero, run + 1);
       spawnBurst(world, 40);
       for (const e of world.enemies) e.speedFactor = 1;
       let mark = new Map<number, Vec>();
@@ -160,9 +163,38 @@ function perfReport(): void {
   }
 }
 
+/** A whole tick of the runner (hero step + update) with 60 enemies and the default params, as the browser runs it. */
+function tickReport(): void {
+  console.log('\n## Whole tick with 60 enemies (Node, `Simulation.tick`: hero step + update, default params, seed 7)');
+  console.log('| Arena | Tick, ms (mean) | Tick, ms (max of 100-tick blocks) |');
+  console.log('| --- | --- | --- |');
+  for (const arena of ARENAS) {
+    const params = defaultParams();
+    params.contactDamage = 0; params.boarDamage = 0;
+    params.baseFloor = 60; params.maxEnemies = 60;
+    const sim = new Simulation({ arena, params, seed: 7 });
+    sim.command({ t: 'burst', count: 60 });
+    for (let i = 0; i < 300; i++) sim.tick();
+    let worst = 0;
+    const t0 = performance.now();
+    const blocks = 10;
+    for (let b = 0; b < blocks; b++) {
+      const b0 = performance.now();
+      for (let i = 0; i < 100; i++) {
+        sim.command({ t: 'walk', x: Math.cos((b * 100 + i) / 60), y: Math.sin((b * 100 + i) / 60) });
+        sim.tick();
+      }
+      worst = Math.max(worst, (performance.now() - b0) / 100);
+    }
+    const per = (performance.now() - t0) / (blocks * 100);
+    console.log(`| ${arena.name} (${sim.world.enemies.length} enemies, ${markedCount(arena)} marked) | ${per.toFixed(3)} | ${worst.toFixed(3)} |`);
+  }
+}
+
 pocketReport(true);
 if (withStraight) pocketReport(false);
 crowdReport('flow');
 crowdReport('density');
 if (withStraight) crowdReport('straight');
 perfReport();
+tickReport();
