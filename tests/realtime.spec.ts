@@ -112,8 +112,9 @@ test('debug panel toggles by key and button, stores values and the defeat screen
   expect(fresh.hero.hp).toBe(2);
 
   await page.getByTestId('reset-params').click();
-  await expect(page.locator('[data-param="heroHp"] output')).toHaveText('12');
-  expect((await snapshot(page)).hero.hp).toBe(12);
+  // Iteration 2.1: the sandbox HP is 15 by default (as the run's HP).
+  await expect(page.locator('[data-param="heroHp"] output')).toHaveText('15');
+  expect((await snapshot(page)).hero.hp).toBe(15);
   expect(errors).toEqual([]);
 });
 

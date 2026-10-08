@@ -348,7 +348,7 @@ export interface ChoiceDef extends BaseDef { kind: 'choice'; options: readonly {
 export type ParamDef = NumberDef | BoolDef | ChoiceDef;
 
 export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
-  heroHp: 12,
+  heroHp: 15,
   heroHitFactor: 0.7,
   contactDamage: 1,
   invulnerabilityMode: 'constant',
@@ -774,8 +774,11 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * saved panel holds.
  */
 export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false });
-/** The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`). */
-export function runParams(params: Params): Params { return Object.assign(copyParams(params), RUN_FORCED); }
+/**
+ * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
+ * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).
+ */
+export function runParams(params: Params, forced: Readonly<Partial<Params>> = {}): Params { return Object.assign(copyParams(params), RUN_FORCED, forced); }
 
 /** A deep copy (the journal keeps the values a run started with). */
 export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
