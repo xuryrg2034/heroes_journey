@@ -573,8 +573,8 @@ export const BRAZIER_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * М5 «Теснина»: two ridges of walls with narrow gaps (1.75 and 1.5 units): only geometry, no new rules — the crowd comes
- * through a gap in a file.
+ * М5 «Теснина»: two ridges of walls with three narrow gaps (1.75 in the left one, 1.5 and 1.75 in the right one): only
+ * geometry, no new rules — the crowd comes through a gap in a file.
  */
 export const GORGE_ARENA: ArenaTemplate = registerArena({
   id: 'gorge',

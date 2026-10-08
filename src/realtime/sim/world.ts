@@ -154,6 +154,13 @@ export interface HeroMove {
   crystalScore: number;
   /** Links of this dash killed before the hero reached them (absent when none: dashes without them hash as before). */
   fallen?: FallenLink[];
+  /**
+   * Stage 3a (М2): points of links that fell into a cliff, flown over since the last stop on the ground (absent when none).
+   * If the dash ends or stops on a survivor with them, the hero flies back over them to the stop (`route`).
+   */
+  detour?: Vec[];
+  /** Stage 3a (М2): the rest of the way back after `point` (absent when none). */
+  route?: Vec[];
   /** Stage 2, step 3: links frozen and brittle at the release — struck ×2 even if they thaw on the way (absent when none). */
   brittle?: number[];
   /**
@@ -634,7 +641,7 @@ function detonate(world: World, b: Blast): void {
   for (const e of struck) damageEnemy(world, e, b.damage, cause);
   // Stage 3a (М2; the sandbox slider «Взрыв отбрасывает», 0 — off): the survivors are thrown off the blast; one thrown over a
   // cliff falls — the blast's kill (credited as the blast).
-  const push = p.blastPush ?? 0;
+  const push = p.blastPush ?? 0;  // journals before stage 3a have no such value: no push
   if (push <= 0) return;
   for (const e of struck) {
     if (!world.enemies.includes(e)) continue;
@@ -664,8 +671,10 @@ export function knockHero(world: World, dirX: number, dirY: number, distance: nu
   hero.knockVy = dirY * distance / HERO_KNOCK_TIME;
 }
 
-function moveEnemies(world: World, dt: number): void {
+/** Enemies moved by a running knockback in this tick (stage 3a: only they fall as the knockback's kill); null — no cliff. */
+function moveEnemies(world: World, dt: number): Set<Enemy> | null {
   const { hero, params, arena, flow } = world;
+  const knocked = hasZone(arena, 'cliff') ? new Set<Enemy>() : null;
   // A behaviour's step may kill (the archer's arrow): walk over a copy, so the list shrinking never skips the next enemy's
   // step; an enemy killed earlier in this step does not move.
   const list = [...world.enemies];
@@ -679,6 +688,7 @@ function moveEnemies(world: World, dt: number): void {
     if (e.knock > 0) {
       const t = Math.min(dt, e.knock);
       e.x += e.knockVx * t; e.y += e.knockVy * t; e.knock -= t;
+      knocked?.add(e);
       // Stage 3a (М2): a survivor knocked back by the chain over a cliff falls — the chain's kill.
       if (arena.terrain && overCliff(e, arena) && !kindOf(e).immune) killEnemy(world, e, { source: 'chain', credited: true, fall: true });
       continue;
@@ -704,6 +714,7 @@ function moveEnemies(world: World, dt: number): void {
     // Stage 3a (М2): walking never enters a cliff — its edge is a wall for the walk (a push may still throw a body over it).
     if (arena.terrain) pushOutOfCliffs(e, r, arena);
   }
+  return knocked;
 }
 
 /** Scratch vector of the flow field direction (no allocation per enemy and step). */
@@ -810,12 +821,13 @@ function separate(world: World): Map<Enemy, Enemy> | null {
 
 /**
  * Stage 3a (М2): every enemy whose center is over a cliff falls and dies (`killEnemy` with `fall`). The cause is the push:
- * `cause` when given (a blast); else a chain knockback still running (`knock`, the survivor's knockback — the player's);
- * else a heavier body that shoved it this tick (the charging boar: its source, not credited); else the crowd's pushing or
- * the walking hero's parting (`push`, not credited — design 08.10.2026, step 1: walking the crowd off the edge is not a kill
- * of the player). An immune kind (the reaper) does not fall: it is put back on the edge.
+ * `cause` when given (a blast); else a chain knockback that moved it in this tick (`knocked`; the survivor's knockback — the
+ * player's; a knockback held by the cold moves nothing and counts for nothing); else a heavier body that shoved it this tick
+ * (the charging boar: its source, not credited); else the crowd's pushing or the walking hero's parting (`push`, not credited
+ * — design answer 09.10.2026: a kill counts for the player only by the player's action). An immune kind (the reaper) does
+ * not fall: it is put back on the edge.
  */
-export function dropIntoCliffs(world: World, shoved: Map<Enemy, Enemy> | null, cause?: KillCause): void {
+export function dropIntoCliffs(world: World, shoved: Map<Enemy, Enemy> | null, cause?: KillCause, knocked?: Set<Enemy> | null): void {
   const arena = world.arena;
   if (!hasZone(arena, 'cliff')) return;
   for (const e of [...world.enemies]) {
@@ -823,7 +835,7 @@ export function dropIntoCliffs(world: World, shoved: Map<Enemy, Enemy> | null, c
     if (!world.enemies.includes(e) || !overCliff(e, arena)) continue;
     if (kindOf(e).immune) { pushOutOfObstacles(e, bodyRadiusOf(world.params, e), arena); continue; }
     const by = shoved?.get(e);
-    const why: KillCause = cause ?? (e.knock > 0 ? { source: 'chain', credited: true, fall: true }
+    const why: KillCause = cause ?? (knocked?.has(e) ? { source: 'chain', credited: true, fall: true }
       : by ? { source: by.kind, credited: false, fall: true } : { source: 'push', credited: false, fall: true });
     killEnemy(world, e, why);
   }
@@ -959,10 +971,10 @@ export function update(world: World, dt: number, realDt = dt): void {
   world.heroOnDoor = onDoor;
   if (world.params.doorWalkIn && !world.move && touchedNow && doorOpen(world)) { win(world); return; }
   updateFlow(world, dt);
-  moveEnemies(world, dt);
+  const knocked = moveEnemies(world, dt);
   const shoved = separate(world);
   // Stage 3a (М2): bodies pushed over a cliff fall (only on an arena with a cliff).
-  dropIntoCliffs(world, shoved);
+  dropIntoCliffs(world, shoved, undefined, knocked);
   updateBlasts(world, dt);
   if (world.status !== 'playing') return;
   // Stage 2, step 3: burning enemies (the fire consumable) take their ticks after the blasts, before the touches.

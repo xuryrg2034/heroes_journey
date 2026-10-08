@@ -109,7 +109,7 @@ export interface Params {
   brazierPower: number;
   /** М4: game seconds a brazier stays out after a dash took it. */
   brazierCooldown: number;
-  /** М2 (sandbox): units a blast throws the enemies it struck and did not kill (0 — off; a blast pushed nothing before stage 3a). */
+  /** М2 (design answer 09.10.2026): units a blast throws the enemies it struck and did not kill (not the hero; 0 — off, as before stage 3a). */
   blastPush: number;
   // Crystals (stage C): a colour-change crystal for every N kills of one chain, as in the main game
   crystals: boolean;
@@ -391,7 +391,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   thornSlow: 0.7,
   brazierPower: 2,
   brazierCooldown: 6,
-  blastPush: 0,
+  // Баланс: design answer 09.10.2026 — a blast throws the survivors 0.8 (as the survivor knockback of the chain).
+  blastPush: 0.8,
   crystals: true,
   crystalEvery: 6,
   crystalLife: 0,
@@ -588,7 +589,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('thornSlow', 'Местность', 'Терновник: скорость врагов', 0.1, 1, 0.05, 5, '×', 'Враги идут сквозь терновник медленнее, без урона. Поле потока считает клетку терновника дороже во столько же раз.'),
   n('brazierPower', 'Местность', 'Жаровня: сила остатку цепи', 0, 6, 1, 5, '', 'Жаровня — звено любого цвета, цвет цепи не меняет; звенья после неё получают столько силы.'),
   n('brazierCooldown', 'Местность', 'Жаровня: гаснет на', 0, 20, 0.5, 5, 'с'),
-  n('blastPush', 'Местность', 'Взрыв отбрасывает', 0, 3, 0.1, 5, 'ед.', 'Песочница: выживших во взрыве отбрасывает от центра; отброшенный в обрыв гибнет (зачёт — как у взрыва). 0 — взрыв не отбрасывает (как до этапа 3а).'),
+  n('blastPush', 'Местность', 'Взрыв отбрасывает', 0, 3, 0.1, 5, 'ед.', 'Выживших во взрыве врагов (не героя) отбрасывает от центра; отброшенный в обрыв гибнет (зачёт — как у взрыва). 0 — взрыв не отбрасывает (как до этапа 3а).'),
   { kind: 'bool', key: 'crystals', group: 'Кристаллы', label: 'Кристаллы смены цвета', stage: 4,
     hint: 'На каждом N-м убийстве одной цепью падает кристалл в случайной точке вне оставшегося пути цепи. Кристалл — звено любого цвета: меняет цвет цепи, силы не даёт, убийством не считается.' },
   n('crystalEvery', 'Кристаллы', 'Кристалл за каждые … убийств цепи', 2, 20, 1, 4),

@@ -128,7 +128,7 @@ export function areaDistance(area: Area, p: Vec): { d: number; nx: number; ny: n
   if (area.shape === 'band') {
     const q = closestOnPolyline(area.points, p, false), dx = p.x - q.x, dy = p.y - q.y, d = Math.hypot(dx, dy), half = area.width / 2;
     if (d > 1e-9) return { d: d - half, nx: dx / d, ny: dy / d };
-    // On the spine: out across the nearest segment.
+    // On the spine: out across the first segment.
     const a = area.points[0], b = area.points[Math.min(1, area.points.length - 1)], sx = b.x - a.x, sy = b.y - a.y, sl = Math.hypot(sx, sy) || 1;
     return { d: -half, nx: -sy / sl, ny: sx / sl };
   }
