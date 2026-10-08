@@ -41,6 +41,29 @@ async function enterFirstNode(page: Page): Promise<string> {
   return id!;
 }
 
+test('run: a saved sandbox panel with the hero anchor and random elites on does not reach the run (no anchor, no elites on row 1)', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  // The panel as a sandbox session saved it.
+  await page.evaluate(() => localStorage.setItem('ashen-oath-realtime-params-v16', JSON.stringify({ heroAnchor: true, eliteSandbox: true, eliteChance: 0.5, sandboxTalismans: 'hero-anchor' })));
+  await page.reload();
+  await expect(page.getByTestId('run')).toBeVisible();
+  await newRun(page);
+  await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  const params = await page.evaluate(() => { const p = (window as any).__realtime.params; return { heroAnchor: p.heroAnchor, eliteSandbox: p.eliteSandbox, eliteChance: p.eliteChance }; });
+  expect(params).toEqual({ heroAnchor: false, eliteSandbox: false, eliteChance: 0.5 });
+  // Newcomers keep coming for a few seconds of game time: none is an elite; no second anchor is drawn in a chain.
+  await page.evaluate(() => (window as any).__realtime.setParam('contactDamage', 0));
+  await expect.poll(async () => (await snapshot(page)).time, { timeout: 20_000 }).toBeGreaterThan(6);
+  const s = await page.evaluate(() => (window as any).__realtime.snapshot()) as { enemies: { elite: boolean }[]; heroAnchorShown: boolean };
+  expect(s.enemies.length).toBeGreaterThan(5);
+  expect(s.enemies.some(e => e.elite)).toBe(false);
+  // The saved panel itself is untouched (the sandbox keeps its toggles).
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('ashen-oath-realtime-params-v16')))!).heroAnchor).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('run: a battle node starts its arena with the run HP, a reload starts it again, a victory returns to the map, a reload keeps the run', async ({ page }) => {
   const errors: string[] = [];
   await openRun(page, errors);

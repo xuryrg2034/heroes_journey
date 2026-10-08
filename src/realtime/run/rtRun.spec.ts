@@ -20,7 +20,7 @@ import { forestNodeSeed } from '../../game/run/forestRun';
 import { FOREST_HARD_HEAL, FOREST_REST_HEAL } from '../../game/run/forestMap';
 import { FOREST_RUN_STORAGE_KEY, type RunStorage } from '../../game/run/forestRunStorage';
 import { PLAYER_PROFILE_KEY } from '../../game/run/playerProfile';
-import { defaultParams } from '../sim/params';
+import { defaultParams, runParams } from '../sim/params';
 import { goalProgress } from '../sim/world';
 import { GIFT_STREAMS, rollGift } from '../../game/run/runGift';
 import { rewardChoices } from '../../game/items';
@@ -60,10 +60,10 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 // ---- The arena of a node, played through commands ----
 
 /** The arena of the open battle node, as main.ts starts it: the pending arena and seed, the run's HP and loadout. */
-function startArena(run: RtRunState): Simulation {
+function startArena(run: RtRunState, params = defaultParams()): Simulation {
   const pending = run.pending;
   assert(pending?.kind === 'battle', 'no open battle');
-  return new Simulation({ arena: pending.arena, params: defaultParams(), seed: pending.seed, record: true, hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run) });
+  return new Simulation({ arena: pending.arena, params, seed: pending.seed, record: true, hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run) });
 }
 /**
  * Plays the arena a while (the horde arrives and touches the hero), then the goals are marked done and the hero walks into
@@ -305,7 +305,7 @@ check('whole runs walk to the boss: arenas of the row pools, seeds of the node, 
   console.log(`   ${won.length}/${walks.length} won, ${walks.reduce((sum, walk) => sum + walk.arenas.length, 0)} arenas, ${replays} replayed, ${saves} saves loaded back`);
 });
 
-check('arenas of the new enemies come on their rows; rows without an arena yet play any of arenas 1–3; Поляна of the run kills 20', () => {
+check('arenas of the new enemies come on their rows; rows without an arena yet play any of arenas 1–7; Поляна of the run kills 20', () => {
   // Step 2: arenas 4–7 stand on their rows (section 5); only rows no arena covers (run row 9 until arena 8) play a stand-in.
   // Design answer to step 2: row 9 and the boss play any of arenas 1–7 (the pool stream and its window), not only 1–3.
   const standIns = new Set(walks.flatMap(walk => walk.standIns)), finals = new Set(walks.flatMap(walk => walk.finals));
@@ -824,6 +824,36 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
   assert(dealt > 10 && sworn > 10, `deals ${dealt}, oaths ${sworn}`);
   // A tampered save: an unknown talisman, one taken and gone, a ward spent without the ward.
   for (const bad of [{ ...ground, talismans: ['ragman-pouch'] }, { ...ground, talismansGone: [...ground.talismans] }, { ...ground, wardSpent: true }]) assert(parseRtRun(JSON.stringify(bad)) === null, 'tampered talismans');
+});
+
+check('a run ignores the sandbox stand-ins of its rules (review finding B): a saved panel with the anchor and random elites on — no anchor, no elites on row 1', () => {
+  // The panel as a sandbox session saved it: the hero anchor, random elites (50%), the sandbox talisman.
+  const saved = Object.assign(defaultParams(), { heroAnchor: true, eliteSandbox: true, eliteChance: 0.5, eliteChanceAfter: 0.5, sandboxTalismans: 'hero-anchor' });
+  const params = runParams(saved);
+  assert(!params.heroAnchor && !params.eliteSandbox && params.sandboxTalismans === '' && saved.heroAnchor, 'the run copy has them off, the saved panel is untouched');
+  let checked = 0;
+  for (let k = 1; k <= 4; k++) {
+    const run = nextArena(takeGift(createRtRun(seedOf32(k + 1800), { gift: 'mini' })));
+    const node = rtNode(run, (run.pending as { nodeId: string }).nodeId)!;
+    assert(runRow(node.row) === 1 && !rtArenaLoadout(run).randomElites, 'a row-1 arena, no random elites in its loadout');
+    const sim = startArena(run, params), w = sim.world;
+    // No anchor: a second link far from the first but next to the hero is «далеко».
+    sim.command({ t: 'clear', keepMarked: false });
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const first = sim.command({ t: 'place', x: 9.6, y: 5, color: 0, hp: 0, kind: 'basic' }) as number, second = sim.command({ t: 'place', x: 6.4, y: 5, color: 0, hp: 0, kind: 'basic' }) as number;
+    sim.command({ t: 'begin', x: 9.6, y: 5 });
+    sim.command({ t: 'drag', x: 6.4, y: 5, mode: 'full' });
+    assert(w.chain.length === 1 && w.chain[0].id === first && second > first, 'no hero anchor in the run');
+    sim.command({ t: 'cancel' });
+    // No elites among the newcomers of 40 s (the arena keeps spawning at its pace).
+    sim.command({ t: 'param', key: 'contactDamage', value: 0 });
+    let spawned = 0;
+    for (let i = 0; i < 60 * 40; i++) { sim.tick(); for (const ev of w.events) if (ev.type === 'spawn') spawned++; w.events.length = 0; assert(!w.enemies.some(e => e.elite), 'no elite on row 1'); }
+    assert(spawned > 20, `newcomers came: ${spawned}`);
+    checked++;
+  }
+  // The same saved panel in the sandbox keeps them: the anchor works there.
+  assert(checked === 4 && saved.eliteSandbox, 'four row-1 arenas');
 });
 
 check('icons and labels of the node types equal the turn-based map screen\'s', () => {

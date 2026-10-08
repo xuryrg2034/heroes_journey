@@ -20,7 +20,7 @@ import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit
 import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, jumpCostOf, planChain, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inWater, setFlowClock, type Vec } from '../sim/geometry';
-import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
+import { crowdLifetime, defaultParams, runParams, type ParamKey } from '../sim/params';
 import { Simulation } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
@@ -106,13 +106,15 @@ async function boot(): Promise<void> {
   if (!host) throw new Error('#rt-app is missing');
   // The panel shows the flow field rebuild time: the view lends the simulation its clock (diagnostics only).
   setFlowClock(() => performance.now());
-  const params = loadParams();
   const urlParams = new URLSearchParams(location.search);
   const seedText = urlParams.get('seed');
   const fixedSeed = seedText !== null && Number.isFinite(Number(seedText)) ? Number(seedText) >>> 0 : null;
   /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. `#sandbox` too: a published
    * build passes a plain anchor to the page but not the query (design 08.10.2026). */
   const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
+  // Review finding B of step 3: a run plays the saved panel with the sandbox stand-ins of run rules off (the hero anchor
+  // only from its talisman, elites only from the template, events and run row 3); the run has no panel, nothing is saved.
+  const params = sandbox ? loadParams() : runParams(loadParams());
   // An anchor link does not reload the page: switching between the run and the sandbox by the anchor boots again.
   window.addEventListener('hashchange', () => { if ((location.hash === '#sandbox') !== sandbox && urlParams.get('sandbox') !== '1') location.reload(); });
 

@@ -600,7 +600,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'linkToEdge', group: 'Цепь', label: 'R до края тела', stage: 4,
     hint: 'Враг берётся, если круг R касается его рисунка (центр не дальше R + радиус рисунка); кнопка, дверь, кристалл — до края их круга. Выключено: до центра.' },
   { kind: 'bool', key: 'heroAnchor', group: 'Цепь', label: 'Якорь у героя', stage: 4,
-    hint: 'Следующее звено берётся в R от последнего звена ИЛИ в R от героя. Проход по цепи — по звеньям по порядку.' },
+    hint: 'Только песочница: следующее звено берётся в R от последнего звена ИЛИ в R от героя. В походе якорь даёт только талисман «Якорь у героя».' },
   { kind: 'bool', key: 'lineOfSight', group: 'Цепь', label: 'Препятствия рвут звено', stage: 2 },
   n('sightSlack', 'Цепь', 'Допуск видимости у края препятствия', 0, 0.3, 0.01, 4, 'ед.', 'Для луча звена деревья и стены сужены на столько: луч, задевший край ствола или угол стены, не рвёт звено. 0 — точно.'),
   n('pickSlack', 'Цепь', 'Запас нажатия по врагу', 1, 2.5, 0.05, 2, '× рисунка'),
@@ -649,7 +649,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('eliteChanceAfter', 'Элиты', 'Случайная элита после целей', 0, 0.5, 0.01, 5),
   n('eliteCap', 'Элиты', 'Не больше элит до целей', 0, 10, 1, 5),
   n('eliteCapAfter', 'Элиты', 'Не больше элит после целей', 0, 10, 1, 5),
-  { kind: 'bool', key: 'eliteSandbox', group: 'Элиты', label: 'Песочница: случайные элиты', stage: 5, hint: 'В походе случайные элиты идут с ряда похода 3; в песочнице — по этому переключателю.' },
+  { kind: 'bool', key: 'eliteSandbox', group: 'Элиты', label: 'Песочница: случайные элиты', stage: 5, hint: 'Только песочница. В походе элиты — из шаблона арены, события и случайные с ряда похода 3; этот переключатель там не действует.' },
   n('hourglassDelay', 'Талисманы', '«Песочные часы»: фазы после целей позже на', 0, 60, 1, 5, 'с', 'Пока они не начались, идёт темп до целей.'),
   { kind: 'choice', key: 'sandboxTalismans', group: 'Талисманы', label: 'Песочница: талисман на старте арены', stage: 5,
     hint: 'Только песочница (со следующей арены); в походе действуют талисманы похода. «Якорь у героя» — и переключатель «Якорь у героя» группы «Цепь».',
@@ -735,6 +735,16 @@ export function sanitizeParams(raw: unknown): Params {
 }
 
 export function defaultParams(): Params { return sanitizeParams(null); }
+
+/**
+ * Panel values that stand in for rules of the run (review finding B of step 3; design: in a run the hero anchor comes only
+ * from its talisman, elites only from the arena template, the event and the random elites from run row 3): the sandbox
+ * toggles «Якорь у героя», «Песочница: случайные элиты» and the sandbox talisman. A run arena gets them off whatever the
+ * saved panel holds.
+ */
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '' });
+/** The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`). */
+export function runParams(params: Params): Params { return Object.assign(copyParams(params), RUN_FORCED); }
 
 /** A deep copy (the journal keeps the values a run started with). */
 export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
