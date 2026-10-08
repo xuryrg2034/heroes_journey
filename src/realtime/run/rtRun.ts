@@ -71,9 +71,14 @@ export type RtRunPending =
   | { kind: 'gift' }
   /**
    * Step 3: a talisman choice — after a won hard battle (`hard`), the Jailer's row (`oath`: oaths) or an event's reward
-   * battle (`event`: common talismans); one option or a refusal, the node completes after it.
+   * battle (`event`: common talismans); one option or a refusal (an empty offer — the refusal only), the node completes after it.
    */
   | { kind: 'talisman'; nodeId: string; source: 'hard' | 'oath' | 'event'; options: RtTalismanOption[] };
+
+/** One-arena modifiers of events with an analogue in real time (design answer 3 to step 3). */
+export type RtModifier = 'first-chain-power' | 'start-elite';
+export const RT_MODIFIERS: readonly RtModifier[] = ['first-chain-power', 'start-elite'];
+const isRtModifier = (value: unknown): value is RtModifier => typeof value === 'string' && (RT_MODIFIERS as readonly string[]).includes(value);
 
 /** What one merchant visit offers besides healing and «Закалка»: consumables by slot (and, with talismans, one talisman). */
 export interface RtShopStock { items: ItemKind[]; talisman: string | null }
@@ -123,6 +128,11 @@ export interface RtRunState {
   wardSpent?: true;
   /** Step 3: the gift's price «следующий привал не лечит» waits for the next rest. */
   restNoHeal?: true;
+  /**
+   * Step 3 (design answer 3): one-arena modifiers from events, taken by the next arena (each once): `first-chain-power` —
+   * its first chain starts with power 1 more; `start-elite` — one random elite in its first wave.
+   */
+  modifiers?: RtModifier[];
   gift?: RunGift;
   eventChoices: RtEventChoice[];
   battles: RtBattleRecord[];
@@ -218,6 +228,9 @@ export function rtArenaLoadout(run: RtRunState): Loadout {
     items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy + RT_OATH_ENERGY * oaths), openItems: [...run.openItems],
     randomElites: !!node && runRow(node.row) >= RT_RANDOM_ELITE_ROW,
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
+    // Step 3 (design answer 3): the modifiers events left for this arena.
+    ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
+    ...run.modifiers?.includes('start-elite') ? { startElite: true } : {},
   };
 }
 
@@ -244,14 +257,14 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
   if (pending?.kind !== 'talisman') return fail('Сейчас нечего выбирать.');
   if (chosen !== null && !pending.options.includes(chosen)) return fail('Этого варианта нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [];
-  if (chosen && chosen !== 'blank') takeTalisman(run, chosen, events);
-  run.talismansGone.push(...pending.options.filter((option): option is RtTalismanId => option !== 'blank' && option !== chosen));
+  if (chosen) takeTalisman(run, chosen, events);
+  run.talismansGone.push(...pending.options.filter(option => option !== chosen));
   const node = rtNode(run, pending.nodeId)!;
   if (pending.source === 'event') {
     const pick = run.picks.find(entry => entry.nodeId === node.id), option = pick?.eventId ? battleOption(forestEvent(pick.eventId)!) : undefined;
     if (option) {
       run.eventChoices.push({ nodeId: node.id, option: option.id, outcome: 0 });
-      events.push({ type: 'event-resolved', nodeId: node.id, option: option.id, outcome: 0, text: chosen && chosen !== 'blank' ? `победа, талисман «${rtTalisman(chosen)?.name ?? chosen}»` : 'победа' });
+      events.push({ type: 'event-resolved', nodeId: node.id, option: option.id, outcome: 0, text: chosen ? `победа, талисман «${rtTalisman(chosen)?.name ?? chosen}»` : 'победа' });
     }
   }
   completeNode(run, node, events); return { ok: true, run, events };
@@ -402,6 +415,8 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   const run = structuredClone(current), events: RtRunEvent[] = [];
   const count = (value: number) => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
   run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0) });
+  // Step 3: the modifiers of events acted on this arena (they act on one arena).
+  delete run.modifiers;
   // Step 3: «Пепельный оберег» saved the hero on this arena (also on an arena lost afterwards): it crumbles.
   if (outcome.wardUsed && run.talismans.includes('ash-ward') && !run.wardSpent) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: pending.nodeId }); }
   if (!outcome.won) {
@@ -425,7 +440,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   if (pending.battle === 'event') {
     const pick = run.picks.find(entry => entry.nodeId === node.id), option = pick?.eventId ? battleOption(forestEvent(pick.eventId)!) : undefined;
     if (option?.battle) {
-      offerTalismans(run, node.id, 'event', eventTalismanOffer(draw(run, 'talismans', true), option.battle.talismanChoice, turnPool(talismanPool(run))), events);
+      // No «пустышка» in the slice (design answer 10): an empty pool offers nothing, only the refusal.
+      const offer = eventTalismanOffer(draw(run, 'talismans', true), option.battle.talismanChoice, turnPool(talismanPool(run))).filter(isRtTalisman);
+      offerTalismans(run, node.id, 'event', offer, events);
       return { ok: true, run, events };
     }
   }
@@ -607,7 +624,12 @@ function payableCost(run: RtRunState, option: EventOption): { cost: EventCost | 
 /** An outcome text in real-time numbers: HP and maximum HP ×2.4; energy goes to the next arena. */
 function outcomeText(outcome: EventOption['outcomes'][number], kinds: readonly ResourceKind[]): string {
   const effect = outcome.effect;
-  const text = describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {} } }, kinds);
+  // Design answer 3 to step 3: «первая цепь с силой 1» and «бой со случайной элитой» act on the next arena; «злость» and
+  // «подкрепление на ход раньше» have no analogue — the option stays, that part does nothing (shown).
+  const slice = effect.modifier && !isRtModifier(effect.modifier);
+  let text = describeOutcome({ ...outcome, effect: { ...effect, ...effect.hp ? { hp: rtHp(effect.hp) } : {}, ...effect.maxHp ? { maxHp: rtHp(effect.maxHp) } : {}, ...slice ? { modifier: undefined } : {} } }, kinds);
+  if (slice) text = `${text === 'ничего не меняется' ? '' : `${text}; `}«${effect.modifier === 'wrath' ? 'злость' : 'подкрепление раньше'}» в срезе не действует`;
+  else if (effect.modifier) text = text.replace('в следующем бою', 'в следующей арене');
   return effect.energy ? `${text} — к началу следующей арены` : text;
 }
 
@@ -689,6 +711,7 @@ export function rtChooseEventOption(current: RtRunState, optionId: string): RtRu
   for (const kind of [...kinds.slice(0, effect.resources ?? 0), ...RESOURCE_KINDS.flatMap(kind => Array<ResourceKind>(effect.materials?.[kind] ?? 0).fill(kind))]) run.materials[kind]++;
   // Step 3: energy is banked for the next arena (up to 7); a consumable joins the run and opens.
   run.energy = Math.min(ENERGY_MAX, run.energy + (effect.energy ?? 0));
+  if (isRtModifier(effect.modifier) && !run.modifiers?.includes(effect.modifier)) (run.modifiers ??= []).push(effect.modifier);
   const gained: RtRunEvent[] = [];
   // Step 3: a talisman of the rarity from the pool (the next `talismans` draw, the turn-based draw over the slice's list).
   if (effect.talisman) { const [drawn] = talismanDraw(draw(run, 'talismans', true), effect.talisman, 1, turnPool(talismanPool(run))); if (drawn) takeTalisman(run, drawn, gained); }
@@ -882,6 +905,7 @@ function checkRun(value: unknown): RtRunState | null {
   // Talismans: known ids of the slice, each once, taken and gone apart; the ward and the rest price — flags.
   if (!isTalismanList(run.talismans) || !isTalismanList(run.talismansGone) || run.talismans.some(id => run.talismansGone.includes(id))) return null;
   if ((run.wardSpent !== undefined && (run.wardSpent !== true || !run.talismans.includes('ash-ward'))) || (run.restNoHeal !== undefined && run.restNoHeal !== true)) return null;
+  if (run.modifiers !== undefined && !(Array.isArray(run.modifiers) && run.modifiers.length && run.modifiers.every(isRtModifier) && new Set(run.modifiers).size === run.modifiers.length)) return null;
   // The gift: the roll of this seed and kind, a chosen button among the slice's buttons, its own choice among its picks.
   if (run.gift !== undefined) {
     const gift = run.gift as unknown;
@@ -930,7 +954,7 @@ function checkRun(value: unknown): RtRunState | null {
     case 'talisman': {
       const source = pending.source, options = pending.options;
       if (!(source === 'hard' && node.type === 'hard' || source === 'oath' && node.type === 'checkpoint' || source === 'event' && node.type === 'event')) return null;
-      if (!Array.isArray(options) || options.length > 3 || !options.every(option => option === 'blank' || isRtTalisman(option)) || new Set(options).size !== options.length) return null;
+      if (!Array.isArray(options) || options.length > 3 || !options.every(option => isRtTalisman(option)) || new Set(options).size !== options.length) return null;
       break;
     }
     case 'find': {

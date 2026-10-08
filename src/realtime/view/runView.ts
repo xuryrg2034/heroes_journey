@@ -295,10 +295,8 @@ export class RunView {
     }
     if (pending.kind === 'talisman') {
       const title = pending.source === 'oath' ? 'Клятва' : 'Талисман';
-      const options = pending.options.map(option => option === 'blank'
-        ? `<button class="rt-run-choice" data-action="talisman" data-option="blank" data-testid="talisman-blank"><b>Пустышка</b><small>талисманов не осталось; очков похода в срезе нет — ничего не даёт</small></button>`
-        : `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${escapeHtml(talismanName(option))}</b><small>${escapeHtml(rtTalisman(option)?.effect ?? '')}</small></button>`).join('');
-      return card(`<h2>${title} на выбор</h2><p>Не взятые уходят из пула до конца похода.</p><div class="rt-run-choices">${options}</div>`
+      const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${escapeHtml(talismanName(option))}</b><small>${escapeHtml(rtTalisman(option)?.effect ?? '')}</small></button>`).join('');
+      return card(`<h2>${title} на выбор</h2><p>${pending.options.length ? 'Не взятые уходят из пула до конца похода.' : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
         + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, 'run-talisman');
     }
     if (pending.kind === 'find') {

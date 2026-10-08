@@ -612,6 +612,20 @@ check('«Точильный камень»: the first chain of the arena starts 
   assert(replays(sim), 'replay');
 });
 
+check('event modifier «первая цепь с силой 1» adds to «Точильный камень» (power 2); «бой со случайной элитой» makes the first newcomer a random elite', () => {
+  const sim = fight('kills', quiet(), seedOf(66), { loadout: { talismans: ['whetstone'], firstPower: 1 } }), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const three = place(sim, 9.2, 5, 'basic', 0, 3);
+  assert(planChain(w, [{ kind: 'enemy', id: three.id }]).links[0].outcome!.available === 3, 'power 1 + 1 + 1 hits 3');
+  const elite = new Simulation({ arena: 'glade', params: defaultParams(), seed: seedOf(67), record: true, loadout: { startElite: true } }), we = elite.world;
+  let first: Enemy | undefined;
+  for (let i = 0; i < 60 * 6 && !first; i++) { elite.tick(); first = we.enemies[0]; }
+  assert(first && first.elite === 'random' && we.enemies.filter(e => e.elite).length === 1 && !we.kit!.startElite, 'the first newcomer is a random elite');
+  for (let i = 0; i < 60 * 10; i++) elite.tick();
+  assert(we.enemies.filter(e => e.elite).length === 1, 'only one');
+  assert(replays(elite), 'replay');
+});
+
 check('«Осколок жернова»: a crystal falls at the 5th kill of a chain instead of the 6th', () => {
   for (const [talismans, crystals] of [[['millstone-shard'], 1], [[], 0]] as const) {
     const sim = withTalismans('kills', [...talismans], seedOf(62)), w = sim.world;

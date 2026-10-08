@@ -34,6 +34,10 @@ export interface Loadout {
   talismans?: string[];
   /** «Пепельный оберег» is whole (the run took it and it has not saved the hero yet). */
   ward?: boolean;
+  /** The event modifier «первая цепь с силой 1»: the first chain starts with this much more power (with «Точильный камень» they add up). */
+  firstPower?: number;
+  /** The event modifier «бой со случайной элитой»: the first newcomer of the arena is a random elite. */
+  startElite?: boolean;
 }
 
 /**
@@ -52,6 +56,8 @@ export interface Kit {
   /** «Пепельный оберег» whole now; `wardUsed` — it saved the hero in this arena (the run lets it crumble). */
   ward: boolean;
   wardUsed: boolean;
+  /** The event modifier «бой со случайной элитой» still waits for the first newcomer. */
+  startElite: boolean;
 }
 
 // Баланс (section 8): the talismans in the arena, numbers of the turn-based talismans (talismans.ts) in real time.
@@ -76,8 +82,8 @@ export function kitOf(loadout: Loadout): Kit {
   const talismans = [...new Set((loadout.talismans ?? []).filter(id => typeof id === 'string'))];
   return {
     items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites, talismans,
-    firstPower: talismans.includes('whetstone') ? WHETSTONE_POWER : 0,
-    ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false,
+    firstPower: (talismans.includes('whetstone') ? WHETSTONE_POWER : 0) + count(loadout.firstPower),
+    ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false, startElite: !!loadout.startElite,
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

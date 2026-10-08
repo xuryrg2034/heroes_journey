@@ -345,9 +345,8 @@ check('events: only the slice pool comes; off options are refused; HP outcomes a
   const met = walks.flatMap(walk => walk.events);
   assert(met.length > 0, 'events were met');
   for (const id of met) assert(SLICE_EVENTS.includes(id) && !SLICE_EVENTS_OFF.includes(id), `event ${id} in the slice pool`);
-  // Step 3: energy, consumables and talismans have their analogues — events left without a safe option on stay out (their
-  // other options need a battle modifier).
-  assert(SLICE_EVENTS_OFF.join() === 'ford-ambush,den-bones', `off: ${SLICE_EVENTS_OFF.join()}`);
+  // Step 3 (design answer 3): every event of the catalogue is in the slice — 14 of 14.
+  assert(SLICE_EVENTS_OFF.length === 0 && SLICE_EVENTS.length === 14, `off: ${SLICE_EVENTS_OFF.join()}`);
   // A sure risky cost in HP: «Вытащить приманку» costs 1 HP of the turn-based run — 3 here.
   const trap = forestEvent('old-trap')!.options.find(option => option.id === 'bait')!;
   assert(trap.cost && !Array.isArray(trap.cost) && (trap.cost as { hp: number }).hp === 1, 'catalogue: the bait costs 1 HP');
@@ -468,9 +467,12 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
   const setup: RtRunState = structuredClone(base);
   setup.picks.find(entry => entry.nodeId === (base!.pending as { nodeId: string }).nodeId)!.eventId = 'ford-ambush';
   const view = rtEventView(setup)!, fight = view.options.find(option => option.id === 'fight')!;
-  // Step 3: «Обойти» (1 energy) has its analogue — banked energy, none here; «Обойти по кустам» (a modifier) stays off.
-  const around = view.options.find(option => option.id === 'around')!;
-  assert(fight.available && fight.battle && view.options.filter(option => option.off).map(option => option.id).join() === 'bushes', 'fight on, the way through the bushes off');
+  // Step 3: «Обойти» (1 energy) — banked energy, none here; «Обойти по кустам» is the safe way (its «злость» does nothing).
+  const around = view.options.find(option => option.id === 'around')!, bushes = view.options.find(option => option.id === 'bushes')!;
+  assert(fight.available && fight.battle && !view.options.some(option => option.off), 'every option on');
+  assert(bushes.available && bushes.safe && bushes.outcomes[0].text.includes('в срезе не действует'), `the safe way: ${bushes.outcomes[0].text}`);
+  const passed = ok(rtChooseEventOption(setup, 'bushes'), 'bushes');
+  assert(passed.pending === null && !passed.modifiers, 'passed by, no modifier');
   assert(!around.off && !around.available && around.reason.includes('энергия'), `around: ${around.reason}`);
   assert(rtEventView({ ...setup, energy: 1 })!.options.find(option => option.id === 'around')!.available, 'with 1 banked energy it can be taken');
   assert(fight.outcomes[0].text.includes(`«${arenaTitle(fight.battle.arena)}»`), `the arena is named: ${fight.outcomes[0].text}`);
@@ -711,7 +713,8 @@ check('talisman offers: a hard battle offers three by the rarity roll (rare «Я
   assert(rtTalismanOffer(seedOf32(7), 'oath', { taken: ['oath-hunger'], gone: [] }).length === 0, 'no oath left: an empty offer (refusal only)');
   // The pool runs dry: the «пустышка».
   const all = ['whetstone', 'dew-flask', 'tough-hide', 'millstone-shard', 'hourglass', 'nimble-paws', 'ash-ward', 'hero-anchor'];
-  assert(same(rtTalismanOffer(seedOf32(8), 'hard', { taken: all, gone: [] }), ['blank']), 'an empty pool: the «пустышка»');
+  assert(rtTalismanOffer(seedOf32(8), 'hard', { taken: all, gone: [] }).length === 0, 'an empty pool: no option, no «пустышка» (design answer 10)');
+  assert(rtTalismanOffer(seedOf32(8), 'hard', { taken: all.slice(1), gone: [] }).length === 1, 'one left: one option');
   // The gift, events and the merchant never give a talisman without an analogue (many seeds).
   for (let k = 1; k <= 200; k++) {
     const seed = seedOf32(k), gift = rollGift(seed, 'full', GIFT_POOL);
@@ -854,6 +857,48 @@ check('a run ignores the sandbox stand-ins of its rules (review finding B): a sa
   }
   // The same saved panel in the sandbox keeps them: the anchor works there.
   assert(checked === 4 && saved.eliteSandbox, 'four row-1 arenas');
+});
+
+check('event modifiers (design answer 3): «первая цепь с силой 1» and «бой со случайной элитой» act on the next arena only', () => {
+  // «Совет совы» (a sure «first chain +1») on a real trail event node.
+  let atEvent: RtRunState | null = null;
+  for (let salt = 2001; salt < 3000 && !atEvent; salt += 100) {
+    const next = openNode(salt, 'event');
+    if (next?.pending?.kind === 'event' && rtNode(next, next.pending.nodeId)!.row <= 8) atEvent = next;
+  }
+  assert(atEvent && atEvent.pending?.kind === 'event', 'a trail event');
+  const owl: RtRunState = structuredClone(atEvent);
+  owl.picks.find(entry => entry.nodeId === (atEvent!.pending as { nodeId: string }).nodeId)!.eventId = 'owl-hollow';
+  const advice = rtEventView(owl)!.options.find(option => option.id === 'advice')!;
+  assert(advice.available && advice.outcomes[0].text.includes('следующей арене'), `advice: ${advice.outcomes[0].text}`);
+  let run = ok(rtChooseEventOption(owl, 'advice'), 'advice');
+  assert(same(run.modifiers, ['first-chain-power']) && same(roundTrip(run), run), 'the modifier waits, saved');
+  run = nextArena(run);
+  assert(rtArenaLoadout(run).firstPower === 1, 'the next arena gets it');
+  let sim = startArena(run), w = sim.world;
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const tough = sim.command({ t: 'place', x: 9.2, y: 5, color: 0, hp: 2, kind: 'basic' }) as number;
+  sim.command({ t: 'begin', x: 9.2, y: 5 }); sim.command({ t: 'release' });
+  for (let i = 0; i < 120 && w.move; i++) sim.tick();
+  assert(!w.enemies.some(e => e.id === tough), 'the first chain with power 1 kills HP 2');
+  winArena(sim);
+  run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
+  assert(!run.modifiers, 'spent by that arena');
+  // «Бой со случайной элитой»: the first newcomer of the next arena is a random elite (its loot — a resource); only that arena.
+  run = nextArena({ ...run, pending: run.pending?.kind === 'talisman' ? null : run.pending, modifiers: ['start-elite'] });
+  if (run.pending?.kind !== 'battle') run = nextArena(run);
+  assert(rtArenaLoadout(run).startElite === true, 'the next arena gets it');
+  sim = startArena(run); w = sim.world;
+  // The first newcomer (random elites of run row 3 and later may come after it).
+  let firstId = 0;
+  for (let i = 0; i < 60 * 8 && !firstId; i++) { sim.tick(); firstId = w.events.find(ev => ev.type === 'spawn')?.type === 'spawn' ? (w.events.find(ev => ev.type === 'spawn') as { enemyId: number }).enemyId : 0; w.events.length = 0; }
+  const firstNewcomer = w.enemies.find(e => e.id === firstId);
+  assert(firstNewcomer?.elite === 'random' && !w.kit!.startElite, `the first newcomer is a random elite: ${firstNewcomer?.elite}`);
+  winArena(sim);
+  run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve');
+  assert(!run.modifiers && !rtArenaLoadout(nextArena(run)).startElite, 'one arena only');
+  assert(parseRtRun(JSON.stringify({ ...run, modifiers: ['wrath'] })) === null, 'an unknown modifier in a save');
 });
 
 check('icons and labels of the node types equal the turn-based map screen\'s', () => {

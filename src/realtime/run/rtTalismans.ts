@@ -5,7 +5,7 @@
  * has no analogue in real time it is not offered at all (`RT_TALISMANS_OFF`): nothing is invented — a question to design.
  *
  * Offers follow the turn-based rules (talismanOffers.ts, merchant.ts): a hard battle offers three by the rarity roll
- * 50/33/17%, an empty rarity gives way to the next one, the «пустышка» when nothing is left; the Jailer's row offers
+ * 50/33/17%, an empty rarity gives way to the next one (nothing left — fewer options, no «пустышка»); the Jailer's row offers
  * oaths; the merchant one talisman by the rarity roll; events and the gift draw common or uncommon ones through the
  * turn-based functions with the pool limited to the slice (`turnPool`). «Якорь у героя» is rare, so it comes only from a
  * hard-battle offer or the merchant: those two run here over the slice's list (same algorithm, own salts).
@@ -59,8 +59,8 @@ const BY_ID = new Map(RT_TALISMANS.map(entry => [entry.id, entry]));
 export const rtTalisman = (id: RtTalismanId): RtTalismanDef | undefined => BY_ID.get(id);
 export const isRtTalisman = (value: unknown): value is RtTalismanId => typeof value === 'string' && BY_ID.has(value);
 export const isRtOath = (id: RtTalismanId): boolean => rtTalisman(id)?.rarity === 'oath';
-/** An offer option: a talisman, or the «пустышка» when the pool is empty (no run score in the slice: it gives nothing). */
-export type RtTalismanOption = RtTalismanId | 'blank';
+/** An offer option: a talisman (design answer 10 to step 3: no «пустышка» in the slice — an empty pool offers nothing). */
+export type RtTalismanOption = RtTalismanId;
 
 /** What the run took and what left the pool (shown and refused). */
 export interface RtTalismanPool { taken: readonly RtTalismanId[]; gone: readonly RtTalismanId[] }
@@ -76,7 +76,7 @@ const clash = (a: RtTalismanId, b: RtTalismanId) => !!rtTalisman(a)?.excludes?.i
 /** `id` may be offered now: not taken, not gone, not in this offer, no clash with a taken one or another option. */
 export function rtTalismanEligible(id: RtTalismanId, pool: RtTalismanPool, offered: readonly RtTalismanOption[] = []): boolean {
   if (pool.taken.includes(id) || pool.gone.includes(id) || offered.includes(id)) return false;
-  const others = [...pool.taken, ...offered.filter(option => option !== 'blank')];
+  const others = [...pool.taken, ...offered];
   return !others.some(other => clash(id, other));
 }
 
@@ -89,8 +89,8 @@ const eligibleOf = (rarity: TalismanRarity, pool: RtTalismanPool, offered: reado
 /**
  * The talisman offer of a won hard battle (`hard`) or of the Jailer's row (`oath`) — talismanOffer of the turn-based run
  * over the slice's list: up to three different options; a talisman option rolls its rarity, an empty rarity gives way to
- * the next one, all empty — the «пустышка» (once); an oath offer draws among the oaths and has no «пустышка». `base` is one
- * draw of the run's `talismans` stream.
+ * the next one, all empty — no option (design answer 10: no «пустышка»; only the refusal stays); an oath offer draws among
+ * the oaths. `base` is one draw of the run's `talismans` stream.
  */
 export function rtTalismanOffer(base: number, source: 'hard' | 'oath', pool: RtTalismanPool): RtTalismanOption[] {
   const seed = mixSeed(base >>> 0, OFFER_SALT), options: RtTalismanOption[] = [];
@@ -102,7 +102,6 @@ export function rtTalismanOffer(base: number, source: 'hard' | 'oath', pool: RtT
       for (let step = 0; step < RARITIES.length && !candidates.length; step++) candidates = eligibleOf(RARITIES[(rolled + step) % RARITIES.length], pool, options);
     }
     if (candidates.length) options.push(candidates[mixSeed(mixSeed(seed, slot), PICK_SALT) % candidates.length]);
-    else if (source !== 'oath' && !options.includes('blank')) options.push('blank');
   }
   return options;
 }

@@ -48,7 +48,15 @@ export const randomElitesOn = (world: World): boolean => !!world.kit?.randomElit
 
 /** A newcomer just stepped out of its marker: it may become a random elite (one `elite` draw while under the cap). */
 export function rollRandomElite(world: World, e: Enemy): void {
-  if (!randomElitesOn(world) || e.elite || !kindOf(e).chainable || kindOf(e).immune) return;
+  if (e.elite || !kindOf(e).chainable || kindOf(e).immune) return;
+  // The event modifier «бой со случайной элитой» (design answer 3): the first newcomer of the arena is a random elite.
+  if (world.kit?.startElite) {
+    world.kit.startElite = false;
+    makeElite(world, e, true);
+    world.events.push({ type: 'elite', enemyId: e.id });
+    return;
+  }
+  if (!randomElitesOn(world)) return;
   const p = world.params, after = world.stage === 'greed';
   if (eliteCount(world) >= (after ? p.eliteCapAfter : p.eliteCap)) return;
   if (world.rng.stream('elite').next() >= (after ? p.eliteChanceAfter : p.eliteChance)) return;
