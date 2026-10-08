@@ -2,13 +2,14 @@ import { defineConfig } from '@playwright/test';
 
 // Real-time game only (docs/realtime-prototype.md, docs/realtime-slice.md): `npx playwright test -c playwright.realtime.config.ts`
 // — the arena sandbox (realtime.spec.ts), the new enemies of the slice (realtime-enemies.spec.ts), the run (realtime-run.spec.ts)
-// and the abilities, consumables, elites and talismans of step 3 (realtime-kit.spec.ts).
+// the abilities, consumables, elites and talismans of step 3 (realtime-kit.spec.ts) and the mixed arenas 8–10 of step 4
+// (realtime-arenas.spec.ts).
 // Separate port so it never collides with the main suite (4173).
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4620);
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /realtime(?:-run|-enemies|-kit)?\.spec\.ts/,
+  testMatch: /realtime(?:-run|-enemies|-kit|-arenas)?\.spec\.ts/,
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

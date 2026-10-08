@@ -33,7 +33,7 @@ import { eventTalismanOffer, talismanDraw, talismanLeft, type TalismanPool } fro
 import { isRtOath, isRtTalisman, RT_DEW_FLASK_HEAL, RT_OATH_ENERGY, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
-import { arenaCandidates, arenaTitle, pickArena, RUN_ARENAS, runRow, TEMPORARY_FINAL_ARENAS } from './arenaPools';
+import { arenaCandidates, arenaTitle, FINAL_ARENA, HARD_ARENA, pickArena, RUN_ARENAS, runRow } from './arenaPools';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
@@ -46,19 +46,20 @@ import type { Loadout } from '../sim/kit';
  */
 export const RT_RUN_VERSION = 2;
 
-/** What kind of arena a battle node plays: an ordinary or hard battle, the final arena of a boss, an event's reward battle. */
+/**
+ * What kind of arena a battle node plays: an ordinary battle (the pool of its row), a hard battle («Застава»), the final
+ * arena of a boss node («Последний рубеж»: its victory wins the run), an event's reward battle (the pool of its row).
+ */
 export type RtBattleKind = 'battle' | 'hard' | 'final' | 'event';
 const BATTLE_KINDS: readonly RtBattleKind[] = ['battle', 'hard', 'final', 'event'];
-/** Why an arena is a temporary stand-in: no arena of its row yet (`any` of arenas 1–7), or the final arena of step 4. */
-export type RtStandIn = 'any' | 'final';
 
 export type RtRunPending =
   /**
    * The entered battle node: its arena and seed (the run seed and the node id). The arena starts from the run's HP now;
-   * a reload starts it again from the start (the arena in progress is not saved). `standIn`: why the arena is
-   * temporary — `any` (no arena of the row exists yet: any of arenas 1–7) or `final` (arena 10 comes at step 4).
+   * a reload starts it again from the start (the arena in progress is not saved). Step 4: no arena is a temporary
+   * stand-in any more (a save of steps 1–3 may still carry `standIn`; it is dropped on loading).
    */
-  | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; standIn?: RtStandIn }
+  | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind }
   /** A rest: heal, or craft (`crafted` — the consumables made here so far; non-empty — the heal is gone). */
   | { kind: 'rest'; nodeId: string; crafted: ItemKind[] }
   /** A find: one of three consumables (the turn-based find: healing, a bomb, cold or fire by the node seed). */
@@ -316,23 +317,29 @@ function draw(run: RtRunState, stream: RunStream, advance: boolean): number {
  * next `pool` draw (spending nothing), and a node further on gets another draw when it opens. Null for a node that has
  * no arena or whose arena is not known yet («станет известна, когда узел откроется», as the turn-based map says).
  */
-export function arenaPreview(run: RtRunState, node: ForestMapNode): { arena: string; standIn?: RtStandIn } | null {
+export function arenaPreview(run: RtRunState, node: ForestMapNode): { arena: string } | null {
   const picked = run.picks.find(pick => pick.nodeId === node.id);
-  if (picked?.arena) return { arena: picked.arena, ...standInOf(node) };
+  if (picked?.arena) return { arena: picked.arena };
   if (!isArenaNode(node) || picked || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return null;
   return arenaPick(run, node, false);
 }
-function standInOf(node: ForestMapNode): { standIn?: RtStandIn } {
-  if (node.type === 'boss') return { standIn: 'final' };
-  return arenaCandidates(runRow(node.row)).any ? { standIn: 'any' } : {};
+/**
+ * The arenas a node may play (step 4): a hard battle — «Застава», a boss node — the final arena «Последний рубеж»;
+ * a battle, the Jailer's row, the breakthrough and an event's reward battle — the pool of its run row.
+ */
+export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>): string[] {
+  if (node.type === 'hard') return [HARD_ARENA];
+  if (node.type === 'boss') return [FINAL_ARENA];
+  return arenaCandidates(runRow(node.row));
 }
-/** The arena of a battle node (or an event's reward battle): the pool of its run row, or the temporary final arena of a boss. */
-function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): { arena: string; standIn?: RtStandIn } {
+/**
+ * The arena of a battle node (or an event's reward battle) by one `pool` draw and the window of repeats. A node with one
+ * arena (hard, boss) spends its draw too: every arena node takes one draw of the stream.
+ */
+function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): { arena: string } {
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
   const roll = draw(run, 'pool', advance);
-  if (node.type === 'boss') return { arena: pickArena(TEMPORARY_FINAL_ARENAS, history, roll), standIn: 'final' };
-  const { arenas, any } = arenaCandidates(runRow(node.row));
-  return { arena: pickArena(arenas, history, roll), ...any ? { standIn: 'any' as const } : {} };
+  return { arena: pickArena(nodeArenas(node), history, roll) };
 }
 
 /** The arena seed of a node: the run seed and the node id, as the battles of the turn-based run (forestNodeSeed). */
@@ -342,7 +349,7 @@ function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, 
   const pick = arenaPick(run, node, true);
   const entry = run.picks.find(p => p.nodeId === node.id);
   if (entry) entry.arena = pick.arena; else run.picks.push({ nodeId: node.id, arena: pick.arena });
-  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle, ...pick.standIn ? { standIn: pick.standIn } : {} };
+  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle };
   events.push({ type: 'battle-ready', nodeId: node.id, arena: pick.arena });
 }
 
@@ -649,7 +656,7 @@ export interface RtEventOptionView {
   outcomes: { odds: string; text: string }[];
   cost: string;
   attempts?: { done: number; max: number };
-  battle?: { arena: string; standIn?: RtStandIn };
+  battle?: { arena: string };
   safe: boolean;
 }
 export interface RtEventView { nodeId: string; event: ForestEvent; options: RtEventOptionView[]; attempts: string[] }
@@ -956,7 +963,9 @@ function checkRun(value: unknown): RtRunState | null {
       if (typeof pending.arena !== 'string' || !RUN_ARENAS.includes(pending.arena) || pick?.arena !== pending.arena) return null;
       if (!isSeed(pending.seed) || pending.seed !== arenaSeed(run, pending.nodeId)) return null;
       if (!BATTLE_KINDS.includes(pending.battle as RtBattleKind) || (pending.battle === 'event') !== (node.type === 'event')) return null;
+      // A save of steps 1–3 marked a temporary arena (`standIn`): the arena it named stays, the mark is dropped (step 4).
       if (pending.standIn !== undefined && pending.standIn !== 'any' && pending.standIn !== 'final') return null;
+      if (pending.standIn !== undefined) { const { standIn: _legacy, ...battle } = pending; return { ...run, streams, pending: battle as RtRunPending }; }
       break;
     }
     case 'rest': if (node.type !== 'rest' || !isItemList(pending.crafted)) return null; break;

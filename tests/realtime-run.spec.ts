@@ -186,32 +186,41 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
   expect(errors).toEqual([]);
 });
 
-/** Run rows of the arena pools (docs/realtime-slice.md, section 5); rows no arena covers play any of arenas 1–7. */
+/** Run rows of the arena pools (docs/realtime-slice.md, section 5; step 4: «Брод» 6–9). Hard battles play «Застава», boss nodes «Последний рубеж». */
 const POOL_ROWS: Record<string, [number, number]> = {
-  glade: [1, 3], buttons: [1, 4], marked: [2, 5], shields: [3, 6], archers: [4, 7], powder: [4, 8], thorns: [5, 8],
+  glade: [1, 3], buttons: [1, 4], marked: [2, 5], shields: [3, 6], archers: [4, 7], powder: [4, 8], thorns: [5, 8], ford: [6, 9],
 };
 
-test('run: arenas 4–7 of the new enemies come on their run rows; a row without its own arena plays one of arenas 1–7 «временно»', async ({ page }) => {
-  test.setTimeout(180_000);
+test('run: two runs walk to the final arena — every arena from its pool (hard → «Застава», boss → «Последний рубеж», no «временно»); the final victory ends the run, a reload keeps the end', async ({ page }) => {
+  test.setTimeout(300_000);
   const errors: string[] = [];
   await openRun(page, errors);
-  const met: { row: number; arena: string; standIn?: string }[] = [];
-  // Two runs (seeds spread apart) up to the breakthrough row: battles are won by the test hook, other nodes take their first button.
+  const met: { row: number; arena: string; type: string }[] = [];
+  // Two runs (seeds spread apart) to the end: battles are won by the test hook, other nodes take their first button.
   for (const seed of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0]) {
     await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
-    for (let step = 0; step < 80; step++) {
-      const state = await page.evaluate(() => (window as any).__realtime.run.state()) as RunState & { pending: { kind: string; nodeId?: string; arena?: string; standIn?: string } | null };
+    let finalWon = false;
+    for (let step = 0; step < 120; step++) {
+      const state = await page.evaluate(() => (window as any).__realtime.run.state()) as RunState & { pending: { kind: string; nodeId?: string; arena?: string; battle?: string; standIn?: string } | null };
       if (state.result) break;
       const pending = state.pending;
       if (pending?.kind === 'battle') {
         // Node ids carry the map row (`r6c1`, `den-r11c0`); the run row is the map row less the trunk (4).
         const row = Number(/r(\d+)c/.exec(pending.nodeId!)![1]) - 4;
-        if (row > 9) break;
-        met.push({ row, arena: pending.arena!, standIn: pending.standIn });
+        expect(pending.standIn, `${pending.nodeId}: no temporary arena`).toBeUndefined();
+        met.push({ row, arena: pending.arena!, type: pending.battle! });
         await expect(page.getByTestId('run')).toBeHidden();
         expect((await snapshot(page)).arena).toBe(pending.arena);
+        // The map screen named the arena without «временно».
+        await expect(page.getByText('временно')).toHaveCount(0);
         expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
         await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+        if (pending.battle === 'final') {
+          // The final victory ends the run: the result's button leads to the end of the run.
+          await expect(page.getByTestId('result-map')).toHaveText('Итог похода (Enter)');
+          expect((await runState(page)).result?.outcome).toBe('victory');
+          finalWon = true;
+        }
         await page.getByTestId('result-map').click();
         continue;
       }
@@ -222,16 +231,24 @@ test('run: arenas 4–7 of the new enemies come on their run rows; a row without
       }
       await enterFirstNode(page);
     }
+    expect(finalWon, `run ${seed} won its final arena`).toBe(true);
+    // The end of the run: «Поход пройден»; a reload keeps it.
+    await expect(page.getByTestId('run-result-victory')).toBeVisible();
+    await expect(page.getByTestId('run-result-victory')).toContainText('Поход пройден');
+    const ended = await runState(page);
+    expect(ended.result?.outcome).toBe('victory');
+    await page.reload();
+    await expect(page.getByTestId('run-result-victory')).toBeVisible();
+    expect(await runState(page)).toEqual(ended);
   }
-  for (const { row, arena, standIn } of met) {
-    if (standIn) expect(Object.keys(POOL_ROWS), `row ${row}: stand-in ${arena}`).toContain(arena);
+  for (const { row, arena, type } of met) {
+    if (type === 'hard') expect(arena, `row ${row}: hard`).toBe('outpost');
+    else if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
     else expect(row >= POOL_ROWS[arena][0] && row <= POOL_ROWS[arena][1], `row ${row}: ${arena}`).toBe(true);
-    // Rows 1–8 have arenas of their own after step 2; only row 9 stands in.
-    expect(!!standIn, `row ${row}: stand-in ${standIn}`).toBe(row === 9);
   }
-  const rows = met.map(m => m.row);
-  expect(Math.max(...rows)).toBe(9);
-  const fresh = new Set(met.map(m => m.arena).filter(arena => ['shields', 'archers', 'powder', 'thorns'].includes(arena)));
+  expect(met.filter(m => m.type === 'final').length).toBe(2);
+  expect(Math.max(...met.filter(m => m.type !== 'final').map(m => m.row))).toBe(9);
+  const fresh = new Set(met.map(m => m.arena).filter(arena => ['shields', 'archers', 'powder', 'thorns', 'ford'].includes(arena)));
   expect(fresh.size, `arenas met: ${met.map(m => `${m.row}:${m.arena}`).join(', ')}`).toBeGreaterThanOrEqual(3);
   expect(errors).toEqual([]);
 });

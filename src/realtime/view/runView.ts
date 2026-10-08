@@ -17,7 +17,7 @@ import { arenaTemplate } from '../sim/arenas';
 import { arenaTitle, runRow } from '../run/arenaPools';
 import { rtHp } from '../run/hpScale';
 import {
-  arenaPreview, createRtRun, isArenaNode, resolveArena, type RtStandIn, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtEnterNode,
+  arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtEnterNode,
   rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView,
   type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
@@ -43,19 +43,18 @@ const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
   find: 'Находка: один из трёх расходников.',
   rest: `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`,
   shop: `Расходники, лечение и «Закалка» за ресурсы крафта.`,
-  hard: `Трудный бой: арена своего ряда (Застава — шаг 4). Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор.`,
+  hard: `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор.`,
   checkpoint: 'Тюремщика в срезе нет: обычная арена своего ряда. Победа: клятва на выбор.',
   breakthrough: 'Прорыв: обычная арена своего ряда.',
   battle: 'Обычный бой: арена пула своего ряда.',
-  boss: 'Босса в срезе нет: финальная арена (временно одна из арен 1–7; «Последний рубеж» — шаг 4). Победа завершает поход.',
+  boss: 'Босса в срезе нет: финальная арена «Последний рубеж». Победа завершает поход.',
 };
 
-/** Arena line of a battle node: its name, goal and why it is temporary. */
-function arenaLine(arena: string, standIn?: RtStandIn): string {
+/** Arena line of a battle node: its name and goal. */
+function arenaLine(arena: string): string {
   let summary = '';
   try { summary = arenaTemplate(arena).summary; } catch { /* unknown arena: name only */ }
-  const note = standIn === 'final' ? ' <em>(временно: финальная арена — шаг 4)</em>' : standIn === 'any' ? ' <em>(временно: арен этого ряда ещё нет, любая из 1–7)</em>' : '';
-  return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${note}<br><small>${escapeHtml(summary)}</small>`;
+  return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b><br><small>${escapeHtml(summary)}</small>`;
 }
 const talismanName = (id: string): string => rtTalisman(id)?.name ?? id;
 
@@ -144,6 +143,8 @@ export class RunView {
   }
   /** From the arena's result screen to the run screen: the map, or the end of the run. */
   leaveArena(): void { if (this.inArena) this.open(); }
+  /** The run has ended (a lost arena, or the won final arena): the arena's result button leads to the end of the run. */
+  get runOver(): boolean { return !!this.run?.result; }
 
   /** Start (or start again after a reload) the arena of the open battle node. */
   enterArena(): void {
@@ -153,7 +154,7 @@ export class RunView {
     this.inArena = true;
     this.el.hidden = true;
     this.host.onScreenChange(false);
-    const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}${pending.standIn ? ' (временно)' : ''}`;
+    const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}`;
     this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run));
   }
 
@@ -250,7 +251,7 @@ export class RunView {
     const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
     return `<aside class="rt-run-detail" data-testid="run-detail"><h3>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h3>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
-      + (arena ? `<p>${arenaLine(arena.arena, arena.standIn)}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
+      + (arena ? `<p>${arenaLine(arena.arena)}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (STEP1_HINT[node.type] ? `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type]!)}</p>` : '')
       + (status === 'available' ? `<button class="rt-again" data-action="enter" data-testid="run-enter">Идти</button>` : '')
       + `</aside>`;
@@ -268,7 +269,7 @@ export class RunView {
     if (!pending) return '';
     if (pending.kind === 'battle') {
       if (this.inArena) return '';
-      return card(`<h2>Бой</h2><p>${arenaLine(pending.arena, pending.standIn)}</p><p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
+      return card(`<h2>Бой</h2><p>${arenaLine(pending.arena)}</p><p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
     if (pending.kind === 'gift') {

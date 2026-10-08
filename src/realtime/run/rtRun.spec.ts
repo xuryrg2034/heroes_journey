@@ -3,9 +3,9 @@
  * Node only: `npm run test:realtime-run`. Everything goes through the run's commands and, on battle nodes, through the
  * arena simulation driven by journalled commands — the same path the page takes (runView.ts → main.ts):
  * - the map is the turn-based generator's map of the run seed; the run starts past the trunk with 12 HP and the gift;
- * - a battle node plays an arena of the pool of its run row (any of 1–3 / temporary final marked), seeded by the run seed
- *   and the node id; the hero enters it with the run's HP; a victory returns to the map, a defeat ends the run;
- * - whole runs walk to the boss on spread seeds; saves load back at every step; a reload starts the open arena again;
+ * - a battle node plays an arena of the pool of its run row (step 4: a hard battle «Застава», a boss node the final arena
+ *   «Последний рубеж» — its victory wins the run; no temporary stand-ins), seeded by the run seed and the node id; the hero enters it with the run's HP; a victory returns to the map, a defeat ends the run;
+ * - whole runs walk to the final arena on spread seeds; saves load back at every step; a reload starts the open arena again;
  * - a run arena replays from its journal (with the hero's starting HP) to the same hash;
  * - HP numbers of the turn-based run arrive ×2.4 rounded up: rest, merchant, gift, hard battle, events;
  * - events without an analogue in the slice never come; their off options cannot be taken;
@@ -30,10 +30,11 @@ import { NODE_TYPE_INFO } from '../../forestMapScreen';
 import { RT_NODE_TYPES } from '../view/nodeTypes';
 import { EVENT_RISK_MIN_HP } from '../../game/run/forestEvents';
 import { replay, Simulation } from '../sim/simulation';
-import { arenaCandidates, ARENA_POOLS, arenaTitle, runRow, STAND_IN_ARENAS, TEMPORARY_FINAL_ARENAS } from './arenaPools';
+import { arenaCandidates, ARENA_POOLS, arenaTitle, FINAL_ARENA, HARD_ARENA, runRow, RUN_ARENAS } from './arenaPools';
+import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
-  arenaPreview, arenaSeed, createRtRun, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
   rtChooseTalisman, rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun,
   type RtRunState, type RtRunStep,
 } from './rtRun';
@@ -101,11 +102,11 @@ function takeGift(run: RtRunState, prefer?: (kind: string) => boolean): RtRunSta
 
 // ---- A bot that walks a whole run through the run's commands ----
 
-interface Walk { run: RtRunState; arenas: string[]; standIns: string[]; finals: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number; offers: string[] }
+interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number; offers: string[]; atFinal?: RtRunState }
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   let run = createRtRun(seed, { gift: options.gift ?? 'mini' });
-  const walk: Walk = { run, arenas: [], standIns: [], finals: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [] };
+  const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [] };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
     save();
@@ -114,13 +115,14 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
     if (pending?.kind === 'battle') {
       const node = rtNode(run, pending.nodeId)!;
       assert(pending.seed === forestNodeSeed(seed, node.id), 'arena seed is the run seed and the node id');
-      if (pending.battle === 'final') { assert(TEMPORARY_FINAL_ARENAS.includes(pending.arena) && pending.standIn === 'final', 'boss: temporary final arena'); walk.finals.push(pending.arena); }
+      // Step 4: a boss node plays the final arena, a hard battle «Застава», the rest the pool of the run row; no stand-ins.
+      assert(!('standIn' in pending), `${node.id}: no temporary arena`);
+      if (pending.battle === 'final') walk.atFinal = run;
+      if (pending.battle === 'final') { assert(node.type === 'boss' && pending.arena === FINAL_ARENA, `boss: the final arena (${pending.arena})`); walk.finals.push(pending.arena); }
+      else if (pending.battle === 'hard') { assert(node.type === 'hard' && pending.arena === HARD_ARENA, `hard: Застава (${pending.arena})`); walk.hards.push(pending.arena); }
       else {
-        const { arenas, any } = arenaCandidates(runRow(node.row));
-        assert(arenas.includes(pending.arena), `${node.id}: arena ${pending.arena} outside the pool of run row ${runRow(node.row)}`);
-        assert(!!pending.standIn === any, 'stand-in marked exactly when the row has no arena');
-        if (any) walk.standIns.push(pending.arena); else
-          walk.rowArenas.push([runRow(node.row), pending.arena]);
+        assert(arenaCandidates(runRow(node.row)).includes(pending.arena), `${node.id}: arena ${pending.arena} outside the pool of run row ${runRow(node.row)}`);
+        walk.rowArenas.push([runRow(node.row), pending.arena]);
       }
       walk.arenas.push(pending.arena);
       const hpBefore = run.hp, sim = startArena(run);
@@ -292,7 +294,7 @@ check('the full gift is the turn-based roll as it is (design answer to step 3): 
 });
 
 let walks: Walk[] = [];
-check('whole runs walk to the boss: arenas of the row pools, seeds of the node, victories back to the map, saves load', () => {
+check('whole runs walk to the final arena «Последний рубеж»: arenas of the row pools, seeds of the node, victories back to the map, saves load; the final victory wins the run', () => {
   walks = SEEDS.map((seed, k) => walkRun(seed, k));
   const won = walks.filter(walk => walk.run.result?.outcome === 'victory');
   for (const walk of walks) assert(walk.run.result, 'every walk ends');
@@ -300,26 +302,43 @@ check('whole runs walk to the boss: arenas of the row pools, seeds of the node, 
   for (const walk of won) {
     const last = rtNode(walk.run, walk.run.result!.nodeId)!;
     assert(last.type === 'boss' && walk.arenas.length >= 6, 'a run ends at the boss after its battles');
+    // Step 4: the run ends on the final arena, and only there: its won record is the last one, the run's result a victory.
+    const final = walk.run.battles[walk.run.battles.length - 1];
+    assert(final.arena === FINAL_ARENA && final.won && final.nodeId === last.id && walk.finals.length === 1, `the last arena is the final one, won (${final.arena})`);
+    assert(walk.run.pending === null && rtAvailableNodes(walk.run).length === 0 && !rtEnterNode(walk.run, last.id).ok, 'the run is over: nothing open, nowhere to go');
   }
   const replays = walks.reduce((sum, walk) => sum + walk.replays, 0), saves = walks.reduce((sum, walk) => sum + walk.saves, 0);
   console.log(`   ${won.length}/${walks.length} won, ${walks.reduce((sum, walk) => sum + walk.arenas.length, 0)} arenas, ${replays} replayed, ${saves} saves loaded back`);
 });
 
-check('arenas of the new enemies come on their rows; rows without an arena yet play any of arenas 1–7; Поляна of the run kills 20', () => {
-  // Step 2: arenas 4–7 stand on their rows (section 5); only rows no arena covers (run row 9 until arena 8) play a stand-in.
-  // Design answer to step 2: row 9 and the boss play any of arenas 1–7 (the pool stream and its window), not only 1–3.
-  const standIns = new Set(walks.flatMap(walk => walk.standIns)), finals = new Set(walks.flatMap(walk => walk.finals));
-  const late = (set: Set<string>) => [...set].some(arena => !['glade', 'buttons', 'marked'].includes(arena));
-  assert(STAND_IN_ARENAS.length === 7 && TEMPORARY_FINAL_ARENAS.length === 7, 'stand-ins: arenas 1–7');
-  assert(standIns.size >= 3 && late(standIns) && [...standIns].every(arena => STAND_IN_ARENAS.includes(arena)), `stand-in rows play: ${[...standIns].join(', ')}`);
-  assert(finals.size >= 3 && late(finals), `boss nodes play: ${[...finals].join(', ')}`);
-  for (let row = 1; row <= 8; row++) assert(!arenaCandidates(row).any, `run row ${row} has arenas of its own`);
+check('step 4 pools: every run row 1–9 has its own arenas, «Брод» on rows 6–9, hard battles play «Застава», boss nodes «Последний рубеж»; Поляна of the run kills 20', () => {
+  // No temporary stand-ins any more (steps 1–3): every run row of the map (map rows 5–13) has arenas of its own.
+  for (let row = 1; row <= 9; row++) assert(arenaCandidates(row).length > 0, `run row ${row} has arenas of its own`);
+  assert(arenaCandidates(9).join() === 'ford' && arenaCandidates(10).length === 0, `run row 9: ${arenaCandidates(9)}`);
+  const ford = ARENA_POOLS.find(entry => entry.arena === 'ford');
+  assert(ford && ford.rows[0] === 6 && ford.rows[1] === 9, 'Брод: run rows 6–9');
+  assert(RUN_ARENAS.length === 10 && RUN_ARENAS.every(arena => arenaTemplate(arena)), `ten arenas: ${RUN_ARENAS}`);
+  const hards = walks.flatMap(walk => walk.hards), finals = walks.flatMap(walk => walk.finals);
+  assert(hards.length > 0 && hards.every(arena => arena === HARD_ARENA), `hard battles: ${hards.join(', ')}`);
+  assert(finals.length > 0 && finals.every(arena => arena === FINAL_ARENA), `boss nodes: ${finals.join(', ')}`);
+  // Every node type of the generated maps that plays an arena has arenas (both branch bosses lead to the one final arena).
+  for (const seed of SEEDS) {
+    const run = createRtRun(seed);
+    for (const node of rtMapNodes(run)) {
+      if (!['battle', 'hard', 'checkpoint', 'breakthrough', 'boss', 'event'].includes(node.type)) continue;
+      const arenas = nodeArenas(node);
+      assert(arenas.length > 0, `${node.id}: arenas`);
+      if (node.type === 'boss') assert(arenas.join() === FINAL_ARENA, `${node.id}: the final arena`);
+      if (node.type === 'hard') assert(arenas.join() === HARD_ARENA, `${node.id}: Застава`);
+    }
+  }
   const rowsOf = (arena: string) => new Set(walks.flatMap(walk => walk.rowArenas.filter(([, a]) => a === arena).map(([row]) => row)));
   for (const entry of ARENA_POOLS) {
     const rows = rowsOf(entry.arena);
     assert(rows.size > 0 && [...rows].every(row => row >= entry.rows[0] && row <= entry.rows[1]), `${entry.arena} on rows ${[...rows].join(', ')} (pool ${entry.rows.join('–')})`);
   }
-  console.log(`   stand-ins: ${[...standIns].join(', ')}; finals: ${[...finals].join(', ')}; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}`);
+  assert(rowsOf('ford').has(9), 'Брод plays the breakthrough row 9');
+  console.log(`   hard ${hards.length} × Застава, final ${finals.length} × Последний рубеж; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}`);
   const glade = new Simulation({ arena: 'glade', params: defaultParams(), seed: 5 });
   assert(goalProgress(glade.world).total === 20, 'Поляна of the run: kill 20');
   assert(goalProgress(new Simulation({ arena: 'kills', params: defaultParams(), seed: 5 }).world).total === defaultParams().killGoal, 'the sandbox arena keeps the slider');
@@ -327,8 +346,7 @@ check('arenas of the new enemies come on their rows; rows without an arena yet p
 });
 
 check('different seeds give different arena sequences; every arena of the pools comes', () => {
-  // Three arenas and short pools (run rows 6–9 have only Логово at step 1): coincidences between runs are allowed, a
-  // fixed sequence is not.
+  // Short pools: coincidences between runs are allowed, a fixed sequence is not.
   const sequences = new Set(walks.map(walk => walk.arenas.join(',')));
   console.log(`   ${[...sequences].slice(0, 4).join(' | ')}`);
   assert(sequences.size >= SEEDS.length / 2, `arena sequences: ${sequences.size} of ${SEEDS.length}`);
@@ -336,7 +354,7 @@ check('different seeds give different arena sequences; every arena of the pools 
   for (const entry of ARENA_POOLS) assert(used.has(entry.arena), `arena ${entry.arena} comes`);
   // The first battle of a run (row 5 → run row 1): Поляна or Двор кнопок, as the pools say.
   const firsts = new Set(walks.map(walk => walk.arenas[0]));
-  assert([...firsts].every(arena => arenaCandidates(1).arenas.includes(arena)) && firsts.size === 2, `first arenas: ${[...firsts].join(', ')}`);
+  assert([...firsts].every(arena => arenaCandidates(1).includes(arena)) && firsts.size === 2, `first arenas: ${[...firsts].join(', ')}`);
   const seeds = new Set(walks.map(walk => arenaSeed(walk.run, walk.run.visited.find(id => rtNode(walk.run, id)!.row === 5)!)));
   assert(seeds.size === walks.length, 'arena seeds differ between runs');
 });
@@ -351,6 +369,70 @@ check('events: only the slice pool comes; off options are refused; HP outcomes a
   const trap = forestEvent('old-trap')!.options.find(option => option.id === 'bait')!;
   assert(trap.cost && !Array.isArray(trap.cost) && (trap.cost as { hp: number }).hp === 1, 'catalogue: the bait costs 1 HP');
   console.log(`   ${met.length} events met: ${[...new Set(met)].join(', ')}`);
+});
+
+/**
+ * The arenas a run meets in order, its arena outcomes faked as victories (the run's commands only, no simulation): the
+ * first button of every screen, the next node by `(k + step)`. For counting what a player meets first.
+ */
+function arenaPath(seed: number, k: number): { row: number; arena: string }[] {
+  let run = createRtRun(seed, { gift: 'mini' });
+  const path: { row: number; arena: string }[] = [];
+  for (let step = 0; step < 200 && !run.result; step++) {
+    const pending = run.pending;
+    if (pending?.kind === 'gift') run = takeGift(run);
+    else if (pending?.kind === 'battle') {
+      path.push({ row: runRow(rtNode(run, pending.nodeId)!.row), arena: pending.arena });
+      run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
+    } else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
+    else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
+    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]), 'find');
+    else if (pending?.kind === 'shop') run = ok(rtShopLeave(run), 'shop');
+    else if (pending?.kind === 'event') run = ok(rtChooseEventOption(run, rtEventView(run)!.options.find(option => option.available)!.id), 'event');
+    else { const next = rtAvailableNodes(run); run = ok(rtEnterNode(run, next[(k + step) % next.length].id), 'enter'); }
+  }
+  return path;
+}
+
+check('a new enemy meets the player on its own arena (4–7) on earlier rows than on the mixed ones (8–10): by the pools, and how often in runs', () => {
+  // Own arenas of the four new kinds and the mixed arenas that bring them (section 5).
+  const OWN: Record<string, string> = { shield: 'shields', archer: 'archers', sapper: 'powder', porcupine: 'thorns' };
+  const kindsOf = (arena: string): string[] => { const t = arenaTemplate(arena); return [...new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')])]; };
+  // The hard battles stand on the branch rows (map rows 10–12, run rows 6–8) of every generated map; the final — run row 10.
+  let hardMin = Infinity;
+  for (let k = 1; k <= 200; k++) for (const node of rtMapNodes(createRtRun(Math.imul(k, 2654435761) >>> 0))) if (node.type === 'hard') hardMin = Math.min(hardMin, runRow(node.row));
+  const firstRow = (arena: string): number => arena === HARD_ARENA ? hardMin : arena === FINAL_ARENA ? 10 : ARENA_POOLS.find(entry => entry.arena === arena)!.rows[0];
+  for (const [kind, own] of Object.entries(OWN)) {
+    assert(kindsOf(own).includes(kind), `${own} brings ${kind}`);
+    for (const mixed of ['ford', HARD_ARENA, FINAL_ARENA].filter(arena => kindsOf(arena).includes(kind)))
+      assert(firstRow(own) < firstRow(mixed), `${kind}: own ${own} from row ${firstRow(own)}, mixed ${mixed} from row ${firstRow(mixed)}`);
+  }
+  // In a given run the pools are random: count how often a kind is first met on a mixed arena (a measurement, no bound).
+  const runs = 300, mixedFirst: Record<string, number> = { shield: 0, archer: 0, sapper: 0, porcupine: 0 };
+  for (let k = 1; k <= runs; k++) {
+    const path = arenaPath(Math.imul(k, 2654435761) >>> 0, k);
+    for (const [kind, own] of Object.entries(OWN)) {
+      const first = path.find(entry => kindsOf(entry.arena).includes(kind));
+      if (first && first.arena !== own) mixedFirst[kind]++;
+    }
+  }
+  console.log(`   hard battles from run row ${hardMin}; first met on a mixed arena in ${runs} runs: ${Object.entries(mixedFirst).map(([kind, n]) => `${kind} ${n}`).join(', ')}`);
+});
+
+check('the final arena «Последний рубеж»: a save at it loads back, a loss there ends the run as a defeat; a save of steps 1–3 with a temporary mark loads without it', () => {
+  const walk = walks.find(entry => entry.atFinal)!, atFinal = walk.atFinal!;
+  const pending = atFinal.pending as Extract<RtRunState['pending'], { kind: 'battle' }>;
+  assert(pending.battle === 'final' && pending.arena === FINAL_ARENA && same(roundTrip(atFinal), atFinal), 'the open final arena is saved');
+  const sim = startArena(atFinal), goal = goalProgress(sim.world);
+  assert(goal.total === 40 && sim.world.enemies.filter(e => e.elite === true).length === 2, `final: ${goal.label} ${goal.total}, elites ${sim.world.enemies.filter(e => e.elite).length}`);
+  loseArena(sim);
+  const lost = ok(resolveArena(atFinal, outcomeOf(atFinal, sim)), 'lose the final');
+  assert(lost.result?.outcome === 'defeat' && lost.result.nodeId === pending.nodeId && rtAvailableNodes(lost).length === 0 && same(roundTrip(lost), lost), 'a lost final ends the run as a defeat');
+  // A run saved at steps 1–3 named a temporary arena with `standIn`: the arena stays, the mark goes.
+  const legacy = JSON.parse(serializeRtRun(atFinal)) as { pending: Record<string, unknown> };
+  legacy.pending.standIn = 'final';
+  const loaded = parseRtRun(JSON.stringify(legacy));
+  assert(loaded && same(loaded, atFinal), 'a save of steps 1–3 loads without the mark');
 });
 
 check('a lost arena ends the run: nothing more to enter, the save keeps the end, the profile keeps the gift mark', () => {
@@ -480,7 +562,7 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
   let run = ok(rtChooseEventOption(setup, 'fight'), 'fight');
   const node = rtNode(run, (setup.pending as { nodeId: string }).nodeId)!;
   assert(run.pending?.kind === 'battle' && run.pending.battle === 'event' && run.pending.arena === fight.battle.arena, 'the arena shown is the arena played');
-  assert(arenaCandidates(runRow(node.row)).arenas.includes(run.pending.arena) && run.pending.seed === arenaSeed(run, node.id), 'arena of the row, seed of the node');
+  assert(arenaCandidates(runRow(node.row)).includes(run.pending.arena) && run.pending.seed === arenaSeed(run, node.id), 'arena of the row, seed of the node');
   const lost = (() => { const sim = startArena(run); loseArena(sim); return ok(resolveArena(run, outcomeOf(run, sim)), 'lose'); })();
   assert(lost.result?.outcome === 'defeat', 'a lost reward battle ends the run');
   const sim = startArena(run); winArena(sim);
@@ -962,7 +1044,7 @@ check('a malformed save reads as no run: arena, open node, result, gift, picks, 
     ['arena other than the pick', { ...atBattle, pending: { ...pending, arena: pending.arena === 'glade' ? 'marked' : 'glade' } }],
     ['unknown battle kind', { ...atBattle, pending: { ...pending, battle: 'boss' } }],
     ['an event battle on a battle node', { ...atBattle, pending: { ...pending, battle: 'event' } }],
-    ['unknown stand-in', { ...atBattle, pending: { ...pending, standIn: 'nearest' } }],
+    ['unknown stand-in (a mark of steps 1–3)', { ...atBattle, pending: { ...pending, standIn: 'nearest' } }],
     ['a result with an open battle', { ...atBattle, result: { outcome: 'victory', nodeId: pending.nodeId } }],
     ['an unknown open kind', { ...atBattle, pending: { kind: 'tavern', nodeId: pending.nodeId } }],
     ['a rest open on a battle node', { ...atBattle, pending: { kind: 'rest', nodeId: pending.nodeId } }],

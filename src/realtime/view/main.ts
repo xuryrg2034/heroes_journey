@@ -29,8 +29,20 @@ import { loadParams, saveParams } from './paramStorage';
 import { RealtimeRenderer, type RenderUi } from './render';
 import { RunView } from './runView';
 
-/** Arenas of the sandbox menu, keys 1–7: the three prototype arenas and arenas 4–7 of the slice (stage 2, step 2). */
+/**
+ * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
+ * and 4). `?arena=1…10` opens one at once.
+ */
 const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS];
+/** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
+function phaseOverrideText(override: NonNullable<ArenaTemplate['phaseOverride']>): string {
+  const keys = Object.keys(override);
+  if (override.wolfShare === 0 && override.boarShare === 0 && keys.length === 2) return 'стай волков и кабанов нет (доли 0)';
+  if (override.boarShare === 0 && keys.length === 1) return 'кабанов нет (доля 0)';
+  return 'с поправками арены';
+}
+/** The menu key of sandbox arena `i` (from 0): 1–9, then 0 for the tenth. */
+const arenaKey = (i: number): string => String((i + 1) % 10);
 
 /** A frame adds at most this much real time (a stalled tab does not fast-forward the fight). */
 const MAX_FRAME = 0.05;
@@ -164,14 +176,14 @@ async function boot(): Promise<void> {
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
 
-  // Arena menu: before the first fight and after a result (keys 1–7).
+  // Arena menu: before the first fight and after a result (keys 1–9 and 0).
   const menu = el('div', 'rt-overlay rt-menu');
   menu.setAttribute('data-testid', 'menu');
   const menuCard = el('div', 'rt-card rt-menu-card');
   menuCard.append(el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   SANDBOX_ARENAS.forEach((arena, i) => {
-    const b = button('rt-arena', `<kbd>${i + 1}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, `arena-${i + 1}`);
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
   });
@@ -250,7 +262,7 @@ async function boot(): Promise<void> {
     renderer.buildArena(world().arena);
     // The panel's phase table is the current arena's: say what the arena forces over it, or that it keeps its own.
     panel.setArenaPhaseNote(arena.phases?.length ? `«${arena.name}»: своя таблица фаз, эта таблица на неё не действует.`
-      : arena.phaseOverride ? `«${arena.name}»: таблица ниже, ${Object.keys(arena.phaseOverride).includes('wolfShare') ? 'стай волков и кабанов нет (доли 0)' : 'с поправками арены'}.` : null);
+      : arena.phaseOverride ? `«${arena.name}»: таблица ниже, ${phaseOverrideText(arena.phaseOverride)}.` : null);
     paused = false;
     menuOpen = false;
     menu.hidden = true;
@@ -423,7 +435,7 @@ async function boot(): Promise<void> {
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
       return;
     }
-    const keys = SANDBOX_ARENAS.map((_, i) => `Digit${i + 1}`), digit = Math.max(keys.indexOf(event.code), keys.indexOf(event.code.replace('Numpad', 'Digit')));
+    const keys = SANDBOX_ARENAS.map((_, i) => `Digit${arenaKey(i)}`), digit = Math.max(keys.indexOf(event.code), keys.indexOf(event.code.replace('Numpad', 'Digit')));
     if (digit >= 0 && (menuOpen || ended)) { start(digit); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
@@ -444,7 +456,8 @@ async function boot(): Promise<void> {
     result.dataset.outcome = won ? 'victory' : 'defeat';
     resultCard.classList.toggle('rt-won', won);
     resultTitle.textContent = won ? 'Победа' : 'Поражение';
-    toMap.textContent = won ? 'К карте (Enter)' : 'Итог похода (Enter)';
+    // The won final arena ends the run too (step 4): its button leads to the end of the run, as after a defeat.
+    toMap.textContent = won && !runView?.runOver ? 'К карте (Enter)' : 'Итог похода (Enter)';
     const goal = goalProgress(w);
     const rows: [string, string][] = [
       ['Арена', runLabel && !sandbox ? runLabel : w.arena.name],
@@ -566,7 +579,7 @@ async function boot(): Promise<void> {
   };
   requestAnimationFrame(frame);
 
-  // `?arena=N` (1–7) skips the menu: handy for manual tuning.
+  // `?arena=N` (1–10) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
 
@@ -631,7 +644,7 @@ async function boot(): Promise<void> {
     },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
     restart: (seed?: number) => restart(seed),
-    /** Starts arena `n` (1–7), as keys 1–7 on the menu; `seed` fixes its seed. */
+    /** Starts arena `n` (1–10), as keys 1–9 and 0 on the menu; `seed` fixes its seed. */
     selectArena: (n: number, seed?: number) => start(n - 1, seed),
     completeGoals: () => command({ t: 'goals' }),
     burst: (count: number) => command({ t: 'burst', count }),

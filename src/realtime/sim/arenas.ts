@@ -26,7 +26,7 @@ export interface StartEnemy {
   /** Enemy kind id (enemies.ts registry); `basic` when omitted. */
   kind?: string;
   marked?: boolean;
-  /** Stage 2, step 3: an elite from the start (the modifier over its HP; arenas 9–10 of step 4 stand two). */
+  /** Stage 2, step 3: an elite from the start (the modifier over its HP; arenas 9–10 stand two, step 4). */
   elite?: boolean;
 }
 
@@ -332,5 +332,156 @@ export const PORCUPINE_ARENA: ArenaTemplate = registerArena({
   newcomers: [{ kind: 'porcupine', share: 0.2 }],
 });
 
-/** Arenas 4–7 of the slice on the sandbox menu (keys 4–7), after the three prototype arenas. */
-export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA, SAPPER_ARENA, PORCUPINE_ARENA];
+// ---- Mixed arenas 8–10 (stage 2, step 4; docs/realtime-slice.md, sections 5 and 11, «Шаг 4») ----
+
+/**
+ * Newcomer shares as the player meets them: `rollSingle` (spawn.ts) rolls the kinds of a template in order, one roll each,
+ * so a later kind would come less often than its number. This turns the shares wanted of all newcomers into the
+ * per-roll shares of that order (kind i: its share ÷ what the earlier kinds leave).
+ */
+export function sharesOfAll(shares: readonly (readonly [kind: string, share: number])[]): NewcomerShare[] {
+  let left = 1;
+  return shares.map(([kind, share]) => {
+    const roll = left > 0 ? Math.min(1, share / left) : 0;
+    left -= share;
+    return { kind, share: roll };
+  });
+}
+
+/**
+ * Баланс: the shares of all newcomers on the mixed arenas 9–10 — each of the four new kinds (the rest are basic
+ * enemies). Arenas 4–7 meet one kind at 15–25%; a mixed arena meets all four at a lower share each.
+ */
+export const MIXED_KIND_SHARE = 0.1;
+/** Баланс: archers of all newcomers on «Брод» (as on «Стрелковая гряда»). */
+export const FORD_ARCHER_SHARE = 0.15;
+/** Баланс: wolf packs among the groups on «Брод» before the goals (the panel's «стаи %» of the base pace is 0.15). */
+export const FORD_WOLF_SHARE = 0.25;
+const ALL_FOUR = sharesOfAll([['shield', MIXED_KIND_SHARE], ['archer', MIXED_KIND_SHARE], ['sapper', MIXED_KIND_SHARE], ['porcupine', MIXED_KIND_SHARE]]);
+
+/**
+ * Arena 8 «Брод» (run rows 6–9): kill the five marked — three archers on the far bank and two wolves at the water. A big
+ * pond fills the middle: water slows walking (the hero and the enemies), it does not cut an archer's line (step 2), so the
+ * archers shoot across it. Dry banks above and below the pond (2.4 units) and the water itself keep every way open.
+ * Newcomers: archers by their share, wolf packs, no boars. The hero starts on the left bank, the door is on the right.
+ */
+export const FORD_ARENA: ArenaTemplate = registerArena({
+  id: 'ford',
+  name: 'Брод',
+  summary: 'Убей пятерых отмеченных: лучников на том берегу и волков у воды. Вода замедляет, стрелы летят над ней. Дверь справа.',
+  goal: 'marked',
+  width: 16,
+  height: 10,
+  heroStart: { x: 2.2, y: 5 },
+  obstacles: [
+    pond(8, 5, 2.6),
+    tree(4.2, 2.8),
+    tree(4.4, 7.4),
+    tree(1.6, 8.6),
+    tree(11.9, 2.4),
+    tree(12.1, 7.8),
+    tree(14.5, 1.3),
+  ],
+  buttons: [],
+  door: { x: 15.3, y: 5 },
+  enemies: [
+    // HP of the archers — the slider «HP лучника» (no `hp` here); the wolves are tough (1 HP).
+    { x: 13.4, y: 2.2, color: 0, kind: 'archer', marked: true },
+    { x: 13.8, y: 5.6, color: 2, kind: 'archer', marked: true },
+    { x: 13.2, y: 8.6, color: 3, kind: 'archer', marked: true },
+    { x: 11.2, y: 4.2, color: 1, hp: 1, kind: 'wolf', marked: true },
+    { x: 11.4, y: 6.2, color: 2, hp: 1, kind: 'wolf', marked: true },
+  ],
+  pace: { wolfShare: FORD_WOLF_SHARE },
+  phaseOverride: { boarShare: 0 },
+  newcomers: [{ kind: 'archer', share: FORD_ARCHER_SHARE }],
+});
+
+/**
+ * Arena 9 «Застава» (the hard battle): kill 30; all four new kinds come, and two elites of the template stand in the yard
+ * from the start (their loot — as an elite of the template, section 7). Two palisades with gates cross the arena; the
+ * sides are open. The hero starts below, the door is on top.
+ */
+export const OUTPOST_ARENA: ArenaTemplate = registerArena({
+  id: 'outpost',
+  name: 'Застава',
+  summary: 'Трудный бой: убей цепью 30 врагов. Все четыре новых врага и две элиты во дворе заставы. Дверь сверху.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 8.9 },
+  obstacles: [
+    wall(3, 2, 4, 1),
+    wall(9, 2, 4, 1),
+    wall(3, 7, 4, 1),
+    wall(9, 7, 4, 1),
+    tree(5.4, 4.6),
+    tree(10.6, 5.4),
+    tree(1.4, 1.4),
+    tree(14.6, 8.6),
+  ],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [
+    { x: 7.2, y: 4.4, color: 1, kind: 'shield', elite: true },
+    { x: 9.4, y: 3.6, color: 2, kind: 'archer', elite: true },
+  ],
+  phaseOverride: ONE_KIND,
+  // Баланс: section 5 — kill 30.
+  killGoal: 30,
+  newcomers: ALL_FOUR,
+});
+
+/**
+ * Баланс: the greed table of «Последний рубеж» — denser than the panel's default (floors +6…+10, groups faster), with
+ * the same breather in the middle. Wolf and boar shares are 0 (the arena has no packs and no boars).
+ */
+export const FINAL_PHASES: readonly Phase[] = Object.freeze([
+  { duration: 25, floor: 36, intervalMin: 2, intervalMax: 3.5, toughShare: 0.3, wolfShare: 0, boarShare: 0 },
+  { duration: 25, floor: 44, intervalMin: 1.5, intervalMax: 3, toughShare: 0.35, wolfShare: 0, boarShare: 0 },
+  { duration: 20, floor: 36, intervalMin: 3, intervalMax: 4.5, toughShare: 0.3, wolfShare: 0, boarShare: 0 },
+  { duration: 30, floor: 50, intervalMin: 1.2, intervalMax: 2.5, toughShare: 0.4, wolfShare: 0, boarShare: 0 },
+  { duration: 30, floor: 58, intervalMin: 1, intervalMax: 2, toughShare: 0.45, wolfShare: 0, boarShare: 0 },
+].map(phase => Object.freeze(phase)));
+
+/**
+ * Arena 10 «Последний рубеж» (the final of the run, the boss nodes): kill 40, then the door; all four new kinds and two
+ * elites of the template from the start; after the goals its own dense phase table (`FINAL_PHASES`). The hero starts in
+ * a ring of ruins with six gaps; the door is on top.
+ */
+export const LAST_STAND_ARENA: ArenaTemplate = registerArena({
+  id: 'last-stand',
+  name: 'Последний рубеж',
+  summary: 'Финал похода: убей цепью 40 врагов, затем выйди в дверь сверху. После цели давление плотнее обычного.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 5 },
+  obstacles: [
+    wall(5, 2, 2, 1),
+    wall(9, 2, 2, 1),
+    wall(5, 7, 2, 1),
+    wall(9, 7, 2, 1),
+    wall(3.6, 4, 1, 2),
+    wall(11.4, 4, 1, 2),
+    tree(1.8, 2),
+    tree(14.2, 8),
+    tree(2, 8.2),
+    tree(14, 1.8),
+    pond(13.8, 5, 0.8),
+  ],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [
+    { x: 2.2, y: 5, color: 3, kind: 'porcupine', elite: true },
+    { x: 8, y: 8.8, color: 0, kind: 'sapper', elite: true },
+  ],
+  phaseOverride: ONE_KIND,
+  phases: FINAL_PHASES.map(phase => ({ ...phase })),
+  // Баланс: section 5 — kill 40.
+  killGoal: 40,
+  newcomers: ALL_FOUR,
+});
+
+/** Arenas 4–10 of the slice on the sandbox menu (keys 4–9 and 0), after the three prototype arenas. */
+export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA, SAPPER_ARENA, PORCUPINE_ARENA, FORD_ARENA, OUTPOST_ARENA, LAST_STAND_ARENA];
