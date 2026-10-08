@@ -8,9 +8,9 @@
  * arena).
  *
  * Step 1 brought arenas 1–3 (the prototype arenas; Поляна with its run goal «убить 20», sim/arenas.ts GLADE_ARENA), step 2
- * arenas 4–7 of the new enemies (sim/arenas.ts SLICE_ARENAS). A row no arena covers yet plays any of arenas 1–3
- * (`STAND_IN_ARENAS`) by the same pool stream and window (design answer 08.10.2026; temporary until arena 8), and the boss
- * nodes play a temporary final arena — one of arenas 1–3 — until arena 10 (step 4).
+ * arenas 4–7 of the new enemies (sim/arenas.ts SLICE_ARENAS). A row no arena covers yet (run row 9) plays any of arenas
+ * 1–7 (`STAND_IN_ARENAS`) by the same pool stream and window, and the boss nodes play a temporary final arena — any of
+ * arenas 1–7 — until arenas 8–10 (step 4; design answer 08.10.2026 to step 2).
  */
 import { FOREST_TRUNK_LAST_ROW } from '../../game/run/forestMap';
 import { pickPoolBattle } from '../../game/run/battlePools';
@@ -34,10 +34,10 @@ export const ARENA_POOLS: readonly ArenaPoolEntry[] = [
 /** Names of the arenas on the run's map (docs/realtime-slice.md, section 5); the sandbox menu keeps the templates' names. */
 export const ARENA_TITLES: Readonly<Record<string, string>> = { glade: 'Поляна', buttons: 'Двор кнопок', marked: 'Логово', shields: 'Стена щитов', archers: 'Стрелковая гряда', powder: 'Пороховой склад', thorns: 'Колючие заросли' };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
-/** Temporary final arena of the boss nodes (step 1): one of arenas 1–3 by the pool stream; arena 10 comes at step 4. */
-export const TEMPORARY_FINAL_ARENAS: readonly string[] = ['glade', 'buttons', 'marked'];
-/** A row without an arena of its own plays any of arenas 1–3 (design answer 08.10.2026; temporary until arena 8). */
-export const STAND_IN_ARENAS: readonly string[] = ['glade', 'buttons', 'marked'];
+/** Temporary final arena of the boss nodes: any of arenas 1–7 by the pool stream (with the window); arena 10 comes at step 4. */
+export const TEMPORARY_FINAL_ARENAS: readonly string[] = ARENA_POOLS.map(entry => entry.arena);
+/** A row without an arena of its own plays any of arenas 1–7 (design answer 08.10.2026 to step 2; temporary until arena 8). */
+export const STAND_IN_ARENAS: readonly string[] = ARENA_POOLS.map(entry => entry.arena);
 /** Every arena a run may play (a save naming another one is malformed). */
 export const RUN_ARENAS: readonly string[] = [...new Set([...ARENA_POOLS.map(entry => entry.arena), ...STAND_IN_ARENAS, ...TEMPORARY_FINAL_ARENAS])];
 
@@ -45,7 +45,7 @@ export const RUN_ARENAS: readonly string[] = [...new Set([...ARENA_POOLS.map(ent
 export const runRow = (mapRow: number): number => mapRow - FOREST_TRUNK_LAST_ROW;
 
 /**
- * The arenas a run row may play: those whose rows hold it; when none does, any of arenas 1–3 (`any: true` — a temporary
+ * The arenas a run row may play: those whose rows hold it; when none does, any of arenas 1–7 (`any: true` — a temporary
  * stand-in until the arenas of that row exist).
  */
 export function arenaCandidates(row: number, pools: readonly ArenaPoolEntry[] = ARENA_POOLS): { arenas: string[]; any: boolean } {

@@ -11,7 +11,7 @@ import { type ArenaTemplate, markedCount } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
 import type { BoarState } from './enemies/boar';
-import { behaviorOf, bodyRadiusOf, kindOf } from './enemies/kinds';
+import { behaviorOf, bodyRadiusOf, enemyKind, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, inWater, lineOfSight, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { RngStreams } from './rng';
@@ -304,7 +304,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
   };
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   for (const s of arena.enemies) {
-    const e = spawnEnemy(world, s, s.color, s.hp, s.kind ?? 'basic');
+    const kind = s.kind ?? 'basic';
+    const e = spawnEnemy(world, s, s.color, s.hp ?? enemyKind(kind).hp(params) ?? 0, kind);
     e.marked = !!s.marked;
     pushOutOfObstacles(e, bodyRadiusOf(params, e), arena);
   }
@@ -537,7 +538,11 @@ export function knockHero(world: World, dirX: number, dirY: number, distance: nu
 
 function moveEnemies(world: World, dt: number): void {
   const { hero, params, arena, flow } = world;
-  for (const e of world.enemies) {
+  // A behaviour's step may kill (the archer's arrow): walk over a copy, so the list shrinking never skips the next enemy's
+  // step; an enemy killed earlier in this step does not move.
+  const list = [...world.enemies];
+  for (const e of list) {
+    if (list.length !== world.enemies.length && !world.enemies.includes(e)) continue;
     // A frozen enemy stands: no own step (its timers wait), no walk.
     if (enemyFrozen(e)) continue;
     // A behaviour with its own movement (the boar's windup, charge and rest) skips the common walk this step.

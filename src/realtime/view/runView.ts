@@ -41,14 +41,14 @@ const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
   checkpoint: 'Тюремщика в срезе нет: обычная арена своего ряда.',
   breakthrough: 'Прорыв: обычная арена своего ряда.',
   battle: 'Обычный бой: арена пула своего ряда.',
-  boss: 'Босса в срезе нет: финальная арена (временно одна из арен 1–3; «Последний рубеж» — шаг 4). Победа завершает поход.',
+  boss: 'Босса в срезе нет: финальная арена (временно одна из арен 1–7; «Последний рубеж» — шаг 4). Победа завершает поход.',
 };
 
 /** Arena line of a battle node: its name, goal and why it is temporary. */
 function arenaLine(arena: string, standIn?: RtStandIn): string {
   let summary = '';
   try { summary = arenaTemplate(arena).summary; } catch { /* unknown arena: name only */ }
-  const note = standIn === 'final' ? ' <em>(временно: финальная арена — шаг 4)</em>' : standIn === 'any' ? ' <em>(временно: арен этого ряда ещё нет, любая из 1–3)</em>' : '';
+  const note = standIn === 'final' ? ' <em>(временно: финальная арена — шаг 4)</em>' : standIn === 'any' ? ' <em>(временно: арен этого ряда ещё нет, любая из 1–7)</em>' : '';
   return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${note}<br><small>${escapeHtml(summary)}</small>`;
 }
 function giftText(option: GiftOption): string {

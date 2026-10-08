@@ -14,8 +14,6 @@ import { heroRadius } from '../params';
 import { canBeHurt, damageEnemy, enemySpeed, hurtHero, waterFactor, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
-/** Баланс: game seconds after appearing before the first line can be announced. */
-const ARCHER_FIRST_DELAY = 1;
 /** Step of the march that finds where a wall or a tree cuts the line (units). */
 const LINE_STEP = 0.05;
 /** Timers reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */
@@ -93,7 +91,8 @@ function stepArcher(world: World, e: Enemy, dt: number): boolean {
 
 registerBehavior({
   id: 'archer',
-  onSpawn(_world, e) { e.vars.aim = 0; e.vars.timer = ARCHER_FIRST_DELAY; },
+  // The first line can be announced `archerFirstDelay` game seconds after it appears.
+  onSpawn(world, e) { e.vars.aim = 0; e.vars.timer = world.params.archerFirstDelay; },
   step: stepArcher,
 });
 

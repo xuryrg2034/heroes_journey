@@ -240,6 +240,8 @@ export interface Params {
   archerCooldown: number;
   /** The line is announced this long before the arrow flies. */
   archerWindup: number;
+  /** Game seconds after appearing before the first line can be announced. */
+  archerFirstDelay: number;
   /** Length of the line. */
   archerRange: number;
   /** Width of the line. */
@@ -407,6 +409,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   archerFar: 6,
   archerCooldown: 3,
   archerWindup: 1,
+  archerFirstDelay: 1,
   archerRange: 7,
   archerWidth: 0.5,
   archerDamage: 1,
@@ -571,6 +574,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('archerFar', 'Лучник', 'Подходит, если герой дальше', 0, 12, 0.25, 5, 'ед.'),
   n('archerCooldown', 'Лучник', 'Выстрел раз в', 0.5, 10, 0.1, 5, 'с', 'Объявление линии входит в этот срок.'),
   n('archerWindup', 'Лучник', 'Объявление линии (полоса)', 0.1, 3, 0.1, 5, 'с'),
+  n('archerFirstDelay', 'Лучник', 'Первая линия: через … после появления', 0, 10, 0.1, 5, 'с'),
   n('archerRange', 'Лучник', 'Длина линии', 1, 16, 0.25, 5, 'ед.', 'Стены и деревья обрезают линию, вода — нет.'),
   n('archerWidth', 'Лучник', 'Ширина линии', 0.1, 2, 0.05, 5, 'ед.'),
   n('archerDamage', 'Лучник', 'Урон стрелы герою', 0, 6, 1, 5),

@@ -161,12 +161,12 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
   expect(errors).toEqual([]);
 });
 
-/** Run rows of the arena pools (docs/realtime-slice.md, section 5); rows no arena covers play any of arenas 1–3. */
+/** Run rows of the arena pools (docs/realtime-slice.md, section 5); rows no arena covers play any of arenas 1–7. */
 const POOL_ROWS: Record<string, [number, number]> = {
   glade: [1, 3], buttons: [1, 4], marked: [2, 5], shields: [3, 6], archers: [4, 7], powder: [4, 8], thorns: [5, 8],
 };
 
-test('run: arenas 4–7 of the new enemies come on their run rows; a row without its own arena plays one of arenas 1–3 «временно»', async ({ page }) => {
+test('run: arenas 4–7 of the new enemies come on their run rows; a row without its own arena plays one of arenas 1–7 «временно»', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   await openRun(page, errors);
@@ -199,7 +199,7 @@ test('run: arenas 4–7 of the new enemies come on their run rows; a row without
     }
   }
   for (const { row, arena, standIn } of met) {
-    if (standIn) expect(['glade', 'buttons', 'marked'], `row ${row}: stand-in ${arena}`).toContain(arena);
+    if (standIn) expect(Object.keys(POOL_ROWS), `row ${row}: stand-in ${arena}`).toContain(arena);
     else expect(row >= POOL_ROWS[arena][0] && row <= POOL_ROWS[arena][1], `row ${row}: ${arena}`).toBe(true);
     // Rows 1–8 have arenas of their own after step 2; only row 9 stands in.
     expect(!!standIn, `row ${row}: stand-in ${standIn}`).toBe(row === 9);

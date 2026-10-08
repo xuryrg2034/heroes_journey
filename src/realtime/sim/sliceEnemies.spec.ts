@@ -463,6 +463,95 @@ check('arena 7 «Колючие заросли»: three buttons; porcupines are 
   assert([...kinds].every(kind => kind === 'basic' || kind === 'porcupine'), `kinds ${[...kinds].join(', ')}`);
 });
 
+// ---- Design answers and review of step 2 ----
+
+check('Поляна of the run: only basic enemies come (no wolf packs, no boars); the sandbox arena 1 keeps the prototype composition', () => {
+  const { kinds, total } = shareOf('glade', 'basic');
+  assert(total >= 80 && [...kinds].every(kind => kind === 'basic'), `Поляна: ${[...kinds].join(', ')} of ${total}`);
+  const sandbox = shareOf('kills', 'basic');
+  assert(sandbox.kinds.has('wolf'), `the sandbox arena 1 still brings wolves: ${[...sandbox.kinds].join(', ')}`);
+});
+
+check('archer: a pond does not cut its line (the arrow flies over the water), a tree does; the first delay is the slider', () => {
+  // Arena 5: the pond at (12.6, 8.4), r 0.7. The archer east of it, the hero west: the line crosses the water.
+  const sim = fight('archers', quiet({ archerFirstDelay: 0.5 }), seedOf(30)), w = sim.world;
+  sim.command({ t: 'teleport', x: 9.6, y: 8.4 });
+  const archer = place(sim, 15, 8.4, 'archer', 0);
+  const first = runUntil(sim, () => archer.vars.aim === 1);
+  assert(first === 30, `first line after ${first} ticks (slider 0.5 s)`);
+  assert(Math.abs(archer.vars.len - 7) < 1e-9, `over the pond the line is whole: ${archer.vars.len}`);
+  runUntil(sim, () => archer.vars.aim !== 1);
+  assert(w.hero.hp === w.hero.maxHp - 1, 'the arrow over the water hits the hero');
+  // A tree (8, 2.4) behind the hero: the line stops at its trunk (len ≈ 14 − 8 − 0.42), the hero in front of it is hit.
+  const tree = fight('archers', quiet(), seedOf(31)), tw = tree.world;
+  tree.command({ t: 'teleport', x: 10, y: 2.4 });
+  const behind = place(tree, 14, 2.4, 'archer', 0);
+  runUntil(tree, () => behind.vars.aim === 1);
+  assert(Math.abs(behind.vars.len - 5.58) < 0.06, `the trunk cuts the line: ${behind.vars.len.toFixed(2)}`);
+  runUntil(tree, () => behind.vars.aim !== 1);
+  assert(tw.hero.hp === tw.hero.maxHp - 1, 'the hero in front of the tree is hit');
+});
+
+check('review: an enemy killed by an arrow in the walk loop does not make the next enemy skip its step', () => {
+  const sim = fight('archers', quiet({ enemySpeed: 1.2 }), seedOf(32)), w = sim.world;
+  sim.command({ t: 'teleport', x: 2, y: 5 });
+  // The order of the list: the victim on the line, the archer, a walker off the line (index after the victim).
+  const victim = place(sim, 6, 5, 'basic', 1, 0), archer = place(sim, 8, 5, 'archer', 0), walker = place(sim, 4, 8.5, 'basic', 2, 5);
+  let shot = false, guard = 0, prev = 0;
+  while (!shot && guard++ < 300) {
+    const before = { x: walker.x, y: walker.y }, aiming = archer.vars.aim === 1;
+    sim.tick();
+    const moved = dist(walker, before);
+    if (aiming && archer.vars.aim !== 1) {
+      shot = true;
+      assert(!alive(w, victim), 'the arrow killed the victim');
+      assert(moved > prev * 0.9 && moved > 0.01, `the walker moved ${moved.toFixed(4)} on the shot tick (before ${prev.toFixed(4)})`);
+    }
+    prev = moved;
+  }
+  assert(shot && replays(sim), 'shot and replay');
+});
+
+check('review: the marked archers of arena 5 take their HP from the slider «HP лучника»', () => {
+  const sim = new Simulation({ arena: 'archers', params: quiet({ archerHp: 2 }), seed: seedOf(33) });
+  const marked = sim.world.enemies.filter(e => e.marked);
+  assert(marked.length === 3 && marked.every(e => e.hp === 2), `HP ${marked.map(e => e.hp).join(', ')}`);
+  const plain = new Simulation({ arena: 'archers', params: quiet(), seed: seedOf(33) });
+  assert(plain.world.enemies.every(e => e.hp === 0), 'default HP 0');
+});
+
+check('a sapper killed by an arrow blows up, but its blast kills are not the player\'s', () => {
+  const sim = fight('powder', quiet(), seedOf(34)), w = sim.world;
+  sim.command({ t: 'teleport', x: 2, y: 4.5 });
+  const archer = place(sim, 13.5, 5, 'archer', 0);
+  const sapper = place(sim, 9.5, 5.2, 'sapper', 1), near = place(sim, 9.5, 6.3, 'basic', 2, 0);
+  sim.command({ t: 'teleport', x: 7, y: 5 });
+  runUntil(sim, () => archer.vars.aim === 1);
+  sim.command({ t: 'teleport', x: 2, y: 4.5 });
+  runUntil(sim, () => archer.vars.aim !== 1);
+  assert(!alive(w, sapper) && w.blasts.length === 1 && w.blasts[0].credited === false, 'the arrow lit the dead sapper\'s fuse, not credited');
+  untilBlast(sim);
+  assert(!alive(w, near) && w.stats.kills === 0 && w.stats.score === 0, `the blast killed the enemy beside it, not the player's: kills ${w.stats.kills}`);
+  assert(replays(sim), 'replay');
+});
+
+check('shieldbearer: a crystal as the previous link is the anchor — in front of the shield it refuses, behind it takes', () => {
+  for (const [cx, ok] of [[8.3, false], [10.1, true]] as const) {
+    const sim = fight('shields', quiet(), seedOf(35)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 6.3 });
+    const shield = place(sim, 9.2, 5, 'shield', 1, 1);
+    // The shield faces the hero (south-west); a crystal on its west (front) or east (back) side.
+    sim.command({ t: 'teleport', x: 7.4, y: 5 });
+    ticks(sim, 150);
+    const crystal = sim.command({ t: 'crystal', x: cx, y: 5, value: 1 }) as number;
+    sim.command({ t: 'teleport', x: cx, y: 6.1 });
+    assert(sim.command({ t: 'begin', x: cx, y: 5 }) && w.chain[0].id === crystal, 'the chain starts on the crystal');
+    sim.command({ t: 'drag', x: shield.x, y: shield.y, mode: 'full' });
+    assert((w.chain.length === 2) === ok, `crystal at ${cx}: chain ${w.chain.length}`);
+    if (!ok) assert(hoverRefusal(w, shield, true) === 'guarded', 'hint «щит»');
+  }
+});
+
 // ---- Determinism of the new arenas ----
 
 /** Builds the longest chain it greedily can (enemies and crystals), then releases it — as the bot of realtimeSim.spec.ts. */

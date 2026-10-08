@@ -21,7 +21,8 @@ export interface StartEnemy {
   x: number;
   y: number;
   color: number;
-  hp: number;
+  /** HP; omitted — the kind's HP from the panel (`EnemyKindDef.hp`, e.g. the slider «HP лучника»), 0 when it has none. */
+  hp?: number;
   /** Enemy kind id (enemies.ts registry); `basic` when omitted. */
   kind?: string;
   marked?: boolean;
@@ -168,11 +169,6 @@ export function registeredArenas(): ArenaTemplate[] { return [...registry.values
 /** The three arenas of the playtest, keys 1–3 on the menu. */
 export const ARENAS: readonly ArenaTemplate[] = [KILL_ARENA, BUTTON_ARENA, MARKED_ARENA].map(registerArena);
 
-/**
- * «Поляна» of the real-time run (stage 2, docs/realtime-slice.md, section 5): arena 1 «Убить 30» with the goal of the
- * template — kill 20 (design answer 08.10.2026). The sandbox keeps arena 1 with the panel slider «Арена «Убить N»».
- */
-export const GLADE_ARENA: ArenaTemplate = registerArena({ ...KILL_ARENA, id: 'glade', name: 'Поляна', summary: 'Поляна: убей цепью 20 врагов. Потом откроется дверь сверху.', killGoal: 20 });
 
 /** Marked enemies of the arena (the `marked` goal counts them). */
 export function markedCount(arena: ArenaTemplate): number { return arena.enemies.filter(e => e.marked).length; }
@@ -187,6 +183,16 @@ export function markedCount(arena: ArenaTemplate): number { return arena.enemies
  */
 const ONE_KIND_PACE: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
 const oneKindPhases = (): Phase[] => DEFAULT_PHASES.map(phase => ({ ...phase, wolfShare: 0, boarShare: 0 }));
+
+/**
+ * «Поляна» of the real-time run (stage 2, docs/realtime-slice.md, section 5): arena 1 «Убить 30» with the goal of the
+ * template — kill 20 (design answer 08.10.2026) — and only basic enemies (design answer 08.10.2026, step 2: no wolf packs,
+ * no boars). The sandbox keeps arena 1 with the panel slider «Арена «Убить N»» and the prototype composition.
+ */
+export const GLADE_ARENA: ArenaTemplate = registerArena({
+  ...KILL_ARENA, id: 'glade', name: 'Поляна', summary: 'Поляна: убей цепью 20 врагов. Потом откроется дверь сверху.', killGoal: 20,
+  pace: ONE_KIND_PACE, phases: oneKindPhases(),
+});
 
 /**
  * Arena 4 «Стена щитов» (run rows 3–6): kill 25; a quarter of newcomers are shieldbearers. Short palisades at the corners
@@ -246,9 +252,10 @@ export const ARCHER_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 15.3, y: 5 },
   enemies: [
-    { x: 7.8, y: 1.2, color: 0, hp: 0, kind: 'archer', marked: true },
-    { x: 13, y: 2.4, color: 2, hp: 0, kind: 'archer', marked: true },
-    { x: 13.6, y: 7.4, color: 3, hp: 0, kind: 'archer', marked: true },
+    // HP — the slider «HP лучника» (no `hp` here).
+    { x: 7.8, y: 1.2, color: 0, kind: 'archer', marked: true },
+    { x: 13, y: 2.4, color: 2, kind: 'archer', marked: true },
+    { x: 13.6, y: 7.4, color: 3, kind: 'archer', marked: true },
   ],
   pace: ONE_KIND_PACE,
   phases: oneKindPhases(),

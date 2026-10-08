@@ -82,11 +82,11 @@ const outcomeOf = (run: RtRunState, sim: Simulation) => {
 
 // ---- A bot that walks a whole run through the run's commands ----
 
-interface Walk { run: RtRunState; arenas: string[]; standIns: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number }
+interface Walk { run: RtRunState; arenas: string[]; standIns: string[]; finals: string[]; rowArenas: [number, string][]; events: string[]; saves: number; replays: number; previews: number }
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   let run = createRtRun(seed, { gift: options.gift ?? 'mini' });
-  const walk: Walk = { run, arenas: [], standIns: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0 };
+  const walk: Walk = { run, arenas: [], standIns: [], finals: [], rowArenas: [], events: [], saves: 0, replays: 0, previews: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
     save();
@@ -99,7 +99,7 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
     if (pending?.kind === 'battle') {
       const node = rtNode(run, pending.nodeId)!;
       assert(pending.seed === forestNodeSeed(seed, node.id), 'arena seed is the run seed and the node id');
-      if (pending.battle === 'final') assert(TEMPORARY_FINAL_ARENAS.includes(pending.arena) && pending.standIn === 'final', 'boss: temporary final arena');
+      if (pending.battle === 'final') { assert(TEMPORARY_FINAL_ARENAS.includes(pending.arena) && pending.standIn === 'final', 'boss: temporary final arena'); walk.finals.push(pending.arena); }
       else {
         const { arenas, any } = arenaCandidates(runRow(node.row));
         assert(arenas.includes(pending.arena), `${node.id}: arena ${pending.arena} outside the pool of run row ${runRow(node.row)}`);
@@ -232,15 +232,19 @@ check('whole runs walk to the boss: arenas of the row pools, seeds of the node, 
 
 check('arenas of the new enemies come on their rows; rows without an arena yet play any of arenas 1–3; Поляна of the run kills 20', () => {
   // Step 2: arenas 4–7 stand on their rows (section 5); only rows no arena covers (run row 9 until arena 8) play a stand-in.
-  const standIns = new Set(walks.flatMap(walk => walk.standIns));
-  assert(standIns.size === STAND_IN_ARENAS.length && [...standIns].every(arena => STAND_IN_ARENAS.includes(arena)), `stand-in rows play: ${[...standIns].join(', ')}`);
+  // Design answer to step 2: row 9 and the boss play any of arenas 1–7 (the pool stream and its window), not only 1–3.
+  const standIns = new Set(walks.flatMap(walk => walk.standIns)), finals = new Set(walks.flatMap(walk => walk.finals));
+  const late = (set: Set<string>) => [...set].some(arena => !['glade', 'buttons', 'marked'].includes(arena));
+  assert(STAND_IN_ARENAS.length === 7 && TEMPORARY_FINAL_ARENAS.length === 7, 'stand-ins: arenas 1–7');
+  assert(standIns.size >= 3 && late(standIns) && [...standIns].every(arena => STAND_IN_ARENAS.includes(arena)), `stand-in rows play: ${[...standIns].join(', ')}`);
+  assert(finals.size >= 3 && late(finals), `boss nodes play: ${[...finals].join(', ')}`);
   for (let row = 1; row <= 8; row++) assert(!arenaCandidates(row).any, `run row ${row} has arenas of its own`);
   const rowsOf = (arena: string) => new Set(walks.flatMap(walk => walk.rowArenas.filter(([, a]) => a === arena).map(([row]) => row)));
   for (const entry of ARENA_POOLS) {
     const rows = rowsOf(entry.arena);
     assert(rows.size > 0 && [...rows].every(row => row >= entry.rows[0] && row <= entry.rows[1]), `${entry.arena} on rows ${[...rows].join(', ')} (pool ${entry.rows.join('–')})`);
   }
-  console.log(`   stand-ins: ${[...standIns].join(', ')}; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}`);
+  console.log(`   stand-ins: ${[...standIns].join(', ')}; finals: ${[...finals].join(', ')}; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}`);
   const glade = new Simulation({ arena: 'glade', params: defaultParams(), seed: 5 });
   assert(goalProgress(glade.world).total === 20, 'Поляна of the run: kill 20');
   assert(goalProgress(new Simulation({ arena: 'kills', params: defaultParams(), seed: 5 }).world).total === defaultParams().killGoal, 'the sandbox arena keeps the slider');

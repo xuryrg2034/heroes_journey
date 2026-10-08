@@ -36,14 +36,14 @@ export const RT_RUN_VERSION = 1;
 /** What kind of arena a battle node plays: an ordinary or hard battle, the final arena of a boss, an event's reward battle. */
 export type RtBattleKind = 'battle' | 'hard' | 'final' | 'event';
 const BATTLE_KINDS: readonly RtBattleKind[] = ['battle', 'hard', 'final', 'event'];
-/** Why an arena is a temporary stand-in: no arena of its row yet (`any` of arenas 1–3), or the final arena of step 4. */
+/** Why an arena is a temporary stand-in: no arena of its row yet (`any` of arenas 1–7), or the final arena of step 4. */
 export type RtStandIn = 'any' | 'final';
 
 export type RtRunPending =
   /**
    * The entered battle node: its arena and seed (the run seed and the node id). The arena starts from the run's HP now;
    * a reload starts it again from the start (the arena in progress is not saved). `standIn`: why the arena is
-   * temporary — `any` (no arena of the row exists yet: any of arenas 1–3) or `final` (arena 10 comes at step 4).
+   * temporary — `any` (no arena of the row exists yet: any of arenas 1–7) or `final` (arena 10 comes at step 4).
    */
   | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; standIn?: RtStandIn }
   | { kind: 'rest'; nodeId: string }
