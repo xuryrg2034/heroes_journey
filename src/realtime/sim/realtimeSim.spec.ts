@@ -16,7 +16,7 @@
  */
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
 import { registerArena } from './arenas';
-import { canJump, chainAnchor, jumpLanding, nextCandidates, nextObjectCandidates, planChain } from './chain';
+import { canJump, chainAnchor, hoverRefusal, jumpLanding, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { registerBehavior, registerEnemyKind } from './enemies/index';
 import { dist, wall } from './geometry';
 import { copyParams, defaultParams, type Params } from './params';
@@ -101,7 +101,7 @@ function ringChain(sim: Simulation, color: number): void {
   for (const p of ring) sim.command({ t: 'place', x: p.x, y: p.y, color, hp: 0, kind: 'basic' });
   sim.command({ t: 'begin', x: ring[0].x, y: ring[0].y });
   for (const p of ring.slice(1)) sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
-  assert(w.chain.length >= 7, `the ring chain took ${w.chain.length} links`);
+  assert(w.chain.length >= 7, `the ring chain took ${w.chain.length} links; move ${!!w.move}, status ${w.status}, refusal ${hoverRefusal(w, ring[0])}`);
   sim.command({ t: 'release' });
 }
 
@@ -117,9 +117,11 @@ let longRun: Played;
 check('a minute of play through commands replays from its journal to the same hash at every checkpoint', () => {
   const ticks = 4200;
   const jumpedAt: number[] = [];
+  // The ring chains wait for the bot's dash to end (iteration 2.1: with the speed spread ±0.35 a dash runs at tick 600).
+  const rings: number[] = [];
   longRun = play('kills', 20261008, longRunParams(), ticks, (sim, tick) => {
     const w = sim.world;
-    if (tick === 600) ringChain(sim, 2);
+    if (tick >= 600 && rings.length === 0 && !w.move) { ringChain(sim, 2); rings.push(tick); }
     if (tick === 1500) sim.command({ t: 'param', key: 'heroAnchor', value: true });
     if (tick === 1800) {
       sim.command({ t: 'cancel' });
@@ -132,11 +134,12 @@ check('a minute of play through commands replays from its journal to the same ha
         if (jumpLanding(w, p) && sim.command({ t: 'jump', x: p.x, y: p.y })) { jumpedAt.push(tick); break; }
       }
     }
-    if (tick === 3000) ringChain(sim, 0);
+    if (tick >= 3000 && rings.length === 1 && !w.move) { ringChain(sim, 0); rings.push(tick); }
   });
   const { sim, checkpoints, events } = longRun;
   const w = sim.world;
   assert(w.tick === ticks && ticks >= 3600, `ticks ${w.tick}`);
+  assert(rings.length === 2, `ring chains at ${rings.join(', ')}`);
   assert(w.status === 'playing' && w.time > 60, `the hero should still fight after a minute: ${w.status}, ${w.time.toFixed(1)} s`);
   assert(w.stats.kills >= 20, `kills ${w.stats.kills}`);
   assert(w.stats.crystals >= 2, `crystals dropped ${w.stats.crystals}`);
@@ -160,9 +163,11 @@ check('a minute of play through commands replays from its journal to the same ha
 check('the greed stage, its phase table and the reaper replay the same', () => {
   const p = defaultParams();
   p.heroHp = 40; p.reaperEnabled = true; p.reaperTime = 10;
+  // The bot walks blindly: it must not walk out of the open door before the phases (iteration 2.1, speed spread ±0.35, it did).
+  p.doorWalkIn = false;
   const run = play('marked', 77, p, 2400, (sim, tick) => { if (tick === 120) sim.command({ t: 'goals' }); });
   const w = run.sim.world;
-  assert(w.stage === 'greed' && w.pressure.phaseIndex >= 1, `phase ${w.pressure.phaseIndex}`);
+  assert(w.stage === 'greed' && w.pressure.phaseIndex >= 1, `phase ${w.pressure.phaseIndex}, stage ${w.stage}, status ${w.status}, time ${w.time.toFixed(1)}, hp ${w.hero.hp}`);
   assert(w.reaperSpawned, 'the reaper came');
   const again = replayed(run.sim.exportJournal()!);
   run.checkpoints.forEach((h, i) => assert(again.checkpoints[i] === h, `checkpoint ${(i + 1) * 300}`));

@@ -106,7 +106,7 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   await page.keyboard.press('4');
   await expect.poll(async () => (await kitSnap(page)).signals.burning).toBe(1);
   await expect.poll(async () => (await kitSnap(page)).enemies.some(e => e.id === burnt), { timeout: 5_000 }).toBe(false);
-  // 3 — healing: refused at full HP (nothing spent), +8 after damage.
+  // 3 — healing: refused at full HP (nothing spent), +9 after damage (iteration 2.1: the elixir +3 × 3; +8 before).
   await page.keyboard.press('3');
   await expect(page.getByTestId('item-healing')).toHaveText(/×3/);
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 2); rt.place(rt.snapshot().hero.x + 0.5, rt.snapshot().hero.y, 3, 9, 'basic'); });
@@ -114,7 +114,7 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 0); });
   const hurt = (await kitSnap(page)).hero.hp;
   await page.keyboard.press('3');
-  await expect.poll(async () => (await kitSnap(page)).hero.hp).toBe(Math.min(12, hurt + 8));
+  await expect.poll(async () => (await kitSnap(page)).hero.hp).toBe(Math.min(12, hurt + 9));
   await expect(page.getByTestId('item-healing')).toHaveText(/×2/);
   const s = await kitSnap(page);
   expect(s.itemsShown).toEqual({ frost: 1, bomb: 1, healing: 1, fire: 1 });
@@ -135,7 +135,9 @@ test('elite: a gold rim on a larger drawing; killed by the bomb it drops loot on
   expect(elite.elite).toBeTruthy();
   expect(elite.hp).toBe(4);
   await page.screenshot({ path: 'artifacts/realtime-elite.png' });
-  // Two bombs: 4 HP.
+  // Two bombs: 4 HP. The hero stands 4.7 away (bombs reach 5): the loot falls within 4 of the elite and cannot land on
+  // him — at 2 away it did on about 1% of the random sandbox seeds and was picked up the same tick (Node, 400 seeds).
+  await page.evaluate(() => (window as any).__realtime.teleport(5.3, 5));
   await pointAt(page, 10, 5);
   await page.keyboard.press('2');
   await page.keyboard.press('2');

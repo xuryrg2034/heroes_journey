@@ -413,6 +413,9 @@ export function releaseChain(world: World): boolean {
   // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;
+  // Iteration 2.1: links whose chain-hit reaction is armed now (the porcupine with its quills up) — fixed at the release, as the ×2.
+  const armed = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && behaviorOf(e).armed?.(world, e) ? [e.id] : []; });
+  if (armed.length) world.move.armed = armed;
   // Stage 2, step 3 («Точильный камень»): the first chain with an enemy starts with its power; it is spent by that chain.
   if (world.kit?.firstPower && links.some(l => l.kind === 'enemy')) { world.move.power = world.kit.firstPower; world.kit.firstPower = 0; }
   return true;

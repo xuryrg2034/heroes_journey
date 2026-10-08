@@ -53,7 +53,9 @@ test('arenas 8–10: the sandbox menu lists ten arenas; keys 8, 9 and 0 open «�
     expect(start.enemies.filter(e => e.elite).length, `${arena.id}: elites from the start`).toBe(arena.elites);
     expect(start.enemies.filter(e => e.marked).length, `${arena.id}: marked`).toBe(arena.marked);
     // The horde comes: game time, not wall time (the software renderer may run the crowd slowly).
-    await page.evaluate(() => (window as any).__realtime.setParam('contactDamage', 0));
+    // Nothing hurts the standing hero: touches, the wolf pack bonus, arrows, blasts, charges, the elite +1 (with only the
+    // touch off the wolves and arrows of «Брод» felled him before 4 s on about 1.5% of seeds — Node, 300 seeds, 08.10.2026).
+    await page.evaluate(() => { const rt = (window as any).__realtime; for (const key of ['contactDamage', 'wolfPackBonus', 'archerDamage', 'sapperDamage', 'boarDamage', 'eliteDamageBonus']) rt.setParam(key, 0); });
     await expect.poll(async () => (await snap(page)).time, { timeout: 30_000 }).toBeGreaterThan(4);
     expect((await snap(page)).enemies.length, `${arena.id}: newcomers`).toBeGreaterThan(start.enemies.length);
     await page.screenshot({ path: `artifacts/realtime-arena-${arena.n}.png` });

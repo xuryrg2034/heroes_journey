@@ -8,7 +8,7 @@
  * run seed), the long random streams (`runStreams.ts`), the node seed (`forestNodeSeed`: the arena seed from the run seed
  * and the node id), the event catalogue and its rolls (`forestEvents.ts`, `eventOutcomeIndex`, `eventResourceKinds`), the
  * merchant's prices and payment (`merchant.ts`), the start gift (`runGift.ts`) and the window of repeats of the pools.
- * Its own: the HP of the run (12, `hpScale.ts`), the arena pools (`arenaPools.ts`), the events in the slice
+ * Its own: the HP of the run (15, `hpScale.ts`), the arena pools (`arenaPools.ts`), the events in the slice
  * (`sliceEvents.ts`). The turn-based run state (`forestRun.ts`) is not used: its HP, energy, consumables, tools and
  * talismans are numbers of the turn-based game.
  *
@@ -142,6 +142,14 @@ export interface RtRunState {
    * groups come 1.5 times as often.
    */
   modifiers?: RtModifier[];
+  /**
+   * Iteration 2.1 (interface only, docs/realtime-slice.md, section 12): consumable kinds gained since the last arena — their
+   * slots blink 1 s when the next arena shows (absent when none). Arenas that showed the start hint «Предметы: клавиши
+   * 1–4…» (1–RT_ITEM_HINT_ARENAS; absent — none) and whether a consumable was used in the run (absent — not yet).
+   */
+  itemsNew?: ItemKind[];
+  itemHints?: number;
+  itemUsed?: true;
   gift?: RunGift;
   eventChoices: RtEventChoice[];
   battles: RtBattleRecord[];
@@ -182,11 +190,14 @@ export interface RtArenaOutcome {
   materials?: Partial<Record<ResourceKind, number>>;
   /** Step 3: «Пепельный оберег» saved the hero on this arena (it crumbles for the run). */
   wardUsed?: boolean;
+  /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
+  itemsUsed?: number;
+  itemHint?: boolean;
 }
 
 // ---------- Creating a run, the map ----------
 
-/** A new run of `seed`: the map by the seed, 12 HP, the start gift of `gift` kind waiting before the row-5 nodes. */
+/** A new run of `seed`: the map by the seed, 15 HP, the start gift of `gift` kind waiting before the row-5 nodes. */
 export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean } = {}): RtRunState {
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(),
@@ -216,7 +227,18 @@ function gainItems(run: RtRunState, items: readonly ItemKind[], events: RtRunEve
   const opened = [...new Set(items)].filter(item => !run.openItems.includes(item));
   for (const item of items) run.items[item]++;
   run.openItems.push(...opened);
+  // Iteration 2.1: the kinds blink on the panel of the next arena.
+  run.itemsNew = [...new Set([...run.itemsNew ?? [], ...items])];
   events.push({ type: 'items-gained', items: [...items], opened });
+}
+/** Баланс (interface): the start hint of the consumables shows on at most this many arenas of a run. */
+export const RT_ITEM_HINT_ARENAS = 3;
+/**
+ * Iteration 2.1: the arena of the open battle node starts with the hint «Предметы: клавиши 1–4, бьют в точку курсора» —
+ * the hero has a consumable, none was used in this run yet, and fewer than RT_ITEM_HINT_ARENAS arenas showed it.
+ */
+export function rtItemHintDue(run: RtRunState): boolean {
+  return !run.itemUsed && (run.itemHints ?? 0) < RT_ITEM_HINT_ARENAS && ITEM_KINDS.some(kind => run.items[kind] > 0);
 }
 /** The three consumables a find offers: the turn-based find of the node (slot 0, `rewardChoices` by the node seed). */
 export function rtFindOptions(run: Pick<RtRunState, 'seed'>, nodeId: string): ItemKind[] {
@@ -432,7 +454,7 @@ export function rtNodeTitle(run: RtRunState, node: ForestMapNode): string {
 
 /**
  * Feed a finished arena back. A defeat ends the run. A victory keeps the hero's HP (1 … maximum); a hard battle adds its
- * heart (FOREST_HARD_HEAL, ×2.4); an event's reward battle completes the event; the boss's final arena wins the run.
+ * heart (FOREST_HARD_HEAL, ×RT_HP_SCALE); an event's reward battle completes the event; the boss's final arena wins the run.
  */
 export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRunStep {
   const pending = current.pending;
@@ -443,6 +465,10 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0) });
   // Step 3: the modifiers of events acted on this arena (they act on one arena).
   delete run.modifiers;
+  // Iteration 2.1 (interface): this arena showed the new consumables and maybe the hint; a used consumable ends the hints.
+  delete run.itemsNew;
+  if (outcome.itemHint && !run.itemUsed) run.itemHints = Math.min(RT_ITEM_HINT_ARENAS, (run.itemHints ?? 0) + 1);
+  if ((Number(outcome.itemsUsed) || 0) > 0) run.itemUsed = true;
   // Step 3: «Пепельный оберег» saved the hero on this arena (also on an arena lost afterwards): it crumbles.
   if (outcome.wardUsed && run.talismans.includes('ash-ward') && !run.wardSpent) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: pending.nodeId }); }
   if (!outcome.won) {
@@ -478,7 +504,7 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
 // ---------- Rest, find ----------
 
 /**
- * HP the rest heals before the clamp: the node's heal (the turn-based FOREST_REST_HEAL, ×2.4), +3 with «Фляга росы»;
+ * HP the rest heals before the clamp: the node's heal (the turn-based FOREST_REST_HEAL, ×RT_HP_SCALE), +3 with «Фляга росы»;
  * nothing under «Клятва голода» or the gift's price «следующий привал не лечит» (restHealValue of the turn-based run).
  */
 export function rtRestHealValue(node: ForestMapNode, run?: Pick<RtRunState, 'talismans' | 'restNoHeal'>): number {
@@ -624,7 +650,7 @@ export function rtShopLeave(current: RtRunState): RtRunStep {
 // ---------- Events: the choice ----------
 
 const hpShort = (need: number, hp: number) => `Нужно HP ≥ ${need} (сейчас ${hp})`;
-/** A cost in real-time numbers: HP and maximum HP ×2.4 (rounded up), resources as they are. */
+/** A cost in real-time numbers: HP and maximum HP ×RT_HP_SCALE (rounded up), resources as they are. */
 export function rtCost(cost: EventCost): EventCost {
   return { ...cost, ...cost.hp ? { hp: rtHp(cost.hp) } : {}, ...cost.maxHp ? { maxHp: rtHp(cost.maxHp) } : {} };
 }
@@ -648,7 +674,7 @@ function payableCost(run: RtRunState, option: EventOption): { cost: EventCost | 
   return index >= 0 ? { cost: costs[index], block: '' } : { cost: null, block: costs.length === 1 ? blocks[0] : `Нужно: ${costs.map(describeCost).join(' или ')}` };
 }
 /**
- * An outcome text in real-time numbers: HP and maximum HP ×2.4; energy goes to the next arena. «Снять горение, яд и
+ * An outcome text in real-time numbers: HP and maximum HP ×RT_HP_SCALE; energy goes to the next arena. «Снять горение, яд и
  * кровотечение» is not shown: the hero has no such effects in the slice (design answer 3 to step 4, «Погреться»).
  */
 function outcomeText(outcome: EventOption['outcomes'][number], kinds: readonly ResourceKind[]): string {
@@ -676,7 +702,7 @@ const eventOf = (run: RtRunState, nodeId: string) => { const id = run.picks.find
 /** The base of attempt `attempt` (from 0) of the open event's escalation: the draws after the entering one. */
 const attemptBase = (run: RtRunState, entering: number, attempt: number) => streamValue(run.seed, 'events', entering + 1 + attempt);
 
-/** The open event with every option: outcomes and chances (HP ×2.4), cost, availability, the slice's off options. No draw spent. */
+/** The open event with every option: outcomes and chances (HP ×RT_HP_SCALE), cost, availability, the slice's off options. No draw spent. */
 export function rtEventView(run: RtRunState): RtEventView | null {
   const pending = run.pending;
   if (pending?.kind !== 'event') return null;
@@ -706,7 +732,7 @@ export function rtEventView(run: RtRunState): RtEventView | null {
  * Take an event option. The reward battle starts the arena of the node's row (the event completes with its victory; a
  * defeat ends the run). An escalation option pays and rolls one attempt (its own `events` draw) and keeps the event open.
  * Any other option pays its cost, rolls its outcome (eventOutcomeIndex of the turn-based run), applies it — HP and the
- * maximum ×2.4, HP never below 1 or above the maximum, resources — and completes the node.
+ * maximum ×RT_HP_SCALE, HP never below 1 or above the maximum, resources — and completes the node.
  */
 export function rtChooseEventOption(current: RtRunState, optionId: string): RtRunStep {
   const view = rtEventView(current);
@@ -810,7 +836,7 @@ function applyGift(run: RtRunState, option: GiftOption, pick: string | undefined
   if (option.kind === 'energy') run.energy = Math.min(ENERGY_MAX, run.energy + option.amount);
   if (option.kind === 'oath' && option.oath) takeTalisman(run, option.oath, events);
   if (option.kind === 'deal') {
-    // The price (×2.4 for HP): −3 HP now (not below 1), −3 to the maximum HP, or the next rest does not heal.
+    // The price (×RT_HP_SCALE for HP): −3 HP now (not below 1), −3 to the maximum HP, or the next rest does not heal.
     if (option.price === 'hp') run.hp = Math.max(1, run.hp - rtHp(GIFT_HP_PRICE));
     if (option.price === 'max-hp') { run.maxHp -= rtHp(GIFT_MAX_HP_PRICE); run.hp = Math.min(run.hp, run.maxHp); }
     if (option.price === 'rest') run.restNoHeal = true;
@@ -932,6 +958,10 @@ function checkRun(value: unknown): RtRunState | null {
   // Talismans: known ids of the slice, each once, taken and gone apart; the ward and the rest price — flags.
   if (!isTalismanList(run.talismans) || !isTalismanList(run.talismansGone) || run.talismans.some(id => run.talismansGone.includes(id))) return null;
   if ((run.wardSpent !== undefined && (run.wardSpent !== true || !run.talismans.includes('ash-ward'))) || (run.restNoHeal !== undefined && run.restNoHeal !== true)) return null;
+  // Iteration 2.1 (interface): new kinds — known, each once, open; the hint count 1–3; the used flag.
+  if (run.itemsNew !== undefined && !(isItemList(run.itemsNew) && run.itemsNew.length && new Set(run.itemsNew).size === run.itemsNew.length && run.itemsNew.every(item => run.openItems.includes(item)))) return null;
+  if (run.itemHints !== undefined && !(isCount(run.itemHints) && run.itemHints >= 1 && run.itemHints <= RT_ITEM_HINT_ARENAS)) return null;
+  if (run.itemUsed !== undefined && run.itemUsed !== true) return null;
   if (run.modifiers !== undefined && !(Array.isArray(run.modifiers) && run.modifiers.length && run.modifiers.every(isRtModifier) && new Set(run.modifiers).size === run.modifiers.length)) return null;
   // The gift: the roll of this seed and kind, a chosen button among the slice's buttons, its own choice among its picks.
   if (run.gift !== undefined) {

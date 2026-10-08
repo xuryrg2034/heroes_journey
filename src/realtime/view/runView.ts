@@ -18,10 +18,10 @@ import { arenaTitle, runRow } from '../run/arenaPools';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtEnterNode,
-  rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView,
+  rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
-import { ITEM_TITLES, type ItemKind, type Loadout } from '../sim/kit';
+import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../../game/run/runGift';
 import { rtTalisman } from '../run/rtTalismans';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
@@ -31,10 +31,19 @@ import { RT_NODE_TYPES } from './nodeTypes';
 /** What the run asks of the arena view. */
 export interface RunHost {
   /** Start the arena of the entered battle node (the run's HP, the node's seed, the run's consumables and energy) and show it. */
-  startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout): void;
+  startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice): void;
   /** The run screen covers the arena (true) or the arena is on screen (false). */
   onScreenChange(open: boolean): void;
 }
+
+/**
+ * Iteration 2.1 (interface, docs/realtime-slice.md, section 12): what the arena's item panel shows at the start — the slots
+ * of consumables gained since the last arena blink 1 s; the hint «Предметы: клавиши 1–4…» for 4 s (`rtItemHintDue`).
+ */
+export interface ArenaItemNotice { blink: ItemKind[]; hint: boolean }
+
+/** «Холод (клавиша 1 в бою)»: a consumable with the key it is used with on the arena. */
+export const itemWithKey = (item: ItemKind): string => `${ITEM_TITLES[item]} (клавиша ${SLOT_ITEMS.indexOf(item) + 1} в бою)`;
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
 const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', open: 'Открыт', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение' } as const;
@@ -155,7 +164,7 @@ export class RunView {
     this.el.hidden = true;
     this.host.onScreenChange(false);
     const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}`;
-    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run));
+    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) });
   }
 
   private describe(events: RtRunEvent[]): string {
@@ -167,7 +176,7 @@ export class RunView {
       if (event.type === 'shop-bought' && event.purchase.good === 'harden') parts.push(`Закалка: +${rtHp(1)} к максимуму HP`);
       if (event.type === 'talisman-taken') parts.push(`Талисман «${talismanName(event.id)}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
-      if (event.type === 'items-gained') parts.push(`+ ${event.items.map(item => ITEM_TITLES[item]).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
+      if (event.type === 'items-gained') parts.push(`+ ${event.items.map(itemWithKey).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
     return parts.join(' · ');
   }

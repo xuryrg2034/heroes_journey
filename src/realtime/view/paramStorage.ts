@@ -7,11 +7,13 @@
  * water, the floor before the goals (28) and higher greed floors. v7 (stage C): crystals and chain juice,
  * density penalty 2 by default (design answer 42). v8: crystal drop radius 4. v9 (stage D, user 07.10.2026):
  * enemies ×0.8, the hero walks through enemies (slowed ×0.7 in a crowd), R 1.875. v10–v15: stages D–H.
- * v16 (stage 1 of the transition, user 08.10.2026): the hero anchor is off by default (a talisman later).
+ * v16 (stage 1 of the transition, user 08.10.2026): the hero anchor is off by default (a talisman later). v17 (iteration 2.1
+ * of the slice, 08.10.2026): speed spread ±0.35, healing 9, the wandering shield and the quill cycle — older values are
+ * dropped so the new defaults apply.
  */
 import { defaultParams, sanitizeParams, type Params } from '../sim/params';
 
-const STORAGE_KEY = 'ashen-oath-realtime-params-v16';
+const STORAGE_KEY = 'ashen-oath-realtime-params-v17';
 
 export function loadParams(): Params {
   try {

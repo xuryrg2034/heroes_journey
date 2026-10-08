@@ -40,6 +40,12 @@ export interface EnemyBehavior {
    * The porcupine's quills hurt the hero here. If the hero falls, the strike does not land and the dash stops.
    */
   onChainHit?(world: World, enemy: Enemy, outcome: StrikeOutcome): void;
+  /**
+   * Iteration 2.1: the enemy's reaction to a chain hit is armed now (the porcupine's quills are up). Read at the release of
+   * the chain for each enemy link and fixed for the dash (`HeroMove.armed`), as the ×2 of the cold: `onChainHit` reads the
+   * fixed list, the drawn chain's highlight reads this function now.
+   */
+  armed?(world: World, enemy: Enemy): boolean;
 }
 
 export interface EnemyKindDef {

@@ -10,9 +10,10 @@
 import { arenaTemplate } from './arenas';
 import { chainAnchor, hoverRefusal, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { dist, type Vec } from './geometry';
-import { defaultParams, type Params } from './params';
+import { defaultParams, runParams, type Params } from './params';
 import { Simulation, replay } from './simulation';
 import type { Enemy, World } from './world';
+import { quillsUp, quillsWarning } from './enemies/index';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -65,37 +66,127 @@ function replays(sim: Simulation): boolean {
 
 // ---- Shieldbearer (arena 4 «Стена щитов») ----
 
-check('shieldbearer: no link from the front (the hint says «щит»), a link from the side or the back; the dash kills it', () => {
-  for (let k = 1; k <= 3; k++) {
-    const sim = fight('shields', quiet(), seedOf(k)), w = sim.world;
+/** A point `d` units from `e` in the direction `angle` (radians). */
+const along = (e: Vec, angle: number, d: number): Vec => ({ x: e.x + Math.cos(angle) * d, y: e.y + Math.sin(angle) * d });
+
+/**
+ * The link rule against the shield as it faces now (iteration 2.1: the shield wanders): from the front — refused with «щит»,
+ * from an enemy in front — refused, from an enemy beside-behind it — taken; the dash kills both. No tick passes between the
+ * look at the shield and the commands, so it does not turn meanwhile.
+ */
+function shieldRule(sim: Simulation, shield: Enemy, color: number): void {
+  const w = sim.world, f = shield.vars.facing;
+  // The hero straight in front of it, 1.2 away: he is the anchor of the first link and stands in the arc.
+  const front = along(shield, f, 1.2);
+  sim.command({ t: 'teleport', x: front.x, y: front.y });
+  assert(!canStartOn(sim, shield), 'taken from the front');
+  assert(hoverRefusal(w, shield) === 'guarded', `hint: ${hoverRefusal(w, shield)}`);
+  // An enemy in front of it (20° off its facing): still in the arc — the chain cannot go on to the shieldbearer.
+  const inFront = place(sim, along(shield, f + 20 * DEG, 0.9).x, along(shield, f + 20 * DEG, 0.9).y, 'basic', color);
+  sim.command({ t: 'begin', x: inFront.x, y: inFront.y });
+  sim.command({ t: 'drag', x: shield.x, y: shield.y, mode: 'full' });
+  assert(chainLength(w) === 1, 'linked from an anchor in front of the shield');
+  assert(hoverRefusal(w, shield, true) === 'guarded', 'hint in a chain');
+  sim.command({ t: 'cancel' });
+  // An enemy beside and behind it (130° off its facing, out of the 120° arc): the chain hero → it → the shieldbearer.
+  const behind = place(sim, along(shield, f + 130 * DEG, 0.9).x, along(shield, f + 130 * DEG, 0.9).y, 'basic', color);
+  sim.command({ t: 'begin', x: behind.x, y: behind.y });
+  sim.command({ t: 'drag', x: shield.x, y: shield.y, mode: 'full' });
+  assert(chainLength(w) === 2, `linked from the side/back: chain ${chainLength(w)}`);
+  const kills = w.stats.kills;
+  sim.command({ t: 'release' });
+  settle(sim);
+  assert(!alive(w, shield) && !alive(w, behind) && w.stats.kills === kills + 2, `kills ${w.stats.kills}`);
+  sim.command({ t: 'clear', keepMarked: false });
+}
+
+check('shieldbearer (iteration 2.1): its shield faces a random direction; no link from the front (hint «щит»), a link from the side or the back — also after it turns to a new direction', () => {
+  const facings: number[] = [];
+  for (let k = 1; k <= 4; k++) {
+    const sim = fight('shields', quiet(), seedOf(k));
     sim.command({ t: 'teleport', x: 8, y: 5 });
     const shield = place(sim, 9.2, 5, 'shield', 1, 1);
     assert(shield.hp === 1 && shield.kind === 'shield', 'placed');
-    // The shield faces the hero from the start: the hero is the anchor of the first link and stands in the arc.
-    assert(!canStartOn(sim, shield), 'taken from the front');
-    assert(hoverRefusal(w, shield) === 'guarded', `hint: ${hoverRefusal(w, shield)}`);
-    // Another enemy in front of it: still in the arc — the chain cannot go on to the shieldbearer.
-    const front = place(sim, 8.3, 5.6, 'basic', 1);
-    sim.command({ t: 'begin', x: front.x, y: front.y });
-    sim.command({ t: 'drag', x: shield.x, y: shield.y, mode: 'full' });
-    assert(w.chain.length === 1, 'linked from an anchor in front of the shield');
-    assert(hoverRefusal(w, shield, true) === 'guarded', 'hint in a chain');
-    sim.command({ t: 'cancel' });
-    // An enemy beside and behind it (52° off the back): the chain hero → it → the shieldbearer kills both.
-    const behind = place(sim, 9.9, 5.9, 'basic', 1);
-    sim.command({ t: 'begin', x: behind.x, y: behind.y });
-    sim.command({ t: 'drag', x: shield.x, y: shield.y, mode: 'full' });
-    assert(chainLength(w) === 2, `linked from the side/back: chain ${chainLength(w)}`);
-    sim.command({ t: 'release' });
-    settle(sim);
-    assert(!alive(w, shield) && !alive(w, behind) && w.stats.kills === 2, `kills ${w.stats.kills}`);
+    facings.push(shield.vars.facing);
+    shieldRule(sim, shield, 1);
+    // A second bearer: wait until it has a new direction and has turned to it, then the rule holds for the new facing.
+    const second = place(sim, 9.2, 5, 'shield', 2, 1), first = second.vars.facing;
+    sim.command({ t: 'teleport', x: 3, y: 5 });
+    let changed = false, prev = second.vars.want;
+    runUntil(sim, () => { if (second.vars.want !== prev) changed = true; prev = second.vars.want; return changed && second.vars.facing === second.vars.want; }, 600);
+    assert(changed && second.vars.facing === second.vars.want && Math.abs(second.vars.facing - first) > 1e-6, `seed ${k}: a new direction reached`);
+    shieldRule(sim, second, 2);
+    assert(replays(sim), 'replay');
+  }
+  // The start direction is random: the four bearers placed at the same point with the hero at the same place differ.
+  assert(new Set(facings.map(f => f.toFixed(3))).size === facings.length, `start facings ${facings.map(f => (f / DEG).toFixed(0)).join(', ')}`);
+});
+
+check('shieldbearer (iteration 2.1): with no hero near, the shield picks a new random direction every 2–4 s and turns to it no faster than 90°/s', () => {
+  const intervals: number[] = [];
+  let turns = 0;
+  for (let k = 5; k <= 9; k++) {
+    const sim = fight('shields', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 1, y: 1 });
+    const away = { x: w.hero.x, y: w.hero.y }, shield = place(sim, 9.2, 5, 'shield', 1, 1);
+    let last = shield.vars.facing, want = shield.vars.want, since = 0, first = true;
+    for (let i = 0; i < 60 * 30; i++) {
+      sim.tick();
+      since++;
+      let d = Math.abs(shield.vars.facing - last); if (d > Math.PI) d = 2 * Math.PI - d;
+      assert(d <= 90 * DEG / 60 + 1e-9, `turned ${(d / DEG).toFixed(2)}° in one tick`);
+      if (d > 1e-9) turns++;
+      last = shield.vars.facing;
+      if (shield.vars.want !== want) {
+        // The first change comes 2–4 s after it appeared too.
+        intervals.push(since / 60);
+        since = 0; want = shield.vars.want; first = false;
+      }
+    }
+    assert(!first, 'it changed its direction');
+    assert(dist(w.hero, away) < 1e-9 && dist(w.hero, shield) > 8, 'the hero stayed away');
+  }
+  assert(intervals.length >= 5 * 7 && intervals.every(t => t >= 2 - 1 / 60 - 1e-6 && t <= 4 + 1 / 60 + 1e-6), `intervals ${Math.min(...intervals).toFixed(2)}–${Math.max(...intervals).toFixed(2)} s`);
+  // Random within the range (not one fixed period): short and long ones both come.
+  assert(Math.min(...intervals) < 2.5 && Math.max(...intervals) > 3.5, `spread ${Math.min(...intervals).toFixed(2)}–${Math.max(...intervals).toFixed(2)} s`);
+  assert(turns > 0, 'it turned');
+});
+
+check('shieldbearer (iteration 2.1): it does not follow the hero — the hero walking around it does not make it turn to him', () => {
+  for (let k = 10; k <= 12; k++) {
+    const sim = fight('shields', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 7.7, y: 5 });
+    const shield = place(sim, 9.2, 5, 'shield', 1, 1);
+    // Let it settle on a direction, then walk around it at 1.5 units for 3 s; between new directions its facing stands.
+    runUntil(sim, () => shield.vars.facing === shield.vars.want, 300);
+    let still = 0, inArc = 0, steps = 0;
+    for (let i = 0; i < 180; i++) {
+      const rx = w.hero.x - shield.x, ry = w.hero.y - shield.y, len = Math.hypot(rx, ry), pull = (len - 1.5) * 2;
+      sim.command({ t: 'walk', x: -ry / len - rx / len * pull, y: rx / len - ry / len * pull });
+      const want = shield.vars.want, facing = shield.vars.facing, settled = facing === want;
+      sim.tick();
+      if (settled && shield.vars.want === want) { assert(shield.vars.facing === facing, 'turned with no new direction'); still++; }
+      if (hoverRefusal(w, shield) === 'guarded') inArc++;
+      steps++;
+    }
+    sim.command({ t: 'walk', x: 0, y: 0 });
+    // The hero went around: the shield did not keep him in front (a following shield would, after its first 1.5 s).
+    assert(still > 60 && inArc < steps * 0.7, `seed ${k}: still ${still}, hero in the arc ${inArc} of ${steps}`);
     assert(replays(sim), 'replay');
   }
 });
 
-check('shieldbearer: the shield turns to the hero no faster than 90°/s — the hero walking around takes it from behind', () => {
-  // Teleported behind it: at once and for ~1.2 s the hero is out of the arc; at 1.5 s the shield has caught up (120°: ±60°).
-  const sim = fight('shields', quiet(), seedOf(4)), w = sim.world;
+check('shieldbearer: the sandbox toggle «щит следит за героем» brings back the old shield — it faces the hero from the start; a run arena gets it off', () => {
+  const sim = fight('shields', quiet({ shieldFollowsHero: true }), seedOf(13)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const shield = place(sim, 9.2, 5, 'shield', 1, 1);
+  assert(!canStartOn(sim, shield) && hoverRefusal(w, shield) === 'guarded', 'faces the hero from the start');
+  assert(runParams({ ...defaultParams(), shieldFollowsHero: true }).shieldFollowsHero === false, 'a run arena: off');
+});
+
+check('shieldbearer, toggle «щит следит за героем» (the shield of step 2): it turns to the hero no faster than 90°/s — the hero walking around takes it from behind', () => {
+  // Iteration 2.1: the old rule lives on as the sandbox toggle; this check keeps it. Teleported behind it: at once and for ~1.2 s the hero is out of the arc; at 1.5 s the shield has caught up (120°: ±60°).
+  const sim = fight('shields', quiet({ shieldFollowsHero: true }), seedOf(4)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   const shield = place(sim, 9.2, 5, 'shield', 2, 1);
   sim.command({ t: 'teleport', x: 10.6, y: 5 });
@@ -127,7 +218,8 @@ check('shieldbearer: the shield turns to the hero no faster than 90°/s — the 
 });
 
 check('shieldbearer: frozen (the cold state of step 3) — no shield, it stands and its shield does not turn', () => {
-  const sim = fight('shields', quiet({ enemySpeed: 1.2, contactDamage: 1 }), seedOf(5)), w = sim.world;
+  // The toggle «щит следит за героем» puts the shield in front of the hero (the check is about the cold, not the facing).
+  const sim = fight('shields', quiet({ enemySpeed: 1.2, contactDamage: 1, shieldFollowsHero: true }), seedOf(5)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   const shield = place(sim, 9.2, 5, 'shield', 3, 1);
   assert(!canStartOn(sim, shield), 'shield up');
@@ -420,9 +512,10 @@ function dashThrough(sim: Simulation, links: Enemy[]): number {
   return quills;
 }
 
-check('porcupine: every chain hit on it hurts the hero for 1 — during the dash and through invulnerability', () => {
+check('porcupine, quills always up (slider «иглы опущены» 0): every chain hit on it hurts the hero for 1 — during the dash and through invulnerability', () => {
   for (let k = 21; k <= 23; k++) {
-    const sim = fight('thorns', quiet(), seedOf(k)), w = sim.world;
+    // Iteration 2.1: the quills go up and down; «опущены 0 с» keeps them up (the quills of step 2) for this check.
+    const sim = fight('thorns', quiet({ porcupineDownTime: 0 }), seedOf(k)), w = sim.world;
     sim.command({ t: 'teleport', x: 8, y: 5 });
     // basic → porcupine → porcupine → basic: two quill hits in one dash, the second within the first one's invulnerability.
     const a = place(sim, 9, 4.5, 'basic', 2), p1 = place(sim, 10.1, 4.3, 'porcupine', 2, 1), p2 = place(sim, 11.1, 4, 'porcupine', 2, 1), b = place(sim, 11.6, 3, 'basic', 2);
@@ -439,7 +532,7 @@ check('porcupine: every chain hit on it hurts the hero for 1 — during the dash
 });
 
 check('porcupine: the quills can kill — the hero falls before the strike lands; the cold takes the quills off', () => {
-  const sim = fight('thorns', quiet({ heroHp: 1 }), seedOf(24)), w = sim.world;
+  const sim = fight('thorns', quiet({ heroHp: 1, porcupineDownTime: 0 }), seedOf(24)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   const porcupine = place(sim, 9, 5, 'porcupine', 0, 1), after = place(sim, 10.2, 5, 'basic', 0);
   dashThrough(sim, [porcupine, after]);
@@ -447,11 +540,128 @@ check('porcupine: the quills can kill — the hero falls before the strike lands
   assert(alive(w, porcupine) && alive(w, after) && w.stats.kills === 0, 'the strike did not land, the dash stopped');
   assert(replays(sim), 'replay');
   // Frozen: no quills.
-  const cold = fight('thorns', quiet(), seedOf(25)), cw = cold.world;
+  const cold = fight('thorns', quiet({ porcupineDownTime: 0 }), seedOf(25)), cw = cold.world;
   cold.command({ t: 'teleport', x: 8, y: 5 });
   const frozen = place(cold, 9, 5, 'porcupine', 0, 1);
   cold.command({ t: 'chill', id: frozen.id, seconds: 2 });
   assert(dashThrough(cold, [frozen]) === 0 && cw.hero.hp === cw.hero.maxHp && !alive(cw, frozen), 'frozen: killed without quills');
+  assert(replays(cold), 'replay');
+});
+
+// ---- Iteration 2.1: the quills go up and down (docs/realtime-slice.md, section 12) ----
+
+/** Runs of the quill state of `e` over `seconds`: [up, ticks] for each run, and ticks of trembling seen in each down run. */
+function quillRuns(sim: Simulation, e: Enemy, seconds: number): { runs: [boolean, number][]; warn: number[]; warnWhileUp: number } {
+  const w = sim.world, runs: [boolean, number][] = [], warn: number[] = [];
+  let warnWhileUp = 0;
+  for (let i = 0; i < seconds * 60; i++) {
+    sim.tick();
+    const up = quillsUp(w, e), trembling = quillsWarning(w, e);
+    if (!runs.length || runs[runs.length - 1][0] !== up) { runs.push([up, 0]); if (!up) warn.push(0); }
+    runs[runs.length - 1][1]++;
+    if (trembling) { if (up) warnWhileUp++; else warn[warn.length - 1]++; }
+  }
+  return { runs, warn, warnWhileUp };
+}
+
+check('porcupine (iteration 2.1): the quills are up 2.5 s and down 2.0 s; they tremble the last 0.5 s before going up; the start phase is random', () => {
+  const firsts: string[] = [];
+  for (let k = 50; k <= 57; k++) {
+    const sim = fight('thorns', quiet(), seedOf(k));
+    sim.command({ t: 'teleport', x: 3, y: 5 });
+    const p = place(sim, 9, 5, 'porcupine', 0, 1);
+    const { runs, warn, warnWhileUp } = quillRuns(sim, p, 20);
+    firsts.push(`${runs[0][0] ? 'up' : 'down'} ${runs[0][1]}`);
+    // Whole runs (not the first and the last, cut by the start and the end): 150 ticks up, 120 down (±1 for the 1/60 s grid).
+    const whole = runs.slice(1, -1);
+    assert(whole.length >= 6, `runs ${whole.length}`);
+    for (const [up, n] of whole) assert(Math.abs(n - (up ? 150 : 120)) <= 1, `seed ${k}: ${up ? 'up' : 'down'} ${n} ticks`);
+    // Trembling: 30 ticks (0.5 s) at the end of each whole down run, never while up.
+    const wholeDownWarn = warn.slice(runs[0][0] ? 0 : 1, runs[runs.length - 1][0] ? undefined : -1);
+    assert(warnWhileUp === 0 && wholeDownWarn.every(n => Math.abs(n - 30) <= 1), `seed ${k}: trembling ${wholeDownWarn.join(',')}, while up ${warnWhileUp}`);
+  }
+  // Each porcupine starts at its own point of the cycle: up and down both come first, and the first runs differ.
+  assert(firsts.some(f => f.startsWith('up')) && firsts.some(f => f.startsWith('down')) && new Set(firsts).size >= 6, `first runs: ${firsts.join('; ')}`);
+});
+
+/**
+ * Waits until the quills of `p` are in the state `up` with at most `left` game seconds of it left, then draws a chain from
+ * the hero to `p` and releases it. Returns the quill hits of the dash and whether the quills were up when the strike landed.
+ */
+function releaseAtEdge(sim: Simulation, p: Enemy, up: boolean, left: number): { quills: number; upAtHit: boolean; upAtRelease: boolean } {
+  const w = sim.world;
+  runUntil(sim, () => quillsUp(w, p) === up && p.vars.timer <= left + 1e-9, 600);
+  sim.command({ t: 'begin', x: p.x, y: p.y });
+  assert(w.chain.length === 1, 'linked');
+  const upAtRelease = quillsUp(w, p);
+  sim.command({ t: 'release' });
+  let quills = 0, upAtHit = false;
+  for (let i = 0; i < 240 && w.move && w.status === 'playing'; i++) {
+    // The state just before the tick in which the strike lands (the dash runs before the enemies step).
+    const now = quillsUp(w, p);
+    sim.tick();
+    if (w.events.some(ev => ev.type === 'chainHit' && ev.enemyId === p.id)) upAtHit = now;
+    quills += hits(w, 'quills');
+    w.events.length = 0;
+  }
+  return { quills, upAtHit, upAtRelease };
+}
+
+check('porcupine (iteration 2.1): down at the release — no quills, even if they go up on the way; up at the release — 1 HP, even if they go down on the way', () => {
+  for (let k = 60; k <= 62; k++) {
+    // Down at the release, up 2 ticks later; the porcupine 1.8 away — the dash (0.2 a tick) gets there after they rose.
+    const sim = fight('thorns', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 7.2, y: 5 });
+    const a = place(sim, 9, 5, 'porcupine', 0, 1);
+    const down = releaseAtEdge(sim, a, false, 2 / 60);
+    assert(!down.upAtRelease && down.upAtHit, `seed ${k}: down at the release, up at the hit (${down.upAtRelease}, ${down.upAtHit})`);
+    assert(down.quills === 0 && w.hero.hp === w.hero.maxHp && !alive(w, a), `seed ${k}: no quills, HP ${w.hero.hp}`);
+    assert(replays(sim), 'replay');
+    // Up at the release, down 2 ticks later.
+    const sim2 = fight('thorns', quiet(), seedOf(k + 10)), w2 = sim2.world;
+    sim2.command({ t: 'teleport', x: 7.2, y: 5 });
+    const b = place(sim2, 9, 5, 'porcupine', 0, 1);
+    const upRes = releaseAtEdge(sim2, b, true, 2 / 60);
+    assert(upRes.upAtRelease && !upRes.upAtHit, `seed ${k}: up at the release, down at the hit (${upRes.upAtRelease}, ${upRes.upAtHit})`);
+    assert(upRes.quills === 1 && w2.hero.hp === w2.hero.maxHp - 1 && !alive(w2, b), `seed ${k}: quills ${upRes.quills}, HP ${w2.hero.hp}`);
+    assert(replays(sim2), 'replay');
+  }
+});
+
+check('porcupine (iteration 2.1): in one chain only the porcupines with the quills up at the release hurt; the cold takes the quills off', () => {
+  // Two porcupines, each at its own random point of the cycle: wait until one is up and the other down for a while (the
+  // first of the seeds where their phases are far enough apart; the dash takes about 0.2 s).
+  let sim: Simulation | undefined, p1: Enemy | undefined, p2: Enemy | undefined;
+  for (let k = 63; k < 73 && !sim; k++) {
+    const s = fight('thorns', quiet(), seedOf(k)), sw = s.world;
+    s.command({ t: 'teleport', x: 8, y: 5 });
+    const a = place(s, 9, 4.2, 'porcupine', 0, 1), b = place(s, 10.1, 4.2, 'porcupine', 0, 1);
+    runUntil(s, () => quillsUp(sw, a) !== quillsUp(sw, b) && a.vars.timer > 0.3 && b.vars.timer > 0.3, 600);
+    if (quillsUp(sw, a) !== quillsUp(sw, b)) { sim = s; p1 = a; p2 = b; }
+  }
+  assert(sim && p1 && p2, 'one up, one down');
+  const w = sim.world;
+  const raised = quillsUp(w, p1) ? p1 : p2;
+  sim.command({ t: 'begin', x: p1.x, y: p1.y });
+  sim.command({ t: 'drag', x: p2.x, y: p2.y, mode: 'full' });
+  assert(chainLength(w) === 2, `chain ${chainLength(w)}`);
+  sim.command({ t: 'release' });
+  let quills = 0;
+  for (let i = 0; i < 120 && w.move; i++) { sim.tick(); quills += hits(w, 'quills'); w.events.length = 0; }
+  assert(quills === 1 && w.hero.hp === w.hero.maxHp - 1 && !alive(w, raised), `only the raised one: quills ${quills}, HP ${w.hero.hp}`);
+  assert(replays(sim), 'replay');
+  // Frozen with the quills up: no quills.
+  const cold = fight('thorns', quiet(), seedOf(64)), cw = cold.world;
+  cold.command({ t: 'teleport', x: 8, y: 5 });
+  const frozen = place(cold, 9, 5, 'porcupine', 0, 1);
+  runUntil(cold, () => quillsUp(cw, frozen) && frozen.vars.timer > 1, 600);
+  cold.command({ t: 'chill', id: frozen.id, seconds: 2 });
+  assert(!quillsUp(cw, frozen), 'frozen: the quills are off');
+  cold.command({ t: 'begin', x: frozen.x, y: frozen.y });
+  cold.command({ t: 'release' });
+  let coldQuills = 0;
+  for (let i = 0; i < 120 && cw.move; i++) { cold.tick(); coldQuills += hits(cw, 'quills'); cw.events.length = 0; }
+  assert(coldQuills === 0 && cw.hero.hp === cw.hero.maxHp && !alive(cw, frozen), 'frozen: killed without quills');
   assert(replays(cold), 'replay');
 });
 
@@ -537,7 +747,8 @@ check('a sapper killed by an arrow blows up, but its blast kills are not the pla
 
 check('shieldbearer: a crystal as the previous link is the anchor — in front of the shield it refuses, behind it takes', () => {
   for (const [cx, ok] of [[8.3, false], [10.1, true]] as const) {
-    const sim = fight('shields', quiet(), seedOf(35)), w = sim.world;
+    // The toggle «щит следит за героем» turns the shield west (the check is about the anchor, not the facing).
+    const sim = fight('shields', quiet({ shieldFollowsHero: true }), seedOf(35)), w = sim.world;
     sim.command({ t: 'teleport', x: 8, y: 6.3 });
     const shield = place(sim, 9.2, 5, 'shield', 1, 1);
     // The shield faces the hero (south-west); a crystal on its west (front) or east (back) side.
@@ -625,7 +836,8 @@ check('A: links killed on the way by an arrow give power but are not the player\
 });
 
 check('A: a porcupine link killed on the way gives no quills; links lost while the chain is drawn drop out', () => {
-  const sim = fight('powder', quiet(), seedOf(42)), w = sim.world;
+  // Quills always up (slider «иглы опущены» 0): the porcupine would hurt if it were struck.
+  const sim = fight('powder', quiet({ porcupineDownTime: 0 }), seedOf(42)), w = sim.world;
   sim.command({ t: 'teleport', x: 3, y: 5 });
   const archer = place(sim, 9.9, 5, 'archer', 1);
   const a = place(sim, 4.2, 6, 'basic', 0), quill = place(sim, 5.5, 5, 'porcupine', 0, 0), d = place(sim, 6.6, 6.2, 'basic', 0);
@@ -662,8 +874,9 @@ check('B: the panel\'s phase table reaches arenas 4–7 and Поляна; their 
 });
 
 check('C: the shield is checked from the previous link even with «Якорь у героя» — the hero anchor widens the reach only', () => {
-  // The shield faces west. The previous link west of it (in front), the hero east of it (behind) and within R: refused.
-  const sim = fight('shields', quiet({ heroAnchor: true }), seedOf(45)), w = sim.world;
+  // The shield faces west (the toggle «щит следит за героем» turns it there). The previous link west of it (in front), the
+  // hero east of it (behind) and within R: refused.
+  const sim = fight('shields', quiet({ heroAnchor: true, shieldFollowsHero: true }), seedOf(45)), w = sim.world;
   sim.command({ t: 'teleport', x: 7.4, y: 5 });
   const shield = place(sim, 9.2, 5, 'shield', 1, 1);
   ticks(sim, 150);
