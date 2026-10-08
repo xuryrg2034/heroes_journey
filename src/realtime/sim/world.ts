@@ -80,9 +80,11 @@ export interface Enemy {
   burn?: { left: number; timer: number };
   /**
    * Stage 2, step 3: the elite modifier (docs/realtime-slice.md, section 7; elites.ts): HP ×2 (set when it became one),
-   * art ×1.25, touch +1, loot when the player kills it. Absent on an ordinary enemy.
+   * art ×1.25, +1 to every hit on the hero, loot when the player kills it. `true` — an elite of the arena template (or
+   * placed by a test); `random` — a random elite (a newcomer, the event modifier): its loot is always a resource.
+   * Absent on an ordinary enemy.
    */
-  elite?: true;
+  elite?: true | 'random';
 }
 
 /** The enemy is frozen now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off. */
@@ -288,6 +290,8 @@ export interface Blast {
   credited: boolean;
   source: string;
   ownerId: number;
+  /** Stage 2, step 3: the blast of an elite sapper (+1 to the hero). Absent otherwise. */
+  elite?: true;
 }
 
 /** Stage 2, step 3: «Песочные часы» — game seconds the phase table after the goals starts later in this arena. */
@@ -425,8 +429,8 @@ export function win(world: World): void {
 
 /** Contact damage of one enemy now: its kind decides (the reaper, a wolf with its pack bonus, the base touch). */
 export function touchDamage(world: World, e: Enemy): number {
-  // Stage 2, step 3: an elite's touch hits harder (section 7).
-  return kindOf(e).touchDamage(world, e) + (e.elite ? world.params.eliteTouchBonus : 0);
+  // The elite bonus comes in `hurtHero` (every hit of an elite, stage 2, step 3).
+  return kindOf(e).touchDamage(world, e);
 }
 
 /**
@@ -504,9 +508,11 @@ export function canBeHurt(world: World): boolean {
  * Applies damage to the hero: invulnerability, flash, stats, defeat. The caller decides whether he can be hurt now
  * (`canBeHurt`; the porcupine's quills ignore it). `striker` — the enemy (or the id of a dead one: a blast) in the event.
  */
-export function hurtHero(world: World, striker: { id: number }, damage: number, source: HitSource): void {
+export function hurtHero(world: World, striker: { id: number; elite?: Enemy['elite'] }, damage: number, source: HitSource): void {
   const { hero, params } = world;
   if (damage <= 0) return;
+  // Stage 2, step 3 (design answer 5): an elite hits harder with everything — touch, arrow, charge, its blast, its quills.
+  if (striker.elite) damage += Math.max(0, params.eliteDamageBonus);
   hero.hp = Math.max(0, hero.hp - damage);
   // Stage 2, step 3 («Пепельный оберег», once a run): a hit that would kill leaves the hero with 1 HP; the ward crumbles.
   const kit = world.kit;
@@ -566,8 +572,9 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
 }
 
 /** A blast lit on the arena (`delay` game seconds; 0 — it goes off in this tick's blast step). */
-export function addBlast(world: World, at: Vec, blast: { radius: number; damage: number; delay: number; credited: boolean; source: string; ownerId: number }): Blast {
-  const b: Blast = { id: world.nextId++, x: at.x, y: at.y, radius: blast.radius, damage: blast.damage, timeLeft: blast.delay, total: blast.delay, credited: blast.credited, source: blast.source, ownerId: blast.ownerId };
+export function addBlast(world: World, at: Vec, blast: { radius: number; damage: number; delay: number; credited: boolean; source: string; ownerId: number; elite?: boolean }): Blast {
+  const b: Blast = { id: world.nextId++, x: at.x, y: at.y, radius: blast.radius, damage: blast.damage, timeLeft: blast.delay, total: blast.delay, credited: blast.credited, source: blast.source, ownerId: blast.ownerId,
+    ...blast.elite ? { elite: true as const } : {} };
   world.blasts.push(b);
   return b;
 }
@@ -578,7 +585,7 @@ function detonate(world: World, b: Blast): void {
   world.events.push({ type: 'blast', x: b.x, y: b.y, radius: b.radius, source: b.source });
   const owner = world.enemies.find(e => e.id === b.ownerId);
   if (owner) killEnemy(world, owner, cause);
-  if (canBeHurt(world) && dist(world.hero, b) <= b.radius + heroRadius(p)) hurtHero(world, { id: b.ownerId }, b.damage, b.source);
+  if (canBeHurt(world) && dist(world.hero, b) <= b.radius + heroRadius(p)) hurtHero(world, { id: b.ownerId, ...b.elite ? { elite: true as const } : {} }, b.damage, b.source);
   if (world.status !== 'playing') return;
   const struck = world.enemies.filter(e => dist(e, b) <= b.radius + bodyRadiusOf(p, e));
   for (const e of struck) damageEnemy(world, e, b.damage, cause);

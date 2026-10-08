@@ -326,14 +326,15 @@ check('loadout: the arena starts with the consumables and the banked energy it i
 
 // ---- Elites ----
 
-const placeElite = (sim: Simulation, x: number, y: number, kind = 'basic', color = 0, hp = 0): Enemy => {
-  const id = sim.command({ t: 'place', x, y, color, hp, kind, elite: true }) as number;
+/** An elite of the arena template (`random` — a random elite: its loot is always a resource). */
+const placeElite = (sim: Simulation, x: number, y: number, kind = 'basic', color = 0, hp = 0, random = false): Enemy => {
+  const id = sim.command({ t: 'place', x, y, color, hp, kind, elite: random ? 'random' : true }) as number;
   return sim.world.enemies.find(e => e.id === id)!;
 };
 const lootOf = (w: World) => w.objects.filter(o => o.kind === 'loot');
 const hpOfE = (e: Enemy): number => e.hp;
 
-check('elite: HP ×2 (a weak one gets 1), its touch +1, a larger press circle; an elite shieldbearer keeps its shield', () => {
+check('elite: HP ×2 (a weak one gets 1), +1 to every hit on the hero (touch here), a larger press circle; an elite shieldbearer keeps its shield', () => {
   const sim = fight('shields', quiet({ contactDamage: 1 }), seedOf(40)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   const weak = placeElite(sim, 3, 8.5, 'basic', 0, 0), two = placeElite(sim, 13, 8.5, 'basic', 1, 2);
@@ -355,34 +356,84 @@ check('elite: HP ×2 (a weak one gets 1), its touch +1, a larger press circle; a
   assert(replays(sim), 'replay');
 });
 
-check('elite loot: killed by the player — 50% a consumable open in the run, else a resource (by seed); by an enemy — nothing', () => {
-  const tally = { item: 0, resource: 0 }, kinds = new Set<string>();
+check('elite +1 to every hit on the hero (design answer 5): the arrow, the boar charge, the sapper blast, the quills', () => {
+  // An archer's arrow: 1 → 2.
+  for (const [elite, loss] of [[false, 1], [true, 2]] as const) {
+    const sim = fight('kills', quiet(), seedOf(70)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    elite ? placeElite(sim, 8, 9.2, 'archer', 0, 0) : place(sim, 8, 9.2, 'archer', 0, 0);
+    const hp = hpOf(w);
+    for (let i = 0; i < 200 && hpOf(w) === hp; i++) sim.tick();
+    assert(hp - hpOf(w) === loss, `arrow of ${elite ? 'an elite' : 'an archer'}: −${hp - hpOf(w)}`);
+  }
+  // A sapper lit by touch: its blast 2 → 3.
+  for (const [elite, loss] of [[false, 2], [true, 3]] as const) {
+    const sim = fight('kills', quiet(), seedOf(71)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    elite ? placeElite(sim, 8.5, 5, 'sapper', 0, 0) : place(sim, 8.5, 5, 'sapper', 0, 0);
+    const hp = hpOf(w);
+    ticks(sim, 120);
+    assert(hp - hpOf(w) === loss, `blast of ${elite ? 'an elite' : 'a'} sapper: −${hp - hpOf(w)}`);
+  }
+  // A porcupine struck by a chain: quills 1 → 2.
+  for (const [elite, loss] of [[false, 1], [true, 2]] as const) {
+    const sim = fight('thorns', quiet(), seedOf(72)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const p = elite ? placeElite(sim, 9.2, 5, 'porcupine', 0, 1) : place(sim, 9.2, 5, 'porcupine', 0, 1);
+    const hp = hpOf(w);
+    sim.command({ t: 'begin', x: p.x, y: p.y }); sim.command({ t: 'release' }); settle(sim);
+    assert(hp - hpOf(w) === loss, `quills of ${elite ? 'an elite' : 'a'} porcupine: −${hp - hpOf(w)}`);
+  }
+  // A boar's charge: boarDamage 2 → 3 (the boar starts its charge within 5 of the hero).
+  for (const [elite, loss] of [[false, 2], [true, 3]] as const) {
+    const sim = fight('kills', quiet({ enemySpeed: 1.2 }), seedOf(73)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    elite ? placeElite(sim, 11.5, 5, 'boar', 0, 2) : place(sim, 11.5, 5, 'boar', 0, 2);
+    const hp = hpOf(w);
+    for (let i = 0; i < 600 && hpOf(w) === hp; i++) sim.tick();
+    assert(hp - hpOf(w) === loss, `charge of ${elite ? 'an elite' : 'a'} boar: −${hp - hpOf(w)}`);
+  }
+});
+
+check('elite loot as in the turn-based game (design answer 6): a template elite — 50% a consumable open in the run, else nothing; a random one — always a resource; by an enemy — nothing', () => {
+  const tally = { item: 0, none: 0 }, kinds = new Set<string>();
   for (let k = 1; k <= 80; k++) {
     const sim = fight('kills', quiet(), seedOf(100 + k), { loadout: { items: { bomb: 1 }, openItems: ['fire', 'bomb'] } }), w = sim.world;
     sim.command({ t: 'teleport', x: 4.5, y: 5 });
     const elite = placeElite(sim, 8, 5, 'basic', 0, 2);
     assert(sim.command({ t: 'item', kind: 'bomb', x: elite.x, y: elite.y }) === true && !alive(w, elite), 'the bomb kills the elite');
-    const [loot] = lootOf(w);
-    assert(loot && lootOf(w).length === 1 && Math.hypot(loot.x - 8, loot.y - 5) <= w.params.eliteLootRadius + 1e-9, 'one loot near the kill');
-    kinds.add(loot.loot!);
-    if (loot.loot === 'fire' || loot.loot === 'bomb') tally.item++; else tally.resource++;
-    assert(['fire', 'bomb', 'dew', 'powder', 'resin', 'herbs'].includes(loot.loot!), `loot ${loot.loot}`);
+    const loot = lootOf(w);
+    assert(loot.length <= 1, 'at most one loot');
+    if (!loot.length) { tally.none++; continue; }
+    assert(['fire', 'bomb'].includes(loot[0].loot!) && Math.hypot(loot[0].x - 8, loot[0].y - 5) <= w.params.eliteLootRadius + 1e-9, `a consumable open in the run near the kill: ${loot[0].loot}`);
+    kinds.add(loot[0].loot!); tally.item++;
     if (k <= 3) assert(replays(sim), 'replay');
   }
-  assert(tally.item >= 28 && tally.item <= 52 && kinds.size === 6, `consumables ${tally.item} of 80, kinds ${[...kinds]}`);
-  // Nothing open in the run: always a resource.
-  for (let k = 1; k <= 10; k++) {
+  assert(tally.item >= 28 && tally.item <= 52 && kinds.size === 2, `consumables ${tally.item} of 80 (nothing ${tally.none}), kinds ${[...kinds]}`);
+  // A template elite with nothing open in the run: a resource when it drops.
+  let resources = 0;
+  for (let k = 1; k <= 20; k++) {
     const sim = fight('kills', quiet(), seedOf(200 + k), { loadout: { items: { bomb: 1 } } }), w = sim.world;
     sim.command({ t: 'teleport', x: 4.5, y: 5 });
     const elite = placeElite(sim, 8, 5, 'basic', 0, 2);
     sim.command({ t: 'item', kind: 'bomb', x: elite.x, y: elite.y });
-    assert(['dew', 'powder', 'resin', 'herbs'].includes(lootOf(w)[0]?.loot ?? ''), 'nothing open: a resource');
+    const loot = lootOf(w)[0];
+    if (loot) { assert(['dew', 'powder', 'resin', 'herbs'].includes(loot.loot!), 'nothing open: a resource'); resources++; }
+  }
+  assert(resources > 4 && resources < 16, `nothing open: ${resources} of 20 drop a resource`);
+  // A random elite: always a resource, even with consumables open.
+  for (let k = 1; k <= 20; k++) {
+    const sim = fight('kills', quiet(), seedOf(250 + k), { loadout: { items: { bomb: 1 }, openItems: ['fire', 'bomb'] } }), w = sim.world;
+    sim.command({ t: 'teleport', x: 4.5, y: 5 });
+    const elite = placeElite(sim, 8, 5, 'basic', 0, 2, true);
+    sim.command({ t: 'item', kind: 'bomb', x: elite.x, y: elite.y });
+    assert(['dew', 'powder', 'resin', 'herbs'].includes(lootOf(w)[0]?.loot ?? ''), 'a random elite: always a resource');
   }
   // Killed by an archer's arrow: not the player's — no loot.
   const sim = fight('kills', quiet(), seedOf(300)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   place(sim, 8, 9.2, 'archer', 0, 0);
-  const victim = placeElite(sim, 8, 7.5, 'basic', 1, 0);
+  const victim = placeElite(sim, 8, 7.5, 'basic', 1, 0, true);
   for (let i = 0; i < 200 && alive(w, victim); i++) sim.tick();
   assert(!alive(w, victim) && lootOf(w).length === 0 && w.stats.kills === 0, 'an elite killed by an arrow drops nothing');
 });
@@ -390,8 +441,8 @@ check('elite loot: killed by the player — 50% a consumable open in the run, el
 check('elite loot is picked up by a chain (a link of any colour, no power, no colour change) or by the walking hero', () => {
   const sim = fight('kills', quiet(), seedOf(41), { loadout: { items: { bomb: 2 }, openItems: ['bomb'] } }), w = sim.world;
   sim.command({ t: 'teleport', x: 4.5, y: 5 });
-  // Two elites by bomb: two loot objects; the test then moves them to fixed spots (a setup through commands is not needed: the spot is random).
-  const a = placeElite(sim, 8, 5, 'basic', 0, 2);
+  // Random elites: their loot always drops (a resource).
+  const a = placeElite(sim, 8, 5, 'basic', 0, 2, true);
   sim.command({ t: 'item', kind: 'bomb', x: a.x, y: a.y });
   const loot = lootOf(w)[0];
   assert(loot, 'loot fell');
@@ -412,7 +463,7 @@ check('elite loot is picked up by a chain (a link of any colour, no power, no co
   const after = w.kit!.items.bomb + w.kit!.materials.dew + w.kit!.materials.powder + w.kit!.materials.resin + w.kit!.materials.herbs;
   assert(after === before + 1, 'one thing more in the kit');
   // By touch: a second elite's loot, the hero walks onto it.
-  const b = placeElite(sim, 4, 3, 'basic', 3, 0);
+  const b = placeElite(sim, 4, 3, 'basic', 3, 0, true);
   sim.command({ t: 'teleport', x: 6.5, y: 3 });
   sim.command({ t: 'item', kind: 'bomb', x: b.x, y: b.y });
   const second = lootOf(w)[0];
@@ -428,7 +479,7 @@ check('elite loot falls off the rest of the dash (as a crystal)', () => {
   for (let k = 1; k <= 6; k++) {
     const sim = fight('kills', quiet(), seedOf(50 + k), { loadout: { openItems: ['frost'] } }), w = sim.world;
     sim.command({ t: 'teleport', x: 4, y: 5 });
-    const elite = placeElite(sim, 5.2, 5, 'basic', 0, 0);
+    const elite = placeElite(sim, 5.2, 5, 'basic', 0, 0, true);
     const rest = [place(sim, 6.4, 5, 'basic', 0, 0), place(sim, 7.6, 5, 'basic', 0, 0), place(sim, 8.8, 5, 'basic', 0, 0)];
     sim.command({ t: 'begin', x: elite.x, y: elite.y });
     for (const e of rest) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });

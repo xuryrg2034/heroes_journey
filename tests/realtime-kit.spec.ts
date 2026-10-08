@@ -128,10 +128,11 @@ test('elite: a gold rim on a larger drawing; killed by the bomb it drops loot on
   const errors: string[] = [];
   await openArena(page, errors, 1);
   await quiet(page);
-  const id = await page.evaluate(() => (window as any).__realtime.place(10, 5, 0, 2, 'basic', true)) as number;
+  // A random elite: its loot always drops (a resource).
+  const id = await page.evaluate(() => (window as any).__realtime.place(10, 5, 0, 2, 'basic', 'random')) as number;
   await expect.poll(async () => (await kitSnap(page)).signals.elites).toBe(1);
   const elite = (await kitSnap(page)).enemies.find(e => e.id === id) as KitSnap['enemies'][number] & { elite: boolean };
-  expect(elite.elite).toBe(true);
+  expect(elite.elite).toBeTruthy();
   expect(elite.hp).toBe(4);
   await page.screenshot({ path: 'artifacts/realtime-elite.png' });
   // Two bombs: 4 HP.

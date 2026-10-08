@@ -681,7 +681,8 @@ check('elites in the run: random ones from run row 3; the loot of an elite picke
   run = { ...run, items: { ...run.items, bomb: 1 }, openItems: ['bomb'] }; // setup: a bomb in hand, open
   const sim = startArena(run), w = sim.world;
   sim.command({ t: 'teleport', x: 3, y: 5 });
-  const id = sim.command({ t: 'place', x: 5.5, y: 5, color: 0, hp: 2, kind: 'basic', elite: true }) as number;
+  // A random elite: its loot always drops (a resource).
+  const id = sim.command({ t: 'place', x: 5.5, y: 5, color: 0, hp: 2, kind: 'basic', elite: 'random' }) as number;
   assert(sim.command({ t: 'item', kind: 'bomb', x: 5.5, y: 5 }) === true && !w.enemies.some(e => e.id === id), 'the elite killed by the bomb');
   const loot = w.objects.find(o => o.kind === 'loot')!;
   assert(loot, 'loot fell');

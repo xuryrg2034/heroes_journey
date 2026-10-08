@@ -237,8 +237,8 @@ export interface Params {
   // Elites (stage 2 of the transition, step 3, docs/realtime-slice.md, section 7)
   /** HP of an elite: the enemy's HP × this (a weak one, 0 HP, gets 1). */
   eliteHpFactor: number;
-  /** Extra damage of an elite's touch. */
-  eliteTouchBonus: number;
+  /** Extra damage of every hit of an elite on the hero: touch, arrow, charge, its blast, its quills. */
+  eliteDamageBonus: number;
   /** Art of an elite (drawing, the link reach edge, the press circle) × this; its body stays. */
   eliteArtScale: number;
   /** Chance that the loot of an elite killed by the player is a consumable open in the run; otherwise a crafting resource. */
@@ -457,7 +457,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   sandboxItems: 3,
   // Баланс: section 7 — HP ×2, art ×1.25, touch +1, loot 50% a consumable; random elites 3% / 12%, at most 2 / 4.
   eliteHpFactor: 2,
-  eliteTouchBonus: 1,
+  eliteDamageBonus: 1,
   eliteArtScale: 1.25,
   eliteLootChance: 0.5,
   eliteLootRadius: 1.5,
@@ -641,9 +641,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('fireTicks', 'Расходники', 'Огонь: сколько раз', 1, 10, 1, 5),
   n('sandboxItems', 'Расходники', 'Песочница: расходников каждого вида на старте арены', 0, 9, 1, 5, '', 'Только песочница: в походе количество переносится между аренами.'),
   n('eliteHpFactor', 'Элиты', 'HP элиты', 1, 5, 0.5, 5, '×', 'Слабый враг (0 HP) — 1.'),
-  n('eliteTouchBonus', 'Элиты', 'Касание элиты: прибавка урона', 0, 5, 1, 5),
+  n('eliteDamageBonus', 'Элиты', 'Урон элиты герою: прибавка', 0, 5, 1, 5, '', 'К любому урону элиты герою: касание, стрела, рывок, взрыв сапёра-элиты, иглы дикобраза-элиты.'),
   n('eliteArtScale', 'Элиты', 'Рисунок элиты', 1, 2, 0.05, 5, '×', 'Рисунок, край для R и круг нажатия; тело то же.'),
-  n('eliteLootChance', 'Элиты', 'Добыча: доля расходника', 0, 1, 0.05, 5, '', 'Убийство элиты игроком: расходник из открытых в походе (нет открытых — ресурс), иначе ресурс крафта.'),
+  n('eliteLootChance', 'Элиты', 'Добыча элиты шаблона: шанс', 0, 1, 0.05, 5, '', 'Элита шаблона арены, убитая игроком: с этим шансом расходник из открытых в походе (нет открытых — ресурс), иначе ничего. Случайная элита — всегда ресурс.'),
   n('eliteLootRadius', 'Элиты', 'Добыча падает в радиусе', 0, 4, 0.25, 5, 'ед.', 'Вне оставшегося пути цепи; подбирается цепью (как кристалл) или касанием.'),
   n('eliteChance', 'Элиты', 'Случайная элита до целей', 0, 0.5, 0.01, 5, '', 'Доля новичков-элит. В походе — с ряда 3.'),
   n('eliteChanceAfter', 'Элиты', 'Случайная элита после целей', 0, 0.5, 0.01, 5),

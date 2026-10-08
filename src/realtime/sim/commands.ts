@@ -45,7 +45,7 @@ export type Command =
   /** Test setup: remove every enemy (keep the marked ones with `keepMarked`), marker, queued newcomer and the chain. */
   | { t: 'clear'; keepMarked: boolean }
   /** Test setup: an enemy of `kind` at a point; `elite` (stage 2, step 3) — with the elite modifier over its HP. */
-  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind; elite?: boolean }
+  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind; elite?: boolean | 'random' }
   /** Test setup: move the hero. */
   | { t: 'teleport'; x: number; y: number }
   /** Test setup: the jump energy. */
@@ -96,7 +96,7 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       return;
     case 'place': {
       const e = spawnEnemy(world, { x: cmd.x, y: cmd.y }, cmd.color, cmd.hp, cmd.kind);
-      if (cmd.elite) makeElite(world, e);
+      if (cmd.elite) makeElite(world, e, cmd.elite === 'random');
       return e.id;
     }
     case 'teleport': world.hero.x = cmd.x; world.hero.y = cmd.y; return;

@@ -3,11 +3,13 @@
  * the turn-based game (src/game/elite.ts) over any enemy kind. Numbers — the panel group «Элиты».
  *
  * - **Modifier** (`makeElite`): HP × `eliteHpFactor` (2; a weak enemy, 0 HP, gets 1), art × `eliteArtScale` (1.25 — the
- *   drawing, the link reach edge and the press circle; the body stays), touch + `eliteTouchBonus` (1; world.ts
- *   `touchDamage`), a gold rim (render). Its kind's behaviour is unchanged: an elite shieldbearer keeps its shield.
- * - **Loot** (`eliteDeath`): an elite killed by the player (`credited`: the chain, the spin, a consumable, burning, the
- *   blast of the player's sapper) drops one thing: with `eliteLootChance` (50%) a consumable open in the run (none open —
- *   a crafting resource), otherwise a crafting resource. The kind and the spot read the arena's `loot` stream. It falls
+ *   drawing, the link reach edge and the press circle; the body stays), + `eliteDamageBonus` (1) to every hit on the hero
+ *   (world.ts `hurtHero`: touch, arrow, charge, its blast, its quills), a gold rim (render). Its kind's behaviour is
+ *   unchanged: an elite shieldbearer keeps its shield.
+ * - **Loot** (`eliteDeath`, as the turn-based `rollEliteLoot`): an elite killed by the player (`credited`: the chain, the
+ *   spin, a consumable, burning, the blast of the player's sapper) — an elite of the template: with `eliteLootChance`
+ *   (50%) a consumable open in the run (none open — a resource), otherwise nothing; a random elite: always a crafting
+ *   resource. The chance, the kind and the spot read the arena's `loot` stream. It falls
  *   within `eliteLootRadius` of the kill, off walls and trees, other objects and the rest of the dash (as a crystal), and
  *   lies until picked up: by a chain (a link of any colour anywhere in it, as a crystal — no colour change, no power, not
  *   a kill; chain.ts `passObject`) or by the walking hero's touch (`touchLoot`). An elite killed by an enemy's ability (an
@@ -32,9 +34,9 @@ const LOOT_CLEARANCE = 0.6;
 const LOOT_TRIES = 40;
 
 /** Puts the elite modifier on an enemy (once): HP × factor (a weak one gets 1). Colourless kinds (the reaper) are not elites. */
-export function makeElite(world: World, e: Enemy): void {
+export function makeElite(world: World, e: Enemy, random = false): void {
   if (e.elite || !kindOf(e).chainable || kindOf(e).immune) return;
-  e.elite = true;
+  e.elite = random ? 'random' : true;
   e.hp = e.hp > 0 ? Math.round(e.hp * world.params.eliteHpFactor) : ELITE_WEAK_HP;
 }
 
@@ -50,7 +52,7 @@ export function rollRandomElite(world: World, e: Enemy): void {
   const p = world.params, after = world.stage === 'greed';
   if (eliteCount(world) >= (after ? p.eliteCapAfter : p.eliteCap)) return;
   if (world.rng.stream('elite').next() >= (after ? p.eliteChanceAfter : p.eliteChance)) return;
-  makeElite(world, e);
+  makeElite(world, e, true);
   world.events.push({ type: 'elite', enemyId: e.id });
 }
 
@@ -85,17 +87,24 @@ function lootSpot(world: World, at: Vec): Vec {
   return { x: at.x, y: at.y };
 }
 
-/** What the loot of one elite is: 50% a consumable open in the run (none open — a resource), otherwise a resource. */
-export function rollLoot(world: World): ItemKind | ResourceKind {
-  const rng = world.rng.stream('loot'), open = world.kit?.openItems ?? [];
-  const kinds: readonly (ItemKind | ResourceKind)[] = rng.next() < world.params.eliteLootChance && open.length ? open : RESOURCE_KINDS;
+/**
+ * What the loot of one elite is (design answer 6 to step 3: as the turn-based `rollEliteLoot`): an elite of the arena
+ * template — with `eliteLootChance` (50%) a consumable open in the run (none open — a resource), otherwise nothing; a
+ * random elite — always a resource. Null — nothing drops.
+ */
+export function rollLoot(world: World, elite: Enemy['elite']): ItemKind | ResourceKind | null {
+  const rng = world.rng.stream('loot'), random = elite === 'random';
+  if (!random && rng.next() >= world.params.eliteLootChance) return null;
+  const open = random ? [] : world.kit?.openItems ?? [], kinds: readonly (ItemKind | ResourceKind)[] = open.length ? open : RESOURCE_KINDS;
   return kinds[Math.floor(rng.next() * kinds.length)];
 }
 
-/** An enemy has just died: an elite killed by the player drops its loot on the arena. */
+/** An enemy has just died: an elite killed by the player may drop its loot on the arena. */
 export function eliteDeath(world: World, e: Enemy, cause: KillCause): void {
   if (!e.elite || !cause.credited) return;
-  const loot = rollLoot(world), spot = lootSpot(world, e);
+  const loot = rollLoot(world, e.elite);
+  if (!loot) return;
+  const spot = lootSpot(world, e);
   const object: ArenaObject = { id: world.nextId++, kind: 'loot', x: spot.x, y: spot.y, pressed: false, loot, born: world.time };
   world.objects.push(object);
   world.events.push({ type: 'loot', objectId: object.id, loot, x: spot.x, y: spot.y, picked: false });

@@ -22,7 +22,7 @@ function stepSapper(world: World, e: Enemy, dt: number): boolean {
     e.vars.fuse -= dt;
     if (e.vars.fuse <= 1e-9 && e.vars.exploded !== 1) {
       e.vars.exploded = 1;
-      addBlast(world, e, { radius: p.sapperRadius, damage: p.sapperDamage, delay: 0, credited: false, source: 'blast', ownerId: e.id });
+      addBlast(world, e, { radius: p.sapperRadius, damage: p.sapperDamage, delay: 0, credited: false, source: 'blast', ownerId: e.id, elite: !!e.elite });
     }
     return true;
   }
@@ -49,7 +49,7 @@ registerBehavior({
     if (e.vars.exploded === 1) return;
     e.vars.exploded = 1;
     const p = world.params, burning = e.vars.lit === 1 ? Math.max(0, e.vars.fuse) : Infinity;
-    addBlast(world, e, { radius: p.sapperRadius, damage: p.sapperDamage, delay: Math.min(burning, p.sapperFuse), credited: cause.credited, source: 'blast', ownerId: e.id });
+    addBlast(world, e, { radius: p.sapperRadius, damage: p.sapperDamage, delay: Math.min(burning, p.sapperFuse), credited: cause.credited, source: 'blast', ownerId: e.id, elite: !!e.elite });
   },
 });
 
