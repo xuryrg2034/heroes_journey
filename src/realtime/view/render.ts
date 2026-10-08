@@ -13,7 +13,7 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
+import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, quillsUp, sapperFuse, shieldUp } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
@@ -806,7 +806,7 @@ export class RealtimeRenderer {
       g.circle(anchor.x * UNIT, anchor.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
       this.visibleReachCircles = ++reach;
       // Stage G: the hero is a second anchor — his circle (always drawn faint) gets the chain color too.
-      if (p.heroAnchor) {
+      if (heroAnchorOn(world)) {
         g.circle(hero.x * UNIT, hero.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
         this.heroAnchorShown = true;
       }

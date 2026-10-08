@@ -10,14 +10,13 @@
  * - a cost alternative the run can pay: HP, maximum HP, resources, energy (banked), consumables (in hand);
  * - «снять горение, яд и кровотечение» has nothing to clear (the hero has no such effects) and changes nothing;
  * - a reward battle («Засада у брода») is an arena of the node's row.
- * Talismans come with the last block of step 3; until then an outcome with a talisman is off.
+ * A talisman outcome draws from the slice's pool (rtTalismans.ts); the reward battle gives its talisman choice.
  * The data of the catalogue is not changed: the slice reads it through these checks.
  */
 import { FOREST_EVENTS, isSafeOption, optionCosts, type EventCost, type EventOption, type ForestEvent } from '../../game/run/forestEvents';
 
 /** Why an outcome effect has no analogue in the slice ('' — it has one). */
 function effectGap(effect: EventOption['outcomes'][number]['effect']): string {
-  if (effect.talisman) return 'талисманы';
   if (effect.modifier) return 'модификаторы боя';
   return '';
 }

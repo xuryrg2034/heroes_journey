@@ -141,7 +141,7 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
     if (state.pending?.kind === 'battle') break;
     if (state.pending) {
       // A node screen of the trails: take its first button that is on (a rest, a find, an event, the merchant's «Уйти»).
-      const leave = page.locator('[data-action="find"], [data-action="gift-pick"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first();
+      const leave = page.locator('[data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first();
       await leave.click();
       continue;
     }
@@ -192,7 +192,7 @@ test('run: arenas 4–7 of the new enemies come on their run rows; a row without
       }
       if (pending) {
         // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
-        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
         continue;
       }
       await enterFirstNode(page);
@@ -237,7 +237,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const find = page.locator('[data-status="available"][data-type="find"]');
@@ -252,7 +252,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
   for (let step = 0; step < 10; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
-    if (state.pending) { await page.locator('[data-action="find"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
     const battle = page.locator('[data-status="available"][data-type="battle"]');
     const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
     await node.click();

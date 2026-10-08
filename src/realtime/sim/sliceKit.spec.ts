@@ -48,6 +48,7 @@ const replays = (sim: Simulation): boolean => replay(JSON.parse(JSON.stringify(s
 const energyOf = (w: World): number => w.energy;
 const chainOf = (w: World): World['chain'] => w.chain;
 const moveOf = (w: World): string | null => w.move?.kind ?? null;
+const statusOf = (w: World): string => w.status;
 
 // ---- Spin (Q) ----
 
@@ -475,6 +476,95 @@ check('random elites: 3% of newcomers before the goals, 12% after (many seeds); 
   // Off: no loadout flag and no toggle — no elites; the sandbox toggle turns them on.
   assert(count({}, horde({ eliteChance: 0.5 }), false, 1).elites === 0, 'off without the run flag');
   assert(count({}, horde({ eliteChance: 0.5, eliteSandbox: true }), false, 1).elites > 0, 'the sandbox toggle');
+});
+
+// ---- Talismans in the arena ----
+
+const withTalismans = (arena: string, talismans: string[], seed: number, extra: Partial<Params> = {}, ward = false): Simulation =>
+  fight(arena, quiet(extra), seed, { loadout: { talismans, ward } });
+
+check('«Якорь у героя»: the next link is also taken within R of the hero; without it — «далеко»', () => {
+  for (const [talismans, taken] of [[['hero-anchor'], true], [[], false]] as const) {
+    const sim = withTalismans('kills', [...talismans], seedOf(60)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    // The first link 1.6 to the right; the second 1.6 to the left of the hero: 3.2 from the first, within R of the hero.
+    const first = place(sim, 9.6, 5, 'basic', 0, 0), second = place(sim, 6.4, 5, 'basic', 0, 0);
+    sim.command({ t: 'begin', x: first.x, y: first.y });
+    sim.command({ t: 'drag', x: second.x, y: second.y, mode: 'full' });
+    assert((chainOf(w).length === 2) === taken, `${talismans.join() || 'none'}: chain ${chainOf(w).length}`);
+  }
+});
+
+check('«Точильный камень»: the first chain of the arena starts with power 1 (the highlight shows it); the next ones with 0', () => {
+  const sim = withTalismans('kills', ['whetstone'], seedOf(61)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  // A chain of a button only does not spend it; the first chain with an enemy does.
+  const tough = place(sim, 9.2, 5, 'basic', 0, 2);
+  const plan = planChain(w, [{ kind: 'enemy', id: tough.id }]).links[0].outcome!;
+  assert(plan.available === 2 && plan.killed, 'the highlight: power 1 + 1 kills HP 2');
+  sim.command({ t: 'begin', x: tough.x, y: tough.y }); sim.command({ t: 'release' }); settle(sim);
+  assert(!alive(w, tough), 'the first chain killed the HP 2 enemy');
+  const next = place(sim, w.hero.x + 1.2, w.hero.y, 'basic', 1, 2);
+  assert(!planChain(w, [{ kind: 'enemy', id: next.id }]).links[0].outcome!.killed, 'the second chain starts with 0');
+  sim.command({ t: 'begin', x: next.x, y: next.y }); sim.command({ t: 'release' }); settle(sim);
+  assert(alive(w, next) && next.hp === 1, 'wounded only');
+  // Without the talisman the first chain starts with 0.
+  const plain = withTalismans('kills', [], seedOf(61)), wp = plain.world;
+  plain.command({ t: 'teleport', x: 8, y: 5 });
+  const other = place(plain, 9.2, 5, 'basic', 0, 2);
+  assert(!planChain(wp, [{ kind: 'enemy', id: other.id }]).links[0].outcome!.killed, 'no talisman: power 0');
+  assert(replays(sim), 'replay');
+});
+
+check('«Осколок жернова»: a crystal falls at the 5th kill of a chain instead of the 6th', () => {
+  for (const [talismans, crystals] of [[['millstone-shard'], 1], [[], 0]] as const) {
+    const sim = withTalismans('kills', [...talismans], seedOf(62)), w = sim.world;
+    sim.command({ t: 'teleport', x: 2.5, y: 9 });
+    const links = [0, 1, 2, 3, 4].map(i => place(sim, 3.6 + i * 1.1, 9, 'basic', 0, 0));
+    sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+    for (const e of links.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+    sim.command({ t: 'release' }); settle(sim);
+    assert(w.stats.kills === 5 && w.stats.crystals === crystals, `${talismans.join() || 'none'}: kills ${w.stats.kills}, crystals ${w.stats.crystals}`);
+  }
+});
+
+check('«Песочные часы»: the phase table after the goals starts 10 s later (the base pace goes on meanwhile)', () => {
+  for (const [talismans, delay] of [[['hourglass'], 10], [[], 0]] as const) {
+    const sim = withTalismans('kills', [...talismans], seedOf(63)), w = sim.world;
+    sim.command({ t: 'goals' });
+    ticks(sim, 1);
+    assert(w.pressure.phaseIndex === (delay ? -1 : 0), `${talismans.join() || 'none'}: right after the goals phase ${w.pressure.phaseIndex}`);
+    ticks(sim, 60 * 10 - 2);
+    assert(w.pressure.phaseIndex === (delay ? -1 : 0), 'just before 10 s');
+    ticks(sim, 2);
+    assert(w.pressure.phaseIndex === 0, `after 10 s: phase ${w.pressure.phaseIndex}`);
+  }
+});
+
+check('«Ловкие лапы»: the jump costs 1 energy instead of 2', () => {
+  for (const [talismans, jumps] of [[['nimble-paws'], true], [[], false]] as const) {
+    const sim = withTalismans('kills', [...talismans], seedOf(64)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    sim.command({ t: 'energy', value: 1 });
+    assert((sim.command({ t: 'jump', x: 8, y: 7 }) === true) === jumps && (energyOf(w) === (jumps ? 0 : 1)), `${talismans.join() || 'none'}: jump ${jumps}`);
+  }
+});
+
+check('«Пепельный оберег»: a hit that would kill leaves the hero with 1 HP once; the next lethal hit kills', () => {
+  const sim = fight('kills', quiet({ contactDamage: 3 }), seedOf(65), { hero: { hp: 2, maxHp: 12 }, loadout: { talismans: ['ash-ward'], ward: true } }), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  place(sim, 8.5, 5, 'basic', 0, 9);
+  ticks(sim, 2);
+  assert(w.hero.hp === 1 && w.status === 'playing' && w.kit!.wardUsed && !w.kit!.ward, `saved at 1 HP: ${w.hero.hp}`);
+  ticks(sim, 60);
+  assert(statusOf(w) === 'defeat', 'the next lethal hit kills');
+  // A ward the run already spent (ward false) does not save.
+  const spent = fight('kills', quiet({ contactDamage: 3 }), seedOf(65), { hero: { hp: 2, maxHp: 12 }, loadout: { talismans: ['ash-ward'], ward: false } });
+  spent.command({ t: 'teleport', x: 8, y: 5 });
+  place(spent, 8.5, 5, 'basic', 0, 9);
+  ticks(spent, 2);
+  assert(spent.world.status === 'defeat', 'a crumbled ward does nothing');
+  assert(replays(sim), 'replay');
 });
 
 console.log(`realtime-kit: ${checks} checks passed`);

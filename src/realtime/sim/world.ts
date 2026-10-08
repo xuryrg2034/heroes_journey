@@ -14,7 +14,7 @@ import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, inWater, lineOfSight, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
-import { kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
+import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { eliteDeath, makeElite, touchLoot } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
@@ -194,6 +194,8 @@ export type WorldEvent =
   | { type: 'loot'; objectId: number; loot: ItemKind | ResourceKind; x: number; y: number; picked: boolean }
   /** Stage 2, step 3: a newcomer became an elite (a random elite). */
   | { type: 'elite'; enemyId: number }
+  /** Stage 2, step 3: «Пепельный оберег» saved the hero from a lethal hit (1 HP left) and crumbled. */
+  | { type: 'ward' }
   | { type: 'focusRefill' }
   | { type: 'defeat' };
 
@@ -288,6 +290,9 @@ export interface Blast {
   ownerId: number;
 }
 
+/** Stage 2, step 3: «Песочные часы» — game seconds the phase table after the goals starts later in this arena. */
+export function phaseDelayOf(world: World): number { return hasTalisman(world, 'hourglass') ? world.params.hourglassDelay : 0; }
+
 /** Energy cap (chain.ts `ENERGY_MAX`, as in the main game). */
 const ENERGY_CAP = 7;
 
@@ -302,6 +307,8 @@ export interface HeroStart { hp: number; maxHp: number }
 export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, start?: HeroStart, loadout?: Loadout): World {
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
+  // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
+  const phaseDelay = loadout?.talismans?.includes('hourglass') ? params.hourglassDelay : 0;
   let nextId = 1;
   const objects: ArenaObject[] = [
     ...arena.buttons.map(b => ({ id: nextId++, kind: 'button' as const, x: b.x, y: b.y, pressed: false })),
@@ -322,7 +329,7 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     status: 'playing',
     objects,
     timeScale: 1,
-    pressure: pressureAt(params, 0, null, arena),
+    pressure: pressureAt(params, 0, null, arena, phaseDelay),
     flow: new FlowField(arena, enemyBodyRadius(params), { waterCost: 1 / Math.max(0.05, params.waterSlow) }),
     flowTimer: 0,
     input: { x: 0, y: 0 },
@@ -501,6 +508,9 @@ export function hurtHero(world: World, striker: { id: number }, damage: number, 
   const { hero, params } = world;
   if (damage <= 0) return;
   hero.hp = Math.max(0, hero.hp - damage);
+  // Stage 2, step 3 («Пепельный оберег», once a run): a hit that would kill leaves the hero with 1 HP; the ward crumbles.
+  const kit = world.kit;
+  if (hero.hp <= 0 && kit?.ward) { hero.hp = 1; kit.ward = false; kit.wardUsed = true; world.events.push({ type: 'ward' }); }
   hero.invulnerable = invulnerabilityFor(params, params.invulnerabilityMode, damage, hero.maxHp);
   hero.hurtFlash = Math.max(params.hitFlash, 0.01);
   world.stats.hitsTaken++;
@@ -809,7 +819,7 @@ function updateFlow(world: World, dt: number): void {
 export function update(world: World, dt: number, realDt = dt): void {
   if (world.status !== 'playing') return;
   world.time += dt;
-  world.pressure = pressureAt(world.params, world.time, world.greedStart, world.arena);
+  world.pressure = pressureAt(world.params, world.time, world.greedStart, world.arena, phaseDelayOf(world));
   const hero = world.hero;
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
   hero.chainShield = Math.max(0, hero.chainShield - dt);

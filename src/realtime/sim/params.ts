@@ -253,6 +253,11 @@ export interface Params {
   eliteCapAfter: number;
   /** Sandbox: random elites among the newcomers (a run turns them on from its row 3). */
   eliteSandbox: boolean;
+  // Talismans (stage 2 of the transition, step 3, docs/realtime-slice.md, section 8)
+  /** «Песочные часы»: the phase table after the goals starts this much later (the base pace goes on meanwhile). */
+  hourglassDelay: number;
+  /** Sandbox: a talisman an arena of the sandbox starts with (an id of run/rtTalismans.ts, '' — none); a run passes its own. */
+  sandboxTalismans: string;
   // Look
   dimMode: DimMode;
   dimStrength: number;
@@ -406,7 +411,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   linkRadius: 1.875,
   linkToEdge: true,
   // Stage 1 of the transition (user 08.10.2026, docs/realtime-transition.md, decision 3): the hero anchor becomes a
-  // talisman; the base rule takes the next link only within R of the last link. The panel toggle stays until stage 2.
+  // talisman; the base rule takes the next link only within R of the last link. Stage 2, step 3: the talisman «Якорь у героя»
+  // turns it on in a run (chain.ts `heroAnchorOn`); the panel toggle stays for the sandbox.
   heroAnchor: false,
   lineOfSight: true,
   sightSlack: 0.1,
@@ -460,6 +466,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   eliteCap: 2,
   eliteCapAfter: 4,
   eliteSandbox: false,
+  // Баланс: section 8 — «Песочные часы» 10 s.
+  hourglassDelay: 10,
+  sandboxTalismans: '',
   dimMode: 'alpha',
   dimStrength: 0.65,
   enemyLook: 'circle',
@@ -641,6 +650,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('eliteCap', 'Элиты', 'Не больше элит до целей', 0, 10, 1, 5),
   n('eliteCapAfter', 'Элиты', 'Не больше элит после целей', 0, 10, 1, 5),
   { kind: 'bool', key: 'eliteSandbox', group: 'Элиты', label: 'Песочница: случайные элиты', stage: 5, hint: 'В походе случайные элиты идут с ряда похода 3; в песочнице — по этому переключателю.' },
+  n('hourglassDelay', 'Талисманы', '«Песочные часы»: фазы после целей позже на', 0, 60, 1, 5, 'с', 'Пока они не начались, идёт темп до целей.'),
+  { kind: 'choice', key: 'sandboxTalismans', group: 'Талисманы', label: 'Песочница: талисман на старте арены', stage: 5,
+    hint: 'Только песочница (со следующей арены); в походе действуют талисманы похода. «Якорь у героя» — и переключатель «Якорь у героя» группы «Цепь».',
+    options: [{ value: '', label: 'нет' }, { value: 'hero-anchor', label: 'Якорь у героя' }, { value: 'whetstone', label: 'Точильный камень' }, { value: 'millstone-shard', label: 'Осколок жернова' },
+      { value: 'hourglass', label: 'Песочные часы' }, { value: 'nimble-paws', label: 'Ловкие лапы' }, { value: 'ash-ward', label: 'Пепельный оберег' }] },
   { kind: 'choice', key: 'dimMode', group: 'Вид', label: 'Приглушение не того цвета', stage: 2,
     options: [{ value: 'darken', label: 'затемнение' }, { value: 'alpha', label: 'полупрозрачность' }, { value: 'desaturate', label: 'обесцвечивание' }] },
   n('dimStrength', 'Вид', 'Сила приглушения', 0, 1, 0.05, 2),
@@ -777,10 +791,12 @@ export function basePhase(params: Params, arena?: ArenaTemplate): Phase {
  * Pressure at game time `time`. `greedStart` is the time the goals were completed
  * (null before): only then the phase table runs, counted from that moment.
  */
-export function pressureAt(params: Params, time: number, greedStart: number | null = null, arena?: ArenaTemplate): Pressure {
+export function pressureAt(params: Params, time: number, greedStart: number | null = null, arena?: ArenaTemplate, delay = 0): Pressure {
   const angerTier = Math.floor(time / params.angerTierSeconds);
   const enemySpeed = params.enemySpeed * Math.pow(1 + params.angerSpeedStep, angerTier);
-  if (greedStart === null) return { phaseIndex: -1, phase: basePhase(params, arena), phaseLeft: Infinity, angerTier, enemySpeed };
+  // Stage 2, step 3 («Песочные часы»): the table starts `delay` game seconds after the goals; the base pace goes on until then.
+  if (greedStart !== null && delay > 0) greedStart += delay;
+  if (greedStart === null || time < greedStart) return { phaseIndex: -1, phase: basePhase(params, arena), phaseLeft: Infinity, angerTier, enemySpeed };
   const own = arena?.phases;
   const phases = own && own.length ? own : params.phases.length ? params.phases : DEFAULT_PHASES;
   const t = Math.max(0, time - greedStart);

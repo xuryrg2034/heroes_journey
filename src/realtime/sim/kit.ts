@@ -30,6 +30,10 @@ export interface Loadout {
   openItems?: ItemKind[];
   /** Random elites among the newcomers (a run from its row 3, section 7). */
   randomElites?: boolean;
+  /** Talismans of the run that act in the arena (section 8; ids of run/rtTalismans.ts). */
+  talismans?: string[];
+  /** «Пепельный оберег» is whole (the run took it and it has not saved the hero yet). */
+  ward?: boolean;
 }
 
 /**
@@ -41,7 +45,25 @@ export interface Kit {
   materials: Record<ResourceKind, number>;
   openItems: ItemKind[];
   randomElites: boolean;
+  /** Talismans in effect (section 8). */
+  talismans: string[];
+  /** «Точильный камень»: power the next released chain with an enemy starts with (1 until the first such chain, then 0). */
+  firstPower: number;
+  /** «Пепельный оберег» whole now; `wardUsed` — it saved the hero in this arena (the run lets it crumble). */
+  ward: boolean;
+  wardUsed: boolean;
 }
+
+// Баланс (section 8): the talismans in the arena, numbers of the turn-based talismans (talismans.ts) in real time.
+/** «Точильный камень»: the first chain of an arena starts with this power. */
+export const WHETSTONE_POWER = 1;
+/** «Осколок жернова»: a crystal falls this many kills sooner (6 → 5). */
+export const MILLSTONE_STEP = 1;
+/** «Ловкие лапы»: the jump costs this much less (2 → 1). */
+export const NIMBLE_PAWS_DISCOUNT = 1;
+
+/** The talisman `id` acts in this arena. */
+export const hasTalisman = (world: { kit?: Kit }, id: string): boolean => !!world.kit?.talismans.includes(id);
 
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 
@@ -51,7 +73,12 @@ export function kitOf(loadout: Loadout): Kit {
   for (const kind of SLOT_ITEMS) items[kind] = count(loadout.items?.[kind]);
   // In the run's opening order (the loot draws by it), each once.
   const openItems = [...new Set(loadout.openItems ?? [])].filter(kind => SLOT_ITEMS.includes(kind));
-  return { items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites };
+  const talismans = [...new Set((loadout.talismans ?? []).filter(id => typeof id === 'string'))];
+  return {
+    items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites, talismans,
+    firstPower: talismans.includes('whetstone') ? WHETSTONE_POWER : 0,
+    ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false,
+  };
 }
 /** A kit with nothing (test setup on a world without a loadout). */
 export const emptyKit = (): Kit => kitOf({});

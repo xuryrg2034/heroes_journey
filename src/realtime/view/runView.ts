@@ -18,10 +18,12 @@ import { arenaTitle, runRow } from '../run/arenaPools';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, type RtStandIn, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtEnterNode,
-  rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView,
+  rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView,
   type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, type ItemKind, type Loadout } from '../sim/kit';
+import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../../game/run/runGift';
+import { rtTalisman } from '../run/rtTalismans';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
@@ -41,8 +43,8 @@ const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
   find: 'Находка: один из трёх расходников.',
   rest: `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`,
   shop: `Расходники, лечение и «Закалка» за ресурсы крафта.`,
-  hard: `Трудный бой: арена своего ряда (Застава — шаг 4). Победа: +${rtHp(FOREST_HARD_HEAL)} HP.`,
-  checkpoint: 'Тюремщика в срезе нет: обычная арена своего ряда.',
+  hard: `Трудный бой: арена своего ряда (Застава — шаг 4). Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор.`,
+  checkpoint: 'Тюремщика в срезе нет: обычная арена своего ряда. Победа: клятва на выбор.',
   breakthrough: 'Прорыв: обычная арена своего ряда.',
   battle: 'Обычный бой: арена пула своего ряда.',
   boss: 'Босса в срезе нет: финальная арена (временно одна из арен 1–7; «Последний рубеж» — шаг 4). Победа завершает поход.',
@@ -55,6 +57,8 @@ function arenaLine(arena: string, standIn?: RtStandIn): string {
   const note = standIn === 'final' ? ' <em>(временно: финальная арена — шаг 4)</em>' : standIn === 'any' ? ' <em>(временно: арен этого ряда ещё нет, любая из 1–7)</em>' : '';
   return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${note}<br><small>${escapeHtml(summary)}</small>`;
 }
+const talismanName = (id: string): string => rtTalisman(id)?.name ?? id;
+
 function giftText(option: GiftOption): string {
   switch (option.kind) {
     case 'resources': return `${option.resources.length} ресурса крафта: ${option.resources.map(kind => RESOURCES[kind].label).join(', ')}`;
@@ -63,8 +67,12 @@ function giftText(option: GiftOption): string {
     case 'items': return `${option.items.length} расходника: ${option.items.map(item => ITEM_TITLES[item]).join(', ')}`;
     case 'energy': return `+${option.amount} энергии к началу первой арены`;
     case 'calm': return `Тихий лес: ${option.battles} боя без злости до целей`;
-    case 'deal': return 'Талисман за цену';
-    case 'oath': return 'Случайная клятва';
+    case 'deal': {
+      const price = option.price === 'hp' ? `−${rtHp(GIFT_HP_PRICE)} HP сейчас` : option.price === 'max-hp' ? `−${rtHp(GIFT_MAX_HP_PRICE)} к максимуму HP` : 'следующий привал не лечит';
+      const reward = option.reward.kind === 'pick-talisman' ? `талисман на выбор: ${option.reward.talismans.map(talismanName).join(' или ')}` : `талисман «${option.reward.talisman ? talismanName(option.reward.talisman) : '—'}»`;
+      return `${reward}; цена: ${price}`;
+    }
+    case 'oath': return `Клятва: «${option.oath ? talismanName(option.oath) : '—'}» — ${option.oath ? rtTalisman(option.oath)?.effect ?? '' : 'клятв не осталось'}`;
   }
 }
 
@@ -156,6 +164,8 @@ export class RunView {
       if (event.type === 'event-resolved' || event.type === 'event-attempt') parts.push(event.text);
       if (event.type === 'shop-bought' && event.purchase.good === 'heal') parts.push(`Лечение +${rtHp(1)} HP`);
       if (event.type === 'shop-bought' && event.purchase.good === 'harden') parts.push(`Закалка: +${rtHp(1)} к максимуму HP`);
+      if (event.type === 'talisman-taken') parts.push(`Талисман «${talismanName(event.id)}»`);
+      if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
       if (event.type === 'items-gained') parts.push(`+ ${event.items.map(item => ITEM_TITLES[item]).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
     return parts.join(' · ');
@@ -180,6 +190,7 @@ export class RunView {
     if (action === 'rest-finish') { this.apply(rtRestFinish(run)); return; }
     if (action === 'find') { this.apply(rtChooseFind(run, target.dataset.item as ItemKind)); return; }
     if (action === 'gift-pick') { this.apply(rtChooseGiftPick(run, target.dataset.pick!)); return; }
+    if (action === 'talisman') { this.apply(rtChooseTalisman(run, target.dataset.option || null)); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
     if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
     if (action === 'event-option') { this.apply(rtChooseEventOption(run, target.dataset.option!)); return; }
@@ -204,11 +215,13 @@ export class RunView {
     const resources = RESOURCE_KINDS.map(kind => `${RESOURCES[kind].label} ${run.materials[kind]}`).join(' · ');
     // Step 3: consumables carried between arenas and the energy banked for the next one.
     const items = ITEM_KINDS.map(kind => `${ITEM_TITLES[kind]} ${run.items[kind]}`).join(' · ');
+    const talismans = run.talismans.map(id => `<span title="${escapeHtml(rtTalisman(id)?.effect ?? '')}">${escapeHtml(talismanName(id))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}</span>`).join(', ');
     const reset = this.confirmReset
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
       : `<button data-action="new-run" data-testid="run-reset">Новый поход</button>`;
     return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>`
-      + `<span class="rt-run-items" data-testid="run-items">${items}</span>${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
+      + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
+      + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '');
   }
@@ -262,7 +275,8 @@ export class RunView {
       const view = rtGiftView(run)!;
       if (view.chosen !== null) {
         // The taken button has a choice of its own: a consumable of three.
-        const picks = view.picks.map(pick => `<button class="rt-run-choice" data-action="gift-pick" data-pick="${pick}" data-testid="gift-pick-${pick}"><b>${escapeHtml(ITEM_TITLES[pick as ItemKind] ?? pick)}</b></button>`).join('');
+        const picks = view.picks.map(pick => `<button class="rt-run-choice" data-action="gift-pick" data-pick="${pick}" data-testid="gift-pick-${pick}"><b>${escapeHtml(ITEM_TITLES[pick as ItemKind] ?? talismanName(pick))}</b>`
+          + `${rtTalisman(pick) ? `<small>${escapeHtml(rtTalisman(pick)!.effect)}</small>` : ''}</button>`).join('');
         return card(`<h2>Дар в дорогу</h2><p>${escapeHtml(giftText(view.options[view.chosen].option))}: выбери один.</p><div class="rt-run-choices">${picks}</div>`, 'run-gift');
       }
       const buttons = view.options.map(entry => `<button class="rt-run-choice" data-action="gift" data-index="${entry.index}" data-testid="gift-${entry.index}" ${entry.available ? '' : 'disabled'}>`
@@ -278,6 +292,14 @@ export class RunView {
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal" ${view.heal.available ? '' : 'disabled'}><b>Лечение +${view.heal.amount} HP</b>`
         + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>${recipes}</div>`
         + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
+    }
+    if (pending.kind === 'talisman') {
+      const title = pending.source === 'oath' ? 'Клятва' : 'Талисман';
+      const options = pending.options.map(option => option === 'blank'
+        ? `<button class="rt-run-choice" data-action="talisman" data-option="blank" data-testid="talisman-blank"><b>Пустышка</b><small>талисманов не осталось; очков похода в срезе нет — ничего не даёт</small></button>`
+        : `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${escapeHtml(talismanName(option))}</b><small>${escapeHtml(rtTalisman(option)?.effect ?? '')}</small></button>`).join('');
+      return card(`<h2>${title} на выбор</h2><p>Не взятые уходят из пула до конца похода.</p><div class="rt-run-choices">${options}</div>`
+        + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, 'run-talisman');
     }
     if (pending.kind === 'find') {
       const options = pending.options.map(item => `<button class="rt-run-choice" data-action="find" data-item="${item}" data-testid="find-${item}"><b>${escapeHtml(ITEM_TITLES[item])}</b>`

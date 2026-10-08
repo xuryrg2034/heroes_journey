@@ -213,7 +213,10 @@ async function boot(): Promise<void> {
 
   const motion = new Motion();
   /** The sandbox's loadout (stage 2, step 3): the panel's number of each consumable; a run passes its own. */
-  const sandboxLoadout = (): Loadout => ({ items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])) });
+  const sandboxLoadout = (): Loadout => ({
+    items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])),
+    ...params.sandboxTalismans ? { talismans: [params.sandboxTalismans], ward: true } : {},
+  });
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout: Loadout = sandboxLoadout()): Simulation => {
     motion.clear();
     return new Simulation({ arena, params, seed, record: true, beforeTick: world => motion.save(world), ...hero ? { hero } : {}, loadout });
@@ -317,7 +320,7 @@ async function boot(): Promise<void> {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
     runArenaRecorded = true;
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials } } : {} });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {

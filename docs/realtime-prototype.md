@@ -751,7 +751,7 @@
 
 ## 12. Ядро реального времени (этап 1 перехода, 08.10.2026)
 
-Этап 1 [плана перехода](realtime-transition.md) (раздел 5). Код прототипа разделён на симуляцию и вид. Симуляция идёт фиксированным тактом, повторяется по seed и журналу команд, а враги и арены стали данными. Правила и числа прототипа (версия f27cd4b) не менялись, кроме решения 3 пользователя: **якорь у героя по умолчанию выключен**. Переключатель панели «Якорь у героя» остаётся до талисмана (этап 2), ключ настроек — `ashen-oath-realtime-params-v16`. Пошаговая игра (`src/game`, `src/render`, `src/main.ts`, `index.html`) и её тесты не менялись.
+Этап 1 [плана перехода](realtime-transition.md) (раздел 5). Код прототипа разделён на симуляцию и вид. Симуляция идёт фиксированным тактом, повторяется по seed и журналу команд, а враги и арены стали данными. Правила и числа прототипа (версия f27cd4b) не менялись, кроме решения 3 пользователя: **якорь у героя по умолчанию выключен**. Переключатель панели «Якорь у героя» остаётся для песочницы; с шага 3 этапа 2 якорь — талисман похода ([realtime-slice.md](realtime-slice.md), «Шаг 3»), ключ настроек — `ashen-oath-realtime-params-v16`. Пошаговая игра (`src/game`, `src/render`, `src/main.ts`, `index.html`) и её тесты не менялись.
 
 ### Модули
 
@@ -887,6 +887,7 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 | `Enemy.burn`, `updateBurning` | `items.ts`, `world.ts` (`update` после взрывов) | Горение: тики по игровому времени, урон через `damageEnemy` с зачётом игроку |
 | `useItem`, `itemRefusal`, `itemTargets` | `items.ts` | Расходники 1–4: цель, отказ с причиной, применение |
 | `spin`, `canSpin` | `abilities.ts` | Круговой удар Q |
+| `Loadout.talismans`, `Kit.firstPower`, `Kit.ward`, `heroAnchorOn`, `crystalEveryOf`, `jumpCostOf`, `chainStartPower`, `phaseDelayOf`, `pressureAt(…, delay)` | `kit.ts`, `chain.ts`, `world.ts`, `params.ts` | Талисманы в арене: якорь у героя, сила первой цепи, кристалл за 5, прыжок за 1, фазы позже на 10 с, оберег в `hurtHero` |
 | `Enemy.elite`, `makeElite`, `enemyArtRadius`, `eliteDeath`, `rollRandomElite`, `ArenaObject` вида `loot`, `pickLoot`, `touchLoot`, `passObject` | `elites.ts`, `world.ts` (`touchDamage`, `killEnemy`, `update`), `chain.ts` (`hitEnemy`, `stepMove`), `spawn.ts` | Элиты: модификатор поверх вида, добыча при убийстве игроком, подбор цепью (звено как кристалл без смены цвета) и касанием, случайные элиты при выходе из метки |
 
 ### Шаблоны арен (`sim/arenas.ts`)

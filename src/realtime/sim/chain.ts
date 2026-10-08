@@ -23,6 +23,7 @@
  */
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { eliteDeath, pickLoot } from './elites';
+import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type World } from './world';
@@ -87,9 +88,15 @@ export function linkPoint(world: World, link: ChainLink): Vec | null {
   return o ? { x: o.x, y: o.y } : null;
 }
 
+/**
+ * Power a released chain starts with: 0, or «Точильный камень» (stage 2, step 3) — 1 for the first chain of the arena that
+ * has an enemy link. The highlight and the dash start from it.
+ */
+export function chainStartPower(world: World): number { return world.kit?.firstPower ?? 0; }
+
 /** Highlight of the drawn chain: who dies, who is wounded. Same `strike` as the dash. */
 export function planChain(world: World, links: readonly ChainLink[] = world.chain): ChainPlan {
-  let power = 0, kills = 0, endsOnSurvivor = false;
+  let power = chainStartPower(world), kills = 0, endsOnSurvivor = false;
   const out: LinkPlan[] = [];
   for (const link of links) {
     const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
@@ -159,7 +166,16 @@ export function chainAnchors(world: World): Vec[] {
   const hero = { x: world.hero.x, y: world.hero.y };
   if (!world.chain.length) return [hero];
   const last = chainAnchor(world);
-  return world.params.heroAnchor ? [last, hero] : [last];
+  return heroAnchorOn(world) ? [last, hero] : [last];
+}
+
+/** The hero is a second anchor: the panel toggle (the sandbox) or the talisman «Якорь у героя» (stage 2, step 3). */
+export function heroAnchorOn(world: World): boolean { return world.params.heroAnchor || hasTalisman(world, 'hero-anchor'); }
+
+/** A crystal for every N kills of one chain: the panel's N, one fewer with «Осколок жернова» (stage 2, step 3), at least 2. */
+export function crystalEveryOf(world: World): number {
+  const every = world.params.crystalEvery;
+  return hasTalisman(world, 'millstone-shard') ? Math.max(2, every - MILLSTONE_STEP) : every;
 }
 
 export function inChain(world: World, enemy: Enemy): number {
@@ -385,6 +401,8 @@ export function releaseChain(world: World): boolean {
   world.chain = [];
   if (!links.length || world.status !== 'playing' || world.move) return false;
   world.move = { ...newMove('dash', { x: world.hero.x, y: world.hero.y }, null, world.params.dashSpeed), links };
+  // Stage 2, step 3 («Точильный камень»): the first chain with an enemy starts with its power; it is spent by that chain.
+  if (world.kit?.firstPower && links.some(l => l.kind === 'enemy')) { world.move.power = world.kit.firstPower; world.kit.firstPower = 0; }
   return true;
 }
 
@@ -400,8 +418,10 @@ export function jumpLanding(world: World, p: Vec): Vec | null {
   return blockedAt(land, heroRadius(world.params), world.arena) ? null : land;
 }
 
-/** Energy the jump costs now (the panel's `jumpCost`). */
-export function jumpCostOf(world: World): number { return world.params.jumpCost; }
+/** Energy the jump costs now: the panel's `jumpCost`, one less with «Ловкие лапы» (stage 2, step 3). */
+export function jumpCostOf(world: World): number {
+  return hasTalisman(world, 'nimble-paws') ? Math.max(0, world.params.jumpCost - NIMBLE_PAWS_DISCOUNT) : world.params.jumpCost;
+}
 
 export function canJump(world: World): boolean {
   return world.status === 'playing' && !world.move && world.chain.length === 0 && world.energy >= jumpCostOf(world);
@@ -521,7 +541,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     if (p.focusKillRefill) world.focus = Math.min(p.focusMax, world.focus + p.focusPerKill);
     checkGoals(world);
     // A crystal at every N-th kill of this chain (main game: 6th, 12th…), off the rest of its path.
-    if (p.crystals && p.crystalEvery > 0 && move.kills % p.crystalEvery === 0) dropCrystal(world, { x: enemy.x, y: enemy.y });
+    if (p.crystals && crystalEveryOf(world) > 0 && move.kills % crystalEveryOf(world) === 0) dropCrystal(world, { x: enemy.x, y: enemy.y });
     world.hitstop = Math.max(world.hitstop, hitstopFor(world, move.kills));
     maybeFinisher(world);
     return;
@@ -549,7 +569,7 @@ function passFallen(world: World, fallen: FallenLink): void {
   move.stop = { x: fallen.x, y: fallen.y };
   if (!fallen.credited) return;
   move.kills++;
-  if (p.crystals && p.crystalEvery > 0 && move.kills % p.crystalEvery === 0) dropCrystal(world, { x: fallen.x, y: fallen.y });
+  if (p.crystals && crystalEveryOf(world) > 0 && move.kills % crystalEveryOf(world) === 0) dropCrystal(world, { x: fallen.x, y: fallen.y });
   maybeFinisher(world);
 }
 
