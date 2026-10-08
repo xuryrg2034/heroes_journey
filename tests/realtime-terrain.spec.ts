@@ -185,8 +185,9 @@ test('«Жаровни»: a chain from a brazier through an enemy — the brazie
   await page.mouse.up();
   // The enemy with 2 HP dies to the chain after the brazier (+2): the brazier is out and drawn grey.
   await expect.poll(async () => (await snap(page)).signals.braziersOut, { timeout: 5_000 }).toBe(1);
+  // The pass reaches the brazier before the enemy: the brazier may be out a frame before the enemy dies.
+  await expect.poll(async () => (await snap(page)).enemies.length, { timeout: 5_000 }).toBe(0);
   const s = await snap(page);
-  expect(s.enemies.length).toBe(0);
   expect(s.objects.find(o => o.kind === 'brazier' && o.x === 5)?.out).toBeGreaterThan(0);
   await expect.poll(async () => (await snap(page)).signals.braziersLit, { timeout: 10_000 }).toBe(3);
   expect(errors).toEqual([]);
