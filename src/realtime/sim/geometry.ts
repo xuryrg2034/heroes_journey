@@ -11,17 +11,216 @@ export interface RectObstacle { shape: 'rect'; kind: 'wall'; x: number; y: numbe
 export interface CircleObstacle { shape: 'circle'; kind: 'tree' | 'pond'; x: number; y: number; r: number }
 export type Obstacle = RectObstacle | CircleObstacle;
 
-/** What the geometry needs of an arena: its size and obstacles (the arena template, arenas.ts, adds the rest). */
+/**
+ * Stage 3a, step 1 (docs/realtime-stage3.md, section 2): terrain zones of an arena — not obstacles, they block no sight.
+ * - `river` (М1) — water as the pond, of any shape: walking ×`waterSlow` (hero and enemies); the dash, the jump, the
+ *   boar's charge and arrows cross it as they are.
+ * - `cliff` (М2) — no walking for the hero and the enemies (the flow field, the walk, the charge and the hero's push-out
+ *   keep off it); the dash and the jump fly over it, but never end over it; sight and arrows cross it; an enemy whose
+ *   center is pushed over it (`separate`, a knockback, a blast) falls and dies (world.ts, `dropIntoCliffs`).
+ * - `thorns` (М3) — the hero on foot in it is pricked (`thornDamage` at the entry, then every `thornInterval` s);
+ *   enemies walk it at ×`thornSlow`, unhurt; the dash and the jump are not pricked.
+ * The center of a body decides «in a zone» (as the pond). Arenas without zones (`terrain` absent) behave as before.
+ */
+export type TerrainKind = 'river' | 'cliff' | 'thorns';
+/** A zone outline: a polygon (any simple one), a band along a polyline (`width` — full width: a river), a rectangle or a circle. */
+export type Area =
+  | { shape: 'poly'; points: Vec[] }
+  | { shape: 'band'; points: Vec[]; width: number }
+  | { shape: 'rect'; x: number; y: number; w: number; h: number }
+  | { shape: 'circle'; x: number; y: number; r: number };
+export type TerrainZone = Area & { kind: TerrainKind };
+
+/** What the geometry needs of an arena: its size, obstacles and terrain zones (the arena template, arenas.ts, adds the rest). */
 export interface ArenaShape {
   width: number;
   height: number;
   obstacles: Obstacle[];
+  /** Stage 3a: terrain zones (river, cliff, thorns); absent — none. */
+  terrain?: TerrainZone[];
 }
 
 /** Obstacle builders for arena templates. A tree trunk is 0.42 units. */
 export const wall = (x: number, y: number, w: number, h: number): RectObstacle => ({ shape: 'rect', kind: 'wall', x, y, w, h });
 export const tree = (x: number, y: number): CircleObstacle => ({ shape: 'circle', kind: 'tree', x, y, r: 0.42 });
 export const pond = (x: number, y: number, r: number): CircleObstacle => ({ shape: 'circle', kind: 'pond', x, y, r });
+/** Terrain builders (stage 3a): a river band along a polyline of full `width`, or any zone of a given outline. */
+export const riverBand = (points: Vec[], width: number): TerrainZone => ({ kind: 'river', shape: 'band', points, width });
+export const zone = (kind: TerrainKind, area: Area): TerrainZone => ({ ...area, kind });
+export const polygon = (...xy: number[]): Area => {
+  const points: Vec[] = [];
+  for (let i = 0; i + 1 < xy.length; i += 2) points.push({ x: xy[i], y: xy[i + 1] });
+  return { shape: 'poly', points };
+};
+
+/** Nearest point of the segment a–b to p. */
+function closestOnSegment(a: Vec, b: Vec, p: Vec): Vec {
+  const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
+  return { x: a.x + vx * t, y: a.y + vy * t };
+}
+
+/** Nearest point of a polyline (a band's spine, a polygon's closed outline) to p. */
+function closestOnPolyline(points: readonly Vec[], p: Vec, closed: boolean): Vec {
+  let best = points[0], bestD = Infinity;
+  const n = points.length, edges = closed ? n : n - 1;
+  for (let i = 0; i < edges; i++) {
+    const q = closestOnSegment(points[i], points[(i + 1) % n], p), d = Math.hypot(q.x - p.x, q.y - p.y);
+    if (d < bestD) { bestD = d; best = q; }
+  }
+  return best;
+}
+
+/** True when p is inside the polygon (even–odd rule). */
+function insidePolygon(points: readonly Vec[], p: Vec): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i], b = points[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Bounding box of an area (cached per area object: arena templates do not change). */
+const boxes = new WeakMap<Area, { x0: number; y0: number; x1: number; y1: number }>();
+function boxOf(area: Area): { x0: number; y0: number; x1: number; y1: number } {
+  let box = boxes.get(area);
+  if (box) return box;
+  if (area.shape === 'circle') box = { x0: area.x - area.r, y0: area.y - area.r, x1: area.x + area.r, y1: area.y + area.r };
+  else if (area.shape === 'rect') box = { x0: area.x, y0: area.y, x1: area.x + area.w, y1: area.y + area.h };
+  else {
+    const pad = area.shape === 'band' ? area.width / 2 : 0;
+    box = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    for (const q of area.points) { box.x0 = Math.min(box.x0, q.x - pad); box.y0 = Math.min(box.y0, q.y - pad); box.x1 = Math.max(box.x1, q.x + pad); box.y1 = Math.max(box.y1, q.y + pad); }
+  }
+  boxes.set(area, box);
+  return box;
+}
+/** The point is farther than `margin` outside the area's bounding box (a cheap «surely outside»). */
+function farFrom(area: Area, p: Vec, margin: number): boolean {
+  const b = boxOf(area);
+  return p.x < b.x0 - margin || p.x > b.x1 + margin || p.y < b.y0 - margin || p.y > b.y1 + margin;
+}
+
+/** True when p is inside the area (on the outline counts as outside). */
+export function areaContains(area: Area, p: Vec): boolean {
+  if (farFrom(area, p, 0)) return false;
+  switch (area.shape) {
+    case 'circle': return Math.hypot(p.x - area.x, p.y - area.y) < area.r;
+    case 'rect': return p.x > area.x && p.x < area.x + area.w && p.y > area.y && p.y < area.y + area.h;
+    case 'poly': return insidePolygon(area.points, p);
+    case 'band': { const q = closestOnPolyline(area.points, p, false); return Math.hypot(q.x - p.x, q.y - p.y) < area.width / 2; }
+  }
+}
+
+/**
+ * Signed distance from p to the area's outline (negative inside) and the unit direction out of the area at p (away from
+ * the nearest outline point when outside; towards it when inside). The direction falls back to «away from the area's
+ * middle» when p lies exactly on the outline.
+ */
+export function areaDistance(area: Area, p: Vec): { d: number; nx: number; ny: number } {
+  let qx: number, qy: number, inside: boolean;
+  if (area.shape === 'circle') {
+    const dx = p.x - area.x, dy = p.y - area.y, d = Math.hypot(dx, dy);
+    if (d < 1e-9) return { d: -area.r, nx: 1, ny: 0 };
+    return { d: d - area.r, nx: dx / d, ny: dy / d };
+  }
+  if (area.shape === 'band') {
+    const q = closestOnPolyline(area.points, p, false), dx = p.x - q.x, dy = p.y - q.y, d = Math.hypot(dx, dy), half = area.width / 2;
+    if (d > 1e-9) return { d: d - half, nx: dx / d, ny: dy / d };
+    // On the spine: out across the nearest segment.
+    const a = area.points[0], b = area.points[Math.min(1, area.points.length - 1)], sx = b.x - a.x, sy = b.y - a.y, sl = Math.hypot(sx, sy) || 1;
+    return { d: -half, nx: -sy / sl, ny: sx / sl };
+  }
+  if (area.shape === 'rect') {
+    inside = areaContains(area, p);
+    if (inside) {
+      const left = p.x - area.x, right = area.x + area.w - p.x, top = p.y - area.y, bottom = area.y + area.h - p.y, m = Math.min(left, right, top, bottom);
+      if (m === left) return { d: -left, nx: -1, ny: 0 };
+      if (m === right) return { d: -right, nx: 1, ny: 0 };
+      if (m === top) return { d: -top, nx: 0, ny: -1 };
+      return { d: -bottom, nx: 0, ny: 1 };
+    }
+    qx = Math.max(area.x, Math.min(p.x, area.x + area.w)); qy = Math.max(area.y, Math.min(p.y, area.y + area.h));
+  } else {
+    inside = insidePolygon(area.points, p);
+    const q = closestOnPolyline(area.points, p, true);
+    qx = q.x; qy = q.y;
+  }
+  const dx = qx - p.x, dy = qy - p.y, d = Math.hypot(dx, dy);
+  if (d > 1e-9) return inside ? { d: -d, nx: dx / d, ny: dy / d } : { d, nx: -dx / d, ny: -dy / d };
+  const mid = areaMiddle(area), mx = p.x - mid.x, my = p.y - mid.y, ml = Math.hypot(mx, my) || 1;
+  return { d: 0, nx: mx / ml, ny: my / ml };
+}
+
+function areaMiddle(area: Area): Vec {
+  if (area.shape === 'circle') return { x: area.x, y: area.y };
+  if (area.shape === 'rect') return { x: area.x + area.w / 2, y: area.y + area.h / 2 };
+  const n = area.points.length;
+  return { x: area.points.reduce((s, q) => s + q.x, 0) / n, y: area.points.reduce((s, q) => s + q.y, 0) / n };
+}
+
+/** Distance between the segments a–b and c–d (0 when they cross). */
+function segmentSegmentDistance(a: Vec, b: Vec, c: Vec, d: Vec): number {
+  const cross = (o: Vec, p: Vec, q: Vec): number => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+  const pd = (p: Vec, s: Vec, t: Vec): number => { const q = closestOnSegment(s, t, p); return Math.hypot(q.x - p.x, q.y - p.y); };
+  return Math.min(pd(a, c, d), pd(b, c, d), pd(c, a, b), pd(d, a, b));
+}
+
+/** True when the segment a–b comes within `r` of the area (or runs inside it). */
+export function segmentTouchesArea(a: Vec, b: Vec, area: Area, r: number): boolean {
+  const box = boxOf(area), m = Math.max(0, r);
+  if (Math.max(a.x, b.x) < box.x0 - m || Math.min(a.x, b.x) > box.x1 + m || Math.max(a.y, b.y) < box.y0 - m || Math.min(a.y, b.y) > box.y1 + m) return false;
+  if (areaDistance(area, a).d < r || areaDistance(area, b).d < r) return true;
+  switch (area.shape) {
+    case 'circle': return segmentPointDistance(a, b, area) < area.r + r;
+    case 'rect': return segmentHitsRect(a, b, area.x - r, area.y - r, area.x + area.w + r, area.y + area.h + r);
+    case 'band': {
+      for (let i = 0; i + 1 < area.points.length; i++) if (segmentSegmentDistance(a, b, area.points[i], area.points[i + 1]) < area.width / 2 + r) return true;
+      return false;
+    }
+    case 'poly': {
+      const pts = area.points;
+      for (let i = 0; i < pts.length; i++) {
+        const gap = segmentSegmentDistance(a, b, pts[i], pts[(i + 1) % pts.length]);
+        if (gap < r || gap === 0) return true;
+      }
+      return false;
+    }
+  }
+}
+
+/** True when p is in a zone of `kind`. */
+export function inZone(p: Vec, arena: ArenaShape, kind: TerrainKind): boolean {
+  if (!arena.terrain) return false;
+  for (const z of arena.terrain) if (z.kind === kind && areaContains(z, p)) return true;
+  return false;
+}
+/** The arena has a zone of `kind`. */
+export const hasZone = (arena: ArenaShape, kind: TerrainKind): boolean => !!arena.terrain?.some(z => z.kind === kind);
+/** M2: the center is over a cliff (an enemy there falls; the hero and the walk never get there). */
+export const overCliff = (p: Vec, arena: ArenaShape): boolean => inZone(p, arena, 'cliff');
+/** M3: the center is in thorns. */
+export const inThorns = (p: Vec, arena: ArenaShape): boolean => inZone(p, arena, 'thorns');
+
+/** M2: moves a walking circle off every cliff (the edge is a wall for walking); arenas without cliffs — nothing. */
+export function pushOutOfCliffs(p: Vec, r: number, arena: ArenaShape): void {
+  if (!arena.terrain) return;
+  for (const z of arena.terrain) {
+    if (z.kind !== 'cliff' || farFrom(z, p, r)) continue;
+    const { d, nx, ny } = areaDistance(z, p);
+    if (d < r) { p.x += nx * (r - d); p.y += ny * (r - d); }
+  }
+}
+
+/** M2: a circle of radius r at p overlaps a cliff. */
+export function cliffAt(p: Vec, r: number, arena: ArenaShape): boolean {
+  if (!arena.terrain) return false;
+  for (const z of arena.terrain) if (z.kind === 'cliff' && !farFrom(z, p, r) && areaDistance(z, p).d < r) return true;
+  return false;
+}
 
 /**
  * Clock for the rebuild time shown on the debug panel and in the pockets report. The simulation reads no clock: the view
@@ -39,14 +238,17 @@ export function dist(a: Vec, b: Vec): number { return Math.hypot(a.x - b.x, a.y 
  */
 export function isSolid(o: Obstacle): boolean { return o.kind !== 'pond'; }
 
-/** True when the point is in a pond (the center of a body decides). */
+/** True when the point is in a pond or a river (stage 3a, М1) — the center of a body decides. */
 export function inWater(p: Vec, arena: ArenaShape): boolean {
   for (const o of arena.obstacles) if (o.kind === 'pond' && Math.hypot(p.x - o.x, p.y - o.y) < o.r) return true;
-  return false;
+  return arena.terrain ? inZone(p, arena, 'river') : false;
 }
 
-/** Moves a circle out of every solid obstacle and keeps it inside the arena bounds. */
-export function pushOutOfObstacles(p: Vec, r: number, arena: ArenaShape): void {
+/**
+ * Moves a circle out of every solid obstacle — and, for a walker (`cliffs`, the default; stage 3a, М2), off every cliff —
+ * and keeps it inside the arena bounds. `cliffs` false: the crowd's pushing (`separate`), which may shove a body over the edge.
+ */
+export function pushOutOfObstacles(p: Vec, r: number, arena: ArenaShape, cliffs = true): void {
   for (const o of arena.obstacles) {
     if (!isSolid(o)) continue;
     if (o.shape === 'circle') {
@@ -66,12 +268,17 @@ export function pushOutOfObstacles(p: Vec, r: number, arena: ArenaShape): void {
       if (m === left) p.x = o.x - r; else if (m === right) p.x = o.x + o.w + r; else if (m === top) p.y = o.y - r; else p.y = o.y + o.h + r;
     }
   }
+  if (cliffs && arena.terrain) pushOutOfCliffs(p, r, arena);
   p.x = Math.max(r, Math.min(arena.width - r, p.x));
   p.y = Math.max(r, Math.min(arena.height - r, p.y));
 }
 
-/** True when a circle of radius r at p overlaps a solid obstacle or the arena edge (water is passable). */
-export function blockedAt(p: Vec, r: number, arena: ArenaShape): boolean {
+/**
+ * True when a circle of radius r at p overlaps a solid obstacle or the arena edge (water is passable) — or a cliff, unless
+ * `cliffs` is false (stage 3a, М2: a cliff stops walking, the charge, a landing, a spawn and a drop, not an arrow).
+ */
+export function blockedAt(p: Vec, r: number, arena: ArenaShape, cliffs = true): boolean {
+  if (cliffs && arena.terrain && cliffAt(p, r, arena)) return true;
   if (p.x < r || p.y < r || p.x > arena.width - r || p.y > arena.height - r) return true;
   for (const o of arena.obstacles) {
     if (!isSolid(o)) continue;
@@ -116,11 +323,17 @@ export function lineOfSight(a: Vec, b: Vec, arena: ArenaShape, r = 0, waterBlock
     if (o.shape === 'circle') { if (segmentPointDistance(a, b, o) < o.r + r) return false; }
     else if (segmentHitsRect(a, b, o.x - r, o.y - r, o.x + o.w + r, o.y + o.h + r)) return false;
   }
+  // Stage 3a: terrain zones never cut sight (a cliff, a river, thorns — design 08.10.2026, step 1); the walk's straight
+  // shortcut (`waterBlocks`) leaves every zone to the flow field: a cliff cannot be walked, water and thorns cost more.
+  if (waterBlocks && arena.terrain) for (const z of arena.terrain) if (segmentTouchesArea(a, b, z, r)) return false;
   return true;
 }
 
-/** Water cost of the flow field: `null` — the pond is impassable (stage A); a number — cost multiplier of a water cell (stage B: 1 ÷ water speed). */
-export interface FlowOptions { waterCost: number | null }
+/**
+ * Water cost of the flow field: `null` — the pond is impassable (stage A); a number — cost multiplier of a water cell (stage B:
+ * 1 ÷ water speed; a river cell too, stage 3a). `thornCost` (stage 3a, М3) — of a thorn cell (1 ÷ the enemies' speed there).
+ */
+export interface FlowOptions { waterCost: number | null; thornCost?: number }
 
 /**
  * Flow field to the hero (iteration 2, stages A–B; docs/realtime-prototype.md, section 9г):
@@ -175,6 +388,13 @@ export class FlowField {
           const cx = Math.max(o.x, Math.min(c.x, o.x + o.w)), cy = Math.max(o.y, Math.min(c.y, o.y + o.h));
           if (Math.hypot(c.x - cx, c.y - cy) < clearance) this.blocked[i] = 1;
         }
+      }
+      // Stage 3a: a cliff blocks as a wall (with the body clearance); a river costs as the pond; thorns cost `thornCost`.
+      if (arena.terrain) for (const z of arena.terrain) {
+        if (z.kind === 'cliff') { if (areaDistance(z, c).d < clearance) this.blocked[i] = 1; continue; }
+        if (!areaContains(z, c)) continue;
+        if (z.kind === 'river') { if (options.waterCost !== null) this.cost[i] = Math.max(this.cost[i], options.waterCost); else this.blocked[i] = 1; }
+        else this.cost[i] = Math.max(this.cost[i], options.thornCost ?? 1);
       }
     }
   }

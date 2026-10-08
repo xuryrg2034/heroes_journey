@@ -27,7 +27,7 @@ const ARENAS = [
   { key: '0', n: 10, id: 'last-stand', name: 'Последний рубеж', goal: 'убито 0 / 40', elites: 2, marked: 0, note: /Последний рубеж.*своя таблица фаз/ },
 ];
 
-test('arenas 8–10: the sandbox menu lists ten arenas; keys 8, 9 and 0 open «Брод», «Застава» and «Последний рубеж» without errors', async ({ page }) => {
+test('arenas 8–10: the sandbox menu lists ten arenas on the digit keys; keys 8, 9 and 0 open «Брод», «Застава» and «Последний рубеж» without errors', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await page.goto('/realtime.html?sandbox=1');
@@ -36,7 +36,8 @@ test('arenas 8–10: the sandbox menu lists ten arenas; keys 8, 9 and 0 open «�
   await expect(page.locator('#rt-app canvas')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect(page.getByTestId('menu')).toBeVisible();
-  await expect(page.locator('[data-testid^="arena-"]')).toHaveCount(10);
+  // Ten arenas on the digit keys; since stage 3a five terrain samples follow on ⇧1–⇧5 (tests/realtime-terrain.spec.ts).
+  await expect(page.locator('[data-testid^="arena-"]')).toHaveCount(15);
   for (const arena of ARENAS) {
     await expect(page.getByTestId(`arena-${arena.n}`)).toContainText(arena.name);
     await expect(page.getByTestId(`arena-${arena.n}`).locator('kbd')).toHaveText(arena.key);

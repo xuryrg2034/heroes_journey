@@ -11,7 +11,7 @@
  */
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius } from '../params';
-import { canBeHurt, damageEnemy, enemySpeed, hurtHero, waterFactor, type Enemy, type World } from '../world';
+import { canBeHurt, damageEnemy, enemyGroundFactor, enemySpeed, hurtHero, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
 /** Step of the march that finds where a wall or a tree cuts the line (units). */
@@ -40,7 +40,7 @@ export function archerLine(world: World, e: Enemy): { from: Vec; to: Vec; half: 
 
 /** Length of the line from `e` along (dx, dy) up to `range`: the first wall or tree on the way cuts it (water does not). */
 function lineLength(world: World, e: Enemy, dx: number, dy: number, range: number): number {
-  for (let t = LINE_STEP; t < range; t += LINE_STEP) if (blockedAt({ x: e.x + dx * t, y: e.y + dy * t }, 0.02, world.arena)) return t;
+  for (let t = LINE_STEP; t < range; t += LINE_STEP) if (blockedAt({ x: e.x + dx * t, y: e.y + dy * t }, 0.02, world.arena, false)) return t;
   return range;
 }
 
@@ -81,7 +81,7 @@ function stepArcher(world: World, e: Enemy, dt: number): boolean {
   }
   if (d < p.archerNear && d > 1e-6) {
     // Backs away straight from the hero at its walking speed; walls and trees push it aside (it slides along them).
-    const step = enemySpeed(world, e) * waterFactor(world, e) * dt;
+    const step = enemySpeed(world, e) * enemyGroundFactor(world, e) * dt;
     e.x -= (hero.x - e.x) / d * step; e.y -= (hero.y - e.y) / d * step;
     pushOutOfObstacles(e, bodyRadiusOf(p, e), arena);
     return true;

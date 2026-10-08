@@ -98,6 +98,19 @@ export interface Params {
   flowDensityCost: number;
   /** Stage B: walking speed multiplier in the pond (hero and enemies walking; not the charge, dash or jump — design answer 41). */
   waterSlow: number;
+  // Terrain of stage 3a (docs/realtime-stage3.md, section 2; the river uses `waterSlow`, the cliff has no numbers)
+  /** М3: damage of a thorn prick to the hero on foot. */
+  thornDamage: number;
+  /** М3: game seconds between pricks while the hero stays in thorns (the walk-in pricks at once). */
+  thornInterval: number;
+  /** М3: walking speed multiplier of enemies in thorns. */
+  thornSlow: number;
+  /** М4: power the rest of the chain gets after a brazier. */
+  brazierPower: number;
+  /** М4: game seconds a brazier stays out after a dash took it. */
+  brazierCooldown: number;
+  /** М2 (sandbox): units a blast throws the enemies it struck and did not kill (0 — off; a blast pushed nothing before stage 3a). */
+  blastPush: number;
   // Crystals (stage C): a colour-change crystal for every N kills of one chain, as in the main game
   crystals: boolean;
   crystalEvery: number;
@@ -372,6 +385,13 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   flowDensity: false,
   flowDensityCost: 2,
   waterSlow: 0.5,
+  // Баланс: stage 3a, section 2 — thorns 1 HP every 1 s, enemies ×0.7; brazier +2, out for 6 s.
+  thornDamage: 1,
+  thornInterval: 1,
+  thornSlow: 0.7,
+  brazierPower: 2,
+  brazierCooldown: 6,
+  blastPush: 0,
   crystals: true,
   crystalEvery: 6,
   crystalLife: 0,
@@ -562,7 +582,13 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'flowDensity', group: 'Враги', label: 'Штраф за плотность (поле потока)', stage: 4,
     hint: 'Клетка с врагами дороже: толпа растекается по обходным путям, а не стоит очередью в узком месте. Поле пересчитывается и когда герой стоит.' },
   n('flowDensityCost', 'Враги', 'Штраф за врага в клетке', 0, 5, 0.1, 4, '', 'Добавка к стоимости клетки поля за каждого врага в ней (клетка травы стоит 1).'),
-  n('waterSlow', 'Местность', 'Скорость в воде', 0.1, 1, 0.05, 4, '×', 'Пруд проходим: ходьба героя и врагов в воде медленнее (рывок кабана, проход цепи и прыжок — нет). Поле потока считает клетку воды дороже во столько же раз.'),
+  n('waterSlow', 'Местность', 'Скорость в воде', 0.1, 1, 0.05, 4, '×', 'Пруд и река проходимы: ходьба героя и врагов в воде медленнее (рывок кабана, проход цепи и прыжок — нет). Поле потока считает клетку воды дороже во столько же раз.'),
+  n('thornDamage', 'Местность', 'Терновник: урон герою', 0, 5, 1, 5, 'HP', 'Герой на ногах в терновнике: укол при входе и далее раз в интервал. Проход цепи и прыжок не колются; неуязвимость пропускает укол.'),
+  n('thornInterval', 'Местность', 'Терновник: интервал уколов', 0.2, 3, 0.1, 5, 'с'),
+  n('thornSlow', 'Местность', 'Терновник: скорость врагов', 0.1, 1, 0.05, 5, '×', 'Враги идут сквозь терновник медленнее, без урона. Поле потока считает клетку терновника дороже во столько же раз.'),
+  n('brazierPower', 'Местность', 'Жаровня: сила остатку цепи', 0, 6, 1, 5, '', 'Жаровня — звено любого цвета, цвет цепи не меняет; звенья после неё получают столько силы.'),
+  n('brazierCooldown', 'Местность', 'Жаровня: гаснет на', 0, 20, 0.5, 5, 'с'),
+  n('blastPush', 'Местность', 'Взрыв отбрасывает', 0, 3, 0.1, 5, 'ед.', 'Песочница: выживших во взрыве отбрасывает от центра; отброшенный в обрыв гибнет (зачёт — как у взрыва). 0 — взрыв не отбрасывает (как до этапа 3а).'),
   { kind: 'bool', key: 'crystals', group: 'Кристаллы', label: 'Кристаллы смены цвета', stage: 4,
     hint: 'На каждом N-м убийстве одной цепью падает кристалл в случайной точке вне оставшегося пути цепи. Кристалл — звено любого цвета: меняет цвет цепи, силы не даёт, убийством не считается.' },
   n('crystalEvery', 'Кристаллы', 'Кристалл за каждые … убийств цепи', 2, 20, 1, 4),

@@ -12,7 +12,7 @@ import { type ArenaTemplate, markedCount } from './arenas';
 import './enemies/index';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, kindOf } from './enemies/kinds';
-import { FlowField, type Vec, dist, inWater, lineOfSight, pushOutOfObstacles } from './geometry';
+import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { eliteDeath, makeElite, touchLoot } from './elites';
@@ -98,8 +98,12 @@ export function enemyFrozen(e: Enemy): boolean { return (e.chill ?? 0) > 0; }
  */
 export interface ArenaObject {
   id: number;
-  /** Stage 2, step 3: `loot` — what an elite dropped (a consumable or a crafting resource), picked up by a chain or a touch. */
-  kind: 'button' | 'door' | 'crystal' | 'loot';
+  /**
+   * Stage 2, step 3: `loot` — what an elite dropped (a consumable or a crafting resource), picked up by a chain or a touch.
+   * Stage 3a (М4): `brazier` — a link of any colour anywhere in the chain (no colour change); the rest of the chain gets
+   * +`brazierPower`; the dash puts it out for `brazierCooldown` game seconds (`out`).
+   */
+  kind: 'button' | 'door' | 'crystal' | 'loot' | 'brazier';
   x: number;
   y: number;
   /** Button: pressed once and for all. */
@@ -110,6 +114,8 @@ export interface ArenaObject {
   born?: number;
   /** Loot (stage 2, step 3): a consumable (`frost`, `bomb`, `healing`, `fire`) or a crafting resource (`dew`, `powder`, `resin`, `herbs`). */
   loot?: ItemKind | ResourceKind;
+  /** Brazier (stage 3a, М4): game seconds left until it burns again; absent — it burns (a chain may take it). */
+  out?: number;
 }
 
 /** Radius of a button, the door or a crystal (units): the drawn circle, the pick circle, the door entry. */
@@ -173,6 +179,11 @@ export interface Hero {
   knockVx: number;
   knockVy: number;
   knock: number;
+  /**
+   * Stage 3a (М3): game seconds to the next prick while the hero is on foot in thorns (the walk-in pricks at once; a dash or
+   * a jump ending in thorns gives a full interval first). Absent out of thorns — worlds without thorns hash as before.
+   */
+  thorns?: number;
 }
 
 /** Source of a hit on the hero: `touch`, `wolf`, `reaper` (a kind's touch), `boar` (the charge) or a new kind's own. */
@@ -192,7 +203,9 @@ export type WorldEvent =
   | { type: 'crystalBreak'; objectId: number; x: number; y: number; score: number; combo: number }
   | { type: 'finisher'; kills: number }
   | { type: 'chainEnd'; kills: number; score: number }
-  | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean }
+  | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean; fall?: boolean }
+  /** Stage 3a (М4): the dash took a brazier (`lit` false — it went out) or it burns again (`lit` true). */
+  | { type: 'brazier'; objectId: number; x: number; y: number; lit: boolean }
   | { type: 'jump' }
   /** Stage 2 of the transition: a blast went off (render: the flash). */
   | { type: 'blast'; x: number; y: number; radius: number; source: string }
@@ -325,6 +338,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
   const objects: ArenaObject[] = [
     ...arena.buttons.map(b => ({ id: nextId++, kind: 'button' as const, x: b.x, y: b.y, pressed: false })),
     { id: nextId++, kind: 'door', x: arena.door.x, y: arena.door.y, pressed: false },
+    // Stage 3a (М4): braziers of the template (after the door: arenas without them keep their ids).
+    ...(arena.braziers ?? []).map(b => ({ id: nextId++, kind: 'brazier' as const, x: b.x, y: b.y, pressed: false })),
   ];
   const world: World = {
     arena,
@@ -342,7 +357,7 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     objects,
     timeScale: 1,
     pressure: pressureAt(params, 0, null, arena, phaseDelay),
-    flow: new FlowField(arena, enemyBodyRadius(params), { waterCost: 1 / Math.max(0.05, params.waterSlow) }),
+    flow: new FlowField(arena, enemyBodyRadius(params), flowOptions(arena, params)),
     flowTimer: 0,
     input: { x: 0, y: 0 },
     heroWalk: { x: 0, y: 0 },
@@ -464,9 +479,21 @@ export function heroBlockDistance(params: Params, e?: Enemy): number {
   return heroRadius(params) + (e ? bodyRadiusOf(params, e) : enemyBodyRadius(params));
 }
 
-/** Walking speed multiplier at a point: `waterSlow` in the pond (stage B), 1 elsewhere. */
+/** Walking speed multiplier at a point: `waterSlow` in the pond (stage B) and in a river (stage 3a, М1), 1 elsewhere. */
 export function waterFactor(world: World, p: Vec): number {
   return inWater(p, world.arena) ? world.params.waterSlow : 1;
+}
+
+/** Walking multiplier of an enemy at a point (stage 3a): water × thorns (`thornSlow`, М3; the hero walks thorns at full speed). */
+export function enemyGroundFactor(world: World, p: Vec): number {
+  const water = waterFactor(world, p);
+  return world.arena.terrain && inThorns(p, world.arena) ? water * world.params.thornSlow : water;
+}
+
+/** Flow field options of an arena: the water cost, and the thorn cost where it has thorns (stage 3a). */
+function flowOptions(arena: World['arena'], params: Params): { waterCost: number; thornCost?: number } {
+  const waterCost = 1 / Math.max(0.05, params.waterSlow);
+  return hasZone(arena, 'thorns') ? { waterCost, thornCost: 1 / Math.max(0.05, params.thornSlow) } : { waterCost };
 }
 
 /**
@@ -550,7 +577,7 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
  * `credited` — the player's kill (counted in kills and score; the blast of a sapper the player killed); not credited —
  * an enemy's ability (an arrow, the blast of a sapper lit by touch). `source` names it in the events.
  */
-export interface KillCause { source: string; credited: boolean }
+export interface KillCause { source: string; credited: boolean; fall?: boolean }
 
 /**
  * An enemy dies outside the chain: it leaves the arena with a `kill` event. A credited kill counts as the player's
@@ -562,7 +589,7 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   const index = world.enemies.indexOf(e);
   if (index < 0) return;
   world.enemies.splice(index, 1);
-  world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited });
+  world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {} });
   // A link of the dash ahead of the hero stays a link (chain.ts, `passFallen`): its score comes with the chain's.
   const move = world.move, link = move?.kind === 'dash' && move.links.some(l => l.kind === 'enemy' && l.id === e.id);
   if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited });
@@ -605,6 +632,18 @@ function detonate(world: World, b: Blast): void {
   if (world.status !== 'playing') return;
   const struck = world.enemies.filter(e => dist(e, b) <= b.radius + bodyRadiusOf(p, e));
   for (const e of struck) damageEnemy(world, e, b.damage, cause);
+  // Stage 3a (М2; the sandbox slider «Взрыв отбрасывает», 0 — off): the survivors are thrown off the blast; one thrown over a
+  // cliff falls — the blast's kill (credited as the blast).
+  const push = p.blastPush ?? 0;
+  if (push <= 0) return;
+  for (const e of struck) {
+    if (!world.enemies.includes(e)) continue;
+    const dx = e.x - b.x, dy = e.y - b.y, d = Math.hypot(dx, dy);
+    if (d < 1e-6) continue;
+    e.x += dx / d * push; e.y += dy / d * push;
+    pushOutOfObstacles(e, bodyRadiusOf(p, e), world.arena, false);
+  }
+  dropIntoCliffs(world, null, { ...cause, fall: true });
 }
 
 /** Fuses burn on game time; the blasts that are due go off in the order they were lit (a blast may light new ones). */
@@ -640,6 +679,8 @@ function moveEnemies(world: World, dt: number): void {
     if (e.knock > 0) {
       const t = Math.min(dt, e.knock);
       e.x += e.knockVx * t; e.y += e.knockVy * t; e.knock -= t;
+      // Stage 3a (М2): a survivor knocked back by the chain over a cliff falls — the chain's kill.
+      if (arena.terrain && overCliff(e, arena) && !kindOf(e).immune) killEnemy(world, e, { source: 'chain', credited: true, fall: true });
       continue;
     }
     const r = bodyRadiusOf(params, e), stop = touchDistanceOf(params, e);
@@ -658,8 +699,10 @@ function moveEnemies(world: World, dt: number): void {
       }
       e.headX = dx; e.headY = dy;
     }
-    const step = Math.min(enemySpeed(world, e) * waterFactor(world, e) * dt, Math.max(0, d - stop));
+    const step = Math.min(enemySpeed(world, e) * enemyGroundFactor(world, e) * dt, Math.max(0, d - stop));
     e.x += dx * step; e.y += dy * step;
+    // Stage 3a (М2): walking never enters a cliff — its edge is a wall for the walk (a push may still throw a body over it).
+    if (arena.terrain) pushOutOfCliffs(e, r, arena);
   }
 }
 
@@ -718,8 +761,11 @@ function stepHeroWalk(world: World, dt: number): void {
  * it already leans to), not along it: radial pushing bulldozed an enemy standing on his line ahead of him.
  * Two bodies at the very same point part in a random direction (the seeded `separate` stream).
  */
-function separate(world: World): void {
+function separate(world: World): Map<Enemy, Enemy> | null {
   const { enemies, hero, params, arena } = world;
+  // Stage 3a (М2): on an arena with a cliff the pushing does not stop at its edge; who was shoved by a heavier body (the
+  // charging boar) is noted for the fall's cause (`dropIntoCliffs`).
+  const cliffs = hasZone(arena, 'cliff'), shoved = cliffs ? new Map<Enemy, Enemy>() : null;
   const wx = world.heroWalk.x, wy = world.heroWalk.y, parting = params.heroThroughEnemies && (wx !== 0 || wy !== 0);
   const rng = world.rng.stream('separate');
   // Body radii once per step (a kind may have its own size; the prototype kinds share one).
@@ -739,6 +785,7 @@ function separate(world: World): void {
         const ma = kindOf(a).mass(world, a), mb = kindOf(b).mass(world, b), overlap = min - d;
         const pa = overlap * mb / (ma + mb), pb = overlap * ma / (ma + mb);
         a.x -= dx * pa; a.y -= dy * pa; b.x += dx * pb; b.y += dy * pb;
+        if (shoved) { if (ma > mb) shoved.set(b, a); else if (mb > ma) shoved.set(a, b); }
       }
     }
     for (let i = 0; i < enemies.length; i++) {
@@ -755,8 +802,55 @@ function separate(world: World): void {
         if (d < 1e-6) { e.x = hero.x + heroMin; }
         else { e.x = hero.x + dx / d * heroMin; e.y = hero.y + dy / d * heroMin; }
       }
-      pushOutOfObstacles(e, radii[i], arena);
+      pushOutOfObstacles(e, radii[i], arena, !cliffs);
     }
+  }
+  return shoved;
+}
+
+/**
+ * Stage 3a (М2): every enemy whose center is over a cliff falls and dies (`killEnemy` with `fall`). The cause is the push:
+ * `cause` when given (a blast); else a chain knockback still running (`knock`, the survivor's knockback — the player's);
+ * else a heavier body that shoved it this tick (the charging boar: its source, not credited); else the crowd's pushing or
+ * the walking hero's parting (`push`, not credited — design 08.10.2026, step 1: walking the crowd off the edge is not a kill
+ * of the player). An immune kind (the reaper) does not fall: it is put back on the edge.
+ */
+export function dropIntoCliffs(world: World, shoved: Map<Enemy, Enemy> | null, cause?: KillCause): void {
+  const arena = world.arena;
+  if (!hasZone(arena, 'cliff')) return;
+  for (const e of [...world.enemies]) {
+    if (world.status !== 'playing') return;
+    if (!world.enemies.includes(e) || !overCliff(e, arena)) continue;
+    if (kindOf(e).immune) { pushOutOfObstacles(e, bodyRadiusOf(world.params, e), arena); continue; }
+    const by = shoved?.get(e);
+    const why: KillCause = cause ?? (e.knock > 0 ? { source: 'chain', credited: true, fall: true }
+      : by ? { source: by.kind, credited: false, fall: true } : { source: 'push', credited: false, fall: true });
+    killEnemy(world, e, why);
+  }
+}
+
+/**
+ * Stage 3a (М3): thorns prick the hero on foot — at once when he walks in, then every `thornInterval` game seconds while
+ * his center stays in them. Not during a dash or a jump (the timer waits); a dash or a jump ending in thorns starts a full
+ * interval (chain.ts, `finishMove`). Invulnerability (after a hit or a chain) and the focus spare skip a prick, the
+ * interval runs on (no reset). Source `thorns`.
+ */
+function updateThorns(world: World, dt: number): void {
+  const hero = world.hero, p = world.params;
+  if (!world.arena.terrain || world.move) return;
+  if (!inThorns(hero, world.arena)) { if (hero.thorns !== undefined) delete hero.thorns; return; }
+  hero.thorns = (hero.thorns ?? 0) - dt;
+  if (hero.thorns > 1e-9) return;
+  hero.thorns += Math.max(0.05, p.thornInterval);
+  if (canBeHurt(world)) hurtHero(world, { id: 0 }, p.thornDamage, 'thorns');
+}
+
+/** Stage 3a (М4): a brazier put out by a dash burns again after its cooldown (game time). */
+function updateBraziers(world: World, dt: number): void {
+  for (const o of world.objects) {
+    if (o.kind !== 'brazier' || o.out === undefined) continue;
+    o.out -= dt;
+    if (o.out <= 1e-9) { delete o.out; world.events.push({ type: 'brazier', objectId: o.id, x: o.x, y: o.y, lit: true }); }
   }
 }
 
@@ -812,10 +906,10 @@ export function completeGoals(world: World): void {
  */
 function updateFlow(world: World, dt: number): void {
   const p = world.params;
-  const waterCost = 1 / Math.max(0.05, p.waterSlow);
+  const options = flowOptions(world.arena, p);
   const body = enemyBodyRadius(p);
-  if (Math.abs(world.flow.radius - body) > 1e-9 || world.flow.options.waterCost !== waterCost) {
-    world.flow = new FlowField(world.arena, body, { waterCost });
+  if (Math.abs(world.flow.radius - body) > 1e-9 || world.flow.options.waterCost !== options.waterCost || world.flow.options.thornCost !== options.thornCost) {
+    world.flow = new FlowField(world.arena, body, options);
     world.flowTimer = 0;
   }
   if (!p.pathfinding) return;
@@ -866,10 +960,16 @@ export function update(world: World, dt: number, realDt = dt): void {
   if (world.params.doorWalkIn && !world.move && touchedNow && doorOpen(world)) { win(world); return; }
   updateFlow(world, dt);
   moveEnemies(world, dt);
-  separate(world);
+  const shoved = separate(world);
+  // Stage 3a (М2): bodies pushed over a cliff fall (only on an arena with a cliff).
+  dropIntoCliffs(world, shoved);
   updateBlasts(world, dt);
   if (world.status !== 'playing') return;
   // Stage 2, step 3: burning enemies (the fire consumable) take their ticks after the blasts, before the touches.
   updateBurning(world, dt);
+  // Stage 3a: thorns prick the hero on foot (М3); braziers burn again (М4). Arenas without them: nothing.
+  updateThorns(world, dt);
+  if (world.status !== 'playing') return;
+  updateBraziers(world, dt);
   contactDamage(world, dt);
 }

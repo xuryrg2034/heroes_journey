@@ -22,7 +22,7 @@
  *   `eliteSandbox`. One draw of the arena's `elite` stream per newcomer that may roll (none at the cap).
  */
 import { kindOf } from './enemies/kinds';
-import { blockedAt, dist, type Vec } from './geometry';
+import { blockedAt, dist, overCliff, pushOutOfCliffs, type Vec } from './geometry';
 import { heroRadius } from './params';
 import { RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { OBJECT_RADIUS, type ArenaObject, type Enemy, type KillCause, type World } from './world';
@@ -92,7 +92,10 @@ function lootSpot(world: World, at: Vec): Vec {
     for (let k = 1; k < path.length && !near; k++) near = segmentDistance(path[k - 1], path[k], p) < LOOT_CLEARANCE;
     if (!near) return p;
   }
-  return { x: at.x, y: at.y };
+  // Stage 3a (М2): an elite that fell into a cliff leaves its loot on the edge, not over the drop.
+  const spot = { x: at.x, y: at.y };
+  if (arena.terrain && overCliff(spot, arena)) pushOutOfCliffs(spot, OBJECT_RADIUS * 0.6, arena);
+  return spot;
 }
 
 /**

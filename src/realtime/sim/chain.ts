@@ -17,6 +17,11 @@
  * chain juice — combo counter, hit-stop, the finisher slow-motion, chain score with a length
  * multiplier, a rising hit tone (render / audio react to the events here).
  *
+ * Stage 3a, step 1 (docs/realtime-stage3.md, section 2): a brazier (М4) is a link of any colour anywhere in the chain, as a
+ * crystal, but it keeps the colour: the rest of the chain gets +`brazierPower` (the highlight `planChain` and the dash add it
+ * alike), the dash puts it out for `brazierCooldown` s. The dash and the jump fly over a cliff (М2) but never end over it;
+ * a jump aimed over a cliff does not start (`jumpRefusal`).
+ *
  * Stage 1 of the transition: no DOM — the view turns pointer input into journalled commands (simulation.ts) that call
  * `beginChain`, `dragChain`, `dragChainAlong`, `releaseChain`, `cancelChain`, `jump`. The crystal drop point reads the
  * seeded `crystal` stream; `stepHero` takes the real seconds of the tick (`SIM_DT ÷ timeScale`).
@@ -24,7 +29,7 @@
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { eliteDeath, pickLoot } from './elites';
 import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
-import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from './geometry';
+import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type World } from './world';
 
@@ -109,7 +114,12 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const out: LinkPlan[] = [];
   for (const link of links) {
     const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
-    if (!enemy) { out.push({ link, outcome: null }); continue; }
+    if (!enemy) {
+      // Stage 3a (М4): a burning brazier adds its power to the rest of the chain (the dash adds the same on arrival).
+      if (isBrazier(world, link)) power += brazierPowerOf(world);
+      out.push({ link, outcome: null });
+      continue;
+    }
     const outcome = strike(power, enemy.hp, chainFactor(world, enemy));
     power = outcome.powerAfter;
     if (outcome.killed) kills++;
@@ -127,14 +137,25 @@ export function isCrystal(world: World, link: ChainLink): boolean {
 }
 
 /**
- * A link the chain goes on after: a crystal (it changes the colour) or the loot of an elite (stage 2, step 3: picked up as
- * a crystal, any colour, anywhere in the chain; it does not change the colour, gives no power, is not a kill).
+ * A link the chain goes on after: a crystal (it changes the colour), the loot of an elite (stage 2, step 3: picked up as
+ * a crystal, any colour, anywhere in the chain; it does not change the colour, gives no power, is not a kill) or a brazier
+ * (stage 3a, М4: any colour, keeps the colour, +`brazierPower` to the rest, not a kill).
  */
 export function passObject(world: World, link: ChainLink): boolean {
   if (link.kind !== 'object') return false;
   const kind = findObject(world, link.id)?.kind;
-  return kind === 'crystal' || kind === 'loot';
+  return kind === 'crystal' || kind === 'loot' || kind === 'brazier';
 }
+
+/** Stage 3a (М4): a burning brazier link (one put out is not a link: `objectRefusal` says `unlit`). */
+export function isBrazier(world: World, link: ChainLink): boolean {
+  if (link.kind !== 'object') return false;
+  const o = findObject(world, link.id);
+  return o?.kind === 'brazier' && o.out === undefined;
+}
+
+/** Power a brazier gives the rest of the chain (the panel's `brazierPower`). */
+export const brazierPowerOf = (world: World): number => Math.max(0, world.params.brazierPower);
 
 /**
  * Color of the drawn chain: the first enemy link after the last crystal (a crystal changes the color:
@@ -195,7 +216,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'color' | 'far' | 'sight' | 'guarded';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -204,6 +225,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   afterObject: 'цепь закончена',
   pressed: 'кнопка нажата',
   closed: 'дверь закрыта',
+  // Stage 3a (М4): a brazier the dash put out burns again after its cooldown.
+  unlit: 'жаровня погасла',
   color: 'не тот цвет',
   far: 'далеко',
   sight: 'нет видимости',
@@ -264,6 +287,7 @@ export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan
   if (plan.endsOnObject) return 'afterObject';
   if (object.kind === 'button' && object.pressed) return 'pressed';
   if (object.kind === 'door' && !doorOpen(world)) return 'closed';
+  if (object.kind === 'brazier' && object.out !== undefined) return 'unlit';
   return reachRefusal(world, object, OBJECT_RADIUS);
 }
 
@@ -431,12 +455,26 @@ function newMove(kind: HeroMove['kind'], stop: Vec, point: Vec | null, speed: nu
   return { kind, links: [], power: 0, stop, point, speed, kills: 0, hits: 0, dropped: [], broken: 0, crystalScore: 0 };
 }
 
-/** Landing point of a jump towards `p`: clamped to the jump radius; null when it lands in an obstacle. */
-export function jumpLanding(world: World, p: Vec): Vec | null {
+/** The landing point of a jump towards `p`: clamped to the jump radius (wherever it lands). */
+function jumpTarget(world: World, p: Vec): Vec {
   const hero = world.hero, r = world.params.jumpRadius, d = dist(p, hero);
   const k = d > r ? r / d : 1;
-  const land = { x: hero.x + (p.x - hero.x) * k, y: hero.y + (p.y - hero.y) * k };
+  return { x: hero.x + (p.x - hero.x) * k, y: hero.y + (p.y - hero.y) * k };
+}
+
+/** Landing point of a jump towards `p`: clamped to the jump radius; null when it lands in an obstacle or over a cliff. */
+export function jumpLanding(world: World, p: Vec): Vec | null {
+  const land = jumpTarget(world, p);
   return blockedAt(land, heroRadius(world.params), world.arena) ? null : land;
+}
+
+/** Stage 3a (М2): why a jump towards `p` would not start — `cliff`: it lands over a cliff (the hint at the pointer), `blocked`: in an obstacle. */
+export type JumpRefusal = 'cliff' | 'blocked';
+export const JUMP_REFUSAL_TEXT: Readonly<Record<JumpRefusal, string>> = { cliff: 'обрыв', blocked: 'препятствие' };
+export function jumpRefusal(world: World, p: Vec): JumpRefusal | null {
+  const land = jumpTarget(world, p), r = heroRadius(world.params);
+  if (!blockedAt(land, r, world.arena)) return null;
+  return world.arena.terrain && cliffAt(land, r, world.arena) && !blockedAt(land, r, world.arena, false) ? 'cliff' : 'blocked';
 }
 
 /** Energy the jump costs now: the panel's `jumpCost`, one less with «Ловкие лапы» (stage 2, step 3). */
@@ -588,11 +626,23 @@ function hitEnemy(world: World, enemy: Enemy): void {
 function passFallen(world: World, fallen: FallenLink): void {
   const move = world.move!, p = world.params;
   move.power += 1;
-  move.stop = { x: fallen.x, y: fallen.y };
+  // Stage 3a (М2): a link that fell into a cliff — the hero flies over its point but does not stop there.
+  if (!(world.arena.terrain && overCliff(fallen, world.arena))) move.stop = { x: fallen.x, y: fallen.y };
   if (!fallen.credited) return;
   move.kills++;
   if (p.crystals && crystalEveryOf(world) > 0 && move.kills % crystalEveryOf(world) === 0) dropCrystal(world, { x: fallen.x, y: fallen.y });
   maybeFinisher(world);
+}
+
+/** Stage 3a (М4): the dash takes a burning brazier: +`brazierPower` to the rest, it goes out for `brazierCooldown` s. */
+function takeBrazier(world: World, brazier: ArenaObject): void {
+  const move = world.move!;
+  move.stop = { x: brazier.x, y: brazier.y };
+  if (brazier.out !== undefined) return;
+  move.power += brazierPowerOf(world);
+  const cooldown = Math.max(0, world.params.brazierCooldown);
+  if (cooldown > 0) brazier.out = cooldown;
+  world.events.push({ type: 'brazier', objectId: brazier.id, x: brazier.x, y: brazier.y, lit: false });
 }
 
 /** The dash reaches a crystal: it breaks (score by the chain that dropped it), the hero takes its spot; the chain goes on. */
@@ -626,6 +676,8 @@ function finishMove(world: World): void {
   hero.x = move.stop.x; hero.y = move.stop.y;
   pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
   world.move = null;
+  // Stage 3a (М3): a dash or a jump ending in thorns is no walk-in: the first prick comes after a full interval.
+  if (world.arena.terrain && hero.thorns === undefined && inThorns(hero, world.arena)) hero.thorns = Math.max(0.05, world.params.thornInterval);
   if (move.kind === 'dash') {
     // Crystals of this chain are worth its final length (main game: crystalChain).
     for (const id of move.dropped) { const c = findObject(world, id); if (c) c.value = move.kills; }
@@ -660,6 +712,8 @@ function stepMove(world: World, realDt: number): void {
         if (object.kind === 'crystal') { move.links.shift(); breakCrystal(world, object); continue; }
         // Stage 2, step 3: the loot of an elite — picked up, the hero takes its spot, the chain goes on.
         if (object.kind === 'loot') { move.links.shift(); move.stop = { x: object.x, y: object.y }; pickLoot(world, object); continue; }
+        // Stage 3a (М4): a brazier — +power to the rest of the chain, it goes out; the hero takes its spot, the chain goes on.
+        if (object.kind === 'brazier') { move.links.shift(); takeBrazier(world, object); continue; }
         reachObject(world, object);
         continue;
       }

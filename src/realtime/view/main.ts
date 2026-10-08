@@ -13,13 +13,13 @@
  */
 import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
-import { ARENAS, SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
+import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
-import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, jumpCostOf, planChain, type Refusal } from '../sim/chain';
+import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
-import { inWater, setFlowClock, type Vec } from '../sim/geometry';
+import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
 import { rtRunParams } from '../run/rtRun';
 import { Simulation } from '../sim/simulation';
@@ -32,9 +32,12 @@ import { RunView, type ArenaItemNotice } from './runView';
 
 /**
  * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
- * and 4). `?arena=1…10` opens one at once.
+ * and 4); then the terrain samples of stage 3a (river, cliff, thorns, braziers, gorge), keys ⇧1–⇧5. `?arena=1…15` opens
+ * one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS];
+/** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
+const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
 function phaseOverrideText(override: NonNullable<ArenaTemplate['phaseOverride']>): string {
   const keys = Object.keys(override);
@@ -42,8 +45,17 @@ function phaseOverrideText(override: NonNullable<ArenaTemplate['phaseOverride']>
   if (override.boarShare === 0 && keys.length === 1) return 'кабанов нет (доля 0)';
   return 'с поправками арены';
 }
-/** The menu key of sandbox arena `i` (from 0): 1–9, then 0 for the tenth. */
-const arenaKey = (i: number): string => String((i + 1) % 10);
+/** The menu key of sandbox arena `i` (from 0): 1–9, then 0 for the tenth; the terrain samples — ⇧1…⇧5. */
+const arenaKey = (i: number): string => (i < DIGIT_ARENAS ? String((i + 1) % 10) : `⇧${i - DIGIT_ARENAS + 1}`);
+/** The sandbox arena of a digit key (Shift — the terrain samples); −1 — none. */
+function arenaOfKey(code: string, shift: boolean): number {
+  const m = /^(?:Digit|Numpad)(\d)$/.exec(code);
+  if (!m) return -1;
+  const d = Number(m[1]);
+  if (shift) return d >= 1 && DIGIT_ARENAS + d - 1 < SANDBOX_ARENAS.length ? DIGIT_ARENAS + d - 1 : -1;
+  const i = d === 0 ? 9 : d - 1;
+  return i < DIGIT_ARENAS ? i : -1;
+}
 
 /** A frame adds at most this much real time (a stalled tab does not fast-forward the fight). */
 const MAX_FRAME = 0.05;
@@ -189,6 +201,8 @@ async function boot(): Promise<void> {
   menuCard.append(el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   SANDBOX_ARENAS.forEach((arena, i) => {
+    // Stage 3a: the terrain samples under their own heading (sandbox only, not in the run).
+    if (i === DIGIT_ARENAS) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Местность этапа 3а — образцы (только песочница)'));
     const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
@@ -264,6 +278,8 @@ async function boot(): Promise<void> {
   /** Pointer in page pixels (the hint follows it) and the reason shown last frame (snapshot). */
   let pointerClient: { x: number; y: number } | null = null;
   let hintReason: Refusal | null = null;
+  /** Stage 3a: why a jump would not start at the pointer (jump aiming only). */
+  let jumpHint: JumpRefusal | null = null;
 
   /**
    * Iteration 2.1 (interface): seconds left of each slot's blink and of the item hint (real time while the arena runs),
@@ -458,7 +474,7 @@ async function boot(): Promise<void> {
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
       return;
     }
-    const keys = SANDBOX_ARENAS.map((_, i) => `Digit${arenaKey(i)}`), digit = Math.max(keys.indexOf(event.code), keys.indexOf(event.code.replace('Numpad', 'Digit')));
+    const digit = arenaOfKey(event.code, event.shiftKey);
     if (digit >= 0 && (menuOpen || ended)) { start(digit); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
@@ -522,9 +538,11 @@ async function boot(): Promise<void> {
     }
     // Stage G: the reason at the pointer (not in jump aiming, menus or pause).
     hintReason = params.refusalHint && live && !ui.jumpMode && ui.pointer && pointerClient ? hoverRefusal(w, ui.pointer, dragging) : null;
-    if (hintReason && pointerClient) {
-      hint.textContent = REFUSAL_TEXT[hintReason];
-      hint.dataset.reason = hintReason;
+    // Stage 3a (М2): in jump aiming — why the jump would not start there (over a cliff, into an obstacle).
+    jumpHint = live && ui.jumpMode && ui.pointer && pointerClient && w.status === 'playing' && !w.move ? jumpRefusal(w, ui.pointer) : null;
+    if ((hintReason || jumpHint) && pointerClient) {
+      hint.textContent = hintReason ? REFUSAL_TEXT[hintReason] : JUMP_REFUSAL_TEXT[jumpHint!];
+      hint.dataset.reason = hintReason ?? `jump-${jumpHint}`;
       hint.style.left = `${pointerClient.x + 14}px`;
       hint.style.top = `${pointerClient.y + 16}px`;
       hint.hidden = false;
@@ -613,7 +631,7 @@ async function boot(): Promise<void> {
   };
   requestAnimationFrame(frame);
 
-  // `?arena=N` (1–10) skips the menu: handy for manual tuning.
+  // `?arena=N` (1–15) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
 
@@ -670,6 +688,13 @@ async function boot(): Promise<void> {
         packLines: renderer.visiblePackLines,
         ripples: renderer.visibleRipples,
         heroInWater: inWater(w.hero, w.arena),
+        /** Stage 3a: the hero in thorns and his prick timer; over a cliff (never: walking and landings keep off it). */
+        heroInThorns: inThorns(w.hero, w.arena),
+        heroOverCliff: overCliff(w.hero, w.arena),
+        /** Stage 3a: terrain zones drawn for this arena (river, cliff, thorns) and enemies seen falling into a cliff. */
+        terrain: { ...renderer.terrainShown },
+        fallsShown: renderer.fallsShown,
+        jumpHint,
         combo: w.move?.kind === 'dash' ? w.move.kills : 0,
         lastChain: w.lastChain ? { ...w.lastChain } : null,
         comboShown: renderer.comboShown,
@@ -682,7 +707,7 @@ async function boot(): Promise<void> {
     },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
     restart: (seed?: number) => restart(seed),
-    /** Starts arena `n` (1–10), as keys 1–9 and 0 on the menu; `seed` fixes its seed. */
+    /** Starts arena `n` (1–15), as keys 1–9, 0 and ⇧1–⇧5 on the menu; `seed` fixes its seed. */
     selectArena: (n: number, seed?: number) => start(n - 1, seed),
     completeGoals: () => command({ t: 'goals' }),
     burst: (count: number) => command({ t: 'burst', count }),
