@@ -158,7 +158,7 @@ test('«Жаровни»: a chain from a brazier through an enemy — the brazie
   expect(errors).toEqual([]);
 });
 
-test('«Терновник»: the hero walking into thorns loses HP (the hit flies), a chain through them does not', async ({ page }) => {
+test('«Терновник»: the hero walking into thorns loses HP (the chain through them — in Node, test:realtime-terrain)', async ({ page }) => {
   const errors = collectErrors(page);
   await openSandbox(page);
   await page.keyboard.press('Shift+Digit3');

@@ -219,7 +219,7 @@ check('М2 cliff: a body pushed over the edge falls — the boar\'s charge: not 
 check('М2 cliff: a blast of a sapper the player killed throws a survivor over the edge — the player\'s kill; the blast of a sapper lit by touch — not', () => {
   for (const credited of [true, false]) {
     const sim = fight('cliff', quiet(), credited ? 3 : 4), w = sim.world;
-    sim.command({ t: 'param', key: 'blastPush', value: 1.5 });
+    // The blast throws survivors 0.8 by default (design answer 09.10.2026): 6.7 → 7.5, over the ravine (7.3…8.7).
     const sapper = place(sim, 6, 4.4, 1, 0, 'sapper'), victim = place(sim, 6.7, 4.4, 2, 5);
     if (credited) {
       sim.command({ t: 'teleport', x: 4.6, y: 4.4 });
@@ -284,6 +284,104 @@ check('М2 cliff: an arrow flies over the drop (sight and the line are not cut)'
   assert(replays(sim), 'replay');
 });
 
+check('М2 blast push (design answer 09.10.2026): on by default, 0.8 — a survivor of a blast is thrown off its center, the hero is not', () => {
+  const sim = fight('powder', quiet()), w = sim.world;
+  assert(w.params.blastPush === 0.8, `default ${w.params.blastPush}`);
+  sim.command({ t: 'teleport', x: 6.6, y: 5 });
+  place(sim, 8, 5, 1, 0, 'sapper');
+  const tough = place(sim, 8.7, 5, 2, 5);
+  chainThrough(sim, [{ x: 8, y: 5 }]);
+  flight(sim);
+  const hero = { x: w.hero.x, y: w.hero.y }, before = dist(tough, { x: 8, y: 5 });
+  collect(sim, 120, () => tough.hp < 5);
+  assert(alive(w, tough) && tough.hp === 3, `the survivor took 2: hp ${tough.hp}`);
+  assert(Math.abs(dist(tough, { x: 8, y: 5 }) - before - 0.8) < 1e-6, `thrown 0.8: ${(dist(tough, { x: 8, y: 5 }) - before).toFixed(3)}`);
+  assert(dist(w.hero, hero) < 1e-9, 'the hero is not thrown');
+  assert(replays(sim), 'replay');
+});
+
+check('М2 «пропасть глотает» (design answer 09.10.2026): a sapper that falls into the cliff does not blow up — shoved by a boar, lit by a touch and shoved, thrown by a blast', () => {
+  const blasts = (events: WorldEvent[]): number => events.filter(e => e.type === 'blast').length;
+  // Shoved by the boar's charge: no blast; an enemy on the edge next to its fall stays.
+  for (const lit of [false, true]) {
+    const sim = fight('cliff', quiet({ sapperTouchFuse: 4, boarDamage: 0 }), lit ? 7 : 6), w = sim.world;
+    const sapper = place(sim, 6.6, 4.4, 1, 0, 'sapper'), edge = place(sim, 6.8, 3.4, 2, 0);
+    if (lit) {
+      sim.command({ t: 'teleport', x: 6.05, y: 4.4 });
+      ticks(sim, 2);
+      assert(sapper.vars.lit === 1, 'the touch lit its fuse');
+    }
+    sim.command({ t: 'teleport', x: 10.6, y: 4.4 });
+    place(sim, 5.9, 4.4, 3, 2, 'boar');
+    const events = collect(sim, 240, () => !alive(w, sapper));
+    const fell = kills(events).find(k => k.enemyId === sapper.id);
+    assert(fell?.fall && fell.source === 'boar', `${lit ? 'lit' : 'unlit'} sapper fell: ${JSON.stringify(fell)}`);
+    const later = collect(sim, 180);
+    assert(blasts([...events, ...later]) === 0 && alive(w, edge), `${lit ? 'lit' : 'unlit'}: no blast, the enemy on the edge stands`);
+    assert(replays(sim), 'replay');
+  }
+  // A tough sapper (5 HP) thrown into the ravine by the blast of another one: only the first blast goes off.
+  const sim = fight('cliff', quiet(), 8), w = sim.world;
+  sim.command({ t: 'teleport', x: 4.6, y: 4.4 });
+  place(sim, 6, 4.4, 1, 0, 'sapper');
+  const tough = place(sim, 6.7, 4.4, 2, 5, 'sapper'), across = place(sim, 9.2, 4.4, 3, 0);
+  chainThrough(sim, [{ x: 6, y: 4.4 }]);
+  const events = collect(sim, 300);
+  const fell = kills(events).find(k => k.enemyId === tough.id);
+  assert(fell?.fall && fell.source === 'blast' && fell.credited === true, `the tough sapper fell: ${JSON.stringify(fell)}`);
+  assert(blasts(events) === 1 && alive(w, across), `blasts ${blasts(events)}; the enemy across the ravine stands`);
+  assert(replays(sim), 'replay');
+});
+
+check('М2 knockback credit (review D): a frozen survivor keeps its knockback but it moves nothing — shoved over the edge by a boar while frozen, it is the boar\'s, not the chain\'s', () => {
+  const sim = fight('cliff', quiet({ survivorKnockback: true, survivorKnockbackDistance: 0.3, boarDamage: 0 })), w = sim.world;
+  sim.command({ t: 'teleport', x: 5.5, y: 4.4 });
+  const tough = place(sim, 6.6, 4.4, 0, 3);
+  chainThrough(sim, [{ x: 6.6, y: 4.4 }]);
+  flight(sim);
+  assert(tough.knock > 0, 'the knockback still runs when the hero is back');
+  sim.command({ t: 'chill', id: tough.id, seconds: 6 });
+  sim.command({ t: 'teleport', x: 10.6, y: 4.4 });
+  place(sim, 5.9, 4.4, 3, 2, 'boar');
+  const events = collect(sim, 300, () => !alive(w, tough));
+  const fell = kills(events).find(k => k.enemyId === tough.id);
+  assert(tough.knock > 0 || fell, 'still holding its knockback when it fell');
+  assert(fell?.fall && fell.source === 'boar' && fell.credited === false && w.stats.kills === 0, `the boar's, not the chain's: ${JSON.stringify(fell)}`);
+  assert(replays(sim), 'replay');
+});
+
+/** One dash that the boars shove links of into the ravine while the hero flies: per-tick hero steps and the end. */
+function fallenDash(points: number[][], boars: number[][]): { maxStep: number; falls: number; over: number; sim: Simulation } {
+  const sim = fight('cliff', quiet()), w = sim.world;
+  sim.command({ t: 'teleport', x: 5.6, y: 4.4 });
+  for (const [x, y] of points) place(sim, x, y);
+  const first = boars.map(([x, y], i) => place(sim, x, y, 1 + i, 2, 'boar'))[0];
+  runUntil(sim, () => first.boar === 'charge', 300);
+  chainThrough(sim, points.map(([x, y]) => ({ x, y })));
+  let maxStep = 0, falls = 0, over = 0, prev = { x: w.hero.x, y: w.hero.y };
+  runUntil(sim, () => !w.move, 300, x => {
+    maxStep = Math.max(maxStep, dist(prev, x.hero)); prev = { x: x.hero.x, y: x.hero.y };
+    if (overCliff(x.hero, x.arena)) over++;
+    for (const ev of x.events) if (ev.type === 'kill' && ev.fall) falls++;
+    x.events.length = 0;
+  });
+  return { maxStep, falls, over, sim };
+}
+
+check('М2 (review A): links that fall into the ravine during the dash — the hero flies back along the chain to the last spot on the ground, no jump', () => {
+  for (const [name, points, boars] of [
+    ['one fallen', [[6.95, 4.4], [9, 4.4]], [[10.2, 4.4]]],
+    ['two fallen in a row', [[6.95, 4.4], [9, 4.4], [9.15, 3.81]], [[10.5, 4.4], [10.4, 3.6]]],
+  ] as const) {
+    const { maxStep, falls, over, sim } = fallenDash(points.map(p => [...p]), boars.map(p => [...p])), w = sim.world;
+    const step = w.params.dashSpeed / 60;
+    assert(falls === points.length - 1, `${name}: ${falls} fell`);
+    assert(over > 0 && maxStep <= step + 1e-6, `${name}: the hero flew over the ravine without a jump (max ${maxStep.toFixed(3)} per tick, the dash step ${step.toFixed(3)})`);
+    assert(!w.move && !overCliff(w.hero, w.arena) && dist(w.hero, { x: 6.95, y: 4.4 }) < 1e-6, `${name}: back on the ground at the first link: ${w.hero.x.toFixed(2)}, ${w.hero.y.toFixed(2)}`);
+    assert(replays(sim), 'replay');
+  }
+});
+
 // ---- М3 «Терновник» ----
 // The middle thicket at y = 5: x from 5.4 to ≈ 10.5.
 
@@ -322,6 +420,15 @@ check('М3 thorns: the dash and the jump through thorns are not pricked; ending 
   assert(w.hero.hp === hp0, `0.9 s later: hp ${w.hero.hp}`);
   ticks(sim, 12);
   assert(w.hero.hp === hp0 - 1, `1.1 s later: hp ${w.hero.hp}`);
+  // A dash from inside the thicket to inside it (design answer 09.10.2026): the timer starts again — a full second.
+  ticks(sim, 40);
+  const hp2 = w.hero.hp;
+  place(sim, w.hero.x + 1.2, 5);
+  chainThrough(sim, [{ x: w.hero.x + 1.2, y: 5 }]);
+  flight(sim);
+  assert(inThorns(w.hero, w.arena) && Math.abs((w.hero.thorns ?? 0) - w.params.thornInterval) < 0.02, `a full interval after the dash inside: ${w.hero.thorns}`);
+  ticks(sim, 54);
+  assert(w.hero.hp === hp2, `0.9 s after: hp ${w.hero.hp}`);
   // A jump into the thicket: the same.
   sim.command({ t: 'teleport', x: 4.4, y: 5 });
   ticks(sim, 1);
@@ -435,6 +542,13 @@ check('М4 brazier: after a dash it is out for 6 s — no chain takes it («жа
   assert(brazier.out === undefined && Math.abs(litAt - outAt - w.params.brazierCooldown) < 0.02, `burns again ${(litAt - outAt).toFixed(2)} s later`);
   assert(sim.command({ t: 'begin', x: 5, y: 3.5 }) === true, 'taken again');
   assert(replays(sim), 'replay');
+  // «Гаснет на 0 с» (the panel): it never goes out — and no «went out» event (review F).
+  const always = fight('braziers', quiet({ brazierCooldown: 0 }), 2), aw = always.world;
+  always.command({ t: 'teleport', x: 5, y: 5.2 });
+  place(always, 5, 2, 0, 2);
+  chainThrough(always, [{ x: 5, y: 3.5 }, { x: 5, y: 2 }]);
+  const events = collect(always, 120, () => !aw.move);
+  assert(aw.enemies.length === 0 && brazierAt(aw, 5, 3.5).out === undefined && !events.some(e => e.type === 'brazier'), 'cooldown 0: +2 given, still burning, no event');
 });
 
 // ---- State and determinism ----

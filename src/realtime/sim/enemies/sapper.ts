@@ -48,6 +48,9 @@ registerBehavior({
   onDeath(world, e, cause) {
     if (e.vars.exploded === 1) return;
     e.vars.exploded = 1;
+    // Stage 3a (design answer 09.10.2026, «пропасть глотает»): a sapper that fell into a cliff does not blow up — neither
+    // the fuse of its death nor one already lit by a touch.
+    if (cause.fall) return;
     const p = world.params, burning = e.vars.lit === 1 ? Math.max(0, e.vars.fuse) : Infinity;
     addBlast(world, e, { radius: p.sapperRadius, damage: p.sapperDamage, delay: Math.min(burning, p.sapperFuse), credited: cause.credited, source: 'blast', ownerId: e.id, elite: !!e.elite });
   },

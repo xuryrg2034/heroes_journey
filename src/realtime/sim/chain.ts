@@ -589,7 +589,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
   enemy.hurtFlash = Math.max(p.hitFlash, 0.01);
   world.events.push({ type: 'chainHit', enemyId: enemy.id, damage: outcome.damage, killed: outcome.killed, x: enemy.x, y: enemy.y, combo: move.hits });
   if (outcome.killed) {
-    move.stop = { x: enemy.x, y: enemy.y };
+    landAt(move, enemy);
     world.enemies.splice(world.enemies.indexOf(enemy), 1);
     world.stats.kills++;
     move.kills++;
@@ -612,9 +612,9 @@ function hitEnemy(world: World, enemy: Enemy): void {
     const speed = p.survivorKnockbackDistance / p.survivorKnockbackTime;
     enemy.knock = p.survivorKnockbackTime; enemy.knockVx = dx / d * speed; enemy.knockVy = dy / d * speed;
   }
-  // The chain stops on a survivor: the hero goes back to the last freed spot.
+  // The chain stops on a survivor: the hero goes back to the last freed spot (over the points flown over a drop, stage 3a).
   move.links = [];
-  move.point = { ...move.stop };
+  returnToStop(move);
   maybeFinisher(world);
 }
 
@@ -626,8 +626,10 @@ function hitEnemy(world: World, enemy: Enemy): void {
 function passFallen(world: World, fallen: FallenLink): void {
   const move = world.move!, p = world.params;
   move.power += 1;
-  // Stage 3a (М2): a link that fell into a cliff — the hero flies over its point but does not stop there.
-  if (!(world.arena.terrain && overCliff(fallen, world.arena))) move.stop = { x: fallen.x, y: fallen.y };
+  // Stage 3a (М2): a link that fell into a cliff — the hero flies over its point but does not stop there: the point is
+  // noted, and if nothing on the ground follows, the hero flies back along the chain (`returnToStop`).
+  if (world.arena.terrain && overCliff(fallen, world.arena)) (move.detour ??= []).push({ x: fallen.x, y: fallen.y });
+  else landAt(move, fallen);
   if (!fallen.credited) return;
   move.kills++;
   if (p.crystals && crystalEveryOf(world) > 0 && move.kills % crystalEveryOf(world) === 0) dropCrystal(world, { x: fallen.x, y: fallen.y });
@@ -637,11 +639,13 @@ function passFallen(world: World, fallen: FallenLink): void {
 /** Stage 3a (М4): the dash takes a burning brazier: +`brazierPower` to the rest, it goes out for `brazierCooldown` s. */
 function takeBrazier(world: World, brazier: ArenaObject): void {
   const move = world.move!;
-  move.stop = { x: brazier.x, y: brazier.y };
+  landAt(move, brazier);
   if (brazier.out !== undefined) return;
   move.power += brazierPowerOf(world);
+  // A cooldown of 0 (the panel): it never goes out — no event either.
   const cooldown = Math.max(0, world.params.brazierCooldown);
-  if (cooldown > 0) brazier.out = cooldown;
+  if (cooldown <= 0) return;
+  brazier.out = cooldown;
   world.events.push({ type: 'brazier', objectId: brazier.id, x: brazier.x, y: brazier.y, lit: false });
 }
 
@@ -649,7 +653,7 @@ function takeBrazier(world: World, brazier: ArenaObject): void {
 function breakCrystal(world: World, crystal: ArenaObject): void {
   const move = world.move!, p = world.params;
   const score = Math.round(p.crystalScorePerKill * (crystal.value ?? 0));
-  move.stop = { x: crystal.x, y: crystal.y };
+  landAt(move, crystal);
   move.broken++;
   move.crystalScore += score;
   world.objects.splice(world.objects.indexOf(crystal), 1);
@@ -659,7 +663,7 @@ function breakCrystal(world: World, crystal: ArenaObject): void {
 /** The chain ended on an object: a button is pressed for good; the open door wins the arena. */
 function reachObject(world: World, object: ArenaObject): void {
   const move = world.move!;
-  move.stop = { x: object.x, y: object.y };
+  landAt(move, object);
   move.links = [];
   if (object.kind === 'button') {
     if (object.pressed) return;
@@ -671,13 +675,33 @@ function reachObject(world: World, object: ArenaObject): void {
   }
 }
 
+/** The hero takes a spot on the ground (the stop of the dash): the points flown over a drop before it are left behind. */
+function landAt(move: HeroMove, p: Vec): void {
+  move.stop = { x: p.x, y: p.y };
+  delete move.detour;
+}
+
+/**
+ * The way back to the stop (a survivor, or the end of a dash whose last links fell into a cliff — stage 3a, М2): back over
+ * the points flown over the drop in reverse, then the stop — along the chain's own path, at the dash speed. Without such
+ * points — straight to the stop, as before.
+ */
+function returnToStop(move: HeroMove): void {
+  const route = [...(move.detour ?? [])].reverse();
+  delete move.detour;
+  route.push({ ...move.stop });
+  move.point = route.shift()!;
+  if (route.length) move.route = route; else delete move.route;
+}
+
 function finishMove(world: World): void {
   const hero = world.hero, move = world.move!;
   hero.x = move.stop.x; hero.y = move.stop.y;
   pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
   world.move = null;
-  // Stage 3a (М3): a dash or a jump ending in thorns is no walk-in: the first prick comes after a full interval.
-  if (world.arena.terrain && hero.thorns === undefined && inThorns(hero, world.arena)) hero.thorns = Math.max(0.05, world.params.thornInterval);
+  // Stage 3a (М3, design 09.10.2026): any dash or jump ending in thorns gives the hero a full interval to walk out (also
+  // one from thorns into thorns: the timer starts again).
+  if (world.arena.terrain && inThorns(hero, world.arena)) hero.thorns = Math.max(0.05, world.params.thornInterval);
   if (move.kind === 'dash') {
     // Crystals of this chain are worth its final length (main game: crystalChain).
     for (const id of move.dropped) { const c = findObject(world, id); if (c) c.value = move.kills; }
@@ -711,7 +735,7 @@ function stepMove(world: World, realDt: number): void {
         if (!arrived) return;
         if (object.kind === 'crystal') { move.links.shift(); breakCrystal(world, object); continue; }
         // Stage 2, step 3: the loot of an elite — picked up, the hero takes its spot, the chain goes on.
-        if (object.kind === 'loot') { move.links.shift(); move.stop = { x: object.x, y: object.y }; pickLoot(world, object); continue; }
+        if (object.kind === 'loot') { move.links.shift(); landAt(move, object); pickLoot(world, object); continue; }
         // Stage 3a (М4): a brazier — +power to the rest of the chain, it goes out; the hero takes its spot, the chain goes on.
         if (object.kind === 'brazier') { move.links.shift(); takeBrazier(world, object); continue; }
         reachObject(world, object);
@@ -746,12 +770,15 @@ function stepMove(world: World, realDt: number): void {
       const arrived = moveHero(world, move.point, budget);
       budget -= dist(before, world.hero);
       if (!arrived) return;
-      move.point = null;
+      move.point = move.route?.shift() ?? null;
+      if (move.route && !move.route.length) delete move.route;
       continue;
     }
+    // Stage 3a (М2): the last links fell into a cliff — fly back over them to the ground first.
+    if (move.detour) { returnToStop(move); continue; }
     finishMove(world);
   }
-  if (world.move && !move.links.length && !move.point) finishMove(world);
+  if (world.move && !move.links.length && !move.point) { if (move.detour) returnToStop(move); else finishMove(world); }
 }
 
 /**
