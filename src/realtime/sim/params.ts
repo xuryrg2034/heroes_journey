@@ -248,6 +248,16 @@ export interface Params {
   archerDamage: number;
   /** Hit of the arrow on an enemy on the line. */
   archerHit: number;
+  // Sapper (stage 2 of the transition, docs/realtime-slice.md, section 4)
+  sapperHp: number;
+  /** Fuse after its death, game seconds. */
+  sapperFuse: number;
+  /** Fuse it lights itself when it touches the hero. */
+  sapperTouchFuse: number;
+  /** Radius of the blast. */
+  sapperRadius: number;
+  /** Damage of the blast (the hero and enemies). */
+  sapperDamage: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -397,6 +407,11 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   archerWidth: 0.5,
   archerDamage: 1,
   archerHit: 1,
+  sapperHp: 0,
+  sapperFuse: 0.8,
+  sapperTouchFuse: 1.2,
+  sapperRadius: 1.5,
+  sapperDamage: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -554,6 +569,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('archerWidth', 'Лучник', 'Ширина линии', 0.1, 2, 0.05, 5, 'ед.'),
   n('archerDamage', 'Лучник', 'Урон стрелы герою', 0, 6, 1, 5),
   n('archerHit', 'Лучник', 'Удар стрелы по врагу', 0, 6, 1, 5, '', 'Враг на линии гибнет, если удар не меньше его HP (слабые — всегда); иначе теряет HP. Убийства стрелой игроку не засчитываются.'),
+  n('sapperHp', 'Сапёр', 'HP сапёра', 0, 6, 1, 5),
+  n('sapperFuse', 'Сапёр', 'Фитиль после гибели', 0, 3, 0.05, 5, 'с'),
+  n('sapperTouchFuse', 'Сапёр', 'Фитиль от касания героя', 0, 3, 0.05, 5, 'с', 'Коснувшись героя, сапёр сам поджигает фитиль и стоит; его касание не ранит — ранит взрыв.'),
+  n('sapperRadius', 'Сапёр', 'Радиус взрыва', 0.25, 4, 0.05, 5, 'ед.'),
+  n('sapperDamage', 'Сапёр', 'Урон взрыва', 0, 6, 1, 5, '', 'Всем в радиусе: герою (неуязвимость защищает) и врагам. Убийства взрывом сапёра, убитого игроком, засчитываются; подожжённого касанием — нет.'),
 ];
 
 const MAX_PHASES = 8;

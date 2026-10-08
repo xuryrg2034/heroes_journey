@@ -6,14 +6,14 @@
  * Stage 3: wolf ears and pack lines, boar tusks with the charge lane (threat color, hatched)
  * and «!», target reticles of marked enemies, buttons and the door.
  * Stage 2 of the transition, step 2 (docs/realtime-slice.md, section 4): the signals of the new enemies — the shield
- * arc of the shieldbearer, the archer's line (`drawSignals`).
+ * arc of the shieldbearer, the archer's line, the sapper's fuse and blast ring (`drawSignals`).
  */
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE, archerLine, shieldUp } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, archerLine, sapperFuse, shieldUp } from '../sim/enemies/index';
 import { inWater, type Vec } from '../sim/geometry';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
@@ -46,9 +46,11 @@ const BONE = 0xeadbb9;
 const TARGET = 0xffd36b;
 /** Shield of the shieldbearer: cold steel with a pale rim (outside the chain palette). */
 const STEEL = 0xa9b8c6;
+/** Fuse sparks and the blast ring of the sapper: hot orange (outside the chain palette). */
+const SPARK = 0xffb04a;
 
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
-export interface SignalCounts { shields: number; arrowLanes: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number }
 
 interface EnemyView {
   root: Container;
@@ -103,6 +105,8 @@ export class RealtimeRenderer {
   private readonly enemyViews = new Map<number, EnemyView>();
   private readonly bodyTextures = new Map<string, { texture: Texture; ax: number; ay: number }>();
   private readonly floating: FloatingText[] = [];
+  /** Stage 2, step 2: blast flashes fading out. */
+  private readonly bursts: { g: Graphics; life: number; total: number }[] = [];
   private heroArt: Container | null = null;
   private readonly heroRing = new Graphics();
   private arena: ArenaLayout | null = null;
@@ -133,7 +137,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0 };
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -277,6 +281,11 @@ export class RealtimeRenderer {
       ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: NAVY, width: 7, cap: 'round' });
       ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: BONE, width: 3.5, cap: 'round' });
       ctx.moveTo(r * 0.55, -r * 1.15).lineTo(r * 0.55, r * 1.15).stroke({ color: PALE, width: 1.5 });
+    }
+    if (kind === 'sapper') {
+      // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
+      ctx.circle(-r * 0.62, -r * 0.62, r * 0.48).fill(0x22262c).stroke({ color: NAVY, width: 3 });
+      ctx.moveTo(-r * 0.85, -r * 0.98).quadraticCurveTo(-r * 1.15, -r * 1.35, -r * 0.9, -r * 1.55).stroke({ color: BONE, width: 3, cap: 'round' });
     }
     if (look === 'circle') {
       ctx.circle(0, 0, r).fill(fill).stroke({ color: NAVY, width: 3 });
@@ -429,12 +438,30 @@ export class RealtimeRenderer {
   /**
    * Signals of the new enemies (stage 2, step 2; docs/realtime-slice.md, section 4, column «Сигнал»):
    * - the shieldbearer: a thick steel arc of the shield width in front of it, turning with the shield (gone while frozen);
-   * - the archer: its announced line — a strip of the threat color (as the boar's lane) that fills up during the windup.
+   * - the archer: its announced line — a strip of the threat color (as the boar's lane) that fills up during the windup;
+   * - the sapper: a burning fuse — sparks at the bomb and a ring growing to the blast radius while it burns (on the living
+   *   sapper lit by touch, and where a dead one lies); a blast flashes (`handleEvents`).
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0 };
+    const fuse = (x: number, y: number, left: number, total: number): void => {
+      counts.fuses++;
+      const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = p.sapperRadius * UNIT, X = x * UNIT, Y = y * UNIT;
+      g.circle(X, Y, R).fill({ color: SPARK, alpha: 0.06 + 0.1 * k }).stroke({ color: THREAT_OUTLINE, width: 4, alpha: 0.6 });
+      g.circle(X, Y, R).stroke({ color: SPARK, width: 2, alpha: 0.9 });
+      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: SPARK, width: 4, alpha: 0.95 });
+      // Sparks of the fuse: short rays turning with the clock (the view's own clock: drawing only).
+      for (let i = 0; i < 6; i++) {
+        const a = this.clock * 9 + i * Math.PI / 3, l = r * (0.35 + 0.25 * Math.abs(Math.sin(this.clock * 23 + i)));
+        g.moveTo(X, Y - r * 0.9).lineTo(X + Math.cos(a) * l, Y - r * 0.9 + Math.sin(a) * l);
+      }
+      g.stroke({ color: SPARK, width: 3, cap: 'round' });
+    };
+    for (const b of world.blasts) fuse(b.x, b.y, b.timeLeft, b.total);
     for (const e of world.enemies) {
+      const lit = sapperFuse(world, e);
+      if (lit) fuse(e.x, e.y, lit.left, lit.total);
       const line = archerLine(world, e);
       if (line) {
         counts.arrowLanes++;
@@ -562,6 +589,14 @@ export class RealtimeRenderer {
         // Dash shake stays light: not stronger than dashShake (design answer 22).
         if (world.params.dashShake > 0 && this.shakeLeft <= 0.02) { this.shakeLeft = this.shakeTotal = 0.08; this.shakeAmp = world.params.dashShake; }
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xffd36b);
+        continue;
+      }
+      if (ev.type === 'blast') {
+        const flash = new Graphics().circle(0, 0, ev.radius * UNIT).fill({ color: SPARK, alpha: 0.55 }).stroke({ color: 0xfff2c4, width: 4 });
+        flash.position.set(ev.x * UNIT, ev.y * UNIT);
+        this.fxLayer.addChild(flash);
+        this.bursts.push({ g: flash, life: 0.35, total: 0.35 });
+        if (world.params.shakeOnDamage) { this.shakeLeft = this.shakeTotal = 0.15; this.shakeAmp = Math.max(this.shakeAmp, 6); }
         continue;
       }
       if (ev.type === 'enemyHit') {
@@ -714,6 +749,16 @@ export class RealtimeRenderer {
     }
   }
 
+  private updateBursts(dt: number): void {
+    for (let i = this.bursts.length - 1; i >= 0; i--) {
+      const b = this.bursts[i];
+      b.life -= dt;
+      if (b.life <= 0) { b.g.destroy(); this.bursts.splice(i, 1); continue; }
+      const k = b.life / b.total;
+      b.g.alpha = k; b.g.scale.set(1 + (1 - k) * 0.25);
+    }
+  }
+
   private updateFloating(dt: number): void {
     for (let i = this.floating.length - 1; i >= 0; i--) {
       const f = this.floating[i];
@@ -728,6 +773,7 @@ export class RealtimeRenderer {
     this.applyShake(realDt);
     this.handleEvents(world);
     this.updateFloating(realDt);
+    this.updateBursts(realDt);
     this.updateDying(realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
@@ -778,6 +824,8 @@ export class RealtimeRenderer {
     this.comboValue = 0;
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
+    for (const b of this.bursts) b.g.destroy();
+    this.bursts.length = 0;
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });
     this.enemyViews.clear();
     for (const d of this.dying) d.root.destroy({ children: true });

@@ -234,7 +234,7 @@ check('arenas of the new enemies come on their rows; rows without an arena yet p
   // Step 2: arenas 4–7 stand on their rows (section 5); only rows no arena covers (run row 9 until arena 8) play a stand-in.
   const standIns = new Set(walks.flatMap(walk => walk.standIns));
   assert(standIns.size === STAND_IN_ARENAS.length && [...standIns].every(arena => STAND_IN_ARENAS.includes(arena)), `stand-in rows play: ${[...standIns].join(', ')}`);
-  for (let row = 1; row <= 7; row++) assert(!arenaCandidates(row).any, `run row ${row} has arenas of its own`);
+  for (let row = 1; row <= 8; row++) assert(!arenaCandidates(row).any, `run row ${row} has arenas of its own`);
   const rowsOf = (arena: string) => new Set(walks.flatMap(walk => walk.rowArenas.filter(([, a]) => a === arena).map(([row]) => row)));
   for (const entry of ARENA_POOLS) {
     const rows = rowsOf(entry.arena);

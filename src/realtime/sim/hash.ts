@@ -43,6 +43,8 @@ export function worldState(world: World): unknown {
     rng: world.rng.states(),
     // The live panel values decide the future too (a `param` command changes them).
     params: world.params,
+    // Stage 2 of the transition: lit fuses (absent when there are none — worlds without them hash as before).
+    ...world.blasts.length ? { blasts: world.blasts } : {},
   };
 }
 

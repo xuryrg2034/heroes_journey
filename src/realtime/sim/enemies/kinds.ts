@@ -9,7 +9,7 @@
  */
 import type { Vec } from '../geometry';
 import { enemyBodyRadius, enemyDrawRadius, type Params } from '../params';
-import type { Enemy, World } from '../world';
+import type { Enemy, KillCause, World } from '../world';
 
 export interface EnemyBehavior {
   id: string;
@@ -28,6 +28,11 @@ export interface EnemyBehavior {
    * rule of reach and sight (chain.ts) runs first; any anchor that passes all of them takes the link.
    */
   canBeLinkedFrom?(world: World, enemy: Enemy, anchor: Vec): boolean;
+  /**
+   * Stage 2 of the transition: the enemy has just died (already off the arena) — by the chain (`source` `chain`, credited)
+   * or outside it (`killEnemy`: an arrow, a blast). The sapper lights its fuse here.
+   */
+  onDeath?(world: World, enemy: Enemy, cause: KillCause): void;
 }
 
 export interface EnemyKindDef {

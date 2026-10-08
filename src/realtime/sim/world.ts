@@ -157,6 +157,8 @@ export type WorldEvent =
   | { type: 'chainEnd'; kills: number; score: number }
   | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean }
   | { type: 'jump' }
+  /** Stage 2 of the transition: a blast went off (render: the flash). */
+  | { type: 'blast'; x: number; y: number; radius: number; source: string }
   | { type: 'focusRefill' }
   | { type: 'defeat' };
 
@@ -222,6 +224,28 @@ export interface World {
   focusing: boolean;
   /** Energy for the jump: +energyPerKill per attacked enemy, up to ENERGY_MAX. */
   energy: number;
+  /** Stage 2 of the transition: delayed blasts (lit fuses) on the arena. Hashed only when not empty. */
+  blasts: Blast[];
+}
+
+/**
+ * A delayed blast on the arena (stage 2 of the transition: the sapper's fuse): after `timeLeft` game seconds it hurts
+ * the hero within `radius` (his body circle touching it; invulnerability protects) for `damage` and hits every enemy
+ * whose body touches it for `damage` (`damageEnemy`). `credited` — its kills are the player's. `ownerId` — the enemy that
+ * burns (a sapper lit by touch): it dies in its own blast. Not a body, not a link.
+ */
+export interface Blast {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  timeLeft: number;
+  /** The whole delay (render: the ring grows over it). */
+  total: number;
+  credited: boolean;
+  source: string;
+  ownerId: number;
 }
 
 /** HP the hero enters an arena with: a run carries its HP and maximum between arenas (stage 2 of the transition). */
@@ -276,6 +300,7 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     focusRefreshed: new Set(),
     focusing: false,
     energy: 0,
+    blasts: [],
   };
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   for (const s of arena.enemies) {
@@ -457,6 +482,7 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   if (cause.credited) { world.stats.kills++; world.stats.score += world.params.scorePerKill; }
   if (e.marked) world.stats.markedKills++;
   checkGoals(world);
+  behaviorOf(e).onDeath?.(world, e, cause);
 }
 
 /**
@@ -470,6 +496,35 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
   world.events.push({ type: 'enemyHit', enemyId: e.id, damage, killed, x: e.x, y: e.y, source: cause.source });
   if (killed) killEnemy(world, e, cause);
   else e.hp -= damage;
+}
+
+/** A blast lit on the arena (`delay` game seconds; 0 — it goes off in this tick's blast step). */
+export function addBlast(world: World, at: Vec, blast: { radius: number; damage: number; delay: number; credited: boolean; source: string; ownerId: number }): Blast {
+  const b: Blast = { id: world.nextId++, x: at.x, y: at.y, radius: blast.radius, damage: blast.damage, timeLeft: blast.delay, total: blast.delay, credited: blast.credited, source: blast.source, ownerId: blast.ownerId };
+  world.blasts.push(b);
+  return b;
+}
+
+/** A blast goes off: its burning owner dies in it, then the hero (first: his death comes before a goal) and the enemies are hit. */
+function detonate(world: World, b: Blast): void {
+  const cause: KillCause = { source: b.source, credited: b.credited }, p = world.params;
+  world.events.push({ type: 'blast', x: b.x, y: b.y, radius: b.radius, source: b.source });
+  const owner = world.enemies.find(e => e.id === b.ownerId);
+  if (owner) killEnemy(world, owner, cause);
+  if (canBeHurt(world) && dist(world.hero, b) <= b.radius + heroRadius(p)) hurtHero(world, { id: b.ownerId }, b.damage, b.source);
+  if (world.status !== 'playing') return;
+  const struck = world.enemies.filter(e => dist(e, b) <= b.radius + bodyRadiusOf(p, e));
+  for (const e of struck) damageEnemy(world, e, b.damage, cause);
+}
+
+/** Fuses burn on game time; the blasts that are due go off in the order they were lit (a blast may light new ones). */
+function updateBlasts(world: World, dt: number): void {
+  if (!world.blasts.length) return;
+  const due: Blast[] = [];
+  for (const b of world.blasts) { b.timeLeft -= dt; if (b.timeLeft <= 1e-9) due.push(b); }
+  if (!due.length) return;
+  world.blasts = world.blasts.filter(b => !due.includes(b));
+  for (const b of due) { if (world.status !== 'playing') return; detonate(world, b); }
 }
 
 /** Knocks the hero `distance` units along the unit direction over `HERO_KNOCK_TIME` game seconds (the boar's charge). */
@@ -617,7 +672,7 @@ function contactDamage(world: World, dt: number): void {
     e.brake = Math.max(0, e.brake - dt);
     e.strikeFlash = Math.max(0, e.strikeFlash - dt);
     e.age += dt;
-    if (e.chill !== undefined) { e.chill -= dt; if (e.chill <= 0) delete e.chill; }
+    if (e.chill !== undefined) { e.chill -= dt; if (e.chill <= 1e-9) delete e.chill; }
   }
   if (!canBeHurt(world)) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.
@@ -715,5 +770,7 @@ export function update(world: World, dt: number, realDt = dt): void {
   updateFlow(world, dt);
   moveEnemies(world, dt);
   separate(world);
+  updateBlasts(world, dt);
+  if (world.status !== 'playing') return;
   contactDamage(world, dt);
 }

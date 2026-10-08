@@ -290,6 +290,118 @@ check('arena 5 «Стрелковая гряда»: three marked archers are the
   assert(replays(sim), 'replay');
 });
 
+// ---- Sapper (arena 6 «Пороховой склад») ----
+
+/** Ticks from now until a `blast` event, collecting kill events; -1 when none in `max` ticks. */
+function untilBlast(sim: Simulation, kills: { enemyId: number; source?: string; credited?: boolean }[] = [], max = 300): number {
+  const w = sim.world;
+  for (let n = 1; n <= max && w.status === 'playing'; n++) {
+    sim.tick();
+    let blast = false;
+    for (const ev of w.events) { if (ev.type === 'kill') kills.push(ev); if (ev.type === 'blast') blast = true; }
+    w.events.length = 0;
+    if (blast) return n;
+  }
+  return -1;
+}
+
+check('sapper killed by the chain: its fuse burns 0.8 s, the blast (radius 1.5) hits enemies around it — the kills are the player\'s', () => {
+  for (let k = 13; k <= 15; k++) {
+    const sim = fight('powder', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const sapper = place(sim, 9, 5, 'sapper', 0);
+    const l1 = place(sim, 10.5, 5.8, 'basic', 0), l2 = place(sim, 11.5, 4.3, 'basic', 0);
+    const weak = place(sim, 9, 6.2, 'basic', 1, 0), tough2 = place(sim, 8.3, 4, 'basic', 2, 2), tough3 = place(sim, 9.8, 3.9, 'basic', 3, 3);
+    const outside = place(sim, 9, 7.05, 'basic', 1, 0);
+    // The chain goes on past the sapper: the hero ends 2.7 units from it, out of the blast.
+    sim.command({ t: 'begin', x: sapper.x, y: sapper.y });
+    sim.command({ t: 'drag', x: l1.x, y: l1.y, mode: 'full' });
+    sim.command({ t: 'drag', x: l2.x, y: l2.y, mode: 'full' });
+    assert(w.chain.length === 3, `chain ${w.chain.length}`);
+    sim.command({ t: 'release' });
+    let killedAt = -1;
+    for (let n = 0; n < 60 && killedAt < 0; n++) { sim.tick(); if (w.events.some(ev => ev.type === 'kill' && ev.enemyId === sapper.id)) killedAt = n; w.events.length = 0; }
+    assert(killedAt >= 0 && w.blasts.length === 1, 'the sapper died and its fuse burns');
+    const kills: { enemyId: number; source?: string; credited?: boolean }[] = [];
+    const fuse = untilBlast(sim, kills);
+    // The dash kills before the tick's world step, whose fuse step burns the first 1/60 s: 1 + 47 ticks = 0.8 s.
+    assert(fuse === 47, `the blast went off ${fuse} ticks after the kill tick (0.8 s)`);
+    assert(!alive(w, weak) && !alive(w, tough2) && alive(w, tough3) && tough3.hp === 1 && alive(w, outside), 'weak and HP 2 die, HP 3 → 1, out of the radius untouched');
+    const blastKills = kills.filter(ev => ev.source === 'blast');
+    assert(blastKills.length === 2 && blastKills.every(ev => ev.credited === true), `blast kills ${JSON.stringify(blastKills)}`);
+    assert(w.stats.kills === 5, `kills: 3 by the chain + 2 by the blast = ${w.stats.kills}`);
+    assert(w.hero.hp === w.hero.maxHp && dist(w.hero, sapper) > 2.5, 'the hero ended the chain out of the blast');
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('sapper touching the hero lights its own fuse (1.2 s, no touch damage): the blast hurts the hero and enemies near, kills not the player\'s', () => {
+  // Standing in it: −2. Walking away right after it lit: unhurt.
+  for (const walkAway of [false, true]) {
+    const sim = fight('powder', quiet({ contactDamage: 1 }), seedOf(walkAway ? 17 : 16)), w = sim.world;
+    sim.command({ t: 'teleport', x: 9, y: 5 });
+    const sapper = place(sim, 9.5, 5, 'sapper', 0);
+    const weak = place(sim, 10.3, 5.6, 'basic', 1, 0);
+    sim.tick();
+    assert(sapper.vars.lit === 1 && sapper.vars.fuse === 1.2, `lit by the touch: ${JSON.stringify(sapper.vars)}`);
+    if (walkAway) sim.command({ t: 'walk', x: -1, y: 0 });
+    const touches: string[] = [];
+    let n = 0;
+    for (; n < 120 && !w.events.some(ev => ev.type === 'blast'); n++) {
+      for (const ev of w.events) if (ev.type === 'hit') touches.push(ev.source);
+      w.events.length = 0;
+      sim.tick();
+    }
+    for (const ev of w.events) if (ev.type === 'hit') touches.push(ev.source);
+    assert(n === 72, `blast ${n} ticks after lighting (1.2 s)`);
+    assert(!alive(w, sapper) && !alive(w, weak), 'the sapper and the weak enemy beside it died in the blast');
+    assert(w.stats.kills === 0 && w.stats.score === 0, `not the player's: kills ${w.stats.kills}`);
+    if (walkAway) assert(w.hero.hp === w.hero.maxHp && touches.length === 0, `walked away: HP ${w.hero.hp}, hits ${touches.join(',')}`);
+    else assert(w.hero.hp === w.hero.maxHp - 2 && touches.join(',') === 'blast', `stood in it: HP ${w.hero.hp}, hits ${touches.join(',')} (the sapper's touch does not hurt)`);
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('sapper: the blast respects the hero\'s invulnerability; a chain reaction of sappers keeps the player\'s credit; the cold holds the fuse', () => {
+  // The chain ends on the sapper: the hero stands in its blast. Shield after a chain 1 s (> fuse 0.8 s): unhurt; 0.5 s: −2.
+  for (const shield of [1, 0.5]) {
+    const sim = fight('powder', quiet({ chainShield: shield }), seedOf(18)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const sapper = place(sim, 9, 5, 'sapper', 0);
+    sim.command({ t: 'begin', x: sapper.x, y: sapper.y });
+    sim.command({ t: 'release' });
+    assert(untilBlast(sim) > 0, 'blast');
+    assert(w.hero.hp === w.hero.maxHp - (shield > 0.8 ? 0 : 2), `chain shield ${shield} s: HP ${w.hero.hp}`);
+  }
+  // Two sappers 1.2 apart: the chain kills the first, its blast kills the second, whose blast kills an enemy beyond — all credited.
+  const sim = fight('powder', quiet({ chainShield: 1.5 }), seedOf(19)), w = sim.world;
+  sim.command({ t: 'teleport', x: 7, y: 5 });
+  const first = place(sim, 8, 5, 'sapper', 0), second = place(sim, 9.2, 5, 'sapper', 1), beyond = place(sim, 10.4, 5.4, 'basic', 2, 1);
+  sim.command({ t: 'begin', x: first.x, y: first.y });
+  sim.command({ t: 'release' });
+  assert(untilBlast(sim) > 0 && !alive(w, second) && w.blasts.length === 1, 'the first blast killed the second sapper and lit its fuse');
+  assert(untilBlast(sim) === 48 && !alive(w, beyond), 'its own blast 0.8 s later killed the enemy beyond');
+  assert(w.stats.kills === 3, `kills credited along the chain reaction: ${w.stats.kills}`);
+  assert(replays(sim), 'replay');
+  // The cold stops a fuse burning on a living sapper: lit by touch, frozen 1 s → the blast comes 1 s later.
+  const cold = fight('powder', quiet(), seedOf(20));
+  cold.command({ t: 'teleport', x: 9, y: 5 });
+  const lit = place(cold, 9.5, 5, 'sapper', 0);
+  cold.tick();
+  cold.command({ t: 'chill', id: lit.id, seconds: 1 });
+  const n = untilBlast(cold);
+  assert(n === 132, `frozen 1 s: blast after ${n} ticks (1 s cold + 1.2 s fuse)`);
+  assert(replays(cold), 'replay');
+});
+
+check('arena 6 «Пороховой склад»: kill 25; sappers are about 15% of newcomers', () => {
+  const t = arenaTemplate('powder');
+  assert(t.goal === 'kills' && t.killGoal === 25, 'kill 25');
+  const { share, kinds, total } = shareOf('powder', 'sapper');
+  assert(total >= 80 && share > 0.07 && share < 0.25, `sappers ${(share * 100).toFixed(0)}% of ${total}`);
+  assert([...kinds].every(kind => kind === 'basic' || kind === 'sapper'), `kinds ${[...kinds].join(', ')}`);
+});
+
 // ---- Determinism of the new arenas ----
 
 /** Builds the longest chain it greedily can (enemies and crystals), then releases it — as the bot of realtimeSim.spec.ts. */
@@ -315,7 +427,7 @@ function playChain(sim: Simulation): void {
 const WALK = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]];
 
 check('each new arena: a bot fight of 50 s replays from its journal to the same hash at every checkpoint', () => {
-  for (const [k, arena] of ['shields', 'archers'].entries()) {
+  for (const [k, arena] of ['shields', 'archers', 'powder'].entries()) {
     const p = defaultParams();
     p.heroHp = 40;
     const sim = new Simulation({ arena, params: p, seed: seedOf(20 + k), record: true });

@@ -42,8 +42,8 @@ function testParams(pathfinding: boolean, density = false): Params {
   p.contactDamage = 0;
   // No boars: a charge knocks the hero away and its damage could end the run, which freezes the world mid-measure.
   p.boarMax = 0;
-  // Stage 2, step 2: the abilities of the slice enemies do not hurt the hero either (an arrow would end the run too).
-  p.archerDamage = 0;
+  // Stage 2, step 2: the abilities of the slice enemies do not hurt the hero either (an arrow or a blast would end the run too).
+  p.archerDamage = 0; p.sapperDamage = 0;
   p.speedSpread = 0;
   // No newcomers: no groups and no density floor (stage B: 28 before the goals) — only the enemies under test.
   p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.baseFloor = 0;
@@ -181,7 +181,7 @@ function tickReport(): void {
   console.log('| --- | --- | --- |');
   for (const arena of ARENAS) {
     const params = defaultParams();
-    params.contactDamage = 0; params.boarDamage = 0; params.archerDamage = 0;
+    params.contactDamage = 0; params.boarDamage = 0; params.archerDamage = 0; params.sapperDamage = 0;
     params.baseFloor = 60; params.maxEnemies = 60;
     const sim = new Simulation({ arena, params, seed: 7 });
     sim.command({ t: 'burst', count: 60 });

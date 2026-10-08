@@ -99,3 +99,27 @@ test('archer: arena 5 opens with three marked archers; its line is drawn for abo
   expect(shot.signals.arrowLanes).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('sapper: arena 6 opens; a sapper touching the hero lights its fuse — the ring and sparks are drawn, the blast hurts him for 2', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 6);
+  expect((await snap(page)).arena).toBe('powder');
+  await expect(page.getByTestId('goal')).toHaveText('убито 0 / 25');
+  await quiet(page);
+  await place(page, 8.45, 5, 'sapper', 1);
+  // The touch lights the fuse at once: the ring of the blast radius grows while it burns (1.2 s).
+  await expect.poll(async () => (await snap(page)).signals.fuses, { timeout: 3_000, intervals: [20] }).toBe(1);
+  const lit = await snap(page);
+  expect(lit.enemies[0].vars.lit).toBe(1);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'artifacts/realtime-sapper-fuse.png' });
+  await expect.poll(async () => (await snap(page)).hero.hp, { timeout: 5_000, intervals: [20] }).toBe(lit.hero.maxHp - 2);
+  const after = await snap(page);
+  expect(after.time - lit.time).toBeGreaterThan(1.0);
+  expect(after.time - lit.time).toBeLessThan(1.5);
+  expect(after.enemies).toHaveLength(0);
+  expect(after.signals.fuses).toBe(0);
+  // Its own blast is not the player's kill.
+  expect(after.kills).toBe(0);
+  expect(errors).toEqual([]);
+});

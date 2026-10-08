@@ -486,7 +486,9 @@ function hitEnemy(world: World, enemy: Enemy): void {
     world.stats.kills++;
     move.kills++;
     if (enemy.marked) world.stats.markedKills++;
-    world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color });
+    world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true });
+    // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse).
+    behaviorOf(enemy).onDeath?.(world, enemy, { source: 'chain', credited: true });
     if (p.focusKillRefill) world.focus = Math.min(p.focusMax, world.focus + p.focusPerKill);
     checkGoals(world);
     // A crystal at every N-th kill of this chain (main game: 6th, 12th…), off the rest of its path.

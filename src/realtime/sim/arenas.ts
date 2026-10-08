@@ -256,5 +256,39 @@ export const ARCHER_ARENA: ArenaTemplate = registerArena({
   newcomers: [{ kind: 'archer', share: 0.15 }],
 });
 
+/**
+ * Arena 6 «Пороховой склад» (run rows 4–8): kill 25; 15% of newcomers are sappers. Crates (single wall cells) in two rows
+ * and a pond: where a chain ends decides who stands in the blast. The door is on the left.
+ */
+export const SAPPER_ARENA: ArenaTemplate = registerArena({
+  id: 'powder',
+  name: 'Пороховой склад',
+  summary: 'Убей цепью 25 врагов. Убитый сапёр взрывается через 0,8 с — не заканчивай цепь рядом. Дверь слева.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 5 },
+  obstacles: [
+    wall(3, 2, 1, 1),
+    wall(5, 2, 1, 1),
+    wall(10, 2, 1, 1),
+    wall(12, 2, 1, 1),
+    wall(3, 7, 1, 1),
+    wall(5, 7, 1, 1),
+    wall(10, 7, 1, 1),
+    wall(12, 7, 1, 1),
+    tree(14.6, 5),
+    pond(8, 8.6, 0.7),
+  ],
+  buttons: [],
+  door: { x: 0.7, y: 5 },
+  enemies: [],
+  pace: ONE_KIND_PACE,
+  phases: oneKindPhases(),
+  killGoal: 25,
+  // Баланс: section 5 — sappers 15% of newcomers.
+  newcomers: [{ kind: 'sapper', share: 0.15 }],
+});
+
 /** Arenas 4–7 of the slice on the sandbox menu (keys 4–7), after the three prototype arenas. */
-export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA];
+export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA, SAPPER_ARENA];
