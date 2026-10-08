@@ -548,7 +548,7 @@ async function boot(): Promise<void> {
         input: { ...w.input },
         flow: { builds: w.flow.builds, lastBuildMs: w.flow.lastBuildMs },
         lanes: renderer.visibleLanes,
-        /** Stage 2, step 2: signals of the new enemies drawn in the last frame (shield arcs, …). */
+        /** Stage 2, step 2: signals of the new enemies drawn in the last frame (shield arcs, archer lines, …). */
         signals: { ...renderer.signals },
         packLines: renderer.visiblePackLines,
         ripples: renderer.visibleRipples,

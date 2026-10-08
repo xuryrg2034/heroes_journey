@@ -149,11 +149,13 @@ export type WorldEvent =
   | { type: 'victory' }
   | { type: 'spawn'; enemyId: number }
   | { type: 'chainHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number; combo: number }
+  /** Stage 2 of the transition: an enemy hit by something other than the chain (an arrow, a blast). */
+  | { type: 'enemyHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number; source: string }
   | { type: 'crystal'; objectId: number; x: number; y: number }
   | { type: 'crystalBreak'; objectId: number; x: number; y: number; score: number; combo: number }
   | { type: 'finisher'; kills: number }
   | { type: 'chainEnd'; kills: number; score: number }
-  | { type: 'kill'; enemyId: number; x: number; y: number; color: number }
+  | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean }
   | { type: 'jump' }
   | { type: 'focusRefill' }
   | { type: 'defeat' };
@@ -414,8 +416,11 @@ export function canBeHurt(world: World): boolean {
   return !(world.params.focusNoDamage && world.focusing);
 }
 
-/** Applies damage to the hero: invulnerability, flash, stats, defeat. */
-export function hurtHero(world: World, striker: Enemy, damage: number, source: HitSource): void {
+/**
+ * Applies damage to the hero: invulnerability, flash, stats, defeat. The caller decides whether he can be hurt now
+ * (`canBeHurt`; the porcupine's quills ignore it). `striker` — the enemy (or the id of a dead one: a blast) in the event.
+ */
+export function hurtHero(world: World, striker: { id: number }, damage: number, source: HitSource): void {
   const { hero, params } = world;
   if (damage <= 0) return;
   hero.hp = Math.max(0, hero.hp - damage);
@@ -429,6 +434,42 @@ export function hurtHero(world: World, striker: Enemy, damage: number, source: H
     world.endTime = world.time;
     world.events.push({ type: 'defeat' });
   }
+}
+
+/**
+ * Who killed an enemy outside the chain (stage 2 of the transition, docs/realtime-slice.md, section 4, «Зачёт убийств»):
+ * `credited` — the player's kill (counted in kills and score; the blast of a sapper the player killed); not credited —
+ * an enemy's ability (an arrow, the blast of a sapper lit by touch). `source` names it in the events.
+ */
+export interface KillCause { source: string; credited: boolean }
+
+/**
+ * An enemy dies outside the chain: it leaves the arena with a `kill` event. A credited kill counts as the player's
+ * (kills, score per kill, the kill goal). A marked enemy counts for the goal whoever killed it (as the targets of the
+ * turn-based game: a target killed by an enemy's ability still counts for the task, not for the player's counters).
+ * The chain kills through chain.ts (`hitEnemy`).
+ */
+export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
+  const index = world.enemies.indexOf(e);
+  if (index < 0) return;
+  world.enemies.splice(index, 1);
+  world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited });
+  if (cause.credited) { world.stats.kills++; world.stats.score += world.params.scorePerKill; }
+  if (e.marked) world.stats.markedKills++;
+  checkGoals(world);
+}
+
+/**
+ * A hit of `damage` on an enemy from outside the chain (an arrow, a blast). As a chain hit: it kills when the damage is not
+ * less than the HP (a weak enemy, 0 HP, dies from any hit), otherwise the HP drop. An immune kind (the reaper) is not hurt.
+ */
+export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {
+  if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
+  const killed = damage >= e.hp;
+  e.hurtFlash = Math.max(world.params.hitFlash, 0.01);
+  world.events.push({ type: 'enemyHit', enemyId: e.id, damage, killed, x: e.x, y: e.y, source: cause.source });
+  if (killed) killEnemy(world, e, cause);
+  else e.hp -= damage;
 }
 
 /** Knocks the hero `distance` units along the unit direction over `HERO_KNOCK_TIME` game seconds (the boar's charge). */

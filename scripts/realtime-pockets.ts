@@ -42,6 +42,8 @@ function testParams(pathfinding: boolean, density = false): Params {
   p.contactDamage = 0;
   // No boars: a charge knocks the hero away and its damage could end the run, which freezes the world mid-measure.
   p.boarMax = 0;
+  // Stage 2, step 2: the abilities of the slice enemies do not hurt the hero either (an arrow would end the run too).
+  p.archerDamage = 0;
   p.speedSpread = 0;
   // No newcomers: no groups and no density floor (stage B: 28 before the goals) — only the enemies under test.
   p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.baseFloor = 0;
@@ -111,6 +113,9 @@ function pocketReport(pathfinding: boolean): void {
   if (misses.length) console.log(`Examples of pockets:\n- ${misses.join('\n- ')}`);
 }
 
+/** The arena without newcomers of its own kinds: a burst brings the basic walkers of the common walk only. */
+const walkersOnly = (arena: ArenaLayout): ArenaLayout => ({ ...arena, newcomers: [] });
+
 type CrowdMode = 'flow' | 'density' | 'straight';
 const CROWD_TITLE: Record<CrowdMode, string> = { flow: 'flow field', density: 'flow field + density penalty', straight: 'straight line' };
 
@@ -124,7 +129,9 @@ function crowdReport(mode: CrowdMode): void {
     const heroes = heroSpots(arena, params).filter((_, i) => i % 3 === 0);
     let near = 0, far = 0, lone = 0, runs = 0, worst = 0;
     for (const hero of heroes) for (let run = 0; run < 3; run++) {
-      const world = quietWorld(arena, params, hero, run + 1);
+      // The common walk is measured: the crowd is basic enemies (an arena's own kinds — archers keeping their distance — are
+      // not a pathing pocket).
+      const world = quietWorld(walkersOnly(arena), params, hero, run + 1);
       spawnBurst(world, 40);
       for (const e of world.enemies) e.speedFactor = 1;
       let mark = new Map<number, Vec>();
@@ -151,7 +158,7 @@ function perfReport(): void {
     const pathfinding = mode !== 'straight';
     const params = testParams(pathfinding, mode === 'density');
     params.maxEnemies = 60;
-    const world = quietWorld(arena, params, arena.heroStart);
+    const world = quietWorld(walkersOnly(arena), params, arena.heroStart);
     spawnBurst(world, 60);
     // The hero walks a loop so the field target keeps changing (rebuild at every tick).
     let rebuildSum = 0, rebuildMax = 0, rebuilds = 0, lastBuilds = world.flow.builds;
@@ -174,7 +181,7 @@ function tickReport(): void {
   console.log('| --- | --- | --- |');
   for (const arena of ARENAS) {
     const params = defaultParams();
-    params.contactDamage = 0; params.boarDamage = 0;
+    params.contactDamage = 0; params.boarDamage = 0; params.archerDamage = 0;
     params.baseFloor = 60; params.maxEnemies = 60;
     const sim = new Simulation({ arena, params, seed: 7 });
     sim.command({ t: 'burst', count: 60 });

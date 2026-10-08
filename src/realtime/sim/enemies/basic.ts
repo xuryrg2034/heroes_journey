@@ -55,4 +55,6 @@ registerEnemyKind({
   spread: false,
   chainable: false,
   hitSource: 'reaper',
+  // Cannot be killed: an arrow or a blast does not hurt it either (stage 2 of the transition).
+  immune: true,
 });

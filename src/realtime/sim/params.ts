@@ -230,6 +230,24 @@ export interface Params {
   shieldTurn: number;
   /** Walking speed multiplier of the shieldbearer. */
   shieldSpeed: number;
+  // Archer (stage 2 of the transition, docs/realtime-slice.md, section 4)
+  archerHp: number;
+  /** Nearer than this to the hero the archer backs away. */
+  archerNear: number;
+  /** Farther than this from the hero the archer walks up. */
+  archerFar: number;
+  /** One announced line every … game seconds (the announcement is part of it). */
+  archerCooldown: number;
+  /** The line is announced this long before the arrow flies. */
+  archerWindup: number;
+  /** Length of the line. */
+  archerRange: number;
+  /** Width of the line. */
+  archerWidth: number;
+  /** Damage of the arrow to the hero. */
+  archerDamage: number;
+  /** Hit of the arrow on an enemy on the line. */
+  archerHit: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -370,6 +388,15 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shieldArc: 120,
   shieldTurn: 90,
   shieldSpeed: 0.8,
+  archerHp: 0,
+  archerNear: 4,
+  archerFar: 6,
+  archerCooldown: 3,
+  archerWindup: 1,
+  archerRange: 7,
+  archerWidth: 0.5,
+  archerDamage: 1,
+  archerHit: 1,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -518,6 +545,15 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('shieldArc', 'Щитоносец', 'Дуга щита', 0, 360, 5, 5, '°', 'Звено нельзя взять, если якорь (предыдущее звено или герой) стоит в этой дуге перед щитоносцем.'),
   n('shieldTurn', 'Щитоносец', 'Поворот щита к герою', 0, 720, 5, 5, '°/с', 'Герой (4 ед/с) обходит щитоносца быстрее, чем поворачивается щит.'),
   n('shieldSpeed', 'Щитоносец', 'Скорость щитоносца', 0.1, 2, 0.05, 5, '×'),
+  n('archerHp', 'Лучник', 'HP лучника', 0, 6, 1, 5),
+  n('archerNear', 'Лучник', 'Отходит, если герой ближе', 0, 10, 0.25, 5, 'ед.'),
+  n('archerFar', 'Лучник', 'Подходит, если герой дальше', 0, 12, 0.25, 5, 'ед.'),
+  n('archerCooldown', 'Лучник', 'Выстрел раз в', 0.5, 10, 0.1, 5, 'с', 'Объявление линии входит в этот срок.'),
+  n('archerWindup', 'Лучник', 'Объявление линии (полоса)', 0.1, 3, 0.1, 5, 'с'),
+  n('archerRange', 'Лучник', 'Длина линии', 1, 16, 0.25, 5, 'ед.', 'Стены и деревья обрезают линию, вода — нет.'),
+  n('archerWidth', 'Лучник', 'Ширина линии', 0.1, 2, 0.05, 5, 'ед.'),
+  n('archerDamage', 'Лучник', 'Урон стрелы герою', 0, 6, 1, 5),
+  n('archerHit', 'Лучник', 'Удар стрелы по врагу', 0, 6, 1, 5, '', 'Враг на линии гибнет, если удар не меньше его HP (слабые — всегда); иначе теряет HP. Убийства стрелой игроку не засчитываются.'),
 ];
 
 const MAX_PHASES = 8;

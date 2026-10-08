@@ -75,3 +75,27 @@ test('shieldbearer: arena 4 opens; its shield arc is drawn, the hint says «щи
   await expect.poll(async () => (await snap(page)).kills).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('archer: arena 5 opens with three marked archers; its line is drawn for about 1 s, then the arrow hurts the hero on it', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 5);
+  const start = await snap(page);
+  expect(start.arena).toBe('archers');
+  expect(start.enemies.filter(e => e.kind === 'archer')).toHaveLength(3);
+  await expect(page.getByTestId('goal')).toHaveText('отмеченные 0 / 3');
+  await quiet(page);
+  await place(page, 3, 5, 'archer', 2);
+  // The line appears after the first delay (1 s) and fills up while it stands.
+  await expect.poll(async () => (await snap(page)).signals.arrowLanes, { timeout: 5_000, intervals: [20] }).toBe(1);
+  const announced = await snap(page);
+  expect(announced.hero.hp).toBe(announced.hero.maxHp);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'artifacts/realtime-archer-line.png' });
+  await expect.poll(async () => (await snap(page)).hero.hp, { timeout: 5_000, intervals: [20] }).toBe(announced.hero.maxHp - 1);
+  const shot = await snap(page);
+  // The arrow flew about 1 s of game time after the line appeared; the line is gone until the next one.
+  expect(shot.time - announced.time).toBeGreaterThan(0.85);
+  expect(shot.time - announced.time).toBeLessThan(1.3);
+  expect(shot.signals.arrowLanes).toBe(0);
+  expect(errors).toEqual([]);
+});

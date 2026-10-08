@@ -221,5 +221,40 @@ export const SHIELD_ARENA: ArenaTemplate = registerArena({
   newcomers: [{ kind: 'shield', share: 0.25 }],
 });
 
+/**
+ * Arena 5 «Стрелковая гряда» (run rows 4–7): kill the three marked archers; 15% of newcomers are archers. Two ridges of
+ * walls with gaps give cover from the arrows (a wall cuts the line); the hero starts on the left, the door is on the right.
+ */
+export const ARCHER_ARENA: ArenaTemplate = registerArena({
+  id: 'archers',
+  name: 'Стрелковая гряда',
+  summary: 'Убей трёх отмеченных лучников — они держат дистанцию и стреляют по линии. Стены укрывают. Дверь справа.',
+  goal: 'marked',
+  width: 16,
+  height: 10,
+  heroStart: { x: 2.5, y: 5 },
+  obstacles: [
+    wall(5, 1, 1, 3),
+    wall(5, 6, 1, 3),
+    wall(10, 3, 1, 4),
+    tree(8, 2.4),
+    tree(8, 7.6),
+    tree(13, 5.2),
+    tree(2, 8.5),
+    pond(12.6, 8.4, 0.7),
+  ],
+  buttons: [],
+  door: { x: 15.3, y: 5 },
+  enemies: [
+    { x: 7.8, y: 1.2, color: 0, hp: 0, kind: 'archer', marked: true },
+    { x: 13, y: 2.4, color: 2, hp: 0, kind: 'archer', marked: true },
+    { x: 13.6, y: 7.4, color: 3, hp: 0, kind: 'archer', marked: true },
+  ],
+  pace: ONE_KIND_PACE,
+  phases: oneKindPhases(),
+  // Баланс: section 5 — archers 15% of newcomers.
+  newcomers: [{ kind: 'archer', share: 0.15 }],
+});
+
 /** Arenas 4–7 of the slice on the sandbox menu (keys 4–7), after the three prototype arenas. */
-export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA];
+export const SLICE_ARENAS: readonly ArenaTemplate[] = [SHIELD_ARENA, ARCHER_ARENA];

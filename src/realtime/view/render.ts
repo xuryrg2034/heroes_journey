@@ -6,14 +6,14 @@
  * Stage 3: wolf ears and pack lines, boar tusks with the charge lane (threat color, hatched)
  * and «!», target reticles of marked enemies, buttons and the door.
  * Stage 2 of the transition, step 2 (docs/realtime-slice.md, section 4): the signals of the new enemies — the shield
- * arc of the shieldbearer (`drawSignals`).
+ * arc of the shieldbearer, the archer's line (`drawSignals`).
  */
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, canJump, chainAnchor, chainColor, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE, shieldUp } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, archerLine, shieldUp } from '../sim/enemies/index';
 import { inWater, type Vec } from '../sim/geometry';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
@@ -48,7 +48,7 @@ const TARGET = 0xffd36b;
 const STEEL = 0xa9b8c6;
 
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
-export interface SignalCounts { shields: number }
+export interface SignalCounts { shields: number; arrowLanes: number }
 
 interface EnemyView {
   root: Container;
@@ -133,7 +133,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0 };
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -271,6 +271,12 @@ export class RealtimeRenderer {
     if (kind === 'boar') {
       // Boar: a bristle ridge on top and two bone tusks below (silhouette, not a color).
       ctx.poly([-r * 0.55, -r * 0.78, -r * 0.35, -r * 1.25, -r * 0.12, -r * 0.88, r * 0.1, -r * 1.32, r * 0.3, -r * 0.88, r * 0.52, -r * 1.2, r * 0.62, -r * 0.7]).fill(NAVY);
+    }
+    if (kind === 'archer') {
+      // Archer: a bow on its side with a taut string (silhouette, not a color).
+      ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: NAVY, width: 7, cap: 'round' });
+      ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: BONE, width: 3.5, cap: 'round' });
+      ctx.moveTo(r * 0.55, -r * 1.15).lineTo(r * 0.55, r * 1.15).stroke({ color: PALE, width: 1.5 });
     }
     if (look === 'circle') {
       ctx.circle(0, 0, r).fill(fill).stroke({ color: NAVY, width: 3 });
@@ -422,12 +428,26 @@ export class RealtimeRenderer {
 
   /**
    * Signals of the new enemies (stage 2, step 2; docs/realtime-slice.md, section 4, column «Сигнал»):
-   * - the shieldbearer: a thick steel arc of the shield width in front of it, turning with the shield (gone while frozen).
+   * - the shieldbearer: a thick steel arc of the shield width in front of it, turning with the shield (gone while frozen);
+   * - the archer: its announced line — a strip of the threat color (as the boar's lane) that fills up during the windup.
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0 };
     for (const e of world.enemies) {
+      const line = archerLine(world, e);
+      if (line) {
+        counts.arrowLanes++;
+        const half = line.half * UNIT, ux = e.vars.dx, uy = e.vars.dy, nx = -uy, ny = ux, ox = line.from.x * UNIT, oy = line.from.y * UNIT;
+        const len = Math.hypot(line.to.x - line.from.x, line.to.y - line.from.y) * UNIT;
+        const quad = (t0: number, t1: number): number[] => [ox + ux * t0 - nx * half, oy + uy * t0 - ny * half, ox + ux * t1 - nx * half, oy + uy * t1 - ny * half, ox + ux * t1 + nx * half, oy + uy * t1 + ny * half, ox + ux * t0 + nx * half, oy + uy * t0 + ny * half];
+        g.poly(quad(0, len)).fill({ color: THREAT, alpha: 0.12 });
+        g.poly(quad(0, len * line.progress)).fill({ color: THREAT, alpha: 0.4 });
+        g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 4, alpha: 0.8 }).poly(quad(0, len)).stroke({ color: THREAT, width: 1.5, alpha: 0.95 });
+        // The arrow head at the filling front.
+        const tx = ox + ux * len * line.progress, ty = oy + uy * len * line.progress;
+        g.poly([tx + ux * half * 1.6, ty + uy * half * 1.6, tx - nx * half * 1.3, ty - ny * half * 1.3, tx + nx * half * 1.3, ty + ny * half * 1.3]).fill(THREAT).stroke({ color: THREAT_OUTLINE, width: 2 });
+      }
       if (!shieldUp(world, e)) continue;
       counts.shields++;
       const x = e.x * UNIT, y = e.y * UNIT, half = Math.min(Math.PI, p.shieldArc * Math.PI / 360), f = e.vars.facing ?? 0, R = r * 1.22;
@@ -542,6 +562,11 @@ export class RealtimeRenderer {
         // Dash shake stays light: not stronger than dashShake (design answer 22).
         if (world.params.dashShake > 0 && this.shakeLeft <= 0.02) { this.shakeLeft = this.shakeTotal = 0.08; this.shakeAmp = world.params.dashShake; }
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xffd36b);
+        continue;
+      }
+      if (ev.type === 'enemyHit') {
+        // Stage 2, step 2: an arrow or a blast wounds an enemy (a kill comes as its own `kill` event).
+        if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xff8a73);
         continue;
       }
       if (ev.type === 'kill') {

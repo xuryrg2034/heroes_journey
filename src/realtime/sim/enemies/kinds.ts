@@ -51,6 +51,8 @@ export interface EnemyKindDef {
   chainable: boolean;
   /** Source of its touch in the hit event (render, stats). */
   hitSource: string;
+  /** Stage 2 of the transition: hits from outside the chain (an arrow, a blast) do not hurt it (the reaper). */
+  immune?: boolean;
 }
 
 const kinds = new Map<string, EnemyKindDef>();
