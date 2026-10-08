@@ -470,7 +470,8 @@ export const LAST_STAND_ARENA: ArenaTemplate = registerArena({
   door: { x: 8, y: 0.7 },
   enemies: [
     { x: 2.2, y: 5, color: 3, kind: 'porcupine', elite: true },
-    { x: 8, y: 8.8, color: 0, kind: 'sapper', elite: true },
+    // Moved off the south brazier (design 09.10.2026: the elite's art covered it at the start): 2.2 from it.
+    { x: 6, y: 8.8, color: 0, kind: 'sapper', elite: true },
   ],
   phaseOverride: ONE_KIND,
   phases: FINAL_PHASES.map(phase => ({ ...phase })),
