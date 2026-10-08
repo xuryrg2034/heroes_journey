@@ -1,10 +1,11 @@
 /**
- * Arenas of the new enemies of stage 3a, step 4 (docs/realtime-stage3.md, sections 4 and 9): «Рысье логово» (the lynx,
+ * Arenas of the new enemies of stage 3a, step 4 (docs/realtime-stage3.md, sections 4 and 10): «Рысье логово» (the lynx,
  * М5 gorge) and «Круг шамана» (the shaman, М4 braziers). Kept apart from arenas.ts (its arenas 4–10 are being laid out
  * anew in step 2). For now — the sandbox only (menu keys ⇧6, ⇧7, `?arena=16`, `?arena=17`); the run's pools take them
  * after step 2 (design answer 09.10.2026: rows 4–7 and 5–8, as ordinary candidates of their rows — no first-meeting rule).
  *
- * Расстановка — черновик ядра (design answer 4а, 09.10.2026), проверка — `npm run realtime:pockets` (0 карманов).
+ * Расстановка — черновик ядра (design answer 4а, 09.10.2026). Checks: `npm run realtime:pockets` (no pockets) and the layout
+ * rules of section 8 (`npm run test:realtime-slice-terrain`: every gap shut or at least 2 wide, no dead end).
  */
 import { registerArena, sharesOfAll, type ArenaTemplate, type Pace } from './arenas';
 import { tree, wall } from './geometry';
@@ -34,7 +35,7 @@ export const LYNX_DEN_ARENA: ArenaTemplate = registerArena({
   obstacles: [
     wall(5, 0, 1, 4), wall(5, 6, 1, 4),
     wall(10, 0, 1, 1.75), wall(10, 3.75, 1, 2.5), wall(10, 8.25, 1, 1.75),
-    tree(2.4, 2.2), tree(2.6, 7.8), tree(13.4, 5),
+    tree(2.5, 2.5), tree(2.5, 7.5), tree(13.5, 5),
   ],
   buttons: [],
   door: { x: 15.3, y: 5 },
@@ -62,7 +63,7 @@ export const SHAMAN_CIRCLE_ARENA: ArenaTemplate = registerArena({
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 8.3 },
-  obstacles: [tree(2.4, 6.6), tree(13.6, 6.6), tree(8, 6), wall(0, 8.6, 2, 1.4), wall(14, 8.6, 2, 1.4)],
+  obstacles: [tree(2.6, 6.2), tree(13.4, 6.2), tree(8, 6), wall(0, 8.6, 2, 1.4), wall(14, 8.6, 2, 1.4)],
   buttons: [],
   door: { x: 0.7, y: 4 },
   enemies: [
