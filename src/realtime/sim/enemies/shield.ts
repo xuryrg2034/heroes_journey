@@ -61,7 +61,8 @@ function turnTo(world: World, e: Enemy, want: number, dt: number): void {
 
 registerBehavior({
   id: 'shield',
-  // The direction and the first interval are rolled in both modes: the sandbox toggle does not shift the stream.
+  // The direction and the first interval are rolled in both modes, so the toggle does not change the rolls at spawn; with
+  // the toggle on, `step` rolls no new directions, so bearers that appear later get other rolls than with it off.
   onSpawn(world, e) {
     e.vars.want = rollDirection(world);
     e.vars.timer = rollInterval(world);

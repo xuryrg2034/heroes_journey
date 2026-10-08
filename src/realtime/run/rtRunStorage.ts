@@ -6,7 +6,8 @@
 import type { RunStorage } from '../../game/run/forestRunStorage';
 import { parseRtRun, serializeRtRun, type RtRunState } from './rtRun';
 
-export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v2';
+/** Iteration 2.1: `-v3` (save version 3, the run HP 15); `-v2` (step 3) and `-v1` (steps 1–2) are not read. */
+export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v3';
 export const RT_PROFILE_STORAGE_KEY = 'ashen-oath-rt-profile-v1';
 export const RT_PROFILE_VERSION = 1;
 

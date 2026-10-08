@@ -44,8 +44,10 @@ import type { Loadout } from '../sim/kit';
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
  * stock. A version 1 save (step 1–2) reads as no run: the slice is a prototype, its runs are short (decision of step 3).
+ * Version 3 (iteration 2.1, 08.10.2026): the run HP 15 and HP numbers ×3 — a version 2 save (12 / 12, ×2.4) reads as no run
+ * (review of 2.1, as for the earlier format changes); the item notice fields.
  */
-export const RT_RUN_VERSION = 2;
+export const RT_RUN_VERSION = 3;
 
 /** Iteration 2.1: numbers a run arena takes from the run, not from the saved panel (the healing consumable: rtHp(3) = 9). */
 export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL });
@@ -723,7 +725,7 @@ export function rtEventView(run: RtRunState): RtEventView | null {
     const cost = payableCost(run, option), optionBase = option.escalation ? attemptBase(run, pending.draw, now) : base;
     const chances = attemptChances(option, now), kinds = eventResourceKinds(optionBase, option);
     let reason = gap ? `Нет в срезе: ${gap}` : option.escalation && done >= max ? `Попыток больше нет (${max} из ${max})` : cost.block;
-    // An option that may lose HP needs EVENT_RISK_MIN_HP of the turn-based run, scaled as every HP threshold (2 → 5).
+    // An option that may lose HP needs EVENT_RISK_MIN_HP of the turn-based run, scaled as every HP threshold (2 → 6; 2 → 5 before iteration 2.1).
     if (!reason && mayLoseHp(option, now) && run.hp < rtHp(EVENT_RISK_MIN_HP)) reason = hpShort(rtHp(EVENT_RISK_MIN_HP), run.hp);
     if (!reason && optionNeedsTalisman(option) && !talismanLeft(turnPool(talismanPool(run)))) reason = 'Талисманов не осталось';
     const battle = option.battle ? arenaPick(run, { ...node, type: 'battle' }, false) : undefined;

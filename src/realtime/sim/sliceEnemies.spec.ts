@@ -8,7 +8,7 @@
  * same hash.
  */
 import { arenaTemplate } from './arenas';
-import { chainAnchor, hoverRefusal, nextCandidates, nextObjectCandidates, planChain } from './chain';
+import { armedDamage, chainAnchor, hoverRefusal, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { dist, type Vec } from './geometry';
 import { defaultParams, runParams, type Params } from './params';
 import { Simulation, replay } from './simulation';
@@ -663,6 +663,30 @@ check('porcupine (iteration 2.1): in one chain only the porcupines with the quil
   for (let i = 0; i < 120 && cw.move; i++) { cold.tick(); coldQuills += hits(cw, 'quills'); cw.events.length = 0; }
   assert(coldQuills === 0 && cw.hero.hp === cw.hero.maxHp && !alive(cw, frozen), 'frozen: killed without quills');
   assert(replays(cold), 'replay');
+});
+
+check('porcupine: the «−N HP» badge shows the damage the quills really do (armedDamage — 1, an elite 2, down or frozen 0); the dash takes exactly that', () => {
+  for (const [k, elite] of [[80, false], [81, true], [82, true]] as const) {
+    const sim = fight('thorns', quiet({ contactDamage: 0 }), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const id = sim.command({ t: 'place', x: 9, y: 5, color: 0, hp: 1, kind: 'porcupine', ...elite ? { elite: 'random' as const } : {} }) as number;
+    const p = w.enemies.find(e => e.id === id)!;
+    runUntil(sim, () => !quillsUp(w, p), 600);
+    assert(armedDamage(w, p) === 0, 'down: no badge');
+    runUntil(sim, () => quillsUp(w, p) && p.vars.timer > 1, 600);
+    const shown = armedDamage(w, p);
+    assert(shown === (elite ? 2 : 1), `badge −${shown} for ${elite ? 'an elite' : 'a porcupine'}`);
+    const hp = w.hero.hp;
+    sim.command({ t: 'begin', x: p.x, y: p.y });
+    sim.command({ t: 'release' });
+    for (let i = 0; i < 120 && w.move; i++) sim.tick();
+    assert(hp - w.hero.hp === shown, `the dash took ${hp - w.hero.hp}, the badge said ${shown}`);
+    const q = place(sim, w.hero.x + 1, w.hero.y, 'porcupine', 0, 1);
+    runUntil(sim, () => quillsUp(w, q), 600);
+    sim.command({ t: 'chill', id: q.id, seconds: 1 });
+    assert(armedDamage(w, q) === 0, 'frozen: no badge');
+    assert(replays(sim), 'replay');
+  }
 });
 
 check('arena 7 «Колючие заросли»: three buttons; porcupines are about 20% of newcomers', () => {

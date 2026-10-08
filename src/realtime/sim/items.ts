@@ -7,7 +7,7 @@
  * | 1 | Cold | every enemy whose body touches the circle of `frostRadius` (1.5) at the pointer freezes for `frostTime` (3 s):
  *   stands, does not touch, its mechanic is off (`enemyFrozen`); the next chain hit on it while frozen is ×`frostFactor`. |
  * | 2 | Bomb | the enemy under the pointer within `bombRange` (5) of the hero takes `bombDamage` (6). |
- * | 3 | Healing | +`itemHeal` HP (8 = the turn-based elixir +3 × 2.4), not above the maximum. |
+ * | 3 | Healing | +`itemHeal` HP (9 = the turn-based elixir +3 × 3; a run arena always 9 — `rtRunParams`), not above the maximum. |
  * | 4 | Fire | the enemy under the pointer and every enemy whose body touches the circle of `fireRadius` (1) around it burn:
  *   `fireDamage` (1) every `fireInterval` (1.5 s), `fireTicks` (3) times. |
  *

@@ -110,7 +110,7 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   expect(after.pending).toBeNull();
   expect(after.hp).toBe(won.hero.hp);
   const keys = await page.evaluate(() => Object.keys(localStorage));
-  expect(keys).toContain('ashen-oath-rt-run-v2');
+  expect(keys).toContain('ashen-oath-rt-run-v3');
   expect(keys).not.toContain('ashen-oath-forest-run-v1');
   expect(keys).not.toContain('ashen-oath-profile-v1');
 

@@ -135,8 +135,9 @@ test('elite: a gold rim on a larger drawing; killed by the bomb it drops loot on
   expect(elite.elite).toBeTruthy();
   expect(elite.hp).toBe(4);
   await page.screenshot({ path: 'artifacts/realtime-elite.png' });
-  // Two bombs: 4 HP. The hero stands 4.7 away (bombs reach 5): the loot falls within 4 of the elite and cannot land on
-  // him — at 2 away it did on about 1% of the random sandbox seeds and was picked up the same tick (Node, 400 seeds).
+  // Two bombs: 4 HP. The hero stands 4.7 away (bombs reach 5): the loot falls within 1.5 of the elite (`eliteLootRadius`)
+  // and his touch cannot reach it — at 2 away it fell within his reach on about 1% of the random sandbox seeds and was
+  // picked up the same tick (Node, 400 seeds).
   await page.evaluate(() => (window as any).__realtime.teleport(5.3, 5));
   await pointAt(page, 10, 5);
   await page.keyboard.press('2');

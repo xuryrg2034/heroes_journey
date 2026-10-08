@@ -12,7 +12,7 @@
  *
  * State in `enemy.vars`: `up` (1 — the quills are up), `timer` — game seconds left in this state.
  */
-import { enemyFrozen, hurtHero, type Enemy, type World } from '../world';
+import { enemyFrozen, heroDamage, hurtHero, type Enemy, type World } from '../world';
 import { registerBehavior, registerEnemyKind } from './kinds';
 
 /** Timers reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */
@@ -51,7 +51,8 @@ registerBehavior({
     if (e.vars.timer <= TIME_EPS) e.vars.timer = 0;
     return false;
   },
-  armed: quillsUp,
+  // The badge and the release read the damage the quills would do now (`heroDamage`: the elite +1, as `hurtHero`).
+  armed: (world, e) => quillsUp(world, e) ? heroDamage(world, e, world.params.porcupineQuills) : 0,
   onChainHit(world, e) {
     // The quills of the release (chain.ts), not of now: up at the release — they hurt even if they went down on the way.
     if (!world.move?.armed?.includes(e.id) || world.status !== 'playing') return;

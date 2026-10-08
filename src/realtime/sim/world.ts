@@ -513,14 +513,22 @@ export function canBeHurt(world: World): boolean {
 }
 
 /**
+ * The damage a hit of `damage` from `striker` does to the hero (0 stays 0). Stage 2, step 3 (design answer 5): an elite hits
+ * harder with everything — touch, arrow, charge, its blast, its quills. `hurtHero` and the «−N HP» badge of the quills read it.
+ */
+export function heroDamage(world: World, striker: { elite?: Enemy['elite'] }, damage: number): number {
+  if (damage <= 0) return 0;
+  return damage + (striker.elite ? Math.max(0, world.params.eliteDamageBonus) : 0);
+}
+
+/**
  * Applies damage to the hero: invulnerability, flash, stats, defeat. The caller decides whether he can be hurt now
  * (`canBeHurt`; the porcupine's quills ignore it). `striker` — the enemy (or the id of a dead one: a blast) in the event.
  */
 export function hurtHero(world: World, striker: { id: number; elite?: Enemy['elite'] }, damage: number, source: HitSource): void {
   const { hero, params } = world;
   if (damage <= 0) return;
-  // Stage 2, step 3 (design answer 5): an elite hits harder with everything — touch, arrow, charge, its blast, its quills.
-  if (striker.elite) damage += Math.max(0, params.eliteDamageBonus);
+  damage = heroDamage(world, striker, damage);
   hero.hp = Math.max(0, hero.hp - damage);
   // Stage 2, step 3 («Пепельный оберег», once a run): a hit that would kill leaves the hero with 1 HP; the ward crumbles.
   const kit = world.kit;

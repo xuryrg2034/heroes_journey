@@ -895,7 +895,7 @@ Seed боя в браузере случайный. `?seed=N` в адресе ф
 
 | Крючок | Где | Что делает |
 | --- | --- | --- |
-| `EnemyBehavior.armed(world, enemy)`, `HeroMove.armed` | `kinds.ts`, `chain.ts` (`releaseChain`), `world.ts` | Реакция вида на удар цепи «взведена» сейчас. На отпускании цепи ядро записывает звенья-враги со взведённой реакцией в `move.armed` (как ×2 холода в `move.brittle`); `onChainHit` читает этот список, подсветка выделенной цепи — `armed` сейчас. В хэше — только непустой список. Использует дикобраз: иглы подняты (`quillsUp`) |
+| `EnemyBehavior.armed(world, enemy)`, `armedDamage`, `HeroMove.armed`, `heroDamage` | `kinds.ts`, `chain.ts` (`releaseChain`), `world.ts` | Урон герою, который реакция вида на удар цепи нанесла бы сейчас (0 — не взведена; считает `heroDamage`, как `hurtHero`: элита +1). На отпускании цепи ядро записывает звенья-враги со взведённой реакцией в `move.armed` (как ×2 холода в `move.brittle`); `onChainHit` читает этот список, значок «−N HP» выделенной цепи — `armedDamage` сейчас. В хэше — только непустой список. Использует дикобраз: иглы подняты (`quillsUp`) |
 
 ### Шаблоны арен (`sim/arenas.ts`)
 
