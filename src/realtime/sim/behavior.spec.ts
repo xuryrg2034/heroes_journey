@@ -14,8 +14,8 @@ import { dist, type Vec } from './geometry';
 import { defaultParams, runParams, type Params } from './params';
 import { Simulation, replay } from './simulation';
 import { registerBehavior, registerEnemyKind } from './enemies/index';
-import { WOLF_RUSH, wolfHowl, wolfState } from './enemies/index';
-import type { Enemy, World, WorldEvent } from './world';
+import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP, WOLF_RUSH, shamanBeam, wolfHowl, wolfState } from './enemies/index';
+import { touchDistanceOf, type Enemy, type World, type WorldEvent } from './world';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -62,6 +62,10 @@ function runUntil(sim: Simulation, until: (events: WorldEvent[]) => boolean, max
   return n;
 }
 const alive = (w: World, e: Enemy): boolean => w.enemies.some(x => x.id === e.id);
+/** A state or HP now (functions: a value narrowed by an assertion stays readable after more ticks). */
+const stOf = (e: Enemy): number | undefined => e.vars.st;
+const hpOf = (e: Enemy): number => e.hp;
+const taken = (w: World): number => w.stats.damageTaken;
 const along = (c: Vec, angle: number, d: number): Vec => ({ x: c.x + Math.cos(angle) * d, y: c.y + Math.sin(angle) * d });
 const signals = (events: WorldEvent[], signal: string): WorldEvent[] => events.filter(ev => ev.type === 'enemySignal' && ev.signal === signal);
 const hits = (events: WorldEvent[], source: string): Extract<WorldEvent, { type: 'hit' }>[] =>
@@ -258,6 +262,176 @@ check('П1: the toggle off — the prototype wolf (straight at the hero, no stat
   assert(dist(twin, again.world.hero) < 1 && Object.keys(twin.vars).length === 0, 'replayed without the ring');
   const p = defaultParams(); p.wolfRing = false;
   assert(runParams(p).wolfRing === true, 'a run plays the ring');
+});
+
+// ---- П2: the lynx ----
+
+check('П2: the lynx freezes 0.6 s with its line shown, leaps 3 along it and hurts the hero who stayed (2); stunned 1 s its touch does not hurt; then it does', () => {
+  const sim = fight('test-open', quiet({ contactDamage: 1 }), 101), w = sim.world, h = w.hero;
+  const lynx = place(sim, along(h, 0, 5), 'lynx');
+  run(sim, 30);
+  assert(lynx.vars.st !== LYNX_WINDUP, 'no windup from 5 units');
+  // The quiet pace has speed 0: the hero steps in to 3.2.
+  sim.command({ t: 'teleport', x: lynx.x - 3.2, y: lynx.y });
+  const events: WorldEvent[] = [];
+  runUntil(sim, now => signals(now, 'leap').length > 0, 120, events);
+  const at = { x: lynx.x, y: lynx.y }, start = w.tick;
+  assert(lynx.vars.st === LYNX_WINDUP && Math.abs(lynx.vars.len - w.params.lynxRange) < 0.06, `windup, line ${lynx.vars.len}`);
+  runUntil(sim, () => stOf(lynx) === LYNX_LEAP, 120, events);
+  assert(Math.abs((w.tick - start) / 60 - w.params.lynxWindup) < 0.03 && dist(lynx, at) < 1e-9, `stood ${(w.tick - start) / 60} s`);
+  runUntil(sim, () => stOf(lynx) === LYNX_STUN, 60, events);
+  const bites = hits(events, 'lynx');
+  assert(bites.length === 1 && bites[0].damage === w.params.lynxDamage && w.stats.damageTaken === 2, `leap hit ${JSON.stringify(bites)}`);
+  assert((w.tick - start) / 60 < w.params.lynxWindup + w.params.lynxLeapTime + 0.05, 'leap time');
+  // Stunned next to the hero: 1 s without a touch (his invulnerability after the leap is shorter).
+  run(sim, Math.round(w.params.lynxStun * 60) - 2, events);
+  assert(stOf(lynx) === LYNX_STUN && w.stats.damageTaken === 2 && dist(lynx, h) <= touchDistanceOf(w.params, lynx) + 0.03, `stunned in touch: ${w.stats.damageTaken}, ${dist(lynx, h).toFixed(2)}`);
+  run(sim, 30, events);
+  assert(taken(w) === 3 && hits(events, 'touch').length === 1, `after the stun its touch hurts: ${taken(w)}`);
+  assert(replays(sim), 'replay');
+});
+
+check('П2: a step aside during the windup — the leap misses; the stunned lynx is killed by a chain (the player\'s kill)', () => {
+  for (const k of [111, 112, 113]) {
+    const sim = fight('test-open', quiet({ contactDamage: 1 }), k), w = sim.world, h = w.hero;
+    const angle = k * 1.3;
+    const lynx = place(sim, along(h, angle, 3.2), 'lynx');
+    runUntil(sim, now => signals(now, 'leap').length > 0, 120);
+    // Sideways to the line.
+    sim.command({ t: 'walk', x: -Math.sin(angle), y: Math.cos(angle) });
+    const events = run(sim, Math.round((w.params.lynxWindup + w.params.lynxLeapTime) * 60) + 4);
+    sim.command({ t: 'walk', x: 0, y: 0 });
+    assert(hits(events, 'lynx').length === 0 && lynx.vars.st === LYNX_STUN, `seed ${k}: missed (${hits(events, 'lynx').length}), state ${lynx.vars.st}`);
+    // Punish: back in reach and a chain on it.
+    sim.command({ t: 'teleport', x: lynx.x + 1.4, y: lynx.y });
+    assert(sim.command({ t: 'begin', x: lynx.x, y: lynx.y }) === true, `seed ${k}: a link`);
+    sim.command({ t: 'release' });
+    runUntil(sim, () => !w.move, 120);
+    assert(!alive(w, lynx) && w.stats.kills === 1, `seed ${k}: killed`);
+  }
+});
+
+check('П2: the leap stops at a cliff edge (no fall, no hit across the gorge); the cold holds the windup and it goes on after the thaw', () => {
+  const sim = fight('cliff', quiet(), 121), w = sim.world;
+  sim.command({ t: 'teleport', x: 6.4, y: 2.4 });
+  const lynx = place(sim, { x: 9.6, y: 2.4 }, 'lynx');
+  const events = run(sim, 120);
+  assert(signals(events, 'leap').length === 1 && lynx.vars.st !== LYNX_LEAP, `it leapt once: ${signals(events, 'leap').length}`);
+  assert(alive(w, lynx) && lynx.x > 8.9 && hits(events, 'lynx').length === 0 && !events.some(ev => ev.type === 'kill'), `stopped at x ${lynx.x.toFixed(2)}`);
+  // The cold in the windup: it stands while frozen, the leap comes the windup's remainder after the thaw.
+  const open = fight('test-open', quiet(), 122), ow = open.world;
+  const cat = place(open, along(ow.hero, 0, 3.2), 'lynx');
+  runUntil(open, now => signals(now, 'leap').length > 0, 120);
+  run(open, 12);
+  open.command({ t: 'chill', id: cat.id, seconds: 2 });
+  const held = { x: cat.x, y: cat.y };
+  const coldEvents = run(open, 115);
+  assert(dist(cat, held) < 1e-9 && cat.vars.st === LYNX_WINDUP && hits(coldEvents, 'lynx').length === 0, 'frozen: no leap');
+  const thaw = run(open, 60);
+  assert(hits(thaw, 'lynx').length === 1, 'after the thaw: the leap');
+});
+
+check('П2: the leap shoves the crowd on its line and hurts no enemy', () => {
+  const sim = fight('test-open', quiet(), 131), w = sim.world, h = w.hero;
+  place(sim, along(h, 0, 3.2), 'lynx');
+  const weak = place(sim, along(h, 0, 1.7), 'basic', 2, 0);
+  const before = { x: weak.x, y: weak.y };
+  const events = run(sim, 90);
+  assert(signals(events, 'leap').length === 1 && alive(w, weak) && weak.hp === 0 && dist(weak, before) > 0.2, `shoved ${dist(weak, before).toFixed(2)}, alive ${alive(w, weak)}`);
+  assert(!events.some(ev => ev.type === 'enemyHit' || ev.type === 'kill'), 'no enemy hurt');
+});
+
+// ---- П4: the shaman ----
+
+/** Shaman tests: its first beam after 1 s; nothing walks (speed 0) unless the test gives speed. */
+const shamanQuiet = (extra: Partial<Params> = {}): Params => quiet({ shamanFirstMin: 1, shamanFirstMax: 1, ...extra });
+
+check('П4: the shaman keeps 5–6 from the hero — it walks up, holds, backs away from a hero walking at it', () => {
+  const sim = fight('test-open', quiet({ enemySpeed: 1.2 }), 141), w = sim.world, h = w.hero;
+  sim.command({ t: 'teleport', x: 3, y: 6 });
+  const shaman = place(sim, { x: 15, y: 6 }, 'shaman');
+  run(sim, 600);
+  const d = dist(shaman, h);
+  assert(d >= w.params.shamanNear - 0.05 && d <= w.params.shamanFar + 0.05, `holds at ${d.toFixed(2)}`);
+  const x0 = shaman.x;
+  sim.command({ t: 'walk', x: 1, y: 0 });
+  run(sim, 30);
+  assert(shaman.x > x0 + 0.1, `backs away: ${x0.toFixed(2)} → ${shaman.x.toFixed(2)}`);
+});
+
+check('П4: the beam goes to the nearest weak enemy within 3 for 1.5 s, then it is tough (HP 2, same colour); the next beam a cooldown later, to another', () => {
+  const sim = fight('test-open', shamanQuiet(), 151), w = sim.world, h = w.hero;
+  const shaman = place(sim, along(h, 0, 5.5), 'shaman');
+  const near = place(sim, along(shaman, Math.PI, 1.5), 'basic', 2, 0), farther = place(sim, along(shaman, Math.PI / 2, 2.5), 'basic', 3, 0);
+  place(sim, along(shaman, -Math.PI / 2, 4), 'basic', 1, 0);
+  const tough = place(sim, along(shaman, -Math.PI / 2, 1), 'basic', 0, 1);
+  const events: WorldEvent[] = [];
+  runUntil(sim, now => signals(now, 'beam').length > 0, 120, events);
+  assert(Math.abs(w.tick / 60 - 1) < 0.05 && shamanBeam(w, shaman)?.target.id === near.id, `beam at ${(w.tick / 60).toFixed(2)} s on ${shaman.vars.beam}`);
+  const start = w.tick;
+  runUntil(sim, now => signals(now, 'empower').length > 0, 200, events);
+  assert(Math.abs((w.tick - start) / 60 - w.params.shamanBeam) < 0.03 && near.hp === 2 && near.color === 2 && near.kind === 'basic', `empowered after ${((w.tick - start) / 60).toFixed(2)}: hp ${near.hp}`);
+  assert(farther.hp === 0 && tough.hp === 1, 'others unchanged');
+  runUntil(sim, now => signals(now, 'beam').length > 0, 600, events);
+  assert(Math.abs((w.tick - start) / 60 - w.params.shamanCooldown) < 0.05 && shaman.vars.beam === farther.id, `next beam after ${((w.tick - start) / 60).toFixed(2)} s on ${shaman.vars.beam}`);
+  assert(replays(sim), 'replay');
+});
+
+check('П4: killing the target or the shaman before the end breaks the beam (no empower); the cold on the shaman holds it; the cold on the target does not', () => {
+  for (const mode of ['target', 'cold-shaman', 'cold-target'] as const) {
+    const sim = fight('test-open', shamanQuiet(), 161), w = sim.world, h = w.hero;
+    const shaman = place(sim, along(h, 0, 5.5), 'shaman', 1, 1);
+    const target = place(sim, along(shaman, Math.PI, 1.5), 'basic', 2, 0);
+    runUntil(sim, now => signals(now, 'beam').length > 0, 120);
+    run(sim, 30);
+    if (mode === 'target') {
+      sim.command({ t: 'teleport', x: target.x - 1.2, y: target.y });
+      assert(sim.command({ t: 'begin', x: target.x, y: target.y }) === true, 'target: a link');
+      sim.command({ t: 'release' });
+      runUntil(sim, () => !w.move, 120);
+    } else {
+      sim.command({ t: 'chill', id: (mode === 'cold-shaman' ? shaman : target).id, seconds: 3 });
+    }
+    const events = run(sim, 90);
+    if (mode === 'target') assert(!alive(w, target) && signals(events, 'empower').length === 0 && shaman.vars.beam === undefined, 'target: broken');
+    if (mode === 'cold-shaman') {
+      assert(hpOf(target) === 0 && signals(events, 'empower').length === 0, 'cold on the shaman: held');
+      const later = run(sim, 160);
+      assert(signals(later, 'empower').length === 1 && target.hp === 2, 'after the thaw: the beam ends');
+    }
+    if (mode === 'cold-target') assert(target.hp === 2 && signals(events, 'empower').length === 1, 'cold on the target: the beam goes on');
+    assert(replays(sim), `${mode}: replay`);
+  }
+  // The shaman killed: a weak link of its colour first gives the chain the power for its HP 1.
+  const sim = fight('test-open', shamanQuiet(), 162), w = sim.world, h = w.hero;
+  const shaman = place(sim, along(h, 0, 2.2), 'shaman', 1, 1);
+  const target = place(sim, along(shaman, 0, 1.5), 'basic', 2, 0);
+  const first = place(sim, along(h, 0, 1.1), 'basic', 1, 0);
+  runUntil(sim, now => signals(now, 'beam').length > 0, 120);
+  run(sim, 30);
+  assert(sim.command({ t: 'begin', x: first.x, y: first.y }) === true, 'first link');
+  sim.command({ t: 'drag', x: shaman.x, y: shaman.y, mode: 'full' });
+  assert(w.chain.length === 2 && planChain(w).kills === 2, `the highlight kills both: ${w.chain.length}`);
+  sim.command({ t: 'release' });
+  runUntil(sim, () => !w.move, 120);
+  const events = run(sim, 90);
+  assert(!alive(w, shaman) && target.hp === 0 && signals(events, 'empower').length === 0, 'shaman killed: the target stays weak');
+});
+
+check('П4: a beam ending while its target is a link of the dash waits for the dash — the dash strikes what the highlight showed', () => {
+  const sim = fight('test-open', shamanQuiet(), 171), w = sim.world, h = w.hero;
+  const target = place(sim, along(h, 0, 1.8), 'basic', 2, 0);
+  const shaman = place(sim, along(target, 0, 2.5), 'shaman', 1, 1);
+  runUntil(sim, now => signals(now, 'beam').length > 0, 120);
+  assert(shaman.vars.beam === target.id, 'beam on the target');
+  // Release the chain two ticks before the end of the beam: the dash needs longer than that to reach the target.
+  run(sim, Math.round(w.params.shamanBeam * 60) - 2);
+  assert(sim.command({ t: 'begin', x: target.x, y: target.y }) === true, 'a link');
+  assert(planChain(w).kills === 1, 'the highlight: killed');
+  sim.command({ t: 'release' });
+  const events: WorldEvent[] = [];
+  runUntil(sim, () => !w.move, 120, events);
+  assert(!alive(w, target) && signals(events, 'empower').length === 0, `dash killed it: alive ${alive(w, target)}, hp ${target.hp}`);
 });
 
 // ---- A bot's fight replays ----

@@ -14,7 +14,7 @@ import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE, archerLine, quillsUp, quillsWarning, sapperFuse, shieldUp, wolfHowl } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, archerLine, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
@@ -51,6 +51,8 @@ const TARGET = 0xffd36b;
 const STEEL = 0xa9b8c6;
 /** Fuse sparks and the blast ring of the sapper: hot orange (outside the chain palette). */
 const SPARK = 0xffb04a;
+/** Stage 3a (П4): the shaman's beam — violet magic, outside the chain palette. */
+const MAGIC = 0xc58cff;
 /** Stage 2, step 3: the cold consumable — pale ice blue. */
 const ICE = 0x9fd8ff;
 /** Stage 2, step 3: colours of the loot of elites — consumables and crafting resources. */
@@ -61,8 +63,8 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 /** Signals of the new enemies drawn in the last frame (tests read them: the signal is on screen). */
 /** `quillsRaised` / `quillsTrembling` (iteration 2.1): porcupines drawn with their quills up / trembling before going up. */
 /** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
-/** `howls` (stage 3a, П1): the wolves' howl circle round the hero. */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number }
+/** Stage 3a: `howls` — the wolves' howl circle round the hero (П1); `leapLines`, `stunned` — the lynx's leap line and its stun (П2); `beams` — the shaman's beam (П4). */
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number }
 
 /** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
 export interface TerrainCounts { river: number; cliff: number; thorns: number }
@@ -177,7 +179,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0 };
   /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
   readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
   /** Stage 3a (М2): enemies seen falling into a cliff so far. */
@@ -376,6 +378,21 @@ export class RealtimeRenderer {
       ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: NAVY, width: 7, cap: 'round' });
       ctx.moveTo(r * 0.55, -r * 1.15).quadraticCurveTo(r * 1.55, 0, r * 0.55, r * 1.15).stroke({ color: BONE, width: 3.5, cap: 'round' });
       ctx.moveTo(r * 0.55, -r * 1.15).lineTo(r * 0.55, r * 1.15).stroke({ color: PALE, width: 1.5 });
+    }
+    if (kind === 'lynx') {
+      // Lynx (stage 3a): tall ears with black tufts and pale cheek ruffs (silhouette, not a color).
+      for (const sx of [-1, 1]) {
+        ctx.poly([sx * r * 0.2, -r * 0.82, sx * r * 0.5, -r * 1.55, sx * r * 0.82, -r * 0.6]).fill(fill).stroke({ color: NAVY, width: 3, join: 'round' });
+        ctx.moveTo(sx * r * 0.5, -r * 1.55).lineTo(sx * r * 0.5, -r * 1.95).stroke({ color: NAVY, width: 4, cap: 'round' });
+        ctx.poly([sx * r * 0.78, r * 0.05, sx * r * 1.32, r * 0.3, sx * r * 0.85, r * 0.6]).fill(PALE).stroke({ color: NAVY, width: 2, join: 'round' });
+      }
+    }
+    if (kind === 'shaman') {
+      // Shaman (stage 3a): a crooked staff with a glowing tip on its side and a feathered crest (silhouette, not a color).
+      ctx.moveTo(r * 1.05, r * 0.95).lineTo(r * 1.2, -r * 1.25).stroke({ color: NAVY, width: 6, cap: 'round' });
+      ctx.moveTo(r * 1.05, r * 0.95).lineTo(r * 1.2, -r * 1.25).stroke({ color: BONE, width: 3, cap: 'round' });
+      ctx.circle(r * 1.22, -r * 1.35, r * 0.24).fill(MAGIC).stroke({ color: NAVY, width: 2.5 });
+      for (const a of [-0.5, 0, 0.5]) ctx.poly([Math.sin(a) * r * 0.55, -r * 0.8, Math.sin(a) * r * 1.0 - r * 0.12, -r * 1.55, Math.sin(a) * r * 1.0 + r * 0.12, -r * 1.55]).fill(PALE).stroke({ color: NAVY, width: 2, join: 'round' });
     }
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
@@ -577,7 +594,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0 };
     // Stage 3a (П1): the wolves howl — a threat circle on the ring round the hero, closing in as the howl runs out.
     const howl = wolfHowl(world);
     if (howl) {
@@ -616,6 +633,41 @@ export class RealtimeRenderer {
         // The arrow head at the filling front.
         const tx = ox + ux * len * line.progress, ty = oy + uy * len * line.progress;
         g.poly([tx + ux * half * 1.6, ty + uy * half * 1.6, tx - nx * half * 1.3, ty - ny * half * 1.3, tx + nx * half * 1.3, ty + ny * half * 1.3]).fill(THREAT).stroke({ color: THREAT_OUTLINE, width: 2 });
+      }
+      // Stage 3a (П2): the lynx's leap line — a strip of its body width (threat colour) filling during the windup, fading in
+      // the leap; stunned — three stars turning over it.
+      const leap = lynxLine(world, e);
+      if (leap) {
+        counts.leapLines++;
+        const half = enemyBodyRadius(p) * UNIT, ux = leap.dx, uy = leap.dy, nx = -uy, ny = ux, ox = e.x * UNIT, oy = e.y * UNIT, len = leap.len * UNIT;
+        const quad = (t0: number, t1: number): number[] => [ox + ux * t0 - nx * half, oy + uy * t0 - ny * half, ox + ux * t1 - nx * half, oy + uy * t1 - ny * half, ox + ux * t1 + nx * half, oy + uy * t1 + ny * half, ox + ux * t0 + nx * half, oy + uy * t0 + ny * half];
+        const fade = leap.leaping ? 0.5 : 1;
+        g.poly(quad(0, len)).fill({ color: THREAT, alpha: 0.12 * fade });
+        g.poly(quad(0, len * leap.progress)).fill({ color: THREAT, alpha: 0.35 * fade });
+        g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 4, alpha: 0.8 * fade }).poly(quad(0, len)).stroke({ color: THREAT, width: 1.5, alpha: 0.95 * fade });
+        // Claw marks at the landing point.
+        const tx = ox + ux * len, ty = oy + uy * len;
+        for (const k of [-0.5, 0, 0.5]) g.moveTo(tx + nx * half * k - ux * half * 0.4, ty + ny * half * k - uy * half * 0.4).lineTo(tx + nx * half * k + ux * half * 0.5, ty + ny * half * k + uy * half * 0.5);
+        g.stroke({ color: THREAT, width: 3, alpha: 0.9 * fade, cap: 'round' });
+      }
+      if (lynxStunned(e)) {
+        counts.stunned++;
+        const X = e.x * UNIT, Y = e.y * UNIT - r * 1.25;
+        for (let i = 0; i < 3; i++) {
+          const a = this.clock * 5 + i * Math.PI * 2 / 3, sx = X + Math.cos(a) * r * 0.6, sy = Y + Math.sin(a) * r * 0.22, pts: number[] = [];
+          for (let j = 0; j < 10; j++) { const b = -Math.PI / 2 + j * Math.PI / 5, rr = j % 2 ? r * 0.07 : r * 0.17; pts.push(sx + Math.cos(b) * rr, sy + Math.sin(b) * rr); }
+          g.poly(pts).fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 1.5 });
+        }
+      }
+      // Stage 3a (П4): the shaman's beam — a violet line to its target, thickening as it runs; a ring round the target.
+      const beam = shamanBeam(world, e);
+      if (beam) {
+        counts.beams++;
+        const X = e.x * UNIT, Y = e.y * UNIT, TX = beam.target.x * UNIT, TY = beam.target.y * UNIT, wob = Math.sin(this.clock * 30) * 1.5;
+        g.moveTo(X, Y).lineTo(TX, TY).stroke({ color: NAVY, width: 7 + 6 * beam.progress, alpha: 0.6 });
+        g.moveTo(X, Y).lineTo(TX, TY).stroke({ color: MAGIC, width: 3 + 5 * beam.progress + wob, alpha: 0.95 });
+        g.circle(TX, TY, r * 1.2).stroke({ color: MAGIC, width: 3, alpha: 0.9 });
+        g.moveTo(TX, TY - r * 1.2).arc(TX, TY, r * 1.2, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * beam.progress).stroke({ color: PALE, width: 4, alpha: 0.95 });
       }
       // Stage 2, step 3: an elite — a thick gold rim around its (larger) drawing.
       if (e.elite) {
@@ -836,6 +888,8 @@ export class RealtimeRenderer {
         continue;
       }
       if (ev.type === 'crystal') { this.floatText('◆ кристалл', ev.x * UNIT, ev.y * UNIT - 36, 0xf4efe0); continue; }
+      // Stage 3a (П4): the shaman's beam made its target tough.
+      if (ev.type === 'enemySignal' && ev.signal === 'empower') { this.floatText('крепче', ev.x * UNIT, ev.y * UNIT - 36, MAGIC); continue; }
       if (ev.type === 'crystalBreak') {
         this.floatText(ev.score > 0 ? `◆ +${ev.score}` : '◆', ev.x * UNIT, ev.y * UNIT - 36, 0xf4efe0);
         continue;
