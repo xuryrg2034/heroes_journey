@@ -1,5 +1,5 @@
 /**
- * The lynx (stage 3a, step 4 — П2 «бросок», docs/realtime-stage3.md, sections 3 and 9): HP 0, walks at the pace's enemy
+ * The lynx (stage 3a, step 4 — П2 «бросок», docs/realtime-stage3.md, sections 3 and 10): HP 0, walks at the pace's enemy
  * speed. With the hero within `lynxTrigger` (3.5) and in sight it freezes for `lynxWindup` (0.6 s) — the line of its leap,
  * fixed on the hero at the start, is shown — then leaps `lynxRange` (3) along it in `lynxLeapTime` (0.25 s). The leap
  * hurts the hero it reaches (`lynxDamage` 2; his invulnerability, the dash and the jump protect him), shoves the crowd
@@ -11,7 +11,7 @@
  * State in `enemy.vars`: `st` — 0 walk, 1 windup, 2 leap, 3 stun; `t` — seconds left of the windup or the stun, or of
  * the cooldown while walking; `dx`, `dy` — the line; `len` — its length (cut by obstacles); `ran` — distance leapt.
  */
-import { blockedAt, dist, lineOfSight } from '../geometry';
+import { blockedAt, dist, lineOfSight, type Vec } from '../geometry';
 import { CONTACT_SLACK, canBeHurt, hurtHero, touchDistanceOf, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
@@ -20,6 +20,13 @@ export const LYNX_WALK = 0, LYNX_WINDUP = 1, LYNX_LEAP = 2, LYNX_STUN = 3;
 const TIME_EPS = 1e-9;
 /** Step of the march that finds where an obstacle or a cliff cuts the line. */
 const LINE_STEP = 0.05;
+
+/** Distance from `p` to the segment a–b. */
+function segmentDistance(a: Vec, b: Vec, p: Vec): number {
+  const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
+  return Math.hypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+}
 
 /** Length of the leap from `e` along (dx, dy) up to the range: the first wall, tree or cliff edge cuts it. */
 function lineLength(world: World, e: Enemy, dx: number, dy: number): number {
@@ -50,12 +57,14 @@ function stepLynx(world: World, e: Enemy, dt: number): boolean {
   if (st === LYNX_LEAP) {
     const speed = p.lynxRange / Math.max(0.01, p.lynxLeapTime);
     const step = Math.min(speed * dt, Math.max(0, e.vars.len - e.vars.ran));
-    const next = { x: e.x + e.vars.dx * step, y: e.y + e.vars.dy * step };
+    const prev = { x: e.x, y: e.y }, next = { x: e.x + e.vars.dx * step, y: e.y + e.vars.dy * step };
     if (blockedAt(next, bodyRadiusOf(p, e) * 0.95, world.arena)) return stun(world, e);
     e.x = next.x; e.y = next.y; e.vars.ran += step;
-    // The leap reaches the hero (not while he dashes or jumps: then it passes by): it hurts him and stops.
+    // The leap reaches the hero (not while he dashes or jumps: then it passes by) when its body swept over him in this step
+    // — the hero within the touch of the segment it leapt (review 09.10.2026: the drawn line is the body's width; the
+    // touch distance plus the step reached ≈ 0.75 to the side); it hurts him and stops.
     const touch = touchDistanceOf(p, e), d = dist(e, h);
-    if (!world.move && d <= touch + CONTACT_SLACK + step) {
+    if (!world.move && segmentDistance(prev, next, h) <= touch + CONTACT_SLACK) {
       // It lands at the hero's side (in touch): stunned there, it is the hero's to punish.
       if (d > touch) { const k = (d - touch) / d; e.x += (h.x - e.x) * k; e.y += (h.y - e.y) * k; }
       if (canBeHurt(world)) { hurtHero(world, e, p.lynxDamage, 'lynx'); e.strikeFlash = 0.18; }

@@ -1,5 +1,5 @@
 /**
- * Enemy behaviour of stage 3a, steps 3–4 (docs/realtime-stage3.md, sections 3 and 9): the group step of the core
+ * Enemy behaviour of stage 3a, steps 3–4 (docs/realtime-stage3.md, sections 3 and 10): the group step of the core
  * (`beforeStep`), the wolves' ring (П1), the lynx's leap (П2), the shaman's beam (П4). Node only:
  * `npm run test:realtime-behavior`.
  *
@@ -236,14 +236,29 @@ check('П1: a hero walking up to a ringing wolf is not avoided (the wolf does no
   assert(dist(wolf, h) <= before + 0.05, `it did not back away: ${before.toFixed(2)} → ${dist(wolf, h).toFixed(2)}`);
 });
 
-check('П1: the rush stops at a cliff edge (the wolf does not fall) — the ring across the gorge', () => {
-  const sim = fight('cliff', quiet({ wolfLoneWait: 0.5 }), 71), w = sim.world;
+check('П1: a wolf across the gorge does not ring there — it walks round the drop and bites (review 09.10.2026); a rush into the cliff edge puts it out of the ring, it does not fall', () => {
+  // The scenario of the review: the hero on the left bank, the wolf on the right one, 3.3 apart (nearer than the ring).
+  const sim = fight('cliff', quiet(), 71), w = sim.world;
   sim.command({ t: 'teleport', x: 6.4, y: 2.4 });
-  const wolf = place(sim, { x: 9.6, y: 2.4 }, 'wolf');
-  const events = run(sim, 180);
-  assert(signals(events, 'howl').length >= 1, 'it howled');
-  assert(alive(w, wolf) && wolf.x > 8.9 && !events.some(ev => ev.type === 'kill'), `stopped on its bank at x ${wolf.x.toFixed(2)}`);
-  assert(hits(events, 'wolf').length === 0, 'no hit across the gorge');
+  const wolf = place(sim, { x: 9.7, y: 2.4 }, 'wolf');
+  const events: WorldEvent[] = [];
+  const n = runUntil(sim, now => hits(now, 'wolf').length > 0, 30 * 60, events);
+  assert(hits(events, 'wolf').length === 1 && alive(w, wolf), `bit after ${(n / 60).toFixed(1)} s (hits ${hits(events, 'wolf').length})`);
+  assert(signals(events, 'howl').length <= 2 && !events.some(ev => ev.type === 'kill'), `howls ${signals(events, 'howl').length} — no howl loop at the edge, no fall`);
+  console.log(`   across the gorge: bit after ${(n / 60).toFixed(1)} s, howls ${signals(events, 'howl').length}`);
+  // A rush into the edge: the wolf howls on the hero's bank, the hero is put over the gorge before the rush.
+  const edge = fight('cliff', quiet({ wolfLoneWait: 0.5 }), 72), ew = edge.world;
+  edge.command({ t: 'teleport', x: 6, y: 1.2 });
+  const lone = place(edge, { x: 6, y: 4.2 }, 'wolf');
+  runUntil(edge, now => signals(now, 'howl').length > 0, 600);
+  edge.command({ t: 'teleport', x: 9.8, y: 0.6 });
+  // The rush runs at the edge and stops there: the wolf is out of the ring for a while (it walks as everyone).
+  runUntil(edge, () => lone.vars.away !== undefined, 60);
+  assert(lone.vars.away > 0 && lone.vars.st === 0, `out of the ring after the rush into the edge: ${JSON.stringify(lone.vars)}`);
+  const after = run(edge, 60);
+  assert(alive(ew, lone) && !after.some(ev => ev.type === 'kill') && hits(after, 'wolf').length === 0, 'stopped at the edge, alive');
+  assert(lone.vars.st === 0 && lone.vars.slot === undefined, `out of the ring after the rush: ${JSON.stringify(lone.vars)}`);
+  assert(replays(sim) && replays(edge), 'replay');
 });
 
 check('П1: the toggle off — the prototype wolf (straight at the hero, no state); a journal without the value replays without the ring; a run forces it on', () => {
@@ -309,6 +324,19 @@ check('П2: a step aside during the windup — the leap misses; the stunned lynx
     sim.command({ t: 'release' });
     runUntil(sim, () => !w.move, 120);
     assert(!alive(w, lynx) && w.stats.kills === 1, `seed ${k}: killed`);
+  }
+});
+
+check('П2: the leap hurts only within the touch of its line — the hero 0.65 to the side of it is not hit, 0.4 to the side and on it is (review 09.10.2026)', () => {
+  for (const [side, hit] of [[0.65, false], [0.4, true], [0, true]] as const) {
+    const sim = fight('test-open', quiet(), 181), w = sim.world, h = w.hero;
+    const lynx = place(sim, { x: h.x - 3.2, y: h.y }, 'lynx');
+    runUntil(sim, now => signals(now, 'leap').length > 0, 120);
+    // The line is fixed along +x through the hero's old spot: he is moved off it sideways before the leap.
+    sim.command({ t: 'teleport', x: h.x - 1, y: h.y + side });
+    const events = run(sim, 60);
+    assert(lynx.vars.st === LYNX_STUN || lynx.vars.st === 0, 'the leap is over');
+    assert((hits(events, 'lynx').length === 1) === hit, `${side} to the side: hits ${hits(events, 'lynx').length}`);
   }
 });
 
