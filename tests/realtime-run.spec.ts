@@ -162,13 +162,15 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
   expect(after.visited).toEqual([won]);
   expect(after.pending).toBeNull();
   expect(after.hp).toBe(hp);
-  // Defeat: walk on to the next arena node and reload on «Поражение».
-  for (let step = 0; step < 8; step++) {
+  // Defeat: walk on to the next arena node and reload on «Поражение». A random map may put several trail nodes (a rest,
+  // a find, an event, the merchant) before the next arena: each takes two steps (enter, leave), so allow a long walk.
+  for (let step = 0; step < 24; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
     if (state.pending) {
       // A node screen of the trails: take its first button that is on (a rest, a find, an event, the merchant's «Уйти»).
-      const leave = page.locator('[data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first();
+      // A rest at full HP with nothing to craft has only «К карте» on (both choices are disabled).
+      const leave = page.locator(['[data-action="find"]', '[data-action="gift-pick"]', '[data-action="talisman"]', '[data-testid="shop-leave"]', '[data-testid="rest-heal"]', '[data-action="rest-craft"]', '[data-testid="rest-finish"]', '[data-action="event-option"]'].map(s => `${s}:not([disabled])`).join(', ')).first();
       await leave.click();
       continue;
     }
