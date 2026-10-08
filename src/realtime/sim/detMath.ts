@@ -5,8 +5,13 @@
  * the V8 of Chromium and the V8 of Node gave different wolf positions after a few hundred ticks of the wolves' ring, and
  * a fight recorded in the browser no longer replayed in Node to the same hash. These functions use only `+`, `−`, `×`,
  * `÷`, `Math.sqrt`, `Math.round` and `Math.abs` — correctly rounded by IEEE 754 everywhere — so the simulation can turn
- * angles every tick and still replay across engines. Accuracy: better than 1e-12 (series to the needed order after range
- * reduction). Behaviour code that runs every tick uses these, not `Math.sin`/`Math.cos`/`Math.atan2`.
+ * angles every tick and still replay across engines. Behaviour code that runs every tick uses these, not `Math.sin`/
+ * `Math.cos`/`Math.atan2`.
+ *
+ * Accuracy against `Math.*` in Node (measured 09.10.2026, 200 000 random arguments per range): `datan2` — 9e-16;
+ * `dsin`/`dcos` — 7e-16 for |x| < 10, 1e-14 for |x| < 100, 1e-12 for |x| < 1e4, 1e-10 for |x| < 1e6, and worse beyond
+ * (1e-6 at |x| < 1e10): the reduction by 2π loses bits as |x| grows. Working range — |x| < 1e4; the simulation passes
+ * angles within a few turns (the wolves: |x| < 13).
  */
 const PI = Math.PI, HALF_PI = Math.PI / 2, TWO_PI = 2 * Math.PI;
 const SQRT3 = Math.sqrt(3);

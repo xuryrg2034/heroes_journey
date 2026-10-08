@@ -1,5 +1,5 @@
 /**
- * The shaman (stage 3a, step 4 — П4 «усиление», docs/realtime-stage3.md, sections 3 and 9): HP 1, walks at ×0.7 of the
+ * The shaman (stage 3a, step 4 — П4 «усиление», docs/realtime-stage3.md, sections 3 and 10): HP 1, walks at ×0.7 of the
  * pace's enemy speed and keeps `shamanNear`…`shamanFar` (5–6) from the hero, as the archer: nearer it backs away, farther
  * it walks up (the common walk), in between it holds its place — behind the crowd that walks in.
  *

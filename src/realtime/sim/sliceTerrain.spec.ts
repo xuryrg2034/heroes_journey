@@ -15,6 +15,7 @@
  * (`Math.imul(k, 2654435761) >>> 0`).
  */
 import { SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from './arenas';
+import { BEHAVIOR_ARENAS } from './arenasStage3';
 import { chainAnchor, enemyRefusal, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { type Area, type Vec, areaDistance, blockedAt, cliffAt, dist, inThorns, inWater, overCliff } from './geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from './params';
@@ -93,6 +94,8 @@ function flight(sim: Simulation, max = 300): { ticks: number; path: Vec[] } {
 const brazierAt = (w: World, x: number, y: number): ArenaObject => w.objects.find(o => o.kind === 'brazier' && o.x === x && o.y === y)!;
 const pricks = (events: WorldEvent[]): number => events.filter(e => e.type === 'hit' && e.source === 'thorns').length;
 const ARENAS_4_10 = SLICE_ARENAS.map(a => a.id);
+/** The layout rules of section 8 hold on arenas 4–10 and on the arenas of the new enemies («Рысье логово», «Круг шамана»). */
+const LAYOUT_ARENAS = [...ARENAS_4_10, ...BEHAVIOR_ARENAS.map(a => a.id)];
 
 // ---- Layout rules of section 8 ----
 
@@ -155,8 +158,8 @@ const SHUT = 0.5;
 /** Section 8: a passage at a cliff and any gorge is at least 2 units wide. */
 const MIN_PASSAGE = 2;
 
-check('layout rule (section 8): on arenas 4–10 every gap between walls, trees, cliffs, thorns and the edges is shut (< 0.5) or at least 2 units', () => {
-  for (const id of ARENAS_4_10) {
+check('layout rule (section 8): on arenas 4–10 and the new enemies\' arenas every gap between walls, trees, cliffs, thorns and the edges is shut (< 0.5) or at least 2 units', () => {
+  for (const id of LAYOUT_ARENAS) {
     const arena = arenaTemplate(id), list = blockers(arena), passages: string[] = [];
     let narrowest = Infinity;
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
@@ -250,8 +253,8 @@ function parts(grid: ReturnType<typeof walkGrid>): { label: Int32Array; sizes: n
   return { label, sizes };
 }
 
-check('layout rule (section 8): no dead end — from the hero\'s start a walk without thorns and cliffs reaches the door, every button and every dry spot; with thorns, every spot', () => {
-  for (const id of ARENAS_4_10) {
+check('layout rule (section 8): no dead end — from the hero\'s start a walk without thorns and cliffs reaches the door, every button and every dry spot; with thorns, every spot (arenas 4–10 and the new enemies\' arenas)', () => {
+  for (const id of LAYOUT_ARENAS) {
     const arena = arenaTemplate(id);
     for (const thorns of [false, true]) {
       const grid = walkGrid(arena, thorns), { label, sizes } = parts(grid);
@@ -265,8 +268,8 @@ check('layout rule (section 8): no dead end — from the hero\'s start a walk wi
   }
 });
 
-check('start enemies and the hero\'s start of arenas 4–10: none over a cliff, in thorns or in water; the braziers and buttons stand on ground', () => {
-  for (const id of ARENAS_4_10) {
+check('start enemies and the hero\'s start of arenas 4–10 and the new enemies\' arenas: none over a cliff, in thorns or in water; the braziers and buttons stand on ground', () => {
+  for (const id of LAYOUT_ARENAS) {
     const arena = arenaTemplate(id), r = enemyBodyRadius(defaultParams());
     for (const p of [arena.heroStart, ...arena.enemies]) {
       assert(!cliffAt(p, r, arena) && !inThorns(p, arena) && !inWater(p, arena) && !blockedAt(p, r * 0.99, arena), `${arena.name}: (${p.x}, ${p.y}) stands on terrain`);

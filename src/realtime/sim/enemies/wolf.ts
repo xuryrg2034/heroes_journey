@@ -1,5 +1,5 @@
 /**
- * The wolf (prototype stage 3; stage 3a, step 3 — П1 «окружение», docs/realtime-stage3.md, sections 3 and 9).
+ * The wolf (prototype stage 3; stage 3a, step 3 — П1 «окружение», docs/realtime-stage3.md, sections 3 and 10).
  *
  * The wolf of the prototype walks straight at the hero and hits harder next to other wolves (`packmates`, the pack bonus
  * of its touch). Stage 3a gives it the ring (the panel toggle `wolfRing`, on by default and always in a run):
@@ -17,6 +17,9 @@
  *   the pack strength as before (the wolves arrive together, so the pack bonus counts them).
  * - **Back.** After the rush it walks straight back out to the ring radius, reaching it within `wolfBack` s (faster than
  *   its walk when it must), then rings again.
+ * - **Cliffs** (review 09.10.2026). A wolf with a cliff across its straight way to the hero is not in the ring: it walks
+ *   the flow field round the drop. A rush that runs into a cliff edge puts the wolf out of the ring for `wolfBack` s
+ *   (at least 0.5 s): it walks as everyone meanwhile.
  * The cold puts a frozen wolf out of the ring and drops its howl or rush (it rings again when it thaws). A knockback (the
  * chain's survivor knockback) runs as for everyone and drops its howl or rush too. No randomness. Angles every tick go
  * through `detMath.ts` (the same bits in the browser and in Node: a journal replays across engines).
@@ -24,10 +27,10 @@
  * State in `enemy.vars` (only with the ring on; none without it — the prototype wolf hashes as before): `st` — 0 ring,
  * 1 howl, 2 rush, 3 back; `slot` — its angle on the ring (radians; only while it is in the ring); `wait` — seconds in the
  * ring; `t` — seconds of the howl or the back walk left; `pack` — id of the first wolf of a pack's howl; `dx`, `dy` — the
- * rush line; `ran` — distance run.
+ * rush line; `ran` — distance run; `away` — seconds out of the ring after a rush into a cliff edge.
  */
 import { datan2, dcos, dsin } from '../detMath';
-import { blockedAt, dist, lineOfSight, pushOutOfObstacles } from '../geometry';
+import { blockedAt, cliffAt, dist, hasZone, lineOfSight, pushOutOfObstacles, segmentTouchesArea } from '../geometry';
 import { CONTACT_SLACK, enemyFrozen, enemyGroundFactor, enemySpeed, touchDistanceOf, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
@@ -55,15 +58,31 @@ const stateOf = (e: Enemy): number => e.vars.st ?? WOLF_RING;
 
 /** A wolf in the ring stays in it this much past the joining distance, and without sight of the hero (no flicker). */
 const RING_KEEP = 0.5;
+/** A rush that ran into a cliff edge: the wolf walks as everyone (around the drop) at least this long before it rings again. */
+const CLIFF_AWAY_MIN = 0.5;
+
+/**
+ * A cliff lies across the straight way from the wolf to the hero (the segment comes within half its body of a cliff).
+ * The ring walks and rushes straight, and a cliff does not cut sight: a wolf on the far side of a gorge would ring, howl
+ * and rush into the edge forever (review 09.10.2026). Such a wolf stays out of the ring and walks the flow field round
+ * the drop, as without the ring. Walls and trees are left to the sight check; water and thorns are passable.
+ */
+function cliffBetween(world: World, e: Enemy): boolean {
+  const arena = world.arena;
+  if (!hasZone(arena, 'cliff')) return false;
+  const r = bodyRadiusOf(world.params, e) * 0.5;
+  return arena.terrain!.some(z => z.kind === 'cliff' && segmentTouchesArea(e, world.hero, z, r));
+}
 
 /**
  * In the ring: ringing (not howling, rushing or walking back), not frozen, not knocked; it joins near the hero (within
  * `wolfRingRadius` + `wolfRingSlack`) and seeing him, and stays while it is within `RING_KEEP` more (a tree or a wall
- * corner crossing its sight for a moment does not throw it out and reshuffle the slots).
+ * corner crossing its sight for a moment does not throw it out and reshuffle the slots). Never with a cliff across the way
+ * to the hero (`cliffBetween`), nor while it walks away from a rush that ran into a cliff (`away`).
  */
 function inRing(world: World, e: Enemy): boolean {
   const p = world.params;
-  if (stateOf(e) !== WOLF_RING || enemyFrozen(e) || e.knock > 0) return false;
+  if (stateOf(e) !== WOLF_RING || enemyFrozen(e) || e.knock > 0 || (e.vars.away ?? 0) > 0 || cliffBetween(world, e)) return false;
   const d = dist(e, world.hero), join = p.wolfRingRadius + p.wolfRingSlack;
   if (e.vars.slot !== undefined) return d <= join + RING_KEEP;
   return d <= join && lineOfSight(e, world.hero, world.arena, bodyRadiusOf(p, e) * 0.5);
@@ -118,7 +137,10 @@ function ringStep(world: World, wolves: readonly Enemy[], dt: number): void {
     return;
   }
   if (world.status !== 'playing') return;
-  for (const e of wolves) if ((enemyFrozen(e) || e.knock > 0) && (stateOf(e) === WOLF_HOWL || stateOf(e) === WOLF_RUSH)) backToRing(e);
+  for (const e of wolves) {
+    if ((enemyFrozen(e) || e.knock > 0) && (stateOf(e) === WOLF_HOWL || stateOf(e) === WOLF_RUSH)) backToRing(e);
+    if (e.vars.away !== undefined && !enemyFrozen(e)) { e.vars.away -= dt; if (e.vars.away <= TIME_EPS) delete e.vars.away; }
+  }
   const howling = new Map<number, Enemy[]>();
   for (const e of wolves) if (stateOf(e) === WOLF_HOWL && e.vars.pack !== undefined) howling.set(e.vars.pack, [...howling.get(e.vars.pack) ?? [], e]);
   for (const group of howling.values()) if (group.length < p.wolfRushPack) for (const e of group) backToRing(e);
@@ -168,8 +190,14 @@ function stepWolf(world: World, e: Enemy, dt: number): boolean {
     const r = bodyRadiusOf(p, e), step = Math.min(p.wolfRushSpeed * dt, Math.max(0, p.wolfRushRange - e.vars.ran));
     const next = { x: e.x + e.vars.dx * step, y: e.y + e.vars.dy * step };
     const end = (): boolean => { e.vars.st = WOLF_BACK; e.vars.t = p.wolfBack; for (const key of ['dx', 'dy', 'ran', 'pack']) delete e.vars[key]; return true; };
-    // A wall, a tree or a cliff edge stops the rush (the wolf does not fall).
-    if (blockedAt(next, r * 0.95, world.arena)) return end();
+    // A wall, a tree or a cliff edge stops the rush (the wolf does not fall). At a cliff edge it also leaves the ring: it
+    // walks as everyone (round the drop) for a while instead of walking back out to the ring.
+    if (blockedAt(next, r * 0.95, world.arena)) {
+      if (!cliffAt(next, r * 0.95, world.arena)) return end();
+      backToRing(e); delete e.vars.slot;
+      e.vars.away = Math.max(CLIFF_AWAY_MIN, p.wolfBack);
+      return true;
+    }
     e.x = next.x; e.y = next.y; e.vars.ran += step;
     // It reached the hero: it stops there — its touch hits (the common touch, with the pack bonus).
     if (dist(e, h) <= touchDistanceOf(p, e) + CONTACT_SLACK) return end();
