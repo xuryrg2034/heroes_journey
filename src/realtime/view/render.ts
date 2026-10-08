@@ -141,6 +141,8 @@ export class RealtimeRenderer {
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
   readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0 };
+  /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
+  spinsShown = 0;
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -607,6 +609,15 @@ export class RealtimeRenderer {
         this.fxLayer.addChild(flash);
         this.bursts.push({ g: flash, life: 0.35, total: 0.35 });
         if (world.params.shakeOnDamage) { this.shakeLeft = this.shakeTotal = 0.15; this.shakeAmp = Math.max(this.shakeAmp, 6); }
+        continue;
+      }
+      if (ev.type === 'spin') {
+        // Stage 2, step 3: the spin (Q) — a pale ring of its circle around the hero, widening and fading.
+        const ring = new Graphics().circle(0, 0, ev.radius * UNIT).fill({ color: 0xbfe3ff, alpha: 0.18 }).stroke({ color: 0xffffff, width: 5, alpha: 0.95 });
+        ring.position.set(ev.x * UNIT, ev.y * UNIT);
+        this.fxLayer.addChild(ring);
+        this.bursts.push({ g: ring, life: 0.3, total: 0.3 });
+        this.spinsShown++;
         continue;
       }
       if (ev.type === 'enemyHit') {

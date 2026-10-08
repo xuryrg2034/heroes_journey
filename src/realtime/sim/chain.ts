@@ -380,15 +380,18 @@ export function jumpLanding(world: World, p: Vec): Vec | null {
   return blockedAt(land, heroRadius(world.params), world.arena) ? null : land;
 }
 
+/** Energy the jump costs now (the panel's `jumpCost`). */
+export function jumpCostOf(world: World): number { return world.params.jumpCost; }
+
 export function canJump(world: World): boolean {
-  return world.status === 'playing' && !world.move && world.chain.length === 0 && world.energy >= world.params.jumpCost;
+  return world.status === 'playing' && !world.move && world.chain.length === 0 && world.energy >= jumpCostOf(world);
 }
 
 export function jump(world: World, p: Vec): boolean {
   if (!canJump(world)) return false;
   const land = jumpLanding(world, p);
   if (!land) return false;
-  world.energy -= world.params.jumpCost;
+  world.energy -= jumpCostOf(world);
   const speed = Math.max(dist(land, world.hero) / JUMP_TIME, 1);
   world.move = newMove('jump', land, land, speed);
   world.events.push({ type: 'jump' });

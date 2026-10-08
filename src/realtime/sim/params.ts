@@ -204,6 +204,13 @@ export interface Params {
   energyPerKill: number;
   jumpCost: number;
   jumpRadius: number;
+  // Spin, key Q (stage 2 of the transition, step 3, docs/realtime-slice.md, section 6)
+  /** Energy the spin costs. */
+  spinCost: number;
+  /** Hit of the spin on every enemy whose body touches its circle (colour and shield do not matter). */
+  spinDamage: number;
+  /** Radius of the spin around the hero. */
+  spinRadius: number;
   // Look
   dimMode: DimMode;
   dimStrength: number;
@@ -384,6 +391,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   energyPerKill: 0.5,
   jumpCost: 2,
   jumpRadius: 3,
+  // Баланс: section 6 — the spin costs 3 energy and hits 4 within 1.2 of the hero.
+  spinCost: 3,
+  spinDamage: 4,
+  spinRadius: 1.2,
   dimMode: 'alpha',
   dimStrength: 0.65,
   enemyLook: 'circle',
@@ -541,6 +552,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('energyPerKill', 'Прыжок', 'Энергия за врага', 0, 3, 0.1, 2),
   n('jumpCost', 'Прыжок', 'Цена прыжка', 0, 10, 0.5, 2),
   n('jumpRadius', 'Прыжок', 'Радиус прыжка', 0.5, 8, 0.25, 2, 'ед.'),
+  n('spinCost', 'Круговой удар', 'Цена кругового удара (Q)', 0, 7, 0.5, 5, '', 'Не во время прохода цепи и прыжка; во время выделения цепи — можно.'),
+  n('spinDamage', 'Круговой удар', 'Удар по врагу', 0, 12, 1, 5, '', 'Всем врагам, чьё тело касается круга: цвет и щит не учитываются. Убийства засчитываются; энергии, кристаллов и игл дикобраза нет.'),
+  n('spinRadius', 'Круговой удар', 'Радиус', 0.25, 4, 0.05, 5, 'ед.'),
   { kind: 'choice', key: 'dimMode', group: 'Вид', label: 'Приглушение не того цвета', stage: 2,
     options: [{ value: 'darken', label: 'затемнение' }, { value: 'alpha', label: 'полупрозрачность' }, { value: 'desaturate', label: 'обесцвечивание' }] },
   n('dimStrength', 'Вид', 'Сила приглушения', 0, 1, 0.05, 2),

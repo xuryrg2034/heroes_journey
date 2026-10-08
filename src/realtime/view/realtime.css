@@ -149,3 +149,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-choice small { color: #a7ad93; font-size: 12px; }
 .rt-run-choice .rt-run-reason { color: #e0a596; }
 .rt-result-buttons:has(> :only-child) { grid-template-columns: 1fr; }
+
+/* Stage 2, step 3: abilities (Space, Q) with their price; ready when there is energy for them now. */
+.rt-abilities { display: inline-flex; gap: 6px; }
+.rt-ability { padding: 1px 6px; font-size: 12px; color: #8e947b; border: 1px solid #3a3f30; background: #151a12cc; white-space: nowrap; }
+.rt-ability.rt-ready { color: #bfe3ff; border-color: #4a6378; }

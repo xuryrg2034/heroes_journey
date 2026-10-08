@@ -14,7 +14,8 @@
 import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
 import { ARENAS, SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
-import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, planChain, type Refusal } from '../sim/chain';
+import { canSpin } from '../sim/abilities';
+import { ENERGY_MAX, REFUSAL_TEXT, canJump, hoverRefusal, jumpCostOf, planChain, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inWater, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
@@ -133,8 +134,15 @@ async function boot(): Promise<void> {
   const chainText = el('span', 'rt-chain');
   const scoreText = el('span', 'rt-score');
   scoreText.setAttribute('data-testid', 'score');
-  hud.append(hpBar, hpText, focusBar, energyText, goalText, scoreText, timeText, infoText, chainText);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза'));
+  // Stage 2, step 3: the abilities with their key, price and whether there is energy for them now.
+  const abilities = el('span', 'rt-abilities');
+  const jumpAbility = el('span', 'rt-ability');
+  jumpAbility.setAttribute('data-testid', 'ability-jump');
+  const spinAbility = el('span', 'rt-ability');
+  spinAbility.setAttribute('data-testid', 'ability-spin');
+  abilities.append(jumpAbility, spinAbility);
+  hud.append(hpBar, hpText, focusBar, energyText, abilities, goalText, scoreText, timeText, infoText, chainText);
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза'));
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -372,6 +380,7 @@ async function boot(): Promise<void> {
       if (runScreenOpen) return;
       if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
       else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
+      else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
       else if (event.code === 'KeyP') paused = !paused;
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
       return;
@@ -382,6 +391,7 @@ async function boot(): Promise<void> {
     if (menuOpen) return;
     if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
     else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
+    else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
     else if (event.code === 'KeyR') restart();
     else if (event.code === 'KeyP') paused = !paused;
     else if (event.key === 'Enter' && ended) restart();
@@ -466,11 +476,15 @@ async function boot(): Promise<void> {
     focusFill.style.width = `${params.focusMax > 0 ? w.focus / params.focusMax * 100 : 0}%`;
     focusBar.classList.toggle('rt-focus-on', w.focusing);
     energyText.textContent = `⚡ ${w.energy.toFixed(1)} / ${ENERGY_MAX}`;
-    energyText.classList.toggle('rt-ready', w.energy >= params.jumpCost);
+    energyText.classList.toggle('rt-ready', w.energy >= jumpCostOf(w));
     const goal = goalProgress(w);
     scoreText.textContent = `очки ${w.stats.score}`;
     goalText.textContent = w.stage === 'greed' ? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
+    jumpAbility.textContent = `Пробел прыжок · ${jumpCostOf(w)} ⚡`;
+    jumpAbility.classList.toggle('rt-ready', w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w));
+    spinAbility.textContent = `Q круговой · ${params.spinCost} ⚡`;
+    spinAbility.classList.toggle('rt-ready', canSpin(w));
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(w) && !ui.jumpMode;
     if (w.chain.length) {
@@ -553,6 +567,8 @@ async function boot(): Promise<void> {
         lanes: renderer.visibleLanes,
         /** Stage 2, step 2: signals of the new enemies drawn in the last frame (shield arcs, archer lines, …). */
         signals: { ...renderer.signals },
+        /** Stage 2, step 3: spin flashes drawn so far. */
+        spinsShown: renderer.spinsShown,
         packLines: renderer.visiblePackLines,
         ripples: renderer.visibleRipples,
         heroInWater: inWater(w.hero, w.arena),
@@ -586,6 +602,8 @@ async function boot(): Promise<void> {
     placeCrystal: (x: number, y: number, value = 6) => command({ t: 'crystal', x, y, value }),
     /** Test setup (stage 2, step 2): freeze the enemy `id` for `seconds` of game time — the cold state of step 3. */
     chill: (id: number, seconds: number) => command({ t: 'chill', id, seconds }),
+    /** Stage 2, step 3: the spin (as the key Q). */
+    spin: () => command({ t: 'spin' }),
     /** The journal of the current fight: seed, arena, starting values, commands by tick (replay in Node: sim/simulation.ts). */
     journal: () => sim.exportJournal(),
     /** Hash of the current world (sim/hash.ts). */

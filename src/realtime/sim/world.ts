@@ -168,6 +168,8 @@ export type WorldEvent =
   | { type: 'jump' }
   /** Stage 2 of the transition: a blast went off (render: the flash). */
   | { type: 'blast'; x: number; y: number; radius: number; source: string }
+  /** Stage 2, step 3: the hero's spin (Q) — its circle and how many enemies it struck (render: the flash). */
+  | { type: 'spin'; x: number; y: number; radius: number; hits: number }
   | { type: 'focusRefill' }
   | { type: 'defeat' };
 

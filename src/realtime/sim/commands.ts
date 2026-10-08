@@ -6,6 +6,7 @@
  *
  * Commands are plain JSON (a journal is a JSON file). The simulation reads nothing else — no DOM, no clock.
  */
+import { spin } from './abilities';
 import { beginChain, cancelChain, dragChain, dragChainAlong, jump, releaseChain, type DragMode } from './chain';
 import { setParam, setPhases, type ParamKey, type Phase } from './params';
 import { spawnBurst, spawnEnemy } from './spawn';
@@ -26,6 +27,8 @@ export type Command =
   | { t: 'cancel' }
   /** A jump towards the point (the jump mode of the view is not simulation state). */
   | { t: 'jump'; x: number; y: number }
+  /** Stage 2, step 3: the spin around the hero (key Q, abilities.ts). */
+  | { t: 'spin' }
   /** A debug-panel value (the view saves it to storage itself). */
   | { t: 'param'; key: ParamKey; value: unknown }
   /** The debug-panel phase table. */
@@ -50,7 +53,7 @@ export type Command =
    */
   | { t: 'chill'; id: number; seconds: number };
 
-/** What a command returned: true/false for the chain and the jump, the new id for `place` and `crystal`. */
+/** What a command returned: true/false for the chain, the jump and the spin, the new id for `place` and `crystal`. */
 export type CommandResult = boolean | number | void;
 
 /** Applies a command to the world between ticks. */
@@ -63,6 +66,7 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
     case 'release': return releaseChain(world);
     case 'cancel': cancelChain(world); return;
     case 'jump': return jump(world, { x: cmd.x, y: cmd.y });
+    case 'spin': return spin(world);
     case 'param': {
       const params = world.params, oldMax = params.heroHp;
       setParam(params, cmd.key, cmd.value);
