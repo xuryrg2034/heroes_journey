@@ -190,6 +190,24 @@ test('off-screen pointers: the open door and a danger aimed at the hero; none fo
   expect(errors).toEqual([]);
 });
 
+test('the sandbox menu lists the camera sample under its heading (⇧8); the button and the key open it', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/realtime.html?sandbox=1');
+  await expect(page.getByTestId('menu')).toBeVisible();
+  const button = page.getByTestId('camera-arena-1');
+  await button.scrollIntoViewIfNeeded();
+  await expect(button).toContainText('Большая поляна');
+  await expect(button.locator('kbd')).toHaveText('⇧8');
+  await button.click();
+  await expect.poll(async () => (await snap(page)).arena).toBe('big-clearing');
+  await page.keyboard.press('KeyM');
+  await page.keyboard.press('Shift+Digit8');
+  await expect.poll(async () => (await snap(page)).arena).toBe('big-clearing');
+  expect((await camera(page)).viewW).toBeLessThan(24);
+  expect(errors).toEqual([]);
+});
+
 test('the debug panel does not cover the hero: the camera centres him in the free part of the window', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 18);
