@@ -35,7 +35,7 @@ export const ALWAYS_MET: readonly string[] = ['basic', 'wolf', 'boar'];
  * A roster (`mode: 'replace'` — a pool roster) or a role added to an anchor (`mode: 'add'`). `kinds` — single newcomers of
  * other kinds as shares of all single newcomers (turned into the per-roll shares of spawn.ts by `rollShares`); `wolfShare`
  * — the share of groups that come as a wolf pack; `boarShare` — the share of boars among the other single newcomers
- * (capped by the panel's «Кабанов на арене»). A replacing roster sets both shares (absent — 0); an added role sets only
+ * (capped by the roster's `boarMax`, else the panel's «Кабанов на арене»). A replacing roster sets both shares (absent — 0); an added role sets only
  * the share it names.
  */
 export interface RosterDef {
@@ -46,6 +46,8 @@ export interface RosterDef {
   kinds: readonly (readonly [kind: string, share: number])[];
   wolfShare?: number;
   boarShare?: number;
+  /** Cap of boars on the arena for this roster (design 09.10.2026: «Натиск» — 5); absent — the panel's «Кабанов на арене». */
+  boarMax?: number;
 }
 
 /**
@@ -53,7 +55,7 @@ export interface RosterDef {
  * share on its own arena (15–25%), above the mixed arenas' 10%; «Натиск» and «Волки» need no meeting (the early rows).
  */
 export const POOL_ROSTERS: readonly RosterDef[] = [
-  { id: 'onslaught', title: 'Натиск', mode: 'replace', kinds: [], boarShare: 0.15 },
+  { id: 'onslaught', title: 'Натиск', mode: 'replace', kinds: [], boarShare: 0.15, boarMax: 5 },
   { id: 'wolves', title: 'Волки', mode: 'replace', kinds: [], wolfShare: 0.25 },
   { id: 'shield-archers', title: 'Стрелки за щитами', mode: 'replace', kinds: [['shield', 0.15], ['archer', 0.12]] },
   { id: 'pack', title: 'Стая', mode: 'replace', kinds: [['lynx', 0.1]], wolfShare: 0.2 },
@@ -169,5 +171,5 @@ export function withRoster(template: ArenaTemplate, id: string): RosterArena {
   const shares = def.mode === 'replace'
     ? { wolfShare: def.wolfShare ?? 0, boarShare: def.boarShare ?? 0 }
     : { ...def.wolfShare !== undefined ? { wolfShare: def.wolfShare } : {}, ...def.boarShare !== undefined ? { boarShare: def.boarShare } : {} };
-  return { ...template, newcomers, phaseOverride: { ...template.phaseOverride, ...shares }, roster: id };
+  return { ...template, newcomers, phaseOverride: { ...template.phaseOverride, ...shares }, ...def.boarMax !== undefined ? { boarMax: def.boarMax } : {}, roster: id };
 }

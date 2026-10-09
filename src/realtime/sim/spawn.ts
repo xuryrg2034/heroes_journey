@@ -212,7 +212,7 @@ function rollSize(world: World, min: number, max: number): number {
 /** A random chain colour (spawnRoll). */
 function rollColor(world: World): number { return Math.floor(rollRng(world).next() * COLOR_COUNT); }
 
-/** Boars on the arena, at markers and in the queue: the cap `boarMax` counts all of them. */
+/** Boars on the arena, at markers and in the queue: the cap (the arena's `boarMax`, else the panel's) counts all of them. */
 function boarCount(world: World): number {
   return world.enemies.filter(e => e.kind === 'boar').length + world.markers.filter(m => m.kind === 'boar').length + world.queue.filter(q => q.kind === 'boar').length;
 }
@@ -228,7 +228,7 @@ function rollSingle(world: World, color: number, anchor: Vec | null): QueuedSpaw
     const hp = extra.hp ?? enemyKind(extra.kind).hp(p) ?? rollHp(world);
     return { kind: extra.kind, color, hp, anchor };
   }
-  if (rollRng(world).next() < world.pressure.phase.boarShare && boarCount(world) < p.boarMax) return { kind: 'boar', color, hp: p.boarHp, anchor };
+  if (rollRng(world).next() < world.pressure.phase.boarShare && boarCount(world) < (world.arena.boarMax ?? p.boarMax)) return { kind: 'boar', color, hp: p.boarHp, anchor };
   return { kind: 'basic', color, hp: rollHp(world), anchor };
 }
 

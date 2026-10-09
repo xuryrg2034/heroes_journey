@@ -69,6 +69,8 @@ export interface ArenaTemplate extends ArenaShape {
   newcomers?: NewcomerShare[];
   /** Stage 3a (М4): braziers — links of any colour, +power to the rest of the chain, out for a while after a dash. */
   braziers?: Vec[];
+  /** Phase A (Т2): the cap of boars on the arena (a roster's own, «Натиск»); omitted — the panel slider «Кабанов на арене». */
+  boarMax?: number;
 }
 
 /** Old name of the template (prototype stages 1–3). */

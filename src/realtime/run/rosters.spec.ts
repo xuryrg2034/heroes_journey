@@ -289,4 +289,21 @@ check('kinds in 60 s with each roster (6 seeds): the roster\'s kinds come, no ot
   }
 });
 
+check('«Натиск» caps its boars at 5 (design 09.10.2026), not the panel\'s 3: boars on the arena, at markers and in the queue reach 4–5 and never pass 5; the same arena with «Волки» keeps the panel cap', () => {
+  const peak = (roster: string, k: number): number => {
+    const sim = new Simulation({ arena: 'buttons', params: harmless(), seed: seedOf(k + 80), roster }), w = sim.world;
+    let most = 0;
+    for (let i = 0; i < 90 * 60; i++) {
+      sim.tick(); w.events.length = 0;
+      const boars = w.enemies.filter(e => e.kind === 'boar').length + w.markers.filter(m => m.kind === 'boar').length + w.queue.filter(q => q.kind === 'boar').length;
+      most = Math.max(most, boars);
+    }
+    return most;
+  };
+  const onslaught = [1, 2, 3, 4].map(k => peak('onslaught', k));
+  assert(withRoster(arenaTemplate('buttons'), 'onslaught').boarMax === 5 && onslaught.every(n => n <= 5) && Math.max(...onslaught) > 3, `«Натиск»: boar peaks ${onslaught}`);
+  assert(harmless().boarMax === 3 && withRoster(arenaTemplate('buttons'), 'wolves').boarMax === undefined, 'other rosters keep the panel cap');
+  console.log(`   «Натиск» on «Двор кнопок», 90 s: boar peaks ${onslaught.join(', ')} (cap 5; the panel's 3)`);
+});
+
 console.log(`realtime-rosters: ${checks} checks passed`);
