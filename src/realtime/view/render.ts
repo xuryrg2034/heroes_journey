@@ -16,6 +16,7 @@ import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
+import { chameleonWarn, eliteAffixes, type AffixId } from '../sim/elites';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } from './camera';
@@ -72,6 +73,16 @@ const BADGE_PLAQUE = 0x10171d;
 /** Phase A (Т3): the badge glyph in screen pixels (its half size) and the plaque around it. */
 const BADGE_GLYPH_PX = 6;
 const BADGE_PLAQUE_PX = 9;
+/**
+ * Phase A (Т4): short labels of elite affixes in the badge strip (readable at ~11 px) and their ink — a hint of the rule:
+ * fire warm, the chameleon pale, the swift cold, the fat bone.
+ */
+const AFFIX_SHORT: Readonly<Record<AffixId, string>> = { fiery: 'Огн', chameleon: 'Хам', swift: 'Стрем', fat: 'Толст' };
+const AFFIX_INK: Readonly<Record<AffixId, number>> = { fiery: 0xffa25a, chameleon: 0xf2dfb4, swift: 0xa9dcff, fat: 0xeadbb9 };
+/** Phase A (Т4): the affix label in screen pixels. */
+const AFFIX_FONT_PX = 11;
+/** At most this many affix labels under one body (design: do not overload). */
+const AFFIX_MAX_SHOWN = 2;
 /** Stage 2, step 3: the cold consumable — pale ice blue. */
 const ICE = 0x9fd8ff;
 /** Stage 2, step 3: colours of the loot of elites — consumables and crafting resources. */
@@ -84,7 +95,7 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 /** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
 /** Stage 3a: `howls` — the wolves' howl circle round the hero (П1); `leapLines`, `stunned` — the lynx's leap line and its stun (П2); `beams` — the shaman's beam (П4). */
 /** Phase A (Д3): `rushLanes` — the rush lanes of howling and rushing wolves; `roleBadges` — role badges under bodies. */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number; affixLabels: number; trailPoints: number; chameleonWarns: number }
 
 /** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
 export interface TerrainCounts { river: number; cliff: number; thorns: number }
@@ -169,6 +180,8 @@ interface EnemyView {
   hpLabel: Text | null;
   hp: number;
   look: EnemyLook;
+  /** The colour the disc was drawn in (phase A: «Хамелеон» changes colour — the body is rebuilt). */
+  color: number;
   /** Porcupine (iteration 2.1): the raised crown of quills and the lowered quills lying flat (one of them shown). */
   quills: { up: Graphics; down: Graphics } | null;
 }
@@ -215,6 +228,13 @@ export class RealtimeRenderer {
   private archerMarksSeen = new Map<number, { x: number; y: number; r: number; progress: number }>();
   /** Arrow-fall flashes shown so far (tests read it). */
   arrowFlashes = 0;
+  /** Phase A (Т4): the fire trail of «Огненный» elites — ground under the crowd. */
+  private readonly trailLayer = new Graphics();
+  /** Fire trail points drawn in the last frame (carried into `signals`). */
+  private trailCount = 0;
+  /** Phase A (Т4): texts of the affix labels in the badge strip (a pool over `badgeLayer`). */
+  private readonly affixTextLayer = new Container();
+  private readonly affixTexts: Text[] = [];
   /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
   private rushLaneCount = 0;
   private readonly enemyLayer = new Container();
@@ -274,7 +294,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: 0, chameleonWarns: 0 };
   /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
   readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
   /** Stage 3a (М2): enemies seen falling into a cliff so far. */
@@ -295,7 +315,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -662,11 +682,11 @@ export class RealtimeRenderer {
     for (const e of world.enemies) {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
-      if (view && (view.look !== look || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
+      if (view && (view.look !== look || view.color !== e.color || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
       if (!view) {
         const root = new Container(), { body, grey, hpLabel, exclaim, quills } = this.buildEnemyBody(e, look);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, quills };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, quills };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -779,7 +799,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0 };
     // Stage 3a (П1): the wolves howl — a thin threat circle on the ring round the hero, no fill (phase A: the rush lanes of
     // the wolves carry the timing).
     const howl = wolfHowl(world);
@@ -876,7 +896,11 @@ export class RealtimeRenderer {
       if (e.elite) {
         counts.elites++;
         const R = r * p.eliteArtScale * 1.06;
-        g.circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: NAVY, width: 7, alpha: 0.9 }).circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: TARGET, width: 4 });
+        // Phase A (Т4): «Хамелеон» in its window — the rim blinks the colour it turns to (a chain of any colour takes it now).
+        const warn = chameleonWarn(world, e);
+        if (warn) counts.chameleonWarns++;
+        const rim = warn && Math.floor(this.clock * 8) % 2 === 0 ? COLORS[warn.next] : TARGET;
+        g.circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: NAVY, width: 7, alpha: 0.9 }).circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: rim, width: warn ? 5 : 4 });
       }
       // Stage 2, step 3: the cold — an icy ring (a double ring while the next chain hit on it is ×2); burning — flames.
       if ((e.chill ?? 0) > 0) {
@@ -922,32 +946,71 @@ export class RealtimeRenderer {
   private drawBadges(world: World): void {
     const g = this.badgeLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
     const counts: Record<EnemyRole, number> = { shooter: 0, blocker: 0, punisher: 0, master: 0, diver: 0 };
-    let total = 0;
-    if (this.showRoleBadges) {
-      const color = world.chain.length ? chainColor(world) : null, strength = p.dimStrength;
-      const px = 1 / Math.max(0.1, this.scale), glyph = BADGE_GLYPH_PX * px, plate = BADGE_PLAQUE_PX * px, gap = 2 * px;
-      for (const e of world.enemies) {
-        if (e.color === NO_COLOR || !this.sees(e, 1.5)) continue;
-        const slots: EnemyRole[] = [];
-        const role = roleOf(e.kind);
-        if (role) slots.push(role);
-        // Т4 (second pass): the affixes of an elite go here, after the role.
-        if (!slots.length) continue;
-        const alpha = color !== null && e.color !== color ? 1 - strength : 1;
-        // Under an elite: below its larger drawing and its gold rim.
-        const y = e.y * UNIT + r * 1.25 * (e.elite ? p.eliteArtScale : 1) + (e.elite ? plate * 0.6 : 0);
-        const width = slots.length * plate * 2 + (slots.length - 1) * gap;
-        let x = e.x * UNIT - width / 2 + plate;
-        for (const slot of slots) {
-          g.roundRect(x - plate, y - plate, plate * 2, plate * 2, plate * 0.45).fill({ color: BADGE_PLAQUE, alpha: 0.85 * alpha }).stroke({ color: PALE, width: px, alpha: 0.35 * alpha });
-          drawRoleGlyph(g, slot, x, y, glyph, PALE, alpha);
-          counts[slot]++; total++;
-          x += plate * 2 + gap;
-        }
+    let total = 0, labels = 0;
+    const color = world.chain.length ? chainColor(world) : null, strength = p.dimStrength;
+    const px = 1 / Math.max(0.1, this.scale), glyph = BADGE_GLYPH_PX * px, plate = BADGE_PLAQUE_PX * px, gap = 2 * px;
+    for (const e of world.enemies) {
+      if (e.color === NO_COLOR || !this.sees(e, 1.5)) continue;
+      const role = this.showRoleBadges ? roleOf(e.kind) : null;
+      // Phase A (Т4): the affixes of an elite are rules of the fight — shown whatever the role toggle says, at most two.
+      const affixes = e.elite ? eliteAffixes(e).slice(0, AFFIX_MAX_SHOWN) : [];
+      if (!role && !affixes.length) continue;
+      const alpha = color !== null && e.color !== color ? 1 - strength : 1;
+      // Under an elite: below its larger drawing and its gold rim.
+      const y = e.y * UNIT + r * 1.25 * (e.elite ? p.eliteArtScale : 1) + (e.elite ? plate * 0.6 : 0);
+      const texts = affixes.map(id => { const t = this.affixText(labels++); t.text = AFFIX_SHORT[id]; t.style.fill = AFFIX_INK[id]; t.scale.set(px / 2); return t; });
+      const widths = [...(role ? [plate * 2] : []), ...texts.map(t => t.width + plate * 0.9)];
+      let x = e.x * UNIT - (widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1)) / 2;
+      if (role) {
+        g.roundRect(x, y - plate, plate * 2, plate * 2, plate * 0.45).fill({ color: BADGE_PLAQUE, alpha: 0.85 * alpha }).stroke({ color: PALE, width: px, alpha: 0.35 * alpha });
+        drawRoleGlyph(g, role, x + plate, y, glyph, PALE, alpha);
+        counts[role]++; total++;
+        x += plate * 2 + gap;
       }
+      texts.forEach((t, i) => {
+        const w = widths[(role ? 1 : 0) + i];
+        g.roundRect(x, y - plate, w, plate * 2, plate * 0.45).fill({ color: BADGE_PLAQUE, alpha: 0.85 * alpha }).stroke({ color: AFFIX_INK[affixes[i]], width: px, alpha: 0.55 * alpha });
+        t.position.set(x + w / 2, y);
+        t.alpha = alpha;
+        t.visible = true;
+        x += w + gap;
+      });
     }
+    for (let i = labels; i < this.affixTexts.length; i++) this.affixTexts[i].visible = false;
     Object.assign(this.badgeRoles, counts);
     this.signals.roleBadges = total;
+    this.signals.affixLabels = labels;
+  }
+
+  /** Phase A (Т4): the `i`-th affix label text (a pool; drawn at twice the font size and scaled down — crisp at any zoom). */
+  private affixText(i: number): Text {
+    while (this.affixTexts.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'system-ui, sans-serif', fontSize: AFFIX_FONT_PX * 2, fontWeight: 'bold', fill: PALE } });
+      text.anchor.set(0.5);
+      text.visible = false;
+      this.affixTextLayer.addChild(text);
+      this.affixTexts.push(text);
+    }
+    return this.affixTexts[i];
+  }
+
+  /**
+   * Phase A (Т4): the fire trail of «Огненный» — ground, not a telegraph: warm embers of the trail radius (no white outline,
+   * no hatching), fading with the time left; a flicker keeps them alive. Reads «do not stand here» like thorns.
+   */
+  private drawTrails(world: World): void {
+    const g = this.trailLayer.clear(), p = world.params, life = Math.max(0.01, p.trailLife), R = p.trailRadius * UNIT;
+    let count = 0;
+    for (const t of world.trails ?? []) {
+      if (!this.sees(t, p.trailRadius + 0.5)) continue;
+      count++;
+      const k = Math.max(0, Math.min(1, t.life / life)), f = 0.85 + 0.15 * Math.sin(this.clock * 13 + t.x * 7 + t.y * 5);
+      const X = t.x * UNIT, Y = t.y * UNIT;
+      g.circle(X, Y, R).fill({ color: EMBER, alpha: 0.38 * k });
+      g.circle(X, Y, R * 0.6 * f).fill({ color: FLAME, alpha: 0.4 * k });
+      g.circle(X, Y, R).stroke({ color: 0x7a2a12, width: 2, alpha: 0.5 * k });
+    }
+    this.trailCount = count;
   }
 
   /** Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. */
@@ -1333,6 +1396,7 @@ export class RealtimeRenderer {
     this.updateDying(realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
+    this.drawTrails(world);
     this.drawLanes(world);
     this.drawRipples(world);
     this.syncEnemies(world);

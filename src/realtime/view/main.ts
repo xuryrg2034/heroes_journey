@@ -732,6 +732,10 @@ async function boot(): Promise<void> {
         rushLanes: renderer.signals.rushLanes,
         /** Phase A (Т6): archers' mark circles drawn in the last frame, arrow-fall flashes shown so far. */
         archerMarks: renderer.signals.archerMarks,
+        /** Phase A (Т4): affix labels under bodies, fire trail points, chameleons blinking in their window — last frame. */
+        affixLabels: renderer.signals.affixLabels,
+        trailPoints: renderer.signals.trailPoints,
+        chameleonWarns: renderer.signals.chameleonWarns,
         arrowFlashes: renderer.arrowFlashes,
         roleBadges: renderer.signals.roleBadges,
         badgeRoles: { ...renderer.badgeRoles },
@@ -765,7 +769,7 @@ async function boot(): Promise<void> {
     /** Test setup: remove every enemy (except the marked ones with `keepMarked`), marker and queued newcomer. */
     clear: (keepMarked = false) => command({ t: 'clear', keepMarked }),
     /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. */
-    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite: boolean | 'random' = false) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite } : {} }),
+    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite: boolean | 'random' = false, affixes?: string[]) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite } : {}, ...elite && affixes ? { affixes } : {} }),
     /** Test setup: move the hero. */
     teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
     /** Test setup: set the jump energy. */

@@ -189,6 +189,37 @@ test('phase A: the archer\'s mark circle is drawn while it aims and flashes when
 });
 
 /**
+ * Phase A (Т4, docs/realtime-phase-a.md, sections 3 and 5): elite affixes on screen — a short label in the badge strip of
+ * an elite with an affix (none for a plain elite; the role toggle does not hide it), the fire trail of «Огненный» drawn as
+ * warm ground, «Хамелеон» blinking its next colour in its window. Placed through the journalled `place {elite, affixes}`.
+ */
+test('phase A: affix labels under elites with affixes only, the fire trail is drawn, the chameleon blinks in its window', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openSandbox(page, '&arena=1');
+  await quiet(page, { x: 8, y: 5 });
+  // The chameleon's window lengthened (a journalled panel value) so that a poll meets it; the fiery elite walks to lay its trail.
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('chameleonWarn', 2); rt.setParam('enemySpeed', 1.2); });
+  const placeElite = (x: number, y: number, color: number, kind: string, affixes: string[]): Promise<number> =>
+    page.evaluate(([x, y, color, kind, affixes]) => (window as any).__realtime.place(x, y, color, 1, kind, true, affixes), [x, y, color, kind, affixes] as const);
+  await placeElite(2.5, 8.5, 1, 'basic', ['fiery']);
+  await placeElite(11.5, 6.0, 2, 'shield', ['chameleon']);
+  await placeElite(4.5, 2.0, 3, 'basic', []);
+  for (let i = 0; i < 6; i++) await place(page, 5 + i * 0.7, 7.2 + (i % 2) * 0.6, i % 4, 0, 'basic');
+  // One label each under the fiery and the chameleon elite; none under the plain elite (one frame later).
+  await expect.poll(async () => (await snap(page) as any).affixLabels).toBe(2);
+  await expect.poll(async () => (await snap(page) as any).trailPoints, SIGNAL_POLL).toBeGreaterThan(2);
+  await expect.poll(async () => (await snap(page) as any).chameleonWarns, SIGNAL_POLL).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-phaseA-affixes.png' });
+  // The role toggle hides role badges, not the affix labels.
+  await page.keyboard.press('F1');
+  await page.getByTestId('role-badges').uncheck();
+  await expect.poll(async () => (await snap(page) as any).signals.roleBadges).toBe(0);
+  expect((await snap(page) as any).affixLabels).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+/**
  * Phase A (Т3): the role badge under each body by its kind — shooter (archer), blocker (shield), punisher (porcupine,
  * sapper), master (shaman), diver (wolf, lynx); the presser (basic, boar) has none. The toggle on the debug panel is a view
  * setting: it hides them, keeps its own storage key across a reload and never reaches the journal.
