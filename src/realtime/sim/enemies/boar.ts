@@ -75,6 +75,7 @@ registerBehavior({
 registerEnemyKind({
   id: 'boar',
   behavior: 'boar',
+  speedClass: 'normal',
   hp: params => params.boarHp,
   speed: world => world.pressure.enemySpeed,
   bodyScale: 1,

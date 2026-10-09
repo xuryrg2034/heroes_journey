@@ -100,6 +100,7 @@ registerBehavior({
 registerEnemyKind({
   id: 'shaman',
   behavior: 'shaman',
+  speedClass: 'slow',
   hp: params => params.shamanHp,
   speed: world => world.pressure.enemySpeed * world.params.shamanSpeed,
   bodyScale: 1,

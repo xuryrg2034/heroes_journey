@@ -16,7 +16,7 @@ import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './e
 import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
-import { eliteDeath, makeElite, touchLoot } from './elites';
+import { affixSpeedFactor, eliteDeath, makeElite, touchLoot, updateAffixes, type AffixId, type TrailPoint } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
@@ -86,6 +86,18 @@ export interface Enemy {
    * Absent on an ordinary enemy.
    */
   elite?: true | 'random';
+  /**
+   * Phase A, T4 (docs/realtime-phase-a.md, section 2; elites.ts): the affixes of an elite, in the order of `AFFIX_IDS`.
+   * Absent on an elite without affixes (the slice's elite) and on an ordinary enemy — those hash as before. Not in `vars`:
+   * the wolves' ring clears `vars`.
+   */
+  affixes?: AffixId[];
+  /** «Хамелеон»: game seconds to its next colour (stands while it is a link of the chain or the dash, or frozen). */
+  chameleon?: number;
+  /** «Огненный»: where its last trail point lies (the next one falls `trailStep` away from it). */
+  trail?: { x: number; y: number };
+  /** Game seconds before a fire trail may hurt this enemy again (absent — it may now). */
+  singed?: number;
 }
 
 /** The enemy is frozen now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off. */
@@ -192,6 +204,11 @@ export interface Hero {
    * a jump ending in thorns gives a full interval first). Absent out of thorns — worlds without thorns hash as before.
    */
   thorns?: number;
+  /**
+   * Phase A, T4 («Огненный»): game seconds to the next burn while the hero is on foot in a fire trail (as `thorns`). Absent
+   * out of a trail.
+   */
+  flames?: number;
 }
 
 /** Source of a hit on the hero: `touch`, `wolf`, `reaper` (a kind's touch), `boar` (the charge) or a new kind's own. */
@@ -299,6 +316,8 @@ export interface World {
   energy: number;
   /** Stage 2 of the transition: delayed blasts (lit fuses) on the arena. Hashed only when not empty. */
   blasts: Blast[];
+  /** Phase A, T4: points of the fire trails of «Огненный» elites (elites.ts). Hashed only when not empty. */
+  trails: TrailPoint[];
   /**
    * Stage 2, step 3: what the hero brought into the arena and holds now (consumables; kit.ts). Absent — an arena started
    * without a loadout (journals before step 3): no consumables, the world hashes as before.
@@ -391,6 +410,7 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     focusing: false,
     energy: 0,
     blasts: [],
+    trails: [],
   };
   // Stage 2, step 3: the loadout of the arena — its consumables and the energy the run banked for it (up to the cap).
   if (loadout) {
@@ -534,10 +554,25 @@ export function enemySpeedFactor(e: Enemy, params: Params): number {
   return e.speedFactor * (1 - params.brakeStrength * braking);
 }
 
-/** Speed of an enemy right now, in units per game second: its kind's speed × spread and braking × the marked slowdown. */
+/**
+ * Walking speed of a kind before the spread: with speed classes (phase A, T1; `speedClasses` — journals without it have the
+ * old formulas) the pace's enemy speed × the class (slow `speedSlow`, normal 1, fast `speedFast`), else the kind's own speed.
+ * A kind without a class (the reaper) always walks by its own.
+ */
+export function kindSpeed(world: World, e: Enemy): number {
+  const p = world.params, def = kindOf(e), cls = p.speedClasses ? def.speedClass : undefined;
+  if (!cls) return def.speed(world, e);
+  return world.pressure.enemySpeed * (cls === 'slow' ? p.speedSlow : cls === 'fast' ? p.speedFast : 1);
+}
+
+/**
+ * Speed of an enemy right now, in units per game second: its kind's (or class's) speed × spread and braking × the marked
+ * slowdown × its affixes («Стремительный», «Толстый»; phase A, T4).
+ */
 export function enemySpeed(world: World, e: Enemy): number {
   const p = world.params;
-  return kindOf(e).speed(world, e) * enemySpeedFactor(e, p) * (e.marked ? p.markedSpeed : 1);
+  const speed = kindSpeed(world, e) * enemySpeedFactor(e, p) * (e.marked ? p.markedSpeed : 1);
+  return e.affixes ? speed * affixSpeedFactor(world, e) : speed;
 }
 
 const SEPARATION_PASSES = 4;
@@ -992,6 +1027,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   updateBurning(world, dt);
   // Stage 3a: thorns prick the hero on foot (М3); braziers burn again (М4). Arenas without them: nothing.
   updateThorns(world, dt);
+  if (world.status !== 'playing') return;
+  // Phase A, T4: the elites' affixes — the chameleon's colour, the fire trail (it burns the hero and enemies).
+  updateAffixes(world, dt);
   if (world.status !== 'playing') return;
   updateBraziers(world, dt);
   contactDamage(world, dt);

@@ -116,6 +116,7 @@ registerBehavior({
 registerEnemyKind({
   id: 'lynx',
   behavior: 'lynx',
+  speedClass: 'fast',
   hp: params => params.lynxHp,
   speed: world => world.pressure.enemySpeed * world.params.lynxSpeed,
   bodyScale: 1,

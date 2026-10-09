@@ -237,6 +237,7 @@ registerBehavior({ id: 'wolf', beforeStep: ringStep, step: stepWolf });
 registerEnemyKind({
   id: 'wolf',
   behavior: 'wolf',
+  speedClass: 'fast',
   hp: () => null,
   speed: world => world.params.wolfSpeed,
   bodyScale: 1,

@@ -60,6 +60,7 @@
     "test:realtime-behavior": "tsx src/realtime/sim/behavior.spec.ts",
     "test:realtime-detmath": "tsx src/realtime/sim/detMath.spec.ts",
     "test:realtime-camera": "tsx src/realtime/view/camera.spec.ts",
+    "test:realtime-affixes": "tsx src/realtime/sim/affixes.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",

@@ -123,6 +123,12 @@ registerArena({
   heroStart: { x: 9, y: 6 }, obstacles: [], buttons: [], door: { x: 17.3, y: 6 }, enemies: [], killGoal: 999,
 });
 
+/**
+ * A quiet fight for the wolves: the pace's enemy speed explicit (1.2). With speed classes (phase A, T1) the wolf walks at the
+ * pace × `speedFast` (1.68), not at its own `wolfSpeed`: the quiet pace of 0 would stand it. Only wolves are placed here.
+ */
+const wolfQuiet = (extra: Partial<Params> = {}): Params => quiet({ enemySpeed: 1.2, ...extra });
+
 /** Three wolves bunched on one side of the hero, `d` away (within 40°). */
 function bunchedWolves(sim: Simulation, d = 5, colors = [0, 0, 0], hp = 0, turn = 0): Enemy[] {
   const h = sim.world.hero;
@@ -131,7 +137,7 @@ function bunchedWolves(sim: Simulation, d = 5, colors = [0, 0, 0], hp = 0, turn 
 
 check('П1: three wolves come up to the ring, spread round the hero at about equal angles, then howl together (one signal)', () => {
   for (const k of [11, 12, 13]) {
-    const sim = fight('test-open', quiet({ speedSpread: 0.35 }), k), w = sim.world, h = w.hero;
+    const sim = fight('test-open', wolfQuiet({ speedSpread: 0.35 }), k), w = sim.world, h = w.hero;
     const wolves = bunchedWolves(sim, 5, [0, 0, 0], 0, k * 97);
     assert(minGap(h, wolves) < 25, 'bunched at the start');
     const events: WorldEvent[] = [];
@@ -147,7 +153,7 @@ check('П1: three wolves come up to the ring, spread round the hero at about equ
 });
 
 check('П1: the rush comes 0.6 s after the howl along a fixed line; the pack arrives together — one hit of the pack strength (1 + 2 × 1 = 3); then they walk back out', () => {
-  const sim = fight('test-open', quiet(), 21), w = sim.world, h = w.hero;
+  const sim = fight('test-open', wolfQuiet(), 21), w = sim.world, h = w.hero;
   const wolves = bunchedWolves(sim);
   runUntil(sim, now => signals(now, 'howl').length > 0);
   const howlTick = w.tick;
@@ -172,7 +178,7 @@ check('П1: the rush comes 0.6 s after the howl along a fixed line; the pack arr
 
 check('П1: a step out of the ring during the howl — the rush misses (no hit)', () => {
   for (const k of [31, 32, 33]) {
-    const sim = fight('test-open', quiet(), k), w = sim.world, h = w.hero;
+    const sim = fight('test-open', wolfQuiet(), k), w = sim.world, h = w.hero;
     const wolves = bunchedWolves(sim, 5, [0, 0, 0], 0, k * 97);
     runUntil(sim, now => signals(now, 'howl').length > 0);
     // Out through the widest gap of the ring (its middle).
@@ -187,7 +193,7 @@ check('П1: a step out of the ring during the howl — the rush misses (no hit)'
 
 check('П1: a chain that kills a wolf of the pack during the howl breaks it — no rush, no hit; the cold on one does the same', () => {
   for (const mode of ['chain', 'cold'] as const) {
-    const sim = fight('test-open', quiet(), mode === 'chain' ? 41 : 42), w = sim.world;
+    const sim = fight('test-open', wolfQuiet(), mode === 'chain' ? 41 : 42), w = sim.world;
     const wolves = bunchedWolves(sim, 5, [1, 2, 3]);
     runUntil(sim, now => signals(now, 'howl').length > 0);
     const victim = wolves.reduce((a, b) => (dist(a, w.hero) < dist(b, w.hero) ? a : b));
@@ -211,7 +217,7 @@ check('П1: a chain that kills a wolf of the pack during the howl breaks it — 
 });
 
 check('П1: a lone wolf waits in the ring 4 s, then howls and rushes by itself (touch 1)', () => {
-  const sim = fight('test-open', quiet(), 51), w = sim.world, h = w.hero;
+  const sim = fight('test-open', wolfQuiet(), 51), w = sim.world, h = w.hero;
   const wolf = place(sim, along(h, 0, 5), 'wolf');
   let entered = -1;
   const events: WorldEvent[] = [];
@@ -224,7 +230,7 @@ check('П1: a lone wolf waits in the ring 4 s, then howls and rushes by itself (
 });
 
 check('П1: a hero walking up to a ringing wolf is not avoided (the wolf does not back away)', () => {
-  const sim = fight('test-open', quiet({ wolfLoneWait: 20 }), 61), w = sim.world, h = w.hero;
+  const sim = fight('test-open', wolfQuiet({ wolfLoneWait: 20 }), 61), w = sim.world, h = w.hero;
   const wolf = place(sim, along(h, 0, 5), 'wolf');
   runUntil(sim, () => wolf.vars.slot !== undefined && Math.abs(dist(wolf, h) - w.params.wolfRingRadius) < 0.05, 600);
   sim.command({ t: 'walk', x: 1, y: 0 });
@@ -238,7 +244,7 @@ check('П1: a hero walking up to a ringing wolf is not avoided (the wolf does no
 
 check('П1: a wolf across the gorge does not ring there — it walks round the drop and bites (review 09.10.2026); a rush into the cliff edge puts it out of the ring, it does not fall', () => {
   // The scenario of the review: the hero on the left bank, the wolf on the right one, 3.3 apart (nearer than the ring).
-  const sim = fight('cliff', quiet(), 71), w = sim.world;
+  const sim = fight('cliff', wolfQuiet(), 71), w = sim.world;
   sim.command({ t: 'teleport', x: 6.4, y: 2.4 });
   const wolf = place(sim, { x: 9.7, y: 2.4 }, 'wolf');
   const events: WorldEvent[] = [];
@@ -247,7 +253,7 @@ check('П1: a wolf across the gorge does not ring there — it walks round the d
   assert(signals(events, 'howl').length <= 2 && !events.some(ev => ev.type === 'kill'), `howls ${signals(events, 'howl').length} — no howl loop at the edge, no fall`);
   console.log(`   across the gorge: bit after ${(n / 60).toFixed(1)} s, howls ${signals(events, 'howl').length}`);
   // A rush into the edge: the wolf howls on the hero's bank, the hero is put over the gorge before the rush.
-  const edge = fight('cliff', quiet({ wolfLoneWait: 0.5 }), 72), ew = edge.world;
+  const edge = fight('cliff', wolfQuiet({ wolfLoneWait: 0.5 }), 72), ew = edge.world;
   edge.command({ t: 'teleport', x: 6, y: 1.2 });
   const lone = place(edge, { x: 6, y: 4.2 }, 'wolf');
   runUntil(edge, now => signals(now, 'howl').length > 0, 600);
@@ -262,12 +268,12 @@ check('П1: a wolf across the gorge does not ring there — it walks round the d
 });
 
 check('П1: the toggle off — the prototype wolf (straight at the hero, no state); a journal without the value replays without the ring; a run forces it on', () => {
-  const sim = fight('test-open', quiet({ wolfRing: false }), 81), w = sim.world, h = w.hero;
+  const sim = fight('test-open', wolfQuiet({ wolfRing: false }), 81), w = sim.world, h = w.hero;
   const wolf = place(sim, along(h, 0, 5), 'wolf');
   run(sim, 180);
   assert(dist(wolf, h) < 1 && Object.keys(wolf.vars).length === 0, `walked in: ${dist(wolf, h).toFixed(2)}, vars ${JSON.stringify(wolf.vars)}`);
   // A journal of a build before the ring: its params have no `wolfRing`.
-  const old = fight('test-open', quiet(), 82);
+  const old = fight('test-open', wolfQuiet(), 82);
   const w2 = place(old, along(old.world.hero, 0, 5), 'wolf');
   run(old, 10);
   const journal = JSON.parse(JSON.stringify(old.exportJournal()!));

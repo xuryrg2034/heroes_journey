@@ -257,6 +257,8 @@ export function rtFindOptions(run: Pick<RtRunState, 'seed'>, nodeId: string): It
 }
 /** Баланс: random elites come from this run row on (design answer 08.10.2026, docs/realtime-slice.md, section 7). */
 export const RT_RANDOM_ELITE_ROW = 3;
+/** Баланс (phase A, T4, docs/realtime-phase-a.md, section 2): affixes of each elite by the run row — 1–4: 0, 5–8: 1, 9: 2. */
+export const rtEliteAffixes = (row: number): number => (row >= 9 ? 2 : row >= 5 ? 1 : 0);
 /**
  * What the arena of the open battle node starts with (step 3): the run's consumables, the energy it banked (up to 7),
  * the consumables open in the run (an elite drops one of them) and whether random elites come (run row 3 and later).
@@ -269,6 +271,7 @@ export function rtArenaLoadout(run: RtRunState): Loadout {
   return {
     items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy + RT_OATH_ENERGY * oaths), openItems: [...run.openItems],
     randomElites: !!node && runRow(node.row) >= RT_RANDOM_ELITE_ROW,
+    ...node && rtEliteAffixes(runRow(node.row)) > 0 ? { eliteAffixes: rtEliteAffixes(runRow(node.row)) } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},

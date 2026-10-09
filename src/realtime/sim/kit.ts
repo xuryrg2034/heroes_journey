@@ -42,6 +42,8 @@ export interface Loadout {
   extraStart?: boolean;
   /** The event modifier «подкрепление раньше»: before the goals groups come EVENT_PACE_FACTOR times as often. */
   earlyPace?: boolean;
+  /** Phase A, T4: affixes of each elite of the arena (a run by its row: 1–4 — 0, 5–8 — 1, 9 — 2). Absent — 0. */
+  eliteAffixes?: number;
 }
 
 /**
@@ -66,10 +68,17 @@ export interface Kit {
   extraStart: boolean;
   /** The event modifier «подкрепление раньше» acts in this arena (before the goals). */
   earlyPace: boolean;
+  /**
+   * Phase A, T4: affixes of each elite of this arena (elites.ts). Absent when the loadout gives none — kits of journals
+   * before phase A and of run rows 1–4 hash as before.
+   */
+  eliteAffixes?: number;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
 export const EVENT_EXTRA_ENEMIES = 3;
+/** Phase A, T4: an elite has at most this many affixes (four kinds, «Стремительный» and «Толстый» never together). */
+export const MAX_AFFIXES = 3;
 /** Баланс: «подкрепление раньше» — before the goals groups come this many times as often (the interval × 1 / it). */
 export const EVENT_PACE_FACTOR = 1.5;
 
@@ -98,6 +107,7 @@ export function kitOf(loadout: Loadout): Kit {
     firstPower: (talismans.includes('whetstone') ? WHETSTONE_POWER : 0) + count(loadout.firstPower),
     ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false, startElite: !!loadout.startElite,
     extraStart: !!loadout.extraStart, earlyPace: !!loadout.earlyPace,
+    ...count(loadout.eliteAffixes) > 0 ? { eliteAffixes: Math.min(MAX_AFFIXES, count(loadout.eliteAffixes)) } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

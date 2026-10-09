@@ -20,13 +20,30 @@
  *   before the goals and `eliteChanceAfter` (12%) after them, while fewer than `eliteCap` (2) / `eliteCapAfter` (4) elites
  *   live (start elites counted). On in a run from its row 3 (`Kit.randomElites`) and in the sandbox by the toggle
  *   `eliteSandbox`. One draw of the arena's `elite` stream per newcomer that may roll (none at the cap).
+ * - **Affixes** (phase A, T4, docs/realtime-phase-a.md, sections 2–3): an elite made by the arena (start, random, the
+ *   event's) gets `affixCountOf` affixes — a run by its row (`Kit.eliteAffixes`: rows 1–4 — 0, 5–8 — 1, 9 — 2), the sandbox
+ *   by the slider `eliteAffixes` (0 by default). Drawn from the arena's `affix` stream (only when the count is above 0:
+ *   worlds without affixes draw nothing). The test command `place {elite}` puts exactly the affixes it names (none — the
+ *   slice's elite). An affix replaces only the HP ×2 of the elite; +1 damage, the art ×1.25, the rim and the loot stay.
+ *   - «Огненный» (`fiery`): HP ×2; drops a trail point every `trailStep` of its path (radius `trailRadius`, burns
+ *     `trailLife`). The hero on foot in it: −`trailHeroDamage` at once, then every `trailInterval` (as thorns: a dash or a
+ *     jump ending in it gives a full interval; no elite bonus). An enemy in it: −`trailEnemyDamage`, then a pause of
+ *     `trailEnemyPause`; HP never below 0 — the trail never kills, so it credits nobody. Fiery elites do not burn.
+ *   - «Хамелеон» (`chameleon`): HP ×2; its colour turns to the next one (c + 1) every `chameleonPeriod`, no randomness; the
+ *     last `chameleonWarn` before a turn is the window — the rim blinks the next colour, and a chain of any colour may take
+ *     it: it takes the chain's colour (and its period starts again). The timer stands while it is a link of the drawn
+ *     chain or of the dash, and while it is frozen.
+ *   - «Стремительный» (`swift`): walks ×`swiftSpeed` over its class, HP ×`swiftHp` (1); never on a fast kind.
+ *   - «Толстый» (`fat`): HP ×`fatHp` (3), walks ×`fatSpeed`; never on a slow kind; never with «Стремительный».
+ *   A weak enemy (0 HP) becomes an elite of 1 HP; with affixes — half the factor, rounded (1; «Толстый» 2).
  */
 import { dcos, dhypot, dsin } from './detMath';
-import { kindOf } from './enemies/kinds';
+import { enemyKind, kindOf } from './enemies/kinds';
 import { blockedAt, dist, overCliff, pushOutOfCliffs, type Vec } from './geometry';
 import { heroRadius } from './params';
-import { RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
-import { OBJECT_RADIUS, type ArenaObject, type Enemy, type KillCause, type World } from './world';
+import { MAX_AFFIXES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
+import { COLOR_COUNT } from './spawn';
+import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World } from './world';
 
 /** A weak elite (0 HP) gets this HP. */
 const ELITE_WEAK_HP = 1;
@@ -34,11 +51,171 @@ const ELITE_WEAK_HP = 1;
 const LOOT_CLEARANCE = 0.6;
 const LOOT_TRIES = 40;
 
-/** Puts the elite modifier on an enemy (once): HP × factor (a weak one gets 1). Colourless kinds (the reaper) are not elites. */
-export function makeElite(world: World, e: Enemy, random = false): void {
+// ---------- Affixes (phase A, T4) ----------
+
+export type AffixId = 'fiery' | 'chameleon' | 'swift' | 'fat';
+/** Every affix, in the canonical order (an elite's `affixes` keep it; the `affix` stream draws among them in it). */
+export const AFFIX_IDS: readonly AffixId[] = ['fiery', 'chameleon', 'swift', 'fat'];
+/** Player-facing short names (the label under the body, docs/realtime-phase-a.md, section 2). */
+export const AFFIX_TITLES: Readonly<Record<AffixId, string>> = { fiery: 'Огненный', chameleon: 'Хамелеон', swift: 'Стремительный', fat: 'Толстый' };
+/** Pairs that never come together (design answer 5). */
+const INCOMPATIBLE: readonly (readonly [AffixId, AffixId])[] = [['swift', 'fat']];
+
+/** One point of a fire trail: where, game seconds it still burns, the elite that dropped it (the id in the hit event). */
+export interface TrailPoint { x: number; y: number; life: number; ownerId: number }
+
+/** The affix may go on an elite of `kind`: «Стремительный» not on a fast kind, «Толстый» not on a slow one (design answer 5). */
+export function affixAllowed(kind: string, id: AffixId): boolean {
+  const cls = enemyKind(kind).speedClass ?? 'normal';
+  return id === 'swift' ? cls !== 'fast' : id === 'fat' ? cls !== 'slow' : true;
+}
+
+const compatible = (id: AffixId, chosen: readonly AffixId[]): boolean =>
+  !INCOMPATIBLE.some(([a, b]) => (id === a && chosen.includes(b)) || (id === b && chosen.includes(a)));
+
+/** The named affixes an elite of `kind` may have together: known, each once, allowed for the kind, compatible (earlier wins). */
+export function legalAffixes(kind: string, ids: readonly string[]): AffixId[] {
+  const out: AffixId[] = [];
+  for (const id of AFFIX_IDS) if (ids.includes(id) && affixAllowed(kind, id) && compatible(id, out)) out.push(id);
+  return out;
+}
+
+/** Affixes each elite made by this arena gets: the run's (`Kit.eliteAffixes`), else the sandbox slider (absent — 0). */
+export function affixCountOf(world: World): number {
+  const n = world.kit?.eliteAffixes ?? world.params.eliteAffixes ?? 0;
+  return Number.isFinite(n) ? Math.max(0, Math.min(MAX_AFFIXES, Math.floor(n))) : 0;
+}
+
+/** Draws `count` affixes for `e` from the arena's `affix` stream (one draw per affix, among those still possible). */
+export function rollAffixes(world: World, e: Enemy, count: number): AffixId[] {
+  const chosen: AffixId[] = [];
+  for (let i = 0; i < count; i++) {
+    const pool = AFFIX_IDS.filter(id => !chosen.includes(id) && affixAllowed(e.kind, id) && compatible(id, chosen));
+    if (!pool.length) break;
+    chosen.push(pool[Math.floor(world.rng.stream('affix').next() * pool.length)]);
+  }
+  return AFFIX_IDS.filter(id => chosen.includes(id));
+}
+
+/** The affixes of an elite (D3, the label under the body): empty — none (an ordinary enemy or the slice's elite). */
+export function eliteAffixes(e: Enemy): readonly AffixId[] { return e.affixes ?? []; }
+
+const hasAffix = (e: Enemy, id: AffixId): boolean => !!e.affixes?.includes(id);
+
+/** Walking multiplier of the affixes: «Стремительный» × `swiftSpeed`, «Толстый» × `fatSpeed`. */
+export function affixSpeedFactor(world: World, e: Enemy): number {
+  const p = world.params;
+  return (hasAffix(e, 'swift') ? p.swiftSpeed : 1) * (hasAffix(e, 'fat') ? p.fatSpeed : 1);
+}
+
+/**
+ * Puts the elite modifier on an enemy (once): HP × factor (a weak one gets 1). Colourless kinds (the reaper) are not elites.
+ * `affixes`: `roll` — the arena's count drawn from the `affix` stream (none when the count is 0); a list — exactly those
+ * (the test command `place`; none — the slice's elite). «Стремительный» and «Толстый» put their own HP factor instead of ×2.
+ */
+export function makeElite(world: World, e: Enemy, random = false, affixes: readonly string[] | 'roll' = 'roll'): void {
   if (e.elite || !kindOf(e).chainable || kindOf(e).immune) return;
   e.elite = random ? 'random' : true;
-  e.hp = e.hp > 0 ? Math.round(e.hp * world.params.eliteHpFactor) : ELITE_WEAK_HP;
+  const p = world.params;
+  const ids = affixes === 'roll' ? rollAffixes(world, e, affixCountOf(world)) : legalAffixes(e.kind, affixes);
+  const factor = ids.includes('swift') ? p.swiftHp : ids.includes('fat') ? p.fatHp : p.eliteHpFactor;
+  e.hp = e.hp > 0 ? Math.round(e.hp * factor) : ids.length ? Math.max(ELITE_WEAK_HP, Math.round(factor / 2)) : ELITE_WEAK_HP;
+  if (!ids.length) return;
+  e.affixes = ids;
+  if (ids.includes('chameleon')) e.chameleon = Math.max(0.05, p.chameleonPeriod);
+  if (ids.includes('fiery')) e.trail = { x: e.x, y: e.y };
+}
+
+/** «Хамелеон»: its timer stands — it is a link of the drawn chain or of the dash, or frozen. */
+function chameleonHeld(world: World, e: Enemy): boolean {
+  if (enemyFrozen(e)) return true;
+  const link = (l: { kind: string; id: number }): boolean => l.kind === 'enemy' && l.id === e.id;
+  return world.chain.some(link) || (world.move?.kind === 'dash' && world.move.links.some(link));
+}
+
+/** «Хамелеон» in its window: the last `chameleonWarn` game seconds before its colour turns (a chain of any colour takes it). */
+export function chameleonOpen(world: World, e: Enemy): boolean {
+  const warn = world.params.chameleonWarn;
+  return hasAffix(e, 'chameleon') && e.chameleon !== undefined && warn > 0 && e.chameleon <= warn + 1e-9;
+}
+
+/**
+ * D3 (the rim blinking the next colour): the colour «Хамелеон» turns to and the game seconds left, while it is in its
+ * window; null — not a chameleon, or not in the window.
+ */
+export function chameleonWarn(world: World, e: Enemy): { next: number; left: number } | null {
+  return chameleonOpen(world, e) ? { next: (e.color + 1) % COLOR_COUNT, left: Math.max(0, e.chameleon!) } : null;
+}
+
+/**
+ * A chain of `color` has just taken `e` (chain.ts): a chameleon of another colour in its window takes the chain's colour and
+ * its period starts again. Nothing for others, nor for the first link (`color` null — it sets the colour of the chain).
+ */
+export function adoptChainColor(world: World, e: Enemy, color: number | null): void {
+  if (color === null || e.color === color || !chameleonOpen(world, e)) return;
+  e.color = color;
+  e.chameleon = Math.max(0.05, world.params.chameleonPeriod);
+}
+
+/** The fire trail point a point stands in (its center within a point's radius); undefined — none. */
+export function trailAt(world: World, at: Vec): TrailPoint | undefined {
+  if (!world.trails.length) return undefined;
+  const r = world.params.trailRadius;
+  return world.trails.find(t => dist(t, at) <= r);
+}
+
+/**
+ * The affixes' step (once per tick, after the walk and the pushing, before the touches): the chameleons' colours, the fire
+ * trails (age, new points), their burn on the hero on foot (as thorns) and on enemies (never below 0 HP, never a kill).
+ */
+export function updateAffixes(world: World, dt: number): void {
+  if (world.status !== 'playing') return;
+  const p = world.params;
+  if (world.trails.length) {
+    for (const t of world.trails) t.life -= dt;
+    world.trails = world.trails.filter(t => t.life > 1e-9);
+  }
+  for (const e of world.enemies) {
+    if (e.singed !== undefined) { e.singed -= dt; if (e.singed <= 1e-9) delete e.singed; }
+    if (!e.affixes) continue;
+    if (e.chameleon !== undefined && !chameleonHeld(world, e)) {
+      e.chameleon -= dt;
+      if (e.chameleon <= 1e-9) { e.color = (e.color + 1) % COLOR_COUNT; e.chameleon += Math.max(0.05, p.chameleonPeriod); }
+    }
+    if (e.trail && dist(e, e.trail) >= Math.max(0.05, p.trailStep) - 1e-9) {
+      world.trails.push({ x: e.x, y: e.y, life: Math.max(0.05, p.trailLife), ownerId: e.id });
+      e.trail = { x: e.x, y: e.y };
+    }
+  }
+  burnHero(world, dt);
+  if (world.status !== 'playing' || !world.trails.length) return;
+  for (const e of world.enemies) {
+    if (e.singed !== undefined || e.hp <= 0 || kindOf(e).immune || hasAffix(e, 'fiery')) continue;
+    if (!trailAt(world, e)) continue;
+    // Never below 0 HP: the trail weakens, it never kills (so it credits nobody, design answer 4).
+    const damage = Math.min(e.hp, Math.max(0, p.trailEnemyDamage));
+    if (damage <= 0) continue;
+    e.hp -= damage;
+    e.singed = Math.max(0.05, p.trailEnemyPause);
+    e.hurtFlash = Math.max(p.hitFlash, 0.01);
+    world.events.push({ type: 'enemyHit', enemyId: e.id, damage, killed: false, x: e.x, y: e.y, source: 'fire-trail' });
+  }
+}
+
+/**
+ * The hero on foot in a fire trail: −`trailHeroDamage` at once, then every `trailInterval` while he stays (as thorns, М3).
+ * Not during a dash or a jump (the timer waits; one ending in a trail gives a full interval — chain.ts `finishMove`).
+ * Invulnerability skips a burn, the interval runs on. The hit names the elite that dropped the point, without its bonus.
+ */
+function burnHero(world: World, dt: number): void {
+  const hero = world.hero, p = world.params;
+  if (world.move) return;
+  const point = trailAt(world, hero);
+  if (!point) { if (hero.flames !== undefined) delete hero.flames; return; }
+  hero.flames = (hero.flames ?? 0) - dt;
+  if (hero.flames > 1e-9) return;
+  hero.flames += Math.max(0.05, p.trailInterval);
+  if (canBeHurt(world)) hurtHero(world, { id: point.ownerId }, p.trailHeroDamage, 'fire-trail');
 }
 
 /** Living elites on the arena (start ones counted). */

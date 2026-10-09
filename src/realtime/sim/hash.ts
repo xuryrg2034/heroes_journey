@@ -45,6 +45,8 @@ export function worldState(world: World): unknown {
     params: world.params,
     // Stage 2 of the transition: lit fuses (absent when there are none — worlds without them hash as before).
     ...world.blasts.length ? { blasts: world.blasts } : {},
+    // Phase A, T4: fire trails of «Огненный» elites (absent when there are none — worlds without them hash as before).
+    ...world.trails.length ? { trails: world.trails } : {},
     // Stage 2, step 3: the kit of an arena with a loadout (absent before: those worlds hash as before).
     ...world.kit ? { kit: world.kit } : {},
   };
