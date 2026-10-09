@@ -16,10 +16,14 @@
  * (rows 2–9) and «Круг шамана» (rows 5–9) join the pools as ordinary candidates of their rows. Rows 4–7 and 5–8 hid them
  * behind the own arenas of unmet kinds (4 and 28 runs of 300); the sweep of row sets is in docs/realtime-stage3.md, section 10. The lynx and the shaman are not among `NEW_KINDS`: the rule of
  * the first meeting and of the overdue kind does not apply to them (no mixed arena has them).
+ *
+ * Phase A (Т2, docs/realtime-phase-a.md, section 4): an arena's roster (sim/rosters.ts) is chosen after its arena by the
+ * node's own roll (`pickRoster`), not by a stream: the arenas are chosen as before.
  */
 import { FOREST_TRUNK_LAST_ROW } from '../../game/run/forestMap';
 import { pickPoolBattle } from '../../game/run/battlePools';
 import { arenaTemplate } from '../sim/arenas';
+import { rosterChoices } from '../sim/rosters';
 // The behaviour arenas register themselves (the pools name them without going through the simulation).
 import '../sim/arenasStage3';
 
@@ -114,4 +118,35 @@ export function pickArena(candidates: readonly string[], history: readonly strin
   const arena = pickPoolBattle(candidates, history, roll);
   if (!arena) throw new Error('arena pool is empty');
   return arena;
+}
+
+// ---- Rosters (phase A, Т2, docs/realtime-phase-a.md, section 4) ----
+
+/**
+ * Kinds met for the roster rule: the four kinds of the slice as the arena rule counts them (`metKinds`), the lynx and the
+ * shaman once the run entered their own arena (design answer 3, 09.10.2026). A roster never brings an unmet kind, so a
+ * roster does not change what the run has met: the choice of arenas stays as before.
+ */
+export function rosterMet(history: readonly string[]): Set<string> {
+  const met: Set<string> = metKinds(history);
+  if (history.includes('lynx-den')) met.add('lynx');
+  if (history.includes('shaman-circle')) met.add('shaman');
+  return met;
+}
+
+/** Salt of the roster roll: «rt-roster» (FNV-1a) mixed into the node's arena seed — not a stream of the run. */
+export const ROSTER_SALT = [...'rt-roster'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+
+/**
+ * The roster of an arena entered on run row `row` after the arenas `history` and the rosters `rosters` (in entering order):
+ * undefined — the template's own composition (`rosterChoices`); otherwise one admissible roster by `roll` (the node's own
+ * roll, `mixSeed(arenaSeed, ROSTER_SALT)`) with the window of repeats of the pools (`pickPoolBattle`). No stream of the
+ * run is spent: the arenas are chosen as before.
+ */
+export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number): string | undefined {
+  const choices = rosterChoices(arena, row, rosterMet(history));
+  if (!choices) return undefined;
+  const roster = pickPoolBattle(choices, rosters, roll);
+  if (!roster) throw new Error(`no roster for «${arena}»`);
+  return roster;
 }

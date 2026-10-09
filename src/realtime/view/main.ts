@@ -14,6 +14,7 @@
 import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
 import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
+import { withRoster } from '../sim/rosters';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { canSpin } from '../sim/abilities';
@@ -366,10 +367,11 @@ async function boot(): Promise<void> {
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
   const runView = sandbox ? null : new RunView({
-    startArena(arenaId, seed, hero, label, loadout, notice) {
+    startArena(arenaId, seed, hero, label, loadout, notice, roster) {
       runLabel = label;
       runArenaRecorded = false;
-      startArena(arenaTemplate(arenaId), seed, hero, loadout, notice);
+      // Phase A (Т2): the node's roster over the template (the journal keeps it, sim/simulation.ts).
+      startArena(roster !== undefined ? withRoster(arenaTemplate(arenaId), roster) : arenaTemplate(arenaId), seed, hero, loadout, notice);
     },
     onScreenChange(open) {
       runScreenOpen = open;

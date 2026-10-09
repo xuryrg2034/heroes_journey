@@ -33,7 +33,8 @@ import { eventTalismanOffer, talismanDraw, talismanLeft, type TalismanPool } fro
 import { isRtOath, isRtTalisman, RT_DEW_FLASK_HEAL, RT_OATH_ENERGY, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
-import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, RUN_ARENAS, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runRow } from './arenaPools';
+import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { runParams, type Params } from '../sim/params';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
@@ -49,8 +50,10 @@ import type { Loadout } from '../sim/kit';
  * Version 4 (stage 3a, 09.10.2026): «Рысье логово» and «Круг шамана» in the pools of rows 2–9. A save is checked by
  * choosing its arenas again; with the new candidates a version 3 run would read as no run or not depending on its draws —
  * every version 3 save reads as no run instead (the format is the same).
+ * Version 5 (phase A, Т2, 09.10.2026): rosters — the field `roster` of a pick and of the open battle, checked by choosing
+ * it again. A version 4 save has no rosters; it reads as no run, as at the earlier changes of the format.
  */
-export const RT_RUN_VERSION = 4;
+export const RT_RUN_VERSION = 5;
 
 /** Iteration 2.1: numbers a run arena takes from the run, not from the saved panel (the healing consumable: rtHp(3) = 9). */
 export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL });
@@ -69,7 +72,7 @@ export type RtRunPending =
    * a reload starts it again from the start (the arena in progress is not saved). Step 4: no arena is a temporary
    * stand-in any more (a save of steps 1–3 may still carry `standIn`; it is dropped on loading).
    */
-  | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind }
+  | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; roster?: string }
   /** A rest: heal, or craft (`crafted` — the consumables made here so far; non-empty — the heal is gone). */
   | { kind: 'rest'; nodeId: string; crafted: ItemKind[] }
   /** A find: one of three consumables (the turn-based find: healing, a bomb, cold or fire by the node seed). */
@@ -104,8 +107,13 @@ export type RtShopGoodKind = 'heal' | 'harden' | 'item' | 'talisman';
 export interface RtShopPurchase { good: RtShopGoodKind; slot?: number; item?: ItemKind; talisman?: string; price: number; paid: Record<ResourceKind, number> }
 /** One arena of the run, won or lost: what the result screen shows. */
 export interface RtBattleRecord { nodeId: string; arena: string; won: boolean; kills: number; damage: number; time: number }
-/** The arena (or event) a node got when entered. */
-export interface RtRunPick { nodeId: string; arena?: string; eventId?: string; find?: true }
+/**
+ * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
+ * template's own composition.
+ */
+export interface RtRunPick { nodeId: string; arena?: string; roster?: string; eventId?: string; find?: true }
+/** The arena a battle node plays and its roster (absent — the template's own composition). */
+export interface RtArenaPick { arena: string; roster?: string }
 export interface RtEventChoice { nodeId: string; option: string; outcome: number; attempts?: number[] }
 
 export interface RtRunState {
@@ -349,9 +357,9 @@ function draw(run: RtRunState, stream: RunStream, advance: boolean): number {
  * next `pool` draw (spending nothing), and a node further on gets another draw when it opens. Null for a node that has
  * no arena or whose arena is not known yet («станет известна, когда узел откроется», as the turn-based map says).
  */
-export function arenaPreview(run: RtRunState, node: ForestMapNode): { arena: string } | null {
+export function arenaPreview(run: RtRunState, node: ForestMapNode): RtArenaPick | null {
   const picked = run.picks.find(pick => pick.nodeId === node.id);
-  if (picked?.arena) return { arena: picked.arena };
+  if (picked?.arena) return { arena: picked.arena, ...picked.roster !== undefined ? { roster: picked.roster } : {} };
   if (!isArenaNode(node) || picked || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return null;
   return arenaPick(run, node, false);
 }
@@ -377,20 +385,29 @@ const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.t
  * arena (hard, boss) spends its draw too: every arena node takes one draw of the stream (so the k-th arena of a run is
  * the draw k, and a save is checked by choosing its arenas again).
  */
-function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): { arena: string } {
+function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtArenaPick {
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
-  const roll = draw(run, 'pool', advance);
-  return { arena: chooseArena(node, history, roll) };
+  const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll);
+  const roster = chooseRoster(run, node, arena, history, run.picks.flatMap(pick => pick.roster !== undefined ? [pick.roster] : []));
+  return { arena, ...roster !== undefined ? { roster } : {} };
 }
 
 /** The arena seed of a node: the run seed and the node id, as the battles of the turn-based run (forestNodeSeed). */
 export const arenaSeed = (run: Pick<RtRunState, 'seed'>, nodeId: string): number => forestNodeSeed(run.seed, nodeId);
 
+/**
+ * Phase A (Т2): the roster of `arena` on `node` after the arenas `history` and the rosters `rosters` of the run — by the
+ * node's own roll (the arena seed and the salt «rt-roster»), no stream spent (a save is checked with it too).
+ */
+function chooseRoster(run: Pick<RtRunState, 'seed'>, node: Pick<ForestMapNode, 'id' | 'row'>, arena: string, history: readonly string[], rosters: readonly string[]): string | undefined {
+  return pickRoster(arena, runRow(node.row), history, rosters, mixSeed(arenaSeed(run, node.id), ROSTER_SALT));
+}
+
 function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, events: RtRunEvent[]) {
-  const pick = arenaPick(run, node, true);
+  const pick = arenaPick(run, node, true), roster = pick.roster !== undefined ? { roster: pick.roster } : {};
   const entry = run.picks.find(p => p.nodeId === node.id);
-  if (entry) entry.arena = pick.arena; else run.picks.push({ nodeId: node.id, arena: pick.arena });
-  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle };
+  if (entry) Object.assign(entry, { arena: pick.arena }, roster); else run.picks.push({ nodeId: node.id, arena: pick.arena, ...roster });
+  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle, ...roster };
   events.push({ type: 'battle-ready', nodeId: node.id, arena: pick.arena });
 }
 
@@ -987,19 +1004,23 @@ function checkRun(value: unknown): RtRunState | null {
   for (const pick of run.picks) {
     if (!isRecord(pick) || !known(pick.nodeId) || run.picks.filter(other => other.nodeId === pick.nodeId).length > 1) return null;
     if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena)) return null;
+    if (pick.roster !== undefined && (!isRoster(pick.roster) || pick.arena === undefined)) return null;
     if (pick.eventId !== undefined && !forestEvent(pick.eventId)) return null;
     if (pick.find !== undefined && pick.find !== true) return null;
   }
   // Step 4 (review): every arena of the run is chosen again — the k-th arena is the draw k of the pool stream after the
   // arenas before it, by the rule of its node (an event node: its reward battle). A save of steps 1–3 whose arenas the
-  // step-4 rule would not choose reads as no run.
-  const history: string[] = [];
+  // step-4 rule would not choose reads as no run. Phase A (Т2): so is every roster — by the node's roll after the arenas
+  // and rosters before it (absent where the arena keeps its own composition).
+  const history: string[] = [], rosters: string[] = [];
   for (const pick of run.picks) {
     if (pick.arena === undefined) continue;
     const node = map.node(pick.nodeId)!;
     if (!isArenaNode(node) && !(node.type === 'event' && pick.eventId && battleOption(forestEvent(pick.eventId)!))) return null;
     if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length))) return null;
+    if (pick.roster !== chooseRoster(run, node, pick.arena, history, rosters)) return null;
     history.push(pick.arena);
+    if (pick.roster !== undefined) rosters.push(pick.roster);
   }
   if (streams.pool !== history.length) return null;
   const eventOf = (nodeId: string) => { const id = run.picks.find(pick => pick.nodeId === nodeId)?.eventId; return id ? forestEvent(id) : undefined; };
@@ -1025,6 +1046,8 @@ function checkRun(value: unknown): RtRunState | null {
   switch (pending.kind) {
     case 'battle': {
       if (typeof pending.arena !== 'string' || !RUN_ARENAS.includes(pending.arena) || pick?.arena !== pending.arena) return null;
+      // Phase A (Т2): the roster of the open arena is its pick's, chosen again above.
+      if (pending.roster !== pick.roster) return null;
       if (!isSeed(pending.seed) || pending.seed !== arenaSeed(run, pending.nodeId)) return null;
       // The battle kind follows the node type (review of step 4: a hard battle's heart only on a hard node); the arena is the
       // pick, chosen again above. A temporary arena of steps 1–3 (`standIn`) is not chosen by the step-4 rule: no run.

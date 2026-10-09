@@ -110,7 +110,7 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   expect(after.pending).toBeNull();
   expect(after.hp).toBe(won.hero.hp);
   const keys = await page.evaluate(() => Object.keys(localStorage));
-  expect(keys).toContain('ashen-oath-rt-run-v4');
+  expect(keys).toContain('ashen-oath-rt-run-v5');
   expect(keys).not.toContain('ashen-oath-forest-run-v1');
   expect(keys).not.toContain('ashen-oath-profile-v1');
 
@@ -412,5 +412,33 @@ test('run (iteration 2.1): consumables are noticed — the map says their key, t
   await expect(page.getByTestId('run')).toBeHidden();
   await expect.poll(async () => (await snapshot(page)).time).toBeGreaterThan(0.2);
   await expect(page.getByTestId('item-hint')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('run (phase A, Т2): the node preview names its roster in one line, without a list of kinds; the arena plays it and its journal keeps it', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  // Seed 11: on run row 1 two nodes play «Двор кнопок», one with «Волки», the other with «Натиск» (rtRun.ts, chooseRoster).
+  await page.goto('/realtime.html?seed=11');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.getByTestId('run-new').click();
+  await page.getByTestId('gift-0').click();
+  const pick = page.locator('[data-action="gift-pick"]').first();
+  if (await pick.count()) await pick.click();
+  await expect(page.getByTestId('run-gift')).toBeHidden();
+  await page.getByTestId('node-r5c0').click();
+  await expect(page.getByTestId('run-roster')).toHaveText('Состав: Волки');
+  await page.getByTestId('node-r5c2').click();
+  await expect(page.getByTestId('run-roster')).toHaveText('Состав: Натиск');
+  await expect(page.getByTestId('run-detail')).not.toContainText('кабан');
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  const state = await page.evaluate(() => (window as any).__realtime.run.state() as { pending: { arena: string; roster?: string } });
+  expect(state.pending).toMatchObject({ arena: 'buttons', roster: 'onslaught' });
+  const journal = await page.evaluate(() => (window as any).__realtime.journal() as { arena: string; roster?: string });
+  expect(journal).toMatchObject({ arena: 'buttons', roster: 'onslaught' });
   expect(errors).toEqual([]);
 });
