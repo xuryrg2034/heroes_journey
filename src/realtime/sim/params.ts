@@ -307,19 +307,19 @@ export interface Params {
   shieldWanderMax: number;
   /** Sandbox: the old shield (stage 2, step 2) — it turns to the hero. Off by default; a run forces it off (`RUN_FORCED`). */
   shieldFollowsHero: boolean;
-  // Archer (stage 2 of the transition, docs/realtime-slice.md, section 4)
+  // Archer (stage 2 of the transition, docs/realtime-slice.md, section 4; the point shot — phase A, Т6)
   archerHp: number;
   /** Nearer than this to the hero the archer backs away. */
   archerNear: number;
   /** Farther than this from the hero the archer walks up. */
   archerFar: number;
-  /** One announced line every … game seconds (the announcement is part of it). */
+  /** One aim (the mark or the line) every … game seconds (the windup is part of it). */
   archerCooldown: number;
-  /** The line is announced this long before the arrow flies. */
+  /** The mark (or the line) fills this long before the arrow falls. */
   archerWindup: number;
-  /** Game seconds after appearing before the first line can be announced. */
+  /** Game seconds after appearing before the first aim. */
   archerFirstDelay: number;
-  /** Length of the line. */
+  /** The hero is aimed at within this distance (centre to centre); the length of the old line. */
   archerRange: number;
   /** Width of the line. */
   archerWidth: number;
@@ -327,6 +327,14 @@ export interface Params {
   archerDamage: number;
   /** Hit of the arrow on an enemy on the line. */
   archerHit: number;
+  /**
+   * Phase A, Т6 (user decision 09.10.2026, docs/realtime-phase-a.md, section 7): the archer marks a point (the hero's centre
+   * at the aim) with a circle of `archerMarkRadius`; the arrow falls there at the end of the windup and hurts only the
+   * hero. Off — the line of stage 2 (`archerRange` long, `archerWidth` wide, it hits enemies for `archerHit`); journals
+   * without this value replay with the line. A run forces it on.
+   */
+  archerPoint: boolean;
+  archerMarkRadius: number;
   // Sapper (stage 2 of the transition, docs/realtime-slice.md, section 4)
   sapperHp: number;
   /** Fuse after its death, game seconds. */
@@ -593,6 +601,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   archerWidth: 0.5,
   archerDamage: 1,
   archerHit: 1,
+  archerPoint: true,
+  archerMarkRadius: 1,
   sapperHp: 0,
   sapperFuse: 0.8,
   sapperTouchFuse: 1.2,
@@ -824,13 +834,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('archerHp', 'Лучник', 'HP лучника', 0, 6, 1, 5),
   n('archerNear', 'Лучник', 'Отходит, если герой ближе', 0, 10, 0.25, 5, 'ед.'),
   n('archerFar', 'Лучник', 'Подходит, если герой дальше', 0, 12, 0.25, 5, 'ед.'),
-  n('archerCooldown', 'Лучник', 'Выстрел раз в', 0.5, 10, 0.1, 5, 'с', 'Объявление линии входит в этот срок.'),
-  n('archerWindup', 'Лучник', 'Объявление линии (полоса)', 0.1, 3, 0.1, 5, 'с'),
-  n('archerFirstDelay', 'Лучник', 'Первая линия: через … после появления', 0, 10, 0.1, 5, 'с'),
-  n('archerRange', 'Лучник', 'Длина линии', 1, 16, 0.25, 5, 'ед.', 'Стены и деревья обрезают линию, вода — нет.'),
-  n('archerWidth', 'Лучник', 'Ширина линии', 0.1, 2, 0.05, 5, 'ед.'),
+  { kind: 'bool', key: 'archerPoint', group: 'Лучник', label: 'Выстрел в точку (фаза A)', stage: 5,
+    hint: 'Лучник помечает кругом точку героя в момент прицела; в конце заполнения стрела падает туда и ранит только героя (враги не задеваются, стены между лучником и точкой стрелу не режут). Выключено — прежняя линия этапа 2. В походе включено всегда.' },
+  n('archerCooldown', 'Лучник', 'Выстрел раз в', 0.5, 10, 0.1, 5, 'с', 'Прицел (метка или линия) входит в этот срок.'),
+  n('archerWindup', 'Лучник', 'Прицел: заполнение метки (линии)', 0.1, 3, 0.1, 5, 'с'),
+  n('archerFirstDelay', 'Лучник', 'Первый прицел: через … после появления', 0, 10, 0.1, 5, 'с'),
+  n('archerRange', 'Лучник', 'Дальность прицела (длина линии)', 1, 16, 0.25, 5, 'ед.', 'Целится, если герой не дальше и виден (стены и деревья закрывают, вода — нет). Старая линия: стены и деревья её обрезают.'),
+  n('archerMarkRadius', 'Лучник', 'Метка: радиус круга', 0.25, 3, 0.05, 5, 'ед.', 'Выстрел в точку: стрела ранит героя, если его тело касается круга.'),
+  n('archerWidth', 'Лучник', 'Ширина линии (старый путь)', 0.1, 2, 0.05, 5, 'ед.', 'Только при выключенном «Выстреле в точку».'),
   n('archerDamage', 'Лучник', 'Урон стрелы герою', 0, 6, 1, 5),
-  n('archerHit', 'Лучник', 'Удар стрелы по врагу', 0, 6, 1, 5, '', 'Враг на линии гибнет, если удар не меньше его HP (слабые — всегда); иначе теряет HP. Убийства стрелой игроку не засчитываются.'),
+  n('archerHit', 'Лучник', 'Удар стрелы по врагу (старый путь)', 0, 6, 1, 5, '', 'Только при выключенном «Выстреле в точку»: враг на линии гибнет, если удар не меньше его HP (слабые — всегда); иначе теряет HP. Убийства стрелой игроку не засчитываются. Выстрел в точку врагов не задевает.'),
   n('sapperHp', 'Сапёр', 'HP сапёра', 0, 6, 1, 5),
   n('sapperFuse', 'Сапёр', 'Фитиль после гибели', 0, 3, 0.05, 5, 'с'),
   n('sapperTouchFuse', 'Сапёр', 'Фитиль от касания героя', 0, 3, 0.05, 5, 'с', 'Коснувшись героя, сапёр сам поджигает фитиль и стоит; его касание не ранит — ранит взрыв.'),
@@ -914,9 +927,10 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * from its talisman, elites only from the arena template, the event and the random elites from run row 3): the sandbox
  * toggles «Якорь у героя», «Песочница: случайные элиты», the sandbox talisman and (iteration 2.1) «Песочница: щит следит
  * за героем». A run arena gets them off whatever the
- * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off).
+ * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off). Phase A,
+ * Т6: so is the archer's point shot.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, archerPoint: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

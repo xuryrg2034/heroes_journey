@@ -13,7 +13,7 @@ import { dist, type Vec } from './geometry';
 import { defaultParams, runParams, type Params } from './params';
 import { Simulation, replay } from './simulation';
 import type { Enemy, World } from './world';
-import { quillsUp, quillsWarning } from './enemies/index';
+import { archerLine, archerMark, quillsUp, quillsWarning } from './enemies/index';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -33,6 +33,13 @@ function quiet(extra: Partial<Params> = {}): Params {
   p.hitstop = false;
   return Object.assign(p, extra);
 }
+
+/**
+ * The archer's old line (stage 2; phase A, Т6, 09.10.2026: the point shot replaced it, the flag `archerPoint` off brings
+ * it back, journals before phase A play it). The checks of the line — and the ones that use its arrow as an enemy's
+ * ability killing enemies — play with it explicitly.
+ */
+const LINE: Partial<Params> = { archerPoint: false };
 
 function fight(arena: string, params: Params, seed: number): Simulation {
   const sim = new Simulation({ arena, params, seed, record: true });
@@ -296,9 +303,9 @@ check('archer: keeps 4–6 units from the hero — backs away when he comes near
   assert(replays(sim), 'replay');
 });
 
-check('archer: announces a line for 1 s, then the arrow hurts the hero on it (1 HP); stepping off the line saves him', () => {
+check('archer, old line (archerPoint off): announces a line for 1 s, then the arrow hurts the hero on it (1 HP); stepping off the line saves him', () => {
   for (let k = 7; k <= 9; k++) {
-    const sim = fight('archers', quiet(), seedOf(k)), w = sim.world;
+    const sim = fight('archers', quiet(LINE), seedOf(k)), w = sim.world;
     sim.command({ t: 'clear', keepMarked: false });
     // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
     sim.command({ t: 'teleport', x: 3, y: 3 });
@@ -324,8 +331,8 @@ check('archer: announces a line for 1 s, then the arrow hurts the hero on it (1 
   }
 });
 
-check('archer: the arrow strikes enemies on the line — weak ones die, a tough one loses 1 HP; the kills are not the player\'s', () => {
-  const sim = fight('archers', quiet(), seedOf(10)), w = sim.world;
+check('archer, old line (archerPoint off): the arrow strikes enemies on the line — weak ones die, a tough one loses 1 HP; the kills are not the player\'s', () => {
+  const sim = fight('archers', quiet(LINE), seedOf(10)), w = sim.world;
   sim.command({ t: 'clear', keepMarked: false });
   // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
   sim.command({ t: 'teleport', x: 2, y: 3 });
@@ -346,8 +353,8 @@ check('archer: the arrow strikes enemies on the line — weak ones die, a tough 
   assert(replays(sim), 'replay');
 });
 
-check('archer: the arrow respects the hero\'s invulnerability (after a chain), and the cold stops the shot', () => {
-  const sim = fight('archers', quiet(), seedOf(11)), w = sim.world;
+check('archer, old line (archerPoint off): the arrow respects the hero\'s invulnerability (after a chain), and the cold stops the shot', () => {
+  const sim = fight('archers', quiet(LINE), seedOf(11)), w = sim.world;
   sim.command({ t: 'clear', keepMarked: false });
   // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
   sim.command({ t: 'teleport', x: 3, y: 3 });
@@ -372,14 +379,14 @@ check('archer: the arrow respects the hero\'s invulnerability (after a chain), a
   assert(replays(sim), 'replay');
 });
 
-check('arena 5 «Стрелковая гряда»: three marked archers are the goal; an arrow killing a marked one counts for the goal only', () => {
+check('arena 5 «Стрелковая гряда»: three marked archers are the goal; (old line) an arrow killing a marked one counts for the goal only', () => {
   const t = arenaTemplate('archers');
   assert(t.goal === 'marked' && t.enemies.length === 3 && t.enemies.every(e => e.kind === 'archer' && e.marked), 'three marked archers');
   const { share, kinds, total } = shareOf('archers', 'archer');
   assert(total >= 80 && share > 0.07 && share < 0.25, `archers ${(share * 100).toFixed(0)}% of ${total}`);
   assert([...kinds].every(kind => kind === 'basic' || kind === 'archer'), `kinds ${[...kinds].join(', ')}`);
   // Another archer's arrow kills a marked archer: the goal counts it, the player's kills do not.
-  const sim = new Simulation({ arena: 'archers', params: quiet(), seed: seedOf(12), record: true }), w = sim.world;
+  const sim = new Simulation({ arena: 'archers', params: quiet(LINE), seed: seedOf(12), record: true }), w = sim.world;
   sim.command({ t: 'clear', keepMarked: true });
   // The marked archer at the top left (7.8, 1.2); the hero to its right, another archer to its left: the line passes it.
   // Stage 3a, step 2: the hero stands between the ridges (x 9.6) — the right ridge (x 10–11) would hide him at x 11.5.
@@ -390,6 +397,160 @@ check('arena 5 «Стрелковая гряда»: three marked archers are the
   runUntil(sim, () => shooter.vars.aim !== 1);
   assert(!alive(w, target) && w.stats.markedKills === 1 && w.stats.kills === 0, `marked ${w.stats.markedKills}, kills ${w.stats.kills}`);
   assert(replays(sim), 'replay');
+});
+
+// ---- Archer: the point shot (phase A, Т6, user decision 09.10.2026; docs/realtime-phase-a.md, section 7) ----
+
+/** The hero's HP now (a function: a value narrowed by an assertion stays readable after more ticks). */
+const hpOf = (w: World): number => w.hero.hp;
+/** Runs ticks until the archer aims (its mark appears); returns the mark. */
+function untilMark(sim: Simulation, archer: Enemy): { at: Vec; r: number; progress: number } {
+  runUntil(sim, () => archerMark(sim.world, archer) !== null);
+  const mark = archerMark(sim.world, archer);
+  assert(mark, 'the archer aims');
+  return mark;
+}
+/** Runs ticks until the archer's aim ends (the arrow fell, or the archer is gone), counting arrow hits on the hero. */
+function untilShot(sim: Simulation, archer: Enemy): number {
+  const w = sim.world;
+  let arrows = 0;
+  runUntil(sim, () => { arrows += hits(w, 'arrow'); w.events.length = 0; return archer.vars.aim !== 1 || !alive(w, archer); });
+  return arrows + hits(w, 'arrow');
+}
+
+check('archer, point: it marks the hero\'s centre (circle 1.0, no line); the hero standing in it loses 1 at the end of the 1 s fill, to an elite archer 2', () => {
+  for (const [k, elite, loss] of [[50, false, 1], [51, true, 2], [52, false, 1]] as const) {
+    const sim = fight('kills', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const id = sim.command({ t: 'place', x: 8, y: 9.2, color: 0, hp: 0, kind: 'archer', ...elite ? { elite: true } : {} }) as number;
+    const archer = w.enemies.find(e => e.id === id)!;
+    const before = runUntil(sim, () => archerMark(w, archer) !== null);
+    const mark = archerMark(w, archer)!;
+    assert(before === 60 && mark.r === 1 && mark.at.x === w.hero.x && mark.at.y === w.hero.y && mark.progress === 0, `marked after ${before} ticks: ${JSON.stringify(mark)}`);
+    assert(archerLine(w, archer) === null, 'no line with the point shot');
+    let arrows = 0;
+    const filled = runUntil(sim, () => { arrows += hits(w, 'arrow'); w.events.length = 0; return archer.vars.aim !== 1; });
+    arrows += hits(w, 'arrow');
+    assert(filled === 60 && arrows === 1 && hpOf(w) === w.hero.maxHp - loss, `${elite ? 'elite' : 'archer'}: filled ${filled} ticks, ${arrows} arrow, HP ${w.hero.hp} of ${w.hero.maxHp}`);
+    assert(archerMark(w, archer) === null, 'the mark is gone after the arrow');
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('archer, point: the hero who steps out of the circle right after the mark appears is not hit; the mark stays where it was', () => {
+  for (const [k, x, y] of [[53, 1, 0], [54, -1, 0], [55, 0, -1]] as const) {
+    const sim = fight('kills', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const archer = place(sim, 8, 9.2, 'archer', 0);
+    const mark = untilMark(sim, archer);
+    sim.command({ t: 'walk', x, y });
+    ticks(sim, 30);
+    sim.command({ t: 'walk', x: 0, y: 0 });
+    const still = archerMark(w, archer)!;
+    assert(still.at.x === mark.at.x && still.at.y === mark.at.y, 'the mark does not follow the hero');
+    const arrows = untilShot(sim, archer);
+    assert(arrows === 0 && hpOf(w) === w.hero.maxHp && dist(w.hero, mark.at) > mark.r + 0.5, `stepped out (${dist(w.hero, mark.at).toFixed(2)} from the point): ${arrows} arrows, HP ${w.hero.hp}`);
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('archer, point: enemies in the circle are not touched by the arrow — weak, tough, marked, the archer itself: alive, same HP, no hit events', () => {
+  // «Стрелковая гряда»: the marked archer (7.8, 1.2) between the ridges; the hero stands 0.8 below it — its own mark covers it.
+  const sim = new Simulation({ arena: 'archers', params: quiet(), seed: seedOf(56), record: true }), w = sim.world;
+  sim.command({ t: 'clear', keepMarked: true });
+  const marked = w.enemies.find(e => e.marked && e.x < 9)!;
+  sim.command({ t: 'teleport', x: marked.x, y: marked.y + 0.8 });
+  const weak = place(sim, marked.x + 0.6, marked.y + 1.1, 'basic', 1, 0), tough = place(sim, marked.x - 0.6, marked.y + 1.2, 'basic', 2, 2);
+  const others = [marked, weak, tough], hpBefore = others.map(e => e.hp);
+  const mark = untilMark(sim, marked);
+  assert(others.every(e => dist(e, mark.at) <= mark.r), 'all three stand in the circle');
+  let enemyHits = 0, kills = 0;
+  const count = (): void => { for (const ev of w.events) { if (ev.type === 'enemyHit') enemyHits++; if (ev.type === 'kill') kills++; } w.events.length = 0; };
+  runUntil(sim, () => { count(); return marked.vars.aim !== 1; });
+  count();
+  assert(hpOf(w) === w.hero.maxHp - 1, `the hero is hit: HP ${w.hero.hp}`);
+  assert(others.every((e, i) => alive(w, e) && e.hp === hpBefore[i]) && enemyHits === 0 && kills === 0, `enemies: ${others.map(e => `${alive(w, e)}/${e.hp}`).join(', ')}, hits ${enemyHits}, kills ${kills}`);
+  assert(w.stats.markedKills === 0, 'the goal counts nothing');
+  assert(replays(sim), 'replay');
+});
+
+check('archer, point: killed during the fill (a bomb; also while frozen) — the shot is gone with it; frozen alive — the mark waits, the arrow falls after the thaw', () => {
+  for (const frozen of [false, true]) {
+    const sim = new Simulation({ arena: 'kills', params: quiet(), seed: seedOf(57), record: true, loadout: { items: { bomb: 1 } } }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const archer = place(sim, 8, 9.2, 'archer', 0);
+    untilMark(sim, archer);
+    ticks(sim, 20);
+    if (frozen) sim.command({ t: 'chill', id: archer.id, seconds: 3 });
+    ticks(sim, 20);
+    sim.command({ t: 'item', kind: 'bomb', x: archer.x, y: archer.y });
+    assert(!alive(w, archer), 'the bomb killed the archer');
+    let arrows = 0;
+    for (let i = 0; i < 240; i++) { sim.tick(); arrows += hits(w, 'arrow'); w.events.length = 0; }
+    assert(arrows === 0 && hpOf(w) === w.hero.maxHp, `${frozen ? 'frozen, ' : ''}killed: ${arrows} arrows, HP ${w.hero.hp}`);
+    assert(replays(sim), 'replay');
+  }
+  // Frozen and alive: the mark stays (its fill waits), no arrow; after the thaw the fill goes on and the arrow falls.
+  const sim = fight('kills', quiet(), seedOf(58)), w = sim.world;
+  sim.command({ t: 'teleport', x: 8, y: 5 });
+  const archer = place(sim, 8, 9.2, 'archer', 0);
+  untilMark(sim, archer);
+  ticks(sim, 30);
+  sim.command({ t: 'chill', id: archer.id, seconds: 2 });
+  const held = archerMark(w, archer)!.progress;
+  ticks(sim, 100);
+  const waiting = archerMark(w, archer);
+  assert(waiting && waiting.progress === held && held > 0.4 && held < 0.6 && hpOf(w) === w.hero.maxHp, `frozen: the mark waits at ${held.toFixed(2)}, HP ${w.hero.hp}`);
+  const arrows = untilShot(sim, archer);
+  assert(arrows === 1 && hpOf(w) === w.hero.maxHp - 1, `thawed: ${arrows} arrow, HP ${w.hero.hp}`);
+  assert(replays(sim), 'replay');
+});
+
+check('archer, point: two marks add up — two archers a second apart hit the hero standing in both (−2); at once only the invulnerability after a hit limits them (−1)', () => {
+  for (const [k, apart, loss] of [[59, 60, 2], [60, 0, 1]] as const) {
+    const sim = fight('kills', quiet(), seedOf(k)), w = sim.world;
+    sim.command({ t: 'teleport', x: 8, y: 5 });
+    const a = place(sim, 8, 9.2, 'archer', 0);
+    ticks(sim, apart);
+    const b = place(sim, 11.5, 5.8, 'archer', 1);
+    untilMark(sim, b);
+    const first = archerMark(w, a);
+    assert(apart === 0 ? first !== null : first === null && hpOf(w) === w.hero.maxHp - 1, `the first mark: ${JSON.stringify(first)}, HP ${w.hero.hp}`);
+    runUntil(sim, () => a.vars.aim !== 1 && b.vars.aim !== 1);
+    assert(hpOf(w) === w.hero.maxHp - loss, `${apart ? 'a second apart' : 'at once'}: HP ${w.hero.hp}`);
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('archer, point: no arrow once the fight is not playing — the hero walks out of the open door while marked: the mark is gone, his HP stays', () => {
+  const sim = fight('kills', quiet(), seedOf(61)), w = sim.world;
+  sim.command({ t: 'goals' });
+  // The door of «Убить 30» at (8, 0.7): the hero stands 1.5 below it, marked; then he steps into it.
+  sim.command({ t: 'teleport', x: 8, y: 2.2 });
+  const archer = place(sim, 8, 6.5, 'archer', 0);
+  untilMark(sim, archer);
+  sim.command({ t: 'walk', x: 0, y: -1 });
+  runUntil(sim, () => false, 40);
+  assert(w.status === 'victory' && archerMark(w, archer) === null, `status ${w.status}`);
+  for (let i = 0; i < 120; i++) sim.tick();
+  assert(hpOf(w) === w.hero.maxHp, `after the victory: HP ${w.hero.hp}`);
+});
+
+check('archer: a journal without `archerPoint` (before phase A) replays with the line; on by default; a run forces the point', () => {
+  const old = fight('kills', quiet(LINE), seedOf(62)), ow = old.world;
+  old.command({ t: 'teleport', x: 8, y: 5 });
+  const archer = place(old, 8, 9.2, 'archer', 0);
+  ticks(old, 150);
+  assert(ow.hero.hp === ow.hero.maxHp - 1 && archer.vars.pt === undefined && archer.vars.len > 4, `the line hit: HP ${ow.hero.hp}`);
+  const journal = JSON.parse(JSON.stringify(old.exportJournal()!));
+  delete journal.params.archerPoint;
+  delete journal.params.archerMarkRadius;
+  const again = replay(journal), aw = again.world;
+  const twin = aw.enemies.find(e => e.id === archer.id)!;
+  assert(JSON.stringify(twin.vars) === JSON.stringify(archer.vars) && aw.hero.hp === ow.hero.hp && aw.tick === ow.tick, `replayed with the line: ${JSON.stringify(twin.vars)}, HP ${aw.hero.hp}`);
+  const p = defaultParams(); p.archerPoint = false;
+  assert(defaultParams().archerPoint === true && runParams(p).archerPoint === true, 'on by default; a run plays the point');
 });
 
 // ---- Sapper (arena 6 «Пороховой склад») ----
@@ -716,10 +877,10 @@ check('Поляна of the run: only basic enemies come (no wolf packs, no boars
   assert(sandbox.kinds.has('wolf'), `the sandbox arena 1 still brings wolves: ${[...sandbox.kinds].join(', ')}`);
 });
 
-check('archer: a pond does not cut its line (the arrow flies over the water), a tree does; the first delay is the slider', () => {
+check('archer, old line (archerPoint off): a pond does not cut its line (the arrow flies over the water), a tree does; the first delay is the slider', () => {
   // Stage 3a, step 2: arena 5 has no pond and no tree any more (its ridges are walls) — the check plays on arena 1
   // «Убить 30»: the pond at (12.6, 4.6), r 0.95. The archer east of it, the hero west: the line crosses the water.
-  const sim = fight('kills', quiet({ archerFirstDelay: 0.5 }), seedOf(30)), w = sim.world;
+  const sim = fight('kills', quiet({ ...LINE, archerFirstDelay: 0.5 }), seedOf(30)), w = sim.world;
   sim.command({ t: 'teleport', x: 9.6, y: 4.6 });
   const archer = place(sim, 15, 4.6, 'archer', 0);
   const first = runUntil(sim, () => archer.vars.aim === 1);
@@ -728,7 +889,7 @@ check('archer: a pond does not cut its line (the arrow flies over the water), a 
   runUntil(sim, () => archer.vars.aim !== 1);
   assert(w.hero.hp === w.hero.maxHp - 1, 'the arrow over the water hits the hero');
   // Arena 1: a tree (5.5, 7.5) behind the hero: the line stops at its trunk (len ≈ 9.6 − 5.5 − 0.42), the hero in front of it is hit.
-  const tree = fight('kills', quiet(), seedOf(31)), tw = tree.world;
+  const tree = fight('kills', quiet(LINE), seedOf(31)), tw = tree.world;
   tree.command({ t: 'teleport', x: 7.5, y: 7.5 });
   const behind = place(tree, 9.6, 7.5, 'archer', 0);
   runUntil(tree, () => behind.vars.aim === 1);
@@ -737,8 +898,8 @@ check('archer: a pond does not cut its line (the arrow flies over the water), a 
   assert(tw.hero.hp === tw.hero.maxHp - 1, 'the hero in front of the tree is hit');
 });
 
-check('review: an enemy killed by an arrow in the walk loop does not make the next enemy skip its step', () => {
-  const sim = fight('archers', quiet({ enemySpeed: 1.2 }), seedOf(32)), w = sim.world;
+check('review (old line): an enemy killed by an arrow in the walk loop does not make the next enemy skip its step', () => {
+  const sim = fight('archers', quiet({ ...LINE, enemySpeed: 1.2 }), seedOf(32)), w = sim.world;
   // Stage 3a, step 2: the line runs through the left ridge's gap (y 2–4); the old open row y 5 is a ridge wall now.
   sim.command({ t: 'teleport', x: 2, y: 3 });
   // The order of the list: the victim on the line, the archer, a walker off the line (index after the victim).
@@ -766,8 +927,8 @@ check('review: the marked archers of arena 5 take their HP from the slider «HP 
   assert(plain.world.enemies.every(e => e.hp === 0), 'default HP 0');
 });
 
-check('a sapper killed by an arrow blows up, but its blast kills are not the player\'s', () => {
-  const sim = fight('powder', quiet(), seedOf(34)), w = sim.world;
+check('(old line) a sapper killed by an arrow blows up, but its blast kills are not the player\'s', () => {
+  const sim = fight('powder', quiet(LINE), seedOf(34)), w = sim.world;
   sim.command({ t: 'teleport', x: 2, y: 4.5 });
   const archer = place(sim, 13.5, 5, 'archer', 0);
   const sapper = place(sim, 9.5, 5.2, 'sapper', 1), near = place(sim, 9.5, 6.3, 'basic', 2, 0);
@@ -852,8 +1013,8 @@ check('A: links of the released chain killed on the way by the chain\'s own sapp
   assert(replays(sim), 'replay');
 });
 
-check('A: links killed on the way by an arrow give power but are not the player\'s; the chain shield counts the chain\'s own kills', () => {
-  const sim = fight('powder', quiet({ chainShieldMinKills: 4 }), seedOf(41)), w = sim.world;
+check('A (old line): links killed on the way by an arrow give power but are not the player\'s; the chain shield counts the chain\'s own kills', () => {
+  const sim = fight('powder', quiet({ ...LINE, chainShieldMinKills: 4 }), seedOf(41)), w = sim.world;
   // Stage 3a, step 2: the scenario runs along the top of «Пороховой склад» (y 1.6–3.8) — the old row y 5–7 crosses its west ravine now.
   sim.command({ t: 'teleport', x: 3, y: 1.6 });
   const archer = place(sim, 9.6, 1.6, 'archer', 1);
@@ -872,9 +1033,9 @@ check('A: links killed on the way by an arrow give power but are not the player\
   assert(replays(sim), 'replay');
 });
 
-check('A: a porcupine link killed on the way gives no quills; links lost while the chain is drawn drop out', () => {
+check('A (old line): a porcupine link killed on the way gives no quills; links lost while the chain is drawn drop out', () => {
   // Quills always up (slider «иглы опущены» 0): the porcupine would hurt if it were struck.
-  const sim = fight('powder', quiet({ porcupineDownTime: 0 }), seedOf(42)), w = sim.world;
+  const sim = fight('powder', quiet({ ...LINE, porcupineDownTime: 0 }), seedOf(42)), w = sim.world;
   // Stage 3a, step 2: the scenario runs along the top of «Пороховой склад» (y 1.6–3.8) — the old row y 5–7 crosses its west ravine now.
   sim.command({ t: 'teleport', x: 3, y: 1.6 });
   const archer = place(sim, 9.6, 1.6, 'archer', 1);
@@ -884,7 +1045,7 @@ check('A: a porcupine link killed on the way gives no quills; links lost while t
   dashAll(sim, [a, quill, d]);
   assert(!alive(w, quill) && hits(w, 'quills') === 0 && w.hero.hp === w.hero.maxHp, 'no quills from a porcupine killed by the arrow');
   // While drawing: a link killed by the arrow drops out of the drawn chain (it is not released yet).
-  const sim2 = fight('powder', quiet(), seedOf(43)), w2 = sim2.world;
+  const sim2 = fight('powder', quiet(LINE), seedOf(43)), w2 = sim2.world;
   sim2.command({ t: 'teleport', x: 3, y: 1.6 });
   const archer2 = place(sim2, 9.6, 1.6, 'archer', 1);
   const x1 = place(sim2, 4.2, 2.6, 'basic', 0), x2 = place(sim2, 5.5, 1.6, 'basic', 0);

@@ -96,13 +96,14 @@ check('«Брод»: five marked — three archers on the far bank, two wolves a
   const dry = walked({ x: 3.3, y: 5.6 }), wet = walked({ x: 12.6, y: 5.6 });
   assert(inWater({ x: 12.6, y: 5.6 }, w.arena) && Math.abs(wet / dry - w.params.waterSlow) < 0.05, `in the water ${wet.toFixed(2)} vs ${dry.toFixed(2)} on the bank`);
   console.log(`   0.5 s of walking: ${dry.toFixed(2)} on the bank, ${wet.toFixed(2)} in the river`);
-  // An archer on the far bank, the hero on this one: the line crosses the water whole, the arrow hurts him.
+  // An archer on the far bank, the hero on this one: the water does not hide him — the archer marks him across the river
+  // (phase A, Т6: the point shot), the arrow hurts him.
   const shot = new Simulation({ arena: 'ford', params: quiet({ archerFirstDelay: 0.5 }), seed: seedOf(2), record: true }), sw = shot.world;
   shot.command({ t: 'clear', keepMarked: false });
   shot.command({ t: 'teleport', x: 9.4, y: 7 });
   const archer = place(shot, 16.4, 7, 'archer', 0);
   runUntil(shot, () => archer.vars.aim === 1);
-  assert(Math.abs(archer.vars.len - 7) < 1e-9, `over the river the line is whole: ${archer.vars.len}`);
+  assert(archer.vars.pt === 1 && archer.vars.ax === sw.hero.x && archer.vars.ay === sw.hero.y, 'across the river the archer marks the hero');
   runUntil(shot, () => archer.vars.aim !== 1);
   assert(sw.hero.hp === sw.hero.maxHp - 1, 'the arrow across the river hits the hero');
   assert(replays(sim) && replays(shot), 'replay');

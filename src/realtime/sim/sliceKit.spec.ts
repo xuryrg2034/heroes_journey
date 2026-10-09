@@ -201,13 +201,13 @@ check('cold switches off the mechanic of each new enemy: the shield, the arrow, 
     sim.command({ t: 'release' }); settle(sim);
     assert(!alive(w, shield), 'killed through the front');
   }
-  // Archer: the announced line waits while it is frozen; the arrow flies after the thaw.
+  // Archer: its aim (the mark of the point shot, phase A) waits while it is frozen; the arrow falls after the thaw.
   {
     const sim = armed('kills', quiet(), seedOf(16)), w = sim.world;
     sim.command({ t: 'teleport', x: 8, y: 5 });
     const archer = place(sim, 8, 9.2, 'archer', 0, 0);
     for (let i = 0; i < 120 && archer.vars.aim !== 1; i++) sim.tick();
-    assert(archer.vars.aim === 1, 'the line is announced');
+    assert(archer.vars.aim === 1, 'the archer aims');
     const hp = hpOf(w);
     assert(use(sim, 'frost', archer.x, archer.y), 'cold on the archer');
     ticks(sim, 175);
@@ -479,8 +479,8 @@ check('elite loot as in the turn-based game (design answer 6): a template elite 
     sim.command({ t: 'item', kind: 'bomb', x: elite.x, y: elite.y });
     assert(['dew', 'powder', 'resin', 'herbs'].includes(lootOf(w)[0]?.loot ?? ''), 'a random elite: always a resource');
   }
-  // Killed by an archer's arrow: not the player's — no loot.
-  const sim = fight('kills', quiet(), seedOf(300)), w = sim.world;
+  // Killed by an archer's arrow: not the player's — no loot. The old line (phase A, Т6: the point shot hits only the hero).
+  const sim = fight('kills', quiet({ archerPoint: false }), seedOf(300)), w = sim.world;
   sim.command({ t: 'teleport', x: 8, y: 5 });
   place(sim, 8, 9.2, 'archer', 0, 0);
   const victim = placeElite(sim, 8, 7.5, 'basic', 1, 0, true);

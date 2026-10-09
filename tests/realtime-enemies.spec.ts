@@ -84,7 +84,7 @@ test('shieldbearer: arena 4 opens; its shield arc is drawn, the hint says «щи
   expect(errors).toEqual([]);
 });
 
-test('archer: arena 5 opens with three marked archers; its line is drawn for about 1 s, then the arrow hurts the hero on it', async ({ page }) => {
+test('archer, old line (archerPoint off): arena 5 opens with three marked archers; its line is drawn for about 1 s, then the arrow hurts the hero on it', async ({ page }) => {
   const errors: string[] = [];
   await openArena(page, errors, 5);
   const start = await snap(page);
@@ -92,6 +92,8 @@ test('archer: arena 5 opens with three marked archers; its line is drawn for abo
   expect(start.enemies.filter(e => e.kind === 'archer')).toHaveLength(3);
   await expect(page.getByTestId('goal')).toHaveText('отмеченные 0 / 3');
   await quiet(page);
+  // Phase A, Т6: the point shot replaced the line; the panel toggle brings the line back (journalled param command).
+  await page.evaluate(() => (window as any).__realtime.setParam('archerPoint', false));
   // Stage 3a, step 2: below the hero between the ridges (x 6–10 is open) — at (3, 5) the left ridge hides him now.
   await place(page, 8, 9.2, 'archer', 2);
   // The line appears after the first delay (1 s) and fills up while it stands.
@@ -106,6 +108,64 @@ test('archer: arena 5 opens with three marked archers; its line is drawn for abo
   expect(shot.time - announced.time).toBeGreaterThan(0.85);
   expect(shot.time - announced.time).toBeLessThan(1.3);
   expect(shot.signals.arrowLanes).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// ---- Phase A, Т6 (user decision 09.10.2026): the archer marks a point ----
+// The mark is read from the snapshot: the archer's `vars` (`aim` 1 and `pt` 1 — aiming a point; `ax`, `ay` — the point).
+// Its drawing comes with the view's second pass (track Д3); here the rule is checked through the player's actions.
+
+/** Waits for the archer `id` to mark a point; returns the point and the snapshot at that moment. */
+async function untilMarked(page: Page, id: number): Promise<{ at: { x: number; y: number }; snap: Snap }> {
+  await expect.poll(async () => { const e = (await snap(page)).enemies.find(x => x.id === id); return !!e && e.vars.aim === 1 && e.vars.pt === 1; }, { timeout: 5_000, intervals: [10] }).toBe(true);
+  const s = await snap(page), e = s.enemies.find(x => x.id === id)!;
+  return { at: { x: e.vars.ax, y: e.vars.ay }, snap: s };
+}
+/** Waits for the archer `id` to end its aim (the arrow fell). */
+const untilShot = (page: Page, id: number): Promise<void> =>
+  expect.poll(async () => (await snap(page)).enemies.find(x => x.id === id)?.vars.aim, { timeout: 5_000, intervals: [20] }).toBe(0);
+
+test('archer, point: it marks where the hero stands; standing in the mark he loses 1 HP about 1 s later, the enemies in the circle stay alive with their HP', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 5);
+  await quiet(page);
+  const weak = await place(page, 8.6, 5.3, 'basic', 1, 0);
+  const tough = await place(page, 7.4, 4.6, 'basic', 3, 2);
+  const archer = await place(page, 8, 9.2, 'archer', 2);
+  const { at, snap: marked } = await untilMarked(page, archer);
+  expect(Math.hypot(at.x - marked.hero.x, at.y - marked.hero.y)).toBeLessThan(1e-9);
+  expect(marked.hero.hp).toBe(marked.hero.maxHp);
+  expect(marked.signals.arrowLanes).toBe(0);
+  await expect.poll(async () => (await snap(page)).hero.hp, { timeout: 5_000, intervals: [20] }).toBe(marked.hero.maxHp - 1);
+  const shot = await snap(page);
+  expect(shot.time - marked.time).toBeGreaterThan(0.85);
+  expect(shot.time - marked.time).toBeLessThan(1.3);
+  for (const [id, hp] of [[weak, 0], [tough, 2]] as const) {
+    const e = shot.enemies.find(x => x.id === id);
+    expect(e, `enemy ${id} in the circle is alive`).toBeTruthy();
+    expect(e!.hp).toBe(hp);
+    expect(Math.hypot(e!.x - at.x, e!.y - at.y)).toBeLessThan(1);
+  }
+  expect(shot.kills).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('archer, point: the hero who walks out of the mark (keyboard) right after it appears keeps his HP', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 5);
+  await quiet(page);
+  const archer = await place(page, 8, 9.2, 'archer', 2);
+  const { at, snap: marked } = await untilMarked(page, archer);
+  // A step to the left (between the ridges x 6–10 is open), held until he is well out of the circle (1 + his radius).
+  await page.keyboard.down('KeyA');
+  await expect.poll(async () => { const h = (await snap(page)).hero; return Math.hypot(h.x - at.x, h.y - at.y); }, { timeout: 3_000, intervals: [10] }).toBeGreaterThan(1.6);
+  await page.keyboard.up('KeyA');
+  const out = await snap(page);
+  expect(out.enemies.find(x => x.id === archer)!.vars.aim, 'out of the circle before the arrow').toBe(1);
+  await untilShot(page, archer);
+  const after = await snap(page);
+  expect(after.time - marked.time).toBeGreaterThan(0.85);
+  expect(after.hero.hp).toBe(after.hero.maxHp);
   expect(errors).toEqual([]);
 });
 

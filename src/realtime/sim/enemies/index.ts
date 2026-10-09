@@ -20,7 +20,7 @@ import './shaman';
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
 export { inShieldArc, shieldUp } from './shield';
-export { archerLine } from './archer';
+export { archerLine, archerMark } from './archer';
 export { sapperFuse } from './sapper';
 export { quillsUp, quillsWarning } from './porcupine';
 export { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP, lynxLine, lynxStunned } from './lynx';

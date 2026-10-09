@@ -18,7 +18,7 @@ import { SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from './arenas';
 import { BEHAVIOR_ARENAS } from './arenasStage3';
 import { CAMERA_ARENAS } from './arenasCamera';
 import { chainAnchor, enemyRefusal, nextCandidates, nextObjectCandidates, planChain } from './chain';
-import { type Area, type Vec, areaDistance, blockedAt, cliffAt, dist, inThorns, inWater, overCliff } from './geometry';
+import { type Area, type Vec, areaDistance, blockedAt, cliffAt, dist, inThorns, inWater, lineOfSight, overCliff } from './geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from './params';
 import { Simulation, replay } from './simulation';
 import type { ArenaObject, Enemy, World, WorldEvent } from './world';
@@ -304,8 +304,8 @@ check('4 «Стена щитов»: a chain through a brazier takes a shieldbear
 
 // ---- 5 «Стрелковая гряда»: М5 gorge ----
 
-check('5 «Стрелковая гряда»: a ridge wall cuts the archer\'s line — behind it the hero is not aimed at; in a gap of the ridge the line is whole and hits; in front of the wall the line ends at it', () => {
-  const sim = fight('archers', quiet({ archerFirstDelay: 0.5 }), 2), w = sim.world;
+check('5 «Стрелковая гряда», old line (archerPoint off): a ridge wall cuts the archer\'s line — behind it the hero is not aimed at; in a gap of the ridge the line is whole and hits; in front of the wall the line ends at it', () => {
+  const sim = fight('archers', quiet({ archerFirstDelay: 0.5, archerPoint: false }), 2), w = sim.world;
   // The left ridge: walls at x 5–6, y 0–2, 4–6, 8–10; gaps y 2–4 and 6–8. Behind the middle wall for 4 s: no aim, no hit.
   sim.command({ t: 'teleport', x: 4.2, y: 5 });
   const archer = place(sim, 8.5, 5, 0, 0, 'archer');
@@ -329,6 +329,30 @@ check('5 «Стрелковая гряда»: a ridge wall cuts the archer\'s li
   sim.command({ t: 'teleport', x: 6.7, y: 7 });
   runUntil(sim, () => front.vars.aim !== 1);
   assert(alive(w, behind), 'the enemy behind the wall is not hit');
+  assert(replays(sim), 'replay');
+});
+
+check('5 «Стрелковая гряда», point (phase A, Т6): behind a ridge wall the hero is not aimed at; marked in a gap, he hides behind the wall inside the circle — the arrow flies over the wall and hits', () => {
+  const sim = fight('archers', quiet({ archerFirstDelay: 0.5 }), 3), w = sim.world;
+  // Behind the middle wall of the left ridge (x 5–6, y 4–6) for 4 s: no mark, no hit.
+  sim.command({ t: 'teleport', x: 4.2, y: 5 });
+  const archer = place(sim, 8.5, 5, 0, 0, 'archer');
+  let aimed = 0;
+  ticks(sim, 240, () => { if (archer.vars.aim === 1) aimed++; });
+  assert(aimed === 0 && w.hero.hp === w.hero.maxHp, `behind the wall: aimed ${aimed} ticks, hp ${w.hero.hp}`);
+  // Seen through the gap (y 2–4): marked. Then 0.8 down, behind the wall (out of sight), still in the circle.
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.4, y: 3.6 });
+  const gap = place(sim, 8.5, 3, 0, 0, 'archer');
+  runUntil(sim, () => gap.vars.aim === 1);
+  const at = { x: gap.vars.ax, y: gap.vars.ay };
+  assert(at.x === w.hero.x && at.y === w.hero.y, 'marked through the gap');
+  sim.command({ t: 'walk', x: 0, y: 1 });
+  ticks(sim, 12);
+  sim.command({ t: 'walk', x: 0, y: 0 });
+  assert(!lineOfSight(gap, w.hero, w.arena, 0.05) && dist(w.hero, at) < w.params.archerMarkRadius + heroRadius(w.params), `hidden behind the wall, ${dist(w.hero, at).toFixed(2)} from the point`);
+  runUntil(sim, () => gap.vars.aim !== 1);
+  assert(w.hero.hp === w.hero.maxHp - w.params.archerDamage, `over the wall: hp ${w.hero.hp}`);
   assert(replays(sim), 'replay');
 });
 
