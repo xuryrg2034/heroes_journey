@@ -1108,7 +1108,9 @@ function playChain(sim: Simulation): void {
     const plan = planChain(w);
     if (plan.endsOnSurvivor || plan.endsOnObject) break;
     const from: Vec = chainAnchor(w);
-    const next = [...nextCandidates(w), ...nextObjectCandidates(w)].sort((a, b) => dist(a, from) - dist(b, from))[0];
+    // Not the door: the fight must last its 50 s (phase A, 09.10.2026: with speed classes the bot of «Стена щитов» met its goal
+    // and walked out at 12.6 s — two checkpoints instead of ten).
+    const next = [...nextCandidates(w), ...nextObjectCandidates(w).filter(o => o.kind !== 'door')].sort((a, b) => dist(a, from) - dist(b, from))[0];
     if (!next) break;
     const before = w.chain.length;
     sim.command({ t: 'drag', x: next.x, y: next.y, mode: 'full' });

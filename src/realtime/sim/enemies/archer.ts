@@ -143,6 +143,7 @@ registerBehavior({
 registerEnemyKind({
   id: 'archer',
   behavior: 'archer',
+  speedClass: 'normal',
   hp: params => params.archerHp,
   speed: world => world.pressure.enemySpeed,
   bodyScale: 1,

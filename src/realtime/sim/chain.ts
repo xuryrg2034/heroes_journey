@@ -28,7 +28,7 @@
  */
 import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
-import { eliteDeath, pickLoot } from './elites';
+import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, trailAt } from './elites';
 import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
@@ -264,7 +264,8 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (plan.endsOnSurvivor) return 'afterSurvivor';
   if (plan.endsOnObject) return 'afterObject';
   const color = chainColor(world);
-  if (color !== null && enemy.color !== color) return 'color';
+  // Phase A, T4: «Хамелеон» in its window is taken by a chain of any colour (it takes the chain's colour, `adoptChainColor`).
+  if (color !== null && enemy.color !== color && !chameleonOpen(world, enemy)) return 'color';
   const reach = reachRefusal(world, enemy, enemyArtRadius(world.params, enemy));
   if (reach) return reach;
   // Stage 2 of the transition (design answer 08.10.2026): the kind's say about the direction of the strike — always from
@@ -389,7 +390,10 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   }
   // A chain begun by dragging from an empty spot is a new chain: its links refresh focus anew (as `beginChain`).
   if (!world.chain.length) world.focusRefreshed = new Set();
+  const color = chainColor(world);
   world.chain.push(target);
+  // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour.
+  if (target.kind === 'enemy') { const e = findEnemy(world, target.id); if (e) adoptChainColor(world, e, color); }
   refreshFocus(world, target);
 }
 
@@ -703,6 +707,8 @@ function finishMove(world: World): void {
   // Stage 3a (М3, design 09.10.2026): any dash or jump ending in thorns gives the hero a full interval to walk out (also
   // one from thorns into thorns: the timer starts again).
   if (world.arena.terrain && inThorns(hero, world.arena)) hero.thorns = Math.max(0.05, world.params.thornInterval);
+  // Phase A, T4 (design answer 6): the same for a fire trail of «Огненный» — a full interval to walk out.
+  if (trailAt(world, hero)) hero.flames = Math.max(0.05, world.params.trailInterval);
   if (move.kind === 'dash') {
     // Crystals of this chain are worth its final length (main game: crystalChain).
     for (const id of move.dropped) { const c = findObject(world, id); if (c) c.value = move.kills; }

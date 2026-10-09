@@ -44,8 +44,12 @@ export type Command =
   | { t: 'burst'; count: number }
   /** Test setup: remove every enemy (keep the marked ones with `keepMarked`), marker, queued newcomer and the chain. */
   | { t: 'clear'; keepMarked: boolean }
-  /** Test setup: an enemy of `kind` at a point; `elite` (stage 2, step 3) — with the elite modifier over its HP. */
-  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind; elite?: boolean | 'random' }
+  /**
+   * Test setup: an enemy of `kind` at a point; `elite` (stage 2, step 3) — with the elite modifier over its HP; `affixes`
+   * (phase A, T4; elites.ts) — exactly these affixes of the elite (absent — none: the slice's elite; the arena's count is
+   * not drawn for a placed elite).
+   */
+  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind; elite?: boolean | 'random'; affixes?: string[] }
   /** Test setup: move the hero. */
   | { t: 'teleport'; x: number; y: number }
   /** Test setup: the jump energy. */
@@ -96,7 +100,7 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       return;
     case 'place': {
       const e = spawnEnemy(world, { x: cmd.x, y: cmd.y }, cmd.color, cmd.hp, cmd.kind);
-      if (cmd.elite) makeElite(world, e, cmd.elite === 'random');
+      if (cmd.elite) makeElite(world, e, cmd.elite === 'random', Array.isArray(cmd.affixes) ? cmd.affixes : []);
       return e.id;
     }
     case 'teleport': world.hero.x = cmd.x; world.hero.y = cmd.y; return;

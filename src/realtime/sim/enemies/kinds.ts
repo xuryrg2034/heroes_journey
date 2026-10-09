@@ -56,14 +56,27 @@ export interface EnemyBehavior {
   beforeStep?(world: World, members: readonly Enemy[], dt: number): void;
 }
 
+/**
+ * Phase A, T1 (docs/realtime-phase-a.md, section 2): the speed class of a kind — its walk is the pace's enemy speed ×
+ * `speedSlow` / 1 / `speedFast` (the panel toggle `speedClasses`, on by default and always in a run). The class replaces the
+ * kind's own multiplier (`speed`), it does not stack on it; dashes, rushes and leaps keep their own speeds.
+ */
+export type SpeedClass = 'slow' | 'normal' | 'fast';
+
 export interface EnemyKindDef {
   id: string;
   /** Behaviour id (`registerBehavior`); `chase` — the common walk to the hero only. */
   behavior: string;
   /** HP of a newcomer of this kind; null — the tough roll of the phase (0, or 1–2 for a tough one). */
   hp(params: Params): number | null;
-  /** Walking speed, units per game second, before the personal spread, the braking and the marked slowdown. */
+  /**
+   * Walking speed, units per game second, before the personal spread, the braking and the marked slowdown. With speed
+   * classes on (`speedClasses`) a kind with a `speedClass` walks by its class instead (world.ts `enemySpeed`); this is the
+   * formula of the journals before phase A.
+   */
   speed(world: World, enemy: Enemy): number;
+  /** Phase A, T1: the speed class (absent — the kind walks by `speed` always: the reaper). */
+  speedClass?: SpeedClass;
   /** Body (pushing, touch zone, obstacles) and art (drawing, link reach edge, press circle) as a share of the common size. */
   bodyScale: number;
   artScale: number;

@@ -8,6 +8,7 @@ import { registerEnemyKind } from './kinds';
 registerEnemyKind({
   id: 'basic',
   behavior: 'chase',
+  speedClass: 'normal',
   hp: () => null,
   speed: world => world.pressure.enemySpeed,
   bodyScale: 1,

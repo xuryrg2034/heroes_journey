@@ -59,6 +59,7 @@ registerBehavior({
 registerEnemyKind({
   id: 'sapper',
   behavior: 'sapper',
+  speedClass: 'normal',
   hp: params => params.sapperHp,
   speed: world => world.pressure.enemySpeed,
   bodyScale: 1,

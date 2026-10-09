@@ -87,6 +87,14 @@ export interface Params {
   enemySpeed: number;
   /** Personal speed spread of newcomers: ×(1 ± this), uniform (iteration 2.1, 08.10.2026: ±0.35; ±0.2 before it). */
   speedSpread: number;
+  /**
+   * Phase A, T1 (docs/realtime-phase-a.md, section 2): speed classes — a kind's walk is the pace's enemy speed × its class
+   * (slow `speedSlow`, normal 1, fast `speedFast`) instead of the kind's own multiplier (`shieldSpeed`, `shamanSpeed`,
+   * `lynxSpeed`, the wolf's absolute `wolfSpeed`). Journals without this value replay with the old formulas. A run forces it on.
+   */
+  speedClasses: boolean;
+  speedSlow: number;
+  speedFast: number;
   /** Iteration 2: the flow field leads enemies around obstacles (off — straight at the hero, as in stages 1–3). */
   pathfinding: boolean;
   /** Flow field rebuilds per game second. */
@@ -268,6 +276,31 @@ export interface Params {
   eliteCapAfter: number;
   /** Sandbox: random elites among the newcomers (a run turns them on from its row 3). */
   eliteSandbox: boolean;
+  /**
+   * Phase A, T4 (docs/realtime-phase-a.md, section 2): affixes of an elite in the sandbox (0 — the plain elite of the slice);
+   * a run passes its own count by its row (`Kit.eliteAffixes`) and plays this at 0 (`RUN_FORCED`). Journals without the
+   * value: 0. The numbers below act only on elites with affixes.
+   */
+  eliteAffixes: number;
+  /** «Огненный»: a trail point every this many units of its path; its radius; game seconds it burns. */
+  trailStep: number;
+  trailRadius: number;
+  trailLife: number;
+  /** «Огненный»: damage to the hero on foot in the trail (at once, then every `trailInterval`; no elite bonus). */
+  trailHeroDamage: number;
+  trailInterval: number;
+  /** «Огненный»: damage to an enemy in the trail (HP not below 0, never a kill), then a pause of `trailEnemyPause`. */
+  trailEnemyDamage: number;
+  trailEnemyPause: number;
+  /** «Хамелеон»: its colour turns to the next one every `chameleonPeriod`; the last `chameleonWarn` of it is the window. */
+  chameleonPeriod: number;
+  chameleonWarn: number;
+  /** «Стремительный»: walking × this (over the class), HP × `swiftHp` instead of the elite's ×2. */
+  swiftSpeed: number;
+  swiftHp: number;
+  /** «Толстый»: HP × `fatHp` instead of the elite's ×2, walking × `fatSpeed`. */
+  fatHp: number;
+  fatSpeed: number;
   // Talismans (stage 2 of the transition, step 3, docs/realtime-slice.md, section 8)
   /** «Песочные часы»: the phase table after the goals starts this much later (the base pace goes on meanwhile). */
   hourglassDelay: number;
@@ -440,6 +473,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   enemyScale: 0.8,
   enemySpeed: 1.2,
   speedSpread: 0.35,
+  // Баланс (phase A, T1, 09.10.2026): slow ×0.7, fast ×1.4 of the pace's enemy speed.
+  speedClasses: true,
+  speedSlow: 0.7,
+  speedFast: 1.4,
   pathfinding: true,
   flowRate: 4,
   flowTurn: 8,
@@ -565,6 +602,21 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   eliteCap: 2,
   eliteCapAfter: 4,
   eliteSandbox: false,
+  // Баланс (phase A, T4, 09.10.2026; starting numbers, balance after the playtest).
+  eliteAffixes: 0,
+  trailStep: 0.4,
+  trailRadius: 0.4,
+  trailLife: 3,
+  trailHeroDamage: 1,
+  trailInterval: 1,
+  trailEnemyDamage: 1,
+  trailEnemyPause: 1,
+  chameleonPeriod: 4,
+  chameleonWarn: 0.6,
+  swiftSpeed: 1.4,
+  swiftHp: 1,
+  fatHp: 3,
+  fatSpeed: 0.7,
   // Баланс: section 8 — «Песочные часы» 10 s.
   hourglassDelay: 10,
   sandboxTalismans: '',
@@ -671,6 +723,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('bodyRadius', 'Враги', 'Радиус тела (толкание; при размере 1)', 0.15, 0.7, 0.01, 1, 'ед.'),
   n('enemySpeed', 'Враги', 'Скорость врага', 0.2, 4, 0.05, 1, 'ед/с'),
   n('speedSpread', 'Враги', 'Разброс скорости', 0, 0.6, 0.05, 1, '±'),
+  { kind: 'bool', key: 'speedClasses', group: 'Враги', label: 'Классы скорости (фаза A)', stage: 5,
+    hint: 'Ходьба вида = скорость врага × класс: медленные (щитоносец, дикобраз, шаман), обычные, быстрые (волк, рысь). Заменяет видовые множители. Выключено — прежние скорости видов. В походе включено всегда.' },
+  n('speedSlow', 'Враги', 'Класс «медленный»', 0.1, 2, 0.05, 5, '×', 'Щитоносец, дикобраз, шаман.'),
+  n('speedFast', 'Враги', 'Класс «быстрый»', 0.1, 3, 0.05, 5, '×', 'Волк, рысь (ходьба). Рывки, броски и прыжки от класса не зависят.'),
   { kind: 'bool', key: 'pathfinding', group: 'Враги', label: 'Поиск пути (поле потока)', stage: 4, hint: 'Враги обходят стены и деревья по полю потока к герою; вода дороже по замедлению. Выключено: по прямой, как в этапах 1–3, — упираются в препятствия.' },
   n('flowRate', 'Враги', 'Пересчёт поля потока', 1, 30, 1, 4, 'раз/с'),
   n('flowTurn', 'Враги', 'Плавность поворота по полю', 1, 30, 1, 4, '1/с', 'Чем больше, тем резче враг поворачивает к направлению поля.'),
@@ -793,6 +849,20 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('eliteChanceAfter', 'Элиты', 'Случайная элита после целей', 0, 0.5, 0.01, 5),
   n('eliteCap', 'Элиты', 'Не больше элит до целей', 0, 10, 1, 5),
   n('eliteCapAfter', 'Элиты', 'Не больше элит после целей', 0, 10, 1, 5),
+  n('eliteAffixes', 'Элиты', 'Аффиксы элит', 0, 3, 1, 5, '', 'Только песочница: столько аффиксов у каждой новой элиты. В походе — по ряду: 1–4 — 0, 5–8 — 1, 9 — 2.'),
+  n('trailStep', 'Элиты', 'Огненный: точка следа каждые', 0.1, 2, 0.05, 5, 'ед.'),
+  n('trailRadius', 'Элиты', 'Огненный: радиус точки', 0.1, 1.5, 0.05, 5, 'ед.'),
+  n('trailLife', 'Элиты', 'Огненный: след горит', 0.5, 10, 0.25, 5, 'с'),
+  n('trailHeroDamage', 'Элиты', 'Огненный: урон герою', 0, 5, 1, 5, '', 'Герою пешком в следе: сразу, затем раз в интервал (как терновник); без прибавки элиты.'),
+  n('trailInterval', 'Элиты', 'Огненный: интервал урона герою', 0.1, 5, 0.1, 5, 'с'),
+  n('trailEnemyDamage', 'Элиты', 'Огненный: урон врагам', 0, 5, 1, 5, '', 'HP врага не ниже 0: след не убивает и игроку не засчитывается.'),
+  n('trailEnemyPause', 'Элиты', 'Огненный: пауза урона врагу', 0.1, 5, 0.1, 5, 'с'),
+  n('chameleonPeriod', 'Элиты', 'Хамелеон: смена цвета раз в', 0.5, 20, 0.25, 5, 'с'),
+  n('chameleonWarn', 'Элиты', 'Хамелеон: окно перед сменой', 0, 3, 0.05, 5, 'с', 'Ободок мигает новым цветом; в окне берётся цепью любого цвета и принимает её цвет.'),
+  n('swiftSpeed', 'Элиты', 'Стремительный: скорость', 1, 3, 0.05, 5, '×'),
+  n('swiftHp', 'Элиты', 'Стремительный: HP', 1, 5, 0.5, 5, '×'),
+  n('fatHp', 'Элиты', 'Толстый: HP', 1, 6, 0.5, 5, '×'),
+  n('fatSpeed', 'Элиты', 'Толстый: скорость', 0.1, 1, 0.05, 5, '×'),
   { kind: 'bool', key: 'eliteSandbox', group: 'Элиты', label: 'Песочница: случайные элиты', stage: 5, hint: 'Только песочница. В походе элиты — из шаблона арены, события и случайные с ряда похода 3; этот переключатель там не действует.' },
   n('hourglassDelay', 'Талисманы', '«Песочные часы»: фазы после целей позже на', 0, 60, 1, 5, 'с', 'Пока они не начались, идёт темп до целей.'),
   { kind: 'choice', key: 'sandboxTalismans', group: 'Талисманы', label: 'Песочница: талисман на старте арены', stage: 5,
@@ -817,7 +887,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('boarChargeSpeed', 'Кабан', 'Скорость рывка', 2, 20, 0.5, 3, 'ед/с'),
   n('boarRest', 'Кабан', 'Стоит после рывка', 0, 3, 0.1, 3, 'с'),
   n('boarCooldown', 'Кабан', 'Перезарядка рывка', 0, 10, 0.5, 3, 'с'),
-  n('wolfSpeed', 'Волк', 'Скорость волка', 0.2, 5, 0.05, 3, 'ед/с'),
+  n('wolfSpeed', 'Волк', 'Скорость волка', 0.2, 5, 0.05, 3, 'ед/с', 'Только без классов скорости (переключатель «Классы скорости» в группе «Враги»).'),
   n('wolfPackMin', 'Волк', 'Стая: от', 1, 8, 1, 3),
   n('wolfPackMax', 'Волк', 'Стая: до', 1, 8, 1, 3),
   n('wolfPackRadius', 'Волк', 'Радиус стаи', 0.5, 6, 0.25, 3, 'ед.', 'Волки ближе этого радиуса друг к другу — стая: линии между ними.'),
@@ -826,7 +896,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('shieldHp', 'Щитоносец', 'HP щитоносца', 0, 6, 1, 5),
   n('shieldArc', 'Щитоносец', 'Дуга щита', 0, 360, 5, 5, '°', 'Звено нельзя взять, если якорь (предыдущее звено или герой) стоит в этой дуге перед щитоносцем.'),
   n('shieldTurn', 'Щитоносец', 'Поворот щита', 0, 720, 5, 5, '°/с', 'Щит поворачивается к новому направлению (или к герою, если щит следит за ним) не быстрее этого. Герой (4 ед/с) обходит щитоносца быстрее, чем поворачивается щит.'),
-  n('shieldSpeed', 'Щитоносец', 'Скорость щитоносца', 0.1, 2, 0.05, 5, '×'),
+  n('shieldSpeed', 'Щитоносец', 'Скорость щитоносца', 0.1, 2, 0.05, 5, '×', 'Только без классов скорости.'),
   n('shieldWanderMin', 'Щитоносец', 'Смена направления щита: от', 0.1, 20, 0.1, 5, 'с', 'Раз в случайный срок от … до … щитоносец выбирает новое случайное направление щита.'),
   n('shieldWanderMax', 'Щитоносец', 'Смена направления щита: до', 0.1, 20, 0.1, 5, 'с'),
   { kind: 'bool', key: 'shieldFollowsHero', group: 'Щитоносец', label: 'Песочница: щит следит за героем', stage: 5,
@@ -866,7 +936,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('wolfBack', 'Волк', 'После броска отходит к кольцу', 0, 5, 0.1, 5, 'с'),
   n('wolfLoneWait', 'Волк', 'Одиночка бросается через', 0, 20, 0.5, 5, 'с', 'Волк в кольце, пока волков меньше, чем нужно для броска стаи.'),
   n('lynxHp', 'Рысь', 'HP рыси', 0, 6, 1, 5),
-  n('lynxSpeed', 'Рысь', 'Скорость рыси', 0.1, 3, 0.05, 5, '×'),
+  n('lynxSpeed', 'Рысь', 'Скорость рыси', 0.1, 3, 0.05, 5, '×', 'Только без классов скорости.'),
   n('lynxTrigger', 'Рысь', 'Замирает, если герой ближе', 0.5, 10, 0.25, 5, 'ед.'),
   n('lynxWindup', 'Рысь', 'Замах (линия прыжка)', 0, 3, 0.05, 5, 'с'),
   n('lynxRange', 'Рысь', 'Длина прыжка', 0.5, 10, 0.25, 5, 'ед.', 'Стена и обрыв обрезают прыжок; вода и терновник — нет.'),
@@ -877,7 +947,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('lynxFirstDelay', 'Рысь', 'Первый прыжок: через … после появления', 0, 10, 0.1, 5, 'с'),
   n('lynxMass', 'Рысь', 'Масса в прыжке', 1, 20, 0.5, 5, '×'),
   n('shamanHp', 'Шаман', 'HP шамана', 0, 6, 1, 5),
-  n('shamanSpeed', 'Шаман', 'Скорость шамана', 0.1, 3, 0.05, 5, '×'),
+  n('shamanSpeed', 'Шаман', 'Скорость шамана', 0.1, 3, 0.05, 5, '×', 'Только без классов скорости.'),
   n('shamanNear', 'Шаман', 'Отходит, если герой ближе', 0, 12, 0.25, 5, 'ед.'),
   n('shamanFar', 'Шаман', 'Подходит, если герой дальше', 0, 14, 0.25, 5, 'ед.'),
   n('shamanCooldown', 'Шаман', 'Луч раз в', 0.5, 20, 0.25, 5, 'с', 'Луч входит в этот срок.'),
@@ -927,10 +997,11 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * from its talisman, elites only from the arena template, the event and the random elites from run row 3): the sandbox
  * toggles «Якорь у героя», «Песочница: случайные элиты», the sandbox talisman and (iteration 2.1) «Песочница: щит следит
  * за героем». A run arena gets them off whatever the
- * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off). Phase A,
- * Т6: so is the archer's point shot.
+ * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off). Phase A:
+ * speed classes are on; the sandbox's affix count is 0 (the run passes its own by the row, `Loadout.eliteAffixes`); Т6: the
+ * archer's point shot is on.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, archerPoint: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

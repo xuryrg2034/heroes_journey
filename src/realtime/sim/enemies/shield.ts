@@ -83,6 +83,7 @@ registerBehavior({
 registerEnemyKind({
   id: 'shield',
   behavior: 'shield',
+  speedClass: 'slow',
   hp: params => params.shieldHp,
   speed: world => world.pressure.enemySpeed * world.params.shieldSpeed,
   bodyScale: 1,
