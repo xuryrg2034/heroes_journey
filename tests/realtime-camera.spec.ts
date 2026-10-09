@@ -7,7 +7,7 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * drawn, keeps the edges, points at off-screen dangers and goals, and never reaches the journal. Runs only through
  * playwright.realtime.config.ts.
  */
-interface CameraState { x: number; y: number; viewW: number; viewH: number; scale: number; frozen: boolean; edge: { threat: number; goal: number }; arrows: { x: number; y: number; kind: string }[]; pointer: { x: number; y: number } | null; hint: string | null }
+interface CameraState { x: number; y: number; viewW: number; viewH: number; scale: number; frozen: boolean; edge: { threat: number; goal: number; spawn: number }; arrows: { x: number; y: number; kind: string }[]; pointer: { x: number; y: number } | null; hint: string | null }
 
 const camera = (page: Page): Promise<CameraState> => page.evaluate(() => (window as any).__realtime.camera());
 const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.snapshot());
@@ -171,8 +171,9 @@ test('off-screen pointers: the open door and a danger aimed at the hero; none fo
   const errors: string[] = [];
   await open(page, errors, 18);
   await still(page);
-  // Before the goals the door is shut and nothing else is off screen: no pointers.
-  expect((await camera(page)).edge).toEqual({ threat: 0, goal: 0 });
+  // Before the goals the door is shut and nothing else is off screen: no pointers (phase A: the spawn markers are cleared
+  // too — the frame drawn before the clear may still show their arrows, hence the poll).
+  await expect.poll(async () => (await camera(page)).edge).toEqual({ threat: 0, goal: 0, spawn: 0 });
   await page.evaluate(() => (window as any).__realtime.completeGoals());
   await expect.poll(async () => (await camera(page)).edge.goal).toBe(1);
   // The hero walks to the door: it comes into view and its pointer goes.
@@ -187,6 +188,33 @@ test('off-screen pointers: the open door and a danger aimed at the hero; none fo
   await place(page, hero.x, hero.y - 6.3, 1, 0, 'archer');
   await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBeGreaterThanOrEqual(1);
   await page.screenshot({ path: 'artifacts/realtime-camera-pointers.png' });
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Phase A (Т5, design answer 9 of docs/realtime-phase-a.md): pointers to spawn markers off screen — only on an arena larger
+ * than the view. «Большая поляна» 24×15: its markers come at the arena edge, out of view — pale arrows at the border, never
+ * on the HUD. A 16×10 arena: every marker is on screen, no spawn arrow while markers come and go.
+ */
+test('spawn markers off screen get a pale arrow on 24×15 and none on 16×10', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 18);
+  await expect.poll(async () => (await camera(page)).edge.spawn, { timeout: 10_000, intervals: [100] }).toBeGreaterThanOrEqual(1);
+  const cam = await camera(page);
+  const spawns = cam.arrows.filter(a => a.kind === 'spawn');
+  expect(spawns.length).toBe(cam.edge.spawn);
+  // Grouped by direction: at most one per 45° sector.
+  expect(spawns.length).toBeLessThanOrEqual(8);
+  await page.screenshot({ path: 'artifacts/realtime-camera-spawn-arrows.png' });
+  await open(page, errors, 1);
+  let sawMarkers = false;
+  for (let i = 0; i < 30; i++) {
+    const [s, c] = await Promise.all([snap(page), camera(page)]);
+    if (s.markers > 0) sawMarkers = true;
+    expect(c.edge.spawn).toBe(0);
+    await page.waitForTimeout(100);
+  }
+  expect(sawMarkers).toBe(true);
   expect(errors).toEqual([]);
 });
 

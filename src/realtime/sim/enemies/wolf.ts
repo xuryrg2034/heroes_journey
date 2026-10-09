@@ -247,3 +247,20 @@ registerEnemyKind({
   chainable: true,
   hitSource: 'wolf',
 });
+
+/**
+ * Phase A (Д3, docs/realtime-phase-a.md, section 5): the rush line of a wolf for the view — read only, the hash does not
+ * change. Howling: from the wolf towards the hero now (the line is fixed at the end of the howl), `wolfRushRange` long,
+ * `progress` — how far the howl has gone. Rushing: the fixed line, what is left of the range. Null — no howl or rush
+ * (the ring off, frozen).
+ */
+export function wolfRushLine(world: World, e: Enemy): { dx: number; dy: number; len: number; progress: number; rushing: boolean } | null {
+  if (e.kind !== 'wolf' || !world.params.wolfRing || enemyFrozen(e)) return null;
+  const p = world.params, st = stateOf(e);
+  if (st === WOLF_HOWL) {
+    const h = world.hero, d = dhypot(h.x - e.x, h.y - e.y), total = Math.max(1e-6, p.wolfHowl);
+    return { dx: d > 1e-6 ? (h.x - e.x) / d : 1, dy: d > 1e-6 ? (h.y - e.y) / d : 0, len: p.wolfRushRange, progress: Math.max(0, Math.min(1, 1 - (e.vars.t ?? 0) / total)), rushing: false };
+  }
+  if (st === WOLF_RUSH) return { dx: e.vars.dx ?? 1, dy: e.vars.dy ?? 0, len: Math.max(0, p.wolfRushRange - (e.vars.ran ?? 0)), progress: 1, rushing: true };
+  return null;
+}

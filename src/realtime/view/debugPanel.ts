@@ -76,6 +76,8 @@ export class DebugPanel {
   private phaseRows: HTMLElement[] = [];
   /** Stage 2 of the transition: what the current arena changes in the table (null — it plays the table as it is). */
   private readonly arenaPhaseNote = document.createElement('p');
+  /** Phase A (Т3): the «Вид» section — checkboxes of the view's own settings (`addViewCheck`). */
+  private readonly viewSection = document.createElement('section');
 
   constructor(private readonly params: Params, private readonly callbacks: PanelCallbacks) {
     const el = document.createElement('aside');
@@ -112,6 +114,16 @@ export class DebugPanel {
     this.goalsButton = button('Цели выполнены', () => callbacks.onCompleteGoals(), 'complete-goals');
     this.goalsButton.title = 'Сразу выполнить цели арены: дверь открывается, начинается стадия жадности (таблица фаз и Жнец).';
     el.appendChild(actions);
+    // Phase A (Т3): settings of the view only (not Params: they do not reach the journal or the hash).
+    this.viewSection.className = 'rt-group';
+    this.viewSection.setAttribute('data-testid', 'view-settings');
+    const viewTitle = document.createElement('h3');
+    viewTitle.textContent = 'Вид';
+    const viewNote = document.createElement('small'); viewNote.textContent = 'только картинка, в журнал не входит';
+    viewTitle.appendChild(viewNote);
+    this.viewSection.appendChild(viewTitle);
+    this.viewSection.hidden = true;
+    el.appendChild(this.viewSection);
 
     let group = '';
     let section: HTMLElement | null = null;
@@ -171,6 +183,23 @@ export class DebugPanel {
     this.phaseBody = body;
     this.renderPhases();
     return section;
+  }
+
+  /** Phase A (Т3): a checkbox of a view setting (not a Param): the caller keeps and stores the value. */
+  addViewCheck(label: string, testId: string, checked: boolean, onChange: (on: boolean) => void, hint?: string): HTMLInputElement {
+    const row = document.createElement('label');
+    row.className = 'rt-row rt-check';
+    if (hint) row.title = hint;
+    const name = document.createElement('span');
+    name.className = 'rt-name'; name.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'checkbox'; input.checked = checked;
+    input.setAttribute('data-testid', testId);
+    input.addEventListener('change', () => { onChange(input.checked); input.blur(); });
+    row.append(name, input);
+    this.viewSection.appendChild(row);
+    this.viewSection.hidden = false;
+    return input;
   }
 
   /** The current arena's say about the table (main.ts on every arena start): shown over it; null hides the note. */
