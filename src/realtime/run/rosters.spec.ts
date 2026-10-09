@@ -4,7 +4,8 @@
  * fake victory of an arena) and the simulation; what is looked at is what the player meets:
  * - a roster never brings a kind the run has not seen on an earlier arena (the four kinds of the slice anywhere, the lynx
  *   and the shaman — only their own arenas bring them before), «Поляна» of run row 1 and the fixed arenas keep their own
- *   composition, an anchor arena is its own at the first meeting of its kind and gets one role later;
+ *   composition, an anchor arena is its own at the first meeting of its kind on run rows 1–3 and gets one role otherwise
+ *   (design decision 09.10.2026, variant A with the row-4 threshold);
  * - the same seed and the same steps give the same rosters, the map's preview equals the roster played and spends nothing;
  * - a save keeps the rosters and is checked by choosing them again (version 5; version 4 — no run);
  * - an arena with a roster replays from its journal (`roster` in it) to the same hash; a journal without one plays the
@@ -17,7 +18,7 @@ import { defaultParams, type Params } from '../sim/params';
 import { arenaTemplate } from '../sim/arenas';
 import { enemyKind } from '../sim/enemies/kinds';
 import {
-  ALWAYS_MET, ANCHOR_ARENAS, ANCHOR_ROLES, FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTER_ARENAS, POOL_ROSTERS, rosterChoices, rosterDef, rosterKinds, rosterTitle, withRoster,
+  ALWAYS_MET, ANCHOR_ARENAS, ANCHOR_ROLE_ROW, ANCHOR_ROLES, FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTER_ARENAS, POOL_ROSTERS, rosterChoices, rosterDef, rosterKinds, rosterTitle, withRoster,
 } from '../sim/rosters';
 import { RUN_ARENAS, runRow } from './arenaPools';
 import {
@@ -106,7 +107,9 @@ check('rosters are data apart from the layout: known kinds and roles; the arenas
   // The pool and its first rows, the anchor at its first meeting, the role differing from the anchor's.
   assert(rosterChoices('buttons', 1, new Set())?.join() === 'onslaught,wolves', `row 1, nothing met: ${rosterChoices('buttons', 1, new Set())}`);
   assert(rosterChoices('glade', 1, new Set(['shield'])) === null && rosterChoices('glade', 2, new Set())?.length === 2, '«Поляна»: own on row 1, the pool from row 2');
-  assert(rosterChoices('shields', 4, new Set()) === null && !rosterChoices('shields', 4, new Set(['shield', 'archer']))!.includes('+shield'), '«Стена щитов»: own at the first meeting, then a role but not the shield');
+  assert(ANCHOR_ROLE_ROW === 4 && rosterChoices('shields', 3, new Set()) === null, '«Стена щитов»: own at the first meeting on row 3');
+  assert(rosterChoices('shields', 4, new Set())!.join() === '+boar,+wolf', `«Стена щитов», first meeting on row 4: ${rosterChoices('shields', 4, new Set())}`);
+  assert(!rosterChoices('shields', 3, new Set(['shield', 'archer']))!.includes('+shield'), '«Стена щитов» met before: a role, not the shield');
   assert(rosterChoices('thorns', 6, new Set(['porcupine', 'sapper', 'archer']))!.join() === '+boar,+wolf,+archer', `«Колючие заросли»: ${rosterChoices('thorns', 6, new Set(['porcupine', 'sapper', 'archer']))}`);
   assert(rosterChoices('ford', 9, new Set(['lynx', 'shaman'])) === null && rosterChoices('outpost', 8, new Set()) === null, 'fixed arenas');
   assert(rosterTitle('buttons', 'pack') === 'Стая' && rosterTitle('shields', '+archer') === 'Щитоносцы + лучники', 'titles');
@@ -114,7 +117,7 @@ check('rosters are data apart from the layout: known kinds and roles; the arenas
 
 // ---- Admission and the anchors, through runs ----
 
-check(`${RUNS} runs: no roster brings a kind not seen on an earlier arena; «Поляна» of row 1 and the fixed arenas keep their own; an anchor arena is its own at the first meeting of its kind, then gets a role`, () => {
+check(`${RUNS} runs: no roster brings a kind not seen on an earlier arena; «Поляна» of row 1 and the fixed arenas keep their own; an anchor arena is its own only at the first meeting of its kind on rows 1–3, else it gets one role of another class`, () => {
   let unseen = 0, anchorsOwn = 0, anchorsRole = 0, rostered = 0;
   for (const played of walks) {
     // What the player has seen: the kinds of the templates entered and of the rosters played (basic, wolves, boars from the start).
@@ -125,14 +128,20 @@ check(`${RUNS} runs: no roster brings a kind not seen on an earlier arena; «П�
       const anchor = ANCHOR_ARENAS[entry.arena];
       if (FIXED_ROSTER_ARENAS.includes(entry.arena) || entry.arena === 'glade' && entry.row === 1) assert(entry.roster === undefined, `${entry.arena} row ${entry.row}: ${entry.roster}`);
       else if (anchor) {
-        assert((entry.roster === undefined) === !seen.has(anchor.kind), `${entry.arena} row ${entry.row}: ${entry.roster}, ${anchor.kind} ${seen.has(anchor.kind) ? 'seen' : 'unseen'}`);
-        if (entry.roster === undefined) anchorsOwn++; else { anchorsRole++; assert(rosterDef(entry.roster)!.mode === 'add', `${entry.arena}: a role, not ${entry.roster}`); }
+        const pure = !seen.has(anchor.kind) && entry.row < ANCHOR_ROLE_ROW;
+        assert((entry.roster === undefined) === pure, `${entry.arena} row ${entry.row}: ${entry.roster}, ${anchor.kind} ${seen.has(anchor.kind) ? 'seen' : 'unseen'}`);
+        if (entry.roster === undefined) anchorsOwn++;
+        else {
+          anchorsRole++;
+          const role = rosterDef(entry.roster)!;
+          assert(role.mode === 'add' && rosterKinds(role).every(kind => KIND_ROLE[kind] !== KIND_ROLE[anchor.kind]), `${entry.arena}: a role of another class, not ${entry.roster}`);
+        }
       } else assert(entry.roster !== undefined && rosterDef(entry.roster)!.mode === 'replace', `${entry.arena} row ${entry.row}: a pool roster, not ${entry.roster}`);
       if (entry.roster !== undefined) rostered++;
       for (const kind of [...templateKinds(entry.arena), ...kinds]) seen.add(kind);
     }
   }
-  console.log(`   ${walks.reduce((sum, played) => sum + played.length, 0)} arenas, ${rostered} with a roster; anchors: own ${anchorsOwn}, with a role ${anchorsRole}; rosters with an unseen kind: ${unseen}`);
+  console.log(`   ${walks.reduce((sum, played) => sum + played.length, 0)} arenas, ${rostered} with a roster; anchors: own ${anchorsOwn}, with a role ${anchorsRole} (${(anchorsRole / (anchorsOwn + anchorsRole) * 100).toFixed(0)}%); rosters with an unseen kind: ${unseen}`);
   assert(unseen === 0, `rosters with an unseen kind: ${unseen}`);
 });
 
@@ -234,7 +243,9 @@ check(`counts over ${RUNS} runs: rosters by run row, the pairs «layout × roste
   const arenas = walks.map(played => new Set(played.map(entry => entry.arena)).size);
   const all = new Set(walks.flatMap(played => played.map(entry => `${entry.arena}|${entry.roster ?? '-'}`)));
   const mean = (xs: number[]) => (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(2);
-  console.log(`   pairs «layout × roster» per run: min ${Math.min(...pairs)}, mean ${mean(pairs)}, max ${Math.max(...pairs)} (arenas per run: mean ${mean(arenas)}); arenas per run ${mean(walks.map(p => p.length))}; distinct pairs over all runs ${all.size}`);
+  console.log(`   pairs «layout × roster» per run: min ${Math.min(...pairs)}, mean ${mean(pairs)}, max ${Math.max(...pairs)} (distinct arenas per run: min ${Math.min(...arenas)}, mean ${mean(arenas)}, max ${Math.max(...arenas)}); arenas played per run ${mean(walks.map(p => p.length))}; distinct pairs over all runs ${all.size}`);
+  const total = walks.reduce((sum, p) => sum + p.length, 0), withRoster = walks.reduce((sum, p) => sum + p.filter(e => e.roster !== undefined).length, 0);
+  console.log(`   arenas with a roster: ${withRoster} of ${total} (${(withRoster / total * 100).toFixed(1)}%)`);
   const runsOf = (arena: string) => walks.filter(played => played.some(entry => entry.arena === arena)).length;
   console.log(`   the arenas as in c8df2d4: «Рысье логово» in ${runsOf('lynx-den')} runs, «Круг шамана» ${runsOf('shaman-circle')}, «Брод» ${runsOf('ford')}`);
   assert(Math.min(...pairs) >= Math.min(...arenas), 'a pair per arena at least');

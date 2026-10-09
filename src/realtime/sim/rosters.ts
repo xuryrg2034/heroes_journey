@@ -9,8 +9,8 @@
  * - pool arenas (`POOL_ROSTER_ARENAS`: «Двор кнопок», «Логово», «Поляна» from run row 2): one roster of `POOL_ROSTERS`
  *   replaces the template's newcomers and its pack and boar shares;
  * - anchor arenas (`ANCHOR_ARENAS`: «Стена щитов», «Пороховой склад», «Колючие заросли», «Рысье логово»): the anchor
- *   kind keeps its share; when it was met before, one role of `ANCHOR_ROLES` is added; at the first meeting of the
- *   anchor kind the composition is the template's own.
+ *   kind keeps its share and one role of `ANCHOR_ROLES` is added — when the kind was met before, or from run row
+ *   `ANCHOR_ROLE_ROW` (4) on; at the first meeting of the anchor kind on rows 1–3 the composition is the template's own.
  * A roster or a role is admissible only when every kind in it was met in the run (`rosterChoices`); basic enemies, wolves
  * and boars need no meeting. Which one comes is the run's decision (run/arenaPools.ts, `nodeRoster`).
  *
@@ -80,6 +80,11 @@ export const FIXED_ROSTER_ARENAS: readonly string[] = ['archers', 'ford', 'shama
 export const POOL_ROSTER_ARENAS: readonly string[] = ['buttons', 'marked', 'glade'];
 /** «Поляна» on this run row (and before) keeps its own composition: basic enemies only, the lesson of the chain. */
 export const GLADE_LESSON_ROW = 1;
+/**
+ * Решение дизайна 09.10.2026 (вариант А с порогом): from this run row on an anchor arena adds a role at the first meeting
+ * of its kind too; on rows 1–3 the first meeting keeps the template's own composition.
+ */
+export const ANCHOR_ROLE_ROW = 4;
 /** Anchor arenas: the kind that stays, and its name on the preview. */
 export const ANCHOR_ARENAS: Readonly<Record<string, { kind: string; title: string }>> = {
   shields: { kind: 'shield', title: 'Щитоносцы' },
@@ -100,7 +105,8 @@ export function rosterKinds(def: RosterDef): string[] {
 
 /**
  * The rosters an arena may take on run row `row` given the kinds met (`met`, without `ALWAYS_MET`): null — the arena plays
- * its template (fixed composition, «Поляна» of the lesson row, an anchor at the first meeting of its kind, an arena the
+ * its template (fixed composition, «Поляна» of the lesson row, an anchor at the first meeting of its kind before run row
+ * `ANCHOR_ROLE_ROW`, an arena the
  * rule does not know); otherwise the admissible ids in a fixed order (never empty: «Натиск», «Волки» and the role
  * «кабаны» need no meeting, and no anchor is a presser). An anchor adds a role other than its own (no second punisher
  * on «Колючие заросли», no wolves on «Рысье логово»).
@@ -112,7 +118,7 @@ export function rosterChoices(arena: string, row: number, met: ReadonlySet<strin
     return POOL_ROSTERS.filter(known).map(def => def.id);
   }
   const anchor = ANCHOR_ARENAS[arena];
-  if (!anchor || !met.has(anchor.kind)) return null;
+  if (!anchor || (!met.has(anchor.kind) && row < ANCHOR_ROLE_ROW)) return null;
   const own = KIND_ROLE[anchor.kind];
   return ANCHOR_ROLES.filter(def => known(def) && rosterKinds(def).every(kind => KIND_ROLE[kind] !== own)).map(def => def.id);
 }
