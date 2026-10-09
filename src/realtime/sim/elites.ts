@@ -39,7 +39,7 @@
  */
 import { dcos, dhypot, dsin } from './detMath';
 import { enemyKind, kindOf } from './enemies/kinds';
-import { blockedAt, dist, overCliff, pushOutOfCliffs, type Vec } from './geometry';
+import { blockedAt, dist, inWater, overCliff, pushOutOfCliffs, type Vec } from './geometry';
 import { heroRadius } from './params';
 import { MAX_AFFIXES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { COLOR_COUNT } from './spawn';
@@ -183,7 +183,8 @@ export function updateAffixes(world: World, dt: number): void {
       if (e.chameleon <= 1e-9) { e.color = (e.color + 1) % COLOR_COUNT; e.chameleon += Math.max(0.05, p.chameleonPeriod); }
     }
     if (e.trail && dist(e, e.trail) >= Math.max(0.05, p.trailStep) - 1e-9) {
-      world.trails.push({ x: e.x, y: e.y, life: Math.max(0.05, p.trailLife), ownerId: e.id });
+      // The fire goes out in water (design 09.10.2026): no point in a river or a pond; the step is counted on.
+      if (!inWater(e, world.arena)) world.trails.push({ x: e.x, y: e.y, life: Math.max(0.05, p.trailLife), ownerId: e.id });
       e.trail = { x: e.x, y: e.y };
     }
   }

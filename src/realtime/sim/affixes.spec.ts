@@ -9,8 +9,8 @@
  */
 import { registerArena, type StartEnemy } from './arenas';
 import { enemyRefusal } from './chain';
-import { AFFIX_IDS, chameleonWarn, eliteAffixes, type AffixId } from './elites';
-import { dist, type Vec } from './geometry';
+import { AFFIX_IDS, chameleonWarn, eliteAffixes, type AffixId, type TrailPoint } from './elites';
+import { dist, inWater, pond, type Vec } from './geometry';
 import { hashWorld, worldState } from './hash';
 import { defaultParams, runParams, type Params } from './params';
 import { Simulation, replay } from './simulation';
@@ -231,6 +231,29 @@ check('T4 «Огненный»: a trail point every 0.4 of its path, radius 0.4,
   assert(fireHits(later).length === 0 && w.hero.flames === undefined, 'no burn out of the trail');
   run(sim, 60);
   assert(w.trails.length === 0 && !('trails' in (worldState(w) as object)), `trail gone: ${w.trails.length}`);
+  assert(replays(sim), 'replay');
+});
+
+registerArena({
+  id: 'affix-pond', name: 'Пруд', summary: 'Тест фазы A', goal: 'kills', width: 20, height: 12,
+  heroStart: { x: 19, y: 6 }, obstacles: [pond(10, 6, 6.5)], buttons: [], door: { x: 19.3, y: 1 }, enemies: [], killGoal: 999,
+});
+
+check('T4 «Огненный»: the fire goes out in water (design 09.10.2026) — no trail point in the pond while the elite wades across it (the pond spans the arena), points on both banks', () => {
+  const sim = new Simulation({ arena: 'affix-pond', params: quiet({ enemySpeed: 1.2 }), seed: seedOf(21), record: true }), w = sim.world;
+  sim.command({ t: 'clear', keepMarked: false });
+  const fiery = place(sim, { x: 1, y: 6 }, 'basic', { hp: 1, elite: true, affixes: ['fiery'] });
+  let wading = 0;
+  const all: TrailPoint[] = [];
+  for (let i = 0; i < 60 * 40; i++) {
+    sim.tick(); sim.world.events.length = 0;
+    if (inWater(fiery, w.arena)) wading++;
+    for (const t of w.trails) if (!all.includes(t)) all.push(t);
+  }
+  assert(wading > 60, `the elite waded ${wading} ticks`);
+  assert(all.length > 6 && all.every(t => !inWater(t, w.arena)), `${all.filter(t => inWater(t, w.arena)).length} of ${all.length} points in the water`);
+  assert(all.some(t => t.x < 3.5) && all.some(t => t.x > 16.5), `points on both banks: ${all.map(t => t.x.toFixed(1)).join(' ')}`);
+  console.log(`   ${all.length} points, ${wading} ticks in the pond, none in the water`);
   assert(replays(sim), 'replay');
 });
 
