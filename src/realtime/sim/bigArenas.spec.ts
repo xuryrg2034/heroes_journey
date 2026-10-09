@@ -117,6 +117,24 @@ check('big arenas («Брод» 24×14, «Последний рубеж» 24×15
   }
 });
 
+check('a queued group whose anchor went stale keeps together on a big arena (review 09.10.2026): three waiting members of one group step out within its spread, not all over the spawn rectangle', () => {
+  for (const [n, id] of BIG.entries()) for (const k of [1, 2, 3]) {
+    const p = defaultParams(); p.baseFloor = 0;
+    const sim = new Simulation({ arena: id, params: p, seed: seedOf(50 + 10 * n + k) }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    w.groupTimer = 1000;
+    // The group was rolled round the hero at the left; he walked to the right — the shared anchor is now off his rectangle.
+    w.hero.x = w.arena.width - 4; w.hero.y = w.arena.height / 2;
+    const anchor = { x: 3, y: w.arena.height / 2 };
+    for (let i = 0; i < 3; i++) w.queue.push({ kind: 'basic', color: i, hp: 0, anchor });
+    sim.tick();
+    const ms = w.markers;
+    let spread = 0;
+    for (const a of ms) for (const b of ms) spread = Math.max(spread, dist(a, b));
+    assert(ms.length === 3 && spread < 2.5, `${id} seed ${k}: ${ms.length} markers, ${spread.toFixed(2)} apart`);
+  }
+});
+
 check('big arenas in a fight: the markers come round the walking hero — in the arena, in his rectangle (grown by the spread of a group), none in the water; the fight replays from its journal', () => {
   for (const [n, id] of BIG.entries()) {
     const p = defaultParams();

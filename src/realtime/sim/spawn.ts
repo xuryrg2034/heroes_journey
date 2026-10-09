@@ -252,7 +252,13 @@ function placeQueued(world: World): void {
   const max = enemyLimit(world.params, world.arena), delay = world.params.markerDelay;
   while (world.queue.length && world.enemies.length + world.markers.length < max) {
     const q = world.queue[0];
-    if (!q.anchor || !anchorCurrent(world, q.anchor)) q.anchor = findAnchor(world);
+    if (!q.anchor || !anchorCurrent(world, q.anchor)) {
+      const stale = q.anchor, fresh = findAnchor(world);
+      // Т5 (review 09.10.2026): on a big arena the group keeps together — its members still in the queue share the new
+      // anchor (a pack would otherwise come as singles all over the rectangle). 16×10 keeps the old path to the bit.
+      if (stale && isBigArena(world.arena)) for (const r of world.queue) if (r !== q && r.anchor === stale) r.anchor = fresh;
+      q.anchor = fresh;
+    }
     const p = q.anchor ? pointNear(world, q.anchor) : null;
     if (!p) { q.anchor = null; return; }
     world.queue.shift();
