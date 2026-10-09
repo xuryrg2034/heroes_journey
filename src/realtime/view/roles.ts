@@ -1,7 +1,7 @@
 /**
- * Roles of enemy kinds for the badge strip under a body (phase A, Т3; docs/realtime-phase-a.md, section 5). View only: the
- * table of roles of the run's rosters lives in the simulation (track Д2, `sim/rosters.ts`); this copy is what the badges
- * show, to be joined with it when the tracks merge. The presser (basic, boar) and the reaper get no badge.
+ * Badges of enemy roles under a body (phase A, Т3; docs/realtime-phase-a.md, section 5). The table of kinds by role is the
+ * simulation's (`KIND_ROLE` of `sim/rosters.ts`, track Д2): the view only draws it. The presser (basic, boar) and kinds out
+ * of the table (the reaper) get no badge.
  *
  * Glyphs do not repeat the chain sigils (triangle, cross, square, circle) nor the threat cross:
  * - shooter — an arrow;
@@ -11,23 +11,16 @@
  * - diver — a double chevron (it leaps / rushes in).
  */
 import type { Graphics } from 'pixi.js';
+import { KIND_ROLE, type EnemyRole as KindRole } from '../sim/rosters';
 
-export type EnemyRole = 'shooter' | 'blocker' | 'punisher' | 'master' | 'diver';
+/** Roles that get a badge (all but the presser). */
+export type EnemyRole = Exclude<KindRole, 'presser'>;
 
-export const ENEMY_ROLES: Readonly<Record<string, EnemyRole>> = {
-  archer: 'shooter',
-  shield: 'blocker',
-  porcupine: 'punisher',
-  sapper: 'punisher',
-  shaman: 'master',
-  wolf: 'diver',
-  lynx: 'diver',
-};
-
-export const ROLE_TITLE: Readonly<Record<EnemyRole, string>> = { shooter: 'стрелок', blocker: 'блокер', punisher: 'наказатель', master: 'мастер', diver: 'ныряльщик' };
-
-/** Role of a kind; null — no badge (presser, reaper, unknown kinds). */
-export function roleOf(kind: string): EnemyRole | null { return ENEMY_ROLES[kind] ?? null; }
+/** Role badge of a kind; null — no badge (presser, reaper, unknown kinds). */
+export function roleOf(kind: string): EnemyRole | null {
+  const role = KIND_ROLE[kind];
+  return role && role !== 'presser' ? role : null;
+}
 
 /**
  * Draws the glyph of `role` centred at (x, y), `s` — half its size (pixels of the layer), in `ink`. Strokes and fills only;

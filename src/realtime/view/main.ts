@@ -15,6 +15,7 @@ import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
 import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
 import { withRoster } from '../sim/rosters';
+import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { canSpin } from '../sim/abilities';
@@ -658,9 +659,9 @@ async function boot(): Promise<void> {
         : w.reaperSpawned ? 'метка'
         : greed ? `через ${Math.max(0, Math.ceil(params.reaperTime - greedTime))} с` : `через ${params.reaperTime} с после целей`;
       panel.updateStats({
-        fps, workMs, enemies: w.enemies.length, markers: w.markers.length, queue: w.queue.length, maxEnemies: params.maxEnemies,
+        fps, workMs, enemies: w.enemies.length, markers: w.markers.length, queue: w.queue.length, maxEnemies: enemyLimit(params, w.arena),
         time: w.time, greed, greedTime, phaseIndex: p.phaseIndex, phaseCount: params.phases.length, phaseLeft: p.phaseLeft,
-        floor: p.phase.floor, intervalMin: Math.min(p.phase.intervalMin, p.phase.intervalMax), intervalMax: Math.max(p.phase.intervalMin, p.phase.intervalMax),
+        floor: scaledFloor(p.phase.floor, w.arena), intervalMin: Math.min(p.phase.intervalMin, p.phase.intervalMax), intervalMax: Math.max(p.phase.intervalMin, p.phase.intervalMax),
         toughShare: p.phase.toughShare, wolfShare: p.phase.wolfShare, boarShare: p.phase.boarShare, angerTier: p.angerTier, enemySpeed: p.enemySpeed, reaper,
         wolves: w.enemies.filter(e => e.kind === 'wolf').length, boars: w.enemies.filter(e => e.kind === 'boar').length,
         crowdConstant: crowdLifetime(params, 'constant'), crowdByDamage: crowdLifetime(params, 'byDamage'),
@@ -729,6 +730,9 @@ async function boot(): Promise<void> {
         packLines: renderer.visiblePackLines,
         /** Phase A (Т3): wolf rush lanes and role badges drawn in the last frame (also in `signals`), badges by role. */
         rushLanes: renderer.signals.rushLanes,
+        /** Phase A (Т6): archers' mark circles drawn in the last frame, arrow-fall flashes shown so far. */
+        archerMarks: renderer.signals.archerMarks,
+        arrowFlashes: renderer.arrowFlashes,
         roleBadges: renderer.signals.roleBadges,
         badgeRoles: { ...renderer.badgeRoles },
         ripples: renderer.visibleRipples,

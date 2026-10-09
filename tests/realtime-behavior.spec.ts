@@ -166,6 +166,29 @@ test('phase A: the rush lane of every howling wolf is on screen, as many as the 
 });
 
 /**
+ * Phase A (Т6, docs/realtime-phase-a.md, section 7): the archer's mark is a hatched threat circle at the marked point while
+ * it aims (the point is the default), the arrow falls with a short flash there. Next to the wolves' howl (a thin circle
+ * without fill) both read: the screenshot is the design check of the second pass.
+ */
+test('phase A: the archer\'s mark circle is drawn while it aims and flashes when the arrow falls; next to the howl', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openSandbox(page, '&arena=1');
+  await quiet(page, { x: 8, y: 5 });
+  // Default windup first: the mark appears, fills and the arrow falls with a flash.
+  const archer = await place(page, 11.5, 6.0, 3, 1, 'archer');
+  await expect.poll(async () => (await snap(page) as any).archerMarks, SIGNAL_POLL).toBe(1);
+  const flashes = (await snap(page) as any).arrowFlashes as number;
+  await expect.poll(async () => (await snap(page) as any).arrowFlashes, SIGNAL_POLL).toBeGreaterThan(flashes);
+  // Lengthened howl and windup: the mark and the howl together on screen.
+  await page.evaluate(([id]) => { const rt = (window as any).__realtime; rt.setParam('wolfHowl', 6); rt.setParam('archerWindup', 6); }, [archer] as const);
+  for (const deg of [-150, -90, -30]) await place(page, 8 + Math.cos(deg * Math.PI / 180) * 3, 5 + Math.sin(deg * Math.PI / 180) * 3, 0, 0, 'wolf');
+  await expect.poll(async () => { const s = await snap(page) as any; return s.signals.howls === 1 && s.archerMarks === 1 && s.rushLanes === 3; }, SIGNAL_POLL).toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-phaseA-archer-mark-howl.png' });
+  expect(errors).toEqual([]);
+});
+
+/**
  * Phase A (Т3): the role badge under each body by its kind — shooter (archer), blocker (shield), punisher (porcupine,
  * sapper), master (shaman), diver (wolf, lynx); the presser (basic, boar) has none. The toggle on the debug panel is a view
  * setting: it hides them, keeps its own storage key across a reload and never reaches the journal.
