@@ -67,7 +67,8 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 function startArena(run: RtRunState, params = defaultParams()): Simulation {
   const pending = run.pending;
   assert(pending?.kind === 'battle', 'no open battle');
-  return new Simulation({ arena: pending.arena, params, seed: pending.seed, record: true, hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run) });
+  // Phase A (Т2): the node's roster, as the page passes it (runView.ts → main.ts).
+  return new Simulation({ arena: pending.arena, params, seed: pending.seed, record: true, hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run), ...pending.roster !== undefined ? { roster: pending.roster } : {} });
 }
 /**
  * Plays the arena a while (the horde arrives and touches the hero), then the goals are marked done and the hero walks into
@@ -564,11 +565,13 @@ check('a reload in the middle of an arena starts the same arena again from the s
   assert(again.hash() === fresh.hash() && again.world.tick === 0, 'the arena starts again from its start');
   const text = serializeRtRun(run);
   const broken = [
-    text.replace('"version":4', '"version":1'),
+    text.replace('"version":5', '"version":1'),
     // Iteration 2.1: a version 2 save (HP 12 / 12, ×2.4) is no run.
-    text.replace('"version":4', '"version":2'),
+    text.replace('"version":5', '"version":2'),
     // Stage 3a: a version 3 save (pools without the lynx's and the shaman's arenas) is no run.
-    text.replace('"version":4', '"version":3'),
+    text.replace('"version":5', '"version":3'),
+    // Phase A (Т2): a version 4 save (no rosters) is no run.
+    text.replace('"version":5', '"version":4'),
     JSON.stringify({ ...run, hp: run.maxHp + 1 }),
     JSON.stringify({ ...run, visited: ['r6c0'], currentNodeId: 'r6c0' }),
     JSON.stringify({ ...run, pending: { ...run.pending, seed: 1 } }),
@@ -1220,11 +1223,14 @@ check('saving uses the real-time keys only; the turn-based saves are neither rea
   // Iteration 2.1: a run saved before it (key `-v2`, version 2, HP 12 / 12) is not read — a new run starts.
   const old = { ...run, version: 2, hp: 12, maxHp: 12 };
   const before = createRtRunStore(memoryStorage({ 'ashen-oath-rt-run-v2': JSON.stringify(old) }));
-  assert(RT_RUN_STORAGE_KEY === 'ashen-oath-rt-run-v4' && before.load() === null, 'a v2 save is no run');
+  assert(RT_RUN_STORAGE_KEY === 'ashen-oath-rt-run-v5' && before.load() === null, 'a v2 save is no run');
   assert(parseRtRun(JSON.stringify(old)) === null, 'version 2 is no run even under the new key');
   // Stage 3a: the lynx's and the shaman's arenas joined the pools — a version 3 save (key `-v3`) is not read either.
   const v3 = { ...run, version: 3 };
   assert(createRtRunStore(memoryStorage({ 'ashen-oath-rt-run-v3': JSON.stringify(v3) })).load() === null && parseRtRun(JSON.stringify(v3)) === null, 'a v3 save is no run');
+  // Phase A (Т2): rosters — a version 4 save (key `-v4`, no rosters) is not read: a new run starts, as at every change before.
+  const v4 = { ...run, version: 4 };
+  assert(createRtRunStore(memoryStorage({ 'ashen-oath-rt-run-v4': JSON.stringify(v4) })).load() === null && parseRtRun(JSON.stringify(v4)) === null, 'a v4 save is no run');
 });
 
 // ---- Iteration 2.1: the consumables are noticed (interface; docs/realtime-slice.md, section 12) ----

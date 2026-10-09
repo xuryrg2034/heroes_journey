@@ -52,6 +52,7 @@
     "realtime:pockets": "tsx scripts/realtime-pockets.ts",
     "test:realtime-sim": "tsx src/realtime/sim/realtimeSim.spec.ts",
     "test:realtime-run": "tsx src/realtime/run/rtRun.spec.ts",
+    "test:realtime-rosters": "tsx src/realtime/run/rosters.spec.ts",
     "test:realtime-enemies": "tsx src/realtime/sim/sliceEnemies.spec.ts",
     "test:realtime-kit": "tsx src/realtime/sim/sliceKit.spec.ts",
     "test:realtime-arenas": "tsx src/realtime/sim/sliceArenas.spec.ts",
