@@ -290,6 +290,19 @@ test('Esc and the mouse back on the hero cancel the chain; focus slows the world
 
 // Stage E (user 07.10.2026): each new link refreshes focus to the full reserve, once per link per chain; a new chain
 // starts full. Truncating and adding the same enemy again gives nothing back.
+/**
+ * A pointer event delivered to the page and the snapshot read in the same `evaluate`: the focus drains in real time, so
+ * a read after a mouse move with steps and a poll (100 ms) would see it already below the full reserve.
+ */
+const pointerThenSnapshot = (page: Page, type: 'pointerdown' | 'pointermove' | 'pointerup', x: number, y: number): Promise<{ chain: number[]; focus: number; focusMax: number }> =>
+  page.evaluate(([type, x, y]) => {
+    const rt = (window as any).__realtime;
+    const event = new PointerEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true });
+    (type === 'pointerdown' ? document.querySelector('.rt-stage')! : window).dispatchEvent(event);
+    const snap = rt.snapshot();
+    return { chain: snap.chain, focus: snap.focus, focusMax: rt.params.focusMax };
+  }, [type, x, y] as const);
+
 test('a new link refreshes focus to the full reserve; truncating and re-adding the same enemy does not', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors);
@@ -307,31 +320,30 @@ test('a new link refreshes focus to the full reserve; truncating and re-adding t
   expect(await focus()).toBeLessThan(2.6);
   await page.keyboard.press('Escape');
   await page.mouse.up();
-  await page.mouse.down();
-  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
-  expect(await focus()).toBeGreaterThan(2.9);
+  // From here the pointer events and the reads are in one evaluate (no real time between the link and the reading).
+  let now = await pointerThenSnapshot(page, 'pointerdown', pa.x, pa.y);
+  expect(now.chain).toEqual([a]);
+  expect(Math.abs(now.focus - now.focusMax)).toBeLessThan(1e-6);
   // Drain again, then add B: back to the full reserve.
   await page.waitForTimeout(900);
   expect(await focus()).toBeLessThan(2.6);
-  await page.mouse.move(pb.x, pb.y, { steps: 6 });
-  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a, b]);
-  expect(await focus()).toBeGreaterThan(2.9);
+  now = await pointerThenSnapshot(page, 'pointermove', pb.x, pb.y);
+  expect(now.chain).toEqual([a, b]);
+  expect(Math.abs(now.focus - now.focusMax)).toBeLessThan(1e-6);
   // Drain, cut back to A and add B again: no refill (each link once per chain).
   await page.waitForTimeout(900);
   const drained = await focus();
   expect(drained).toBeLessThan(2.6);
-  await page.mouse.move(pa.x, pa.y, { steps: 6 });
-  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a]);
-  await page.mouse.move(pb.x, pb.y, { steps: 6 });
-  await expect.poll(async () => (await chainSnapshot(page)).chain).toEqual([a, b]);
-  expect(await focus()).toBeLessThanOrEqual(drained + 0.01);
+  now = await pointerThenSnapshot(page, 'pointermove', pa.x, pa.y);
+  expect(now.chain).toEqual([a]);
+  now = await pointerThenSnapshot(page, 'pointermove', pb.x, pb.y);
+  expect(now.chain).toEqual([a, b]);
+  expect(now.focus).toBeLessThanOrEqual(drained + 0.01);
   await page.keyboard.press('Escape');
-  await page.mouse.up();
+  await pointerThenSnapshot(page, 'pointerup', pb.x, pb.y);
   expect(errors).toEqual([]);
 });
 
-// Stage F (user 07.10.2026): after a chain that killed, the hero is untouchable for 0.5 game seconds — a touching enemy
-// does not hurt him then, and does right after.
 test('after a chain a touching enemy does not hurt the hero for 0.5 s, and does afterwards', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors);

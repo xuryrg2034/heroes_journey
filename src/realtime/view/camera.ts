@@ -81,3 +81,37 @@ export function edgeArrow(cx: number, cy: number, dx: number, dy: number, left: 
   const s = Math.min(sx, sy, 1);
   return { x: cx + dx * s, y: cy + dy * s, angle: Math.atan2(dy, dx) };
 }
+
+/** The free rectangle (stage pixels) the pointers stay in: the HUD, the action bar and the jump button are outside it. */
+export interface EdgeRect { left: number; top: number; right: number; bottom: number }
+
+/** A pointer to place: the screen offset of its target from the centre, and what it points at. */
+export interface EdgeItem { dx: number; dy: number; kind: 'threat' | 'goal' }
+export interface PlacedArrow { x: number; y: number; angle: number; kind: 'threat' | 'goal' }
+
+/** Pointers closer than this (px) overlap: a goal arrow then slides along the border off a danger arrow. */
+export const ARROW_CLASH = 26;
+
+/**
+ * Places the pointers on the border of `rect` and orders them for drawing: goals first, dangers last (on top — a danger
+ * is more urgent than a goal). A goal arrow that would sit on a danger arrow slides along the border by `ARROW_CLASH`
+ * (to the side that stays in the rectangle) so that both read.
+ */
+export function placeEdgeArrows(items: readonly EdgeItem[], cx: number, cy: number, rect: EdgeRect): PlacedArrow[] {
+  const placed = items.map(i => ({ ...edgeArrow(cx, cy, i.dx, i.dy, rect.left, rect.top, rect.right, rect.bottom), kind: i.kind }));
+  const threats = placed.filter(a => a.kind === 'threat');
+  const inside = (x: number, y: number): boolean => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  for (const g of placed) {
+    if (g.kind !== 'goal') continue;
+    for (const t of threats) {
+      if (Math.hypot(g.x - t.x, g.y - t.y) >= ARROW_CLASH) continue;
+      // Along the border: perpendicular to the outward direction.
+      const tx = -Math.sin(g.angle), ty = Math.cos(g.angle);
+      const sign = inside(g.x + tx * ARROW_CLASH, g.y + ty * ARROW_CLASH) ? 1 : -1;
+      g.x = Math.max(rect.left, Math.min(rect.right, g.x + tx * ARROW_CLASH * sign));
+      g.y = Math.max(rect.top, Math.min(rect.bottom, g.y + ty * ARROW_CLASH * sign));
+      break;
+    }
+  }
+  return [...placed.filter(a => a.kind === 'goal'), ...threats];
+}

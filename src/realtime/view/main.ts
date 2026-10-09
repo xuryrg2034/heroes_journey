@@ -401,6 +401,8 @@ async function boot(): Promise<void> {
     const box = stage.getBoundingClientRect();
     // The camera moves the view: keep the pointer in stage pixels too, the renderer maps it again each frame.
     ui.pointerScreen = { x: event.clientX - box.left, y: event.clientY - box.top };
+    // Over the debug panel, a button or the like the pointer does not lead the camera (only the scene does).
+    ui.pointerOverStage = !(event.target instanceof Node) || stage.contains(event.target);
     return renderer.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
   };
   stage.addEventListener('contextmenu', event => event.preventDefault());
@@ -433,10 +435,24 @@ async function boot(): Promise<void> {
     command(running() ? { t: 'release' } : { t: 'cancel' });
   });
 
+  /**
+   * The HUD parts the off-screen pointers must keep clear of (DOM over the canvas): the top HUD (and the sandbox buttons
+   * on the right), the action bar, the jump button and the help line at the bottom. Measured, not guessed: the sizes follow
+   * the text and the window.
+   */
+  const measureEdgeInset = (): void => {
+    const bottomOf = (node: HTMLElement): number => (node.hidden ? 0 : node.getBoundingClientRect().bottom);
+    const topOf = (node: HTMLElement): number => (node.hidden ? window.innerHeight : node.getBoundingClientRect().top);
+    const gap = 8;
+    const top = Math.max(bottomOf(hud), sandbox ? Math.max(bottomOf(openButton), bottomOf(menuButton)) : 0) + gap;
+    const bottom = window.innerHeight - Math.min(topOf(actionBar), topOf(jumpButton), topOf(help)) + gap;
+    renderer.setEdgeInset({ left: 0, top, right: 0, bottom });
+  };
   const relayout = (): void => {
     const panelWidth = panel.open ? panel.el.getBoundingClientRect().width : 0;
     openButton.hidden = panel.open;
     renderer.layout(window.innerWidth - panelWidth, window.innerHeight);
+    measureEdgeInset();
   };
   window.addEventListener('resize', relayout);
   relayout();
@@ -543,6 +559,8 @@ async function boot(): Promise<void> {
     // Camera: the view moved since the last frame, so the pointer's arena point is mapped again; a chain being drawn
     // holds the camera still (the world must not slide under the pointer).
     ui.cameraFrozen = dragging;
+    // The camera stands on the result screen too (and in pause and menus: there `render` gets a zero step).
+    ui.cameraStill = w.status !== 'playing';
     if (ui.pointerScreen) ui.pointer = renderer.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
     if (ui.jumpMode && !canJump(w)) ui.jumpMode = false;
     // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle). Journalled
@@ -627,6 +645,7 @@ async function boot(): Promise<void> {
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
+      measureEdgeInset();
       const p = w.pressure, greed = w.greedStart !== null, greedTime = greed ? w.time - (w.greedStart ?? 0) : 0;
       const reaper = !params.reaperEnabled ? 'выключен'
         : w.enemies.some(e => e.kind === 'reaper') ? 'на арене'
@@ -647,7 +666,7 @@ async function boot(): Promise<void> {
   };
   requestAnimationFrame(frame);
 
-  // `?arena=N` (1–17) skips the menu: handy for manual tuning.
+  // `?arena=N` (1–18) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
 
@@ -723,7 +742,7 @@ async function boot(): Promise<void> {
     },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
     restart: (seed?: number) => restart(seed),
-    /** Starts arena `n` (1–17), as keys 1–9, 0 and ⇧1–⇧7 on the menu; `seed` fixes its seed. */
+    /** Starts arena `n` (1–18), as keys 1–9, 0 and ⇧1–⇧8 on the menu; `seed` fixes its seed. */
     selectArena: (n: number, seed?: number) => start(n - 1, seed),
     completeGoals: () => command({ t: 'goals' }),
     burst: (count: number) => command({ t: 'burst', count }),
@@ -752,7 +771,7 @@ async function boot(): Promise<void> {
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
     /** Camera (docs/realtime-stage3.md, section 11): stage pixels → arena point; the camera's centre and the view in units. */
     toWorld: (sx: number, sy: number) => renderer.toArena(sx, sy),
-    camera: () => ({ ...renderer.cameraState(), frozen: dragging, edge: { ...renderer.edgeShown } }),
+    camera: () => ({ ...renderer.cameraState(), frozen: dragging, edge: { ...renderer.edgeShown }, arrows: renderer.edgePositions.map(a => ({ ...a })), pointer: ui.pointer ? { ...ui.pointer } : null, hint: hintReason }),
     /**
      * The run (stage 2; null in the sandbox): its state, a new run, entering a node, and the test hook `winArena` — the
      * goals done and the hero put on the open door through journalled commands (the next tick walks him in).

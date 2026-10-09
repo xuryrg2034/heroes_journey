@@ -7,7 +7,7 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * drawn, keeps the edges, points at off-screen dangers and goals, and never reaches the journal. Runs only through
  * playwright.realtime.config.ts.
  */
-interface CameraState { x: number; y: number; viewW: number; viewH: number; scale: number; frozen: boolean; edge: { threat: number; goal: number } }
+interface CameraState { x: number; y: number; viewW: number; viewH: number; scale: number; frozen: boolean; edge: { threat: number; goal: number }; arrows: { x: number; y: number; kind: string }[]; pointer: { x: number; y: number } | null; hint: string | null }
 
 const camera = (page: Page): Promise<CameraState> => page.evaluate(() => (window as any).__realtime.camera());
 const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.snapshot());
@@ -260,5 +260,116 @@ test('a fight played with a moving camera replays in Node to the same hash: comm
     if (cmd.t === 'begin' || cmd.t === 'drag' || cmd.t === 'sweep') { expect(cmd.x!).toBeGreaterThan(-1); expect(cmd.x!).toBeLessThan(25); expect(cmd.y!).toBeGreaterThan(-1); expect(cmd.y!).toBeLessThan(16); }
   }
   expect(replay(recorded.journal).hash()).toBe(recorded.hash);
+  expect(errors).toEqual([]);
+});
+
+/** The page rectangles the pointers must keep clear of (DOM over the canvas). */
+const hudRects = (page: Page): Promise<{ name: string; left: number; top: number; right: number; bottom: number }[]> => page.evaluate(() => {
+  const out: { name: string; left: number; top: number; right: number; bottom: number }[] = [];
+  for (const [name, sel] of [['hud', '.rt-hud'], ['action bar', '.rt-actionbar'], ['jump button', '.rt-jump'], ['help line', '.rt-help'], ['arenas button', '.rt-menu-open'], ['panel button', '.rt-open']] as const) {
+    const node = document.querySelector(sel) as HTMLElement | null;
+    if (!node || node.hidden) continue;
+    const r = node.getBoundingClientRect();
+    out.push({ name, left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+  }
+  return out;
+});
+
+test('off-screen pointers keep clear of the HUD: no arrow overlaps the action bar, the jump button, the top HUD or the help line', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 18);
+  await still(page);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await teleport(page, 12, 5);
+  await settled(page);
+  // Two archers below the view aim up at the hero: their arrows belong at the bottom, where the action bar is.
+  const hero = (await snap(page)).hero;
+  await place(page, hero.x, hero.y + 6.3, 1, 0, 'archer');
+  await place(page, hero.x + 2.5, hero.y + 6.3, 2, 0, 'archer');
+  await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBeGreaterThanOrEqual(2);
+  const rects = await hudRects(page);
+  expect(rects.map(r => r.name)).toEqual(expect.arrayContaining(['hud', 'action bar', 'jump button', 'help line']));
+  const arrows = (await camera(page)).arrows;
+  expect(arrows.length).toBeGreaterThanOrEqual(3);
+  const half = 15;
+  for (const a of arrows) {
+    for (const r of rects) {
+      const overlap = a.x + half > r.left && a.x - half < r.right && a.y + half > r.top && a.y - half < r.bottom;
+      expect(overlap, `${a.kind} arrow at (${Math.round(a.x)}, ${Math.round(a.y)}) overlaps the ${r.name} ${JSON.stringify(r)}`).toBe(false);
+    }
+  }
+  expect(arrows.some(a => a.y > 560)).toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-camera-pointers-bottom.png' });
+  expect(errors).toEqual([]);
+});
+
+test('the result screen: the camera stands (no lead towards the pointer after the fight is over)', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 18);
+  await still(page);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await teleport(page, 12, 7.5);
+  await settled(page);
+  await teleport(page, 23.2, 7.5);
+  await expect.poll(async () => (await snap(page)).status).toBe('victory');
+  const done = await camera(page);
+  // The pointer far to the left of the hero would lead the camera; the hero standing at the door would drag it too.
+  await page.mouse.move(60, 360);
+  await page.waitForTimeout(1500);
+  const later = await camera(page);
+  expect(later.x).toBeCloseTo(done.x, 4);
+  expect(later.y).toBeCloseTo(done.y, 4);
+  expect(done.x).toBeLessThan(14);
+  expect(errors).toEqual([]);
+});
+
+test('a pointer over the debug panel does not lead the camera; over the scene it does', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 18);
+  await still(page);
+  await page.getByTestId('open-panel').click();
+  await teleport(page, 12, 7.5);
+  const before = await settled(page);
+  const panel = await page.evaluate(() => document.querySelector('.rt-panel')!.getBoundingClientRect().left);
+  await page.mouse.move(panel + 150, 360);
+  await page.waitForTimeout(1200);
+  expect((await camera(page)).x).toBeCloseTo(before.x, 4);
+  // The same distance over the scene: the lead moves the camera.
+  await page.mouse.move(panel - 8, 360);
+  await page.waitForTimeout(1200);
+  expect((await camera(page)).x).toBeGreaterThan(before.x + 0.15);
+  expect(errors).toEqual([]);
+});
+
+test('the mouse stands, the camera moves: the pointer takes the new point of the world and the hint follows it', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 18);
+  await still(page);
+  await teleport(page, 5, 11);
+  await settled(page);
+  await page.mouse.move(900, 150);
+  await page.waitForTimeout(400);
+  const first = await camera(page);
+  const p0 = first.pointer!;
+  expect(p0).not.toBeNull();
+  // An enemy out of reach under the pointer: the hint says why it is not taken.
+  await place(page, p0.x, p0.y, 1);
+  await expect.poll(async () => (await camera(page)).hint).not.toBeNull();
+  // The hero walks right, the camera follows, the mouse does not move.
+  await page.keyboard.down('KeyD');
+  await page.waitForTimeout(1500);
+  await page.keyboard.up('KeyD');
+  const moved = await settled(page);
+  expect(moved.x).toBeGreaterThan(first.x + 1);
+  const p1 = moved.pointer!;
+  expect(p1.x).toBeGreaterThan(p0.x + 1);
+  const check = await page.evaluate(([sx, sy]) => (window as any).__realtime.toWorld(sx, sy), [900, 150] as const);
+  expect(p1.x).toBeCloseTo(check.x, 3);
+  expect(p1.y).toBeCloseTo(check.y, 3);
+  // The old enemy is no longer under the pointer; one put under the new point is.
+  await expect.poll(async () => (await camera(page)).hint).toBeNull();
+  await place(page, p1.x, p1.y, 1);
+  await expect.poll(async () => (await camera(page)).hint).not.toBeNull();
+  await expect(page.getByTestId('link-hint')).toBeVisible();
   expect(errors).toEqual([]);
 });

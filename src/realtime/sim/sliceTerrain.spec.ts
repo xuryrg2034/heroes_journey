@@ -16,6 +16,7 @@
  */
 import { SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from './arenas';
 import { BEHAVIOR_ARENAS } from './arenasStage3';
+import { CAMERA_ARENAS } from './arenasCamera';
 import { chainAnchor, enemyRefusal, nextCandidates, nextObjectCandidates, planChain } from './chain';
 import { type Area, type Vec, areaDistance, blockedAt, cliffAt, dist, inThorns, inWater, overCliff } from './geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from './params';
@@ -94,8 +95,8 @@ function flight(sim: Simulation, max = 300): { ticks: number; path: Vec[] } {
 const brazierAt = (w: World, x: number, y: number): ArenaObject => w.objects.find(o => o.kind === 'brazier' && o.x === x && o.y === y)!;
 const pricks = (events: WorldEvent[]): number => events.filter(e => e.type === 'hit' && e.source === 'thorns').length;
 const ARENAS_4_10 = SLICE_ARENAS.map(a => a.id);
-/** The layout rules of section 8 hold on arenas 4–10 and on the arenas of the new enemies («Рысье логово», «Круг шамана»). */
-const LAYOUT_ARENAS = [...ARENAS_4_10, ...BEHAVIOR_ARENAS.map(a => a.id)];
+/** The layout rules of section 8 hold on arenas 4–10 and on the arenas of the new enemies («Рысье логово», «Круг шамана») and on the camera sample «Большая поляна». */
+const LAYOUT_ARENAS = [...ARENAS_4_10, ...BEHAVIOR_ARENAS.map(a => a.id), ...CAMERA_ARENAS.map(a => a.id)];
 
 // ---- Layout rules of section 8 ----
 

@@ -3,13 +3,12 @@
  * `npm run test:realtime-camera`. The camera is a view: these checks read no simulation state except through the edge
  * markers, and the last one proves that a fight played with the camera's pointer mapping replays to the same hash.
  */
-import { CAMERA, Camera, edgeArrow, type CameraBounds } from './camera';
+import { ARROW_CLASH, CAMERA, Camera, edgeArrow, placeEdgeArrows, type CameraBounds } from './camera';
 import { collectEdgeMarkers } from './edgeMarkers';
 import { BIG_CLEARING_ARENA } from '../sim/arenasCamera';
-import { arenaTemplate } from '../sim/arenas';
+import { LYNX_STUN, LYNX_WALK, LYNX_WINDUP } from '../sim/enemies/lynx';
 import { defaultParams } from '../sim/params';
-import { Simulation, replay } from '../sim/simulation';
-import { createWorld } from '../sim/world';
+import { createWorld, type World } from '../sim/world';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const near = (a: number, b: number, eps = 1e-6): boolean => Math.abs(a - b) <= eps;
@@ -141,27 +140,83 @@ check('edge markers: a danger aimed at the hero from off screen, goals off scree
   assert(m.length === 1 && m[0].kind === 'goal', 'a marked enemy off screen');
 });
 
-check('a fight with the pointer mapped through a moving camera replays to the same hash (the camera is not in the journal)', () => {
-  const params = defaultParams();
-  const sim = new Simulation({ arena: arenaTemplate('big-clearing'), params, seed: 7, record: true });
-  const cam = new Camera(), bounds = big;
-  cam.snap(sim.world.hero, bounds);
-  sim.command({ t: 'walk', x: 1, y: 0.4 });
-  for (let f = 0; f < 600; f++) {
-    sim.advance(1 / 60);
-    cam.update(1 / 60, sim.world.hero, null, false, bounds);
-    // The pointer sits on a fixed screen point; its arena point moves with the camera and goes into the journal as such.
-    if (f % 90 === 0) {
-      const p = { x: cam.x + 3, y: cam.y };
-      sim.command({ t: 'begin', x: p.x, y: p.y });
-      sim.command({ t: 'cancel' });
-    }
-  }
-  assert(cam.x > 12.5, `the camera followed the hero: ${cam.x}`);
-  const journal = sim.exportJournal()!, hash = sim.hash();
-  const back = replay(journal);
-  assert(back.hash() === hash, 'replay hash');
-  assert(JSON.stringify(journal).includes('"begin"'), 'journal holds the arena-space commands');
+/** An enemy of `kind` with the given vars at (x, y), as the signal functions read it. */
+function foe(id: number, kind: string, x: number, y: number, vars: Record<string, number>, extra: Record<string, unknown> = {}): World['enemies'][number] {
+  return { id, kind, x, y, color: 0, hp: 0, boar: 'walk', dirX: 1, dirY: 0, vars, ...extra } as unknown as World['enemies'][number];
+}
+const markers = (world: World, cx = 12, cy = 7.5) => collectEdgeMarkers(world, viewAround(cx, cy));
+
+check('edge markers: the archer — only while its line is aimed; the lynx — only in its windup', () => {
+  const world = quietWorld();
+  world.hero.x = 12; world.hero.y = 7.5;
+  const archer = foe(1, 'archer', 2, 7.5, { aim: 0, timer: 1, dx: 1, dy: 0, len: 7 });
+  const lynx = foe(2, 'lynx', 22, 13, { st: LYNX_WALK, t: 1, dx: -1, dy: 0, len: 4 });
+  world.enemies.push(archer, lynx);
+  assert(markers(world).length === 0, 'neither aims: no pointer');
+  archer.vars.aim = 1;
+  let m = markers(world);
+  assert(m.length === 1 && m[0].kind === 'threat' && m[0].x === 2, 'the archer aims from off screen');
+  lynx.vars.st = LYNX_WINDUP;
+  m = markers(world);
+  assert(m.length === 2 && m.every(x => x.kind === 'threat'), 'the lynx in its windup too');
+  lynx.vars.st = LYNX_STUN;
+  assert(markers(world).length === 1, 'a stunned lynx has no line');
+  archer.x = 12; archer.y = 11;
+  assert(markers(world).length === 0, 'an aiming archer in view needs no pointer');
+});
+
+check('edge markers: the sapper — only a lit fuse whose blast circle reaches the view; not for a far or unlit one', () => {
+  const world = quietWorld();
+  world.hero.x = 12; world.hero.y = 7.5;
+  const R = world.params.sapperRadius;
+  const sapper = foe(1, 'sapper', 12 + VIEW.viewW / 2 + R * 0.5, 7.5, { lit: 0, fuse: 1 });
+  world.enemies.push(sapper);
+  assert(markers(world).length === 0, 'unlit: nothing');
+  sapper.vars.lit = 1;
+  assert(markers(world).length === 1, 'lit, just outside the view, its circle reaches in: pointer');
+  sapper.x = 12 + VIEW.viewW / 2 + R * 1.5;
+  assert(markers(world).length === 0, 'lit but its circle does not reach the view: none');
+  sapper.vars.exploded = 1; sapper.x = 12 + VIEW.viewW / 2 + R * 0.5;
+  assert(markers(world).length === 0, 'already exploded: none');
+  world.blasts.push({ x: 12 + VIEW.viewW / 2 + R * 0.5, y: 7.5, timeLeft: 0.5, total: 1 } as unknown as World['blasts'][number]);
+  assert(markers(world).length === 1, 'a bomb on the ground whose circle reaches the view');
+});
+
+check('edge markers: the shaman beam — a pointer only when its target is in view or near the hero; a far unseen target gives none', () => {
+  const world = quietWorld();
+  world.hero.x = 12; world.hero.y = 7.5;
+  const target = foe(2, 'basic', 1.5, 14, {});
+  const shaman = foe(1, 'shaman', 0.8, 10, { beam: 2, t: 1 });
+  world.enemies.push(shaman, target);
+  assert(markers(world).length === 0, 'shaman and target both far and off screen: no arrow (noise)');
+  target.x = 12; target.y = 9;
+  let m = markers(world);
+  assert(m.length === 1 && m[0].x === 0.8 && m[0].kind === 'threat', 'the target is in view: the pointer sits at the shaman');
+  target.x = 12 + VIEW.viewW / 2 + 1; target.y = 7.5;
+  world.hero.x = target.x - 3; world.hero.y = target.y;
+  m = collectEdgeMarkers(world, viewAround(12, 7.5));
+  assert(m.length === 1, 'the target is off screen but within 4 units of the hero: pointer');
+  world.hero.x = 12; world.hero.y = 7.5;
+  assert(markers(world).length === 0, 'the same target far from the hero and off screen: none');
+});
+
+check('arrows: a danger and a goal in the same direction — the goal is drawn first (under) and slides off the danger; dangers last', () => {
+  const rect = { left: 40, top: 80, right: 1240, bottom: 640 };
+  const out = placeEdgeArrows([
+    { dx: 2000, dy: 10, kind: 'threat' },
+    { dx: 2000, dy: 12, kind: 'goal' },
+    { dx: -3000, dy: 40, kind: 'goal' },
+  ], 640, 360, rect);
+  assert(out.map(a => a.kind).join() === 'goal,goal,threat', `order ${out.map(a => a.kind)}`);
+  const threat = out[2], clashing = out.find(a => a.kind === 'goal' && a.x > 600)!;
+  assert(Math.hypot(clashing.x - threat.x, clashing.y - threat.y) >= ARROW_CLASH - 1e-6, 'the goal moved off the danger');
+  assert(out.every(a => a.x >= rect.left && a.x <= rect.right && a.y >= rect.top && a.y <= rect.bottom), 'all inside the rectangle');
+  // A goal far from the danger stays where it is.
+  const lone = out.find(a => a.kind === 'goal' && a.x < 600)!;
+  assert(near(lone.x, 40), 'the lone goal stays on the border');
+  // A bottom arrow stays above the bottom bound (the action bar): its centre never goes lower than the rectangle.
+  const low = placeEdgeArrows([{ dx: 0, dy: 900, kind: 'threat' }], 640, 360, rect)[0];
+  assert(near(low.y, 640) && near(low.x, 640), 'bottom arrow at the rectangle bottom');
 });
 
 console.log(`camera: ${checks} checks passed`);

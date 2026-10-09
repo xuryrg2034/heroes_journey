@@ -18,7 +18,7 @@ import { BOAR_ART_SCALE, archerLine, lynxLine, lynxStunned, quillsUp, quillsWarn
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
-import { Camera, CAMERA, edgeArrow, type CameraBounds } from './camera';
+import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } from './camera';
 import { collectEdgeMarkers } from './edgeMarkers';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
@@ -29,8 +29,12 @@ export interface RenderUi {
   jumpMode: boolean;
   /** Camera (docs/realtime-stage3.md, section 11): the pointer in stage pixels; `render` turns it into `pointer` after moving the camera. */
   pointerScreen?: Vec | null;
-  /** The camera stands (a chain is being drawn). */
+  /** The camera stands (a chain is being drawn); it still follows a chain pass and a jump (`world.move`). */
   cameraFrozen?: boolean;
+  /** The camera stands whatever happens (the fight is over). */
+  cameraStill?: boolean;
+  /** The pointer is over the scene (not over the debug panel or a button): only then does it lead the camera. */
+  pointerOverStage?: boolean;
 }
 
 /** Grey of the same lightness: the desaturated variant of a chain color. */
@@ -172,6 +176,8 @@ export class RealtimeRenderer {
   private readonly edgeLayer = new Graphics();
   /** Off-screen pointers drawn in the last frame, by kind (tests read it). */
   readonly edgeShown = { threat: 0, goal: 0 };
+  private edgeInset = { left: 0, top: 70, right: 0, bottom: 60 };
+  private edgeArrows: PlacedArrow[] = [];
   /** Boar lanes drawn in the last frame (tests read it: the announcement is on screen). */
   visibleLanes = 0;
   /** Wolf pack lines drawn in the last frame. */
@@ -283,7 +289,10 @@ export class RealtimeRenderer {
     this.root.position.set(this.base.x, this.base.y);
   }
 
-  /** A new fight or a jump of the hero: the camera stands on him at once. */
+  /**
+   * A new fight (restart, a run node): the camera stands on the hero at once. A hero moved inside a fight (the test hook
+   * `teleport`) is not snapped to: the camera catches up smoothly.
+   */
   snapCamera(hero: Vec): void {
     this.camera.snap(hero, this.bounds());
     this.placeRoot();
@@ -293,11 +302,11 @@ export class RealtimeRenderer {
   private updateCamera(world: World, dt: number, ui: RenderUi): void {
     const hero = world.hero;
     let lead: Vec | null = null;
-    if (ui.pointerScreen) {
+    if (ui.pointerScreen && ui.pointerOverStage !== false) {
       const p = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
       lead = { x: p.x - hero.x, y: p.y - hero.y };
     }
-    this.camera.update(dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds());
+    this.camera.update(ui.cameraStill ? 0 : dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds());
     this.placeRoot();
     if (ui.pointerScreen) ui.pointer = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
   }
@@ -327,17 +336,31 @@ export class RealtimeRenderer {
   private drawEdgeMarkers(world: World): void {
     const g = this.edgeLayer.clear(), b = this.bounds(), counts = { threat: 0, goal: 0 };
     const cx = this.freeW / 2, cy = this.freeH / 2;
-    for (const m of collectEdgeMarkers(world, (p, margin) => this.camera.sees(p, b, margin))) {
+    const items = collectEdgeMarkers(world, (p, margin) => this.camera.sees(p, b, margin)).map(m => {
       const at = this.toScreen(m.x, m.y);
-      const a = edgeArrow(cx, cy, at.x - cx, at.y - cy, 26, 70, this.freeW - 26, this.freeH - 60);
-      counts[m.kind]++;
-      const color = m.kind === 'threat' ? THREAT : TARGET, alpha = m.kind === 'threat' ? 0.6 + 0.4 * Math.abs(Math.sin(this.clock * 7)) : 0.9;
+      return { dx: at.x - cx, dy: at.y - cy, kind: m.kind };
+    });
+    // The rectangle the arrow centres stay in: inside the free area and outside the HUD, the action bar and the jump button
+    // (main.ts measures them); the arrow's own size is added.
+    const e = this.edgeInset, pad = 16;
+    const rect = { left: e.left + pad, top: e.top + pad, right: this.freeW - e.right - pad, bottom: this.freeH - e.bottom - pad };
+    this.edgeArrows = placeEdgeArrows(items, cx, cy, rect);
+    // Goals first, dangers last: a danger is drawn over a goal.
+    for (const a of this.edgeArrows) {
+      counts[a.kind]++;
+      const color = a.kind === 'threat' ? THREAT : TARGET, alpha = a.kind === 'threat' ? 0.6 + 0.4 * Math.abs(Math.sin(this.clock * 7)) : 0.9;
       const c = Math.cos(a.angle), sn = Math.sin(a.angle), L = 15, W = 10;
       const pts = [a.x + c * L, a.y + sn * L, a.x - c * L * 0.6 - sn * W, a.y - sn * L * 0.6 + c * W, a.x - c * L * 0.25, a.y - sn * L * 0.25, a.x - c * L * 0.6 + sn * W, a.y - sn * L * 0.6 - c * W];
       g.poly(pts).fill({ color, alpha }).stroke({ color: THREAT_OUTLINE, width: 3, alpha });
     }
     Object.assign(this.edgeShown, counts);
   }
+
+  /** Pixels at each side of the window taken by HUD elements the pointers must not sit under (measured by main.ts). */
+  setEdgeInset(inset: { left: number; top: number; right: number; bottom: number }): void { this.edgeInset = inset; }
+
+  /** The pointers drawn in the last frame (stage pixels; tests check them against the HUD). */
+  get edgePositions(): readonly { x: number; y: number; kind: 'threat' | 'goal' }[] { return this.edgeArrows; }
 
   buildArena(arena: ArenaLayout): void {
     this.arena = arena;
