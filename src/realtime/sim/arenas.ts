@@ -362,32 +362,38 @@ const ALL_FOUR = sharesOfAll([['shield', MIXED_KIND_SHARE], ['archer', MIXED_KIN
  * dry way round. Walking in it is ×0.5 for the hero and the enemies, and an arrow flies over water, so a crossing on foot
  * is long under the archers' lines; a chain (links in the water or on the far bank) or a jump crosses at full speed.
  * Newcomers: archers by their share, wolf packs, no boars. The hero starts on the left bank, the door is on the right.
+ * Phase A, Т5 (docs/realtime-phase-a.md, section 6): 24×14, bigger than the view — the camera follows the hero and the
+ * groups come round him (spawn.ts). The layout of 16×10 stretched ×1.5 across and ×1.4 down: the river of the same width
+ * (3) winds wider, the marked stand on the far bank as before, three trees on each bank.
  */
 export const FORD_ARENA: ArenaTemplate = registerArena({
   id: 'ford',
   name: 'Брод',
   summary: 'Убей пятерых отмеченных: лучников на том берегу и волков у воды. Вброд — вдвое медленнее и под стрелами, цепью — быстро. Дверь справа.',
   goal: 'marked',
-  width: 16,
-  height: 10,
-  heroStart: { x: 2.2, y: 5 },
+  width: 24,
+  height: 14,
+  heroStart: { x: 3.3, y: 7 },
   obstacles: [
-    tree(4.2, 2.8),
-    tree(4.4, 7.4),
-    tree(12, 2.6),
-    tree(12.1, 7.5),
+    tree(6.3, 3.9),
+    tree(6.6, 10.4),
+    tree(9.2, 2.8),
+    tree(9.6, 11),
+    tree(18, 3.6),
+    tree(18.2, 10.5),
+    tree(21.4, 5),
   ],
   // The band leaves the arena through its top and bottom edges straight (flat ends on the edges).
-  terrain: [riverBand([{ x: 8.2, y: 0 }, { x: 8.2, y: 0.5 }, { x: 9, y: 2.6 }, { x: 8, y: 5.4 }, { x: 9, y: 8.2 }, { x: 9, y: 10 }], 3)],
+  terrain: [riverBand([{ x: 12.3, y: 0 }, { x: 12.3, y: 0.7 }, { x: 13.4, y: 3.8 }, { x: 12, y: 7 }, { x: 13.4, y: 10.6 }, { x: 13.4, y: 14 }], 3)],
   buttons: [],
-  door: { x: 15.3, y: 5 },
+  door: { x: 23.3, y: 7 },
   enemies: [
     // HP of the archers — the slider «HP лучника» (no `hp` here); the wolves are tough (1 HP).
-    { x: 13.4, y: 2.2, color: 0, kind: 'archer', marked: true },
-    { x: 13.8, y: 5.6, color: 2, kind: 'archer', marked: true },
-    { x: 13.2, y: 8.6, color: 3, kind: 'archer', marked: true },
-    { x: 11.2, y: 4.2, color: 1, hp: 1, kind: 'wolf', marked: true },
-    { x: 11.4, y: 6.2, color: 2, hp: 1, kind: 'wolf', marked: true },
+    { x: 20.1, y: 3.1, color: 0, kind: 'archer', marked: true },
+    { x: 20.7, y: 7.8, color: 2, kind: 'archer', marked: true },
+    { x: 19.8, y: 12, color: 3, kind: 'archer', marked: true },
+    { x: 15.6, y: 6, color: 1, hp: 1, kind: 'wolf', marked: true },
+    { x: 15.8, y: 8.4, color: 2, hp: 1, kind: 'wolf', marked: true },
   ],
   pace: { wolfShare: FORD_WOLF_SHARE },
   phaseOverride: { boarShare: 0 },
@@ -448,30 +454,36 @@ export const FINAL_PHASES: readonly Phase[] = Object.freeze([
 /**
  * Arena 10 «Последний рубеж» (the final of the run, the boss nodes): kill 40, then the door; all four new kinds and two
  * elites of the template from the start; after the goals its own dense phase table (`FINAL_PHASES`). Stage 3a, step 2
- * (М1 + М4): a big pond (radius 2.4) east of the hero's start — the crowd from the east wades it at ×0.5 or goes round it
+ * (М1 + М4): a big pond east of the hero's start — the crowd from the east wades it at ×0.5 or goes round it
  * along the banks — and two braziers at its west corners, where the ways round meet the middle: long chains through the
  * crowd at the water take +2 there. Two ruined walls on the west with a gate of 2 units. The door is on top.
+ * Phase A, Т5 (docs/realtime-phase-a.md, section 6): 24×15, bigger than the view — the camera follows the hero and the
+ * groups come round him (spawn.ts). The layout of 16×10 stretched ×1.5: the pond (radius 3.4) east of the start, the
+ * braziers 3 units north and south of the hero at its west corners, the ruins with their gate of 2 on the west, the
+ * porcupine elite behind the gate; two trees in the strip east of the pond.
  */
 export const LAST_STAND_ARENA: ArenaTemplate = registerArena({
   id: 'last-stand',
   name: 'Последний рубеж',
   summary: 'Финал похода: убей цепью 40 врагов, затем выйди в дверь сверху. Пруд замедляет толпу, жаровни у берега дают цепи +2. После цели давление плотнее обычного.',
   goal: 'kills',
-  width: 16,
-  height: 10,
-  heroStart: { x: 8, y: 5 },
+  width: 24,
+  height: 15,
+  heroStart: { x: 12, y: 7.5 },
   obstacles: [
-    wall(3.6, 2, 1, 2),
-    wall(3.6, 6, 1, 2),
-    pond(11, 5, 2.4),
+    wall(5.4, 3.5, 1, 3),
+    wall(5.4, 8.5, 1, 3),
+    pond(16.4, 7.5, 3.4),
+    tree(21.5, 3.4),
+    tree(21.5, 11.6),
   ],
-  braziers: [{ x: 8, y: 2.2 }, { x: 8, y: 7.8 }],
+  braziers: [{ x: 12.8, y: 4.6 }, { x: 12.8, y: 10.4 }],
   buttons: [],
-  door: { x: 8, y: 0.7 },
+  door: { x: 12, y: 0.7 },
   enemies: [
-    { x: 2.2, y: 5, color: 3, kind: 'porcupine', elite: true },
-    // Moved off the south brazier (design 09.10.2026: the elite's art covered it at the start): 2.2 from it.
-    { x: 6, y: 8.8, color: 0, kind: 'sapper', elite: true },
+    { x: 3.3, y: 7.5, color: 3, kind: 'porcupine', elite: true },
+    // Off the south brazier (design 09.10.2026: an elite's art must not cover a brazier at the start): 3.1 from it.
+    { x: 10.4, y: 12.4, color: 0, kind: 'sapper', elite: true },
   ],
   phaseOverride: ONE_KIND,
   phases: FINAL_PHASES.map(phase => ({ ...phase })),
