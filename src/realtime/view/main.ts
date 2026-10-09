@@ -15,6 +15,7 @@ import './realtime.css';
 import { loadCharacterArt } from '../../render/characterAssets';
 import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
+import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -34,9 +35,10 @@ import { RunView, type ArenaItemNotice } from './runView';
 /**
  * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
  * and 4); then the terrain samples of stage 3a (river, cliff, thorns, braziers, gorge), keys ⇧1–⇧5, and the arenas of its
- * new enemies («Рысье логово», «Круг шамана»), keys ⇧6–⇧7. `?arena=1…17` opens one at once.
+ * new enemies («Рысье логово», «Круг шамана»), keys ⇧6–⇧7; then the camera sample «Большая поляна» 24×15 (key ⇧8,
+ * docs/realtime-stage3.md, section 11). `?arena=1…18` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -201,11 +203,14 @@ async function boot(): Promise<void> {
   const menuCard = el('div', 'rt-card rt-menu-card');
   menuCard.append(el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
+  // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
+  const camera0 = SANDBOX_ARENAS.length - CAMERA_ARENAS.length;
   SANDBOX_ARENAS.forEach((arena, i) => {
     // Stage 3a: the terrain samples under their own heading (sandbox only, not in the run).
     if (i === DIGIT_ARENAS) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Местность этапа 3а — образцы (только песочница)'));
-    if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Новые враги этапа 3а — рысь и шаман (пока только песочница)'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, `arena-${i + 1}`);
+    if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Новые враги этапа 3а — рысь и шаман'));
+    if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Камера — арена больше экрана (только песочница)'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
   });
@@ -312,6 +317,7 @@ async function boot(): Promise<void> {
     dragging = false;
     ui.jumpMode = false;
     relayout();
+    renderer.snapCamera(world().hero);
   };
   const start = (index: number, seed = nextSeed(fixedSeed)): void => {
     arenaIndex = Math.max(0, Math.min(SANDBOX_ARENAS.length - 1, index));
@@ -393,7 +399,9 @@ async function boot(): Promise<void> {
   // Mouse: press on an enemy (or a button / the open door) near the hero starts the chain, drag adds links, release strikes.
   const arenaPoint = (event: PointerEvent): Vec => {
     const box = stage.getBoundingClientRect();
-    return renderer.toArena(event.clientX - box.left, event.clientY - box.top);
+    // The camera moves the view: keep the pointer in stage pixels too, the renderer maps it again each frame.
+    ui.pointerScreen = { x: event.clientX - box.left, y: event.clientY - box.top };
+    return renderer.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
   };
   stage.addEventListener('contextmenu', event => event.preventDefault());
   stage.addEventListener('pointerdown', event => {
@@ -432,6 +440,7 @@ async function boot(): Promise<void> {
   };
   window.addEventListener('resize', relayout);
   relayout();
+  renderer.snapCamera(world().hero);
 
   // Hero walking (iteration 2): WASD and arrows by physical key code, so any keyboard layout works.
   const held = new Set<string>();
@@ -531,6 +540,10 @@ async function boot(): Promise<void> {
     // Real time → whole fixed ticks (focus and the finisher make a tick cost more real time; the hit-stop freezes ticks).
     ticksPerFrame = live ? sim.advance(realDt) : 0;
     const w = world();
+    // Camera: the view moved since the last frame, so the pointer's arena point is mapped again; a chain being drawn
+    // holds the camera still (the world must not slide under the pointer).
+    ui.cameraFrozen = dragging;
+    if (ui.pointerScreen) ui.pointer = renderer.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
     if (ui.jumpMode && !canJump(w)) ui.jumpMode = false;
     // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle). Journalled
     // only when it took a link: an append that found nothing changes nothing.
@@ -737,6 +750,9 @@ async function boot(): Promise<void> {
     /** Hash of the current world (sim/hash.ts). */
     hash: () => sim.hash(),
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
+    /** Camera (docs/realtime-stage3.md, section 11): stage pixels → arena point; the camera's centre and the view in units. */
+    toWorld: (sx: number, sy: number) => renderer.toArena(sx, sy),
+    camera: () => ({ ...renderer.cameraState(), frozen: dragging, edge: { ...renderer.edgeShown } }),
     /**
      * The run (stage 2; null in the sandbox): its state, a new run, entering a node, and the test hook `winArena` — the
      * goals done and the hero put on the open door through journalled commands (the next tick walks him in).
