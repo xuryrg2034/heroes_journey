@@ -46,7 +46,7 @@ import type { Loadout } from '../sim/kit';
  * stock. A version 1 save (step 1–2) reads as no run: the slice is a prototype, its runs are short (decision of step 3).
  * Version 3 (iteration 2.1, 08.10.2026): the run HP 15 and HP numbers ×3 — a version 2 save (12 / 12, ×2.4) reads as no run
  * (review of 2.1, as for the earlier format changes); the item notice fields.
- * Version 4 (stage 3a, 09.10.2026): «Рысье логово» and «Круг шамана» in the pools of rows 4–8. A save is checked by
+ * Version 4 (stage 3a, 09.10.2026): «Рысье логово» and «Круг шамана» in the pools of rows 2–9. A save is checked by
  * choosing its arenas again; with the new candidates a version 3 run would read as no run or not depending on its draws —
  * every version 3 save reads as no run instead (the format is the same).
  */

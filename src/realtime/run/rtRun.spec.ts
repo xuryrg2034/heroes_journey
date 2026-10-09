@@ -53,8 +53,6 @@ function check(name: string, run: () => void): void { run(); checks++; console.l
 
 /** Spread seeds: neighbouring small seeds roll alike in some generators. */
 const SEEDS = Array.from({ length: 10 }, (_, k) => Math.imul(k + 1, 2654435761) >>> 0);
-/** Stage 3a: the arenas of the lynx and the shaman in the pools (ordinary candidates of rows 4–7 and 5–8). */
-const BEHAVIOUR_ARENAS = ['lynx-den', 'shaman-circle'];
 
 function ok(step: RtRunStep, what: string): RtRunState {
   if (!step.ok) throw new Error(`${what}: ${step.reason}`);
@@ -329,7 +327,8 @@ check('whole runs walk to the final arena «Последний рубеж»: are
 check('step 4 pools: every run row 1–9 has its own arenas, «Брод» on rows 6–9, hard battles play «Застава», boss nodes «Последний рубеж»; Поляна of the run kills 20', () => {
   // No temporary stand-ins any more (steps 1–3): every run row of the map (map rows 5–13) has arenas of its own.
   for (let row = 1; row <= 9; row++) assert(arenaCandidates(row).length > 0, `run row ${row} has arenas of its own`);
-  assert(arenaCandidates(9).join() === 'ford' && arenaCandidates(10).length === 0, `run row 9: ${arenaCandidates(9)}`);
+  // Stage 3a: row 9 also holds the lynx's and the shaman's arenas (rows 2–9 and 5–9).
+  assert(arenaCandidates(9).join() === 'ford,lynx-den,shaman-circle' && arenaCandidates(10).length === 0, `run row 9: ${arenaCandidates(9)}`);
   const ford = ARENA_POOLS.find(entry => entry.arena === 'ford');
   assert(ford && ford.rows[0] === 6 && ford.rows[1] === 9, 'Брод: run rows 6–9');
   assert(RUN_ARENAS.length === 12 && RUN_ARENAS.every(arena => arenaTemplate(arena)), `twelve arenas (stage 3a: + «Рысье логово», «Круг шамана»): ${RUN_ARENAS}`);
@@ -351,9 +350,9 @@ check('step 4 pools: every run row 1–9 has its own arenas, «Брод» on row
   const rowsOf = (arena: string) => new Set(walks.flatMap(walk => walk.rowArenas.filter(([, a]) => a === arena).map(([row]) => row)));
   for (const entry of ARENA_POOLS) {
     const rows = rowsOf(entry.arena);
-    // Stage 3a: the lynx's and the shaman's arenas are rare in these ten walks (behind the own arenas of unmet kinds) — that
-    // they come, and only on their rows, is counted over 300 runs (design answers 1–2 below).
-    assert((rows.size > 0 || BEHAVIOUR_ARENAS.includes(entry.arena)) && [...rows].every(row => row >= entry.rows[0] && row <= entry.rows[1]), `${entry.arena} on rows ${[...rows].join(', ')} (pool ${entry.rows.join('–')})`);
+    // Stage 3a: twelve arenas share the rows — ten walks do not meet every one of them (Логово, the lynx's arena); that every
+    // arena of the pools comes, and only on its rows, is counted over 300 runs (design answers 1–2 below).
+    assert([...rows].every(row => row >= entry.rows[0] && row <= entry.rows[1]), `${entry.arena} on rows ${[...rows].join(', ')} (pool ${entry.rows.join('–')})`);
   }
   const outside = walks.flatMap(walk => walk.outOfRow);
   console.log(`   hard ${hards.length} × Застава, final ${finals.length} × Последний рубеж; ${ARENA_POOLS.map(entry => `${entry.arena} ${[...rowsOf(entry.arena)].sort().join('/')}`).join(', ')}; own arenas outside their rows: ${outside.map(([row, arena]) => `${arena}@${row}`).join(', ') || 'none'}`);
@@ -363,13 +362,11 @@ check('step 4 pools: every run row 1–9 has its own arenas, «Брод» on row
   console.log(`   ${walks.reduce((sum, walk) => sum + walk.previews, 0)} previews equal the arena played`);
 });
 
-check('different seeds give different arena sequences; every arena of the pools comes', () => {
+check('different seeds give different arena sequences', () => {
   // Short pools: coincidences between runs are allowed, a fixed sequence is not.
   const sequences = new Set(walks.map(walk => walk.arenas.join(',')));
   console.log(`   ${[...sequences].slice(0, 4).join(' | ')}`);
   assert(sequences.size >= SEEDS.length / 2, `arena sequences: ${sequences.size} of ${SEEDS.length}`);
-  const used = new Set(walks.flatMap(walk => walk.arenas));
-  for (const entry of ARENA_POOLS) assert(used.has(entry.arena) || BEHAVIOUR_ARENAS.includes(entry.arena), `arena ${entry.arena} comes`);
   // The first battle of a run (row 5 → run row 1): Поляна or Двор кнопок, as the pools say.
   const firsts = new Set(walks.map(walk => walk.arenas[0]));
   assert([...firsts].every(arena => arenaCandidates(1).includes(arena)) && firsts.size === 2, `first arenas: ${[...firsts].join(', ')}`);
@@ -437,7 +434,7 @@ function arenaPath(seed: number, k: number): { path: PathArena[]; previews: numb
   return { path, previews };
 }
 
-check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first met on its own arena (300 runs: 0 otherwise), an overdue kind takes any ordinary node; hard battles and the final — counted; stage 3a: «Рысье логово» and «Круг шамана» — ordinary candidates of rows 4–7 and 5–8 without the rule', () => {
+check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first met on its own arena (300 runs: 0 otherwise), an overdue kind takes any ordinary node; hard battles and the final — counted; stage 3a: «Рысье логово» and «Круг шамана» — ordinary candidates of rows 2–9 and 5–9 without the rule, each in ≥ 100 runs of 300', () => {
   // The order of the rule, on the rows themselves: an overdue kind first (the shieldbearer past rows 3–6 — «Стена щитов» on
   // row 7, whatever the pool), then own arenas of unmet kinds (also outside their rows), then arenas without unmet kinds.
   const all = ['shields', 'archers', 'powder', 'thorns'];
@@ -446,7 +443,7 @@ check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first me
   assert(ordinaryArenaChoices(8, ['shields', 'powder', 'thorns']).join() === 'archers', `row 8, the archer unmet: ${ordinaryArenaChoices(8, ['shields', 'powder', 'thorns'])}`);
   assert(ordinaryArenaChoices(6, ['shields']).join() === 'archers,powder,thorns', `row 6, the shield met: ${ordinaryArenaChoices(6, ['shields'])}`);
   assert(ordinaryArenaChoices(6, all).join() === 'shields,archers,powder,thorns,ford,lynx-den,shaman-circle', `row 6, all met: ${ordinaryArenaChoices(6, all)}`);
-  assert(ordinaryArenaChoices(2, []).join() === 'glade,buttons,marked', 'row 2: the pool');
+  assert(ordinaryArenaChoices(2, []).join() === 'glade,buttons,marked,lynx-den', 'row 2: the pool (stage 3a: with «Рысье логово»)');
   // The hard battles stand on map rows 11–12 (run rows 7–8): a rest 1–3 rows before a hard battle; the final — run row 10.
   let hardMin = Infinity;
   for (let k = 1; k <= 200; k++) for (const node of rtMapNodes(createRtRun(Math.imul(k, 2654435761) >>> 0))) if (node.type === 'hard') hardMin = Math.min(hardMin, runRow(node.row));
@@ -457,20 +454,23 @@ check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first me
   const runsWith = { hard: 0, final: 0 };
   let outside = 0, previews = 0, overdueTaken = 0, fordRuns = 0, ordinaryLate = 0, ordinaryLateOwn = 0;
   // Stage 3a (design answer 4б): the lynx's and the shaman's arenas — ordinary candidates of their rows, no rule of their own.
-  const behaviour: Record<string, { pool: readonly [number, number]; plays: number; special: number; rows: Set<number> }> = {
-    'lynx-den': { pool: [4, 7], plays: 0, special: 0, rows: new Set() }, 'shaman-circle': { pool: [5, 8], plays: 0, special: 0, rows: new Set() },
+  const behaviour: Record<string, { pool: readonly [number, number]; plays: number; special: number; runs: number; rows: Set<number> }> = {
+    'lynx-den': { pool: [2, 9], plays: 0, special: 0, runs: 0, rows: new Set() }, 'shaman-circle': { pool: [5, 9], plays: 0, special: 0, runs: 0, rows: new Set() },
   };
   for (const [arena, b] of Object.entries(behaviour)) {
     assert(ARENA_POOLS.find(entry => entry.arena === arena)?.rows.join() === b.pool.join(), `${arena}: pool rows ${b.pool.join('–')}`);
     assert(arenaNewKinds(arena).length === 0, `${arena} brings none of the four kinds of the first-meeting rule`);
   }
   // Never met, they are never overdue: past their rows a run that met the four kinds plays the row's pool (row 9 — Брод).
-  assert(ordinaryArenaChoices(9, all).join() === 'ford' && ordinaryArenaChoices(8, all).join() === 'powder,thorns,ford,shaman-circle', `rows 8–9, the four met: ${ordinaryArenaChoices(8, all)} / ${ordinaryArenaChoices(9, all)}`);
+  assert(ordinaryArenaChoices(9, all).join() === 'ford,lynx-den,shaman-circle' && ordinaryArenaChoices(2, all).join() === 'glade,buttons,marked,lynx-den', `rows 2 and 9, the four met: ${ordinaryArenaChoices(2, all)} / ${ordinaryArenaChoices(9, all)}`);
+  const poolRows = new Map<string, Set<number>>();
   for (let k = 1; k <= runs; k++) {
     const walked = arenaPath(Math.imul(k, 2654435761) >>> 0, k), met = new Set<string>();
     previews += walked.previews;
     if (walked.path.some(entry => entry.arena === 'ford')) fordRuns++;
     for (const entry of walked.path) if (entry.arena in behaviour) { const b = behaviour[entry.arena]; b.plays++; b.rows.add(entry.row); if (entry.type === 'hard' || entry.type === 'boss') b.special++; }
+    for (const [arena, b] of Object.entries(behaviour)) if (walked.path.some(entry => entry.arena === arena)) b.runs++;
+    for (const entry of walked.path) if (entry.type !== 'hard' && entry.type !== 'boss') { if (!poolRows.has(entry.arena)) poolRows.set(entry.arena, new Set()); poolRows.get(entry.arena)!.add(entry.row); }
     for (const entry of walked.path) if (entry.type !== 'hard' && entry.type !== 'boss' && entry.row >= 7) { ordinaryLate++; if (['shields', 'archers', 'powder', 'thorns'].includes(entry.arena)) ordinaryLateOwn++; }
     const firstOn = { hard: false, final: false };
     for (const { row, type, arena } of walked.path) {
@@ -503,9 +503,18 @@ check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first me
   console.log(`   ${runs} runs, ${previews} previews equal the arena played; own arenas outside their rows ${outside} times; ordinary nodes past the rows of a kind unmet on the final, taken by another overdue kind: ${overdueTaken}; «Брод» in ${fordRuns} runs; ordinary nodes of rows 7–9: ${ordinaryLate}, own arenas 4–7 there: ${ordinaryLateOwn}`);
   console.log(`   first met on a mixed arena — ordinary nodes: ${total(ordinary)}; hard battle: ${byKind(hard)} (runs ${runsWith.hard}); final: ${byKind(final)} (runs ${runsWith.final})`);
   assert(total(ordinary) === 0, `ordinary nodes: ${[...ordinary].map(([key, n]) => `${key} ×${n}`).join(', ')}`);
+  // Every arena of the pools comes on ordinary nodes; within its rows, or outside them only as the own arena of an unmet kind.
+  for (const entry of ARENA_POOLS) {
+    const rows = [...poolRows.get(entry.arena) ?? []];
+    assert(rows.length > 0 && rows.every(row => (row >= entry.rows[0] && row <= entry.rows[1]) || Object.values(OWN_ARENAS).includes(entry.arena)), `${entry.arena} on rows ${rows.join(', ')} (pool ${entry.rows.join('–')})`);
+  }
+  // Design targets (09.10.2026) with the lynx's and the shaman's arenas in the pools: a kind first met on the final in at most
+  // 25 runs of 300, on «Застава» in at most 120.
+  assert(runsWith.final <= 25 && runsWith.hard <= 120, `first met on the final in ${runsWith.final} runs, on «Застава» in ${runsWith.hard}`);
   for (const [arena, b] of Object.entries(behaviour)) {
-    console.log(`   ${arena}: ${b.plays} plays on run rows ${[...b.rows].sort().join('/')}`);
-    assert(b.plays > 0 && b.special === 0 && [...b.rows].every(row => row >= b.pool[0] && row <= b.pool[1]), `${arena}: ${b.plays} plays, ${b.special} on hard/boss nodes, rows ${[...b.rows].join(', ')}`);
+    console.log(`   ${arena}: in ${b.runs} runs of ${runs}, ${b.plays} plays on run rows ${[...b.rows].sort().join('/')}`);
+    // Design targets (09.10.2026): each of the two arenas in at least 100 runs of 300.
+    assert(b.runs >= 100 && b.special === 0 && [...b.rows].every(row => row >= b.pool[0] && row <= b.pool[1]), `${arena}: ${b.runs} runs, ${b.plays} plays, ${b.special} on hard/boss nodes, rows ${[...b.rows].join(', ')}`);
   }
 });
 
