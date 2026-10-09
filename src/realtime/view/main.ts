@@ -28,7 +28,7 @@ import { Simulation } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadParams, saveParams } from './paramStorage';
+import { loadParams, loadRoleBadges, saveParams, saveRoleBadges } from './paramStorage';
 import { RealtimeRenderer, type RenderUi } from './render';
 import { RunView, type ArenaItemNotice } from './runView';
 
@@ -351,6 +351,10 @@ async function boot(): Promise<void> {
     onCompleteGoals() { command({ t: 'goals' }); },
     onPhasesChange(phases) { command({ t: 'phases', phases }); saveParams(params); },
   });
+  // Phase A (Т3): role badges under bodies — a view setting with its own storage key (Params are hashed).
+  renderer.showRoleBadges = loadRoleBadges();
+  panel.addViewCheck('Значки ролей', 'role-badges', renderer.showRoleBadges, on => { renderer.showRoleBadges = on; saveRoleBadges(on); },
+    'Значок под телом: стрелок, блокер, наказатель, мастер, ныряльщик. У давителя и Жнеца значка нет.');
   if (sandbox) host.appendChild(panel.el);
   openButton.addEventListener('click', () => panel.setOpen(true));
   menuButton.addEventListener('click', () => { showMenu(); menuButton.blur(); });
@@ -721,6 +725,10 @@ async function boot(): Promise<void> {
         slotsBlinking: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-blink')),
         slotsBright: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-has')),
         packLines: renderer.visiblePackLines,
+        /** Phase A (Т3): wolf rush lanes and role badges drawn in the last frame (also in `signals`), badges by role. */
+        rushLanes: renderer.signals.rushLanes,
+        roleBadges: renderer.signals.roleBadges,
+        badgeRoles: { ...renderer.badgeRoles },
         ripples: renderer.visibleRipples,
         heroInWater: inWater(w.hero, w.arena),
         /** Stage 3a: the hero in thorns and his prick timer; over a cliff (never: walking and landings keep off it). */

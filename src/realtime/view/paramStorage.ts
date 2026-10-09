@@ -27,3 +27,17 @@ export function loadParams(): Params {
 export function saveParams(params: Params): void {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(params)); } catch { /* storage may be unavailable */ }
 }
+
+/**
+ * Phase A (Т3): role badges under bodies — a local setting of the view, not a Param (Params are hashed): its own key, on by
+ * default; storage may be unavailable (then on).
+ */
+const BADGES_KEY = 'ashen-oath-realtime-role-badges';
+
+export function loadRoleBadges(): boolean {
+  try { return localStorage.getItem(BADGES_KEY) !== '0'; } catch { return true; }
+}
+
+export function saveRoleBadges(on: boolean): void {
+  try { localStorage.setItem(BADGES_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
+}

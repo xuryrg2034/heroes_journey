@@ -18,7 +18,7 @@ import './lynx';
 import './shaman';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
-export { packmates, wolfHowl, wolfState, WOLF_RUSH } from './wolf';
+export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
 export { inShieldArc, shieldUp } from './shield';
 export { archerLine } from './archer';
 export { sapperFuse } from './sapper';

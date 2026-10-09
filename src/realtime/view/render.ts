@@ -14,12 +14,13 @@ import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE, archerLine, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, archerLine, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } from './camera';
 import { collectEdgeMarkers } from './edgeMarkers';
+import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
 
@@ -59,10 +60,18 @@ const BONE = 0xeadbb9;
 const TARGET = 0xffd36b;
 /** Shield of the shieldbearer: cold steel with a pale rim (outside the chain palette). */
 const STEEL = 0xa9b8c6;
-/** Fuse sparks and the blast ring of the sapper: hot orange (outside the chain palette). */
+/** Fuse sparks of the sapper and flames: hot orange (outside the chain palette; phase A: the blast circle is THREAT). */
 const SPARK = 0xffb04a;
 /** Stage 3a (П4): the shaman's beam — violet magic, outside the chain palette. */
 const MAGIC = 0xc58cff;
+/** Phase A (Т5): pointers to spawn markers off screen on a large arena — a cold pale grey, apart from the white of a
+ * danger and the gold of a goal; smaller and steady (no blinking). */
+const SPAWN_ARROW = 0xc9d5de;
+/** Phase A (Т3): the plaque of a badge under a body and the ink of its glyph. */
+const BADGE_PLAQUE = 0x10171d;
+/** Phase A (Т3): the badge glyph in screen pixels (its half size) and the plaque around it. */
+const BADGE_GLYPH_PX = 6;
+const BADGE_PLAQUE_PX = 9;
 /** Stage 2, step 3: the cold consumable — pale ice blue. */
 const ICE = 0x9fd8ff;
 /** Stage 2, step 3: colours of the loot of elites — consumables and crafting resources. */
@@ -74,7 +83,8 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 /** `quillsRaised` / `quillsTrembling` (iteration 2.1): porcupines drawn with their quills up / trembling before going up. */
 /** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
 /** Stage 3a: `howls` — the wolves' howl circle round the hero (П1); `leapLines`, `stunned` — the lynx's leap line and its stun (П2); `beams` — the shaman's beam (П4). */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number }
+/** Phase A (Д3): `rushLanes` — the rush lanes of howling and rushing wolves; `roleBadges` — role badges under bodies. */
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number }
 
 /** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
 export interface TerrainCounts { river: number; cliff: number; thorns: number }
@@ -96,6 +106,57 @@ function spinePath(g: Graphics, points: readonly Vec[]): Graphics {
   g.moveTo(points[0].x * UNIT, points[0].y * UNIT);
   for (let i = 1; i < points.length; i++) g.lineTo(points[i].x * UNIT, points[i].y * UNIT);
   return g;
+}
+
+/**
+ * Phase A (Т3, design answer 11): one look for every announced line — a strip of the threat colour `2·half` wide from
+ * (ox, oy) along (ux, uy), `len` long: a faint fill, a stronger fill up to `progress` (how far the windup has gone), diagonal
+ * hatching and a dark outline under a white one. `fade` dims it all (a strip already running). Pixels of the arena layer.
+ */
+function threatStrip(g: Graphics, ox: number, oy: number, ux: number, uy: number, len: number, half: number, progress: number, fade: number, filled = 0.22): void {
+  const nx = -uy, ny = ux;
+  const at = (t: number, s: number): [number, number] => [ox + ux * t + nx * s, oy + uy * t + ny * s];
+  const quad = (t0: number, t1: number): number[] => [...at(t0, -half), ...at(t1, -half), ...at(t1, half), ...at(t0, half)];
+  g.poly(quad(0, len)).fill({ color: THREAT, alpha: 0.12 * fade });
+  if (progress > 0) g.poly(quad(0, len * Math.min(1, progress))).fill({ color: THREAT, alpha: filled * fade });
+  const step = 0.32 * UNIT;
+  for (let t = 0; t < len - step * 0.5; t += step) {
+    const [x0, y0] = at(t, -half), [x1, y1] = at(Math.min(len, t + step), half);
+    g.moveTo(x0, y0).lineTo(x1, y1);
+  }
+  g.stroke({ color: THREAT, width: 3, alpha: 0.7 * fade });
+  g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 * fade }).poly(quad(0, len)).stroke({ color: THREAT, width: 2, alpha: 0.95 * fade });
+}
+
+/** An arrow head of a strip at distance `t` along it (pointing along (ux, uy)), `half` — half the strip width. */
+function stripHead(g: Graphics, ox: number, oy: number, ux: number, uy: number, t: number, half: number, fade: number): void {
+  const nx = -uy, ny = ux, bx = ox + ux * t, by = oy + uy * t;
+  g.poly([bx - nx * half, by - ny * half, bx + ux * half * 0.9, by + uy * half * 0.9, bx + nx * half, by + ny * half]).fill({ color: THREAT, alpha: 0.85 * fade }).stroke({ color: THREAT_OUTLINE, width: 2, alpha: fade });
+}
+
+/**
+ * Diagonal hatching inside a circle (the sapper's blast ring, phase A): chords at 45° every `step` pixels, in one path —
+ * the caller strokes it.
+ */
+function hatchCircle(g: Graphics, X: number, Y: number, R: number, step: number): void {
+  const k = Math.SQRT1_2;
+  for (let s = -R + step / 2; s < R; s += step) {
+    const h = Math.sqrt(Math.max(0, R * R - s * s));
+    // The chord at signed distance s from the centre along the normal (k, k), direction (k, −k).
+    const cx = X + k * s, cy = Y + k * s;
+    g.moveTo(cx - k * h, cy + k * h).lineTo(cx + k * h, cy - k * h);
+  }
+}
+
+/** A dashed segment (the wolves' pack lines, phase A), in one path — the caller strokes it. */
+function dashedLine(g: Graphics, x0: number, y0: number, x1: number, y1: number, dash: number, gap: number): void {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (len < 1e-6) return;
+  const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+  for (let t = 0; t < len; t += dash + gap) {
+    const e = Math.min(len, t + dash);
+    g.moveTo(x0 + ux * t, y0 + uy * t).lineTo(x0 + ux * e, y0 + uy * e);
+  }
 }
 
 interface EnemyView {
@@ -143,6 +204,14 @@ export class RealtimeRenderer {
   private readonly targetLayer = new Graphics();
   /** Stage 2, step 2: signals of the new enemies over the crowd (shield arcs). */
   private readonly signalLayer = new Graphics();
+  /** Phase A (Т3): the badge strip under bodies — the role on the left, room for elite affixes on the right (over the signals). */
+  private readonly badgeLayer = new Graphics();
+  /** Phase A (Т3): role badges on or off — a local setting of the view (main.ts keeps it in its own storage key), not a Param. */
+  showRoleBadges = true;
+  /** Role badges drawn in the last frame, by role (tests read it). */
+  readonly badgeRoles: Record<EnemyRole, number> = { shooter: 0, blocker: 0, punisher: 0, master: 0, diver: 0 };
+  /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
+  private rushLaneCount = 0;
   private readonly enemyLayer = new Container();
   private readonly heroLayer = new Container();
   private readonly overlay = new Graphics();
@@ -175,7 +244,7 @@ export class RealtimeRenderer {
   private freeH = 720;
   private readonly edgeLayer = new Graphics();
   /** Off-screen pointers drawn in the last frame, by kind (tests read it). */
-  readonly edgeShown = { threat: 0, goal: 0 };
+  readonly edgeShown = { threat: 0, goal: 0, spawn: 0 };
   private edgeInset = { left: 0, top: 70, right: 0, bottom: 60 };
   private edgeArrows: PlacedArrow[] = [];
   /** Boar lanes drawn in the last frame (tests read it: the announcement is on screen). */
@@ -200,7 +269,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0 };
   /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
   readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
   /** Stage 3a (М2): enemies seen falling into a cliff so far. */
@@ -221,7 +290,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -334,9 +403,11 @@ export class RealtimeRenderer {
    * (edgeMarkers.ts): a white arrow with a dark outline for a danger (blinks), a gold one for a goal.
    */
   private drawEdgeMarkers(world: World): void {
-    const g = this.edgeLayer.clear(), b = this.bounds(), counts = { threat: 0, goal: 0 };
+    const g = this.edgeLayer.clear(), b = this.bounds(), counts = { threat: 0, goal: 0, spawn: 0 };
     const cx = this.freeW / 2, cy = this.freeH / 2;
-    const items = collectEdgeMarkers(world, (p, margin) => this.camera.sees(p, b, margin)).map(m => {
+    // Phase A (Т5, design answer 9): pointers to spawn markers only on an arena larger than the view.
+    const large = b.arenaW > b.viewW + 1e-6 || b.arenaH > b.viewH + 1e-6;
+    const items = collectEdgeMarkers(world, (p, margin) => this.camera.sees(p, b, margin), large).map(m => {
       const at = this.toScreen(m.x, m.y);
       return { dx: at.x - cx, dy: at.y - cy, kind: m.kind };
     });
@@ -345,13 +416,15 @@ export class RealtimeRenderer {
     const e = this.edgeInset, pad = 16;
     const rect = { left: e.left + pad, top: e.top + pad, right: this.freeW - e.right - pad, bottom: this.freeH - e.bottom - pad };
     this.edgeArrows = placeEdgeArrows(items, cx, cy, rect);
-    // Goals first, dangers last: a danger is drawn over a goal.
+    // Spawn markers first, then goals, dangers last: a danger is drawn over a goal.
     for (const a of this.edgeArrows) {
       counts[a.kind]++;
-      const color = a.kind === 'threat' ? THREAT : TARGET, alpha = a.kind === 'threat' ? 0.6 + 0.4 * Math.abs(Math.sin(this.clock * 7)) : 0.9;
-      const c = Math.cos(a.angle), sn = Math.sin(a.angle), L = 15, W = 10;
+      const spawn = a.kind === 'spawn';
+      const color = a.kind === 'threat' ? THREAT : spawn ? SPAWN_ARROW : TARGET;
+      const alpha = a.kind === 'threat' ? 0.6 + 0.4 * Math.abs(Math.sin(this.clock * 7)) : spawn ? 0.75 : 0.9;
+      const c = Math.cos(a.angle), sn = Math.sin(a.angle), L = spawn ? 11 : 15, W = spawn ? 7 : 10;
       const pts = [a.x + c * L, a.y + sn * L, a.x - c * L * 0.6 - sn * W, a.y - sn * L * 0.6 + c * W, a.x - c * L * 0.25, a.y - sn * L * 0.25, a.x - c * L * 0.6 + sn * W, a.y - sn * L * 0.6 - c * W];
-      g.poly(pts).fill({ color, alpha }).stroke({ color: THREAT_OUTLINE, width: 3, alpha });
+      g.poly(pts).fill({ color, alpha }).stroke({ color: THREAT_OUTLINE, width: spawn ? 2 : 3, alpha });
     }
     Object.assign(this.edgeShown, counts);
   }
@@ -360,7 +433,7 @@ export class RealtimeRenderer {
   setEdgeInset(inset: { left: number; top: number; right: number; bottom: number }): void { this.edgeInset = inset; }
 
   /** The pointers drawn in the last frame (stage pixels; tests check them against the HUD). */
-  get edgePositions(): readonly { x: number; y: number; kind: 'threat' | 'goal' }[] { return this.edgeArrows; }
+  get edgePositions(): readonly { x: number; y: number; kind: 'threat' | 'goal' | 'spawn' }[] { return this.edgeArrows; }
 
   buildArena(arena: ArenaLayout): void {
     this.arena = arena;
@@ -652,43 +725,41 @@ export class RealtimeRenderer {
   /**
    * Boar lanes (design answers 18, 21): a white hatched strip with a dark outline from the boar
    * along the charge; it fills up during the announcement and fades while the boar runs.
-   * Wolf pack lines: wolves within the pack radius of each other.
+   * Phase A (Т3, design answer 11): the rush lane of each howling wolf, the same strip of its body width from the wolf to
+   * the end of its rush (`wolfRushLine`), filling as the howl runs out and fading while it rushes.
+   * Wolf pack lines: wolves within the pack radius of each other — dashed and faint (phase A: alpha 0.3).
    */
   private drawLanes(world: World): void {
     const g = this.laneLayer.clear(), p = world.params, half = enemyBodyRadius(p) * UNIT;
-    let lanes = 0, packs = 0;
+    let lanes = 0, packs = 0, rushes = 0;
     for (const e of world.enemies) {
       if (e.kind !== 'boar' || (e.boar !== 'windup' && e.boar !== 'charge')) continue;
       lanes++;
       const left = e.boar === 'windup' ? p.boarRange : Math.max(0, p.boarRange - e.charged);
       const len = left * UNIT + half, k = e.boar === 'windup' && p.boarWindup > 0 ? 1 - Math.max(0, e.boarTimer) / p.boarWindup : 1;
       const fade = e.boar === 'charge' ? 0.5 : 1;
-      const ux = e.dirX, uy = e.dirY, nx = -uy, ny = ux, ox = e.x * UNIT, oy = e.y * UNIT;
-      const at = (t: number, s: number): [number, number] => [ox + ux * t + nx * s, oy + uy * t + ny * s];
-      const quad = (t0: number, t1: number): number[] => [...at(t0, -half), ...at(t1, -half), ...at(t1, half), ...at(t0, half)];
-      g.poly(quad(0, len)).fill({ color: THREAT, alpha: 0.12 * fade });
-      g.poly(quad(0, len * k)).fill({ color: THREAT, alpha: 0.22 * fade });
-      const step = 0.32 * UNIT;
-      for (let t = 0; t < len - step * 0.5; t += step) {
-        const [x0, y0] = at(t, -half), [x1, y1] = at(Math.min(len, t + step), half);
-        g.moveTo(x0, y0).lineTo(x1, y1);
-      }
-      g.stroke({ color: THREAT, width: 3, alpha: 0.7 * fade });
-      g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 * fade }).poly(quad(0, len)).stroke({ color: THREAT, width: 2, alpha: 0.95 * fade });
-      // Arrow head at the end of the lane.
-      const [tx, ty] = at(len + half * 0.9, 0), [ax, ay] = at(len, -half), [bx, by] = at(len, half);
-      g.poly([ax, ay, tx, ty, bx, by]).fill({ color: THREAT, alpha: 0.85 * fade }).stroke({ color: THREAT_OUTLINE, width: 2, alpha: fade });
+      threatStrip(g, e.x * UNIT, e.y * UNIT, e.dirX, e.dirY, len, half, k, fade);
+      stripHead(g, e.x * UNIT, e.y * UNIT, e.dirX, e.dirY, len, half, fade);
+    }
+    for (const e of world.enemies) {
+      const rush = wolfRushLine(world, e);
+      if (!rush || rush.len <= 0) continue;
+      rushes++;
+      const fade = rush.rushing ? 0.5 : 1, len = rush.len * UNIT;
+      threatStrip(g, e.x * UNIT, e.y * UNIT, rush.dx, rush.dy, len, half, rush.progress, fade);
+      stripHead(g, e.x * UNIT, e.y * UNIT, rush.dx, rush.dy, len, half, fade);
     }
     const wolves = world.enemies.filter(e => e.kind === 'wolf');
     for (let i = 0; i < wolves.length; i++) for (let j = i + 1; j < wolves.length; j++) {
       const a = wolves[i], b = wolves[j];
       if (Math.hypot(a.x - b.x, a.y - b.y) > p.wolfPackRadius) continue;
       packs++;
-      g.moveTo(a.x * UNIT, a.y * UNIT).lineTo(b.x * UNIT, b.y * UNIT);
+      dashedLine(g, a.x * UNIT, a.y * UNIT, b.x * UNIT, b.y * UNIT, 10, 8);
     }
-    if (packs) g.stroke({ color: PALE, width: 3, alpha: 0.5, cap: 'round' });
+    if (packs) g.stroke({ color: PALE, width: 3, alpha: 0.3, cap: 'round' });
     this.visibleLanes = lanes;
     this.visiblePackLines = packs;
+    this.rushLaneCount = rushes;
   }
 
   /**
@@ -697,25 +768,32 @@ export class RealtimeRenderer {
    * - the archer: its announced line — a strip of the threat color (as the boar's lane) that fills up during the windup;
    * - the sapper: a burning fuse — sparks at the bomb and a ring growing to the blast radius while it burns (on the living
    *   sapper lit by touch, and where a dead one lies); a blast flashes (`handleEvents`).
+   * Phase A (Т3, design answer 11): every danger is hatched; the blast circle is in the threat colour (the sparks stay
+   * orange); the howl is a thin circle without fill (the rush lanes are `drawLanes`); the lynx's stun stars are pale; the
+   * shaman's beam is a thin wavy thread; the shield keeps its arc without the wedge.
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0 };
-    // Stage 3a (П1): the wolves howl — a threat circle on the ring round the hero, closing in as the howl runs out.
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0 };
+    // Stage 3a (П1): the wolves howl — a thin threat circle on the ring round the hero, no fill (phase A: the rush lanes of
+    // the wolves carry the timing).
     const howl = wolfHowl(world);
     if (howl) {
       counts.howls++;
-      const X = world.hero.x * UNIT, Y = world.hero.y * UNIT, R = p.wolfRingRadius * UNIT, inner = R * (1 - 0.75 * howl.progress);
-      g.circle(X, Y, R).fill({ color: THREAT, alpha: 0.05 + 0.08 * howl.progress }).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.7 });
-      g.circle(X, Y, R).stroke({ color: THREAT, width: 3, alpha: 0.95 });
-      g.circle(X, Y, Math.max(4, inner)).stroke({ color: THREAT, width: 2, alpha: 0.6 + 0.4 * howl.progress });
+      const X = world.hero.x * UNIT, Y = world.hero.y * UNIT, R = p.wolfRingRadius * UNIT;
+      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 3.5, alpha: 0.55 });
+      g.circle(X, Y, R).stroke({ color: THREAT, width: 1.5, alpha: 0.8 });
     }
     const fuse = (x: number, y: number, left: number, total: number): void => {
       counts.fuses++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = p.sapperRadius * UNIT, X = x * UNIT, Y = y * UNIT;
-      g.circle(X, Y, R).fill({ color: SPARK, alpha: 0.06 + 0.1 * k }).stroke({ color: THREAT_OUTLINE, width: 4, alpha: 0.6 });
-      g.circle(X, Y, R).stroke({ color: SPARK, width: 2, alpha: 0.9 });
-      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: SPARK, width: 4, alpha: 0.95 });
+      // Phase A: the blast circle in the threat colour, hatched; the ring grows to it while the fuse burns.
+      g.circle(X, Y, R).fill({ color: THREAT, alpha: 0.06 + 0.1 * k });
+      hatchCircle(g, X, Y, R, 0.32 * UNIT);
+      g.stroke({ color: THREAT, width: 2, alpha: 0.45 });
+      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 4, alpha: 0.6 });
+      g.circle(X, Y, R).stroke({ color: THREAT, width: 2, alpha: 0.9 });
+      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: THREAT, width: 3, alpha: 0.95 });
       // Sparks of the fuse: short rays turning with the clock (the view's own clock: drawing only).
       for (let i = 0; i < 6; i++) {
         const a = this.clock * 9 + i * Math.PI / 3, l = r * (0.35 + 0.25 * Math.abs(Math.sin(this.clock * 23 + i)));
@@ -732,10 +810,7 @@ export class RealtimeRenderer {
         counts.arrowLanes++;
         const half = line.half * UNIT, ux = e.vars.dx, uy = e.vars.dy, nx = -uy, ny = ux, ox = line.from.x * UNIT, oy = line.from.y * UNIT;
         const len = Math.hypot(line.to.x - line.from.x, line.to.y - line.from.y) * UNIT;
-        const quad = (t0: number, t1: number): number[] => [ox + ux * t0 - nx * half, oy + uy * t0 - ny * half, ox + ux * t1 - nx * half, oy + uy * t1 - ny * half, ox + ux * t1 + nx * half, oy + uy * t1 + ny * half, ox + ux * t0 + nx * half, oy + uy * t0 + ny * half];
-        g.poly(quad(0, len)).fill({ color: THREAT, alpha: 0.12 });
-        g.poly(quad(0, len * line.progress)).fill({ color: THREAT, alpha: 0.4 });
-        g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 4, alpha: 0.8 }).poly(quad(0, len)).stroke({ color: THREAT, width: 1.5, alpha: 0.95 });
+        threatStrip(g, ox, oy, ux, uy, len, half, line.progress, 1, 0.4);
         // The arrow head at the filling front.
         const tx = ox + ux * len * line.progress, ty = oy + uy * len * line.progress;
         g.poly([tx + ux * half * 1.6, ty + uy * half * 1.6, tx - nx * half * 1.3, ty - ny * half * 1.3, tx + nx * half * 1.3, ty + ny * half * 1.3]).fill(THREAT).stroke({ color: THREAT_OUTLINE, width: 2 });
@@ -746,11 +821,8 @@ export class RealtimeRenderer {
       if (leap) {
         counts.leapLines++;
         const half = enemyBodyRadius(p) * UNIT, ux = leap.dx, uy = leap.dy, nx = -uy, ny = ux, ox = e.x * UNIT, oy = e.y * UNIT, len = leap.len * UNIT;
-        const quad = (t0: number, t1: number): number[] => [ox + ux * t0 - nx * half, oy + uy * t0 - ny * half, ox + ux * t1 - nx * half, oy + uy * t1 - ny * half, ox + ux * t1 + nx * half, oy + uy * t1 + ny * half, ox + ux * t0 + nx * half, oy + uy * t0 + ny * half];
         const fade = leap.leaping ? 0.5 : 1;
-        g.poly(quad(0, len)).fill({ color: THREAT, alpha: 0.12 * fade });
-        g.poly(quad(0, len * leap.progress)).fill({ color: THREAT, alpha: 0.35 * fade });
-        g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 4, alpha: 0.8 * fade }).poly(quad(0, len)).stroke({ color: THREAT, width: 1.5, alpha: 0.95 * fade });
+        threatStrip(g, ox, oy, ux, uy, len, half, leap.progress, fade, 0.35);
         // Claw marks at the landing point.
         const tx = ox + ux * len, ty = oy + uy * len;
         for (const k of [-0.5, 0, 0.5]) g.moveTo(tx + nx * half * k - ux * half * 0.4, ty + ny * half * k - uy * half * 0.4).lineTo(tx + nx * half * k + ux * half * 0.5, ty + ny * half * k + uy * half * 0.5);
@@ -762,16 +834,22 @@ export class RealtimeRenderer {
         for (let i = 0; i < 3; i++) {
           const a = this.clock * 5 + i * Math.PI * 2 / 3, sx = X + Math.cos(a) * r * 0.6, sy = Y + Math.sin(a) * r * 0.22, pts: number[] = [];
           for (let j = 0; j < 10; j++) { const b = -Math.PI / 2 + j * Math.PI / 5, rr = j % 2 ? r * 0.07 : r * 0.17; pts.push(sx + Math.cos(b) * rr, sy + Math.sin(b) * rr); }
-          g.poly(pts).fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 1.5 });
+          g.poly(pts).fill(PALE).stroke({ color: THREAT_OUTLINE, width: 1.5 });
         }
       }
-      // Stage 3a (П4): the shaman's beam — a violet line to its target, thickening as it runs; a ring round the target.
+      // Stage 3a (П4): the shaman's beam — phase A: a thin wavy violet thread to its target (no body width, no threat
+      // outline: it is magic on an enemy, not a danger to the hero); a ring round the target fills as it runs.
       const beam = shamanBeam(world, e);
       if (beam) {
         counts.beams++;
-        const X = e.x * UNIT, Y = e.y * UNIT, TX = beam.target.x * UNIT, TY = beam.target.y * UNIT, wob = Math.sin(this.clock * 30) * 1.5;
-        g.moveTo(X, Y).lineTo(TX, TY).stroke({ color: NAVY, width: 7 + 6 * beam.progress, alpha: 0.6 });
-        g.moveTo(X, Y).lineTo(TX, TY).stroke({ color: MAGIC, width: 3 + 5 * beam.progress + wob, alpha: 0.95 });
+        const X = e.x * UNIT, Y = e.y * UNIT, TX = beam.target.x * UNIT, TY = beam.target.y * UNIT;
+        const dx = TX - X, dy = TY - Y, d = Math.hypot(dx, dy) || 1, nx = -dy / d, ny = dx / d, steps = Math.max(6, Math.round(d / 6));
+        g.moveTo(X, Y);
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps, w = Math.sin(t * d / 14 - this.clock * 12) * 3 * Math.sin(t * Math.PI);
+          g.lineTo(X + dx * t + nx * w, Y + dy * t + ny * w);
+        }
+        g.stroke({ color: MAGIC, width: 2, alpha: 0.6 + 0.35 * beam.progress, cap: 'round', join: 'round' });
         g.circle(TX, TY, r * 1.2).stroke({ color: MAGIC, width: 3, alpha: 0.9 });
         g.moveTo(TX, TY - r * 1.2).arc(TX, TY, r * 1.2, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * beam.progress).stroke({ color: PALE, width: 4, alpha: 0.95 });
       }
@@ -801,10 +879,45 @@ export class RealtimeRenderer {
       const x = e.x * UNIT, y = e.y * UNIT, half = Math.min(Math.PI, p.shieldArc * Math.PI / 360), f = e.vars.facing ?? 0, R = r * 1.22;
       g.moveTo(x + Math.cos(f - half) * R, y + Math.sin(f - half) * R).arc(x, y, R, f - half, f + half).stroke({ color: NAVY, width: 11, cap: 'round' });
       g.moveTo(x + Math.cos(f - half) * R, y + Math.sin(f - half) * R).arc(x, y, R, f - half, f + half).stroke({ color: STEEL, width: 6, cap: 'round' });
-      // A faint wedge of the arc: where an anchor cannot take it from.
-      g.moveTo(x, y).arc(x, y, R * 1.9, f - half, f + half).lineTo(x, y).fill({ color: STEEL, alpha: 0.1 });
     }
     Object.assign(this.signals, counts);
+  }
+
+  /**
+   * Phase A (Т3): the badge strip under each body, centred at y ≈ 1.25·r (lower under an elite: ×`eliteArtScale`). Its slots
+   * go left to right: the role first (`roles.ts`; the presser and the reaper have none), then — track Т4, not yet — the
+   * affixes of an elite. A slot is a dark rounded plaque with a pale glyph about 12 px across, the same size on screen at
+   * any scale. Bodies off screen get none; while a chain is drawn the badges of other colours fade with their bodies.
+   */
+  private drawBadges(world: World): void {
+    const g = this.badgeLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
+    const counts: Record<EnemyRole, number> = { shooter: 0, blocker: 0, punisher: 0, master: 0, diver: 0 };
+    let total = 0;
+    if (this.showRoleBadges) {
+      const color = world.chain.length ? chainColor(world) : null, strength = p.dimStrength;
+      const px = 1 / Math.max(0.1, this.scale), glyph = BADGE_GLYPH_PX * px, plate = BADGE_PLAQUE_PX * px, gap = 2 * px;
+      for (const e of world.enemies) {
+        if (e.color === NO_COLOR || !this.sees(e, 1.5)) continue;
+        const slots: EnemyRole[] = [];
+        const role = roleOf(e.kind);
+        if (role) slots.push(role);
+        // Т4 (second pass): the affixes of an elite go here, after the role.
+        if (!slots.length) continue;
+        const alpha = color !== null && e.color !== color ? 1 - strength : 1;
+        // Under an elite: below its larger drawing and its gold rim.
+        const y = e.y * UNIT + r * 1.25 * (e.elite ? p.eliteArtScale : 1) + (e.elite ? plate * 0.6 : 0);
+        const width = slots.length * plate * 2 + (slots.length - 1) * gap;
+        let x = e.x * UNIT - width / 2 + plate;
+        for (const slot of slots) {
+          g.roundRect(x - plate, y - plate, plate * 2, plate * 2, plate * 0.45).fill({ color: BADGE_PLAQUE, alpha: 0.85 * alpha }).stroke({ color: PALE, width: px, alpha: 0.35 * alpha });
+          drawRoleGlyph(g, slot, x, y, glyph, PALE, alpha);
+          counts[slot]++; total++;
+          x += plate * 2 + gap;
+        }
+      }
+    }
+    Object.assign(this.badgeRoles, counts);
+    this.signals.roleBadges = total;
   }
 
   /** Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. */
@@ -1194,6 +1307,7 @@ export class RealtimeRenderer {
     this.drawRipples(world);
     this.syncEnemies(world);
     this.drawSignals(world);
+    this.drawBadges(world);
     this.drawTargets(world);
     this.drawChain(world, ui);
     this.drawHero(world);

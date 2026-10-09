@@ -141,6 +141,73 @@ test('signals on screen: the wolves\' howl circle, the lynx\'s leap line and stu
 });
 
 /**
+ * Phase A (Т3, design answer 11 of docs/realtime-phase-a.md): each howling wolf draws its rush lane (from the wolf to the
+ * end of its rush) — the lanes on screen match the wolves howling or rushing; the howl circle stays.
+ */
+test('phase A: the rush lane of every howling wolf is on screen, as many as the wolves howling', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openSandbox(page, '&arena=1');
+  await quiet(page, { x: 8, y: 5 });
+  await page.evaluate(() => (window as any).__realtime.setParam('wolfHowl', 2.5));
+  for (const deg of [-150, -90, -30]) await place(page, 8 + Math.cos(deg * Math.PI / 180) * 3, 5 + Math.sin(deg * Math.PI / 180) * 3, 0, 0, 'wolf');
+  // The lanes of the last frame against the wolves howling (st 1) or rushing (st 2) now, read together.
+  const read = (): Promise<{ lanes: number; howling: number; circle: number }> => page.evaluate(() => {
+    const s = (window as any).__realtime.snapshot();
+    return { lanes: s.rushLanes, howling: s.enemies.filter((e: any) => e.kind === 'wolf' && (e.vars.st === 1 || e.vars.st === 2)).length, circle: s.signals.howls };
+  });
+  await expect.poll(async () => { const r = await read(); return r.howling === 3 && r.lanes === 3 && r.circle === 1; }, SIGNAL_POLL).toBe(true);
+  expect((await snap(page)).signals.rushLanes).toBe(3);
+  await page.screenshot({ path: 'artifacts/realtime-phaseA-howl-lanes.png' });
+  // Before the howl and after the rush there is no lane.
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  await expect.poll(async () => (await read()).lanes, SIGNAL_POLL).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Phase A (Т3): the role badge under each body by its kind — shooter (archer), blocker (shield), punisher (porcupine,
+ * sapper), master (shaman), diver (wolf, lynx); the presser (basic, boar) has none. The toggle on the debug panel is a view
+ * setting: it hides them, keeps its own storage key across a reload and never reaches the journal.
+ */
+test('phase A: role badges by kind; the panel toggle hides them, survives a reload and stays out of the journal', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  const setup = async (): Promise<void> => {
+    await quiet(page, { x: 8, y: 7.5 });
+    const kinds = ['basic', 'boar', 'archer', 'shield', 'porcupine', 'sapper', 'shaman', 'wolf', 'lynx'];
+    for (let i = 0; i < kinds.length; i++) await place(page, 1.6 + i * 1.6, 3.2, i % 4, 1, kinds[i]);
+  };
+  await openSandbox(page, '&arena=1');
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('wolfRing', false); rt.setParam('lynxFirstDelay', 99); });
+  await setup();
+  const expected = { shooter: 1, blocker: 1, punisher: 2, master: 1, diver: 2 };
+  await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().badgeRoles))).toEqual(expected);
+  expect((await snap(page)).signals.roleBadges).toBe(7);
+  await page.screenshot({ path: 'artifacts/realtime-phaseA-role-badges.png' });
+  const commands = (): Promise<number> => page.evaluate(() => (window as any).__realtime.journal().commands.length);
+  const before = await commands();
+  await page.keyboard.press('F1');
+  const toggle = page.getByTestId('role-badges');
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await expect.poll(async () => (await snap(page)).signals.roleBadges).toBe(0);
+  expect(await commands()).toBe(before);
+  // A reload keeps the setting (its own key; the test's openSandbox would clear the storage, so reload by hand).
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.evaluate(() => (window as any).__realtime.selectArena(1));
+  await setup();
+  await page.waitForTimeout(300);
+  expect((await snap(page)).signals.roleBadges).toBe(0);
+  await expect(page.getByTestId('role-badges')).not.toBeChecked();
+  await page.getByTestId('role-badges').check();
+  await expect.poll(async () => (await snap(page)).signals.roleBadges).toBe(7);
+  expect(errors).toEqual([]);
+});
+
+/**
  * Engines differ in the last bits of `Math.sin`/`Math.cos`/`Math.atan2`: behaviour that turns angles every tick (the
  * wolves' ring) once drifted between Chromium and Node, and a recorded fight no longer replayed. Behaviour code uses
  * `sim/detMath.ts`; this records fights with the new enemies in the browser and replays them in Node (the wolves — the

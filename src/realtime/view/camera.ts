@@ -86,19 +86,25 @@ export function edgeArrow(cx: number, cy: number, dx: number, dy: number, left: 
 export interface EdgeRect { left: number; top: number; right: number; bottom: number }
 
 /** A pointer to place: the screen offset of its target from the centre, and what it points at. */
-export interface EdgeItem { dx: number; dy: number; kind: 'threat' | 'goal' }
-export interface PlacedArrow { x: number; y: number; angle: number; kind: 'threat' | 'goal' }
+export type EdgeArrowKind = 'threat' | 'goal' | 'spawn';
+export interface EdgeItem { dx: number; dy: number; kind: EdgeArrowKind }
+export interface PlacedArrow { x: number; y: number; angle: number; kind: EdgeArrowKind }
 
 /** Pointers closer than this (px) overlap: a goal arrow then slides along the border off a danger arrow. */
 export const ARROW_CLASH = 26;
+/** Phase A (Т5): spawn markers are grouped by direction from the centre — at most one spawn arrow per sector of 45°. */
+export const SPAWN_SECTORS = 8;
 
 /**
- * Places the pointers on the border of `rect` and orders them for drawing: goals first, dangers last (on top — a danger
- * is more urgent than a goal). A goal arrow that would sit on a danger arrow slides along the border by `ARROW_CLASH`
- * (to the side that stays in the rectangle) so that both read.
+ * Places the pointers on the border of `rect` and orders them for drawing: spawn markers first, then goals, dangers last
+ * (on top — a danger is more urgent than a goal). A goal arrow that would sit on a danger arrow slides along the border by
+ * `ARROW_CLASH` (to the side that stays in the rectangle) so that both read. Spawn arrows (phase A, Т5) are grouped and give way:
+ * one per sector of 45° around the centre (the nearest marker of the sector — a wave reads as one arrow, not a fence), and
+ * one that would sit on any other arrow or on a spawn arrow already kept is dropped.
  */
 export function placeEdgeArrows(items: readonly EdgeItem[], cx: number, cy: number, rect: EdgeRect): PlacedArrow[] {
-  const placed = items.map(i => ({ ...edgeArrow(cx, cy, i.dx, i.dy, rect.left, rect.top, rect.right, rect.bottom), kind: i.kind }));
+  const all = items.map(i => ({ ...edgeArrow(cx, cy, i.dx, i.dy, rect.left, rect.top, rect.right, rect.bottom), kind: i.kind }));
+  const placed = all.filter(a => a.kind !== 'spawn');
   const threats = placed.filter(a => a.kind === 'threat');
   const inside = (x: number, y: number): boolean => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
   for (const g of placed) {
@@ -113,5 +119,17 @@ export function placeEdgeArrows(items: readonly EdgeItem[], cx: number, cy: numb
       break;
     }
   }
-  return [...placed.filter(a => a.kind === 'goal'), ...threats];
+  const nearest = new Map<number, { arrow: PlacedArrow; d: number }>();
+  items.forEach((item, i) => {
+    if (item.kind !== 'spawn') return;
+    const sector = ((Math.round(Math.atan2(item.dy, item.dx) / (2 * Math.PI / SPAWN_SECTORS)) % SPAWN_SECTORS) + SPAWN_SECTORS) % SPAWN_SECTORS;
+    const d = Math.hypot(item.dx, item.dy), held = nearest.get(sector);
+    if (!held || d < held.d) nearest.set(sector, { arrow: all[i], d });
+  });
+  const spawns: PlacedArrow[] = [];
+  for (const [, { arrow }] of [...nearest].sort((a, b) => a[0] - b[0])) {
+    if ([...placed, ...spawns].some(o => Math.hypot(arrow.x - o.x, arrow.y - o.y) < ARROW_CLASH)) continue;
+    spawns.push(arrow);
+  }
+  return [...spawns, ...placed.filter(a => a.kind === 'goal'), ...threats];
 }

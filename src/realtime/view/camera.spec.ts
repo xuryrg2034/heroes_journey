@@ -219,4 +219,52 @@ check('arrows: a danger and a goal in the same direction — the goal is drawn f
   assert(near(low.y, 640) && near(low.x, 640), 'bottom arrow at the rectangle bottom');
 });
 
+check('edge markers (phase A): a howling or rushing wolf off screen is a danger; a ringing or frozen one is not', () => {
+  const world = quietWorld();
+  world.hero.x = 12; world.hero.y = 7.5;
+  const wolf = foe(1, 'wolf', 1, 7.5, { st: 0 });
+  world.enemies.push(wolf);
+  assert(markers(world).length === 0, 'a wolf in the ring: no pointer');
+  wolf.vars.st = 1; wolf.vars.t = 0.3;
+  let m = markers(world);
+  assert(m.length === 1 && m[0].kind === 'threat' && m[0].x === 1, 'a howling wolf off screen');
+  wolf.vars.st = 2; wolf.vars.dx = 1; wolf.vars.dy = 0; wolf.vars.ran = 1;
+  assert(markers(world).length === 1, 'a rushing wolf off screen');
+  (wolf as unknown as { chill: number }).chill = 1;
+  assert(markers(world).length === 0, 'a frozen wolf: none');
+  (wolf as unknown as { chill: number }).chill = 0;
+  wolf.x = 12; wolf.y = 9;
+  assert(markers(world).length === 0, 'a howling wolf in view: none');
+});
+
+check('edge markers (phase A, Т5): spawn markers off screen only with `spawns` on (an arena larger than the view)', () => {
+  const world = quietWorld();
+  world.hero.x = 12; world.hero.y = 7.5;
+  world.markers.push({ x: 1, y: 1, color: 0, timeLeft: 1, total: 1 } as unknown as World['markers'][number]);
+  world.markers.push({ x: 12, y: 8, color: 1, timeLeft: 1, total: 1 } as unknown as World['markers'][number]);
+  assert(collectEdgeMarkers(world, viewAround(12, 7.5)).length === 0, 'spawns off: no pointer to a marker');
+  const m = collectEdgeMarkers(world, viewAround(12, 7.5), true);
+  assert(m.length === 1 && m[0].kind === 'spawn' && m[0].x === 1, `spawns on: only the off-screen marker: ${JSON.stringify(m)}`);
+});
+
+check('arrows (phase A): spawn arrows are grouped by direction (one per 45° sector, the nearest), give way to dangers, are drawn first', () => {
+  const rect = { left: 40, top: 80, right: 1240, bottom: 640 };
+  const out = placeEdgeArrows([
+    { dx: -2000, dy: 0, kind: 'spawn' },
+    { dx: -1500, dy: 200, kind: 'spawn' },
+    { dx: -2000, dy: -300, kind: 'spawn' },
+    { dx: 0, dy: -2000, kind: 'spawn' },
+    { dx: 2000, dy: 0, kind: 'spawn' },
+    { dx: 2000, dy: 8, kind: 'threat' },
+  ], 640, 360, rect);
+  const spawns = out.filter(a => a.kind === 'spawn');
+  assert(spawns.length === 2, `left group as one arrow, top one, none on the danger: ${JSON.stringify(out)}`);
+  const left = spawns.find(a => a.x < 600)!;
+  assert(near(left.x, 40) && left.y > 360, `the left one points at the nearest marker of its sector: ${JSON.stringify(left)}`);
+  assert(out[out.length - 1].kind === 'threat' && out[0].kind === 'spawn', `order ${out.map(a => a.kind)}`);
+  // A whole wave along the bottom of the view: one arrow per sector it covers, not a fence.
+  const wave = placeEdgeArrows(Array.from({ length: 20 }, (_, i) => ({ dx: -1000 + i * 100, dy: 600, kind: 'spawn' as const })), 640, 360, rect);
+  assert(wave.length <= 3, `a wave of 20 markers below: ${wave.length} arrows`);
+});
+
 console.log(`camera: ${checks} checks passed`);
