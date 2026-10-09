@@ -1,8 +1,9 @@
 /**
  * Arenas of the new enemies of stage 3a, step 4 (docs/realtime-stage3.md, sections 4 and 10): «Рысье логово» (the lynx,
  * М5 gorge) and «Круг шамана» (the shaman, М4 braziers). Kept apart from arenas.ts (its arenas 4–10 are being laid out
- * anew in step 2). For now — the sandbox only (menu keys ⇧6, ⇧7, `?arena=16`, `?arena=17`); the run's pools take them
- * after step 2 (design answer 09.10.2026: rows 4–7 and 5–8, as ordinary candidates of their rows — no first-meeting rule).
+ * anew in step 2). In the sandbox — menu keys ⇧6, ⇧7, `?arena=16`, `?arena=17`; in the run's pools (run/arenaPools.ts,
+ * design 09.10.2026) — «Рысье логово» on run rows 2–9, «Круг шамана» on 5–9, ordinary candidates of their rows (no
+ * first-meeting rule).
  *
  * Расстановка — черновик ядра (design answer 4а, 09.10.2026). Checks: `npm run realtime:pockets` (no pockets) and the layout
  * rules of section 8 (`npm run test:realtime-slice-terrain`: every gap shut or at least 2 wide, no dead end).

@@ -96,21 +96,68 @@ const nodeModule = (name: string): Promise<unknown> => import(/* @vite-ignore */
 const fs = await nodeModule('node:fs') as NodeFs;
 const { fileURLToPath } = await nodeModule('node:url') as { fileURLToPath(url: URL): string };
 
-check('no file of the simulation calls a transcendental Math function', () => {
-  const dir = fileURLToPath(new URL('.', import.meta.url)), found: string[] = [];
+/** Comments out of the source (block, JSDoc and line comments; strings are left — a comment marker inside one is rare here). */
+const code = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' ')).replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+const FORBIDDEN = 'sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt';
+/** Ways a transcendental `Math` function reaches the code: any mention (call, `.map(Math.cos)`, `const h = Math.hypot`,
+ *  `.apply`), `Math[…]`, `Math` destructured or aliased, and the `**` operator (it is `Math.pow` in disguise). */
+const RULES: [string, RegExp][] = [
+  ['Math.<transcendental>', new RegExp(`\\bMath\\s*(\\?\\.|\\.)\\s*(${FORBIDDEN})\\b`)],
+  ['Math[…]', /\bMath\s*(\?\.)?\s*\[/],
+  ['Math destructured or aliased', /=\s*Math\b(?!\s*(\?\.|\.))/],
+  ['**', /\*\*/],
+];
+
+/** A source file and every module it imports at run time (`import type` brings no code), transitively: the simulation and
+ *  the modules of the turn-based game it reads (src/game/items.ts, resources.ts …). */
+function simulationSources(): string[] {
+  const dir = fileURLToPath(new URL('.', import.meta.url)).replace(/\/$/, ''), files = new Set<string>(), queue: string[] = [];
   const walk = (path: string): void => {
     for (const name of fs.readdirSync(path)) {
-      const file = `${path.replace(/\/$/, '')}/${name}`;
-      if (fs.statSync(file).isDirectory()) { walk(file); continue; }
-      if (!name.endsWith('.ts') || name.endsWith('.spec.ts') || name === 'detMath.ts') continue;
-      fs.readFileSync(file, 'utf8').split('\n').forEach((line: string, i: number) => {
-        if (/Math\.(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|exp|expm1|log|log1p|log2|log10|pow|hypot|cbrt)\s*\(/.test(line)) found.push(`${file}:${i + 1}`);
-        if (/[\w)\]]\s*\*\*\s*[\w(]/.test(line.replace(/\/\*\*.*|^\s*\*.*/g, ''))) found.push(`${file}:${i + 1} (**)`);
-      });
+      const file = `${path}/${name}`;
+      if (fs.statSync(file).isDirectory()) walk(file);
+      else if (name.endsWith('.ts') && !name.endsWith('.spec.ts')) queue.push(file);
     }
   };
   walk(dir);
+  const resolve = (from: string, spec: string): string | null => {
+    if (!spec.startsWith('.')) return null;
+    const parts = from.split('/').slice(0, -1);
+    for (const part of spec.split('/')) { if (part === '..') parts.pop(); else if (part !== '.') parts.push(part); }
+    const base = parts.join('/');
+    for (const file of [base, `${base}.ts`, `${base}/index.ts`]) { try { if (file.endsWith('.ts') && !fs.statSync(file).isDirectory()) return file; } catch { /* next */ } }
+    return null;
+  };
+  while (queue.length) {
+    const file = queue.pop()!;
+    if (files.has(file)) continue;
+    files.add(file);
+    for (const m of code(fs.readFileSync(file, 'utf8')).matchAll(/^\s*(import|export)\s+(type\s+)?([^'"]*?\sfrom\s+)?['"]([^'"]+)['"]/gm)) {
+      if (m[2]) continue;
+      const target = resolve(file, m[4]);
+      if (target) queue.push(target);
+    }
+  }
+  return [...files].sort();
+}
+
+check('no module of the simulation (nor the game modules it imports) reaches a transcendental Math function', () => {
+  const files = simulationSources(), found: string[] = [];
+  for (const file of files) {
+    if (file.endsWith('/detMath.ts')) continue;
+    code(fs.readFileSync(file, 'utf8')).split('\n').forEach((line, i) => {
+      for (const [what, rule] of RULES) if (rule.test(line)) found.push(`${file.replace(/^.*\/src\//, 'src/')}:${i + 1} (${what})`);
+    });
+  }
+  const game = files.filter(file => file.includes('/src/game/')).map(file => file.replace(/^.*\/src\//, 'src/'));
+  assert(game.length > 0, 'the game modules the simulation imports are scanned');
   assert(!found.length, `transcendental Math in the simulation: ${found.join(', ')}`);
+  // The rules catch the disguises (a check of the check).
+  for (const line of ['const { hypot } = Math;', 'const M = Math;', "Math['sin'](x)", 'xs.map(Math.cos)', 'const h = Math.hypot;', 'Math.pow.apply(null, a)', 'a ** 0.5', 'Math?.atan2(y, x)'])
+    assert(RULES.some(([, rule]) => rule.test(code(line))), `the scan misses «${line}»`);
+  for (const line of ['Math.sqrt(x)', 'Math.floor(x / 2)', 'const m = Math.max(a, b);', '/** Math.sin is not exact */', '// Math.hypot(a, b)', 'x * y'])
+    assert(!RULES.some(([, rule]) => rule.test(code(line))), `the scan flags «${line}»`);
+  console.log(`   ${files.length} modules scanned, of them from the turn-based game: ${game.join(', ')}`);
 });
 
 console.log(`realtime-detmath: ${checks} checks passed`);

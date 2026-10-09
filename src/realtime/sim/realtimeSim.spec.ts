@@ -399,6 +399,8 @@ check('a fight with shieldbearers and the wolves\' ring recorded in the browser 
   const sim = replay(fixture.journal, r => {
     shields = Math.max(shields, r.world.enemies.filter(e => e.kind === 'shield').length);
     for (const ev of r.world.events) if (ev.type === 'enemySignal' && ev.signal === 'howl') howls++;
+    // The page takes the events every frame; here every tick (they are not in the hash).
+    r.world.events.length = 0;
   });
   assert(fixture.journal.arena === 'shields' && shields > 0 && howls > 0, `the fight has shieldbearers (${shields}) and a howl (${howls})`);
   assert(sim.hash() === fixture.hash, `browser ${fixture.hash}, Node ${sim.hash()} after ${fixture.journal.ticks} ticks`);
