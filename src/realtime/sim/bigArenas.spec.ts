@@ -142,7 +142,8 @@ check('big arenas in a fight: the markers come round the walking hero — in the
         if (Math.abs(m.x - cx) > VIEW_W / 2 + 0.2 || Math.abs(m.y - cy) > VIEW_H / 2 + 0.2) far++;
       }
     }
-    assert(seen.size > 60 && far === 0, `${id}: ${seen.size} markers, ${far} outside the view round the hero`);
+    // Enough markers to sample (phase A, Т6: the archer's arrow no longer kills the crowd, so «Брод» turns over fewer — 60 in 45 s).
+    assert(seen.size >= 40 && far === 0, `${id}: ${seen.size} markers, ${far} outside the view round the hero`);
     assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), `${id}: replay`);
     console.log(`   ${id}: ${seen.size} markers in 45 s, all within the view round the hero`);
   }
