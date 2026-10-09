@@ -184,6 +184,8 @@ test('off-screen pointers: the open door and a danger aimed at the hero; none fo
   await teleport(page, 12, 9.5);
   await settled(page);
   const hero = (await snap(page)).hero;
+  // Phase A, Т6: the archer's old line (the pointer of the point mark comes with the view's second pass, track Д3).
+  await page.evaluate(() => (window as any).__realtime.setParam('archerPoint', false));
   await place(page, hero.x, hero.y - 6.3, 1, 0, 'archer');
   await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBeGreaterThanOrEqual(1);
   await page.screenshot({ path: 'artifacts/realtime-camera-pointers.png' });
@@ -284,6 +286,8 @@ test('off-screen pointers keep clear of the HUD: no arrow overlaps the action ba
   await settled(page);
   // Two archers below the view aim up at the hero: their arrows belong at the bottom, where the action bar is.
   const hero = (await snap(page)).hero;
+  // Phase A, Т6: the archers' old line (the pointer of the point mark comes with the view's second pass, track Д3).
+  await page.evaluate(() => (window as any).__realtime.setParam('archerPoint', false));
   await place(page, hero.x, hero.y + 6.3, 1, 0, 'archer');
   await place(page, hero.x + 2.5, hero.y + 6.3, 2, 0, 'archer');
   await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBeGreaterThanOrEqual(2);

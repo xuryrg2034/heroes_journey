@@ -1,17 +1,27 @@
 /**
- * The archer (stage 2 of the transition, docs/realtime-slice.md, section 4): HP 0, keeps 4–6 units from the hero (nearer
- * than 4 it backs away, farther than 6 it walks up as everyone). Every 3 s it announces a line to the hero (length 7,
- * width 0.5; walls and trees cut it short) for 1 s and stands; then the arrow strikes everything on the line: the hero
- * for 1 (his invulnerability, the dash and the jump protect him), enemies for 1 (a hit kills when it is not less than the
- * HP: weak ones die). Kills by the arrow are not the player's. The cold stops the aim and the shot (`enemyFrozen`: the
- * step does not run). Numbers — the panel group «Лучник».
+ * The archer: HP 0, keeps 4–6 units from the hero (nearer than 4 it backs away, farther than 6 it walks up as everyone).
+ * Every 3 s, with the hero within 7 and in sight (walls and trees hide him, water does not), it aims for 1 s and stands.
+ * The cold stops the aim and the shot (`enemyFrozen`: the step does not run). Numbers — the panel group «Лучник».
  *
- * State in `enemy.vars`: `aim` (1 — the line is announced), `timer` (seconds: to the next announcement, or of the
- * announcement left), `dx`, `dy` (unit direction of the line), `len` (its length).
+ * Two shots (the flag `archerPoint`):
+ * - **The point** (phase A, Т6, user decision 09.10.2026, docs/realtime-phase-a.md, section 7; on by default): the archer
+ *   marks the hero's centre at the moment of the aim — a circle of `archerMarkRadius`, fixed, no lead; the ground there
+ *   does not matter. At the end of the windup the arrow falls there: the hero, if his body touches the circle, takes
+ *   `archerDamage` (an elite +1; his invulnerability, the dash and the jump protect him). Enemies are never hit, and walls
+ *   or trees between the archer and the point do not stop the arrow (it flies over them); only sight is needed to aim.
+ *   Only while the fight is `playing`. The mark lives on the archer: it dies — the shot is gone with it.
+ * - **The line** (stage 2 of the transition, docs/realtime-slice.md, section 4; journals without `archerPoint`, or the
+ *   flag off): a line to the hero (length 7, width 0.5; walls and trees cut it short), then the arrow strikes everything
+ *   on it: the hero for 1, enemies for `archerHit` (a hit kills when it is not less than the HP: weak ones die). Kills by
+ *   the arrow are not the player's.
+ *
+ * State in `enemy.vars`: `aim` (1 — aiming), `timer` (seconds: to the next aim, or of the aim left); the point — `pt` 1,
+ * `ax`, `ay` (the marked point); the line — `dx`, `dy` (unit direction), `len` (its length). The kind of shot is fixed at
+ * the aim: switching the flag in the middle of a windup changes the next aim.
  */
 import { dhypot } from '../detMath';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
-import { heroRadius } from '../params';
+import { DEFAULT_PARAMS, heroRadius, type Params } from '../params';
 import { canBeHurt, damageEnemy, enemyGroundFactor, enemySpeed, hurtHero, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
@@ -27,16 +37,34 @@ function segmentDistance(a: Vec, b: Vec, p: Vec): number {
   return dhypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
 }
 
-/** The archer's line now: start, end and half width; null when it does not aim. */
-export function archerLine(world: World, e: Enemy): { from: Vec; to: Vec; half: number; progress: number } | null {
-  if (e.kind !== 'archer' || e.vars.aim !== 1) return null;
+/** Share of the windup gone (0…1). */
+function aimProgress(world: World, e: Enemy): number {
   const windup = Math.max(1e-6, world.params.archerWindup);
+  return Math.max(0, Math.min(1, 1 - e.vars.timer / windup));
+}
+
+/** Radius of the mark (a journal that switched the point on by a param command may have no radius: the default). */
+function markRadius(p: Params): number { return p.archerMarkRadius ?? DEFAULT_PARAMS.archerMarkRadius; }
+
+/** The archer's line now: start, end and half width; null when it does not aim a line (the point shot has none). */
+export function archerLine(world: World, e: Enemy): { from: Vec; to: Vec; half: number; progress: number } | null {
+  if (e.kind !== 'archer' || e.vars.aim !== 1 || e.vars.pt === 1) return null;
   return {
     from: { x: e.x, y: e.y },
     to: { x: e.x + e.vars.dx * e.vars.len, y: e.y + e.vars.dy * e.vars.len },
     half: world.params.archerWidth / 2,
-    progress: Math.max(0, Math.min(1, 1 - e.vars.timer / windup)),
+    progress: aimProgress(world, e),
   };
+}
+
+/**
+ * The archer's mark now (phase A, Т6): the fixed point `at`, the circle radius `r` and the share of the windup gone
+ * (`progress`, 0…1; the arrow falls at 1). Null when it does not aim a point, or the fight is not `playing` (after a
+ * victory or a defeat the marks are gone). A frozen archer keeps its mark: the progress waits.
+ */
+export function archerMark(world: World, e: Enemy): { at: Vec; r: number; progress: number } | null {
+  if (e.kind !== 'archer' || e.vars.aim !== 1 || e.vars.pt !== 1 || world.status !== 'playing') return null;
+  return { at: { x: e.vars.ax, y: e.vars.ay }, r: markRadius(world.params), progress: aimProgress(world, e) };
 }
 
 /** Length of the line from `e` along (dx, dy) up to `range`: the first wall or tree on the way cuts it (water does not). */
@@ -45,8 +73,15 @@ function lineLength(world: World, e: Enemy, dx: number, dy: number, range: numbe
   return range;
 }
 
-/** The arrow flies: everyone whose body touches the line is hit — the hero for `archerDamage`, enemies for `archerHit`. */
-function shoot(world: World, e: Enemy): void {
+/** The arrow of the point falls: the hero is hurt if his body touches the circle; nobody else. */
+function shootPoint(world: World, e: Enemy): void {
+  const p = world.params, at = { x: e.vars.ax, y: e.vars.ay };
+  if (world.status !== 'playing' || !canBeHurt(world)) return;
+  if (dist(world.hero, at) <= markRadius(p) + heroRadius(p)) hurtHero(world, e, p.archerDamage, 'arrow');
+}
+
+/** The arrow of the line flies: everyone whose body touches the line is hit — the hero for `archerDamage`, enemies for `archerHit`. */
+function shootLine(world: World, e: Enemy): void {
   const p = world.params, line = archerLine(world, e);
   if (!line) return;
   const hero = world.hero;
@@ -57,17 +92,17 @@ function shoot(world: World, e: Enemy): void {
 }
 
 /**
- * The archer's step (game time). Announcing: stands, the line is fixed; when the time is up the arrow flies. Otherwise:
- * the cooldown runs; with the hero in range and in sight it announces; nearer than `archerNear` it backs away from the
- * hero, farther than `archerFar` it walks up (the common walk), in between it holds its place.
+ * The archer's step (game time). Aiming: stands, the point (or the line) is fixed; when the time is up the arrow flies.
+ * Otherwise: the cooldown runs; with the hero in range and in sight it aims; nearer than `archerNear` it backs away from
+ * the hero, farther than `archerFar` it walks up (the common walk), in between it holds its place.
  */
 function stepArcher(world: World, e: Enemy, dt: number): boolean {
   const { hero, params: p, arena } = world;
   if (e.vars.aim === 1) {
     e.vars.timer -= dt;
     if (e.vars.timer <= TIME_EPS) {
-      shoot(world, e);
-      // One announcement every `archerCooldown` seconds: the windup is part of the period.
+      if (e.vars.pt === 1) shootPoint(world, e); else shootLine(world, e);
+      // One aim every `archerCooldown` seconds: the windup is part of the period.
       e.vars.aim = 0; e.vars.timer = Math.max(0, p.archerCooldown - p.archerWindup);
     }
     return true;
@@ -75,9 +110,17 @@ function stepArcher(world: World, e: Enemy, dt: number): boolean {
   e.vars.timer = Math.max(0, (e.vars.timer ?? 0) - dt);
   const d = dist(e, hero);
   if (e.vars.timer <= TIME_EPS && d > 1e-6 && d <= p.archerRange && world.status === 'playing' && lineOfSight(e, hero, arena, 0.05)) {
-    const dx = (hero.x - e.x) / d, dy = (hero.y - e.y) / d;
-    e.vars.aim = 1; e.vars.timer = p.archerWindup; e.vars.dx = dx; e.vars.dy = dy;
-    e.vars.len = lineLength(world, e, dx, dy, p.archerRange);
+    e.vars.aim = 1; e.vars.timer = p.archerWindup;
+    if (p.archerPoint) {
+      // The point: the hero's centre now, fixed (no lead).
+      e.vars.pt = 1; e.vars.ax = hero.x; e.vars.ay = hero.y;
+    } else {
+      // A journal before phase A has no `pt`: the line path leaves the vars as they were.
+      if ('pt' in e.vars) delete e.vars.pt;
+      const dx = (hero.x - e.x) / d, dy = (hero.y - e.y) / d;
+      e.vars.dx = dx; e.vars.dy = dy;
+      e.vars.len = lineLength(world, e, dx, dy, p.archerRange);
+    }
     return true;
   }
   if (d < p.archerNear && d > 1e-6) {
@@ -92,7 +135,7 @@ function stepArcher(world: World, e: Enemy, dt: number): boolean {
 
 registerBehavior({
   id: 'archer',
-  // The first line can be announced `archerFirstDelay` game seconds after it appears.
+  // The first aim can come `archerFirstDelay` game seconds after it appears.
   onSpawn(world, e) { e.vars.aim = 0; e.vars.timer = world.params.archerFirstDelay; },
   step: stepArcher,
 });

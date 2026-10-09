@@ -132,15 +132,18 @@ check('М1 river: the dash and the jump cross the river at full speed', () => {
   assert(replays(sim), 'replay');
 });
 
-check('М1 river: an arrow flies over the river whole and hits the hero on the other bank', () => {
-  const sim = fight('river', quiet({ archerFirstDelay: 0.5 }), 2), w = sim.world;
-  sim.command({ t: 'teleport', x: 4.4, y: 5 });
-  const archer = place(sim, 11, 5, 0, 0, 'archer');
-  runUntil(sim, () => archer.vars.aim === 1);
-  assert(Math.abs(archer.vars.len - w.params.archerRange) < 1e-9, `the line over the river is whole: ${archer.vars.len}`);
-  runUntil(sim, () => archer.vars.aim !== 1);
-  assert(w.hero.hp === w.hero.maxHp - w.params.archerDamage, `the arrow hit the hero: hp ${w.hero.hp}`);
-  assert(replays(sim), 'replay');
+check('М1 river: an arrow flies over the river and hits the hero on the other bank — the point shot (phase A) and the old line', () => {
+  for (const archerPoint of [true, false]) {
+    const sim = fight('river', quiet({ archerFirstDelay: 0.5, archerPoint }), 2), w = sim.world;
+    sim.command({ t: 'teleport', x: 4.4, y: 5 });
+    const archer = place(sim, 11, 5, 0, 0, 'archer');
+    runUntil(sim, () => archer.vars.aim === 1);
+    if (archerPoint) assert(archer.vars.ax === w.hero.x && archer.vars.ay === w.hero.y, 'the water does not hide the hero: marked');
+    else assert(Math.abs(archer.vars.len - w.params.archerRange) < 1e-9, `the line over the river is whole: ${archer.vars.len}`);
+    runUntil(sim, () => archer.vars.aim !== 1);
+    assert(w.hero.hp === w.hero.maxHp - w.params.archerDamage, `the arrow hit the hero: hp ${w.hero.hp}`);
+    assert(replays(sim), 'replay');
+  }
 });
 
 // ---- М2 «Обрыв» ----
@@ -273,15 +276,18 @@ check('М2 cliff: newcomers never appear over the cliff (3 seeds × 40 s); every
   console.log(`   ${spawns} newcomers, none over the cliff; falls from the crowd's pushing and boars: ${falls}`);
 });
 
-check('М2 cliff: an arrow flies over the drop (sight and the line are not cut)', () => {
-  const sim = fight('cliff', quiet({ archerFirstDelay: 0.5 }), 5), w = sim.world;
-  sim.command({ t: 'teleport', x: 4.2, y: 4.4 });
-  const archer = place(sim, 10.4, 4.4, 0, 0, 'archer');
-  runUntil(sim, () => archer.vars.aim === 1);
-  assert(Math.abs(archer.vars.len - w.params.archerRange) < 1e-9, `the line over the cliff is whole: ${archer.vars.len}`);
-  runUntil(sim, () => archer.vars.aim !== 1);
-  assert(w.hero.hp === w.hero.maxHp - w.params.archerDamage, 'the arrow hit the hero');
-  assert(replays(sim), 'replay');
+check('М2 cliff: an arrow flies over the drop (sight and the line are not cut) — the point shot (phase A) and the old line', () => {
+  for (const archerPoint of [true, false]) {
+    const sim = fight('cliff', quiet({ archerFirstDelay: 0.5, archerPoint }), 5), w = sim.world;
+    sim.command({ t: 'teleport', x: 4.2, y: 4.4 });
+    const archer = place(sim, 10.4, 4.4, 0, 0, 'archer');
+    runUntil(sim, () => archer.vars.aim === 1);
+    if (archerPoint) assert(archer.vars.ax === w.hero.x && archer.vars.ay === w.hero.y, 'the drop does not hide the hero: marked');
+    else assert(Math.abs(archer.vars.len - w.params.archerRange) < 1e-9, `the line over the cliff is whole: ${archer.vars.len}`);
+    runUntil(sim, () => archer.vars.aim !== 1);
+    assert(w.hero.hp === w.hero.maxHp - w.params.archerDamage, 'the arrow hit the hero');
+    assert(replays(sim), 'replay');
+  }
 });
 
 check('М2 blast push (design answer 09.10.2026): on by default, 0.8 — a survivor of a blast is thrown off its center, the hero is not', () => {
