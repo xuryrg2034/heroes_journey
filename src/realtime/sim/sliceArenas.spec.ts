@@ -83,7 +83,8 @@ check('«Брод»: five marked — three archers on the far bank, two wolves a
   const goal = goalProgress(w), marked = w.enemies.filter(e => e.marked);
   assert(goal.label === 'отмеченные' && goal.total === 5, `goal ${goal.label} ${goal.total}`);
   assert(marked.filter(e => e.kind === 'archer').length === 3 && marked.filter(e => e.kind === 'wolf').length === 2, `marked: ${marked.map(e => e.kind)}`);
-  assert(marked.every(e => e.x > 10.6), 'the marked stand on the far bank');
+  // Phase A, Т5 (24×14): the river spans x ≈ 10.5–14.9 at its widest bends; the far bank is east of it.
+  assert(marked.every(e => e.x > 14.9 && !inWater(e, w.arena)), 'the marked stand on the far bank');
   // The hero walks one second on the bank and one in the river: the water slows him by its factor.
   const walked = (from: Vec): number => {
     sim.command({ t: 'teleport', x: from.x, y: from.y });
@@ -92,14 +93,14 @@ check('«Брод»: five marked — three archers on the far bank, two wolves a
     sim.command({ t: 'walk', x: 0, y: 0 });
     return Math.abs(w.hero.y - from.y);
   };
-  const dry = walked({ x: 2.2, y: 4 }), wet = walked({ x: 8, y: 4 });
-  assert(inWater({ x: 8, y: 4 }, w.arena) && Math.abs(wet / dry - w.params.waterSlow) < 0.05, `in the water ${wet.toFixed(2)} vs ${dry.toFixed(2)} on the bank`);
+  const dry = walked({ x: 3.3, y: 5.6 }), wet = walked({ x: 12.6, y: 5.6 });
+  assert(inWater({ x: 12.6, y: 5.6 }, w.arena) && Math.abs(wet / dry - w.params.waterSlow) < 0.05, `in the water ${wet.toFixed(2)} vs ${dry.toFixed(2)} on the bank`);
   console.log(`   0.5 s of walking: ${dry.toFixed(2)} on the bank, ${wet.toFixed(2)} in the river`);
   // An archer on the far bank, the hero on this one: the line crosses the water whole, the arrow hurts him.
   const shot = new Simulation({ arena: 'ford', params: quiet({ archerFirstDelay: 0.5 }), seed: seedOf(2), record: true }), sw = shot.world;
   shot.command({ t: 'clear', keepMarked: false });
-  shot.command({ t: 'teleport', x: 4.6, y: 5 });
-  const archer = place(shot, 11.2, 5, 'archer', 0);
+  shot.command({ t: 'teleport', x: 9.4, y: 7 });
+  const archer = place(shot, 16.4, 7, 'archer', 0);
   runUntil(shot, () => archer.vars.aim === 1);
   assert(Math.abs(archer.vars.len - 7) < 1e-9, `over the river the line is whole: ${archer.vars.len}`);
   runUntil(shot, () => archer.vars.aim !== 1);
@@ -153,7 +154,7 @@ check('«Последний рубеж»: kill 40 — the door stays shut until 
   const elites = startElites(w);
   assert(elites.length === 2 && elites.map(e => e.kind).sort().join() === 'porcupine,sapper', `elites from the start: ${elites.map(e => e.kind)}`);
   sim.command({ t: 'clear', keepMarked: false });
-  sim.command({ t: 'teleport', x: 8, y: 5 });
+  sim.command({ t: 'teleport', x: 12, y: 7.5 });
   const door = w.objects.find(o => o.kind === 'door')!;
   // Thirty-nine kills by the bomb (the player's item): the goal is not done, walking at the door does not let the hero out.
   for (let n = 0; n < 40; n++) {
@@ -164,9 +165,9 @@ check('«Последний рубеж»: kill 40 — the door stays shut until 
       ticks(sim, 90);
       sim.command({ t: 'walk', x: 0, y: 0 });
       assert(statusOf(w) === 'playing', 'the shut door does not let him out');
-      sim.command({ t: 'teleport', x: 8, y: 5 });
+      sim.command({ t: 'teleport', x: 12, y: 7.5 });
     }
-    const e = place(sim, 9.5, 5, 'basic', n % 4, 0);
+    const e = place(sim, 13.5, 7.5, 'basic', n % 4, 0);
     assert(sim.command({ t: 'item', kind: 'bomb', x: e.x, y: e.y }) === true && !alive(w, e), `bomb ${n + 1}`);
   }
   assert(w.stats.kills === 40 && goalProgress(w).done === 40 && stageOf(w) === 'greed' && doorOpen(w), `40 kills: ${w.stats.kills}, ${stageOf(w)}`);

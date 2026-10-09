@@ -398,16 +398,16 @@ check('7 «Колючие заросли»: the hedge cuts the walk — the hero
 
 check('8 «Брод»: the crossing — walking in the river is ×0.5 (no dry way round), a dash through it keeps its full speed', () => {
   const sim = fight('ford', quiet()), w = sim.world;
-  // The river at y 5: x ≈ 6.6–9.6, from the top edge to the bottom one.
+  // Phase A, Т5 (24×14): the river at y 7 — x ≈ 10.5–13.6, from the top edge to the bottom one.
   // No dry way to the door: the walk wades the river (the band runs from edge to edge).
   const arena = arenaTemplate('ford');
   assert(walkLength(arena, arena.heroStart, arena.door, true, false) === Infinity && Number.isFinite(walkLength(arena, arena.heroStart, arena.door, true)), 'no dry way round the river');
-  const dry = walk(sim, { x: 2.5, y: 4.4 }, { x: 1, y: 0 }, 30), wet = walk(sim, { x: 7.2, y: 5 }, { x: 1, y: 0 }, 30);
+  const dry = walk(sim, { x: 3.6, y: 6.4 }, { x: 1, y: 0 }, 30), wet = walk(sim, { x: 10.9, y: 7 }, { x: 1, y: 0 }, 30);
   assert(Math.abs(wet / dry - w.params.waterSlow) < 0.03, `hero: ${wet.toFixed(3)} in the river vs ${dry.toFixed(3)} on the bank`);
   // A first group may have stepped out during the walks (the quiet pace sends one at the start): clear it.
   sim.command({ t: 'clear', keepMarked: false });
-  sim.command({ t: 'teleport', x: 4.4, y: 5 });
-  const pts =[{ x: 6, y: 5 }, { x: 7.8, y: 5 }, { x: 9.6, y: 5 }, { x: 11, y: 5 }];
+  sim.command({ t: 'teleport', x: 8.6, y: 7 });
+  const pts =[{ x: 10.2, y: 7 }, { x: 12, y: 7 }, { x: 13.8, y: 7 }, { x: 15.2, y: 7 }];
   for (const p of pts) place(sim, p.x, p.y);
   chainThrough(sim, pts);
   const dash = flight(sim);
@@ -455,19 +455,20 @@ check('9 «Застава»: the yard on the brink — a blast throws a survivor
 
 check('10 «Последний рубеж»: the big pond slows walking; a chain through a brazier at its bank gives the rest +2', () => {
   const sim = fight('last-stand', quiet()), w = sim.world;
-  const dry = walk(sim, { x: 6, y: 5 }, { x: 0, y: 1 }, 30), wet = walk(sim, { x: 11, y: 4.2 }, { x: 0, y: 1 }, 30);
-  assert(inWater({ x: 11, y: 5 }, w.arena) && Math.abs(wet / dry - w.params.waterSlow) < 0.03, `hero: ${wet.toFixed(3)} in the pond vs ${dry.toFixed(3)} on the bank`);
-  // The north brazier (8, 2.2); a tough enemy wading at the pond's edge.
-  sim.command({ t: 'teleport', x: 8, y: 3.8 });
-  const e1 = place(sim, 9.6, 2.4, 2, 0), e2 = place(sim, 10.2, 3.9, 2, 4);
-  assert(inWater(e2, w.arena), 'the second one wades');
-  chainThrough(sim, [{ x: 8, y: 2.2 }, { x: e1.x, y: e1.y }, { x: e2.x, y: e2.y }], false);
+  // Phase A, Т5 (24×15): the pond — center (16.4, 7.5), radius 3.4; the north brazier (12.8, 4.6).
+  const dry = walk(sim, { x: 9, y: 6 }, { x: 0, y: 1 }, 30), wet = walk(sim, { x: 16.4, y: 6.7 }, { x: 0, y: 1 }, 30);
+  assert(inWater({ x: 16.4, y: 7.5 }, w.arena) && Math.abs(wet / dry - w.params.waterSlow) < 0.03, `hero: ${wet.toFixed(3)} in the pond vs ${dry.toFixed(3)} on the bank`);
+  // A weak enemy on the bank by the north brazier, a tough one wading at the pond's edge.
+  sim.command({ t: 'teleport', x: 12.8, y: 6.2 });
+  const e1 = place(sim, 14.2, 4.6, 2, 0), e2 = place(sim, 15, 6, 2, 4);
+  assert(!inWater(e1, w.arena) && inWater(e2, w.arena), 'the first one stands on the bank, the second one wades');
+  chainThrough(sim, [{ x: 12.8, y: 4.6 }, { x: e1.x, y: e1.y }, { x: e2.x, y: e2.y }], false);
   const plan = planChain(w);
   assert(plan.kills === 2 && plan.links[2].outcome?.available === 4, `with the brazier: ${plan.links[2].outcome?.available} against 4 HP`);
   assert(!planChain(w, [w.chain[1], w.chain[2]]).links[1].outcome!.killed, 'without the brazier the wader would survive');
   sim.command({ t: 'release' });
   flight(sim);
-  assert(!alive(w, e1) && !alive(w, e2) && brazierAt(w, 8, 2.2).out !== undefined, 'the dash killed both');
+  assert(!alive(w, e1) && !alive(w, e2) && brazierAt(w, 12.8, 4.6).out !== undefined, 'the dash killed both');
   assert(replays(sim), 'replay');
 });
 
