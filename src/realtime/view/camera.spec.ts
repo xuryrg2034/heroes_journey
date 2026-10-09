@@ -219,6 +219,24 @@ check('arrows: a danger and a goal in the same direction — the goal is drawn f
   assert(near(low.y, 640) && near(low.x, 640), 'bottom arrow at the rectangle bottom');
 });
 
+check('edge markers (phase A, Т6): the archer\'s mark — a pointer at the circle\'s centre only when no part of it is in view', () => {
+  const world = quietWorld();
+  world.hero.x = 12; world.hero.y = 7.5;
+  const r = world.params.archerMarkRadius;
+  const archer = foe(1, 'archer', 12, 4, { aim: 1, pt: 1, ax: 12, ay: 7.5, timer: 0.5 });
+  world.enemies.push(archer);
+  assert(markers(world).length === 0, 'the mark in view: no pointer');
+  archer.vars.ax = 12 + VIEW.viewW / 2 + r * 0.5;
+  assert(markers(world).length === 0, 'the circle partly in view: no pointer');
+  archer.vars.ax = 12 + VIEW.viewW / 2 + r * 1.5;
+  const m = markers(world);
+  assert(m.length === 1 && m[0].kind === 'threat' && m[0].x === archer.vars.ax && m[0].y === 7.5, `the circle wholly off screen: ${JSON.stringify(m)}`);
+  archer.x = 1; archer.y = 1;
+  assert(markers(world).length === 1, 'one pointer — at the circle, not at the archer off screen');
+  archer.vars.aim = 0;
+  assert(markers(world).length === 0, 'no aim: none');
+});
+
 check('edge markers (phase A): a howling or rushing wolf off screen is a danger; a ringing or frozen one is not', () => {
   const world = quietWorld();
   world.hero.x = 12; world.hero.y = 7.5;

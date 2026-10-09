@@ -14,7 +14,7 @@ import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
-import { BOAR_ART_SCALE, archerLine, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
+import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
@@ -84,7 +84,7 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 /** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
 /** Stage 3a: `howls` — the wolves' howl circle round the hero (П1); `leapLines`, `stunned` — the lynx's leap line and its stun (П2); `beams` — the shaman's beam (П4). */
 /** Phase A (Д3): `rushLanes` — the rush lanes of howling and rushing wolves; `roleBadges` — role badges under bodies. */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number }
 
 /** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
 export interface TerrainCounts { river: number; cliff: number; thorns: number }
@@ -210,6 +210,11 @@ export class RealtimeRenderer {
   showRoleBadges = true;
   /** Role badges drawn in the last frame, by role (tests read it). */
   readonly badgeRoles: Record<EnemyRole, number> = { shooter: 0, blocker: 0, punisher: 0, master: 0, diver: 0 };
+  /** Phase A (Т6): the archers' marks seen in the last frame (id → point and progress): a mark gone at the end of its fill
+   * flashes where it was (the arrow fell); one gone early (the archer died, the fight ended) does not. */
+  private archerMarksSeen = new Map<number, { x: number; y: number; r: number; progress: number }>();
+  /** Arrow-fall flashes shown so far (tests read it). */
+  arrowFlashes = 0;
   /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
   private rushLaneCount = 0;
   private readonly enemyLayer = new Container();
@@ -269,7 +274,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0 };
   /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
   readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
   /** Stage 3a (М2): enemies seen falling into a cliff so far. */
@@ -774,7 +779,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0 };
     // Stage 3a (П1): the wolves howl — a thin threat circle on the ring round the hero, no fill (phase A: the rush lanes of
     // the wolves carry the timing).
     const howl = wolfHowl(world);
@@ -802,6 +807,7 @@ export class RealtimeRenderer {
       g.stroke({ color: SPARK, width: 3, cap: 'round' });
     };
     for (const b of world.blasts) fuse(b.x, b.y, b.timeLeft, b.total);
+    const marks = new Map<number, { x: number; y: number; r: number; progress: number }>();
     for (const e of world.enemies) {
       const lit = sapperFuse(world, e);
       if (lit) fuse(e.x, e.y, lit.left, lit.total);
@@ -814,6 +820,19 @@ export class RealtimeRenderer {
         // The arrow head at the filling front.
         const tx = ox + ux * len * line.progress, ty = oy + uy * len * line.progress;
         g.poly([tx + ux * half * 1.6, ty + uy * half * 1.6, tx - nx * half * 1.3, ty - ny * half * 1.3, tx + nx * half * 1.3, ty + ny * half * 1.3]).fill(THREAT).stroke({ color: THREAT_OUTLINE, width: 2 });
+      }
+      // Phase A (Т6): the archer's mark — a hatched threat circle at the fixed point, filling as the windup runs (a frozen
+      // archer keeps it, the fill waits); the arrow falls at the end (a flash, `drawArcherFlashes`). No flight of the arrow.
+      const mark = archerMark(world, e);
+      if (mark) {
+        counts.archerMarks++;
+        marks.set(e.id, { x: mark.at.x, y: mark.at.y, r: mark.r, progress: mark.progress });
+        const X = mark.at.x * UNIT, Y = mark.at.y * UNIT, R = mark.r * UNIT;
+        g.circle(X, Y, R).fill({ color: THREAT, alpha: 0.16 });
+        if (mark.progress > 0) g.circle(X, Y, R * Math.min(1, mark.progress)).fill({ color: THREAT, alpha: 0.28 });
+        hatchCircle(g, X, Y, R, 0.32 * UNIT);
+        g.stroke({ color: THREAT, width: 2.5, alpha: 0.6 });
+        g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 }).circle(X, Y, R).stroke({ color: THREAT, width: 2, alpha: 0.95 });
       }
       // Stage 3a (П2): the lynx's leap line — a strip of its body width (threat colour) filling during the windup, fading in
       // the leap; stunned — three stars turning over it.
@@ -880,6 +899,17 @@ export class RealtimeRenderer {
       g.moveTo(x + Math.cos(f - half) * R, y + Math.sin(f - half) * R).arc(x, y, R, f - half, f + half).stroke({ color: NAVY, width: 11, cap: 'round' });
       g.moveTo(x + Math.cos(f - half) * R, y + Math.sin(f - half) * R).arc(x, y, R, f - half, f + half).stroke({ color: STEEL, width: 6, cap: 'round' });
     }
+    // Phase A (Т6): a mark gone right at the end of its fill — the arrow fell there: a short flash. Gone earlier (the archer
+    // died, frozen and bombed, the fight ended) — no flash.
+    if (world.status === 'playing') for (const [id, m] of this.archerMarksSeen) {
+      if (marks.has(id) || m.progress < 0.85) continue;
+      const flash = new Graphics().circle(0, 0, m.r * UNIT).fill({ color: THREAT, alpha: 0.5 }).stroke({ color: THREAT_OUTLINE, width: 4 });
+      flash.position.set(m.x * UNIT, m.y * UNIT);
+      this.fxLayer.addChild(flash);
+      this.bursts.push({ g: flash, life: 0.25, total: 0.25 });
+      this.arrowFlashes++;
+    }
+    this.archerMarksSeen = marks;
     Object.assign(this.signals, counts);
   }
 

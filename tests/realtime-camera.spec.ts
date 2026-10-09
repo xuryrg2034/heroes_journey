@@ -180,15 +180,21 @@ test('off-screen pointers: the open door and a danger aimed at the hero; none fo
   await teleport(page, 20.5, 7.5);
   await settled(page);
   await expect.poll(async () => (await camera(page)).edge.goal).toBe(0);
-  // An archer straight above the hero keeps about 6.3 units: the view is only 5.2 up from its centre, the archer is off
-  // screen — and when it aims, a danger pointer shows.
-  await teleport(page, 12, 9.5);
+  // Phase A, Т6 (the point, the default): an archer marks the hero at the left end of the arena; while the mark is on
+  // screen there is no pointer. The hero is moved to the right end (the windup is lengthened so that the mark waits): the
+  // circle is now wholly off screen — a danger pointer at its centre.
+  await page.evaluate(() => (window as any).__realtime.setParam('archerWindup', 10));
+  await teleport(page, 3, 7.5);
   await settled(page);
-  const hero = (await snap(page)).hero;
-  // Phase A, Т6: the archer's old line (the pointer of the point mark comes with the view's second pass, track Д3).
-  await page.evaluate(() => (window as any).__realtime.setParam('archerPoint', false));
-  await place(page, hero.x, hero.y - 6.3, 1, 0, 'archer');
-  await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBeGreaterThanOrEqual(1);
+  await place(page, 6.5, 10.5, 1, 0, 'archer');
+  await expect.poll(async () => (await snap(page)).archerMarks, { timeout: 8_000 }).toBe(1);
+  expect((await camera(page)).edge.threat).toBe(0);
+  await teleport(page, 21, 7.5);
+  await settled(page);
+  expect((await snap(page)).archerMarks).toBe(1);
+  await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBe(1);
+  const arrow = (await camera(page)).arrows.find(a => a.kind === 'threat')!;
+  expect(arrow.x).toBeLessThan(100);
   await page.screenshot({ path: 'artifacts/realtime-camera-pointers.png' });
   expect(errors).toEqual([]);
 });
@@ -310,14 +316,17 @@ test('off-screen pointers keep clear of the HUD: no arrow overlaps the action ba
   await open(page, errors, 18);
   await still(page);
   await page.evaluate(() => (window as any).__realtime.completeGoals());
-  await teleport(page, 12, 5);
+  // Phase A, Т6 (the point, the default): two archers mark the hero at the bottom of the arena (the windup is lengthened so
+  // that the marks wait); the hero is moved to the top — both circles are below the view: their arrows belong at the
+  // bottom, where the action bar is.
+  await page.evaluate(() => (window as any).__realtime.setParam('archerWindup', 10));
+  await teleport(page, 11, 13.5);
   await settled(page);
-  // Two archers below the view aim up at the hero: their arrows belong at the bottom, where the action bar is.
-  const hero = (await snap(page)).hero;
-  // Phase A, Т6: the archers' old line (the pointer of the point mark comes with the view's second pass, track Д3).
-  await page.evaluate(() => (window as any).__realtime.setParam('archerPoint', false));
-  await place(page, hero.x, hero.y + 6.3, 1, 0, 'archer');
-  await place(page, hero.x + 2.5, hero.y + 6.3, 2, 0, 'archer');
+  await place(page, 9.5, 8.7, 1, 0, 'archer');
+  await place(page, 12.5, 8.7, 2, 0, 'archer');
+  await expect.poll(async () => (await snap(page)).archerMarks, { timeout: 8_000 }).toBe(2);
+  await teleport(page, 11, 2);
+  await settled(page);
   await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBeGreaterThanOrEqual(2);
   const rects = await hudRects(page);
   expect(rects.map(r => r.name)).toEqual(expect.arrayContaining(['hud', 'action bar', 'jump button', 'help line']));

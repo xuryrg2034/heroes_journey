@@ -3,7 +3,7 @@
  * the world through the same signal functions the renderer draws from (`archerLine`, `lynxLine`, …); no rules of its own.
  *
  * - dangers aimed at the hero, shown at their source when it is off screen: the boar's lane (windup, charge), the
- *   archer's line, the lynx's leap line, a wolf's rush line (howl, rush; phase A), the lit fuse of a sapper and a bomb on
+ *   archer's line (old path) or its mark — the circle, when no part of it is in view, at the circle's centre (phase A, Т6), the lynx's leap line, a wolf's rush line (howl, rush; phase A), the lit fuse of a sapper and a bomb on
  *   the ground (only when the blast circle reaches the view), the shaman's beam (only when its target is on screen or near
  *   the hero — otherwise noise);
  * - goals of the arena: marked enemies, buttons not pressed, the open door;
@@ -11,7 +11,7 @@
  *   larger than the view. On an arena that fits the view every marker is on screen anyway.
  */
 import { lynxLine } from '../sim/enemies/lynx';
-import { archerLine } from '../sim/enemies/archer';
+import { archerLine, archerMark } from '../sim/enemies/archer';
 import { sapperFuse } from '../sim/enemies/sapper';
 import { shamanBeam } from '../sim/enemies/shaman';
 import { wolfRushLine } from '../sim/enemies/wolf';
@@ -30,7 +30,9 @@ export function collectEdgeMarkers(world: World, sees: (p: { x: number; y: numbe
   const out: EdgeMarker[] = [];
   const threat = (p: { x: number; y: number }): void => { if (!sees(p, SEEN_MARGIN)) out.push({ x: p.x, y: p.y, kind: 'threat' }); };
   for (const e of world.enemies) {
-    if (e.kind === 'boar' && (e.boar === 'windup' || e.boar === 'charge')) threat(e);
+    const mark = archerMark(world, e);
+    if (mark) { if (!sees(mark.at, mark.r)) out.push({ x: mark.at.x, y: mark.at.y, kind: 'threat' }); }
+    else if (e.kind === 'boar' && (e.boar === 'windup' || e.boar === 'charge')) threat(e);
     else if (archerLine(world, e) || lynxLine(world, e) || wolfRushLine(world, e)) threat(e);
     else if (sapperFuse(world, e)) { if (sees(e, world.params.sapperRadius) && !sees(e, SEEN_MARGIN)) threat(e); }
     else {
