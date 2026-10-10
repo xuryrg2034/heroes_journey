@@ -37,13 +37,13 @@ import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
   arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
-  rtChooseTalisman, rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
+  rtChooseHammer, rtChooseTalisman, rtEnterNode, rtHammerOptions, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
 } from './rtRun';
 import type { ItemKind } from '../sim/kit';
 import { ITEM_KINDS } from '../../game/items';
 import type { GiftOption } from '../../game/run/runGift';
-import { RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer } from './rtTalismans';
+import { RT_TALISMANS, RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer, RT_COUNTER_TALISMANS, RT_RELICS, HAMMER_IDS, OATH_HUNGER, isHammerId, rtHammer } from './rtTalismans';
 import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from './rtRunStorage';
 import { SLICE_EVENTS, SLICE_EVENTS_OFF } from './sliceEvents';
 
@@ -106,11 +106,11 @@ function takeGift(run: RtRunState, prefer?: (kind: string) => boolean): RtRunSta
 
 // ---- A bot that walks a whole run through the run's commands ----
 
-interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: string[]; rowArenas: [number, string][]; outOfRow: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number; offers: string[]; atFinal?: RtRunState }
+interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: string[]; rowArenas: [number, string][]; outOfRow: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number; offers: string[]; atFinal?: RtRunState; hammerShown?: boolean; hammers: number }
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   let run = createRtRun(seed, { gift: options.gift ?? 'mini' });
-  const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], outOfRow: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [] };
+  const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], outOfRow: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [], hammers: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
     save();
@@ -139,7 +139,8 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       const hpBefore = run.hp, sim = startArena(run);
       assert(sim.world.hero.hp === run.hp && sim.world.hero.maxHp === run.maxHp, 'the hero enters with the run HP');
       assert(same(sim.world.kit!.items, run.items) && sim.world.energy === Math.min(7, run.energy + 2 * run.talismans.filter(id => id.startsWith('oath-')).length), 'the hero enters with the run\'s consumables and banked energy (+2 an oath)');
-      assert(same(sim.world.kit!.talismans, run.talismans), 'the run\'s talismans act in the arena');
+      assert(same(sim.world.kit!.talismans, run.talismans) && sim.world.kit!.hammer === run.hammer, 'the run\'s talismans and hammer act in the arena');
+      if (run.hammer) walk.hammers++;
       // Step 3: a consumable in hand is used on the arena (healing when hurt, else a bomb on the nearest enemy).
       for (let i = 0; i < 30; i++) sim.tick();
       const target = sim.world.enemies[0];
@@ -152,7 +153,7 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
         walk.replays++;
       }
       assert(sim.world.status !== 'playing', 'the arena ended');
-      const outcome = outcomeOf(run, sim);
+      const outcome = outcomeOf(run, sim), streamsBefore = { ...run.streams };
       run = ok(resolveArena(run, outcome), 'resolve');
       if (!outcome.won) { assert(run.result?.outcome === 'defeat', 'a lost arena ends the run'); break; }
       // Back on the map (a hard battle and the Jailer's row: after the talisman choice): the node is done, the HP is the
@@ -160,6 +161,16 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       const heart = pending.battle === 'hard' ? Math.min(rtHp(FOREST_HARD_HEAL), run.maxHp - outcome.hp) : 0;
       assert(run.hp === outcome.hp + heart && run.hp <= run.maxHp, `HP after the arena: ${run.hp} (arena ${outcome.hp}, before ${hpBefore})`);
       assert(same(run.items, outcome.items) && run.energy === 0, 'the consumables left come back; the banked energy is spent');
+      // Phase B: the first Jailer's row of the run offers a hammer first (3 of 4, by the node's roll); refused on some walks.
+      if (node.type === 'checkpoint' && !walk.hammerShown) {
+        const offer = run.pending as Extract<RtRunState['pending'], { kind: 'hammer' }>;
+        assert(offer?.kind === 'hammer' && offer.options.length === 3 && new Set(offer.options).size === 3 && same(roundTrip(run), run), 'the first Jailer\'s row: three hammers, saved');
+        assert(run.streams.talismans === streamsBefore.talismans, 'the hammer screen spends no stream');
+        walk.hammerShown = true;
+        const hammer = offer.options[(k + step) % (offer.options.length + 1)] ?? null;
+        run = ok(rtChooseHammer(run, hammer), 'hammer');
+        assert(run.hammer === (hammer ?? undefined) && run.streams.talismans === streamsBefore.talismans + 1, 'the hammer taken (or refused); the oath screen takes the node\'s talismans draw');
+      }
       if (node.type === 'hard' || node.type === 'checkpoint') {
         const offer = run.pending as Extract<RtRunState['pending'], { kind: 'talisman' }>;
         assert(offer?.kind === 'talisman' && offer.source === (node.type === 'hard' ? 'hard' : 'oath') && same(roundTrip(run), run), `${node.type}: a talisman choice, saved`);
@@ -295,14 +306,30 @@ check('the start gift: its usual buttons (consumables, energy, resources, maximu
   assert(['pick-item', 'items', 'energy', 'resources', 'max-hp', 'deal', 'oath'].every(kind => kinds.has(kind)), `full gift kinds met: ${[...kinds]}`);
 });
 
-check('the full gift is the turn-based roll as it is (design answer to step 3): four buttons, a −3 maximum deal never beside +3 maximum', () => {
+check('the full gift is the turn-based roll (design answer to step 3): four buttons, a −3 maximum deal never beside +3 maximum; phase B — its talismans by the real-time draw: never rare, never a relic, counter talismans among them', () => {
   let maxHpDeals = 0;
+  const drawn = new Map<string, number>();
   for (let k = 1; k <= 500; k++) {
-    const seed = Math.imul(k, 2654435761) >>> 0, run = createRtRun(seed, { gift: 'full' }), view = rtGiftView(run)!;
-    assert(same(view.options.map(entry => entry.option), rollGift(seed, 'full', GIFT_POOL).options) && view.options.length === 4, `seed ${seed}: the roll as it is`);
-    const deal = view.options[2].option as Extract<GiftOption, { kind: 'deal' }>;
+    const seed = Math.imul(k, 2654435761) >>> 0, run = createRtRun(seed, { gift: 'full' }), view = rtGiftView(run)!, rolled = rollGift(seed, 'full', GIFT_POOL).options;
+    // The buttons, the deal's price and reward kind are the turn-based roll's; only the talismans are drawn again.
+    const shape = (option: GiftOption) => option.kind === 'deal' ? `deal:${option.price}:${option.reward.kind}` : option.kind === 'oath' ? 'oath' : JSON.stringify(option);
+    assert(same(view.options.map(entry => shape(entry.option)), rolled.map(shape)) && view.options.length === 4, `seed ${seed}: the roll's buttons`);
+    assert(GIFT_STREAMS.full.every(stream => run.streams[stream] === 1), `seed ${seed}: one value of each gift stream, as before`);
+    const deal = view.options[2].option as Extract<GiftOption, { kind: 'deal' }>, oath = view.options[3].option as Extract<GiftOption, { kind: 'oath' }>;
     if (deal.price === 'max-hp') { maxHpDeals++; assert(!view.options.some(entry => entry.option.kind === 'max-hp'), `seed ${seed}: −3 maximum beside +3 maximum`); }
+    const ids = deal.reward.kind === 'pick-talisman' ? deal.reward.talismans : [deal.reward.talisman];
+    assert(deal.reward.kind === 'talisman' || (ids.length === 2 && new Set(ids).size === 2), `seed ${seed}: two different commons to choose from`);
+    for (const id of ids) {
+      const rarity = id ? rtTalisman(id)?.rarity : undefined;
+      // Design answer 5: the gift never gives a rare one; «обычный на выбор» is common, «случайный необычный» uncommon.
+      assert(rarity === (deal.reward.kind === 'pick-talisman' ? 'common' : 'uncommon'), `seed ${seed}: ${id} is ${rarity}`);
+      if (deal.price === 'max-hp') assert(id !== 'tough-hide', `seed ${seed}: «Крепкая шкура» for a point of the maximum`);
+      drawn.set(id!, (drawn.get(id!) ?? 0) + 1);
+    }
+    assert(oath.oath === OATH_HUNGER, `seed ${seed}: the oath button is an oath (${oath.oath})`);
   }
+  console.log(`   gift talismans (500 full gifts): ${[...drawn].map(([id, n]) => `${id} ${n}`).join(', ')}`);
+  assert(RT_COUNTER_TALISMANS.filter(def => def.rarity !== 'rare').every(def => drawn.has(def.id)), 'every common and uncommon counter talisman comes in the gift');
   assert(maxHpDeals > 0, 'deals for the maximum came');
   assert(rtGiftOptions(SEEDS[0], createRtRun(SEEDS[0], { gift: 'mini' }).gift!).length === 2, 'the mini gift is as rolled');
 });
@@ -420,7 +447,10 @@ function arenaPath(seed: number, k: number): { path: PathArena[]; previews: numb
       path.push({ row: runRow(node.row), type: node.type, arena: pending.arena });
       run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
       assert(same(roundTrip(run), run), 'the save loads back');
-    } else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
+      // Phase B: the Jailer's two screens (hammer, then oath) are one step, as its one screen before them: the node choices
+      // `(k + step)` and the measure of c8df2d4 stay as they were.
+    } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
+    else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]), 'find');
     else if (pending?.kind === 'shop') run = ok(rtShopLeave(run), 'shop');
@@ -565,13 +595,15 @@ check('a reload in the middle of an arena starts the same arena again from the s
   assert(again.hash() === fresh.hash() && again.world.tick === 0, 'the arena starts again from its start');
   const text = serializeRtRun(run);
   const broken = [
-    text.replace('"version":5', '"version":1'),
+    text.replace('"version":6', '"version":1'),
     // Iteration 2.1: a version 2 save (HP 12 / 12, ×2.4) is no run.
-    text.replace('"version":5', '"version":2'),
+    text.replace('"version":6', '"version":2'),
     // Stage 3a: a version 3 save (pools without the lynx's and the shaman's arenas) is no run.
-    text.replace('"version":5', '"version":3'),
+    text.replace('"version":6', '"version":3'),
     // Phase A (Т2): a version 4 save (no rosters) is no run.
-    text.replace('"version":5', '"version":4'),
+    text.replace('"version":6', '"version":4'),
+    // Phase B (Д4): a version 5 save (no hammer, the turn-based draws of the gift and events) is no run.
+    text.replace('"version":6', '"version":5'),
     JSON.stringify({ ...run, hp: run.maxHp + 1 }),
     JSON.stringify({ ...run, visited: ['r6c0'], currentNodeId: 'r6c0' }),
     JSON.stringify({ ...run, pending: { ...run.pending, seed: 1 } }),
@@ -629,6 +661,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
       }
       if (run.pending?.kind === 'find') { run = ok(rtChooseFind(run, run.pending.options[0]), 'find'); continue; }
       if (run.pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
+      if (run.pending?.kind === 'hammer') { run = ok(rtChooseHammer(run, null), 'hammer'); continue; }
       if (run.pending?.kind === 'event') {
         const view = rtEventView(run)!, safe = view.options.find(option => option.safe && option.available)!;
         run = ok(rtChooseEventOption(run, safe.id), 'safe option'); continue;
@@ -679,7 +712,7 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
   run = ok(resolveArena(run, outcomeOf(run, sim)), 'win');
   // Step 3: the reward — common talismans to choose from (2); the choice completes the event.
   const reward = run.pending as Extract<RtRunState['pending'], { kind: 'talisman' }>;
-  assert(reward?.kind === 'talisman' && reward.source === 'event' && reward.options.length === 2 && reward.options.every(id => ['whetstone', 'dew-flask'].includes(id)), `reward: ${JSON.stringify(reward)}`);
+  assert(reward?.kind === 'talisman' && reward.source === 'event' && reward.options.length === 2 && reward.options.every(id => rtTalisman(id)!.rarity === 'common'), `reward: ${JSON.stringify(reward)}`);
   assert(same(roundTrip(run), run), 'the reward choice is saved');
   run = ok(rtChooseTalisman(run, reward.options[0]), 'reward');
   assert(run.pending === null && run.talismans.includes(reward.options[0]) && run.visited.includes(node.id) && run.eventChoices.some(choice => choice.nodeId === node.id && choice.option === 'fight'), 'the choice completes the event');
@@ -726,6 +759,7 @@ function openNode(salt: number, type: 'find' | 'shop' | 'rest' | 'event', prepar
       if (pending?.kind === 'rest') { run = ok(rtRestHeal(run), 'rest'); continue; }
       if (pending?.kind === 'shop') { run = ok(rtShopLeave(run), 'shop'); continue; }
       if (pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
+      if (pending?.kind === 'hammer') { run = ok(rtChooseHammer(run, null), 'hammer'); continue; }
       if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; run = ok(rtChooseEventOption(run, safe.id), 'event'); continue; }
       const next = rtAvailableNodes(run), pick = next.find(node => node.type === type) ?? next.find(node => node.type === 'battle') ?? next[0];
       run = ok(rtEnterNode(run, pick.id), 'enter');
@@ -752,6 +786,7 @@ function nextArenaStep(run: RtRunState): RtRunState {
   if (pending?.kind === 'rest') return ok(rtRestHeal(run), 'rest');
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');
+  if (pending?.kind === 'hammer') return ok(rtChooseHammer(run, null), 'hammer');
   if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; return ok(rtChooseEventOption(run, safe.id), 'event'); }
   if (pending?.kind === 'gift') return takeGift(run);
   return run;
@@ -796,7 +831,7 @@ check('merchant: consumables of the open kinds (one open — the other slot clos
   const one: RtRunState = { ...atShop, openItems: ['frost'] };
   const stock = shopStock(streamValue(one.seed, 'merchant', draw), one.openItems, GIFT_POOL);
   assert(stock.items.length === 2 && stock.items[0] === 'frost' && stock.items[1] !== 'frost', `one open: ${stock.items}`);
-  const visit: RtRunState = { ...one, pending: { ...atShop.pending, stock: { items: stock.items, talisman: null } } };
+  const visit: RtRunState = { ...one, pending: { ...atShop.pending, stock: { items: stock.items, talisman: atShop.pending.stock.talisman } } };
   const view = rtShopView(visit)!, closed = view.goods.find(good => good.opens)!;
   assert(closed && closed.price === 3, 'the closed one is on sale for 3');
   const bought = ok(rtShopBuy(visit, closed.id), 'buy');
@@ -892,29 +927,55 @@ check('elites in the run: random ones from run row 3; the loot of an elite picke
   assert(gained === 1 && same(roundTrip(run), run), `the loot came into the run (${loot.loot}), loads back`);
 });
 
-check('talisman offers: a hard battle offers three by the rarity roll (rare «Якорь у героя» included); talismans without an analogue never come', () => {
-  const offered = new Map<string, number>();
+check('talisman offers (phase B): a hard battle offers three by the rarity roll, its first place always rare (design answer 4); counter talismans among them; the Jailer offers the oath and the relics, and hammers 3 of 4; talismans without an analogue never come', () => {
+  const offered = new Map<string, number>(), rareOf = (id: string) => rtTalisman(id)?.rarity === 'rare';
+  let rareSlots = 0, offers = 0;
   for (let k = 1; k <= 400; k++) {
-    for (const option of rtTalismanOffer(Math.imul(k, 2654435761) >>> 0, 'hard', { taken: [], gone: [] })) offered.set(option, (offered.get(option) ?? 0) + 1);
+    const offer = rtTalismanOffer(Math.imul(k, 2654435761) >>> 0, 'hard', { taken: [], gone: [] });
+    assert(offer.length === 3 && new Set(offer).size === 3 && rareOf(offer[0]), `seed ${k}: three different, the first rare (${offer})`);
+    assert(offer.every(id => !['oath', 'relic'].includes(rtTalisman(id)!.rarity)), `seed ${k}: no oath or relic in a hard battle`);
+    for (const option of offer) offered.set(option, (offered.get(option) ?? 0) + 1);
+    rareSlots += offer.filter(rareOf).length; offers++;
   }
-  const total = [...offered.values()].reduce((a, b) => a + b, 0), rare = ['nimble-paws', 'ash-ward', 'hero-anchor'].reduce((sum, id) => sum + (offered.get(id) ?? 0), 0);
-  console.log(`   ${[...offered].map(([id, n]) => `${id} ${n}`).join(', ')}`);
-  assert(offered.has('hero-anchor') && rare / total > 0.12 && rare / total < 0.24, `rare share ${(rare / total).toFixed(3)}`);
+  console.log(`   hard (400 offers, rare places ${(rareSlots / offers).toFixed(2)} an offer): ${[...offered].map(([id, n]) => `${id} ${n}`).join(', ')}`);
+  // The other two places roll 50/33/17%: about 1 + 2 × 0.17 rare places an offer.
+  assert(rareSlots / offers > 1.2 && rareSlots / offers < 1.5, `rare places an offer: ${(rareSlots / offers).toFixed(2)}`);
+  for (const def of RT_COUNTER_TALISMANS) assert(offered.has(def.id), `${def.id} comes in a hard battle`);
   for (const off of RT_TALISMANS_OFF) assert(!offered.has(off.id), `${off.id} is never offered`);
-  // The oath offer of the Jailer's row: only «Клятва голода» has its price in real time.
-  assert(same(rtTalismanOffer(seedOf32(7), 'oath', { taken: [], gone: [] }), ['oath-hunger']), 'oaths: hunger only');
-  assert(rtTalismanOffer(seedOf32(7), 'oath', { taken: ['oath-hunger'], gone: [] }).length === 0, 'no oath left: an empty offer (refusal only)');
+  // A hard battle with no rare left: the rare place gives way as any other (rare → common → uncommon).
+  const rares = RT_TALISMANS.filter(def => def.rarity === 'rare').map(def => def.id);
+  const noRare = rtTalismanOffer(seedOf32(9), 'hard', { taken: rares, gone: [] });
+  assert(noRare.length === 3 && rtTalisman(noRare[0])!.rarity === 'common', `no rare left: ${noRare}`);
+  // The oath offer of the Jailer's row (design answer 2): «Клятва голода» and the five relics, three different.
+  const jailer = new Map<string, number>();
+  for (let k = 1; k <= 300; k++) {
+    const offer = rtTalismanOffer(seedOf32(k), 'oath', { taken: [], gone: [] });
+    assert(offer.length === 3 && new Set(offer).size === 3 && offer.every(id => id === OATH_HUNGER || rtTalisman(id)!.rarity === 'relic'), `seed ${k}: the Jailer's offer ${offer}`);
+    for (const id of offer) jailer.set(id, (jailer.get(id) ?? 0) + 1);
+  }
+  assert([OATH_HUNGER, ...RT_RELICS.map(def => def.id)].every(id => (jailer.get(id) ?? 0) > 60), `the oath and every relic come: ${[...jailer].map(([id, n]) => `${id} ${n}`).join(', ')}`);
+  assert(rtTalismanOffer(seedOf32(7), 'oath', { taken: [OATH_HUNGER, ...RT_RELICS.map(def => def.id)], gone: [] }).length === 0, 'nothing left: an empty offer (refusal only)');
+  // Design answer 14: «Добивание» and «Быстрые ноги» never come together.
+  for (let k = 1; k <= 100; k++) assert(!rtTalismanOffer(seedOf32(k), 'oath', { taken: ['finishing-blow'], gone: [] }).includes('relic-swift-feet'), 'Добивание taken: no Быстрые ноги');
+  for (let k = 1; k <= 100; k++) assert(!rtTalismanOffer(seedOf32(k), 'hard', { taken: ['relic-swift-feet'], gone: [] }).includes('finishing-blow'), 'Быстрые ноги taken: no Добивание');
   // The pool runs dry: fewer options, no «пустышка» (design answer 10).
-  const all = ['whetstone', 'dew-flask', 'tough-hide', 'millstone-shard', 'hourglass', 'nimble-paws', 'ash-ward', 'hero-anchor'];
+  const all = RT_TALISMANS.filter(def => ['common', 'uncommon', 'rare'].includes(def.rarity)).map(def => def.id);
+  assert(all.length === 16, `sixteen talismans: ${all.length}`);
   assert(rtTalismanOffer(seedOf32(8), 'hard', { taken: all, gone: [] }).length === 0, 'an empty pool: no option, no «пустышка» (design answer 10)');
   assert(rtTalismanOffer(seedOf32(8), 'hard', { taken: all.slice(1), gone: [] }).length === 1, 'one left: one option');
-  // The gift, events and the merchant never give a talisman without an analogue (many seeds).
-  for (let k = 1; k <= 200; k++) {
-    const seed = seedOf32(k), gift = rollGift(seed, 'full', GIFT_POOL);
-    const deal = gift.options[2] as Extract<GiftOption, { kind: 'deal' }>, oath = gift.options[3] as Extract<GiftOption, { kind: 'oath' }>;
-    const drawn = [...deal.reward.kind === 'pick-talisman' ? deal.reward.talismans : [deal.reward.talisman], oath.oath, rtShopTalisman(seed, { taken: [], gone: [] })];
-    for (const id of drawn) assert(id === null || !RT_TALISMANS_OFF.some(off => off.id === id), `seed ${seed}: ${id}`);
+  // The merchant never sells an oath or a relic; nothing without an analogue (many seeds).
+  for (let k = 1; k <= 300; k++) {
+    const id = rtShopTalisman(seedOf32(k), { taken: [], gone: [] });
+    assert(id !== null && ['common', 'uncommon', 'rare'].includes(rtTalisman(id)!.rarity) && !RT_TALISMANS_OFF.some(off => off.id === id), `seed ${k}: the merchant's ${id}`);
   }
+  // The hammers of the Jailer's row: 3 different of 4 by the node's roll; every hammer comes.
+  const hammers = new Map<string, number>();
+  for (let k = 1; k <= 200; k++) {
+    const run = createRtRun(seedOf32(k)), jail = rtMapNodes(run).find(node => node.type === 'checkpoint')!, options = rtHammerOptions(run, jail.id);
+    assert(options.length === 3 && new Set(options).size === 3 && options.every(isHammerId) && same(rtHammerOptions(run, jail.id), options), `seed ${k}: hammers ${options}`);
+    for (const id of options) hammers.set(id, (hammers.get(id) ?? 0) + 1);
+  }
+  assert(HAMMER_IDS.every(id => (hammers.get(id) ?? 0) > 100), `every hammer comes: ${[...hammers].map(([id, n]) => `${id} ${n}`).join(', ')}`);
 });
 
 check('talismans in the run: taken at a hard battle, the merchant, an event, the gift; their run effects (tough hide, dew flask, hunger, oath energy, ward)', () => {
@@ -995,10 +1056,22 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
   const ground = ok(rtChooseEventOption(grinder, 'grind'), 'grind');
   assert(ground.talismans.length === 1 && rtTalisman(ground.talismans[0])!.rarity === 'common' && ground.materials.dew === 0, `a common talisman: ${ground.talismans}`);
   // A common one gone gives way to the next rarity (as the turn-based draw); with none left «Заточка» is closed.
-  const commonsGone = ok(rtChooseEventOption({ ...grinder, talismans: ['whetstone', 'dew-flask'] }, 'grind'), 'grind without commons');
-  assert(rtTalisman(commonsGone.talismans[2])!.rarity === 'uncommon', `gives way: ${commonsGone.talismans}`);
-  const dry = rtEventView({ ...grinder, talismans: ['whetstone', 'dew-flask', 'tough-hide', 'millstone-shard', 'hourglass', 'nimble-paws', 'ash-ward'] })!.options.find(option => option.id === 'grind')!;
-  assert(!dry.available && dry.reason === 'Талисманов не осталось', 'none left: closed');
+  const ofRarity = (...rarities: string[]) => RT_TALISMANS.filter(def => rarities.includes(def.rarity)).map(def => def.id);
+  const commons = ofRarity('common'), commonsGone = ok(rtChooseEventOption({ ...grinder, talismans: commons }, 'grind'), 'grind without commons');
+  assert(rtTalisman(commonsGone.talismans[commons.length])!.rarity === 'uncommon', `gives way: ${commonsGone.talismans}`);
+  // Phase B (design answer 5): the chain of an event stops at the uncommon ones — rare ones left do not keep «Заточка» open.
+  const dry = rtEventView({ ...grinder, talismans: ofRarity('common', 'uncommon') })!.options.find(option => option.id === 'grind')!;
+  assert(ofRarity('rare').length === 5 && !dry.available && dry.reason === 'Талисманов не осталось', 'none left but rare ones: closed');
+  // Over many draws an event's common talisman is never rare, the counter talismans come.
+  const eventDrawn = new Set<string>();
+  for (let k = 0; k < 60; k++) {
+    const again: RtRunState = structuredClone(grinder);
+    again.streams.talismans = k;
+    const taken = ok(rtChooseEventOption(again, 'grind'), 'grind').talismans[0];
+    assert(rtTalisman(taken)!.rarity === 'common', `event draw ${k}: ${taken}`);
+    eventDrawn.add(taken);
+  }
+  assert(RT_COUNTER_TALISMANS.filter(def => def.rarity === 'common').every(def => eventDrawn.has(def.id)), `common counter talismans from an event: ${[...eventDrawn]}`);
   // The gift: a deal pays its price and gives its talisman; an oath is taken.
   let dealt = 0, sworn = 0;
   for (let k = 1; k <= 30; k++) {
@@ -1223,7 +1296,7 @@ check('saving uses the real-time keys only; the turn-based saves are neither rea
   // Iteration 2.1: a run saved before it (key `-v2`, version 2, HP 12 / 12) is not read — a new run starts.
   const old = { ...run, version: 2, hp: 12, maxHp: 12 };
   const before = createRtRunStore(memoryStorage({ 'ashen-oath-rt-run-v2': JSON.stringify(old) }));
-  assert(RT_RUN_STORAGE_KEY === 'ashen-oath-rt-run-v5' && before.load() === null, 'a v2 save is no run');
+  assert(RT_RUN_STORAGE_KEY === 'ashen-oath-rt-run-v6' && before.load() === null, 'a v2 save is no run');
   assert(parseRtRun(JSON.stringify(old)) === null, 'version 2 is no run even under the new key');
   // Stage 3a: the lynx's and the shaman's arenas joined the pools — a version 3 save (key `-v3`) is not read either.
   const v3 = { ...run, version: 3 };
@@ -1231,6 +1304,9 @@ check('saving uses the real-time keys only; the turn-based saves are neither rea
   // Phase A (Т2): rosters — a version 4 save (key `-v4`, no rosters) is not read: a new run starts, as at every change before.
   const v4 = { ...run, version: 4 };
   assert(createRtRunStore(memoryStorage({ 'ashen-oath-rt-run-v4': JSON.stringify(v4) })).load() === null && parseRtRun(JSON.stringify(v4)) === null, 'a v4 save is no run');
+  // Phase B (Д4): the Jailer's hammer and the real-time draws — a version 5 save (key `-v5`) is not read.
+  const v5 = { ...run, version: 5 };
+  assert(createRtRunStore(memoryStorage({ 'ashen-oath-rt-run-v5': JSON.stringify(v5) })).load() === null && parseRtRun(JSON.stringify(v5)) === null, 'a v5 save is no run');
 });
 
 // ---- Iteration 2.1: the consumables are noticed (interface; docs/realtime-slice.md, section 12) ----
@@ -1306,6 +1382,180 @@ check('a run arena heals rtHp(3) = 9 with the healing consumable whatever the sa
     checked++;
   }
   assert(checked === 3, 'checked');
+});
+
+// ---- Phase B, track Д4: sources and pools (docs/realtime-phase-b.md, sections 3–5 and 8) ----
+
+/**
+ * Walks run `seed` through its commands — arenas as victories without simulation (the HP of the run), the first gift
+ * button that is on, finds and events their first options, rests heal, merchants are left, talisman choices refused —
+ * choosing nodes of `type` when it can, until `stop` holds. Null — not reached.
+ */
+function walkUntil(seed: number, prefer: string, stop: (run: RtRunState) => boolean, gift: 'mini' | 'full' = 'full'): RtRunState | null {
+  let run = createRtRun(seed, { gift });
+  for (let step = 0; step < 120 && !run.result; step++) {
+    if (stop(run)) return run;
+    const pending = run.pending;
+    if (pending?.kind === 'battle') { run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win'); continue; }
+    if (pending) { run = nextArenaStep(run); continue; }
+    const next = rtAvailableNodes(run);
+    run = ok(rtEnterNode(run, (next.find(node => node.type === prefer) ?? next[0]).id), 'enter');
+  }
+  return stop(run) ? run : null;
+}
+
+check('the Jailer\'s row (phase B, design answers 1–2): two screens — a hammer 3 of 4 by the node\'s roll (no stream spent, a refusal possible), then an oath or a relic 1 of 3 (one talismans draw); the hammer goes into every later arena; saves checked strictly', () => {
+  const taken = new Set<string>();
+  let refused = 0;
+  for (let k = 1; k <= 12; k++) {
+    const seed = seedOf32(k + 2500);
+    const before = walkUntil(seed, 'checkpoint', run => run.pending?.kind === 'battle' && rtNode(run, run.pending.nodeId)!.type === 'checkpoint');
+    assert(before, `seed ${seed}: the Jailer's row reached`);
+    const nodeId = (before.pending as { nodeId: string }).nodeId;
+    const at = ok(resolveArena(before, { nodeId, won: true, hp: before.hp, kills: 0, damage: 0, time: 1 }), 'win the Jailer\'s row');
+    // Screen 1: three different hammers of four, by the node's roll; no stream spent; the save loads back.
+    assert(at.pending?.kind === 'hammer' && at.pending.nodeId === nodeId, 'the hammer screen first');
+    const hammers = at.pending.options;
+    assert(hammers.length === 3 && new Set(hammers).size === 3 && hammers.every(isHammerId) && same(hammers, rtHammerOptions(at, nodeId)), `three hammers by the node's roll: ${hammers}`);
+    assert(same(at.streams, before.streams), 'the hammer screen spends no stream');
+    assert(same(roundTrip(at), at), 'the open hammer screen loads back');
+    assert(!rtChooseTalisman(at, null).ok && !rtChooseHammer(at, 'no-such-hammer' as never).ok && !rtAvailableNodes(at).length, 'only a hammer or its refusal now');
+    const other = HAMMER_IDS.find(id => !hammers.includes(id))!;
+    assert(!rtChooseHammer(at, other).ok, 'the fourth hammer is not offered');
+    for (const bad of [
+      { ...at, pending: { ...at.pending, options: [other, ...hammers.slice(1)] } },
+      { ...at, pending: { ...at.pending, options: [...hammers].reverse() } },
+      { ...at, hammer: hammers[0] },
+      { ...at, battles: at.battles.filter(record => record.nodeId !== nodeId) },
+    ]) assert(parseRtRun(JSON.stringify(bad)) === null, 'a tampered hammer screen is no run');
+    // Take a hammer (every fourth run refuses): screen 2 — the oath or a relic, the node's one talismans draw.
+    const hammer = k % 4 === 0 ? null : hammers[k % 3];
+    const oathScreen = ok(rtChooseHammer(at, hammer), 'hammer');
+    if (hammer) taken.add(hammer); else refused++;
+    assert(oathScreen.hammer === (hammer ?? undefined) && oathScreen.pending?.kind === 'talisman' && oathScreen.pending.source === 'oath', 'then the oath screen');
+    const offer = oathScreen.pending.options;
+    assert(oathScreen.streams.talismans === before.streams.talismans + 1 && same(offer, rtTalismanOffer(streamValue(seed, 'talismans', before.streams.talismans), 'oath', { taken: before.talismans, gone: before.talismansGone })), 'one talismans draw, as before phase B');
+    assert(offer.length === 3 && offer.every(id => id === OATH_HUNGER || rtTalisman(id)!.rarity === 'relic'), `the oath and the relics: ${offer}`);
+    assert(same(roundTrip(oathScreen), oathScreen), 'the open oath screen loads back');
+    for (const bad of [
+      { ...oathScreen, pending: { ...oathScreen.pending, options: [...offer].reverse() } },
+      { ...oathScreen, pending: { ...oathScreen.pending, options: offer.slice(1) } },
+      { ...oathScreen, hammer: other },
+      { ...oathScreen, hammer: 'no-such-hammer' },
+      { ...oathScreen, streams: { ...oathScreen.streams, talismans: oathScreen.streams.talismans + 1 } },
+    ]) assert(parseRtRun(JSON.stringify(bad)) === null, 'a tampered oath screen is no run');
+    // The choice made: the node completes; the hammer is in every later arena's loadout and in the arena itself.
+    let run = ok(rtChooseTalisman(oathScreen, offer[k % 3]), 'oath or relic');
+    assert(run.pending === null && run.visited.includes(nodeId) && run.talismans.includes(offer[k % 3]) && same(roundTrip(run), run), 'the row is passed, saved');
+    for (let arena = 0; arena < 2; arena++) {
+      run = nextArena(run);
+      const sim = startArena(run);
+      assert(rtArenaLoadout(run).hammer === (hammer ?? undefined) && sim.world.kit!.hammer === (hammer ?? undefined), `arena ${arena + 1} after the Jailer: hammer ${sim.world.kit!.hammer}`);
+      for (let i = 0; i < 60; i++) sim.tick();
+      assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), 'the arena with the hammer replays from its journal');
+      run = ok(resolveArena(run, { nodeId: (run.pending as { nodeId: string }).nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
+      if (run.pending) run = nextArenaStep(run);
+      if (run.pending) run = nextArenaStep(run);
+    }
+    // Determinism: the same seed and steps — the same hammers; the roll reads nothing of the run's streams.
+    assert(same(rtHammerOptions({ ...at, streams: { ...at.streams, talismans: 99, pool: 99 } } as RtRunState, nodeId), hammers), 'the roll is the node\'s, not a stream\'s');
+  }
+  assert(taken.size >= 3 && refused >= 2, `hammers taken ${[...taken]}, refused ${refused}`);
+  // A version 6 save of a run without a Jailer's row passed cannot hold a hammer.
+  const early = walkUntil(seedOf32(2601), 'battle', run => run.visited.length === 1)!;
+  assert(parseRtRun(JSON.stringify({ ...early, hammer: 'fire-pass' })) === null, 'a hammer before the Jailer\'s row is no run');
+});
+
+check('a hard battle in a run (design answer 4): its first place is rare; the offer is drawn again by the save check; the gift and events never give a rare one', () => {
+  let met = 0;
+  for (let k = 1; k <= 40 && met < 6; k++) {
+    const seed = seedOf32(k + 2700);
+    const before = walkUntil(seed, 'hard', run => run.pending?.kind === 'battle' && run.pending.battle === 'hard');
+    if (!before) continue;
+    const nodeId = (before.pending as { nodeId: string }).nodeId;
+    const at = ok(resolveArena(before, { nodeId, won: true, hp: before.hp, kills: 0, damage: 0, time: 1 }), 'win the hard battle');
+    assert(at.pending?.kind === 'talisman' && at.pending.source === 'hard', 'a talisman choice');
+    const offer = at.pending.options;
+    assert(offer.length === 3 && rtTalisman(offer[0])!.rarity === 'rare' && same(roundTrip(at), at), `the first place rare: ${offer}`);
+    assert(parseRtRun(JSON.stringify({ ...at, pending: { ...at.pending, options: [offer[1], offer[0], offer[2]] } })) === null, 'another offer is no run');
+    // Every talisman taken before it (gift, events) is common or uncommon (design answer 5).
+    for (const id of before.talismans) assert(['common', 'uncommon', 'oath'].includes(rtTalisman(id)!.rarity), `${id} before the hard battle`);
+    met++;
+  }
+  assert(met >= 4, `hard battles met: ${met}`);
+});
+
+/**
+ * The measure of phase B (section 7, design answer 3): 300 runs with the full gift, a bot that takes options — the gift
+ * button by turn (a deal's own choice by turn), every talisman, hammer and oath screen an option by `(k + step)`, the
+ * merchant's talisman when it can pay, events by turn; arenas are victories without simulation. Offers are counted by the
+ * screens of their category: talismans (the gift's deal, a hard battle, the merchant, an event's reward battle), hammers
+ * (the Jailer's first screen), oaths and relics (its second screen). An event's random talisman is a grant, not an offer.
+ */
+interface SourceCount { offered: number; taken: number; granted: number }
+function measureSources(runs: number) {
+  const screens = { talisman: 0, hammer: 0, relic: 0 }, count = new Map<string, SourceCount>(), by = new Map<string, number>();
+  const at = (id: string) => { if (!count.has(id)) count.set(id, { offered: 0, taken: 0, granted: 0 }); return count.get(id)!; };
+  const offer = (category: keyof typeof screens, source: string, ids: readonly (string | null)[]) => {
+    screens[category]++; by.set(source, (by.get(source) ?? 0) + 1);
+    for (const id of new Set(ids)) if (id) at(id).offered++;
+  };
+  for (let k = 1; k <= runs; k++) {
+    let run = createRtRun(seedOf32(k), { gift: 'full' });
+    for (let step = 0; step < 200 && !run.result; step++) {
+      const pending = run.pending, pick = <T,>(list: readonly T[]) => list[(k + step) % list.length];
+      if (pending?.kind === 'gift') {
+        const view = rtGiftView(run)!;
+        if (view.chosen === null) {
+          const deal = view.options.find(entry => entry.option.kind === 'deal')!.option as Extract<GiftOption, { kind: 'deal' }>;
+          offer('talisman', 'gift', deal.reward.kind === 'pick-talisman' ? deal.reward.talismans : [deal.reward.talisman]);
+          run = ok(rtChooseGift(run, pick(view.options.filter(entry => entry.available)).index), 'gift');
+        } else run = ok(rtChooseGiftPick(run, pick(view.picks)), 'gift pick');
+      } else if (pending?.kind === 'battle') {
+        run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
+        if (run.pending?.kind === 'hammer') offer('hammer', 'jailer-hammer', run.pending.options);
+        if (run.pending?.kind === 'talisman') offer(run.pending.source === 'oath' ? 'relic' : 'talisman', run.pending.source, run.pending.options);
+      } else if (pending?.kind === 'hammer') {
+        run = ok(rtChooseHammer(run, pick(pending.options)), 'hammer');
+        if (run.pending?.kind === 'talisman') offer('relic', 'oath', run.pending.options);
+      } else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, pending.options.length ? pick(pending.options) : null), 'talisman');
+      else if (pending?.kind === 'shop') {
+        if (pending.stock.talisman) offer('talisman', 'shop', [pending.stock.talisman]);
+        const good = rtShopView(run)!.goods.find(entry => entry.id === 'talisman');
+        if (good?.available) run = ok(rtShopBuy(run, 'talisman'), 'buy');
+        run = ok(rtShopLeave(run), 'leave');
+      } else if (pending?.kind === 'event') {
+        const options = rtEventView(run)!.options.filter(option => option.available), had = run.talismans.length;
+        run = ok(rtChooseEventOption(run, pick(options).id), 'event');
+        if (run.pending?.kind !== 'battle') for (const id of run.talismans.slice(had)) at(id).granted++;
+      } else if (pending) run = nextArenaStep(run);
+      else {
+        const next = rtAvailableNodes(run);
+        run = ok(rtEnterNode(run, pick(next).id), 'enter');
+      }
+    }
+    for (const id of run.talismans) at(id).taken++;
+    if (run.hammer) at(run.hammer).taken++;
+  }
+  return { screens, count, by };
+}
+
+check('the measure of phase B (300 runs, the full gift, a bot taking options): every talisman, hammer and relic is offered on at least 3% of the screens of its category', () => {
+  const { screens, count, by } = measureSources(300);
+  const category = (id: string): keyof typeof screens => isHammerId(id) ? 'hammer' : ['oath', 'relic'].includes(rtTalisman(id)!.rarity) ? 'relic' : 'talisman';
+  const ids = [...RT_TALISMANS.map(def => def.id).filter(id => !RT_TALISMANS_OFF.some(off => off.id === id)), ...HAMMER_IDS];
+  const pct = (n: number, of: number) => `${(100 * n / Math.max(1, of)).toFixed(1).replace('.', ',')}%`;
+  console.log(`   screens: talismans ${screens.talisman} (${[...by].filter(([s]) => !['jailer-hammer', 'oath'].includes(s)).map(([s, n]) => `${s} ${n}`).join(', ')}), hammers ${screens.hammer}, oaths and relics ${screens.relic}`);
+  console.log('   | Предмет | Категория | Редкость | Предложен (экранов) | Доля экранов категории | Взят | Выдан событием |');
+  for (const id of ids) {
+    const c = count.get(id) ?? { offered: 0, taken: 0, granted: 0 }, cat = category(id), def = rtTalisman(id);
+    console.log(`   | ${def?.name ?? rtHammer(id)?.name} | ${cat} | ${def ? def.rarity : '—'} | ${c.offered} | ${pct(c.offered, screens[cat])} | ${c.taken} | ${c.granted} |`);
+  }
+  for (const id of ids) {
+    const c = count.get(id) ?? { offered: 0, taken: 0, granted: 0 };
+    assert(c.offered / screens[category(id)] >= 0.03, `${id}: offered on ${pct(c.offered, screens[category(id)])} of the ${category(id)} screens`);
+  }
+  assert(screens.hammer === 300, `a hammer screen in every run: ${screens.hammer}`);
 });
 
 console.log(`realtime-run: ${checks} checks passed`);
