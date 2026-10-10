@@ -17,7 +17,17 @@ import { rtHp } from './hpScale';
 
 /** A talisman of the real-time run: one of the turn-based ids in the slice, or «Якорь у героя». */
 export type RtTalismanId = string;
-export interface RtTalismanDef { id: RtTalismanId; name: string; rarity: TalismanRarity; effect: string; excludes?: readonly string[] }
+/**
+ * Rarity of a real-time talisman: the turn-based ones and (phase B, Т3) `relic` — a relic with a price, offered with the
+ * oaths by the Jailer's row; not an oath (`isRtOath`: no +2 energy at the start of an arena).
+ */
+export type RtRarity = TalismanRarity | 'relic';
+export interface RtTalismanDef { id: RtTalismanId; name: string; rarity: RtRarity; effect: string; excludes?: readonly string[] }
+/**
+ * Phase B ids (docs/realtime-phase-b.md; sim/buildIds.ts — one place for the simulation and the run): counter talismans
+ * (Т1), hammers (Т2, `Loadout.hammer`), relics (Т3, rarity `relic`). Their definitions and offers come with track Д4.
+ */
+export { COUNTER_TALISMANS, HAMMERS, HAMMER_IDS, OATH_HUNGER, RELICS, RELIC_IDS, isHammerId, type CounterTalismanId, type HammerId, type RelicId } from '../sim/buildIds';
 
 /** Баланс: the turn-based HP numbers of the talismans (DEW_FLASK_HEAL, TOUGH_HIDE_HP: +1) in real-time HP. */
 export const RT_TOUGH_HIDE_HP = rtHp(1);

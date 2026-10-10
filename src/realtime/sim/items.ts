@@ -7,7 +7,8 @@
  * | 1 | Cold | every enemy whose body touches the circle of `frostRadius` (1.5) at the pointer freezes for `frostTime` (3 s):
  *   stands, does not touch, its mechanic is off (`enemyFrozen`); the next chain hit on it while frozen is ×`frostFactor`. |
  * | 2 | Bomb | the enemy under the pointer within `bombRange` (5) of the hero takes `bombDamage` (6). |
- * | 3 | Healing | +`itemHeal` HP (9 = the turn-based elixir +3 × 3; a run arena always 9 — `rtRunParams`), not above the maximum. |
+ * | 3 | Healing | +`itemHeal` HP (9 = the turn-based elixir +3 × 3; a run arena always 9 — `rtRunParams`; the build may change it,
+ *   build.ts `itemHealOf`), not above the maximum. |
  * | 4 | Fire | the enemy under the pointer and every enemy whose body touches the circle of `fireRadius` (1) around it burn:
  *   `fireDamage` (1) every `fireInterval` (1.5 s), `fireTicks` (3) times. |
  *
@@ -24,6 +25,7 @@
  * - the cold does not stop the fuse of a dead sapper (a blast of the world, design answer 5 to step 2): only the living
  *   one's fuse waits; a burning enemy burns on while frozen (burning is not its mechanic).
  */
+import { itemHealOf } from './build';
 import { bodyRadiusOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
 import { damageEnemy, enemyFrozen, type Enemy, type World } from './world';
@@ -86,7 +88,8 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
   const params = world.params, hero = world.hero, targets = itemTargets(world, kind, p);
   world.kit!.items[kind]--;
   if (kind === 'healing') {
-    hero.hp = Math.min(hero.maxHp, hero.hp + Math.max(0, params.itemHeal));
+    // Phase B (build.ts `itemHealOf`): «Кровавая клятва» weakens it; without a build module — `itemHeal`.
+    hero.hp = Math.min(hero.maxHp, hero.hp + itemHealOf(world));
     world.events.push({ type: 'item', kind, x: hero.x, y: hero.y, radius: 0, targets: 0 });
     return true;
   }

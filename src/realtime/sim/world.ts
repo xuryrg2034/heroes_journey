@@ -11,6 +11,10 @@ import { dcos, dhypot, dsin } from './detMath';
 import { type ArenaTemplate, markedCount } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
+// Phase B: the build modules (talismans Т1, hammers Т2, relics Т3) register on import; the core reads them through build.ts.
+import './buildModules';
+import { enemyWalkFactorOf, focusMaxOf, heroSpeedOf, runHook, type DashBuild } from './build';
+import type { HammerEventKind } from './buildIds';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
@@ -145,11 +149,19 @@ export interface ChainSummary { kills: number; hits: number; crystals: number; s
  * else (a blast, an arrow) stays a link: the hero passes its last point and it gives +1 power; it is a kill of the chain
  * (combo, crystal, score) only when its death is the player's (`credited`).
  */
-export interface FallenLink { id: number; x: number; y: number; credited: boolean }
+export interface FallenLink {
+  id: number; x: number; y: number; credited: boolean;
+  /** Phase B: it was an elite — noted only on a dash the build layer counts (`HeroMove.build`), so older dashes hash as before. */
+  elite?: true;
+}
 
 /** A hero move without contact damage: the dash along the chain or a jump. */
 export interface HeroMove {
-  kind: 'dash' | 'jump';
+  /**
+   * `dash` — along the released chain; `jump`; `return` (phase B, the hammer «Возврат»: chain.ts `startReturnRun`) — a run
+   * along fixed points after a dash, no links, no chain end; the hero is untouchable during any move.
+   */
+  kind: 'dash' | 'jump' | 'return';
   /** Chain links still to strike (dash) — struck in order on arrival. */
   links: ChainLink[];
   /** Power carried to the next link: +1 per enemy, HP spend it (docs/chain-budget.md). */
@@ -182,6 +194,8 @@ export interface HeroMove {
    * hit hurts the hero even if the quills went down on the way; others do not, even if the quills went up (absent when none).
    */
   armed?: number[];
+  /** Phase B (build.ts): the build layer's count of this dash — present only while a build module acts. */
+  build?: DashBuild;
 }
 
 export interface Hero {
@@ -250,7 +264,13 @@ export type WorldEvent =
    * its leap (`leap`), the shaman's beam (`beam`) and its end (`empower`). The rules never read it.
    */
   | { type: 'enemySignal'; enemyId: number; signal: string; x: number; y: number }
-  | { type: 'defeat' };
+  | { type: 'defeat' }
+  /** Phase B (build.ts `talismanFired`): an item of the build triggered — a flash of its icon, a short text at the hero. */
+  | { type: 'talismanFired'; id: string }
+  /** Phase B, Т2: a hammer acted — `fire` laid, the end `blast`, a `cut`, the `return` run; at a point, with a circle if any. */
+  | { type: 'hammer'; kind: HammerEventKind; x: number; y: number; r?: number }
+  /** Phase B, Т1 («Ударная волна»): a wave of radius `r` around the hero at the end of the dash. */
+  | { type: 'wave'; x: number; y: number; r: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -323,6 +343,11 @@ export interface World {
    * without a loadout (journals before step 3): no consumables, the world hashes as before.
    */
   kit?: Kit;
+  /**
+   * Phase B (build.ts `buildStateOf` / `setBuildState`): structures of the build modules on the arena by module id (the
+   * hammer's fire …); JSON values only. Absent while empty — hashed only when present.
+   */
+  build?: Record<string, unknown>;
 }
 
 /**
@@ -416,6 +441,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
   if (loadout) {
     world.kit = kitOf(loadout);
     world.energy = Math.max(0, Math.min(ENERGY_CAP, Number.isFinite(loadout.energy) ? loadout.energy! : 0));
+    // Phase B: the build may change the focus reserve (without a build module — `focusMax`, as above).
+    world.focus = focusMaxOf(world);
   }
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   for (const s of arena.enemies) {
@@ -428,6 +455,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
   }
   world.stats.spawned = 0;
   world.events.length = 0;
+  // Phase B: the build modules see the arena start (the kit and the start enemies are there).
+  runHook(world, 'onArenaStart', m => m.onArenaStart!(world));
   return world;
 }
 
@@ -571,8 +600,11 @@ export function kindSpeed(world: World, e: Enemy): number {
  */
 export function enemySpeed(world: World, e: Enemy): number {
   const p = world.params;
-  const speed = kindSpeed(world, e) * enemySpeedFactor(e, p) * (e.marked ? p.markedSpeed : 1);
-  return e.affixes ? speed * affixSpeedFactor(world, e) : speed;
+  let speed = kindSpeed(world, e) * enemySpeedFactor(e, p) * (e.marked ? p.markedSpeed : 1);
+  if (e.affixes) speed *= affixSpeedFactor(world, e);
+  // Phase B (build.ts, decision 22): the build's multiplier of the walk — not the reaper (charges and leaps do not read it).
+  const walk = kindOf(e).immune ? 1 : enemyWalkFactorOf(world);
+  return walk === 1 ? speed : speed * walk;
 }
 
 const SEPARATION_PASSES = 4;
@@ -640,7 +672,7 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {} });
   // A link of the dash ahead of the hero stays a link (chain.ts, `passFallen`): its score comes with the chain's.
   const move = world.move, link = move?.kind === 'dash' && move.links.some(l => l.kind === 'enemy' && l.id === e.id);
-  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited });
+  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {} });
   if (cause.credited) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
   if (e.marked) world.stats.markedKills++;
   checkGoals(world);
@@ -782,10 +814,12 @@ function stepHeroWalk(world: World, dt: number): void {
   world.heroWalk.x = 0; world.heroWalk.y = 0;
   if (world.status !== 'playing' || world.move || hero.knock > 0) return;
   const len = dhypot(input.x, input.y);
-  if (len < 1e-6 || params.heroSpeed <= 0) return;
+  // Phase B: the build may change the hero's speed (`heroSpeedOf`; without a build module — `heroSpeed`).
+  const heroSpeed = heroSpeedOf(world);
+  if (len < 1e-6 || heroSpeed <= 0) return;
   world.heroWalk.x = input.x / len; world.heroWalk.y = input.y / len;
   // Water × crowd (stage D): the only walking multipliers; focus slows the game time itself, not the walk.
-  const k = params.heroSpeed * waterFactor(world, hero) * crowdFactor(world) * dt / Math.max(1, len);
+  const k = heroSpeed * waterFactor(world, hero) * crowdFactor(world) * dt / Math.max(1, len);
   let mx = input.x * k, my = input.y * k;
   if (!params.heroThroughEnemies) {
     for (let pass = 0; pass < 3; pass++) {
@@ -1025,6 +1059,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   if (world.status !== 'playing') return;
   // Stage 2, step 3: burning enemies (the fire consumable) take their ticks after the blasts, before the touches.
   updateBurning(world, dt);
+  // Phase B: the build modules' own step (the hammer's fire), after burning, before thorns.
+  runHook(world, 'onUpdate', m => { if (world.status === 'playing') m.onUpdate!(world, dt); });
+  if (world.status !== 'playing') return;
   // Stage 3a: thorns prick the hero on foot (М3); braziers burn again (М4). Arenas without them: nothing.
   updateThorns(world, dt);
   if (world.status !== 'playing') return;
