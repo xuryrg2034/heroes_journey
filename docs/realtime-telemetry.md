@@ -1,6 +1,6 @@
 # Логи и метрики плейтеста реального времени
 
-**Статус: задание дизайна, 10.10.2026. Не реализовано.** Решения пользователя 10.10.2026: анкеты после похода нет; канал через артефакт — сразу.
+**Статус: задание дизайна, 10.10.2026. Реализован только контракт Т0 (раздел 8); запись в браузере, отчёт и плагин Vite — нет.** Решения пользователя 10.10.2026: анкеты после похода нет; канал через артефакт — сразу.
 
 ## 1. Цель
 
@@ -110,3 +110,40 @@
 ## 8. Реализация
 
 (заполняют дорожки Т0, ТC, ТB, ТA)
+
+### Т0 — контракт (10.10.2026)
+
+Код: `src/realtime/telemetry/schema.ts` (типы, id, экспорт, сводка, наблюдатель, хук) и `src/realtime/telemetry/codec.ts` (кодек журнала, gzip, части; реэкспорт из `schema.ts`). Без DOM: работает в браузере и в Node. `sim/` не менялся. Проверка — `npm run test:realtime-telemetry` (`schema.spec.ts`).
+
+**Записи.** `RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord`, шапка `RtHeader` (`schema: 1`, `id`, `kind`, `build`, `params {storage, hash}`, `session`, `run`, `at`, `tester?`).
+- `RunRecord`: `seed`, `outcome` (`victory` | `defeat` | `abandoned` | `open`), `farRow`, `death` (`enemy?`, `source` = `hit.source`, `elite?`, `affixes?`, `fight?`, `tick?`) или `null`, `nodes` (узел, ряд, тип, HP на входе и выходе, максимум, арена, состав, ключ боя, событие), `choices` (`nodeId`, `source`, `offered`, `taken`, `refused`), `kit` — сборка в конце, `fights` — ключи боёв, `runParams` — сами Params, один раз на поход. Имена `kit` и `runParams` выбраны потому, что `build` и `params` заняты шапкой (коммит и `{storage, hash}`).
+- `FightRecord`: `fight` (ключ), `nodeId?`, `arena`, `roster?`, `row?`, `seed`, `outcome` (`victory` | `defeat` | `restart` | `menu` | `unload`), `ticks`, `time`, `hpIn`, `hpOut`, `endHash`, `journal {parts, chars, digest, encoding}`, `view? {w, h}` (размер вида в единицах арены), `summary: FightSummary`.
+- `JournalPart`: `fight`, `index`, `count`, `digest` и `encoding` всей склейки, `data`.
+- `NoteRecord`: `fight`, `tick`, `arena`, `hero {x, y}`.
+- `checkRecord(value)` — неглубокая проверка записи: шапка; id совпадает с видом, сессией, походом, боем, номером части или тактом; обязательные поля. Возвращает первую проблему или `null`.
+- Экспорт: `makeExport(session, records, exportedAt)` → `{format: 'ashen-oath-rt-telemetry', version: 1, exportedAt, session, records}`; `parseExport(text)` проверяет формат и каждую запись.
+- Каналы: `RtTelemetrySink { name?, write(record): Promise<void> }`, `RtTelemetryExportHook = (filename, text) => Promise<void>`, `RtTelemetryWindow` — что искать на `window` (`__rtTelemetrySink`, `__rtTelemetryExport`).
+
+**id.** Сегмент — `ID_SEGMENT_RE` (`[A-Za-z0-9_-]{1,64}`), весь id — `RECORD_ID_RE`. `isRecordId(id)` — проверка для плагина Vite: нет `.`, пустых сегментов, обратных слэшей, лишних частей; номер части меньше их числа. `parseRecordId(id)` разбирает id. Построение: `sessionKey(timeMs, salt)` → `s<base36>-<hex>`, `runKey(timeMs, seed)` → `r<base36>-<seed hex>`, `SANDBOX_RUN = 'sandbox'`, `fightKey(index, nodeId, attempt)` → `f03-n5a-a1` (без узла — `x`; чужие символы узла → `_`; длинный узел режется до 64), `runRecordId`, `fightRecordId`, `journalPartId(…, i, n)`, `noteRecordId(…, tick)`. На плохом сегменте построители бросают ошибку.
+
+**Журнал.** `encodeJournal(journal, paramsRef?)` — компактный JSON без потерь. Команда — массив `[разница тактов, код, …поля]`. `sweep` идёт без `fx, fy`, если они равны прошлой точке указателя. `drag` идёт без `mode: 'full'`. Команда другой формы (отладка, тестовые, поле, добавленное позже) идёт целиком: `[dt, 'o', {…}]`. Прочие поля журнала (`hero`, `loadout`, `roster`, будущие) — как есть. Числа не округляются. С `paramsRef` Params опускаются, только если `paramsHash(journal.params) === paramsRef`; иначе остаются целиком.
+- `decodeJournal(text, params?)` — точный журнал (и обычный JSON `Journal`). Для ссылки нужны Params записи похода; их хэш сверяется.
+- `paramsHash(params)` — `hashText` канонического JSON (ключи по алфавиту).
+- `gzipBase64` / `gunzipBase64` — `CompressionStream` + base64. В Node 22.20 проекта они есть.
+- `splitParts(text, max = 200 000)` режет по символам, не внутри суррогатной пары. `assembleParts(parts, {parts, chars, digest})` сверяет число частей, длину и `digest = hashText(склейки)`.
+- Обёртки: `packJournal(journal, {paramsRef?, encoding?, max?})` → `{parts, meta}` (по умолчанию `compact+gzip+b64`); `unpackJournal(parts, meta, params?)`; `orderedParts(partRecords, fight, digest)` — части по порядку из записей в любом порядке.
+
+**Сигнатуры для других дорожек.** `FightSummary` — группы раздела 3: урон по источникам, удары, моменты HP ≤ 3; угрозы по видам (`ThreatTally`: предупреждён, попал, увернулся, защищён, прервано, такты выхода); цепь; убийства цепью, инструментами, способностями врагов; срабатывания сборки и «действует»; темп и `inView? {avg, max}`; движение; способности. `emptyFightSummary()` — пустая сводка. `FightObserver { command(cmd, world), tick(world), summary() }`, `FightObserverFactory = (world) => FightObserver`, `nullObserver` — пустая реализация до ТB. `ReplayTo = (journal, tick) => Promise<void>` — хук вида `__realtime.replayTo` (реализует ТA).
+
+**Замер размеров (10.10.2026, `npm run test:realtime-telemetry` на этом коде).** Каждый журнал прошёл encode → gzip → split → assemble → gunzip → decode и повторился с тем же хэшем.
+
+| Журнал | Команд | Тактов | JSON | Компакт | Компакт + gzip + base64 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Фикстура браузера | 19 | 568 | 5,6 КиБ | 5,1 КиБ | 2,6 КиБ |
+| Фикстура браузера (щиты, волки) | 25 | 739 | 6,2 КиБ | 5,5 КиБ | 2,7 КиБ |
+| До фазы B: поход с талисманами | 230 | 2474 | 20,2 КиБ | 12,3 КиБ | 6,8 КиБ |
+| До фазы B: песочница | 178 | 2450 | 16,2 КиБ | 10,1 КиБ | 5,7 КиБ |
+| Бот 90 с, «Большая поляна», протяжка каждый такт (60 Гц), цепь 69% тактов | 3909 | 5400 | 471,2 КиБ | 171,9 КиБ | 88,5 КиБ |
+| То же, две протяжки за такт (120 Гц), цепь 68% тактов | 7563 | 5400 | 924,5 КиБ | 334,7 КиБ | 172,8 КиБ |
+
+Бой 90 с — одна часть даже при 120 Гц (≤ 200 000 символов). Координаты бота — неокруглённые числа с шумом, поэтому gzip сжимает хуже оценки раздела 7 (72 / 140 КиБ). Params в журналах таблицы хранятся целиком: около 4,5 КиБ JSON, 2,3 КиБ после gzip + base64. Ссылка на запись похода убирает их из журнала.

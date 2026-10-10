@@ -68,6 +68,7 @@
     "test:realtime-talismans": "tsx src/realtime/sim/talismansRt.spec.ts",
     "test:realtime-hammers": "tsx src/realtime/sim/hammers.spec.ts",
     "test:realtime-relics": "tsx src/realtime/sim/relics.spec.ts",
+    "test:realtime-telemetry": "tsx src/realtime/telemetry/schema.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",
