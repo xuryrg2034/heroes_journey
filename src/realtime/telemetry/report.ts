@@ -244,10 +244,10 @@ function threatRows(entries: readonly FightEntry[]): (string | number)[][] {
     if (!list.length) return [];
     const count = (o: string): number => list.filter(w => w.outcome === o).length;
     const dodged = list.filter(w => w.outcome === 'dodged' && w.exitTicks !== null);
-    const cover = list.filter(w => w.reason === 'cover').length;
+    const cover = list.filter(w => w.reason === 'cover'), walls = cover.filter(w => w.coverKind !== 'cliff').length, cliffs = cover.length - walls;
     return [[
       THREAT_TITLES[kind] ?? kind, list.length, `${count('hit')} (${pct(count('hit'), list.length)})`, `${count('shielded')} (${pct(count('shielded'), list.length)})`,
-      `${count('dodged')} (${pct(count('dodged'), list.length)})${cover ? `, из них укрытие ${cover}` : ''}`, `${count('interrupted')} (${pct(count('interrupted'), list.length)})`,
+      `${count('dodged')} (${pct(count('dodged'), list.length)})${cover.length ? `; укрытие: стена ${walls}, обрыв ${cliffs}` : ''}`, `${count('interrupted')} (${pct(count('interrupted'), list.length)})`,
       dodged.length ? n1(median(dodged.map(w => w.exitTicks!))) : '—',
       dodged.length ? `${n2(median(dodged.map(w => w.exitReal!)))} / ${n2(median(dodged.map(w => w.exitGame!)))}` : '—',
     ]];
@@ -397,7 +397,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Арены', '', 'Бои походов и песочницы вместе.', '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
     '## Угрозы', '',
-    'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — кабан ударился о стену); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны до первого такта вне неё (только увороты).', '',
+    'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',
     '## Предметы', '', itemsSection(runs, fights), '',
     '## Отметки N', '', notesSection(analysis, options.source), '',

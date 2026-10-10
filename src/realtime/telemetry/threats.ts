@@ -8,13 +8,16 @@
  *   journals without `archerPoint`, its line. Strike — the end of the aim.
  * - `boar` — the boar's lane from the windup: from the boar along its line, `boarRange` long while it winds up and the rest
  *   of the range while it charges (the lane shortens). The charge ends: a hit; the charge reached the hero without a hit
- *   (`stats.boarHits` grew) — shielded; it stopped on a wall or a tree short of its range — dodged, «укрытие»
- *   (`reason: 'cover'`); it ran the whole range past the hero dashing or jumping through it — shielded; else dodged.
+ *   (`stats.boarHits` grew) — shielded; it stopped short of its range — dodged, «укрытие» (`reason: 'cover'`, `coverKind`
+ *   `wall` for a wall or a tree, `cliff` for a cliff edge; design 10.10.2026); it ran the whole range past the hero dashing
+ *   or jumping through it — shielded; else dodged.
  * - `wolf` — one warning per pack (decision 10): the wolves that started to howl in one tick. While a wolf howls its line
  *   points at the hero (the hero is in it within `wolfRushRange`); at the end of the howl the line is fixed and the wolf
  *   rushes along it. The pack ends when none of it howls or rushes: a throw hit (a `wolf` hit of a wolf that rushed on
- *   the tick before) — hit; a wolf reached the hero without a hit — shielded; a rush ran out — dodged; every wolf dropped
- *   its howl or rush (the cold, a knockback, the pack broken, a cliff) or died — interrupted.
+ *   the tick before) — hit; a wolf reached the hero without a hit — shielded; a rush ran out — dodged; every rush stopped
+ *   short (a wall or a tree, a cliff edge) — dodged, cover (`coverKind` `cliff` if one met a cliff, else `wall`); every wolf
+ *   dropped its howl or rush (the cold, a knockback, the pack broken) or died — interrupted. The exit time counts from the
+ *   start of the howl; `lockTick` — the tick the lane was fixed (the first rush of the pack; design 10.10.2026).
  * - `lynx` — the lynx's line from the windup (the rest of it while it leaps). A leap that ends beside the hero without a
  *   hit, or passes him while he dashes or jumps — shielded; a knockback drops it — interrupted.
  * - `sapper` — the fuse of a sapper lit by the hero's touch and its blast are one warning (the hero is always in the
@@ -31,16 +34,18 @@
 import { archerLine, archerMark } from '../sim/enemies/archer';
 import { WOLF_HOWL, WOLF_RUSH } from '../sim/enemies/wolf';
 import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP } from '../sim/enemies/lynx';
-import { dist, type Vec } from '../sim/geometry';
+import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
+import { bodyRadiusOf } from '../sim/enemies/kinds';
 import { heroRadius } from '../sim/params';
 import { SIM_DT } from '../sim/simulation';
-import { CONTACT_SLACK, touchDistanceOf, type Enemy, type World } from '../sim/world';
+import { CONTACT_SLACK, enemyFrozen, touchDistanceOf, type Enemy, type World } from '../sim/world';
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
 export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant';
 export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
+export type CoverKind = 'wall' | 'cliff';
 
 /** One warning with the hero in its zone at its appearance. */
 export interface ThreatWarning {
@@ -53,6 +58,10 @@ export interface ThreatWarning {
   outcome: ThreatOutcome | null;
   /** Why it ended this way: `cover` (a boar stopped by a wall), `move` (passed through a dash or a jump), `dead`, `knock`, `dropped`, `fall`, `end` … */
   reason?: string;
+  /** A dodge by cover (`reason: 'cover'`): what stopped the rush — a wall or a tree (`wall`), a cliff edge (`cliff`). */
+  coverKind?: CoverKind;
+  /** Wolves: ticks run when the lane was fixed — the first wolf of the pack started its rush (absent if none did). */
+  lockTick?: number;
   /** Ticks run when it ended. */
   endTick?: number;
   /** From the appearance to the first tick out of the zone: ticks, game seconds, real seconds (null — the hero never left it). */
@@ -131,6 +140,7 @@ export class ThreatTracker {
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
+    this.wolfRan = new Map(world.enemies.filter(e => e.kind === 'wolf' && e.vars.st === WOLF_RUSH).map(e => [e.id, e.vars.ran ?? 0]));
     this.boarHits = world.stats.boarHits;
   }
 
@@ -166,9 +176,10 @@ export class ThreatTracker {
     return o;
   }
 
-  private close(o: Open, world: World, outcome: ThreatOutcome, reason?: string): void {
+  private close(o: Open, world: World, outcome: ThreatOutcome, reason?: string, cover?: CoverKind): void {
     o.w.outcome = outcome;
     if (reason) o.w.reason = reason;
+    if (cover) o.w.coverKind = cover;
     o.w.endTick = world.tick;
     if (outcome === 'dodged' && o.w.exitTicks === null) this.exit(o, world);
     this.open = this.open.filter(x => x !== o);
@@ -242,11 +253,18 @@ export class ThreatTracker {
       }
       const reached = knocked && e.boar === 'rest' && dist(e, world.hero) <= reachOf(world, e) + world.params.boarChargeSpeed * SIM_DT;
       if (reached) this.close(o, world, 'shielded');
-      else if (e.charged < world.params.boarRange - 1e-6) this.close(o, world, 'dodged', 'cover');
+      else if (e.charged < world.params.boarRange - 1e-6) this.close(o, world, 'dodged', 'cover', this.boarStop(world, e));
       else if (this.boarPassed.has(o)) this.close(o, world, 'shielded', 'move');
       else this.close(o, world, 'dodged');
       this.boarPassed.delete(o);
     }
+  }
+
+  /** What stopped a charge short of its range: the cliff edge where its next step would go (and no wall there), else a wall or a tree. */
+  private boarStop(world: World, e: Enemy): CoverKind {
+    const p = world.params, r = bodyRadiusOf(p, e) * 0.95, step = Math.min(p.boarChargeSpeed * SIM_DT, Math.max(0, p.boarRange - e.charged));
+    const next = { x: e.x + e.dirX * step, y: e.y + e.dirY * step };
+    return cliffAt(next, r, world.arena) && !blockedAt(next, r, world.arena, false) ? 'cliff' : 'wall';
   }
 
   // ---- Lynx ----
@@ -285,7 +303,9 @@ export class ThreatTracker {
 
   // ---- Wolves (one warning per pack) ----
 
-  private readonly packs = new Map<Open, Map<number, 'howl' | 'rush' | 'reached' | 'missed' | 'dropped' | 'dead'>>();
+  private readonly packs = new Map<Open, Map<number, 'howl' | 'rush' | 'reached' | 'missed' | 'wall' | 'cliff' | 'dropped' | 'dead'>>();
+  /** Distance each rushing wolf had run at the end of the last tick (a rush that ends short of its range hit a wall). */
+  private wolfRan = new Map<number, number>();
 
   private wolfZone(members: readonly number[]): Open['inZone'] {
     return world => {
@@ -315,10 +335,15 @@ export class ThreatTracker {
         if (!e) { members.set(id, 'dead'); continue; }
         const st = e.vars.st ?? 0;
         if (st === WOLF_HOWL) continue;
-        if (st === WOLF_RUSH) { members.set(id, 'rush'); continue; }
-        // The rush ended (back out to the ring) — at the hero, or out of range; a howl or rush dropped — back in the ring.
-        if (state === 'rush' || this.wolfState.get(id) === WOLF_RUSH) members.set(id, st !== 0 && dist(e, world.hero) <= reachOf(world, e) + 1e-6 ? 'reached' : st !== 0 ? 'missed' : 'dropped');
-        else members.set(id, 'dropped');
+        if (st === WOLF_RUSH) { members.set(id, 'rush'); o.w.lockTick ??= world.tick; continue; }
+        // The rush ended: at the hero; short of its range — a wall or a tree (the wolf walks back) or a cliff edge (it leaves the
+        // ring for a while: `away`); or it ran out. A howl or rush dropped (the cold, a knockback, the pack broken) — back in the ring.
+        if (state === 'rush' || this.wolfState.get(id) === WOLF_RUSH) {
+          const p = world.params, short = (this.wolfRan.get(id) ?? 0) + p.wolfRushSpeed * SIM_DT < p.wolfRushRange - 1e-6;
+          if (st !== 0 && dist(e, world.hero) <= reachOf(world, e) + 1e-6) members.set(id, 'reached');
+          else if (st !== 0) members.set(id, short ? 'wall' : 'missed');
+          else members.set(id, (e.vars.away ?? 0) > 0 && !enemyFrozen(e) && e.knock <= 0 ? 'cliff' : 'dropped');
+        } else members.set(id, 'dropped');
       }
       if (hit) { this.close(o, world, 'hit'); this.packs.delete(o); continue; }
       if (world.status !== 'playing') { this.close(o, world, 'interrupted', 'end'); this.packs.delete(o); continue; }
@@ -326,6 +351,8 @@ export class ThreatTracker {
       if (states.some(s => s === 'howl' || s === 'rush')) continue;
       if (states.includes('reached')) this.close(o, world, 'shielded');
       else if (states.includes('missed')) this.close(o, world, 'dodged');
+      // Every wolf that rushed was stopped short: cover — by a cliff if one of them met a cliff edge.
+      else if (states.includes('cliff') || states.includes('wall')) this.close(o, world, 'dodged', 'cover', states.includes('cliff') ? 'cliff' : 'wall');
       else this.close(o, world, 'interrupted', states.includes('dropped') ? 'dropped' : 'dead');
       this.packs.delete(o);
     }

@@ -17,7 +17,7 @@ import { Simulation } from '../sim/simulation';
 import type { Enemy, World } from '../sim/world';
 import { createFightObserver } from './observe';
 import { analyzeJournal, type FightAnalysis } from './report';
-import type { ThreatKind, ThreatOutcome } from './threats';
+import type { CoverKind, ThreatKind, ThreatOutcome } from './threats';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -35,8 +35,8 @@ function quiet(extra: Partial<Params> = {}): Params {
 }
 
 /** A recorded fight on «Убить 30» (16×10, the hero at 8, 5), emptied of its first group. */
-function fight(extra: Partial<Params> = {}, seed = 7): Simulation {
-  const sim = new Simulation({ arena: 'kills', params: quiet(extra), seed, record: true });
+function fight(extra: Partial<Params> = {}, seed = 7, arena = 'kills'): Simulation {
+  const sim = new Simulation({ arena, params: quiet(extra), seed, record: true });
   sim.command({ t: 'clear', keepMarked: false });
   sim.command({ t: 'energy', value: 7 });
   return sim;
@@ -70,12 +70,13 @@ function replayed(sim: Simulation): FightAnalysis {
   assert(a.hash === sim.hash(), `the replay hash ${a.hash} differs from the fight's ${sim.hash()}`);
   return a;
 }
-function expectOne(sim: Simulation, kind: ThreatKind, outcome: ThreatOutcome, reason?: string): FightAnalysis {
+function expectOne(sim: Simulation, kind: ThreatKind, outcome: ThreatOutcome, reason?: string, cover?: CoverKind): FightAnalysis {
   const a = replayed(sim), list = a.warnings.filter(w => w.kind === kind);
   const seen = list.map(w => `${w.outcome}${w.reason ? `/${w.reason}` : ''} (exit ${w.exitTicks})`).join(', ') || 'none';
   assert(list.length === 1, `${kind}: one warning expected, got ${seen}`);
   assert(list[0].outcome === outcome, `${kind}: ${outcome} expected, got ${seen}`);
   if (reason) assert(list[0].reason === reason, `${kind}: reason ${reason} expected, got ${seen}`);
+  if (cover) assert(list[0].coverKind === cover, `${kind}: cover by ${cover} expected, got ${list[0].coverKind}`);
   const t = a.summary.threats[kind];
   assert(t && t.warned === 1 && t[outcome] === 1, `${kind}: the summary tally counts it (${JSON.stringify(t)})`);
   return a;
@@ -157,14 +158,33 @@ check('boar: the hero steps out of the lane during the windup — dodged', () =>
   expectOne(sim, 'boar', 'dodged');
 });
 
-check('boar: the charge stops on a tree in front of the hero standing behind it — dodged, cover', () => {
+check('boar: the charge stops on a tree in front of the hero standing behind it — dodged, cover by a wall', () => {
   // «Убить 30» has a tree at (9.5, 2.5) of radius 0.42: the lane at x = 10.15 passes its side — the sight (half the body)
   // is clear, the charging body (0.32) is not; the hero stands at the end of the lane behind the tree.
   const sim = fight();
   sim.command({ t: 'teleport', x: 10.15, y: 2 });
   boarWindsUp(sim, { x: 10.15, y: 6.45 });
   run(sim, 120);
-  expectOne(sim, 'boar', 'dodged', 'cover');
+  expectOne(sim, 'boar', 'dodged', 'cover', 'wall');
+});
+
+check('boar: the charge runs into the corner of a wall the hero stands beside — dodged, cover by a wall', () => {
+  // The wall x 3…4, y 2…5 of «Убить 30»: the lane at x = 4.29 clears the sight (0.16) but not the charging body (0.304);
+  // the hero stands beside the wall a unit past its corner, at the end of the lane.
+  const sim = fight();
+  sim.command({ t: 'teleport', x: 4.29, y: 4 });
+  boarWindsUp(sim, { x: 4.29, y: 8 });
+  run(sim, 120);
+  expectOne(sim, 'boar', 'dodged', 'cover', 'wall');
+});
+
+check('boar: the charge stops at the edge of a cliff between it and the hero — dodged, cover by a cliff', () => {
+  // «Обрыв»: the drop spans x ≈ 7.3…8.7 at y 4.4 and does not cut the sight; the boar charges at the hero across it.
+  const sim = fight({}, 7, 'cliff');
+  sim.command({ t: 'teleport', x: 6.6, y: 4.4 });
+  boarWindsUp(sim, { x: 10.6, y: 4.4 });
+  run(sim, 120);
+  expectOne(sim, 'boar', 'dodged', 'cover', 'cliff');
 });
 
 check('boar: the charge reaches the hero under the chain\'s shield — shielded', () => {
@@ -218,6 +238,20 @@ check('wolves: the hero jumps out of the lines when they rush — dodged', () =>
   assert(sim.command({ t: 'jump', x: HERO.x + 3 * Math.cos(Math.PI / 2 + Math.PI / 3), y: HERO.y + 3 * Math.sin(Math.PI / 2 + Math.PI / 3) }), 'the jump starts');
   calm(sim);
   expectOne(sim, 'wolf', 'dodged');
+});
+
+check('wolves: the hero jumps off the lane and the rush stops at a cliff edge behind him — dodged, cover by a cliff; the lane is fixed after the howl starts', () => {
+  // «Обрыв»: a lone wolf 3 to the left of the hero, the drop 0.7 behind him; the rush (4) would run on into it.
+  const sim = fight({ contactDamage: 1, wolfLoneWait: 0.3 }, 7, 'cliff');
+  sim.command({ t: 'teleport', x: 6.6, y: 4.4 });
+  place(sim, { x: 3.6, y: 4.4 }, 'wolf');
+  run(sim, 120, w => w.enemies.some(e => e.kind === 'wolf' && e.vars.st === WOLF_RUSH));
+  assert(sim.command({ t: 'jump', x: 6.6, y: 1.9 }), 'the jump starts');
+  calm(sim);
+  const a = expectOne(sim, 'wolf', 'dodged', 'cover', 'cliff'), w = a.warnings.find(x => x.kind === 'wolf')!;
+  assert(w.lockTick !== undefined && w.lockTick > w.tick, `the lane is fixed (tick ${w.lockTick}) after the howl starts (tick ${w.tick})`);
+  // The exit counts from the howl: the hero left the lane only with the jump, after the lane was fixed.
+  assert(w.exitTicks !== null && w.tick + w.exitTicks > w.lockTick, `exit ${w.exitTicks} ticks from the howl`);
 });
 
 check('wolves: the throw reaches the hero under the chain\'s shield — shielded', () => {
