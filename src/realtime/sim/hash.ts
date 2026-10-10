@@ -49,6 +49,9 @@ export function worldState(world: World): unknown {
     ...world.trails.length ? { trails: world.trails } : {},
     // Stage 2, step 3: the kit of an arena with a loadout (absent before: those worlds hash as before).
     ...world.kit ? { kit: world.kit } : {},
+    // Phase B (build.ts): structures of the build modules (absent while empty — worlds without them hash as before). The kit's
+    // `hammer`, `chains`, `counters` and the dash's `build` come with the kit and the move.
+    ...world.build ? { build: world.build } : {},
   };
 }
 

@@ -636,7 +636,7 @@ export function rtShopView(run: RtRunState): RtShopView | null {
       price, fullPrice: price, available: !reason, reason, sold, ...run.openItems.includes(item) ? {} : { opens: true } };
   });
   const talisman = pending.stock.talisman ? rtTalisman(pending.stock.talisman) : undefined;
-  if (talisman && talisman.rarity !== 'oath') {
+  if (talisman && talisman.rarity !== 'oath' && talisman.rarity !== 'relic') {
     const price = SHOP_TALISMAN_PRICE[talisman.rarity], sold = pending.bought.some(entry => entry.good === 'talisman'), reason = sold ? 'Куплено' : short(price);
     goods.push({ id: 'talisman', good: 'talisman', talisman: talisman.id, label: talisman.name, text: talisman.effect, price, fullPrice: price, available: !reason, reason, sold });
   }

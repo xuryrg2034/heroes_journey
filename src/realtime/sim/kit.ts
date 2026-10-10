@@ -9,6 +9,7 @@
 import { ITEM_KINDS } from '../../game/items';
 import { RESOURCE_KINDS } from '../../game/resources';
 import type { ItemKind, ResourceKind } from '../../game/forestTypes';
+import { isHammerId, type HammerId } from './buildIds';
 
 export type { ItemKind, ResourceKind };
 /** The consumables on keys 1–4, in this order: cold, bomb, healing, fire. */
@@ -44,6 +45,11 @@ export interface Loadout {
   earlyPace?: boolean;
   /** Phase A, T4: affixes of each elite of the arena (a run by its row: 1–4 — 0, 5–8 — 1, 9 — 2). Absent — 0. */
   eliteAffixes?: number;
+  /**
+   * Phase B, Т2: the run's hammer (buildIds.ts `HAMMERS`; one per run). Absent — none. Counter talismans (Т1) and relics (Т3)
+   * come in `talismans`.
+   */
+  hammer?: HammerId;
 }
 
 /**
@@ -73,6 +79,15 @@ export interface Kit {
    * before phase A and of run rows 1–4 hash as before.
    */
   eliteAffixes?: number;
+  /** Phase B, Т2: the hammer of the run (absent — none: kits before phase B hash as before). */
+  hammer?: HammerId;
+  /**
+   * Phase B (build.ts): chains released on this arena — counted only while a build module acts (absent otherwise). The
+   * plan numbers the drawn chain `chains + 1`.
+   */
+  chains?: number;
+  /** Phase B (build.ts `counterOf` / `setCounter`): arena-long counters of the build modules; absent while empty. */
+  counters?: Record<string, number>;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -108,6 +123,7 @@ export function kitOf(loadout: Loadout): Kit {
     ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false, startElite: !!loadout.startElite,
     extraStart: !!loadout.extraStart, earlyPace: !!loadout.earlyPace,
     ...count(loadout.eliteAffixes) > 0 ? { eliteAffixes: Math.min(MAX_AFFIXES, count(loadout.eliteAffixes)) } : {},
+    ...isHammerId(loadout.hammer) ? { hammer: loadout.hammer } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

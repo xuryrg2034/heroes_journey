@@ -164,3 +164,94 @@
 ## 9. Реализация
 
 (заполняют дорожки: Д0, Д1, … — каждая свой подраздел)
+
+### Д0. Общий слой сборки (10.10.2026)
+
+Сделано: геттеры, реестр модулей с хуками, id, поля `Loadout`/`Kit`, новые `source` убийств и события для вида. **Правил предметов нет**: модули Т1–Т3 пустые. Без взятого предмета игра и хэш прежние. Д1–Д3 пишут правила только в своих файлах (`sim/talismansRt.ts`, `sim/hammers.ts`, `sim/relics.ts`); `chain.ts`, `world.ts`, `items.ts` не трогают.
+
+**Файлы.** `sim/buildIds.ts` — id; `sim/build.ts` — реестр, геттеры, хуки, состояние; `sim/buildHits.ts` — удары сборки; `sim/buildModules.ts` — импорт модулей (его импортирует `world.ts`, как `enemies/index.ts`); заготовки `sim/talismansRt.ts`, `sim/hammers.ts`, `sim/relics.ts`; спека `sim/build.spec.ts` (`npm run test:realtime-build`); фикстура `tests/fixtures/realtime-legacy-build-journals.json`.
+
+**Id** (`sim/buildIds.ts`; `run/rtTalismans.ts` реэкспортирует их; sim не импортирует run):
+
+| Группа | Константа | Id |
+| --- | --- | --- |
+| Т1, в `talismans` | `COUNTER_TALISMANS` | `fifth-link`, `third-chain`, `shockwave`, `prism`, `finishing-blow`, `elite-hunter`, `long-arm`, `frost-edge` |
+| Т2, в `Loadout.hammer` | `HAMMERS` | `fire-pass`, `end-blast`, `cutting-pass`, `return-pass` |
+| Т3, в `talismans`, редкость `relic` | `RELICS` | `relic-millstone`, `relic-heavy-blade`, `relic-swift-feet`, `relic-wide-circle`, `relic-blood-oath` |
+| 5а | `OATH_HUNGER` | `oath-hunger` (прежний) |
+| источники убийств | `BUILD_SOURCES` | `wave`, `hammer-fire`, `hammer-blast`, `hammer-cut`, `hammer-return` |
+
+- `Loadout.hammer?` → `Kit.hammer?` (только известный id; иначе поля нет). Т1 и реликвии лежат в `Loadout.talismans` → `Kit.talismans`.
+- Редкость `relic` — `RtRarity` в `run/rtTalismans.ts`. Это не `oath`: `isRtOath` не даёт реликвии +2 энергии. Торговец реликвии не продаёт: в `run/rtRun.ts` одна правка — `rarity !== 'relic'` рядом с `rarity !== 'oath'` (без неё не проходит `tsc`). Определения, названия и предложения — Д4.
+
+**Модуль.** `registerBuildModule({ id, active?, modify?, linkPower?, afterLinkPower?, progress?, on…? })`. Модуль действует, только если кит держит его id (`Kit.talismans` или `Kit.hammer`); `active(world)` заменяет это правило. Без кита (песочница без снаряжения) модули не действуют. Порядок модулей — порядок регистрации: талисманы, молоты, реликвии, затем тесты. Второй модуль с тем же id — ошибка.
+
+**Геттеры** (`sim/build.ts`). База — значение до фазы B; модули меняют его через `modify.<число>(world, value)` по очереди.
+
+| Геттер | База | Где читается | Кто меняет |
+| --- | --- | --- | --- |
+| `linkRadiusOf` | `linkRadius` | `chain.ts` `reachRefusal` | Широкий круг ×1,25; Длинная рука ×1,5 (перемножаются) |
+| `focusMaxOf` | `focusMax` | фокус в `chain.ts`, старт фокуса в `createWorld` | Тяжёлый клинок ×0,5 |
+| `chainShieldOf(world, end)` | `chainShield` | `finishMove` | Добивание ×2; Быстрые ноги → 0 |
+| `heroSpeedOf` | `heroSpeed` | `stepHeroWalk` | Быстрые ноги ×1,25 |
+| `enemyWalkFactorOf` | 1 | `enemySpeed` (ходьба; Жнец — всегда 1; рывки, броски, прыжки не читают) | Широкий круг ×1,1 |
+| `itemHealOf` | `itemHeal` (не меньше 0) | лечение в `items.ts` | Кровавая клятва: 9 → 5 |
+| `jumpCostOf` | `jumpCost`, «Ловкие лапы» −1 | `canJump`, `jump`, HUD | Третья цепь → 0 на 5 с |
+| `crystalEveryOf` | `crystalEvery`, «Осколок жернова» −1 (не меньше 2) | кристалл в проходе | Жернов (с Осколком суммируется) |
+| `linkGainOf` | 1 | `strike(power, hp, factor, gain)`; пропущенное погибшее звено | Тяжёлый клинок → 2 |
+
+`chain.ts` реэкспортирует `jumpCostOf` и `crystalEveryOf`: прежние импорты работают.
+
+**Хуки.** Два вида.
+
+1. **Чистые** (вызываются и в прогнозе, и в проходе; мир не меняют: без счётчиков, событий и случайности): `modify.*`, `linkPower(world, link)` — сила к звену до удара; `afterLinkPower(world, link, outcome)` — сила после звена, если цепь идёт дальше (звено погибло или пропущено погибшим); `progress(world)` — `{ value, max }` для HUD.
+2. **События** (только при настоящем действии; могут менять мир):
+
+| Хук | Когда | Данные |
+| --- | --- | --- |
+| `onArenaStart(world)` | конец `createWorld` (кит и стартовые враги есть) | — |
+| `onRelease(world, { chain, links, start })` | цепь выпущена | номер цепи на арене (отменённые не в счёт), звенья, точка героя |
+| `onLink(world, link, outcome)` | после удара по вражескому звену (HP, сила, гибель применены); `outcome` null — пропущенное погибшее звено | `LinkContext` |
+| `onChainKill(world, { id, x, y, elite, fallen, kills })` | убийство цепью: удар прохода или пропущенное погибшее звено с зачётом | `kills` — убийств этой цепи |
+| `onCrystal(world, { id, x, y })` | проход разбил кристалл | — |
+| `onDashStep(world, { kind, path, move })` | раз в такт прохода или возврата, после ударов такта; в такт конца — до `onChainEnd` | точки пути героя за такт |
+| `onChainEnd(world, end)` | конец прохода: после очков, события `chainEnd` и неуязвимости после цепи; не вызывается после победы | `ChainEnd` |
+| `onJump(world, cost)` | прыжок начат | цена прыжка |
+| `onUpdate(world, dt)` | каждый такт мира, после горения, до терновника (не в стоп-кадре) | — |
+| `onMoveEnd(world, move)` | конец возврата (`kind: 'return'`) | — |
+
+`LinkContext`: `chain` (номер цепи; в прогнозе — следующий), `index` (номер вражеского звена от 1; пропущенные погибшие считаются), `enemy` (null — пропущенное погибшее), `id`, `elite`, `elitesBefore`, `power` (сила до бонусов и до +gain), `plan`. `ChainEnd`: `chain`, `kills`, `hits`, `links`, `elites`, `last` (последнее вражеское звено: `id`, `x`, `y`, `killed`, `elite`; решение 7), `power` (остаток силы), `start`, `end`.
+
+**Прогноз = исполнение.** `planChain` и проход строят одинаковый `LinkContext` и вызывают одни `linkPowerOf` / `afterLinkPowerOf` / `linkGainOf`; проверка «выживет ли звено» в `stepMove` идёт через тот же расчёт (`dashStrike`). Прогноз не вызывает событийных хуков и не меняет мир (проверено хэшем в спеке).
+
+**Состояние и хэш.**
+
+- `Kit.chains` — выпущенные цепи арены; `Kit.counters` — числа модулей (`counterOf`, `setCounter`, `addCounter`; 0 удаляет ключ); `Kit.hammer`.
+- `HeroMove.build` — счёт прохода слоя: `chain`, `links`, `elites`, `start`, `last`.
+- `World.build[moduleId]` — структуры модулей, например огонь молота (`buildStateOf`, `setBuildState`; только JSON-значения).
+- `FallenLink.elite` — только на проходе со счётом слоя.
+
+Всё это в хэше. Пока ни один модуль не действует, полей нет: старые журналы дают прежний хэш. Числа предметов — константы модулей, не `Params`. Новых потоков RNG нет.
+
+**Удары сборки** (`sim/buildHits.ts`, решения 16–18): `enemiesInCircle(world, p, r)` и `enemiesNearPath(world, path, r)` — касание тела (`dist ≤ r + радиус тела`), без Жнеца; `buildHit` / `buildHitAll` — `damageEnemy` с `credited: true` и своим `source` (убийство засчитано, элита роняет добычу, ×2 холода не даёт). Удар по звену впереди прохода делает его пропущенным погибшим звеном (+gain, зачёт цепи).
+
+**Возврат** (для Д2): `startReturnRun(world, route, power, speed?)` в `chain.ts` — из `onChainEnd`. Это ход `kind: 'return'` по точкам `route` со скоростью прохода; `move.power` — сила для ударов модуля. Герой неуязвим, как в любом ходе. Второго `chainEnd` нет; в конце — `onMoveEnd`.
+
+**События для вида** (`WorldEvent`): `{ type: 'talismanFired', id }` (`talismanFired(world, id)` в `build.ts`), `{ type: 'hammer', kind: 'fire' | 'blast' | 'cut' | 'return', x, y, r? }`, `{ type: 'wave', x, y, r }`.
+
+**Для Д5 (вид не менялся).** Вид ещё читает числа напрямую. Нужно заменить на геттеры: `params.linkRadius` → `linkRadiusOf` (`view/render.ts`, круги R), `params.focusMax` → `focusMaxOf` (`view/main.ts`, полоса фокуса), `params.itemHeal` → `itemHealOf` (`view/render.ts`, текст лечения). Ход `return` рисуется как обычный: `world.move?.kind === 'dash'` в `view/render.ts`.
+
+**Проверки (10.10.2026, дорожка Д0, рабочая копия на 5890f3c).**
+
+- `npm run test:realtime-build` (новый, `src/realtime/sim/build.spec.ts`, Node, только команды журнала), 8 проверок:
+  - старые журналы дают прежний хэш: две браузерные фикстуры и два боя бота, записанные на коде до слоя (`tests/fixtures/realtime-legacy-build-journals.json`: снаряжение похода со всеми старыми талисманами, расходниками, элитами с аффиксами, прыжками; песочница без снаряжения);
+  - без предмета геттеры дают прежние числа, слой не пишет состояние;
+  - тестовые модули регистрируются в спеке и работают через реальные команды:
+    - хук силы: прогноз и проход совпадают по каждому звену, исход решает хук, прогноз не меняет хэш;
+    - модификаторы меняют R, фокус, скорость героя и врагов, лечение, прыжок, кристаллы, прирост силы и неуязвимость после цепи;
+    - удар сборки по звену впереди даёт пропущенное погибшее звено с зачётом;
+    - возврат: неуязвимость, один `chainEnd`, герой в начале цепи, волна засчитана.
+  - Проверено, что тест ловит ошибки: без хука силы в `planChain` или в проходе и без `afterLinkPower` проверки падают.
+- `npx tsc --noEmit` — без ошибок. Все `test:realtime-*` — 14 из 14: `-sim` 11, `-run` 33, `-rosters` 8, `-enemies` 42, `-kit` 28, `-arenas` 7, `-terrain` 24, `-slice-terrain` 13, `-behavior` 22, `-detmath` 5, `-camera` 16, `-big-arenas` 7, `-affixes` 16, `-build` 8.
+- `verify.sh` — 86 из 86; `test:golden` — 658 прогонов, 0 расхождений.
+- Playwright (`playwright.realtime.config.ts`, порт 4641, `--repeat-each 3`) — **255 из 255**.

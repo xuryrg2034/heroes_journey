@@ -29,12 +29,15 @@
 import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, trailAt } from './elites';
-import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
+import { hasTalisman } from './kit';
+import { afterLinkPowerOf, buildActive, chainShieldOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainEnd, type LinkContext } from './build';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type World } from './world';
 
 export { OBJECT_RADIUS };
+// Phase B: these two moved to build.ts (the build may change them); the view and the tests import them from here as before.
+export { crystalEveryOf, jumpCostOf };
 
 /** Energy cap, as in the main game. */
 export const ENERGY_MAX = 7;
@@ -44,7 +47,7 @@ const HERO_CANCEL_RADIUS = 0.42;
 const JUMP_TIME = 0.18;
 
 export interface StrikeOutcome {
-  /** Power before the hit, already +1 for this enemy. */
+  /** Power before the hit, already +gain (1; phase B: build.ts `linkGainOf`) for this enemy. */
   available: number;
   damage: number;
   hpBefore: number;
@@ -58,9 +61,10 @@ export interface StrikeOutcome {
  * One chain hit on an enemy with `hp`, carrying `power` from the previous links. `factor` multiplies the hit (stage 2,
  * step 3: the cold consumable makes it ×2): as the brittleness of the main game (docs/chain-budget.md), the power spent is
  * the smaller of the power available and the HP really removed — a brittle 5 HP enemy dies from power 3 (hit 6), spends 3.
+ * `gain` — what the enemy adds before its hit (1; phase B: «Тяжёлый клинок» 2, build.ts `linkGainOf`).
  */
-export function strike(power: number, hp: number, factor = 1): StrikeOutcome {
-  const available = power + 1, damage = available * factor;
+export function strike(power: number, hp: number, factor = 1, gain = 1): StrikeOutcome {
+  const available = power + gain, damage = available * factor;
   const killed = damage >= hp;
   const spent = Math.min(available, Math.min(damage, hp));
   return { available, damage, hpBefore: hp, hpAfter: killed ? 0 : hp - damage, killed, powerAfter: available - spent };
@@ -109,10 +113,16 @@ export function linkPoint(world: World, link: ChainLink): Vec | null {
  */
 export function chainStartPower(world: World): number { return world.kit?.firstPower ?? 0; }
 
-/** Highlight of the drawn chain: who dies, who is wounded. Same `strike` as the dash. */
+/**
+ * Highlight of the drawn chain: who dies, who is wounded. Same `strike` as the dash; phase B: the same pure power hooks of
+ * the build modules with the same link context (build.ts `linkPowerOf`, `afterLinkPowerOf`) — nothing here changes the world.
+ */
 export function planChain(world: World, links: readonly ChainLink[] = world.chain): ChainPlan {
   let power = chainStartPower(world), kills = 0, endsOnSurvivor = false;
   const out: LinkPlan[] = [];
+  // Phase B: the build layer numbers the enemy links only while a build module acts (otherwise the old plan, exactly).
+  const build = buildActive(world), chain = build ? nextChainNo(world) : 0, gain = linkGainOf(world);
+  let index = 0, elites = 0;
   for (const link of links) {
     const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
     if (!enemy) {
@@ -121,8 +131,10 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
       out.push({ link, outcome: null });
       continue;
     }
-    const outcome = strike(power, enemy.hp, chainFactor(world, enemy));
+    const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true } : null;
+    const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain);
     power = outcome.powerAfter;
+    if (ctx) { if (outcome.killed) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; }
     if (outcome.killed) kills++;
     else endsOnSurvivor = true;
     out.push({ link, outcome });
@@ -203,12 +215,6 @@ export function chainAnchors(world: World): Vec[] {
 /** The hero is a second anchor: the panel toggle (the sandbox) or the talisman «Якорь у героя» (stage 2, step 3). */
 export function heroAnchorOn(world: World): boolean { return world.params.heroAnchor || hasTalisman(world, 'hero-anchor'); }
 
-/** A crystal for every N kills of one chain: the panel's N, one fewer with «Осколок жернова» (stage 2, step 3), at least 2. */
-export function crystalEveryOf(world: World): number {
-  const every = world.params.crystalEvery;
-  return hasTalisman(world, 'millstone-shard') ? Math.max(2, every - MILLSTONE_STEP) : every;
-}
-
 export function inChain(world: World, enemy: Enemy): number {
   return world.chain.findIndex(l => l.kind === 'enemy' && l.id === enemy.id);
 }
@@ -242,7 +248,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
  * or a wall corner still sees. Null — reachable; `far` — no anchor is close enough; `sight` — close, but blocked.
  */
 function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
-  const p = world.params, reach = p.linkRadius + (p.linkToEdge ? edge : 0);
+  // Phase B: R of the build (build.ts `linkRadiusOf`: «Широкий круг», «Длинная рука»); without a build module — `linkRadius`.
+  const p = world.params, reach = linkRadiusOf(world) + (p.linkToEdge ? edge : 0);
   let near = false;
   for (const anchor of chainAnchors(world)) {
     if (dist(anchor, target) > reach) continue;
@@ -341,7 +348,8 @@ function refreshFocus(world: World, link: ChainLink): void {
   const key = `${link.kind}:${link.id}`;
   if (world.focusRefreshed.has(key)) return;
   world.focusRefreshed.add(key);
-  world.focus = p.focusPerLink > 0 ? Math.min(p.focusMax, world.focus + p.focusPerLink) : p.focusMax;
+  const max = focusMaxOf(world);
+  world.focus = p.focusPerLink > 0 ? Math.min(max, world.focus + p.focusPerLink) : max;
   world.events.push({ type: 'focusRefill' });
 }
 
@@ -453,6 +461,26 @@ export function releaseChain(world: World): boolean {
   if (armed.length) world.move.armed = armed;
   // Stage 2, step 3 («Точильный камень»): the first chain with an enemy starts with its power; it is spent by that chain.
   if (world.kit?.firstPower && links.some(l => l.kind === 'enemy')) { world.move.power = world.kit.firstPower; world.kit.firstPower = 0; }
+  // Phase B: while a build module acts, the layer numbers the chain on the arena and counts its dash (build.ts).
+  if (buildActive(world)) {
+    const kit = world.kit!, chain = kit.chains = (kit.chains ?? 0) + 1, start = { x: world.hero.x, y: world.hero.y };
+    world.move.build = { chain, links: 0, elites: 0, start: { ...start } };
+    runHook(world, 'onRelease', m => m.onRelease!(world, { chain, links, start }));
+  }
+  return true;
+}
+
+/**
+ * Phase B (the hammer «Возврат», track Д2): a run of the hero along `route` (points in order; he ends on the last one) after
+ * a dash — no links, no chain end, untouchable as in any move (`canBeHurt`); `power` is kept in the move for the module's
+ * hits (`onDashStep` with kind `return`), `onMoveEnd` when it ends. Only from rest (no move): call it from `onChainEnd`.
+ */
+export function startReturnRun(world: World, route: readonly Vec[], power: number, speed = world.params.dashSpeed): boolean {
+  if (world.status !== 'playing' || world.move || !route.length) return false;
+  const points = route.map(p => ({ x: p.x, y: p.y })), stop = { ...points[points.length - 1] };
+  world.move = newMove('return', stop, points.shift()!, Math.max(0.1, speed));
+  world.move.power = power;
+  if (points.length) world.move.route = points;
   return true;
 }
 
@@ -482,11 +510,6 @@ export function jumpRefusal(world: World, p: Vec): JumpRefusal | null {
   return world.arena.terrain && cliffAt(land, r, world.arena) && !blockedAt(land, r, world.arena, false) ? 'cliff' : 'blocked';
 }
 
-/** Energy the jump costs now: the panel's `jumpCost`, one less with «Ловкие лапы» (stage 2, step 3). */
-export function jumpCostOf(world: World): number {
-  return hasTalisman(world, 'nimble-paws') ? Math.max(0, world.params.jumpCost - NIMBLE_PAWS_DISCOUNT) : world.params.jumpCost;
-}
-
 export function canJump(world: World): boolean {
   return world.status === 'playing' && !world.move && world.chain.length === 0 && world.energy >= jumpCostOf(world);
 }
@@ -495,10 +518,12 @@ export function jump(world: World, p: Vec): boolean {
   if (!canJump(world)) return false;
   const land = jumpLanding(world, p);
   if (!land) return false;
-  world.energy -= jumpCostOf(world);
+  const cost = jumpCostOf(world);
+  world.energy -= cost;
   const speed = Math.max(dist(land, world.hero) / JUMP_TIME, 1);
   world.move = newMove('jump', land, land, speed);
   world.events.push({ type: 'jump' });
+  runHook(world, 'onJump', m => m.onJump!(world, cost));
   return true;
 }
 
@@ -509,7 +534,7 @@ function landsInDoor(world: World, p: Vec): boolean {
 }
 
 /** Moves the hero towards `target`; true on arrival. */
-function moveHero(world: World, target: Vec, step: number, reach = 0): boolean {
+function moveHeroTo(world: World, target: Vec, step: number, reach = 0): boolean {
   const hero = world.hero, d = dist(hero, target);
   if (d <= reach + 1e-6) return true;
   const go = Math.min(step, d - reach);
@@ -579,9 +604,27 @@ function maybeFinisher(world: World): void {
   world.events.push({ type: 'finisher', kills: move.kills });
 }
 
+/**
+ * The dash's hit on the link `enemy` as it would be now (pure): phase B — the build layer's link context and the modules'
+ * power before the hit (the same `linkPowerOf` the plan adds), the build's gain; `ctx` null without the layer's count.
+ */
+function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkContext | null; outcome: StrikeOutcome } {
+  const b = move.build;
+  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false } : null;
+  return { ctx, outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world)) };
+}
+
+/** Phase B: the layer notes an enemy link the dash reached (struck or passed fallen). */
+function noteLink(move: HeroMove, link: { id: number; x: number; y: number; elite?: unknown }, killed: boolean): void {
+  const b = move.build!;
+  b.links++;
+  if (link.elite) b.elites++;
+  b.last = { id: link.id, x: link.x, y: link.y, killed, ...link.elite ? { elite: true as const } : {} };
+}
+
 function hitEnemy(world: World, enemy: Enemy): void {
   const move = world.move!, p = world.params;
-  const outcome = strike(move.power, enemy.hp, dashFactor(world, enemy));
+  const { ctx, outcome } = dashStrike(world, move, enemy);
   // Stage 2 of the transition: the kind's reaction to the hit (the porcupine's quills); the hero's death comes first.
   behaviorOf(enemy).onChainHit?.(world, enemy, outcome);
   if (world.status !== 'playing') return;
@@ -603,8 +646,17 @@ function hitEnemy(world: World, enemy: Enemy): void {
     // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse); an elite's loot (step 3).
     behaviorOf(enemy).onDeath?.(world, enemy, { source: 'chain', credited: true });
     eliteDeath(world, enemy, { source: 'chain', credited: true });
-    if (p.focusKillRefill) world.focus = Math.min(p.focusMax, world.focus + p.focusPerKill);
+    if (p.focusKillRefill) world.focus = Math.min(focusMaxOf(world), world.focus + p.focusPerKill);
     checkGoals(world);
+    // Phase B: the modules' power after the link (the plan adds the same), then their hooks.
+    if (ctx) {
+      move.power += afterLinkPowerOf(world, ctx, outcome);
+      noteLink(move, enemy, true);
+      runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome));
+      const kill = { id: enemy.id, x: enemy.x, y: enemy.y, elite: !!enemy.elite, fallen: false, kills: move.kills };
+      runHook(world, 'onChainKill', m => m.onChainKill!(world, kill));
+      if (world.status !== 'playing') return;
+    }
     // A crystal at every N-th kill of this chain (main game: 6th, 12th…), off the rest of its path.
     if (p.crystals && crystalEveryOf(world) > 0 && move.kills % crystalEveryOf(world) === 0) dropCrystal(world, { x: enemy.x, y: enemy.y });
     world.hitstop = Math.max(world.hitstop, hitstopFor(world, move.kills));
@@ -617,6 +669,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     const speed = p.survivorKnockbackDistance / p.survivorKnockbackTime;
     enemy.knock = p.survivorKnockbackTime; enemy.knockVx = dx / d * speed; enemy.knockVy = dy / d * speed;
   }
+  if (ctx) { noteLink(move, enemy, false); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
   // The chain stops on a survivor: the hero goes back to the last freed spot (over the points flown over a drop, stage 3a).
   move.links = [];
   returnToStop(move);
@@ -629,14 +682,21 @@ function hitEnemy(world: World, enemy: Enemy): void {
  * score; the kill counter was counted at its death); otherwise power only. No hit: no energy, no quills, no hit-stop.
  */
 function passFallen(world: World, fallen: FallenLink): void {
-  const move = world.move!, p = world.params;
-  move.power += 1;
+  const move = world.move!, p = world.params, b = move.build;
+  // Phase B: the build's gain (1 without a build module) and, while the layer counts, the modules' power around the link.
+  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy: null, id: fallen.id, elite: !!fallen.elite, elitesBefore: b.elites, power: move.power, plan: false } : null;
+  move.power += ctx ? linkPowerOf(world, ctx) + linkGainOf(world) + afterLinkPowerOf(world, ctx, null) : linkGainOf(world);
   // Stage 3a (М2): a link that fell into a cliff — the hero flies over its point but does not stop there: the point is
   // noted, and if nothing on the ground follows, the hero flies back along the chain (`returnToStop`).
   if (world.arena.terrain && overCliff(fallen, world.arena)) (move.detour ??= []).push({ x: fallen.x, y: fallen.y });
   else landAt(move, fallen);
+  if (ctx) { noteLink(move, fallen, true); runHook(world, 'onLink', m => m.onLink!(world, ctx, null)); }
   if (!fallen.credited) return;
   move.kills++;
+  if (ctx) {
+    const kill = { id: fallen.id, x: fallen.x, y: fallen.y, elite: !!fallen.elite, fallen: true, kills: move.kills };
+    runHook(world, 'onChainKill', m => m.onChainKill!(world, kill));
+  }
   if (p.crystals && crystalEveryOf(world) > 0 && move.kills % crystalEveryOf(world) === 0) dropCrystal(world, { x: fallen.x, y: fallen.y });
   maybeFinisher(world);
 }
@@ -663,6 +723,7 @@ function breakCrystal(world: World, crystal: ArenaObject): void {
   move.crystalScore += score;
   world.objects.splice(world.objects.indexOf(crystal), 1);
   world.events.push({ type: 'crystalBreak', objectId: crystal.id, x: crystal.x, y: crystal.y, score, combo: move.hits });
+  runHook(world, 'onCrystal', m => m.onCrystal!(world, { id: crystal.id, x: crystal.x, y: crystal.y }));
 }
 
 /** The chain ended on an object: a button is pressed for good; the open door wins the arena. */
@@ -719,17 +780,43 @@ function finishMove(world: World): void {
     world.events.push({ type: 'chainEnd', kills: move.kills, score });
     // Stage F (user 07.10.2026): a chain that killed leaves the hero untouchable for a moment to walk out of the crowd;
     // a new one replaces the rest (no stacking); the hurt invulnerability runs on its own, the larger protects.
-    const p = world.params;
-    if (p.chainShield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) hero.chainShield = p.chainShield;
+    // Phase B: its length is the build's (build.ts `chainShieldOf`: «Добивание», «Быстрые ноги»).
+    const p = world.params, b = move.build;
+    const end: ChainEnd | null = b ? { chain: b.chain, kills: move.kills, hits: move.hits, links: b.links, elites: b.elites, last: b.last ? { ...b.last } : null,
+      power: move.power, start: { ...b.start }, end: { x: hero.x, y: hero.y } } : null;
+    const shield = chainShieldOf(world, end);
+    if (shield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) hero.chainShield = shield;
+    // Phase B: the dash is over — the build modules' end of chain (a wave, the end blast, the return run …).
+    if (end) runHook(world, 'onChainEnd', m => { if (world.status === 'playing') m.onChainEnd!(world, end); });
   }
   if (move.kind === 'jump' && landsInDoor(world, hero)) win(world);
+  if (move.kind === 'return') runHook(world, 'onMoveEnd', m => m.onMoveEnd!(world, move));
 }
 
-/** Dash / jump progress in real seconds (the dash ignores focus; contact damage is off). */
+/**
+ * Dash / jump / return progress in real seconds (the dash ignores focus; contact damage is off). Phase B: while a build
+ * module has `onDashStep`, the hero's path of this tick (dash or return run) goes to it after the tick's hits, before the
+ * move ends.
+ */
 function stepMove(world: World, realDt: number): void {
   const move = world.move;
   if (!move) return;
-  let budget = move.speed * realDt;
+  const path = move.kind !== 'jump' && hasHook(world, 'onDashStep') ? [{ x: world.hero.x, y: world.hero.y }] : null;
+  const done = advanceMove(world, move, move.speed * realDt, path);
+  if (path && path.length > 1) runHook(world, 'onDashStep', m => m.onDashStep!(world, { kind: move.kind, path, move }));
+  if (done && world.move === move) finishMove(world);
+}
+
+/**
+ * Moves the hero along the move by `budget` units; true — the move reached its end (`finishMove` follows). `path` (phase B)
+ * collects the hero's points when given.
+ */
+function advanceMove(world: World, move: HeroMove, budget: number, path: Vec[] | null): boolean {
+  const moveHero = (target: Vec, step: number, reach = 0): boolean => {
+    const arrived = moveHeroTo(world, target, step, reach);
+    if (path) { const h = world.hero, last = path[path.length - 1]; if (h.x !== last.x || h.y !== last.y) path.push({ x: h.x, y: h.y }); }
+    return arrived;
+  };
   for (let guard = 0; guard < 64 && budget > 1e-6 && world.move; guard++) {
     const before = { x: world.hero.x, y: world.hero.y };
     if (move.links.length) {
@@ -737,9 +824,9 @@ function stepMove(world: World, realDt: number): void {
       if (link.kind === 'object') {
         const object = findObject(world, link.id);
         if (!object) { move.links.shift(); continue; }
-        const arrived = moveHero(world, object, budget);
+        const arrived = moveHero(object, budget);
         budget -= dist(before, world.hero);
-        if (!arrived) return;
+        if (!arrived) return false;
         if (object.kind === 'crystal') { move.links.shift(); breakCrystal(world, object); continue; }
         // Stage 2, step 3: the loot of an elite — picked up, the hero takes its spot, the chain goes on.
         if (object.kind === 'loot') { move.links.shift(); landAt(move, object); pickLoot(world, object); continue; }
@@ -753,39 +840,40 @@ function stepMove(world: World, realDt: number): void {
         // Died on the way (stage 2 of the transition): the hero still passes its last point and takes its +1.
         const fallen = move.fallen?.find(f => f.id === link.id);
         if (!fallen) { move.links.shift(); continue; }
-        const arrived = moveHero(world, fallen, budget);
+        const arrived = moveHero(fallen, budget);
         budget -= dist(before, world.hero);
-        if (!arrived) return;
+        if (!arrived) return false;
         move.links.shift();
         passFallen(world, fallen);
         continue;
       }
       // A kill takes the enemy's spot; a survivor is struck from the touch distance.
-      const survives = !strike(move.power, enemy.hp, dashFactor(world, enemy)).killed;
+      const survives = !dashStrike(world, move, enemy).outcome.killed;
       const reach = survives ? touchDistanceOf(world.params, enemy) : 0;
-      const arrived = moveHero(world, enemy, budget, reach);
+      const arrived = moveHero(enemy, budget, reach);
       budget -= dist(before, world.hero);
-      if (!arrived) return;
+      if (!arrived) return false;
       move.links.shift();
       hitEnemy(world, enemy);
-      if (world.status !== 'playing') return;
+      if (world.status !== 'playing') return false;
       // Hit-stop: the rest of this tick's dash waits with the world (the next ticks are frozen while it lasts).
       if (world.hitstop > 0) break;
       continue;
     }
     if (move.point) {
-      const arrived = moveHero(world, move.point, budget);
+      const arrived = moveHero(move.point, budget);
       budget -= dist(before, world.hero);
-      if (!arrived) return;
+      if (!arrived) return false;
       move.point = move.route?.shift() ?? null;
       if (move.route && !move.route.length) delete move.route;
       continue;
     }
     // Stage 3a (М2): the last links fell into a cliff — fly back over them to the ground first.
     if (move.detour) { returnToStop(move); continue; }
-    finishMove(world);
+    return true;
   }
-  if (world.move && !move.links.length && !move.point) { if (move.detour) returnToStop(move); else finishMove(world); }
+  if (world.move && !move.links.length && !move.point) { if (move.detour) returnToStop(move); else return true; }
+  return false;
 }
 
 /**
@@ -798,7 +886,7 @@ export function tickScale(world: World): number {
   const p: Params = world.params;
   if (world.status !== 'playing') return 1;
   const selecting = world.chain.length > 0 && !world.move;
-  let scale = selecting && Math.min(world.focus, p.focusMax) > 0 ? p.focusSlow : 1;
+  let scale = selecting && Math.min(world.focus, focusMaxOf(world)) > 0 ? p.focusSlow : 1;
   if (world.slowmo > 0) scale = Math.min(scale, p.finisherSlow);
   return scale;
 }
@@ -808,8 +896,8 @@ export function tickScale(world: World): number {
  * the hero. Focus, the dash, the jump and the slow-motion run on real seconds: `realDt` = `SIM_DT ÷ tickScale`.
  */
 export function stepHero(world: World, realDt: number): void {
-  const p = world.params;
-  world.focus = Math.min(world.focus, p.focusMax);
+  const p = world.params, focusMax = focusMaxOf(world);
+  world.focus = Math.min(world.focus, focusMax);
   if (world.status !== 'playing') { world.chain = []; world.focusing = false; world.timeScale = 1; return; }
   const selecting = world.chain.length > 0 && !world.move;
   if (selecting && world.focus > 0) {
@@ -820,7 +908,7 @@ export function stepHero(world: World, realDt: number): void {
     world.focusing = false;
     world.timeScale = 1;
     // An empty focus leaves the time normal; the chain can still be finished.
-    if (!selecting) world.focus = Math.min(p.focusMax, world.focus + p.focusRegen * realDt);
+    if (!selecting) world.focus = Math.min(focusMax, world.focus + p.focusRegen * realDt);
   }
   // Finisher slow-motion (stage C): the world runs slower for a moment after the last hit of a long chain.
   if (world.slowmo > 0) {
