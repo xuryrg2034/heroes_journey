@@ -27,7 +27,7 @@
  *
  * A dash that ends in the door (victory) has no end: no blast, no return (build.ts: `onChainEnd` is not called).
  */
-import { buildStateOf, registerBuildModule, setBuildState } from './build';
+import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState } from './build';
 import { BUILD_SOURCES, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath, segmentDistance } from './buildHits';
 import { startReturnRun } from './chain';
@@ -169,16 +169,28 @@ registerBuildModule({
 
 // ---- «Взрыв на конце» ----
 
+/**
+ * Баланс (decision of the user 11.10.2026, playtest v17: the blast went off on chains of one link — 79 hammer kills to 89
+ * chain kills in 4 fights): the end blast needs a chain of at least this many enemy links — reached by the dash: struck,
+ * passed fallen (as «Пятое звено»), the survivor at the end; crystals, braziers, buttons, the door and loot do not count.
+ */
+export const END_BLAST_MIN_LINKS = 3;
+
 registerBuildModule({
   id: HAMMERS.blast,
   onChainEnd: (world, end) => {
     const last = end.last;
-    if (!last) return;
+    if (!last || end.links < END_BLAST_MIN_LINKS) return;
     // Decision 17: a surviving last link — around the survivor where it stands now.
     const survivor = last.killed ? undefined : world.enemies.find(e => e.id === last.id);
     const at = survivor ? { x: survivor.x, y: survivor.y } : { x: last.x, y: last.y };
     world.events.push({ type: 'hammer', kind: 'blast', x: at.x, y: at.y, r: BLAST_RADIUS });
     buildHitAll(world, enemiesInCircle(world, at, BLAST_RADIUS), BLAST_DAMAGE, BUILD_SOURCES.hammerBlast);
+  },
+  // The column shows the links of the drawn chain (or of the dash) up to the threshold, as «Ударная волна» does.
+  progress: world => {
+    const links = chainEnemyLinks(world);
+    return links === null ? null : { value: Math.min(links, END_BLAST_MIN_LINKS), max: END_BLAST_MIN_LINKS };
   },
 });
 

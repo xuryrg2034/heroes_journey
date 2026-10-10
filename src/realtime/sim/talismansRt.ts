@@ -12,7 +12,7 @@
  *   a charge waits). Null — nothing to show (the talisman is not a counter, or no chain is drawn).
  * - Numbers are constants here, not `Params`. No random draws, no transcendental `Math.*`.
  */
-import { addCounter, counterOf, chainShieldOf, nextChainNo, registerBuildModule, setCounter, talismanFired, type BuildProgress } from './build';
+import { addCounter, chainEnemyLinks, counterOf, chainShieldOf, nextChainNo, registerBuildModule, setCounter, talismanFired, type BuildProgress } from './build';
 import { BUILD_SOURCES, COUNTER_TALISMANS, RELICS } from './buildIds';
 import { buildHitAll, enemiesInCircle } from './buildHits';
 import type { World } from './world';
@@ -71,12 +71,8 @@ const KEY = {
 
 const holds = (world: World, id: string): boolean => !!world.kit?.talismans.includes(id);
 
-/** Enemy links of the chain now: the dash's reached links, or the drawn chain's living enemy links; null — no chain. */
-function chainLinks(world: World): number | null {
-  if (world.move) return world.move.kind === 'dash' && world.move.build ? world.move.build.links : null;
-  if (!world.chain.length) return null;
-  return world.chain.filter(l => l.kind === 'enemy' && world.enemies.some(e => e.id === l.id)).length;
-}
+/** Enemy links of the chain now (build.ts `chainEnemyLinks`). */
+const chainLinks = chainEnemyLinks;
 
 /** The released chain number `chain` is a «every N-th» one. */
 const nth = (chain: number, every: number): boolean => chain > 0 && chain % every === 0;

@@ -107,7 +107,7 @@ export const RT_RARITY_NAME: Readonly<Record<RtRarity, string>> = { common: 'о�
 export interface RtHammerDef { id: Hammer; name: string; effect: string }
 export const RT_HAMMERS: readonly RtHammerDef[] = [
   { id: 'fire-pass', name: 'Огненный проход', effect: 'Путь героя по цепи горит 2 с: огонь бьёт врагов на 1 при входе; героя не жжёт, в воде не горит' },
-  { id: 'end-blast', name: 'Взрыв на конце', effect: 'В конце прохода — взрыв радиусом 1,5 вокруг последнего звена: удар 1 по всем врагам' },
+  { id: 'end-blast', name: 'Взрыв на конце', effect: 'Цепь из 3+ звеньев: в конце прохода — взрыв радиусом 1,5 вокруг последнего звена, удар 1 по всем врагам' },
   { id: 'cutting-pass', name: 'Режущий проход', effect: 'Проход бьёт на 1 врагов любого цвета в 0,5 от пути (кроме звеньев)' },
   { id: 'return-pass', name: 'Возврат', effect: 'После прохода герой бежит к началу цепи вторым проходом с половиной силы; неуязвим на бегу' },
 ];

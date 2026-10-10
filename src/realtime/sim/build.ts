@@ -286,6 +286,16 @@ export function addCounter(world: World, key: string, delta: number): number {
 }
 
 /** A module's structure on the arena (JSON values only: it is hashed); undefined — none. */
+/**
+ * Enemy links of the chain now, for the pure `progress` hooks: the dash's reached links (struck or passed fallen, the
+ * survivor at the end included), or the drawn chain's living enemy links; null — no chain.
+ */
+export function chainEnemyLinks(world: World): number | null {
+  if (world.move) return world.move.kind === 'dash' && world.move.build ? world.move.build.links : null;
+  if (!world.chain.length) return null;
+  return world.chain.filter(l => l.kind === 'enemy' && world.enemies.some(e => e.id === l.id)).length;
+}
+
 export const buildStateOf = <T>(world: World, id: string): T | undefined => world.build?.[id] as T | undefined;
 
 /** Sets a module's structure; undefined removes it (an empty `World.build` leaves the world). */

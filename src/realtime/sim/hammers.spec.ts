@@ -18,11 +18,13 @@ import browserJournal from '../../../tests/fixtures/realtime-browser-journal.jso
 import shieldsWolvesJournal from '../../../tests/fixtures/realtime-browser-journal-shields-wolves.json';
 import legacyJournals from '../../../tests/fixtures/realtime-legacy-build-journals.json';
 import { registerArena } from './arenas';
+import { buildModules, registerBuildModule, setBuildState } from './build';
+import { buildHit } from './buildHits';
 import { BUILD_SOURCES, HAMMERS, type HammerId } from './buildIds';
 import { chainScore } from './chain';
 import { bodyRadiusOf } from './enemies/kinds';
 import { inWater, pond } from './geometry';
-import { BLAST_RADIUS, CUT_RADIUS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, hammerFirePoints, type FirePoint } from './hammers';
+import { BLAST_RADIUS, CUT_RADIUS, END_BLAST_MIN_LINKS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, hammerFirePoints, type FirePoint } from './hammers';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
 import { SIM_DT, Simulation, replay, type Journal } from './simulation';
@@ -239,18 +241,64 @@ check('end blast: a surviving last link — the blast is around the survivor (it
   assert(!alive(w, bySurvivor) && alive(w, byStop), 'the one by the survivor dies, the one by the hero\'s stop does not');
   assert(replays(sim), 'replay');
 
-  // The door: goals done, a chain of a weak link and the open door — the dash wins, no end of the chain, no blast.
+  // The door: goals done, a chain of three weak links (the threshold) and the open door — the dash wins, no end of the
+  // chain, no blast.
   const door = fight(HAMMERS.blast), dw = door.world;
   door.command({ t: 'goals' });
   const d = doorOf(dw);
-  door.command({ t: 'teleport', x: d.x, y: d.y + 2.7 });
-  const link = place(door, d.x, d.y + 1.5, 0);
+  door.command({ t: 'teleport', x: d.x, y: d.y + 4.2 });
+  const doorLinks = [place(door, d.x, d.y + 3.3, 0), place(door, d.x, d.y + 2.4, 0), place(door, d.x, d.y + 1.5, 0)];
   const by = place(door, d.x - 0.7, d.y + 1.9, 0, { color: 1 });
-  dash(door, [link, d]);
+  dash(door, [...doorLinks, d]);
   const doorEvents = settle(door);
-  assert(dw.status === 'victory' && !alive(dw, link), `victory (${dw.status})`);
+  assert(dw.status === 'victory' && doorLinks.every(l => !alive(dw, l)), `victory (${dw.status})`);
   assert(alive(dw, by) && hammerEvents(doorEvents).length === 0, 'no blast after the victory');
   assert(replays(door), 'replay');
+});
+
+/** Test module: on the first tick of a dash a build hit kills the chain's 2nd enemy link ahead of the hero (a fallen link). */
+const CUT_SECOND = 'test-hammers-cut-second';
+registerBuildModule({
+  id: CUT_SECOND,
+  onDashStep: (w, step) => {
+    const b = step.move.build;
+    if (step.kind !== 'dash' || !b || w.build?.[CUT_SECOND]) return;
+    const ahead = step.move.links.filter(l => l.kind === 'enemy');
+    const target = ahead[2 - b.links - 1];
+    const e = target && w.enemies.find(x => x.id === target.id);
+    setBuildState(w, CUT_SECOND, 1);
+    if (e) buildHit(w, e, 99, BUILD_SOURCES.hammerCut);
+  },
+});
+
+check(`end blast (decision of the user 11.10.2026): only a chain of ${END_BLAST_MIN_LINKS}+ enemy links — 2 links: no blast and no event; 3: the blast; a link fallen ahead counts; the column shows the links up to 3`, () => {
+  assert(END_BLAST_MIN_LINKS === 3, 'the threshold');
+  const blastOf = (hps: readonly number[], extra: Loadout = {}) => {
+    const sim = fight(HAMMERS.blast, quiet(), 11, 'kills', extra), w = sim.world;
+    const links = row(sim, hps);
+    const last = links[links.length - 1];
+    const near1 = place(sim, last.x + 0.9, last.y + 0.3, 0, { color: 1 });
+    dash(sim, links);
+    const events = settle(sim);
+    assert(replays(sim), 'replay');
+    return { w, events, near1, blasts: hammerEvents(events, 'blast') };
+  };
+  const two = blastOf([0, 0]);
+  assert(two.blasts.length === 0 && hammerEvents(two.events).length === 0 && alive(two.w, two.near1), `2 links: no blast (${two.blasts.length})`);
+  const three = blastOf([0, 0, 0]);
+  assert(three.blasts.length === 1 && !alive(three.w, three.near1), `3 links: the blast (${three.blasts.length})`);
+  // The 2nd link dies ahead of the dash (a fallen link, passed): the chain still counts 3.
+  const fallen = blastOf([0, 0, 0], { talismans: [CUT_SECOND] });
+  const cut = fallen.events.find((e): e is Extract<WorldEvent, { type: 'kill' }> => e.type === 'kill' && e.source === BUILD_SOURCES.hammerCut);
+  assert(cut && fallen.blasts.length === 1, `a fallen link counts: cut ${!!cut}, blasts ${fallen.blasts.length}`);
+  // The progress of the drawn chain: 2 links — 2 of 3; none drawn — nothing.
+  const sim = fight(HAMMERS.blast), w = sim.world, links = row(sim, [0, 0]);
+  const module = buildModules().find(m => m.id === HAMMERS.blast)!;
+  assert(module.progress!(w) === null, 'no chain — no progress');
+  sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+  sim.command({ t: 'drag', x: links[1].x, y: links[1].y, mode: 'full' });
+  const p = module.progress!(w);
+  assert(p !== null && p.value === 2 && p.max === 3, `progress ${JSON.stringify(p)}`);
 });
 
 // ---- «Режущий проход» ----
