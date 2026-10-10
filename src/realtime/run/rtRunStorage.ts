@@ -7,10 +7,11 @@ import type { RunStorage } from '../../game/run/forestRunStorage';
 import { parseRtRun, serializeRtRun, type RtRunState } from './rtRun';
 
 /**
- * Phase A (Т2): `-v5` (save version 5, rosters of the arenas). `-v4` (stage 3a, the lynx's and the shaman's arenas in the
- * pools), `-v3` (iteration 2.1, the run HP 15), `-v2` (step 3) and `-v1` (steps 1–2) are not read.
+ * Phase B (track Д4): `-v6` (save version 6, the Jailer's hammer, the real-time draws of the gift and events). `-v5`
+ * (phase A, rosters of the arenas), `-v4` (stage 3a, the lynx's and the shaman's arenas in the pools), `-v3` (iteration
+ * 2.1, the run HP 15), `-v2` (step 3) and `-v1` (steps 1–2) are not read.
  */
-export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v5';
+export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v6';
 export const RT_PROFILE_STORAGE_KEY = 'ashen-oath-rt-profile-v1';
 export const RT_PROFILE_VERSION = 1;
 

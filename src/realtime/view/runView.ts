@@ -18,13 +18,13 @@ import { arenaTitle, runRow } from '../run/arenaPools';
 import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
-  arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtEnterNode,
+  arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../../game/run/runGift';
-import { rtTalisman } from '../run/rtTalismans';
+import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanText } from '../run/rtTalismans';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
@@ -56,8 +56,8 @@ const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
   find: 'Находка: один из трёх расходников.',
   rest: `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`,
   shop: `Расходники, лечение и «Закалка» за ресурсы крафта.`,
-  hard: `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор.`,
-  checkpoint: 'Тюремщика в срезе нет: обычная арена своего ряда. Победа: клятва на выбор.',
+  hard: `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`,
+  checkpoint: 'Тюремщика-босса в срезе нет: обычная арена своего ряда. Победа: молот на выбор (первый ряд Тюремщика), затем клятва или реликвия.',
   breakthrough: 'Прорыв: обычная арена своего ряда.',
   battle: 'Обычный бой: арена пула своего ряда.',
   boss: 'Босса в срезе нет: финальная арена «Последний рубеж». Победа завершает поход.',
@@ -74,6 +74,17 @@ function arenaLine(arena: string, roster?: string): string {
   return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${line}<br><small>${escapeHtml(summary)}</small>`;
 }
 const talismanName = (id: string): string => rtTalisman(id)?.name ?? id;
+/**
+ * Phase B: the lines of a talisman's card — a relic its plus and its price, each on a line of its own and as plain
+ * (section 5: «цена видна так же явно, как плюс»); a talisman of a rarity — the rarity and the rule.
+ */
+function talismanCardLines(id: string): string {
+  const def = rtTalisman(id);
+  if (!def) return '';
+  if (def.price) return `<small>Плюс: ${escapeHtml(def.effect)}</small><small class="rt-run-reason rt-run-price" data-testid="price-${id}">Цена: ${escapeHtml(def.price)}</small>`;
+  const rarity = def.rarity === 'common' || def.rarity === 'uncommon' || def.rarity === 'rare' ? `${RT_RARITY_NAME[def.rarity]} · ` : '';
+  return `<small>${escapeHtml(rarity + def.effect)}</small>`;
+}
 
 function giftText(option: GiftOption): string {
   switch (option.kind) {
@@ -182,7 +193,8 @@ export class RunView {
       if (event.type === 'event-resolved' || event.type === 'event-attempt') parts.push(event.text);
       if (event.type === 'shop-bought' && event.purchase.good === 'heal') parts.push(`Лечение +${rtHp(1)} HP`);
       if (event.type === 'shop-bought' && event.purchase.good === 'harden') parts.push(`Закалка: +${rtHp(1)} к максимуму HP`);
-      if (event.type === 'talisman-taken') parts.push(`Талисман «${talismanName(event.id)}»`);
+      if (event.type === 'talisman-taken') parts.push(`${rtTalisman(event.id)?.rarity === 'relic' ? 'Реликвия' : rtTalisman(event.id)?.rarity === 'oath' ? 'Клятва' : 'Талисман'} «${talismanName(event.id)}»`);
+      if (event.type === 'hammer-taken') parts.push(`Молот «${rtHammer(event.id)?.name ?? event.id}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
       if (event.type === 'items-gained') parts.push(`+ ${event.items.map(itemWithKey).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
@@ -209,6 +221,7 @@ export class RunView {
     if (action === 'find') { this.apply(rtChooseFind(run, target.dataset.item as ItemKind)); return; }
     if (action === 'gift-pick') { this.apply(rtChooseGiftPick(run, target.dataset.pick!)); return; }
     if (action === 'talisman') { this.apply(rtChooseTalisman(run, target.dataset.option || null)); return; }
+    if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
     if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
     if (action === 'event-option') { this.apply(rtChooseEventOption(run, target.dataset.option!)); return; }
@@ -233,7 +246,13 @@ export class RunView {
     const resources = RESOURCE_KINDS.map(kind => `${RESOURCES[kind].label} ${run.materials[kind]}`).join(' · ');
     // Step 3: consumables carried between arenas and the energy banked for the next one.
     const items = ITEM_KINDS.map(kind => `${ITEM_TITLES[kind]} ${run.items[kind]}`).join(' · ');
-    const talismans = run.talismans.map(id => `<span title="${escapeHtml(rtTalisman(id)?.effect ?? '')}">${escapeHtml(talismanName(id))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}</span>`).join(', ');
+    // Phase B: the hammer first (⚒), then the talismans; a relic is marked ◆ — the rule and the price in the tooltip (the
+    // header is narrow: names only).
+    const hammer = run.hammer ? rtHammer(run.hammer) : undefined;
+    const talismans = [
+      ...hammer ? [`<span data-testid="run-hammer-slot" title="Молот: ${escapeHtml(hammer.effect)}">⚒ ${escapeHtml(hammer.name)}</span>`] : [],
+      ...run.talismans.map(id => `<span title="${escapeHtml(rtTalismanText(id))}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}</span>`),
+    ].join(', ');
     const reset = this.confirmReset
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
       : `<button data-action="new-run" data-testid="run-reset">Новый поход</button>`;
@@ -311,10 +330,18 @@ export class RunView {
         + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>${recipes}</div>`
         + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
     }
+    if (pending.kind === 'hammer') {
+      // Phase B (Т2): the Jailer's first screen — a hammer 3 of 4; one hammer a run, it acts on every later arena.
+      const options = pending.options.map(id => `<button class="rt-run-choice" data-action="hammer" data-option="${id}" data-testid="hammer-${id}"><b>⚒ ${escapeHtml(rtHammer(id)?.name ?? id)}</b>`
+        + `<small>${escapeHtml(rtHammer(id)?.effect ?? '')}</small></button>`).join('');
+      return card(`<h2>Молот на выбор</h2><p>Молот меняет проход героя по цепи на всех следующих аренах. Один молот за поход. Затем — клятва или реликвия.</p>`
+        + `<div class="rt-run-choices">${options}</div><button class="rt-other" data-action="hammer" data-option="" data-testid="hammer-refuse">Отказаться</button>`, 'run-hammer');
+    }
     if (pending.kind === 'talisman') {
-      const title = pending.source === 'oath' ? 'Клятва' : 'Талисман';
-      const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${escapeHtml(talismanName(option))}</b><small>${escapeHtml(rtTalisman(option)?.effect ?? '')}</small></button>`).join('');
-      return card(`<h2>${title} на выбор</h2><p>${pending.options.length ? 'Не взятые уходят из пула до конца похода.' : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
+      const title = pending.source === 'oath' ? 'Клятва или реликвия' : 'Талисман';
+      const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option))}</b>${talismanCardLines(option)}</button>`).join('');
+      const note = pending.source === 'oath' ? 'У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
+      return card(`<h2>${title} на выбор</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
         + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, 'run-talisman');
     }
     if (pending.kind === 'find') {

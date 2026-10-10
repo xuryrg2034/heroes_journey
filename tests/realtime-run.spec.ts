@@ -110,7 +110,7 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   expect(after.pending).toBeNull();
   expect(after.hp).toBe(won.hero.hp);
   const keys = await page.evaluate(() => Object.keys(localStorage));
-  expect(keys).toContain('ashen-oath-rt-run-v5');
+  expect(keys).toContain('ashen-oath-rt-run-v6');
   expect(keys).not.toContain('ashen-oath-forest-run-v1');
   expect(keys).not.toContain('ashen-oath-profile-v1');
 
@@ -170,7 +170,7 @@ test('run: the arena counts when it ends — a reload on «Поражение» 
     if (state.pending) {
       // A node screen of the trails: take its first button that is on (a rest, a find, an event, the merchant's «Уйти»).
       // A rest at full HP with nothing to craft has only «К карте» on (both choices are disabled).
-      const leave = page.locator(['[data-action="find"]', '[data-action="gift-pick"]', '[data-action="talisman"]', '[data-testid="shop-leave"]', '[data-testid="rest-heal"]', '[data-action="rest-craft"]', '[data-testid="rest-finish"]', '[data-action="event-option"]'].map(s => `${s}:not([disabled])`).join(', ')).first();
+      const leave = page.locator(['[data-action="find"]', '[data-action="gift-pick"]', '[data-action="talisman"]', '[data-action="hammer"]', '[data-testid="shop-leave"]', '[data-testid="rest-heal"]', '[data-action="rest-craft"]', '[data-testid="rest-finish"]', '[data-action="event-option"]'].map(s => `${s}:not([disabled])`).join(', ')).first();
       await leave.click();
       continue;
     }
@@ -234,7 +234,7 @@ test('run: two runs walk to the final arena — every arena from its pool or the
       }
       if (pending) {
         // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
-        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
         continue;
       }
       await enterFirstNode(page);
@@ -293,7 +293,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const find = page.locator('[data-status="available"][data-type="find"]');
@@ -308,7 +308,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
   for (let step = 0; step < 10; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
-    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
     const battle = page.locator('[data-status="available"][data-type="battle"]');
     const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
     await node.click();
@@ -403,7 +403,7 @@ test('run (iteration 2.1): consumables are noticed — the map says their key, t
   for (let step = 0; step < 10; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
-    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
     const battle = page.locator('[data-status="available"][data-type="battle"]');
     const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
     await node.click();
@@ -440,5 +440,65 @@ test('run (phase A, Т2): the node preview names its roster in one line, without
   expect(state.pending).toMatchObject({ arena: 'buttons', roster: 'onslaught' });
   const journal = await page.evaluate(() => (window as any).__realtime.journal() as { arena: string; roster?: string });
   expect(journal).toMatchObject({ arena: 'buttons', roster: 'onslaught' });
+  expect(errors).toEqual([]);
+});
+
+/** One step of a walk through the page: a battle won by the hook, a node screen's first button, or a node entered (`prefer` first). */
+async function walkStep(page: Page, prefer: string): Promise<void> {
+  const state = await runState(page);
+  if (state.pending?.kind === 'battle') {
+    expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+    await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+    await page.getByTestId('result-map').click();
+    return;
+  }
+  if (state.pending) {
+    await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+    return;
+  }
+  const preferred = page.locator(`[data-status="available"][data-type="${prefer}"]`);
+  await ((await preferred.count()) ? preferred.first() : page.locator('[data-status="available"]').first()).click();
+  await page.getByTestId('run-enter').click();
+}
+
+test('run (phase B, Д4): the Jailer\'s row offers a hammer 3 of 4, then an oath or a relic with its price as plain as its plus; the map shows both, the hammer goes into the next arena', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await page.evaluate(s => (window as any).__realtime.run.newRun(s), Math.imul(3, 2654435761) >>> 0);
+  for (let step = 0; step < 60 && (await runState(page)).pending?.kind !== 'hammer'; step++) await walkStep(page, 'checkpoint');
+  // Screen 1: three hammers and a refusal; a reload keeps the screen.
+  await expect(page.getByTestId('run-hammer')).toBeVisible();
+  await expect(page.getByTestId('run-hammer')).toContainText('Молот на выбор');
+  const hammers = page.locator('[data-action="hammer"]:not([data-option=""])');
+  await expect(hammers).toHaveCount(3);
+  await expect(page.getByTestId('hammer-refuse')).toBeVisible();
+  const ids = await hammers.evaluateAll(buttons => buttons.map(button => (button as HTMLElement).dataset.option!));
+  await page.reload();
+  await expect(page.getByTestId('run-hammer')).toBeVisible();
+  expect(await page.locator('[data-action="hammer"]:not([data-option=""])').evaluateAll(buttons => buttons.map(button => (button as HTMLElement).dataset.option!))).toEqual(ids);
+  await page.screenshot({ path: 'artifacts/realtime-run-hammer.png' });
+  await page.getByTestId(`hammer-${ids[1]}`).click();
+  // Screen 2: the oath or a relic; a relic card shows «Плюс: …» and «Цена: …», each on a line of its own.
+  await expect(page.getByTestId('run-talisman')).toContainText('Клятва или реликвия на выбор');
+  const relic = page.locator('[data-action="talisman"][data-option^="relic-"]').first();
+  const relicId = (await relic.getAttribute('data-option'))!;
+  await expect(relic).toContainText('Плюс:');
+  await expect(page.getByTestId(`price-${relicId}`)).toContainText('Цена:');
+  await page.screenshot({ path: 'artifacts/realtime-run-relic.png' });
+  await relic.click();
+  await page.screenshot({ path: 'artifacts/realtime-run-map-build.png' });
+  // The map: the hammer and the relic in the header, the rule and the price in the tooltip.
+  await expect(page.getByTestId('run-hammer-slot')).toContainText('⚒');
+  await expect(page.getByTestId(`run-relic-${relicId}`)).toHaveAttribute('title', /цена: /);
+  const state = await page.evaluate(() => (window as any).__realtime.run.state() as { hammer?: string; talismans: string[] });
+  expect(state.hammer).toBe(ids[1]);
+  expect(state.talismans).toContain(relicId);
+  // The next arena starts with the hammer and the relic (its journal keeps the loadout).
+  for (let step = 0; step < 20 && (await runState(page)).pending?.kind !== 'battle'; step++) await walkStep(page, 'battle');
+  await expect(page.getByTestId('run')).toBeHidden();
+  const journal = await page.evaluate(() => (window as any).__realtime.journal() as { loadout?: { hammer?: string; talismans?: string[] } });
+  expect(journal.loadout?.hammer).toBe(ids[1]);
+  expect(journal.loadout?.talismans).toContain(relicId);
   expect(errors).toEqual([]);
 });

@@ -22,7 +22,7 @@ import {
 } from '../sim/rosters';
 import { RUN_ARENAS, runRow } from './arenaPools';
 import {
-  arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseTalisman, rtEnterNode,
+  arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode,
   rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, RT_RUN_VERSION, type RtRunState, type RtRunStep,
 } from './rtRun';
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
@@ -69,7 +69,10 @@ function walk(seed: number, k: number): Played[] {
       const node = rtNode(run, pending.nodeId)!;
       played.push({ row: runRow(node.row), type: node.type, arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, run });
       run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
-    } else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
+      // Phase B: the Jailer's two screens (hammer, then oath) are one step of the walk, as its one screen before them —
+      // the walk's node choices `(k + step)` and so the measure of c8df2d4 stay as they were.
+    } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
+    else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]), 'find');
     else if (pending?.kind === 'shop') run = ok(rtShopLeave(run), 'shop');
@@ -158,8 +161,8 @@ check('the same seed and steps give the same rosters; different seeds — differ
 
 // ---- The save ----
 
-check(`save version ${RT_RUN_VERSION}: rosters load back and are chosen again — another roster, a missing one, one on a fixed arena or an open arena with another roster read as no run; a version 4 save is no run`, () => {
-  assert(RT_RUN_VERSION === 5, `version ${RT_RUN_VERSION}`);
+check(`save version ${RT_RUN_VERSION}: rosters load back and are chosen again — another roster, a missing one, one on a fixed arena or an open arena with another roster read as no run; a version 4 or 5 save is no run`, () => {
+  assert(RT_RUN_VERSION === 6, `version ${RT_RUN_VERSION}`);
   let tried = 0;
   for (const played of walks.slice(0, 60)) {
     const rostered = played.find(entry => entry.roster !== undefined && entry.run.picks.filter(pick => pick.arena).length > 1);
@@ -177,6 +180,7 @@ check(`save version ${RT_RUN_VERSION}: rosters load back and are chosen again �
       edit(copy => { delete (copy.pending as { roster?: string }).roster; }),
       edit(copy => { pickOf(copy).roster = 'no-such-roster'; }),
       edit(copy => { copy.version = 4 as typeof RT_RUN_VERSION; }),
+      edit(copy => { copy.version = 5 as typeof RT_RUN_VERSION; }),
     ];
     // A roster on an arena of its own composition (a pick of the same run before the open one).
     const ownPick = run.picks.find(pick => pick.arena !== undefined && pick.roster === undefined && pick.nodeId !== nodeId);
