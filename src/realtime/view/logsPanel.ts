@@ -118,7 +118,7 @@ export class LogsPanel {
       }
       if (copied) {
         const size = (new Blob([file.text]).size / 1024).toFixed(1).replace('.', ',');
-        this.status.textContent = `Скопировано: ${file.records} записей, ${size} КиБ. Вставьте в сообщение.`;
+        this.status.textContent = `Скопировано: ${file.records} ${recordsWord(file.records)}, ${size} КиБ. Вставьте в сообщение.`;
         return;
       }
       const hook = this.win.__rtTelemetryExport;
@@ -143,4 +143,12 @@ export class LogsPanel {
     this.status.textContent = 'Записи удалены.';
     this.refresh();
   }
+}
+
+/** «запись / записи / записей» for a count (1 запись, 2 записи, 5 записей, 11 записей, 21 запись). */
+export function recordsWord(n: number): string {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return 'запись';
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'записи';
+  return 'записей';
 }

@@ -235,7 +235,7 @@ test('«Копировать» puts the export JSON into the clipboard: parseExp
   await fightThenLogs(page, errors);
   await expect(page.getByTestId('logs-export')).toHaveText('Копировать');
   await page.getByTestId('logs-export').click();
-  await expect(page.getByTestId('logs-status')).toHaveText(/^Скопировано: 2 записей, \d+,\d КиБ\. Вставьте в сообщение\.$/);
+  await expect(page.getByTestId('logs-status')).toHaveText(/^Скопировано: 2 записи, \d+,\d КиБ\. Вставьте в сообщение\.$/);
   const text = await page.evaluate(() => navigator.clipboard.readText());
   const file = parseExport(text);
   expect(file.records.map(r => r.kind).sort()).toEqual(['fight', 'journal']);
@@ -286,7 +286,7 @@ test('no clipboard and no hook: «Копировать» downloads the file; a r
   const errors2: string[] = [];
   await fightThenLogs(page2, errors2);
   await page2.getByTestId('logs-export').click();
-  await expect(page2.getByTestId('logs-status')).toContainText('Скопировано: 2 записей');
+  await expect(page2.getByTestId('logs-status')).toContainText('Скопировано: 2 записи');
   expect(parseExport(await page2.evaluate(() => (window as any).__text)).records).toHaveLength(2);
   await context.close();
 });
@@ -312,7 +312,7 @@ test('the «Логи» panel: from the sandbox menu, the tester name goes into r
   await page.keyboard.press('2');
   await expect(page.getByTestId('menu')).toBeVisible();
   await page.getByTestId('logs-export').click();
-  await expect(page.getByTestId('logs-status')).toContainText('Скопировано: 2 записей');
+  await expect(page.getByTestId('logs-status')).toContainText('Скопировано: 2 записи');
   const file = parseExport(await page.evaluate(() => navigator.clipboard.readText()));
   expect(file.records.map(r => r.kind).sort()).toEqual(['fight', 'journal']);
   expect(file.records.every(r => r.tester === 'Аня')).toBe(true);
