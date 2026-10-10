@@ -7,7 +7,9 @@ import {
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 import { FightTap } from '../src/realtime/telemetry/recorder';
-import { fightKey, nullObserver } from '../src/realtime/telemetry/schema';
+import { fightKey } from '../src/realtime/telemetry/schema';
+import { createFightObserver } from '../src/realtime/telemetry/observe';
+import { analyzeJournal } from '../src/realtime/telemetry/report';
 
 /**
  * Track ТA of the real-time telemetry (docs/realtime-telemetry.md, section 8): the browser records fights, runs and N
@@ -109,6 +111,14 @@ test('a sandbox fight with real actions is recorded: the fight and its journal; 
   expect(journal.commands.some(c => c.cmd.t === 'walk')).toBe(true);
   // The record does not change the world: a replay without the recorder gives the hash the browser recorded.
   expect(replay(journal).hash()).toBe(fight.endHash);
+  // The browser's summary (the observer of track ТB fed by the tap in frames) is the report's replay summary, except
+  // `inView` (the browser only) and `threats` (the report only).
+  const report = analyzeJournal(journal);
+  expect(report.hash).toBe(fight.endHash);
+  const strip = (x: FightSummary) => { const c = JSON.parse(JSON.stringify(x)) as FightSummary; delete c.tempo.inView; c.threats = {}; return c; };
+  expect(strip(fight.summary)).toEqual(strip(report.summary));
+  expect(fight.summary.chain.count).toBeGreaterThanOrEqual(1);
+  expect(fight.summary.kills.chain).toBeGreaterThanOrEqual(3);
   // A replay fed through the tap with an observer that reads every tick and command gives the same hash too.
   let ticks = 0, commands = 0;
   const reading = { tick: (w: { events: unknown[]; enemies: unknown[] }) => { ticks++; void w.events.length; void w.enemies.length; }, command: () => { commands++; }, summary: () => ({}) as FightSummary };
@@ -319,7 +329,9 @@ test('replayTo puts the world at the tick of a recorded journal, paused', async 
   expect(s.tick).toBe(at);
   expect(s.paused).toBe(true);
   const hash = await page.evaluate(() => (window as any).__realtime.hash()) as string;
-  expect(replay({ ...journal, ticks: at, commands: journal.commands.filter(c => c.tick <= at) }).hash()).toBe(hash);
+  expect(replay({ ...journal, ticks: at, commands: journal.commands.filter(c => c.tick < at) }).hash()).toBe(hash);
+  // The same world as the report's snapshot `--at` (the commands of that tick not applied).
+  expect(analyzeJournal(journal, at).hash).toBe(hash);
   // Paused: the world stays at that tick.
   await page.waitForTimeout(300);
   expect((await snap(page)).tick).toBe(at);
@@ -399,7 +411,7 @@ test('the cost of recording on «Большая поляна» (?arena=18) is be
   const time = (withTap: boolean): number => {
     let tap: FightTap | null = null;
     const t0 = performance.now();
-    replay(journal, sim => { if (withTap) { tap ??= new FightTap(nullObserver(sim.world), sim.world); tap.flush(sim.world); tap.sampleView(sim.world.enemies.length, 1); } sim.world.events.length = 0; });
+    replay(journal, sim => { if (withTap) { tap ??= new FightTap(createFightObserver(sim.world), sim.world); tap.flush(sim.world); tap.sampleView(sim.world.enemies.length, 1); } sim.world.events.length = 0; });
     return performance.now() - t0;
   };
   time(false); time(true);

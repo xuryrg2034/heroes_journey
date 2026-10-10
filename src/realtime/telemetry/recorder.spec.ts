@@ -2,9 +2,10 @@
  * Track ТA of the real-time telemetry (docs/realtime-telemetry.md, section 8, «ТA»). Node only:
  * `npm run test:realtime-telemetry-recorder`. The browser side is tests/realtime-telemetry.spec.ts.
  *
- * - `FightTap` shows the observer the same ticks, events and commands in the browser's frames (several ticks a frame,
- *   events cleared once a frame, commands between frames) as a Node replay that clears the events every tick; the world
- *   hash is the same with the tap and without it; the last hit on the hero is kept.
+ * - `FightTap` shows the observer the same ticks, commands and new events in the browser's frames (several ticks a frame,
+ *   events cleared once a frame, commands between frames) as the Node report's replay, which clears the events every
+ *   tick; the summary of the real observer (observe.ts) is the report's (`analyzeJournal`); the world hash is the same with
+ *   the tap and without it; the last hit on the hero is kept.
  * - The buffer: the limit and the eviction order, a `localStorage` quota error (evict, retry once, else memory and
  *   `bufferFull`), delivery marks per sink, a rewritten record loses its marks.
  * - The queue: a failing sink keeps the records and is retried after 1 s, then 2 s …; a sink that comes back gets them.
@@ -18,21 +19,30 @@ import { Simulation, replay, type Journal } from '../sim/simulation';
 import type { World } from '../sim/world';
 import { createRtRun, rtChooseGift } from '../run/rtRun';
 import { TelemetryBuffer, memoryJournalStore, type KeyValueStore } from './buffer';
+import { createFightObserver, EventCursor } from './observe';
 import { FightTap, mergeChoice, stepChoices } from './recorder';
+import { analyzeJournal } from './report';
 import { DeliveryQueue, RETRY_FIRST_MS, type SinkSource } from './sinks';
-import { emptyFightSummary, RT_TELEMETRY_SCHEMA, type FightObserver, type FightRecord, type RtRecord } from './schema';
+import { emptyFightSummary, RT_TELEMETRY_SCHEMA, type FightObserver, type FightRecord, type FightSummary, type RtRecord } from './schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
 async function check(name: string, run: () => void | Promise<void>): Promise<void> { await run(); checks++; console.log(`ok - ${name}`); }
 
-/** An observer that writes down what it sees: commands and, per tick, the tick number and its events. */
+/** An observer that writes down what it sees: each command and tick with the new events (read by the observer's cursor rule). */
 function logObserver(log: string[]): FightObserver {
+  const cursor = new EventCursor();
+  const fresh = (w: World): string => { const out: string[] = []; cursor.read(w, e => out.push(e.type)); return out.join(','); };
   return {
-    command(cmd: Command, world: World) { log.push(`c ${world.tick} ${cmd.t}`); },
-    tick(world: World) { log.push(`t ${world.tick} ${world.events.map(e => e.type).join(',')} hp${world.hero.hp}`); },
+    command(cmd: Command, world: World) { log.push(`c ${world.tick} ${cmd.t} ${fresh(world)}`); },
+    tick(world: World) { log.push(`t ${world.tick} ${fresh(world)} hp${world.hero.hp}`); },
     summary: emptyFightSummary,
   };
+}
+/** Both observers at once: the log and the real one. */
+function both(log: string[], world: World): FightObserver & { real: FightObserver } {
+  const a = logObserver(log), real = createFightObserver(world);
+  return { real, command(c, w) { a.command(c, w); real.command(c, w); }, tick(w) { a.tick(w); real.tick(w); }, summary: () => real.summary() };
 }
 
 const simOf = (journal: Journal, beforeTick?: (w: World) => void): Simulation => new Simulation({
@@ -40,9 +50,9 @@ const simOf = (journal: Journal, beforeTick?: (w: World) => void): Simulation =>
   ...journal.loadout ? { loadout: JSON.parse(JSON.stringify(journal.loadout)) } : {}, ...journal.roster !== undefined ? { roster: journal.roster } : {}, ...beforeTick ? { beforeTick } : {},
 });
 
-/** The Node way (track ТB's replay): commands, a tick, the observer's tick, the events cleared — every tick. */
+/** The Node way (the report's replay): commands, a tick, the observer's tick, the events cleared — every tick. */
 function nodeLog(journal: Journal): { log: string[]; hash: string } {
-  const log: string[] = [], obs = logObserver(log), sim = simOf(journal);
+  const log: string[] = [], sim = simOf(journal), obs = logObserver(log);
   let next = 0;
   const apply = (tick: number) => { while (next < journal.commands.length && journal.commands[next].tick <= tick) { const cmd = journal.commands[next++].cmd; sim.command(cmd); obs.command(cmd, sim.world); } };
   for (let t = 0; t < journal.ticks; t++) { apply(t); sim.tick(); obs.tick(sim.world); sim.world.events.length = 0; }
@@ -51,11 +61,11 @@ function nodeLog(journal: Journal): { log: string[]; hash: string } {
 }
 
 /** The browser way: frames of 0–3 ticks, the tap before every tick and command, the events cleared once a frame. */
-function browserLog(journal: Journal, seed: number): { log: string[]; hash: string; tap: FightTap } {
+function browserLog(journal: Journal, seed: number): { log: string[]; hash: string; tap: FightTap; summary: FightSummary } {
   const log: string[] = [];
   let tap: FightTap | null = null;
   const sim = simOf(journal, w => tap!.flush(w));
-  tap = new FightTap(logObserver(log), sim.world);
+  tap = new FightTap(both(log, sim.world), sim.world);
   let rnd = seed >>> 0, next = 0;
   const roll = (n: number): number => { rnd = (rnd * 1664525 + 1013904223) >>> 0; return rnd % n; };
   const apply = (tick: number) => {
@@ -72,7 +82,7 @@ function browserLog(journal: Journal, seed: number): { log: string[]; hash: stri
   }
   apply(journal.ticks);
   tap.beforeClear(sim.world);
-  return { log, hash: sim.hash(), tap };
+  return { log, hash: sim.hash(), tap, summary: tap.summary(sim.world) };
 }
 
 async function main(): Promise<void> {
@@ -82,15 +92,18 @@ async function main(): Promise<void> {
   ];
 
   for (const f of fixtures) {
-    await check(`the tap shows the observer the same ticks, events and commands in browser frames as a Node replay (${f.name})`, () => {
+    await check(`the tap shows the observer the same ticks, commands and events in browser frames as the report's replay; the same summary (${f.name})`, () => {
       const node = nodeLog(f.journal);
       assert(node.hash === f.hash, `node hash ${node.hash} ≠ ${f.hash}`);
       assert(node.log.filter(l => l.startsWith('t ')).length === f.journal.ticks, 'one observed tick per tick');
+      const report = analyzeJournal(f.journal).summary;
+      report.threats = {};
       for (const seed of [1, 7, 42]) {
         const b = browserLog(f.journal, seed);
         assert(b.hash === f.hash, `browser-mode hash ${b.hash} ≠ ${f.hash} (the tap changed the world)`);
         const at = b.log.findIndex((l, i) => l !== node.log[i]);
         assert(at < 0 && b.log.length === node.log.length, `seed ${seed}: logs differ at ${at}: ${b.log[at]} vs ${node.log[at]}`);
+        assert(JSON.stringify(b.summary) === JSON.stringify(report), `seed ${seed}: summary ${JSON.stringify(b.summary)} ≠ report ${JSON.stringify(report)}`);
       }
       // The tap does not change the world: a plain replay gives the same hash.
       assert(replay(f.journal).hash() === f.hash, 'plain replay');
@@ -100,8 +113,7 @@ async function main(): Promise<void> {
   await check('the tap keeps the last hit on the hero (the run\'s cause of death)', () => {
     const f = shieldsWolvesJournal as unknown as { journal: Journal };
     const { tap, log } = browserLog(f.journal, 3);
-    const hits = log.filter(l => /\bhit\b/.test(l.split(' ')[2] ?? ''));
-    assert(hits.length > 0, 'the fixture has hits on the hero');
+    assert(log.some(l => l.split(' ')[2]?.split(',').includes('hit')), 'the fixture has hits on the hero');
     assert(tap.lastHit && typeof tap.lastHit.source === 'string' && tap.lastHit.tick > 0, `last hit ${JSON.stringify(tap.lastHit)}`);
   });
 

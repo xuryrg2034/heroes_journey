@@ -39,15 +39,17 @@ import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
 import { rtNode } from '../run/rtRun';
-import { nullObserver, type FightObserverFactory, type ReplayTo, type RtRecord } from '../telemetry/schema';
+import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
+import { fightObserver } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
+import { devSource } from '../telemetry/sinks';
 import { LogsPanel } from './logsPanel';
 
 /**
- * Telemetry (docs/realtime-telemetry.md, track ТA): the fight observer that fills the summary of each fight record.
- * `nullObserver` until track ТB lands; then this one line becomes its factory (`telemetry/observe.ts`).
+ * Telemetry (docs/realtime-telemetry.md, track ТA): the fight observer that fills the summary of each fight record — the
+ * one the Node report replays with (track ТB, `telemetry/observe.ts`); `nullObserver` of schema.ts records no summary.
  */
-const FIGHT_OBSERVER: FightObserverFactory = nullObserver;
+const FIGHT_OBSERVER: FightObserverFactory = fightObserver;
 /** The N note flashes «отмечено» at the HUD this long (ms). */
 const NOTE_FLASH_MS = 1000;
 
@@ -178,7 +180,7 @@ async function boot(): Promise<void> {
   if (telemetryFlag !== '0') {
     try {
       recorder = new RtRecorder({ sandbox, paramsStorage: PARAMS_STORAGE_KEY, params, observer: FIGHT_OBSERVER,
-        devSink: import.meta.env.DEV && (telemetryFlag === 'dev' || !navigator.webdriver) });
+        devSink: import.meta.env.DEV && (telemetryFlag === 'dev' || !navigator.webdriver) ? devSource(fetch.bind(globalThis)) : null });
     } catch { recorder = null; }
   }
   // An anchor link does not reload the page: switching between the run and the sandbox by the anchor boots again.
@@ -807,13 +809,14 @@ async function boot(): Promise<void> {
   window.addEventListener('pagehide', () => recorder?.pageHide());
 
   /**
-   * Telemetry (ТB's screenshot at a note): replay `journal` up to `tick` and show that world, paused. Events of every tick
+   * Telemetry (ТB's screenshot at a note): replay `journal` for `tick` ticks (the commands stamped before it — the world of
+   * the report's `--at`) and show that world, paused. Events of every tick
    * but the last are dropped (the effects of that tick are drawn); the current fight is left (`menu`) and the replayed
    * world is not recorded.
    */
   const replayTo: ReplayTo = async (journal: Journal, tick: number) => {
     const t = Math.max(0, Math.min(journal.ticks, Math.floor(tick)));
-    const cut: Journal = { ...journal, ticks: t, commands: journal.commands.filter(c => c.tick <= t) };
+    const cut: Journal = { ...journal, ticks: t, commands: journal.commands.filter(c => c.tick < t) };
     const replayed = replay(cut, s => { if (s.world.tick < t) s.world.events.length = 0; });
     recorder?.leaveFight('menu');
     recorder?.detach();

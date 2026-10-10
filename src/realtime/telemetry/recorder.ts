@@ -1,10 +1,10 @@
 /**
  * Track ТA of the real-time telemetry (docs/realtime-telemetry.md, sections 3, 7 and 8): what the browser records.
  *
- * - `FightTap` — feeds the fight observer (`FightObserver`, track ТB) exactly as the Node replay does: `tick` once after
- *   every tick with the events of that tick only (including those of the commands applied before it), `command` after
- *   every journalled command. The view calls it before anything changes the world (`beforeTick`, before a command, before
- *   it clears `world.events`), so a tick is seen as it ended. It also keeps the last hit on the hero (the cause of death)
+ * - `FightTap` — feeds the fight observer (`FightObserver`, track ТB, observe.ts) as the Node replay does: `tick` once
+ *   after every tick, `command` after every journalled command. The view calls it before anything changes the world
+ *   (`beforeTick`, before a command, before it clears `world.events` at the end of a frame), so a tick is seen as it
+ *   ended and its events are still there (the observer reads new events with a cursor). It also keeps the last hit on the hero (the cause of death)
  *   and the enemies in view (only the browser knows the camera).
  * - `RtRecorder` — the records: the header (session, run key, build, Params, time, tester), a fight at its end (the
  *   journal packed in the same frame as the hash), a fight left without a result (restart, menu; `unload` — a stash in
@@ -17,13 +17,14 @@ import { hashText } from '../sim/hash';
 import type { Command } from '../sim/commands';
 import type { Params } from '../sim/params';
 import type { Journal, Simulation } from '../sim/simulation';
-import type { World, WorldEvent } from '../sim/world';
+import type { World } from '../sim/world';
 import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
 import { rtEventView, rtGiftView, rtNode, rtRestView, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../../game/run/runGift';
 import { TelemetryBuffer, TLM_PREFIX, type BufferOptions, type BufferStats } from './buffer';
-import { artifactSource, DeliveryQueue, devSource, type SinkSource } from './sinks';
+import { EventCursor } from './observe';
+import { artifactSource, DeliveryQueue, type SinkSource } from './sinks';
 import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
@@ -52,10 +53,8 @@ export interface LastHit { enemy?: string; source: string; elite?: boolean; affi
 export class FightTap {
   /** The last tick shown to the observer. */
   private observed: number;
-  /** `world.events` up to here were shown to the observer. */
-  private mark = 0;
-  /** Events left after the last observed tick when the view cleared `world.events` (commands after the frame's ticks). */
-  private carry: WorldEvent[] = [];
+  /** New events since the last look (the hits of the cause of death); the same cursor rule as the observer's. */
+  private readonly cursor = new EventCursor();
   lastHit: LastHit | null = null;
   private viewSum = 0;
   private viewTicks = 0;
@@ -63,36 +62,27 @@ export class FightTap {
 
   constructor(private readonly observer: FightObserver, world: World) { this.observed = world.tick; }
 
+  private readHits(world: World): void {
+    this.cursor.read(world, ev => {
+      if (ev.type !== 'hit') return;
+      const e = world.enemies.find(o => o.id === ev.enemyId);
+      this.lastHit = { ...e ? { enemy: e.kind } : {}, source: ev.source, ...e?.elite ? { elite: true } : {}, ...e?.affixes?.length ? { affixes: [...e.affixes] } : {}, tick: world.tick };
+    });
+  }
+
   /** Shows the observer the tick that ended, if it has not seen it (call before anything changes the world). */
   flush(world: World): void {
     if (world.tick <= this.observed) return;
     this.observed = world.tick;
-    const all = world.events;
-    const own = this.mark === 0 && !this.carry.length ? all : this.carry.concat(all.slice(this.mark));
-    for (const ev of own) {
-      if (ev.type !== 'hit') continue;
-      const e = world.enemies.find(o => o.id === ev.enemyId);
-      this.lastHit = { ...e ? { enemy: e.kind } : {}, source: ev.source, ...e?.elite ? { elite: true } : {}, ...e?.affixes?.length ? { affixes: [...e.affixes] } : {}, tick: world.tick };
-    }
-    if (own === all) this.observer.tick(world);
-    else {
-      // The observer sees this tick's events only (as the Node replay, which clears them every tick); put back at once.
-      world.events = own;
-      try { this.observer.tick(world); } finally { world.events = all; }
-    }
-    this.carry = [];
-    this.mark = all.length;
+    this.readHits(world);
+    this.observer.tick(world);
   }
 
   beforeCommand(world: World): void { this.flush(world); }
-  afterCommand(cmd: Command, world: World): void { this.observer.command(cmd, world); }
+  afterCommand(cmd: Command, world: World): void { this.readHits(world); this.observer.command(cmd, world); }
 
-  /** The view is about to clear `world.events`: the tick is shown, events after it wait for the next tick. */
-  beforeClear(world: World): void {
-    this.flush(world);
-    if (world.events.length > this.mark) this.carry = this.carry.concat(world.events.slice(this.mark));
-    this.mark = 0;
-  }
+  /** The view is about to clear `world.events`: the tick that ended is shown first (its events are read before they go). */
+  beforeClear(world: World): void { this.flush(world); }
 
   /** Enemies in view this frame, weighted by the ticks it ran. */
   sampleView(count: number, ticks: number): void {
@@ -262,8 +252,8 @@ export interface RecorderOptions {
   params: Params;
   /** Makes the fight observer: `nullObserver` until track ТB lands (its `observeFight` is one line in main.ts). */
   observer?: FightObserverFactory;
-  /** The dev-server sink (POST /__rt-telemetry) is used. */
-  devSink?: boolean;
+  /** The dev-server sink (`devSource`, POST /__rt-telemetry); the view makes it only under `vite` (absent from the build). */
+  devSink?: SinkSource | null;
   /** Where to look for the artifact's sink and export hook. */
   win?: RtTelemetryWindow;
   buffer?: BufferOptions;
@@ -296,7 +286,7 @@ export class RtRecorder {
     this.buffer = new TelemetryBuffer(options.buffer);
     const win = options.win ?? (typeof window !== 'undefined' ? window as RtTelemetryWindow : {});
     const sources: SinkSource[] = [artifactSource(win)];
-    if (options.devSink && typeof fetch === 'function') sources.push(devSource(fetch.bind(globalThis)));
+    if (options.devSink) sources.push(options.devSink);
     this.queue = new DeliveryQueue(this.buffer, sources);
     this.meta = this.loadMeta();
     this.track(this.recoverUnload().then(() => this.queue.kick()));
