@@ -405,35 +405,38 @@ export const FORD_ARENA: ArenaTemplate = registerArena({
 /**
  * Arena 9 «Застава» (the hard battle): kill 30; all four new kinds come, and two elites of the template stand in the yard
  * from the start (their loot — as an elite of the template, section 7). Stage 3a, step 2 (М2 «Обрыв» + М5 «Теснина»):
- * a fortress on the brink. A ravine runs down the west side from the top edge to y ≈ 7.6; the yard of the outpost stands
+ * a fortress on the brink. A ravine runs down the west side from the top edge to y ≈ 10.6; the yard of the outpost stands
  * on its edge, walled north, south and east. Its ways in are narrow: a gate of 2 units in the north and in the south
  * palisade and a ledge of ≈ 2.2 units between the ravine and the north palisade. The crowd files through the gates and
  * along the brink, where a blast throws survivors into the drop. The hero starts below, the door is on top.
+ * Phase B, Т4 (docs/realtime-phase-b.md, section 9, «Д6»): 20×14, bigger than the view — the camera follows the hero and
+ * the groups come round him (spawn.ts). The layout of 16×10 stretched ×1.25 across and ×1.4 down, except the narrows
+ * (design 10.10.2026, answer 24): the gates stay 2 units and the ledge ≈ 2.2, the walls stay 1 thick.
  */
 export const OUTPOST_ARENA: ArenaTemplate = registerArena({
   id: 'outpost',
   name: 'Застава',
   summary: 'Трудный бой: убей цепью 30 врагов. Все четыре новых врага и две элиты во дворе заставы на краю обрыва; во двор ведут узкие ворота. Дверь сверху.',
   goal: 'kills',
-  width: 16,
-  height: 10,
-  heroStart: { x: 8, y: 8.9 },
+  width: 20,
+  height: 14,
+  heroStart: { x: 10, y: 12.5 },
   obstacles: [
-    // North palisade with its gate (x 7–9), the ledge (x ≈ 3.35–5.6, ≈ 2.2 units) between it and the ravine.
-    wall(5.6, 2.2, 1.4, 1),
-    wall(9, 2.2, 4.4, 1),
+    // North palisade (y 3.1–4.1) with its gate (x 9–11); the ledge (≈ 2.2 units) between its west end and the ravine.
+    wall(6.44, 3.1, 2.56, 1),
+    wall(11, 3.1, 5.5, 1),
     // East wall of the yard.
-    wall(12.4, 3.2, 1, 4.2),
-    // South palisade from the ravine (overlapping its edge: no notch) to the east wall, with its gate (x 7–9).
-    wall(2.2, 6.4, 4.8, 1),
-    wall(9, 6.4, 3.4, 1),
+    wall(15.5, 4.1, 1, 5.9),
+    // South palisade (y 9–10) from the ravine (overlapping its edge: no notch) to the east wall, with its gate (x 9–11).
+    wall(2.75, 9, 6.25, 1),
+    wall(11, 9, 4.5, 1),
   ],
-  terrain: [zone('cliff', polygon(0, 0, 3, 0, 3.4, 2, 3, 4.5, 3.5, 6, 2.4, 7.4, 0, 7.6))],
+  terrain: [zone('cliff', polygon(0, 0, 3.75, 0, 4.25, 2.8, 3.75, 6.3, 4.375, 8.4, 3, 10.36, 0, 10.64))],
   buttons: [],
-  door: { x: 8, y: 0.7 },
+  door: { x: 10, y: 0.7 },
   enemies: [
-    { x: 7.2, y: 4.4, color: 1, kind: 'shield', elite: true },
-    { x: 9.4, y: 3.6, color: 2, kind: 'archer', elite: true },
+    { x: 9, y: 6.2, color: 1, kind: 'shield', elite: true },
+    { x: 11.75, y: 5.04, color: 2, kind: 'archer', elite: true },
   ],
   phaseOverride: ONE_KIND,
   // Баланс: section 5 — kill 30.
