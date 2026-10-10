@@ -9,7 +9,7 @@ import {
 import { FightTap } from '../src/realtime/telemetry/recorder';
 import { fightKey } from '../src/realtime/telemetry/schema';
 import { createFightObserver } from '../src/realtime/telemetry/observe';
-import { analyzeJournal } from '../src/realtime/telemetry/report';
+import { analyzeJournal, collectRecords } from '../src/realtime/telemetry/report';
 
 /**
  * Track ТA of the real-time telemetry (docs/realtime-telemetry.md, section 8): the browser records fights, runs and N
@@ -214,13 +214,86 @@ test('the artifact sink gets the records; while it fails they stay undelivered i
   expect(errors).toEqual([]);
 });
 
-test('the «Логи» panel: from the sandbox menu, the tester name goes into records, «Экспорт» calls the page hook, «Очистить» asks first', async ({ page }) => {
+/** Opens the panel after one finished sandbox fight (two records: fight and journal). */
+async function fightThenLogs(page: Page, errors: string[]): Promise<void> {
+  await openSandbox(page, errors);
+  await page.getByTestId('logs-open').click();
+  await page.getByTestId('logs-tester').fill('Аня');
+  await page.getByTestId('logs-close').click();
+  await page.keyboard.press('1');
+  await expect.poll(async () => (await snap(page)).time).toBeGreaterThan(0.3);
+  await winSandbox(page);
+  await page.keyboard.press('KeyM');
+  await page.evaluate(() => (window as any).__realtime.telemetry.settle());
+  await page.getByTestId('logs-open').click();
+  await expect(page.getByTestId('logs-stats')).toContainText('Записей 2');
+}
+
+test('«Копировать» puts the export JSON into the clipboard: parseExport and the report accept it, the status shows N and КиБ', async ({ page, context }) => {
+  const errors: string[] = [];
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await fightThenLogs(page, errors);
+  await expect(page.getByTestId('logs-export')).toHaveText('Копировать');
+  await page.getByTestId('logs-export').click();
+  await expect(page.getByTestId('logs-status')).toHaveText(/^Скопировано: 2 записей, \d+,\d КиБ\. Вставьте в сообщение\.$/);
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  const file = parseExport(text);
+  expect(file.records.map(r => r.kind).sort()).toEqual(['fight', 'journal']);
+  expect(file.records.every(r => r.tester === 'Аня')).toBe(true);
+  expect(collectRecords([{ name: 'clipboard', text }]).problems).toEqual([]);
+  const kib = Number((await page.getByTestId('logs-status').textContent())!.match(/(\d+),(\d) КиБ/)!.slice(1).join('.'));
+  expect(kib).toBeCloseTo(Buffer.byteLength(text) / 1024, 0);
+  await page.screenshot({ path: 'artifacts/realtime-telemetry-copy.png' });
+  expect(errors).toEqual([]);
+});
+
+test('no clipboard: «Копировать» falls back to the page hook, and without the hook to a download', async ({ page }) => {
   const errors: string[] = [];
   await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
     const w = window as any;
     w.__exported = null;
     w.__rtTelemetryExport = async (filename: string, text: string) => { w.__exported = { filename, text }; };
   });
+  await fightThenLogs(page, errors);
+  await page.getByTestId('logs-export').click();
+  await expect(page.getByTestId('logs-status')).toHaveText('Буфер недоступен — сохранён файл');
+  const exported = await page.evaluate(() => (window as any).__exported) as { filename: string; text: string };
+  expect(exported.filename).toMatch(/^ashen-oath-rt-telemetry-.+\.json$/);
+  expect(parseExport(exported.text).records).toHaveLength(2);
+  expect(errors).toEqual([]);
+});
+
+test('no clipboard and no hook: «Копировать» downloads the file; a rejecting write falls back to writeText', async ({ page, browser }) => {
+  const errors: string[] = [];
+  await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); });
+  await fightThenLogs(page, errors);
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('logs-export').click()]);
+  expect(download.suggestedFilename()).toMatch(/^ashen-oath-rt-telemetry-.+\.json$/);
+  await expect(page.getByTestId('logs-status')).toHaveText('Буфер недоступен — сохранён файл');
+  expect(errors).toEqual([]);
+  // write() throws, writeText() works: the second step takes the text.
+  const context = await browser.newContext();
+  const page2 = await context.newPage();
+  await page2.addInitScript(() => {
+    const w = window as any;
+    w.__text = null;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      write: () => Promise.reject(new Error('denied')),
+      writeText: async (t: string) => { w.__text = t; },
+    } });
+  });
+  const errors2: string[] = [];
+  await fightThenLogs(page2, errors2);
+  await page2.getByTestId('logs-export').click();
+  await expect(page2.getByTestId('logs-status')).toContainText('Скопировано: 2 записей');
+  expect(parseExport(await page2.evaluate(() => (window as any).__text)).records).toHaveLength(2);
+  await context.close();
+});
+
+test('the «Логи» panel: from the sandbox menu, the tester name goes into records, «Копировать» copies, «Очистить» asks first', async ({ page, context }) => {
+  const errors: string[] = [];
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await openSandbox(page, errors);
   await page.getByTestId('logs-open').click();
   await expect(page.getByTestId('logs')).toBeVisible();
@@ -239,13 +312,10 @@ test('the «Логи» panel: from the sandbox menu, the tester name goes into r
   await page.keyboard.press('2');
   await expect(page.getByTestId('menu')).toBeVisible();
   await page.getByTestId('logs-export').click();
-  await expect.poll(() => page.evaluate(() => !!(window as any).__exported)).toBe(true);
-  const exported = await page.evaluate(() => (window as any).__exported) as { filename: string; text: string };
-  expect(exported.filename).toMatch(/^ashen-oath-rt-telemetry-.+\.json$/);
-  const file = parseExport(exported.text);
+  await expect(page.getByTestId('logs-status')).toContainText('Скопировано: 2 записей');
+  const file = parseExport(await page.evaluate(() => navigator.clipboard.readText()));
   expect(file.records.map(r => r.kind).sort()).toEqual(['fight', 'journal']);
   expect(file.records.every(r => r.tester === 'Аня')).toBe(true);
-  await expect(page.getByTestId('logs-status')).toContainText('Экспорт: 2 записей');
   // «Очистить» asks in the panel; «Нет» keeps the records.
   await page.getByTestId('logs-clear').click();
   await page.getByTestId('logs-clear-no').click();

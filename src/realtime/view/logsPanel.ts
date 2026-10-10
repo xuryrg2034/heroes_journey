@@ -1,8 +1,8 @@
 /**
  * The «Логи» panel of the real-time telemetry (docs/realtime-telemetry.md, decisions 4–5; track ТA): opened from the run
  * map's header, the end of the run and the sandbox menu — never in a fight. It shows how many records the browser keeps,
- * how many no sink took yet and their size; an optional tester name (goes into `tester`); «Экспорт» — the page hook
- * `window.__rtTelemetryExport` first, else a download link; «Очистить» asks in the panel itself.
+ * how many no sink took yet and their size; an optional tester name (goes into `tester`); «Копировать» — the export JSON to the clipboard
+ * (`ClipboardItem` with a promised blob, then `writeText`, else the page hook `window.__rtTelemetryExport` or a download link); «Очистить» asks in the panel itself.
  */
 import type { RtRecorder } from '../telemetry/recorder';
 import type { RtTelemetryWindow } from '../telemetry/schema';
@@ -41,7 +41,7 @@ export class LogsPanel {
     label.appendChild(this.name);
     const buttons = document.createElement('div');
     buttons.className = 'rt-logs-buttons';
-    const exportButton = this.button('rt-again', 'Экспорт', 'logs-export', () => void this.export());
+    const exportButton = this.button('rt-again', 'Копировать', 'logs-export', () => void this.copy());
     this.clearButton = this.button('rt-other', 'Очистить', 'logs-clear', () => { this.confirm.hidden = false; this.clearButton.hidden = true; });
     const close = this.button('rt-other', 'Закрыть', 'logs-close', () => this.close());
     buttons.append(exportButton, this.clearButton, close);
@@ -92,10 +92,35 @@ export class LogsPanel {
     this.stats.textContent = `Записей ${s.records} · не доставлено ${s.undelivered} · ${kib(s.chars)}${s.bufferFull ? ' · буфер полон: часть записей только в памяти вкладки' : ''}`;
   }
 
-  private async export(): Promise<void> {
+  /**
+   * «Копировать» (11.10.2026, user decision): the export JSON goes to the clipboard. The first call into the clipboard is
+   * synchronous in the click handler and the text is a promise — Safari and Firefox drop the user gesture after an `await`
+   * and the export reads IndexedDB. Fallbacks: `writeText`, then the old file path (page hook, else `<a download>`).
+   */
+  private async copy(): Promise<void> {
     this.recorder.tester = this.name.value;
+    const filePromise = this.recorder.exportFile();
+    const clipboard = this.win.navigator?.clipboard as Clipboard | undefined;
+    const Item = (this.win as unknown as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
+    let written: Promise<void> | null = null;
     try {
-      const file = await this.recorder.exportFile();
+      if (clipboard && typeof clipboard.write === 'function' && Item) {
+        written = clipboard.write([new Item({ 'text/plain': filePromise.then(f => new Blob([f.text], { type: 'text/plain' })) })]);
+      }
+    } catch { written = null; }
+    try {
+      let file: Awaited<typeof filePromise> | null = null;
+      let copied = false;
+      if (written) { try { await written; copied = true; } catch { copied = false; } }
+      file = await filePromise;
+      if (!copied && clipboard && typeof clipboard.writeText === 'function') {
+        try { await clipboard.writeText(file.text); copied = true; } catch { copied = false; }
+      }
+      if (copied) {
+        const size = (new Blob([file.text]).size / 1024).toFixed(1).replace('.', ',');
+        this.status.textContent = `Скопировано: ${file.records} записей, ${size} КиБ. Вставьте в сообщение.`;
+        return;
+      }
       const hook = this.win.__rtTelemetryExport;
       if (typeof hook === 'function') await hook(file.filename, file.text);
       else {
@@ -105,9 +130,9 @@ export class LogsPanel {
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 10_000);
       }
-      this.status.textContent = `Экспорт: ${file.records} записей, ${file.filename}`;
+      this.status.textContent = 'Буфер недоступен — сохранён файл';
     } catch (error) {
-      this.status.textContent = `Экспорт не удался: ${String(error instanceof Error ? error.message : error)}`;
+      this.status.textContent = `Копирование не удалось: ${String(error instanceof Error ? error.message : error)}`;
     }
   }
 
