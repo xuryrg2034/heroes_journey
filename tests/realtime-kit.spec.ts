@@ -109,8 +109,11 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   // 3 — healing: refused at full HP (nothing spent), +9 after damage (iteration 2.1: the elixir +3 × 3; +8 before).
   await page.keyboard.press('3');
   await expect(page.getByTestId('item-healing')).toHaveText(/×3/);
+  // One touch is enough (a hurt hero takes the elixir). The old wait for HP < 11 (two or three touches in 5 s of real time)
+  // failed under load: the game clock runs slower than the wall clock there (clean run 11.10.2026: HP stayed 11).
+  const full = (await kitSnap(page)).hero.hp;
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 2); rt.place(rt.snapshot().hero.x + 0.5, rt.snapshot().hero.y, 3, 9, 'basic'); });
-  await expect.poll(async () => (await kitSnap(page)).hero.hp, { timeout: 5_000 }).toBeLessThan(11);
+  await expect.poll(async () => (await kitSnap(page)).hero.hp, { timeout: 10_000 }).toBeLessThan(full);
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 0); });
   const hurt = (await kitSnap(page)).hero.hp;
   await page.keyboard.press('3');
