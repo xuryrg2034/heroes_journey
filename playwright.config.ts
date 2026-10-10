@@ -4,7 +4,8 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /(?:game|editor|trunk|telemetry|events-ui|desktop-ux|pit-editor|finale-editor|palette|refill|boar-ui|forest-map|forest-beasts-ui|forest-troll-ui|battle-readability|map-rules-ui|crystal-fall-ui|spin-toasts-ui|elite-ui|exit-ui)\.spec\.ts/,
+  // Anchored at a path separator: «telemetry» must not take tests/realtime-telemetry.spec.ts (the real-time suite runs it).
+  testMatch: /(?:^|[\\/])(?:game|editor|trunk|telemetry|events-ui|desktop-ux|pit-editor|finale-editor|palette|refill|boar-ui|forest-map|forest-beasts-ui|forest-troll-ui|battle-readability|map-rules-ui|crystal-fall-ui|spin-toasts-ui|elite-ui|exit-ui)\.spec\.ts/,
   timeout: 30_000,
   fullyParallel: false,
   workers: 1,

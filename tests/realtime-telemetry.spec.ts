@@ -264,7 +264,7 @@ test('no clipboard: «Копировать» falls back to the page hook, and wi
   expect(errors).toEqual([]);
 });
 
-test('no clipboard and no hook: «Копировать» downloads the file; a rejecting write falls back to writeText', async ({ page, browser }) => {
+test('no clipboard and no hook: «Копировать» downloads the file', async ({ page }) => {
   const errors: string[] = [];
   await page.addInitScript(() => { Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); });
   await fightThenLogs(page, errors);
@@ -272,9 +272,11 @@ test('no clipboard and no hook: «Копировать» downloads the file; a r
   expect(download.suggestedFilename()).toMatch(/^ashen-oath-rt-telemetry-.+\.json$/);
   await expect(page.getByTestId('logs-status')).toHaveText('Буфер недоступен — сохранён файл');
   expect(errors).toEqual([]);
-  // write() throws, writeText() works: the second step takes the text.
-  const context = await browser.newContext();
-  const page2 = await context.newPage();
+});
+
+// A test of its own page (a context made by hand does not take the project's baseURL and viewport: it failed in the
+// main suite, verify 11.10.2026).
+test('a rejecting clipboard write falls back to writeText', async ({ page: page2 }) => {
   await page2.addInitScript(() => {
     const w = window as any;
     w.__text = null;
@@ -288,7 +290,7 @@ test('no clipboard and no hook: «Копировать» downloads the file; a r
   await page2.getByTestId('logs-export').click();
   await expect(page2.getByTestId('logs-status')).toContainText('Скопировано: 2 записи');
   expect(parseExport(await page2.evaluate(() => (window as any).__text)).records).toHaveLength(2);
-  await context.close();
+  expect(errors2).toEqual([]);
 });
 
 test('the «Логи» panel: from the sandbox menu, the tester name goes into records, «Копировать» copies, «Очистить» asks first', async ({ page, context }) => {
