@@ -78,6 +78,8 @@ export class DebugPanel {
   private readonly arenaPhaseNote = document.createElement('p');
   /** Phase A (Т3): the «Вид» section — checkboxes of the view's own settings (`addViewCheck`). */
   private readonly viewSection = document.createElement('section');
+  /** Phase B (Д5): the sandbox build — a talisman, a relic, a hammer (`addBuildChoice`). */
+  private readonly buildSection = document.createElement('section');
 
   constructor(private readonly params: Params, private readonly callbacks: PanelCallbacks) {
     const el = document.createElement('aside');
@@ -200,6 +202,40 @@ export class DebugPanel {
     this.viewSection.appendChild(row);
     this.viewSection.hidden = false;
     return input;
+  }
+
+  /**
+   * Phase B (track Д5): a choice of the sandbox build (a talisman, a relic, a hammer) — not a Param: the caller keeps and
+   * stores the value and puts it into the sandbox loadout of the next arena (the loadout is journalled as it is).
+   */
+  addBuildChoice(label: string, testId: string, options: readonly { value: string; label: string }[], value: string, onChange: (value: string) => void, hint?: string): HTMLSelectElement {
+    if (!this.buildSection.parentNode) {
+      this.buildSection.className = 'rt-group';
+      this.buildSection.setAttribute('data-testid', 'build-settings');
+      const title = document.createElement('h3');
+      title.textContent = 'Сборка фазы B';
+      const note = document.createElement('small'); note.textContent = 'песочница, со следующей арены';
+      title.appendChild(note);
+      this.buildSection.appendChild(title);
+      this.viewSection.after(this.buildSection);
+    }
+    const row = document.createElement('label');
+    row.className = 'rt-row';
+    if (hint) row.title = hint;
+    const name = document.createElement('span');
+    name.className = 'rt-name'; name.textContent = label;
+    const select = document.createElement('select');
+    select.setAttribute('data-testid', testId);
+    for (const o of options) {
+      const option = document.createElement('option');
+      option.value = o.value; option.textContent = o.label;
+      select.appendChild(option);
+    }
+    select.value = options.some(o => o.value === value) ? value : '';
+    select.addEventListener('change', () => { onChange(select.value); select.blur(); });
+    row.append(name, select);
+    this.buildSection.appendChild(row);
+    return select;
   }
 
   /** The current arena's say about the table (main.ts on every arena start): shown over it; null hides the note. */

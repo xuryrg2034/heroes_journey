@@ -200,6 +200,37 @@ test('off-screen pointers: the open door and a danger aimed at the hero; none fo
 });
 
 /**
+ * Phase B, track Д5 (design answer 23): with the build column on the left, a danger pointer at the left border keeps clear
+ * of it — the left inset of the pointers is the column's right edge + 8 (main.ts `measureEdgeInset`).
+ */
+test('off-screen pointers at the left border keep clear of the build column (phase B, Д5)', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 18);
+  // Four items: a talisman, a relic and a hammer, the column is about 150 px tall from y ≈ 72.
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['fifth-link', 'frost-edge', 'relic-millstone'], hammer: 'end-blast' }, 77));
+  await still(page);
+  await expect(page.getByTestId('build-column')).toBeVisible();
+  const column = (await page.getByTestId('build-column').boundingBox())!;
+  expect(column.x + column.width).toBeLessThanOrEqual(70.5);
+  // An archer marks the hero at the left end of the arena; the hero goes to the right end: the circle is wholly off screen
+  // on the left — a danger pointer at the left border (the inset holds along the whole left side, the column's height too).
+  await page.evaluate(() => (window as any).__realtime.setParam('archerWindup', 10));
+  await teleport(page, 3, 7.5);
+  await settled(page);
+  await place(page, 6.5, 10.5, 1, 0, 'archer');
+  await expect.poll(async () => (await snap(page)).archerMarks, { timeout: 8_000 }).toBe(1);
+  await teleport(page, 21, 7.5);
+  await settled(page);
+  await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBe(1);
+  const arrow = (await camera(page)).arrows.find(a => a.kind === 'threat')!;
+  const half = 15;
+  expect(arrow.x - half, `arrow at (${Math.round(arrow.x)}, ${Math.round(arrow.y)}), column ${JSON.stringify(column)}`).toBeGreaterThanOrEqual(column.x + column.width + 8 - 0.5);
+  expect(arrow.x).toBeLessThan(130);
+  await page.screenshot({ path: 'artifacts/realtime-phaseB-column-arrows.png' });
+  expect(errors).toEqual([]);
+});
+
+/**
  * Phase A (Т5, design answer 9 of docs/realtime-phase-a.md): pointers to spawn markers off screen — only on an arena larger
  * than the view. «Большая поляна» 24×15: its markers come at the arena edge, out of view — pale arrows at the border, never
  * on the HUD. A 16×10 arena: every marker is on screen, no spawn arrow while markers come and go.

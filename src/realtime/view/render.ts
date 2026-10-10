@@ -24,6 +24,56 @@ import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
+import { buildStateOf, itemHealOf, linkRadiusOf } from '../sim/build';
+import { HAMMERS } from '../sim/buildIds';
+import { fireTextOf } from './buildColumn';
+
+/**
+ * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
+ * art (`COLORS`, read only); the yellow of the chain becomes ochre `c8962e` — under deuteranopia the old `d8b66a` stood
+ * close to the gold of goals and elites (ΔE2000 8.7; ochre against the lemon `ffff66` — 21.3). A fifth colour, if any,
+ * keeps the turn-based one. `art.ts` is not changed.
+ */
+export const CHAIN_COLORS: readonly number[] = [COLORS[0], COLORS[1], COLORS[2], 0xc8962e, ...COLORS.slice(4)];
+/** The view colour of chain colour `index` (out of range — the last one, as a guard). */
+const chainInk = (index: number): number => CHAIN_COLORS[index] ?? CHAIN_COLORS[CHAIN_COLORS.length - 1];
+/**
+ * Phase B (design answer 23): the effects of the player's build — a pale-blue rim (the spin's colour), no hatching and no
+ * dark threat outline: the wave, the hammer's blast, the cut, the fire of the dash; the player's bomb too (apart from the
+ * sapper's blast).
+ */
+export const PLAYER_FX = 0xbfe3ff;
+/** The dash and the return run of the hammer «Возврат» are drawn alike (a halo, the combo counter). */
+const dashLike = (world: World): boolean => world.move?.kind === 'dash' || world.move?.kind === 'return';
+/** Phase B: seconds the cut trail along the dash path stays (design answer 23: 0.2 s). */
+const CUT_TRAIL_TIME = 0.2;
+/** Phase B: seconds a fire point of the hammer lives when drawn from its events (the hammer's fire lasts 2 s, section 4). */
+const HAMMER_FIRE_TIME = 2;
+/** Phase B: radius of a fire point drawn from an event without its own `r`. */
+const HAMMER_FIRE_R = 0.45;
+
+/**
+ * Phase B: the fire of the hammer «Огненный проход» from its module's state (`World.build['fire-pass']`, track Д2). The form
+ * is Д2's: read here tolerantly — an array of points `{ x, y, life?, r? }` or `{ points: [...] }`; anything else — null, and
+ * the view draws the fire from the `hammer` events (`kind: 'fire'`) instead. The connection point for Д2's final form.
+ */
+export function hammerFireOf(world: World): { x: number; y: number; k: number; r: number }[] | null {
+  const state = buildStateOf<unknown>(world, HAMMERS.fire);
+  const list = Array.isArray(state) ? state : state && typeof state === 'object' && Array.isArray((state as { points?: unknown }).points) ? (state as { points: unknown[] }).points : null;
+  if (!list) return null;
+  const out: { x: number; y: number; k: number; r: number }[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as { x?: unknown; y?: unknown; life?: unknown; left?: unknown; r?: unknown };
+    if (typeof o.x !== 'number' || typeof o.y !== 'number') continue;
+    const life = typeof o.life === 'number' ? o.life : typeof o.left === 'number' ? o.left : HAMMER_FIRE_TIME;
+    out.push({ x: o.x, y: o.y, k: Math.max(0, Math.min(1, life / HAMMER_FIRE_TIME)), r: typeof o.r === 'number' ? o.r : HAMMER_FIRE_R });
+  }
+  return out;
+}
+
+/** Phase B: effects of the player's build shown so far (fire and cut trail — in the last frame; tests read them). */
+export interface PlayerEffectCounts { waves: number; blasts: number; cuts: number; cutTrail: number; cutFrames: number; fire: number; bombs: number; returns: number }
 
 /** Input state the view shows (pointer line, jump aim); owned by main.ts. */
 export interface RenderUi {
@@ -57,8 +107,11 @@ const BASE_ENEMY_RADIUS = 0.4;
 /** Boar art is drawn a bit larger than the crowd (its body circle stays the same); the link reach uses the same scale. */
 const BOAR_SCALE = BOAR_ART_SCALE;
 const BONE = 0xeadbb9;
-/** Target reticle of marked enemies: warm gold, outside the chain sigils. */
-const TARGET = 0xffd36b;
+/**
+ * Target reticle of marked enemies, the rim of elites, the goal arrows, the button rings, the loot halo: lemon, outside the
+ * chain sigils (phase B, Т5: was the gold `ffd36b`, close to the yellow chain under deuteranopia; `FLAME` keeps that gold).
+ */
+export const TARGET = 0xffff66;
 /** Shield of the shieldbearer: cold steel with a pale rim (outside the chain palette). */
 const STEEL = 0xa9b8c6;
 /** Fuse sparks of the sapper and flames: hot orange (outside the chain palette; phase A: the blast circle is THREAT). */
@@ -191,12 +244,17 @@ interface DyingView { root: Container; life: number; total: number; spin: number
 
 interface FloatingText { text: Text; life: number; vy: number }
 
+/**
+ * The chain sigil of a colour: triangle, cross, square, ring (colour 3 — explicit, phase B, Т5); any other colour gets a
+ * fallback sign — a diamond — so a fifth colour never borrows the ring.
+ */
 function drawSigil(g: GraphicsContext, color: number, size: number, ink: number, y = 0): void {
   const s = size;
   if (color === 0) g.poly([0, y - s, s * 0.95, y + s * 0.75, -s * 0.95, y + s * 0.75]).fill(ink);
   else if (color === 1) g.rect(-s * 0.3, y - s, s * 0.6, s * 2).rect(-s, y - s * 0.3, s * 2, s * 0.6).fill(ink);
   else if (color === 2) g.rect(-s * 0.8, y - s * 0.8, s * 1.6, s * 1.6).stroke({ color: ink, width: s * 0.4 });
-  else g.circle(0, y, s * 0.8).stroke({ color: ink, width: s * 0.4 });
+  else if (color === 3) g.circle(0, y, s * 0.8).stroke({ color: ink, width: s * 0.4 });
+  else g.poly([0, y - s, s * 0.85, y, 0, y + s, -s * 0.85, y]).stroke({ color: ink, width: s * 0.35 });
 }
 
 export class RealtimeRenderer {
@@ -250,7 +308,7 @@ export class RealtimeRenderer {
   private readonly bodyTextures = new Map<string, { texture: Texture; ax: number; ay: number }>();
   private readonly floating: FloatingText[] = [];
   /** Stage 2, step 2: blast flashes fading out. */
-  private readonly bursts: { g: Graphics; life: number; total: number }[] = [];
+  private readonly bursts: { g: Graphics; life: number; total: number; grow?: boolean }[] = [];
   /** Stage 2, step 2: «−1 HP» badges over porcupine links of the drawn chain (reused texts). */
   private readonly quillLabels: Text[] = [];
   private heroArt: Container | null = null;
@@ -303,6 +361,18 @@ export class RealtimeRenderer {
   readonly itemsShown: Record<ItemKind, number> = { frost: 0, bomb: 0, healing: 0, fire: 0 };
   /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
   spinsShown = 0;
+  /** Phase B (Д5): effects of the player's build — waves, blasts, cuts, bombs, return runs so far; fire points and cut trail segments in the last frame, frames with a cut trail so far. */
+  readonly playerEffects: PlayerEffectCounts = { waves: 0, blasts: 0, cuts: 0, cutTrail: 0, cutFrames: 0, fire: 0, bombs: 0, returns: 0 };
+  /** Phase B (Д5): short texts at the hero for fired items so far (`talismanFired`). */
+  talismanTexts = 0;
+  /** Phase B: the cut trail and the fire of the hammer drawn per frame (the fire under the crowd, the trail over it). */
+  private readonly playerFxLayer = new Graphics();
+  /** Fire points of the hammer remembered from its events (used while its module keeps no readable state). */
+  private hammerFire: { x: number; y: number; r: number; life: number }[] = [];
+  /** The hero's path in the current or last dash / return run (view memory, age in real seconds) for the cut trail. */
+  private dashTrail: { x: number; y: number; age: number }[] = [];
+  /** A `cut` event came in the current move: its trail is drawn even without the hammer in the kit (test modules). */
+  private cutSeen = false;
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
@@ -315,7 +385,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.targetLayer, this.chainLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -332,7 +402,7 @@ export class RealtimeRenderer {
   private drawJuice(world: World, dt: number): void {
     const text = this.comboText;
     if (text) {
-      const dashing = world.move?.kind === 'dash';
+      const dashing = dashLike(world);
       const kills = dashing ? world.move!.kills : world.lastChain?.kills ?? 0;
       if (!dashing) this.comboLife = Math.max(0, this.comboLife - dt);
       const show = world.params.comboCounter && kills > 0 && (dashing || this.comboLife > 0);
@@ -564,7 +634,7 @@ export class RealtimeRenderer {
       ctx.moveTo(-s, -s).lineTo(s, s).moveTo(s, -s).lineTo(-s, s).stroke({ color: THREAT, width: 6, cap: 'round' });
       return ctx;
     }
-    const fill = grey ? greyOf(COLORS[color]) : COLORS[color];
+    const fill = grey ? greyOf(chainInk(color)) : chainInk(color);
     if (kind === 'wolf') {
       // Wolf: two pointed ears and swept speed marks (silhouette, not a color).
       for (const dy of [-r * 0.45, r * 0.15]) ctx.poly([-r * 0.75, dy, -r * 1.35, dy - r * 0.18, -r * 1.2, dy + r * 0.1]).fill(PALE).stroke({ color: NAVY, width: 2 });
@@ -651,7 +721,7 @@ export class RealtimeRenderer {
       const sprite = characterSprite('melee', r * 1.75, r * 1.75);
       if (sprite) { sprite.position.set(0, -r * 0.08); body.addChild(sprite); }
       const plaque = new Graphics();
-      plaque.circle(0, r * 0.62, r * 0.34).fill(COLORS[e.color]).stroke({ color: NAVY, width: 2 });
+      plaque.circle(0, r * 0.62, r * 0.34).fill(chainInk(e.color)).stroke({ color: NAVY, width: 2 });
       drawSigil(plaque.context, e.color, r * 0.19, NAVY, r * 0.62);
       body.addChild(plaque);
     }
@@ -737,7 +807,7 @@ export class RealtimeRenderer {
       if (!this.sees(m, 1.5)) continue;
       const x = m.x * UNIT, y = m.y * UNIT, k = m.total > 0 ? 1 - m.timeLeft / m.total : 1, s = r * 0.6;
       const pulse = 0.6 + 0.4 * Math.sin(this.clock * 14);
-      const rim = m.color === NO_COLOR ? THREAT : COLORS[m.color];
+      const rim = m.color === NO_COLOR ? THREAT : chainInk(m.color);
       // Rim in the color of the coming enemy, filling up as the countdown runs.
       g.circle(x, y, r * 0.95).stroke({ color: rim, width: 3, alpha: 0.35 });
       // moveTo first: otherwise the arc is joined by a line from the previous path point (the arena corner).
@@ -899,7 +969,7 @@ export class RealtimeRenderer {
         // Phase A (Т4): «Хамелеон» in its window — the rim blinks the colour it turns to (a chain of any colour takes it now).
         const warn = chameleonWarn(world, e);
         if (warn) counts.chameleonWarns++;
-        const rim = warn && Math.floor(this.clock * 8) % 2 === 0 ? COLORS[warn.next] : TARGET;
+        const rim = warn && Math.floor(this.clock * 8) % 2 === 0 ? chainInk(warn.next) : TARGET;
         g.circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: NAVY, width: 7, alpha: 0.9 }).circle(e.x * UNIT, e.y * UNIT, R).stroke({ color: rim, width: warn ? 5 : 4 });
       }
       // Stage 2, step 3: the cold — an icy ring (a double ring while the next chain hit on it is ×2); burning — flames.
@@ -1011,6 +1081,46 @@ export class RealtimeRenderer {
       g.circle(X, Y, R).stroke({ color: 0x7a2a12, width: 2, alpha: 0.5 * k });
     }
     this.trailCount = count;
+    // Phase B (design answer 23): the fire of the hammer «Огненный проход» — the same embers, but with the pale-blue rim of
+    // the player's effects (the elite's trail above keeps its dark-red rim). From the module's state, else from its events.
+    const fire = hammerFireOf(world) ?? this.hammerFire.map(f => ({ x: f.x, y: f.y, r: f.r, k: f.life / HAMMER_FIRE_TIME }));
+    let shown = 0;
+    for (const f of fire) {
+      if (f.k <= 0 || !this.sees(f, f.r + 0.5)) continue;
+      shown++;
+      const X = f.x * UNIT, Y = f.y * UNIT, R = f.r * UNIT, k = f.k, flick = 0.85 + 0.15 * Math.sin(this.clock * 13 + f.x * 7 + f.y * 5);
+      g.circle(X, Y, R).fill({ color: EMBER, alpha: 0.38 * k });
+      g.circle(X, Y, R * 0.6 * flick).fill({ color: FLAME, alpha: 0.4 * k });
+      g.circle(X, Y, R).stroke({ color: PLAYER_FX, width: 2, alpha: 0.75 * k });
+    }
+    this.playerEffects.fire = shown;
+  }
+
+  /**
+   * Phase B (design answer 23): the cut of the hammer «Режущий проход» — a thin white line along the hero's path of the last
+   * 0.2 s of a dash or a return run, with a pale-blue rim under it; drawn while the kit holds the hammer or a `cut` event came
+   * in this move. View memory only (`dashTrail`).
+   */
+  private drawPlayerFx(world: World, dt: number): void {
+    const g = this.playerFxLayer.clear();
+    for (const f of this.hammerFire) f.life -= dt;
+    this.hammerFire = this.hammerFire.filter(f => f.life > 0);
+    for (const p of this.dashTrail) p.age += dt;
+    if (dashLike(world)) this.dashTrail.push({ x: world.hero.x, y: world.hero.y, age: 0 });
+    this.dashTrail = this.dashTrail.filter(p => p.age <= CUT_TRAIL_TIME);
+    if (!world.move && !this.dashTrail.length) this.cutSeen = false;
+    let segments = 0;
+    if ((world.kit?.hammer === HAMMERS.cut || this.cutSeen) && this.dashTrail.length > 1) {
+      for (let i = 1; i < this.dashTrail.length; i++) {
+        const a = this.dashTrail[i - 1], b = this.dashTrail[i], k = 1 - b.age / CUT_TRAIL_TIME;
+        if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-4) continue;
+        segments++;
+        g.moveTo(a.x * UNIT, a.y * UNIT).lineTo(b.x * UNIT, b.y * UNIT).stroke({ color: PLAYER_FX, width: 6, alpha: 0.5 * k, cap: 'round' });
+        g.moveTo(a.x * UNIT, a.y * UNIT).lineTo(b.x * UNIT, b.y * UNIT).stroke({ color: 0xffffff, width: 2, alpha: 0.95 * k, cap: 'round' });
+      }
+    }
+    this.playerEffects.cutTrail = segments;
+    if (segments) this.playerEffects.cutFrames++;
   }
 
   /** Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. */
@@ -1071,10 +1181,10 @@ export class RealtimeRenderer {
         g.ellipse(x, y + R * 0.75, R * 0.6, R * 0.2).fill({ color: 0x050a07, alpha: 0.4 });
         g.circle(x, cy, R * 1.15).fill({ color: 0xffffff, alpha: 0.08 + 0.1 * pulse });
         const top = [x, cy - h], right = [x + w, cy], bottom = [x, cy + h], left = [x - w, cy], mid = [x, cy];
-        g.poly([...top, ...right, ...mid]).fill(COLORS[0]);
-        g.poly([...right, ...bottom, ...mid]).fill(COLORS[1]);
-        g.poly([...bottom, ...left, ...mid]).fill(COLORS[2]);
-        g.poly([...left, ...top, ...mid]).fill(COLORS[3]);
+        g.poly([...top, ...right, ...mid]).fill(CHAIN_COLORS[0]);
+        g.poly([...right, ...bottom, ...mid]).fill(CHAIN_COLORS[1]);
+        g.poly([...bottom, ...left, ...mid]).fill(CHAIN_COLORS[2]);
+        g.poly([...left, ...top, ...mid]).fill(CHAIN_COLORS[3]);
         g.poly([...top, ...right, ...bottom, ...left]).stroke({ color: NAVY, width: 3 });
         g.poly([x - w * 0.35, cy - h * 0.45, x - w * 0.1, cy - h * 0.75, x, cy - h * 0.3]).fill({ color: 0xffffff, alpha: 0.7 });
         continue;
@@ -1140,8 +1250,33 @@ export class RealtimeRenderer {
     }
   }
 
+  /**
+   * Phase B (design answer 23): a burst of the player's build at an arena point — the pale-blue rim, no hatching, no dark
+   * threat outline. `grow` — a ring widening from the hero to its radius (the wave, as the spin's ring).
+   */
+  private playerBurst(x: number, y: number, r: number, fill: number, fillAlpha: number, life: number, grow = false): void {
+    const g = new Graphics().circle(0, 0, r * UNIT).fill({ color: fill, alpha: fillAlpha }).stroke({ color: PLAYER_FX, width: 5, alpha: 0.95 });
+    g.position.set(x * UNIT, y * UNIT);
+    this.fxLayer.addChild(g);
+    this.bursts.push({ g, life, total: life, grow });
+  }
+
   private handleEvents(world: World): void {
     for (const ev of world.events) {
+      // Phase B (Д5): the build. An item fired — a short text at the hero (its icon flashes in the column, main.ts).
+      if (ev.type === 'talismanFired') {
+        this.floatText(fireTextOf(ev.id), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
+        this.talismanTexts++;
+        continue;
+      }
+      if (ev.type === 'wave') { this.playerBurst(ev.x, ev.y, ev.r, PLAYER_FX, 0.16, 0.35, true); this.playerEffects.waves++; continue; }
+      if (ev.type === 'hammer') {
+        if (ev.kind === 'blast') { this.playerBurst(ev.x, ev.y, ev.r ?? 1.5, 0xffffff, 0.42, 0.35); this.playerEffects.blasts++; }
+        else if (ev.kind === 'fire') this.hammerFire.push({ x: ev.x, y: ev.y, r: ev.r ?? HAMMER_FIRE_R, life: HAMMER_FIRE_TIME });
+        else if (ev.kind === 'cut') { this.cutSeen = true; this.playerEffects.cuts++; }
+        else if (ev.kind === 'return') this.playerEffects.returns++;
+        continue;
+      }
       if (ev.type === 'chainHit') {
         // Dash shake stays light: not stronger than dashShake (design answer 22).
         if (world.params.dashShake > 0 && this.shakeLeft <= 0.02) { this.shakeLeft = this.shakeTotal = 0.08; this.shakeAmp = world.params.dashShake; }
@@ -1169,9 +1304,12 @@ export class RealtimeRenderer {
         // Stage 2, step 3: a consumable acts — cold: an icy circle; bomb: a hot burst on the target; fire: an orange ring;
         // healing: «+N» over the hero.
         this.itemsShown[ev.kind]++;
-        if (ev.kind === 'healing') { this.floatText(`+${world.params.itemHeal} HP`, ev.x * UNIT, ev.y * UNIT - 46, 0x8fd18a); continue; }
-        const color = ev.kind === 'frost' ? ICE : SPARK, radius = Math.max(ev.radius, 0.6) * UNIT;
-        const burst = new Graphics().circle(0, 0, radius).fill({ color, alpha: ev.kind === 'bomb' ? 0.55 : 0.25 }).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+        if (ev.kind === 'healing') { this.floatText(`+${itemHealOf(world)} HP`, ev.x * UNIT, ev.y * UNIT - 46, 0x8fd18a); continue; }
+        // Phase B (design answer 23): the player's bomb gets the pale-blue rim of the player's effects — the sapper's blast
+        // keeps its cream rim (`blast` above).
+        const color = ev.kind === 'frost' ? ICE : SPARK, radius = Math.max(ev.radius, 0.6) * UNIT, bomb = ev.kind === 'bomb';
+        if (bomb) this.playerEffects.bombs++;
+        const burst = new Graphics().circle(0, 0, radius).fill({ color, alpha: bomb ? 0.55 : 0.25 }).stroke(bomb ? { color: PLAYER_FX, width: 5, alpha: 0.95 } : { color: 0xffffff, width: 3, alpha: 0.9 });
         burst.position.set(ev.x * UNIT, ev.y * UNIT);
         this.fxLayer.addChild(burst);
         this.bursts.push({ g: burst, life: 0.35, total: 0.35 });
@@ -1274,12 +1412,12 @@ export class RealtimeRenderer {
     let reach = 0;
     this.heroReachShown = world.status === 'playing';
     if (this.heroReachShown) {
-      g.circle(hero.x * UNIT, hero.y * UNIT, p.linkRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+      g.circle(hero.x * UNIT, hero.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
       reach++;
     }
     this.visibleReachCircles = reach;
     this.heroAnchorShown = false;
-    if (world.move?.kind === 'dash') {
+    if (dashLike(world)) {
       // Dash: a light halo around the hero (passes through the crowd, cannot be hurt).
       g.circle(hero.x * UNIT, hero.y * UNIT, heroRadius(p) * UNIT * 1.6).fill({ color: 0xffffff, alpha: 0.18 });
     }
@@ -1298,7 +1436,7 @@ export class RealtimeRenderer {
       if (world.status === 'playing' && !world.move) for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 2, alpha: 0.45 });
       return;
     }
-    const plan = planChain(world), color = chainColor(world), ink = color === null ? 0xffffff : COLORS[color];
+    const plan = planChain(world), color = chainColor(world), ink = color === null ? 0xffffff : chainInk(color);
     // Line hero → links, navy under the chain color.
     const pts: Vec[] = [{ x: hero.x, y: hero.y }];
     for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
@@ -1311,11 +1449,11 @@ export class RealtimeRenderer {
     if (!plan.endsOnSurvivor && !plan.endsOnObject) {
       if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
       // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
-      g.circle(anchor.x * UNIT, anchor.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+      g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
       this.visibleReachCircles = ++reach;
       // Stage G: the hero is a second anchor — his circle (always drawn faint) gets the chain color too.
       if (heroAnchorOn(world)) {
-        g.circle(hero.x * UNIT, hero.y * UNIT, p.linkRadius * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+        g.circle(hero.x * UNIT, hero.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
         this.heroAnchorShown = true;
       }
       for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(p) * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
@@ -1373,7 +1511,7 @@ export class RealtimeRenderer {
       b.life -= dt;
       if (b.life <= 0) { b.g.destroy(); this.bursts.splice(i, 1); continue; }
       const k = b.life / b.total;
-      b.g.alpha = k; b.g.scale.set(1 + (1 - k) * 0.25);
+      if (b.grow) { b.g.alpha = Math.min(1, k * 2); b.g.scale.set(0.3 + 0.7 * (1 - k)); } else { b.g.alpha = k; b.g.scale.set(1 + (1 - k) * 0.25); }
     }
   }
 
@@ -1404,6 +1542,7 @@ export class RealtimeRenderer {
     this.drawBadges(world);
     this.drawTargets(world);
     this.drawChain(world, ui);
+    this.drawPlayerFx(world, realDt);
     this.drawHero(world);
     this.drawOverlay(world);
     this.drawJuice(world, realDt);
@@ -1448,6 +1587,9 @@ export class RealtimeRenderer {
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();
     this.bursts.length = 0;
+    this.hammerFire = [];
+    this.dashTrail = [];
+    this.cutSeen = false;
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });
     this.enemyViews.clear();
     for (const d of this.dying) d.root.destroy({ children: true });

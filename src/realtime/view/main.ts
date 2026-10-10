@@ -30,8 +30,12 @@ import { Simulation } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadParams, loadRoleBadges, saveParams, saveRoleBadges } from './paramStorage';
-import { RealtimeRenderer, type RenderUi } from './render';
+import { loadParams, loadRoleBadges, loadSandboxBuild, saveParams, saveRoleBadges, saveSandboxBuild } from './paramStorage';
+import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
+import { focusMaxOf } from '../sim/build';
+import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
+import { BuildColumn, labelOf } from './buildColumn';
+import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
 
 /**
@@ -247,7 +251,9 @@ async function boot(): Promise<void> {
   const itemHint = el('div', 'rt-item-hint', 'Предметы: клавиши <kbd>1</kbd>–<kbd>4</kbd>, бьют в точку курсора');
   itemHint.setAttribute('data-testid', 'item-hint');
   itemHint.hidden = true;
-  host.append(stage, hud, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result);
+  // Phase B (Д5, design answer 23): the build column on the left (x 8–70 from y ≈ 72), only the items taken.
+  const buildColumn = new BuildColumn();
+  host.append(stage, hud, buildColumn.el, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result);
   if (sandbox) host.append(openButton, menuButton, menu);
 
   await loadCharacterArt();
@@ -260,10 +266,22 @@ async function boot(): Promise<void> {
 
   const motion = new Motion();
   /** The sandbox's loadout (stage 2, step 3): the panel's number of each consumable; a run passes its own. */
-  const sandboxLoadout = (): Loadout => ({
-    items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])),
-    ...params.sandboxTalismans ? { talismans: [params.sandboxTalismans], ward: true } : {},
-  });
+  /**
+   * Phase B (Д5): the sandbox build of the panel (a counter talisman, a relic or the new oath, a hammer; own storage key) and
+   * the test hook's override (`useBuild`) — both go into the loadout, which the journal keeps as it is (Params stay as
+   * they were: old journals hash as before).
+   */
+  const sandboxBuild = loadSandboxBuild();
+  let buildOverride: { talismans: string[]; hammer?: string } | null = null;
+  const sandboxLoadout = (): Loadout => {
+    const talismans = [...params.sandboxTalismans ? [params.sandboxTalismans] : [], ...buildOverride ? buildOverride.talismans : [sandboxBuild.talisman, sandboxBuild.relic].filter(Boolean)];
+    const hammer = buildOverride ? buildOverride.hammer : sandboxBuild.hammer;
+    return {
+      items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])),
+      ...talismans.length ? { talismans: [...new Set(talismans)], ...params.sandboxTalismans ? { ward: true } : {} } : {},
+      ...isHammerId(hammer) ? { hammer } : {},
+    };
+  };
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout: Loadout = sandboxLoadout()): Simulation => {
     motion.clear();
     return new Simulation({ arena, params, seed, record: true, beforeTick: world => motion.save(world), ...hero ? { hero } : {}, loadout });
@@ -357,7 +375,19 @@ async function boot(): Promise<void> {
   renderer.showRoleBadges = loadRoleBadges();
   panel.addViewCheck('Значки ролей', 'role-badges', renderer.showRoleBadges, on => { renderer.showRoleBadges = on; saveRoleBadges(on); },
     'Значок под телом: стрелок, блокер, наказатель, мастер, ныряльщик. У давителя и Жнеца значка нет.');
-  if (sandbox) host.appendChild(panel.el);
+  if (sandbox) {
+    // Phase B (Д5): the sandbox build — from the next arena (R, the menu); the column shows what is taken.
+    const none = { value: '', label: 'нет' };
+    const option = (id: string) => ({ value: id, label: labelOf(id).title });
+    const choose = (key: 'talisman' | 'relic' | 'hammer') => (value: string): void => { sandboxBuild[key] = value; saveSandboxBuild(sandboxBuild); };
+    panel.addBuildChoice('Талисман-счётчик', 'build-talisman', [none, ...Object.values(COUNTER_TALISMANS).map(option)], sandboxBuild.talisman, choose('talisman'),
+      'Т1: условие и триггер. Правила пишут дорожки Д1–Д3: пока их нет, предмет виден в колонке, но не действует.');
+    panel.addBuildChoice('Реликвия или клятва', 'build-relic', [none, ...Object.values(RELICS).map(option), option(OATH_HUNGER)], sandboxBuild.relic, choose('relic'),
+      'Т3: плюс и цена (цена — в колонке); 5а: новая «Клятва голода».');
+    panel.addBuildChoice('Молот', 'build-hammer', [none, ...Object.values(HAMMERS).map(option)], sandboxBuild.hammer, choose('hammer'),
+      'Т2: один молот, меняет проход героя.');
+    host.appendChild(panel.el);
+  }
   openButton.addEventListener('click', () => panel.setOpen(true));
   menuButton.addEventListener('click', () => { showMenu(); menuButton.blur(); });
   again.addEventListener('click', () => restart());
@@ -453,7 +483,9 @@ async function boot(): Promise<void> {
     const gap = 8;
     const top = Math.max(bottomOf(hud), sandbox ? Math.max(bottomOf(openButton), bottomOf(menuButton)) : 0) + gap;
     const bottom = window.innerHeight - Math.min(topOf(actionBar), topOf(jumpButton), topOf(help)) + gap;
-    renderer.setEdgeInset({ left: 0, top, right: 0, bottom });
+    // Phase B (Д5): the build column on the left — the pointers keep clear of it (its right edge + 8).
+    const left = buildColumn.el.hidden ? 0 : buildColumn.el.getBoundingClientRect().right + gap;
+    renderer.setEdgeInset({ left, top, right: 0, bottom });
   };
   const relayout = (): void => {
     const panelWidth = panel.open ? panel.el.getBoundingClientRect().width : 0;
@@ -598,6 +630,8 @@ async function boot(): Promise<void> {
     // Iteration 2.1: a used consumable counts for the run and ends the hint at once.
     const used = w.events.filter(ev => ev.type === 'item').length;
     if (used) { arenaItemsUsed += used; itemHintLeft = 0; }
+    // Phase B (Д5): an item fired — its icon flashes in the column (the renderer writes the short text at the hero).
+    for (const ev of w.events) if (ev.type === 'talismanFired') buildColumn.flash(ev.id);
     // Stage E: a short flash of the focus bar when a link refreshes it.
     if (w.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
     // The hero and enemies are drawn between the last two ticks (the world is put back after drawing).
@@ -610,7 +644,12 @@ async function boot(): Promise<void> {
     hpFill.style.width = `${hero.maxHp > 0 ? hero.hp / hero.maxHp * 100 : 0}%`;
     hpText.textContent = `${hero.hp} / ${hero.maxHp}`;
     timeText.textContent = formatTime(w.time);
-    focusFill.style.width = `${params.focusMax > 0 ? w.focus / params.focusMax * 100 : 0}%`;
+    const focusMax = focusMaxOf(w);
+    focusFill.style.width = `${focusMax > 0 ? Math.min(1, w.focus / focusMax) * 100 : 0}%`;
+    // Phase B (Д5): the build column follows the kit; hidden under the run screen and the menus.
+    const columnWasHidden = buildColumn.el.hidden;
+    buildColumn.update(w, live ? realDt : 0, runScreenOpen || menuOpen);
+    if (buildColumn.el.hidden !== columnWasHidden) measureEdgeInset();
     focusBar.classList.toggle('rt-focus-on', w.focusing);
     energyText.textContent = `⚡ ${w.energy.toFixed(1)} / ${ENERGY_MAX}`;
     energyText.classList.toggle('rt-ready', w.energy >= jumpCostOf(w));
@@ -756,7 +795,29 @@ async function boot(): Promise<void> {
         heroReachShown: renderer.heroReachShown,
         heroAnchorShown: renderer.heroAnchorShown,
         hint: hintReason,
+        /** Phase B (Д5): icons in the build column (visible), their ids and progress texts; icon flashes and texts at the hero so far. */
+        buildColumn: buildColumn.el.hidden ? 0 : buildColumn.count,
+        buildItems: [...buildColumn.el.querySelectorAll<HTMLElement>('.rt-build-item')].map(n => ({ id: n.dataset.testid?.replace(/^build-/, '') ?? '', kind: n.dataset.kind ?? '', progress: n.querySelector('.rt-build-progress')?.textContent ?? '', price: n.querySelector('.rt-build-price')?.textContent ?? null })),
+        buildFlashing: buildColumn.flashing,
+        talismanFlashes: buildColumn.flashes,
+        talismanTexts: renderer.talismanTexts,
+        /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */
+        playerEffects: { ...renderer.playerEffects },
+        /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */
+        palette: { chain: [...CHAIN_COLORS], target: TARGET, playerFx: PLAYER_FX },
+        kit: w.kit ? { talismans: [...w.kit.talismans], hammer: w.kit.hammer ?? null, counters: { ...w.kit.counters ?? {} } } : null,
       };
+    },
+    /**
+     * Phase B (Д5, sandbox test hook): the next arenas start with these talismans (relics too) and this hammer instead of the
+     * panel's build (null — back to the panel); `testModule` registers the view's test counter (buildTestModule.ts) and adds
+     * it. Restarts the current arena (`seed` fixes it).
+     */
+    useBuild: (build: { talismans?: string[]; hammer?: string; testModule?: boolean } | null, seed?: number) => {
+      if (!sandbox) return;
+      if (build?.testModule) registerViewTestModule();
+      buildOverride = build ? { talismans: [...build.talismans ?? [], ...build.testModule ? [VIEW_TEST_MODULE] : []], ...build.hammer ? { hammer: build.hammer } : {} } : null;
+      restart(seed);
     },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
     restart: (seed?: number) => restart(seed),
