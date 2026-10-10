@@ -8,8 +8,9 @@ import type { Plugin } from 'vite';
 
 export const RT_TELEMETRY_PATH = '/__rt-telemetry';
 export const RT_TELEMETRY_MAX_BODY = 512 * 1024;
-// Own copy of the id check; the schema in src/realtime/telemetry/schema.ts has the same rule.
-const SEGMENT = /^[A-Za-z0-9_-]{1,64}$/;
+// Own copy of the id rule (the plugin does not import src/): `RECORD_ID_RE` of src/realtime/telemetry/schema.ts —
+// `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>`, `S/R/<fight>/n<tick>`; the plugin's check compares the two.
+export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
 
 export interface RtTelemetryOptions {
   /** Folder for the logs. Default: `<vite root>/playtest-logs`. */
@@ -34,9 +35,7 @@ export function allowedAddress(addr: string | undefined, lan: boolean): boolean 
 /** Splits and checks a record id; returns the segments or null. */
 export function parseRecordId(id: unknown): string[] | null {
   if (typeof id !== 'string') return null;
-  const parts = id.split('/');
-  if (parts.length < 3 || parts.length > 4) return null;
-  return parts.every((p) => SEGMENT.test(p)) ? parts : null;
+  return RECORD_ID_RE.test(id) ? id.split('/') : null;
 }
 
 /** Target file of a record id inside `base`, or null when it would leave `base`. */

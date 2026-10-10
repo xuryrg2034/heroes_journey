@@ -9,7 +9,8 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'vite';
-import { allowedAddress, recordFile, rtTelemetryPlugin } from '../vite/rtTelemetryPlugin';
+import { allowedAddress, RECORD_ID_RE as PLUGIN_ID_RE, recordFile, rtTelemetryPlugin } from '../vite/rtTelemetryPlugin';
+import { RECORD_ID_RE } from '../src/realtime/telemetry/schema';
 
 let checks = 0;
 function assert(condition: unknown, message: string): asserts condition {
@@ -22,6 +23,7 @@ for (const a of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
   assert(allowedAddress(a, false), `${a} is loopback`);
   assert(allowedAddress(a, true), `${a} is loopback with lan`);
 }
+assert(PLUGIN_ID_RE.source === RECORD_ID_RE.source, 'the plugin checks ids by the rule of the telemetry schema');
 const lanOnly = ['10.1.2.3', '172.16.0.1', '172.31.255.1', '192.168.1.20', '::ffff:192.168.0.5'];
 for (const a of lanOnly) {
   assert(!allowedAddress(a, false), `${a} refused by default`);
