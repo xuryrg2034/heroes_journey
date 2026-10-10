@@ -24,7 +24,8 @@ import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
-import { buildStateOf, itemHealOf, linkRadiusOf } from '../sim/build';
+import { itemHealOf, linkRadiusOf } from '../sim/build';
+import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
 import { HAMMERS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
 
@@ -47,29 +48,13 @@ export const PLAYER_FX = 0xbfe3ff;
 const dashLike = (world: World): boolean => world.move?.kind === 'dash' || world.move?.kind === 'return';
 /** Phase B: seconds the cut trail along the dash path stays (design answer 23: 0.2 s). */
 const CUT_TRAIL_TIME = 0.2;
-/** Phase B: seconds a fire point of the hammer lives when drawn from its events (the hammer's fire lasts 2 s, section 4). */
-const HAMMER_FIRE_TIME = 2;
-/** Phase B: radius of a fire point drawn from an event without its own `r`. */
-const HAMMER_FIRE_R = 0.45;
-
 /**
- * Phase B: the fire of the hammer «Огненный проход» from its module's state (`World.build['fire-pass']`, track Д2). The form
- * is Д2's: read here tolerantly — an array of points `{ x, y, life?, r? }` or `{ points: [...] }`; anything else — null, and
- * the view draws the fire from the `hammer` events (`kind: 'fire'`) instead. The connection point for Д2's final form.
+ * Phase B: the fire of the hammer «Огненный проход» — its module's points (`World.build['fire-pass'].points`,
+ * sim/hammers.ts `hammerFirePoints`: `{ x, y, life }`), circles of `FIRE_RADIUS` fading by `life / FIRE_LIFE`. The only
+ * source: the `hammer` `fire` events are not drawn (the state is the fire).
  */
-export function hammerFireOf(world: World): { x: number; y: number; k: number; r: number }[] | null {
-  const state = buildStateOf<unknown>(world, HAMMERS.fire);
-  const list = Array.isArray(state) ? state : state && typeof state === 'object' && Array.isArray((state as { points?: unknown }).points) ? (state as { points: unknown[] }).points : null;
-  if (!list) return null;
-  const out: { x: number; y: number; k: number; r: number }[] = [];
-  for (const item of list) {
-    if (!item || typeof item !== 'object') continue;
-    const o = item as { x?: unknown; y?: unknown; life?: unknown; left?: unknown; r?: unknown };
-    if (typeof o.x !== 'number' || typeof o.y !== 'number') continue;
-    const life = typeof o.life === 'number' ? o.life : typeof o.left === 'number' ? o.left : HAMMER_FIRE_TIME;
-    out.push({ x: o.x, y: o.y, k: Math.max(0, Math.min(1, life / HAMMER_FIRE_TIME)), r: typeof o.r === 'number' ? o.r : HAMMER_FIRE_R });
-  }
-  return out;
+export function hammerFireOf(world: World): { x: number; y: number; k: number; r: number }[] {
+  return hammerFirePoints(world).map(p => ({ x: p.x, y: p.y, k: Math.max(0, Math.min(1, p.life / FIRE_LIFE)), r: FIRE_RADIUS }));
 }
 
 /** Phase B: effects of the player's build shown so far (fire and cut trail — in the last frame; tests read them). */
@@ -363,12 +348,12 @@ export class RealtimeRenderer {
   spinsShown = 0;
   /** Phase B (Д5): effects of the player's build — waves, blasts, cuts, bombs, return runs so far; fire points and cut trail segments in the last frame, frames with a cut trail so far. */
   readonly playerEffects: PlayerEffectCounts = { waves: 0, blasts: 0, cuts: 0, cutTrail: 0, cutFrames: 0, fire: 0, bombs: 0, returns: 0 };
+  /** Phase B (Д5): the radius R of the circle around the hero in the last frame, in units (`linkRadiusOf`). */
+  heroReachRadius = 0;
   /** Phase B (Д5): short texts at the hero for fired items so far (`talismanFired`). */
   talismanTexts = 0;
   /** Phase B: the cut trail and the fire of the hammer drawn per frame (the fire under the crowd, the trail over it). */
   private readonly playerFxLayer = new Graphics();
-  /** Fire points of the hammer remembered from its events (used while its module keeps no readable state). */
-  private hammerFire: { x: number; y: number; r: number; life: number }[] = [];
   /** The hero's path in the current or last dash / return run (view memory, age in real seconds) for the cut trail. */
   private dashTrail: { x: number; y: number; age: number }[] = [];
   /** A `cut` event came in the current move: its trail is drawn even without the hammer in the kit (test modules). */
@@ -1083,7 +1068,7 @@ export class RealtimeRenderer {
     this.trailCount = count;
     // Phase B (design answer 23): the fire of the hammer «Огненный проход» — the same embers, but with the pale-blue rim of
     // the player's effects (the elite's trail above keeps its dark-red rim). From the module's state, else from its events.
-    const fire = hammerFireOf(world) ?? this.hammerFire.map(f => ({ x: f.x, y: f.y, r: f.r, k: f.life / HAMMER_FIRE_TIME }));
+    const fire = hammerFireOf(world);
     let shown = 0;
     for (const f of fire) {
       if (f.k <= 0 || !this.sees(f, f.r + 0.5)) continue;
@@ -1103,8 +1088,6 @@ export class RealtimeRenderer {
    */
   private drawPlayerFx(world: World, dt: number): void {
     const g = this.playerFxLayer.clear();
-    for (const f of this.hammerFire) f.life -= dt;
-    this.hammerFire = this.hammerFire.filter(f => f.life > 0);
     for (const p of this.dashTrail) p.age += dt;
     if (dashLike(world)) this.dashTrail.push({ x: world.hero.x, y: world.hero.y, age: 0 });
     this.dashTrail = this.dashTrail.filter(p => p.age <= CUT_TRAIL_TIME);
@@ -1272,7 +1255,7 @@ export class RealtimeRenderer {
       if (ev.type === 'wave') { this.playerBurst(ev.x, ev.y, ev.r, PLAYER_FX, 0.16, 0.35, true); this.playerEffects.waves++; continue; }
       if (ev.type === 'hammer') {
         if (ev.kind === 'blast') { this.playerBurst(ev.x, ev.y, ev.r ?? 1.5, 0xffffff, 0.42, 0.35); this.playerEffects.blasts++; }
-        else if (ev.kind === 'fire') this.hammerFire.push({ x: ev.x, y: ev.y, r: ev.r ?? HAMMER_FIRE_R, life: HAMMER_FIRE_TIME });
+        // `fire`: the fire is drawn from the module's state (`hammerFireOf`), not from the event.
         else if (ev.kind === 'cut') { this.cutSeen = true; this.playerEffects.cuts++; }
         else if (ev.kind === 'return') this.playerEffects.returns++;
         continue;
@@ -1411,8 +1394,10 @@ export class RealtimeRenderer {
     // Stage D (user 07.10.2026): the reach R of the first link around the hero, always — thin and faint over the crowd.
     let reach = 0;
     this.heroReachShown = world.status === 'playing';
+    // Phase B (Д5): the radius drawn (units) — «Длинная рука» and «Широкий круг» widen it (tests read it).
+    this.heroReachRadius = linkRadiusOf(world);
     if (this.heroReachShown) {
-      g.circle(hero.x * UNIT, hero.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+      g.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
       reach++;
     }
     this.visibleReachCircles = reach;
@@ -1587,7 +1572,6 @@ export class RealtimeRenderer {
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();
     this.bursts.length = 0;
-    this.hammerFire = [];
     this.dashTrail = [];
     this.cutSeen = false;
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });

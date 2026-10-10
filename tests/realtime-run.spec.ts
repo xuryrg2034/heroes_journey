@@ -500,5 +500,11 @@ test('run (phase B, Д4): the Jailer\'s row offers a hammer 3 of 4, then an oath
   const journal = await page.evaluate(() => (window as any).__realtime.journal() as { loadout?: { hammer?: string; talismans?: string[] } });
   expect(journal.loadout?.hammer).toBe(ids[1]);
   expect(journal.loadout?.talismans).toContain(relicId);
+  // Д5 (round 2): the arena's build column shows the hammer in its frame and the relic with its short price.
+  await expect(page.getByTestId('build-column')).toBeVisible();
+  await expect(page.getByTestId(`build-${ids[1]}`)).toHaveAttribute('data-kind', 'hammer');
+  await expect(page.getByTestId(`build-${relicId}`)).toHaveAttribute('data-kind', 'relic');
+  await expect(page.getByTestId(`build-${relicId}`).locator('.rt-build-price')).not.toBeEmpty();
+  await page.screenshot({ path: 'artifacts/realtime-phaseB-run-column.png' });
   expect(errors).toEqual([]);
 });
