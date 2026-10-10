@@ -13,7 +13,9 @@
  */
 import { defaultParams, sanitizeParams, type Params } from '../sim/params';
 
-const STORAGE_KEY = 'ashen-oath-realtime-params-v17';
+/** The storage key of the panel's values (the telemetry header names it: `params.storage`). */
+export const PARAMS_STORAGE_KEY = 'ashen-oath-realtime-params-v17';
+const STORAGE_KEY = PARAMS_STORAGE_KEY;
 
 export function loadParams(): Params {
   try {

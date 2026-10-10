@@ -26,17 +26,30 @@ import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
 import { rtRunParams } from '../run/rtRun';
-import { Simulation } from '../sim/simulation';
+import { replay, Simulation, type Journal } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadParams, loadRoleBadges, loadSandboxBuild, saveParams, saveRoleBadges, saveSandboxBuild } from './paramStorage';
+import { loadParams, loadRoleBadges, loadSandboxBuild, PARAMS_STORAGE_KEY, saveParams, saveRoleBadges, saveSandboxBuild } from './paramStorage';
 import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
+import { runRow } from '../run/arenaPools';
+import { rtNode } from '../run/rtRun';
+import { nullObserver, type FightObserverFactory, type ReplayTo, type RtRecord } from '../telemetry/schema';
+import { RtRecorder, type FightContext } from '../telemetry/recorder';
+import { LogsPanel } from './logsPanel';
+
+/**
+ * Telemetry (docs/realtime-telemetry.md, track ТA): the fight observer that fills the summary of each fight record.
+ * `nullObserver` until track ТB lands; then this one line becomes its factory (`telemetry/observe.ts`).
+ */
+const FIGHT_OBSERVER: FightObserverFactory = nullObserver;
+/** The N note flashes «отмечено» at the HUD this long (ms). */
+const NOTE_FLASH_MS = 1000;
 
 /**
  * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
@@ -155,6 +168,19 @@ async function boot(): Promise<void> {
   // only from its talisman, elites only from the template, events and run row 3); the run has no panel, nothing is saved.
   // Iteration 2.1: and the run's own numbers (the healing consumable heals rtHp(3) = 9 whatever the panel says).
   const params = sandbox ? loadParams() : rtRunParams(loadParams());
+  /**
+   * Telemetry (track ТA): records of fights, the run and N notes into the browser buffer and the sinks. `?telemetry=0` —
+   * off (nothing is recorded). The dev-server sink only on `vite` (`import.meta.env.DEV`); a browser driven by tests
+   * (`navigator.webdriver`) skips it unless `?telemetry=dev`, so test runs leave no files in playtest-logs/.
+   */
+  const telemetryFlag = urlParams.get('telemetry');
+  let recorder: RtRecorder | null = null;
+  if (telemetryFlag !== '0') {
+    try {
+      recorder = new RtRecorder({ sandbox, paramsStorage: PARAMS_STORAGE_KEY, params, observer: FIGHT_OBSERVER,
+        devSink: import.meta.env.DEV && (telemetryFlag === 'dev' || !navigator.webdriver) });
+    } catch { recorder = null; }
+  }
   // An anchor link does not reload the page: switching between the run and the sandbox by the anchor boots again.
   window.addEventListener('hashchange', () => { if ((location.hash === '#sandbox') !== sandbox && urlParams.get('sandbox') !== '1') location.reload(); });
 
@@ -200,7 +226,7 @@ async function boot(): Promise<void> {
   const actionBar = el('div', 'rt-actionbar');
   actionBar.setAttribute('data-testid', 'action-bar');
   actionBar.append(abilities, itemBar);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · <kbd>1</kbd>–<kbd>4</kbd> расходник в точку курсора · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза'));
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · <kbd>1</kbd>–<kbd>4</kbd> расходник в точку курсора · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза') + (recorder ? ' · <kbd>N</kbd> отметка' : ''));
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -225,6 +251,15 @@ async function boot(): Promise<void> {
   const questions = el('details', 'rt-questions');
   questions.innerHTML = `<summary>Плейтест: 15–20 минут на трёх аренах — вопросы</summary><ol>${PLAYTEST_QUESTIONS.map(q => `<li>${q}</li>`).join('')}</ol>`;
   menuCard.append(arenaList, el('p', 'rt-menu-note', 'После целей открывается дверь и растёт давление: можно уйти сразу или остаться ради убийств.'), questions);
+  // Telemetry: the «Логи» panel opens from the sandbox menu (never in a fight).
+  const logsPanel = recorder ? new LogsPanel(recorder) : null;
+  if (logsPanel) {
+    const tools = el('div', 'rt-menu-tools');
+    const logsButton = button('rt-logs-open', 'Логи', 'logs-open');
+    logsButton.addEventListener('click', () => logsPanel.show());
+    tools.appendChild(logsButton);
+    menuCard.appendChild(tools);
+  }
   menu.appendChild(menuCard);
 
   // Result: victory or defeat, time, kills, time spent in the greed stage.
@@ -255,8 +290,13 @@ async function boot(): Promise<void> {
   itemHint.hidden = true;
   // Phase B (Д5, design answer 23): the build column on the left (x 8–70 from y ≈ 72), only the items taken.
   const buildColumn = new BuildColumn();
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result);
+  // Telemetry: «отмечено» under the HUD for a second after the N key.
+  const noteFlash = el('div', 'rt-note-flash', 'отмечено');
+  noteFlash.setAttribute('data-testid', 'note-flash');
+  noteFlash.hidden = true;
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, menu);
+  if (logsPanel) host.append(logsPanel.el);
 
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
@@ -286,7 +326,7 @@ async function boot(): Promise<void> {
   };
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout: Loadout = sandboxLoadout()): Simulation => {
     motion.clear();
-    return new Simulation({ arena, params, seed, record: true, beforeTick: world => motion.save(world), ...hero ? { hero } : {}, loadout });
+    return new Simulation({ arena, params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); }, ...hero ? { hero } : {}, loadout });
   };
 
   let arenaIndex = 0;
@@ -297,7 +337,13 @@ async function boot(): Promise<void> {
   let runScreenOpen = !sandbox;
   /** The world of the current fight (read-only here: changes go through `sim.command`). */
   const world = (): World => sim.world;
-  const command = (cmd: Command) => sim.command(cmd);
+  /** Every command goes through here: the telemetry sees the world before it changes and the command after it. */
+  const command = (cmd: Command) => {
+    recorder?.beforeCommand(sim.world);
+    const done = sim.command(cmd);
+    recorder?.afterCommand(cmd, sim.world);
+    return done;
+  };
   renderer.buildArena(world().arena);
   let paused = false;
   let menuOpen = sandbox;
@@ -322,6 +368,7 @@ async function boot(): Promise<void> {
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout);
+    recorder?.beginFight(sim, fightContext());
     SLOT_ITEMS.forEach((kind, i) => { slotBlink[i] = notice?.blink.includes(kind) ? ITEM_BLINK : 0; });
     lastSlotCounts = null;
     arenaItemsUsed = 0;
@@ -345,7 +392,22 @@ async function boot(): Promise<void> {
     arenaIndex = Math.max(0, Math.min(SANDBOX_ARENAS.length - 1, index));
     startArena(SANDBOX_ARENAS[arenaIndex], seed);
   };
-  const restart = (seed?: number): void => { if (sandbox) start(arenaIndex, seed); };
+  const restart = (seed?: number): void => { if (sandbox) { recorder?.leaveFight('restart'); start(arenaIndex, seed); } };
+  /** Telemetry: where the fight starting now is — the open battle node of the run (its row and roster), or the sandbox. */
+  const fightContext = (): FightContext => {
+    const run = runView?.state, pending = run?.pending;
+    if (!run || pending?.kind !== 'battle') return {};
+    const node = rtNode(run, pending.nodeId);
+    return { nodeId: pending.nodeId, ...node ? { row: runRow(node.row) } : {}, ...pending.roster !== undefined ? { roster: pending.roster } : {}, runState: run };
+  };
+  let noteTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The N key on an open arena: a note at this tick (no command to the simulation); «отмечено» flashes at the HUD. */
+  const markNote = (): void => {
+    if (!recorder?.note()) return;
+    noteFlash.hidden = false;
+    if (noteTimer) clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => { noteFlash.hidden = true; noteTimer = null; }, NOTE_FLASH_MS);
+  };
   const showMenu = (): void => {
     menuOpen = true;
     menu.hidden = false;
@@ -399,7 +461,7 @@ async function boot(): Promise<void> {
   const running = (): boolean => !paused && !menuOpen && !runScreenOpen && world().status === 'playing';
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
-  const runView = sandbox ? null : new RunView({
+  const runView: RunView | null = sandbox ? null : new RunView({
     startArena(arenaId, seed, hero, label, loadout, notice, roster) {
       runLabel = label;
       runArenaRecorded = false;
@@ -410,6 +472,11 @@ async function boot(): Promise<void> {
       runScreenOpen = open;
       if (open) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; result.hidden = true; }
     },
+    ...recorder ? {
+      runStep: (before, step) => recorder?.runStep(before, step),
+      runStarted: (previous, run) => recorder?.runStarted(previous, run),
+    } : {},
+    ...logsPanel ? { openLogs: () => logsPanel.show() } : {},
   }, fixedSeed);
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
@@ -524,6 +591,8 @@ async function boot(): Promise<void> {
   window.addEventListener('keydown', event => {
     const target = event.target as HTMLElement | null;
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
+    // The «Логи» panel keeps the keys: Escape closes it, the rest do nothing behind it.
+    if (logsPanel?.open) { if (event.key === 'Escape') logsPanel.close(); return; }
     if (event.code === 'Backquote' || event.key === 'F1') { event.preventDefault(); if (sandbox) panel.toggle(); return; }
     if (typing) return;
     if (WALK_KEYS.has(event.code)) {
@@ -541,6 +610,7 @@ async function boot(): Promise<void> {
       else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
       else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
       else if (event.code === 'KeyP') paused = !paused;
+      else if (event.code === 'KeyN') markNote();
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
       return;
     }
@@ -554,6 +624,7 @@ async function boot(): Promise<void> {
     else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
     else if (event.code === 'KeyR') restart();
     else if (event.code === 'KeyP') paused = !paused;
+    else if (event.code === 'KeyN') markNote();
     else if (event.key === 'Enter' && ended) restart();
   });
 
@@ -609,8 +680,11 @@ async function boot(): Promise<void> {
     // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle). Journalled
     // only when it took a link: an append that found nothing changes nothing.
     if (live && dragging && params.holdPicks && ui.pointer && w.status === 'playing') {
-      const before = w.chain.length, p = ui.pointer;
-      sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'append' }, { onlyIfChanged: () => w.chain.length !== before });
+      const before = w.chain.length, p = ui.pointer, cmd: Command = { t: 'drag', x: p.x, y: p.y, mode: 'append' };
+      recorder?.beforeCommand(w);
+      sim.command(cmd, { onlyIfChanged: () => w.chain.length !== before });
+      // Only a journalled command is shown to the observer (the Node replay sees only those).
+      if (w.chain.length !== before) recorder?.afterCommand(cmd, w);
     }
     // Stage G: the reason at the pointer (not in jump aiming, menus or pause).
     hintReason = params.refusalHint && live && !ui.jumpMode && ui.pointer && pointerClient ? hoverRefusal(w, ui.pointer, dragging) : null;
@@ -640,6 +714,12 @@ async function boot(): Promise<void> {
     if (w.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
     // The hero and enemies are drawn between the last two ticks (the world is put back after drawing).
     motion.drawBetween(w, sim.alpha, () => renderer.render(w, live ? realDt : 0, ui));
+    // Telemetry: the last tick is shown to the observer before its events go; enemies in view weighted by the ticks run.
+    if (recorder?.recording) {
+      let inView = 0;
+      if (ticksPerFrame > 0) for (const e of w.enemies) if (renderer.sees(e)) inView++;
+      recorder.frameEnd(w, ticksPerFrame > 0 ? inView : null, ticksPerFrame);
+    }
     w.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;
@@ -693,7 +773,11 @@ async function boot(): Promise<void> {
     } else chainText.textContent = '';
     infoText.textContent = `${runLabel && !sandbox ? runLabel : w.arena.name} · врагов ${w.enemies.length} · ${w.stage === 'greed' ? `жадность ${formatTime(w.time - (w.greedStart ?? 0))}, фаза ${w.pressure.phaseIndex + 1}` : 'до целей'}`;
     pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen || runScreenOpen;
-    if (w.status !== 'playing' && !runScreenOpen) recordRunArena();
+    if (w.status !== 'playing' && !runScreenOpen) {
+      // Telemetry: the fight record in the frame the fight ended — the journal and the hash of the same tick.
+      if (recorder?.recording) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
+      recordRunArena();
+    }
     if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
@@ -718,6 +802,34 @@ async function boot(): Promise<void> {
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+
+  // Telemetry: a reload or a closed tab in the middle of a fight keeps its journal (`unload`, packed on the next load).
+  window.addEventListener('pagehide', () => recorder?.pageHide());
+
+  /**
+   * Telemetry (ТB's screenshot at a note): replay `journal` up to `tick` and show that world, paused. Events of every tick
+   * but the last are dropped (the effects of that tick are drawn); the current fight is left (`menu`) and the replayed
+   * world is not recorded.
+   */
+  const replayTo: ReplayTo = async (journal: Journal, tick: number) => {
+    const t = Math.max(0, Math.min(journal.ticks, Math.floor(tick)));
+    const cut: Journal = { ...journal, ticks: t, commands: journal.commands.filter(c => c.tick <= t) };
+    const replayed = replay(cut, s => { if (s.world.tick < t) s.world.events.length = 0; });
+    recorder?.leaveFight('menu');
+    recorder?.detach();
+    motion.clear();
+    renderer.resetEffects();
+    sim = replayed;
+    renderer.buildArena(world().arena);
+    paused = true;
+    menuOpen = false; menu.hidden = true;
+    result.hidden = true; delete result.dataset.outcome;
+    if (runView) { runView.el.hidden = true; runScreenOpen = false; }
+    dragging = false; ui.jumpMode = false;
+    relayout();
+    renderer.snapCamera(world().hero);
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  };
 
   // `?arena=N` (1–18) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
@@ -817,8 +929,28 @@ async function boot(): Promise<void> {
         /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */
         palette: { chain: [...CHAIN_COLORS], target: TARGET, playerFx: PLAYER_FX },
         kit: w.kit ? { talismans: [...w.kit.talismans], hammer: w.kit.hammer ?? null, counters: { ...w.kit.counters ?? {} } } : null,
+        /** Telemetry (track ТA): the browser buffer — records, characters, not delivered, notes, a record kept in memory only. Null — off. */
+        telemetry: recorder ? (({ records, chars, undelivered, notes, bufferFull }) => ({ records, chars, undelivered, notes, bufferFull }))(recorder.stats()) : null,
+        noteFlash: !noteFlash.hidden,
+        logsOpen: !!logsPanel?.open,
       };
     },
+    /** Telemetry: replay a journal up to a tick and show it paused (`ReplayTo`). */
+    replayTo,
+    /**
+     * Telemetry test hooks (null when off): wait for the writes, read the buffer, put a record, the cost of the tap (ms
+     * over ticks), the session, the buffer's limit, the export file.
+     */
+    telemetry: recorder ? {
+      settle: () => recorder!.settle(),
+      records: async () => { await recorder!.settle(); return recorder!.buffer.all(); },
+      put: (record: RtRecord) => recorder!.buffer.put(record),
+      cost: () => ({ ms: recorder!.costMs, ticks: recorder!.costTicks }),
+      resetCost: () => { recorder!.costMs = 0; recorder!.costTicks = 0; },
+      session: recorder.session,
+      limit: () => recorder!.buffer.limit,
+      exportFile: () => recorder!.exportFile(),
+    } : null,
     /**
      * Phase B (Д5, sandbox test hook): the next arenas start with these talismans (relics too) and this hammer instead of the
      * panel's build (null — back to the panel); `testModule` registers the view's test counter (buildTestModule.ts) and adds

@@ -38,6 +38,15 @@ export interface RunHost {
   startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice, roster?: string): void;
   /** The run screen covers the arena (true) or the arena is on screen (false). */
   onScreenChange(open: boolean): void;
+  /**
+   * Telemetry (docs/realtime-telemetry.md, track ТA): every step of the run that went through, with the state before it
+   * (choices, nodes, the end); called before an arena it readies starts.
+   */
+  runStep?(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>): void;
+  /** Telemetry: a new run starts; `previous` without a result is abandoned. */
+  runStarted?(previous: RtRunState | null, run: RtRunState): void;
+  /** Telemetry: the «Логи» panel (absent — no button). */
+  openLogs?(): void;
 }
 
 /**
@@ -137,8 +146,10 @@ export class RunView {
   newRun(seed?: number): RtRunState {
     const seeded = seed !== undefined || this.fixedSeed !== null;
     const value = (seed ?? this.fixedSeed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
+    const previous = this.run;
     this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded });
     this.store.save(this.run);
+    this.host.runStarted?.(previous, this.run);
     this.selected = null; this.notice = ''; this.confirmReset = false;
     this.open();
     return this.run;
@@ -152,6 +163,7 @@ export class RunView {
     this.store.save(this.run);
     this.notice = this.describe(step.events);
     if (this.run.result && !before?.result) this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded });
+    this.host.runStep?.(before, step);
     if (step.events.some(event => event.type === 'battle-ready')) this.enterArena();
     else this.draw();
     return '';
@@ -212,6 +224,7 @@ export class RunView {
       this.newRun(); return;
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
+    if (action === 'logs') { this.host.openLogs?.(); return; }
     if (!run) return;
     if (action === 'enter' && this.selected) { this.enter(this.selected); return; }
     if (action === 'battle') { this.enterArena(); return; }
@@ -259,8 +272,13 @@ export class RunView {
     return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
-      + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
+      + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}${this.logsButton()}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '');
+  }
+
+  /** Telemetry: the «Логи» button (the map's header, the end of the run); none without the panel. */
+  private logsButton(testId = 'logs-open'): string {
+    return this.host.openLogs ? `<button class="rt-logs-open" data-action="logs" data-testid="${testId}">Логи</button>` : '';
   }
 
   private mapHtml(run: RtRunState): string {
@@ -299,7 +317,7 @@ export class RunView {
       const won = run.result.outcome === 'victory', kills = run.battles.reduce((sum, b) => sum + b.kills, 0), damage = run.battles.reduce((sum, b) => sum + b.damage, 0);
       return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2><dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd><dt>Ряд похода</dt><dd>${runRow(rtNode(run, run.result.nodeId)!.row)}</dd></dl>`
-        + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>`, `run-result-${run.result.outcome}`);
+        + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }
     const pending = run.pending;
     if (!pending) return '';
