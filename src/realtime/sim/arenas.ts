@@ -238,14 +238,14 @@ export const SHIELD_ARENA: ArenaTemplate = registerArena({
 /**
  * Arena 5 «Стрелковая гряда» (run rows 4–7): kill the three marked archers; 15% of newcomers are archers. Stage 3a,
  * step 2 (М5 «Теснина»): two ridges of walls cross the arena from edge to edge, each with two gaps of 2 units (the left
- * one at y 2–4 and 6–8, the right one at y 3–5 and 8–10, offset so a line through both rarely opens). A wall cuts the
- * archer's line: the ridges are cover, the gaps are the way to the marked. The hero starts on the left, the door is on
- * the right.
+ * one at y 2–4 and 6–8, the right one at y 3–5 and 8–10, offset so a line of sight through both rarely opens). Since
+ * phase A (Т6) the archer shoots at a point: a wall blocks its aim (no sight — no mark), not the arrow; the ridges are
+ * cover from the aim, the gaps are the way to the marked. The hero starts on the left, the door is on the right.
  */
 export const ARCHER_ARENA: ArenaTemplate = registerArena({
   id: 'archers',
   name: 'Стрелковая гряда',
-  summary: 'Убей трёх отмеченных лучников — они держат дистанцию и стреляют по линии. Гряды стен режут линию, проходы ведут к ним. Дверь справа.',
+  summary: 'Убей трёх отмеченных лучников. Они держат дистанцию и стреляют в точку: сойди с круга за 1 с. Стена закрывает прицел, но не стрелу. Дверь справа.',
   goal: 'marked',
   width: 16,
   height: 10,
