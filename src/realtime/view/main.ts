@@ -807,14 +807,19 @@ async function boot(): Promise<void> {
 
   // Telemetry: a reload or a closed tab in the middle of a fight keeps its journal (`unload`, packed on the next load).
   window.addEventListener('pagehide', () => recorder?.pageHide());
+  // A page restored from the back-forward cache goes on recording the fight `pagehide` cut (review 10.10.2026).
+  window.addEventListener('pageshow', event => recorder?.pageShow(event.persisted));
 
   /**
    * Telemetry (ТB's screenshot at a note): replay `journal` for `tick` ticks (the commands stamped before it — the world of
    * the report's `--at`) and show that world, paused. Events of every tick
    * but the last are dropped (the effects of that tick are drawn); the current fight is left (`menu`) and the replayed
-   * world is not recorded.
+   * world is not recorded (the recorder lets the fight go until the next arena starts).
+   * Sandbox only (review 10.10.2026): in a run the replayed world would end as the run's arena and its result would go
+   * into the run — there the hook rejects and changes nothing.
    */
   const replayTo: ReplayTo = async (journal: Journal, tick: number) => {
+    if (!sandbox) throw new Error('replayTo: только в песочнице (realtime.html?sandbox=1 или #sandbox); в походе бой не подменяется');
     const t = Math.max(0, Math.min(journal.ticks, Math.floor(tick)));
     const cut: Journal = { ...journal, ticks: t, commands: journal.commands.filter(c => c.tick < t) };
     const replayed = replay(cut, s => { if (s.world.tick < t) s.world.events.length = 0; });
@@ -950,7 +955,7 @@ async function boot(): Promise<void> {
       put: (record: RtRecord) => recorder!.buffer.put(record),
       cost: () => ({ ms: recorder!.costMs, ticks: recorder!.costTicks }),
       resetCost: () => { recorder!.costMs = 0; recorder!.costTicks = 0; },
-      session: recorder.session,
+      get session() { return recorder!.session; },
       limit: () => recorder!.buffer.limit,
       exportFile: () => recorder!.exportFile(),
     } : null,

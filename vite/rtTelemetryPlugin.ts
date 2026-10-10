@@ -8,8 +8,9 @@ import type { Plugin } from 'vite';
 
 export const RT_TELEMETRY_PATH = '/__rt-telemetry';
 export const RT_TELEMETRY_MAX_BODY = 512 * 1024;
-// Own copy of the id rule (the plugin does not import src/): `RECORD_ID_RE` of src/realtime/telemetry/schema.ts —
-// `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>`, `S/R/<fight>/n<tick>`; the plugin's check compares the two.
+// Own copy of the id rule (the plugin does not import src/): `RECORD_ID_RE` and `isRecordId` of
+// src/realtime/telemetry/schema.ts — `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>` (i < n), `S/R/<fight>/n<tick>`;
+// the plugin's check compares the two on a set of ids.
 export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
 
 export interface RtTelemetryOptions {
@@ -19,12 +20,8 @@ export interface RtTelemetryOptions {
   lan?: boolean;
 }
 
-/** Loopback always; private networks 10/8, 172.16/12, 192.168/16 only with `lan`. */
-export function allowedAddress(addr: string | undefined, lan: boolean): boolean {
-  if (!addr) return false;
-  const a = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
-  if (a === '::1' || a === '127.0.0.1') return true;
-  if (!lan) return false;
+/** A private IPv4 literal: 10/8, 172.16/12, 192.168/16. */
+function privateIpv4(a: string): boolean {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(a);
   if (!m) return false;
   const o = m.slice(1).map(Number);
@@ -32,10 +29,48 @@ export function allowedAddress(addr: string | undefined, lan: boolean): boolean 
   return o[0] === 10 || (o[0] === 172 && o[1] >= 16 && o[1] <= 31) || (o[0] === 192 && o[1] === 168);
 }
 
-/** Splits and checks a record id; returns the segments or null. */
+/** Loopback always; private networks 10/8, 172.16/12, 192.168/16 only with `lan`. */
+export function allowedAddress(addr: string | undefined, lan: boolean): boolean {
+  if (!addr) return false;
+  const a = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+  if (a === '::1' || a === '127.0.0.1') return true;
+  return lan && privateIpv4(a);
+}
+
+/**
+ * The `Host` header against DNS rebinding (review 10.10.2026: the receiver runs before Vite's own host check). Allowed:
+ * `localhost`, `127.0.0.1`, `[::1]` with or without a port; with `lan` — a private IPv4 literal too; and the names of
+ * Vite's `server.allowedHosts` when set (`.example.com` — the domain and its subdomains; `true` — any host, as Vite).
+ */
+export function allowedHost(host: string | undefined, lan: boolean, allowedHosts?: readonly string[] | true): boolean {
+  if (!host) return false;
+  const h = host.trim().toLowerCase();
+  let name: string;
+  if (h.startsWith('[')) {
+    const end = h.indexOf(']');
+    if (end < 0 || !/^(?::\d{1,5})?$/.test(h.slice(end + 1))) return false;
+    name = h.slice(0, end + 1);
+  } else {
+    const m = /^([^:[\]\s]+)(?::\d{1,5})?$/.exec(h);
+    if (!m) return false;
+    name = m[1];
+  }
+  if (name === 'localhost' || name === '127.0.0.1' || name === '[::1]') return true;
+  if (lan && privateIpv4(name)) return true;
+  if (allowedHosts === true) return true;
+  return (allowedHosts ?? []).some((a) => {
+    const x = a.toLowerCase();
+    return x.startsWith('.') ? name === x.slice(1) || name.endsWith(x) : name === x;
+  });
+}
+
+/** Splits and checks a record id (the rule of `isRecordId`: the pattern, a journal part index below the count). */
 export function parseRecordId(id: unknown): string[] | null {
-  if (typeof id !== 'string') return null;
-  return RECORD_ID_RE.test(id) ? id.split('/') : null;
+  if (typeof id !== 'string' || !RECORD_ID_RE.test(id)) return null;
+  const parts = id.split('/');
+  const part = /^j(\d+)of(\d+)$/.exec(parts[3] ?? '');
+  if (part && Number(part[1]) >= Number(part[2])) return null;
+  return parts;
 }
 
 /** Target file of a record id inside `base`, or null when it would leave `base`. */
@@ -92,7 +127,7 @@ export function rtTelemetryPlugin(options: RtTelemetryOptions = {}): Plugin {
           next();
           return;
         }
-        handle(req, res, base, lan).catch((e: unknown) => {
+        handle(req, res, base, lan, server.config.server.allowedHosts).catch((e: unknown) => {
           console.warn(`[rt-telemetry] 500 ${e instanceof Error ? e.message : String(e)}`);
           if (!res.headersSent) reply(res, 500, JSON.stringify({ ok: false, error: 'write failed' }));
           else res.end();
@@ -102,8 +137,9 @@ export function rtTelemetryPlugin(options: RtTelemetryOptions = {}): Plugin {
   };
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse, base: string, lan: boolean): Promise<void> {
+async function handle(req: IncomingMessage, res: ServerResponse, base: string, lan: boolean, allowedHosts?: readonly string[] | true): Promise<void> {
   if (!allowedAddress(req.socket.remoteAddress, lan)) return refuse(req, res, 403, 'address not allowed');
+  if (!allowedHost(req.headers.host, lan, allowedHosts)) return refuse(req, res, 403, 'host not allowed');
   if (req.method === 'GET') return reply(res, 200, JSON.stringify({ ok: true, lan }));
   if (req.method !== 'POST') return refuse(req, res, 400, 'method');
   const origin = req.headers.origin;

@@ -22,7 +22,7 @@ import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
 import { rtEventView, rtGiftView, rtNode, rtRestView, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../../game/run/runGift';
-import { TelemetryBuffer, TLM_PREFIX, type BufferOptions, type BufferStats } from './buffer';
+import { TelemetryBuffer, telemetryKeys, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type BufferOptions, type BufferStats, type KeyValueStore } from './buffer';
 import { EventCursor } from './observe';
 import { artifactSource, DeliveryQueue, type SinkSource } from './sinks';
 import {
@@ -32,12 +32,16 @@ import {
   type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
 } from './schema';
 
-export const TLM_SESSION_KEY = `${TLM_PREFIX}session`;
-export const TLM_TESTER_KEY = `${TLM_PREFIX}tester`;
-/** The run's telemetry state (run key, nodes, choices, fights) — its own key: `RtRunState` and its save stay as they are. */
-export const TLM_RUN_META_KEY = `${TLM_PREFIX}run-meta`;
-/** A fight cut by `pagehide`: its compact journal and record, packed into the buffer on the next load. */
+export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
+/**
+ * A fight cut by `pagehide`: its compact journal and record, packed into the buffer on the next load. One key per fight
+ * (`unload:<session>/<run>/<fight>`): a page restored from the back-forward cache removes only its own stash. The bare
+ * key is the stash of pages before review 10.10.2026 (still packed).
+ */
 export const TLM_UNLOAD_KEY = `${TLM_PREFIX}unload`;
+export const unloadKey = (session: string, run: string, fight: string): string => `${TLM_UNLOAD_KEY}:${session}/${run}/${fight}`;
+/** The channel the tabs of one browser ask on «who else has session X» (a duplicated tab copies `sessionStorage`). */
+export const TLM_CHANNEL = 'ashen-oath-rt-tlm-v1';
 /** Sandbox fight numbering, per browser session (ids never repeat after a reload). */
 export const TLM_SANDBOX_COUNT_KEY = `${TLM_PREFIX}sandbox-fights`;
 /** The longest stash `pagehide` writes (characters of the compact journal). */
@@ -105,19 +109,35 @@ function storageOf(kind: 'localStorage' | 'sessionStorage'): Storage | null {
   try { return typeof window === 'undefined' ? null : window[kind]; } catch { return null; }
 }
 
-/** The browser session id: `crypto.randomUUID()` kept in `sessionStorage`; without it — `sessionKey(time, random)`. */
-export function browserSession(store: Storage | null = storageOf('sessionStorage')): string {
-  const saved = safe<string | null>(null, () => store?.getItem(TLM_SESSION_KEY) ?? null);
-  if (saved && isIdSegment(saved)) return saved;
-  let id: string;
-  try { id = crypto.randomUUID(); } catch {
+/** The `sessionStorage` methods the session id needs (a fake in tests). */
+export type SessionStore = Pick<KeyValueStore, 'getItem' | 'setItem'>;
+
+/** A new session id: `crypto.randomUUID()`; without it — `sessionKey(time, random)`. */
+function newSessionId(): string {
+  try { return crypto.randomUUID(); } catch {
     let salt: number;
     try { const a = new Uint32Array(1); crypto.getRandomValues(a); salt = a[0]; } catch { salt = Math.floor(Math.random() * 0x100000000); }
-    id = sessionKey(Date.now(), salt);
+    return sessionKey(Date.now(), salt);
   }
+}
+
+/** The browser session id kept in `sessionStorage` (`fresh` — a new one replaces it: a duplicated tab). */
+export function browserSession(store: SessionStore | null = storageOf('sessionStorage'), fresh = false): string {
+  const saved = fresh ? null : safe<string | null>(null, () => store?.getItem(TLM_SESSION_KEY) ?? null);
+  if (saved && isIdSegment(saved)) return saved;
+  const id = newSessionId();
   safe(undefined, () => store?.setItem(TLM_SESSION_KEY, id));
   return id;
 }
+
+/** The part of `BroadcastChannel` the session check uses (a fake in tests). */
+export interface TabChannel {
+  postMessage(message: unknown): void;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  close(): void;
+}
+const browserChannel = (): TabChannel | null =>
+  typeof window !== 'undefined' && typeof BroadcastChannel === 'function' ? new BroadcastChannel(TLM_CHANNEL) as unknown as TabChannel : null;
 
 export const buildId = (): string => (typeof __RT_BUILD__ !== 'undefined' ? __RT_BUILD__ : 'unknown');
 
@@ -238,6 +258,8 @@ interface OpenFight {
   ctx: FightContext;
   hpIn: number;
   done: boolean;
+  /** `pagehide` cut the fight (its stash key): a page restored from the back-forward cache records it on. */
+  hidden?: string;
 }
 
 /** The fight record without the header and journal meta (the stash of `pagehide` keeps this). */
@@ -259,6 +281,11 @@ export interface RecorderOptions {
   buffer?: BufferOptions;
   /** Polls for `window.__rtTelemetrySink` appearing (ms; 0 — no polling). */
   sinkPollMs?: number;
+  /** `localStorage` (the stash, the tester, the run state) and `sessionStorage` (the session id); fakes in Node tests. */
+  local?: KeyValueStore | null;
+  sessionStore?: SessionStore | null;
+  /** Opens the channel of the tabs: absent — `BroadcastChannel` when the browser has it; null — no check. */
+  channel?: (() => TabChannel | null) | null;
 }
 
 export interface TelemetryStats extends BufferStats { session: string }
@@ -266,10 +293,15 @@ export interface TelemetryStats extends BufferStats { session: string }
 export class RtRecorder {
   readonly buffer: TelemetryBuffer;
   readonly queue: DeliveryQueue;
-  readonly session: string;
+  private sessionId: string;
   readonly build = buildId();
   private readonly observer: FightObserverFactory;
-  private readonly local = storageOf('localStorage');
+  private readonly local: KeyValueStore | null;
+  private readonly sessionStore: SessionStore | null;
+  /** This page among the tabs (not stored: a duplicated tab gets its own). */
+  private readonly tab = Math.random().toString(36).slice(2);
+  private channel: TabChannel | null = null;
+  private poll: ReturnType<typeof setInterval> | null = null;
   private fight: OpenFight | null = null;
   private meta: RunMeta | null = null;
   /** The last sandbox arena and how many times in a row it started (its fight key's attempt). */
@@ -281,7 +313,10 @@ export class RtRecorder {
   costTicks = 0;
 
   constructor(private readonly options: RecorderOptions) {
-    this.session = browserSession();
+    this.local = options.local !== undefined ? options.local : storageOf('localStorage');
+    this.sessionStore = options.sessionStore !== undefined ? options.sessionStore : storageOf('sessionStorage');
+    this.sessionId = browserSession(this.sessionStore);
+    this.openChannel();
     this.observer = options.observer ?? nullObserver;
     this.buffer = new TelemetryBuffer(options.buffer);
     const win = options.win ?? (typeof window !== 'undefined' ? window as RtTelemetryWindow : {});
@@ -293,8 +328,46 @@ export class RtRecorder {
     const poll = options.sinkPollMs ?? 2000;
     if (poll > 0 && typeof setInterval === 'function') {
       let had = sources[0].present();
-      setInterval(() => { const has = sources[0].present(); if (has && !had) void this.queue.kick(); had = has; }, poll);
+      this.poll = setInterval(() => { const has = sources[0].present(); if (has && !had) void this.queue.kick(); had = has; }, poll);
     }
+  }
+
+  /** The browser session of the records written from now on (a duplicated tab gets a new one, see `openChannel`). */
+  get session(): string { return this.sessionId; }
+
+  /**
+   * A duplicated tab copies `sessionStorage`, its session id too. On load (and on a return from the back-forward cache)
+   * the page asks the other tabs on `TLM_CHANNEL` «who has session X»; a tab with X answers, and the asking page takes a
+   * new session. Without `BroadcastChannel` the session stays as it is.
+   */
+  private openChannel(): void {
+    const make = this.options.channel === undefined ? browserChannel : this.options.channel;
+    if (!make || this.channel) return;
+    const channel = safe<TabChannel | null>(null, make);
+    if (!channel) return;
+    this.channel = channel;
+    channel.onmessage = event => safe(undefined, () => this.onChannel(event.data));
+    safe(undefined, () => channel.postMessage({ t: 'who', session: this.sessionId, tab: this.tab }));
+  }
+
+  private onChannel(data: unknown): void {
+    if (!data || typeof data !== 'object') return;
+    const m = data as { t?: unknown; session?: unknown; tab?: unknown; to?: unknown };
+    if (m.session !== this.sessionId || m.tab === this.tab) return;
+    if (m.t === 'who') this.channel?.postMessage({ t: 'mine', session: this.sessionId, tab: this.tab, to: m.tab });
+    else if (m.t === 'mine' && m.to === this.tab) this.sessionId = browserSession(this.sessionStore, true);
+  }
+
+  private closeChannel(): void {
+    const channel = this.channel;
+    this.channel = null;
+    if (channel) safe(undefined, () => { channel.onmessage = null; channel.close(); });
+  }
+
+  /** Stops the sink polling and closes the tab channel (Node tests; the page keeps them for its life). */
+  dispose(): void {
+    this.closeChannel();
+    if (this.poll !== null) { clearInterval(this.poll); this.poll = null; }
   }
 
   private track(p: Promise<unknown>): void { this.writes = Promise.all([this.writes, p.catch(() => undefined)]); }
@@ -330,7 +403,7 @@ export class RtRecorder {
       let key: string, run: string;
       if (this.options.sandbox || ctx.nodeId === undefined) {
         run = SANDBOX_RUN;
-        const store = storageOf('sessionStorage');
+        const store = this.sessionStore;
         const n = safe(0, () => Number(store?.getItem(TLM_SANDBOX_COUNT_KEY) ?? 0)) + 1;
         safe(undefined, () => store?.setItem(TLM_SANDBOX_COUNT_KEY, String(n)));
         this.sandboxLast = this.sandboxLast?.arena === arena ? { arena, attempt: this.sandboxLast.attempt + 1 } : { arena, attempt: 1 };
@@ -426,32 +499,60 @@ export class RtRecorder {
     await this.put(records);
   }
 
-  /** `pagehide`: the fight on screen goes into a stash (synchronously); the next load packs it into the buffer. */
+  /**
+   * `pagehide`: the fight on screen goes into a stash under its own key (synchronously); the next load packs it into
+   * the buffer. The page may come back from the back-forward cache instead (`pageShow`).
+   */
   pageHide(): void {
     safe(undefined, () => {
+      // A page in the back-forward cache does not answer the other tabs; restored, it asks again.
+      this.closeChannel();
       const f = this.fight;
       if (!f || f.done || f.sim.world.tick === 0) return;
       const ref = f.run === SANDBOX_RUN ? undefined : paramsHash(this.options.params);
       const got = this.capture('unload');
       if (!got) return;
+      const key = unloadKey(this.session, f.run, f.key);
+      f.hidden = key;
       const compact = encodeJournal(got.journal, ref);
       if (compact.length > UNLOAD_MAX_CHARS) return;
       const tester = this.tester;
       const stash: UnloadStash = { session: this.session, run: f.run, paramsHash: paramsHash(got.journal.params), ...tester ? { tester } : {}, body: got.body, compact };
-      this.local?.setItem(TLM_UNLOAD_KEY, JSON.stringify(stash));
+      this.local?.setItem(key, JSON.stringify(stash));
     });
   }
 
+  /**
+   * `pageshow`: a page restored from the back-forward cache (`persisted`) goes on recording the fight `pagehide` cut —
+   * its stash is removed and its result is written as usual when it ends.
+   */
+  pageShow(persisted: boolean): void {
+    safe(undefined, () => {
+      if (!persisted) return;
+      this.openChannel();
+      const f = this.fight;
+      if (!f || !f.hidden) return;
+      const key = f.hidden;
+      safe(undefined, () => this.local?.removeItem(key));
+      f.hidden = undefined;
+      f.done = false;
+    });
+  }
+
+  /** Packs every stash `pagehide` left (this page's earlier load, other tabs, the bare key of older pages). */
   private async recoverUnload(): Promise<void> {
-    const text = safe<string | null>(null, () => this.local?.getItem(TLM_UNLOAD_KEY) ?? null);
-    if (!text) return;
-    safe(undefined, () => this.local?.removeItem(TLM_UNLOAD_KEY));
-    try {
-      const stash = JSON.parse(text) as UnloadStash;
-      const packedText = await gzipBase64(stash.compact);
-      const parts = splitParts(packedText);
-      await this.putFight(stash.run, stash.body, parts, { parts: parts.length, chars: packedText.length, digest: hashText(packedText), encoding: 'compact+gzip+b64' }, stash.paramsHash, { session: stash.session, ...stash.tester ? { tester: stash.tester } : {} });
-    } catch { /* a broken stash is dropped */ }
+    const keys = telemetryKeys(this.local).filter(k => k === TLM_UNLOAD_KEY || k.startsWith(`${TLM_UNLOAD_KEY}:`));
+    for (const key of keys) {
+      const text = safe<string | null>(null, () => this.local?.getItem(key) ?? null);
+      if (!text) continue;
+      safe(undefined, () => this.local?.removeItem(key));
+      try {
+        const stash = JSON.parse(text) as UnloadStash;
+        const packedText = await gzipBase64(stash.compact);
+        const parts = splitParts(packedText);
+        await this.putFight(stash.run, stash.body, parts, { parts: parts.length, chars: packedText.length, digest: hashText(packedText), encoding: 'compact+gzip+b64' }, stash.paramsHash, { session: stash.session, ...stash.tester ? { tester: stash.tester } : {} });
+      } catch { /* a broken stash is dropped */ }
+    }
   }
 
   /** The N key: a note at this tick of the fight on screen. False — no fight to note. */

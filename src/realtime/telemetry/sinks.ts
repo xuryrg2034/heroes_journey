@@ -5,7 +5,8 @@
  * - The dev-server sink — POST `/__rt-telemetry` (track ТC); only under `import.meta.env.DEV` and only when GET answered
  *   `{ok: true}` (asked once per page).
  * - The queue sends one record at a time, oldest first, to every sink present; a sink that took a record marks it in the
- *   buffer. A failed write keeps the record and retries that sink after 1 s, doubling up to 30 s. It runs on page load,
+ *   buffer. A failed write keeps the record and retries that sink after 1 s, doubling up to 30 s over failures in a row
+ *   (a write that went through resets the pause to 1 s). It runs on page load,
  *   after every write and when a sink appears. A sink's error never reaches the game.
  */
 import type { TelemetryBuffer } from './buffer';
@@ -108,7 +109,9 @@ export class DeliveryQueue {
           await withTimeout(sink.write(record), WRITE_TIMEOUT_MS);
         } catch {
           this.failed++;
-          const delay = Math.min(RETRY_MAX_MS, wait ? wait.delay * 2 : RETRY_FIRST_MS);
+          // The pause doubles only over failures in a row: a write that went through since resets it to 1 s.
+          const last = this.retry.get(source.name);
+          const delay = Math.min(RETRY_MAX_MS, last ? last.delay * 2 : RETRY_FIRST_MS);
           this.retry.set(source.name, { at: this.timers.now() + delay, delay });
           this.schedule(delay);
           break;

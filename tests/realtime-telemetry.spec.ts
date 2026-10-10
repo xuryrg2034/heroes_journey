@@ -335,6 +335,51 @@ test('replayTo puts the world at the tick of a recorded journal, paused', async 
   // Paused: the world stays at that tick.
   await page.waitForTimeout(300);
   expect((await snap(page)).tick).toBe(at);
+  // The replayed world is not recorded as a new fight, also when it runs on (the fight left is `menu`).
+  await page.keyboard.press('KeyP');
+  await expect.poll(async () => (await snap(page)).tick).toBeGreaterThan(at + 10);
+  const fights = (await records(page)).filter((r): r is FightRecord => r.kind === 'fight');
+  expect(fights.map(f => f.outcome)).toEqual(['menu']);
+  expect(errors).toEqual([]);
+});
+
+test('replayTo in a run is refused and changes nothing: the run save, the run state and the records stay; the fight goes on', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/realtime.html');
+  await page.evaluate(async () => {
+    localStorage.clear(); sessionStorage.clear();
+    await new Promise<void>(resolve => { const r = indexedDB.deleteDatabase('ashen-oath-rt-tlm-v1'); r.onsuccess = r.onerror = r.onblocked = () => resolve(); });
+  });
+  await page.reload();
+  await expect(page.getByTestId('run')).toBeVisible();
+  await page.getByTestId('run-new').click();
+  await page.getByTestId('gift-1').click();
+  await page.locator('[data-status="available"]').first().click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  await expect.poll(async () => (await snap(page)).time).toBeGreaterThan(0.5);
+  // A journal of this very fight: it would end as the run's arena if the hook took it.
+  const journal = await page.evaluate(() => (window as any).__realtime.journal()) as Journal;
+  const state = () => page.evaluate(async () => {
+    const rt = (window as any).__realtime;
+    const all = await rt.telemetry.records() as { id: string; outcome?: string }[];
+    return { save: localStorage.getItem('ashen-oath-rt-run-v6'), run: JSON.stringify(rt.run.state()), arenaOpen: rt.run.arenaOpen() as boolean, records: all.map(r => `${r.id}:${r.outcome ?? ''}`).sort() };
+  });
+  const before = await state();
+  expect(before.save).toBeTruthy();
+  expect(before.arenaOpen).toBe(true);
+  const tick = (await snap(page)).tick;
+  const refused = await page.evaluate(async j => {
+    try { await (window as any).__realtime.replayTo(j, j.ticks); return null; } catch (e) { return (e as Error).message; }
+  }, journal);
+  expect(refused).toMatch(/только в песочнице/);
+  expect(await state()).toEqual(before);
+  const s = await snap(page);
+  expect(s.paused).toBe(false);
+  await expect.poll(async () => (await snap(page)).tick).toBeGreaterThan(Math.max(tick, s.tick) + 10);
   expect(errors).toEqual([]);
 });
 

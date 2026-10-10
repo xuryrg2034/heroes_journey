@@ -1,7 +1,8 @@
 /**
  * Dev-server telemetry receiver (docs/realtime-telemetry.md, section 8, ТC): `npm run test:realtime-telemetry-plugin`.
  * A real Vite dev server runs in a temp folder; the checks send records over HTTP and look at the files that appear
- * (or do not): good record, overwrite, bad ids, wrong type, big body, foreign Origin. Address rules are a pure function.
+ * (or do not): good record, overwrite, bad ids, wrong type, big body, foreign Origin, foreign Host (DNS rebinding, review
+ * 10.10.2026). Address and Host rules are pure functions; the plugin's id check answers as `isRecordId` of the schema.
  */
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
@@ -9,8 +10,8 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'vite';
-import { allowedAddress, RECORD_ID_RE as PLUGIN_ID_RE, recordFile, rtTelemetryPlugin } from '../vite/rtTelemetryPlugin';
-import { RECORD_ID_RE } from '../src/realtime/telemetry/schema';
+import { allowedAddress, allowedHost, parseRecordId, RECORD_ID_RE as PLUGIN_ID_RE, recordFile, rtTelemetryPlugin } from '../vite/rtTelemetryPlugin';
+import { isRecordId, RECORD_ID_RE } from '../src/realtime/telemetry/schema';
 
 let checks = 0;
 function assert(condition: unknown, message: string): asserts condition {
@@ -33,6 +34,23 @@ for (const a of ['8.8.8.8', '172.15.0.1', '172.32.0.1', '192.169.0.1', '11.0.0.1
   assert(!allowedAddress(a, true), `${a} refused even with lan`);
 }
 assert(!allowedAddress(undefined, true), 'no address is refused');
+// The plugin's id check answers as the schema's `isRecordId` (a journal part index below the count, too).
+for (const id of ['s/r/run', 's/r/f01-x-a1/fight', 's/r/f01-x-a1/j0of1', 's/r/f01-x-a1/j4of5', 's/r/f01-x-a1/j5of1', 's/r/f01-x-a1/j1of1',
+  's/r/f01-x-a1/j5of5', 's/r/f01-x-a1/j0of0', 's/r/f01-x-a1/j01of2', 's/r/f01-x-a1/n0', 's/r/f01-x-a1/n12', 's/r/f01-x-a1/n01', 's/r', 's/r/a/b/c', '../r/run', '', 7, null]) {
+  assert((parseRecordId(id) !== null) === isRecordId(id), `id ${JSON.stringify(id)}: plugin ${parseRecordId(id) !== null}, schema ${isRecordId(id)}`);
+}
+// Host (DNS rebinding): loopback names with or without a port; a private IPv4 literal only with lan; Vite's allowedHosts.
+for (const h of ['localhost', 'localhost:5173', '127.0.0.1', '127.0.0.1:4641', '[::1]', '[::1]:5173', 'LOCALHOST:80']) {
+  assert(allowedHost(h, false), `Host ${h} is allowed`);
+}
+for (const h of ['evil.example', 'evil.example:5173', 'localhost.evil.example', '127.0.0.1.evil.example', '[::2]:5173', '[::1]x', 'localhost:', 'localhost:5173:1', '', undefined]) {
+  assert(!allowedHost(h, true), `Host ${String(h)} is refused`);
+}
+assert(!allowedHost('192.168.1.20:5173', false) && allowedHost('192.168.1.20:5173', true), 'a private IPv4 Host only with lan');
+assert(!allowedHost('8.8.8.8', true) && !allowedHost('172.32.0.1', true), 'a public IPv4 Host is refused even with lan');
+assert(allowedHost('dev.example.test:5173', false, ['dev.example.test']) && !allowedHost('x.dev.example.test', false, ['dev.example.test']), 'allowedHosts: an exact name');
+assert(allowedHost('a.example.test', false, ['.example.test']) && allowedHost('example.test', false, ['.example.test']) && !allowedHost('badexample.test', false, ['.example.test']), 'allowedHosts: a leading dot takes subdomains');
+assert(allowedHost('anything.example', false, true), 'allowedHosts: true takes any host (as Vite)');
 assert(recordFile('/x/logs', ['s', 'r', 'run']) === '/x/logs/s/r/run.json', 'file of a 3-segment id');
 assert(recordFile('/x/logs', ['s', 'r', 'f03', 'fight']) === '/x/logs/s/r/f03-fight.json', 'file of a 4-segment id');
 assert(recordFile('/x/logs', ['..', 'r', 'run']) === null, 'a ".." segment leaves the base');
@@ -114,11 +132,41 @@ try {
   assert((await post(port, { id: 's4/r1/run', kind: 'run' }, { Origin: 'null' })).status === 403, 'Origin "null" is 403');
   assert(!existsSync(join(logDir, 's4')), 'a refused Origin leaves no file');
 
+  // Host (DNS rebinding): evil.example resolves to 127.0.0.1; its page posts with its own Host and Origin.
+  const evil = { Host: `evil.example:${port}`, Origin: `http://evil.example:${port}` };
+  assert((await post(port, { id: 's5/r1/run', kind: 'run' }, evil)).status === 403, 'a foreign Host with its own Origin is 403');
+  assert((await post(port, { id: 's5/r1/run', kind: 'run' }, { Host: `evil.example:${port}` })).status === 403, 'a foreign Host without Origin is 403');
+  assert((await send(port, 'GET', { Host: `evil.example:${port}` })).status === 403, 'GET with a foreign Host is 403');
+  assert((await post(port, { id: 's5/r1/run', kind: 'run' }, { Host: `192.168.1.20:${port}` })).status === 403, 'a LAN Host without lan is 403');
+  assert(!existsSync(join(logDir, 's5')), 'a refused Host leaves no file');
+  assert((await post(port, { id: 's5/r2/run', kind: 'run' }, { Host: `localhost:${port}`, Origin: `http://localhost:${port}` })).status === 204, 'Host localhost is fine');
+  assert((await post(port, { id: 's5/r1/f01-x-a1/j5of1', kind: 'journal' })).status === 400, 'a part index not below the count is 400');
+
   // other methods and paths
   assert((await send(port, 'PUT', { 'Content-Type': 'application/json' }, '{}')).status === 400, 'PUT is refused');
 } finally {
   console.warn = warn;
   await server.close();
+}
+
+// Vite's server.allowedHosts: a name listed there is taken too.
+const listed = await createServer({
+  root,
+  configFile: false,
+  logLevel: 'silent',
+  plugins: [rtTelemetryPlugin({ logDir, lan: false })],
+  server: { host: '127.0.0.1', port: 4666, strictPort: false, allowedHosts: ['.example.test'] },
+});
+console.warn = () => undefined;
+try {
+  await listed.listen();
+  const port = (listed.httpServer!.address() as AddressInfo).port;
+  assert((await post(port, { id: 's6/r1/run', kind: 'run' }, { Host: `dev.example.test:${port}`, Origin: `http://dev.example.test:${port}` })).status === 204, 'a Host of allowedHosts is accepted');
+  assert(existsSync(join(logDir, 's6/r1/run.json')), 'and written');
+  assert((await post(port, { id: 's6/r2/run', kind: 'run' }, { Host: `evil.example:${port}` })).status === 403, 'a Host outside allowedHosts is still 403');
+} finally {
+  console.warn = warn;
+  await listed.close();
   rmSync(root, { recursive: true, force: true });
 }
 
