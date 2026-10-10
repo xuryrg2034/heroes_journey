@@ -4,8 +4,9 @@
  * - An arena not bigger than the view (all 16×10 arenas) spawns as before Т5: both journals recorded in the browser
  *   replay to their hashes, and the group anchors of the spawn are the points of the pre-Т5 code (copied here verbatim)
  *   with the same draws of the `spawnPlace` stream — on every such arena, several seeds, both spawn modes.
- * - On a bigger arena («Брод» 24×14, «Последний рубеж» 24×15, «Большая поляна» 24×15) every anchor lies in the arena
- *   and in the rectangle 16×9 round the hero shifted inside the arena; in a fight the markers come round the hero.
+ * - On a bigger arena («Брод» 24×14, «Застава» 20×14 — phase B, Т4, «Последний рубеж» 24×15, «Большая поляна» 24×15)
+ *   every anchor lies in the arena and in the rectangle 16×9 round the hero shifted inside the arena; in a fight the
+ *   markers come round the hero.
  * - The pressure: the density floor and the arena limit grow with the area (`s`), 16×10 keeps its numbers — checked by
  *   who stands on the arena after the goals and how many the limit lets out, not by the formula alone.
  * Seeds are spread (`Math.imul(k, 2654435761) >>> 0`).
@@ -25,7 +26,8 @@ let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 
-const BIG = ['ford', 'last-stand', 'big-clearing'];
+// «Застава» (phase B, Т4) goes last: the seeds of the checks by index stay those of phase A for the other three.
+const BIG = ['ford', 'last-stand', 'big-clearing', 'outpost'];
 /** The camera's centre on one axis when it stands on the hero (view/camera.ts, `clampAxis`). */
 const clampAxis = (c: number, view: number, arena: number): number => (arena <= view ? arena / 2 : Math.max(view / 2, Math.min(arena - view / 2, c)));
 
@@ -91,7 +93,7 @@ check('arenas not bigger than the view: the anchors are the old ones, bit for bi
 
 // ---- Big arenas: the spawn round the hero ----
 
-check('big arenas («Брод» 24×14, «Последний рубеж» 24×15, «Большая поляна»): 100% of the anchors lie in the arena and in the rectangle 16×9 round the hero, shifted inside the arena', () => {
+check('big arenas («Брод» 24×14, «Застава» 20×14, «Последний рубеж» 24×15, «Большая поляна»): 100% of the anchors lie in the arena and in the rectangle 16×9 round the hero, shifted inside the arena', () => {
   for (const id of BIG) {
     const arena = arenaTemplate(id);
     assert(isBigArena(arena) && Math.max(arena.width, arena.height) <= 28, `${id}: ${arena.width}×${arena.height}`);

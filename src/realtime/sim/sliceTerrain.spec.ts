@@ -445,11 +445,13 @@ check('8 «Брод»: the crossing — walking in the river is ×0.5 (no dry wa
 
 check('9 «Застава»: the yard on the brink — a blast throws a survivor into the ravine; the crowd comes in through a gate and along the ledge', () => {
   const sim = fight('outpost', quiet(), 5), w = sim.world;
-  // The ravine's east edge at y 4.5 is x 3.0.
-  place(sim, 4.5, 4.5, 1, 0, 'sapper');
-  const victim = place(sim, 3.7, 4.5, 2, 5);
-  sim.command({ t: 'teleport', x: 5.9, y: 4.5 });
-  chainThrough(sim, [{ x: 4.5, y: 4.5 }]);
+  // Phase B, Т4 (20×14): the ravine's east edge at y 5.6 is x 3.85.
+  assert(cliffAt({ x: 3.8, y: 5.6 }, 0, w.arena) && !cliffAt({ x: 3.9, y: 5.6 }, 0, w.arena), 'the ravine\'s edge at y 5.6');
+  place(sim, 5.35, 5.6, 1, 0, 'sapper');
+  const victim = place(sim, 4.55, 5.6, 2, 5);
+  assert(!overCliff(victim, w.arena), 'the survivor stands on the brink, not over the drop');
+  sim.command({ t: 'teleport', x: 6.75, y: 5.6 });
+  chainThrough(sim, [{ x: 5.35, y: 5.6 }]);
   const events = collect(sim, 240, () => !alive(w, victim));
   const fell = kills(events).find(k => k.enemyId === victim.id);
   assert(fell?.fall === true && fell.source === 'blast' && fell.credited === true, `thrown into the ravine: ${JSON.stringify(fell)}`);
@@ -468,11 +470,13 @@ check('9 «Застава»: the yard on the brink — a blast throws a survivor
     assert(replays(s), 'replay');
     return crossedAt;
   };
-  const south = walkIn({ x: 3.6, y: 9 }, { x: 6.2, y: 4.8 }, 6.9);
-  assert(south >= 7 && south <= 9, `through the south gate: crossed the palisade at x ${south.toFixed(2)}`);
+  // Phase B, Т4 (20×14): the south palisade y 9–10 with its gate x 9–11; the north one y 3.1–4.1, its west end x 6.44,
+  // the ravine's edge by it x ≈ 4.2 (the ledge ≈ 2.2, not stretched).
+  const south = walkIn({ x: 4.5, y: 12.6 }, { x: 7.75, y: 6.7 }, 9.5);
+  assert(south >= 9 && south <= 11, `through the south gate: crossed the palisade at x ${south.toFixed(2)}`);
   // From the north-west corner (above the palisade, by the ravine): along the ledge between the ravine and the palisade.
-  const ledge = walkIn({ x: 4.6, y: 0.8 }, { x: 4.6, y: 4.8 }, 2.7);
-  assert(ledge > 3.3 && ledge < 5.6, `along the ledge: crossed y 2.7 at x ${ledge.toFixed(2)}`);
+  const ledge = walkIn({ x: 5.75, y: 1.1 }, { x: 5.75, y: 6.7 }, 3.6);
+  assert(ledge > 4.2 && ledge < 6.44, `along the ledge: crossed y 3.6 at x ${ledge.toFixed(2)}`);
 });
 
 // ---- 10 «Последний рубеж»: М1 pond + М4 braziers ----

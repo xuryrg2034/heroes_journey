@@ -4,7 +4,8 @@
  * 1280×720, following the hero without the pointer lead); enemies in it are counted every 0.5 s of game time.
  *
  * Pairs (the same phase table on both sides): «Последний рубеж» 24×15 against its layout 16×10 before Т5, «Брод» 24×14
- * against its layout 16×10, «Большая поляна» 24×15 against «Убить 30» 16×10 (the panel's table). Two bots — the hero
+ * against its layout 16×10, «Большая поляна» 24×15 against «Убить 30» 16×10 (the panel's table), and since phase B, Т4
+ * (docs/realtime-phase-b.md, section 9, «Д6») «Застава» 20×14 against its layout 16×10 (the panel's table). Two bots — the hero
  * stands (only his chains move him) and the hero walks (a pattern of directions, the chains as well) — on several seeds
  * (`Math.imul(k, 2654435761) >>> 0`). The hero takes no damage; 30 s of the base pace, then the goals are set and the greed
  * table runs 140 s.
@@ -15,7 +16,7 @@
 import { arenaTemplate, FINAL_PHASES, FORD_ARCHER_SHARE, FORD_WOLF_SHARE, MIXED_KIND_SHARE, sharesOfAll, type ArenaTemplate } from '../src/realtime/sim/arenas';
 import '../src/realtime/sim/arenasCamera';
 import { chainAnchor, nextCandidates, nextObjectCandidates, planChain } from '../src/realtime/sim/chain';
-import { dist, pond, riverBand, tree, wall, type Vec } from '../src/realtime/sim/geometry';
+import { dist, polygon, pond, riverBand, tree, wall, zone, type Vec } from '../src/realtime/sim/geometry';
 import { defaultParams, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
 import { areaScale, enemyLimit, scaledFloor } from '../src/realtime/sim/spawn';
@@ -49,6 +50,15 @@ const LAST_STAND_16: ArenaTemplate = {
   braziers: [{ x: 8, y: 2.2 }, { x: 8, y: 7.8 }], buttons: [], door: { x: 8, y: 0.7 },
   enemies: [{ x: 2.2, y: 5, color: 3, kind: 'porcupine', elite: true }, { x: 6, y: 8.8, color: 0, kind: 'sapper', elite: true }],
   phaseOverride: { wolfShare: 0, boarShare: 0 }, phases: FINAL_PHASES.map(phase => ({ ...phase })), killGoal: 40, newcomers: ALL_FOUR,
+};
+/** «Застава» 16×10 before phase B, Т4 (arenas.ts at 5890f3c), for the comparison only. */
+const OUTPOST_16: ArenaTemplate = {
+  id: 'outpost-16x10', name: 'Застава 16×10', summary: '', goal: 'kills', width: 16, height: 10, heroStart: { x: 8, y: 8.9 },
+  obstacles: [wall(5.6, 2.2, 1.4, 1), wall(9, 2.2, 4.4, 1), wall(12.4, 3.2, 1, 4.2), wall(2.2, 6.4, 4.8, 1), wall(9, 6.4, 3.4, 1)],
+  terrain: [zone('cliff', polygon(0, 0, 3, 0, 3.4, 2, 3, 4.5, 3.5, 6, 2.4, 7.4, 0, 7.6))],
+  buttons: [], door: { x: 8, y: 0.7 },
+  enemies: [{ x: 7.2, y: 4.4, color: 1, kind: 'shield', elite: true }, { x: 9.4, y: 3.6, color: 2, kind: 'archer', elite: true }],
+  phaseOverride: { wolfShare: 0, boarShare: 0 }, killGoal: 30, newcomers: ALL_FOUR,
 };
 
 /**
@@ -142,6 +152,7 @@ const PAIRS: [big: ArenaTemplate, small: ArenaTemplate][] = [
   [arenaTemplate('last-stand'), LAST_STAND_16],
   [arenaTemplate('ford'), FORD_16],
   [arenaTemplate('big-clearing'), arenaTemplate('kills')],
+  [arenaTemplate('outpost'), OUTPOST_16],
 ];
 const avg = (xs: number[]): number => xs.reduce((a, c) => a + c, 0) / Math.max(1, xs.length);
 const pctl = (xs: number[], q: number): number => { const s = [...xs].sort((a, c) => a - c); return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : NaN; };
