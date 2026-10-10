@@ -413,6 +413,25 @@ test('a pointer over the debug panel does not lead the camera; over the scene it
   expect(errors).toEqual([]);
 });
 
+test('a pointer over the build column does not lead the camera (phase B, Д5 round 2: the rows take the pointer for their card)', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 18);
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['fifth-link', 'relic-millstone'], hammer: 'end-blast' }, 77));
+  await still(page);
+  await teleport(page, 12, 7.5);
+  const before = await settled(page);
+  const row = (await page.getByTestId('build-relic-millstone').boundingBox())!;
+  await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
+  await expect(page.getByTestId('build-tip')).toBeVisible();
+  await page.waitForTimeout(1200);
+  expect((await camera(page)).x).toBeCloseTo(before.x, 4);
+  // Just right of the column, over the scene: the lead moves the camera to the left.
+  await page.mouse.move(row.x + row.width + 40, row.y + row.height / 2);
+  await page.waitForTimeout(1200);
+  expect((await camera(page)).x).toBeLessThan(before.x - 0.15);
+  expect(errors).toEqual([]);
+});
+
 test('the mouse stands, the camera moves: the pointer takes the new point of the world and the hint follows it', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 18);

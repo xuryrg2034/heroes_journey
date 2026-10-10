@@ -71,6 +71,8 @@ const MAX_FRAME = 0.05;
 /** Iteration 2.1 (interface): a slot blinks this long (s) for a consumable gained; the item hint stays this long (s). */
 const ITEM_BLINK = 1;
 const ITEM_HINT_TIME = 4;
+/** Length of the focus bar (px) at the panel's reserve `focusMax`; the build's reserve (`focusMaxOf`) scales it. */
+const FOCUS_BAR_PX = 90;
 /** Hero walking keys (physical codes): WASD and arrows. */
 const WALK_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight']);
 
@@ -253,7 +255,7 @@ async function boot(): Promise<void> {
   itemHint.hidden = true;
   // Phase B (Д5, design answer 23): the build column on the left (x 8–70 from y ≈ 72), only the items taken.
   const buildColumn = new BuildColumn();
-  host.append(stage, hud, buildColumn.el, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result);
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result);
   if (sandbox) host.append(openButton, menuButton, menu);
 
   await loadCharacterArt();
@@ -381,7 +383,7 @@ async function boot(): Promise<void> {
     const option = (id: string) => ({ value: id, label: labelOf(id).title });
     const choose = (key: 'talisman' | 'relic' | 'hammer') => (value: string): void => { sandboxBuild[key] = value; saveSandboxBuild(sandboxBuild); };
     panel.addBuildChoice('Талисман-счётчик', 'build-talisman', [none, ...Object.values(COUNTER_TALISMANS).map(option)], sandboxBuild.talisman, choose('talisman'),
-      'Т1: условие и триггер. Правила пишут дорожки Д1–Д3: пока их нет, предмет виден в колонке, но не действует.');
+      'Т1: условие и триггер. Предмет действует с новой арены; прогресс счётчика — в колонке слева.');
     panel.addBuildChoice('Реликвия или клятва', 'build-relic', [none, ...Object.values(RELICS).map(option), option(OATH_HUNGER)], sandboxBuild.relic, choose('relic'),
       'Т3: плюс и цена (цена — в колонке); 5а: новая «Клятва голода».');
     panel.addBuildChoice('Молот', 'build-hammer', [none, ...Object.values(HAMMERS).map(option)], sandboxBuild.hammer, choose('hammer'),
@@ -484,6 +486,8 @@ async function boot(): Promise<void> {
     const top = Math.max(bottomOf(hud), sandbox ? Math.max(bottomOf(openButton), bottomOf(menuButton)) : 0) + gap;
     const bottom = window.innerHeight - Math.min(topOf(actionBar), topOf(jumpButton), topOf(help)) + gap;
     // Phase B (Д5): the build column on the left — the pointers keep clear of it (its right edge + 8).
+    // Round 2: the column never reaches the action bar (compact rows, then «+N»).
+    buildColumn.setBottom(topOf(actionBar) - gap);
     const left = buildColumn.el.hidden ? 0 : buildColumn.el.getBoundingClientRect().right + gap;
     renderer.setEdgeInset({ left, top, right: 0, bottom });
   };
@@ -646,6 +650,9 @@ async function boot(): Promise<void> {
     timeText.textContent = formatTime(w.time);
     const focusMax = focusMaxOf(w);
     focusFill.style.width = `${focusMax > 0 ? Math.min(1, w.focus / focusMax) * 100 : 0}%`;
+    // Phase B (Д5, round 2): the bar is as long as the reserve — «Тяжёлый клинок» (reserve ½) halves it: the price is seen.
+    const focusWidth = `${Math.round(FOCUS_BAR_PX * (params.focusMax > 0 ? Math.min(2, focusMax / params.focusMax) : 1))}px`;
+    if (focusBar.style.width !== focusWidth) focusBar.style.width = focusWidth;
     // Phase B (Д5): the build column follows the kit; hidden under the run screen and the menus.
     const columnWasHidden = buildColumn.el.hidden;
     buildColumn.update(w, live ? realDt : 0, runScreenOpen || menuOpen);
@@ -797,6 +804,10 @@ async function boot(): Promise<void> {
         hint: hintReason,
         /** Phase B (Д5): icons in the build column (visible), their ids and progress texts; icon flashes and texts at the hero so far. */
         buildColumn: buildColumn.el.hidden ? 0 : buildColumn.count,
+        buildFolded: buildColumn.folded,
+        buildBottom: buildColumn.el.hidden ? 0 : buildColumn.el.getBoundingClientRect().bottom,
+        buildTip: buildColumn.tip.hidden ? null : { ids: buildColumn.tip.dataset.id ?? "", text: buildColumn.tip.textContent ?? "" },
+        reachRadius: renderer.heroReachRadius,
         buildItems: [...buildColumn.el.querySelectorAll<HTMLElement>('.rt-build-item')].map(n => ({ id: n.dataset.testid?.replace(/^build-/, '') ?? '', kind: n.dataset.kind ?? '', progress: n.querySelector('.rt-build-progress')?.textContent ?? '', price: n.querySelector('.rt-build-price')?.textContent ?? null })),
         buildFlashing: buildColumn.flashing,
         talismanFlashes: buildColumn.flashes,

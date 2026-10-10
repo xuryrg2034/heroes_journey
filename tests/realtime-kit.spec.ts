@@ -168,6 +168,12 @@ interface BuildSnap extends Snap {
   playerEffects: { waves: number; blasts: number; cuts: number; cutTrail: number; cutFrames: number; fire: number; bombs: number; returns: number };
   palette: { chain: number[]; target: number; playerFx: number };
   kit: { talismans: string[]; hammer: string | null; counters: Record<string, number> } | null;
+  buildFolded: number;
+  buildBottom: number;
+  buildTip: { ids: string; text: string } | null;
+  reachRadius: number;
+  focus: number;
+  goal: { done: number; total: number };
 }
 const buildSnap = (page: Page): Promise<BuildSnap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const TEST_MODULE = 'view-test-counter';
@@ -218,13 +224,12 @@ test('build column (Д5): only the items taken, the hammer and the relic in fram
   await expect.poll(() => progressOf(page, TEST_MODULE)).toBe('●●○');
   expect((await buildSnap(page)).talismanFlashes).toBe(0);
   // The cut hammer is in the kit: the dash left its thin white trail; the test module's events drew the wave, the blast,
-  // the cut and the fire with the pale-blue rim.
+  // the cut with the pale-blue rim (the fire — the real hammer test).
   let fx = (await buildSnap(page)).playerEffects;
   expect(fx.cutFrames).toBeGreaterThan(0);
   expect(fx.waves).toBe(1);
   expect(fx.blasts).toBe(1);
   expect(fx.cuts).toBe(1);
-  await expect.poll(async () => (await buildSnap(page)).playerEffects.fire).toBeGreaterThan(0);
   // The third kill fires: the icon flashes (0.6 s), a short text at the hero, the counter starts again.
   const c = await place(page, 11.5, 5, 'basic', 1, 0);
   await chainThrough(page, [c]);
@@ -306,7 +311,8 @@ test('colours Т5 (Д5): the yellow of the chain is ochre c8962e, the rim of an 
   const r = 0.4 * 0.8 * 72 * scale;
   const where = (await buildSnap(page)).enemies, p0 = where.find(x => x.id === plain)!, p1 = where.find(x => x.id === elite)!;
   const at = await screen(page, p0.x, p0.y);
-  const disc = await pixels(page, { x: Math.round(at.x) - 1, y: Math.round(at.y + r * 0.6) - 1, width: 3, height: 3 });
+  // A vertical strip from under the sigil to past the rim: the disc fill is in it whatever the drawn size.
+  const disc = await pixels(page, { x: Math.round(at.x) - 1, y: Math.round(at.y + r * 0.4), width: 3, height: Math.round(r * 0.8) });
   expect(disc.some(p => near(p, 0xc8962e, 6)), JSON.stringify(disc)).toBe(true);
   expect(disc.some(p => near(p, 0xd8b66a, 6))).toBe(false);
   // The elite: a lemon rim around its larger drawing (scan a strip to the right of its centre).
@@ -314,5 +320,155 @@ test('colours Т5 (Д5): the yellow of the chain is ochre c8962e, the rim of an 
   const strip = await pixels(page, { x: Math.round(e.x + r), y: Math.round(e.y) - 1, width: Math.round(r * 1.2), height: 3 });
   expect(strip.some(p => near(p, 0xffff66, 12)), JSON.stringify(strip)).toBe(true);
   expect(strip.some(p => near(p, 0xffd36b, 8))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+// ---- Phase B, Д5 round 2: acceptance through real actions with the real modules (section 7 of docs/realtime-phase-b.md) ----
+
+const panelParam = (page: Page, key: string): Promise<number> => page.evaluate(k => (window as any).__realtime.params[k], key);
+/** A plain enemy of `color` at `dx` units right of the hero (left with a negative `dx`). */
+async function besideHero(page: Page, dx: number, color = 0, hp = 0): Promise<number> {
+  const h = (await buildSnap(page)).hero;
+  return place(page, h.x + dx, h.y, 'basic', color, hp);
+}
+
+test('acceptance Т1 «Длинная рука» (Д5): progress in the column grows by real chains, the 4th chain has R ×1.5 (wider circle), the release flashes the icon and writes at the hero', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['long-arm'] }, 5));
+  await quiet(page);
+  const base = await panelParam(page, 'linkRadius');
+  await expect.poll(() => progressOf(page, 'long-arm')).toBe('○○○○');
+  expect((await buildSnap(page)).reachRadius).toBeCloseTo(base, 6);
+  // Three chains of one enemy each, drawn with the mouse (left, right, left: the hero stays near the middle).
+  const expected = ['●○○○', '●●○○', '●●●●'];
+  for (let i = 0; i < 3; i++) {
+    await chainThrough(page, [await besideHero(page, i % 2 ? 1 : -1, i % 4)]);
+    await expect.poll(() => progressOf(page, 'long-arm')).toBe(expected[i]);
+  }
+  // The next chain is the 4th: armed — the circle of R around the hero is 1.5 times wider before and while it is drawn.
+  expect((await buildSnap(page)).reachRadius).toBeCloseTo(base * 1.5, 6);
+  expect((await buildSnap(page)).talismanFlashes).toBe(0);
+  const id = await besideHero(page, 1.2);
+  const e = (await buildSnap(page)).enemies.find(x => x.id === id)!, at = await screen(page, e.x, e.y);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.waitForTimeout(150);
+  expect((await buildSnap(page)).reachRadius).toBeCloseTo(base * 1.5, 6);
+  await page.mouse.up();
+  // Released: the item fired — the icon flashes, a short text at the hero; the counter starts again, R is back.
+  await expect.poll(async () => (await buildSnap(page)).talismanFlashes).toBe(1);
+  expect((await buildSnap(page)).talismanTexts).toBe(1);
+  await expect.poll(() => progressOf(page, 'long-arm')).toBe('○○○○');
+  expect((await buildSnap(page)).reachRadius).toBeCloseTo(base, 6);
+  expect(errors).toEqual([]);
+});
+
+test('acceptance Т2 hammers (Д5): «Режущий проход» kills an enemy of another colour beside the path (credited, «убито» grows, the cut drawn); «Огненный проход» leaves fire drawn from its state', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  await page.evaluate(() => (window as any).__realtime.useBuild({ hammer: 'cutting-pass' }, 5));
+  await quiet(page);
+  await expect(page.getByTestId('build-cutting-pass')).toBeVisible();
+  // Two links of colour 0 to the right; an enemy of colour 1 lies just off the line between them (not a link).
+  const a = await place(page, 9.2, 5, 'basic', 0, 0), b = await place(page, 10.8, 5, 'basic', 0, 0), bystander = await place(page, 10, 5.35, 'basic', 1, 0);
+  expect((await buildSnap(page)).stats.kills).toBe(0);
+  await chainThrough(page, [a, b]);
+  await expect.poll(async () => (await buildSnap(page)).enemies.some(x => x.id === bystander)).toBe(false);
+  const s = await buildSnap(page);
+  expect(s.stats.kills).toBe(3);
+  expect(s.goal.done).toBe(3);
+  await expect(page.getByTestId('goal')).toHaveText(/убито 3/);
+  expect(s.playerEffects.cuts).toBeGreaterThanOrEqual(1);
+  expect(s.playerEffects.cutFrames).toBeGreaterThan(0);
+  // «Огненный проход»: the path burns — the view draws the module's fire points (World.build['fire-pass'].points).
+  await page.evaluate(() => (window as any).__realtime.useBuild({ hammer: 'fire-pass' }, 6));
+  await quiet(page);
+  const c = await place(page, 9.2, 5, 'basic', 2, 0), d = await place(page, 10.6, 5, 'basic', 2, 0);
+  await chainThrough(page, [c, d]);
+  await expect.poll(async () => (await buildSnap(page)).playerEffects.fire).toBeGreaterThan(0);
+  await page.screenshot({ path: 'artifacts/realtime-phaseB-hammer-fire.png' });
+  expect(errors).toEqual([]);
+});
+
+test('acceptance Т3 relics (Д5): «Широкий круг» — the R circle 1.25 times wider; «Тяжёлый клинок» — the focus reserve and its bar half as long', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  const base = await panelParam(page, 'linkRadius'), focusMax = await panelParam(page, 'focusMax');
+  const barWidth = async (): Promise<number> => (await page.getByTestId('focus').boundingBox())!.width;
+  const plainBar = await barWidth();
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['relic-wide-circle'] }, 5));
+  await expect.poll(async () => (await buildSnap(page)).reachRadius).toBeCloseTo(base * 1.25, 6);
+  await expect(page.getByTestId('build-relic-wide-circle')).toContainText('враг +10%');
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['relic-heavy-blade'] }, 5));
+  await expect.poll(async () => Math.round(await barWidth())).toBe(Math.round(plainBar / 2));
+  expect((await buildSnap(page)).focus).toBeCloseTo(focusMax / 2, 6);
+  expect((await buildSnap(page)).reachRadius).toBeCloseTo(base, 6);
+  await expect(page.getByTestId('build-relic-heavy-blade')).toContainText('фокус ½');
+  expect(errors).toEqual([]);
+});
+
+test('column hover card (Д5): the full name and rule from the run catalogue, a relic and the oath with their price; a chain dragged over the column goes on', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['third-chain', 'oath-hunger', 'relic-blood-oath'], hammer: 'end-blast' }, 5));
+  await quiet(page);
+  await expect(page.getByTestId('build-tip')).toBeHidden();
+  await page.getByTestId('build-relic-blood-oath').hover();
+  const tip = page.getByTestId('build-tip');
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText('Кровавая клятва');
+  await expect(tip).toContainText('+1 энергия за каждые 6 убийств цепью на арене');
+  await expect(tip).toContainText('Цена: лечение расходником вдвое слабее (9 → 5)');
+  await page.getByTestId('build-third-chain').hover();
+  await expect(tip).toContainText('Третья цепь');
+  await expect(tip).toContainText('следующий прыжок за 5 с бесплатен');
+  await expect(tip).not.toContainText('Цена:');
+  await page.getByTestId('build-oath-hunger').hover();
+  await expect(tip).toContainText('+1 HP за 15 убийств цепью');
+  await expect(tip).toContainText('Цена: без привала');
+  await expect(page.getByTestId('build-oath-hunger')).toContainText('0/15');
+  await page.getByTestId('build-end-blast').hover();
+  await expect(tip).toContainText('Взрыв на конце');
+  await page.screenshot({ path: 'artifacts/realtime-phaseB-column-tip.png' });
+  // A chain drawn over the column: the button held, the pointer passes over it and comes back — the chain is released whole.
+  const a = await place(page, 9, 5, 'basic', 0, 0), b = await place(page, 10.2, 5, 'basic', 0, 0);
+  const s = await buildSnap(page), pa = await screen(page, 9, 5), pb = await screen(page, 10.2, 5);
+  const column = (await page.getByTestId('build-column').boundingBox())!;
+  void s;
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await page.mouse.move(column.x + 30, column.y + 20, { steps: 6 });
+  await expect(tip).toBeHidden();
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  expect((await page.evaluate(() => (window as any).__realtime.snapshot().chain)) as number[]).toEqual([a, b]);
+  await page.mouse.up();
+  await expect.poll(async () => (await buildSnap(page)).enemies.filter(x => x.id === a || x.id === b).length).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('column with many items (Д5): 12 items end above the action bar; 22 items get compact and fold the rest into «+N», whose card lists them', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  const actionTop = async (): Promise<number> => (await page.getByTestId('action-bar').boundingBox())!.y;
+  const twelve = ['whetstone', 'dew-flask', 'tough-hide', 'millstone-shard', 'hourglass', 'nimble-paws', 'ash-ward', 'hero-anchor', 'fifth-link', 'long-arm', 'relic-millstone'];
+  await page.evaluate(t => (window as any).__realtime.useBuild({ talismans: t, hammer: 'return-pass' }, 5), twelve);
+  await expect.poll(async () => (await buildSnap(page)).buildColumn).toBe(12);
+  let s = await buildSnap(page);
+  expect(s.buildFolded).toBe(0);
+  expect(s.buildBottom).toBeLessThanOrEqual(await actionTop());
+  await page.screenshot({ path: 'artifacts/realtime-phaseB-column-12.png' });
+  const all = [...twelve, 'third-chain', 'shockwave', 'prism', 'finishing-blow', 'elite-hunter', 'frost-edge', 'oath-hunger', 'relic-heavy-blade', 'relic-wide-circle', 'relic-blood-oath'];
+  await page.evaluate(t => (window as any).__realtime.useBuild({ talismans: t, hammer: 'return-pass' }, 5), all);
+  await expect.poll(async () => (await buildSnap(page)).buildColumn).toBe(22);
+  await expect.poll(async () => (await buildSnap(page)).buildFolded).toBeGreaterThan(0);
+  s = await buildSnap(page);
+  expect(s.buildBottom).toBeLessThanOrEqual(await actionTop());
+  await expect(page.getByTestId('build-column')).toHaveClass(/rt-build-compact/);
+  const more = page.getByTestId('build-more');
+  await expect(more).toContainText(`+${s.buildFolded}`);
+  await more.hover();
+  await expect(page.getByTestId('build-tip')).toContainText('Кровавая клятва');
+  await page.screenshot({ path: 'artifacts/realtime-phaseB-column-22.png' });
   expect(errors).toEqual([]);
 });

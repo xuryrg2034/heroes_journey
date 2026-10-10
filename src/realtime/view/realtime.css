@@ -198,5 +198,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-build-relic { border-color: #9a6a5a; }
 .rt-build-relic .rt-build-icon { border-radius: 3px; background: #33231f; border-color: #c88a6a; }
 .rt-build-price { grid-column: 1 / -1; font: 700 10px/1.2 'DM Sans', Arial, sans-serif; color: #f0a08c; white-space: nowrap; }
+/* Round 2: rows take the pointer (a hover card, «подробно — по запросу»); the column itself does not. Too many items for
+   the height down to the action bar: compact rows, then «+N» (buildColumn.ts `fit`). */
+.rt-build-item { pointer-events: auto; cursor: help; }
+.rt-build-compact { gap: 2px; }
+.rt-build-compact .rt-build-item { grid-template-columns: 18px 1fr; padding: 1px 2px; }
+.rt-build-compact .rt-build-icon { width: 18px; height: 18px; font-size: 11px; }
+.rt-build-compact .rt-build-item b { font-size: 10px; }
+.rt-build-compact .rt-build-progress { font-size: 9px; }
+.rt-build-compact .rt-build-price { font-size: 9px; }
+.rt-build-more .rt-build-icon { border-radius: 3px; font-size: 10px; }
+.rt-build-tip { position: absolute; z-index: 8; max-width: 260px; padding: 6px 9px; background: #121710f2; border: 1px solid #6d8aa0; color: #e5dcc0; font-size: 12px; line-height: 1.35; pointer-events: none; }
+.rt-build-tip div + div { margin-top: 5px; padding-top: 5px; border-top: 1px solid #414232; }
+.rt-build-tip b { display: block; font: 600 13px Georgia, serif; color: #f2dfb4; }
+.rt-build-tip span { display: block; }
+.rt-build-tip em { display: block; font-style: normal; font-weight: 700; color: #f0a08c; }
 .rt-build-flash .rt-build-icon { animation: rt-build-flash 0.6s ease-out; }
 @keyframes rt-build-flash { 0% { background: #ffffff; color: #10150f; box-shadow: 0 0 0 3px #bfe3ff, 0 0 14px #bfe3ff; transform: scale(1.25); } 100% { box-shadow: none; transform: scale(1); } }
