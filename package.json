@@ -66,6 +66,7 @@
     "test:realtime-affixes": "tsx src/realtime/sim/affixes.spec.ts",
     "test:realtime-build": "tsx src/realtime/sim/build.spec.ts",
     "test:realtime-talismans": "tsx src/realtime/sim/talismansRt.spec.ts",
+    "test:realtime-hammers": "tsx src/realtime/sim/hammers.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",
