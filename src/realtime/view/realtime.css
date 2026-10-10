@@ -215,3 +215,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-build-tip em { display: block; font-style: normal; font-weight: 700; color: #f0a08c; }
 .rt-build-flash .rt-build-icon { animation: rt-build-flash 0.6s ease-out; }
 @keyframes rt-build-flash { 0% { background: #ffffff; color: #10150f; box-shadow: 0 0 0 3px #bfe3ff, 0 0 14px #bfe3ff; transform: scale(1.25); } 100% { box-shadow: none; transform: scale(1); } }
+
+/* Telemetry (track ТA, docs/realtime-telemetry.md): the «Логи» panel and the flash of the N note. */
+.rt-logs { z-index: 9; }
+.rt-logs-card { width: min(460px, calc(100vw - 32px)); font-size: 13px; }
+.rt-logs-card h2 { font-size: 28px; margin-bottom: 10px; }
+.rt-logs-stats { margin: 0 0 12px; color: #e5dcc0; font-variant-numeric: tabular-nums; }
+.rt-logs-name { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--rt-muted); }
+.rt-logs-name input { flex: 1; padding: 5px 8px; background: #151a12; border: 1px solid #4a4d39; color: var(--rt-ink); font: inherit; }
+.rt-logs-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.rt-logs-buttons .rt-again, .rt-logs-buttons .rt-other { padding: 9px; }
+.rt-logs-confirm { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #e0a596; }
+.rt-logs-confirm .rt-other { padding: 5px 10px; }
+.rt-logs-status { min-height: 1em; margin: 10px 0 0; font-size: 12px; color: var(--rt-muted); word-break: break-all; }
+.rt-logs-open { padding: 5px 10px; background: #20241b; border: 1px solid #444837; color: #c9c5a8; font-size: 12px; }
+.rt-logs-open:hover { border-color: #a39364; }
+.rt-menu-tools { display: flex; justify-content: flex-end; margin-top: 8px; }
+.rt-run-modal .rt-logs-open { display: block; margin: 10px auto 0; }
+.rt-note-flash { position: absolute; top: 60px; left: 18px; padding: 3px 10px; font-size: 12px; font-weight: 700; color: #1b2017; background: #c4ad77; pointer-events: none; z-index: 4; }

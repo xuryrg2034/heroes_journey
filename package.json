@@ -72,6 +72,7 @@
     "test:realtime-hammers": "tsx src/realtime/sim/hammers.spec.ts",
     "test:realtime-relics": "tsx src/realtime/sim/relics.spec.ts",
     "test:realtime-telemetry": "tsx src/realtime/telemetry/schema.spec.ts",
+    "test:realtime-telemetry-recorder": "tsx src/realtime/telemetry/recorder.spec.ts",
     "test:realtime-report": "tsx src/realtime/telemetry/threats.spec.ts && tsx scripts/realtime-report.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
