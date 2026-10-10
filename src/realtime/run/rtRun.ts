@@ -30,7 +30,7 @@ import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedFo
 import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, SHOP_ITEMS, SHOP_TALISMAN_PRICE, shopPayment, shopPrice, shopStock, stockTotal } from '../../game/run/merchant';
 import { GIFT_FULL_ROW, GIFT_HP_PRICE, GIFT_MAX_HP_PRICE, GIFT_STREAMS, giftNeedsPick, giftPicks, rollGift, type GiftKind, type GiftOption, type RunGift } from '../../game/run/runGift';
 import { eventTalismanOffer, talismanDraw, talismanLeft, type TalismanPool } from '../../game/run/talismanOffers';
-import { isRtOath, isRtTalisman, RT_DEW_FLASK_HEAL, RT_OATH_ENERGY, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
+import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
 import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runRow } from './arenaPools';
@@ -274,10 +274,9 @@ export const rtEliteAffixes = (row: number): number => (row >= 9 ? 2 : row >= 5 
  */
 export function rtArenaLoadout(run: RtRunState): Loadout {
   const pending = run.pending, node = pending && 'nodeId' in pending && pending.nodeId ? rtNode(run, pending.nodeId) : undefined;
-  // Step 3 (section 8): each oath adds RT_OATH_ENERGY at the start of every arena, with the banked energy, up to 7.
-  const oaths = run.talismans.filter(isRtOath).length;
+  // Phase B, 5а (decision 10.10.2026): oaths add no energy at the start of an arena any more — the banked energy, up to 7.
   return {
-    items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy + RT_OATH_ENERGY * oaths), openItems: [...run.openItems],
+    items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy), openItems: [...run.openItems],
     randomElites: !!node && runRow(node.row) >= RT_RANDOM_ELITE_ROW,
     ...node && rtEliteAffixes(runRow(node.row)) > 0 ? { eliteAffixes: rtEliteAffixes(runRow(node.row)) } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
@@ -293,10 +292,19 @@ export function rtArenaLoadout(run: RtRunState): Loadout {
 
 /** What the run took and what left the pool. */
 const talismanPool = (run: RtRunState) => ({ taken: run.talismans, gone: run.talismansGone });
-/** A talisman joins the run: «Крепкая шкура» raises the maximum HP and heals as much at once. */
+/**
+ * Баланс (phase B, Т3): the price of the relic «Жернов» — the run's maximum HP this much lower when it is taken (real-time
+ * HP; sim/relics.ts has its arena plus). The maximum stays at least 1; HP above the new maximum is cut to it.
+ */
+export const RT_MILLSTONE_MAX_HP_PRICE = 3;
+/**
+ * A talisman joins the run: «Крепкая шкура» raises the maximum HP and heals as much at once; the relic «Жернов» lowers the
+ * maximum HP (its price).
+ */
 function takeTalisman(run: RtRunState, id: RtTalismanId, events: RtRunEvent[]): void {
   run.talismans.push(id);
   if (id === 'tough-hide') { run.maxHp += RT_TOUGH_HIDE_HP; run.hp += RT_TOUGH_HIDE_HP; }
+  if (id === RELICS.millstone) { run.maxHp = Math.max(1, run.maxHp - RT_MILLSTONE_MAX_HP_PRICE); run.hp = Math.min(run.hp, run.maxHp); }
   events.push({ type: 'talisman-taken', id });
 }
 function offerTalismans(run: RtRunState, nodeId: string, source: 'hard' | 'oath' | 'event', options: RtTalismanOption[], events: RtRunEvent[]): void {

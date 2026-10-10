@@ -36,14 +36,14 @@ import { arenaCandidates, arenaNewKinds, ARENA_POOLS, ordinaryArenaChoices, aren
 import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import {
-  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
   rtChooseTalisman, rtEnterNode, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
 } from './rtRun';
 import type { ItemKind } from '../sim/kit';
 import { ITEM_KINDS } from '../../game/items';
 import type { GiftOption } from '../../game/run/runGift';
-import { RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer } from './rtTalismans';
+import { RELICS, RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer } from './rtTalismans';
 import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from './rtRunStorage';
 import { SLICE_EVENTS, SLICE_EVENTS_OFF } from './sliceEvents';
 
@@ -138,7 +138,7 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       walk.arenas.push(pending.arena);
       const hpBefore = run.hp, sim = startArena(run);
       assert(sim.world.hero.hp === run.hp && sim.world.hero.maxHp === run.maxHp, 'the hero enters with the run HP');
-      assert(same(sim.world.kit!.items, run.items) && sim.world.energy === Math.min(7, run.energy + 2 * run.talismans.filter(id => id.startsWith('oath-')).length), 'the hero enters with the run\'s consumables and banked energy (+2 an oath)');
+      assert(same(sim.world.kit!.items, run.items) && sim.world.energy === Math.min(7, run.energy), 'the hero enters with the run\'s consumables and banked energy (phase B, 5а: no oath energy)');
       assert(same(sim.world.kit!.talismans, run.talismans), 'the run\'s talismans act in the arena');
       // Step 3: a consumable in hand is used on the arena (healing when hurt, else a bomb on the nearest enemy).
       for (let i = 0; i < 30; i++) sim.tick();
@@ -945,6 +945,15 @@ check('talismans in the run: taken at a hard battle, the merchant, an event, the
   const setupOptions = (setup.pending as Extract<RtRunState['pending'], { kind: 'talisman' }>).options;
   assert(setupOptions.slice(1).every(id => run.talismansGone.includes(id as string)), 'the others are gone');
   assert(same(roundTrip(run), run), 'saved');
+  // Phase B, Т3: the relic «Жернов» costs 3 of the maximum HP when taken (HP above the new maximum is cut; at least 1).
+  const relicOffer = (from: RtRunState): RtRunState => ({ ...from, pending: { ...atHard.pending as Extract<RtRunState['pending'], { kind: 'talisman' }>, options: [RELICS.millstone, 'whetstone'] } });
+  const milled = ok(rtChooseTalisman(relicOffer({ ...run, hp: run.maxHp }), RELICS.millstone), 'take «Жернов»');
+  assert(milled.maxHp === run.maxHp - RT_MILLSTONE_MAX_HP_PRICE && milled.hp === milled.maxHp && milled.talismans.includes(RELICS.millstone), `«Жернов»: max ${run.maxHp} → ${milled.maxHp}, HP ${milled.hp}`);
+  const low = ok(rtChooseTalisman(relicOffer({ ...run, hp: 2 }), RELICS.millstone), 'take «Жернов» hurt');
+  assert(low.maxHp === run.maxHp - 3 && low.hp === 2, 'HP below the new maximum stays');
+  const thin = ok(rtChooseTalisman(relicOffer({ ...run, hp: 2, maxHp: 2 }), RELICS.millstone), 'take «Жернов» at max 2');
+  assert(thin.maxHp === 1 && thin.hp === 1, 'the maximum stays at least 1');
+  assert(ok(rtChooseTalisman(relicOffer(run), 'whetstone'), 'whetstone').maxHp === run.maxHp, 'another choice keeps the maximum');
   // Rest: «Фляга росы» +3; «Клятва голода» — nothing (crafting stays); the gift's price — one rest without healing.
   const atRest = openNode(1301, 'rest', next => ({ ...next, hp: 2 }))!;
   const node = rtNode(atRest, (atRest.pending as { nodeId: string }).nodeId)!;
@@ -952,10 +961,10 @@ check('talismans in the run: taken at a hard battle, the merchant, an event, the
   assert(rtRestView({ ...atRest, talismans: ['oath-hunger'] })!.heal.value === 0 && rtRestView({ ...atRest, talismans: ['oath-hunger'] })!.recipes.length === 4, 'hunger: no heal, crafting stays');
   const noHeal = ok(rtRestHeal({ ...atRest, restNoHeal: true }), 'rest without heal');
   assert(noHeal.hp === 2 && !noHeal.restNoHeal && node.type === 'rest', 'the price is paid by one rest');
-  // Oaths: +2 energy at the start of every arena, with the banked energy, up to 7.
+  // Phase B, 5а: the new «Клятва голода» adds no energy at the start of an arena — only the banked energy (up to 7).
   const oathRun = nextArena({ ...takeGift(createRtRun(seedOf32(1401), { gift: 'mini' })), talismans: ['oath-hunger'], energy: 6 });
-  assert(rtArenaLoadout(oathRun).energy === 7 && rtArenaLoadout({ ...oathRun, energy: 1 }).energy === 3, 'oath energy');
-  assert(startArena({ ...oathRun, energy: 0 }).world.energy === 2, 'the arena starts with 2');
+  assert(rtArenaLoadout(oathRun).energy === 6 && rtArenaLoadout({ ...oathRun, energy: 1 }).energy === 1, 'no oath energy');
+  assert(startArena({ ...oathRun, energy: 0 }).world.energy === 0 && startArena(oathRun).world.energy === 6, 'the arena starts with the banked energy only');
   // The ward: whole until it saves the hero; the arena reports it, the run lets it crumble (the next loadout has none).
   let warded = nextArena({ ...takeGift(createRtRun(seedOf32(1402), { gift: 'mini' })), talismans: ['ash-ward'], hp: 1 });
   assert(rtArenaLoadout(warded).ward === true, 'ward whole');

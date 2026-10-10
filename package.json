@@ -65,6 +65,7 @@
     "test:realtime-big-arenas": "tsx src/realtime/sim/bigArenas.spec.ts",
     "test:realtime-affixes": "tsx src/realtime/sim/affixes.spec.ts",
     "test:realtime-build": "tsx src/realtime/sim/build.spec.ts",
+    "test:realtime-relics": "tsx src/realtime/sim/relics.spec.ts",
     "test:sentinel-shield": "tsx src/game/sentinelShield.spec.ts",
     "test:sentinel-approach": "tsx src/game/sentinelApproach.spec.ts",
     "test:golden": "tsx scripts/golden/golden.ts",
