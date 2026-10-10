@@ -12,3 +12,5 @@ artifacts/palette-campaign-recheck/
 .claude/settings.local.json
 # Local scratch files of agent sessions
 .scratch/
+# Real-time playtest logs (docs/realtime-telemetry.md)
+playtest-logs/

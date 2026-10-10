@@ -110,3 +110,18 @@
 ## 8. Реализация
 
 (заполняют дорожки Т0, ТC, ТB, ТA)
+
+### ТC: приёмник на dev-сервере (реализовано 10.10.2026)
+
+Файлы: `vite/rtTelemetryPlugin.ts`, подключение и `define.__RT_BUILD__` — `vite.config.ts`, тип `__RT_BUILD__` — `src/vite-env.d.ts`, проверка — `scripts/rt-telemetry-plugin.spec.ts` (`npm run test:realtime-telemetry-plugin`).
+
+- **Только `serve`** (`apply: 'serve'`): в `vite build` плагина нет; в `dist/` нет строки `__rt-telemetry`.
+- **`GET /__rt-telemetry`** → 200 `{ok: true, lan: boolean}`: страница узнаёт, что приёмник есть.
+- **`POST /__rt-telemetry`**: тело — одна запись JSON с `id` и `kind`. Ответы: 204 успех; 400 — не JSON, не объект, нет `kind`, плохой `id`; 403 — адрес не разрешён или чужой `Origin`; 413 — тело больше 512 КиБ; 415 — `Content-Type` не `application/json`. Каждый отказ — одна строка в логе сервера.
+- **Адрес клиента**: loopback (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`). Флаг `RT_TELEMETRY_LAN=1` добавляет частные сети 10/8, 172.16/12, 192.168/16. Правило — чистая функция `allowedAddress(addr, lan)`. `Origin` (если есть) должен совпасть с заголовком `Host`.
+- **Файл**: `playtest-logs/<сессия>/<поход>/<остальные сегменты через «-»>.json`, например `s/r/f03-n5a-a1/fight` → `f03-n5a-a1-fight.json`, `s/r/run` → `run.json`. id: 3–4 сегмента `[A-Za-z0-9_-]{1,64}`; итоговый путь через `path.resolve` и проверка `startsWith(base + sep)`. Запись атомарная (временный файл и `rename`); тот же id — перезапись.
+- Корень логов — параметр плагина `logDir` (по умолчанию `<корень проекта>/playtest-logs`); `lan` — параметр, по умолчанию из env.
+- Регулярка id в плагине — своя копия (плагин не импортирует `src/`); при слиянии с `schema.ts` правило должно оставаться тем же.
+- `playtest-logs/` в `.gitignore` и в `server.watch.ignored`, чтобы запись не перезагружала страницу.
+- `__RT_BUILD__` — `git rev-parse --short HEAD`, `+dirty`, если `git status --porcelain` не пуст, `unknown` без git. Определяется и при `vite build`; вне Vite (tsx, Node-тесты) константы нет — читать через `typeof __RT_BUILD__ !== 'undefined'`.
+- Проверено 10.10.2026 на этом изменении: `tsc --noEmit`, `test:realtime-telemetry-plugin` (66 проверок), `npm run build` (в `dist/` нет `rt-telemetry`), `test:golden` (658 запусков, 0 расхождений).

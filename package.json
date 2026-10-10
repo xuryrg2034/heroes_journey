@@ -58,6 +58,7 @@
     "test:realtime-kit": "tsx src/realtime/sim/sliceKit.spec.ts",
     "test:realtime-arenas": "tsx src/realtime/sim/sliceArenas.spec.ts",
     "test:realtime-terrain": "tsx src/realtime/sim/terrain.spec.ts",
+    "test:realtime-telemetry-plugin": "tsx scripts/rt-telemetry-plugin.spec.ts",
     "test:realtime-slice-terrain": "tsx src/realtime/sim/sliceTerrain.spec.ts",
     "test:realtime-behavior": "tsx src/realtime/sim/behavior.spec.ts",
     "test:realtime-detmath": "tsx src/realtime/sim/detMath.spec.ts",
