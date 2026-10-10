@@ -142,6 +142,16 @@ export interface FightEntry {
 const fightPath = (r: { session: string; run: string; fight: string }): string => `${r.session}/${r.run}/${r.fight}`;
 const runPath = (r: { session: string; run: string }): string => `${r.session}/${r.run}`;
 
+/**
+ * The latest record of each run key: a run continued in another browser session writes `S2/R/run` beside `S1/R/run`
+ * (the run key R is unique — the start time and the seed); the latest `at` is the run's state.
+ */
+export function latestRuns(records: readonly RtRecord[]): RunRecord[] {
+  const byRun = new Map<string, RunRecord>();
+  for (const r of records) if (r.kind === 'run') { const old = byRun.get(r.run); if (!old || old.at <= r.at) byRun.set(r.run, r); }
+  return [...byRun.values()];
+}
+
 /** Paths where two summaries differ (the browser's against the replay's); `inView` and `threats` are left out. */
 function summaryDiff(browser: FightSummary, replayed: FightSummary): string[] {
   if (JSON.stringify(browser) === JSON.stringify(emptyFightSummary())) return [];
@@ -174,8 +184,9 @@ export async function analyzeRecords(set: RecordSet): Promise<Analysis> {
   }
   const fights = set.records.filter((r): r is FightRecord => r.kind === 'fight').sort((a, b) => fightPath(a).localeCompare(fightPath(b)));
   const out: FightEntry[] = [];
+  const latest = new Map(latestRuns(set.records).map(r => [r.run, r]));
   for (const record of fights) {
-    const run = runs.get(runPath(record)) ?? null;
+    const run = runs.get(runPath(record)) ?? latest.get(record.run) ?? null;
     const entry: FightEntry = { record, run, notes: (notes.get(fightPath(record)) ?? []).sort((a, b) => a.tick - b.tick), journal: null, error: null, analysis: null, hashOk: null, summaryDiff: [] };
     out.push(entry);
     try {
@@ -333,7 +344,7 @@ function runsSection(runs: readonly RunRecord[], entries: readonly FightEntry[])
   const rows = runs.map(r => {
     const d = r.death;
     const death = d ? `${d.enemy ? kindTitle(d.enemy) : '—'}, ${sourceTitle(d.source)}${d.elite ? ', элита' : ''}${d.affixes?.length ? ` (${d.affixes.join(', ')})` : ''}${d.fight ? ` — \`${d.fight}\`${d.tick !== undefined ? `, такт ${d.tick}` : ''}` : ''}` : '—';
-    const fights = entries.filter(e => e.record.session === r.session && e.record.run === r.run).length;
+    const fights = entries.filter(e => e.record.run === r.run).length;
     return [`\`${r.run}\``, r.session, r.tester ?? '—', r.seed, OUTCOME_TITLES[r.outcome] ?? r.outcome, r.farRow, death, fights, r.nodes.map(n => `${n.nodeId} ${n.hpIn}→${n.hpOut}`).join(', ') || '—'];
   });
   const choices = runs.flatMap(r => r.choices.map(c => [`\`${r.run}\``, c.nodeId, c.source, c.offered.join(', ') || '—', c.taken.join(', ') || '—', c.refused.join(', ') || '—']));
@@ -371,7 +382,7 @@ export interface ReportOptions {
 /** The whole report. */
 export function reportMarkdown(set: RecordSet, analysis: Analysis, options: ReportOptions): string {
   const fights = analysis.fights;
-  const runs = set.records.filter((r): r is RunRecord => r.kind === 'run').sort((a, b) => a.id.localeCompare(b.id));
+  const runs = latestRuns(set.records).sort((a, b) => a.id.localeCompare(b.id));
   const runFights = fights.filter(e => e.record.run !== SANDBOX_RUN), sandbox = fights.filter(e => e.record.run === SANDBOX_RUN);
   const notes = fights.reduce((s, e) => s + e.notes.length, 0) + analysis.orphanNotes.length;
   const bad = fights.filter(e => e.hashOk === false), broken = fights.filter(e => e.error), partial = fights.filter(e => e.record.outcome === 'unload');

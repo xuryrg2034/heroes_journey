@@ -12,7 +12,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, reportMarkdown, snapshotAt, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, latestRuns, reportMarkdown, snapshotAt, type ReportInput } from '../src/realtime/telemetry/report';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -38,6 +38,19 @@ async function main(): Promise<void> {
     const run = set.records.find(r => r.kind === 'run');
     assert(run && run.kind === 'run' && run.outcome === 'defeat' && run.fights.length === 3, 'the newest run record wins');
     assert(fights.length === 6 && fights.filter(f => f.record.run === 'sandbox').length === 3, `fights ${fights.length}`);
+  });
+
+  await check('a run continued in another browser session (`S2/R/run` beside `S1/R/run`) is one run: the latest record, its fights of both sessions', async () => {
+    const run = set.records.find(r => r.kind === 'run')!;
+    if (run.kind !== 'run') throw new Error('no run');
+    const later = { ...run, session: 's2later', id: run.id.replace(/^[^/]+/, 's2later'), at: '2099-01-01T00:00:00.000Z', farRow: run.farRow + 1 };
+    const twoSessions = collectRecords([{ name: 'a', text: JSON.stringify(set.records) }, { name: 'b', text: JSON.stringify(later) }]);
+    const runs = latestRuns(twoSessions.records);
+    assert(runs.length === 1 && runs[0].session === 's2later' && runs[0].farRow === run.farRow + 1, `runs ${runs.length}`);
+    const again = await analyzeRecords(twoSessions);
+    assert(again.fights.filter(f => f.record.run === run.run).every(f => f.run !== null), 'every fight of the run finds its run');
+    const md2 = reportMarkdown(twoSessions, again, { now: new Date('2026-10-10T18:00:00Z'), source: 'two sessions' });
+    assert((md2.match(new RegExp(`\\| \`${run.run}\` \\|`, 'g')) ?? []).length >= 1 && md2.includes('s2later'), 'the runs table shows the run once, the latest session');
   });
 
   await check('every journal is assembled and replayed; only the spoiled hash fails, and the report shows it at the top', () => {
