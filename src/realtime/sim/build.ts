@@ -21,6 +21,7 @@
  */
 import type { StrikeOutcome } from './chain';
 import type { Vec } from './geometry';
+import { COUNTER_TALISMANS, HAMMER_IDS, OATH_HUNGER, RELIC_IDS } from './buildIds';
 import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
 import type { ChainLink, Enemy, HeroMove, World } from './world';
 
@@ -151,10 +152,24 @@ export interface BuildModule {
 
 const MODULES: BuildModule[] = [];
 
-/** Registers a build module (once per id; a second one with the same id is an error). */
+/**
+ * Rank of a module in the registry, whatever file is imported first (review 10.10.2026: the order of the hooks — e.g. the
+ * wave before the frost, the hammers after the talismans — is part of the fight and its hash): the counter talismans, then
+ * the hammers, then the relics and «Клятва голода», then any other module (a test's) — each group in its own order of
+ * registration.
+ */
+function moduleRank(id: string): number {
+  if ((Object.values(COUNTER_TALISMANS) as string[]).includes(id)) return 0;
+  if ((HAMMER_IDS as readonly string[]).includes(id)) return 1;
+  if ((RELIC_IDS as readonly string[]).includes(id) || id === OATH_HUNGER) return 2;
+  return 3;
+}
+
+/** Registers a build module (once per id; a second one with the same id is an error), in its rank (`moduleRank`). */
 export function registerBuildModule(module: BuildModule): BuildModule {
   if (MODULES.some(m => m.id === module.id)) throw new Error(`build module ${module.id} is already registered`);
-  MODULES.push(module);
+  const rank = moduleRank(module.id), at = MODULES.findIndex(m => moduleRank(m.id) > rank);
+  if (at < 0) MODULES.push(module); else MODULES.splice(at, 0, module);
   return module;
 }
 

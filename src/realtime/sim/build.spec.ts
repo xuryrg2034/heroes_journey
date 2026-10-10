@@ -17,7 +17,7 @@ import {
   addCounter, buildModules, chainShieldOf, counterOf, crystalEveryOf, enemyWalkFactorOf, focusMaxOf, heroSpeedOf, itemHealOf, jumpCostOf, linkGainOf,
   linkRadiusOf, registerBuildModule, setBuildState, talismanFired, type ChainEnd, type LinkContext,
 } from './build';
-import { BUILD_SOURCES, HAMMERS } from './buildIds';
+import { BUILD_SOURCES, COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle } from './buildHits';
 import { planChain, startReturnRun } from './chain';
 import { worldState } from './hash';
@@ -361,6 +361,16 @@ check('a return run after the dash: the hero runs back to the chain start untouc
   const wave = events.find((e): e is Extract<WorldEvent, { type: 'kill' }> => e.type === 'kill' && e.enemyId === byStart.id);
   assert(wave?.source === BUILD_SOURCES.wave && wave.credited && w.stats.kills === 4 && events.some(e => e.type === 'wave'), `wave kill ${JSON.stringify(wave)}, kills ${w.stats.kills}`);
   assert(replays(sim), 'replay');
+});
+
+check('the modules stand in their groups whatever file was imported first (review 10.10.2026): the counter talismans, the hammers, the relics and «Клятва голода», then the test modules', () => {
+  const group = (id: string): number => (Object.values(COUNTER_TALISMANS) as string[]).includes(id) ? 0 : (Object.values(HAMMERS) as string[]).includes(id) ? 1
+    : (Object.values(RELICS) as string[]).includes(id) || id === OATH_HUNGER ? 2 : 3;
+  const ranks = buildModules().map(m => group(m.id));
+  assert(ranks.every((r, i) => i === 0 || ranks[i - 1] <= r), `groups out of order: ${buildModules().map(m => m.id).join(', ')}`);
+  // A late module of an earlier group goes before the later groups, not to the end.
+  const probe = registerBuildModule({ id: 'zz-order-probe' });
+  assert(buildModules()[buildModules().length - 1] === probe, 'a test module goes last');
 });
 
 console.log(`realtime-build: ${checks} checks passed`);

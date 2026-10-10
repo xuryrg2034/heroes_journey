@@ -18,9 +18,9 @@
  * `onChainKill` (`move.kills`: struck dead by the dash or a fallen credited link passed). The counters of «Кровавая клятва»
  * and «Клятва голода» are arena-long (`Kit.counters`, a new arena starts from 0) and keep the kills since the last trigger.
  *
- * The run does not import this file (it registers the modules on import: a run module loaded before world.ts would put the
- * relics before the talismans and change the key order of `Kit.counters` in the hash). Its numbers the run and the cards
- * need are repeated there and checked by relics.spec.ts.
+ * The run does not import this file (it registers the modules on import; their order is set by the registry of build.ts
+ * — `moduleRank` — whatever file is imported first). Its numbers the run and the cards need are repeated there and checked
+ * by relics.spec.ts.
  */
 import { addCounter, counterOf, registerBuildModule, setCounter, talismanFired, type BuildModule, type BuildProgress } from './build';
 import { OATH_HUNGER, RELICS } from './buildIds';
