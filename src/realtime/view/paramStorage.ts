@@ -41,3 +41,25 @@ export function loadRoleBadges(): boolean {
 export function saveRoleBadges(on: boolean): void {
   try { localStorage.setItem(BADGES_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
 }
+
+/**
+ * Phase B, track Д5: the sandbox build — a counter talisman (Т1), a relic or the new oath (Т3, 5а) and a hammer (Т2) put into
+ * the sandbox loadout from the next arena. Not a Param (Params are hashed: a new key would change the hash of old journals);
+ * the loadout goes into the journal as it is. Its own key; storage may be unavailable (then nothing taken).
+ */
+export interface SandboxBuild { talisman: string; relic: string; hammer: string }
+const BUILD_KEY = 'ashen-oath-realtime-sandbox-build';
+
+export function loadSandboxBuild(): SandboxBuild {
+  const empty: SandboxBuild = { talisman: '', relic: '', hammer: '' };
+  try {
+    const raw = JSON.parse(localStorage.getItem(BUILD_KEY) ?? 'null') as Partial<SandboxBuild> | null;
+    if (!raw || typeof raw !== 'object') return empty;
+    const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+    return { talisman: text(raw.talisman), relic: text(raw.relic), hammer: text(raw.hammer) };
+  } catch { return empty; }
+}
+
+export function saveSandboxBuild(build: SandboxBuild): void {
+  try { localStorage.setItem(BUILD_KEY, JSON.stringify(build)); } catch { /* storage may be unavailable */ }
+}
