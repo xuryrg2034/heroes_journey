@@ -33,8 +33,11 @@ let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 const near = (a: number, b: number, eps = 1e-9): boolean => Math.abs(a - b) <= eps;
 
-/** Every talisman of the real-time run before phase B. */
-const OLD_TALISMANS = ['whetstone', 'dew-flask', 'tough-hide', 'millstone-shard', 'hourglass', 'nimble-paws', 'ash-ward', 'hero-anchor', 'oath-hunger'];
+/**
+ * Every talisman of the real-time run before phase B that is not a build item. «Клятва голода» (`oath-hunger`) is one since
+ * track Д3 (5а: its kills counter acts in the arena; sim/relics.ts, relics.spec.ts).
+ */
+const OLD_TALISMANS = ['whetstone', 'dew-flask', 'tough-hide', 'millstone-shard', 'hourglass', 'nimble-paws', 'ash-ward', 'hero-anchor'];
 
 /** A quiet fight: no newcomers, enemies stand, touches do not hurt — only what the test places acts. */
 function quiet(extra: Partial<Params> = {}): Params {

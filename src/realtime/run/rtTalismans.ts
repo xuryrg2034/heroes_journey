@@ -32,8 +32,6 @@ export { COUNTER_TALISMANS, HAMMERS, HAMMER_IDS, OATH_HUNGER, RELICS, RELIC_IDS,
 /** Баланс: the turn-based HP numbers of the talismans (DEW_FLASK_HEAL, TOUGH_HIDE_HP: +1) in real-time HP. */
 export const RT_TOUGH_HIDE_HP = rtHp(1);
 export const RT_DEW_FLASK_HEAL = rtHp(1);
-/** Баланс: energy an oath adds at the start of every arena (OATH_ENERGY of the turn-based game, section 6: «клятвы: +2»). */
-export const RT_OATH_ENERGY = 2;
 
 /** A turn-based talisman as a slice definition: its id, name, rarity and exclusions; the effect text is the slice's. */
 const turn = (id: TalismanId, effect: string): RtTalismanDef => {
@@ -50,7 +48,8 @@ export const RT_TALISMANS: readonly RtTalismanDef[] = [
   turn('nimble-paws', 'Прыжок стоит 1 энергию вместо 2'),
   turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается'),
   { id: 'hero-anchor', name: 'Якорь у героя', rarity: 'rare', effect: 'Следующее звено берётся и в радиусе R от героя (обойти щит им нельзя)' },
-  turn('oath-hunger', `+${RT_OATH_ENERGY} энергии в начале каждой арены; привал не лечит (крафт остаётся)`),
+  // Phase B, 5а (decision 10.10.2026): the new «Клятва голода» (sim/relics.ts `HUNGER_KILLS`, `HUNGER_HEAL`; relics.spec.ts checks the numbers).
+  turn('oath-hunger', '+1 HP за 15 убийств цепью; привал не лечит (крафт остаётся)'),
 ];
 /**
  * Turn-based talismans without an analogue in real time (not offered; questions to design): «Кисет старьёвщика» and the
