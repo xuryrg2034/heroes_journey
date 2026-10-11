@@ -1,12 +1,16 @@
 /**
- * Test kit (Node only) for run features read from a finished fight: П10 «Личный рекорд» (record.spec.ts). A run node's
- * arena is played as a real fight — journalled commands on a quiet test field with the run's params and loadout — and the
- * outcome is read from the finished world as main.ts `recordRunArena` reads it. The run goes on by its own commands.
+ * Test kit (Node only) for run features read from a finished fight: П10 «Личный рекорд» (record.spec.ts), П5 «Журнал удачи»
+ * (luck.spec.ts). A run node's arena is played as a real fight — journalled commands on a quiet test field with the run's
+ * params and loadout — and the outcome is read from the finished world as main.ts `recordRunArena` reads it; the fight's
+ * chance is read from every tick's events as main.ts reads them every frame (`observeFightLuck`). The run goes on by its
+ * own commands.
  */
 import { registerArena } from '../sim/arenas';
 import { defaultParams, type Params } from '../sim/params';
 import { Simulation, replay } from '../sim/simulation';
-import type { World } from '../sim/world';
+import type { World, WorldEvent } from '../sim/world';
+import { goblinOf, leverOf } from '../sim/slot';
+import { observeFightLuck, type RtLuckTally } from './rtLuck';
 import {
   rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtNode, rtRestHeal, rtRunParams, rtShopLeave, type RtArenaOutcome, type RtRunState, type RtRunStep,
@@ -60,19 +64,20 @@ export interface FightPlan {
   seen?: (w: World) => void;
 }
 
-/** The finished world read as main.ts `recordRunArena` reads it (П10: `bestChain`). */
-export function outcomeOf(run: RtRunState, w: World): RtArenaOutcome {
+/** The finished world read as main.ts `recordRunArena` reads it (П10: `bestChain`; П5: the fight's `luck`, none — absent). */
+export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}): RtArenaOutcome {
   const pending = run.pending;
   assert(pending?.kind === 'battle', 'an open battle');
   return { nodeId: pending.nodeId, won: w.status === 'victory', hp: w.status === 'victory' ? Math.min(run.maxHp, w.hero.hp) : 0, kills: w.stats.kills, bestChain: w.stats.bestChain,
-    damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {},
+    ...Object.keys(luck).length ? { luck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {},
     ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} };
 }
 
 /** The open battle of `run` played on the quiet field by `plan`; it replays from its journal to the same hash. */
-export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; outcome: RtArenaOutcome } {
+export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; outcome: RtArenaOutcome; events: WorldEvent[] } {
   const sim = new Simulation({ arena: 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(plan.k ?? 1), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp } });
-  const seen = plan.seen ?? (() => {});
+  const luck: RtLuckTally = {}, events: WorldEvent[] = [];
+  const seen = (w: World): void => { observeFightLuck(luck, w.events); events.push(...w.events); plan.seen?.(w); };
   sim.command({ t: 'clear', keepMarked: false });
   for (const n of plan.chains) chainOf(sim, n, seen);
   plan.play?.(sim, seen);
@@ -92,7 +97,30 @@ export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; 
     assert(sim.world.status === 'victory', `the hero walked into the door (${sim.world.status})`);
   }
   assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), 'the fight replays from its journal');
-  return { sim, outcome: outcomeOf(run, sim.world) };
+  return { sim, outcome: outcomeOf(run, sim.world, luck), events };
+}
+
+/** «Однорукий гоблин» by the debug command (journalled; the run's params have the slot on) near the hero. */
+export function summonGoblin(sim: Simulation): void {
+  assert(sim.command({ t: 'slot' }) === true, 'the goblin stands');
+}
+/**
+ * A bare pull (a chain of just the lever, no struck links): waits for the lever (its marker or cooldown, the spin), the
+ * hero next to it, the dash; then the reels stop. Returns the pull's events.
+ */
+export function pullBare(sim: Simulation, seen: (w: World) => void): Extract<WorldEvent, { type: 'slot' }> {
+  const w = sim.world, out: WorldEvent[] = [];
+  const watch = (world: World): void => { out.push(...world.events); seen(world); };
+  ticks(sim, 60 * 30, watch, world => { const g = goblinOf(world); return !!g && !g.spin && world.time + 1e-6 >= g.ready; });
+  const lever = leverOf(w)!, dx = w.arena.width / 2 - lever.x, dy = w.arena.height / 2 - lever.y, d = Math.hypot(dx, dy) || 1;
+  sim.command({ t: 'teleport', x: lever.x + dx / d * 1.2, y: lever.y + dy / d * 1.2 });
+  assert(sim.command({ t: 'begin', x: lever.x, y: lever.y }) === true && w.chain.length === 1, 'a chain of just the lever');
+  sim.command({ t: 'release' });
+  watch(w); w.events.length = 0;
+  ticks(sim, 900, watch, world => !world.move && !goblinOf(world)?.spin);
+  const pull = out.find((ev): ev is Extract<WorldEvent, { type: 'slot' }> => ev.type === 'slot' && ev.action === 'pull');
+  assert(pull, 'the dash pulled the lever');
+  return pull;
 }
 
 export function ok(step: RtRunStep, what: string): RtRunState {

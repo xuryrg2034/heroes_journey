@@ -43,6 +43,7 @@ import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
 import { rtNode, rtRunBestChain } from '../run/rtRun';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
+import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
@@ -521,6 +522,7 @@ async function boot(): Promise<void> {
       runLabel = label;
       runArenaRecorded = false;
       fightChainLine = null;
+      fightLuck = {};
       // Phase A (Т2): the node's roster over the template (the journal keeps it, sim/simulation.ts).
       startArena(roster !== undefined ? withRoster(arenaTemplate(arenaId), roster) : arenaTemplate(arenaId), seed, hero, loadout, notice);
     },
@@ -550,6 +552,8 @@ async function boot(): Promise<void> {
   /** П10: the viewer's all-time chain record and the line of the run fight just recorded (null — none: the sandbox). */
   const chainRecord = new ChainRecordStore();
   let fightChainLine: ChainLine | null = null;
+  /** П5 «Журнал удачи»: the run fight's chance, read from the sim's events every frame (rtLuck.ts); it goes with the outcome. */
+  let fightLuck: RtLuckTally = {};
   const recordRunArena = (): void => {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
@@ -557,7 +561,7 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -825,6 +829,8 @@ async function boot(): Promise<void> {
       if (ticksPerFrame > 0) for (const e of w.enemies) if (renderer.sees(e)) inView++;
       recorder.frameEnd(w, ticksPerFrame > 0 ? inView : null, ticksPerFrame);
     }
+    // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
+    if (runView?.arenaOpen && !runArenaRecorded) observeFightLuck(fightLuck, w.events);
     w.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;
@@ -1111,6 +1117,8 @@ async function boot(): Promise<void> {
     /** Starts arena `n` (1–18), as keys 1–9, 0 and ⇧1–⇧8 on the menu; `seed` fixes its seed. */
     selectArena: (n: number, seed?: number) => start(n - 1, seed),
     completeGoals: () => command({ t: 'goals' }),
+    /** Test setup (casino «Однорукий гоблин»): the goblin near the hero by the journalled debug command (needs `slot` on; a run has it). */
+    summonGoblin: () => command({ t: 'slot' }),
     burst: (count: number) => command({ t: 'burst', count }),
     /** A debug-panel value through the journal (direct writes to `params` are not journalled). */
     setParam: (key: ParamKey, value: unknown) => command({ t: 'param', key, value }),

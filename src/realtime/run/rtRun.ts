@@ -44,6 +44,7 @@ import { ENERGY_MAX } from '../sim/chain';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
 import type { Loadout } from '../sim/kit';
 // Phase B, track Д4: the sources — the Jailer's hammer, the real-time draws of the gift and events.
+import { addLuck, countLuck, rtLuckLines, validLuckTally, RT_FIGHT_LUCK_KEYS, type RtEventLuck, type RtLuckLine, type RtLuckTally } from './rtLuck';
 import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalismanDraw, rtTalismanLeft, type HammerId } from './rtTalismans';
 
 /**
@@ -67,7 +68,8 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * The roster mix (the same version, design decision 11.10.2026): the run's flag `rosterMix`, set at its creation; a save
  * without it (version 6, or version 7 before the mix) is read and keeps the old pools and rosters to its end — its arenas
  * and rosters are chosen again by the rule they were chosen with, so no save in progress is rejected. П10 «Личный рекорд»
- * (the same version, 12.10.2026): a battle record may carry `bestChain`; records saved before it have none.
+ * (the same version, 12.10.2026): a battle record may carry `bestChain`; records saved before it have none. П5 «Журнал удачи»
+ * (the same version, 12.10.2026): the run's luck tally `luck` (rtLuck.ts), absent until the first chance; a save before it has none.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -244,6 +246,12 @@ export interface RtRunState {
   gift?: RunGift;
   eventChoices: RtEventChoice[];
   battles: RtBattleRecord[];
+  /**
+   * П5 «Журнал удачи» (rtLuck.ts): the run's tally of chance against the shown odds — the goblin, the elites' loot (from the
+   * fights' `RtArenaOutcome.luck`) and the die at the door (`rtDieChoose`). Absent until the first (a save before 12.10.2026
+   * has none); event outcomes are read from `eventChoices`.
+   */
+  luck?: RtLuckTally;
   pending: RtRunPending | null;
   result: { outcome: 'victory' | 'defeat'; nodeId: string } | null;
 }
@@ -289,6 +297,11 @@ export interface RtArenaOutcome {
   nodeId: string; won: boolean; hp: number; kills: number; damage: number; time: number;
   /** П10 «Личный рекорд»: the fight's longest chain in kills (`stats.bestChain`); absent — not recorded (the record has none). */
   bestChain?: number;
+  /**
+   * П5 «Журнал удачи»: the fight's chance as the view saw it in the sim's events (rtLuck.ts `observeFightLuck`: the goblin's
+   * pulls, the player's kills of armoured elites); only the fight's keys (`RT_FIGHT_LUCK_KEYS`) are taken. Absent — none.
+   */
+  luck?: RtLuckTally;
   /** Step 3: consumables in hand at the end (used ones gone, picked-up loot added); absent — as carried in. */
   items?: Partial<Record<ItemKind, number>>;
   /** Step 3: crafting resources picked up on the arena (the loot of elites). */
@@ -721,6 +734,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   const count = (value: number) => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
   run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0),
     ...outcome.bestChain !== undefined ? { bestChain: count(outcome.bestChain) } : {} });
+  // П5: the fight's chance joins the run's tally (a lost fight's too).
+  const luck = addLuck(run.luck, outcome.luck, RT_FIGHT_LUCK_KEYS);
+  if (luck) run.luck = luck;
   // Step 3: the modifiers of events acted on this arena (they act on one arena).
   delete run.modifiers;
   // Iteration 2.1 (interface): this arena showed the new consumables and maybe the hint; a used consumable ends the hints.
@@ -868,6 +884,8 @@ export function rtDieChoose(current: RtRunState, roll: boolean): RtRunStep {
   const run = structuredClone(current), events: RtRunEvent[] = [], node = rtNode(run, pending.nodeId)!;
   const mult = roll ? rtDieMult(pending.face) : 1, base = doorPayout(pending.door, 1).length;
   const resources = payDoor(run, pending.door, mult);
+  // П5 «Журнал удачи»: a roll counts (faces 4–6 — the high half, ½ each); «Забрать» is no roll.
+  if (roll) { const luck = { ...run.luck }; countLuck(luck, 'die', pending.face > DIE_LOW_FACES, (6 - DIE_LOW_FACES) / 6); run.luck = luck; }
   events.push({ type: 'die-resolved', nodeId: node.id, rolled: roll, face: pending.face, mult, resources, base });
   run.pending = null;
   return afterVictory(run, node, battleKindOf(node), events);
@@ -1152,6 +1170,31 @@ export function rtChooseEventOption(current: RtRunState, optionId: string): RtRu
   completeNode(run, node, events); return { ok: true, run, events };
 }
 
+/**
+ * П5 «Журнал удачи»: every event outcome of the run that had odds (an option, or an escalation attempt, with at least two
+ * outcomes of a chance above 0), as the event screen showed it — the outcome's text in real-time numbers (resource kinds
+ * left out) and its odds. Read from the save's `eventChoices`, so a save written before the tally has them too.
+ */
+export function rtEventLuck(run: Pick<RtRunState, 'picks' | 'eventChoices'>): RtEventLuck[] {
+  const out: RtEventLuck[] = [];
+  const add = (title: string, option: EventOption, chances: readonly number[], outcome: number) => {
+    if (chances.filter(chance => chance > 0).length < 2 || !option.outcomes[outcome]) return;
+    out.push({ title, option: option.label, outcome: outcomeText(option.outcomes[outcome], []), odds: chanceText(chances, outcome) });
+  };
+  for (const choice of run.eventChoices) {
+    const event = eventOf(run as RtRunState, choice.nodeId), option = event ? eventOption(event, choice.option) : undefined;
+    if (!event || !option) continue;
+    const escalation = event.options.find(entry => entry.escalation);
+    if (escalation) (choice.attempts ?? []).forEach((outcome, attempt) => add(event.title, escalation, attemptChances(escalation, attempt), outcome));
+    // The closing option (never the escalation one: its attempts keep the event open).
+    if (!option.battle && !option.escalation) add(event.title, option, attemptChances(option), choice.outcome);
+  }
+  return out;
+}
+
+/** П5: the block «Удача похода» of the run-end screen — the tally's sources, then the event outcomes with odds. */
+export function rtLuckReport(run: RtRunState): RtLuckLine[] { return rtLuckLines(run.luck, rtEventLuck(run)); }
+
 // ---------- The start gift ----------
 
 /**
@@ -1417,6 +1460,8 @@ function checkRun(value: unknown): RtRunState | null {
       || !isCount(record.kills) || !isCount(record.damage) || typeof record.time !== 'number' || !Number.isFinite(record.time) || record.time < 0
       || (record.bestChain !== undefined && !isCount(record.bestChain))) return null;
   }
+  // П5: the luck tally — known sources, valid counts; no more die rolls than dice shown.
+  if (run.luck !== undefined && !(validLuckTally(run.luck) && (run.luck.die?.tries ?? 0) <= (run.dieDraws ?? 0))) return null;
   for (const choice of run.eventChoices as unknown[]) {
     if (!isRecord(choice) || !known(choice.nodeId) || typeof choice.option !== 'string') return null;
     const event = eventOf(choice.nodeId), option = event ? eventOption(event, choice.option) : undefined;

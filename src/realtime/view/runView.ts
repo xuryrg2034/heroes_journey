@@ -18,7 +18,7 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  rtOathPreview, rtDieChoose, rtDieView, DIE_LOW_FACES,
+  rtOathPreview, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   type RtArenaOutcome, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -155,6 +155,8 @@ export class RunView {
   private confirmReset = false;
   /** П1: the gear's settings are open over the map header. */
   private settingsOpen = false;
+  /** П5: the block «Удача похода» of the run-end screen is open (collapsed by default; a new run or a reload closes it). */
+  private luckOpen = false;
   /** The arena of the open battle node is on screen. */
   private inArena = false;
   /** П7: the nudge taken for this showing of the map (null — none due); a fight or a new run drops it. */
@@ -194,7 +196,7 @@ export class RunView {
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
     this.host.runStarted?.(previous, this.run);
-    this.selected = null; this.notice = ''; this.confirmReset = false;
+    this.selected = null; this.notice = ''; this.confirmReset = false; this.luckOpen = false;
     this.open();
     return this.run;
   }
@@ -274,6 +276,8 @@ export class RunView {
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
     if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
+    // П5: the summary of «Удача похода» opens and closes the block (the redraw keeps it as it is).
+    if (action === 'luck') { event.preventDefault(); this.luckOpen = !this.luckOpen; this.draw(); return; }
     if (action === 'view-toggle') {
       const toggle = this.host.viewToggles?.find(t => t.id === target.dataset.toggle);
       if (toggle) toggle.set((target as HTMLInputElement).checked);
@@ -450,12 +454,25 @@ export class RunView {
       + `<div class="rt-run-choices">${buttons}</div><button class="rt-again" data-action="enter" data-testid="run-enter">Без клятвы</button></div>`;
   }
 
+  /**
+   * П5 «Журнал удачи» (rtLuck.ts): the run-end block «Удача похода», collapsed by default — each source of chance, what came
+   * against what the shown odds expected; facts only.
+   */
+  private luckHtml(run: RtRunState): string {
+    const lines = rtLuckReport(run);
+    const body = lines.length
+      ? `<ul class="rt-luck-lines">${lines.map(line => `<li data-testid="luck-${line.id}"><b>${escapeHtml(line.label)}:</b> ${escapeHtml(line.text)}</li>`).join('')}</ul>`
+      : `<p class="rt-run-note" data-testid="luck-none">В этом походе случая не было.</p>`;
+    return `<details class="rt-luck" data-testid="run-luck"${this.luckOpen ? ' open' : ''}><summary data-action="luck" data-testid="run-luck-toggle">Удача похода</summary>${body}</details>`;
+  }
+
   private modalHtml(run: RtRunState): string {
     const card = (body: string, testId: string) => `<div class="rt-overlay rt-run-modal" data-testid="${testId}"><div class="rt-card">${body}</div></div>`;
     if (run.result) {
       const won = run.result.outcome === 'victory', kills = run.battles.reduce((sum, b) => sum + b.kills, 0), damage = run.battles.reduce((sum, b) => sum + b.damage, 0);
       return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2><dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd><dt>Ряд похода</dt><dd>${runRow(rtNode(run, run.result.nodeId)!.row)}</dd></dl>`
+        + this.luckHtml(run)
         + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
         + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }

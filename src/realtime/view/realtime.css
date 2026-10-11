@@ -270,3 +270,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-result-chain { margin: -8px 0 18px; text-align: center; font-size: 14px; color: #e5dcc0; font-variant-numeric: tabular-nums; }
 .rt-result-chain.rt-record-flash { animation: rt-record-flash .7s ease-out 2; }
 @keyframes rt-record-flash { 0% { color: #e5dcc0; text-shadow: none; } 30% { color: #ffd88a; text-shadow: 0 0 18px #ffd88a; } 100% { color: #e5dcc0; text-shadow: none; } }
+/* П5 «Журнал удачи»: the run-end block «Удача похода», collapsed by default. */
+.rt-luck { margin: 0 0 14px; text-align: left; font-size: 13px; color: #e5dcc0; }
+.rt-luck summary { cursor: pointer; color: var(--rt-muted); }
+.rt-luck-lines { margin: 6px 0 0; padding-left: 18px; max-width: 520px; }
+.rt-luck-lines li { margin: 2px 0; }
+.rt-luck-lines b { color: #e0d4ad; font-weight: 600; }
