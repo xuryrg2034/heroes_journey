@@ -20,6 +20,7 @@
 import { registerArena } from './arenas';
 import { planChain } from './chain';
 import { worldState } from './hash';
+import type { Loadout } from './kit';
 import { defaultParams, type Params } from './params';
 import { greedLine, type PurseDoor } from './purse';
 import { Simulation, replay } from './simulation';
@@ -52,8 +53,8 @@ function quiet(extra: Partial<Params> = {}): Params {
 const CHECKPOINT = 60;
 /** A fight with its hashes every `CHECKPOINT` ticks (the replay must repeat them). */
 interface Fight { sim: Simulation; hashes: Map<number, string>; events: WorldEvent[] }
-function fight(params: Params = quiet(), k = 1): Fight {
-  const sim = new Simulation({ arena: 'greed-field', params, seed: seedOf(k), record: true });
+function fight(params: Params = quiet(), k = 1, loadout: Loadout = {}): Fight {
+  const sim = new Simulation({ arena: 'greed-field', params, seed: seedOf(k), record: true, loadout });
   sim.command({ t: 'clear', keepMarked: false });
   return { sim, hashes: new Map(), events: [] };
 }
@@ -257,6 +258,19 @@ check('the cap stays the cap of the stakes: 204 at ×3 still pays 3; the line na
   assert(line(w) === 'дверь открыта · котёл 204 ×3 · потолок 3', `the ceiling at the cap: ${line(w)}`);
   chain(f, weak(3), true);
   assert(w.status === 'victory' && w.purse?.door?.greed === 3 && of(f.events, 'purseDoor')[0].resources === 3, `the door pays 3: ${JSON.stringify(w.purse?.door)}`);
+});
+
+check('the cap line and the oath (design 12.10.2026): an «at least once» oath that waits shows no cap; a holding one — its cap 6', () => {
+  // «Кристалл в цепи» not met yet: 114 × 2 = 228 would pay 1 at ×0.5, but meeting the oath may still raise the cap — no «потолок».
+  const once = fight(quiet({ oathStake: true }), 1, { oath: 'crystal-chain' }), w = once.sim.world;
+  goals(once);
+  chain(once, weak(9)); chain(once, weak(9)); chain(once, weak(3)); chain(once, weak(4));
+  assert(line(w) === 'дверь открыта · котёл 114 ×2 · ещё 2 цепи 3+ → ×3', `the waiting oath: no cap (${line(w)})`);
+  // «Цепи 3+» holds (every chain after the first has 3+): ×2 raises the cap to 6; 114 × 2 × 2 = 456 → 7 → «потолок 6».
+  const holds = fight(quiet({ oathStake: true }), 1, { oath: 'chains3' }), h = holds.sim.world;
+  goals(holds);
+  chain(holds, weak(9)); chain(holds, weak(9)); chain(holds, weak(3)); chain(holds, weak(4));
+  assert(line(h) === 'дверь открыта · котёл 114 ×2 · потолок 6', `the holding oath: its cap (${line(h)})`);
 });
 
 // ---- The rule does not touch the cheque; old journals ----

@@ -225,14 +225,6 @@ export function greedHurt(world: World): void {
   world.events.push({ type: 'greed', cause: 'hit', step: g.step, chains: g.chains, mult: GREED_MULTS[g.step] });
 }
 
-/**
- * The oath's multiplier if the hero went through the door now (oath.ts): none — 1, holding — ×2, broken or an «at least
- * once» oath not met yet (the door breaks it) — ×0.5.
- */
-function doorOathNow(world: World): number {
-  const state = oathMark(world);
-  return !state ? 1 : state.mark === 'holds' ? OATH_KEPT_MULT : OATH_BROKEN_MULT;
-}
 
 /** What the goal line shows after the goals with the rule on. */
 export interface GreedView {
@@ -242,15 +234,20 @@ export interface GreedView {
   mult: number; next: number | null;
   /** Counted chains still needed for the next step. */
   chainsLeft: number;
-  /** The payout without the die already stands at its cap if the hero went through the door now: the cap; null — below it. */
+  /**
+   * The payout without the die already stands at its cap if the hero went through the door now: the cap; null — below it,
+   * or an «at least once» oath still waits (design 12.10.2026: meeting it raises the cap to 6, so waiting may still help).
+   */
   cap: number | null;
 }
 /** The goal line's data (null — the rule is off or the door is closed). */
 export function greedView(world: World): GreedView | null {
   if (!greedOn(world) || world.stage !== 'greed') return null;
-  const step = greedStep(world), cauldron = world.purse?.cauldron ?? 0, oath = doorOathNow(world);
+  const step = greedStep(world), cauldron = world.purse?.cauldron ?? 0, state = oathMark(world);
+  // The oath as it stands: none — 1, holding (met) — ×2, broken — ×0.5; one that still waits shows no cap.
+  const oath = !state ? 1 : state.mark === 'broken' ? OATH_BROKEN_MULT : OATH_KEPT_MULT;
   const rate = Math.max(1, world.params.purseRate ?? EMBERS_PER_RESOURCE), mult = GREED_MULTS[step], cap = payoutCap(oath);
-  const capped = purseResources(cauldron, oath, 1, rate, mult) >= cap;
+  const capped = state?.mark !== 'waits' && purseResources(cauldron, oath, 1, rate, mult) >= cap;
   return {
     cauldron, mult, next: step < GREED_MULTS.length - 1 ? GREED_MULTS[step + 1] : null,
     chainsLeft: GREED_CHAINS - (world.purse?.greed?.chains ?? 0), cap: capped ? cap : null,
