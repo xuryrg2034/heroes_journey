@@ -94,3 +94,17 @@ export function loadSessionClock(): boolean {
 export function saveSessionClock(on: boolean): void {
   try { localStorage.setItem(SESSION_CLOCK_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
 }
+
+/**
+ * П8 «Новое на карте»: the sign «✦ новое» on the node card and the one-time captions in a fight — a local setting of the
+ * view, not a Param: its own key, on by default; storage may be unavailable (then on). The gear of the run map switches it.
+ */
+const NEW_ON_MAP_KEY = 'ashen-oath-realtime-new-on-map';
+
+export function loadNewOnMap(): boolean {
+  try { return localStorage.getItem(NEW_ON_MAP_KEY) !== '0'; } catch { return true; }
+}
+
+export function saveNewOnMap(on: boolean): void {
+  try { localStorage.setItem(NEW_ON_MAP_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
+}

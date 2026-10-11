@@ -36,6 +36,7 @@
     "test:realtime-loop-access": "tsx src/realtime/sim/loopAccess.spec.ts",
     "test:realtime-loop": "tsx src/realtime/sim/loop.spec.ts",
     "test:realtime-session": "tsx src/realtime/view/session.spec.ts",
+    "test:realtime-new-seen": "tsx src/realtime/view/newSeen.spec.ts",
     "test:realtime-link-depth": "tsx src/realtime/sim/linkDepth.spec.ts",
     "test:realtime-elite-behaviors": "tsx src/realtime/sim/eliteBehaviors.spec.ts",
     "test:realtime-elite-armor": "tsx src/realtime/sim/eliteArmor.spec.ts",

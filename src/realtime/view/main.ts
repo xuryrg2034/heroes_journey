@@ -31,7 +31,7 @@ import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World }
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadSessionClock, PARAMS_STORAGE_KEY, saveLinkDepth, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
+import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, PARAMS_STORAGE_KEY, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
 import { SessionClock } from './session';
 import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
@@ -43,6 +43,7 @@ import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
 import { rtNode, rtRunBestChain } from '../run/rtRun';
+import { NewSeenStore } from './newSeen';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RtDeathWatch } from '../run/rtRunEnd';
@@ -524,6 +525,9 @@ async function boot(): Promise<void> {
     window.setInterval(() => { if (document.visibilityState === 'visible') sessionClock.touch(); }, 30_000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sessionClock.touch(); });
   }
+  // П8 «Новое на карте»: the memory of kinds and affixes met (a run only: the sandbox neither reads nor writes it) and the toggle.
+  const newSeen = sandbox ? null : new NewSeenStore();
+  let newOnMap = loadNewOnMap();
   const runView: RunView | null = sandbox ? null : new RunView({
     startArena(arenaId, seed, hero, label, loadout, notice, roster) {
       runLabel = label;
@@ -544,15 +548,19 @@ async function boot(): Promise<void> {
     ...recorder ? {
       runStep: (before, step) => recorder?.runStep(before, step),
       runStarted: (previous, run) => recorder?.runStarted(previous, run),
+      mapChoice: (run, choice) => recorder?.mapChoice(run, choice),
     } : {},
     ...logsPanel ? { openLogs: () => logsPanel.show() } : {},
     // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [
       { id: 'link-depth', label: 'Глубина звена', hint: 'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него.', get: () => renderer.showLinkDepth, set: setLinkDepth },
       { id: 'session-clock', label: 'Часы сессии', hint: 'Время в игре на экране конца похода и одна тихая строка на карте после 90 минут игры.', get: () => sessionClockOn, set: on => { sessionClockOn = on; saveSessionClock(on); } },
+      { id: 'new-on-map', label: 'Новое на карте', hint: 'Знак «✦ новое» у арены с ещё не встреченным врагом и одна подпись на бой при первой встрече врага или свойства элиты.', get: () => newOnMap, set: on => { newOnMap = on; saveNewOnMap(on); } },
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
+    ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
   }, fixedSeed);
+  if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap };
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
    * reload on the result screen keeps the victory or the end of the run. `runArenaRecorded` — the current arena is in.
@@ -1027,6 +1035,8 @@ async function boot(): Promise<void> {
         signals: { ...renderer.signals },
         /** Package «Урон имеет значение»: what the elite view drew (plate pips, window pulses, plan badges, plaques, flashes, …). */
         eliteView: { ...renderer.eliteShown },
+        /** П8 «Новое на карте»: the caption plates shown in this fight (texts) and on screen now. */
+        captions: { texts: [...renderer.captionShown.texts], live: renderer.captionShown.live },
         /** Stage 2, step 3: spin flashes drawn so far, consumables in hand, item flashes drawn so far, frozen and burning on screen. */
         spinsShown: renderer.spinsShown,
         items: w.kit ? { ...w.kit.items } : null,

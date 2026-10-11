@@ -29,7 +29,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunMapSign, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
 } from './schema';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
@@ -270,6 +270,8 @@ interface RunMeta {
   dice?: RunDie[];
   /** П6: when the run ended (ISO; absent — not ended). */
   endedAt?: string;
+  /** П8: the map choices made with the sign «✦ новое» shown (absent — none yet). */
+  mapSigns?: RunMapSign[];
 }
 
 /** Where a fight is: a run node or the sandbox. */
@@ -617,7 +619,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -632,6 +634,16 @@ export class RtRecorder {
         this.writeRun(previous);
       }
       this.meta = this.freshMeta(run);
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
+  /** П8: a node was chosen on the map while a sign «✦ новое» stood on an available card; the run record is written again. */
+  mapChoice(run: RtRunState, choice: RunMapSign): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      (meta.mapSigns ??= []).push({ nodeId: choice.nodeId, signed: [...choice.signed], chosenSigned: choice.chosenSigned });
       this.saveMeta();
       this.writeRun(run);
     });

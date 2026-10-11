@@ -149,6 +149,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-detail { padding: 18px; border-left: 1px solid var(--rt-line); background: #121710cc; font-size: 13px; overflow-y: auto; }
 .rt-run-detail h3 { margin: 0 0 6px; font: 600 20px Georgia, serif; color: #f2dfb4; }
 .rt-run-meta, .rt-run-hint, .rt-run-note { color: var(--rt-muted); }
+/* П8: the sign «✦ новое» on the arena line of an available node card. */
+.rt-new-sign { color: #c8b0ff; font-size: 0.85em; font-weight: 600; white-space: nowrap; }
 /* B7 К9: the terms of the circle's hint on an event card, in small print. */
 .rt-run-fine { font-size: 0.85em; }
 .rt-run-detail em, .rt-run-modal em { color: #e3b45a; font-style: normal; }

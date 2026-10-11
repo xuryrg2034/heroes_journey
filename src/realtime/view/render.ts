@@ -18,6 +18,7 @@ import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
 import { activeEliteBehavior, boarLane, formationOf } from '../sim/eliteBehaviors';
+import { NewSeenStore, KIND_CAPTIONS, AFFIX_CAPTIONS } from './newSeen';
 import { ELITE_LEMON, PLAQUE_FADE, PLAQUE_LIFE, drawPlatePips, drawWindowPulse, plaqueText, platesWord } from './eliteView';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
@@ -162,6 +163,8 @@ const CHASM = 0x07090a, CHASM_RIM = 0x9a8a66;
 const THORN = 0x2b3a1d, THORN_INK = 0x9a8452;
 /** Stage 3a (М4): the brazier's fire and the grey of a brazier put out. */
 const EMBER = 0xff8a3a, FLAME = 0xffd36b, ASH = 0x7a7a72;
+/** П8: the colour of the caption plates (lavender: not the elite's lemon, not the player's pale blue). */
+const CAPTION_COLOR = 0xc8b0ff;
 /** К7 «Проклятый сундук»: the curse's violet (the chest's eye and chain glow, the hero's border, the counter). */
 const CURSE = 0xb57cff, CURSE_DARK = 0x2a1440;
 
@@ -311,6 +314,16 @@ export class RealtimeRenderer {
   /** Elites already announced with a plaque (by id), and the plaques now on screen. */
   private readonly plaqued = new Set<number>();
   private readonly plaques = new Map<number, { box: Container; until: number }>();
+  /**
+   * П8 «Новое на карте»: the one-time captions of a kind / an elite affix (newSeen.ts) — plates like the elite's, in the arena
+   * layer, 1.5 s at the enemy. `newSeen` is set by main.ts for a run only (the sandbox has none: it neither reads nor writes
+   * the memory); `live` — a run fight is on screen; `on` — the toggle «Новое на карте» (off: memory is still written, nothing drawn).
+   */
+  newSeen: { store: NewSeenStore; live(): boolean; on(): boolean } | null = null;
+  private readonly captionLayer = new Container();
+  private readonly captions: { id: number; box: Container; until: number; slot: number }[] = [];
+  /** What the captions drew (tests read it): the texts shown since the last reset, and the plates on screen now. */
+  readonly captionShown = { texts: [] as string[], live: 0 };
   /** «−1 пластина» badges over armoured links of the drawn chain (reused texts). */
   private readonly plateLabels: Text[] = [];
   /** What the elite view drew (tests read it): last-frame counts and totals since the last reset. */
@@ -450,7 +463,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.slotView.layer, this.slotView.textLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.slotView.textLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -1224,6 +1237,50 @@ export class RealtimeRenderer {
       this.plaques.delete(id);
     }
     shown.pips = pips; shown.filledPips = filled; shown.windows = windows; shown.hotWindows = hot; shown.plaques = this.plaques.size;
+  }
+
+  /**
+   * П8: the first enemy of a captioned kind (and each affix of an elite) that comes into view in a run fight is met for good
+   * (`NewSeenStore`); with the toggle on it gets a plate of its caption — lavender, above the elite plaque when the enemy is
+   * an elite, the kind's first and the affixes' above it. Memory is written with the toggle off too.
+   */
+  private drawCaptions(world: World): void {
+    const px = 1 / Math.max(0.1, this.scale), host = this.newSeen, shown = this.captionShown;
+    if (host && host.live()) {
+      const on = host.on();
+      for (const e of world.enemies) {
+        const kindDue = KIND_CAPTIONS[e.kind] !== undefined && !host.store.hasKind(e.kind);
+        const affixDue = e.affixes?.some(a => !host.store.hasAffix(a));
+        if (!kindDue && !affixDue) continue;
+        if (!this.sees(e, 1.5)) continue;
+        let slot = 0;
+        const add = (label: string): void => {
+          if (!on) return;
+          const text = new Text({ text: label, style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: 'bold', fill: CAPTION_COLOR } });
+          text.anchor.set(0.5, 0.5); text.scale.set(0.5);
+          const w = text.width + 14, h = text.height + 8, box = new Container(), bg = new Graphics();
+          bg.roundRect(-w / 2, -h, w, h, h * 0.4).fill({ color: 0x1b1730, alpha: 0.92 }).stroke({ color: CAPTION_COLOR, width: 1.5, alpha: 0.9 });
+          text.position.set(0, -h / 2);
+          box.addChild(bg, text);
+          this.captionLayer.addChild(box);
+          this.captions.push({ id: e.id, box, until: this.clock + PLAQUE_LIFE, slot: slot++ });
+          shown.texts.push(label);
+        };
+        if (kindDue && host.store.meetKind(e.kind)) add(KIND_CAPTIONS[e.kind]);
+        for (const a of e.affixes ?? []) if (!host.store.hasAffix(a) && host.store.meetAffix(a)) add(AFFIX_CAPTIONS[a]);
+      }
+    }
+    const byId = new Map(world.enemies.map(e => [e.id, e] as const));
+    for (let i = this.captions.length - 1; i >= 0; i--) {
+      const c = this.captions[i], e = byId.get(c.id);
+      if (!e || this.clock >= c.until) { c.box.destroy({ children: true }); this.captions.splice(i, 1); continue; }
+      const R = (e.elite ? enemyDrawRadius(world.params) * UNIT * world.params.eliteArtScale * 1.06 : enemyDrawRadius(world.params) * UNIT), lift = e.elite ? (e.armor ? 30 : 8) + 26 : 8;
+      c.box.visible = this.sees(e, 1.5);
+      c.box.scale.set(px);
+      c.box.position.set(e.x * UNIT, e.y * UNIT - R - (lift + c.slot * 26) * px);
+      c.box.alpha = Math.max(0, Math.min(1, (c.until - this.clock) / PLAQUE_FADE));
+    }
+    shown.live = this.captions.length;
   }
 
   /** Phase A (Т4): the `i`-th affix label text (a pool; drawn at twice the font size and scaled down — crisp at any zoom). */
@@ -2157,6 +2214,7 @@ export class RealtimeRenderer {
     this.drawSignals(world);
     this.drawBadges(world);
     this.drawElites(world);
+    this.drawCaptions(world);
     this.slotView.draw(world, this.clock, realDt, world.chain.length && !world.move ? slotPlanOdds(world) : null);
     this.drawTargets(world);
     this.drawChain(world, ui);
@@ -2224,6 +2282,9 @@ export class RealtimeRenderer {
     this.plaqued.clear();
     for (const pl of this.plaques.values()) pl.box.destroy({ children: true });
     this.plaques.clear();
+    for (const c of this.captions) c.box.destroy({ children: true });
+    this.captions.length = 0;
+    this.captionShown.texts.length = 0; this.captionShown.live = 0;
     Object.assign(this.eliteShown, { plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0 });
   }
 }

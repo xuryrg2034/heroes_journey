@@ -195,6 +195,13 @@ export interface RunBuild {
   resources?: Record<string, number>;
 }
 
+/**
+ * П8 «Новое на карте» (from 12.10.2026): a node chosen on the map while the sign «✦ новое» stood on at least one available
+ * node card. `signed` — the available nodes that wore it, `nodeId` — the chosen one, `chosenSigned` — it wore it too.
+ * Recorded only when a sign was shown (the toggle on).
+ */
+export interface RunMapSign { nodeId: string; signed: string[]; chosenSigned: boolean }
+
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
   kind: 'run';
@@ -217,6 +224,8 @@ export interface RunRecord extends RtHeader {
    * `at`: «a new run within 2 minutes of the end» is read from the two.
    */
   endedAt?: string;
+  /** П8 «Новое на карте» (from 12.10.2026): the map choices made with a sign shown, in order; absent — none (older records too). */
+  mapSigns?: RunMapSign[];
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }

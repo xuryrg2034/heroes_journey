@@ -30,6 +30,7 @@ import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
 import type { SessionClock } from './session';
+import { NEW_SIGN, newKindsOfArena, type NewSeenStore } from './newSeen';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { multText } from '../sim/purse';
 import { eventOption, forestEvent } from '../forest/forestEvents';
@@ -69,7 +70,17 @@ export interface RunHost {
    * lines are the end screen's «В игре … · походов …» and, after 90 minutes, one quiet line on the map (never in a fight).
    */
   session?: { clock: SessionClock; on(): boolean };
+  /**
+   * П8 «Новое на карте»: the viewer's memory of kinds met and whether the sign is on (the gear's toggle). Absent — no sign. The
+   * sign «✦ новое» stands on the arena line of the card of an AVAILABLE arena node whose arena has a kind not met yet.
+   */
+  newSeen?: { store: NewSeenStore; on(): boolean };
+  /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
+  mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
+
+/** П8: the nodes that wore the sign «✦ новое» when a node was chosen on the map, and the chosen one. */
+export interface MapSignChoice { nodeId: string; signed: string[]; chosenSigned: boolean }
 
 /** One checkbox of the gear on the run map: its id (`data-testid` `view-<id>`), label, tooltip, value now and setter. */
 export interface RunViewToggle { id: string; label: string; hint?: string; get(): boolean; set(on: boolean): void }
@@ -123,11 +134,12 @@ const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
  * Arena line of a battle node: its name and goal; phase A (Т2, design answer 13) — the roster in one line with its name
  * («Состав: Стая»), no list of kinds; none for an arena of its own composition.
  */
-function arenaLine(arena: string, roster?: string): string {
+function arenaLine(arena: string, roster?: string, newSign = false): string {
   let summary = '';
   try { summary = arenaTemplate(arena).summary; } catch { /* unknown arena: name only */ }
   const line = roster !== undefined ? `<br><span class="rt-run-roster" data-testid="run-roster">Состав: ${escapeHtml(rosterTitle(arena, roster))}</span>` : '';
-  return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${line}<br><small>${escapeHtml(summary)}</small>`;
+  const sign = newSign ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';
+  return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${sign}${line}<br><small>${escapeHtml(summary)}</small>`;
 }
 const talismanName = (id: string): string => rtTalisman(id)?.name ?? id;
 /**
@@ -238,9 +250,24 @@ export class RunView {
     return '';
   }
 
+  /** П8: the toggle is on and the available arena node `node` brings a kind the viewer has not met (affixes: unknown before the fight). */
+  private hasNewSign(run: RtRunState, node: ForestMapNode): boolean {
+    const seen = this.host.newSeen;
+    if (!seen || !seen.on() || !isArenaNode(node) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return false;
+    const arena = arenaPreview(run, node);
+    return !!arena && newKindsOfArena(arena.arena, arena.roster, seen.store).length > 0;
+  }
+
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
   enter(nodeId: string, oath: OathId | null = null): string {
-    return this.run ? this.apply(rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle })) : 'Нет похода.';
+    if (!this.run) return 'Нет похода.';
+    const step = rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle });
+    // П8: a choice made with the sign shown is recorded (only then): which nodes wore it, which was chosen.
+    if (step.ok && this.host.mapChoice) {
+      const signed = rtAvailableNodes(this.run).filter(node => this.hasNewSign(this.run!, node)).map(node => node.id);
+      if (signed.length) this.host.mapChoice(this.run, { nodeId, signed, chosenSigned: signed.includes(nodeId) });
+    }
+    return this.apply(step);
   }
 
   /**
@@ -559,7 +586,7 @@ export class RunView {
     const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
     return `<aside class="rt-run-detail" data-testid="run-detail"><h3>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h3>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
-      + (arena ? `<p>${arenaLine(arena.arena, arena.roster)}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
+      + (arena ? `<p>${arenaLine(arena.arena, arena.roster, status === 'available' && this.hasNewSign(run, node))}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (STEP1_HINT[node.type] ? `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type]!)}</p>` : '')
       // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
       // print on a second line (design 12.10.2026).
