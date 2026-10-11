@@ -73,8 +73,8 @@ function closestOnPolyline(points: readonly Vec[], p: Vec, closed: boolean): Vec
   return best;
 }
 
-/** True when p is inside the polygon (even–odd rule). */
-function insidePolygon(points: readonly Vec[], p: Vec): boolean {
+/** True when p is inside the polygon (even–odd rule; a point on an edge may fall either way). */
+export function insidePolygon(points: readonly Vec[], p: Vec): boolean {
   let inside = false;
   for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
     const a = points[i], b = points[j];

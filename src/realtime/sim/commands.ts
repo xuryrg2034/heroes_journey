@@ -96,7 +96,7 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
     case 'burst': if (world.status === 'playing') spawnBurst(world, cmd.count); return;
     case 'clear':
       world.enemies = cmd.keepMarked ? world.enemies.filter(e => e.marked) : [];
-      world.markers.length = 0; world.queue.length = 0; world.chain = [];
+      world.markers.length = 0; world.queue.length = 0; world.chain = []; delete world.chainClosed;
       return;
     case 'place': {
       const e = spawnEnemy(world, { x: cmd.x, y: cmd.y }, cmd.color, cmd.hp, cmd.kind);

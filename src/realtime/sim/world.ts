@@ -196,6 +196,25 @@ export interface HeroMove {
   armed?: number[];
   /** Phase B (build.ts): the build layer's count of this dash — present only while a build module acts. */
   build?: DashBuild;
+  /** Loop research, step 2: the seal of a closed chain, fixed at the release, struck at the end of the dash (absent otherwise). */
+  seal?: SealMove;
+}
+
+/** Loop research, step 2: where a chain closes — on its first link, or on the hero (he is a corner of the ring). */
+export type LoopKind = 'first' | 'hero';
+
+/** Loop research, step 2: the seal a dash carries — who was inside at the release, the hit and the hold (docs/realtime-loop-research.md, 3.1). */
+export interface SealMove {
+  kind: LoopKind;
+  /** Enemy links of the ring (n). */
+  links: number;
+  /** Corners of the ring at the release (the view flashes it at the strike). */
+  ring: Vec[];
+  /** Enemies whose centre was inside the ring at the release (arena order). */
+  inside: number[];
+  damage: number;
+  /** Game seconds a survivor is held (the cold without the ×2). */
+  hold: number;
 }
 
 export interface Hero {
@@ -241,6 +260,16 @@ export type WorldEvent =
   | { type: 'crystal'; objectId: number; x: number; y: number }
   | { type: 'crystalBreak'; objectId: number; x: number; y: number; score: number; combo: number }
   | { type: 'finisher'; kills: number }
+  /**
+   * Loop research, step 2: the loop gesture — closed (`close`), refused with a reason (`refused`), opened by the pointer on
+   * the last link (`open`).
+   */
+  | { type: 'loop'; action: 'close' | 'refused' | 'open'; kind: LoopKind; refusal?: string }
+  /**
+   * Loop research, step 2: a closed chain released (`release`: its ring and who is inside) and its seal at the end of the
+   * dash (`strike`: who of them was still on the arena and was hit).
+   */
+  | { type: 'seal'; phase: 'release' | 'strike'; kind: LoopKind; points: Vec[]; inside: number[]; links: number }
   | { type: 'chainEnd'; kills: number; score: number }
   | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean; fall?: boolean }
   /** Stage 3a (М4): the dash took a brazier (`lit` false — it went out) or it burns again (`lit` true). */
@@ -322,6 +351,11 @@ export interface World {
   endTime: number | null;
   /** Links selected so far; non-empty while the player draws a chain (focus runs). */
   chain: ChainLink[];
+  /**
+   * Loop research, step 2: the drawn chain is closed — on its first link or on the hero (absent while open: worlds without
+   * the loop hash as before). Nothing may join a closed chain; the pointer on its last link opens it.
+   */
+  chainClosed?: LoopKind;
   /** Dash along the released chain or a jump; contact damage is off meanwhile. */
   move: HeroMove | null;
   /** The hero touched the door in the last update: walking in needs a new touch (stage G). */
@@ -509,6 +543,7 @@ export function win(world: World): void {
   world.status = 'victory';
   world.endTime = world.time;
   world.chain = [];
+  delete world.chainClosed;
   world.events.push({ type: 'victory' });
 }
 

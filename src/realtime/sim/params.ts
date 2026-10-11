@@ -413,6 +413,22 @@ export interface Params {
   wolfRingSlack: number;
   /** A wolf within this many degrees of its slot stands at it; the pack howls once `wolfRushPack` of them do. */
   wolfRingSettle: number;
+  /**
+   * Loop research, step 2 (docs/realtime-loop-research.md, sections 3.1–3.4; user decisions 11.10.2026): the loop («Печать»).
+   * Off by default (the sandbox panel turns it on; a run does not yet): a chain closes by the pointer on its first link with
+   * `loopMinLinks`+ enemy links, or on the hero with `loopHeroMinLinks`+ (`loopHeroCloses`); at the end of its dash every
+   * enemy that was inside at the release takes the seal hit ⌊(n − 2) ÷ 2⌋ (at least 1) and is held `sealHold` game seconds
+   * (`sealHoldLong` from `sealLongLinks` enemy links; the cold without the ×2). Journals without these values: off.
+   */
+  loopEnabled: boolean;
+  loopMinLinks: number;
+  loopHeroCloses: boolean;
+  loopHeroMinLinks: number;
+  sealHold: number;
+  sealHoldLong: number;
+  sealLongLinks: number;
+  /** Loop research, step 2 (experiment): in focus before the first link the view hints the best loop from the hero. Off by default. */
+  loopHint: boolean;
   wolfRushPack: number;
   wolfHowl: number;
   wolfRushSpeed: number;
@@ -682,6 +698,14 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   wolfRingRadius: 3,
   wolfRingSlack: 0.75,
   wolfRingSettle: 15,
+  loopEnabled: false,
+  loopMinLinks: 4,
+  loopHeroCloses: true,
+  loopHeroMinLinks: 3,
+  sealHold: 1.5,
+  sealHoldLong: 2,
+  sealLongLinks: 8,
+  loopHint: false,
   wolfRushPack: 3,
   wolfHowl: 0.6,
   wolfRushSpeed: 6,
@@ -945,6 +969,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('wolfRingRadius', 'Волк', 'Кольцо: радиус', 1, 8, 0.25, 5, 'ед.'),
   n('wolfRingSlack', 'Волк', 'Кольцо: допуск', 0, 3, 0.05, 5, 'ед.', 'Волк не дальше радиуса + допуска (и видит героя) — в кольце.'),
   n('wolfRingSettle', 'Волк', 'Кольцо: волк на месте в пределах', 0, 180, 5, 5, '°', 'Стая воет, когда столько волков стоят на своих местах кольца (равные углы вокруг героя).'),
+  { kind: 'bool', key: 'loopEnabled', group: 'Петля', label: 'Петля (печать)', stage: 5,
+    hint: 'Исследование петли, шаг 2. Только песочница. Цепь замыкается указателем на первом звене (от 4 врагов) или на герое (от 3): в конце прохода все внутри получают удар печати и оковы.' },
+  n('loopMinLinks', 'Петля', 'Замыкание на первое: врагов от', 3, 10, 1, 5),
+  { kind: 'bool', key: 'loopHeroCloses', group: 'Петля', label: 'Замыкание на героя', stage: 5 },
+  n('loopHeroMinLinks', 'Петля', 'Замыкание на героя: врагов от', 2, 10, 1, 5),
+  n('sealHold', 'Петля', 'Оковы', 0, 5, 0.1, 5, 'с', 'Удар печати — ⌊(n − 2) ÷ 2⌋, не меньше 1 (n — враги кольца); выжившие стоят столько.'),
+  n('sealHoldLong', 'Петля', 'Оковы длинной петли', 0, 5, 0.1, 5, 'с'),
+  n('sealLongLinks', 'Петля', 'Длинная петля: врагов от', 4, 20, 1, 5),
+  { kind: 'bool', key: 'loopHint', group: 'Петля', label: 'Подсказка петли (эксперимент)', stage: 5,
+    hint: 'В фокусе до первого звена слабо подсвечена одна лучшая петля от героя.' },
   n('wolfRushPack', 'Волк', 'Бросок: волков в кольце', 1, 8, 1, 5),
   n('wolfHowl', 'Волк', 'Вой перед броском', 0, 3, 0.05, 5, 'с', 'Круг вокруг героя. Направление броска фиксируется в конце воя.'),
   n('wolfRushSpeed', 'Волк', 'Бросок: скорость', 0.5, 20, 0.25, 5, 'ед/с', 'По прямой; вода и терновник не замедляют, стена и обрыв останавливают.'),
@@ -1016,9 +1050,9 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off). Phase A:
  * speed classes are on; the sandbox's affix count is 0 (the run passes its own by the row, `Loadout.eliteAffixes`); Т6: the
  * archer's point shot is on. Loop research, step 1: the sandbox palette `colorCount` is 4 (the run's palette by its row comes
- * from `colorsByRow`, `Loadout.colors`).
+ * from `colorsByRow`, `Loadout.colors`). Step 2: the loop is a sandbox experiment — off in a run.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4 });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

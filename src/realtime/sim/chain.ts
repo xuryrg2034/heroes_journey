@@ -33,7 +33,8 @@ import { hasTalisman } from './kit';
 import { afterLinkPowerOf, buildActive, chainShieldOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainEnd, type LinkContext } from './build';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type World } from './world';
+import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
 // Phase B: these two moved to build.ts (the build may change them); the view and the tests import them from here as before.
@@ -94,7 +95,15 @@ export interface ChainPlan {
   endsOnObject: boolean;
   power: number;
   kills: number;
+  /**
+   * Loop research, step 2: the drawn chain is closed — its ring and who is inside now (the release fixes the same set).
+   * Absent while open.
+   */
+  seal?: SealPreview;
 }
+
+/** Loop research, step 2: a closed chain's ring now and who is inside it (`sealPreview`). */
+export interface SealPreview { kind: LoopKind; ring: Vec[]; inside: number[]; links: number; damage: number; hold: number }
 
 export function findEnemy(world: World, id: number): Enemy | undefined {
   return world.enemies.find(e => e.id === id);
@@ -141,7 +150,100 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   }
   const last = links[links.length - 1];
   const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills };
+  const seal = links === world.chain && world.chainClosed ? sealPreview(world, world.chainClosed) : null;
+  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {} };
+}
+
+// ---- Loop research, step 2: the loop («Печать», docs/realtime-loop-research.md, sections 3.1–3.4) ----
+
+/** Enemy links of the drawn chain (n of the seal; crystals, braziers and loot are corners, not counted). */
+export function chainEnemyCount(world: World, links: readonly ChainLink[] = world.chain): number {
+  return links.filter(l => l.kind === 'enemy' && findEnemy(world, l.id)).length;
+}
+
+/** The ring of the drawn chain closed as `kind`: its links' points in order (closed on the hero, he is the first corner). */
+export function loopRing(world: World, kind: LoopKind): Vec[] {
+  const points = world.chain.flatMap(l => { const p = linkPoint(world, l); return p ? [p] : []; });
+  return kind === 'hero' ? [{ x: world.hero.x, y: world.hero.y }, ...points] : points;
+}
+
+/**
+ * The seal of the drawn chain closed as `kind`, as it would be released now: the ring, who is inside, the hit and the hold.
+ * Null — too few enemy links for that closing.
+ */
+export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
+  const links = chainEnemyCount(world);
+  if (links < loopMinOf(world.params, kind)) return null;
+  const ring = loopRing(world, kind);
+  return { kind, ring, inside: enemiesInside(world, ring, world.chain).map(e => e.id), links, damage: sealDamage(links), hold: sealHoldOf(world.params, links) };
+}
+
+/**
+ * The closing the pointer at `p` asks for (a `full` drag point): on the hero (`loopHeroCloses`, enough enemy links), or on
+ * the first link (enough enemy links, and the first is not the second-to-last — with 3 links that is the step back). Null —
+ * no closing there.
+ */
+export function loopKindAt(world: World, p: Vec): LoopKind | null {
+  const params = world.params;
+  if (!params.loopEnabled || !world.chain.length || world.move) return null;
+  const n = chainEnemyCount(world), first = world.chain[0];
+  const under = pick(world, p, e => inChain(world, e) === 0, o => first.kind === 'object' && first.id === o.id);
+  if (under && world.chain.length - 2 !== 0 && n >= loopMinOf(params, 'first')) return 'first';
+  if (params.loopHeroCloses && dist(p, world.hero) <= HERO_CANCEL_RADIUS && n >= loopMinOf(params, 'hero')) return 'hero';
+  return null;
+}
+
+/**
+ * Why the drawn chain cannot close as `kind`: the closing edge is checked as a link — `far` (beyond R + the edge), `sight`
+ * (no line of sight); `crossed` — it crosses an edge of the ring; `afterObject` — the chain ends on a button or the door;
+ * `inChain`-like `move` while a dash runs. Null — it can.
+ */
+export function loopRefusal(world: World, kind: LoopKind): Refusal | null {
+  if (world.status !== 'playing' || world.move) return 'move';
+  if (planChain(world).endsOnObject) return 'afterObject';
+  const first = world.chain[0], last = world.chain[world.chain.length - 1];
+  const from = linkPoint(world, last);
+  if (!from) return 'far';
+  // On the first link: from the last link to the first, R reaching the first's edge; on the hero: the hero's reach of the
+  // last link, as for a first link (the same rule both ways).
+  const [anchor, target, link] = kind === 'first' ? [from, linkPoint(world, first), first] : [{ x: world.hero.x, y: world.hero.y }, from, last];
+  if (!target) return 'far';
+  const p = world.params, edge = link.kind === 'enemy' ? enemyArtRadius(p, findEnemy(world, link.id)!) : OBJECT_RADIUS;
+  if (dist(anchor, target) > linkRadiusOf(world) + (p.linkToEdge ? edge : 0)) return 'far';
+  if (p.lineOfSight && !lineOfSight(anchor, target, world.arena, -p.sightSlack)) return 'sight';
+  if (closingEdgeCrosses(loopRing(world, kind))) return 'crossed';
+  return null;
+}
+
+/** The closings the drawn chain could make now (the view's «замкни» ring and dashed line): kinds with no refusal. */
+export function loopCandidates(world: World): LoopKind[] {
+  const p = world.params;
+  if (!p.loopEnabled || world.chainClosed || !world.chain.length || world.move) return [];
+  const n = chainEnemyCount(world), out: LoopKind[] = [];
+  if (world.chain.length >= 3 && n >= loopMinOf(p, 'first') && !loopRefusal(world, 'first')) out.push('first');
+  if (p.loopHeroCloses && n >= loopMinOf(p, 'hero') && !loopRefusal(world, 'hero')) out.push('hero');
+  return out;
+}
+
+/**
+ * The loop gesture of a `full` drag point; true — the point was the loop's (nothing else happens). A closed chain: the
+ * pointer on its last link opens it; anything else does nothing (nothing may join). An open one: the pointer on the first
+ * link or the hero closes it, or is refused with a reason.
+ */
+function loopGesture(world: World, p: Vec): boolean {
+  const last = world.chain[world.chain.length - 1];
+  if (world.chainClosed) {
+    const kind = world.chainClosed;
+    const under = pick(world, p, e => last.kind === 'enemy' && last.id === e.id, o => last.kind === 'object' && last.id === o.id);
+    if (under) { delete world.chainClosed; world.events.push({ type: 'loop', action: 'open', kind }); }
+    return true;
+  }
+  const kind = loopKindAt(world, p);
+  if (!kind) return false;
+  const refusal = loopRefusal(world, kind);
+  if (refusal) world.events.push({ type: 'loop', action: 'refused', kind, refusal });
+  else { world.chainClosed = kind; world.events.push({ type: 'loop', action: 'close', kind }); }
+  return true;
 }
 
 /** A crystal link (stage C): any color, anywhere in the chain; the chain goes on after it. */
@@ -223,7 +325,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -239,6 +341,9 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   sight: 'нет видимости',
   // Stage 2 of the transition: the behaviour refuses the anchor (`canBeLinkedFrom` — the shieldbearer's shield faces it).
   guarded: 'щит',
+  // Loop research, step 2: the closing edge crosses the ring; the chain is closed — nothing may join.
+  crossed: 'нить пересеклась',
+  sealed: 'петля замкнута',
 };
 
 /**
@@ -268,6 +373,7 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (world.status !== 'playing' || world.move) return 'move';
   if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
   if (inChain(world, enemy) >= 0) return 'inChain';
+  if (world.chainClosed) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
   if (plan.endsOnObject) return 'afterObject';
   const color = chainColor(world);
@@ -292,6 +398,7 @@ export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(
 export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan = planChain(world)): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
   if (linkIndex(world, { kind: 'object', id: object.id }) >= 0) return 'inChain';
+  if (world.chainClosed) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
   if (plan.endsOnObject) return 'afterObject';
   if (object.kind === 'button' && object.pressed) return 'pressed';
@@ -357,6 +464,7 @@ function refreshFocus(world: World, link: ChainLink): void {
 export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
   world.chain = [];
+  delete world.chainClosed;
   const plan = planChain(world);
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
   if (!target) return false;
@@ -376,6 +484,8 @@ export type DragMode = 'full' | 'sweep' | 'append';
 /** Drag: append a valid link, truncate on a selected one, cancel on the hero. */
 export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (world.status !== 'playing' || world.move) return;
+  // Loop research, step 2: the loop gesture comes first (only the pointer event itself, never a sweep or the held pointer).
+  if (mode === 'full' && world.params.loopEnabled && world.chain.length && loopGesture(world, p)) return;
   // Stage H (user 08.10.2026): the hero is link zero of the step back — with one link the pointer on the hero takes it off
   // (the chain is cancelled); with two or more it does nothing. Its own toggle «отмена наведением на героя» (off) cancels
   // any chain there; the right button and Esc always cancel.
@@ -428,6 +538,8 @@ export function dragChainAlong(world: World, from: Vec, to: Vec): void {
 export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null {
   if (world.status !== 'playing') return null;
   if (world.move && !held) return null;
+  // Loop research, step 2: on the closing target of an open chain — why it would not close.
+  if (!world.chainClosed) { const kind = loopKindAt(world, p); if (kind) return loopRefusal(world, kind); }
   const plan = planChain(world);
   if (pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
@@ -439,7 +551,7 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
   return o ? objectRefusal(world, o, plan) : null;
 }
 
-export function cancelChain(world: World): void { world.chain = []; }
+export function cancelChain(world: World): void { world.chain = []; delete world.chainClosed; }
 
 /**
  * Iteration 2.1: the damage to the hero a chain hit on `enemy` would do now through its armed reaction (`EnemyBehavior.armed`:
@@ -449,10 +561,17 @@ export function armedDamage(world: World, enemy: Enemy): number { return Math.ma
 
 /** Release: the hero dashes along the chain. */
 export function releaseChain(world: World): boolean {
+  // Loop research, step 2: a closed chain fixes its seal now — the ring and who is inside, as the player saw it last.
+  const seal = world.chainClosed && world.params.loopEnabled && world.status === 'playing' && !world.move ? sealPreview(world, world.chainClosed) : null;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
+  delete world.chainClosed;
   if (!links.length || world.status !== 'playing' || world.move) return false;
   world.move = { ...newMove('dash', { x: world.hero.x, y: world.hero.y }, null, world.params.dashSpeed), links };
+  if (seal) {
+    world.move.seal = { kind: seal.kind, links: seal.links, ring: seal.ring, inside: seal.inside, damage: seal.damage, hold: seal.hold };
+    world.events.push({ type: 'seal', phase: 'release', kind: seal.kind, points: seal.ring.map(q => ({ x: q.x, y: q.y })), inside: [...seal.inside], links: seal.links });
+  }
   // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;
@@ -786,6 +905,8 @@ function finishMove(world: World): void {
       power: move.power, start: { ...b.start }, end: { x: hero.x, y: hero.y } } : null;
     const shield = chainShieldOf(world, end);
     if (shield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) hero.chainShield = shield;
+    // Loop research, step 2: the seal strikes at the end of the dash — on those inside at the release still on the arena.
+    if (move.seal) strikeSeal(world, move.seal);
     // Phase B: the dash is over — the build modules' end of chain (a wave, the end blast, the return run …).
     if (end) runHook(world, 'onChainEnd', m => { if (world.status === 'playing') m.onChainEnd!(world, end); });
   }
@@ -898,7 +1019,7 @@ export function tickScale(world: World): number {
 export function stepHero(world: World, realDt: number): void {
   const p = world.params, focusMax = focusMaxOf(world);
   world.focus = Math.min(world.focus, focusMax);
-  if (world.status !== 'playing') { world.chain = []; world.focusing = false; world.timeScale = 1; return; }
+  if (world.status !== 'playing') { world.chain = []; delete world.chainClosed; world.focusing = false; world.timeScale = 1; return; }
   const selecting = world.chain.length > 0 && !world.move;
   if (selecting && world.focus > 0) {
     world.focusing = true;
@@ -916,6 +1037,9 @@ export function stepHero(world: World, realDt: number): void {
     world.timeScale = Math.min(world.timeScale, p.finisherSlow);
   }
   // Links that left the arena (should not happen in stage 2) drop out of the drawn chain.
-  if (world.chain.length) world.chain = world.chain.filter(l => linkPoint(world, l));
+  const drawn = world.chain.length;
+  if (drawn) world.chain = world.chain.filter(l => linkPoint(world, l));
+  // Loop research, step 2: a closed chain that lost a link (it died while drawn) or emptied opens (the ring changed).
+  if (world.chainClosed && (!world.chain.length || world.chain.length !== drawn)) delete world.chainClosed;
   stepMove(world, realDt);
 }

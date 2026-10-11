@@ -34,6 +34,8 @@ export function worldState(world: World): unknown {
     queue: world.queue,
     objects: world.objects,
     chain: world.chain,
+    // Loop research, step 2: a closed chain (absent while open — worlds without the loop hash as before).
+    ...world.chainClosed ? { chainClosed: world.chainClosed } : {},
     move: world.move,
     lastChain: world.lastChain,
     stats: world.stats,
