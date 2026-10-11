@@ -19,6 +19,7 @@ import {
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord, type ThreatTally,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
+import { RT_KIND_TITLES } from '../run/rtRunEnd';
 
 // ---- Replay with the observers ----
 
@@ -226,9 +227,8 @@ export function findFight(entries: readonly FightEntry[], name: string): FightEn
 
 // ---- Markdown ----
 
-const KIND_TITLES: Record<string, string> = {
-  basic: 'обычный', wolf: 'волк', boar: 'кабан', reaper: 'жнец', shield: 'щитоносец', archer: 'лучник', sapper: 'сапёр', porcupine: 'дикобраз', lynx: 'рысь', shaman: 'шаман',
-};
+// The kinds' names are shared with the run-end screen (П6, run/rtRunEnd.ts).
+const KIND_TITLES = RT_KIND_TITLES;
 const SOURCE_TITLES: Record<string, string> = {
   touch: 'касание', arrow: 'стрела', boar: 'рывок кабана', wolf: 'касание волка', [WOLF_RUSH_SOURCE]: 'бросок волка', lynx: 'прыжок рыси', blast: 'взрыв сапёра',
   quills: 'иглы', 'fire-trail': 'огонь элиты', thorns: 'терновник', reaper: 'жнец',

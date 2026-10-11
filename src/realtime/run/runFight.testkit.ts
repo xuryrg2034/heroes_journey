@@ -1,6 +1,6 @@
 /**
  * Test kit (Node only) for run features read from a finished fight: П10 «Личный рекорд» (record.spec.ts), П5 «Журнал удачи»
- * (luck.spec.ts). A run node's arena is played as a real fight — journalled commands on a quiet test field with the run's
+ * (luck.spec.ts), П6 «Незакрытое дело» (runEnd.spec.ts: the killing blow, read as main.ts reads it — `RtDeathWatch`). A run node's arena is played as a real fight — journalled commands on a quiet test field with the run's
  * params and loadout — and the outcome is read from the finished world as main.ts `recordRunArena` reads it; the fight's
  * chance is read from every tick's events as main.ts reads them every frame (`observeFightLuck`). The run goes on by its
  * own commands.
@@ -11,6 +11,7 @@ import { Simulation, replay } from '../sim/simulation';
 import type { World, WorldEvent } from '../sim/world';
 import { goblinOf, leverOf } from '../sim/slot';
 import { observeFightLuck, type RtLuckTally } from './rtLuck';
+import { RtDeathWatch, type RtDeath } from './rtRunEnd';
 import {
   rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtNode, rtRestHeal, rtRunParams, rtShopLeave, type RtArenaOutcome, type RtRunState, type RtRunStep,
@@ -71,29 +72,40 @@ export interface FightPlan {
   start?: (sim: Simulation, seen: (w: World) => void) => void;
   /** More journalled play after the chains (before the end). */
   play?: (sim: Simulation, seen: (w: World) => void) => void;
+  /** П6: journalled play that ends the fight itself (a chosen killer) instead of `lose` or the walk into the door. */
+  finish?: (sim: Simulation, seen: (w: World) => void) => void;
   /** Every tick's events, as the view's frame sees them. */
   seen?: (w: World) => void;
 }
 
-/** The finished world read as main.ts `recordRunArena` reads it (П10: `bestChain`; П5: the fight's `luck`, none — absent). */
-export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}): RtArenaOutcome {
+/**
+ * The finished world read as main.ts `recordRunArena` reads it (П10: `bestChain`; П5: the fight's `luck`, none — absent;
+ * П6: the killing blow of a lost fight, none — absent).
+ */
+export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}, death: RtDeath | null = null): RtArenaOutcome {
   const pending = run.pending;
   assert(pending?.kind === 'battle', 'an open battle');
   return { nodeId: pending.nodeId, won: w.status === 'victory', hp: w.status === 'victory' ? Math.min(run.maxHp, w.hero.hp) : 0, kills: w.stats.kills, bestChain: w.stats.bestChain,
     ...Object.keys(luck).length ? { luck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {},
-    ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {} };
+    ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+    ...w.status === 'defeat' && death ? { death } : {} };
 }
 
 /** The open battle of `run` played on the quiet field by `plan`; it replays from its journal to the same hash. */
 export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; outcome: RtArenaOutcome; events: WorldEvent[] } {
-  const sim = new Simulation({ arena: plan.arena ?? 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(plan.k ?? 1), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp } });
+  const watch = new RtDeathWatch();
+  const sim = new Simulation({ arena: plan.arena ?? 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(plan.k ?? 1), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp },
+    beforeTick: w => watch.seen(w) });
   const luck: RtLuckTally = {}, events: WorldEvent[] = [];
-  const seen = (w: World): void => { observeFightLuck(luck, w.events); events.push(...w.events); plan.seen?.(w); };
+  const seen = (w: World): void => { observeFightLuck(luck, w.events); watch.read(w, w.events); events.push(...w.events); plan.seen?.(w); };
   sim.command({ t: 'clear', keepMarked: false });
   plan.start?.(sim, seen);
   for (const n of plan.chains) chainOf(sim, n, seen);
   plan.play?.(sim, seen);
-  if (plan.lose) {
+  if (plan.finish) {
+    plan.finish(sim, seen);
+    assert(sim.world.status !== 'playing', 'the fight ended');
+  } else if (plan.lose) {
     // The quiet field's enemies stand and do not touch: the ring walks in and touches with the default numbers.
     sim.command({ t: 'param', key: 'contactDamage', value: defaultParams().contactDamage });
     sim.command({ t: 'param', key: 'enemySpeed', value: defaultParams().enemySpeed });
@@ -109,7 +121,7 @@ export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; 
     assert(sim.world.status === 'victory', `the hero walked into the door (${sim.world.status})`);
   }
   assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), 'the fight replays from its journal');
-  return { sim, outcome: outcomeOf(run, sim.world, luck), events };
+  return { sim, outcome: outcomeOf(run, sim.world, luck, watch.death), events };
 }
 
 /** «Однорукий гоблин» by the debug command (journalled; the run's params have the slot on) near the hero. */

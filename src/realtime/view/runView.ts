@@ -26,6 +26,7 @@ import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
 import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanText } from '../run/rtTalismans';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
+import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
 import type { SessionClock } from './session';
@@ -599,8 +600,11 @@ export class RunView {
     const card = (body: string, testId: string) => `<div class="rt-overlay rt-run-modal" data-testid="${testId}"><div class="rt-card">${body}</div></div>`;
     if (run.result) {
       const won = run.result.outcome === 'victory', kills = run.battles.reduce((sum, b) => sum + b.kills, 0), damage = run.battles.reduce((sum, b) => sum + b.damage, 0);
-      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2><dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
-        + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd><dt>Ряд похода</dt><dd>${runRow(rtNode(run, run.result.nodeId)!.row)}</dd></dl>`
+      // П6 «Незакрытое дело» (rtRunEnd.ts): the facts first, in their fixed order — they replace the row «Ряд похода».
+      const facts = rtRunEndLines(run).map(line => `<li data-testid="run-end-${line.id}">${escapeHtml(line.text)}</li>`).join('');
+      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
+        + `<dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
+        + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
         + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
         + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);

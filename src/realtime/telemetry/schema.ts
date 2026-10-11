@@ -211,6 +211,12 @@ export interface RunRecord extends RtHeader {
   fights: string[];
   /** Casino «Кость у двери» (from 11.10.2026): the die screens of the run in order; absent — none. */
   dice?: RunDie[];
+  /**
+   * П6 «Незакрытое дело» (from 12.10.2026): when the run ended (ISO, the moment its last fight was recorded — a victory on the
+   * final arena or a lost fight); absent — open, abandoned, or a record before it. The next run's start is its first fight's
+   * `at`: «a new run within 2 minutes of the end» is read from the two.
+   */
+  endedAt?: string;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }

@@ -1,0 +1,209 @@
+/**
+ * П6 «Незакрытое дело» (run/rtRunEnd.ts; docs/realtime-slice.md, section 9; docs/realtime-engagement-research.md, П6). Node
+ * only: `npm run test:realtime-run-end`.
+ *
+ * Run fights are real fights (journalled commands on the quiet test field with the run's params and loadout, runFight.testkit.ts);
+ * the killing blow is read from every tick's events as main.ts reads them every frame (`RtDeathWatch`), the outcome goes
+ * into the run by its commands (`resolveArena`), the end screen's lines are read from the run (`rtRunEndLines`). Other fights
+ * of a walk are won by the run's command with a plain outcome. Expected texts are written by hand.
+ * - the killer: an elite's touch (its kind, the elite mark, armour, affixes), a plain enemy's touch, an archer's arrow, a
+ *   sapper's blast (the sapper dies in its own blast before it hits: the watch knows it from before the tick);
+ * - the lines in their order: defeat — killer, row and rows left, Jailer, peak; victory — the final row and the peak only;
+ * - the save: version 7, the optional field on the lost record; a reload keeps the lines; a save written before it (fixture)
+ *   loads unchanged and, lost, shows no killer line; malformed deaths are no run; a won fight keeps no death.
+ * Seeds `Math.imul(k, 2654435761) >>> 0`.
+ */
+import { createRtRun, parseRtRun, resolveArena, rtNode, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
+import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
+import { rtDeathLine, rtRunEndLines } from './rtRunEnd';
+import { runRow } from './arenaPools';
+import { assert, closeNode, ok, playFight, same, seedOf, takeGift, ticks, toBattle } from './runFight.testkit';
+import { defaultParams } from '../sim/params';
+import type { Simulation } from '../sim/simulation';
+import type { World } from '../sim/world';
+import saveBefore from '../../../tests/fixtures/rt-run-save-before-record.json';
+
+let checks = 0;
+function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
+
+const newRun = (k: number): RtRunState => toBattle(takeGift(createRtRun(seedOf(k), { gift: 'mini' })));
+const rowOf = (run: RtRunState): number => { const p = run.pending; assert(p?.kind === 'battle', 'an open battle'); return runRow(rtNode(run, p.nodeId)!.row); };
+const lines = (run: RtRunState): string[] => rtRunEndLines(run).map(line => line.text);
+/** The open battle won by the run's command with a plain outcome (no chain recorded). */
+const winPlain = (run: RtRunState): RtRunState => {
+  const p = run.pending;
+  assert(p?.kind === 'battle', 'an open battle');
+  return ok(resolveArena(run, { nodeId: p.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'win');
+};
+/** Walks on (plain wins, screens closed) until the open battle stands on run row `row` or later. */
+const walkTo = (run: RtRunState, row: number): RtRunState => {
+  for (let step = 0; step < 60 && rowOf(run) < row; step++) run = toBattle(closeNode(winPlain(run)));
+  assert(rowOf(run) >= row, `reached row ${row}`);
+  return run;
+};
+
+/** The touching enemies' default numbers back on (the quiet field has them off). */
+const touchOn = (sim: Simulation): void => {
+  sim.command({ t: 'param', key: 'contactDamage', value: defaultParams().contactDamage });
+  sim.command({ t: 'param', key: 'enemySpeed', value: defaultParams().enemySpeed });
+};
+/** Places an enemy touching the standing hero and ticks until the fight ends. */
+const touchedBy = (kind: string, elite: boolean, affixes: string[] = []) => (sim: Simulation, seen: (w: World) => void): void => {
+  touchOn(sim);
+  const hero = sim.world.hero;
+  sim.command({ t: 'place', x: hero.x + 0.6, y: hero.y, color: 0, hp: 2, kind, ...elite ? { elite: true, affixes } : {} });
+  ticks(sim, 60 * 120, seen);
+};
+
+check('the killer of an elite\'s touch: its kind, «-элита», armour and affixes; a plain enemy\'s touch — its kind', () => {
+  const cases: { kind: string; affixes: string[]; elite: boolean; death: object; text: string }[] = [
+    // The shield-bearer is slow: «Толстый» is not its affix (sim/elites.ts `affixAllowed`).
+    { kind: 'shield', elite: true, affixes: ['swift'], death: { source: 'touch', enemy: 'shield', elite: true, armor: true, affixes: ['swift'] }, text: 'Сразил: щитоносец-элита (броня, стремительный)' },
+    { kind: 'wolf', elite: true, affixes: [], death: { source: 'wolf', enemy: 'wolf', elite: true, armor: true }, text: 'Сразил: волк-элита (броня)' },
+    { kind: 'basic', elite: true, affixes: ['fat', 'chameleon'], death: { source: 'touch', enemy: 'basic', elite: true, armor: true, affixes: ['chameleon', 'fat'] }, text: 'Сразил: обычный враг-элита (броня, хамелеон, толстый)' },
+    { kind: 'basic', elite: false, affixes: [], death: { source: 'touch', enemy: 'basic' }, text: 'Сразил: обычный враг' },
+  ];
+  cases.forEach((c, i) => {
+    const run = newRun(1 + i);
+    const { outcome, sim } = playFight(run, { chains: [], k: i + 1, finish: touchedBy(c.kind, c.elite, c.affixes) });
+    assert(sim.world.status === 'defeat', `${c.kind}: the hero fell`);
+    assert(same(outcome.death, c.death), `${c.kind}: ${JSON.stringify(outcome.death)}`);
+    const after = ok(resolveArena(run, outcome), 'lost');
+    assert(after.result?.outcome === 'defeat' && same(after.battles[after.battles.length - 1].death, c.death), 'the lost record keeps it');
+    assert(lines(after)[0] === c.text, `${c.kind}: ${lines(after)[0]}`);
+  });
+});
+
+check('the killer of an ability: an archer\'s arrow; a sapper\'s blast (the sapper is gone before its blast hits)', () => {
+  // Archers at a distance: nothing touches (the quiet field), only arrows hurt.
+  const archers = newRun(11);
+  const shot = playFight(archers, { chains: [], k: 11, finish: (sim, seen) => {
+    const hero = sim.world.hero;
+    for (let a = 0; a < 4; a++) sim.command({ t: 'place', x: hero.x + 5, y: 2 + a * 2.5, color: a, hp: 0, kind: 'archer' });
+    ticks(sim, 60 * 180, seen);
+  } });
+  assert(shot.events.filter(ev => ev.type === 'hit').every(ev => ev.type === 'hit' && ev.source === 'arrow'), 'only arrows hit');
+  assert(same(shot.outcome.death, { source: 'arrow', enemy: 'archer' }), JSON.stringify(shot.outcome.death));
+  const lostToArrows = ok(resolveArena(archers, shot.outcome), 'lost');
+  assert(lines(lostToArrows)[0] === 'Сразил: стрела лучника', lines(lostToArrows)[0]);
+
+  // Sappers one by one at the hero's side: each lights by touch and blows up (2 damage).
+  const sappers = newRun(12);
+  let lastSapper = 0;
+  const blown = playFight(sappers, { chains: [], k: 12, finish: (sim, seen) => {
+    for (let n = 0; n < 20 && sim.world.status === 'playing'; n++) {
+      const hero = sim.world.hero;
+      lastSapper = sim.command({ t: 'place', x: hero.x - 0.6, y: hero.y, color: 0, hp: 0, kind: 'sapper' }) as number;
+      ticks(sim, 60 * 5, seen, w => !w.enemies.length && !w.blasts.length);
+    }
+  } });
+  assert(!blown.sim.world.enemies.some(e => e.id === lastSapper), 'the last sapper died in its own blast');
+  assert(same(blown.outcome.death, { source: 'blast', enemy: 'sapper' }), JSON.stringify(blown.outcome.death));
+  const lostToBlast = ok(resolveArena(sappers, blown.outcome), 'lost');
+  assert(lines(lostToBlast)[0] === 'Сразил: взрыв сапёра', lines(lostToBlast)[0]);
+});
+
+check('a defeat before the Jailer: killer, row and rows left, «Тюремщик не пройден», the peak (kills, its row); a reload keeps them', () => {
+  let run = newRun(21);
+  assert(rowOf(run) === 1, 'the first battle is on row 1');
+  run = ok(resolveArena(run, playFight(run, { chains: [4], k: 1 }).outcome), 'fight 1');
+  run = walkTo(toBattle(closeNode(run)), 3);
+  assert(rowOf(run) === 3, `row ${rowOf(run)}`);
+  run = ok(resolveArena(run, playFight(run, { chains: [6], k: 2, finish: touchedBy('shield', true, ['swift']) }).outcome), 'fight 2');
+  const expected = ['Сразил: щитоносец-элита (броня, стремительный)', 'Ряд 3 · до «Последнего рубежа» 7', 'Тюремщик не пройден', 'Лучшая цепь похода: 6 убийств · ряд 3'];
+  assert(same(lines(run), expected), JSON.stringify(lines(run)));
+  assert(same(rtRunEndLines(run).map(line => line.id), ['killer', 'row', 'jailer', 'peak']), 'the order');
+  // The save: the store writes it, a reload reads the same run and the same lines.
+  const memory = new Map<string, string>(), storage: RunStorage = { getItem: k => memory.get(k) ?? null, setItem: (k, v) => { memory.set(k, v); }, removeItem: k => { memory.delete(k); } };
+  assert(createRtRunStore(storage).save(run), 'saved');
+  const back = createRtRunStore(storage).load();
+  assert(back && same(back, run) && same(lines(back), expected), 'a reload keeps the lines');
+  assert(JSON.parse(memory.get(RT_RUN_STORAGE_KEY)!).version === 7, 'version 7');
+});
+
+check('a defeat after the Jailer says «Тюремщик пройден»; a defeat on the final arena — «Последний рубеж» не пройден', () => {
+  // The first seed whose walk (first available nodes) meets a battle on row 6.
+  let run = walkTo(newRun(22), 6);
+  for (let k = 40; k < 80 && rowOf(run) !== 6; k++) run = walkTo(newRun(k), 6);
+  assert(rowOf(run) === 6, `row ${rowOf(run)}`);
+  run = ok(resolveArena(run, playFight(run, { chains: [3], k: 3, lose: true }).outcome), 'lost on row 6');
+  assert(same(lines(run), ['Сразил: обычный враг', 'Ряд 6 · до «Последнего рубежа» 4', 'Тюремщик пройден', 'Лучшая цепь похода: 3 убийства · ряд 6']), JSON.stringify(lines(run)));
+
+  let final = walkTo(newRun(23), 10);
+  assert(rtNode(final, final.pending!.kind === 'battle' ? final.pending!.nodeId : '')!.type === 'boss', 'the final arena');
+  final = ok(resolveArena(final, playFight(final, { chains: [], k: 4, lose: true }).outcome), 'lost on the final');
+  assert(same(lines(final), ['Сразил: обычный враг', 'Ряд 10 · «Последний рубеж» не пройден', 'Тюремщик пройден']), JSON.stringify(lines(final)));
+});
+
+check('victory: only the final row and the peak (no killer, no Jailer line); no chain recorded — no peak line', () => {
+  let run = newRun(24);
+  run = ok(resolveArena(run, playFight(run, { chains: [5], k: 5 }).outcome), 'fight 1');
+  run = walkTo(toBattle(closeNode(run)), 10);
+  run = ok(resolveArena(run, playFight(run, { chains: [2], k: 6 }).outcome), 'the final');
+  assert(run.result?.outcome === 'victory', 'won');
+  assert(same(lines(run), ['Ряд 10 · «Последний рубеж» пройден', 'Лучшая цепь похода: 5 убийств · ряд 1']), JSON.stringify(lines(run)));
+  assert(run.battles.every(record => record.death === undefined), 'no death on a won run');
+  // A won run of plain outcomes (no chain recorded): the final row only.
+  let plain = walkTo(newRun(25), 10);
+  plain = winPlain(plain);
+  assert(plain.result?.outcome === 'victory' && same(lines(plain), ['Ряд 10 · «Последний рубеж» пройден']), JSON.stringify(lines(plain)));
+});
+
+check('the save: a won fight keeps no death; a malformed death is not kept; malformed saved deaths are no run', () => {
+  const run = newRun(31);
+  const won = ok(resolveArena(run, { ...playFight(run, { chains: [2], k: 7 }).outcome, death: { source: 'touch', enemy: 'basic' } }), 'won');
+  assert(won.battles[0].death === undefined, 'a won fight has no death');
+  const lost = playFight(run, { chains: [], k: 8, lose: true }).outcome;
+  const bad = ok(resolveArena(run, { ...lost, death: { source: 'touch', enemy: 'dragon' } as RtArenaOutcome['death'] }), 'lost');
+  assert(bad.battles[0].death === undefined && lines(bad)[0] === 'Ряд 1 · до «Последнего рубежа» 9', 'an unknown kind is not kept, no killer line');
+  const good = ok(resolveArena(run, lost), 'lost');
+  assert(parseRtRun(serializeRtRun(good)) !== null, 'the good save loads');
+  const forged = (edit: (value: any) => void): string => { const value = JSON.parse(serializeRtRun(good)); edit(value); return JSON.stringify(value); };
+  const last = (value: any) => value.battles[value.battles.length - 1];
+  const malformed: [string, (value: any) => void][] = [
+    ['an unknown kind', v => { last(v).death.enemy = 'dragon'; }],
+    ['no source', v => { delete last(v).death.source; }],
+    ['a source with spaces', v => { last(v).death.source = 'a b'; }],
+    ['an unknown field', v => { last(v).death.by = 'x'; }],
+    ['elite false', v => { last(v).death.elite = false; }],
+    ['armour without the elite mark', v => { last(v).death.armor = true; }],
+    ['an unknown affix', v => { Object.assign(last(v).death, { elite: true, affixes: ['huge'] }); }],
+    ['a repeated affix', v => { Object.assign(last(v).death, { elite: true, affixes: ['fat', 'fat'] }); }],
+    ['an empty affix list', v => { Object.assign(last(v).death, { elite: true, affixes: [] }); }],
+    ['a death on a won record', v => { last(v).won = true; }],
+    ['a death that is not an object', v => { last(v).death = 'touch'; }],
+  ];
+  for (const [what, edit] of malformed) assert(parseRtRun(forged(edit)) === null, `${what}: no run`);
+  // A death on a record of a run that has not ended in defeat there (an earlier won record gets it).
+  const walked = ok(resolveArena(toBattle(closeNode(won)), playFight(toBattle(closeNode(won)), { chains: [], k: 9, lose: true }).outcome), 'lost later');
+  const moved = JSON.parse(serializeRtRun(walked));
+  moved.battles[0].death = moved.battles[1].death;
+  assert(parseRtRun(JSON.stringify(moved)) === null, 'a death on a won earlier record: no run');
+  // Known kinds' lines: the elite mark only with the kind; an unknown source has none.
+  assert(rtDeathLine({ source: 'thorns' }) === null && rtDeathLine({ source: 'slot-rain' }) === null && rtDeathLine({ source: 'touch' }) === null, 'no line');
+  assert(rtDeathLine({ source: 'quills', enemy: 'porcupine', elite: true, armor: true }) === 'Сразил: иглы дикобраза', 'quills');
+  assert(rtDeathLine({ source: 'lynx', enemy: 'lynx' }) === 'Сразил: прыжок рыси' && rtDeathLine({ source: 'boar', enemy: 'boar' }) === 'Сразил: рывок кабана'
+    && rtDeathLine({ source: 'fire-trail', enemy: 'boar', elite: true, armor: true, affixes: ['fiery'] }) === 'Сразил: огненный след', 'abilities');
+  assert(rtDeathLine({ source: 'touch', enemy: 'boar', elite: true, armor: true }) === 'Сразил: кабан-элита (броня)', 'the draft example');
+});
+
+check('a save written before П6 (fixture) loads unchanged; lost the old way it shows no killer line; lost now it shows one', () => {
+  const text = saveBefore.save;
+  const run = parseRtRun(text);
+  assert(run && serializeRtRun(run) === text, 'the fixture loads and saves byte for byte');
+  assert(run.battles.every(record => record.death === undefined), 'no death in the fixture');
+  // Lost the old way: the outcome without the field (as the build before П6 sent it).
+  const old = playFight(run, { chains: [], k: 10, lose: true }).outcome;
+  const { death: _drop, ...withoutDeath } = old;
+  const lostOld = ok(resolveArena(run, withoutDeath), 'lost the old way');
+  const reloaded = parseRtRun(serializeRtRun(lostOld));
+  assert(reloaded && same(reloaded, lostOld), 'the old-shape lost save loads');
+  const row = runRow(rtNode(run, run.pending!.kind === 'battle' ? run.pending!.nodeId : '')!.row);
+  assert(row === 9, `the fixture's battle is on row ${row}`);
+  assert(same(lines(reloaded), ['Ряд 9 · до «Последнего рубежа» 1', 'Тюремщик пройден']), JSON.stringify(lines(reloaded)));
+  // Played on with this build: the killer is there.
+  const lostNow = ok(resolveArena(run, old), 'lost now');
+  assert(same(lines(lostNow), ['Сразил: обычный враг', 'Ряд 9 · до «Последнего рубежа» 1', 'Тюремщик пройден']), JSON.stringify(lines(lostNow)));
+});
+
+console.log(`\n${checks} checks passed`);

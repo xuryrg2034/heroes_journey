@@ -15,6 +15,7 @@
  *   is not «undelivered» after a reload; a write that went through resets the retry pause; a page back from the
  *   back-forward cache records its fight on; one `pagehide` stash per fight; a duplicated tab takes a new session.
  * - Run choices from real run steps (the start gift).
+ * - П6: the run record gets `endedAt` from the step that ended the run (a lost fight), not before; an abandoned run has none.
  */
 import shieldsWolvesJournal from '../../../tests/fixtures/realtime-browser-journal-shields-wolves.json';
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
@@ -22,7 +23,9 @@ import type { Command } from '../sim/commands';
 import { copyParams } from '../sim/params';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import type { World } from '../sim/world';
-import { createRtRun, rtChooseGift } from '../run/rtRun';
+import { createRtRun, resolveArena, rtAvailableNodes, rtChooseGift, rtEnterNode, type RtRunState, type RtRunStep } from '../run/rtRun';
+import type { RunRecord } from './schema';
+import { takeGift } from '../run/runFight.testkit';
 import { TelemetryBuffer, memoryJournalStore, TLM_INDEX_KEY, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type KeyValueStore } from './buffer';
 import { playLoopFight } from './loopFight.testkit';
 import { createFightObserver, EventCursor } from './observe';
@@ -416,6 +419,36 @@ async function main(): Promise<void> {
     const list = [...choices];
     mergeChoice(list, { nodeId: 'start', source: 'gift', offered: choices[0].offered, taken: [], refused: [] });
     assert(list.length === 1 && list[0].taken.length === 1, 'merged per node and source');
+  });
+
+  await check('П6: the run record gets `endedAt` when a lost fight ends the run, not before; an abandoned run has none', async () => {
+    const local = fake();
+    const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: copyParams(browserJournal.journal.params as unknown as Journal['params']), local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+    const okStep = (step: RtRunStep): Extract<RtRunStep, { ok: true }> => { assert(step.ok, step.ok ? '' : step.reason); return step; };
+    const runs = async (): Promise<RunRecord[]> => { await new Promise(r => setTimeout(r, 10)); return (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run'); };
+    const latest = async (seed: number): Promise<RunRecord> => (await runs()).filter(r => r.seed === seed).pop()!;
+    // The abandoned run: started, a node entered, then a new run.
+    // The start gift taken before the run is shown to the recorder (its choice is not what this check reads).
+    const first = takeGift(createRtRun(1001, { gift: 'mini' }));
+    rec.runStarted(null, first);
+    let run: RtRunState = first;
+    const entered = okStep(rtEnterNode(run, rtAvailableNodes(run)[0].id));
+    rec.runStep(run, entered); run = entered.run;
+    assert((await latest(1001)).endedAt === undefined, 'an open run has no end');
+    const second = takeGift(createRtRun(1002, { gift: 'mini' }));
+    rec.runStarted(run, second);
+    const abandoned = await latest(1001);
+    assert(abandoned.outcome === 'abandoned' && abandoned.endedAt === undefined, `abandoned: ${abandoned.outcome} ${abandoned.endedAt}`);
+    // The second run is lost in its first fight.
+    run = second;
+    const enter = okStep(rtEnterNode(run, rtAvailableNodes(run)[0].id)); rec.runStep(run, enter); run = enter.run;
+    assert((await latest(1002)).endedAt === undefined, 'not ended yet');
+    const before = Date.now();
+    const lost = okStep(resolveArena(run, { nodeId: (run.pending as { nodeId: string }).nodeId, won: false, hp: 0, kills: 0, damage: 3, time: 2 }));
+    rec.runStep(run, lost);
+    const ended = await latest(1002);
+    assert(ended.outcome === 'defeat' && typeof ended.endedAt === 'string' && Date.parse(ended.endedAt) >= before - 1000 && Date.parse(ended.endedAt) <= Date.now() + 1000, `ended: ${ended.outcome} ${ended.endedAt}`);
+    rec.dispose();
   });
 
   console.log(`\n${checks} checks passed`);

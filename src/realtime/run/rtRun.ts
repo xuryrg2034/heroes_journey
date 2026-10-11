@@ -46,6 +46,8 @@ import type { Loadout } from '../sim/kit';
 // Phase B, track Д4: the sources — the Jailer's hammer, the real-time draws of the gift and events.
 import { addLuck, countLuck, rtLuckLines, validLuckTally, RT_FIGHT_LUCK_KEYS, type RtEventLuck, type RtLuckLine, type RtLuckTally } from './rtLuck';
 import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalismanDraw, rtTalismanLeft, type HammerId } from './rtTalismans';
+// П6 «Незакрытое дело»: the lost fight's killing blow (rtRunEnd.ts).
+import { validDeath, type RtDeath } from './rtRunEnd';
 
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
@@ -78,6 +80,8 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * B7 К9 «Игорный круг гоблинов» (the same version, 12.10.2026): the counter of the run's casino stream (`casinoDraws`), the
  * run's circle and its games (`casino`), the open circle screen (`pending` of kind `casino`) — all absent until a circle
  * stands; a save before it (or a run that never met one) has none and plays on as before.
+ * П6 «Незакрытое дело» (the same version, 12.10.2026): the lost battle record may carry `death` (the killing blow); a save
+ * before it has none (its end screen shows no killer line).
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -194,6 +198,11 @@ export interface RtBattleRecord {
    * lifted or not). Absent — not taken, or a record saved before it. A won fight with it owes the chest's talisman screen.
    */
   chest?: true;
+  /**
+   * П6 «Незакрытое дело» (the same version 7, 12.10.2026): the killing blow of a lost fight (rtRunEnd.ts) — only on the run's
+   * lost record. Absent — a won fight, a death not read (no lethal hit seen), or a record saved before it.
+   */
+  death?: RtDeath;
 }
 /**
  * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
@@ -346,6 +355,8 @@ export interface RtArenaOutcome {
   bestChain?: number;
   /** B6 К7 «Проклятый сундук»: the hero took the chest in the fight (`world.curse` is there); absent or false — not taken. */
   chest?: boolean;
+  /** П6 «Незакрытое дело»: the lost fight's killing blow (main.ts reads it with `RtDeathWatch`); taken only by a defeat. */
+  death?: RtDeath;
   /**
    * П5 «Журнал удачи»: the fight's chance as the view saw it in the sim's events (rtLuck.ts `observeFightLuck`: the goblin's
    * pulls, the player's kills of armoured elites); only the fight's keys (`RT_FIGHT_LUCK_KEYS`) are taken. Absent — none.
@@ -876,7 +887,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0),
     ...outcome.bestChain !== undefined ? { bestChain: count(outcome.bestChain) } : {},
     // B6 К7: the chest of «Застава» was taken (no other arena has one).
-    ...outcome.chest === true && pending.arena === HARD_ARENA ? { chest: true as const } : {} });
+    ...outcome.chest === true && pending.arena === HARD_ARENA ? { chest: true as const } : {},
+    // П6: the killing blow of a lost fight (a malformed one is not kept).
+    ...!outcome.won && validDeath(outcome.death) ? { death: structuredClone(outcome.death) } : {} });
   // П5: the fight's chance joins the run's tally (a lost fight's too).
   const luck = addLuck(run.luck, outcome.luck, RT_FIGHT_LUCK_KEYS);
   if (luck) run.luck = luck;
@@ -1805,6 +1818,8 @@ function checkRun(value: unknown): RtRunState | null {
       || (record.bestChain !== undefined && !isCount(record.bestChain))) return null;
     // B6 К7: only «Застава» has the chest.
     if (record.chest !== undefined && (record.chest !== true || record.arena !== HARD_ARENA)) return null;
+    // П6: the killing blow only on the run's lost record.
+    if (record.death !== undefined && (record.won || !validDeath(record.death) || !isRecord(run.result) || run.result.outcome !== 'defeat' || run.result.nodeId !== record.nodeId)) return null;
   }
   // B7 К9: the circle and the casino stream's counter — both or neither (absent: no circle stood in the run).
   if ((run.casinoDraws === undefined) !== (run.casino === undefined) || (run.casino !== undefined && !validCasino(run, map))) return null;

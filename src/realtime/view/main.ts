@@ -45,6 +45,7 @@ import { runRow } from '../run/arenaPools';
 import { rtNode, rtRunBestChain } from '../run/rtRun';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
+import { RtDeathWatch } from '../run/rtRunEnd';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
@@ -358,9 +359,12 @@ async function boot(): Promise<void> {
       ...sandboxOath ? { oath: sandboxOath } : {},
     };
   };
+  /** П6 «Незакрытое дело»: the fight's killing blow (rtRunEnd.ts) — enemies seen before every tick, the events every frame. */
+  const deathWatch = new RtDeathWatch();
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout: Loadout = sandboxLoadout()): Simulation => {
     motion.clear();
-    return new Simulation({ arena, params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); }, ...hero ? { hero } : {}, loadout });
+    deathWatch.reset();
+    return new Simulation({ arena, params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); }, ...hero ? { hero } : {}, loadout });
   };
 
   let arenaIndex = 0;
@@ -566,7 +570,8 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {} });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+      ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -842,7 +847,8 @@ async function boot(): Promise<void> {
       recorder.frameEnd(w, ticksPerFrame > 0 ? inView : null, ticksPerFrame);
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
-    if (runView?.arenaOpen && !runArenaRecorded) observeFightLuck(fightLuck, w.events);
+    // П6: the run fight's killing blow, read the same way.
+    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); }
     w.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;

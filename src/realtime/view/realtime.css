@@ -48,6 +48,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-result-stats { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; margin: 0 0 20px; font-size: 14px; }
 .rt-result-stats dt { color: var(--rt-muted); }
 .rt-result-stats dd { margin: 0; text-align: right; color: #e5dcc0; font-variant-numeric: tabular-nums; }
+/* П6 «Незакрытое дело»: the facts of the ended run, a plain list above the numbers. */
+.rt-run-end-facts { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 4px; font-size: 14px; color: #e5dcc0; }
 .rt-result-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .rt-again, .rt-other { padding: 12px; border: 0; font-weight: 700; letter-spacing: .5px; }
 .rt-again { background: #c4ad77; color: #1b2017; }

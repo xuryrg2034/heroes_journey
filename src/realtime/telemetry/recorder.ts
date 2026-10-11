@@ -268,6 +268,8 @@ interface RunMeta {
   attempts: Record<string, number>;
   /** Casino «Кость у двери»: the die screens (absent — none yet). */
   dice?: RunDie[];
+  /** П6: when the run ended (ISO; absent — not ended). */
+  endedAt?: string;
 }
 
 /** Where a fight is: a run node or the sandbox. */
@@ -615,7 +617,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -655,8 +657,11 @@ export class RtRecorder {
         } else if (ev.type === 'die-resolved') {
           const die = [...meta.dice ?? []].reverse().find(d => d.nodeId === ev.nodeId && d.rolled === null);
           if (die) Object.assign(die, { rolled: ev.rolled, mult: ev.mult, resources: ev.resources.length, base: ev.base });
-        } else if (ev.type === 'run-won') meta.outcome = 'victory';
-        else if (ev.type === 'run-lost') meta.outcome = 'defeat';
+        } else if (ev.type === 'run-won' || ev.type === 'run-lost') {
+          meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
+          // П6: the end of the run (the step that ended it; the first one, should a step repeat).
+          meta.endedAt ??= new Date().toISOString();
+        }
       }
       for (const c of stepChoices(before, step)) mergeChoice(meta.choices, c);
       const last = meta.nodes[meta.nodes.length - 1];
