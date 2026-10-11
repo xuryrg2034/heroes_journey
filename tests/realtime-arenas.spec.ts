@@ -30,7 +30,7 @@ const ARENAS = [
 test('arenas 8–10: the sandbox menu lists ten arenas on the digit keys; keys 8, 9 and 0 open «Брод», «Застава» and «Последний рубеж» without errors', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();
@@ -68,7 +68,7 @@ test('arenas 8–10: the sandbox menu lists ten arenas on the digit keys; keys 8
 test('arenas 8–10: `?arena=8…10` opens the arena at once', async ({ page }) => {
   const errors = collectErrors(page);
   for (const arena of ARENAS) {
-    await page.goto(`/realtime.html?sandbox=1&arena=${arena.n}`);
+    await page.goto(`/?sandbox=1&arena=${arena.n}`);
     await expect.poll(() => page.evaluate(() => (window as any).__realtime?.snapshot().arena)).toBe(arena.id);
     await expect(page.getByTestId('menu')).toBeHidden();
     await expect(page.getByTestId('goal')).toHaveText(arena.goal);

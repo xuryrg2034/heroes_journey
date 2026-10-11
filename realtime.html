@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#10150f" />
-    <meta name="description" content="Ashen Oath — черновой прототип боя в реальном времени (проверка ощущения)." />
-    <title>Ashen Oath — прототип реального времени</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Ashen Oath</title>
+    <!-- The real-time game moved to the root page (index.html). Old links (?sandbox=1, #sandbox, &seed=…, &telemetry=…)
+         keep their query and hash. -->
+    <script>location.replace('./' + location.search + location.hash);</script>
+    <noscript><meta http-equiv="refresh" content="0; url=./" /></noscript>
   </head>
   <body>
-    <div id="rt-app"></div>
-    <script type="module" src="/src/realtime/view/main.ts"></script>
+    <p><a href="./">Ashen Oath</a></p>
   </body>
 </html>

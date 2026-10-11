@@ -5,8 +5,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
- * Smoke test of the draft real-time prototype (realtime.html, docs/realtime-prototype.md).
- * Runs only through playwright.realtime.config.ts; the main game suite does not include it.
+ * Smoke test of the real-time game (index.html; realtime.html redirects to it; docs/realtime-prototype.md).
+ * Runs through playwright.realtime.config.ts (`npm test`).
  * The last test records a fight in the browser and replays its journal here, in Node (stage 1 of the transition).
  */
 interface Snapshot {
@@ -30,7 +30,7 @@ async function open(page: Page, errors: string[], arena: 1 | 2 | 3 | null = 1): 
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   // The arena menu and the debug panel live in the sandbox since stage 2 (the page itself plays a run).
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();
@@ -1472,11 +1472,28 @@ test('after the goals touching the open door while walking wins; the closed door
  * RT_RECORD_JOURNAL=1 it also writes the journal to tests/fixtures/realtime-browser-journal.json, which
  * `npm run test:realtime-sim` replays without a browser.
  */
+test('the old page realtime.html opens the game at the root and keeps the query and the hash', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/realtime.html?sandbox=1&seed=4242#x');
+  await page.waitForURL(url => url.pathname === '/');
+  const url = new URL(page.url());
+  expect(url.search).toBe('?sandbox=1&seed=4242');
+  expect(url.hash).toBe('#x');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect(page.getByTestId('menu')).toBeVisible();
+  // `#sandbox` alone opens the sandbox too.
+  await page.goto('/realtime.html#sandbox');
+  await page.waitForURL(url => url.pathname === '/' && url.hash === '#sandbox');
+  await expect(page.getByTestId('menu')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('a fight recorded in the browser replays in Node to the same world hash (the journal)', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html?sandbox=1&seed=4242');
+  await page.goto('/?sandbox=1&seed=4242');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
@@ -1542,7 +1559,7 @@ test('a fight with shieldbearers and the wolves\' ring recorded in the browser r
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html?sandbox=1&seed=5151&arena=4');
+  await page.goto('/?sandbox=1&seed=5151&arena=4');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);

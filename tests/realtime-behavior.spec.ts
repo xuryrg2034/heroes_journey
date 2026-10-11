@@ -27,7 +27,7 @@ function collectErrors(page: Page): string[] {
 }
 
 async function openSandbox(page: Page, query = ''): Promise<void> {
-  await page.goto(`/realtime.html?sandbox=1${query}`);
+  await page.goto(`/?sandbox=1${query}`);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();
@@ -271,7 +271,7 @@ test('fights on «Рысье логово» and «Круг шамана» record
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   for (const n of [16, 17]) {
-    await page.goto(`/realtime.html?sandbox=1&seed=777&arena=${n}`);
+    await page.goto(`/?sandbox=1&seed=777&arena=${n}`);
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);

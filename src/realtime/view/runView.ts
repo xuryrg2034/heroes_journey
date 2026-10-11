@@ -252,7 +252,7 @@ export class RunView {
   private startHtml(): string {
     return `<div class="rt-run-start rt-card"><h2>Поход</h2><p>Карта леса, арены в реальном времени, привалы, события и торговец. Поражение на арене заканчивает поход.</p>`
       + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>`
-      + `<p class="rt-run-note">Песочница арен прототипа с панелью отладки — <a href="#sandbox">realtime.html#sandbox</a>.</p></div>`;
+      + `<p class="rt-run-note">Песочница арен прототипа с панелью отладки — <a href="#sandbox">#sandbox</a>.</p></div>`;
   }
 
   private headerHtml(run: RtRunState): string {

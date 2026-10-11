@@ -17,9 +17,9 @@ const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: numbe
 async function open(page: Page, errors: string[], n: number): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
-  await page.goto(`/realtime.html?sandbox=1&arena=${n}&seed=77`);
+  await page.goto(`/?sandbox=1&arena=${n}&seed=77`);
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect(page.getByTestId('menu')).toBeHidden();
 }
@@ -260,7 +260,7 @@ test('spawn markers off screen get a pale arrow on 24×15 and none on 16×10', a
 test('the sandbox menu lists the camera sample under its heading (⇧8); the button and the key open it', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await expect(page.getByTestId('menu')).toBeVisible();
   const button = page.getByTestId('camera-arena-1');
   await button.scrollIntoViewIfNeeded();

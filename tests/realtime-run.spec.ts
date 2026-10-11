@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 /**
  * The run of the real-time game in the browser (stage 2, step 1; docs/realtime-slice.md). Runs through
- * playwright.realtime.config.ts only. The page (realtime.html) opens on the run; the arena is won through the test hook
+ * playwright.realtime.config.ts only. The page (index.html) opens on the run; the arena is won through the test hook
  * `__realtime.run.winArena` (the goals done and the hero put on the open door by journalled commands — the door's own
  * rule lets him in) and lost by a ring of enemies placed around the hero.
  */
@@ -16,7 +16,7 @@ const snapshot = (page: Page) => page.evaluate(() => (window as any).__realtime.
 async function openRun(page: Page, errors: string[]): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html');
+  await page.goto('/');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
@@ -334,7 +334,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
 });
 
 test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the debug panel, without the run', async ({ page }) => {
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect(page.getByTestId('menu')).toBeVisible();
   await expect(page.getByTestId('open-panel')).toBeVisible();
@@ -345,7 +345,7 @@ test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the d
 test('the sandbox opens by the anchor too: the run screen links to #sandbox, the link boots the sandbox (a published build keeps no query)', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto('/realtime.html');
+  await page.goto('/');
   await expect(page.getByTestId('run-new')).toBeVisible();
   await page.locator('a[href="#sandbox"]').first().click();
   await expect(page.getByTestId('menu')).toBeVisible();
@@ -420,7 +420,7 @@ test('run (phase A, Т2): the node preview names its roster in one line, without
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   // Seed 11: on run row 1 two nodes play «Двор кнопок», one with «Волки», the other with «Натиск» (rtRun.ts, chooseRoster).
-  await page.goto('/realtime.html?seed=11');
+  await page.goto('/?seed=11');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);

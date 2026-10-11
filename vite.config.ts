@@ -14,7 +14,7 @@ function rtBuildId(): string {
   }
 }
 
-// Two pages: the game (index.html) and the draft real-time prototype (realtime.html, docs/realtime-prototype.md).
+// Two pages: the real-time game (index.html) and realtime.html, a redirect to it that keeps the query and the hash (old links).
 export default defineConfig({
   plugins: [rtTelemetryPlugin()],
   define: { __RT_BUILD__: JSON.stringify(rtBuildId()) },

@@ -20,7 +20,7 @@ const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).
 async function openArena(page: Page, errors: string[], n: number): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();

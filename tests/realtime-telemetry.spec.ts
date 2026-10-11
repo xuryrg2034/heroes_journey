@@ -34,7 +34,7 @@ const place = (page: Page, x: number, y: number, color: number, hp = 0): Promise
 async function openSandbox(page: Page, errors: string[], query = '', menu = true): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto(`/realtime.html?sandbox=1${query}`);
+  await page.goto(`/?sandbox=1${query}`);
   await page.evaluate(async () => {
     localStorage.clear(); sessionStorage.clear();
     await new Promise<void>(resolve => { const r = indexedDB.deleteDatabase('ashen-oath-rt-tlm-v1'); r.onsuccess = r.onerror = r.onblocked = () => resolve(); });
@@ -348,7 +348,7 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html');
+  await page.goto('/');
   await page.evaluate(async () => {
     localStorage.clear(); sessionStorage.clear();
     await new Promise<void>(resolve => { const r = indexedDB.deleteDatabase('ashen-oath-rt-tlm-v1'); r.onsuccess = r.onerror = r.onblocked = () => resolve(); });
@@ -432,7 +432,7 @@ test('replayTo in a run is refused and changes nothing: the run save, the run st
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html');
+  await page.goto('/');
   await page.evaluate(async () => {
     localStorage.clear(); sessionStorage.clear();
     await new Promise<void>(resolve => { const r = indexedDB.deleteDatabase('ashen-oath-rt-tlm-v1'); r.onsuccess = r.onerror = r.onblocked = () => resolve(); });

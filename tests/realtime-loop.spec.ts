@@ -17,7 +17,7 @@ function collectErrors(page: Page): string[] {
 
 /** The sandbox, quiet (only what the test places acts), the loop on; the hero at (8, 5.5). */
 async function openLoopSandbox(page: Page, extra: [string, unknown][] = []): Promise<void> {
-  await page.goto('/realtime.html?sandbox=1&arena=1');
+  await page.goto('/?sandbox=1&arena=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();

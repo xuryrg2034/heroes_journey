@@ -1,10 +1,10 @@
 import { defineConfig } from '@playwright/test';
 
-// Real-time game only (docs/realtime-prototype.md, docs/realtime-slice.md): `npx playwright test -c playwright.realtime.config.ts`
+// The real-time game (docs/realtime-prototype.md, docs/realtime-slice.md): `npm test` or `npx playwright test -c playwright.realtime.config.ts`
 // — the arena sandbox (realtime.spec.ts), the new enemies of the slice (realtime-enemies.spec.ts), the run (realtime-run.spec.ts)
 // the abilities, consumables, elites and talismans of step 3 (realtime-kit.spec.ts) and the mixed arenas 8–10 of step 4
 // (realtime-arenas.spec.ts), the terrain of stage 3a (realtime-terrain.spec.ts) its enemy behaviour (realtime-behavior.spec.ts) the camera (realtime-camera.spec.ts) the view of the loop (realtime-loop.spec.ts) and the view of elite armour (realtime-elites.spec.ts).
-// Separate port so it never collides with the main suite (4173).
+// Its own default port (PLAYWRIGHT_PORT overrides it).
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4620);
 
 export default defineConfig({
@@ -23,7 +23,7 @@ export default defineConfig({
   },
   webServer: {
     command: `npx vite --host 127.0.0.1 --port ${port} --strictPort`,
-    url: `http://127.0.0.1:${port}/realtime.html`,
+    url: `http://127.0.0.1:${port}/`,
     reuseExistingServer: true,
     timeout: 30_000,
   },

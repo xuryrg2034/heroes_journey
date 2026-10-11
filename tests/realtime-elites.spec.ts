@@ -14,7 +14,7 @@ const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: numbe
 async function openArena(page: Page, errors: string[], n: number): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();

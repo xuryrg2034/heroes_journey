@@ -9,7 +9,7 @@
  *
  * `--at <fight> <tick>` (the fight key `f03-n5a-a1`, or `<session>/<run>/<fight>` when the key repeats): the world after
  * that many ticks — `at/<fight>-<tick>.json` (`worldState`, sim/hash.ts) — and a screenshot of the field
- * `at/<fight>-<tick>.png`: Vite on a free port, Chromium, `/realtime.html#sandbox`, the page's hook
+ * `at/<fight>-<tick>.png`: Vite on a free port, Chromium, `/#sandbox`, the page's hook
  * `window.__realtime.replayTo(journal, tick)`. Without the hook only the snapshot is written (the error says so).
  */
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -73,7 +73,7 @@ async function screenshotAt(journal: Journal, tick: number, png: string): Promis
   try {
     const base = server.resolvedUrls?.local[0] ?? 'http://127.0.0.1:4669/';
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-    await page.goto(new URL('realtime.html#sandbox', base).href);
+    await page.goto(new URL('#sandbox', base).href);
     await page.waitForFunction(() => !!(window as unknown as { __realtime?: unknown }).__realtime, null, { timeout: 30_000 });
     const hook = await page.evaluate(() => typeof (window as unknown as { __realtime?: { replayTo?: unknown } }).__realtime?.replayTo === 'function');
     if (!hook) throw new Error('на странице нет хука window.__realtime.replayTo (дорожка ТA): скриншот не сделан, записан только снимок мира');

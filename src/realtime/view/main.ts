@@ -1,5 +1,5 @@
 /**
- * Entry of the real-time arena (realtime.html): input, the frame loop, HUD, menus and the debug hooks.
+ * Entry of the real-time game (index.html): input, the frame loop, HUD, menus and the debug hooks.
  * docs/realtime-prototype.md. Does not touch the turn-based game state or storage.
  *
  * Stage 1 of the transition («Ядро реального времени»): the simulation lives in src/realtime/sim (no DOM). This file
@@ -834,7 +834,7 @@ async function boot(): Promise<void> {
    * into the run — there the hook rejects and changes nothing.
    */
   const replayTo: ReplayTo = async (journal: Journal, tick: number) => {
-    if (!sandbox) throw new Error('replayTo: только в песочнице (realtime.html?sandbox=1 или #sandbox); в походе бой не подменяется');
+    if (!sandbox) throw new Error('replayTo: только в песочнице (?sandbox=1 или #sandbox); в походе бой не подменяется');
     const t = Math.max(0, Math.min(journal.ticks, Math.floor(tick)));
     const cut: Journal = { ...journal, ticks: t, commands: journal.commands.filter(c => c.tick < t) };
     const replayed = replay(cut, s => { if (s.world.tick < t) s.world.events.length = 0; });

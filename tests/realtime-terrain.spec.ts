@@ -38,7 +38,7 @@ function collectErrors(page: Page): string[] {
 }
 
 async function openSandbox(page: Page): Promise<void> {
-  await page.goto('/realtime.html?sandbox=1');
+  await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.locator('#rt-app canvas')).toBeVisible();
@@ -112,7 +112,7 @@ test('arenas 4–10 (stage 3a, step 2): `?arena=4…10` opens each with its terr
   test.setTimeout(150_000);
   const errors = collectErrors(page);
   for (const s of SLICE) {
-    await page.goto(`/realtime.html?sandbox=1&arena=${s.n}`);
+    await page.goto(`/?sandbox=1&arena=${s.n}`);
     await expect.poll(() => page.evaluate(() => (window as any).__realtime?.snapshot().arena)).toBe(s.id);
     await expect(page.getByTestId('menu')).toBeHidden();
     const start = await snap(page);
@@ -134,7 +134,7 @@ test('arenas 4–10 (stage 3a, step 2): `?arena=4…10` opens each with its terr
 test('terrain samples: `?arena=11…15` opens each at once', async ({ page }) => {
   const errors = collectErrors(page);
   for (const s of SAMPLES) {
-    await page.goto(`/realtime.html?sandbox=1&arena=${s.n}`);
+    await page.goto(`/?sandbox=1&arena=${s.n}`);
     await expect.poll(() => page.evaluate(() => (window as any).__realtime?.snapshot().arena)).toBe(s.id);
     await expect(page.getByTestId('menu')).toBeHidden();
   }
