@@ -9,11 +9,15 @@ export interface RunStorage { getItem(key: string): string | null; setItem(key: 
 import { parseRtRun, serializeRtRun, type RtRunState } from './rtRun';
 
 /**
- * Phase B (track Д4): `-v6` (save version 6, the Jailer's hammer, the real-time draws of the gift and events). `-v5`
- * (phase A, rosters of the arenas), `-v4` (stage 3a, the lynx's and the shaman's arenas in the pools), `-v3` (iteration
- * 2.1, the run HP 15), `-v2` (step 3) and `-v1` (steps 1–2) are not read.
+ * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
+ * `-v6` (phase B, track Д4: the Jailer's hammer, the real-time draws of the gift and events) is still read when there is no
+ * `-v7` save and migrated (rtRun.ts `migrateRun`); the next save goes under `-v7`. `-v5` (phase A, rosters of the arenas),
+ * `-v4` (stage 3a, the lynx's and the shaman's arenas in the pools), `-v3` (iteration 2.1, the run HP 15), `-v2` (step 3)
+ * and `-v1` (steps 1–2) are not read.
  */
-export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v6';
+export const RT_RUN_STORAGE_KEY = 'ashen-oath-rt-run-v7';
+/** The phase B key: read (and migrated) only while there is no `-v7` save; removed with it by `clear`. */
+export const RT_RUN_STORAGE_KEY_V6 = 'ashen-oath-rt-run-v6';
 export const RT_PROFILE_STORAGE_KEY = 'ashen-oath-rt-profile-v1';
 export const RT_PROFILE_VERSION = 1;
 
@@ -34,7 +38,7 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
   return {
     load() {
       let text = memory;
-      try { text ??= storage?.getItem(RT_RUN_STORAGE_KEY) ?? null; } catch { /* Fall back to memory. */ }
+      try { text ??= storage?.getItem(RT_RUN_STORAGE_KEY) ?? storage?.getItem(RT_RUN_STORAGE_KEY_V6) ?? null; } catch { /* Fall back to memory. */ }
       return parseRtRun(text);
     },
     save(run) {
@@ -43,7 +47,7 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
     },
     clear() {
       memory = null;
-      try { storage?.removeItem(RT_RUN_STORAGE_KEY); } catch { /* Storage is optional. */ }
+      try { storage?.removeItem(RT_RUN_STORAGE_KEY); storage?.removeItem(RT_RUN_STORAGE_KEY_V6); } catch { /* Storage is optional. */ }
     },
   };
 }

@@ -143,6 +143,9 @@ export interface RunNodeVisit {
   event?: { id: string; option?: string; outcome?: number };
 }
 
+/** Casino «Ставка клятвы»: the source of the node card's oath choice in `RunRecord.choices` (not the Jailer's `oath`). */
+export const OATH_STAKE_SOURCE = 'oath-stake';
+
 /** One choice of the run: what was offered, what was taken, what was refused (a gift, talismans, a hammer, a relic, an oath, the shop, the rest). */
 export interface RunChoice {
   /** The node of the choice (`start` — the starting gift). */
@@ -421,6 +424,25 @@ export interface FightSummary {
   abilities: { jumps: number; spins: number; items: Record<string, number> };
   /** Casino «Котёл» (from 11.10.2026; absent in older records — read them through `withSummaryDefaults`). */
   purse: PurseSummary;
+  /** Casino «Ставка клятвы» (from 11.10.2026; absent in older records — `withSummaryDefaults`): the oath of the fight. */
+  oath: OathSummary;
+}
+
+/**
+ * Casino stage 1, item 2: «Ставка клятвы» of one fight (docs/realtime-telemetry.md, section 8, «Ставка клятвы»; sim/oath.ts).
+ * All null — the fight had no oath (or the rule was off).
+ */
+export interface OathSummary {
+  /** The oath of the fight (`world.oath.id`). */
+  id: string | null;
+  /** The door settled it: kept (true) or broken (false); null — no exit through the door (a defeat, a restart). */
+  kept: boolean | null;
+  /** The tick the oath broke (an «at least once» oath not met — the door's tick); null — not broken. */
+  brokenTick: number | null;
+  /** The tick an «at least once» oath was met; null — not met (or a «never» oath). */
+  metTick: number | null;
+  /** The cauldron's multiplier the door recorded (2 or 0.5); null — no door. */
+  mult: number | null;
 }
 
 /** Casino «Котёл» of one fight (docs/realtime-telemetry.md, section 8, «Котёл»; sim/purse.ts). */
@@ -511,6 +533,7 @@ export function emptyFightSummary(): FightSummary {
     movement: { path: 0, idle: 0, water: 0, thorns: 0 },
     abilities: { jumps: 0, spins: 0, items: {} },
     purse: { on: false, cauldron: 0, embers: [], heat: [], totals: [], crystals: 0, killEmbers: {}, resources: null },
+    oath: { id: null, kept: null, brokenTick: null, metTick: null, mult: null },
   };
 }
 

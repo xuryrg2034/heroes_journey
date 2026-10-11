@@ -29,7 +29,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
+  OATH_STAKE_SOURCE, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
 } from './schema';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
@@ -159,8 +159,14 @@ function giftLabel(o: GiftOption): string {
 /** The choices a run step made (gift, talisman, oath or relic, hammer, find, event, rest, shop); merged per node and source by the caller. */
 export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>): RunChoice[] {
   const pending = before?.pending, after = step.run, events = step.events, out: RunChoice[] = [];
-  if (!before || !pending) return out;
+  if (!before) return out;
   const choice = (nodeId: string, source: string, offered: string[], taken: string[]): void => { out.push({ nodeId, source, offered, taken, refused: offered.filter(o => !taken.includes(o)) }); };
+  // Casino «Ставка клятвы»: the node card's oaths, chosen on entering the node (no pending before it).
+  for (const ev of events) if (ev.type === 'oath-offered') {
+    const taken = events.find(e => e.type === 'oath-taken' && e.nodeId === ev.nodeId);
+    choice(ev.nodeId, OATH_STAKE_SOURCE, [...ev.options], taken?.type === 'oath-taken' && taken.id ? [taken.id] : []);
+  }
+  if (!pending) return out;
   switch (pending.kind) {
     case 'gift': {
       const view = rtGiftView(before);

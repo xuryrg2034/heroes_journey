@@ -53,6 +53,7 @@ import { heroRadius } from './params';
 import { MAX_AFFIXES, MAX_PLATES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { nextPaletteColor } from './spawn';
 import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World, type EnemyKind } from './world';
+import { oathEliteDown } from './oath';
 
 /** A weak elite (0 HP) gets this HP. */
 const ELITE_WEAK_HP = 1;
@@ -463,6 +464,8 @@ export function eliteDeath(world: World, e: Enemy, cause: KillCause): void {
   if (armor) {
     const inWindow = (armor.open ?? 0) > 0, clean = cause.credited && inWindow && (armor.clean ?? 0) > 0;
     world.events.push({ type: 'eliteDown', enemyId: e.id, x: e.x, y: e.y, clean, inWindow, credited: cause.credited });
+    // Casino «Ставка клятвы» (oath.ts): the player's kill in the window meets «Элита в окне».
+    if (world.oath) oathEliteDown(world, inWindow, cause.credited);
     if (world.params.hitstop) world.hitstop = Math.max(world.hitstop, ELITE_DOWN_HITSTOP);
     if (!cause.credited) return;
     if (clean) world.energy = Math.min(ENERGY_CAP, world.energy + CLEAN_BREAK_ENERGY);

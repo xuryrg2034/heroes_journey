@@ -37,6 +37,7 @@ import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, s
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
 import { leverReady, pullLever } from './slot';
 import { linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
+import { oathCrystal, oathJump, oathRelease } from './oath';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -639,6 +640,8 @@ export function releaseChain(world: World): boolean {
   }
   // Casino «Котёл»: the dash counts its cheque (purse.ts; absent while the cauldron is off).
   if (purseOn(world)) world.move.purse = { embers: 0, links: 0, last: false };
+  // Casino «Ставка клятвы» (oath.ts): «Цепи 3+» counts the released chain's enemy links (in the release's tick).
+  if (world.oath) oathRelease(world, links.filter(l => l.kind === 'enemy').length);
   // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;
@@ -709,6 +712,8 @@ export function jump(world: World, p: Vec): boolean {
   const speed = Math.max(dist(land, world.hero) / JUMP_TIME, 1);
   world.move = newMove('jump', land, land, speed);
   world.events.push({ type: 'jump' });
+  // Casino «Ставка клятвы»: a jump breaks «Без прыжков» in this tick.
+  if (world.oath) oathJump(world);
   runHook(world, 'onJump', m => m.onJump!(world, cost));
   return true;
 }
@@ -923,6 +928,8 @@ function breakCrystal(world: World, crystal: ArenaObject): void {
   move.crystalScore += score;
   world.objects.splice(world.objects.indexOf(crystal), 1);
   world.events.push({ type: 'crystalBreak', objectId: crystal.id, x: crystal.x, y: crystal.y, score, combo: move.hits });
+  // Casino «Ставка клятвы»: a crystal broken by the dash meets «Кристалл в цепи».
+  if (world.oath) oathCrystal(world);
   runHook(world, 'onCrystal', m => m.onCrystal!(world, { id: crystal.id, x: crystal.x, y: crystal.y }));
 }
 

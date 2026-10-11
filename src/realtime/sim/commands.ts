@@ -14,6 +14,7 @@ import { beginChain, cancelChain, dragChain, dragChainAlong, jump, releaseChain,
 import { setParam, setPhases, type ParamKey, type Phase } from './params';
 import { spawnBurst, spawnEnemy } from './spawn';
 import { summonGoblin } from './slot';
+import { chooseOath, isOathId } from './oath';
 import { completeGoals, type EnemyKind, type World } from './world';
 
 export type Command =
@@ -65,7 +66,12 @@ export type Command =
   /** Test setup (stage 2, step 3): the number of consumables of `kind` in hand (a world without a kit gets one). */
   | { t: 'items'; kind: ItemKind; count: number }
   /** Casino stage 1 (the sandbox panel button «Гоблин»): «Однорукий гоблин» near the hero now, by its place rules (slot.ts). */
-  | { t: 'slot' };
+  | { t: 'slot' }
+  /**
+   * Casino stage 1, item 2 (the sandbox panel's choice «Клятва»): the fight is under the oath `id` from now (a fresh state),
+   * or under none (`null`). Acts only while `oathStake` is on (oath.ts).
+   */
+  | { t: 'oath'; id: string | null };
 
 /** What a command returned: true/false for the chain, the jump and the spin, the new id for `place` and `crystal`. */
 export type CommandResult = boolean | number | void;
@@ -125,5 +131,6 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       return;
     }
     case 'slot': return summonGoblin(world);
+    case 'oath': return cmd.id === null ? chooseOath(world, null) : isOathId(cmd.id) && chooseOath(world, cmd.id);
   }
 }

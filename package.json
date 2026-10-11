@@ -38,6 +38,7 @@
     "test:realtime-elite-armor": "tsx src/realtime/sim/eliteArmor.spec.ts",
     "test:realtime-slot": "tsx src/realtime/sim/slot.spec.ts",
     "test:realtime-purse": "tsx src/realtime/sim/purse.spec.ts",
+    "test:realtime-oath": "tsx src/realtime/sim/oath.spec.ts",
     "test:realtime-telemetry": "tsx src/realtime/telemetry/schema.spec.ts",
     "test:realtime-telemetry-recorder": "tsx src/realtime/telemetry/recorder.spec.ts",
     "test:realtime-report": "tsx src/realtime/telemetry/threats.spec.ts && tsx scripts/realtime-report.spec.ts"

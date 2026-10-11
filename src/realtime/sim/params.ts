@@ -556,6 +556,13 @@ export interface Params {
   purse: boolean;
   /** «Котёл»: embers per crafting resource at the door (60; design 11.10.2026 — a calibration before the playtest). */
   purseRate: number;
+  // ---- Casino stage 1, item 2 — «Ставка клятвы» (oath.ts, docs/realtime-casino.md). ----
+  /**
+   * The oath stake: the fight may be under one oath (the run's node card, `Loadout.oath`; the sandbox — the panel's choice);
+   * kept — the door pays the cauldron ×2, broken — ×0.5. Off by default; journals without the value: off (no `world.oath`).
+   * A run turns it on (run/rtRun.ts `RT_RUN_FORCED`).
+   */
+  oathStake: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -864,6 +871,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
   purseRate: 60,
+  // Casino «Ставка клятвы» (oath.ts): off by default.
+  oathStake: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1186,6 +1195,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за 40, не больше 3. В походе включено всегда.' },
   n('purseRate', 'Котёл', 'Углей за ресурс', 10, 200, 5, 5, '', 'В двери: ресурс крафта за каждые N углей, не больше 3 без ставок. В походе — 60.'),
+  // Casino «Ставка клятвы» (oath.ts, docs/realtime-casino.md).
+  { kind: 'bool', key: 'oathStake', group: 'Ставка клятвы', label: 'Ставка клятвы', stage: 5,
+    hint: 'Клятва на бой: выполнил — котёл ×2 в двери, нарушил — ×0,5, бой идёт дальше. В походе — на карточке узла (с ряда 2, не у Тюремщика и боссов). В песочнице — выбор клятвы ниже.' },
 ];
 
 const MAX_PHASES = 8;

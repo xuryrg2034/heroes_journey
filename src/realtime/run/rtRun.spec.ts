@@ -591,15 +591,15 @@ check('a reload in the middle of an arena starts the same arena again from the s
   assert(again.hash() === fresh.hash() && again.world.tick === 0, 'the arena starts again from its start');
   const text = serializeRtRun(run);
   const broken = [
-    text.replace('"version":6', '"version":1'),
+    text.replace('"version":7', '"version":1'),
     // Iteration 2.1: a version 2 save (HP 12 / 12, ×2.4) is no run.
-    text.replace('"version":6', '"version":2'),
+    text.replace('"version":7', '"version":2'),
     // Stage 3a: a version 3 save (pools without the lynx's and the shaman's arenas) is no run.
-    text.replace('"version":6', '"version":3'),
+    text.replace('"version":7', '"version":3'),
     // Phase A (Т2): a version 4 save (no rosters) is no run.
-    text.replace('"version":6', '"version":4'),
+    text.replace('"version":7', '"version":4'),
     // Phase B (Д4): a version 5 save (no hammer, the turn-based draws of the gift and events) is no run.
-    text.replace('"version":6', '"version":5'),
+    text.replace('"version":7', '"version":5'),
     JSON.stringify({ ...run, hp: run.maxHp + 1 }),
     JSON.stringify({ ...run, visited: ['r6c0'], currentNodeId: 'r6c0' }),
     JSON.stringify({ ...run, pending: { ...run.pending, seed: 1 } }),
@@ -1296,7 +1296,7 @@ check('saving uses the real-time keys only; the turn-based saves are neither rea
   // Iteration 2.1: a run saved before it (key `-v2`, version 2, HP 12 / 12) is not read — a new run starts.
   const old = { ...run, version: 2, hp: 12, maxHp: 12 };
   const before = createRtRunStore(memoryStorage({ 'ashen-oath-rt-run-v2': JSON.stringify(old) }));
-  assert(RT_RUN_STORAGE_KEY === 'ashen-oath-rt-run-v6' && before.load() === null, 'a v2 save is no run');
+  assert(RT_RUN_STORAGE_KEY === 'ashen-oath-rt-run-v7' && before.load() === null, 'a v2 save is no run');
   assert(parseRtRun(JSON.stringify(old)) === null, 'version 2 is no run even under the new key');
   // Stage 3a: the lynx's and the shaman's arenas joined the pools — a version 3 save (key `-v3`) is not read either.
   const v3 = { ...run, version: 3 };

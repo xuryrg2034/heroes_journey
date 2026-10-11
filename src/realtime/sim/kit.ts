@@ -69,6 +69,11 @@ export interface Loadout {
    * Jailer, not a boss). Acts only while `Params.slot` is on. Absent — never (the sandbox: the debug command only).
    */
   slot?: boolean;
+  /**
+   * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath the node card took for this battle (an id of `OATHS`). Acts only
+   * while `Params.oathStake` is on (`World.oath`). Absent — no oath.
+   */
+  oath?: string;
 }
 
 /**

@@ -60,6 +60,8 @@ export function worldState(world: World): unknown {
     ...world.slot ? { slot: world.slot } : {},
     // Casino «Котёл» (purse.ts): the cauldron and the door's record (absent until used — worlds without it hash as before).
     ...world.purse ? { purse: world.purse } : {},
+    // Casino «Ставка клятвы» (oath.ts): the oath of the fight, its met and broken ticks (absent without one — worlds hash as before).
+    ...world.oath ? { oath: world.oath } : {},
   };
 }
 

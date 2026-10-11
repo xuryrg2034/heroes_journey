@@ -15,7 +15,7 @@ import type { Loadout } from '../sim/kit';
 import type { World } from '../sim/world';
 import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
 import {
-  checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
+  checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord, type ThreatTally,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
@@ -420,13 +420,51 @@ function purseRows(runFights: readonly FightEntry[], sandbox: readonly FightEntr
   return [runs, box, runs && box ? purseRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
 }
 const PURSE_HEAD = ['Бои', 'Боёв с котлом', 'Котёл за бой мед. / макс.', 'Чеков', 'Угли на чек мед. / макс.', 'Жар мед. / макс.', 'Чек мед. / макс.', 'Кристаллов в цепях', 'Угли убийств сборки', 'Ресурсов в двери (без кости)'];
-const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл ÷ 60⌋ (`purseRate`), не больше 3 (`purseDoor`, кость пока не бросается).';
+const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл × клятва ÷ 60⌋ (`purseRate`; клятва ×2 / ×0,5, без неё ×1), не больше 3 без клятвы, 6 с выполненной, 1 с нарушенной (`purseDoor`, кость пока не бросается).';
 // ---- end «Котёл» ----
+
+// ---- Casino «Ставка клятвы» (sim/oath.ts, docs/realtime-casino.md): offers of the runs, outcomes of the fights ----
+/**
+ * One row per oath: offered and taken on the node cards of the runs (`RunRecord.choices`, source `oath-stake`), fights under
+ * it (run fights and sandbox), kept and broken at the door, the median tick of the violation; a last row — «без клятвы»: cards
+ * left without an oath.
+ */
+function oathRows(runs: readonly RunRecord[], entries: readonly FightEntry[]): (string | number)[][] {
+  const rows = new Map<string, { offered: number; taken: number; fights: number; kept: number; broken: number; ticks: number[] }>();
+  const row = (id: string) => rows.get(id) ?? rows.set(id, { offered: 0, taken: 0, fights: 0, kept: 0, broken: 0, ticks: [] }).get(id)!;
+  let cards = 0, none = 0;
+  for (const run of runs) for (const c of run.choices) {
+    if (c.source !== OATH_STAKE_SOURCE) continue;
+    cards++;
+    if (!c.taken.length) none++;
+    for (const id of c.offered) row(id).offered++;
+    for (const id of c.taken) row(id).taken++;
+  }
+  for (const e of entries) {
+    const o = e.analysis?.summary.oath;
+    if (!o?.id) continue;
+    const r = row(o.id);
+    r.fights++;
+    if (o.kept === true) r.kept++;
+    if (o.kept === false) r.broken++;
+    if (o.brokenTick !== null) r.ticks.push(o.brokenTick);
+  }
+  if (!rows.size) return [];
+  const list = [...rows.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([id, r]) => [
+    `\`${id}\``, r.offered, r.taken, r.fights, r.kept, r.broken, r.ticks.length ? n1(median(r.ticks)) : '—',
+  ]);
+  return [...list, ['без клятвы', cards, none, '—', '—', '—', '—']];
+}
+const OATH_HEAD = ['Клятва', 'Предложена', 'Взята', 'Боёв с ней', 'Выполнена', 'Нарушена', 'Такт нарушения мед.'];
+const OATH_LEGEND = 'Ставка клятвы (`oathStake`; в походе включена): предложена и взята — карточки узлов походов (выбор `oath-stake`), строка «без клятвы» — карточек всего и сколько ушло без клятвы. Бои — походы и песочница. Выполнена / нарушена — итог в двери (котёл ×2 / ×0,5); бой без двери не попадает ни туда, ни туда. Такт нарушения — такт события (у клятвы «хотя бы раз» — такт двери).';
+// ---- end «Ставка клятвы» ----
 
 function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
   const rows = new Map<string, { kinds: Set<string>; offered: number; taken: number; refused: number; fired: number; fights: number; active: number }>();
   const row = (id: string) => rows.get(id) ?? rows.set(id, { kinds: new Set(), offered: 0, taken: 0, refused: 0, fired: 0, fights: 0, active: 0 }).get(id)!;
   for (const run of runs) for (const c of run.choices) {
+    // Casino «Ставка клятвы»: the node card's oaths have a section of their own.
+    if (c.source === OATH_STAKE_SOURCE) continue;
     for (const id of c.offered) { const r = row(id); r.offered++; r.kinds.add(c.source); }
     for (const id of c.taken) { const r = row(id); r.taken++; r.kinds.add(c.source); }
     for (const id of c.refused) { const r = row(id); r.refused++; r.kinds.add(c.source); }
@@ -534,6 +572,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Casino «Котёл».
     '## Котёл', '', PURSE_LEGEND, '', table(PURSE_HEAD, purseRows(runFights, sandbox)), '',
+    // Casino «Ставка клятвы».
+    '## Ставка клятвы', '', OATH_LEGEND, '', table(OATH_HEAD, oathRows(runs, fights)), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

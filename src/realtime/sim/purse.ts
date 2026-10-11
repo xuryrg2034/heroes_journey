@@ -12,7 +12,7 @@
  * was at the release.
  *
  * Plug-in points for the next items of stage 1:
- * - the oath (K8): `purseOath(world)` — the multiplier of the oath the world is under at the door (1 now: no oaths yet);
+ * - the oath (K8, oath.ts): `purseOath(world)` — the multiplier of the oath the world is under at the door (1, 2 or 0.5);
  * - the die at the door (8.4): the run layer passes it to `purseResources(cauldron, oath, die)` (1 now);
  * - the goblin's arrow rain: its kills come through `world.ts killEnemy` → `purseKill` (source `slot` in `PURSE_KILL_SOURCES`).
  * Type-only imports from world.ts / chain.ts: world.ts calls this module at run time.
@@ -21,6 +21,7 @@ import { BUILD_SOURCES } from './buildIds';
 import type { StrikeOutcome } from './chain';
 import { RESOURCE_KINDS, type ResourceKind } from './kit';
 import type { Enemy, HeroMove, KillCause, World } from './world';
+import { oathMult } from './oath';
 
 /** The kill source of the goblin's arrows (slot.ts uses this constant). */
 export const SLOT_KILL_SOURCE = 'slot';
@@ -174,8 +175,11 @@ export function purseKill(world: World, cause: KillCause): void {
   world.events.push({ type: 'purseKill', source: cause.source, cauldron: purse.cauldron });
 }
 
-/** The oath's multiplier at the door (stage 1, item 2 plugs in here): 1 — no oath. */
-export function purseOath(_world: World): number { return 1; }
+/**
+ * The oath's multiplier at the door (casino stage 1, item 2, oath.ts): 1 — no oath (or the rule off), 2 — kept, 0.5 —
+ * broken. `win` settles the oath (`oathDoor`) before the door records it.
+ */
+export function purseOath(world: World): number { return oathMult(world); }
 
 /**
  * The payout of a cauldron (research 8.5, «Потолок выплаты»): M = oath × die; ⌊cauldron × M ÷ rate⌋ resources (rate —

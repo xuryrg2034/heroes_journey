@@ -450,7 +450,7 @@ test('replayTo in a run is refused and changes nothing: the run save, the run st
   const state = () => page.evaluate(async () => {
     const rt = (window as any).__realtime;
     const all = await rt.telemetry.records() as { id: string; outcome?: string }[];
-    return { save: localStorage.getItem('ashen-oath-rt-run-v6'), run: JSON.stringify(rt.run.state()), arenaOpen: rt.run.arenaOpen() as boolean, records: all.map(r => `${r.id}:${r.outcome ?? ''}`).sort() };
+    return { save: localStorage.getItem('ashen-oath-rt-run-v7'), run: JSON.stringify(rt.run.state()), arenaOpen: rt.run.arenaOpen() as boolean, records: all.map(r => `${r.id}:${r.outcome ?? ''}`).sort() };
   });
   const before = await state();
   expect(before.save).toBeTruthy();

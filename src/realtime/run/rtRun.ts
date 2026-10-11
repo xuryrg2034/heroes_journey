@@ -38,6 +38,7 @@ import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { runParams, type Params } from '../sim/params';
 import { doorPayout, type PurseDoor } from '../sim/purse';
+import { isOathId, oathDef, OATH_IDS, type OathId } from '../sim/oath';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
@@ -58,8 +59,13 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * Version 6 (phase B, track Д4, 10.10.2026): the Jailer's hammer (`hammer`, the open `hammer` choice), the counter
  * talismans and the relics in the pools, the real-time draws of the gift and events; the open offers are checked by
  * drawing them again. A version 5 save reads as no run.
+ * Version 7 (casino stage 1, item 2, 11.10.2026): the oath stake — the run's own counter of the oath stream (`oathDraws`)
+ * and the open battle's offer and oath (`oathOffer`, `oath`). A version 6 save is read and migrated (`migrateRun`): the
+ * counter is the number of the oath nodes it entered, its open battle has no offer.
  */
-export const RT_RUN_VERSION = 6;
+export const RT_RUN_VERSION = 7;
+/** The version the save of phase B had; it is migrated on reading (casino stage 1). */
+export const RT_RUN_VERSION_V6 = 6;
 
 /**
  * Iteration 2.1: numbers a run arena takes from the run, not from the saved panel (the healing consumable: rtHp(3) = 9).
@@ -67,9 +73,9 @@ export const RT_RUN_VERSION = 6;
  * the raised touch, the elite behaviours of the three kinds (docs/realtime-elite-behaviors.md); the tough HP table of the
  * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1 (docs/realtime-casino.md): the
  * cauldron («Котёл», `purse`) is on in every run arena; «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`,
- * `rtArenaLoadout`).
+ * `rtArenaLoadout`); the oath stake is on (which battles offer oaths — `rtOathNode`, the oath of the battle — `Loadout.oath`).
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60 });
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
@@ -85,7 +91,14 @@ export type RtRunPending =
    * a reload starts it again from the start (the arena in progress is not saved). Step 4: no arena is a temporary
    * stand-in any more (a save of steps 1–3 may still carry `standIn`; it is dropped on loading).
    */
-  | { kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; roster?: string }
+  | {
+    kind: 'battle'; nodeId: string; arena: string; seed: number; battle: RtBattleKind; roster?: string;
+    /**
+     * Casino stage 1, item 2 («Ставка клятвы»): the two oaths the node card offered (the `rt-oath` draw spent on entering;
+     * absent — the node offers none, or a version 6 save) and the one taken (absent — «Без клятвы»).
+     */
+    oathOffer?: OathId[]; oath?: OathId;
+  }
   /** A rest: heal, or craft (`crafted` — the consumables made here so far; non-empty — the heal is gone). */
   | { kind: 'rest'; nodeId: string; crafted: ItemKind[] }
   /** A find: one of three consumables (the turn-based find: healing, a bomb, cold or fire by the node seed). */
@@ -143,6 +156,11 @@ export interface RtRunState {
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
   streams: RunStreams;
+  /**
+   * Casino stage 1, item 2: draws of the run's own oath stream (`mixSeed(seed, «rt-oath», n)`, `rtOathOffer`) — one per oath
+   * node entered. Not one of the forest streams: runStreams.ts is not changed.
+   */
+  oathDraws: number;
   picks: RtRunPick[];
   /** Last completed node; null before the first. */
   currentNodeId: string | null;
@@ -215,6 +233,9 @@ export type RtRunEvent =
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
   | { type: 'shop-bought'; nodeId: string; purchase: RtShopPurchase }
   | { type: 'gift-chosen'; index: number | null }
+  /** Casino stage 1, item 2: the node card offered these oaths; the battle is entered under `id` (null — «Без клятвы»). */
+  | { type: 'oath-offered'; nodeId: string; options: OathId[] }
+  | { type: 'oath-taken'; nodeId: string; id: OathId | null }
   | { type: 'node-completed'; nodeId: string }
   | { type: 'run-won'; nodeId: string }
   | { type: 'run-lost'; nodeId: string };
@@ -246,7 +267,7 @@ export interface RtArenaOutcome {
 /** A new run of `seed`: the map by the seed, 15 HP, the start gift of `gift` kind waiting before the row-5 nodes. */
 export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean } = {}): RtRunState {
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(),
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -330,7 +351,7 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node ? { elitePlates: rtElitePlates(runRow(node.row)) } : {},
     ...node && rtToughHp(runRow(node.row)) > 2 ? { toughHp: rtToughHp(runRow(node.row)) } : {},
     // Design answer 11.10.2026: not on the Jailer's node (a boss fight; the focus is on him) — the breakthrough keeps it.
-    ...node && pending?.kind === 'battle' && (pending.battle === 'battle' || pending.battle === 'event') && node.type !== 'checkpoint' && runRow(node.row) >= RT_GUARANTEED_ELITE_ROW ? { guaranteedElite: true } : {},
+    ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle) ? { guaranteedElite: true } : {},
     // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row 3 may get the goblin — not the Jailer's, not a boss's.
     ...node && pending?.kind === 'battle' && node.type !== 'checkpoint' && node.type !== 'boss' && runRow(node.row) >= RT_SLOT_ROW ? { slot: true } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
@@ -342,8 +363,54 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
 
     // Phase B (Т2): the hammer of the Jailer's row acts on every later arena.
     ...run.hammer ? { hammer: run.hammer } : {},
+    // Casino stage 1, item 2: the oath the node card took (the sim checks it, `Params.oathStake`).
+    ...pending?.kind === 'battle' && pending.oath ? { oath: pending.oath } : {},
   };
 }
+
+/**
+ * The package (4.3 «Редкость»): the battle of `node` played as `battle` brings one guaranteed elite — an ordinary battle or
+ * an event's reward battle from run row 3, not the Jailer's (design answer 11.10.2026; the breakthrough keeps it).
+ */
+export function rtGuaranteedElite(node: Pick<ForestMapNode, 'type' | 'row'>, battle: RtBattleKind): boolean {
+  return (battle === 'battle' || battle === 'event') && node.type !== 'checkpoint' && runRow(node.row) >= RT_GUARANTEED_ELITE_ROW;
+}
+
+// ---------- The oath stake (casino stage 1, item 2; docs/realtime-casino.md, «Ставка клятвы») ----------
+
+/** Баланс (research 8.5): oaths are offered on battle nodes from this run row. */
+export const RT_OATH_ROW = 2;
+/** Баланс: oaths a node card offers (besides «Без клятвы»). */
+export const RT_OATH_OFFER_SIZE = 2;
+/** The salt of the run's oath stream (`mixSeed(seed, «rt-oath», n)`). */
+export const OATH_SALT = [...'rt-oath'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+/**
+ * A node whose card offers oaths (research 8.5): a battle of the map — an ordinary battle, «Застава», the breakthrough — from
+ * run row 2; not the Jailer (checkpoint), not a boss, not an event (its reward battle is decided inside the event).
+ */
+export function rtOathNode(node: Pick<ForestMapNode, 'type' | 'row'>): boolean {
+  return (node.type === 'battle' || node.type === 'hard' || node.type === 'breakthrough') && runRow(node.row) >= RT_OATH_ROW;
+}
+/**
+ * The two oaths of the draw `n` of the run's oath stream for `node`: «Элита в окне» only where the battle brings its
+ * guaranteed elite (`rtGuaranteedElite`). Pure: the seed, the draw and the node decide it.
+ */
+export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, 'type' | 'row'>): OathId[] {
+  const base = mixSeed(mixSeed(seed >>> 0, OATH_SALT), n);
+  const left = OATH_IDS.filter(id => id !== 'elite-window' || rtGuaranteedElite(node, battleKindOf(node))), options: OathId[] = [];
+  for (let k = 0; k < RT_OATH_OFFER_SIZE && left.length; k++) options.push(left.splice(mixSeed(base, k) % left.length, 1)[0]);
+  return options;
+}
+/**
+ * The oaths the card of an available node shows now (the next draw, not spent: a reload shows the same); null — the node
+ * offers none, or it is not available.
+ */
+export function rtOathPreview(run: RtRunState, node: ForestMapNode): OathId[] | null {
+  if (!rtOathNode(node) || run.picks.some(pick => pick.nodeId === node.id) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return null;
+  return rtOathOffer(run.seed, run.oathDraws, node);
+}
+/** The oath's card text: «Без прыжков — Ни одного прыжка.» */
+export const rtOathText = (id: OathId): string => `${oathDef(id).name} — ${oathDef(id).rule}`;
 
 // ---------- Talismans (step 3) ----------
 
@@ -522,16 +589,28 @@ export function rtEventCandidates(run: RtRunState, node: Pick<ForestMapNode, 'ro
 
 // ---------- Entering a node ----------
 
-/** Move to one of rtAvailableNodes(run): a battle starts its arena; a rest, find, event or merchant opens its screen. */
-export function rtEnterNode(current: RtRunState, nodeId: string): RtRunStep {
+/**
+ * Move to one of rtAvailableNodes(run): a battle starts its arena; a rest, find, event or merchant opens its screen.
+ * Casino stage 1, item 2: an oath node (`rtOathNode`) spends one draw of the oath stream — its two oaths — and is entered
+ * under `oath` (one of them; null or absent — «Без клятвы»).
+ */
+export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | null = null): RtRunStep {
   const node = rtNode(current, nodeId);
   if (!node) return fail('Такого узла нет на карте.');
   if (current.result) return fail('Поход уже завершён.');
   if (current.pending) return fail('Сначала заверши текущий узел.');
   if (!rtAvailableNodes(current).some(entry => entry.id === nodeId)) return fail('Этот узел сейчас недоступен.');
+  if (oath !== null && !(rtOathPreview(current, node) ?? []).includes(oath)) return fail('Этой клятвы нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'node-entered', nodeId, row: node.row }];
   if (isArenaNode(node)) {
     startArena(run, node, battleKindOf(node), events);
+    if (rtOathNode(node) && run.pending?.kind === 'battle') {
+      const options = rtOathOffer(run.seed, run.oathDraws, node);
+      run.oathDraws++;
+      run.pending.oathOffer = options;
+      if (oath !== null) run.pending.oath = oath;
+      events.push({ type: 'oath-offered', nodeId, options: [...options] }, { type: 'oath-taken', nodeId, id: oath });
+    }
     return { ok: true, run, events };
   }
   if (node.type === 'rest') { run.pending = { kind: 'rest', nodeId, crafted: [] }; return { ok: true, run, events }; }
@@ -1077,8 +1156,21 @@ export function parseRtRun(text: string | null): RtRunState | null {
   if (!text) return null;
   let value: unknown;
   try { value = JSON.parse(text); } catch { return null; }
-  try { return checkRun(value); } catch { return null; }
+  try { return checkRun(migrateRun(value)); } catch { return null; }
 }
+
+/**
+ * Casino stage 1, item 2: a version 6 save becomes version 7 — the oath stream's counter is the number of oath nodes the run
+ * entered (as if each had spent its draw), the open battle keeps no offer (it was entered before the oaths). Nothing else of
+ * the format changed; anything else passes as it is (and is checked as it is).
+ */
+export function migrateRun(value: unknown): unknown {
+  if (!isRecord(value) || value.version !== RT_RUN_VERSION_V6 || value.oathDraws !== undefined || validateStoredMap(value.map).length || !Array.isArray(value.picks)) return value;
+  const map = rtRunMap(value as unknown as RtRunState);
+  const oathDraws = value.picks.filter(pick => isRecord(pick) && pick.arena !== undefined && typeof pick.nodeId === 'string' && oathNodeOf(map.node(pick.nodeId))).length;
+  return { ...value, version: RT_RUN_VERSION, oathDraws };
+}
+const oathNodeOf = (node: ForestMapNode | undefined): boolean => !!node && rtOathNode(node);
 
 /** A talisman the merchant's stock may hold: a talisman of the slice (not an oath, not a relic). */
 const validShopTalisman = (value: unknown): boolean => isRtTalisman(value) && !isRtOath(value) && rtTalisman(value)?.rarity !== 'relic';
@@ -1150,6 +1242,8 @@ function checkRun(value: unknown): RtRunState | null {
     if (pick.roster !== undefined) rosters.push(pick.roster);
   }
   if (streams.pool !== history.length) return null;
+  // Casino stage 1, item 2: one oath draw for each oath node the run entered (its arena pick), in the order of the picks.
+  if (!isCount(run.oathDraws) || run.oathDraws !== run.picks.filter(pick => pick.arena !== undefined && oathNodeOf(map.node(pick.nodeId))).length) return null;
   const eventOf = (nodeId: string) => { const id = run.picks.find(pick => pick.nodeId === nodeId)?.eventId; return id ? forestEvent(id) : undefined; };
   for (const record of run.battles as unknown[]) {
     if (!isRecord(record) || !known(record.nodeId) || typeof record.arena !== 'string' || record.arena !== run.picks.find(pick => pick.nodeId === record.nodeId)?.arena || typeof record.won !== 'boolean'
@@ -1179,6 +1273,12 @@ function checkRun(value: unknown): RtRunState | null {
       // The battle kind follows the node type (review of step 4: a hard battle's heart only on a hard node); the arena is the
       // pick, chosen again above. A temporary arena of steps 1–3 (`standIn`) is not chosen by the step-4 rule: no run.
       if (pending.battle !== battleKindOf(node) || pending.standIn !== undefined) return null;
+      // Casino stage 1, item 2: the offer is drawn again — the last oath draw for this node (absent: a node without oaths,
+      // or a battle entered before version 7); the oath taken is one of it.
+      if (pending.oathOffer !== undefined) {
+        if (!rtOathNode(node) || !(run.oathDraws >= 1) || JSON.stringify(pending.oathOffer) !== JSON.stringify(rtOathOffer(run.seed, run.oathDraws - 1, node))) return null;
+      }
+      if (pending.oath !== undefined && !(isOathId(pending.oath) && Array.isArray(pending.oathOffer) && pending.oathOffer.includes(pending.oath))) return null;
       break;
     }
     case 'rest': if (node.type !== 'rest' || !isItemList(pending.crafted)) return null; break;

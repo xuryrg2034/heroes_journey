@@ -26,6 +26,8 @@ import { RngStreams } from './rng';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
+// Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
+import { oathDoor, oathHurt, startOath, type OathId, type OathState } from './oath';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
 /**
@@ -340,7 +342,12 @@ export type WorldEvent =
    */
   | { type: 'cheque'; embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean; cauldron: number; x: number; y: number }
   | { type: 'purseKill'; source: string; cauldron: number }
-  | { type: 'purseDoor'; cauldron: number; oath: number; resources: number };
+  | { type: 'purseDoor'; cauldron: number; oath: number; resources: number }
+  /**
+   * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath broke (`broken`) or an «at least once» oath was met (`met`) in
+   * `tick`; the exit into the door settled it (`door`: kept or not, the cauldron's multiplier).
+   */
+  | { type: 'oath'; action: 'broken' | 'met' | 'door'; id: OathId; tick: number; kept?: boolean; mult?: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -429,6 +436,8 @@ export interface World {
   slot?: SlotState;
   /** Casino «Котёл» (purse.ts): the cauldron of the fight and the door's record (absent until used — hashed only when present). */
   purse?: PurseWorld;
+  /** Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight (absent without one — hashed only when present). */
+  oath?: OathState;
 }
 
 /**
@@ -524,6 +533,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     world.energy = Math.max(0, Math.min(ENERGY_CAP, Number.isFinite(loadout.energy) ? loadout.energy! : 0));
     // Phase B: the build may change the focus reserve (without a build module — `focusMax`, as above).
     world.focus = focusMaxOf(world);
+    // Casino «Ставка клятвы»: the oath the run's node card took (only while `oathStake` is on).
+    if (loadout.oath !== undefined) startOath(world, loadout.oath);
   }
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   for (const s of arena.enemies) {
@@ -600,6 +611,8 @@ export function win(world: World): void {
   world.endTime = world.time;
   world.chain = [];
   delete world.chainClosed;
+  // Casino «Ставка клятвы»: an «at least once» oath not met by now breaks here; the door then records its multiplier.
+  if (world.oath) oathDoor(world);
   // Casino «Котёл»: the chain entering the door puts its cheque first, then the door records the cauldron (purse.ts).
   purseDoor(world);
   world.events.push({ type: 'victory' });
@@ -754,6 +767,8 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
   world.stats.hitsTaken++;
   world.stats.damageTaken += damage;
   world.events.push({ type: 'hit', enemyId: striker.id, damage, x: hero.x, y: hero.y, source });
+  // Casino «Ставка клятвы»: a lost HP may break «Без урона после целей» or «Не больше 2 урона» (in this tick).
+  if (world.oath) oathHurt(world);
   if (hero.hp <= 0) {
     world.status = 'defeat';
     world.endTime = world.time;

@@ -53,6 +53,8 @@
  * - the cauldron (casino «Котёл», sim/purse.ts): `cheque` events — embers, heat and total per cheque in order, crystals of
  *   the cheques; `purseKill` — the build's kill embers by source; `purseDoor` — the resources the door pays without the die;
  *   the cauldron at the end — `world.purse`.
+ * - the oath stake (casino «Ставка клятвы», sim/oath.ts): the oath of the fight and its met / broken ticks — `world.oath` at
+ *   the end; the door's `oath` event — kept or not and the cauldron's multiplier.
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
@@ -228,6 +230,8 @@ export function createFightObserver(start: World): FightObserver {
         case 'cheque': s.purse.embers.push(ev.embers); s.purse.heat.push(ev.heat); s.purse.totals.push(ev.total); s.purse.crystals += ev.crystals; return;
         case 'purseKill': bump(s.purse.killEmbers, ev.source); return;
         case 'purseDoor': s.purse.resources = ev.resources; return;
+        // Casino «Ставка клятвы» (sim/oath.ts): the door settled the oath.
+        case 'oath': if (ev.action === 'door') { s.oath.kept = ev.kept ?? null; s.oath.mult = ev.mult ?? null; } return;
         default: return;
       }
     });
@@ -345,6 +349,8 @@ export function createFightObserver(start: World): FightObserver {
       // Casino «Котёл»: on, and the cauldron at the end.
       out.purse.on = !!w.params.purse;
       out.purse.cauldron = w.purse?.cauldron ?? 0;
+      // Casino «Ставка клятвы»: the oath of the fight (the rule on), its met and broken ticks.
+      if (w.oath && w.params.oathStake) Object.assign(out.oath, { id: w.oath.id, brokenTick: w.oath.broken ?? null, metTick: w.oath.met ?? null });
       return out;
     },
   };

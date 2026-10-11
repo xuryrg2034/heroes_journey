@@ -82,6 +82,8 @@ export class DebugPanel {
   private readonly viewSection = document.createElement('section');
   /** Phase B (Д5): the sandbox build — a talisman, a relic, a hammer (`addBuildChoice`). */
   private readonly buildSection = document.createElement('section');
+  /** The sections of the param groups by name (`addGroupChoice` puts a row into one). */
+  private readonly groupSections = new Map<string, HTMLElement>();
 
   constructor(private readonly params: Params, private readonly callbacks: PanelCallbacks) {
     const el = document.createElement('aside');
@@ -147,6 +149,7 @@ export class DebugPanel {
         }
         section.appendChild(title);
         el.appendChild(section);
+        this.groupSections.set(group, section);
       }
       section.appendChild(this.buildRow(def));
       if (def.key === 'baseBoarShare') el.appendChild(this.buildPhaseSection());
@@ -239,6 +242,32 @@ export class DebugPanel {
     select.addEventListener('change', () => { onChange(select.value); select.blur(); });
     row.append(name, select);
     this.buildSection.appendChild(row);
+    return select;
+  }
+
+  /**
+   * Casino stage 1, item 2: a choice in the section of the param group `group` (the sandbox oath, «Ставка клятвы») — not a
+   * Param: the caller keeps the value and turns it into journalled commands. Null — no such group.
+   */
+  addGroupChoice(group: string, label: string, testId: string, options: readonly { value: string; label: string }[], value: string, onChange: (value: string) => void, hint?: string): HTMLSelectElement | null {
+    const section = this.groupSections.get(group);
+    if (!section) return null;
+    const row = document.createElement('label');
+    row.className = 'rt-row';
+    if (hint) row.title = hint;
+    const name = document.createElement('span');
+    name.className = 'rt-name'; name.textContent = label;
+    const select = document.createElement('select');
+    select.setAttribute('data-testid', testId);
+    for (const o of options) {
+      const option = document.createElement('option');
+      option.value = o.value; option.textContent = o.label;
+      select.appendChild(option);
+    }
+    select.value = options.some(o => o.value === value) ? value : '';
+    select.addEventListener('change', () => { onChange(select.value); select.blur(); });
+    row.append(name, select);
+    section.appendChild(row);
     return select;
   }
 

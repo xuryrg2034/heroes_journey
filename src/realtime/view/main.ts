@@ -34,6 +34,7 @@ import { loadParams, loadRoleBadges, loadSandboxBuild, PARAMS_STORAGE_KEY, saveP
 import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
 import { doorPayout, nextHeat } from '../sim/purse';
+import { oathLine, oathMark, OATHS, type OathId } from '../sim/oath';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
@@ -228,7 +229,13 @@ async function boot(): Promise<void> {
     itemBar.appendChild(slot);
     return slot;
   });
-  hud.append(hpBar, hpText, focusBar, energyText, goalText, eliteBadge, scoreText, timeText, infoText, chainText);
+  // Casino stage 1, item 2 («Ставка клятвы», sim/oath.ts): one line under the goal — «Клятва: без прыжков ✓», dimmed «… ×0,5».
+  const oathText = el('span', 'rt-oath');
+  oathText.setAttribute('data-testid', 'oath-line');
+  oathText.hidden = true;
+  const goalBox = el('span', 'rt-goal-box');
+  goalBox.append(goalText, oathText);
+  hud.append(hpBar, hpText, focusBar, energyText, goalBox, eliteBadge, scoreText, timeText, infoText, chainText);
   // The action bar at the bottom: abilities (Space, Q) and consumables (1–4) — the top HUD keeps its width.
   const actionBar = el('div', 'rt-actionbar');
   actionBar.setAttribute('data-testid', 'action-bar');
@@ -329,6 +336,8 @@ async function boot(): Promise<void> {
    * they were: old journals hash as before).
    */
   const sandboxBuild = loadSandboxBuild();
+  /** Casino stage 1, item 2: the sandbox panel's oath (null — none); this page only. */
+  let sandboxOath: OathId | null = null;
   let buildOverride: { talismans: string[]; hammer?: string } | null = null;
   const sandboxLoadout = (): Loadout => {
     const talismans = [...params.sandboxTalismans ? [params.sandboxTalismans] : [], ...buildOverride ? buildOverride.talismans : [sandboxBuild.talisman, sandboxBuild.relic].filter(Boolean)];
@@ -337,6 +346,8 @@ async function boot(): Promise<void> {
       items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])),
       ...talismans.length ? { talismans: [...new Set(talismans)], ...params.sandboxTalismans ? { ward: true } : {} } : {},
       ...isHammerId(hammer) ? { hammer } : {},
+      // Casino «Ставка клятвы»: the panel's oath goes into every next arena too (the loadout is journalled).
+      ...sandboxOath ? { oath: sandboxOath } : {},
     };
   };
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout: Loadout = sandboxLoadout()): Simulation => {
@@ -467,6 +478,12 @@ async function boot(): Promise<void> {
       'Т3: плюс и цена (цена — в колонке); 5а: новая «Клятва голода».');
     panel.addBuildChoice('Молот', 'build-hammer', [none, ...Object.values(HAMMERS).map(option)], sandboxBuild.hammer, choose('hammer'),
       'Т2: один молот, меняет проход героя.');
+    // Casino stage 1, item 2: the sandbox oath — the toggle on (journalled), the oath from now (a command) and in every next arena.
+    panel.addGroupChoice('Ставка клятвы', 'Клятва боя', 'oath-choice', [none, ...OATHS.map(def => ({ value: def.id, label: def.name }))], '', value => {
+      sandboxOath = (OATHS.find(def => def.id === value)?.id) ?? null;
+      if (sandboxOath && !params.oathStake) { command({ t: 'param', key: 'oathStake', value: true }); saveParams(params); panel.refresh(); }
+      command({ t: 'oath', id: sandboxOath });
+    }, 'Клятва на этот бой и следующие арены. Включает переключатель «Ставка клятвы».');
     host.appendChild(panel.el);
   }
   openButton.addEventListener('click', () => panel.setOpen(true));
@@ -790,6 +807,11 @@ async function boot(): Promise<void> {
     scoreText.textContent = w.params.purse ? `котёл ${w.purse?.cauldron ?? 0}` : `очки ${w.stats.score}`;
     goalText.textContent = w.stage === 'greed' ? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
+    // Casino «Ставка клятвы»: the oath's line under the goal (none without an oath).
+    const oathNow = oathLine(w);
+    oathText.hidden = !oathNow;
+    if (oathNow && oathText.textContent !== oathNow) oathText.textContent = oathNow;
+    oathText.classList.toggle('rt-oath-broken', oathMark(w)?.mark === 'broken');
     const eliteCount = w.enemies.reduce((n, e) => n + (e.elite ? 1 : 0), 0);
     eliteBadge.hidden = eliteCount === 0;
     if (eliteCount) eliteBadge.textContent = `Элита ×${eliteCount}`;
@@ -977,6 +999,8 @@ async function boot(): Promise<void> {
         comboShown: renderer.comboShown,
         /** Casino «Котёл»: on, the cauldron, the door's record, the forecast at the pointer, what the view drew (render.ts `purseShown`). */
         purse: { on: !!w.params.purse, cauldron: w.purse?.cauldron ?? null, door: w.purse?.door ? JSON.parse(JSON.stringify(w.purse.door)) : null, forecast: purseHint.hidden ? null : purseHint.textContent, shown: { ...renderer.purseShown, cheques: [...renderer.purseShown.cheques] } },
+        /** Casino «Ставка клятвы»: the oath of the fight (null — none), its mark and the HUD line as drawn. */
+        oath: w.oath && w.params.oathStake ? { ...w.oath, mark: oathMark(w)!.mark, line: oathText.hidden ? null : oathText.textContent, dim: oathText.classList.contains('rt-oath-broken') } : null,
         /** «Сила видна при рывке»: the power number (largest shown, growths, visible now), strike flashes and closing flashes drawn so far. */
         powerView: { shown: renderer.powerShown, growths: renderer.powerGrowths, visible: renderer.powerVisible, strikeFlashes: renderer.strikeFlashes, finisherFlashes: renderer.finisherFlashes },
         heroInCrowd: heroInCrowd(w),

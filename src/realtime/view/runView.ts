@@ -18,6 +18,7 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtOathPreview,
   type RtArenaOutcome, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -26,6 +27,7 @@ import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanText } from '../run/rtT
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
+import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -169,7 +171,8 @@ export class RunView {
     return '';
   }
 
-  enter(nodeId: string): string { return this.run ? this.apply(rtEnterNode(this.run, nodeId)) : 'Нет похода.'; }
+  /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
+  enter(nodeId: string, oath: OathId | null = null): string { return this.run ? this.apply(rtEnterNode(this.run, nodeId, oath)) : 'Нет похода.'; }
 
   /**
    * The arena of the open battle node is over: its outcome goes into the run and is saved at once (the frame the arena
@@ -227,6 +230,8 @@ export class RunView {
     if (action === 'logs') { this.host.openLogs?.(); return; }
     if (!run) return;
     if (action === 'enter' && this.selected) { this.enter(this.selected); return; }
+    // Casino stage 1, item 2: an oath button of the node card enters the battle under that oath.
+    if (action === 'enter-oath' && this.selected && isOathId(target.dataset.oath)) { this.enter(this.selected, target.dataset.oath); return; }
     if (action === 'battle') { this.enterArena(); return; }
     if (action === 'rest-heal') { this.apply(rtRestHeal(run)); return; }
     if (action === 'rest-craft') { this.apply(rtRestCraft(run, target.dataset.resource as ResourceKind)); return; }
@@ -307,8 +312,22 @@ export class RunView {
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? `<p>${arenaLine(arena.arena, arena.roster)}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (STEP1_HINT[node.type] ? `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type]!)}</p>` : '')
-      + (status === 'available' ? `<button class="rt-again" data-action="enter" data-testid="run-enter">Идти</button>` : '')
+      + (status === 'available' ? this.enterHtml(run, node) : '')
       + `</aside>`;
+  }
+
+  /**
+   * The node card's way in: «Идти»; an oath node (casino stage 1, item 2) — its two oaths and «Без клятвы» (the choice is
+   * made before the battle; a reload shows the same two, `rtOathPreview`).
+   */
+  private enterHtml(run: RtRunState, node: ForestMapNode): string {
+    const oaths = rtOathPreview(run, node);
+    if (!oaths) return `<button class="rt-again" data-action="enter" data-testid="run-enter">Идти</button>`;
+    const mult = (value: number) => String(value).replace('.', ',');
+    const buttons = oaths.map(id => `<button class="rt-run-choice" data-action="enter-oath" data-oath="${id}" data-testid="oath-${id}"><b>Клятва: ${escapeHtml(oathDef(id).name)}</b>`
+      + `<small>${escapeHtml(oathDef(id).rule)}</small></button>`).join('');
+    return `<div class="rt-run-oaths" data-testid="run-oaths"><p class="rt-run-hint">Ставка — котёл этого боя: клятва выполнена — ×${mult(OATH_KEPT_MULT)}, нарушена — ×${mult(OATH_BROKEN_MULT)}. HP и поход не на кону.</p>`
+      + `<div class="rt-run-choices">${buttons}</div><button class="rt-again" data-action="enter" data-testid="run-enter">Без клятвы</button></div>`;
   }
 
   private modalHtml(run: RtRunState): string {
@@ -323,7 +342,8 @@ export class RunView {
     if (!pending) return '';
     if (pending.kind === 'battle') {
       if (this.inArena) return '';
-      return card(`<h2>Бой</h2><p>${arenaLine(pending.arena, pending.roster)}</p><p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
+      const oath = pending.oath ? `<p data-testid="run-battle-oath">Клятва: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
+      return card(`<h2>Бой</h2><p>${arenaLine(pending.arena, pending.roster)}</p>${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
     if (pending.kind === 'gift') {
