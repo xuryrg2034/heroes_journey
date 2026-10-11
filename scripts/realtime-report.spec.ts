@@ -12,11 +12,16 @@
  * - The loop «Печать» (loop research, step 2): the fixtures, written before the loop fields, read them as 0 and still agree
  *   with the replay; a sandbox fight with the loop (loopFight.testkit.ts) shows seals, empty share, close attempts, unseals,
  *   inside median / total, step backs with re-adds and seal kills in the arena and sandbox tables.
+ * - The package «Урон имеет значение»: the fixtures, written before the elite fields, are not compared on them; a sandbox
+ *   fight with armoured elites (eliteFight.testkit.ts) agrees with the replay and fills the «Элиты» table, the chain shares
+ *   (a tough one not first, ended on a survivor) and the raised touches line.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { analyzeRecords, collectRecords, findFight, latestRuns, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
+import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
+import type { Simulation } from '../src/realtime/sim/simulation';
 import {
   emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
   type FightRecord, type FightSummary, type JournalPart, type RtRecord,
@@ -32,6 +37,19 @@ function readAll(dir: string): ReportInput[] {
     const path = join(dir, name);
     return statSync(path).isDirectory() ? readAll(path) : name.endsWith('.json') ? [{ name, text: readFileSync(path, 'utf8') }] : [];
   });
+}
+
+/** The records the browser would write for a recorded sandbox fight: the fight with the live observer's summary, its journal parts. */
+async function sandboxRecords(sim: Simulation, summary: FightSummary, arena: string, session: string): Promise<RtRecord[]> {
+  const journal = sim.exportJournal()!, w = sim.world, packed = await packJournal(journal);
+  const fight = fightKey(1, null, 1), at = '2026-10-11T10:00:00.000Z';
+  const head = <K extends RtRecord['kind']>(id: string, kind: K) => ({ schema: RT_TELEMETRY_SCHEMA, id, kind, build: 'test', params: { storage: 's', hash: paramsHash(journal.params) }, session, run: SANDBOX_RUN, at });
+  const record: FightRecord = {
+    ...head(fightRecordId(session, SANDBOX_RUN, fight), 'fight'), fight, arena, seed: journal.seed, outcome: 'menu',
+    ticks: w.tick, time: w.time, hpIn: 40, hpOut: w.hero.hp, endHash: sim.hash(), journal: packed.meta, summary,
+  };
+  const parts: JournalPart[] = packed.parts.map((data, i) => ({ ...head(journalPartId(session, SANDBOX_RUN, fight, i, packed.parts.length), 'journal'), fight, index: i, count: packed.parts.length, digest: packed.meta.digest, encoding: packed.meta.encoding, data }));
+  return [record, ...parts];
 }
 
 async function main(): Promise<void> {
@@ -127,16 +145,8 @@ async function main(): Promise<void> {
   });
 
   await check('a sandbox fight with the loop: the report shows seals (empty share), close attempts, unseals, inside median / total, step backs with re-adds, seal kills; the browser summary agrees', async () => {
-    const f = playLoopFight(), journal = f.sim.exportJournal()!, w = f.sim.world;
-    const packed = await packJournal(journal);
-    const session = 'sloop', fight = fightKey(1, null, 1), at = '2026-10-11T10:00:00.000Z';
-    const head = <K extends RtRecord['kind']>(id: string, kind: K) => ({ schema: RT_TELEMETRY_SCHEMA, id, kind, build: 'test', params: { storage: 's', hash: paramsHash(journal.params) }, session, run: SANDBOX_RUN, at });
-    const record: FightRecord = {
-      ...head(fightRecordId(session, SANDBOX_RUN, fight), 'fight'), fight, arena: LOOP_TEST_ARENA, seed: journal.seed, outcome: 'menu',
-      ticks: w.tick, time: w.time, hpIn: 40, hpOut: w.hero.hp, endHash: f.sim.hash(), journal: packed.meta, summary: f.summary,
-    };
-    const parts: JournalPart[] = packed.parts.map((data, i) => ({ ...head(journalPartId(session, SANDBOX_RUN, fight, i, packed.parts.length), 'journal'), fight, index: i, count: packed.parts.length, digest: packed.meta.digest, encoding: packed.meta.encoding, data }));
-    const loopSet = collectRecords([{ name: 'loop.json', text: JSON.stringify([record, ...parts]) }]);
+    const f = playLoopFight();
+    const loopSet = collectRecords([{ name: 'loop.json', text: JSON.stringify(await sandboxRecords(f.sim, f.summary, LOOP_TEST_ARENA, 'sloop')) }]);
     assert(!loopSet.problems.length, loopSet.problems.join('; '));
     const loop = await analyzeRecords(loopSet), entry = loop.fights[0];
     assert(entry && entry.hashOk && !entry.summaryDiff.length, `replayed with the same hash and summary (${entry?.error ?? entry?.summaryDiff.join('; ')})`);
@@ -151,6 +161,25 @@ async function main(): Promise<void> {
     assert(md2.includes('seal 1'), 'seal kills among the player\'s tools');
     // The empty summary of a record without an observer is still «no summary» (no diff).
     assert(!summaryDiff(emptyFightSummary(), entry.analysis!.summary).length, 'an empty browser summary is not compared');
+  });
+
+  await check('a sandbox fight with armoured elites: the browser summary agrees with the replay; the report shows the elites table and the chain shares', async () => {
+    const f = playEliteFight();
+    const eliteSet = collectRecords([{ name: 'elite.json', text: JSON.stringify(await sandboxRecords(f.sim, f.summary, ELITE_TEST_ARENA, 'selite')) }]);
+    assert(!eliteSet.problems.length, eliteSet.problems.join('; '));
+    const elite = await analyzeRecords(eliteSet), entry = elite.fights[0];
+    assert(entry && entry.hashOk && !entry.summaryDiff.length, `replayed with the same hash and summary (${entry?.error ?? entry?.summaryDiff.join('; ')})`);
+    // A field of the browser's summary that disagrees is caught (the elites are compared, not skipped).
+    const wrong = JSON.parse(JSON.stringify(f.summary)) as FightSummary;
+    wrong.elites.lifetime.push(1);
+    assert(summaryDiff(wrong, entry.analysis!.summary).join() === 'elites.lifetime.2: 1 ≠ undefined', `the diff names the extra lifetime: ${summaryDiff(wrong, entry.analysis!.summary).join('; ')}`);
+    const md3 = reportMarkdown(eliteSet, elite, { now: new Date('2026-10-11T12:00:00Z'), source: 'elite' });
+    const elites = md3.slice(md3.indexOf('## Элиты'), md3.indexOf('## Угрозы'));
+    const median = ((f.lifeA + f.lifeB) / 2).toLocaleString('ru-RU', { maximumFractionDigits: 1 });
+    assert(elites.includes(`| песочница | 1 | 3 | 2 (1) | 1 | ${median} | 2 | 2 | 1 (50%) | 1 (50%) | 2 / 0 | bomb 4, chain 2 | 3 / 1 |`), `the elites row: ${elites}`);
+    const row = md3.slice(md3.indexOf('## Песочница')).split('\n').find(l => l.includes('Поле элит')) ?? '';
+    assert(row.includes('| 1 (20%) | 1 (20%) |'), `tough not first and survivor shares of 5 chains: «${row}»`);
+    assert(md3.includes('Усиленные касания') && md3.includes(': 1 ударов, 2 HP'), 'the raised touches line');
   });
 
   console.log(`${checks} checks passed`);

@@ -107,6 +107,7 @@
 - `StrikeOutcome.plate`, `StrikeOutcome.platesAfter` — исход звена в `planChain(...).links[i].outcome` и в проходе.
 - События: `elitePlates` (`action`: `strip` с `removed` и `source`, `open`, `close`, `regrow`; `plates` — осталось), `eliteDown` (`clean`, `credited`), `chainHit.plates` (удар цепи снял пластину; `damage` 0, `killed` false). Удар по пластинам не даёт `enemyHit`.
 - `touchRaised(world, e)` — касание врага сейчас повышено; `touchDamage(world, e)` — его урон.
+- Телеметрия (с 11.10.2026): сводка боя `elites` (жизнь, цепи на элиту, пластины по источникам, «чистые» и поздние убийства в окне, добыча), `chain.toughNotFirst`, `damage.raisedTouches`; удар по пластине не считается цепью на выжившем; раздел «Элиты» отчёта — [realtime-telemetry.md](realtime-telemetry.md), раздел 8, «Пакет „Урон имеет значение“».
 
 ## 6а. Вид (11.10.2026)
 

@@ -17,7 +17,9 @@
  *   crystals — crystals dropped (`crystal` events); cancels — a drawn chain emptied by a command without a dash (cancel,
  *   the step back off the last link, a release with no link left); steps back — a command that shortened the drawn chain
  *   and left it non-empty; focus spent — real seconds of focus burnt while focusing; empty focus — ticks a chain was drawn
- *   with no focus left; chains with a survivor — dashes that struck a link that survived (the chain stopped there).
+ *   with no focus left; chains with a survivor — dashes that struck a link that survived (the chain stopped there; a hit
+ *   that took a plate off an armoured elite, `chainHit.plates`, is not a survivor: the chain goes on through it); tough not
+ *   first — released chains with an enemy of HP ≥ 2 at the release among the enemy links after the first.
  * - the loop (loop research, step 2; docs/realtime-loop-research.md, 3.3): close attempts — closing gestures (`loop` events
  *   `close` and `refused`; a run of identical refusals — the same closing and reason — with no change of the drawn chain in
  *   between counts once: the pointer moving inside the target circle sends one per point); unseals — `open` gestures (no reason); loop breaks — `open` by the rules, by the reason;
@@ -39,14 +41,21 @@
  * - movement: path of the hero in arena units (walk, dash, jump, knockback; a `teleport` command is not a path);
  *   game seconds standing (the hero did not move in the tick), in water (his centre), in thorns.
  * - abilities: `jump` and `spin` events, `item` events by kind.
+ * - raised touches (package «Урон имеет значение»): a `hit` whose source is the striker kind's touch (`hitSource`) while the
+ *   sim says its touch is raised (`touchRaised`, read after the tick: the touch is the last step of a tick).
+ * - elites: an enemy with `elite` is seen from the start or from the first look at it as an elite (a newcomer becoming one);
+ *   its lifetime — game seconds to its `kill` event; chains per elite — dashes with a `chainHit` on it (plate hits too);
+ *   before the goals — its kill came before the `goals` event; `elitePlates` (strip by source, open, close), `eliteDown`
+ *   (credited — downs; `clean` — clean kills; `inWindow` without `clean` — late window kills), `loot` (dropped, picked).
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
+import { kindOf } from '../sim/enemies/kinds';
 import { inThorns, inWater } from '../sim/geometry';
 import { SIM_DT } from '../sim/simulation';
-import type { ChainLink, World, WorldEvent } from '../sim/world';
+import { touchRaised, type ChainLink, type World, type WorldEvent } from '../sim/world';
 import { emptyFightSummary, type FightObserver, type FightObserverFactory, type FightSummary } from './schema';
 
 /** HP at or below this is a «low HP» moment (section 3: «Моменты HP ≤ 3»). */
@@ -118,6 +127,15 @@ export function createFightObserver(start: World): FightObserver {
   let keys: number[] = start.chain.map(linkKey), version = 0, clock = 0, nextCost = tickRealCost(start);
   let takenOff: { key: number; at: number }[] = [];
   let lastRefusal: { kind: string; refusal: string; version: number } | null = null;
+  // Elites alive: when seen, the chains that hit them and the last of those (dashes are numbered by `s.chain.count`).
+  const elites = new Map<number, { born: number; chains: number; lastDash: number }>();
+  let goalsDone = start.greedStart !== null;
+
+  /** Elites not seen before (placed, spawned, a newcomer turned elite). */
+  const noteElites = (w: World): void => {
+    for (const e of w.enemies) if (e.elite && !elites.has(e.id)) { elites.set(e.id, { born: w.time, chains: 0, lastDash: -1 }); s.elites.count++; }
+  };
+  noteElites(start);
 
   /** Reads the events that came since the last call. */
   const readEvents = (): void => {
@@ -130,16 +148,42 @@ export function createFightObserver(start: World): FightObserver {
           bump(s.damage.bySource, source, ev.damage);
           bump(s.damage.hits, source);
           hit = true;
+          const striker = world.enemies.find(e => e.id === ev.enemyId);
+          if (striker && ev.source === kindOf(striker).hitSource && touchRaised(world, striker)) { s.damage.raisedTouches.hits++; s.damage.raisedTouches.damage += ev.damage; }
           return;
         }
-        case 'kill':
+        case 'kill': {
+          const elite = elites.get(ev.enemyId);
+          if (elite) {
+            elites.delete(ev.enemyId);
+            s.elites.lifetime.push(world.time - elite.born);
+            s.elites.chainsPer.push(elite.chains);
+            if (!goalsDone) s.elites.beforeGoals++;
+          }
           if (ev.source === 'chain') s.kills.chain++;
           else if (ev.credited) bump(s.kills.tools, ev.source ?? 'other');
           else s.kills.enemies++;
           return;
-        case 'chainHit':
-          if (!ev.killed && world.move && survivorDash !== world.move) { survivorDash = world.move; s.chain.survivorEnds++; }
+        }
+        case 'chainHit': {
+          if (!ev.killed && ev.plates === undefined && world.move && survivorDash !== world.move) { survivorDash = world.move; s.chain.survivorEnds++; }
+          const elite = elites.get(ev.enemyId);
+          if (elite && elite.lastDash !== s.chain.count) { elite.lastDash = s.chain.count; elite.chains++; }
           return;
+        }
+        case 'goals': goalsDone = true; return;
+        case 'elitePlates':
+          if (ev.action === 'strip') bump(s.elites.platesBySource, ev.source ?? 'other', ev.removed ?? 0);
+          else if (ev.action === 'open') s.elites.windows++;
+          else if (ev.action === 'close') s.elites.windowsClosed++;
+          return;
+        case 'eliteDown':
+          if (!ev.credited) return;
+          s.elites.downs++;
+          if (ev.clean) s.elites.cleanKills++;
+          else if (ev.inWindow) s.elites.lateWindowKills++;
+          return;
+        case 'loot': if (ev.picked) s.elites.loot.picked++; else s.elites.loot.dropped++; return;
         case 'crystal': s.chain.crystals++; return;
         case 'loop':
           // The pointer on the last link opens (no reason); the rules open with one (sim `syncLoop`).
@@ -177,16 +221,18 @@ export function createFightObserver(start: World): FightObserver {
     move = m;
     if (!m || m.kind !== 'dash') return;
     s.chain.count++;
-    let enemies = 0, color: number | null = null;
+    let enemies = 0, color: number | null = null, toughLater = false;
     for (const link of m.links) {
       if (link.kind !== 'enemy') continue;
       enemies++;
       const e = world.enemies.find(x => x.id === link.id);
       if (!e) continue;
+      if (enemies > 1 && e.hp >= 2) toughLater = true;
       if (color !== null && e.color !== color) s.chain.colorChanges++;
       color = e.color;
     }
     lengths.push(enemies);
+    if (toughLater) s.chain.toughNotFirst++;
   };
 
   /**
@@ -215,6 +261,7 @@ export function createFightObserver(start: World): FightObserver {
   return {
     command(cmd: Command, w: World): void {
       world = w;
+      noteElites(w);
       readEvents();
       const before = chainLen, started = w.move !== move && w.move?.kind === 'dash';
       noteMove();
@@ -234,6 +281,7 @@ export function createFightObserver(start: World): FightObserver {
       world = w;
       // The tick that ran cost what the world before it said.
       clock += nextCost;
+      noteElites(w);
       readEvents();
       noteMove();
       chainLen = w.chain.length;
@@ -271,6 +319,7 @@ export function createFightObserver(start: World): FightObserver {
       out.tempo.afterGoals = w.greedStart !== null ? end - w.greedStart : null;
       out.tempo.toDoor = w.status === 'victory' ? end : null;
       out.build.active = (w.kit?.talismans ?? []).filter(id => !FIRING.has(id));
+      out.elites.aliveAtEnd = w.enemies.filter(e => elites.has(e.id)).length;
       return out;
     },
   };

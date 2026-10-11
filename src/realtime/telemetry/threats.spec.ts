@@ -6,7 +6,8 @@
  * the chain, kills the enemy. The fight is recorded as a journal and the report's replay (`analyzeJournal`) must give the
  * outcome the definitions of section 7 name (hit / shielded / dodged / interrupted) and the same hash as the live fight.
  * Also: the observer's summary on real actions (chains, a cancel, a step back, kills, the throw of a wolf; the loop «Печать»
- * and step-back re-adds on a fight of loopFight.testkit.ts), and the cost
+ * and step-back re-adds on a fight of loopFight.testkit.ts; elites, plate hits, tough links and raised touches on a fight of
+ * eliteFight.testkit.ts; the elite wolf leader's longer throw), and the cost
  * of the observer per tick on «Большая поляна» (printed; the condition is < 0.1 ms).
  */
 import { archerMark } from '../sim/enemies/archer';
@@ -17,6 +18,7 @@ import { defaultParams, type Params } from '../sim/params';
 import { Simulation, replay } from '../sim/simulation';
 import type { Enemy, World } from '../sim/world';
 import { LOOP_TEST_ARENA, playLoopFight } from './loopFight.testkit';
+import { playEliteFight } from './eliteFight.testkit';
 import { createFightObserver } from './observe';
 import { analyzeJournal, type FightAnalysis } from './report';
 import type { CoverKind, ThreatKind, ThreatOutcome } from './threats';
@@ -275,6 +277,23 @@ check('wolves: the chain kills a wolf of the howling pack — the howl breaks, i
   expectOne(sim, 'wolf', 'interrupted');
 });
 
+check('wolves: the elite leader throws 5, not 4 — its howl warns the hero 1 farther (the sim\'s rush length), so he walks out of it later', () => {
+  // A lone elite wolf 3 to the left howls; the hero walks straight away from it while the line follows him, then the rush misses.
+  const exitOf = (behaviors: boolean): number => {
+    const sim = fight({ contactDamage: 1, wolfLoneWait: 0.3, wolfHowl: 2, eliteBehaviors: behaviors });
+    const id = sim.command({ t: 'place', x: HERO.x - 3, y: HERO.y, color: 0, hp: 0, kind: 'wolf', elite: true }) as number;
+    run(sim, 120, w => w.enemies.some(e => e.id === id && e.vars.st === WOLF_HOWL));
+    walk(sim, 1, 0, 60);
+    calm(sim);
+    const w = expectOne(sim, 'wolf', 'dodged').warnings.find(x => x.kind === 'wolf')!;
+    assert(w.exitTicks !== null, 'the hero left the zone');
+    return w.exitTicks;
+  };
+  const plain = exitOf(false), leader = exitOf(true);
+  // One unit more at 4 units/s: 15 ticks.
+  assert(Math.abs(leader - plain - 15) <= 2, `the leader's zone is 1 longer: exit ${leader} ticks vs ${plain}`);
+});
+
 // ---- Lynx: the leap line ----
 
 function lynxWindsUp(sim: Simulation, at: Vec = { x: 5.5, y: 5 }): Enemy {
@@ -410,6 +429,26 @@ check('observer: the loop «Печать» — close attempts (a repeated refusa
   const r = replayed(f.sim).summary;
   r.threats = {};
   assert(JSON.stringify(r) === JSON.stringify(f.summary), `the replay's summary differs: ${JSON.stringify(r.chain)} vs ${JSON.stringify(c)}`);
+});
+
+check('observer: the package «Урон имеет значение» — elites (lifetime, chains, plates by source, clean and late kills, loot), a plate hit is no survivor, a tough one not first, raised touches; the replay agrees', () => {
+  const f = playEliteFight(), el = f.summary.elites, c = f.summary.chain, d = f.summary.damage;
+  assert(el.count === 3 && el.aliveAtEnd === 1, `three elites, one alive at the end (${el.count}, ${el.aliveAtEnd})`);
+  assert(el.lifetime.length === 2 && Math.abs(el.lifetime[0] - f.lifeA) < 1e-9 && Math.abs(el.lifetime[1] - f.lifeB) < 1e-9, `lifetimes ${el.lifetime} vs the test's clock ${f.lifeA}, ${f.lifeB}`);
+  assert(f.lifeB - f.lifeA > 1.5, 'B lived through 1.5 s of its window');
+  // A: through it, ended on it, the kill; B: the kill only.
+  assert(el.chainsPer.join() === '3,1', `chains per elite ${el.chainsPer.join()}`);
+  assert(el.platesBySource.chain === 2 && el.platesBySource.bomb === 4 && Object.keys(el.platesBySource).length === 2, `plates ${JSON.stringify(el.platesBySource)}`);
+  assert(el.windows === 2 && el.windowsClosed === 0 && el.downs === 2 && el.cleanKills === 1 && el.lateWindowKills === 1, `windows and kills ${JSON.stringify(el)}`);
+  assert(el.beforeGoals === 1, `A before the goals, B after (${el.beforeGoals})`);
+  // A clean break drops the loot twice, a late kill once; the hero picked one up.
+  assert(el.loot.dropped === 3 && el.loot.picked === 1, `loot ${JSON.stringify(el.loot)}`);
+  // The chain ended on A with a plate hit: not a survivor; the tough one behind the weak one is the only survivor.
+  assert(c.count === 5 && c.survivorEnds === 1 && c.toughNotFirst === 1, `chains ${c.count}, survivors ${c.survivorEnds}, tough not first ${c.toughNotFirst}`);
+  assert(d.total === 3 && d.raisedTouches.hits === 1 && d.raisedTouches.damage === 2, `touches ${d.total}, raised ${JSON.stringify(d.raisedTouches)}`);
+  const r = replayed(f.sim).summary;
+  r.threats = {};
+  assert(JSON.stringify(r) === JSON.stringify(f.summary), `the replay's summary differs: ${JSON.stringify(r.elites)} vs ${JSON.stringify(el)}`);
 });
 
 check('observer: a loop the rules opened (the hero walked away from a ring closed on him) is a break by its reason, not an unseal', () => {

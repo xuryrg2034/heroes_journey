@@ -154,23 +154,32 @@ export function latestRuns(records: readonly RtRecord[]): RunRecord[] {
 
 /**
  * Paths where two summaries differ (the browser's against the replay's); `inView` and `threats` are left out. A browser
- * summary of an older build lacks the fields added later: they read as the empty summary's (`withSummaryDefaults`).
+ * summary of an older build lacks the fields added later: they are not compared (the browser did not count them; the
+ * replay of today's observer may — the elites of a fight recorded before 11.10.2026).
  */
 export function summaryDiff(browser: FightSummary, replayed: FightSummary): string[] {
-  const a = withSummaryDefaults(browser), b = JSON.parse(JSON.stringify(replayed)) as FightSummary;
-  if (JSON.stringify(a) === JSON.stringify(emptyFightSummary())) return [];
+  if (JSON.stringify(withSummaryDefaults(browser)) === JSON.stringify(emptyFightSummary())) return [];
+  const a = JSON.parse(JSON.stringify(browser)) as FightSummary, b = JSON.parse(JSON.stringify(replayed)) as FightSummary;
   a.threats = {}; b.threats = {};
-  delete a.tempo.inView; delete b.tempo.inView;
+  if (a.tempo) delete a.tempo.inView;
+  delete b.tempo.inView;
   const out: string[] = [];
-  const walk = (x: unknown, y: unknown, path: string): void => {
+  const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  // `base` — the same place in the empty summary: a field of the schema the browser record lacks is skipped; a key of a map
+  // (`bySource` …) or an element of a list the browser lacks is a difference.
+  const walk = (x: unknown, y: unknown, path: string, base: unknown): void => {
     if (typeof x === 'number' && typeof y === 'number') { if (Math.abs(x - y) > 1e-9 * Math.max(1, Math.abs(x))) out.push(`${path}: ${x} ≠ ${y}`); return; }
     if (x && y && typeof x === 'object' && typeof y === 'object') {
-      for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) walk((x as Record<string, unknown>)[k], (y as Record<string, unknown>)[k], path ? `${path}.${k}` : k);
+      for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) {
+        const xv = (x as Record<string, unknown>)[k], field = plain(base) && Object.hasOwn(base, k);
+        if (xv === undefined && field) continue;
+        walk(xv, (y as Record<string, unknown>)[k], path ? `${path}.${k}` : k, field ? (base as Record<string, unknown>)[k] : undefined);
+      }
       return;
     }
     if (JSON.stringify(x) !== JSON.stringify(y)) out.push(`${path}: ${JSON.stringify(x)} ≠ ${JSON.stringify(y)}`);
   };
-  walk(a, b, '');
+  walk(a, b, '', emptyFightSummary());
   return out;
 }
 
@@ -263,18 +272,30 @@ function loopCells(list: readonly FightSummary[]): string[] {
 const LOOP_LEGEND = 'Петля (песочница, `loopEnabled`): печати — отпущенные замкнутые цепи, «пустых» — никого внутри; попыток — жестов замыкания (замкнул или отказ; повтор того же отказа без смены цепи — один); «разомкн.» — петля разомкнута указателем на последнем звене; «внутри» — тел внутри при отпускании (медиана на печать, всего). Шаги назад: в скобках — звено снято и снова взято за ≤ 0,3 с реального времени.';
 const LOOP_HEAD = ['Печати (пустых) / попыток', 'Внутри мед. / всего', 'Шагов назад (повтор ≤ 0,3 с)'];
 
+/**
+ * Package «Урон имеет значение»: chains with a tough enemy (HP ≥ 2 at the release) not first, chains that ended on a
+ * survivor — counts and shares of the chains of some fights.
+ */
+function chainShareCells(list: readonly FightSummary[]): string[] {
+  if (!list.length) return ['—', '—'];
+  let count = 0, tough = 0, survivor = 0;
+  for (const s of list) { count += s.chain.count; tough += s.chain.toughNotFirst ?? 0; survivor += s.chain.survivorEnds; }
+  return [`${tough} (${pct(tough, count)})`, `${survivor} (${pct(survivor, count)})`];
+}
+const CHAIN_SHARE_HEAD = ['Крепкий не первым', 'На выжившем'];
+
 function fightRows(entries: readonly FightEntry[]): (string | number)[][] {
   return entries.map(e => {
     const r = e.record, a = e.analysis, s = a?.summary;
     return [
       `\`${r.fight}\``, r.nodeId ?? '—', r.row ?? '—', arenaTitle(r.arena), r.roster ?? '—', OUTCOME_TITLES[r.outcome] ?? r.outcome, n1(r.time),
       `${r.hpIn} → ${r.hpOut}`, s ? s.damage.total : '—', s ? s.chain.count : '—', s ? `${n1(s.chain.lengthMedian)} / ${s.chain.lengthMax}` : '—', s ? s.kills.chain : '—',
-      ...loopCells(s ? [s] : []),
+      ...chainShareCells(s ? [s] : []), ...loopCells(s ? [s] : []),
       e.error ? `ошибка: ${e.error}` : e.hashOk ? 'совпал' : 'НЕ совпал',
     ];
   });
 }
-const FIGHT_HEAD = ['Бой', 'Узел', 'Ряд', 'Арена', 'Состав', 'Итог', 'Время, с', 'HP', 'Урон', 'Цепей', 'Длина мед. / макс.', 'Убито цепью', ...LOOP_HEAD, 'Хэш'];
+const FIGHT_HEAD = ['Бой', 'Узел', 'Ряд', 'Арена', 'Состав', 'Итог', 'Время, с', 'HP', 'Урон', 'Цепей', 'Длина мед. / макс.', 'Убито цепью', ...CHAIN_SHARE_HEAD, ...LOOP_HEAD, 'Хэш'];
 
 function threatRows(entries: readonly FightEntry[]): (string | number)[][] {
   const all = entries.flatMap(e => e.analysis?.warnings ?? []).filter(w => w.outcome);
@@ -311,11 +332,13 @@ function damageSections(entries: readonly FightEntry[]): string {
     .map(([k, d]) => [kindTitle(k), d.hits, d.damage, pct(d.damage, total), Object.entries(d.bySource).map(([s, v]) => `${sourceTitle(s)} ${v}`).join(', ')]);
   const sources = Object.entries(bySource).sort((a, b) => b[1].damage - a[1].damage).map(([s, d]) => [sourceTitle(s), d.hits, d.damage, pct(d.damage, total)]);
   const kills = { chain: 0, enemies: 0, tools: {} as Record<string, number> };
+  const raised = { hits: 0, damage: 0 };
   const low: string[] = [];
   for (const e of entries) {
     const s = e.analysis?.summary;
     if (!s) continue;
     kills.chain += s.kills.chain; kills.enemies += s.kills.enemies;
+    raised.hits += s.damage.raisedTouches.hits; raised.damage += s.damage.raisedTouches.damage;
     for (const [k, v] of Object.entries(s.kills.tools)) bump(kills.tools, k, v);
     if (s.damage.lowHp.length) low.push(`\`${e.record.fight}\` (${e.record.run}): ${s.damage.lowHp.map(m => `такт ${m.tick} — ${m.hp} HP`).join(', ')}`);
   }
@@ -324,10 +347,35 @@ function damageSections(entries: readonly FightEntry[]): string {
     '### Урон по видам врагов', '', '«(элита)» — удары элиты. Удары без врага (терновник) — по источнику.', '',
     table(['Вид', 'Ударов', 'Урон', 'Доля урона', 'Источники'], kinds), '',
     '### Урон по источникам', '', table(['Источник', 'Ударов', 'Урон', 'Доля'], sources), '',
+    `Усиленные касания (крепкий с HP ≥ 2 или элита, \`touchRaised\`; входят в строки выше): ${raised.hits} ударов, ${raised.damage} HP (${pct(raised.damage, total)} урона).`, '',
     '### Убийства', '', `Цепью: ${kills.chain}. Инструментами игрока: ${tools}. Способностями врагов (без зачёта): ${kills.enemies}.`, '',
     '### Моменты HP ≤ 3', '', low.length ? low.map(l => `- ${l}`).join('\n') : '_нет_',
   ].join('\n');
 }
+
+/** Package «Урон имеет значение»: the elites of some fights as one row (`label` — the group). */
+function eliteRow(label: string, entries: readonly FightEntry[]): (string | number)[] | null {
+  const list = entries.map(e => e.analysis?.summary.elites).filter((x): x is FightSummary['elites'] => !!x && x.count > 0);
+  if (!list.length) return null;
+  const sum = (f: (x: FightSummary['elites']) => number): number => list.reduce((a, x) => a + f(x), 0);
+  const lifetime = list.flatMap(x => x.lifetime), chains = list.flatMap(x => x.chainsPer), plates: Record<string, number> = {};
+  for (const x of list) for (const [k, v] of Object.entries(x.platesBySource)) bump(plates, k, v);
+  const downs = sum(x => x.downs), clean = sum(x => x.cleanKills), late = sum(x => x.lateWindowKills);
+  return [
+    label, list.length, sum(x => x.count), `${lifetime.length} (${sum(x => x.beforeGoals)})`, sum(x => x.aliveAtEnd),
+    lifetime.length ? n1(median(lifetime)) : '—', chains.length ? n1(median(chains)) : '—',
+    downs, `${clean} (${pct(clean, downs)})`, `${late} (${pct(late, downs)})`, `${sum(x => x.windows)} / ${sum(x => x.windowsClosed)}`,
+    Object.entries(plates).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || '—',
+    `${sum(x => x.loot.dropped)} / ${sum(x => x.loot.picked)}`,
+  ];
+}
+/** Rows of the elites table: the runs, the sandbox and, when both have elites, all together. */
+function eliteRows(runFights: readonly FightEntry[], sandbox: readonly FightEntry[]): (string | number)[][] {
+  const runs = eliteRow('походы', runFights), box = eliteRow('песочница', sandbox);
+  return [runs, box, runs && box ? eliteRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
+}
+const ELITE_HEAD = ['Бои', 'Боёв с элитами', 'Элит', 'Убито (до целей)', 'Живы в конце', 'Жизнь мед., с', 'Цепей на элиту мед.', 'Убито игроком с бронёй', 'Чистый слом', 'Поздно в окне', 'Окон / закрылось', 'Пластины по источникам', 'Добыча выпала / подобрана'];
+const ELITE_LEGEND = 'Жизнь — игровые секунды от появления элиты (или превращения новичка в элиту) до смерти, только убитые; «живы в конце» — не вошли в медиану. Цепей на элиту — рывки, ударившие убитую элиту (удары по пластинам тоже). «Убито игроком с бронёй» — `eliteDown` с зачётом; из них «чистый слом» — в первую `eliteCleanWindow` окна (+1 энергия, добыча ×2), «поздно в окне» — позже в окне (обычная добыча); остальные — не в окне. Окон — снятий последней пластины; «закрылось» — окно кончилось, элита жива. Пластины — снято по источнику удара.';
 
 function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
   const rows = new Map<string, { kinds: Set<string>; offered: number; taken: number; refused: number; fired: number; fights: number; active: number }>();
@@ -395,10 +443,10 @@ function arenasSection(entries: readonly FightEntry[]): string {
       avg(e => e.record.time), avg(e => e.analysis!.summary.damage.total), avg(e => e.analysis!.summary.chain.count), avg(e => e.analysis!.summary.kills.chain),
       goals.length ? n1(goals.reduce((s, x) => s + x, 0) / goals.length) : '—', done.length ? `${avg(e => e.analysis!.summary.tempo.enemies.avg)} / ${Math.max(...done.map(e => e.analysis!.summary.tempo.enemies.max))}` : '—',
       avg(e => e.analysis!.summary.movement.path), avg(e => e.analysis!.summary.movement.idle),
-      ...loopCells(done.map(e => e.analysis!.summary)),
+      ...chainShareCells(done.map(e => e.analysis!.summary)), ...loopCells(done.map(e => e.analysis!.summary)),
     ];
   });
-  return table(['Арена', 'Боёв', 'Побед', 'Поражений', 'Время ср., с', 'Урон ср.', 'Цепей ср.', 'Убито цепью ср.', 'До целей ср., с', 'Врагов ср. / макс.', 'Путь ср.', 'На месте ср., с', ...LOOP_HEAD], rows);
+  return table(['Арена', 'Боёв', 'Побед', 'Поражений', 'Время ср., с', 'Урон ср.', 'Цепей ср.', 'Убито цепью ср.', 'До целей ср., с', 'Врагов ср. / макс.', 'Путь ср.', 'На месте ср., с', ...CHAIN_SHARE_HEAD, ...LOOP_HEAD], rows);
 }
 
 export interface ReportOptions {
@@ -436,6 +484,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Бои походов', '', table(FIGHT_HEAD, fightRows(runFights)), '',
     '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
+    '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

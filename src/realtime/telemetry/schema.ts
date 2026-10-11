@@ -356,7 +356,14 @@ export interface ThreatTally {
 
 export interface FightSummary {
   /** Damage to the hero by `hit.source` and the moments the HP fell to 3 or lower. */
-  damage: { total: number; bySource: Record<string, number>; hits: Record<string, number>; lowHp: { tick: number; hp: number }[] };
+  damage: {
+    total: number; bySource: Record<string, number>; hits: Record<string, number>; lowHp: { tick: number; hp: number }[];
+    /**
+     * Package «Урон имеет значение» (from 11.10.2026): touches whose damage the sim raised (`touchRaised`: an armoured elite,
+     * or with `toughTouch` an elite or an enemy with HP ≥ 2) — hits and HP. A subset of `bySource` (`touch`, `wolf-rush` …).
+     */
+    raisedTouches: { hits: number; damage: number };
+  };
   /** Readability of threats by warning kind (`archer`, `boar`, `wolf`, `lynx`, `sapper` …). */
   threats: Record<string, ThreatTally>;
   chain: {
@@ -391,7 +398,11 @@ export interface FightSummary {
     loopBreaks: Record<string, number>;
     /** Links a step back took off and the chain took again within 0.3 real seconds (an accidental step back). */
     backstepReadds: number;
+    /** Package «Урон имеет значение» (from 11.10.2026): released chains with a tough enemy (HP ≥ 2 at the release) not as the first enemy link. */
+    toughNotFirst: number;
   };
+  /** Package «Урон имеет значение» (from 11.10.2026): the elites of the fight (`elite` set; armoured or not). */
+  elites: EliteSummary;
   kills: {
     chain: number;
     /** Kills by the player's tools: hammer, wave, bomb, a sapper's blast set off by the chain … */
@@ -408,14 +419,45 @@ export interface FightSummary {
   abilities: { jumps: number; spins: number; items: Record<string, number> };
 }
 
+/** The elites of one fight (docs/realtime-telemetry.md, section 8, «Элиты»). */
+export interface EliteSummary {
+  /** Elites seen on the arena (from the start, or from the moment a newcomer became one). */
+  count: number;
+  /** Game seconds from the appearance to the death, one number per elite that died, in the order of deaths. */
+  lifetime: number[];
+  /** Chains (dashes) that hit the elite, plate hits included; one number per elite that died, the order of `lifetime`. */
+  chainsPer: number[];
+  /** Elites still on the arena at the end of the fight (not in `lifetime`). */
+  aliveAtEnd: number;
+  /** Elites that died before the goals were done. */
+  beforeGoals: number;
+  /** Armoured elites the player killed (`eliteDown` credited). */
+  downs: number;
+  /** Of them in the first `eliteCleanWindow` of the window — the clean break (+1 energy, loot ×2). */
+  cleanKills: number;
+  /** Of them later in the window (`inWindow` without `clean`): the plain loot. */
+  lateWindowKills: number;
+  /** Windows opened (0 plates) and windows that closed with the elite alive (a plate grew back). */
+  windows: number;
+  windowsClosed: number;
+  /** Plates taken off, by the source of the strip (`chain`, `bomb`, `spin`, `fire`, `blast`, `seal`, hammers …). */
+  platesBySource: Record<string, number>;
+  /** Elite loot that dropped, and loot the hero picked up. */
+  loot: { dropped: number; picked: number };
+}
+
 /** A summary of nothing (a fight without an observer, the start of a fight). */
 export function emptyFightSummary(): FightSummary {
   return {
-    damage: { total: 0, bySource: {}, hits: {}, lowHp: [] },
+    damage: { total: 0, bySource: {}, hits: {}, lowHp: [], raisedTouches: { hits: 0, damage: 0 } },
     threats: {},
     chain: {
       count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0,
-      closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0,
+      closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0, toughNotFirst: 0,
+    },
+    elites: {
+      count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,
+      platesBySource: {}, loot: { dropped: 0, picked: 0 },
     },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },

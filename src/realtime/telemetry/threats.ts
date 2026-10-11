@@ -12,7 +12,8 @@
  *   `wall` for a wall or a tree, `cliff` for a cliff edge; design 10.10.2026); it ran the whole range past the hero dashing
  *   or jumping through it — shielded; else dodged.
  * - `wolf` — one warning per pack (decision 10): the wolves that started to howl in one tick. While a wolf howls its line
- *   points at the hero (the hero is in it within `wolfRushRange`); at the end of the howl the line is fixed and the wolf
+ *   points at the hero (the hero is in it within the wolf's rush length — the sim's `wolfRushLength`: `wolfRushRange`, or
+ *   `wolfLeaderThrow` in a howl the elite leader joined); at the end of the howl the line is fixed and the wolf
  *   rushes along it. The pack ends when none of it howls or rushes: a throw hit (a `wolf` hit of a wolf that rushed on
  *   the tick before) — hit; a wolf reached the hero without a hit — shielded; a rush ran out — dodged; every rush stopped
  *   short (a wall or a tree, a cliff edge) — dodged, cover (`coverKind` `cliff` if one met a cliff, else `wall`); every wolf
@@ -32,7 +33,7 @@
  * seconds.
  */
 import { archerLine, archerMark } from '../sim/enemies/archer';
-import { WOLF_HOWL, WOLF_RUSH } from '../sim/enemies/wolf';
+import { WOLF_HOWL, WOLF_RUSH, wolfRushLength } from '../sim/enemies/wolf';
 import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP } from '../sim/enemies/lynx';
 import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
@@ -140,7 +141,7 @@ export class ThreatTracker {
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
-    this.wolfRan = new Map(world.enemies.filter(e => e.kind === 'wolf' && e.vars.st === WOLF_RUSH).map(e => [e.id, e.vars.ran ?? 0]));
+    this.wolfRan = new Map(world.enemies.filter(e => e.kind === 'wolf' && e.vars.st === WOLF_RUSH).map(e => [e.id, { ran: e.vars.ran ?? 0, len: wolfRushLength(world, e) }]));
     this.boarHits = world.stats.boarHits;
   }
 
@@ -304,21 +305,23 @@ export class ThreatTracker {
   // ---- Wolves (one warning per pack) ----
 
   private readonly packs = new Map<Open, Map<number, 'howl' | 'rush' | 'reached' | 'missed' | 'wall' | 'cliff' | 'dropped' | 'dead'>>();
-  /** Distance each rushing wolf had run at the end of the last tick (a rush that ends short of its range hit a wall). */
-  private wolfRan = new Map<number, number>();
+  /**
+   * Distance each rushing wolf had run at the end of the last tick and its rush length then (a rush that ends short of its
+   * length hit a wall; the sim forgets the leader's longer length when the rush ends).
+   */
+  private wolfRan = new Map<number, { ran: number; len: number }>();
 
   private wolfZone(members: readonly number[]): Open['inZone'] {
     return world => {
-      const p = world.params;
       let any = false;
       for (const id of members) {
         const e = this.enemies.get(id);
         if (!e) continue;
         const st = e.vars.st ?? 0, reach = reachOf(world, e);
-        if (st === WOLF_HOWL) { any = true; if (dist(e, world.hero) <= p.wolfRushRange + reach) return true; }
+        if (st === WOLF_HOWL) { any = true; if (dist(e, world.hero) <= wolfRushLength(world, e) + reach) return true; }
         else if (st === WOLF_RUSH) {
           any = true;
-          if (rayDistance(e, e.vars.dx ?? 1, e.vars.dy ?? 0, Math.max(0, p.wolfRushRange - (e.vars.ran ?? 0)), world.hero) <= reach) return true;
+          if (rayDistance(e, e.vars.dx ?? 1, e.vars.dy ?? 0, Math.max(0, wolfRushLength(world, e) - (e.vars.ran ?? 0)), world.hero) <= reach) return true;
         }
       }
       return any ? false : null;
@@ -339,7 +342,7 @@ export class ThreatTracker {
         // The rush ended: at the hero; short of its range — a wall or a tree (the wolf walks back) or a cliff edge (it leaves the
         // ring for a while: `away`); or it ran out. A howl or rush dropped (the cold, a knockback, the pack broken) — back in the ring.
         if (state === 'rush' || this.wolfState.get(id) === WOLF_RUSH) {
-          const p = world.params, short = (this.wolfRan.get(id) ?? 0) + p.wolfRushSpeed * SIM_DT < p.wolfRushRange - 1e-6;
+          const p = world.params, last = this.wolfRan.get(id), short = (last?.ran ?? 0) + p.wolfRushSpeed * SIM_DT < (last?.len ?? p.wolfRushRange) - 1e-6;
           if (st !== 0 && dist(e, world.hero) <= reachOf(world, e) + 1e-6) members.set(id, 'reached');
           else if (st !== 0) members.set(id, short ? 'wall' : 'missed');
           else members.set(id, (e.vars.away ?? 0) > 0 && !enemyFrozen(e) && e.knock <= 0 ? 'cliff' : 'dropped');
