@@ -99,7 +99,8 @@ check('the elites\' loot: armoured elites killed by the player — every loot fe
     assert(downs === 2 && dropped >= 2, `seed ${k}: two kills, loot fell (${downs}, ${dropped})`);
     const after = ok(resolveArena(run, outcome), 'resolve');
     assert(same(after.luck, { 'elite-loot': { tries: 2, hits: 2, expected: 2 } }), JSON.stringify(after.luck));
-    assert(same(rtLuckReport(after), [{ id: 'elite-loot', label: 'Добыча элит', text: '2 из 2 — элита в броне оставляет добычу всегда, без шанса' }]), JSON.stringify(rtLuckReport(after)));
+    // Design 12.10.2026: the loot without a chance has no line (the tally keeps counting it).
+    assert(same(rtLuckReport(after), []), JSON.stringify(rtLuckReport(after)));
   }
 });
 

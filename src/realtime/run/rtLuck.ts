@@ -115,10 +115,10 @@ const LUCK_LINES: readonly ((tally: RtLuckTally) => RtLuckLine | null)[] = [
     return die ? { id: 'die', label: 'Кость у двери', text: `${word(die.tries, 'бросок', 'броска', 'бросков')} · 4–6 выпало ${vs(die)}` } : null;
   },
   tally => {
+    // Design 12.10.2026: no line while the loot has no chance (armour always leaves it — every run); it comes back with a chance.
     const loot = tally['elite-loot'];
-    if (!loot) return null;
-    const sure = Math.abs(loot.expected - loot.tries) < EPS;
-    return { id: 'elite-loot', label: 'Добыча элит', text: `${loot.hits} из ${loot.tries}${sure ? ' — элита в броне оставляет добычу всегда, без шанса' : ` (ожидание ${luckNumber(loot.expected)})`}` };
+    if (!loot || Math.abs(loot.expected - loot.tries) < EPS) return null;
+    return { id: 'elite-loot', label: 'Добыча элит', text: `${loot.hits} из ${loot.tries} (ожидание ${luckNumber(loot.expected)})` };
   },
 ];
 
