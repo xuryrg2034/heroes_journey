@@ -493,6 +493,21 @@ check('the run turns the package on; from row 3 one guaranteed armoured elite in
   assert(ev && rtArenaLoadout(ev.run).guaranteedElite === true, 'an event\'s reward battle is ordinary');
 });
 
+check('the guaranteed elite: not on the Jailer\'s node, on a breakthrough (design answer 11.10.2026)', () => {
+  let jailer = 0, breakthrough = 0;
+  for (let k = 1; k <= 6 && (!jailer || !breakthrough); k++) {
+    const base = createRtRun(seedOf(900 + k));
+    for (const node of rtMapNodes(base)) {
+      if (runRow(node.row) < 3 || (node.type !== 'checkpoint' && node.type !== 'breakthrough')) continue;
+      const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'armor-open', seed: seedOf(k), battle: 'battle' } };
+      const due = !!rtArenaLoadout(run).guaranteedElite;
+      if (node.type === 'checkpoint') { assert(!due, `the Jailer ${node.id}: no guaranteed elite`); jailer++; }
+      else { assert(due, `the breakthrough ${node.id}: a guaranteed elite`); breakthrough++; }
+    }
+  }
+  assert(jailer > 0 && breakthrough > 0, `checked: Jailer ${jailer}, breakthrough ${breakthrough}`);
+});
+
 check('off by default: a journal without the new values plays the same fight to the bit (elites, newcomers, a bomb)', () => {
   const p = defaultParams();
   assert(!p.eliteArmor && !p.toughTouch && p.toughHpMax === 2, 'the defaults');

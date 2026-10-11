@@ -320,7 +320,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     // Package «Урон имеет значение»: the row's numbers (they act with the run's `eliteArmor`; the tough table always).
     ...node ? { elitePlates: rtElitePlates(runRow(node.row)) } : {},
     ...node && rtToughHp(runRow(node.row)) > 2 ? { toughHp: rtToughHp(runRow(node.row)) } : {},
-    ...node && pending?.kind === 'battle' && (pending.battle === 'battle' || pending.battle === 'event') && runRow(node.row) >= RT_GUARANTEED_ELITE_ROW ? { guaranteedElite: true } : {},
+    // Design answer 11.10.2026: not on the Jailer's node (a boss fight; the focus is on him) — the breakthrough keeps it.
+    ...node && pending?.kind === 'battle' && (pending.battle === 'battle' || pending.battle === 'event') && node.type !== 'checkpoint' && runRow(node.row) >= RT_GUARANTEED_ELITE_ROW ? { guaranteedElite: true } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
