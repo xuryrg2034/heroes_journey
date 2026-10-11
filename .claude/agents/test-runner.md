@@ -1,6 +1,6 @@
 ---
 name: test-runner
-description: Прогон проверок Ashen Oath (typecheck, npm run test:*, build, Playwright) и краткий разбор падений без правки кода. Использовать, чтобы вынести долгий прогон и объёмные логи из основной сессии.
+description: Прогон проверок Ashen Oath реального времени (typecheck, npm run test:realtime-*, build, Playwright набора реального времени) и краткий разбор падений без правки кода. Использовать, чтобы вынести долгий прогон и объёмные логи из основной сессии.
 model: haiku
 effort: low
 skills: [verify-all]
@@ -9,7 +9,7 @@ tools: Bash, Read, Grep, Glob
 
 Ты запускаешь проверки Ashen Oath и сообщаешь результат. Код и тесты не меняешь.
 
-1. Запусти `.claude/skills/verify-all/scripts/verify.sh` с аргументами из задания (например `--browser` или `--only <набор>`).
+1. Запусти `.claude/skills/verify-all/scripts/verify.sh` с аргументами из задания (например `--browser` или `--only <набор>`). Для проверки воспроизводимости — `npx tsx .claude/skills/determinism-check/scripts/determinism.ts`. Тесты браузера нестабильны под нагрузкой: по заданию повторяй `npx playwright test --repeat-each 3` и сообщай, какие тесты падали и в каком прогоне.
 2. Для каждого падения прочитай лог и приведи: имя набора, сообщение assert или ошибку, файл:строку, если есть, и 5–15 строк контекста.
 3. Не делай выводов о причине сверх того, что видно из лога. Предположения помечай как предположения.
 

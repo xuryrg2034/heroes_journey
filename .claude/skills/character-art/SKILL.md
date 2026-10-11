@@ -58,10 +58,10 @@ node .claude/skills/character-art/scripts/check-art.mjs public/art/characters/<i
 
 ## 4. Подключение (для нового id)
 
-- `src/render/characterAssets.ts`: добавить id в `CHARACTER_ART_IDS`. Выбор иллюстрации идёт по `variant ?? kind` (`characterArtId`).
-- Процедурный резерв в `src/render/art.ts` или `castleArt.ts` должен оставаться: при ошибке загрузки фигура рисуется им.
-- Проверить в игре через скилл `run` или `claude-in-chrome` при 1280×720:
-  - фигура видна и не перекрывает HP, состояние и прогноз;
+- `src/realtime/art/characterAssets.ts`: добавить id в `CHARACTER_ART_IDS`; спрайт берёт `characterSprite(id, maxWidth, maxHeight)`. Сейчас вид использует только `player` (`src/realtime/art/art.ts`, `makePlayer`) и `melee` (`src/realtime/view/render.ts`); для нового врага подключение в `render.ts` — задача для `ui-dev`.
+- Процедурный резерв (`src/realtime/art/art.ts`, `src/realtime/view/render.ts`) должен оставаться: при ошибке загрузки фигура рисуется им.
+- Проверить в игре (`npm run dev`, `/?sandbox=1`) при 1280×720:
+  - фигура видна и не перекрывает HP, метки угроз и подсветку цепи;
   - нет ошибок в консоли;
   - при отсутствии файла открывается резерв.
 - Документация: раздел о наборе в `docs/character-art-style.md` и ссылка на файл промптов. Результат проверки — с датой (скилл `docs-sync`).

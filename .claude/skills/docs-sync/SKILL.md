@@ -17,9 +17,17 @@ allowed-tools: Bash, Read, Grep, Glob, Edit
 
 Скрипт находит:
 
-- **пути** к несуществующим файлам в `src/`, `docs/`, `tests/`, `public/`. Скриншоты `artifacts/*.png` помечаются отдельно: их пересоздаёт `npm test`, и в git их нет;
+- **пути** к несуществующим файлам в `src/`, `docs/`, `tests/`, `public/`, `artifacts/`. Скриншоты `artifacts/*.png` помечаются отдельно: их пересоздаёт `npm test`, и в git их нет;
 - **неизвестные** `npm run ...`;
-- **идентификаторы** в обратных кавычках, которых нет в коде. Проверять вручную: в `docs/recovery-port.md` законно упоминаются имена из восстановленных исходников.
+- **идентификаторы** в обратных кавычках, которых нет в коде. Проверять вручную. Пути и команды удалённой пошаговой игры в датированных исторических записях законно остаются: они помечены тегом `turn-based-final`. В текущем описании таких ссылок быть не должно.
+
+Относительные ссылки между документами проверяет второй скрипт:
+
+```bash
+node .claude/skills/docs-sync/scripts/md-links.mjs
+```
+
+Он печатает каждую ссылку в `README.md`, `TRANSFER-RU.md`, `AGENTS.md` и `docs/**/*.md` на несуществующий файл. Якоря (`#раздел`) не проверяются.
 
 ## 2. Сверка по смыслу
 
@@ -27,16 +35,17 @@ allowed-tools: Bash, Read, Grep, Glob, Edit
 
 | Изменено | Проверить документы |
 |---|---|
-| правила цепи, урон, враги | README «Управление и общие правила», `docs/game-design.md`, `docs/chain-budget.md`, `docs/architecture.md` |
-| эффекты | `docs/damage-effects.md` |
-| устройства, провалы | `docs/devices.md`, `docs/gdd.md` |
-| бои карты и кривая | `docs/levels/*.md`, `docs/biomes/forest-map.md`, `docs/gdd.md`, память проекта в `AGENTS.md` |
-| палитра, генерация | README «Цвета и сложность», `docs/level-authoring-research.md`, `AGENTS.md` |
-| интерфейс | `docs/desktop-ux.md`, README |
-| редактор, JSON | README «Редактор уровней» |
+| правила цепи, фокус, проход, прыжок, кристаллы, петля | `docs/realtime-prototype.md`, README «Управление», `AGENTS.md` |
+| враги, способности, расходники, элиты | `docs/realtime-slice.md`, `docs/realtime-phase-a.md`, `docs/realtime-damage.md`, `docs/realtime-elite-behaviors.md` |
+| сборка: талисманы, молоты, реликвии | `docs/realtime-phase-b.md`, `docs/talismans.md` |
+| арены, пулы, составы, местность, камера | `docs/realtime-slice.md` (раздел 5), `docs/realtime-stage3.md`, `docs/realtime-phase-a.md` |
+| поход: карта, потоки, дар, торговец, привал | `docs/roguelike-runs.md`, `docs/events.md`, `docs/realtime-slice.md` |
+| логи, отчёт, плейтест | `docs/realtime-telemetry.md`, `docs/realtime-playtest.md`, README «Плейтест и логи» |
+| интерфейс, ввод | README «Управление», `docs/realtime-slice.md` (раздел 9), `AGENTS.md` (раздел «Интерфейс») |
 | арт | `docs/character-art-style.md` |
-| модули, файлы | `docs/architecture.md` (таблица модулей), README «Структура» |
-| команды | README «Запуск» и «Проверки», `TRANSFER-RU.md` |
+| модули, файлы | README «Структура», `AGENTS.md` («Устройство кода») |
+| команды, проверки | README «Проверки» и «Замеры и отчёты», `TRANSFER-RU.md`, скилл `verify-all` |
+| планы и очередь работ | `docs/realtime-design-research.md`, `docs/realtime-growth-research.md`, `docs/realtime-casino-research.md` |
 
 ## 3. Правила текста
 
