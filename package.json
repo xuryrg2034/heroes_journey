@@ -40,6 +40,7 @@
     "test:realtime-link-depth": "tsx src/realtime/sim/linkDepth.spec.ts",
     "test:realtime-elite-behaviors": "tsx src/realtime/sim/eliteBehaviors.spec.ts",
     "test:realtime-elite-armor": "tsx src/realtime/sim/eliteArmor.spec.ts",
+    "test:realtime-loot-opens": "tsx src/realtime/sim/lootOpens.spec.ts",
     "test:realtime-slot": "tsx src/realtime/sim/slot.spec.ts",
     "test:realtime-purse": "tsx src/realtime/sim/purse.spec.ts",
     "test:realtime-greed": "tsx src/realtime/sim/greed.spec.ts",

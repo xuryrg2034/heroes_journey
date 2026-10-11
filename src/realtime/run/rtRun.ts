@@ -111,6 +111,8 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   slotPulls: 3, slotCooldown: 8, slotSpin: 1.2,
   // B6 К7 «Проклятый сундук» (design 12.10.2026): the chest of «Застава».
   cursedChest: true,
+  // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.
+  eliteLootOpens: true,
   // B7 К9 «Игорный круг гоблинов» (design 12.10.2026): a run-layer key, read by `rtEnterNode` through the run view.
   goblinCircle: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
@@ -366,6 +368,11 @@ export interface RtArenaOutcome {
   luck?: RtLuckTally;
   /** Step 3: consumables in hand at the end (used ones gone, picked-up loot added); absent — as carried in. */
   items?: Partial<Record<ItemKind, number>>;
+  /**
+   * Calibration 12.10.2026 (`Params.eliteLootOpens`): the consumables open at the end of the fight (`Kit.openItems`) — an
+   * elite's loot may have opened one; the run opens what it did not have open. Absent — as carried in.
+   */
+  openItems?: ItemKind[];
   /** Step 3: crafting resources picked up on the arena (the loot of elites). */
   materials?: Partial<Record<ResourceKind, number>>;
   /** Step 3: «Пепельный оберег» saved the hero on this arena (it crumbles for the run). */
@@ -919,6 +926,8 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   run.hp = Math.max(1, Math.min(run.maxHp, Math.floor(outcome.hp)));
   // Step 3: the consumables left in hand go on; the banked energy was spent at the start of this arena.
   if (outcome.items) for (const item of ITEM_KINDS) run.items[item] = Math.max(0, Math.floor(Number(outcome.items[item]) || 0));
+  // Calibration 12.10.2026: a kind the fight opened (the first elite loot with none open) is open in the run from now on.
+  if (Array.isArray(outcome.openItems)) for (const item of ITEM_KINDS) if (outcome.openItems.includes(item) && !run.openItems.includes(item)) run.openItems.push(item);
   for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.materials?.[kind]) || 0));
   run.energy = 0;
   const node = rtNode(run, pending.nodeId)!;

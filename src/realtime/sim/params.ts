@@ -504,6 +504,13 @@ export interface Params {
   eliteMarkerDelay: number;
   /** After the window: 1 plate at once, then +1 every this many game seconds up to its maximum (the cold stops it). */
   elitePlateRegrow: number;
+  /**
+   * The elite-loot cliff (calibration 12.10.2026, docs/realtime-casino.md, «Калибровка экономики»): while no consumable is
+   * open (`Kit.openItems` empty), an armoured elite's loot opens one — its kind by the arena's `loot` stream — and drops it
+   * instead of the resources; from then on the loot follows the rule of before (a consumable open in the run). Off by
+   * default; journals without the value: off (the resources of before). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`).
+   */
+  eliteLootOpens: boolean;
   /** Touch of an armoured elite (instead of the base touch; no `eliteDamageBonus` on top) and the knock of the hero, units. */
   eliteTouchDamage: number;
   eliteKnockback: number;
@@ -896,6 +903,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   eliteCleanWindow: 1,
   eliteMarkerDelay: 2,
   elitePlateRegrow: 4,
+  eliteLootOpens: false,
   eliteTouchDamage: 2,
   eliteKnockback: 1,
   eliteArmorCap: 1,
@@ -1234,6 +1242,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('eliteMarkerDelay', 'Броня элит', 'Метка элиты', 0, 5, 0.1, 5, 'с', 'Новичок, который станет элитой, объявлен заранее: метка крупнее, с лимонным ободком, ждёт столько.'),
   n('eliteCleanWindow', 'Броня элит', 'Чистый слом: первые', 0, 10, 0.1, 5, 'с', 'Убийство в эти первые секунды окна — +1 энергия и добыча ×2; позже — обычная добыча.'),
   n('elitePlateRegrow', 'Броня элит', 'Пластина отрастает раз в', 0.5, 20, 0.5, 5, 'с', 'После окна сразу 1 пластина, дальше по одной. Холод останавливает.'),
+  { kind: 'bool', key: 'eliteLootOpens', group: 'Броня элит', label: 'Добыча открывает расходник', stage: 5,
+    hint: 'Пока в походе не открыт ни один расходник, добыча элиты с бронёй открывает один (вид — по потоку добычи) и роняет его вместо ресурсов. Дальше — как раньше. В походе включено всегда.' },
   n('eliteTouchDamage', 'Броня элит', 'Касание элиты', 0, 6, 1, 5, '', 'Вместо обычного касания; прибавка урона элиты к касанию не добавляется.'),
   n('eliteKnockback', 'Броня элит', 'Касание элиты отбрасывает героя', 0, 4, 0.25, 5, 'ед.'),
   n('eliteArmorCap', 'Броня элит', 'Не больше элит до целей (броня)', 0, 10, 1, 5),

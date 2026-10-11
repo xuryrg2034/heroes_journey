@@ -50,7 +50,7 @@ import { dcos, dhypot, dsin } from './detMath';
 import { enemyKind, kindOf } from './enemies/kinds';
 import { blockedAt, dist, inWater, overCliff, pushOutOfCliffs, type Vec } from './geometry';
 import { heroRadius } from './params';
-import { MAX_AFFIXES, MAX_PLATES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
+import { MAX_AFFIXES, MAX_PLATES, RESOURCE_KINDS, SLOT_ITEMS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { nextPaletteColor } from './spawn';
 import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World, type EnemyKind } from './world';
 import { oathEliteDown } from './oath';
@@ -436,9 +436,17 @@ export function rollLoot(world: World, elite: Enemy['elite']): ItemKind | Resour
 /**
  * The package: what an armoured elite drops (4.3, «Награда»): always — one consumable open in the run, or
  * `ARMOR_RESOURCES` resources when none is open; a clean break — that `CLEAN_BREAK_LOOT` times. No talisman shard.
+ * With `eliteLootOpens` (calibration 12.10.2026; a run) none open is no cliff of resources: the loot first opens one
+ * consumable — its kind by the `loot` stream, put into `Kit.openItems` at once — and then drops by the rule above with it
+ * open (one of it, ×2 for a clean break). The run opens it too (`RtArenaOutcome.openItems`).
  */
 export function armorLoot(world: World, clean: boolean): (ItemKind | ResourceKind)[] {
-  const rng = world.rng.stream('loot'), open = world.kit?.openItems ?? [];
+  const rng = world.rng.stream('loot');
+  if (world.params.eliteLootOpens && !(world.kit?.openItems.length)) {
+    const kit = world.kit ??= emptyKit();
+    kit.openItems.push(SLOT_ITEMS[Math.floor(rng.next() * SLOT_ITEMS.length)]);
+  }
+  const open = world.kit?.openItems ?? [];
   const kinds: readonly (ItemKind | ResourceKind)[] = open.length ? open : RESOURCE_KINDS, per = open.length ? 1 : ARMOR_RESOURCES;
   const out: (ItemKind | ResourceKind)[] = [];
   for (let i = 0; i < per * (clean ? CLEAN_BREAK_LOOT : 1); i++) out.push(kinds[Math.floor(rng.next() * kinds.length)]);
