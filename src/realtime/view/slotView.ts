@@ -25,8 +25,24 @@ const SKULL = 0xeadbb9;
 const RESULT_LIFE = 1.6;
 /** The reels stand this many object radii over the idol: above the combo counter of a hero standing on the lever. */
 const REELS_UP = 4.2;
-/** Symbols a spinning reel runs through (drawing only). */
-const CYCLE: readonly SlotSymbol[] = ['heart', 'skull', 'bolt', 'gem', 'skull', 'pot'];
+/** The four good symbols of a reel, in the order a spinning strip shows them. */
+const GOOD: readonly SlotSymbol[] = ['heart', 'bolt', 'gem', 'pot'];
+
+/**
+ * The strip a spinning reel runs through (drawing only; П11, design 11.10.2026): the reel's 4 good symbols and its `skulls`
+ * skulls at the pull, spread evenly — the skull share on the strip is s ÷ (4 + s), the outcome's own odds. 2 skulls give
+ * heart, skull, bolt, gem, skull, pot.
+ */
+export function reelStrip(skulls: number): SlotSymbol[] {
+  const s = Math.max(0, Math.floor(skulls)), n = GOOD.length + s, out: SlotSymbol[] = [];
+  let good = 0, placed = 0;
+  for (let i = 0; i < n; i++) {
+    // A skull where the even share of skulls so far falls behind (Bresenham-like spread).
+    const wantSkulls = Math.floor(((i + 1) * s) / n);
+    if (placed < wantSkulls) { out.push('skull'); placed++; } else out.push(GOOD[good++ % GOOD.length]);
+  }
+  return out;
+}
 
 /** The outcome as a short word for the floating text over the idol. */
 export const OUTCOME_TEXT: Readonly<Record<SlotOutcome, string>> = {
@@ -44,6 +60,8 @@ export class SlotView {
   private readonly oddsLabel: Text;
   /** The last pull's reels and outcome shown after the effect (real seconds left). */
   private result: { reels: SlotSymbol[]; outcome: SlotOutcome; life: number } | null = null;
+  /** Skulls on each reel at the last pull (its `pull` event): the spinning strips are built from them. */
+  private pullSkulls: number[] | null = null;
   readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '' };
 
   constructor(private readonly unit: number) {
@@ -55,7 +73,7 @@ export class SlotView {
 
   /** A slot event of the world (render.ts `handleEvents`): returns the text to float over the idol, if any. */
   handle(ev: Extract<WorldEvent, { type: 'slot' }>): string | null {
-    if (ev.action === 'pull') { this.shown.pulls++; this.result = null; return null; }
+    if (ev.action === 'pull') { this.shown.pulls++; this.result = null; this.pullSkulls = ev.skulls ? [...ev.skulls] : null; return null; }
     if (ev.action === 'effect' && ev.outcome) {
       this.shown.results++; this.shown.lastResult = ev.outcome;
       return OUTCOME_TEXT[ev.outcome];
@@ -63,7 +81,7 @@ export class SlotView {
     return null;
   }
 
-  reset(): void { this.result = null; this.oddsLabel.visible = false; }
+  reset(): void { this.result = null; this.pullSkulls = null; this.oddsLabel.visible = false; }
 
   /** Draws the goblin of the world; `odds` — the plan's odds line (null — none now). */
   draw(world: World, clock: number, dt: number, odds: SlotPlanOdds | null): void {
@@ -148,7 +166,8 @@ export class SlotView {
       if (sym) { this.shown.stopped++; drawSymbol(g, sym, cx, Y, R * 0.36); return; }
       this.shown.spinning++;
       // Spinning: the next symbols scroll down, clipped to the window by drawing them small near its middle.
-      const t = clock * 14 + i * 1.7, k = t - Math.floor(t), a = CYCLE[Math.floor(t) % CYCLE.length];
+      const strip = reelStrip(this.pullSkulls?.[i] ?? 2);
+      const t = clock * 14 + i * 1.7, k = t - Math.floor(t), a = strip[Math.floor(t) % strip.length];
       drawSymbol(g, a, cx, Y + (k - 0.5) * h * 0.55, R * 0.3);
       g.rect(cx - w / 2 + 2, Y - h / 2 + 2, w - 4, h * 0.18).fill({ color: REEL_BG, alpha: 0.85 });
       g.rect(cx - w / 2 + 2, Y + h / 2 - h * 0.18 - 2, w - 4, h * 0.18).fill({ color: REEL_BG, alpha: 0.85 });

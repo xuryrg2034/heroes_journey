@@ -78,7 +78,9 @@ export const RT_RUN_VERSION_V6 = 6;
  * `rtArenaLoadout`); the oath stake is on (which battles offer oaths — `rtOathNode`, the oath of the battle — `Loadout.oath`);
  * the die at the door is on (`doorDie`: the arena's outcome carries it to `resolveArena`, the simulation never reads it).
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true, doorDie: true });
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true, doorDie: true,
+  // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
+  slotPulls: 3, slotCooldown: 8, slotSpin: 1.2 });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 

@@ -20,7 +20,7 @@
  *   name): with the default params a run battle reveals chance at most 3 times, at least 8 s apart, each reveal at most
  *   1,2 s, even for a greedy player; the reel symbols the player sees are the outcome's own draw (χ² against s ÷ (4 + s));
  *   the view's stopped reels show the pull's reels only, its spinning blur does not depend on the outcome; a broken oath
- *   is no win. The gaps found (the panel ranges, the blur's fixed mix) are marked `// П11 gap:` and listed in the doc.
+ *   is no win. The two gaps found 11.10.2026 (the panel ranges in a run, the blur's fixed mix) are fixed (design answer).
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
@@ -30,7 +30,7 @@ import { worldState } from './hash';
 import type { Loadout } from './kit';
 import { Graphics } from 'pixi.js';
 import { oathLine, oathMark } from './oath';
-import { defaultParams, heroRadius, PARAM_DEFS, type Params } from './params';
+import { defaultParams, heroRadius, PARAM_DEFS, type Params, sanitizeParams } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
 import { GOOD_SYMBOLS, goblinOf, leverOf, outcomeOf, pullOdds, skullOdds, type Goblin, type SlotOutcome, type SlotSymbol } from './slot';
 import { slotOddsText, slotPlanOdds } from './slotPlan';
@@ -38,7 +38,7 @@ import type { Enemy, World, WorldEvent } from './world';
 import { createRtRun, rtArenaLoadout, rtMapNodes, rtRunParams, RT_SLOT_ROW, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 import { createFightObserver } from '../telemetry/observe';
-import { drawSymbol, SlotView } from '../view/slotView';
+import { drawSymbol, reelStrip, SlotView } from '../view/slotView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -667,19 +667,16 @@ function replayLog(sim: Simulation): { tick: number; ev: WorldEvent }[] {
   return out;
 }
 
-check('П11: the defaults keep the rule (8 s, 1,2 s, 3 pulls) and a run does not change them; the panel ranges are listed', () => {
+check('П11: the defaults keep the rule (8 s, 1,2 s, 3 pulls); a run plays it whatever the saved panel says (RT_RUN_FORCED, design 11.10.2026)', () => {
   for (const [where, p] of [['sandbox', defaultParams()], ['run', rtRunParams(defaultParams())]] as const) {
     assert(p.slotCooldown >= 8 && p.slotSpin <= 1.2 && p.slotPulls <= 3, `${where}: cooldown ${p.slotCooldown}, spin ${p.slotSpin}, pulls ${p.slotPulls}`);
   }
-  // П11 gap: the debug panel's ranges (params.ts PARAM_DEFS, `slotPulls`, `slotCooldown`, `slotSpin`) allow values that
-  // break the rule, and a run plays the saved panel (main.ts: `rtRunParams(loadParams())`); nothing in slot.ts clamps them.
-  // Documented, not fixed: the design session decides (docs/realtime-casino.md, «Расхождения с правилом»).
+  // The sandbox panel may debug anything (its ranges stay wide); the run's copy is forced back to the rule.
   const range = (key: string) => PARAM_DEFS.find(d => d.kind === 'number' && d.key === key) as { min: number; max: number } | undefined;
   const pulls = range('slotPulls'), cooldown = range('slotCooldown'), spin = range('slotSpin');
   assert(pulls && cooldown && spin, 'the panel has the three numbers');
-  if (pulls.max > 3) console.log(`   П11 gap: the panel allows ${pulls.max} pulls a fight (rule: 3)`);
-  if (cooldown.min < 8) console.log(`   П11 gap: the panel allows a cooldown of ${cooldown.min} s (rule: 8 s)`);
-  if (spin.max > 1.2) console.log(`   П11 gap: the panel allows a spin of ${spin.max} s (rule: 1,2 s)`);
+  const wild = rtRunParams(sanitizeParams({ slotPulls: pulls.max, slotCooldown: cooldown.min, slotSpin: spin.max }));
+  assert(wild.slotPulls === 3 && wild.slotCooldown === 8 && wild.slotSpin === 1.2, `a run with a wild panel: ${wild.slotPulls} / ${wild.slotCooldown} / ${wild.slotSpin}`);
 });
 
 check('П11: a run battle (default params) reveals chance at most 3 times, ≥ 8 s apart, each reveal ≤ 1,2 s — a greedy player pulls the moment the lever allows', () => {
@@ -761,7 +758,15 @@ check('П11: the reel symbols the player sees are the outcome\'s own draw — a 
   }
 });
 
-check('П11 (view, slotView.ts): the stopped reels show the pull\'s reels only; the spinning blur is the same whatever the outcome', () => {
+check('П11 (view, slotView.ts): the strip of a reel with s skulls has the share s ÷ (4 + s) (s = 0–3)', () => {
+  for (let skulls = 0; skulls <= 3; skulls++) {
+    const strip = reelStrip(skulls), share = strip.filter(x => x === 'skull').length / strip.length;
+    assert(Math.abs(share - skulls / (GOOD_SYMBOLS.length + skulls)) < 1e-9 && strip.length === GOOD_SYMBOLS.length + skulls, `s ${skulls}: ${strip.join()}`);
+    for (const g of GOOD_SYMBOLS) assert(strip.filter(x => x === g).length === 1, `s ${skulls}: one ${g}`);
+  }
+});
+
+check('П11 (view, slotView.ts): the stopped reels show the pull\'s reels only; the spinning strip shows the skull share of the pull, not its outcome', () => {
   // Each symbol is told apart by the first fill colour drawSymbol (exported by the view) gives it, counted per drawing.
   const fills = (g: Graphics): number[] => ((g as unknown as { context: { instructions: { action: string; data: { style: { color: number } } }[] } }).context.instructions)
     .filter(i => i.action === 'fill').map(i => i.data.style.color);
@@ -806,6 +811,7 @@ check('П11 (view, slotView.ts): the stopped reels show the pull\'s reels only; 
   for (let n = 0; n < 3; n++) {
     waitReady(sim);
     const { pull } = bareTo(sim);
+    view.handle(pull);
     const b = blur();
     // The 3rd reel stops; the result glows: exactly three symbols — the pull's reels, nothing above or below the line.
     ticks(sim, tick(1.25));
@@ -815,19 +821,14 @@ check('П11 (view, slotView.ts): the stopped reels show the pull\'s reels only; 
     for (const sym of SYMBOLS) assert(shown.get(sym) === pull.reels!.filter(r => r === sym).length, `pull ${n + 1}: the line shows ${pull.reels} (${JSON.stringify([...shown])})`);
     pulls.push({ reels: pull.reels!, skulls: pull.skulls!, blur: b });
   }
-  // The blur does not read the reels or the outcome: no tuned near-miss in the spin (the pulls' reels differ).
+  // The strip reads the pull's skulls, never its reels or outcome: no tuned near-miss in the spin (the pulls' reels differ).
   assert(new Set(pulls.map(q => q.reels.join())).size > 1, `different reels: ${pulls.map(q => q.reels.join()).join(' | ')}`);
-  for (const q of pulls.slice(1)) assert(q.blur.frames.join('|') === pulls[0].blur.frames.join('|'), 'the same blur for every pull');
-  // The blur's ☠ share against the outcome's (the mean of s ÷ (4 + s) over the reels).
+  // Each pull's blur ☠ share follows its own skulls (the mean of s ÷ (4 + s) over the reels), greed included.
   const outcomeShare = (skulls: readonly number[]): number => skulls.reduce((a, s) => a + s / (GOOD_SYMBOLS.length + s), 0) / skulls.length;
-  const blurShare = pulls[0].blur.skulls / pulls[0].blur.symbols;
-  assert(Math.abs(blurShare - outcomeShare(pulls[0].skulls)) < 0.05, `the first pull (skulls ${pulls[0].skulls}): blur ☠ ${blurShare.toFixed(3)} ≈ ${outcomeShare(pulls[0].skulls).toFixed(3)}`);
-  // П11 gap: the blur runs a fixed cycle (slotView.ts `CYCLE`: 2 ☠ of 6) for every pull, so it matches the outcome only
-  // with 2 skulls a reel; after greed (3 ☠) or struck links (0–1 ☠) its ☠ share stays 1/3. It never depends on the
-  // outcome (above), so it is no tuned near-miss; the design session decides (docs/realtime-casino.md, «Расхождения»).
-  const last = pulls[2];
-  assert(Math.abs(last.blur.skulls / last.blur.symbols - blurShare) < 1e-9, 'the blur keeps its ☠ share after greed');
-  console.log(`   П11 gap: the spin blur shows ☠ ${blurShare.toFixed(3)} for every pull; the 3rd pull's reels (skulls ${last.skulls}) give ☠ ${outcomeShare(last.skulls).toFixed(3)}`);
+  for (const [n, q] of pulls.entries()) {
+    const share = q.blur.skulls / q.blur.symbols;
+    assert(Math.abs(share - outcomeShare(q.skulls)) < 0.05, `pull ${n + 1} (skulls ${q.skulls}): blur ☠ ${share.toFixed(3)} ≈ ${outcomeShare(q.skulls).toFixed(3)}`);
+  }
   assert(replays(sim), 'replay');
 });
 
