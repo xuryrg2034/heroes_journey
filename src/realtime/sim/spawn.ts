@@ -15,7 +15,7 @@
  */
 import { dcos, dsin } from './detMath';
 import { behaviorOf, enemyKind } from './enemies/kinds';
-import { rollRandomElite } from './elites';
+import { eliteRoll, makeElite, rollRandomElite } from './elites';
 import { COLOR_COUNT, EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, MAX_TOUGH_HP, MIN_COLORS } from './kit';
 import { type ArenaShape, blockedAt, dist, inWater, type Vec } from './geometry';
 import { enemyBodyRadius, rollGroupInterval, type Params } from './params';
@@ -34,6 +34,11 @@ export interface SpawnMarker {
   total: number;
   /** Stage 2, step 3: an extra enemy of the event modifier «злость» — never an elite. Absent otherwise. */
   plain?: true;
+  /**
+   * The package «Урон имеет значение» (armour on): this marker announces an elite — decided when it appears (`eliteRoll`),
+   * it waits `eliteMarkerDelay` (the view draws it larger, with a lemon rim). Absent otherwise.
+   */
+  elite?: true;
 }
 
 export interface QueuedSpawn {
@@ -298,7 +303,11 @@ function placeQueued(world: World): void {
     const p = q.anchor ? pointNear(world, q.anchor) : null;
     if (!p) { q.anchor = null; return; }
     world.queue.shift();
-    world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: delay, total: delay, ...q.plain ? { plain: true as const } : {} });
+    // The package (armour on): the elite is decided as the marker appears, so the marker can show it (a longer wait). The
+    // `elite` stream draws in another order than without armour (at the marker, not at the step-out) — only with armour.
+    const elite = !q.plain && !!world.params.eliteArmor && eliteRoll(world, q.kind);
+    const wait = elite ? Math.max(delay, world.params.eliteMarkerDelay ?? delay) : delay;
+    world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: wait, total: wait, ...q.plain ? { plain: true as const } : {}, ...elite ? { elite: true as const } : {} });
   }
 }
 
@@ -349,8 +358,9 @@ export function updateSpawning(world: World, dt: number): void {
     world.markers.splice(i, 1);
     const e = spawnEnemy(world, m, m.color, m.hp, m.kind);
     // Stage 2, step 3: a newcomer may be a random elite (a run from its row 3, or the sandbox toggle) — not an extra
-    // enemy of «злость».
-    if (!m.plain) rollRandomElite(world, e);
+    // enemy of «злость». The package (armour on): its marker already decided it.
+    if (world.params.eliteArmor) { if (m.elite) { makeElite(world, e, true); world.events.push({ type: 'elite', enemyId: e.id }); } }
+    else if (!m.plain) rollRandomElite(world, e);
   }
 }
 

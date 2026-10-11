@@ -292,7 +292,7 @@ export class RealtimeRenderer {
   /** «−1 пластина» badges over armoured links of the drawn chain (reused texts). */
   private readonly plateLabels: Text[] = [];
   /** What the elite view drew (tests read it): last-frame counts and totals since the last reset. */
-  readonly eliteShown = { pips: 0, filledPips: 0, windows: 0, hotWindows: 0, planPlates: 0, formationLines: 0, secondLanes: 0, plaques: 0, plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0, edgeArrows: 0 };
+  readonly eliteShown = { markers: 0, pips: 0, filledPips: 0, windows: 0, hotWindows: 0, planPlates: 0, formationLines: 0, secondLanes: 0, plaques: 0, plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0, edgeArrows: 0 };
   /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
   private rushLaneCount = 0;
   private readonly enemyLayer = new Container();
@@ -815,18 +815,27 @@ export class RealtimeRenderer {
 
   private drawMarkers(world: World): void {
     const g = this.markerLayer.clear(), r = enemyDrawRadius(world.params) * UNIT;
+    let eliteMarkers = 0;
     for (const m of world.markers) {
       if (!this.sees(m, 1.5)) continue;
-      const x = m.x * UNIT, y = m.y * UNIT, k = m.total > 0 ? 1 - m.timeLeft / m.total : 1, s = r * 0.6;
+      const x = m.x * UNIT, y = m.y * UNIT, k = m.total > 0 ? 1 - m.timeLeft / m.total : 1;
+      // The package: a marker announcing an elite (decided as it appears) is larger, with a lemon rim under the countdown.
+      const big = m.elite ? 1.4 : 1, rr = r * big, s = rr * 0.6;
+      if (m.elite) {
+        eliteMarkers++;
+        g.circle(x, y, rr * 1.18).stroke({ color: NAVY, width: 7, alpha: 0.55 });
+        g.circle(x, y, rr * 1.18).stroke({ color: ELITE_LEMON, width: 4, alpha: 0.75 + 0.25 * Math.sin(this.clock * 6) });
+      }
       const pulse = 0.6 + 0.4 * Math.sin(this.clock * 14);
       const rim = m.color === NO_COLOR ? THREAT : chainInk(m.color);
       // Rim in the color of the coming enemy, filling up as the countdown runs.
-      g.circle(x, y, r * 0.95).stroke({ color: rim, width: 3, alpha: 0.35 });
+      g.circle(x, y, rr * 0.95).stroke({ color: rim, width: 3, alpha: 0.35 });
       // moveTo first: otherwise the arc is joined by a line from the previous path point (the arena corner).
-      g.moveTo(x, y - r * 0.95).arc(x, y, r * 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ color: rim, width: 4, alpha: 0.95 });
+      g.moveTo(x, y - rr * 0.95).arc(x, y, rr * 0.95, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k).stroke({ color: rim, width: 4, alpha: 0.95 });
       g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT_OUTLINE, width: 9, alpha: pulse, cap: 'round' });
       g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT, width: 4.5, alpha: pulse, cap: 'round' });
     }
+    this.eliteShown.markers = eliteMarkers;
   }
 
   /**

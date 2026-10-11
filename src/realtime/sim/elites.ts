@@ -52,7 +52,7 @@ import { blockedAt, dist, inWater, overCliff, pushOutOfCliffs, type Vec } from '
 import { heroRadius } from './params';
 import { MAX_AFFIXES, MAX_PLATES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { nextPaletteColor } from './spawn';
-import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World } from './world';
+import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World, type EnemyKind } from './world';
 
 /** A weak elite (0 HP) gets this HP. */
 const ELITE_WEAK_HP = 1;
@@ -335,7 +335,8 @@ function burnHero(world: World, dt: number): void {
 }
 
 /** Living elites on the arena (start ones counted). */
-export const eliteCount = (world: World): number => world.enemies.filter(e => e.elite).length;
+/** Elites on the arena, and (the package) the markers announcing one — the caps count them. */
+export const eliteCount = (world: World): number => world.enemies.filter(e => e.elite).length + world.markers.filter(m => m.elite).length;
 
 /** Random elites are on in this arena: a run from its row 3, or the sandbox toggle. */
 export const randomElitesOn = (world: World): boolean => !!world.kit?.randomElites || world.params.eliteSandbox;
@@ -347,32 +348,38 @@ export const randomElitesOn = (world: World): boolean => !!world.kit?.randomElit
  * `eliteArmorCap` / `eliteArmorCapAfter`.
  */
 export function rollRandomElite(world: World, e: Enemy): void {
-  if (e.elite || !kindOf(e).chainable || kindOf(e).immune) return;
+  if (e.elite || !eliteRoll(world, e.kind)) return;
+  makeElite(world, e, true);
+  world.events.push({ type: 'elite', enemyId: e.id });
+}
+
+/**
+ * The decision of `rollRandomElite` for a newcomer of `kind` (the `elite` stream's draws, the kit's guarantee and the event's
+ * start elite are spent here). The package (armour on): spawn.ts asks it when the marker appears, so the marker shows the
+ * elite (`SpawnMarker.elite`, `eliteMarkerDelay`); without armour — when the newcomer steps out, as before.
+ */
+export function eliteRoll(world: World, kind: EnemyKind): boolean {
+  const def = enemyKind(kind);
+  if (!def.chainable || def.immune) return false;
   const kit = world.kit, p = world.params, guarantee = !!kit?.guaranteedElite && !!p.eliteArmor;
   // The event modifier «бой со случайной элитой» (design answer 3): the first newcomer of the arena is a random elite.
   if (kit?.startElite) {
     kit.startElite = false;
     // The package: the event's elite is the arena's guaranteed one.
     if (guarantee) { delete kit.guaranteedElite; delete kit.eliteDue; }
-    makeElite(world, e, true);
-    world.events.push({ type: 'elite', enemyId: e.id });
-    return;
+    return true;
   }
   if (guarantee) {
     kit!.eliteDue ??= world.rng.stream('elite').next() * GUARANTEE_DUE_MAX;
-    if (world.time + 1e-9 < kit!.eliteDue) return;
+    if (world.time + 1e-9 < kit!.eliteDue) return false;
     delete kit!.guaranteedElite; delete kit!.eliteDue;
-    makeElite(world, e, true);
-    world.events.push({ type: 'elite', enemyId: e.id });
-    return;
+    return true;
   }
-  if (!randomElitesOn(world)) return;
+  if (!randomElitesOn(world)) return false;
   const after = world.stage === 'greed';
   const cap = p.eliteArmor ? (after ? p.eliteArmorCapAfter : p.eliteArmorCap) : (after ? p.eliteCapAfter : p.eliteCap);
-  if (eliteCount(world) >= cap) return;
-  if (world.rng.stream('elite').next() >= (after ? p.eliteChanceAfter : p.eliteChance)) return;
-  makeElite(world, e, true);
-  world.events.push({ type: 'elite', enemyId: e.id });
+  if (eliteCount(world) >= cap) return false;
+  return world.rng.stream('elite').next() < (after ? p.eliteChanceAfter : p.eliteChance);
 }
 
 function segmentDistance(a: Vec, b: Vec, p: Vec): number {

@@ -307,6 +307,9 @@ async function boot(): Promise<void> {
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
   const audio = new ChainAudio();
+  /** Markers of elites already announced by sound, for the world they belong to (each arena counts ids anew). */
+  const eliteMarkersHeard = new Set<number>();
+  let eliteMarkersWorld: unknown = null;
   // The audio context may start only after a user gesture.
   window.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
   window.addEventListener('keydown', () => audio.unlock(), { capture: true });
@@ -706,6 +709,9 @@ async function boot(): Promise<void> {
       hint.hidden = false;
     } else if (!hint.hidden) { hint.hidden = true; delete hint.dataset.reason; }
     if (params.sound) {
+      // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
+      if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }
+      for (const m of w.markers) if (m.elite && !eliteMarkersHeard.has(m.id)) { eliteMarkersHeard.add(m.id); audio.eliteMarker(params.soundVolume); }
       for (const ev of w.events) {
         if (ev.type === 'chainHit') { if (ev.plates !== undefined) audio.plate(params.soundVolume); else audio.hit(ev.combo, ev.killed, params.soundVolume, ev.damage); }
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);

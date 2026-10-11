@@ -508,6 +508,28 @@ check('the guaranteed elite: not on the Jailer\'s node, on a breakthrough (desig
   assert(jailer > 0 && breakthrough > 0, `checked: Jailer ${jailer}, breakthrough ${breakthrough}`);
 });
 
+check('with armour the marker announces the elite: decided as it appears, it waits 2 s, the newcomer is the elite; without armour the old marker', () => {
+  for (const armor of [true, false]) {
+    const p = harmless({ eliteArmor: armor, eliteSandbox: true, eliteChance: 1, eliteChanceAfter: 1, eliteCap: 1, eliteArmorCap: 1 });
+    const sim = new Simulation({ arena: 'armor-open', params: p, seed: seedOf(31), record: true }), w = sim.world;
+    let eliteMarker: { id: number; total: number } | null = null, plainTotal = 0, elites = 0;
+    const flagged = new Set<number>();
+    for (let t = 0; t < 900; t++) {
+      for (const m of w.markers) { if (m.elite) { flagged.add(m.id); eliteMarker ??= { id: m.id, total: m.total }; } else plainTotal = m.total; }
+      sim.tick();
+      for (const e of w.events) if (e.type === 'elite') elites++;
+      w.events.length = 0;
+    }
+    if (armor) {
+      assert(eliteMarker && near(eliteMarker.total, 2) && near(plainTotal, p.markerDelay), `the elite marker waits 2 s (${eliteMarker?.total}), a plain one ${plainTotal}`);
+      assert(elites === flagged.size && elites >= 1 && w.enemies.filter(e => e.elite).length <= 1, `every flagged marker gave an elite (${elites} of ${flagged.size}), the cap 1 counts markers`);
+    } else {
+      assert(!eliteMarker && elites >= 1, `no elite marker without armour; elites still come at the step-out (${elites})`);
+    }
+    assert(replays(sim), 'replay');
+  }
+});
+
 check('off by default: a journal without the new values plays the same fight to the bit (elites, newcomers, a bomb)', () => {
   const p = defaultParams();
   assert(!p.eliteArmor && !p.toughTouch && p.toughHpMax === 2, 'the defaults');
