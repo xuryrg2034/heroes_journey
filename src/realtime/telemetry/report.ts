@@ -485,6 +485,37 @@ function secondWindLine(sandbox: readonly FightEntry[]): string | null {
 }
 // ---- end «Второе дыхание» ----
 
+// ---- К7 «Проклятый сундук» (sim/chest.ts, docs/realtime-casino.md): the chest of «Застава» and its curse ----
+/** The chest stood in the fight: the rule was on in the journal's params and the arena has a chest point. */
+function chestStood(e: FightEntry): boolean {
+  if (!e.analysis?.world.params.cursedChest) return false;
+  try { return !!arenaTemplate(e.record.arena).chest; } catch { return false; }
+}
+/** The chest of some fights as one row (`label` — the group); null — the chest stood in none of them. */
+function chestRow(label: string, entries: readonly FightEntry[]): (string | number)[] | null {
+  const list = entries.filter(chestStood);
+  if (!list.length) return null;
+  const chests = list.map(e => e.analysis!.summary.chest), took = list.filter(e => e.analysis!.summary.chest.taken !== null);
+  const lifted = chests.filter(x => x.liftedAt !== null).length, bySource: Record<string, number> = {};
+  for (const x of chests) for (const [k, v] of Object.entries(x.cursedDamage)) bump(bySource, k, v);
+  const total = Object.values(bySource).reduce((a, b) => a + b, 0), won = (l: readonly FightEntry[]): number => l.filter(e => e.record.outcome === 'victory').length;
+  const rest = list.filter(e => e.analysis!.summary.chest.taken === null);
+  return [
+    label, list.length, `${took.length} (${pct(took.length, list.length)})`, took.length ? `${lifted} (${pct(lifted, took.length)})` : '—',
+    took.length ? `${total} (ср. ${n1(total / took.length)})` : '—',
+    Object.entries(bySource).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${sourceTitle(k)} ${v}`).join(', ') || '—',
+    `${won(took)} из ${took.length} / ${won(rest)} из ${rest.length}`,
+  ];
+}
+/** Rows of the chest table: the runs, the sandbox and, when both had it, all together. */
+function chestRows(runFights: readonly FightEntry[], sandbox: readonly FightEntry[]): (string | number)[][] {
+  const runs = chestRow('походы', runFights), box = chestRow('песочница', sandbox);
+  return [runs, box, runs && box ? chestRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
+}
+const CHEST_HEAD = ['Бои', 'Боёв с сундуком на арене', 'Сундук взят', 'Проклятие снято', 'Урон под проклятием (HP)', 'Урон по источникам', 'Побед: сундук взят / не взят'];
+const CHEST_LEGEND = 'Проклятый сундук (`cursedChest`; в походе включён с 12.10.2026; стоит только на «Заставе»): учтены бои, где правило было включено и на арене есть сундук. «Сундук взят» — доля таких боёв, где герой его взял (цепью или касанием); цель исследования К7 — 40–70 % боёв «Заставы». «Проклятие снято» — доля взятых, где рывок убил 12 врагов. Урон под проклятием — HP, потерянные от взятия сундука до снятия проклятия или конца боя (`chest.cursedDamage`), по источникам как в «Врагах». Победы — бои, закончившиеся победой, среди взятых и не взятых (эвристика, не оценка баланса).';
+// ---- end «Проклятый сундук» ----
+
 // ---- Casino «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md): the die screens of the runs ----
 /**
  * One row of the runs' die screens (`RunRecord.dice`): shown, rolled, taken, open; of the rolls — 1–3 and 4–6; resources
@@ -620,6 +651,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Котёл', '', PURSE_LEGEND, '', table(PURSE_HEAD, purseRows(runFights, sandbox)), '',
     // Casino «Ставка клятвы».
     '## Ставка клятвы', '', OATH_LEGEND, '', table(OATH_HEAD, oathRows(runs, fights)), '',
+    // К7 «Проклятый сундук».
+    '## Проклятый сундук', '', CHEST_LEGEND, '', table(CHEST_HEAD, chestRows(runFights, sandbox)), '',
     // Casino «Кость у двери».
     '## Кость у двери', '', DIE_LEGEND, '', table(DIE_HEAD, [dieRow(runs)].filter((r): r is (string | number)[] => !!r)), '',
     '## Угрозы', '',

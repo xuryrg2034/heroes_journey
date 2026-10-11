@@ -14,9 +14,12 @@ import { enemyRefusal, planChain } from './chain';
 import { CHEST_CURSE_KILLS } from './chest';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
-import { Simulation, replay } from './simulation';
+import { Simulation, replay, type Journal } from './simulation';
 import type { Enemy, World, WorldEvent } from './world';
 import { rtRunParams } from '../run/rtRun';
+import { playChestFight } from '../telemetry/chestFight.testkit';
+import { analyzeJournal } from '../telemetry/report';
+import { emptyFightSummary, withSummaryDefaults } from '../telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -281,6 +284,69 @@ check('a journal without the key plays the old world: no chest, the same state',
     const strip = (w: World) => { const s = worldState(w) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
     assert(strip(old.world) === strip(sim.world) && !chestOf(old.world) && !old.world.curse, `seed ${k}: the old world`);
   }
+});
+
+// ---- Telemetry (design 12.10.2026): FightSummary.chest — taken, liftedAt, cursedDamage; read through the report's path ----
+
+check('telemetry: a played fight (plain touch, chest, arrow, cursed touch, 12 dash kills, plain touch) — taken, liftedAt, damage under the curse by source', () => {
+  const f = playChestFight(true), journal = JSON.parse(JSON.stringify(f.sim.exportJournal()!)) as Journal;
+  const a = analyzeJournal(journal), c = a.summary.chest, w = a.world;
+  assert(w.curse?.lifted !== undefined && a.hash === f.sim.hash(), 'the report path replays the fight to the same hash, the curse lifted');
+  assert(c.taken === w.curse!.tick && c.liftedAt === w.curse!.lifted && c.taken! > 0 && c.liftedAt! > c.taken!, `taken ${c.taken}, lifted ${c.liftedAt}`);
+  // What the player took, from the hits themselves (not from the summary): 1 plain touch, 1 arrow and 2 of a touch under the curse, 1 plain touch after.
+  assert(same(f.hits.map(h => [h.source, h.damage, h.cursed]), [['touch', 1, false], ['arrow', 1, true], ['touch', 2, true], ['touch', 1, false]]), `hits ${JSON.stringify(f.hits)}`);
+  assert(same(c.cursedDamage, { arrow: 1, touch: 2 }), `cursed damage ${JSON.stringify(c.cursedDamage)}`);
+  assert(a.summary.damage.total === 5 && a.summary.damage.bySource.touch === 4, `all damage ${JSON.stringify(a.summary.damage.bySource)}`);
+  // The live observer (the browser's) and the replay's agree on the chest.
+  assert(same(f.summary.chest, c), `live ${JSON.stringify(f.summary.chest)} vs replay ${JSON.stringify(c)}`);
+});
+
+check('telemetry: the chest taken by a chain and never lifted — liftedAt null, every hit to the end of the fight counts', () => {
+  for (const k of [20, 21]) {
+    const sim = fight(quiet(), k, 'chest-field'), w = sim.world, seen: WorldEvent[] = [];
+    /** An enemy placed on the hero hurts him for a second (every hit is read from the events); then the arena is cleared. */
+    const hurt = (hp: number): void => {
+      ticks(sim, 180, [], world => world.hero.invulnerable <= 0 && world.hero.chainShield <= 0);
+      place(sim, w.hero.x + 0.3, w.hero.y, 1, hp);
+      ticks(sim, 90, seen);
+      sim.command({ t: 'clear', keepMarked: false });
+    };
+    const damageOf = (from: number): number => seen.slice(from).reduce((a, ev) => a + (ev.type === 'hit' ? ev.damage : 0), 0);
+    sim.command({ t: 'param', key: 'contactDamage', value: 1 });
+    hurt(0);
+    const plain = damageOf(0);
+    sim.command({ t: 'teleport', x: 5.9, y: 6 });
+    assert(sim.command({ t: 'begin', x: CHEST.x, y: CHEST.y }) === true, 'a chain of just the chest');
+    sim.command({ t: 'release' });
+    ticks(sim, 300, [], world => !world.move);
+    assert(w.curse?.by === 'chain', 'taken by the chain');
+    sim.command({ t: 'teleport', x: 12, y: 6 });
+    const mark = seen.length;
+    hurt(0); hurt(2);
+    const cursedHits = seen.slice(mark).filter(ev => ev.type === 'hit');
+    assert(plain >= 1 && cursedHits.length >= 2 && cursedHits.every(ev => ev.type === 'hit' && ev.source === 'touch'), `touches before ${plain}, under the curse ${cursedHits.length}`);
+    const a = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal), c = a.summary.chest;
+    assert(c.taken === w.curse!.tick && c.liftedAt === null, `seed ${k}: taken ${c.taken}, lifted ${c.liftedAt}`);
+    const cursed = damageOf(mark);
+    assert(same(c.cursedDamage, { touch: cursed }) && a.summary.damage.total === plain + cursed && cursed > cursedHits.length, `seed ${k}: ${JSON.stringify(c.cursedDamage)} of ${a.summary.damage.total} (touches before ${plain})`);
+  }
+});
+
+check('telemetry: a fight where the chest stands and is not taken, a fight with the rule off — taken null, liftedAt null, no cursed damage', () => {
+  const f = playChestFight(false), a = analyzeJournal(JSON.parse(JSON.stringify(f.sim.exportJournal()!)) as Journal);
+  assert(a.world.objects.some(o => o.kind === 'chest') && !a.world.curse, 'the chest still stands');
+  assert(same(a.summary.chest, { taken: null, liftedAt: null, cursedDamage: {} }) && a.summary.damage.total === 2, `${JSON.stringify(a.summary.chest)}, damage ${a.summary.damage.total}`);
+  const off = new Simulation({ arena: 'outpost', params: { ...rtRunParams(defaultParams()), cursedChest: false }, seed: seedOf(1), record: true });
+  for (let t = 0; t < 300; t++) { off.tick(); off.world.events.length = 0; }
+  assert(same(analyzeJournal(JSON.parse(JSON.stringify(off.exportJournal()!)) as Journal).summary.chest, { taken: null, liftedAt: null, cursedDamage: {} }), 'rule off: nulls');
+});
+
+check('telemetry: a record written before the field has no chest — withSummaryDefaults reads it as «not taken»; a record with it keeps it', () => {
+  const old = JSON.parse(JSON.stringify(emptyFightSummary())) as Record<string, unknown>;
+  delete old.chest;
+  assert(same(withSummaryDefaults(old).chest, { taken: null, liftedAt: null, cursedDamage: {} }) && !('chest' in old), 'defaults; the input is not changed');
+  const had = withSummaryDefaults({ ...old, chest: { taken: 120, liftedAt: null, cursedDamage: { touch: 2 } } }).chest;
+  assert(same(had, { taken: 120, liftedAt: null, cursedDamage: { touch: 2 } }), 'kept as it is');
 });
 
 console.log(`chest: ${checks} checks ok`);

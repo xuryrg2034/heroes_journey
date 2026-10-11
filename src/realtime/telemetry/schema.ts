@@ -460,6 +460,21 @@ export interface FightSummary {
    * `withSummaryDefaults` reads null): the lethal hit the hero stood up from; null — no second wind in the fight.
    */
   secondWind: SecondWindSummary | null;
+  /** К7 «Проклятый сундук» (from 12.10.2026; absent in older records — `withSummaryDefaults`): the chest and the curse of the fight. */
+  chest: ChestSummary;
+}
+
+/**
+ * К7 «Проклятый сундук» of one fight (docs/realtime-telemetry.md, section 8, «Проклятый сундук»; sim/chest.ts). Read from the
+ * `chest` and `curseLifted` events and the `hit` events between them (the events stand in the order they happened).
+ */
+export interface ChestSummary {
+  /** The tick the chest was taken (`world.curse.tick`); null — not taken (or the rule is off, or the arena has no chest). */
+  taken: number | null;
+  /** The tick the curse was lifted (the 12th kill of the dash, `world.curse.lifted`); null — not lifted (or not taken). */
+  liftedAt: number | null;
+  /** Damage to the hero while the curse was on (from taking the chest to its lifting or the end of the fight), by `damage.bySource` names. */
+  cursedDamage: Record<string, number>;
 }
 
 /** П9 «Второе дыхание» of one fight (docs/realtime-telemetry.md, section 8, «Второе дыхание»; sim/world.ts `secondWind`). */
@@ -592,6 +607,7 @@ export function emptyFightSummary(): FightSummary {
     purse: { on: false, cauldron: 0, embers: [], heat: [], totals: [], crystals: 0, killEmbers: {}, resources: null, exitStep: null, exitBy: null },
     oath: { id: null, kept: null, brokenTick: null, metTick: null, mult: null },
     secondWind: null,
+    chest: { taken: null, liftedAt: null, cursedDamage: {} },
   };
 }
 

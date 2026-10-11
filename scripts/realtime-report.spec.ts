@@ -21,6 +21,7 @@ import { join, resolve } from 'node:path';
 import { analyzeRecords, collectRecords, findFight, latestRuns, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
+import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
 import type { Simulation } from '../src/realtime/sim/simulation';
 import {
   emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
@@ -180,6 +181,27 @@ async function main(): Promise<void> {
     const row = md3.slice(md3.indexOf('## Песочница')).split('\n').find(l => l.includes('Поле элит')) ?? '';
     assert(row.includes('| 1 (20%) | 1 (20%) |'), `tough not first and survivor shares of 5 chains: «${row}»`);
     assert(md3.includes('Усиленные касания') && md3.includes(': 1 ударов, 2 HP'), 'the raised touches line');
+  });
+
+  await check('К7 the cursed chest: two fights on a field with the chest (one takes it, one does not) — the browser summary agrees with the replay; the report shows the share taken, the lift, the damage under the curse', async () => {
+    const taken = playChestFight(true), idle = playChestFight(false);
+    const chestSet = collectRecords([
+      { name: 'chest-a.json', text: JSON.stringify(await sandboxRecords(taken.sim, taken.summary, CHEST_TEST_ARENA, 'schest-a')) },
+      { name: 'chest-b.json', text: JSON.stringify(await sandboxRecords(idle.sim, idle.summary, CHEST_TEST_ARENA, 'schest-b')) },
+    ]);
+    assert(!chestSet.problems.length, chestSet.problems.join('; '));
+    const chest = await analyzeRecords(chestSet);
+    assert(chest.fights.length === 2 && chest.fights.every(e => e.hashOk && !e.summaryDiff.length), `replayed with the same hash and summary (${chest.fights.map(e => e.error ?? e.summaryDiff.join('; ')).join(' | ')})`);
+    // A chest field the browser summary disagrees on is caught.
+    const wrong = JSON.parse(JSON.stringify(taken.summary)) as FightSummary;
+    wrong.chest.liftedAt = null;
+    assert(summaryDiff(wrong, chest.fights.find(e => e.analysis!.summary.chest.taken !== null)!.analysis!.summary).join().startsWith('chest.liftedAt: null ≠ '), 'the diff names the chest field');
+    const md4 = reportMarkdown(chestSet, chest, { now: new Date('2026-10-12T12:00:00Z'), source: 'chest' });
+    const section = md4.slice(md4.indexOf('## Проклятый сундук'), md4.indexOf('## Кость у двери'));
+    assert(section.includes('| песочница | 2 | 1 (50%) | 1 (100%) | 3 (ср. 3) |'), `the chest row: ${section}`);
+    // The fixtures have no chest fights: the section is there, empty.
+    const empty = md.slice(md.indexOf('## Проклятый сундук'), md.indexOf('## Кость у двери'));
+    assert(empty.includes('_нет данных_'), 'no chest fights, no rows');
   });
 
   console.log(`${checks} checks passed`);

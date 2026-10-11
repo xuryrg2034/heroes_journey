@@ -57,6 +57,8 @@
  *   (`exitStep`); the cauldron at the end — `world.purse`.
  * - the oath stake (casino «Ставка клятвы», sim/oath.ts): the oath of the fight and its met / broken ticks — `world.oath` at
  *   the end; the door's `oath` event — kept or not and the cauldron's multiplier.
+ * - the cursed chest (К7, sim/chest.ts): the `chest` event — `chest.taken`, the tick of `world.curse`; `curseLifted` — `chest.liftedAt`;
+ *   `hit` events between the two (the events stand in the order they happened) — `chest.cursedDamage`, by source as `damage.bySource`.
  * - the second wind (П9, sandbox; sim/world.ts): the `secondWind` event — the tick of the lethal hit, the HP before it, its
  *   source (named as in `damage.bySource`) and the striker's kind if it stood on the arena at the hit (the event names it).
  */
@@ -144,6 +146,9 @@ export function createFightObserver(start: World): FightObserver {
   // Elites alive: when seen, the chains that hit them and the last of those (dashes are numbered by `s.chain.count`).
   const elites = new Map<number, { born: number; chains: number; lastDash: number }>();
   let goalsDone = start.greedStart !== null;
+  // К7: the curse is on now (a world that starts cursed — a test — counts from its own ticks).
+  if (start.curse) { s.chest.taken = start.curse.tick; s.chest.liftedAt = start.curse.lifted ?? null; }
+  let cursedNow = !!start.curse && start.curse.lifted === undefined;
 
   /** Elites not seen before (placed, spawned, a newcomer turned elite). */
   const noteElites = (w: World): void => {
@@ -164,6 +169,8 @@ export function createFightObserver(start: World): FightObserver {
           s.damage.total += ev.damage;
           bump(s.damage.bySource, source, ev.damage);
           bump(s.damage.hits, source);
+          // К7: the events stand in the order they happened, so a hit after `chest` and before `curseLifted` was cursed.
+          if (cursedNow) bump(s.chest.cursedDamage, source, ev.damage);
           hit = true;
           const striker = world.enemies.find(e => e.id === ev.enemyId);
           if (striker && ev.source === kindOf(striker).hitSource && touchRaised(world, striker)) { s.damage.raisedTouches.hits++; s.damage.raisedTouches.damage += ev.damage; }
@@ -190,6 +197,9 @@ export function createFightObserver(start: World): FightObserver {
           return;
         }
         case 'goals': goalsDone = true; return;
+        // К7 «Проклятый сундук» (sim/chest.ts): the chest taken (the curse starts), the curse lifted by the dash's kills.
+        case 'chest': if (s.chest.taken === null) { s.chest.taken = world.curse?.tick ?? world.tick; cursedNow = true; } return;
+        case 'curseLifted': s.chest.liftedAt = world.curse?.lifted ?? world.tick; cursedNow = false; return;
         case 'elitePlates':
           if (ev.action === 'strip') bump(s.elites.platesBySource, ev.source ?? 'other', ev.removed ?? 0);
           else if (ev.action === 'open') s.elites.windows++;
