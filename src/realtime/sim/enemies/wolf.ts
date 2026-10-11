@@ -27,7 +27,15 @@
  * State in `enemy.vars` (only with the ring on; none without it — the prototype wolf hashes as before): `st` — 0 ring,
  * 1 howl, 2 rush, 3 back; `slot` — its angle on the ring (radians; only while it is in the ring); `wait` — seconds in the
  * ring; `t` — seconds of the howl or the back walk left; `pack` — id of the first wolf of a pack's howl; `dx`, `dy` — the
- * rush line; `ran` — distance run; `away` — seconds out of the ring after a rush into a cliff edge.
+ * rush line; `ran` — distance run; `away` — seconds out of the ring after a rush into a cliff edge; `far` — 1 on the wolves
+ * of a howl the leader joined (below; absent otherwise).
+ *
+ * Elite behaviour «Вожак» (package «Урон имеет значение», docs/realtime-elite-behaviors.md; the param `eliteBehaviors`,
+ * off by default): while an elite wolf is in the ring, the pack howls once `wolfLeaderSettleCount` (2) wolves stand at
+ * their slots, the leader counted (not `wolfRushPack`); a pack's howl with the leader in it breaks when fewer than that are
+ * left howling — kill the leader during the howl and the rest need `wolfRushPack` again. Every wolf of a howl the leader
+ * joins rushes `wolfLeaderThrow` (5) instead of `wolfRushRange` (`far`). A frozen or knocked leader is not in the ring:
+ * the pack needs its usual count.
  */
 import { datan2, dcos, dhypot, dsin } from '../detMath';
 import { blockedAt, cliffAt, dist, hasZone, lineOfSight, pushOutOfObstacles, segmentTouchesArea } from '../geometry';
@@ -55,6 +63,20 @@ function angleDiff(a: number, b: number): number {
 }
 
 const stateOf = (e: Enemy): number => e.vars.st ?? WOLF_RING;
+
+/** «Вожак»: an elite wolf leads its pack (elite behaviours on). */
+const isLeader = (world: World, e: Enemy): boolean => !!e.elite && world.params.eliteBehaviors;
+
+/** Wolves a pack's howl needs: `wolfLeaderSettleCount` with the leader among `wolves`, else `wolfRushPack`. */
+function packNeed(world: World, wolves: readonly Enemy[]): number {
+  const p = world.params;
+  return wolves.some(e => isLeader(world, e)) ? Math.max(1, Math.floor(p.wolfLeaderSettleCount)) : p.wolfRushPack;
+}
+
+/** The rush length of this wolf: `wolfLeaderThrow` in a howl the leader joined (`far`), else `wolfRushRange`. */
+export function wolfRushLength(world: World, e: Enemy): number {
+  return e.vars.far && world.params.eliteBehaviors ? world.params.wolfLeaderThrow : world.params.wolfRushRange;
+}
 
 /** A wolf in the ring stays in it this much past the joining distance, and without sight of the hero (no flicker). */
 const RING_KEEP = 0.5;
@@ -109,10 +131,12 @@ function settled(world: World, e: Enemy): boolean {
 
 /** The howl of `wolves` — a pack (`pack` true: it breaks when fewer than `wolfRushPack` of it are left howling) or lone ones. */
 function startHowl(world: World, wolves: readonly Enemy[], pack: boolean): void {
-  const lead = wolves[0].id;
+  const lead = wolves[0].id, far = wolves.some(e => isLeader(world, e));
   for (const e of wolves) {
     e.vars.st = WOLF_HOWL; e.vars.t = world.params.wolfHowl; e.vars.wait = 0; delete e.vars.slot;
     if (pack) e.vars.pack = lead; else delete e.vars.pack;
+    // «Вожак»: the howl the leader joins throws farther (absent otherwise — worlds without it hash as before).
+    if (far) e.vars.far = 1;
   }
   world.events.push({ type: 'enemySignal', enemyId: lead, signal: 'howl', x: world.hero.x, y: world.hero.y });
 }
@@ -120,7 +144,7 @@ function startHowl(world: World, wolves: readonly Enemy[], pack: boolean): void 
 /** Back to the ring: no howl, no rush, the wait starts over. */
 function backToRing(e: Enemy): void {
   e.vars.st = WOLF_RING; e.vars.wait = 0;
-  for (const key of ['t', 'pack', 'dx', 'dy', 'ran']) delete e.vars[key];
+  for (const key of ['t', 'pack', 'dx', 'dy', 'ran', 'far']) delete e.vars[key];
 }
 
 /**
@@ -143,7 +167,7 @@ function ringStep(world: World, wolves: readonly Enemy[], dt: number): void {
   }
   const howling = new Map<number, Enemy[]>();
   for (const e of wolves) if (stateOf(e) === WOLF_HOWL && e.vars.pack !== undefined) howling.set(e.vars.pack, [...howling.get(e.vars.pack) ?? [], e]);
-  for (const group of howling.values()) if (group.length < p.wolfRushPack) for (const e of group) backToRing(e);
+  for (const group of howling.values()) if (group.length < packNeed(world, group)) for (const e of group) backToRing(e);
   const ring: Enemy[] = [];
   for (const e of wolves) {
     if (inRing(world, e)) ring.push(e);
@@ -152,11 +176,12 @@ function ringStep(world: World, wolves: readonly Enemy[], dt: number): void {
   if (!ring.length) return;
   assignSlots(world, ring);
   for (const e of ring) e.vars.wait = (e.vars.wait ?? 0) + dt;
-  if (ring.length >= p.wolfRushPack && ring.filter(e => settled(world, e)).length >= p.wolfRushPack) { startHowl(world, ring, true); return; }
+  const need = packNeed(world, ring);
+  if (ring.length >= need && ring.filter(e => settled(world, e)).length >= need) { startHowl(world, ring, true); return; }
   // No pack at its slots (too few, or a wall keeps one off its slot): the wolves that waited long enough in the ring howl
   // and rush by themselves — together, and as a pack when there are enough of them.
   const ready = ring.filter(e => e.vars.wait >= p.wolfLoneWait - TIME_EPS);
-  if (ready.length) startHowl(world, ready, ready.length >= p.wolfRushPack);
+  if (ready.length) startHowl(world, ready, ready.length >= packNeed(world, ready));
 }
 
 /** Walks a ringing wolf along the circle to its slot and in to the radius (never out: it does not back away). */
@@ -187,9 +212,9 @@ function stepWolf(world: World, e: Enemy, dt: number): boolean {
     return true;
   }
   if (st === WOLF_RUSH) {
-    const r = bodyRadiusOf(p, e), step = Math.min(p.wolfRushSpeed * dt, Math.max(0, p.wolfRushRange - e.vars.ran));
+    const range = wolfRushLength(world, e), r = bodyRadiusOf(p, e), step = Math.min(p.wolfRushSpeed * dt, Math.max(0, range - e.vars.ran));
     const next = { x: e.x + e.vars.dx * step, y: e.y + e.vars.dy * step };
-    const end = (): boolean => { e.vars.st = WOLF_BACK; e.vars.t = p.wolfBack; for (const key of ['dx', 'dy', 'ran', 'pack']) delete e.vars[key]; return true; };
+    const end = (): boolean => { e.vars.st = WOLF_BACK; e.vars.t = p.wolfBack; for (const key of ['dx', 'dy', 'ran', 'pack', 'far']) delete e.vars[key]; return true; };
     // A wall, a tree or a cliff edge stops the rush (the wolf does not fall). At a cliff edge it also leaves the ring: it
     // walks as everyone (round the drop) for a while instead of walking back out to the ring.
     if (blockedAt(next, r * 0.95, world.arena)) {
@@ -201,7 +226,7 @@ function stepWolf(world: World, e: Enemy, dt: number): boolean {
     e.x = next.x; e.y = next.y; e.vars.ran += step;
     // It reached the hero: it stops there — its touch hits (the common touch, with the pack bonus).
     if (dist(e, h) <= touchDistanceOf(p, e) + CONTACT_SLACK) return end();
-    if (e.vars.ran >= p.wolfRushRange - 1e-6) return end();
+    if (e.vars.ran >= range - 1e-6) return end();
     return true;
   }
   if (st === WOLF_BACK) {
@@ -251,7 +276,8 @@ registerEnemyKind({
 
 /**
  * Phase A (Д3, docs/realtime-phase-a.md, section 5): the rush line of a wolf for the view — read only, the hash does not
- * change. Howling: from the wolf towards the hero now (the line is fixed at the end of the howl), `wolfRushRange` long,
+ * change. Howling: from the wolf towards the hero now (the line is fixed at the end of the howl), its rush length long
+ * (`wolfRushRange`, or `wolfLeaderThrow` in a howl the leader joined),
  * `progress` — how far the howl has gone. Rushing: the fixed line, what is left of the range. Null — no howl or rush
  * (the ring off, frozen).
  */
@@ -260,8 +286,8 @@ export function wolfRushLine(world: World, e: Enemy): { dx: number; dy: number; 
   const p = world.params, st = stateOf(e);
   if (st === WOLF_HOWL) {
     const h = world.hero, d = dhypot(h.x - e.x, h.y - e.y), total = Math.max(1e-6, p.wolfHowl);
-    return { dx: d > 1e-6 ? (h.x - e.x) / d : 1, dy: d > 1e-6 ? (h.y - e.y) / d : 0, len: p.wolfRushRange, progress: Math.max(0, Math.min(1, 1 - (e.vars.t ?? 0) / total)), rushing: false };
+    return { dx: d > 1e-6 ? (h.x - e.x) / d : 1, dy: d > 1e-6 ? (h.y - e.y) / d : 0, len: wolfRushLength(world, e), progress: Math.max(0, Math.min(1, 1 - (e.vars.t ?? 0) / total)), rushing: false };
   }
-  if (st === WOLF_RUSH) return { dx: e.vars.dx ?? 1, dy: e.vars.dy ?? 0, len: Math.max(0, p.wolfRushRange - (e.vars.ran ?? 0)), progress: 1, rushing: true };
+  if (st === WOLF_RUSH) return { dx: e.vars.dx ?? 1, dy: e.vars.dy ?? 0, len: Math.max(0, wolfRushLength(world, e) - (e.vars.ran ?? 0)), progress: 1, rushing: true };
   return null;
 }

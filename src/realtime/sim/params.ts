@@ -469,6 +469,23 @@ export interface Params {
   /** The first beam after appearing: uniform in [min, max] (stream `behavior:shaman`), so shamans standing together do not beam at once. */
   shamanFirstMin: number;
   shamanFirstMax: number;
+  // ---- Elite behaviours (package «Урон имеет значение», docs/realtime-design-research.md, 4.3 item 6; eliteBehaviors.ts) ----
+  /**
+   * Elite behaviours by kind (docs/realtime-elite-behaviors.md): the basic elite leads a column of weak enemies of its colour,
+   * the wolf elite is the pack leader, the boar elite charges twice. Off by default; journals without the value: off (every
+   * existing journal replays to the same hash). Not forced in a run (`RUN_FORCED`): the panel decides.
+   */
+  eliteBehaviors: boolean;
+  /** «Ведёт строем»: weak enemies of its colour the basic elite leads, the radius it picks them up in, the spacing of the column. */
+  eliteLeadCount: number;
+  eliteLeadRadius: number;
+  eliteLeadSpacing: number;
+  /** «Вожак»: wolves standing at their slots for the ring's howl while the elite wolf is in the ring (instead of `wolfRushPack`). */
+  wolfLeaderSettleCount: number;
+  /** «Вожак»: the rush length of a howl the elite wolf joins (instead of `wolfRushRange`). */
+  wolfLeaderThrow: number;
+  /** «Двойной рывок»: the windup of the elite boar's second charge (its line re-aimed at the hero). */
+  boarSecondWindup: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -733,6 +750,14 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shamanEmpowerHp: 2,
   shamanFirstMin: 2,
   shamanFirstMax: 6,
+  // Elite behaviours (eliteBehaviors.ts): off by default.
+  eliteBehaviors: false,
+  eliteLeadCount: 3,
+  eliteLeadRadius: 4,
+  eliteLeadSpacing: 1.2,
+  wolfLeaderSettleCount: 2,
+  wolfLeaderThrow: 5,
+  boarSecondWindup: 0.6,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1006,6 +1031,15 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('shamanEmpowerHp', 'Шаман', 'HP цели после луча', 1, 6, 1, 5),
   n('shamanFirstMin', 'Шаман', 'Первый луч: от', 0, 20, 0.5, 5, 'с'),
   n('shamanFirstMax', 'Шаман', 'Первый луч: до', 0, 20, 0.5, 5, 'с'),
+  // Elite behaviours (eliteBehaviors.ts).
+  { kind: 'bool', key: 'eliteBehaviors', group: 'Элиты: поведение', label: 'Поведение элит по видам', stage: 5,
+    hint: 'Обычный — ведёт строем слабых своего цвета; волк — вожак (вой за 2, бросок длиннее); кабан — два рывка подряд.' },
+  n('eliteLeadCount', 'Элиты: поведение', 'Строй: слабых за элитой', 0, 6, 1, 5, '', 'Ближайшие слабые (0 HP) обычные враги её цвета идут колонной за ней.'),
+  n('eliteLeadRadius', 'Элиты: поведение', 'Строй: берёт в радиусе', 0.5, 12, 0.25, 5, 'ед.'),
+  n('eliteLeadSpacing', 'Элиты: поведение', 'Строй: шаг колонны', 0.5, 3, 0.05, 5, 'ед.', 'Меньше R цепи: колонна — готовая цепь.'),
+  n('wolfLeaderSettleCount', 'Элиты: поведение', 'Вожак: вой за волков', 1, 8, 1, 5, '', 'Пока вожак в кольце, стая воет, когда столько волков на местах.'),
+  n('wolfLeaderThrow', 'Элиты: поведение', 'Вожак: длина броска', 0.5, 10, 0.25, 5, 'ед.', 'Бросок воя, в котором вожак.'),
+  n('boarSecondWindup', 'Элиты: поведение', 'Кабан: замах второго рывка', 0.1, 3, 0.05, 5, 'с', 'Второй рывок — по новой линии к герою.'),
 ];
 
 const MAX_PHASES = 8;
