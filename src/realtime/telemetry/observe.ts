@@ -20,7 +20,7 @@
  *   with no focus left; chains with a survivor — dashes that struck a link that survived (the chain stopped there).
  * - the loop (loop research, step 2; docs/realtime-loop-research.md, 3.3): close attempts — closing gestures (`loop` events
  *   `close` and `refused`; a run of identical refusals — the same closing and reason — with no change of the drawn chain in
- *   between counts once: the pointer moving inside the target circle sends one per point); unseals — `open` gestures;
+ *   between counts once: the pointer moving inside the target circle sends one per point); unseals — `open` gestures (no reason); loop breaks — `open` by the rules, by the reason;
  *   seals — released closed chains (`seal` events of the phase `release`), empty ones — nobody inside, `sealInside` — how
  *   many were inside, one number per seal in order (at the release, as the player saw it). Seal kills land in
  *   `kills.tools.seal` by the kill rule below (credited, source `seal`).
@@ -142,7 +142,8 @@ export function createFightObserver(start: World): FightObserver {
           return;
         case 'crystal': s.chain.crystals++; return;
         case 'loop':
-          if (ev.action === 'open') { s.chain.unseals++; lastRefusal = null; return; }
+          // The pointer on the last link opens (no reason); the rules open with one (sim `syncLoop`).
+          if (ev.action === 'open') { if (ev.refusal) bump(s.chain.loopBreaks, ev.refusal); else s.chain.unseals++; lastRefusal = null; return; }
           if (ev.action === 'close') { s.chain.closeAttempts++; lastRefusal = null; return; }
           {
             const refusal = ev.refusal ?? '';

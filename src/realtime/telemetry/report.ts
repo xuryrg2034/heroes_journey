@@ -246,16 +246,16 @@ const table = (head: string[], rows: (string | number)[][]): string =>
  */
 function loopCells(list: readonly FightSummary[]): string[] {
   if (!list.length) return ['—', '—', '—'];
-  let seals = 0, empty = 0, attempts = 0, unseals = 0, backsteps = 0, readds = 0;
+  let seals = 0, empty = 0, attempts = 0, unseals = 0, breaks = 0, backsteps = 0, readds = 0;
   const inside: number[] = [];
   for (const s of list) {
     const c = s.chain;
-    seals += c.seals ?? 0; empty += c.sealsEmpty ?? 0; attempts += c.closeAttempts ?? 0; unseals += c.unseals ?? 0;
+    seals += c.seals ?? 0; empty += c.sealsEmpty ?? 0; attempts += c.closeAttempts ?? 0; unseals += c.unseals ?? 0; breaks += Object.values(c.loopBreaks ?? {}).reduce((a, b) => a + b, 0);
     backsteps += c.backsteps; readds += c.backstepReadds ?? 0;
     inside.push(...c.sealInside ?? []);
   }
   return [
-    seals || attempts || unseals ? `${seals} (пустых ${empty}, ${pct(empty, seals)}) / ${attempts}${unseals ? `; разомкн. ${unseals}` : ''}` : '—',
+    seals || attempts || unseals || breaks ? `${seals} (пустых ${empty}, ${pct(empty, seals)}) / ${attempts}${unseals ? `; разомкн. ${unseals}` : ''}${breaks ? `; сорвано ${breaks}` : ''}` : '—',
     inside.length ? `${n1(median(inside))} / ${inside.reduce((a, b) => a + b, 0)}` : '—',
     `${backsteps} (${readds}${backsteps ? `, ${pct(readds, backsteps)}` : ''})`,
   ];

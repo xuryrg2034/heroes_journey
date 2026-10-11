@@ -384,6 +384,11 @@ export interface FightSummary {
     sealInside: number[];
     /** Closed chains opened again by the pointer on the last link. */
     unseals: number;
+    /**
+     * Closed chains the rules opened (sim `syncLoop`: a link died, the closing edge stopped holding as a link — the hero walked
+     * away, a wall, a crossing — or the loop was turned off): `loop` events `open` with a `refusal`, by the reason.
+     */
+    loopBreaks: Record<string, number>;
     /** Links a step back took off and the chain took again within 0.3 real seconds (an accidental step back). */
     backstepReadds: number;
   };
@@ -410,7 +415,7 @@ export function emptyFightSummary(): FightSummary {
     threats: {},
     chain: {
       count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0,
-      closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, backstepReadds: 0,
+      closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0,
     },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },

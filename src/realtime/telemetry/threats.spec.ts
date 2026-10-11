@@ -16,7 +16,7 @@ import type { Vec } from '../sim/geometry';
 import { defaultParams, type Params } from '../sim/params';
 import { Simulation, replay } from '../sim/simulation';
 import type { Enemy, World } from '../sim/world';
-import { playLoopFight } from './loopFight.testkit';
+import { LOOP_TEST_ARENA, playLoopFight } from './loopFight.testkit';
 import { createFightObserver } from './observe';
 import { analyzeJournal, type FightAnalysis } from './report';
 import type { CoverKind, ThreatKind, ThreatOutcome } from './threats';
@@ -410,6 +410,27 @@ check('observer: the loop «Печать» — close attempts (a repeated refusa
   const r = replayed(f.sim).summary;
   r.threats = {};
   assert(JSON.stringify(r) === JSON.stringify(f.summary), `the replay's summary differs: ${JSON.stringify(r.chain)} vs ${JSON.stringify(c)}`);
+});
+
+check('observer: a loop the rules opened (the hero walked away from a ring closed on him) is a break by its reason, not an unseal', () => {
+  const p = defaultParams();
+  p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.maxEnemies = 1;
+  p.enemySpeed = 0; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 40; p.hitstop = false; p.loopEnabled = true;
+  const sim = new Simulation({ arena: LOOP_TEST_ARENA, params: p, seed: 20261012, record: true });
+  const obs = createFightObserver(sim.world);
+  const cmd = (c: Parameters<Simulation['command']>[0]): void => { sim.command(c); obs.command(c, sim.world); };
+  cmd({ t: 'clear', keepMarked: false });
+  cmd({ t: 'teleport', x: 4.5, y: 5 });
+  const arc: Vec[] = [{ x: 6, y: 3.6 }, { x: 7.6, y: 5 }, { x: 6, y: 6.4 }];
+  for (const q of arc) cmd({ t: 'place', x: q.x, y: q.y, color: 0, hp: 0, kind: 'basic' });
+  cmd({ t: 'begin', x: arc[0].x, y: arc[0].y });
+  for (const q of arc.slice(1)) cmd({ t: 'drag', x: q.x, y: q.y, mode: 'full' });
+  cmd({ t: 'drag', x: 4.5, y: 5, mode: 'full' });
+  assert(sim.world.chainClosed === 'hero', 'closed on the hero');
+  cmd({ t: 'walk', x: -1, y: 0 });
+  for (let t = 0; t < 120; t++) { sim.tick(); obs.tick(sim.world); sim.world.events.length = 0; }
+  const c = obs.summary().chain;
+  assert(c.unseals === 0 && c.loopBreaks.far === 1 && c.closeAttempts === 1, `unseals ${c.unseals}, breaks ${JSON.stringify(c.loopBreaks)}, attempts ${c.closeAttempts}`);
 });
 
 check('observer: the loop events are only read — the fight with the loop hashes the same with the observer and without it', () => {

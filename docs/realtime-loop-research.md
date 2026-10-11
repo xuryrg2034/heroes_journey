@@ -451,7 +451,7 @@ B. Петля — ядро мага. Варвар — Прямая, затем �
 
 Шаги 2 и 3 независимы — можно параллельно в worktree. Шаг 4 зависит от 2 (жест замыкания общий).
 
-Состояние (11.10.2026): шаги 0 и 1 сделаны — `scripts/measure-loops.ts` (`npm run realtime:measure-loops`), переключатели `colorCount` и `colorsByRow`, таблицы и выводы — раздел 4.5. Замыкание на героя пока только в измерении (фигура (б)); флаг симуляции — вместе с жестом, шаг 2.
+Состояние (11.10.2026): шаги 0 и 1 сделаны — `scripts/measure-loops.ts` (`npm run realtime:measure-loops`), переключатели `colorCount` и `colorsByRow`, таблицы и выводы — раздел 4.5. Шаг 2 сделан 11.10.2026: петля «Печать» у варвара в песочнице (`loopEnabled`, по умолчанию выключена; замыкание на первое звено и на героя), подсказка «замкни», заливка и метки, эксперимент «Подсказка петли» (`loopHint`), телеметрия `chain.closeAttempts / seals / sealsEmpty / sealInside / unseals / loopBreaks / backstepReadds`, `kills.tools.seal`. Правила и вид — [docs/realtime-prototype.md](realtime-prototype.md), раздел 9к; поля — [docs/realtime-telemetry.md](realtime-telemetry.md). Отличия от 3.1: жест берёт ближайшую цель; петля держит правило замыкания каждый такт и размыкается сама (звено погибло, ребро больше не проходит); `closeAttempts` считает и замыкания на героя.
 
 ### 6.3. Плейтест
 
