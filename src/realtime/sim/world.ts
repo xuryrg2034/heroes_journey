@@ -373,6 +373,8 @@ export interface World {
    * the loop hash as before). Nothing may join a closed chain; the pointer on its last link opens it.
    */
   chainClosed?: LoopKind;
+  /** Package «Урон имеет значение»: the last firing id given (`nextFiring`; absent until one is — worlds without it hash as before). */
+  firing?: number;
   /** Dash along the released chain or a jump; contact damage is off meanwhile. */
   move: HeroMove | null;
   /** The hero touched the door in the last update: walking in needs a new touch (stage G). */
@@ -552,6 +554,15 @@ export function heroTouchesOpenDoor(world: World): boolean {
 /** The hero's body touches the door, open or closed. */
 export function heroTouchesDoor(world: World): boolean {
   return dist(doorOf(world), world.hero) <= OBJECT_RADIUS + heroRadius(world.params);
+}
+
+/**
+ * Package «Урон имеет значение»: a new firing id of a source that has none of its own (the spin) — a counter in the world,
+ * present only once used (with armour on), so worlds without it hash as before. One firing takes plates once (elites.ts).
+ */
+export function nextFiring(world: World): number {
+  world.firing = (world.firing ?? 0) + 1;
+  return world.firing;
 }
 
 /** Entering the open door: the arena is won. */

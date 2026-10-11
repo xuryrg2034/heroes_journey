@@ -15,7 +15,7 @@
 import { bodyRadiusOf } from './enemies/kinds';
 import { dist } from './geometry';
 import { brittleNow } from './items';
-import { damageEnemy, type World } from './world';
+import { damageEnemy, type World, nextFiring } from './world';
 
 /** The spin can be used now: playing, no dash or jump, enough energy. */
 export function canSpin(world: World): boolean {
@@ -33,8 +33,9 @@ export function spin(world: World): boolean {
   if (!canSpin(world)) return false;
   const p = world.params, hero = world.hero;
   world.energy -= p.spinCost;
-  // The energy left tells this spin from another one in the same tick (elites.ts `stripPlates`: one firing, one strip).
-  const firing = world.energy;
+  // A counter tells this spin from another one in the same tick (elites.ts `stripPlates`: one firing, one strip); counted
+  // only with armour on, so worlds without it hash as before.
+  const firing = world.params.eliteArmor ? nextFiring(world) : 0;
   // Collected first: a kill (a sapper's fuse, a fallen link) changes the list.
   const struck = spinTargets(world);
   world.events.push({ type: 'spin', x: hero.x, y: hero.y, radius: p.spinRadius, hits: struck.length });

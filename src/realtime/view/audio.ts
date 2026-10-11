@@ -25,6 +25,11 @@ export class ChainAudio {
     this.tone(330 * Math.pow(2, Math.min(24, Math.max(0, combo - 1)) / 12), killed ? 'triangle' : 'square', 0.09 + 0.06 * k, volume * (killed ? 1 : 0.6) * (0.75 + 0.25 * k));
   }
 
+  /** Package «Урон имеет значение»: a chain hit took a plate — a low clank, not the survivor's buzz. */
+  plate(volume: number): void {
+    this.tone(196, 'triangle', 0.08, volume * 0.7);
+  }
+
   /** A crystal breaks: a high glassy ping at the current pitch. */
   crystal(combo: number, volume: number): void {
     this.tone(990 * Math.pow(2, Math.min(12, combo) / 24), 'sine', 0.22, volume * 0.8);

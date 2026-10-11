@@ -1726,7 +1726,9 @@ export class RealtimeRenderer {
         if (!e) continue;
         const x = e.x * UNIT, y = e.y * UNIT, cx = x + r * 0.7, cy = y - r * 0.75;
         shown.marks++;
-        if (seal.damage >= e.hp) {
+        // A plated elite inside loses a plate, not HP (the package): the survivor's ring and «−1».
+        const plated = (eliteArmorView(e)?.plates ?? 0) > 0;
+        if (!plated && seal.damage >= e.hp) {
           const s = r * 0.2;
           g.circle(cx, cy, r * 0.34).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
           g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
@@ -1734,7 +1736,7 @@ export class RealtimeRenderer {
           g.circle(x, y, r + 4).stroke({ color: ink, width: 3, alpha: 0.9 });
           g.circle(cx, cy, r * 0.34).fill(ink).stroke({ color: NAVY, width: 2 });
           const label = this.sealLabel(shown.marks - 1);
-          label.text = String(seal.damage);
+          label.text = plated ? '−1' : String(seal.damage);
           label.position.set(cx, cy);
           label.visible = true;
         }

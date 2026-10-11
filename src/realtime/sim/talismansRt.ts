@@ -165,7 +165,8 @@ registerBuildModule({
 registerBuildModule({
   id: COUNTER_TALISMANS.eliteHunter,
   afterLinkPower: (_w, link) => (link.elite ? ELITE_HUNTER_POWER : 0),
-  onLink: (w, link, outcome) => { if (link.elite && (outcome === null || outcome.killed)) talismanFired(w, COUNTER_TALISMANS.eliteHunter); },
+  // The package: a plate pass counts as the elite's link (the chain goes on through it).
+  onLink: (w, link, outcome) => { if (link.elite && (outcome === null || outcome.killed || outcome.plate)) talismanFired(w, COUNTER_TALISMANS.eliteHunter); },
 });
 
 // ---- «Длинная рука»: every 4th released chain of the arena — R ×1.5 for the whole chain ----

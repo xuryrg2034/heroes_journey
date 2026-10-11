@@ -310,6 +310,86 @@ check('the end blast of the hammer takes one plate however it touches; a sapper\
   assert(replays(loop), 'replay');
 });
 
+check('two firings of one source in one tick take a plate each: two archers\' line arrows; two spins (review 11.10.2026)', () => {
+  const s1 = field(quiet({ archerPoint: false, archerHit: 1, archerDamage: 0, elitePlates: 4, archerFirstDelay: 1 } as Partial<Params>));
+  place(s1, 10, 4.8, 0, { kind: 'archer', color: 1 }); place(s1, 10, 5.2, 0, { kind: 'archer', color: 2 });
+  const target = place(s1, 7.2, 5, 1, { elite: true, color: 3 });
+  const ev1 = ticks(s1, 240);
+  const arrowTicks = new Map<number, number>();
+  let tickNo = 0;
+  for (const e of ev1) if (e.type === 'elitePlates' && e.action === 'strip' && e.source === 'arrow') arrowTicks.set(tickNo++, e.plates);
+  assert(strips(ev1, target).filter(e => e.source === 'arrow').length >= 2 && plates(target) <= 2, `both arrows took a plate (${plates(target)} left)`);
+  assert(replays(s1), 'replay');
+  const s2 = field(quiet({ elitePlates: 1, spinCost: 3 }), { items: { bomb: 3 } });
+  const opens = [place(s2, 5.5, 5, 0, { elite: true }), place(s2, 4.5, 6, 0, { elite: true }), place(s2, 3.5, 5, 0, { elite: true })];
+  for (const o of opens) s2.command({ t: 'item', kind: 'bomb', x: o.x, y: o.y });
+  ticks(s2, 1);
+  s2.command({ t: 'param', key: 'elitePlates', value: 3 });
+  const b = place(s2, 4.5, 4, 0, { elite: true });
+  assert(plates(b) === 3, 'a 3-plate elite');
+  s2.command({ t: 'energy', value: 7 });
+  s2.command({ t: 'spin' });
+  s2.command({ t: 'spin' });
+  assert(plates(b) === 1, `two spins in one tick: 3 → 1 (${plates(b)})`);
+  assert(replays(s2), 'replay');
+});
+
+check('the highlight released is what the dash does: the window of an elite the dash heads for waits for it (review 11.10.2026)', () => {
+  const sim = field(quiet({ elitePlates: 1, eliteWindow: 3 }), { items: { bomb: 1 } });
+  const links = [6, 7.5, 9, 10.5, 12, 13.5].map(x => place(sim, x, 5, 0));
+  const el = place(sim, 15, 5, 0, { elite: true });
+  // The bomb's throw reaches it from nearby; the hero goes back to the start of the chain.
+  sim.command({ t: 'teleport', x: 12, y: 6.5 });
+  assert(sim.command({ t: 'item', kind: 'bomb', x: el.x, y: el.y }) === true, 'the bomb is thrown');
+  sim.command({ t: 'teleport', x: 4.5, y: 5 });
+  ticks(sim, 1);
+  for (let i = 0; i < 400 && (el.armor!.open ?? 0) > 0.3; i++) ticks(sim, 1);
+  assert((el.armor!.open ?? 0) > 0, 'the window still open');
+  draw(sim, [...links, el]);
+  const plan = planChain(sim.world), o = plan.links[plan.links.length - 1].outcome!;
+  assert(o.killed && !o.plate, `the plan: killed in the window (${plan.links.length} links, ${JSON.stringify(o)}, open ${el.armor?.open})`);
+  sim.command({ t: 'release' });
+  const events = settle(sim);
+  const hit = of(events, 'chainHit').find(e => e.enemyId === el.id);
+  assert(hit && hit.killed && hit.plates === undefined && !alive(sim.world, el), `the dash: killed (${JSON.stringify(hit)})`);
+  assert(replays(sim), 'replay');
+});
+
+check('«Охотник на элит» gives the tail its power after a plate pass too (4.3, «Связь с силой цепи»)', () => {
+  for (const hunter of [false, true]) {
+    const sim = field(quiet({ elitePlates: 3 }), { talismans: hunter ? ['elite-hunter'] : [] });
+    const a = place(sim, 6, 5, 0), el = place(sim, 7.5, 5, 0, { elite: true }), b = place(sim, 9, 5, 0), c = place(sim, 10.5, 5, 0);
+    draw(sim, [a, el, b, c]);
+    const plan = planChain(sim.world);
+    // The next link's power: what the chain carried past the elite (+1 of the link itself).
+    const next = plan.links[2].outcome!.available;
+    sim.command({ t: 'release' });
+    settle(sim);
+    assert(plan.links[1].outcome!.plate && next === (hunter ? 1 + 3 + 1 : 1 + 1), `hunter ${hunter}: the link after the elite strikes with ${next}`);
+    assert(!alive(sim.world, c) && plates(el) === 2, 'the tail died, one plate gone');
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('armour with the elite behaviours (the run turns both on): a column leader in its window releases its followers and takes them again after it', () => {
+  registerArena({ id: 'armor-wide', name: 'Широкое поле', summary: 'Тест брони элит', goal: 'kills', width: 24, height: 12,
+    heroStart: { x: 3, y: 6 }, obstacles: [], buttons: [], door: { x: 23.3, y: 6 }, enemies: [], killGoal: 999 });
+  const p = quiet({ eliteBehaviors: true, elitePlates: 2, enemySpeed: defaultParams().enemySpeed, contactDamage: 0 });
+  const sim = new Simulation({ arena: 'armor-wide', params: p, seed: seedOf(5), record: true, loadout: { items: { bomb: 2 } } });
+  sim.command({ t: 'clear', keepMarked: false }); sim.command({ t: 'teleport', x: 3, y: 6 });
+  const leader = place(sim, 16, 6, 0, { elite: true }), followers = [place(sim, 18, 5, 0), place(sim, 18, 7, 0), place(sim, 19, 6, 0)];
+  ticks(sim, 60);
+  const lead = (): number => followers.filter(f => f.vars.lead === leader.id).length;
+  assert(lead() === 3, `led before (${lead()})`);
+  sim.command({ t: 'teleport', x: leader.x - 1.5, y: leader.y });
+  sim.command({ t: 'item', kind: 'bomb', x: leader.x, y: leader.y });
+  ticks(sim, 2);
+  assert(leader.armor?.open && lead() === 0, `released in the window (${lead()})`);
+  ticks(sim, 200);
+  assert(plates(leader) >= 1 && lead() === 3, `led again after it (${plates(leader)} plates, ${lead()})`);
+  assert(replays(sim), 'replay');
+});
+
 check('affixes: «Стремительный» −1 plate, «Толстый» +1, no HP change with armour', () => {
   const sim = field(quiet({ elitePlates: 3 }));
   const swift = place(sim, 7, 4, 2, { elite: true, affixes: ['swift'] }), fat = place(sim, 7, 6, 2, { elite: true, affixes: ['fat'] });

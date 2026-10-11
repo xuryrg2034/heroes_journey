@@ -88,7 +88,8 @@ function shootLine(world: World, e: Enemy): void {
   if (canBeHurt(world) && segmentDistance(line.from, line.to, hero) <= line.half + heroRadius(p)) hurtHero(world, e, p.archerDamage, 'arrow');
   // Every enemy on the line (not the archer itself), in the order of the list; collected first — a kill changes the list.
   const struck = world.enemies.filter(t => t !== e && segmentDistance(line.from, line.to, t) <= line.half + bodyRadiusOf(p, t));
-  for (const t of struck) damageEnemy(world, t, p.archerHit, { source: 'arrow', credited: false });
+  // The archer's id tells its arrow from another archer's in the same tick (one firing takes one plate, elites.ts).
+  for (const t of struck) damageEnemy(world, t, p.archerHit, { source: 'arrow', credited: false, firing: e.id });
 }
 
 /**

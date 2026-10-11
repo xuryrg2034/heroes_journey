@@ -36,6 +36,8 @@ export function worldState(world: World): unknown {
     chain: world.chain,
     // Loop research, step 2: a closed chain (absent while open — worlds without the loop hash as before).
     ...world.chainClosed ? { chainClosed: world.chainClosed } : {},
+    // Package «Урон имеет значение»: the firing counter (absent until used).
+    ...world.firing ? { firing: world.firing } : {},
     move: world.move,
     lastChain: world.lastChain,
     stats: world.stats,

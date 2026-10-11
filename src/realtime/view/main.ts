@@ -707,7 +707,7 @@ async function boot(): Promise<void> {
     } else if (!hint.hidden) { hint.hidden = true; delete hint.dataset.reason; }
     if (params.sound) {
       for (const ev of w.events) {
-        if (ev.type === 'chainHit') audio.hit(ev.combo, ev.killed, params.soundVolume, ev.damage);
+        if (ev.type === 'chainHit') { if (ev.plates !== undefined) audio.plate(params.soundVolume); else audio.hit(ev.combo, ev.killed, params.soundVolume, ev.damage); }
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, params.soundVolume);

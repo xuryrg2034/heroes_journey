@@ -133,9 +133,12 @@ export function stripPlates(world: World, e: Enemy, cause: { source: string; fir
 
 /** The armour's step (once per tick, before the touches): the window runs out (1 plate), the plates regrow (not in the cold). */
 export function updateArmor(world: World, dt: number): void {
+  // An elite the running dash still heads for keeps its armour as it was at the release (the window, its clean second and the
+  // regrowth wait): the highlight the player released is what the dash does (review 11.10.2026).
+  const held = world.move?.kind === 'dash' ? new Set(world.move.links.filter(l => l.kind === 'enemy').map(l => l.id)) : null;
   for (const e of world.enemies) {
     const a = e.armor;
-    if (!a) continue;
+    if (!a || held?.has(e.id)) continue;
     if (a.open !== undefined) {
       a.open -= dt;
       if (a.clean !== undefined) { a.clean -= dt; if (a.clean <= 1e-9) delete a.clean; }

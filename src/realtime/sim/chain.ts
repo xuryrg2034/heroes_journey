@@ -158,7 +158,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true } : null;
     const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy));
     power = outcome.powerAfter;
-    if (ctx) { if (outcome.killed) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; }
+    // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
+    if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; }
     if (outcome.killed) kills++;
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
     else if (!outcome.plate) endsOnSurvivor = true;
@@ -805,7 +806,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     // The package (4.3, rule 1): the hit takes a plate (at 0 the window opens), the elite is no survivor — the chain goes on
     // through it; the hero does not take its spot (it stands). As the last link: back to the stop, as from a survivor.
     stripPlates(world, enemy, { source: 'chain' }, false);
-    if (ctx) { noteLink(move, enemy, false); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
+    if (ctx) { move.power += afterLinkPowerOf(world, ctx, outcome); noteLink(move, enemy, false); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
     if (!move.links.length) returnToStop(move);
     maybeFinisher(world);
     return;
