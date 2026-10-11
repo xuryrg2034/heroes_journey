@@ -515,6 +515,23 @@ check('«Цепи 3+»: a chain ending on an unpressed button never breaks it �
   assert(replays(sim), 'replay');
 });
 
+check('«Цепи 3+»: a short chain to a button whose dash stops before it (a survivor) breaks the oath at the dash\'s end (review 11.10.2026)', () => {
+  const sim = new Simulation({ arena: 'oath-buttons', params: quiet(), seed: seedOf(4), record: true, loadout: { oath: 'chains3' } });
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.5, y: 6 });
+  const one = (): void => { sim.command({ t: 'teleport', x: 4.5, y: 6 }); const id = sim.command({ t: 'place', x: 5.9, y: 6, color: 0, hp: 0, kind: 'basic' }) as number; const e = sim.world.enemies.find(x => x.id === id)!; sim.command({ t: 'begin', x: e.x, y: e.y }); };
+  one(); sim.command({ t: 'release' }); settle(sim);
+  one(); sim.command({ t: 'drag', x: 7.3, y: 6, mode: 'full' });
+  const link = sim.world.enemies.find(e => e.id === sim.world.chain[0].id)!;
+  sim.command({ t: 'release' });
+  // A shaman's empowering while the dash runs (`shamanEmpowerHp`), stood in by raising the link's HP: the dash stops on it.
+  link.hp = 5;
+  assert(sim.world.oath!.broken === undefined && sim.world.oath!.button === true, 'decided later, not at the release');
+  settle(sim);
+  assert(!sim.world.objects.some(o => o.kind === 'button' && o.pressed), 'the button is not pressed');
+  assert(sim.world.oath!.broken !== undefined && sim.world.oath!.button === undefined, 'broken at the dash\'s end');
+});
+
 check('every available node offers its own pair (the node id is mixed in): the path decides the stake; a pair is two different oaths', () => {
   let differs = 0, nodes = 0;
   for (let k = 1; k <= 12; k++) {

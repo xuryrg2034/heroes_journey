@@ -61,7 +61,9 @@ export const oathDef = (id: OathId): OathDef => BY_ID.get(id)!;
  * The oath of the fight (`World.oath`, hashed; absent without an oath — worlds without it hash as before). `chains` — chains
  * released so far (only under «Цепи 3+»); `met` — the tick an «at least once» oath was met; `broken` — the tick it broke.
  */
-export interface OathState { id: OathId; chains?: number; met?: number; broken?: number }
+export interface OathState { id: OathId; chains?: number; met?: number; broken?: number;
+  /** «Цепи 3+»: the running dash is a short chain to a button — it holds only if the dash presses the button (absent otherwise). */
+  button?: true }
 
 /** What the HUD line shows: `holds` — a «never» oath not broken yet or an «at least once» one met; `waits` — not met yet. */
 export type OathMark = 'holds' | 'waits' | 'broken';
@@ -108,7 +110,25 @@ export function oathRelease(world: World, enemyLinks: number, onButton = false):
   const oath = active(world);
   if (oath?.id !== 'chains3') return;
   oath.chains = (oath.chains ?? 0) + 1;
-  if (oath.chains > 1 && enemyLinks < OATH_CHAIN_LINKS && !onButton) breakOath(world, oath);
+  if (oath.chains <= 1 || enemyLinks >= OATH_CHAIN_LINKS) return;
+  // A short chain to a button holds only if its dash really presses the button (a survivor may stop it first — review
+  // 11.10.2026): decided at the press (`oathButton`) or at the dash's end (`oathDashEnd`).
+  if (onButton) oath.button = true;
+  else breakOath(world, oath);
+}
+
+/** The dash pressed a button (chain.ts `reachObject`): a short chain to it holds. */
+export function oathButton(world: World): void {
+  const oath = active(world);
+  if (oath?.button) delete oath.button;
+}
+
+/** The dash ended (chain.ts `finishMove`): a short chain to a button that was not pressed breaks «Цепи 3+» now. */
+export function oathDashEnd(world: World): void {
+  const oath = active(world);
+  if (!oath?.button) return;
+  delete oath.button;
+  breakOath(world, oath);
 }
 
 /** The hero jumped (chain.ts `jump`). */

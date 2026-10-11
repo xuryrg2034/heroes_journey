@@ -157,7 +157,7 @@ export interface RtRunState {
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
   streams: RunStreams;
   /**
-   * Casino stage 1, item 2: draws of the run's own oath stream (`mixSeed(seed, «rt-oath», n)`, `rtOathOffer`) — one per oath
+   * Casino stage 1, item 2: draws of the run's own oath stream (`mixSeed(mixSeed(forestNodeSeed(seed, node), «rt-oath»), n)`, `rtOathOffer`) — one per oath
    * node entered. Not one of the forest streams: runStreams.ts is not changed.
    */
   oathDraws: number;
@@ -382,7 +382,7 @@ export function rtGuaranteedElite(node: Pick<ForestMapNode, 'type' | 'row'>, bat
 export const RT_OATH_ROW = 2;
 /** Баланс: oaths a node card offers (besides «Без клятвы»). */
 export const RT_OATH_OFFER_SIZE = 2;
-/** The salt of the run's oath stream (`mixSeed(seed, «rt-oath», n)`). */
+/** The salt of the run's oath stream (`mixSeed(mixSeed(forestNodeSeed(seed, node), «rt-oath»), n)`). */
 export const OATH_SALT = [...'rt-oath'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 /**
  * A node whose card offers oaths (research 8.5): a battle of the map — an ordinary battle, «Застава», the breakthrough — from

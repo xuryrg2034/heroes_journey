@@ -7,7 +7,7 @@ import { test, expect, type Page } from '@playwright/test';
  * jump (Space, then a click) breaks it — the line dims and shows «×0,5»; the door records ×0.5.
  *
  * Seed 10 (a seeded run gets the full gift): the gift button 1 takes no second pick; `r5c0` is a battle of run row 1, `r6c1`
- * a battle of run row 2 whose card offers «Без прыжков» and «Кристалл в цепи» (the run's oath stream, draw 0).
+ * a battle of run row 2 whose card offers «Не больше 2 урона» and «Без прыжков» (the run's oath stream with the node id, draw 0).
  */
 
 const SEED = 10;
@@ -52,7 +52,7 @@ test('the oath stake: the card of a row 2 battle offers two oaths and «Без �
   await expect(page.getByTestId('run-oaths')).toBeVisible();
   await expect(page.getByTestId('run-oaths').locator('[data-action="enter-oath"]')).toHaveCount(2);
   await expect(page.getByTestId('oath-no-jump')).toContainText('Клятва: Без прыжков');
-  await expect(page.getByTestId('oath-crystal-chain')).toContainText('Клятва: Кристалл в цепи');
+  await expect(page.getByTestId('oath-damage2')).toContainText('Клятва: Не больше 2 урона');
   await expect(page.getByTestId('run-enter')).toHaveText('Без клятвы');
   await expect(page.getByTestId('run-oaths')).toContainText('×2');
   await expect(page.getByTestId('run-oaths')).toContainText('×0,5');
@@ -63,14 +63,14 @@ test('the oath stake: the card of a row 2 battle offers two oaths and «Без �
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('node-r6c1').click();
   await expect(page.getByTestId('oath-no-jump')).toBeVisible();
-  await expect(page.getByTestId('oath-crystal-chain')).toBeVisible();
+  await expect(page.getByTestId('oath-damage2')).toBeVisible();
 
   // Swear «Без прыжков»: the arena opens under it, one line under the goal.
   await page.getByTestId('oath-no-jump').click();
   await expect(page.getByTestId('run')).toBeHidden();
   const state = await page.evaluate(() => (window as any).__realtime.run.state());
   expect(state.pending.oath).toBe('no-jump');
-  expect(state.pending.oathOffer).toEqual(['no-jump', 'crystal-chain']);
+  expect(state.pending.oathOffer).toEqual(['damage2', 'no-jump']);
   await expect(page.getByTestId('oath-line')).toHaveText('Клятва: без прыжков ✓');
   await expect(page.getByTestId('oath-line')).not.toHaveClass(/rt-oath-broken/);
   await page.screenshot({ path: 'artifacts/realtime-oath-hud.png' });

@@ -37,7 +37,7 @@ import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, s
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
 import { leverReady, pullLever } from './slot';
 import { linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
-import { oathCrystal, oathJump, oathRelease } from './oath';
+import { oathButton, oathCrystal, oathDashEnd, oathJump, oathRelease } from './oath';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -944,6 +944,8 @@ function reachObject(world: World, object: ArenaObject): void {
   if (object.kind === 'button') {
     if (object.pressed) return;
     object.pressed = true;
+    // Casino «Ставка клятвы»: a short chain to this button holds «Цепи 3+».
+    if (world.oath) oathButton(world);
     world.events.push({ type: 'button', objectId: object.id });
     checkGoals(world);
   } else if (object.kind === 'lever') {
@@ -983,6 +985,8 @@ function finishMove(world: World): void {
   if (world.arena.terrain && inThorns(hero, world.arena)) hero.thorns = Math.max(0.05, world.params.thornInterval);
   // Phase A, T4 (design answer 6): the same for a fire trail of «Огненный» — a full interval to walk out.
   if (trailAt(world, hero)) hero.flames = Math.max(0.05, world.params.trailInterval);
+  // Casino «Ставка клятвы»: a short chain to a button the dash did not press breaks «Цепи 3+».
+  if (move.kind === 'dash' && world.oath) oathDashEnd(world);
   if (move.kind === 'dash') {
     // Crystals of this chain are worth its final length (main game: crystalChain).
     for (const id of move.dropped) { const c = findObject(world, id); if (c) c.value = move.kills; }
