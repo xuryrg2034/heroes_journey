@@ -5,7 +5,8 @@
  * - `FightTap` shows the observer the same ticks, commands and new events in the browser's frames (several ticks a frame,
  *   events cleared once a frame, commands between frames) as the Node report's replay, which clears the events every
  *   tick; the summary of the real observer (observe.ts) is the report's (`analyzeJournal`); the world hash is the same with
- *   the tap and without it; the last hit on the hero is kept.
+ *   the tap and without it; the last hit on the hero is kept. Also on a fight with the loop «Печать» (loopFight.testkit.ts):
+ *   a repeated refusal split across frames still counts once, step-back re-adds on the same real time.
  * - The buffer: the limit and the eviction order, a `localStorage` quota error (evict, retry once, else memory and
  *   `bufferFull`), delivery marks per sink, a rewritten record loses its marks.
  * - The queue: a failing sink keeps the records and is retried after 1 s, then 2 s …; a sink that comes back gets them.
@@ -23,6 +24,7 @@ import { Simulation, replay, type Journal } from '../sim/simulation';
 import type { World } from '../sim/world';
 import { createRtRun, rtChooseGift } from '../run/rtRun';
 import { TelemetryBuffer, memoryJournalStore, TLM_INDEX_KEY, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type KeyValueStore } from './buffer';
+import { playLoopFight } from './loopFight.testkit';
 import { createFightObserver, EventCursor } from './observe';
 import { FightTap, mergeChoice, RtRecorder, stepChoices, TLM_UNLOAD_KEY, unloadKey, type SessionStore, type TabChannel } from './recorder';
 import { analyzeJournal } from './report';
@@ -95,6 +97,8 @@ async function main(): Promise<void> {
   const fixtures = [
     { name: 'browser fixture', ...(browserJournal as unknown as { journal: Journal; hash: string }) },
     { name: 'browser fixture (shields, wolves)', ...(shieldsWolvesJournal as unknown as { journal: Journal; hash: string }) },
+    // Loop research, step 2: closings, a repeated refusal, an open, two seals, step backs taken again (loopFight.testkit.ts).
+    (() => { const f = playLoopFight(); return { name: 'the loop «Печать»', journal: JSON.parse(JSON.stringify(f.sim.exportJournal()!)) as Journal, hash: f.sim.hash() }; })(),
   ];
 
   for (const f of fixtures) {
@@ -153,7 +157,9 @@ async function main(): Promise<void> {
     const storage = fake(1500);
     const b = new TelemetryBuffer({ storage, journals: memoryJournalStore(), limit: 1_000_000 });
     for (let i = 0; i < 5; i++) await b.put(note(`f${i}`));
-    const big: FightRecord = { ...head('S/sandbox/fx/fight', 'fight'), kind: 'fight', fight: 'fx', arena: 'a', seed: 1, outcome: 'victory', ticks: 1, time: 0, hpIn: 1, hpOut: 1, endHash: 'h', journal: { parts: 1, chars: 1, digest: 'd', encoding: 'json' }, summary: { ...emptyFightSummary(), build: { fired: {}, active: ['y'.repeat(600)] } } };
+    const big: FightRecord = { ...head('S/sandbox/fx/fight', 'fight'), kind: 'fight', fight: 'fx', arena: 'a', seed: 1, outcome: 'victory', ticks: 1, time: 0, hpIn: 1, hpOut: 1, endHash: 'h', journal: { parts: 1, chars: 1, digest: 'd', encoding: 'json' }, summary: { ...emptyFightSummary(), build: { fired: {}, active: ['y'.repeat(500)] } } };
+    // The record (≈ 1420 characters with the summary of 11.10.2026) fits the quota of 1500 only after notes go.
+    assert(JSON.stringify(big).length < 1500 && JSON.stringify(big).length > 1000, `the record's size ${JSON.stringify(big).length}`);
     await b.put(big);
     assert(storage.map.has('ashen-oath-rt-tlm-v1:S/sandbox/fx/fight'), 'the fight is stored after evicting notes');
     assert(b.stats([]).notes < 5, 'some notes were evicted');

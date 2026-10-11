@@ -5,7 +5,8 @@
  * Hand scenarios on a quiet arena: the hero meets one warning and acts — stands in it, walks out, jumps or is shielded by
  * the chain, kills the enemy. The fight is recorded as a journal and the report's replay (`analyzeJournal`) must give the
  * outcome the definitions of section 7 name (hit / shielded / dodged / interrupted) and the same hash as the live fight.
- * Also: the observer's summary on real actions (chains, a cancel, a step back, kills, the throw of a wolf), and the cost
+ * Also: the observer's summary on real actions (chains, a cancel, a step back, kills, the throw of a wolf; the loop «Печать»
+ * and step-back re-adds on a fight of loopFight.testkit.ts), and the cost
  * of the observer per tick on «Большая поляна» (printed; the condition is < 0.1 ms).
  */
 import { archerMark } from '../sim/enemies/archer';
@@ -13,8 +14,9 @@ import { WOLF_HOWL, WOLF_RUSH } from '../sim/enemies/wolf';
 import { LYNX_WINDUP } from '../sim/enemies/lynx';
 import type { Vec } from '../sim/geometry';
 import { defaultParams, type Params } from '../sim/params';
-import { Simulation } from '../sim/simulation';
+import { Simulation, replay } from '../sim/simulation';
 import type { Enemy, World } from '../sim/world';
+import { playLoopFight } from './loopFight.testkit';
 import { createFightObserver } from './observe';
 import { analyzeJournal, type FightAnalysis } from './report';
 import type { CoverKind, ThreatKind, ThreatOutcome } from './threats';
@@ -390,6 +392,29 @@ check('observer: chains, a cancel, a step back, kills by the chain and the exact
   const r = replayed(sim).summary;
   r.threats = {};
   assert(JSON.stringify(r) === JSON.stringify(s), `the replay's summary differs: ${JSON.stringify(r)} vs ${JSON.stringify(s)}`);
+});
+
+check('observer: the loop «Печать» — close attempts (a repeated refusal once), unseals, seals, empty seals, inside, seal kills; step-back re-adds on real time; the replay agrees', () => {
+  const f = playLoopFight(), c = f.summary.chain;
+  assert(f.priced > 300 && f.focusTicks > 10, `the observer priced every tick as the simulation (${f.priced} ticks, ${f.focusTicks} in focus)`);
+  // Z: one run of 3 refusals + 1 after a change; S: close, close again; T: close.
+  assert(c.closeAttempts === 5, `close attempts ${c.closeAttempts} (expected 2 refusals + 3 closings)`);
+  assert(c.unseals === 1, `unseals ${c.unseals}`);
+  assert(c.seals === 2 && c.sealsEmpty === 1 && c.sealInside.join() === '2,0', `seals ${c.seals}, empty ${c.sealsEmpty}, inside ${c.sealInside.join()}`);
+  // Z4 again after 0.2 real s — a re-add; S4 again after 0.4 real s (0.1 game s) — not.
+  assert(c.backsteps === 2 && c.backstepReadds === 1, `steps back ${c.backsteps}, re-adds ${c.backstepReadds}`);
+  assert(c.count === 2 && c.cancels === 1 && c.lengthMedian === 4, `chains ${c.count}, cancels ${c.cancels}, length ${c.lengthMedian}`);
+  assert(f.summary.kills.tools.seal === 1 && f.summary.kills.chain === 8, `kills: seal ${f.summary.kills.tools.seal}, chain ${f.summary.kills.chain}`);
+  const w = f.sim.world;
+  assert(!w.enemies.some(e => e.id === f.weak) && w.enemies.find(e => e.id === f.tough)?.hp === 2, 'the seal killed the weak one, the tough one survived');
+  const r = replayed(f.sim).summary;
+  r.threats = {};
+  assert(JSON.stringify(r) === JSON.stringify(f.summary), `the replay's summary differs: ${JSON.stringify(r.chain)} vs ${JSON.stringify(c)}`);
+});
+
+check('observer: the loop events are only read — the fight with the loop hashes the same with the observer and without it', () => {
+  const f = playLoopFight();
+  assert(replay(JSON.parse(JSON.stringify(f.sim.exportJournal()!))).hash() === f.sim.hash(), 'a plain replay (no observer) gives the observed fight\'s hash');
 });
 
 // ---- Cost on «Большая поляна» ----

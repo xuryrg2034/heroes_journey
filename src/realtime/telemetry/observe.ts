@@ -18,6 +18,16 @@
  *   the step back off the last link, a release with no link left); steps back — a command that shortened the drawn chain
  *   and left it non-empty; focus spent — real seconds of focus burnt while focusing; empty focus — ticks a chain was drawn
  *   with no focus left; chains with a survivor — dashes that struck a link that survived (the chain stopped there).
+ * - the loop (loop research, step 2; docs/realtime-loop-research.md, 3.3): close attempts — closing gestures (`loop` events
+ *   `close` and `refused`; a run of identical refusals — the same closing and reason — with no change of the drawn chain in
+ *   between counts once: the pointer moving inside the target circle sends one per point); unseals — `open` gestures;
+ *   seals — released closed chains (`seal` events of the phase `release`), empty ones — nobody inside, `sealInside` — how
+ *   many were inside, one number per seal in order (at the release, as the player saw it). Seal kills land in
+ *   `kills.tools.seal` by the kill rule below (credited, source `seal`).
+ * - step-back re-adds: a link a step back took off and a later command took again into the same chain within
+ *   `BACKSTEP_READD_WINDOW` real seconds (an accidental step back). Real time: each tick costs `SIM_DT ÷ tickScale` (the
+ *   hit-stop tick — `SIM_DT`), the price `Simulation.nextTickCost` charges, read from the world before the tick; commands
+ *   between two ticks happen at the same real moment.
  * - kills: `kill` events: source `chain` — the chain (a survivor knocked over a cliff by the chain too); another credited
  *   source — a tool of the player (`bomb`, `spin`, `blast` of a sapper the player killed, `wave`, `hammer-*` …); not
  *   credited — enemy abilities.
@@ -31,10 +41,12 @@
  * - abilities: `jump` and `spin` events, `item` events by kind.
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
+import { tickScale } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { inThorns, inWater } from '../sim/geometry';
-import type { World, WorldEvent } from '../sim/world';
+import { SIM_DT } from '../sim/simulation';
+import type { ChainLink, World, WorldEvent } from '../sim/world';
 import { emptyFightSummary, type FightObserver, type FightObserverFactory, type FightSummary } from './schema';
 
 /** HP at or below this is a «low HP» moment (section 3: «Моменты HP ≤ 3»). */
@@ -42,6 +54,21 @@ export const LOW_HP = 3;
 
 /** The source of a wolf's throw (a `wolf` hit from a wolf that was rushing). */
 export const WOLF_RUSH_SOURCE = 'wolf-rush';
+
+/** A link taken off by a step back and taken again within this many real seconds is a step-back re-add (research 3.3). */
+export const BACKSTEP_READD_WINDOW = 0.3;
+
+/**
+ * Real seconds the next tick of this world costs: `SIM_DT ÷ tickScale` (focus and the finisher slow the game), a frozen
+ * hit-stop tick — `SIM_DT`. The same price as `Simulation.nextTickCost` (sim/simulation.ts), from the world alone: the
+ * observer has no simulation. The test checks the two agree.
+ */
+export function tickRealCost(world: World): number {
+  return world.hitstop > 0 ? SIM_DT : SIM_DT / tickScale(world);
+}
+
+/** A link as one number (enemy and object ids are separate counters). */
+const linkKey = (link: ChainLink): number => (link.kind === 'enemy' ? link.id * 2 : link.id * 2 + 1);
 
 /** Build ids that fire events of their own; every other talisman or relic of the kit is a constant modifier («действует»). */
 const FIRING: ReadonlySet<string> = new Set<string>([...Object.values(COUNTER_TALISMANS), RELICS.bloodOath, OATH_HUNGER, 'ash-ward']);
@@ -86,6 +113,11 @@ export function createFightObserver(start: World): FightObserver {
   let rushing = new Set<number>(), nextRushing = new Set<number>();
   // Tempo and movement.
   let ticks = 0, enemySum = 0, heroX = start.hero.x, heroY = start.hero.y, time = start.time;
+  // The loop and the step-back re-adds: the drawn chain as link keys, its version (bumped on every change), the real clock,
+  // links a step back took off (with the real moment), the last refusal counted (a repeat with the same chain is one).
+  let keys: number[] = start.chain.map(linkKey), version = 0, clock = 0, nextCost = tickRealCost(start);
+  let takenOff: { key: number; at: number }[] = [];
+  let lastRefusal: { kind: string; refusal: string; version: number } | null = null;
 
   /** Reads the events that came since the last call. */
   const readEvents = (): void => {
@@ -109,6 +141,22 @@ export function createFightObserver(start: World): FightObserver {
           if (!ev.killed && world.move && survivorDash !== world.move) { survivorDash = world.move; s.chain.survivorEnds++; }
           return;
         case 'crystal': s.chain.crystals++; return;
+        case 'loop':
+          if (ev.action === 'open') { s.chain.unseals++; lastRefusal = null; return; }
+          if (ev.action === 'close') { s.chain.closeAttempts++; lastRefusal = null; return; }
+          {
+            const refusal = ev.refusal ?? '';
+            if (lastRefusal && lastRefusal.kind === ev.kind && lastRefusal.refusal === refusal && lastRefusal.version === version) return;
+            lastRefusal = { kind: ev.kind, refusal, version };
+            s.chain.closeAttempts++;
+          }
+          return;
+        case 'seal':
+          if (ev.phase !== 'release') return;
+          s.chain.seals++;
+          if (!ev.inside.length) s.chain.sealsEmpty++;
+          s.chain.sealInside.push(ev.inside.length);
+          return;
         case 'talismanFired': bump(s.build.fired, ev.id); return;
         case 'hammer': bump(s.build.fired, world.kit?.hammer ?? 'hammer'); return;
         case 'ward': bump(s.build.fired, 'ash-ward'); return;
@@ -140,6 +188,29 @@ export function createFightObserver(start: World): FightObserver {
     lengths.push(enemies);
   };
 
+  /**
+   * The drawn chain against the last look: a change bumps its version; links a step back took off are kept with the real
+   * moment; links taken again soon after are re-adds. An emptied chain forgets them (a new chain is another chain).
+   */
+  const noteChain = (w: World, stepBack: boolean): void => {
+    const chain = w.chain, n = chain.length;
+    if (!n && !keys.length) return;
+    let same = 0;
+    while (same < n && same < keys.length && linkKey(chain[same]) === keys[same]) same++;
+    if (same === n && same === keys.length) return;
+    version++;
+    if (!n) { takenOff = []; keys = []; return; }
+    if (stepBack) for (let i = same; i < keys.length; i++) takenOff.push({ key: keys[i], at: clock });
+    if (takenOff.length) {
+      takenOff = takenOff.filter(t => clock - t.at <= BACKSTEP_READD_WINDOW);
+      for (let i = same; i < n && takenOff.length; i++) {
+        const key = linkKey(chain[i]), at = takenOff.findIndex(t => t.key === key);
+        if (at >= 0) { s.chain.backstepReadds++; takenOff.splice(at, 1); }
+      }
+    }
+    keys = chain.map(linkKey);
+  };
+
   return {
     command(cmd: Command, w: World): void {
       world = w;
@@ -147,9 +218,12 @@ export function createFightObserver(start: World): FightObserver {
       const before = chainLen, started = w.move !== move && w.move?.kind === 'dash';
       noteMove();
       const now = w.chain.length;
+      const stepBack = now > 0 && now < before;
       if (before > 0 && now === 0 && !started) s.chain.cancels++;
-      else if (now > 0 && now < before) s.chain.backsteps++;
+      else if (stepBack) s.chain.backsteps++;
       chainLen = now;
+      noteChain(w, stepBack);
+      nextCost = tickRealCost(w);
       focus = w.focus;
       // A test teleport is not a path.
       if (cmd.t === 'teleport') { heroX = w.hero.x; heroY = w.hero.y; }
@@ -157,9 +231,13 @@ export function createFightObserver(start: World): FightObserver {
 
     tick(w: World): void {
       world = w;
+      // The tick that ran cost what the world before it said.
+      clock += nextCost;
       readEvents();
       noteMove();
       chainLen = w.chain.length;
+      noteChain(w, false);
+      nextCost = tickRealCost(w);
       if (w.focusing) s.chain.focusSpent += Math.max(0, focus - w.focus);
       else if (chainLen > 0 && !w.move && w.focus <= 0) s.chain.focusEmpty++;
       focus = w.focus;

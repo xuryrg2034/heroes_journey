@@ -373,6 +373,19 @@ export interface FightSummary {
     focusEmpty: number;
     /** Chains that ended on a survivor. */
     survivorEnds: number;
+    /**
+     * Loop research, step 2 (from 11.10.2026; absent in older records — read them through `withSummaryDefaults`).
+     * Closing gestures: closings and refusals (a repeated identical refusal with the same drawn chain counts once).
+     */
+    closeAttempts: number;
+    /** Closed chains released (seals); of them with nobody inside; how many were inside, one number per seal in order. */
+    seals: number;
+    sealsEmpty: number;
+    sealInside: number[];
+    /** Closed chains opened again by the pointer on the last link. */
+    unseals: number;
+    /** Links a step back took off and the chain took again within 0.3 real seconds (an accidental step back). */
+    backstepReadds: number;
   };
   kills: {
     chain: number;
@@ -395,13 +408,34 @@ export function emptyFightSummary(): FightSummary {
   return {
     damage: { total: 0, bySource: {}, hits: {}, lowHp: [] },
     threats: {},
-    chain: { count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0 },
+    chain: {
+      count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0,
+      closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, backstepReadds: 0,
+    },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
     movement: { path: 0, idle: 0, water: 0, thorns: 0 },
     abilities: { jumps: 0, spins: 0, items: {} },
   };
+}
+
+/**
+ * A summary read from a record, with the fields added after it was written filled from `emptyFightSummary` (0, an empty
+ * list). The rule of the summary (schema 1): new fields are only added, never renamed or retyped, so a record of an older
+ * build reads as «that did not happen» (the loop fields of 11.10.2026 in a record of 10.10.2026). Fields the record has are
+ * kept as they are (keys the empty summary does not know too); the input is not changed.
+ */
+export function withSummaryDefaults(summary: unknown): FightSummary {
+  const fill = (base: unknown, value: unknown): unknown => {
+    if (value === undefined || value === null) return JSON.parse(JSON.stringify(base)) as unknown;
+    const plain = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
+    if (!plain(base) || !plain(value)) return value;
+    const out: Record<string, unknown> = { ...value };
+    for (const [k, v] of Object.entries(base)) out[k] = fill(v, value[k]);
+    return out;
+  };
+  return fill(emptyFightSummary(), JSON.parse(JSON.stringify(summary ?? {})) as unknown) as FightSummary;
 }
 
 /**

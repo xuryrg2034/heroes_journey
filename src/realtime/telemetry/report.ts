@@ -15,7 +15,7 @@ import type { Loadout } from '../sim/kit';
 import type { World } from '../sim/world';
 import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
 import {
-  checkRecord, emptyFightSummary, orderedParts, unpackJournal, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
+  checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord, type ThreatTally,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
@@ -152,10 +152,13 @@ export function latestRuns(records: readonly RtRecord[]): RunRecord[] {
   return [...byRun.values()];
 }
 
-/** Paths where two summaries differ (the browser's against the replay's); `inView` and `threats` are left out. */
-function summaryDiff(browser: FightSummary, replayed: FightSummary): string[] {
-  if (JSON.stringify(browser) === JSON.stringify(emptyFightSummary())) return [];
-  const a = JSON.parse(JSON.stringify(browser)) as FightSummary, b = JSON.parse(JSON.stringify(replayed)) as FightSummary;
+/**
+ * Paths where two summaries differ (the browser's against the replay's); `inView` and `threats` are left out. A browser
+ * summary of an older build lacks the fields added later: they read as the empty summary's (`withSummaryDefaults`).
+ */
+export function summaryDiff(browser: FightSummary, replayed: FightSummary): string[] {
+  const a = withSummaryDefaults(browser), b = JSON.parse(JSON.stringify(replayed)) as FightSummary;
+  if (JSON.stringify(a) === JSON.stringify(emptyFightSummary())) return [];
   a.threats = {}; b.threats = {};
   delete a.tempo.inView; delete b.tempo.inView;
   const out: string[] = [];
@@ -236,17 +239,42 @@ const cell = (s: string | number): string => String(s).replace(/\|/g, '\\|').rep
 const table = (head: string[], rows: (string | number)[][]): string =>
   rows.length ? [`| ${head.join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...rows.map(r => `| ${r.map(cell).join(' | ')} |`)].join('\n') : '_нет данных_';
 
+/**
+ * Loop research, step 2: the loop and the step backs of some fights (one fight's row or an arena's). Seals — all (empty,
+ * their share), close attempts, unseals; inside — median per seal and the total; step backs — all and those taken again
+ * within 0.3 real s. A summary of an older build has none of these fields: they count as 0 (`—` without seals or attempts).
+ */
+function loopCells(list: readonly FightSummary[]): string[] {
+  if (!list.length) return ['—', '—', '—'];
+  let seals = 0, empty = 0, attempts = 0, unseals = 0, backsteps = 0, readds = 0;
+  const inside: number[] = [];
+  for (const s of list) {
+    const c = s.chain;
+    seals += c.seals ?? 0; empty += c.sealsEmpty ?? 0; attempts += c.closeAttempts ?? 0; unseals += c.unseals ?? 0;
+    backsteps += c.backsteps; readds += c.backstepReadds ?? 0;
+    inside.push(...c.sealInside ?? []);
+  }
+  return [
+    seals || attempts || unseals ? `${seals} (пустых ${empty}, ${pct(empty, seals)}) / ${attempts}${unseals ? `; разомкн. ${unseals}` : ''}` : '—',
+    inside.length ? `${n1(median(inside))} / ${inside.reduce((a, b) => a + b, 0)}` : '—',
+    `${backsteps} (${readds}${backsteps ? `, ${pct(readds, backsteps)}` : ''})`,
+  ];
+}
+const LOOP_LEGEND = 'Петля (песочница, `loopEnabled`): печати — отпущенные замкнутые цепи, «пустых» — никого внутри; попыток — жестов замыкания (замкнул или отказ; повтор того же отказа без смены цепи — один); «разомкн.» — петля разомкнута указателем на последнем звене; «внутри» — тел внутри при отпускании (медиана на печать, всего). Шаги назад: в скобках — звено снято и снова взято за ≤ 0,3 с реального времени.';
+const LOOP_HEAD = ['Печати (пустых) / попыток', 'Внутри мед. / всего', 'Шагов назад (повтор ≤ 0,3 с)'];
+
 function fightRows(entries: readonly FightEntry[]): (string | number)[][] {
   return entries.map(e => {
     const r = e.record, a = e.analysis, s = a?.summary;
     return [
       `\`${r.fight}\``, r.nodeId ?? '—', r.row ?? '—', arenaTitle(r.arena), r.roster ?? '—', OUTCOME_TITLES[r.outcome] ?? r.outcome, n1(r.time),
       `${r.hpIn} → ${r.hpOut}`, s ? s.damage.total : '—', s ? s.chain.count : '—', s ? `${n1(s.chain.lengthMedian)} / ${s.chain.lengthMax}` : '—', s ? s.kills.chain : '—',
+      ...loopCells(s ? [s] : []),
       e.error ? `ошибка: ${e.error}` : e.hashOk ? 'совпал' : 'НЕ совпал',
     ];
   });
 }
-const FIGHT_HEAD = ['Бой', 'Узел', 'Ряд', 'Арена', 'Состав', 'Итог', 'Время, с', 'HP', 'Урон', 'Цепей', 'Длина мед. / макс.', 'Убито цепью', 'Хэш'];
+const FIGHT_HEAD = ['Бой', 'Узел', 'Ряд', 'Арена', 'Состав', 'Итог', 'Время, с', 'HP', 'Урон', 'Цепей', 'Длина мед. / макс.', 'Убито цепью', ...LOOP_HEAD, 'Хэш'];
 
 function threatRows(entries: readonly FightEntry[]): (string | number)[][] {
   const all = entries.flatMap(e => e.analysis?.warnings ?? []).filter(w => w.outcome);
@@ -367,9 +395,10 @@ function arenasSection(entries: readonly FightEntry[]): string {
       avg(e => e.record.time), avg(e => e.analysis!.summary.damage.total), avg(e => e.analysis!.summary.chain.count), avg(e => e.analysis!.summary.kills.chain),
       goals.length ? n1(goals.reduce((s, x) => s + x, 0) / goals.length) : '—', done.length ? `${avg(e => e.analysis!.summary.tempo.enemies.avg)} / ${Math.max(...done.map(e => e.analysis!.summary.tempo.enemies.max))}` : '—',
       avg(e => e.analysis!.summary.movement.path), avg(e => e.analysis!.summary.movement.idle),
+      ...loopCells(done.map(e => e.analysis!.summary)),
     ];
   });
-  return table(['Арена', 'Боёв', 'Побед', 'Поражений', 'Время ср., с', 'Урон ср.', 'Цепей ср.', 'Убито цепью ср.', 'До целей ср., с', 'Врагов ср. / макс.', 'Путь ср.', 'На месте ср., с'], rows);
+  return table(['Арена', 'Боёв', 'Побед', 'Поражений', 'Время ср., с', 'Урон ср.', 'Цепей ср.', 'Убито цепью ср.', 'До целей ср., с', 'Врагов ср. / макс.', 'Путь ср.', 'На месте ср., с', ...LOOP_HEAD], rows);
 }
 
 export interface ReportOptions {
@@ -405,7 +434,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
   if (diffs.length) out.push('', '### Сводка браузера расходится с повтором', '', ...diffs.map(e => `- \`${fightPath(e.record)}\`: ${e.summaryDiff.slice(0, 8).join('; ')}${e.summaryDiff.length > 8 ? ' …' : ''}`));
   out.push('', '## Походы', '', runsSection(runs, fights), '',
     '## Бои походов', '', table(FIGHT_HEAD, fightRows(runFights)), '',
-    '## Арены', '', 'Бои походов и песочницы вместе.', '', arenasSection(fights), '',
+    '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',

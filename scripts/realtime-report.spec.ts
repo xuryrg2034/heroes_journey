@@ -9,10 +9,18 @@
  *   is shown at the top under «Ошибки детерминизма»; the unloaded fight is marked; the mark has its arena, tick and the
  *   `--at` hint; the sandbox has its own section; the browser's summaries agree with the replay.
  * - `--at`: the world after the mark's tick has the hero where the mark says.
+ * - The loop «Печать» (loop research, step 2): the fixtures, written before the loop fields, read them as 0 and still agree
+ *   with the replay; a sandbox fight with the loop (loopFight.testkit.ts) shows seals, empty share, close attempts, unseals,
+ *   inside median / total, step backs with re-adds and seal kills in the arena and sandbox tables.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, latestRuns, reportMarkdown, snapshotAt, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, latestRuns, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
+import {
+  emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
+  type FightRecord, type FightSummary, type JournalPart, type RtRecord,
+} from '../src/realtime/telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -100,6 +108,49 @@ async function main(): Promise<void> {
     assert(findFight(fights, note.fight) === entry, 'the fight key alone finds it');
     const snap = snapshotAt(entry.journal!, note.tick) as { tick: number; state: { hero: { x: number; y: number } } };
     assert(snap.tick === note.tick && snap.state.hero.x === note.hero.x && snap.state.hero.y === note.hero.y, `snapshot ${JSON.stringify(snap.state.hero)} vs the mark ${JSON.stringify(note.hero)}`);
+  });
+
+  await check('records of an older build (no loop fields in their summaries) read as 0 and agree with the replay; a disagreeing new field is caught', () => {
+    const old = fights.map(f => f.record.summary.chain as Partial<FightSummary['chain']>);
+    assert(old.length && old.every(c => c.closeAttempts === undefined && c.sealInside === undefined), 'the fixtures were written before the loop fields');
+    const filled = withSummaryDefaults(fights[0].record.summary);
+    assert(filled.chain.closeAttempts === 0 && filled.chain.sealInside.length === 0 && filled.chain.backstepReadds === 0, 'missing fields read as the empty summary');
+    assert(filled.chain.count === fights[0].record.summary.chain.count && JSON.stringify(fights[0].record.summary).indexOf('closeAttempts') < 0, 'kept fields stay; the record is not changed');
+    const replayed = fights[0].analysis!.summary;
+    const wrong = withSummaryDefaults(replayed);
+    wrong.chain.seals = 1;
+    assert(summaryDiff(wrong, replayed).join() === 'chain.seals: 1 ≠ 0', `the diff names the new field: ${summaryDiff(wrong, replayed).join('; ')}`);
+    // Old fixtures in the arena table: no seals, no attempts — «—»; the step backs are shown with 0 re-adds.
+    const arenas = md.slice(md.indexOf('## Арены'), md.indexOf('## Враги'));
+    const rows = arenas.split('\n').filter(l => l.startsWith('| ') && !l.startsWith('| Арена') && !l.startsWith('| ---'));
+    assert(arenas.includes('Печати (пустых) / попыток') && rows.length > 0 && rows.every(l => / \| — \| — \| \d+ \(0(, 0%)?\) \|$/.test(l)), `the loop columns are there, empty for old fights: ${rows.join(' / ')}`);
+  });
+
+  await check('a sandbox fight with the loop: the report shows seals (empty share), close attempts, unseals, inside median / total, step backs with re-adds, seal kills; the browser summary agrees', async () => {
+    const f = playLoopFight(), journal = f.sim.exportJournal()!, w = f.sim.world;
+    const packed = await packJournal(journal);
+    const session = 'sloop', fight = fightKey(1, null, 1), at = '2026-10-11T10:00:00.000Z';
+    const head = <K extends RtRecord['kind']>(id: string, kind: K) => ({ schema: RT_TELEMETRY_SCHEMA, id, kind, build: 'test', params: { storage: 's', hash: paramsHash(journal.params) }, session, run: SANDBOX_RUN, at });
+    const record: FightRecord = {
+      ...head(fightRecordId(session, SANDBOX_RUN, fight), 'fight'), fight, arena: LOOP_TEST_ARENA, seed: journal.seed, outcome: 'menu',
+      ticks: w.tick, time: w.time, hpIn: 40, hpOut: w.hero.hp, endHash: f.sim.hash(), journal: packed.meta, summary: f.summary,
+    };
+    const parts: JournalPart[] = packed.parts.map((data, i) => ({ ...head(journalPartId(session, SANDBOX_RUN, fight, i, packed.parts.length), 'journal'), fight, index: i, count: packed.parts.length, digest: packed.meta.digest, encoding: packed.meta.encoding, data }));
+    const loopSet = collectRecords([{ name: 'loop.json', text: JSON.stringify([record, ...parts]) }]);
+    assert(!loopSet.problems.length, loopSet.problems.join('; '));
+    const loop = await analyzeRecords(loopSet), entry = loop.fights[0];
+    assert(entry && entry.hashOk && !entry.summaryDiff.length, `replayed with the same hash and summary (${entry?.error ?? entry?.summaryDiff.join('; ')})`);
+    const c = entry.analysis!.summary.chain;
+    assert(c.seals === 2 && c.sealsEmpty === 1 && c.closeAttempts === 5 && c.unseals === 1 && c.backstepReadds === 1, `the replay's loop fields ${JSON.stringify(c)}`);
+    const md2 = reportMarkdown(loopSet, loop, { now: new Date('2026-10-11T12:00:00Z'), source: 'loop' });
+    const row = (section: string): string => md2.slice(md2.indexOf(section)).split('\n').find(l => l.includes('Поле петли')) ?? '';
+    for (const section of ['## Арены', '## Песочница']) {
+      const line = row(section);
+      assert(line.includes('| 2 (пустых 1, 50%) / 5; разомкн. 1 | 1 / 2 | 2 (1, 50%) |'), `${section}: the loop cells in «${line}»`);
+    }
+    assert(md2.includes('seal 1'), 'seal kills among the player\'s tools');
+    // The empty summary of a record without an observer is still «no summary» (no diff).
+    assert(!summaryDiff(emptyFightSummary(), entry.analysis!.summary).length, 'an empty browser summary is not compared');
   });
 
   console.log(`${checks} checks passed`);
