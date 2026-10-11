@@ -49,9 +49,9 @@ export const ARENA_POOLS_BEFORE_MIX: readonly ArenaPoolEntry[] = [
 ];
 /**
  * Баланс, решение дизайна 11.10.2026 (A3, docs/realtime-phase-a.md, section 4): the pools of a run with the roster mix
- * (`RtRunState.rosterMix`, `Params.rosterMix`) — «Логово» on run rows 6–9 instead of 2–5, in the same place of the list (the
+ * (`RtRunState.rosterMix`, `Params.rosterMix`) — «Логово» on run rows 6–8 instead of 2–5 (row 9 left to «Круг шамана»), in the same place of the list (the
  * order of the candidates stays); every other entry as before. On rows 2–5 «Логово» lost to the own arenas of unmet kinds,
- * so its pool rosters came only before any meeting; on rows 6–9 the kinds are usually met.
+ * so its pool rosters came only before any meeting; on rows 6–8 the kinds are usually met.
  */
 export const ARENA_POOLS: readonly ArenaPoolEntry[] = ARENA_POOLS_BEFORE_MIX.map(entry => entry.arena === 'marked' ? { arena: 'marked', rows: [6, 8] as const } : entry);
 /** The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) — `ARENA_POOLS_BEFORE_MIX`. */

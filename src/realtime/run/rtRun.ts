@@ -170,7 +170,7 @@ export interface RtRunState {
   seeded?: true;
   /**
    * The roster mix (design decision 11.10.2026, `Params.rosterMix`; run/arenaPools.ts `MIXED_ROSTER_ARENAS`, `ARENA_POOLS`):
-   * «Застава» and «Брод» take a pool roster in about half of their fights, «Логово» stands on run rows 6–9. Set when the run
+   * «Застава» and «Брод» take a pool roster in about half of their fights, «Логово» stands on run rows 6–8. Set when the run
    * is created and kept for the whole run: every arena and roster of the save is chosen again by the rule it was chosen
    * with. Absent — a run saved before 11.10.2026 (or created without the mix): the pools and rosters as before, to its end.
    */
