@@ -715,8 +715,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   }
   if (outcome.purse) {
     // Casino stage 1, item 4: a cauldron above 0 with the die on waits for the die screen (the payout and the node's victory
-    // come after it, `rtDieChoose`); otherwise the door pays at once (die ×1), as before.
-    if (outcome.doorDie && validDoor(outcome.purse) && outcome.purse.cauldron > 0) { showDie(run, node.id, outcome.purse, events); return { ok: true, run, events }; }
+    // come after it, `rtDieChoose`) — unless both faces pay what «Забрать» pays (design 11.10.2026: then no screen); otherwise
+    // the door pays at once (die ×1), as before.
+    if (outcome.doorDie && validDoor(outcome.purse) && outcome.purse.cauldron > 0 && rtDieOffered(outcome.purse)) { showDie(run, node.id, outcome.purse, events); return { ok: true, run, events }; }
     payDoor(run, outcome.purse, 1);
   }
   return afterVictory(run, node, pending.battle, events);
@@ -787,13 +788,27 @@ function showDie(run: RtRunState, nodeId: string, door: PurseDoor, events: RtRun
   events.push({ type: 'die-shown', nodeId, cauldron: door.cauldron, oath: door.oath, face });
 }
 
+/**
+ * The resources «Забрать» (die ×1), faces 1–3 (×0.5) and faces 4–6 (×2) pay for a door record: the one formula
+ * (`doorPayout` → `purseResources`), the cap and the oath included.
+ */
+export function rtDiePayouts(door: PurseDoor): { take: number; low: number; high: number } {
+  const pays = (die: number) => doorPayout(door, die).length;
+  return { take: pays(1), low: pays(DIE_LOW_MULT), high: pays(DIE_HIGH_MULT) };
+}
+/** The die is offered (design 11.10.2026): at least one half pays other than «Забрать» — otherwise the door pays at once. */
+export function rtDieOffered(door: PurseDoor): boolean {
+  const { take, low, high } = rtDiePayouts(door);
+  return low !== take || high !== take;
+}
+
 /** What the die screen shows: the cauldron, the oath, and the resources «Забрать» (×1), 1–3 (×0.5) and 4–6 (×2) pay. */
 export interface RtDieView { nodeId: string; cauldron: number; oath: number; rate: number; take: number; low: number; high: number }
 export function rtDieView(run: RtRunState): RtDieView | null {
   const pending = run.pending;
   if (pending?.kind !== 'die') return null;
-  const door = pending.door, pays = (die: number) => doorPayout(door, die).length;
-  return { nodeId: pending.nodeId, cauldron: door.cauldron, oath: door.oath, rate: door.rate, take: pays(1), low: pays(DIE_LOW_MULT), high: pays(DIE_HIGH_MULT) };
+  const door = pending.door;
+  return { nodeId: pending.nodeId, cauldron: door.cauldron, oath: door.oath, rate: door.rate, ...rtDiePayouts(door) };
 }
 
 /**
@@ -1387,7 +1402,7 @@ function checkRun(value: unknown): RtRunState | null {
       // Casino stage 1, item 4: the won arena of this node (its last record), the door the simulation wrote with a cauldron
       // above 0, the face of the last die draw.
       const last = [...run.battles].reverse().find(record => record.nodeId === node.id);
-      if (pick?.arena === undefined || !last?.won || !validDoor(pending.door) || !(pending.door.cauldron > 0)) return null;
+      if (pick?.arena === undefined || !last?.won || !validDoor(pending.door) || !(pending.door.cauldron > 0) || !rtDieOffered(pending.door)) return null;
       if (!(isCount(run.dieDraws) && run.dieDraws >= 1) || pending.face !== rtDieFace(run.seed, run.dieDraws - 1)) return null;
       break;
     }

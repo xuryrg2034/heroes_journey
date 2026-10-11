@@ -4,9 +4,10 @@ import { test, expect, type Page } from '@playwright/test';
  * Casino stage 1, item 4 — «Кость у двери» (src/realtime/run/rtRun.ts, src/realtime/view/runView.ts, docs/realtime-casino.md):
  * the run with real input. A row 1 arena of seed 10 (`r5c0`): a chain drawn with the mouse fills the cauldron (weak, ◆,
  * weak, ◆, weak, weak, tough 4 HP: 8 × 3 × ◆4 = 96), the hero walks into the door (the run hook `winArena`); the result
- * leads to the die; the die screen shows the cauldron, what «Забрать» pays and the odds «1–3 ×0,5 · 4–6 ×2»; a reload shows
- * the same screen and the same fixed face; «Бросить» rolls the die, a click skips the animation, the face is the fixed one
- * and the run's resources grow by what the screen said.
+ * leads to the die; the die screen shows the outcomes in resources (design 11.10.2026): «Забрать: 1 ресурс» and
+ * «Бросить: 1–3 → 0 · 4–6 → 3»; a reload shows the same screen and the same fixed face; «Бросить» rolls the die, a click
+ * skips the animation, the face is the fixed one and the run's resources grow by what the screen said. A low face (seed 10)
+ * shows no win flash; a high one that pays more than «Забрать» (seed 14) does.
  */
 
 const SEED = 10;
@@ -35,7 +36,12 @@ async function fillCauldron(page: Page): Promise<number> {
     rt.clear(false);
   });
   const spec = ['weak', 'crystal', 'weak', 'crystal', 'weak', 'weak', 'tough'] as const;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  const start = (await snapshot(page)).hero as { x: number; y: number };
+  const tries: [number, number, number, number][] = [];
+  for (const [ox, oy] of [[0, 0], [4, 0], [-4, 0], [0, 4], [0, -4], [8, 0], [-8, 0]]) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) tries.push([ox, oy, dx, dy]);
+  for (const [ox, oy, dx, dy] of tries) {
+    // Another spot of the arena when the lines around the start are blocked (journalled teleport).
+    if (ox || oy) await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [start.x + ox, start.y + oy] as const);
     const hero = (await snapshot(page)).hero as { x: number; y: number };
     const points = spec.map((_, i) => ({ x: hero.x + dx * 1.2 * (i + 1), y: hero.y + dy * 1.2 * (i + 1) }));
     for (const [i, kind] of spec.entries()) {
@@ -83,12 +89,12 @@ test('the die at the door: the screen after a won arena with a cauldron, the odd
   const face = before.pending.face as number;
   await page.getByTestId('result-map').click();
 
-  // The die screen: the cauldron, what «Забрать» pays, the odds and what each half pays.
+  // The die screen: the cauldron and the outcomes in resources (not multipliers).
   await expect(page.getByTestId('run-die')).toBeVisible();
-  await expect(page.getByTestId('die-cauldron')).toHaveText('Котёл 96 → 1 ресурс.');
-  await expect(page.getByTestId('die-odds')).toHaveText('Бросить кость: 1–3 ×0,5 · 4–6 ×2');
-  await expect(page.getByTestId('die-roll')).toContainText('1–3: 0 ресурсов · 4–6: 3 ресурса');
-  await expect(page.getByTestId('die-take')).toContainText('Забрать');
+  await expect(page.getByTestId('die-cauldron')).toHaveText('Котёл 96.');
+  await expect(page.getByTestId('die-take')).toHaveText('Забрать: 1 ресурс');
+  await expect(page.getByTestId('die-odds')).toHaveText('Бросить: 1–3 → 0 · 4–6 → 3');
+  await expect(page.getByTestId('run-die')).not.toContainText('×');
   await page.screenshot({ path: 'artifacts/realtime-die-screen.png' });
 
   // A reload: the same screen, the same face (nothing re-rolled, nothing paid).
@@ -108,7 +114,11 @@ test('the die at the door: the screen after a won arena with a cauldron, the odd
   await expect(page.getByTestId('run-die-roll')).toHaveAttribute('data-landed', 'true');
   await expect(page.getByTestId('die-face')).toHaveAttribute('data-face', String(face));
   const paid = face <= 3 ? 0 : 3;
-  await expect(page.getByTestId('die-result')).toContainText(`Выпало ${face}: ${face <= 3 ? '×0,5' : '×2'} → ${paid} ${word(paid)}`);
+  await expect(page.getByTestId('die-result')).toContainText(`Выпало ${face} → ${paid} ${word(paid)}`);
+  // Seed 10's first face is low: no win flash (LDW guard).
+  expect(face).toBeLessThanOrEqual(3);
+  await expect(page.getByTestId('die-result')).toHaveAttribute('data-win', 'false');
+  await expect(page.getByTestId('die-result')).not.toHaveClass(/rt-die-win/);
   await page.screenshot({ path: 'artifacts/realtime-die-result.png' });
   const after = await runState(page);
   expect(after.pending).toBeNull();
@@ -150,11 +160,38 @@ test('the die at the door: «Забрать» pays the cauldron as it is, no rol
   await page.getByTestId('result-map').click();
   await expect(page.getByTestId('run-die')).toBeVisible();
   const take = Math.min(3, Math.floor(cauldron / 60));
-  await expect(page.getByTestId('die-cauldron')).toHaveText(`Котёл ${cauldron} → ${take} ${word(take)}.`);
+  await expect(page.getByTestId('die-cauldron')).toHaveText(`Котёл ${cauldron}.`);
+  await expect(page.getByTestId('die-take')).toHaveText(`Забрать: ${take} ${word(take)}`);
   await page.getByTestId('die-take').click();
   await expect(page.getByTestId('run-die')).toHaveCount(0);
   await expect(page.getByTestId('run-die-roll')).toHaveCount(0);
   const after = await runState(page);
   expect(total(after.materials) - total(before.materials)).toBe(take);
+  expect(errors).toEqual([]);
+});
+
+test('the die at the door: a high face that pays more than «Забрать» flashes as a win', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  // Seed 14: the run's first die face is 5.
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 14);
+  await page.getByTestId('gift-1').click();
+  if (await page.getByTestId('run-gift').count()) await page.locator('[data-action="gift-pick"]').first().click();
+  await page.locator('[data-status="available"][data-type="battle"]').first().click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  expect(await fillCauldron(page)).toBe(96);
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect.poll(async () => (await snapshot(page)).status, { timeout: 10_000 }).toBe('victory');
+  const before = await runState(page);
+  expect(before.pending.face).toBeGreaterThan(3);
+  await page.getByTestId('result-map').click();
+  await expect(page.getByTestId('die-odds')).toHaveText('Бросить: 1–3 → 0 · 4–6 → 3');
+  await page.getByTestId('die-roll').click();
+  await page.getByTestId('run-die-roll').click();
+  await expect(page.getByTestId('die-result')).toHaveAttribute('data-win', 'true');
+  await expect(page.getByTestId('die-result')).toHaveClass(/rt-die-win/);
+  await expect(page.getByTestId('die-result')).toContainText(`Выпало ${before.pending.face} → 3 ресурса`);
+  expect(total((await runState(page)).materials) - total(before.materials)).toBe(3);
   expect(errors).toEqual([]);
 });

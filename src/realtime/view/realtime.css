@@ -152,13 +152,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-choice b { font: 600 16px Georgia, serif; color: #f2dfb4; }
 .rt-run-choice small { color: #a7ad93; font-size: 12px; }
 /* Casino stage 1, item 4: the die at the door. */
-.rt-die-odds { font: 600 18px Georgia, serif; color: #f2dfb4; }
 .rt-die-overlay { z-index: 9; cursor: pointer; }
 .rt-die-overlay[data-landed="true"] { cursor: default; }
 .rt-die-face { font-size: 96px; line-height: 1; text-align: center; color: #f2dfb4; }
 .rt-die-rolling { animation: rt-die-shake .18s linear infinite; }
 @keyframes rt-die-shake { 0% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } 100% { transform: rotate(-12deg); } }
-.rt-die-result { font: 600 20px Georgia, serif; color: #e3b45a; text-align: center; }
+.rt-die-result { font: 600 20px Georgia, serif; color: #c9c3ad; text-align: center; }
+/* Only a roll that paid more than «Забрать» flashes gold (LDW guard: ×0,5 is no win). */
+.rt-die-win { color: #ffd88a; animation: rt-die-flash .6s ease-out 2; }
+@keyframes rt-die-flash { 0% { text-shadow: 0 0 0 #ffd88a00; } 40% { text-shadow: 0 0 18px #ffd88a; } 100% { text-shadow: 0 0 0 #ffd88a00; } }
 .rt-run-choice .rt-run-reason { color: #e0a596; }
 .rt-result-buttons:has(> :only-child) { grid-template-columns: 1fr; }
 

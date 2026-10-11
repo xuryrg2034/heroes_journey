@@ -210,6 +210,45 @@ await check('the caps of the one formula: ×2 → 6 and ×0.5 → 1 without stak
   assert(purseResources(10_000, 0.5, 0.5) === 1 && purseResources(10_000, 2, 2) === 6 && purseResources(10_000, 1, 2) === 6 && purseResources(10_000, 1, 0.5) === 1, 'the caps');
 });
 
+await check('the screen shows resources (design 11.10.2026): «Забрать», 1–3 and 4–6 by purseResources with the cap and the oath — a kept oath at the cap makes the roll worse than taking', () => {
+  const screen = (target: number, oath?: OathId, jump = false) => {
+    const run = startRun(seedOf(3)), { door, outcome } = fight(run, target, { oath, jump });
+    const at = ok(resolveArena(run, outcome), 'resolve');
+    assert(at.pending?.kind === 'die' && door, 'the screen');
+    const view = rtDieView(at)!, r = (die: number) => purseResources(door.cauldron, door.oath, die, door.rate);
+    assert(view.take === r(1) && view.low === r(0.5) && view.high === r(2), `the screen's resources ${JSON.stringify(view)}`);
+    return view;
+  };
+  // No oath, a big cauldron: take 3, roll 1 or 6 (on average 3.5 > 3).
+  const plain = screen(400);
+  assert(plain.take === 3 && plain.low === 1 && plain.high === 6, `no oath: ${JSON.stringify(plain)}`);
+  // A kept oath at the cap: take 6, roll 3 or 6 (on average 4.5 < 6) — the resources show the roll is worse.
+  const kept = screen(400, 'no-jump');
+  assert(kept.oath === 2 && kept.take === 6 && kept.low === 3 && kept.high === 6, `kept oath: ${JSON.stringify(kept)}`);
+  // A broken oath: take 1, roll 1 or 3.
+  const broken = screen(400, 'no-jump', true);
+  assert(broken.oath === 0.5 && broken.take === 1 && broken.low === 1 && broken.high === 3, `broken oath: ${JSON.stringify(broken)}`);
+});
+
+await check('no screen when both halves pay what «Забрать» pays (a small cauldron): the door pays at once, no die drawn', () => {
+  let small = 0;
+  for (let k = 1; k <= 4; k++) {
+    const run = startRun(seedOf(k + 110)), { door, outcome } = fight(run, 1, { k });
+    assert(door && door.cauldron > 0 && door.cauldron < 30 && outcome.doorDie === true, `a small cauldron ${door?.cauldron}`);
+    assert(doorPayout(door, 0.5).length === doorPayout(door, 1).length && doorPayout(door, 2).length === doorPayout(door, 1).length, 'both halves pay the take');
+    const after = ok(resolveArena(run, outcome), 'resolve');
+    assert(after.pending?.kind !== 'die' && after.dieDraws === undefined && after.visited.includes(outcome.nodeId), 'no screen, no draw, the node completed');
+    assert(total(after) - total(run) === doorPayout(door, 1).length, 'paid at once');
+    // A forged save with such a screen is no run.
+    const forged = structuredClone(ok(resolveArena(run, { ...outcome, purse: { ...door, cauldron: 100 } }), 'a real screen'));
+    assert(forged.pending?.kind === 'die', 'a real screen for 100');
+    forged.pending.door.cauldron = door.cauldron;
+    assert(parseRtRun(serializeRtRun(forged)) === null, 'a screen nobody would show is no run');
+    small++;
+  }
+  assert(small === 4, 'checked');
+});
+
 await check('the face varies over seeds and draws; the same seed gives the same faces; the stream is the run\'s own', () => {
   const faces = new Map<number, number>();
   for (let k = 1; k <= 120; k++) {

@@ -18,7 +18,7 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  rtOathPreview, rtDieChoose, rtDieView, DIE_HIGH_MULT, DIE_LOW_FACES, DIE_LOW_MULT,
+  rtOathPreview, rtDieChoose, rtDieView, DIE_LOW_FACES,
   type RtArenaOutcome, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -67,9 +67,11 @@ export function resourcesWord(n: number): string {
   const tens = n % 100, ones = n % 10;
   return `${n} ${tens >= 11 && tens <= 14 ? 'ресурсов' : ones === 1 ? 'ресурс' : ones >= 2 && ones <= 4 ? 'ресурса' : 'ресурсов'}`;
 }
-const multText = (value: number): string => `×${String(value).replace('.', ',')}`;
-/** The die's odds, as the screen shows them: «1–3 ×0,5 · 4–6 ×2». */
-export const DIE_ODDS = `1–${DIE_LOW_FACES} ${multText(DIE_LOW_MULT)} · ${DIE_LOW_FACES + 1}–6 ${multText(DIE_HIGH_MULT)}`;
+/**
+ * The roll's outcomes in resources, as the screen shows them (design 11.10.2026: resources, not multipliers — with a kept
+ * oath at the cap the roll is worse than taking, and only the resources show it): «Бросить: 1–3 → 1 · 4–6 → 6».
+ */
+export const dieRollText = (low: number, high: number): string => `Бросить: 1–${DIE_LOW_FACES} → ${low} · ${DIE_LOW_FACES + 1}–6 → ${high}`;
 
 /** «Холод (клавиша 1 в бою)»: a consumable with the key it is used with on the arena. */
 export const itemWithKey = (item: ItemKind): string => `${ITEM_TITLES[item]} (клавиша ${SLOT_ITEMS.indexOf(item) + 1} в бою)`;
@@ -142,7 +144,7 @@ export class RunView {
    * Casino stage 1, item 4: the thrown die shown over the run screen — its face and payout (the run already paid it: a reload
    * only drops the picture), `landed` — the animation is over (or skipped by a click).
    */
-  private dieRoll: { face: number; mult: number; paid: number; kinds: string[]; landed: boolean; timers: number[] } | null = null;
+  private dieRoll: { face: number; paid: number; kinds: string[]; win: boolean; landed: boolean; timers: number[] } | null = null;
 
   constructor(private readonly host: RunHost, private readonly fixedSeed: number | null) {
     this.el = document.createElement('div');
@@ -232,7 +234,7 @@ export class RunView {
       if (event.type === 'talisman-taken') parts.push(`${rtTalisman(event.id)?.rarity === 'relic' ? 'Реликвия' : rtTalisman(event.id)?.rarity === 'oath' ? 'Клятва' : 'Талисман'} «${talismanName(event.id)}»`);
       if (event.type === 'hammer-taken') parts.push(`Молот «${rtHammer(event.id)?.name ?? event.id}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
-      if (event.type === 'die-resolved') parts.push(event.rolled ? `Кость: ${event.face}, ${multText(event.mult)} — ${resourcesWord(event.resources.length)}` : `Котёл: ${resourcesWord(event.resources.length)}`);
+      if (event.type === 'die-resolved') parts.push(event.rolled ? `Кость: ${event.face} — ${resourcesWord(event.resources.length)}` : `Котёл: ${resourcesWord(event.resources.length)}`);
       if (event.type === 'items-gained') parts.push(`+ ${event.items.map(itemWithKey).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
     return parts.join(' · ');
@@ -280,7 +282,9 @@ export class RunView {
     const step = rtDieChoose(run, true);
     const resolved = step.ok ? step.events.find(event => event.type === 'die-resolved') : undefined;
     this.clearDieTimers();
-    this.dieRoll = resolved?.type === 'die-resolved' ? { face: resolved.face, mult: resolved.mult, paid: resolved.resources.length, kinds: [...resolved.resources], landed: false, timers: [] } : null;
+    this.dieRoll = resolved?.type === 'die-resolved' ? { face: resolved.face, paid: resolved.resources.length, kinds: [...resolved.resources],
+      // The win flash only when the roll paid more than «Забрать» (LDW guard: the ×0.5 face, or ×2 at the cap, is no win).
+      win: resolved.resources.length > resolved.base, landed: false, timers: [] } : null;
     this.apply(step);
     const roll = this.dieRoll;
     if (!roll) return;
@@ -304,12 +308,15 @@ export class RunView {
   }
   private closeDie(): void { this.clearDieTimers(); this.dieRoll = null; this.draw(); }
 
-  /** The thrown die over the run screen: rolling (a click skips), then the face, the multiplier and the resources paid. */
+  /**
+   * The thrown die over the run screen: rolling (a click skips), then the face and the resources paid. The gold flash
+   * (`rt-die-win`, `data-win`) only for a roll that paid more than «Забрать»; the run screen plays no sound.
+   */
   private dieRollHtml(): string {
     const roll = this.dieRoll;
     if (!roll) return '';
     const result = roll.landed
-      ? `<p class="rt-die-result" data-testid="die-result">Выпало ${roll.face}: ${multText(roll.mult)} → ${resourcesWord(roll.paid)}${roll.kinds.length ? ` (${roll.kinds.map(kind => RESOURCES[kind as ResourceKind]?.label ?? kind).join(', ')})` : ''}</p>`
+      ? `<p class="rt-die-result${roll.win ? ' rt-die-win' : ''}" data-testid="die-result" data-win="${roll.win}">Выпало ${roll.face} → ${resourcesWord(roll.paid)}${roll.kinds.length ? ` (${roll.kinds.map(kind => RESOURCES[kind as ResourceKind]?.label ?? kind).join(', ')})` : ''}</p>`
         + `<button class="rt-again" data-action="die-close" data-testid="die-close">Дальше</button>`
       : `<p class="rt-run-note">Кость катится… (клик — пропустить)</p>`;
     return `<div class="rt-overlay rt-run-modal rt-die-overlay" data-testid="run-die-roll" data-landed="${roll.landed}"${roll.landed ? '' : ' data-action="die-skip"'}>`
@@ -417,14 +424,14 @@ export class RunView {
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
     if (pending.kind === 'die') {
-      // Casino stage 1, item 4: the payout as it is, the odds, «Бросить кость» with what each half pays, «Забрать».
+      // Casino stage 1, item 4 (design 11.10.2026): the outcomes in resources, not multipliers — «Забрать» and each half of
+      // the roll, the cap and the oath included.
       const view = rtDieView(run)!;
-      const oath = view.oath !== 1 ? ` (клятва ${multText(view.oath)})` : '';
-      return card(`<h2>Кость у двери</h2><p data-testid="die-cauldron">Котёл ${view.cauldron}${oath} → ${resourcesWord(view.take)}.</p>`
-        + `<p class="rt-die-odds" data-testid="die-odds">Бросить кость: ${DIE_ODDS}</p>`
-        + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="die-roll" data-testid="die-roll"><b>Бросить кость</b>`
-        + `<small>1–${DIE_LOW_FACES}: ${resourcesWord(view.low)} · ${DIE_LOW_FACES + 1}–6: ${resourcesWord(view.high)}</small></button>`
-        + `<button class="rt-run-choice" data-action="die-take" data-testid="die-take"><b>Забрать</b><small>${resourcesWord(view.take)}</small></button></div>`, 'run-die');
+      const oath = view.oath > 1 ? ' · клятва выполнена' : view.oath < 1 ? ' · клятва нарушена' : '';
+      return card(`<h2>Кость у двери</h2><p data-testid="die-cauldron">Котёл ${view.cauldron}${oath}.</p>`
+        + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="die-take" data-testid="die-take"><b>Забрать: ${resourcesWord(view.take)}</b></button>`
+        + `<button class="rt-run-choice" data-action="die-roll" data-testid="die-roll"><b data-testid="die-odds">${dieRollText(view.low, view.high)}</b>`
+        + `<small>Кость: 1–${DIE_LOW_FACES} и ${DIE_LOW_FACES + 1}–6 поровну.</small></button></div>`, 'run-die');
     }
     if (pending.kind === 'gift') {
       const view = rtGiftView(run)!;
