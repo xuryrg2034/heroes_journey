@@ -1,0 +1,55 @@
+{
+  "note": "Written by the code of 7ae55fc (before B5 К10 «Переброс», 12.10.2026). `hard` — a run save, seed Math.imul(7, 2654435761) >>> 0, at the open talisman choice of a won «Застава» with 6 resources; `event` — seed Math.imul(24, 2654435761) >>> 0, at the open talisman reward of an event's battle with 3 resources. Their talisman screens have no reroll fields; they must load and play on as before, and a reroll from them starts at price 1. `walks` — whole runs of seeds Math.imul(k, 2654435761) >>> 0, k = 1…8, walked without a reroll by run/reroll.spec.ts `walkSaves` (arenas won on the test field of run/runFight.testkit.ts, chains 6 6 6 6): the number of saves on the way and the FNV-1a hash of all of them joined by newlines — a run without a reroll saves byte for byte as before.",
+  "hard": "{\"version\":7,\"seed\":1401181143,\"rosterMix\":true,\"map\":{\"generator\":4,\"nodes\":[{\"id\":\"r5c0\",\"type\":\"battle\",\"next\":[\"r6c1\"]},{\"id\":\"r5c1\",\"type\":\"battle\",\"next\":[\"r6c1\",\"r6c2\"]},{\"id\":\"r6c1\",\"type\":\"event\",\"next\":[\"r7c0\",\"r7c2\"]},{\"id\":\"r6c2\",\"type\":\"find\",\"next\":[\"r7c2\"]},{\"id\":\"r7c0\",\"type\":\"battle\",\"next\":[\"r8c0\",\"r8c1\"]},{\"id\":\"r7c2\",\"type\":\"rest\",\"next\":[\"r8c1\"]},{\"id\":\"r8c0\",\"type\":\"battle\",\"next\":[\"r9c1\"]},{\"id\":\"r8c1\",\"type\":\"shop\",\"next\":[\"r9c1\"]},{\"id\":\"r9c1\",\"type\":\"checkpoint\",\"next\":[\"den-r10c1\",\"den-r10c2\",\"camp-r10c1\",\"camp-r10c2\"]},{\"id\":\"den-r10c1\",\"type\":\"event\",\"next\":[\"den-r11c2\"]},{\"id\":\"den-r10c2\",\"type\":\"battle\",\"next\":[\"den-r11c2\"]},{\"id\":\"den-r11c2\",\"type\":\"rest\",\"next\":[\"den-r12c1\",\"den-r12c2\"]},{\"id\":\"den-r12c1\",\"type\":\"hard\",\"next\":[\"den-r13c0\"]},{\"id\":\"den-r12c2\",\"type\":\"battle\",\"next\":[\"den-r13c0\"]},{\"id\":\"den-r13c0\",\"type\":\"breakthrough\",\"next\":[\"den-r14c0\"]},{\"id\":\"den-r14c0\",\"type\":\"boss\",\"next\":[]},{\"id\":\"camp-r10c1\",\"type\":\"rest\",\"next\":[\"camp-r11c0\",\"camp-r11c2\"]},{\"id\":\"camp-r10c2\",\"type\":\"battle\",\"next\":[\"camp-r11c2\"]},{\"id\":\"camp-r11c0\",\"type\":\"hard\",\"next\":[\"camp-r12c1\"]},{\"id\":\"camp-r11c2\",\"type\":\"event\",\"next\":[\"camp-r12c1\",\"camp-r12c2\"]},{\"id\":\"camp-r12c1\",\"type\":\"battle\",\"next\":[\"camp-r13c0\"]},{\"id\":\"camp-r12c2\",\"type\":\"rest\",\"next\":[\"camp-r13c0\"]},{\"id\":\"camp-r13c0\",\"type\":\"breakthrough\",\"next\":[\"camp-r14c0\"]},{\"id\":\"camp-r14c0\",\"type\":\"boss\",\"next\":[]}]},\"streams\":{\"pool\":6,\"events\":1,\"talismans\":2,\"merchant\":0,\"gift-item\":1,\"gift-supply\":0,\"gift-deal\":0,\"gift-gamble\":0},\"oathDraws\":4,\"picks\":[{\"nodeId\":\"r5c0\",\"arena\":\"buttons\",\"roster\":\"onslaught\"},{\"nodeId\":\"r6c1\",\"eventId\":\"porcupine-nest\"},{\"nodeId\":\"r7c0\",\"arena\":\"shields\"},{\"nodeId\":\"r8c0\",\"arena\":\"powder\",\"roster\":\"+wolf\"},{\"nodeId\":\"r9c1\",\"arena\":\"thorns\",\"roster\":\"+shield\"},{\"nodeId\":\"den-r10c2\",\"arena\":\"archers\"},{\"nodeId\":\"den-r12c1\",\"arena\":\"outpost\"}],\"currentNodeId\":\"den-r11c2\",\"visited\":[\"r5c0\",\"r6c1\",\"r7c0\",\"r8c0\",\"r9c1\",\"den-r10c2\",\"den-r11c2\"],\"hp\":15,\"maxHp\":15,\"materials\":{\"dew\":0,\"powder\":0,\"resin\":0,\"herbs\":6},\"items\":{\"frost\":0,\"bomb\":2,\"healing\":0,\"fire\":0},\"openItems\":[\"bomb\"],\"energy\":0,\"hardenings\":0,\"talismans\":[],\"talismansGone\":[\"relic-swift-feet\",\"relic-millstone\",\"oath-hunger\"],\"eventChoices\":[{\"nodeId\":\"r6c1\",\"option\":\"leave\",\"outcome\":0}],\"battles\":[{\"nodeId\":\"r5c0\",\"arena\":\"buttons\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6},{\"nodeId\":\"r7c0\",\"arena\":\"shields\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6},{\"nodeId\":\"r8c0\",\"arena\":\"powder\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6},{\"nodeId\":\"r9c1\",\"arena\":\"thorns\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6},{\"nodeId\":\"den-r10c2\",\"arena\":\"archers\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6},{\"nodeId\":\"den-r12c1\",\"arena\":\"outpost\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6}],\"pending\":{\"kind\":\"talisman\",\"nodeId\":\"den-r12c1\",\"source\":\"hard\",\"options\":[\"nimble-paws\",\"millstone-shard\",\"whetstone\"]},\"result\":null,\"gift\":{\"kind\":\"mini\",\"options\":[{\"kind\":\"items\",\"items\":[\"bomb\",\"bomb\"]},{\"kind\":\"max-hp\",\"amount\":1}],\"chosen\":0},\"dieDraws\":6}",
+  "event": "{\"version\":7,\"seed\":3576916120,\"rosterMix\":true,\"map\":{\"generator\":4,\"nodes\":[{\"id\":\"r5c0\",\"type\":\"battle\",\"next\":[\"r6c0\",\"r6c1\"]},{\"id\":\"r5c1\",\"type\":\"battle\",\"next\":[\"r6c2\"]},{\"id\":\"r5c2\",\"type\":\"battle\",\"next\":[\"r6c2\"]},{\"id\":\"r6c0\",\"type\":\"rest\",\"next\":[\"r7c0\"]},{\"id\":\"r6c1\",\"type\":\"find\",\"next\":[\"r7c0\"]},{\"id\":\"r6c2\",\"type\":\"battle\",\"next\":[\"r7c1\"]},{\"id\":\"r7c0\",\"type\":\"battle\",\"next\":[\"r8c1\"]},{\"id\":\"r7c1\",\"type\":\"battle\",\"next\":[\"r8c1\"]},{\"id\":\"r8c1\",\"type\":\"event\",\"next\":[\"r9c1\"]},{\"id\":\"r9c1\",\"type\":\"checkpoint\",\"next\":[\"den-r10c0\",\"den-r10c1\",\"den-r10c2\",\"camp-r10c0\",\"camp-r10c2\"]},{\"id\":\"den-r10c0\",\"type\":\"event\",\"next\":[\"den-r11c0\"]},{\"id\":\"den-r10c1\",\"type\":\"shop\",\"next\":[\"den-r11c0\"]},{\"id\":\"den-r10c2\",\"type\":\"battle\",\"next\":[\"den-r11c2\"]},{\"id\":\"den-r11c0\",\"type\":\"rest\",\"next\":[\"den-r12c0\",\"den-r12c1\"]},{\"id\":\"den-r11c2\",\"type\":\"rest\",\"next\":[\"den-r12c1\",\"den-r12c2\"]},{\"id\":\"den-r12c0\",\"type\":\"hard\",\"next\":[\"den-r13c0\"]},{\"id\":\"den-r12c1\",\"type\":\"battle\",\"next\":[\"den-r13c0\"]},{\"id\":\"den-r12c2\",\"type\":\"hard\",\"next\":[\"den-r13c0\"]},{\"id\":\"den-r13c0\",\"type\":\"breakthrough\",\"next\":[\"den-r14c0\"]},{\"id\":\"den-r14c0\",\"type\":\"boss\",\"next\":[]},{\"id\":\"camp-r10c0\",\"type\":\"rest\",\"next\":[\"camp-r11c0\",\"camp-r11c1\"]},{\"id\":\"camp-r10c2\",\"type\":\"battle\",\"next\":[\"camp-r11c2\"]},{\"id\":\"camp-r11c0\",\"type\":\"hard\",\"next\":[\"camp-r12c0\"]},{\"id\":\"camp-r11c1\",\"type\":\"battle\",\"next\":[\"camp-r12c0\"]},{\"id\":\"camp-r11c2\",\"type\":\"event\",\"next\":[\"camp-r12c2\"]},{\"id\":\"camp-r12c0\",\"type\":\"battle\",\"next\":[\"camp-r13c0\"]},{\"id\":\"camp-r12c2\",\"type\":\"battle\",\"next\":[\"camp-r13c0\"]},{\"id\":\"camp-r13c0\",\"type\":\"breakthrough\",\"next\":[\"camp-r14c0\"]},{\"id\":\"camp-r14c0\",\"type\":\"boss\",\"next\":[]}]},\"streams\":{\"pool\":3,\"events\":1,\"talismans\":1,\"merchant\":0,\"gift-item\":1,\"gift-supply\":0,\"gift-deal\":0,\"gift-gamble\":0},\"oathDraws\":1,\"picks\":[{\"nodeId\":\"r5c0\",\"arena\":\"glade\"},{\"nodeId\":\"r7c0\",\"arena\":\"shields\"},{\"nodeId\":\"r8c1\",\"eventId\":\"ford-ambush\",\"arena\":\"powder\",\"roster\":\"+boar\"}],\"currentNodeId\":\"r7c0\",\"visited\":[\"r5c0\",\"r6c0\",\"r7c0\"],\"hp\":15,\"maxHp\":15,\"materials\":{\"dew\":0,\"powder\":3,\"resin\":0,\"herbs\":0},\"items\":{\"frost\":0,\"bomb\":1,\"healing\":1,\"fire\":0},\"openItems\":[\"healing\",\"bomb\"],\"energy\":0,\"hardenings\":0,\"talismans\":[],\"talismansGone\":[],\"eventChoices\":[],\"battles\":[{\"nodeId\":\"r5c0\",\"arena\":\"glade\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6},{\"nodeId\":\"r7c0\",\"arena\":\"shields\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6},{\"nodeId\":\"r8c1\",\"arena\":\"powder\",\"won\":true,\"kills\":24,\"damage\":0,\"time\":3.3333333333333264,\"bestChain\":6}],\"pending\":{\"kind\":\"talisman\",\"nodeId\":\"r8c1\",\"source\":\"event\",\"options\":[\"dew-flask\",\"prism\"]},\"result\":null,\"gift\":{\"kind\":\"mini\",\"options\":[{\"kind\":\"items\",\"items\":[\"healing\",\"bomb\"]},{\"kind\":\"max-hp\",\"amount\":1}],\"chosen\":0},\"dieDraws\":3}",
+  "walks": {
+    "1": {
+      "steps": 29,
+      "hash": "c50d6a7e",
+      "talismansDraws": 1,
+      "result": "victory"
+    },
+    "2": {
+      "steps": 31,
+      "hash": "a76eb3a1",
+      "talismansDraws": 1,
+      "result": "victory"
+    },
+    "3": {
+      "steps": 31,
+      "hash": "3144dc66",
+      "talismansDraws": 1,
+      "result": "victory"
+    },
+    "4": {
+      "steps": 28,
+      "hash": "dd2b2837",
+      "talismansDraws": 1,
+      "result": "victory"
+    },
+    "5": {
+      "steps": 29,
+      "hash": "62d5f430",
+      "talismansDraws": 3,
+      "result": "victory"
+    },
+    "6": {
+      "steps": 29,
+      "hash": "a8d346ef",
+      "talismansDraws": 1,
+      "result": "victory"
+    },
+    "7": {
+      "steps": 31,
+      "hash": "fc84970e",
+      "talismansDraws": 2,
+      "result": "victory"
+    },
+    "8": {
+      "steps": 28,
+      "hash": "e1319c1d",
+      "talismansDraws": 1,
+      "result": "victory"
+    }
+  }
+}

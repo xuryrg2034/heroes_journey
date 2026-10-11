@@ -180,6 +180,8 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       break;
     }
     case 'talisman': {
+      // B5 К10: a reroll is no choice — the options it took away go back to the pool, they are not refused.
+      if (events.some(e => e.type === 'talisman-rerolled')) break;
       const taken = events.flatMap(e => (e.type === 'talisman-taken' ? [e.id as string] : []));
       choice(pending.nodeId, pending.source === 'oath' ? 'oath' : 'talisman', pending.options.map(String), taken);
       break;

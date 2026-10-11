@@ -70,6 +70,8 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * and rosters are chosen again by the rule they were chosen with, so no save in progress is rejected. П10 «Личный рекорд»
  * (the same version, 12.10.2026): a battle record may carry `bestChain`; records saved before it have none. П5 «Журнал удачи»
  * (the same version, 12.10.2026): the run's luck tally `luck` (rtLuck.ts), absent until the first chance; a save before it has none.
+ * B5 К10 «Переброс» (the same version, 12.10.2026): an open talisman offer may carry `rerolls` and `rerolled`, absent until its
+ * first reroll; a save before it has none (its offer rerolls from price 1).
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -128,8 +130,11 @@ export type RtRunPending =
   /**
    * Step 3: a talisman choice — after a won hard battle (`hard`), the Jailer's row (`oath`: oaths and, phase B, relics) or an event's reward
    * battle (`event`: common talismans); one option or a refusal (an empty offer — the refusal only), the node completes after it.
+   * B5 К10 «Переброс» (the same version 7, 12.10.2026; `rtRerollTalismans`): `rerolls` — the rerolls made on this screen (the
+   * next costs RT_REROLL_PRICE + rerolls), `rerolled` — every talisman shown and rerolled away here (not drawn again on this
+   * screen; back in the pool after it). Both absent until the first reroll: a screen without one saves as before.
    */
-  | { kind: 'talisman'; nodeId: string; source: 'hard' | 'oath' | 'event'; options: RtTalismanOption[] }
+  | { kind: 'talisman'; nodeId: string; source: RtTalismanSource; options: RtTalismanOption[]; rerolls?: number; rerolled?: RtTalismanId[] }
   /**
    * Phase B (design answers 1–2): the first won Jailer's row of the run offers a hammer, 3 of 4 by the node's roll (a
    * refusal is possible); the oath or relic choice (`talisman`, source `oath`) follows it.
@@ -268,6 +273,8 @@ export type RtRunEvent =
   | { type: 'rest-crafted'; nodeId: string; resource: ResourceKind; item: ItemKind }
   | { type: 'talisman-offered'; nodeId: string; options: RtTalismanOption[] }
   | { type: 'talisman-taken'; id: RtTalismanId }
+  /** B5 К10: the talisman offer was rerolled for `price` resources (`paid` by kind); `options` — the new offer. */
+  | { type: 'talisman-rerolled'; nodeId: string; price: number; paid: Record<ResourceKind, number>; options: RtTalismanOption[] }
   | { type: 'hammer-offered'; nodeId: string; options: HammerId[] }
   | { type: 'hammer-taken'; id: HammerId }
   | { type: 'ward-crumbled'; nodeId: string }
@@ -500,9 +507,69 @@ function takeTalisman(run: RtRunState, id: RtTalismanId, events: RtRunEvent[]): 
   if (id === RELICS.millstone) { run.maxHp = Math.max(1, run.maxHp - RT_MILLSTONE_MAX_HP_PRICE); run.hp = Math.min(run.hp, run.maxHp); }
   events.push({ type: 'talisman-taken', id });
 }
-function offerTalismans(run: RtRunState, nodeId: string, source: 'hard' | 'oath' | 'event', options: RtTalismanOption[], events: RtRunEvent[]): void {
+function offerTalismans(run: RtRunState, nodeId: string, source: RtTalismanSource, options: RtTalismanOption[], events: RtRunEvent[]): void {
   run.pending = { kind: 'talisman', nodeId, source, options };
   events.push({ type: 'talisman-offered', nodeId, options: [...options] });
+}
+/** Where a talisman offer comes from: a won hard battle, the Jailer's row (oaths and relics), an event's reward battle. */
+export type RtTalismanSource = 'hard' | 'oath' | 'event';
+/**
+ * The talisman offer of `source` at `nodeId` from `base` (one draw of the run's `talismans` stream) over the run's pool with
+ * `exclude` out of it too: a hard battle's three, the Jailer's oaths and relics, an event battle's common ones (its
+ * `talismanChoice`). Null — the source draws nothing here (an event node without a battle). The draw of the open screen:
+ * the screen opens with it, a reroll draws with it again (`exclude` — the talismans shown and rerolled), a save is checked
+ * with it. An empty `exclude` is the pool as it is: the offer the screen opened with.
+ */
+function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSource, base: number, exclude: readonly RtTalismanId[] = []): RtTalismanOption[] | null {
+  const pool = exclude.length ? { taken: run.talismans, gone: [...run.talismansGone, ...exclude] } : talismanPool(run);
+  if (source !== 'event') return rtTalismanOffer(base, source, pool);
+  const pick = run.picks.find(entry => entry.nodeId === nodeId), battle = pick?.eventId ? battleOption(forestEvent(pick.eventId)!)?.battle : undefined;
+  return battle ? rtEventTalismanOffer(base, battle.talismanChoice, pool) : null;
+}
+
+// ---------- B5 К10 «Переброс» (docs/realtime-casino.md, «Переброс (К10)») ----------
+
+/** Баланс (design 12.10.2026): the first reroll of a screen costs this many resources; each next one on the screen 1 more. */
+export const RT_REROLL_PRICE = 1;
+/**
+ * The offers that may be rerolled (design 12.10.2026): «Застава» (`hard`) and an event's reward (`event`); not the Jailer's
+ * oaths and relics (`oath`). The reroll works on the open offer by its source (`talismanOfferOf`), not on the screen.
+ */
+export const RT_REROLL_SOURCES: readonly RtTalismanSource[] = ['hard', 'event'];
+/** The reroll of the open offer: its price now, the resources in hand, the rerolls made on this screen, why it is off. */
+export interface RtRerollView { price: number; total: number; rerolls: number; available: boolean; reason: string }
+/**
+ * The reroll of the open talisman offer, or null — no offer, or one that is not rerolled (the Jailer's). Off when the run
+ * cannot pay the price (paid as the merchant is paid, `shopPayment`), or when no talisman is left outside those shown on this
+ * screen: a new offer would be empty. That does not depend on the draw (every place of an offer falls through every rarity
+ * its source takes), so the next draw is not peeked.
+ */
+export function rtRerollView(run: RtRunState): RtRerollView | null {
+  const pending = run.pending;
+  if (pending?.kind !== 'talisman' || !RT_REROLL_SOURCES.includes(pending.source)) return null;
+  const rerolls = pending.rerolls ?? 0, price = RT_REROLL_PRICE + rerolls, total = stockTotal(run.materials);
+  const left = (talismanOfferOf(run, pending.nodeId, pending.source, 0, [...pending.rerolled ?? [], ...pending.options]) ?? []).length > 0;
+  const reason = !left ? 'Других талисманов не осталось' : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
+  return { price, total, rerolls, available: !reason, reason };
+}
+/**
+ * «Перебросить» (design 12.10.2026): pay the price from the most numerous resources (`shopPayment`), take the next draw of
+ * the run's `talismans` stream and draw the offer of the same source again without every talisman shown on this screen. The
+ * shown ones are not gone: after the screen they are back in the pool (only the options of the last offer not taken leave
+ * it, as before). The price and the shown ones are kept in the save (`rerolls`, `rerolled`): a reload shows the same offer
+ * at the same price.
+ */
+export function rtRerollTalismans(current: RtRunState): RtRunStep {
+  const view = rtRerollView(current);
+  if (!view) return fail('Сейчас нечего перебрасывать.');
+  if (!view.available) return fail(view.reason);
+  const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'talisman' }>;
+  const paid = shopPayment(run.materials, view.price);
+  for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+  const rerolled = [...pending.rerolled ?? [], ...pending.options];
+  const options = talismanOfferOf(run, pending.nodeId, pending.source, draw(run, 'talismans', true), rerolled)!;
+  run.pending = { ...pending, options, rerolls: view.rerolls + 1, rerolled };
+  return { ok: true, run, events: [{ type: 'talisman-rerolled', nodeId: pending.nodeId, price: view.price, paid, options: [...options] }] };
 }
 /**
  * Take one of the offered talismans or refuse (`null`). The options not taken leave the pool for the rest of the run; the
@@ -1508,12 +1575,19 @@ function checkRun(value: unknown): RtRunState | null {
       const source = pending.source, options = pending.options;
       if (!(source === 'hard' && node.type === 'hard' || source === 'oath' && node.type === 'checkpoint' || source === 'event' && node.type === 'event')) return null;
       if (!Array.isArray(options) || options.length > 3 || !options.every(option => isRtTalisman(option)) || new Set(options).size !== options.length) return null;
+      // B5 К10 (the same version 7): the rerolls of this screen and the talismans they took away — both or neither; only an
+      // offer that is rerolled; each reroll took at least one shown talisman and one `talismans` draw; the shown ones are
+      // neither taken, gone nor offered now.
+      const { rerolls, rerolled } = pending as { rerolls?: unknown; rerolled?: unknown };
+      if ((rerolls === undefined) !== (rerolled === undefined)) return null;
+      if (rerolls !== undefined) {
+        if (!RT_REROLL_SOURCES.includes(source as RtTalismanSource) || !isCount(rerolls) || rerolls < 1 || !isTalismanList(rerolled) || rerolled.length < rerolls) return null;
+        if (rerolled.some(id => options.includes(id) || run.talismans.includes(id) || run.talismansGone.includes(id)) || !(streams.talismans >= 1 + rerolls)) return null;
+      }
       // Phase B (track Д4): the offer is drawn again — the last `talismans` draw over the pool as it is (nothing changes the
-      // pool while the choice is open); an event's reward by the real-time draw of its battle.
+      // pool while the choice is open); an event's reward by the real-time draw of its battle. B5: without the shown ones.
       if (!(streams.talismans >= 1)) return null;
-      const base = streamValue(run.seed, 'talismans', streams.talismans - 1), pool = talismanPool(run);
-      const battle = source === 'event' && pick?.eventId ? battleOption(forestEvent(pick.eventId)!)?.battle : undefined;
-      const again = source === 'event' ? battle ? rtEventTalismanOffer(base, battle.talismanChoice, pool) : null : rtTalismanOffer(base, source, pool);
+      const again = talismanOfferOf(run, node.id, source as RtTalismanSource, streamValue(run.seed, 'talismans', streams.talismans - 1), (rerolled as RtTalismanId[] | undefined) ?? []);
       if (!again || JSON.stringify(again) !== JSON.stringify(options)) return null;
       // The oath choice of the first Jailer's row comes after its hammer screen: the hammer, if any, is that node's (checked above).
       break;
