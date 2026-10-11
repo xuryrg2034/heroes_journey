@@ -10,7 +10,12 @@
  * - «Кристалл в цепи» — a dash breaks a crystal at least once;
  * - «Не больше 2 урона за бой» — at most 2 HP lost in the fight;
  * - «Элита в окне» — the player kills an armoured elite in its open window at least once (offered only where the battle
- *   brings its guaranteed elite: run/rtRun.ts `rtOathOffer`).
+ *   brings its guaranteed elite: run/rtRun.ts `rtOathOffer`);
+ * - «Цепь 6+ хотя бы раз» (calibration 12.10.2026, docs/realtime-casino.md, «Калибровка экономики») — at least once a dash
+ *   reaches 6 enemy links (struck, a plate taken, passed fallen — the links П4 counts, purse.ts `GREED_LINKS`); met in the
+ *   tick of the 6th link. It took the place of «Без прыжков» in the run's offers (run/rtRun.ts `RT_OATH_IDS`): people jump
+ *   about once a run, the bot never — that oath was free. «Без прыжков» stays in the catalogue: old journals and saves
+ *   with it play as before; the sandbox's panel still offers it.
  * A «never» oath breaks in the tick of the event (`OathState.broken` — that tick, hashed); the fight goes on. An «at least
  * once» oath is met in the tick of the event (`met`) and checked at the door: not met by then — broken in the door's tick.
  *
@@ -23,7 +28,7 @@
  */
 import type { World } from './world';
 
-export type OathId = 'chains3' | 'no-jump' | 'clean-after-goals' | 'crystal-chain' | 'damage2' | 'elite-window';
+export type OathId = 'chains3' | 'no-jump' | 'clean-after-goals' | 'crystal-chain' | 'damage2' | 'elite-window' | 'chain6';
 
 /** One oath of the catalogue: `name` — the node card, `short` — the HUD line («Клятва: без прыжков ✓»), `rule` — the card's text. */
 export interface OathDef {
@@ -37,13 +42,18 @@ export interface OathDef {
 
 /** Баланс (research 2.3 K8, 8.5): enemy links every chain after the first must have («Цепи 3+»). */
 export const OATH_CHAIN_LINKS = 3;
+/** Баланс (calibration 12.10.2026): enemy links one dash must reach for «Цепь 6+ хотя бы раз». */
+export const OATH_LONG_CHAIN_LINKS = 6;
 /** Баланс: HP the hero may lose in the fight under «Не больше 2 урона за бой». */
 export const OATH_DAMAGE_MAX = 2;
 /** The stake (research 8.5): the cauldron of the battle ×2 for a kept oath, ×0.5 for a broken one. */
 export const OATH_KEPT_MULT = 2;
 export const OATH_BROKEN_MULT = 0.5;
 
-/** The catalogue of stage 1 in the order of the research (8.5). «Уйти не раньше ×2 раздува» comes with the bloat (stage 2). */
+/**
+ * The catalogue: stage 1 in the order of the research (8.5), then «Цепь 6+ хотя бы раз» (12.10.2026). Which ones a run node
+ * offers — run/rtRun.ts `RT_OATH_IDS` (not «Без прыжков» since 12.10.2026). «Уйти не раньше ×2 раздува» is not done.
+ */
 export const OATHS: readonly OathDef[] = [
   { id: 'chains3', name: 'Цепи 3+', short: 'цепи 3+', rule: `Каждая цепь, кроме первой, — из ${OATH_CHAIN_LINKS}+ врагов.`, once: false },
   { id: 'no-jump', name: 'Без прыжков', short: 'без прыжков', rule: 'Ни одного прыжка.', once: false },
@@ -51,6 +61,7 @@ export const OATHS: readonly OathDef[] = [
   { id: 'crystal-chain', name: 'Кристалл в цепи', short: 'кристалл в цепи', rule: 'Хотя бы раз разбить кристалл цепью.', once: true },
   { id: 'damage2', name: `Не больше ${OATH_DAMAGE_MAX} урона`, short: `не больше ${OATH_DAMAGE_MAX} урона`, rule: `За бой герой теряет не больше ${OATH_DAMAGE_MAX} HP.`, once: false },
   { id: 'elite-window', name: 'Элита в окне', short: 'элита в окне', rule: 'Хотя бы раз убить элиту в окне (без пластин).', once: true },
+  { id: 'chain6', name: `Цепь ${OATH_LONG_CHAIN_LINKS}+ хотя бы раз`, short: `цепь ${OATH_LONG_CHAIN_LINKS}+`, rule: `Хотя бы раз рывок цепи бьёт ${OATH_LONG_CHAIN_LINKS}+ врагов.`, once: true },
 ];
 export const OATH_IDS: readonly OathId[] = OATHS.map(def => def.id);
 const BY_ID = new Map<string, OathDef>(OATHS.map(def => [def.id, def]));
@@ -63,7 +74,9 @@ export const oathDef = (id: OathId): OathDef => BY_ID.get(id)!;
  */
 export interface OathState { id: OathId; chains?: number; met?: number; broken?: number;
   /** «Цепи 3+»: the running dash is a short chain to a button — it holds only if the dash presses the button (absent otherwise). */
-  button?: true }
+  button?: true;
+  /** «Цепь 6+ хотя бы раз»: enemy links the running dash reached so far (from its release until it ends or meets the oath). */
+  links?: number }
 
 /** What the HUD line shows: `holds` — a «never» oath not broken yet or an «at least once» one met; `waits` — not met yet. */
 export type OathMark = 'holds' | 'waits' | 'broken';
@@ -108,6 +121,8 @@ function meetOath(world: World, oath: OathState): void {
  */
 export function oathRelease(world: World, enemyLinks: number, onButton = false): void {
   const oath = active(world);
+  // «Цепь 6+ хотя бы раз»: the dash counts the links it really reaches (`oathLink`), not the drawn ones.
+  if (oath?.id === 'chain6' && oath.met === undefined && oath.broken === undefined) oath.links = 0;
   if (oath?.id !== 'chains3') return;
   oath.chains = (oath.chains ?? 0) + 1;
   if (oath.chains <= 1 || enemyLinks >= OATH_CHAIN_LINKS) return;
@@ -123,9 +138,24 @@ export function oathButton(world: World): void {
   if (oath?.button) delete oath.button;
 }
 
+/**
+ * The dash reached an enemy link (chain.ts `hitEnemy` — struck, a survivor, a plate taken; `passFallen` — a link that fell
+ * before it): «Цепь 6+ хотя бы раз» is met in the tick of the 6th. The same links П4 counts (`cheque.links`).
+ */
+export function oathLink(world: World): void {
+  const oath = active(world);
+  if (oath?.id !== 'chain6' || oath.links === undefined) return;
+  oath.links++;
+  if (oath.links < OATH_LONG_CHAIN_LINKS) return;
+  delete oath.links;
+  meetOath(world, oath);
+}
+
 /** The dash ended (chain.ts `finishMove`): a short chain to a button that was not pressed breaks «Цепи 3+» now. */
 export function oathDashEnd(world: World): void {
   const oath = active(world);
+  // «Цепь 6+ хотя бы раз»: the dash's count ends with it.
+  if (oath?.links !== undefined) delete oath.links;
   if (!oath?.button) return;
   delete oath.button;
   breakOath(world, oath);

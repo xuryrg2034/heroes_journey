@@ -38,7 +38,7 @@ import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, s
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
 import { leverReady, pullLever } from './slot';
 import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
-import { oathButton, oathCrystal, oathDashEnd, oathJump, oathRelease } from './oath';
+import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease } from './oath';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -842,6 +842,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
   if (move.brittle) { move.brittle = move.brittle.filter(id => id !== enemy.id); if (!move.brittle.length) delete move.brittle; }
   // Casino «Котёл»: the link's embers (the highlight counts the same outcome, `planChain`).
   if (move.purse) tallyLink(move.purse, linkEmbers(enemy, outcome), outcome.killed);
+  // Casino «Ставка клятвы»: the dash reached an enemy link — «Цепь 6+ хотя бы раз» counts it (the links П4 counts).
+  if (world.oath) oathLink(world);
   move.power = outcome.powerAfter;
   move.hits++;
   world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
@@ -916,6 +918,7 @@ function passFallen(world: World, fallen: FallenLink): void {
   // Casino «Котёл»: a fallen link counts for the heat (it is dead); a credited one brings its embers (`fallenEmbers`), an enemy
   // ability's kill none.
   if (move.purse) tallyLink(move.purse, fallen.embers ?? 0, true);
+  if (world.oath) oathLink(world);
   if (!fallen.credited) return;
   move.kills++;
   if (ctx) {

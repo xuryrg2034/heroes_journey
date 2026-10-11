@@ -38,7 +38,7 @@ import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { runParams, type Params } from '../sim/params';
 import { doorPayout, GREED_MULTS, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
-import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_IDS, OATH_KEPT_MULT, type OathId } from '../sim/oath';
+import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
@@ -520,14 +520,23 @@ export function rtOathNode(node: Pick<ForestMapNode, 'type' | 'row'>): boolean {
   return (node.type === 'battle' || node.type === 'hard' || node.type === 'breakthrough') && runRow(node.row) >= RT_OATH_ROW;
 }
 /**
- * The two oaths of the draw `n` of the run's oath stream for `node`: «Элита в окне» only where the battle brings its
- * guaranteed elite (`rtGuaranteedElite`). Pure: the seed, the draw and the node decide it.
+ * The oaths a run node may offer, in the order its draw picks from (calibration 12.10.2026, docs/realtime-casino.md,
+ * «Калибровка экономики»): «Цепь 6+ хотя бы раз» stands where «Без прыжков» stood — every draw picks the same places as
+ * before, so a node that offered «Без прыжков» offers «Цепь 6+» now and every other offer is unchanged.
  */
-export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>): OathId[] {
+export const RT_OATH_IDS: readonly OathId[] = ['chains3', 'chain6', 'clean-after-goals', 'crystal-chain', 'damage2', 'elite-window'];
+/** The run's offer list before 12.10.2026 (with «Без прыжков»): an open battle of an older save was offered by it (`parseRtRun`). */
+export const RT_OATH_IDS_BEFORE: readonly OathId[] = ['chains3', 'no-jump', 'clean-after-goals', 'crystal-chain', 'damage2', 'elite-window'];
+/**
+ * The two oaths of the draw `n` of the run's oath stream for `node`: «Элита в окне» only where the battle brings its
+ * guaranteed elite (`rtGuaranteedElite`). Pure: the seed, the draw and the node decide it. `ids` — the offer list
+ * (`RT_OATH_IDS`; `RT_OATH_IDS_BEFORE` checks an older save).
+ */
+export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, ids: readonly OathId[] = RT_OATH_IDS): OathId[] {
   // Design answer 11.10.2026: the node's id is mixed in — every node offers its own pair (the path decides the stake); the
   // run's counter `n` still moves on each entered node, so a reload never re-rolls.
   const base = mixSeed(mixSeed(forestNodeSeed(seed >>> 0, node.id), OATH_SALT), n);
-  const left = OATH_IDS.filter(id => id !== 'elite-window' || rtGuaranteedElite(node, battleKindOf(node))), options: OathId[] = [];
+  const left = ids.filter(id => id !== 'elite-window' || rtGuaranteedElite(node, battleKindOf(node))), options: OathId[] = [];
   for (let k = 0; k < RT_OATH_OFFER_SIZE && left.length; k++) options.push(left.splice(mixSeed(base, k) % left.length, 1)[0]);
   return options;
 }
@@ -1855,7 +1864,9 @@ function checkRun(value: unknown): RtRunState | null {
       // Casino stage 1, item 2: the offer is drawn again — the last oath draw for this node (absent: a node without oaths,
       // or a battle entered before version 7); the oath taken is one of it.
       if (pending.oathOffer !== undefined) {
-        if (!rtOathNode(node) || !(run.oathDraws >= 1) || JSON.stringify(pending.oathOffer) !== JSON.stringify(rtOathOffer(run.seed, run.oathDraws - 1, node))) return null;
+        // The draw of the current list, or of the list before 12.10.2026 (an older save's open battle with «Без прыжков»).
+        const offered = JSON.stringify(pending.oathOffer), draw = (ids: readonly OathId[]) => JSON.stringify(rtOathOffer(run.seed, run.oathDraws - 1, node, ids));
+        if (!rtOathNode(node) || !(run.oathDraws >= 1) || (offered !== draw(RT_OATH_IDS) && offered !== draw(RT_OATH_IDS_BEFORE))) return null;
       }
       if (pending.oath !== undefined && !(isOathId(pending.oath) && Array.isArray(pending.oathOffer) && pending.oathOffer.includes(pending.oath))) return null;
       break;

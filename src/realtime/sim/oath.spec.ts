@@ -6,12 +6,16 @@
  * and read what the player gets: the oath's flag in the world (the tick of the event), the HUD line, the door's multiplier
  * and the payout:
  * - every oath of the catalogue kept and broken through real actions: chains of 2 vs 3 enemy links after the first, a
- *   jump, a touch after the goals, a crystal taken by a chain, damage 2 vs 3, an armoured elite killed in its window;
+ *   jump, a touch after the goals, a crystal taken by a chain, damage 2 vs 3, an armoured elite killed in its window, a
+ *   dash reaching 6 enemy links (calibration 12.10.2026: «Цепь 6+ хотя бы раз»; a dash stopped by a survivor, 5 links,
+ *   a plate taken counts as П4 counts it); П4's «потолок» waits for it;
  * - a «never» oath breaks in the tick of the event, the fight goes on; an «at least once» oath is checked at the door;
  * - the payout ×2 / ×0.5 through `purseResources` (the cap 6 / 1; without an oath 3);
  * - the run: offers only on oath nodes (run row 2+, not the Jailer, not bosses, not events), «Элита в окне» only where the
  *   guaranteed elite comes; offers vary over seeds; a reload re-rolls nothing (the preview, the offer, the oath in the
- *   loadout); a version 6 save loads into version 7; a forged offer is no run;
+ *   loadout); a version 6 save loads into version 7; a forged offer is no run; since 12.10.2026 the run offers
+ *   «Цепь 6+ хотя бы раз» where it offered «Без прыжков» and never «Без прыжков»; a save of df42809 with an open battle
+ *   under «Без прыжков» loads and plays as before (fixture `rt-run-save-before-chain6.json`);
  * - off by default: a journal without the value plays the same world (everything but the params); every fight replays.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
@@ -20,14 +24,15 @@ import { worldState } from './hash';
 import type { Loadout } from './kit';
 import { oathLine, oathMark, OATH_IDS, OATHS, type OathId, type OathState } from './oath';
 import { defaultParams, type Params } from './params';
-import { doorPayout, purseResources } from './purse';
+import { doorPayout, greedLine, purseResources } from './purse';
 import { Simulation, replay } from './simulation';
-import type { WorldEvent } from './world';
+import { killEnemy, type WorldEvent } from './world';
 import {
   arenaPreview, createRtRun, migrateRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
-  rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtGuaranteedElite, rtOathNode, rtOathPreview, rtRestHeal, rtRunParams, rtShopLeave,
-  serializeRtRun, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
+  rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtGuaranteedElite, rtNode, rtOathNode, rtOathOffer, rtOathPreview, rtOathText, rtRestHeal, rtRunParams, rtShopLeave,
+  serializeRtRun, RT_OATH_IDS, RT_OATH_IDS_BEFORE, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
+import saveBeforeChain6 from '../../../tests/fixtures/rt-run-save-before-chain6.json';
 import { runRow } from '../run/arenaPools';
 import { createRtRunStore, RT_RUN_STORAGE_KEY, RT_RUN_STORAGE_KEY_V6, type RunStorage } from '../run/rtRunStorage';
 import { createFightObserver } from '../telemetry/observe';
@@ -140,9 +145,12 @@ function doorOath(events: readonly WorldEvent[]): Ev<'oath'> {
 
 // ---- The catalogue: kept and broken through real actions ----
 
-check('the catalogue of stage 1: six oaths, «at least once» only for the crystal and the elite; no «×2 раздува» yet', () => {
-  assert(same(OATH_IDS, ['chains3', 'no-jump', 'clean-after-goals', 'crystal-chain', 'damage2', 'elite-window']), `ids ${OATH_IDS}`);
-  assert(same(OATHS.filter(def => def.once).map(def => def.id), ['crystal-chain', 'elite-window']), 'the «at least once» oaths');
+check('the catalogue: the six of stage 1 and «Цепь 6+ хотя бы раз» (12.10.2026); «at least once» — the crystal, the elite, the long chain; the run offers all but «Без прыжков»', () => {
+  assert(same(OATH_IDS, ['chains3', 'no-jump', 'clean-after-goals', 'crystal-chain', 'damage2', 'elite-window', 'chain6']), `ids ${OATH_IDS}`);
+  assert(same(OATHS.filter(def => def.once).map(def => def.id), ['crystal-chain', 'elite-window', 'chain6']), 'the «at least once» oaths');
+  assert(same(RT_OATH_IDS, ['chains3', 'chain6', 'clean-after-goals', 'crystal-chain', 'damage2', 'elite-window']), `the run's offers ${RT_OATH_IDS}`);
+  assert(same(RT_OATH_IDS_BEFORE, ['chains3', 'no-jump', 'clean-after-goals', 'crystal-chain', 'damage2', 'elite-window']), 'the run\'s offers of df42809');
+  assert(rtOathText('chain6') === 'Цепь 6+ хотя бы раз — Хотя бы раз рывок цепи бьёт 6+ врагов.', `the card: ${rtOathText('chain6')}`);
 });
 
 check('«Цепи 3+»: the first chain is free; 3 enemy links after it keep the oath, 2 break it in the release\'s tick; the fight goes on', () => {
@@ -243,6 +251,71 @@ check('«Элита в окне» (at least once): an armoured elite killed in i
   chain(broken, ['elite']);
   assert(doorOath(exitDoor(broken)).kept === false && broken.world.purse!.door!.oath === 0.5, 'only the plate — broken at the door');
   assert(replays(kept) && replays(broken), 'replay');
+});
+
+check('«Цепь 6+ хотя бы раз» (at least once): met in the tick the dash reaches its 6th enemy link; links the dash did not reach do not count', () => {
+  const kept = field('chain6');
+  assert(oathMark(kept.world)!.mark === 'waits' && oathLine(kept.world) === 'Клятва: цепь 6+', `waits, no ✓: ${oathLine(kept.world)}`);
+  chain(kept, [0, 0, 0, 0, 0]);
+  assert(kept.world.oath!.met === undefined && kept.world.oath!.links === undefined, '5 links: not met, the count ends with the dash');
+  // 6 drawn, the dash stops on the 3rd (a shaman's empowering while the dash runs, stood in by raising its HP — as the
+  // button check below): it reaches 3 links of 6.
+  const stopped = field('chain6'), w = stopped.world;
+  const points = lay(stopped, [0, 0, 0, 0, 0, 0]);
+  stopped.command({ t: 'begin', x: points[0].x, y: points[0].y });
+  for (const p of points.slice(1)) stopped.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
+  assert(w.chain.length === 6, 'six drawn');
+  const third = w.enemies.find(e => e.id === w.chain[2].id)!;
+  stopped.command({ t: 'release' });
+  third.hp = 5;
+  settle(stopped);
+  assert(w.enemies.includes(third) && w.oath!.met === undefined && w.oath!.links === undefined, 'a dash stopped by a survivor after 3 links does not meet it');
+  // A crystal is no enemy link: 6 enemies around a crystal meet it, in the tick of the 6th link's hit.
+  const { events } = chain(kept, [0, 0, 'crystal', 0, 0, 0, 0]);
+  const hits = events.flatMap((e, i) => e.type === 'chainHit' ? [i] : []), met = events.findIndex(e => e.type === 'oath' && e.action === 'met');
+  // The flag comes with the 6th link's hit (its event just before the hit's own `chainHit`), not earlier.
+  assert(hits.length === 6 && met > hits[4] && met < hits[5] && events.slice(met, hits[5]).every(e => e.type !== 'chainHit'), `met with the 6th link (hits at ${hits}, met at ${met})`);
+  assert(kept.world.oath!.met === (events[met] as Ev<'oath'>).tick && kept.world.oath!.links === undefined, 'the flag in the tick of the event');
+  assert(oathLine(kept.world) === 'Клятва: цепь 6+ ✓', `now ✓: ${oathLine(kept.world)}`);
+  const door = doorOath(exitDoor(kept));
+  assert(door.kept === true && door.mult === 2 && kept.world.purse!.door!.oath === 2, 'kept at the door: ×2');
+  // Not met: chains of 5 only — broken in the door's tick, ×0.5.
+  const broken = field('chain6');
+  chain(broken, [0, 0, 0, 0, 0]);
+  chain(broken, [0, 0, 0, 0, 0]);
+  assert(broken.world.oath!.broken === undefined, 'not broken during the fight');
+  const end = exitDoor(broken), brokenAt = of(end, 'oath').find(e => e.action === 'broken');
+  assert(brokenAt && broken.world.oath!.broken === brokenAt.tick && doorOath(end).kept === false && broken.world.purse!.door!.oath === 0.5, 'broken at the door: ×0.5');
+  assert(oathLine(broken.world) === 'Клятва: цепь 6+ ×0,5', `the line dims: ${oathLine(broken.world)}`);
+  assert(replays(kept) && replays(broken), 'replay');
+});
+
+check('«Цепь 6+ хотя бы раз»: the links П4 counts — a plate taken off an armoured elite is a link; a link that fell before the dash too', () => {
+  const plates = field('chain6', quiet({ eliteArmor: true, elitePlates: 2 }));
+  chain(plates, [0, 0, 0, 0, 0, 'elite']);
+  assert(plates.world.oath!.met !== undefined && plates.world.enemies.some(e => e.elite), '5 kills and a plate taken (the elite stands): met');
+  assert(replays(plates), 'replay');
+  // A link killed ahead of the dash (a sapper's blast, stood in by `killEnemy` as the button check above stands in a shaman)
+  // is passed fallen: it counts.
+  const fallen = field('chain6'), w = fallen.world;
+  fallen.command({ t: 'teleport', x: 4.5, y: 6 });
+  const points = lay(fallen, [0, 0, 0, 0, 0, 0]);
+  fallen.command({ t: 'begin', x: points[0].x, y: points[0].y });
+  for (const p of points.slice(1)) fallen.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
+  const last = w.enemies.find(e => e.id === w.chain[5].id)!;
+  fallen.command({ t: 'release' });
+  killEnemy(w, last, { source: 'blast', credited: true });
+  settle(fallen);
+  assert(w.move === null && w.oath!.met !== undefined && w.stats.kills === 6, `5 struck and 1 fallen: met ${w.oath!.met}`);
+});
+
+check('П4 «потолок» waits for «Цепь 6+ хотя бы раз»: no cap on the goal line while it waits; met — the cap 6 of the kept oath', () => {
+  const sim = field('chain6', quiet({ greedByDeeds: true }));
+  fill(sim, 600);
+  sim.command({ t: 'goals' });
+  assert(oathMark(sim.world)!.mark === 'waits' && !greedLine(sim.world)!.includes('потолок'), `waits: no cap (${greedLine(sim.world)})`);
+  chain(sim, [0, 0, 0, 0, 0, 0]);
+  assert(oathMark(sim.world)!.mark === 'holds' && greedLine(sim.world)!.endsWith('потолок 6'), `met: the cap 6 (${greedLine(sim.world)})`);
 });
 
 // ---- The payout ----
@@ -416,6 +489,64 @@ check('the offers vary over seeds and nodes; the stream is the run\'s own (one d
   assert(pairs.size >= 10, `pairs seen: ${pairs.size}`);
 });
 
+check('since 12.10.2026 the run offers «Цепь 6+ хотя бы раз» where it offered «Без прыжков», never «Без прыжков»; every other offer is as before', () => {
+  let chain6 = 0, same6 = 0, offers = 0;
+  for (let k = 1; k <= 30; k++) {
+    const { seen, run } = walk(seedOf(k + 1200), n => k % n, k % 3 === 0);
+    let n = 0;
+    for (const s of seen) {
+      if (!s.offer) continue;
+      offers++;
+      assert(!s.offer.includes('no-jump'), `${s.nodeId}: «Без прыжков» offered ${s.offer}`);
+      // The draw of the list of df42809 for the same node and draw, «Без прыжков» read as «Цепь 6+».
+      const before = rtOathOffer(run.seed, n++, rtNode(run, s.nodeId)!, RT_OATH_IDS_BEFORE).map(id => id === 'no-jump' ? 'chain6' : id);
+      assert(same(before, s.offer), `${s.nodeId}: ${s.offer} — before ${before}`);
+      if (s.offer.includes('chain6')) chain6++; else same6++;
+    }
+  }
+  assert(offers >= 100 && chain6 >= 15 && same6 >= 50, `offers ${offers}: with «Цепь 6+» ${chain6}, unchanged ${same6}`);
+  // «Без прыжков» is refused at a node card now.
+  let run = takeGift(createRtRun(seedOf(1250), { gift: 'mini' }));
+  for (let step = 0; step < 80; step++) {
+    if (run.pending) { run = closeNode(run); continue; }
+    const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry));
+    if (!node) { run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
+    assert(!rtEnterNode(run, node.id, 'no-jump').ok, '«Без прыжков» is no offer');
+    return;
+  }
+  throw new Error('no oath node met');
+});
+
+check('a save of df42809 with an open battle sworn «Без прыжков» (fixture) loads byte for byte and plays as before: a jump breaks it, no jump keeps it; the next node offers the new list', () => {
+  const text = saveBeforeChain6.save, run = parseRtRun(text)!;
+  assert(run && serializeRtRun(run) === text, 'loads, saves back byte for byte');
+  const pending = run.pending;
+  assert(pending?.kind === 'battle' && same(pending.oathOffer, ['no-jump', 'elite-window']) && pending.oath === 'no-jump', `the open battle: ${JSON.stringify(pending)}`);
+  assert(rtArenaLoadout(run).oath === 'no-jump', 'the arena plays under «Без прыжков»');
+  // A forged twin: the same save with «Цепь 6+» sworn though «Без прыжков» was offered — no run.
+  assert(parseRtRun(text.replace('"oath":"no-jump"', '"oath":"chain6"')) === null, 'an oath outside the old offer is no run');
+  const play = (jump: boolean) => {
+    const sim = field(null, rtRunParams(quiet({ oathStake: false })), 1, rtArenaLoadout(run));
+    assert(sim.world.oath?.id === 'no-jump', 'under the oath');
+    fill(sim, 400);
+    if (jump) { sim.command({ t: 'energy', value: 7 }); sim.command({ t: 'jump', x: 6, y: 8 }); settle(sim); }
+    exitDoor(sim);
+    assert(replays(sim), 'replay');
+    return sim.world.purse!.door!;
+  };
+  const kept = play(false), broken = play(true);
+  assert(kept.oath === 2 && doorPayout(kept).length === 6 && broken.oath === 0.5 && doorPayout(broken).length === 1, `kept ${kept.oath}, broken ${broken.oath}`);
+  let next = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1, purse: kept }), 'resolve');
+  let seen = 0;
+  for (let step = 0; step < 60 && !next.result && seen < 3; step++) {
+    if (next.pending) { next = closeNode(next); continue; }
+    const nodes = rtAvailableNodes(next);
+    for (const node of nodes) { const offer = rtOathPreview(next, node); if (offer) { seen++; assert(offer.every(id => RT_OATH_IDS.includes(id)), `the new list: ${offer}`); } }
+    next = ok(rtEnterNode(next, nodes[0].id), 'enter');
+  }
+  assert(seen >= 1, `offers after the old battle: ${seen}`);
+});
+
 check('a reload re-rolls nothing: the preview, the offer on entering and the oath in the arena\'s loadout are the same after save → load', () => {
   let checked = 0;
   for (let k = 1; k <= 10; k++) {
@@ -470,7 +601,8 @@ check('the save: version 7 with the counter; a version 6 save loads into version
       migrated++;
     }
     if (at.pending?.kind === 'battle' && at.pending.oathOffer) {
-      const offer = at.pending.oathOffer, other = OATH_IDS.find(id => !offer.includes(id))!;
+      // An oath of the run's list outside the offer (not «Без прыжков»: an offer with it in place of «Цепь 6+» is an older save's).
+      const offer = at.pending.oathOffer, other = RT_OATH_IDS.find(id => !offer.includes(id))!;
       const edit = (change: (copy: RtRunState & { pending: Record<string, unknown> }) => void): string => { const copy = structuredClone(at) as RtRunState & { pending: Record<string, unknown> }; change(copy); return serializeRtRun(copy); };
       for (const bad of [
         edit(copy => { copy.pending.oath = other; }),
@@ -554,14 +686,16 @@ check('a run arena under an oath: the arena of the node plays it (the rule on by
     let run = takeGift(createRtRun(seedOf(k + 700), { gift: 'mini' }));
     for (let step = 0; step < 80 && !done; step++) {
       if (run.pending) { run = closeNode(run); continue; }
-      const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry)?.includes('no-jump'));
+      const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry)?.includes('chain6'));
       if (!node) { const next = rtAvailableNodes(run)[0]; if (!next) break; run = ok(rtEnterNode(run, next.id), 'enter'); continue; }
-      run = ok(rtEnterNode(run, node.id, 'no-jump'), 'enter under «Без прыжков»');
+      run = ok(rtEnterNode(run, node.id, 'chain6'), 'enter under «Цепь 6+ хотя бы раз»');
       const pending = run.pending!;
       assert(pending.kind === 'battle', 'a battle');
       // The run's params and loadout on the quiet field (the run reads the finished world as main.ts does).
       const sim = field(null, rtRunParams(quiet({ oathStake: false })), k, rtArenaLoadout(run));
-      assert(sim.world.oath?.id === 'no-jump', 'the arena is under the oath');
+      assert(sim.world.oath?.id === 'chain6', 'the arena is under the oath');
+      chain(sim, [0, 0, 0, 0, 0, 0]);
+      assert(sim.world.oath?.met !== undefined, 'a chain of 6 met it');
       // The run's rate is 120 (12.10.2026): a cauldron of 400 × 2 pays the cap 6.
       fill(sim, 400);
       exitDoor(sim);
@@ -575,7 +709,7 @@ check('a run arena under an oath: the arena of the node plays it (the rule on by
     }
     if (done) break;
   }
-  assert(done === 1, 'a run arena under «Без прыжков» played');
+  assert(done === 1, 'a run arena under «Цепь 6+ хотя бы раз» played');
 });
 
 function memoryStorage(initial: Record<string, string> = {}): RunStorage {
