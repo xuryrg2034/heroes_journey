@@ -25,7 +25,7 @@ import { updateBurning } from './items';
 import { RngStreams } from './rng';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
-import { fallenEmbers, purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
+import { fallenEmbers, greedHurt, purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathHurt, startOath, type OathId, type OathState } from './oath';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
@@ -338,11 +338,14 @@ export type WorldEvent =
   /**
    * Casino «Котёл» (purse.ts): a chain's cheque went into the cauldron (embers × heat × the crystal multiplier = total; the
    * cauldron after it; where the hero stands); a build kill put 1 ember (`purseKill`); the door recorded the cauldron
-   * (`purseDoor`: the oath and the resources it pays without the die).
+   * (`purseDoor`: the oath and the resources it pays without the die; with П4 on — the greed step's multiplier and the step).
+   * П4 «Раздув за дела»: the greed step went up or down (`greed`: a counted chain or a hit; the step 0–3 after it, the counted
+   * chains toward the next one, the step's multiplier).
    */
   | { type: 'cheque'; embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean; cauldron: number; x: number; y: number }
   | { type: 'purseKill'; source: string; cauldron: number }
-  | { type: 'purseDoor'; cauldron: number; oath: number; resources: number }
+  | { type: 'purseDoor'; cauldron: number; oath: number; resources: number; greed?: number; step?: number }
+  | { type: 'greed'; cause: 'chain' | 'hit'; step: number; chains: number; mult: number }
   /**
    * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath broke (`broken`) or an «at least once» oath was met (`met`) in
    * `tick`; the exit into the door settled it (`door`: kept or not, the cauldron's multiplier).
@@ -769,6 +772,8 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
   world.events.push({ type: 'hit', enemyId: striker.id, damage, x: hero.x, y: hero.y, source });
   // Casino «Ставка клятвы»: a lost HP may break «Без урона после целей» or «Не больше 2 урона» (in this tick).
   if (world.oath) oathHurt(world);
+  // П4 «Раздув за дела» (purse.ts): a hit takes one greed step off and resets the count (nothing while the rule is off).
+  if (world.purse?.greed) greedHurt(world);
   if (hero.hp <= 0) {
     world.status = 'defeat';
     world.endTime = world.time;

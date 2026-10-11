@@ -556,6 +556,13 @@ export interface Params {
   purse: boolean;
   /** «Котёл»: embers per crafting resource at the door (60; design 11.10.2026 — a calibration before the playtest). */
   purseRate: number;
+  /**
+   * П4 «Раздув за дела» (casino stage 2, purse.ts, docs/realtime-casino.md; design 11.10.2026): after the goals every 2 chains
+   * of 3+ enemy links released with the door open raise the cauldron's greed step ×1 → ×1,5 → ×2 → ×3; a hit on the hero
+   * takes one step off. The door multiplies the cauldron by the step (the payout's cap stays). Acts only with `purse`. Off by
+   * default; journals without the value: off (no `world.purse.greed`, no `door.greed`). A run turns it on (`RT_RUN_FORCED`).
+   */
+  greedByDeeds: boolean;
   // ---- Casino stage 1, item 2 — «Ставка клятвы» (oath.ts, docs/realtime-casino.md). ----
   /**
    * The oath stake: the fight may be under one oath (the run's node card, `Loadout.oath`; the sandbox — the panel's choice);
@@ -888,6 +895,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
   purseRate: 60,
+  // П4 «Раздув за дела» (purse.ts): off by default.
+  greedByDeeds: false,
   // Casino «Ставка клятвы» (oath.ts): off by default.
   oathStake: false,
   // Casino «Кость у двери» (run/rtRun.ts): off by default.
@@ -1216,6 +1225,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за «Углей за ресурс» (60), не больше 3 без ставок. В походе включено всегда.' },
   n('purseRate', 'Котёл', 'Углей за ресурс', 10, 200, 5, 5, '', 'В двери: ресурс крафта за каждые N углей, не больше 3 без ставок. В походе — 60.'),
+  { kind: 'bool', key: 'greedByDeeds', group: 'Котёл', label: 'Раздув за дела', stage: 5,
+    hint: 'Только с котлом. После целей каждые 2 цепи из 3+ врагов поднимают ступень котла: ×1 → ×1,5 → ×2 → ×3. Удар по герою снимает ступень. В двери котёл × ступень; потолок выплаты прежний. В походе включено всегда.' },
   // Casino «Ставка клятвы» (oath.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'oathStake', group: 'Ставка клятвы', label: 'Ставка клятвы', stage: 5,
     hint: 'Клятва на бой: выполнил — котёл ×2 в двери, нарушил — ×0,5, бой идёт дальше. В походе — на карточке узла (с ряда 2, не у Тюремщика и боссов). В песочнице — выбор клятвы ниже.' },

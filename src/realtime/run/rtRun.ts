@@ -37,7 +37,7 @@ import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, p
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { runParams, type Params } from '../sim/params';
-import { doorPayout, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
+import { doorPayout, GREED_MULTS, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_IDS, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
@@ -81,9 +81,11 @@ export const RT_RUN_VERSION_V6 = 6;
  * `rtArenaLoadout`); the oath stake is on (which battles offer oaths — `rtOathNode`, the oath of the battle — `Loadout.oath`);
  * the die at the door is on (`doorDie`: the arena's outcome carries it to `resolveArena`, the simulation never reads it).
  * The roster mix (design decision 11.10.2026, `rosterMix`) is on: a new run keeps it in its state (`RtRunState.rosterMix`,
- * `createRtRun`), the arena and roster choices read it there; the simulation never reads it.
+ * `createRtRun`), the arena and roster choices read it there; the simulation never reads it. П4 «Раздув за дела»
+ * (`greedByDeeds`, design 11.10.2026) is on: the greed step after the goals multiplies the cauldron at the door
+ * (`PurseDoor.greed`, paid by `doorPayout` with or without the die).
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true, doorDie: true, rosterMix: true,
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, greedByDeeds: true, oathStake: true, doorDie: true, rosterMix: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
   slotPulls: 3, slotCooldown: 8, slotSpin: 1.2 });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
@@ -793,9 +795,13 @@ export function rtDieFace(seed: number, n: number): number { return 1 + mixSeed(
 /** The die's multiplier of a face: 1–3 — ×0.5, 4–6 — ×2. */
 export const rtDieMult = (face: number): number => (face <= DIE_LOW_FACES ? DIE_LOW_MULT : DIE_HIGH_MULT);
 
-/** The door record the simulation wrote (sim/purse.ts `PurseDoor`): a cauldron, an oath multiplier, 6 kinds, a rate. */
+/**
+ * The door record the simulation wrote (sim/purse.ts `PurseDoor`): a cauldron, an oath multiplier, 6 kinds, a rate; with П4 —
+ * the greed step's multiplier (absent in a record without the rule: ×1).
+ */
 function validDoor(value: unknown): value is PurseDoor {
-  if (!isRecord(value) || Object.keys(value).some(key => !['cauldron', 'oath', 'kinds', 'rate'].includes(key))) return false;
+  if (!isRecord(value) || Object.keys(value).some(key => !['cauldron', 'oath', 'kinds', 'rate', 'greed'].includes(key))) return false;
+  if (value.greed !== undefined && !GREED_MULTS.includes(value.greed as number)) return false;
   return isCount(value.cauldron) && [1, OATH_KEPT_MULT, OATH_BROKEN_MULT].includes(value.oath as number)
     && Array.isArray(value.kinds) && value.kinds.length === PAYOUT_CAP_MAX && value.kinds.every(kind => RESOURCE_KINDS.includes(kind as ResourceKind))
     && typeof value.rate === 'number' && Number.isFinite(value.rate) && value.rate >= 1;
@@ -823,13 +829,16 @@ export function rtDieOffered(door: PurseDoor): boolean {
   return low !== take || high !== take;
 }
 
-/** What the die screen shows: the cauldron, the oath, and the resources «Забрать» (×1), 1–3 (×0.5) and 4–6 (×2) pay. */
-export interface RtDieView { nodeId: string; cauldron: number; oath: number; rate: number; take: number; low: number; high: number }
+/**
+ * What the die screen shows: the cauldron, the oath, П4's greed step multiplier (1 — none), and the resources «Забрать» (×1),
+ * 1–3 (×0.5) and 4–6 (×2) pay.
+ */
+export interface RtDieView { nodeId: string; cauldron: number; oath: number; greed: number; rate: number; take: number; low: number; high: number }
 export function rtDieView(run: RtRunState): RtDieView | null {
   const pending = run.pending;
   if (pending?.kind !== 'die') return null;
   const door = pending.door;
-  return { nodeId: pending.nodeId, cauldron: door.cauldron, oath: door.oath, rate: door.rate, ...rtDiePayouts(door) };
+  return { nodeId: pending.nodeId, cauldron: door.cauldron, oath: door.oath, greed: door.greed ?? 1, rate: door.rate, ...rtDiePayouts(door) };
 }
 
 /**

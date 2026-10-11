@@ -34,7 +34,7 @@ import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadSessio
 import { SessionClock } from './session';
 import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
-import { doorPayout, nextHeat } from '../sim/purse';
+import { doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
 import { oathLine, oathMark, OATHS, type OathId } from '../sim/oath';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
 import { BuildColumn, labelOf } from './buildColumn';
@@ -706,7 +706,7 @@ async function boot(): Promise<void> {
       ['Убито', String(w.stats.kills)],
       // Casino «Котёл»: the cauldron and what the door pays for it (die ×1) instead of the score; in a run with the die
       // pending («Кость у двери») the die comes next — the row says so.
-      w.params.purse ? ['Котёл', w.purse?.door ? `${w.purse.door.cauldron} → ресурсов ${doorPayout(w.purse.door).length}${runView?.diePending ? ' (до кости)' : ''}` : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
+      w.params.purse ? ['Котёл', w.purse?.door ? `${w.purse.door.cauldron}${(w.purse.door.greed ?? 1) > 1 ? ` ×${multText(w.purse.door.greed!)}` : ''} → ресурсов ${doorPayout(w.purse.door).length}${runView?.diePending ? ' (до кости)' : ''}` : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
       ['Лучшая цепь', `${w.stats.bestChain} убийств`],
       ['Кристаллов выпало', String(w.stats.crystals)],
       ['В стадии жадности', greed],
@@ -831,7 +831,8 @@ async function boot(): Promise<void> {
     const goal = goalProgress(w);
     // Casino «Котёл»: with the cauldron on the score line shows the cauldron instead of the score.
     scoreText.textContent = w.params.purse ? `котёл ${w.purse?.cauldron ?? 0}` : `очки ${w.stats.score}`;
-    goalText.textContent = w.stage === 'greed' ? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
+    // П4 «Раздув за дела» (purse.ts `greedLine`): after the goals the line shows the cauldron, its greed step and the next one.
+    goalText.textContent = w.stage === 'greed' ? greedLine(w) ?? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     // Casino «Ставка клятвы»: the oath's line under the goal (none without an oath).
     const oathNow = oathLine(w);

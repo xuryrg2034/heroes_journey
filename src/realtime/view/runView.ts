@@ -29,6 +29,7 @@ import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
 import type { SessionClock } from './session';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
+import { multText } from '../sim/purse';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -471,7 +472,9 @@ export class RunView {
       // the roll, the cap and the oath included.
       const view = rtDieView(run)!;
       const oath = view.oath > 1 ? ' · клятва выполнена' : view.oath < 1 ? ' · клятва нарушена' : '';
-      return card(`<h2>Кость у двери</h2><p data-testid="die-cauldron">Котёл ${view.cauldron}${oath}.</p>`
+      // П4 «Раздув за дела»: the greed step the door recorded (the payouts below include it).
+      const greed = view.greed > 1 ? ` ×${multText(view.greed)}` : '';
+      return card(`<h2>Кость у двери</h2><p data-testid="die-cauldron">Котёл ${view.cauldron}${greed}${oath}.</p>`
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="die-take" data-testid="die-take"><b>Забрать: ${resourcesWord(view.take)}</b></button>`
         + `<button class="rt-run-choice" data-action="die-roll" data-testid="die-roll"><b data-testid="die-odds">${dieRollText(view.low, view.high)}</b>`
         + `<small>Кость: 1–${DIE_LOW_FACES} и ${DIE_LOW_FACES + 1}–6 поровну.</small></button></div>`, 'run-die');

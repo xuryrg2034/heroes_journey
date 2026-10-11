@@ -106,3 +106,48 @@ test('a run arena plays with the cauldron: the HUD shows «котёл N», the r
   await expect(page.getByTestId('result')).toContainText(`${door.cauldron} → ресурсов ${Math.min(3, Math.floor(door.cauldron / 60))}`);
   expect(errors).toEqual([]);
 });
+
+/** Draws a chain of weak enemies at `xs` (y 9.2) with the mouse from the hero at x 1 and lets the dash run until the cauldron grows. */
+async function mouseChain(page: Page, xs: readonly number[]): Promise<void> {
+  const before = (await purse(page)).cauldron ?? 0;
+  await page.evaluate(() => (window as any).__realtime.teleport(1, 9.2));
+  for (const x of xs) await place(page, x, 9.2);
+  const screens: { x: number; y: number }[] = [];
+  for (const x of xs) screens.push(await screen(page, x, 9.2));
+  await page.mouse.move(screens[0].x, screens[0].y);
+  await page.mouse.down();
+  for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y);
+  await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(xs.length);
+  await page.mouse.up();
+  await expect.poll(async () => (await purse(page)).cauldron ?? 0, { timeout: 8_000 }).toBeGreaterThan(before);
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime.snapshot().move), { timeout: 8_000 }).toBe(false);
+}
+
+test('П4 «Раздув за дела»: the panel toggle; after the goals the goal line shows the cauldron, its step and the next one; a hit takes a step off', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await freeze(page);
+  // The sandbox: the debug panel's checkboxes (the cauldron and the rule).
+  await page.keyboard.press('Backquote');
+  await expect(page.getByTestId('debug-panel')).toBeVisible();
+  await page.locator('[data-param="purse"] input').check();
+  await page.locator('[data-param="greedByDeeds"] input').check();
+  await page.keyboard.press('Backquote');
+  await expect(page.getByTestId('debug-panel')).toBeHidden();
+  expect(await page.evaluate(() => { const p = (window as any).__realtime.params; return [p.purse, p.greedByDeeds]; })).toEqual([true, true]);
+  await expect(page.getByTestId('goal')).not.toContainText('дверь открыта');
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await expect(page.getByTestId('goal')).toHaveText('дверь открыта · котёл 0 ×1 · ещё 2 цепи 3+ → ×1,5');
+  // A chain of 3 enemy links (3 × 2 = 6) after the goals: one toward ×1,5.
+  await mouseChain(page, [2, 3, 4]);
+  await expect(page.getByTestId('goal')).toHaveText('дверь открыта · котёл 6 ×1 · ещё 1 цепь 3+ → ×1,5');
+  await mouseChain(page, [2, 3, 4]);
+  await expect(page.getByTestId('goal')).toHaveText('дверь открыта · котёл 12 ×1,5 · ещё 2 цепи 3+ → ×2');
+  await expect(page.getByTestId('score')).toHaveText('котёл 12');
+  await page.screenshot({ path: 'artifacts/realtime-greed-line.png' });
+  // A touch: an enemy put on the hero hurts him — the step goes back to ×1.
+  await page.evaluate(() => { const rt = (window as any).__realtime, h = rt.snapshot().hero; rt.place(h.x, h.y, 1, 0); });
+  await expect(page.getByTestId('goal')).toHaveText('дверь открыта · котёл 12 ×1 · ещё 2 цепи 3+ → ×1,5', { timeout: 8_000 });
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  expect(errors).toEqual([]);
+});

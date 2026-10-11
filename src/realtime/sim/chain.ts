@@ -36,7 +36,7 @@ import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
 import { leverReady, pullLever } from './slot';
-import { linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
+import { greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathRelease } from './oath';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
@@ -648,6 +648,8 @@ export function releaseChain(world: World): boolean {
   }
   // Casino «Котёл»: the dash counts its cheque (purse.ts; absent while the cauldron is off).
   if (purseOn(world)) world.move.purse = { embers: 0, links: 0, last: false };
+  // П4 «Раздув за дела»: a chain released with the door open counts toward a greed step (absent while the rule is off).
+  greedRelease(world, world.move);
   // Casino «Ставка клятвы» (oath.ts): «Цепи 3+» counts the released chain's enemy links (in the release's tick).
   if (world.oath) {
     const end = links[links.length - 1], button = end.kind === 'object' ? findObject(world, end.id) : undefined;
