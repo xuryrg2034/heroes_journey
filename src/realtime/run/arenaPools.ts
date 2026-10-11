@@ -22,7 +22,7 @@
  */
 import { FOREST_TRUNK_LAST_ROW } from '../forest/forestMap';
 import { arenaTemplate } from '../sim/arenas';
-import { rosterChoices } from '../sim/rosters';
+import { poolRosterChoices, rosterChoices } from '../sim/rosters';
 // The behaviour arenas register themselves (the pools name them without going through the simulation).
 import '../sim/arenasStage3';
 
@@ -30,11 +30,12 @@ import '../sim/arenasStage3';
 export interface ArenaPoolEntry { arena: string; rows: readonly [number, number] }
 
 /**
- * Баланс: the pools (docs/realtime-slice.md, section 5: Поляна 1–3, Двор кнопок 1–4, Логово 2–5; step 2: Стена щитов 3–6,
- * Стрелковая гряда 4–7, Пороховой склад 4–8, Колючие заросли 5–8; step 4: Брод 6–9; stage 3a: Рысье логово 2–9, Круг
- * шамана 5–9 — at the end of the list, so the order of the earlier candidates stays).
+ * Баланс: the pools of a run without the roster mix (a save before 11.10.2026; docs/realtime-slice.md, section 5: Поляна 1–3,
+ * Двор кнопок 1–4, Логово 2–5; step 2: Стена щитов 3–6, Стрелковая гряда 4–7, Пороховой склад 4–8, Колючие заросли 5–8;
+ * step 4: Брод 6–9; stage 3a: Рысье логово 2–9, Круг шамана 5–9 — at the end of the list, so the order of the earlier
+ * candidates stays). A new run plays `ARENA_POOLS` (below).
  */
-export const ARENA_POOLS: readonly ArenaPoolEntry[] = [
+export const ARENA_POOLS_BEFORE_MIX: readonly ArenaPoolEntry[] = [
   { arena: 'glade', rows: [1, 3] },
   { arena: 'buttons', rows: [1, 4] },
   { arena: 'marked', rows: [2, 5] },
@@ -46,6 +47,15 @@ export const ARENA_POOLS: readonly ArenaPoolEntry[] = [
   { arena: 'lynx-den', rows: [2, 9] },
   { arena: 'shaman-circle', rows: [5, 9] },
 ];
+/**
+ * Баланс, решение дизайна 11.10.2026 (A3, docs/realtime-phase-a.md, section 4): the pools of a run with the roster mix
+ * (`RtRunState.rosterMix`, `Params.rosterMix`) — «Логово» on run rows 6–9 instead of 2–5, in the same place of the list (the
+ * order of the candidates stays); every other entry as before. On rows 2–5 «Логово» lost to the own arenas of unmet kinds,
+ * so its pool rosters came only before any meeting; on rows 6–9 the kinds are usually met.
+ */
+export const ARENA_POOLS: readonly ArenaPoolEntry[] = ARENA_POOLS_BEFORE_MIX.map(entry => entry.arena === 'marked' ? { arena: 'marked', rows: [6, 9] as const } : entry);
+/** The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) — `ARENA_POOLS_BEFORE_MIX`. */
+export const runArenaPools = (mix: boolean): readonly ArenaPoolEntry[] => mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */
 export const HARD_ARENA = 'outpost';
 /** Arena 10 «Последний рубеж»: the final of the run — every boss node (section 3: the boss nodes lead to the final arena). */
@@ -155,12 +165,31 @@ export function rosterMet(history: readonly string[]): Set<string> {
 export const ROSTER_SALT = [...'rt-roster'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 
 /**
+ * Решение дизайна 11.10.2026 («B half», docs/realtime-phase-a.md, section 4): in a run with the roster mix «Застава» and
+ * «Брод» keep their own composition in about half of the fights (the top bit of the node's roster roll is 0) and else take
+ * one pool roster whose kinds are all met, by the window of repeats — as the pool arenas do. Before, both had a fixed
+ * composition, and the pool arenas (rows 1–2 in practice) came before most meetings, so five of the seven pool rosters never
+ * came. The value lists the pool rosters the arena never takes: «Шаманский щит» not on «Брод» (the bot measure of
+ * 11.10.2026: ×2 time, ×2.7 damage of «Брод» with its own composition — a trap). The final arena and the others keep their
+ * rule.
+ */
+export const MIXED_ROSTER_ARENAS: Readonly<Record<string, readonly string[]>> = { outpost: [], ford: ['shaman-shield'] };
+
+/**
  * The roster of an arena entered on run row `row` after the arenas `history` and the rosters `rosters` (in entering order):
  * undefined — the template's own composition (`rosterChoices`); otherwise one admissible roster by `roll` (the node's own
  * roll, `mixSeed(arenaSeed, ROSTER_SALT)`) with the window of repeats of the pools (`pickWithWindow`). No stream of the
- * run is spent: the arenas are chosen as before.
+ * run is spent: the arenas are chosen as before. `mix` — the run's roster mix (`MIXED_ROSTER_ARENAS`); without it «Застава»
+ * and «Брод» keep their own composition, as before 11.10.2026.
  */
-export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number): string | undefined {
+export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number, mix = false): string | undefined {
+  const excluded = mix ? MIXED_ROSTER_ARENAS[arena] : undefined;
+  if (excluded) {
+    // The roster mix: the top bit of the roll keeps the own composition, else the window over the admissible pool rosters
+    // (its low bits choose, as for any roster).
+    if ((roll >>> 31) === 0) return undefined;
+    return pickWithWindow(poolRosterChoices(rosterMet(history)).filter(id => !excluded.includes(id)), rosters, roll) ?? undefined;
+  }
   const choices = rosterChoices(arena, row, rosterMet(history));
   if (!choices) return undefined;
   const roster = pickWithWindow(choices, rosters, roll);

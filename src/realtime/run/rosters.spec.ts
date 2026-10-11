@@ -20,11 +20,12 @@ import { enemyKind } from '../sim/enemies/kinds';
 import {
   ALWAYS_MET, ANCHOR_ARENAS, ANCHOR_ROLE_ROW, ANCHOR_ROLES, FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTER_ARENAS, POOL_ROSTERS, rosterChoices, rosterDef, rosterKinds, rosterTitle, withRoster,
 } from '../sim/rosters';
-import { RUN_ARENAS, runRow } from './arenaPools';
+import { MIXED_ROSTER_ARENAS, rosterMet, RUN_ARENAS, runRow } from './arenaPools';
 import {
   arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode,
-  rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, RT_RUN_VERSION, type RtRunState, type RtRunStep,
+  rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
 } from './rtRun';
+import saveBeforeMix from '../../../tests/fixtures/rt-run-save-before-mix.json';
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
 import shieldsWolvesJournal from '../../../tests/fixtures/realtime-browser-journal-shields-wolves.json';
 import type { Journal } from '../sim/simulation';
@@ -57,10 +58,11 @@ interface Played { row: number; type: string; arena: string; roster?: string; ru
 /**
  * The walk of the measure of c8df2d4 (rtRun.spec.ts, `arenaPath`): the mini gift, the first button of every screen, the
  * next node by `(k + step)`, every arena a victory without simulation. Each entered battle is checked against the map's
- * preview (equal, and the preview spends nothing) and the save (it loads back).
+ * preview (equal, and the preview spends nothing) and the save (it loads back). `mix` — the run's roster mix (a new run:
+ * on; off — a run before 11.10.2026).
  */
-function walk(seed: number, k: number): Played[] {
-  let run = createRtRun(seed, { gift: 'mini' });
+function walk(seed: number, k: number, mix = true): Played[] {
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix });
   const played: Played[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
@@ -100,7 +102,7 @@ check('rosters are data apart from the layout: known kinds and roles; the arenas
     for (const kind of rosterKinds(def)) { assert(enemyKind(kind) && KIND_ROLE[kind], `${def.id}: kind ${kind}`); }
     assert(rosterKinds(def).length > 0 && rosterDef(def.id) === def, `${def.id}: registered`);
   }
-  for (const arena of POOL_ROSTER_ARENAS) assert(arenaTemplate(arena).enemies.every(e => e.marked || e.elite), `${arena}: a start enemy outside the goal`);
+  for (const arena of [...POOL_ROSTER_ARENAS, ...Object.keys(MIXED_ROSTER_ARENAS)]) assert(arenaTemplate(arena).enemies.every(e => e.marked || e.elite), `${arena}: a start enemy outside the goal`);
   for (const [arena, anchor] of Object.entries(ANCHOR_ARENAS)) {
     const t = arenaTemplate(arena);
     assert(t.newcomers?.[0]?.kind === anchor.kind && t.enemies.every(e => e.marked || e.elite || e.kind === anchor.kind), `${arena}: anchor ${anchor.kind}`);
@@ -129,7 +131,9 @@ check(`${RUNS} runs: no roster brings a kind not seen on an earlier arena; «П�
       const kinds = entry.roster !== undefined ? rosterKinds(rosterDef(entry.roster)!) : [];
       unseen += kinds.filter(kind => !seen.has(kind)).length;
       const anchor = ANCHOR_ARENAS[entry.arena];
-      if (FIXED_ROSTER_ARENAS.includes(entry.arena) || entry.arena === 'glade' && entry.row === 1) assert(entry.roster === undefined, `${entry.arena} row ${entry.row}: ${entry.roster}`);
+      // The roster mix (11.10.2026): «Застава» and «Брод» — their own composition or a pool roster (checked below).
+      if (entry.arena in MIXED_ROSTER_ARENAS) assert(entry.roster === undefined || rosterDef(entry.roster)!.mode === 'replace', `${entry.arena} row ${entry.row}: ${entry.roster}`);
+      else if (FIXED_ROSTER_ARENAS.includes(entry.arena) || entry.arena === 'glade' && entry.row === 1) assert(entry.roster === undefined, `${entry.arena} row ${entry.row}: ${entry.roster}`);
       else if (anchor) {
         const pure = !seen.has(anchor.kind) && entry.row < ANCHOR_ROLE_ROW;
         assert((entry.roster === undefined) === pure, `${entry.arena} row ${entry.row}: ${entry.roster}, ${anchor.kind} ${seen.has(anchor.kind) ? 'seen' : 'unseen'}`);
@@ -157,6 +161,70 @@ check('the same seed and steps give the same rosters; different seeds — differ
   // Short pools (two rosters on the early rows): coincidences are allowed, a fixed sequence is not — as the arena sequences.
   assert(sequences.size >= 10, `roster sequences: ${sequences.size} of 20`);
   for (const played of walks.slice(0, 20)) for (const entry of played) assert(entry.run.streams.pool === entry.run.picks.filter(pick => pick.arena !== undefined).length, 'one pool draw per arena');
+});
+
+// ---- The roster mix (design decision 11.10.2026: «B half + A3») ----
+
+/** FNV-1a of a text (a fingerprint of the walks). */
+const fnv = (text: string): string => ([...text].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5)).toString(16);
+
+check(`roster mix, ${RUNS} runs: «Застава» and «Брод» keep their own composition in some fights and take pool rosters in others, only of met kinds; «Шаманский щит» never on «Брод»; every pool roster comes`, () => {
+  const byArena = new Map<string, Map<string, number>>(), runsWith = new Map<string, number>();
+  for (const played of walks) {
+    for (const entry of played) {
+      if (!(entry.arena in MIXED_ROSTER_ARENAS)) continue;
+      // Only met kinds: the rule's own meeting (`rosterMet`, the arenas entered before) holds every kind of the roster.
+      const met = rosterMet(entry.run.picks.filter(pick => pick.arena !== undefined && pick.nodeId !== (entry.run.pending as { nodeId: string }).nodeId).map(pick => pick.arena!));
+      if (entry.roster !== undefined) assert(rosterKinds(rosterDef(entry.roster)!).every(kind => ALWAYS_MET.includes(kind) || met.has(kind)), `${entry.arena} row ${entry.row}: ${entry.roster} with ${[...met]}`);
+      assert(!(entry.arena === 'ford' && entry.roster === 'shaman-shield'), '«Шаманский щит» on «Брод»');
+      const counts = byArena.get(entry.arena) ?? new Map<string, number>(), key = entry.roster ?? 'own';
+      counts.set(key, (counts.get(key) ?? 0) + 1); byArena.set(entry.arena, counts);
+    }
+    for (const id of new Set(played.flatMap(entry => entry.roster !== undefined && rosterDef(entry.roster)!.mode === 'replace' ? [entry.roster] : []))) runsWith.set(id, (runsWith.get(id) ?? 0) + 1);
+  }
+  for (const arena of Object.keys(MIXED_ROSTER_ARENAS)) {
+    const counts = byArena.get(arena)!, own = counts.get('own') ?? 0, fights = [...counts.values()].reduce((a, b) => a + b, 0);
+    console.log(`   ${arena}: ${fights} fights, own ${own}; ${[...counts].filter(([key]) => key !== 'own').map(([key, n]) => `${key} ${n}`).join(', ')}`);
+    assert(own > 0 && own < fights, `${arena}: own composition ${own} of ${fights}`);
+  }
+  // The five pool rosters that never came before the mix (docs/realtime-phase-a.md, section 4) come now; frequencies are not asserted.
+  console.log(`   runs with each pool roster: ${POOL_ROSTERS.map(def => `${def.id} ${runsWith.get(def.id) ?? 0}`).join(', ')}`);
+  for (const def of POOL_ROSTERS) assert((runsWith.get(def.id) ?? 0) > 0, `${def.id}: in no run`);
+});
+
+check(`roster mix off: the arenas and rosters of ${RUNS} runs are those before 11.10.2026 (the fingerprint of the walks at 99af5fb), «Застава» and «Брод» keep their own composition`, () => {
+  const off = Array.from({ length: RUNS }, (_, n) => walk(seedOf(n + 1), n + 1, false));
+  assert(off.every(played => played.every(entry => !(entry.arena in MIXED_ROSTER_ARENAS) || entry.roster === undefined)), 'a roster on «Застава» or «Брод» without the mix');
+  assert(off.every(played => played.every(entry => entry.run.rosterMix === undefined)), 'no flag in the save');
+  const print = fnv(off.map(played => played.map(entry => `${entry.arena}/${entry.roster ?? '-'}`).join(',')).join('|'));
+  assert(print === '84916ad7', `fingerprint ${print}, at 99af5fb 84916ad7`);
+  // A new run has the mix (the run turns it on, RT_RUN_FORCED) and plays other choices.
+  assert(RT_RUN_FORCED.rosterMix === true && defaultParams().rosterMix === false && createRtRun(seedOf(1)).rosterMix === true, 'the run turns the mix on');
+  assert(fnv(walks.map(played => played.map(entry => `${entry.arena}/${entry.roster ?? '-'}`).join(',')).join('|')) !== print, 'the mix changes the choices');
+  console.log(`   fingerprint ${print} (99af5fb: 84916ad7)`);
+});
+
+check('a save before the roster mix (written by 99af5fb, the open «Брод» after «Логово» on run row 2) loads unchanged and plays on by the old rule; a mixed save without its flag, or with another value, is no run', () => {
+  const text = (saveBeforeMix as { save: string }).save, run = parseRtRun(text);
+  assert(run && serializeRtRun(run) === text && run.rosterMix === undefined, 'the old save loads unchanged');
+  const pending = run.pending as { kind: string; arena: string; roster?: string; nodeId: string };
+  assert(pending.kind === 'battle' && pending.arena === 'ford' && pending.roster === undefined, `the open battle: ${pending.arena}/${pending.roster}`);
+  // The same save under the mix: «Логово» on row 2 is not a choice of its pools — the flag is what keeps it a run.
+  assert(parseRtRun(JSON.stringify({ ...JSON.parse(text), rosterMix: true })) === null, 'the old save read under the mix');
+  const won = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'win the old save\'s «Брод»');
+  assert(same(roundTrip(won), won), 'plays on and saves');
+  let tried = 0;
+  for (const played of walks) {
+    const entry = played.find(e => e.arena in MIXED_ROSTER_ARENAS && e.roster !== undefined);
+    if (!entry) continue;
+    const copy = JSON.parse(serializeRtRun(entry.run)) as Record<string, unknown>;
+    assert(copy.rosterMix === true, 'a new run saves its flag');
+    delete copy.rosterMix;
+    assert(parseRtRun(JSON.stringify(copy)) === null, `a mixed save without the flag: ${entry.arena}/${entry.roster}`);
+    assert(parseRtRun(JSON.stringify({ ...copy, rosterMix: false })) === null, 'rosterMix: false');
+    if (++tried >= 10) break;
+  }
+  assert(tried >= 10, `mixed saves tried: ${tried}`);
 });
 
 // ---- The save ----

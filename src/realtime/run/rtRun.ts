@@ -33,7 +33,7 @@ import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
-import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { runParams, type Params } from '../sim/params';
@@ -64,6 +64,9 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * counter is the number of the oath nodes it entered, its open battle has no offer. Casino stage 1, item 4 (the same
  * version, 11.10.2026): the die at the door — the counter of the die stream (`dieDraws`, absent until the first die) and
  * the open die screen (`pending` of kind `die`); a version 6 save and a version 7 save without them have thrown no die.
+ * The roster mix (the same version, design decision 11.10.2026): the run's flag `rosterMix`, set at its creation; a save
+ * without it (version 6, or version 7 before the mix) is read and keeps the old pools and rosters to its end — its arenas
+ * and rosters are chosen again by the rule they were chosen with, so no save in progress is rejected.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -77,8 +80,10 @@ export const RT_RUN_VERSION_V6 = 6;
  * cauldron («Котёл», `purse`) is on in every run arena; «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`,
  * `rtArenaLoadout`); the oath stake is on (which battles offer oaths — `rtOathNode`, the oath of the battle — `Loadout.oath`);
  * the die at the door is on (`doorDie`: the arena's outcome carries it to `resolveArena`, the simulation never reads it).
+ * The roster mix (design decision 11.10.2026, `rosterMix`) is on: a new run keeps it in its state (`RtRunState.rosterMix`,
+ * `createRtRun`), the arena and roster choices read it there; the simulation never reads it.
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true, doorDie: true,
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true, doorDie: true, rosterMix: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
   slotPulls: 3, slotCooldown: 8, slotSpin: 1.2 });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
@@ -163,6 +168,13 @@ export interface RtRunState {
   seed: number;
   /** The run was started with a given seed (`?seed=`): the gift is the full one and the profile's gift mark is not changed. */
   seeded?: true;
+  /**
+   * The roster mix (design decision 11.10.2026, `Params.rosterMix`; run/arenaPools.ts `MIXED_ROSTER_ARENAS`, `ARENA_POOLS`):
+   * «Застава» and «Брод» take a pool roster in about half of their fights, «Логово» stands on run rows 6–9. Set when the run
+   * is created and kept for the whole run: every arena and roster of the save is chosen again by the rule it was chosen
+   * with. Absent — a run saved before 11.10.2026 (or created without the mix): the pools and rosters as before, to its end.
+   */
+  rosterMix?: true;
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -292,10 +304,15 @@ export interface RtArenaOutcome {
 
 // ---------- Creating a run, the map ----------
 
-/** A new run of `seed`: the map by the seed, 15 HP, the start gift of `gift` kind waiting before the row-5 nodes. */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean } = {}): RtRunState {
+/**
+ * A new run of `seed`: the map by the seed, 15 HP, the start gift of `gift` kind waiting before the row-5 nodes. The roster
+ * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
+ * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
+ */
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean } = {}): RtRunState {
+  const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -557,16 +574,17 @@ export function arenaPreview(run: RtRunState, node: ForestMapNode): RtArenaPick 
  * The arenas a node may play now (step 4), `history` — the arenas the run entered so far: a hard battle — «Застава», a
  * boss node — the final arena «Последний рубеж» (no guarantee of meeting a kind first on its own arena); a battle, the
  * Jailer's row, the breakthrough and an event's reward battle — the pool of its run row under the rule «a new enemy
- * first on its own arena» (`ordinaryArenaChoices`, design answers 1 and 2 to step 4).
+ * first on its own arena» (`ordinaryArenaChoices`, design answers 1 and 2 to step 4). `mix` — the run's roster mix
+ * (`RtRunState.rosterMix`): the pools `ARENA_POOLS`, else those before 11.10.2026 (`ARENA_POOLS_BEFORE_MIX`).
  */
-export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = []): string[] {
+export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = [], mix = false): string[] {
   if (node.type === 'hard') return [HARD_ARENA];
   if (node.type === 'boss') return [FINAL_ARENA];
-  return ordinaryArenaChoices(runRow(node.row), history);
+  return ordinaryArenaChoices(runRow(node.row), history, runArenaPools(mix));
 }
-/** The arena of a node by draw `roll` of the pool stream after `history` (a save is checked with it too). */
-function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number): string {
-  return pickArena(nodeArenas(node, history), history, roll);
+/** The arena of a node by draw `roll` of the pool stream after `history` (a save is checked with it too); `mix` — the run's roster mix. */
+function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number, mix: boolean): string {
+  return pickArena(nodeArenas(node, history, mix), history, roll);
 }
 /** The battle kind a node plays (an event node plays its reward battle). */
 const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : node.type === 'event' ? 'event' : 'battle';
@@ -577,7 +595,7 @@ const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.t
  */
 function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtArenaPick {
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
-  const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll);
+  const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll, !!run.rosterMix);
   const roster = chooseRoster(run, node, arena, history, run.picks.flatMap(pick => pick.roster !== undefined ? [pick.roster] : []));
   return { arena, ...roster !== undefined ? { roster } : {} };
 }
@@ -587,10 +605,11 @@ export const arenaSeed = (run: Pick<RtRunState, 'seed'>, nodeId: string): number
 
 /**
  * Phase A (Т2): the roster of `arena` on `node` after the arenas `history` and the rosters `rosters` of the run — by the
- * node's own roll (the arena seed and the salt «rt-roster»), no stream spent (a save is checked with it too).
+ * node's own roll (the arena seed and the salt «rt-roster»), no stream spent (a save is checked with it too). With the
+ * run's roster mix «Застава» and «Брод» take a pool roster in about half of their fights (`MIXED_ROSTER_ARENAS`).
  */
-function chooseRoster(run: Pick<RtRunState, 'seed'>, node: Pick<ForestMapNode, 'id' | 'row'>, arena: string, history: readonly string[], rosters: readonly string[]): string | undefined {
-  return pickRoster(arena, runRow(node.row), history, rosters, mixSeed(arenaSeed(run, node.id), ROSTER_SALT));
+function chooseRoster(run: Pick<RtRunState, 'seed' | 'rosterMix'>, node: Pick<ForestMapNode, 'id' | 'row'>, arena: string, history: readonly string[], rosters: readonly string[]): string | undefined {
+  return pickRoster(arena, runRow(node.row), history, rosters, mixSeed(arenaSeed(run, node.id), ROSTER_SALT), !!run.rosterMix);
 }
 
 function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, events: RtRunEvent[]) {
@@ -1296,6 +1315,8 @@ const isTalismanList = (value: unknown): value is RtTalismanId[] => Array.isArra
 function checkRun(value: unknown): RtRunState | null {
   if (!isRecord(value) || value.version !== RT_RUN_VERSION || !isSeed(value.seed) || validateStoredMap(value.map).length) return null;
   if (value.seeded !== undefined && value.seeded !== true) return null;
+  // The roster mix (11.10.2026): a flag; absent — a save before it, whose arenas and rosters are chosen again by the old rule.
+  if (value.rosterMix !== undefined && value.rosterMix !== true) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;
   const run = value as unknown as RtRunState;
@@ -1347,13 +1368,14 @@ function checkRun(value: unknown): RtRunState | null {
   // Step 4 (review): every arena of the run is chosen again — the k-th arena is the draw k of the pool stream after the
   // arenas before it, by the rule of its node (an event node: its reward battle). A save of steps 1–3 whose arenas the
   // step-4 rule would not choose reads as no run. Phase A (Т2): so is every roster — by the node's roll after the arenas
-  // and rosters before it (absent where the arena keeps its own composition).
+  // and rosters before it (absent where the arena keeps its own composition). The roster mix (11.10.2026): by the rule of
+  // the run's flag `rosterMix` (absent — the pools and rosters before it).
   const history: string[] = [], rosters: string[] = [];
   for (const pick of run.picks) {
     if (pick.arena === undefined) continue;
     const node = map.node(pick.nodeId)!;
     if (!isArenaNode(node) && !(node.type === 'event' && pick.eventId && battleOption(forestEvent(pick.eventId)!))) return null;
-    if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length))) return null;
+    if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length), !!run.rosterMix)) return null;
     if (pick.roster !== chooseRoster(run, node, pick.arena, history, rosters)) return null;
     history.push(pick.arena);
     if (pick.roster !== undefined) rosters.push(pick.roster);

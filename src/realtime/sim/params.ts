@@ -571,6 +571,15 @@ export interface Params {
    * the door at once, as before. A run turns it on (run/rtRun.ts `RT_RUN_FORCED`); the sandbox has no die (no run).
    */
   doorDie: boolean;
+  // ---- Roster mix (run/arenaPools.ts, docs/realtime-phase-a.md, section 4; design decision 11.10.2026). ----
+  /**
+   * The roster mix of the run: «Застава» and «Брод» take a pool roster whose kinds are all met in about half of their fights
+   * («Шаманский щит» never on «Брод»), «Логово» stands in the pools of run rows 6–9 instead of 2–5. A run-layer rule: the
+   * simulation never reads it (the roster comes as `Simulation` option `roster`). Off by default — the choice of arenas
+   * and rosters as before. A run turns it on (run/rtRun.ts `RT_RUN_FORCED`) and keeps it in its save (`rosterMix`); the
+   * sandbox has no run.
+   */
+  rosterMix: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -883,6 +892,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   oathStake: false,
   // Casino «Кость у двери» (run/rtRun.ts): off by default.
   doorDie: false,
+  // Roster mix (run/arenaPools.ts): off by default.
+  rosterMix: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1211,6 +1222,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Casino «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'doorDie', group: 'Котёл', label: 'Кость у двери (поход)', stage: 5,
     hint: 'Только поход: после победы с котлом больше 0 — экран кости. «Забрать» — котёл как есть, «Бросить» — 1–3 ×0,5, 4–6 ×2. В походе включено всегда; в песочнице не действует.' },
+  // Roster mix (run/arenaPools.ts, docs/realtime-phase-a.md, section 4).
+  { kind: 'bool', key: 'rosterMix', group: 'Составы', label: 'Составы Заставы и Брода (поход)', stage: 5,
+    hint: 'Только поход: «Застава» и «Брод» примерно в половине боёв берут состав пула из встреченных видов («Шаманский щит» — не на «Броде»); «Логово» — на рядах 6–9. В походе включено всегда; в песочнице не действует.' },
 ];
 
 const MAX_PHASES = 8;

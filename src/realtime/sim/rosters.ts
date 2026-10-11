@@ -5,14 +5,16 @@
  * shares, the share of wolf packs among the groups and the share of boars among the single newcomers.
  *
  * Three kinds of arenas in the run (design answer 2, 09.10.2026):
- * - fixed composition (`FIXED_ROSTER_ARENAS`; «Поляна» on run row 1 — the chain lesson): the template's own, no roster;
+ * - fixed composition (`FIXED_ROSTER_ARENAS`; «Поляна» on run row 1 — the chain lesson): the template's own, no roster
+ *   (the roster mix of 11.10.2026 below is the run's exception for «Застава» and «Брод»);
  * - pool arenas (`POOL_ROSTER_ARENAS`: «Двор кнопок», «Логово», «Поляна» from run row 2): one roster of `POOL_ROSTERS`
  *   replaces the template's newcomers and its pack and boar shares;
  * - anchor arenas (`ANCHOR_ARENAS`: «Стена щитов», «Пороховой склад», «Колючие заросли», «Рысье логово»): the anchor
  *   kind keeps its share and one role of `ANCHOR_ROLES` is added — when the kind was met before, or from run row
  *   `ANCHOR_ROLE_ROW` (4) on; at the first meeting of the anchor kind on rows 1–3 the composition is the template's own.
  * A roster or a role is admissible only when every kind in it was met in the run (`rosterChoices`); basic enemies, wolves
- * and boars need no meeting. Which one comes is the run's decision (run/arenaPools.ts, `nodeRoster`).
+ * and boars need no meeting. Which one comes is the run's decision (run/arenaPools.ts, `pickRoster`);
+ * in a run with the roster mix (11.10.2026) «Застава» and «Брод» take a pool roster in about half of their fights.
  *
  * The simulation takes a roster by id (`withRoster`, `Simulation` option `roster`, journal field `roster`); without one
  * the arena plays its template as before (old journals replay to the same hash).
@@ -76,7 +78,11 @@ export const ANCHOR_ROLES: readonly RosterDef[] = [
   { id: '+lynx', title: 'рыси', mode: 'add', kinds: [['lynx', 0.08]] },
 ];
 
-/** Arenas whose composition is fixed (their goal or their lesson is the composition), whatever the row. */
+/**
+ * Arenas whose composition is fixed (their goal or their lesson is the composition), whatever the row. A run with the
+ * roster mix (11.10.2026, run/arenaPools.ts `MIXED_ROSTER_ARENAS`) gives «Застава» and «Брод» a pool roster in about half
+ * of their fights; `rosterChoices` keeps them fixed (null).
+ */
 export const FIXED_ROSTER_ARENAS: readonly string[] = ['archers', 'ford', 'shaman-circle', 'outpost', 'last-stand'];
 /** Arenas whose composition comes from `POOL_ROSTERS`. «Поляна» only past `GLADE_LESSON_ROW`. */
 export const POOL_ROSTER_ARENAS: readonly string[] = ['buttons', 'marked', 'glade'];
@@ -105,6 +111,17 @@ export function rosterKinds(def: RosterDef): string[] {
   return [...def.kinds.map(([kind]) => kind), ...(def.wolfShare ?? 0) > 0 ? ['wolf'] : [], ...(def.boarShare ?? 0) > 0 ? ['boar'] : []];
 }
 
+/** Whether every kind of a roster or a role was met (`met`, without `ALWAYS_MET`). */
+const knownTo = (met: ReadonlySet<string>) => (def: RosterDef): boolean => rosterKinds(def).every(kind => ALWAYS_MET.includes(kind) || met.has(kind));
+/**
+ * The pool rosters admissible with the kinds met (`met`), in the order of `POOL_ROSTERS`: what a pool arena takes, and —
+ * in a run with the roster mix (run/arenaPools.ts `MIXED_ROSTER_ARENAS`, 11.10.2026) — «Застава» and «Брод» in place of
+ * their own composition. Never empty («Натиск» and «Волки» need no meeting).
+ */
+export function poolRosterChoices(met: ReadonlySet<string>): string[] {
+  return POOL_ROSTERS.filter(knownTo(met)).map(def => def.id);
+}
+
 /**
  * The rosters an arena may take on run row `row` given the kinds met (`met`, without `ALWAYS_MET`): null — the arena plays
  * its template (fixed composition, «Поляна» of the lesson row, an anchor at the first meeting of its kind before run row
@@ -114,10 +131,10 @@ export function rosterKinds(def: RosterDef): string[] {
  * on «Колючие заросли», no wolves on «Рысье логово»).
  */
 export function rosterChoices(arena: string, row: number, met: ReadonlySet<string>): string[] | null {
-  const known = (def: RosterDef) => rosterKinds(def).every(kind => ALWAYS_MET.includes(kind) || met.has(kind));
+  const known = knownTo(met);
   if (POOL_ROSTER_ARENAS.includes(arena)) {
     if (arena === 'glade' && row <= GLADE_LESSON_ROW) return null;
-    return POOL_ROSTERS.filter(known).map(def => def.id);
+    return poolRosterChoices(met);
   }
   const anchor = ANCHOR_ARENAS[arena];
   if (!anchor || (!met.has(anchor.kind) && row < ANCHOR_ROLE_ROW)) return null;
@@ -157,7 +174,8 @@ export type RosterArena = ArenaTemplate & { readonly roster?: string };
 
 /**
  * The arena `template` with roster or role `id`: the same layout (size, terrain, goal, buttons, door, the start enemies —
- * no arena with rosters has start enemies outside its goal except the anchor's own lynxes), the newcomers and the pack
+ * no arena with rosters has start enemies outside its goal except the anchor's own lynxes; «Брод» and «Застава» of the
+ * roster mix have only marked enemies and elites at the start), the newcomers and the pack
  * and boar shares of the roster. A pool roster replaces the template's newcomers; a role keeps them (the anchor first,
  * its per-roll share unchanged) and adds its kind after them. The shares go to `phaseOverride`: before the goals and in
  * every phase of the greed table.
