@@ -1314,8 +1314,9 @@ export class RealtimeRenderer {
     if (last) this.finisherFlashes++;
     const base = world.params.dashShake;
     if (base > 0) {
-      // A stronger hit shakes more: up to double the base amplitude, a bit longer for the last link.
-      const amp = base * (1 + k) * (last ? 1.3 : 1);
+      // A stronger hit shakes more, but never past `dashShake` (design answer 22: the shake must not grow beyond it); the
+      // flash and the sound carry the rest of the growth. The last link shakes a little longer.
+      const amp = base * (0.5 + 0.5 * k);
       if (this.shakeLeft <= 0.02 || amp > this.shakeAmp) { this.shakeLeft = this.shakeTotal = last ? 0.14 : 0.08; this.shakeAmp = amp; }
     }
   }
