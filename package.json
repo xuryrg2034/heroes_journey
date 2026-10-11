@@ -11,6 +11,7 @@
     "realtime:pockets": "tsx scripts/realtime-pockets.ts",
     "realtime:big-arenas": "tsx scripts/realtime-big-arenas.ts",
     "realtime:measure-loops": "tsx scripts/measure-loops.ts",
+    "realtime:economy": "tsx scripts/realtime-economy.ts",
     "realtime:report": "tsx scripts/realtime-report.ts",
     "realtime:log-fixtures": "tsx scripts/realtime-make-log-fixtures.ts",
     "test:realtime-sim": "tsx src/realtime/sim/realtimeSim.spec.ts",

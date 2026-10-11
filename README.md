@@ -116,6 +116,7 @@ npx playwright test tests/realtime-run.spec.ts
 | `npm run realtime:pockets` | Ищет карманы (недоступные места) на аренах |
 | `npm run realtime:big-arenas` | Замеры бота на больших аренах |
 | `npm run realtime:measure-loops` | Замеры петли «Печать» |
+| `npm run realtime:economy` | Аудит экономики похода: жадный бот играет 300 целых походов (настоящие бои), ресурсы по источникам и стокам (`docs/realtime-casino.md`, «Аудит экономики похода») |
 | `npm run realtime:report -- <папка или JSON>` | Отчёт по логам: повтор боёв по журналу, угрозы, урон, цепи |
 | `npm run realtime:log-fixtures` | Пересоздаёт фикстуры логов в `tests/fixtures/realtime-logs/` |
 
