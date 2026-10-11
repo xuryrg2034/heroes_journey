@@ -1433,10 +1433,11 @@ export class RealtimeRenderer {
       }
       if (ev.type === 'elitePlates') {
         if (ev.action === 'strip') {
-          this.floatText(`−${ev.removed ?? 1} ${platesWord(ev.removed ?? 1)}`, ev.x * UNIT, ev.y * UNIT - 40, ELITE_LEMON);
+          // The strip that opens the window shows only «окно» (one text, not three on top of each other with the power).
+          if (ev.plates > 0) this.floatText(`−${ev.removed ?? 1} ${platesWord(ev.removed ?? 1)}`, ev.x * UNIT, ev.y * UNIT - 40, ELITE_LEMON);
           this.eliteBurst(ev.x, ev.y, 0.9, 0.22, 4);
           this.eliteShown.stripFlashes++;
-        } else if (ev.action === 'open') this.floatText('окно', ev.x * UNIT, ev.y * UNIT - 84, ELITE_LEMON);
+        } else if (ev.action === 'open') this.floatText('окно', ev.x * UNIT, ev.y * UNIT - 40, ELITE_LEMON);
         continue;
       }
       if (ev.type === 'eliteDown') {
