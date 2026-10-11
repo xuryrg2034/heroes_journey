@@ -16,21 +16,17 @@
  *   starts the next arena; the full gift is the turn-based roll as it is;
  * - different seeds give different maps and arena sequences; the real-time keys only are written.
  */
-import { generateForestMap } from '../../game/run/mapGenerator';
-import { forestEvent } from '../../game/run/forestEvents';
-import { forestNodeSeed } from '../../game/run/forestRun';
-import { FOREST_HARD_HEAL, FOREST_REST_HEAL } from '../../game/run/forestMap';
-import { FOREST_RUN_STORAGE_KEY, type RunStorage } from '../../game/run/forestRunStorage';
-import { PLAYER_PROFILE_KEY } from '../../game/run/playerProfile';
+import { generateForestMap } from '../forest/mapGenerator';
+import { forestEvent } from '../forest/forestEvents';
+import { forestNodeSeed } from '../forest/nodeRolls';
+import { FOREST_HARD_HEAL, FOREST_REST_HEAL } from '../forest/forestMap';
 import { defaultParams, runParams } from '../sim/params';
 import { goalProgress } from '../sim/world';
-import { GIFT_STREAMS, rollGift } from '../../game/run/runGift';
-import { rewardChoices } from '../../game/items';
-import { shopStock } from '../../game/run/merchant';
-import { streamValue } from '../../game/run/runStreams';
-import { NODE_TYPE_INFO } from '../../forestMapScreen';
-import { RT_NODE_TYPES } from '../view/nodeTypes';
-import { EVENT_RISK_MIN_HP } from '../../game/run/forestEvents';
+import { GIFT_STREAMS, rollGift } from '../forest/runGift';
+import { rewardChoices } from '../forest/items';
+import { shopStock } from '../forest/merchant';
+import { streamValue } from '../forest/runStreams';
+import { EVENT_RISK_MIN_HP } from '../forest/forestEvents';
 import { replay, Simulation } from '../sim/simulation';
 import { arenaCandidates, arenaNewKinds, ARENA_POOLS, ordinaryArenaChoices, arenaTitle, FINAL_ARENA, HARD_ARENA, metKinds, NEW_KINDS, OWN_ARENAS, runRow, RUN_ARENAS } from './arenaPools';
 import { arenaTemplate } from '../sim/arenas';
@@ -41,10 +37,10 @@ import {
   type RtRunState, type RtRunStep,
 } from './rtRun';
 import type { ItemKind } from '../sim/kit';
-import { ITEM_KINDS } from '../../game/items';
-import type { GiftOption } from '../../game/run/runGift';
+import { ITEM_KINDS } from '../forest/items';
+import type { GiftOption } from '../forest/runGift';
 import { RELICS, RT_TALISMANS, RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer, RT_COUNTER_TALISMANS, RT_RELICS, HAMMER_IDS, OATH_HUNGER, isHammerId, rtHammer } from './rtTalismans';
-import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from './rtRunStorage';
+import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { SLICE_EVENTS, SLICE_EVENTS_OFF } from './sliceEvents';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -258,7 +254,7 @@ check('HP of the run (iteration 2.1): 15, turn-based HP numbers ×3 rounded up (
   assert([1, 2, 3, 5, -1, -2].map(rtHp).join() === '3,6,9,15,-3,-6', 'rtHp');
   const run = createRtRun(SEEDS[0]);
   assert(run.hp === 15 && run.maxHp === 15, 'a run starts with 15 / 15');
-  // The healing consumable heals the turn-based elixir's 3 HP (game/items.ts) ×3: the panel default the run arena takes.
+  // The healing consumable heals the turn-based elixir's 3 HP (forest/items.ts) ×3: the panel default the run arena takes.
   assert(defaultParams().itemHeal === rtHp(3) && rtHp(3) === 9, `healing ${defaultParams().itemHeal}`);
 });
 
@@ -1215,14 +1211,6 @@ check('event prices «злость» and «подкрепление раньше
   assert(firstWave(sim) === 3 && sim.world.kit!.earlyPace, 'both act');
 });
 
-check('icons and labels of the node types equal the turn-based map screen\'s', () => {
-  for (const [type, info] of Object.entries(NODE_TYPE_INFO)) {
-    const own = RT_NODE_TYPES[type as keyof typeof RT_NODE_TYPES];
-    assert(own && own.icon === info.icon && own.label === info.label, `${type}: ${own?.icon} ${own?.label}`);
-  }
-  assert(Object.keys(RT_NODE_TYPES).length === Object.keys(NODE_TYPE_INFO).length, 'same types');
-});
-
 check('a malformed save reads as no run: arena, open node, result, gift, picks, battles, event choices, attempts', () => {
   // Real states to tamper with: a run at an open battle, one at an open event with an attempt, one that ended.
   // A full gift whose off buttons exist (deals and oaths until talismans): the tampered choice below takes one of them.
@@ -1286,6 +1274,9 @@ check('a malformed save reads as no run: arena, open node, result, gift, picks, 
 });
 
 /** A plain object as the Web Storage API. */
+/** Keys of the removed turn-based game's run and profile (tag `turn-based-final`): a player's old saves stay untouched. */
+const FOREST_RUN_STORAGE_KEY = 'ashen-oath-forest-run-v1', PLAYER_PROFILE_KEY = 'ashen-oath-profile-v1';
+
 function memoryStorage(initial: Record<string, string> = {}): RunStorage & { keys(): string[] } {
   const data = new Map(Object.entries(initial));
   return { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value); }, removeItem: key => { data.delete(key); }, keys: () => [...data.keys()] };

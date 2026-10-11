@@ -1,6 +1,6 @@
 /**
  * PixiJS view of the real-time arena (src/realtime/view). Reads the simulation's world, never changes it.
- * Terrain and the hero reuse the art of the main game (drawTerrain, makePlayer);
+ * Terrain and the hero reuse the art of the turn-based game (src/realtime/art/art.ts: drawTerrain, makePlayer);
  * enemies are colored discs with the chain sigil (or the melee illustration),
  * which keeps 60+ enemies cheap: each disc is a sprite of one pre-rendered texture per color.
  * Stage 3: wolf ears and pack lines, boar tusks with the charge lane (threat color, hatched)
@@ -10,8 +10,8 @@
  * drawing) and the «−1 HP» badge on a porcupine link of the drawn chain (`drawChain`).
  */
 import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
-import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
-import { characterSprite } from '../../render/characterAssets';
+import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
+import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
@@ -36,7 +36,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
  * art (`COLORS`, read only); the yellow of the chain becomes ochre `c8962e` — under deuteranopia the old `d8b66a` stood
  * close to the gold of goals and elites (ΔE2000 8.7; ochre against the lemon `ffff66` — 21.3). A fifth colour, if any,
- * keeps the turn-based one. `art.ts` is not changed.
+ * keeps the turn-based one. `art/art.ts` is not changed.
  */
 export const CHAIN_COLORS: readonly number[] = [COLORS[0], COLORS[1], COLORS[2], 0xc8962e, ...COLORS.slice(4)];
 /** The view colour of chain colour `index` (out of range — the last one, as a guard). */

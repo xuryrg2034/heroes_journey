@@ -109,7 +109,7 @@ const RULES: [string, RegExp][] = [
 ];
 
 /** A source file and every module it imports at run time (`import type` brings no code), transitively: the simulation and
- *  the modules of the turn-based game it reads (src/game/items.ts, resources.ts …). */
+ *  the modules of the forest run layer it reads (src/realtime/forest/items.ts, resources.ts …). */
 function simulationSources(): string[] {
   const dir = fileURLToPath(new URL('.', import.meta.url)).replace(/\/$/, ''), files = new Set<string>(), queue: string[] = [];
   const walk = (path: string): void => {
@@ -141,7 +141,7 @@ function simulationSources(): string[] {
   return [...files].sort();
 }
 
-check('no module of the simulation (nor the game modules it imports) reaches a transcendental Math function', () => {
+check('no module of the simulation (nor the forest-layer modules it imports) reaches a transcendental Math function', () => {
   const files = simulationSources(), found: string[] = [];
   for (const file of files) {
     if (file.endsWith('/detMath.ts')) continue;
@@ -149,15 +149,15 @@ check('no module of the simulation (nor the game modules it imports) reaches a t
       for (const [what, rule] of RULES) if (rule.test(line)) found.push(`${file.replace(/^.*\/src\//, 'src/')}:${i + 1} (${what})`);
     });
   }
-  const game = files.filter(file => file.includes('/src/game/')).map(file => file.replace(/^.*\/src\//, 'src/'));
-  assert(game.length > 0, 'the game modules the simulation imports are scanned');
+  const forest = files.filter(file => file.includes('/src/realtime/forest/')).map(file => file.replace(/^.*\/src\//, 'src/'));
+  assert(forest.length > 0, 'the forest-layer modules the simulation imports are scanned');
   assert(!found.length, `transcendental Math in the simulation: ${found.join(', ')}`);
   // The rules catch the disguises (a check of the check).
   for (const line of ['const { hypot } = Math;', 'const M = Math;', "Math['sin'](x)", 'xs.map(Math.cos)', 'const h = Math.hypot;', 'Math.pow.apply(null, a)', 'a ** 0.5', 'Math?.atan2(y, x)'])
     assert(RULES.some(([, rule]) => rule.test(code(line))), `the scan misses «${line}»`);
   for (const line of ['Math.sqrt(x)', 'Math.floor(x / 2)', 'const m = Math.max(a, b);', '/** Math.sin is not exact */', '// Math.hypot(a, b)', 'x * y'])
     assert(!RULES.some(([, rule]) => rule.test(code(line))), `the scan flags «${line}»`);
-  console.log(`   ${files.length} modules scanned, of them from the turn-based game: ${game.join(', ')}`);
+  console.log(`   ${files.length} modules scanned, of them from the forest run layer: ${forest.join(', ')}`);
 });
 
 console.log(`realtime-detmath: ${checks} checks passed`);

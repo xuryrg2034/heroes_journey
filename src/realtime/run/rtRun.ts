@@ -4,13 +4,12 @@
  * the map screen. The arena of a battle node is played by the simulation (src/realtime/sim) from `pending` (arena, seed,
  * HP), and the finished arena is fed back with `resolveArena`.
  *
- * What it reuses of the turn-based run as is (src/game/run/*): the map generator (`generateForestMap`, the map by the
- * run seed), the long random streams (`runStreams.ts`), the node seed (`forestNodeSeed`: the arena seed from the run seed
- * and the node id), the event catalogue and its rolls (`forestEvents.ts`, `eventOutcomeIndex`, `eventResourceKinds`), the
- * merchant's prices and payment (`merchant.ts`), the start gift (`runGift.ts`) and the window of repeats of the pools.
- * Its own: the HP of the run (15, `hpScale.ts`), the arena pools (`arenaPools.ts`), the events in the slice
- * (`sliceEvents.ts`). The turn-based run state (`forestRun.ts`) is not used: its HP, energy, consumables, tools and
- * talismans are numbers of the turn-based game.
+ * What it takes from the forest run layer (src/realtime/forest, moved from the removed turn-based game, tag
+ * `turn-based-final`): the map generator (`generateForestMap`, the map by the run seed), the long random streams
+ * (`runStreams.ts`), the node seed (`forestNodeSeed`: the arena seed from the run seed and the node id), the event catalogue
+ * and its rolls (`forestEvents.ts`, `nodeRolls.ts`), the merchant's prices and payment (`merchant.ts`), the start gift
+ * (`runGift.ts`). Its own: the HP of the run (15, `hpScale.ts`), the arena pools and the window of repeats
+ * (`arenaPools.ts`), the events in the slice (`sliceEvents.ts`).
  *
  * Step 3 (docs/realtime-slice.md, section 11, «Шаг 3») brings the consumables: the run carries them between arenas
  * (`items`), opens them as the turn-based run does (`openItems`: a find, a craft, a purchase, the gift, an event), and
@@ -18,22 +17,22 @@
  * the merchant sells consumables, the gift has its usual buttons. The trunk, the bosses, the ladder and the bar of
  * openings are not in the slice.
  */
-import { ITEM_KINDS, mixSeed, rewardChoices } from '../../game/items';
-import type { ItemKind, ResourceKind } from '../../game/forestTypes';
-import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from '../../game/resources';
-import { FOREST_HARD_HEAL, victoryChoice, type ForestMapNode, type ForestRunMap } from '../../game/run/forestMap';
-import { eventOutcomeIndex, eventResourceKinds, forestNodeSeed } from '../../game/run/forestRun';
-import { optionNeedsTalisman } from '../../game/run/forestEvents';
+import { ITEM_KINDS, mixSeed, rewardChoices } from '../forest/items';
+import type { ItemKind, ResourceKind } from '../forest/types';
+import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from '../forest/resources';
+import { FOREST_HARD_HEAL, victoryChoice, type ForestMapNode, type ForestRunMap } from '../forest/forestMap';
+import { eventOutcomeIndex, eventResourceKinds, forestNodeSeed } from '../forest/nodeRolls';
+import { optionNeedsTalisman } from '../forest/forestEvents';
 import { attemptChances, battleOption, chanceText, describeCost, describeOutcome, eventFits, eventOption, EVENT_RISK_MIN_HP, forestEvent, isSafeOption, mayLoseHp,
-  optionAttempts, type EventCost, type EventOption, type ForestEvent } from '../../game/run/forestEvents';
-import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedForestMap } from '../../game/run/mapGenerator';
-import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, SHOP_ITEMS, SHOP_TALISMAN_PRICE, shopPayment, shopPrice, shopStock, stockTotal } from '../../game/run/merchant';
-import { GIFT_FULL_ROW, GIFT_HP_PRICE, GIFT_MAX_HP_PRICE, GIFT_STREAMS, GIFT_TALISMAN_CHOICE, giftNeedsPick, giftPicks, rollGift, type GiftKind, type GiftOption, type RunGift } from '../../game/run/runGift';
-import type { TalismanPool } from '../../game/run/talismanOffers';
-import type { TalismanId } from '../../game/talismans';
+  optionAttempts, type EventCost, type EventOption, type ForestEvent } from '../forest/forestEvents';
+import { generatedRunMap, generateForestMap, validateStoredMap, type GeneratedForestMap } from '../forest/mapGenerator';
+import { SHOP_HARDEN_LIMIT, SHOP_HEAL_LIMIT, SHOP_ITEMS, SHOP_TALISMAN_PRICE, shopPayment, shopPrice, shopStock, stockTotal } from '../forest/merchant';
+import { GIFT_FULL_ROW, GIFT_HP_PRICE, GIFT_MAX_HP_PRICE, GIFT_STREAMS, GIFT_TALISMAN_CHOICE, giftNeedsPick, giftPicks, rollGift, type GiftKind, type GiftOption, type RunGift } from '../forest/runGift';
+import type { TalismanPool } from '../forest/talismanOffers';
+import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
-import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../../game/run/runStreams';
+import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
 import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
@@ -405,7 +404,7 @@ export function rtChooseHammer(current: RtRunState, chosen: HammerId | null): Rt
 }
 
 const mapCache = new WeakMap<object, ForestRunMap>();
-/** The graph of a run: the generated map (the trunk is in it, but a real-time run starts past it). */
+/** The graph of a run: the generated map (map rows 5–14). */
 export function rtRunMap(run: Pick<RtRunState, 'map'>): ForestRunMap {
   let map = mapCache.get(run.map);
   if (!map) { map = generatedRunMap(run.map); mapCache.set(run.map, map); }
@@ -413,14 +412,14 @@ export function rtRunMap(run: Pick<RtRunState, 'map'>): ForestRunMap {
 }
 /** The node `id` of the run's map. */
 export function rtNode(run: Pick<RtRunState, 'map'>, id: string): ForestMapNode | undefined { return rtRunMap(run).node(id); }
-/** Nodes of the run past the trunk (rows 5–14): what the map screen draws. */
-export function rtMapNodes(run: Pick<RtRunState, 'map'>): ForestMapNode[] { return rtRunMap(run).nodes.filter(node => node.lane !== 'trunk'); }
+/** Nodes of the run (map rows 5–14): what the map screen draws. */
+export function rtMapNodes(run: Pick<RtRunState, 'map'>): ForestMapNode[] { return [...rtRunMap(run).nodes]; }
 
 /** Transitions the player may choose now: empty while a node is open or after the run ended. */
 export function rtAvailableNodes(run: RtRunState): ForestMapNode[] {
   if (run.pending || run.result) return [];
   const map = rtRunMap(run);
-  const ids = run.currentNodeId === null ? map.starts(true) : map.node(run.currentNodeId)?.next ?? [];
+  const ids = run.currentNodeId === null ? map.starts() : map.node(run.currentNodeId)?.next ?? [];
   return ids.flatMap(id => { const node = map.node(id); return node ? [node] : []; });
 }
 
@@ -1077,12 +1076,12 @@ function checkRun(value: unknown): RtRunState | null {
   const streams = parseStreams(value.streams);
   if (!streams) return null;
   const run = value as unknown as RtRunState;
-  const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id) && map.node(id)!.lane !== 'trunk';
+  const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id);
   if (!Array.isArray(run.visited) || !run.visited.every(known) || !(run.currentNodeId === null || known(run.currentNodeId))) return null;
   if ((run.currentNodeId ?? null) !== (run.visited[run.visited.length - 1] ?? null)) return null;
   // The path goes along the map's edges from a row-5 node.
   for (let n = 0; n < run.visited.length; n++) {
-    const from = n === 0 ? map.starts(true) : map.node(run.visited[n - 1])!.next;
+    const from = n === 0 ? map.starts() : map.node(run.visited[n - 1])!.next;
     if (!from.includes(run.visited[n])) return null;
   }
   if (!isCount(run.maxHp) || run.maxHp < 1 || !isCount(run.hp) || run.hp > run.maxHp || (run.hp < 1 && run.result?.outcome !== 'defeat')) return null;
@@ -1154,7 +1153,7 @@ function checkRun(value: unknown): RtRunState | null {
   if (run.result !== null || !isRecord(pending)) return null;
   if (pending.kind === 'gift') return run.gift && !rtGiftDone(run.seed, run.gift) && !run.visited.length ? { ...run, streams } : null;
   if (!known(pending.nodeId)) return null;
-  const next = run.currentNodeId === null ? map.starts(true) : map.node(run.currentNodeId)!.next;
+  const next = run.currentNodeId === null ? map.starts() : map.node(run.currentNodeId)!.next;
   if (!next.includes(pending.nodeId)) return null;
   const node = map.node(pending.nodeId)!, pick = run.picks.find(entry => entry.nodeId === pending.nodeId);
   switch (pending.kind) {

@@ -14,7 +14,7 @@
  * A talisman outcome draws from the slice's pool (rtTalismans.ts); the reward battle gives its talisman choice.
  * The data of the catalogue is not changed: the slice reads it through these checks.
  */
-import { FOREST_EVENTS, isSafeOption, optionCosts, type EventCost, type EventOption, type ForestEvent } from '../../game/run/forestEvents';
+import { FOREST_EVENTS, isSafeOption, optionCosts, type EventCost, type EventOption, type ForestEvent } from '../forest/forestEvents';
 
 /** Why an outcome effect has no analogue in the slice ('' — it has one). */
 function effectGap(_effect: EventOption['outcomes'][number]['effect']): string {

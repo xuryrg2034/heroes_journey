@@ -6,9 +6,9 @@
  * The consumables are the four kinds of the turn-based game (`ITEM_KINDS`: frost, bomb, healing, fire — keys 1–4), the
  * crafting resources its four kinds (`RESOURCE_KINDS`). Ids are taken from there so a run passes its counts as they are.
  */
-import { ITEM_KINDS } from '../../game/items';
-import { RESOURCE_KINDS } from '../../game/resources';
-import type { ItemKind, ResourceKind } from '../../game/forestTypes';
+import { ITEM_KINDS } from '../forest/items';
+import { RESOURCE_KINDS } from '../forest/resources';
+import type { ItemKind, ResourceKind } from '../forest/types';
 import { isHammerId, type HammerId } from './buildIds';
 
 export type { ItemKind, ResourceKind };

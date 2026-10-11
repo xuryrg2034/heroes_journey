@@ -1,4 +1,4 @@
-/* Real-time prototype (realtime.html). Self-contained: does not import the main game styles. */
+/* The real-time game (index.html). Self-contained stylesheet. */
 :root { --rt-bg: #10150f; --rt-ink: #d4ccb4; --rt-muted: #8e947b; --rt-gold: #c8a56b; --rt-line: #414232; --rt-panel: #191e16f2; --rt-panel-w: 340px; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--rt-bg); color: var(--rt-ink); font-family: 'DM Sans', Arial, sans-serif; }

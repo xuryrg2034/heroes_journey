@@ -5,7 +5,7 @@
  * rounded up. HP thresholds scale the same way (the event risk threshold 2 → 6; at 12 HP it was 2 → 5). This file is
  * the only place of the factor: the run model reads every HP number and threshold through `rtHp`.
  */
-import { FOREST_RUN_START_HP } from '../../game/run/forestRun';
+import { FOREST_RUN_START_HP } from '../forest/forestMap';
 
 /** Баланс: HP (and maximum HP) a run of the real-time game starts with. */
 export const RT_RUN_HP = 15;
@@ -16,7 +16,7 @@ export const RT_HP_SCALE = RT_RUN_HP / FOREST_RUN_START_HP;
  * A turn-based HP number in real-time HP: ×RT_HP_SCALE, the magnitude rounded up (1 → 3, 2 → 6, −1 → −3, 0 → 0).
  * Multiplication comes first, so whole numbers divide exactly (5 → 15).
  */
-/** The turn-based elixir heals 3 HP (game/items.ts, «Лечебный эликсир»). */
+/** The turn-based elixir heals 3 HP (forest/items.ts, «Лечебный эликсир»). */
 const TURN_ELIXIR_HEAL = 3;
 
 export function rtHp(turnBased: number): number {

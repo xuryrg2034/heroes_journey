@@ -12,7 +12,7 @@
  * debug panel and its hooks for development.
  */
 import './realtime.css';
-import { loadCharacterArt } from '../../render/characterAssets';
+import { loadCharacterArt } from '../art/characterAssets';
 import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
 import { withRoster } from '../sim/rosters';
 import { enemyLimit, scaledFloor } from '../sim/spawn';

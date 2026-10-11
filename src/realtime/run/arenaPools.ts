@@ -1,7 +1,7 @@
 /**
  * Arena pools of the real-time run (stage 2 of the transition, docs/realtime-slice.md, section 5): a battle node plays
  * an arena of the pool of its row, picked by the run's `pool` stream with the window of repeats of the turn-based pools
- * (battlePools.ts, `pickPoolBattle`).
+ * (`pickWithWindow`, after the removed src/game/run/battlePools.ts `pickPoolBattle`).
  *
  * Rows are rows of the run (design answer 08.10.2026): the real-time run has no trunk (map rows 1–4), so its first row is
  * map row 5 and the run row is the map row less FOREST_TRUNK_LAST_ROW (5 → 1, …, 13 → 9; the boss row 14 plays the final
@@ -20,8 +20,7 @@
  * Phase A (Т2, docs/realtime-phase-a.md, section 4): an arena's roster (sim/rosters.ts) is chosen after its arena by the
  * node's own roll (`pickRoster`), not by a stream: the arenas are chosen as before.
  */
-import { FOREST_TRUNK_LAST_ROW } from '../../game/run/forestMap';
-import { pickPoolBattle } from '../../game/run/battlePools';
+import { FOREST_TRUNK_LAST_ROW } from '../forest/forestMap';
 import { arenaTemplate } from '../sim/arenas';
 import { rosterChoices } from '../sim/rosters';
 // The behaviour arenas register themselves (the pools name them without going through the simulation).
@@ -110,12 +109,30 @@ export function ordinaryArenaChoices(row: number, history: readonly string[], po
 }
 
 /**
+ * The window of repeats of the pools (the turn-based `pickPoolBattle`, tag `turn-based-final`): an id unused in `history`
+ * while the candidates have one; otherwise one not among the two previous; with fewer, not the previous one; with a
+ * single candidate, that one. `roll` (an unsigned 32-bit number) chooses among the rest. Null for no candidates.
+ *
+ * The turn-based pick also avoided the previous battle's main enemy, read from its table of battles by id. No arena or
+ * roster id is a battle id of that table, so the rule never acted on the real-time picks (every candidate read «no main
+ * enemy», as did the previous one): it is left out and the picks stay the same.
+ */
+export function pickWithWindow(candidates: readonly string[], history: readonly string[], roll: number): string | null {
+  if (!candidates.length) return null;
+  const recent = (count: number) => history.slice(Math.max(0, history.length - count));
+  const tiers = [candidates.filter(id => !history.includes(id)), candidates.filter(id => !recent(2).includes(id)),
+    candidates.filter(id => !recent(1).includes(id)), [...candidates]];
+  const choice = tiers.find(list => list.length)!;
+  return choice[(roll >>> 0) % choice.length];
+}
+
+/**
  * The arena of a node from its candidates: an arena unused in this run while the pool has one, else not among the two
  * previous, else not the previous one (the window of the turn-based pools); `roll` (a draw of the run's `pool` stream)
  * chooses among the rest. `history`: the arenas of the run so far, in entering order.
  */
 export function pickArena(candidates: readonly string[], history: readonly string[], roll: number): string {
-  const arena = pickPoolBattle(candidates, history, roll);
+  const arena = pickWithWindow(candidates, history, roll);
   if (!arena) throw new Error('arena pool is empty');
   return arena;
 }
@@ -140,13 +157,13 @@ export const ROSTER_SALT = [...'rt-roster'].reduce((hash, ch) => Math.imul(hash 
 /**
  * The roster of an arena entered on run row `row` after the arenas `history` and the rosters `rosters` (in entering order):
  * undefined — the template's own composition (`rosterChoices`); otherwise one admissible roster by `roll` (the node's own
- * roll, `mixSeed(arenaSeed, ROSTER_SALT)`) with the window of repeats of the pools (`pickPoolBattle`). No stream of the
+ * roll, `mixSeed(arenaSeed, ROSTER_SALT)`) with the window of repeats of the pools (`pickWithWindow`). No stream of the
  * run is spent: the arenas are chosen as before.
  */
 export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number): string | undefined {
   const choices = rosterChoices(arena, row, rosterMet(history));
   if (!choices) return undefined;
-  const roster = pickPoolBattle(choices, rosters, roll);
+  const roster = pickWithWindow(choices, rosters, roll);
   if (!roster) throw new Error(`no roster for «${arena}»`);
   return roster;
 }

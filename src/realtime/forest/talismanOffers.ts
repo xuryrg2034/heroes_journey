@@ -1,0 +1,60 @@
+/**
+ * Talisman draws over the catalogue of talismans.ts (docs/talismans.md, sections 2–4): the eligibility rules, the rarity
+ * roll 50/33/17% and the draw of the start gift's talismans (runGift.ts) and of the merchant's (merchant.ts). Pure functions
+ * of one value of a run stream and the pool. Moved from the removed turn-based game (src/game/run/talismanOffers.ts, tag
+ * `turn-based-final`); the real-time offers of hard battles, the Jailer and events are rtTalismans.ts.
+ */
+import { mixSeed } from './items';
+import type { AbilityKind } from './types';
+import { TALISMANS, talisman, type TalismanId, type TalismanRarity } from './talismans';
+
+/** Баланс: chances of the rarity each talisman option rolls, in percent (Slay the Spire chests and elites). */
+export const RARITY_CHANCES: Readonly<Record<'common' | 'uncommon' | 'rare', number>> = { common: 50, uncommon: 33, rare: 17 };
+const RARITIES = ['common', 'uncommon', 'rare'] as const;
+const PICK_SALT = 0x5be0_cd19;
+
+/**
+ * What decides an offer: talismans taken, talismans out of the pool (shown and refused), abilities open now, and the
+ * talismans open for the run (absent — all; the real-time run opens only those of its slice, rtTalismans.ts `turnPool`).
+ */
+export interface TalismanPool { taken: readonly TalismanId[]; gone: readonly TalismanId[]; abilities: readonly AbilityKind[]; open?: readonly TalismanId[] }
+
+/** `a` and `b` are not offered together (either one excludes the other). */
+export function talismansClash(a: TalismanId, b: TalismanId): boolean {
+  return !!talisman(a).excludes?.includes(b) || !!talisman(b).excludes?.includes(a);
+}
+/**
+ * `id` may be offered now: open in the run, still in the pool, not in this offer yet, no clash with a taken talisman or
+ * another option of this offer, and its ability open (Ловкие лапы need the jump).
+ */
+export function talismanEligible(id: TalismanId, pool: TalismanPool, offered: readonly TalismanId[] = []): boolean {
+  const definition = talisman(id), others = [...pool.taken, ...offered];
+  if (pool.taken.includes(id) || pool.gone.includes(id) || offered.includes(id)) return false;
+  // Not open for the run (the real-time run opens only the talismans of its slice).
+  if (pool.open && !pool.open.includes(id)) return false;
+  if (definition.requiresAbility && !pool.abilities.includes(definition.requiresAbility)) return false;
+  return !others.some(other => talismansClash(id, other));
+}
+/** The rarity a roll of 0–1 gives: common below 50%, uncommon below 83%, rare above. */
+export function rarityOfRoll(roll: number): Exclude<TalismanRarity, 'oath'> {
+  let total = 0;
+  for (const rarity of RARITIES) { total += RARITY_CHANCES[rarity] / 100; if (roll < total) return rarity; }
+  return 'rare';
+}
+
+/**
+ * Up to `count` different talismans of `rarity` from the pool (the start gift, runGift.ts): an empty rarity gives way to
+ * the next one (common → uncommon → rare → common), with all three empty the slot stays empty (no «пустышка»); oaths
+ * draw among the eligible oaths only. `exclude` are not drawn either. `base` is one draw of the caller's stream.
+ */
+export function talismanDraw(base: number, rarity: TalismanRarity, count: number, pool: TalismanPool, exclude: readonly TalismanId[] = []): TalismanId[] {
+  const drawn: TalismanId[] = [];
+  for (let slot = 0; slot < count; slot++) {
+    const eligible = (of: TalismanRarity) => TALISMANS.filter(entry => entry.rarity === of && !exclude.includes(entry.id) && talismanEligible(entry.id, pool, drawn)).map(entry => entry.id);
+    let candidates: TalismanId[] = [];
+    if (rarity === 'oath') candidates = eligible('oath');
+    else for (let step = 0, at = RARITIES.indexOf(rarity); step < RARITIES.length && !candidates.length; step++) candidates = eligible(RARITIES[(at + step) % RARITIES.length]);
+    if (candidates.length) drawn.push(candidates[mixSeed(mixSeed(base >>> 0, slot), PICK_SALT) % candidates.length]);
+  }
+  return drawn;
+}

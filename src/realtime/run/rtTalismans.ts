@@ -1,6 +1,6 @@
 /**
  * Talismans of the real-time run (stage 2 of the transition, step 3; docs/realtime-slice.md, section 8). The talismans of
- * the turn-based game (src/game/talismans.ts) carried over «by number» where real time has their rule, plus «Якорь у
+ * the turn-based game (src/realtime/forest/talismans.ts) carried over «by number» where real time has their rule, plus «Якорь у
  * героя» (decision 3 of the transition: the hero anchor of the prototype as a rare talisman). Where a turn-based talisman
  * has no analogue in real time it is not offered at all (`RT_TALISMANS_OFF`): nothing is invented — a question to design.
  *
@@ -15,10 +15,10 @@
  * the uncommon ones — rare talismans come only from a hard battle and the merchant. One value of the run's stream per
  * source, as before: the streams do not move.
  */
-import { mixSeed } from '../../game/items';
+import { mixSeed } from '../forest/items';
 import { COUNTER_TALISMANS as CT, HAMMER_IDS as HAMMER_LIST, RELICS as RL, type HammerId as Hammer } from '../sim/buildIds';
-import { rarityOfRoll, type TalismanPool } from '../../game/run/talismanOffers';
-import { isTalismanId, TALISMANS, type TalismanId, type TalismanRarity } from '../../game/talismans';
+import { rarityOfRoll, type TalismanPool } from '../forest/talismanOffers';
+import { isTalismanId, TALISMANS, type TalismanId, type TalismanRarity } from '../forest/talismans';
 import { rtHp } from './hpScale';
 
 /** A talisman of the real-time run: one of the turn-based ids in the slice, or «Якорь у героя». */

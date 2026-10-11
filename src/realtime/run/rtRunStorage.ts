@@ -1,9 +1,11 @@
 /**
- * Storage of the real-time game's run and profile (stage 2 of the transition). Keys of its own: the turn-based game's
- * saves (`ashen-oath-forest-run-v1`, `ashen-oath-profile-v1`) are neither read nor written. Storage is optional: without
- * it (or when it throws) the run lives in memory for this tab and the profile reads as a first-time player's.
+ * Storage of the real-time game's run and profile (stage 2 of the transition). Keys of its own: the saves of the removed
+ * turn-based game (`ashen-oath-forest-run-v1`, `ashen-oath-profile-v1`) are neither read nor written. Storage is optional:
+ * without it (or when it throws) the run lives in memory for this tab and the profile reads as a first-time player's.
  */
-import type { RunStorage } from '../../game/run/forestRunStorage';
+
+/** The part of the Web Storage API the stores use (tests pass a plain object). */
+export interface RunStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 import { parseRtRun, serializeRtRun, type RtRunState } from './rtRun';
 
 /**

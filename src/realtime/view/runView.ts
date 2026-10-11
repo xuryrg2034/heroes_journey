@@ -4,15 +4,13 @@
  * only draws it, turns clicks into its commands, saves every step under the real-time keys and hands battle nodes to
  * the arena (main.ts, `RunHost.startArena`).
  *
- * The turn-based map screen (src/forestMapScreen.ts) builds its HTML from the turn-based run state and its CSS lives in
- * the turn-based stylesheet, so the real-time game has its own small copy here. The node icons and labels are its own
- * table (nodeTypes.ts) equal to the turn-based ones (checked by rtRun.spec.ts), so this page does not load that screen.
+ * The node icons and labels are the table of nodeTypes.ts (those of the removed turn-based map screen).
  */
-import { FOREST_HARD_HEAL, FOREST_REST_HEAL, type ForestMapNode } from '../../game/run/forestMap';
-import { ITEM_KINDS } from '../../game/items';
-import { RESOURCE_KINDS, RESOURCES } from '../../game/resources';
-import type { ResourceKind } from '../../game/forestTypes';
-import type { GiftOption } from '../../game/run/runGift';
+import { FOREST_HARD_HEAL, FOREST_REST_HEAL, type ForestMapNode } from '../forest/forestMap';
+import { ITEM_KINDS } from '../forest/items';
+import { RESOURCE_KINDS, RESOURCES } from '../forest/resources';
+import type { ResourceKind } from '../forest/types';
+import type { GiftOption } from '../forest/runGift';
 import { arenaTemplate } from '../sim/arenas';
 import { arenaTitle, runRow } from '../run/arenaPools';
 import { rosterTitle } from '../sim/rosters';
@@ -23,7 +21,7 @@ import {
   type RtArenaOutcome, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
-import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../../game/run/runGift';
+import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
 import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanText } from '../run/rtTalismans';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import type { HeroStart } from '../sim/world';
