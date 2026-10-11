@@ -410,14 +410,22 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
 };
 
 /**
+ * How far from an anchor a target with drawn radius `edge` may stand to be the next link: R, to its edge with «R до края
+ * тела». Phase B: R of the build (build.ts `linkRadiusOf`: «Широкий круг», «Длинная рука»); without a build module —
+ * `linkRadius`. П1 (sim/linkDepth.ts) uses it to skip far bodies before `canLink`.
+ */
+export function reachOf(world: World, edge: number): number {
+  return linkRadiusOf(world) + (world.params.linkToEdge ? edge : 0);
+}
+
+/**
  * Within R of an anchor and in sight from that same anchor (toggle): the reach rule shared by enemies and objects.
  * With «R до края тела» R reaches the edge of the target (`edge` — its drawn radius), not its center. With «Якорь у
  * героя» any of the two anchors will do. Sight: a thin ray; obstacles shrink by `sightSlack` so a ray grazing a trunk
  * or a wall corner still sees. Null — reachable; `far` — no anchor is close enough; `sight` — close, but blocked.
  */
 function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
-  // Phase B: R of the build (build.ts `linkRadiusOf`: «Широкий круг», «Длинная рука»); without a build module — `linkRadius`.
-  const p = world.params, reach = linkRadiusOf(world) + (p.linkToEdge ? edge : 0);
+  const p = world.params, reach = reachOf(world, edge);
   let near = false;
   for (const anchor of chainAnchors(world)) {
     if (dist(anchor, target) > reach) continue;

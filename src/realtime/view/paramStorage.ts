@@ -45,6 +45,21 @@ export function saveRoleBadges(on: boolean): void {
 }
 
 /**
+ * П1 «Глубина звена»: the numbers next to the next-link candidates — a local setting of the view, not a Param (Params are
+ * hashed): its own key, on by default in the run and in the sandbox; storage may be unavailable (then on). The sandbox
+ * panel's «Вид» and the gear of the run map switch it.
+ */
+const LINK_DEPTH_KEY = 'ashen-oath-realtime-link-depth';
+
+export function loadLinkDepth(): boolean {
+  try { return localStorage.getItem(LINK_DEPTH_KEY) !== '0'; } catch { return true; }
+}
+
+export function saveLinkDepth(on: boolean): void {
+  try { localStorage.setItem(LINK_DEPTH_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
+}
+
+/**
  * Phase B, track Д5: the sandbox build — a counter talisman (Т1), a relic or the new oath (Т3, 5а) and a hammer (Т2) put into
  * the sandbox loadout from the next arena. Not a Param (Params are hashed: a new key would change the hash of old journals);
  * the loadout goes into the journal as it is. Its own key; storage may be unavailable (then nothing taken).

@@ -35,6 +35,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
 import { dashCheque } from '../sim/purse';
+import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -253,6 +254,9 @@ function drawSigil(g: GraphicsContext, color: number, size: number, ink: number,
   else g.poly([0, y - s, s * 0.85, y, 0, y + s, -s * 0.85, y]).stroke({ color: ink, width: s * 0.35 });
 }
 
+/** П1 «Глубина звена»: render frames between two searches of the same drawn chain (design answer 11.10.2026). */
+export const LINK_DEPTH_FRAMES = 6;
+
 export class RealtimeRenderer {
   readonly app = new Application();
   private readonly root = new Container();
@@ -321,6 +325,22 @@ export class RealtimeRenderer {
   private readonly bursts: { g: Graphics; life: number; total: number; grow?: boolean }[] = [];
   /** Stage 2, step 2: «−1 HP» badges over porcupine links of the drawn chain (reused texts). */
   private readonly quillLabels: Text[] = [];
+  /**
+   * П1 «Глубина звена»: the number next to each next-link candidate ring — how many enemy links the chain could take from it
+   * on (sim/linkDepth.ts). A local setting of the view (main.ts keeps it in its own storage key), not a Param.
+   */
+  showLinkDepth = true;
+  /** The numbers last computed (candidate id → depth), the drawn chain they were computed for, render frames since. */
+  private depthCache = new Map<number, LinkDepth>();
+  private depthChain = '';
+  private depthFrames = 0;
+  private readonly depthLabels: Text[] = [];
+  /**
+   * What «Глубина звена» drew in the last frame and its cost (tests and the snapshot read it): `labels` — candidate id and
+   * number shown; `computes` — searches run so far; `lastMs` / `maxMs` — the real milliseconds of the last and the
+   * longest search (all candidates of one frame).
+   */
+  readonly linkDepthShown: { labels: { id: number; depth: number }[]; computes: number; lastMs: number; maxMs: number } = { labels: [], computes: 0, lastMs: 0, maxMs: 0 };
   /** Loop research, step 2: the hit numbers on enemies inside a closed ring (reused texts). */
   private readonly sealLabels: Text[] = [];
   /**
@@ -1697,6 +1717,8 @@ export class RealtimeRenderer {
     const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
     for (const label of this.quillLabels) label.visible = false;
     for (const label of this.plateLabels) label.visible = false;
+    for (const label of this.depthLabels) label.visible = false;
+    this.linkDepthShown.labels = [];
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
@@ -1730,6 +1752,7 @@ export class RealtimeRenderer {
       }
     }
     if (!world.chain.length) {
+      this.depthChain = '';
       this.drawLoopHint(g, world);
       // Out of a chain: the reachable buttons / open door get a faint ring (a link of any color).
       if (world.status === 'playing' && !world.move) for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 2, alpha: 0.45 });
@@ -1757,8 +1780,10 @@ export class RealtimeRenderer {
         g.circle(hero.x * UNIT, hero.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
         this.heroAnchorShown = true;
       }
-      for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(p) * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
-    }
+      const candidates = nextCandidates(world);
+      for (const e of candidates) g.circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(p) * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+      if (this.showLinkDepth) this.drawLinkDepths(world, candidates); else this.depthChain = '';
+    } else this.depthChain = '';
     if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
       for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
     }
@@ -1934,6 +1959,48 @@ export class RealtimeRenderer {
       this.plateLabels.push(text);
     }
     return this.plateLabels[i];
+  }
+
+  /**
+   * П1 «Глубина звена»: the number N next to each candidate ring, only for N ≥ 2. The search (sim/linkDepth.ts, pure) runs
+   * again every `LINK_DEPTH_FRAMES` render frames and at once when the drawn chain changes (a number for another chain
+   * would promise a path that is not there); between runs the last numbers are drawn at the candidates' places now.
+   */
+  private drawLinkDepths(world: World, candidates: readonly Enemy[]): void {
+    const key = world.chain.map(l => `${l.kind[0]}${l.id}`).join(',');
+    if (key !== this.depthChain || ++this.depthFrames >= LINK_DEPTH_FRAMES) {
+      const t0 = performance.now();
+      this.depthCache = new Map(linkDepths(world).map(d => [d.id, d]));
+      const ms = performance.now() - t0, shown = this.linkDepthShown;
+      shown.computes++; shown.lastMs = ms; shown.maxMs = Math.max(shown.maxMs, ms);
+      this.depthChain = key;
+      this.depthFrames = 0;
+    }
+    // Just outside the candidate ring (its radius + 5, stroke 3) on the upper-left diagonal.
+    const off = (enemyDrawRadius(world.params) * UNIT + 5 + 9) * Math.SQRT1_2;
+    let i = 0;
+    for (const e of candidates) {
+      const depth = this.depthCache.get(e.id)?.depth ?? 0;
+      if (depth < LINK_DEPTH_SHOWN) continue;
+      const label = this.depthLabel(i++);
+      label.text = String(depth);
+      // Upper left of the ring: the HP badge sits upper right, the role badge under the body.
+      label.position.set(e.x * UNIT - off, e.y * UNIT - off);
+      label.visible = true;
+      this.linkDepthShown.labels.push({ id: e.id, depth });
+    }
+  }
+
+  /** П1: the `i`-th depth number (a pool of texts over the chain layer). */
+  private depthLabel(i: number): Text {
+    while (this.depthLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 15, fontWeight: 'bold', fill: 0xffffff, stroke: { color: NAVY, width: 4 } } });
+      text.anchor.set(0.5, 0.5);
+      text.visible = false;
+      this.root.addChild(text);
+      this.depthLabels.push(text);
+    }
+    return this.depthLabels[i];
   }
 
   /** Stage 2, step 2: the `i`-th «−1 HP» badge of porcupine links (a pool of texts over the chain layer). */

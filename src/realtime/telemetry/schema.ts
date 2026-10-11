@@ -424,6 +424,11 @@ export interface FightSummary {
     backstepReadds: number;
     /** Package «Урон имеет значение» (from 11.10.2026): released chains with a tough enemy (HP ≥ 2 at the release) not as the first enemy link. */
     toughNotFirst: number;
+    /**
+     * П1 (from 11.10.2026; absent in older records — `withSummaryDefaults`): real seconds from the first link to the release,
+     * one number per released chain in order (0.01 s); cancelled chains are not counted.
+     */
+    drawTime: number[];
   };
   /** Package «Урон имеет значение» (from 11.10.2026): the elites of the fight (`elite` set; armoured or not). */
   elites: EliteSummary;
@@ -541,7 +546,7 @@ export function emptyFightSummary(): FightSummary {
     threats: {},
     chain: {
       count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0,
-      closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0, toughNotFirst: 0,
+      closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0, toughNotFirst: 0, drawTime: [],
     },
     elites: {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,

@@ -49,7 +49,15 @@ export interface RunHost {
   runStarted?(previous: RtRunState | null, run: RtRunState): void;
   /** Telemetry: the «Логи» panel (absent — no button). */
   openLogs?(): void;
+  /**
+   * П1: the view settings on the gear of the map header (local to the view, never Params, never the journal): «Глубина
+   * звена»; П7 adds «Часы сессии». Absent or empty — no gear.
+   */
+  viewToggles?: readonly RunViewToggle[];
 }
+
+/** One checkbox of the gear on the run map: its id (`data-testid` `view-<id>`), label, tooltip, value now and setter. */
+export interface RunViewToggle { id: string; label: string; hint?: string; get(): boolean; set(on: boolean): void }
 
 /**
  * Iteration 2.1 (interface, docs/realtime-slice.md, section 12): what the arena's item panel shows at the start — the slots
@@ -138,6 +146,8 @@ export class RunView {
   private selected: string | null = null;
   private notice = '';
   private confirmReset = false;
+  /** П1: the gear's settings are open over the map header. */
+  private settingsOpen = false;
   /** The arena of the open battle node is on screen. */
   private inArena = false;
   /**
@@ -252,6 +262,12 @@ export class RunView {
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
+    if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
+    if (action === 'view-toggle') {
+      const toggle = this.host.viewToggles?.find(t => t.id === target.dataset.toggle);
+      if (toggle) toggle.set((target as HTMLInputElement).checked);
+      return;
+    }
     if (!run) return;
     if (action === 'enter' && this.selected) { this.enter(this.selected); return; }
     // Casino stage 1, item 2: an oath button of the node card enters the battle under that oath.
@@ -354,8 +370,20 @@ export class RunView {
     return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
-      + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}${this.logsButton()}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
+      + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}${this.logsButton()}${this.settingsHtml()}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '');
+  }
+
+  /**
+   * П1: the gear of the map header and, open, its view settings — one checkbox per `viewToggles` entry (П7 adds «Часы
+   * сессии» as the next one). Not in the fight HUD.
+   */
+  private settingsHtml(): string {
+    const toggles = this.host.viewToggles ?? [];
+    if (!toggles.length) return '';
+    const rows = toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
+    return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки вида" aria-expanded="${this.settingsOpen}">⚙</button>`
+      + (this.settingsOpen ? `<span class="rt-run-settings" data-testid="run-settings-panel">${rows}</span>` : '') + '</span>';
   }
 
   /** Telemetry: the «Логи» button (the map's header, the end of the run); none without the panel. */

@@ -277,12 +277,14 @@ const LOOP_HEAD = ['Печати (пустых) / попыток', 'Внутри
  * survivor — counts and shares of the chains of some fights.
  */
 function chainShareCells(list: readonly FightSummary[]): string[] {
-  if (!list.length) return ['—', '—'];
+  if (!list.length) return ['—', '—', '—'];
   let count = 0, tough = 0, survivor = 0;
-  for (const s of list) { count += s.chain.count; tough += s.chain.toughNotFirst ?? 0; survivor += s.chain.survivorEnds; }
-  return [`${tough} (${pct(tough, count)})`, `${survivor} (${pct(survivor, count)})`];
+  const draw: number[] = [];
+  for (const s of list) { count += s.chain.count; tough += s.chain.toughNotFirst ?? 0; survivor += s.chain.survivorEnds; draw.push(...s.chain.drawTime ?? []); }
+  // П1: real seconds from the first link to the release, median per released chain (a record of an older build has none: «—»).
+  return [`${tough} (${pct(tough, count)})`, `${survivor} (${pct(survivor, count)})`, draw.length ? n2(median(draw)) : '—'];
 }
-const CHAIN_SHARE_HEAD = ['Крепкий не первым', 'На выжившем'];
+const CHAIN_SHARE_HEAD = ['Крепкий не первым', 'На выжившем', 'Рисование мед., с'];
 
 function fightRows(entries: readonly FightEntry[]): (string | number)[][] {
   return entries.map(e => {

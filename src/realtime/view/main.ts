@@ -30,7 +30,7 @@ import { replay, Simulation, type Journal } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadParams, loadRoleBadges, loadSandboxBuild, PARAMS_STORAGE_KEY, saveParams, saveRoleBadges, saveSandboxBuild } from './paramStorage';
+import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, PARAMS_STORAGE_KEY, saveLinkDepth, saveParams, saveRoleBadges, saveSandboxBuild } from './paramStorage';
 import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
 import { doorPayout, nextHeat } from '../sim/purse';
@@ -467,6 +467,12 @@ async function boot(): Promise<void> {
   renderer.showRoleBadges = loadRoleBadges();
   panel.addViewCheck('Значки ролей', 'role-badges', renderer.showRoleBadges, on => { renderer.showRoleBadges = on; saveRoleBadges(on); },
     'Значок под телом: стрелок, блокер, наказатель, мастер, ныряльщик. У давителя и Жнеца значка нет.');
+  // П1 «Глубина звена»: the numbers next to the next-link candidates — a view setting with its own storage key; the sandbox
+  // switches it here, the run on the gear of its map (RunView).
+  renderer.showLinkDepth = loadLinkDepth();
+  const setLinkDepth = (on: boolean): void => { renderer.showLinkDepth = on; saveLinkDepth(on); };
+  panel.addViewCheck('Глубина звена', 'link-depth', renderer.showLinkDepth, setLinkDepth,
+    'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него. Только от 2.');
   if (sandbox) {
     // Phase B (Д5): the sandbox build — from the next arena (R, the menu); the column shows what is taken.
     const none = { value: '', label: 'нет' };
@@ -513,6 +519,10 @@ async function boot(): Promise<void> {
       runStarted: (previous, run) => recorder?.runStarted(previous, run),
     } : {},
     ...logsPanel ? { openLogs: () => logsPanel.show() } : {},
+    // П1: the view settings on the gear of the run map (the fight HUD has none). П7 adds «Часы сессии» here.
+    viewToggles: [
+      { id: 'link-depth', label: 'Глубина звена', hint: 'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него.', get: () => renderer.showLinkDepth, set: setLinkDepth },
+    ],
   }, fixedSeed);
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
@@ -988,6 +998,8 @@ async function boot(): Promise<void> {
         chameleonWarns: renderer.signals.chameleonWarns,
         arrowFlashes: renderer.arrowFlashes,
         roleBadges: renderer.signals.roleBadges,
+        /** П1 «Глубина звена»: on, the numbers drawn in the last frame (candidate id, N), searches run and their cost (real ms). */
+        linkDepth: { on: renderer.showLinkDepth, ...renderer.linkDepthShown, labels: renderer.linkDepthShown.labels.map(l => ({ ...l })) },
         badgeRoles: { ...renderer.badgeRoles },
         ripples: renderer.visibleRipples,
         heroInWater: inWater(w.hero, w.arena),

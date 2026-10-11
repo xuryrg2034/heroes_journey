@@ -19,7 +19,8 @@
  *   and left it non-empty; focus spent — real seconds of focus burnt while focusing; empty focus — ticks a chain was drawn
  *   with no focus left; chains with a survivor — dashes that struck a link that survived (the chain stopped there; a hit
  *   that took a plate off an armoured elite, `chainHit.plates`, is not a survivor: the chain goes on through it); tough not
- *   first — released chains with an enemy of HP ≥ 2 at the release among the enemy links after the first.
+ *   first — released chains with an enemy of HP ≥ 2 at the release among the enemy links after the first; draw time (П1) —
+ *   real seconds (the observer's clock) from the first link of a released chain to its release, one per released chain.
  * - the loop (loop research, step 2; docs/realtime-loop-research.md, 3.3): close attempts — closing gestures (`loop` events
  *   `close` and `refused`; a run of identical refusals — the same closing and reason — with no change of the drawn chain in
  *   between counts once: the pointer moving inside the target circle sends one per point); unseals — `open` gestures (no reason); loop breaks — `open` by the rules, by the reason;
@@ -133,6 +134,8 @@ export function createFightObserver(start: World): FightObserver {
   // The loop and the step-back re-adds: the drawn chain as link keys, its version (bumped on every change), the real clock,
   // links a step back took off (with the real moment), the last refusal counted (a repeat with the same chain is one).
   let keys: number[] = start.chain.map(linkKey), version = 0, clock = 0, nextCost = tickRealCost(start);
+  // П1: the real moment the drawn chain got its first link (null — no chain drawn).
+  let drawStart: number | null = start.chain.length ? 0 : null;
   let takenOff: { key: number; at: number }[] = [];
   let lastRefusal: { kind: string; refusal: string; version: number } | null = null;
   // Elites alive: when seen, the chains that hit them and the last of those (dashes are numbered by `s.chain.count`).
@@ -266,6 +269,8 @@ export function createFightObserver(start: World): FightObserver {
   const noteChain = (w: World, stepBack: boolean): void => {
     const chain = w.chain, n = chain.length;
     if (!n && !keys.length) return;
+    if (n && !keys.length) drawStart = clock;
+    if (!n) drawStart = null;
     let same = 0;
     while (same < n && same < keys.length && linkKey(chain[same]) === keys[same]) same++;
     if (same === n && same === keys.length) return;
@@ -291,6 +296,8 @@ export function createFightObserver(start: World): FightObserver {
       noteMove();
       const now = w.chain.length;
       const stepBack = now > 0 && now < before;
+      // П1: a released chain — real seconds from its first link to the release (a cancelled one is not counted).
+      if (before > 0 && now === 0 && started && drawStart !== null) s.chain.drawTime.push(Math.round((clock - drawStart) * 100) / 100);
       if (before > 0 && now === 0 && !started) s.chain.cancels++;
       else if (stepBack) s.chain.backsteps++;
       chainLen = now;

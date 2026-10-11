@@ -407,6 +407,8 @@ check('observer: chains, a cancel, a step back, kills by the chain and the exact
   assert(s.chain.count === 1 && s.chain.cancels === 1 && s.chain.backsteps === 1, `chains ${s.chain.count}, cancels ${s.chain.cancels}, steps back ${s.chain.backsteps}`);
   assert(s.chain.lengthMax === 3 && s.chain.lengthMedian === 3 && s.kills.chain === 3, `length ${s.chain.lengthMax}, kills ${s.kills.chain}`);
   assert(s.chain.focusSpent > 0 && s.movement.path > 2.5, `focus ${s.chain.focusSpent}, path ${s.movement.path}`);
+  // П1: one draw time — the released chain, drawn over 11 ticks (focus slows them: 1/60…4/60 real s each); the cancelled one is not counted.
+  assert(s.chain.drawTime.length === 1 && s.chain.drawTime[0] >= 11 / 60 - 0.005 && s.chain.drawTime[0] <= 44 / 60 + 0.005, `draw time ${JSON.stringify(s.chain.drawTime)}`);
   // The report's replay sees the same (the observer is the same code on the same commands).
   const r = replayed(sim).summary;
   r.threats = {};
