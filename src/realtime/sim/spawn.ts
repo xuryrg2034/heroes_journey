@@ -16,14 +16,12 @@
 import { dcos, dsin } from './detMath';
 import { behaviorOf, enemyKind } from './enemies/kinds';
 import { rollRandomElite } from './elites';
-import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR } from './kit';
+import { COLOR_COUNT, EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, MIN_COLORS } from './kit';
 import { type ArenaShape, blockedAt, dist, inWater, type Vec } from './geometry';
 import { enemyBodyRadius, rollGroupInterval, type Params } from './params';
 import type { Rng } from './rng';
 import { NO_COLOR, type Enemy, type EnemyKind, type World } from './world';
 
-/** Four chain colors, as in the trail palette of the map. */
-export const COLOR_COUNT = 4;
 
 export interface SpawnMarker {
   id: number;
@@ -209,8 +207,32 @@ function rollSize(world: World, min: number, max: number): number {
   return lo + Math.floor(rollRng(world).next() * (hi - lo + 1));
 }
 
-/** A random chain colour (spawnRoll). */
-function rollColor(world: World): number { return Math.floor(rollRng(world).next() * COLOR_COUNT); }
+/** The full palette: every chain colour. */
+const FULL_PALETTE: readonly number[] = Array.from({ length: COLOR_COUNT }, (_, i) => i);
+
+/**
+ * Loop research, step 1 (docs/realtime-loop-research.md, sections 4.2 and 4.5): the colours newcomers take, ascending — the
+ * first N (the run's by its row, `Kit.colors`, else the sandbox's `colorCount`; journals without it — 4) and the colours of
+ * the arena's own start enemies, as the turn-based palette (row palette + the authored colours, decision 30.09.2026): a
+ * marked target of another colour still gets partners. The chameleon cycles in it too. N = 4 — all four, as before.
+ */
+export function palette(world: World): readonly number[] {
+  const raw = world.kit?.colors ?? world.params.colorCount ?? COLOR_COUNT;
+  const n = Number.isFinite(raw) ? Math.min(COLOR_COUNT, Math.max(MIN_COLORS, Math.floor(raw))) : COLOR_COUNT;
+  if (n >= COLOR_COUNT) return FULL_PALETTE;
+  const colors = new Set(FULL_PALETTE.slice(0, n));
+  for (const s of world.arena.enemies) if (s.color >= 0 && s.color < COLOR_COUNT) colors.add(s.color);
+  return [...colors].sort((a, b) => a - b);
+}
+
+/** The colour after `color` in the palette (the chameleon's turn); with all four — `(color + 1) % 4`, as before. */
+export function nextPaletteColor(world: World, color: number): number {
+  const p = palette(world);
+  return p[(p.indexOf(color) + 1) % p.length];
+}
+
+/** A random chain colour of the palette (spawnRoll; one draw whatever its size — with all four the draws of before). */
+function rollColor(world: World): number { const p = palette(world); return p[Math.floor(rollRng(world).next() * p.length)]; }
 
 /** Boars on the arena, at markers and in the queue: the cap (the arena's `boarMax`, else the panel's) counts all of them. */
 function boarCount(world: World): number {

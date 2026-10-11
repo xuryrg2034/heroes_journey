@@ -46,6 +46,11 @@ export interface Loadout {
   /** Phase A, T4: affixes of each elite of the arena (a run by its row: 1–4 — 0, 5–8 — 1, 9 — 2). Absent — 0. */
   eliteAffixes?: number;
   /**
+   * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2): chain colours of the newcomers, the first this many
+   * of the four — a run by its row when its panel toggle `colorsByRow` is on (run/rtRun.ts `rtColorsByRow`). Absent — 4.
+   */
+  colors?: number;
+  /**
    * Phase B, Т2: the run's hammer (buildIds.ts `HAMMERS`; one per run). Absent — none. Counter talismans (Т1) and relics (Т3)
    * come in `talismans`.
    */
@@ -79,6 +84,8 @@ export interface Kit {
    * before phase A and of run rows 1–4 hash as before.
    */
   eliteAffixes?: number;
+  /** Loop research, step 1: colours of the newcomers, 2–3, with the arena's own (spawn.ts `palette`). Absent — 4: kits without it hash as before. */
+  colors?: number;
   /** Phase B, Т2: the hammer of the run (absent — none: kits before phase B hash as before). */
   hammer?: HammerId;
   /**
@@ -92,6 +99,10 @@ export interface Kit {
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
 export const EVENT_EXTRA_ENEMIES = 3;
+/** Four chain colors, as in the trail palette of the map. */
+export const COLOR_COUNT = 4;
+/** Loop research, step 1: a palette has at least this many colours (fewer in a loadout — the full four). */
+export const MIN_COLORS = 2;
 /** Phase A, T4: an elite has at most this many affixes (four kinds, «Стремительный» and «Толстый» never together). */
 export const MAX_AFFIXES = 3;
 /** Баланс: «подкрепление раньше» — before the goals groups come this many times as often (the interval × 1 / it). */
@@ -123,6 +134,7 @@ export function kitOf(loadout: Loadout): Kit {
     ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false, startElite: !!loadout.startElite,
     extraStart: !!loadout.extraStart, earlyPace: !!loadout.earlyPace,
     ...count(loadout.eliteAffixes) > 0 ? { eliteAffixes: Math.min(MAX_AFFIXES, count(loadout.eliteAffixes)) } : {},
+    ...count(loadout.colors) >= MIN_COLORS && count(loadout.colors) < COLOR_COUNT ? { colors: count(loadout.colors) } : {},
     ...isHammerId(loadout.hammer) ? { hammer: loadout.hammer } : {},
   };
 }

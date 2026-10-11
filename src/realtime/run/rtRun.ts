@@ -283,17 +283,29 @@ export const RT_RANDOM_ELITE_ROW = 3;
 /** Баланс (phase A, T4, docs/realtime-phase-a.md, section 2): affixes of each elite by the run row — 1–4: 0, 5–8: 1, 9: 2. */
 export const rtEliteAffixes = (row: number): number => (row >= 9 ? 2 : row >= 5 ? 1 : 0);
 /**
+ * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2; the turn-based palette, decision 30.09.2026): colours
+ * of the newcomers by the run row — 1–2: 2, 3–4: 3, from 5: 4. Acts only with the panel toggle `colorsByRow`.
+ */
+export const rtColorsByRow = (row: number): number => (row <= 2 ? 2 : row <= 4 ? 3 : 4);
+/** What the run's arena takes from the panel beside its params (the sandbox panel is saved and read by the run). */
+export interface RtLoadoutOptions {
+  /** Loop research, step 1: the palette by the row (`Params.colorsByRow`). Off — 4 colours, the loadout as before. */
+  colorsByRow?: boolean;
+}
+/**
  * What the arena of the open battle node starts with (step 3): the run's consumables, the energy it banked (up to 7),
  * the consumables open in the run (an elite drops one of them) and whether random elites come (run row 3 and later).
  * Computed from the run as it is, so a reload starts the arena again with the same loadout.
  */
-export function rtArenaLoadout(run: RtRunState): Loadout {
+export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}): Loadout {
   const pending = run.pending, node = pending && 'nodeId' in pending && pending.nodeId ? rtNode(run, pending.nodeId) : undefined;
   // Phase B, 5а (decision 10.10.2026): oaths add no energy at the start of an arena any more — the banked energy, up to 7.
   return {
     items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy), openItems: [...run.openItems],
     randomElites: !!node && runRow(node.row) >= RT_RANDOM_ELITE_ROW,
     ...node && rtEliteAffixes(runRow(node.row)) > 0 ? { eliteAffixes: rtEliteAffixes(runRow(node.row)) } : {},
+    // Loop research, step 1: fewer colours on run rows 1–4 (row 5 on — 4, the loadout as before).
+    ...options.colorsByRow && node && rtColorsByRow(runRow(node.row)) < 4 ? { colors: rtColorsByRow(runRow(node.row)) } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},

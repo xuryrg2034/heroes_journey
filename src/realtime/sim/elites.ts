@@ -42,7 +42,7 @@ import { enemyKind, kindOf } from './enemies/kinds';
 import { blockedAt, dist, inWater, overCliff, pushOutOfCliffs, type Vec } from './geometry';
 import { heroRadius } from './params';
 import { MAX_AFFIXES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
-import { COLOR_COUNT } from './spawn';
+import { nextPaletteColor } from './spawn';
 import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World } from './world';
 
 /** A weak elite (0 HP) gets this HP. */
@@ -144,7 +144,7 @@ export function chameleonOpen(world: World, e: Enemy): boolean {
  * window; null — not a chameleon, or not in the window.
  */
 export function chameleonWarn(world: World, e: Enemy): { next: number; left: number } | null {
-  return chameleonOpen(world, e) ? { next: (e.color + 1) % COLOR_COUNT, left: Math.max(0, e.chameleon!) } : null;
+  return chameleonOpen(world, e) ? { next: nextPaletteColor(world, e.color), left: Math.max(0, e.chameleon!) } : null;
 }
 
 /**
@@ -180,7 +180,7 @@ export function updateAffixes(world: World, dt: number): void {
     if (!e.affixes) continue;
     if (e.chameleon !== undefined && !chameleonHeld(world, e)) {
       e.chameleon -= dt;
-      if (e.chameleon <= 1e-9) { e.color = (e.color + 1) % COLOR_COUNT; e.chameleon += Math.max(0.05, p.chameleonPeriod); }
+      if (e.chameleon <= 1e-9) { e.color = nextPaletteColor(world, e.color); e.chameleon += Math.max(0.05, p.chameleonPeriod); }
     }
     if (e.trail && dist(e, e.trail) >= Math.max(0.05, p.trailStep) - 1e-9) {
       // The fire goes out in water (design 09.10.2026): no point in a river or a pond; the step is counted on.

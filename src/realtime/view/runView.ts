@@ -20,7 +20,7 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  type RtArenaOutcome, type RtRunEvent, type RtRunState, type RtRunStep,
+  type RtArenaOutcome, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../../game/run/runGift';
@@ -36,6 +36,8 @@ export interface RunHost {
    * its roster, absent for the template's own composition) and show it.
    */
   startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice, roster?: string): void;
+  /** Loop research, step 1: what the arena's loadout takes from the panel (the palette by the row). Absent — nothing. */
+  loadoutOptions?: RtLoadoutOptions;
   /** The run screen covers the arena (true) or the arena is on screen (false). */
   onScreenChange(open: boolean): void;
   /**
@@ -195,7 +197,7 @@ export class RunView {
     this.el.hidden = true;
     this.host.onScreenChange(false);
     const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}`;
-    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) }, pending.roster);
+    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) }, pending.roster);
   }
 
   private describe(events: RtRunEvent[]): string {

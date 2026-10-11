@@ -470,6 +470,8 @@ async function boot(): Promise<void> {
       // Phase A (Т2): the node's roster over the template (the journal keeps it, sim/simulation.ts).
       startArena(roster !== undefined ? withRoster(arenaTemplate(arenaId), roster) : arenaTemplate(arenaId), seed, hero, loadout, notice);
     },
+    // Loop research, step 1: the panel's palette by the row (off by default — the loadout as before).
+    loadoutOptions: { colorsByRow: params.colorsByRow },
     onScreenChange(open) {
       runScreenOpen = open;
       if (open) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; result.hidden = true; }

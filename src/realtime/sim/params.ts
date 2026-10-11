@@ -166,6 +166,17 @@ export interface Params {
   groupMax: number;
   spawnPlace: SpawnPlace;
   groupColor: GroupColor;
+  /**
+   * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2): chain colours of the newcomers in the sandbox, the
+   * first this many of the four and the colours of the arena's start enemies (spawn.ts `palette`). Journals without the
+   * value: 4. A run plays 4 (`RUN_FORCED`); its palette by the row comes from `colorsByRow`.
+   */
+  colorCount: number;
+  /**
+   * Loop research, step 1: the run's palette by its row, as in the turn-based game (decision 30.09.2026): run rows 1–2 — 2
+   * colours, 3–4 — 3, from 5 — 4 (`Loadout.colors`, run/rtRun.ts `rtColorsByRow`). Off by default: the run plays 4 colours.
+   */
+  colorsByRow: boolean;
   maxEnemies: number;
   markerDelay: number;
   spawnMinDistance: number;
@@ -527,6 +538,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   groupMax: 4,
   spawnPlace: 'edges',
   groupColor: 'mixed',
+  colorCount: 4,
+  colorsByRow: false,
   maxEnemies: 60,
   markerDelay: 1,
   spawnMinDistance: 3,
@@ -773,6 +786,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     options: [{ value: 'edges', label: 'только края' }, { value: 'edgesAndInside', label: 'края + кучки внутри' }] },
   { kind: 'choice', key: 'groupColor', group: 'Появление', label: 'Цвет группы', stage: 1,
     options: [{ value: 'mixed', label: 'смешанный' }, { value: 'mono', label: 'одноцветный' }] },
+  n('colorCount', 'Появление', 'Цветов у новых врагов', 2, 4, 1, 5, '', 'Только песочница (исследование петли): новые враги — первых N цветов и цветов врагов арены. В походе — 4 или по ряду (ниже).'),
+  { kind: 'bool', key: 'colorsByRow', group: 'Появление', label: 'Поход: палитра по рядам (исследование петли)', stage: 5,
+    hint: 'Ряды похода 1–2 — 2 цвета, 3–4 — 3, с 5-го — 4. Выключено — всегда 4.' },
   n('maxEnemies', 'Появление', 'Предел врагов на арене', 1, 150, 1, 1, '', 'При пределе новые ждут в очереди меток.'),
   n('markerDelay', 'Появление', 'Задержка метки', 0, 3, 0.1, 1, 'с'),
   n('spawnMinDistance', 'Появление', 'Запретный радиус у героя', 0, 6, 0.25, 1, 'ед.'),
@@ -999,9 +1015,10 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * за героем». A run arena gets them off whatever the
  * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off). Phase A:
  * speed classes are on; the sandbox's affix count is 0 (the run passes its own by the row, `Loadout.eliteAffixes`); Т6: the
- * archer's point shot is on.
+ * archer's point shot is on. Loop research, step 1: the sandbox palette `colorCount` is 4 (the run's palette by its row comes
+ * from `colorsByRow`, `Loadout.colors`).
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4 });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).
