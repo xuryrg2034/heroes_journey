@@ -16,7 +16,9 @@ import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
-import { chameleonWarn, eliteAffixes, type AffixId } from '../sim/elites';
+import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
+import { activeEliteBehavior, boarLane, formationOf } from '../sim/eliteBehaviors';
+import { ELITE_LEMON, PLAQUE_FADE, PLAQUE_LIFE, drawPlatePips, drawWindowPulse, plaqueText, platesWord } from './eliteView';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } from './camera';
@@ -281,6 +283,16 @@ export class RealtimeRenderer {
   /** Phase A (Т4): texts of the affix labels in the badge strip (a pool over `badgeLayer`). */
   private readonly affixTextLayer = new Container();
   private readonly affixTexts: Text[] = [];
+  /** Elite armour (package «Урон имеет значение»): plate pips, the window pulse and the plaques over elites (over the badges). */
+  private readonly eliteLayer = new Graphics();
+  private readonly elitePlaqueLayer = new Container();
+  /** Elites already announced with a plaque (by id), and the plaques now on screen. */
+  private readonly plaqued = new Set<number>();
+  private readonly plaques = new Map<number, { box: Container; until: number }>();
+  /** «−1 пластина» badges over armoured links of the drawn chain (reused texts). */
+  private readonly plateLabels: Text[] = [];
+  /** What the elite view drew (tests read it): last-frame counts and totals since the last reset. */
+  readonly eliteShown = { pips: 0, filledPips: 0, windows: 0, hotWindows: 0, planPlates: 0, formationLines: 0, secondLanes: 0, plaques: 0, plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0, edgeArrows: 0 };
   /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
   private rushLaneCount = 0;
   private readonly enemyLayer = new Container();
@@ -384,7 +396,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -521,6 +533,7 @@ export class RealtimeRenderer {
       g.poly(pts).fill({ color, alpha }).stroke({ color: THREAT_OUTLINE, width: spawn ? 2 : 3, alpha });
     }
     Object.assign(this.edgeShown, counts);
+    this.eliteShown.edgeArrows = this.edgeArrows.filter(a => a.kind === 'goal').length;
   }
 
   /** Pixels at each side of the window taken by HUD elements the pointers must not sit under (measured by main.ts). */
@@ -825,15 +838,24 @@ export class RealtimeRenderer {
    */
   private drawLanes(world: World): void {
     const g = this.laneLayer.clear(), p = world.params, half = enemyBodyRadius(p) * UNIT;
-    let lanes = 0, packs = 0, rushes = 0;
+    let lanes = 0, packs = 0, rushes = 0, secondLanes = 0;
     for (const e of world.enemies) {
-      if (e.kind !== 'boar' || (e.boar !== 'windup' && e.boar !== 'charge')) continue;
+      // The lane comes from the sim (`boarLane`): the windup fills by its own length — the 0.6 s second windup of the elite
+      // boar's «Двойной рывок» counts from `boarSecondWindup`, not from `boarWindup`.
+      const lane = boarLane(world, e);
+      if (!lane) continue;
       lanes++;
-      const left = e.boar === 'windup' ? p.boarRange : Math.max(0, p.boarRange - e.charged);
-      const len = left * UNIT + half, k = e.boar === 'windup' && p.boarWindup > 0 ? 1 - Math.max(0, e.boarTimer) / p.boarWindup : 1;
-      const fade = e.boar === 'charge' ? 0.5 : 1;
-      threatStrip(g, e.x * UNIT, e.y * UNIT, e.dirX, e.dirY, len, half, k, fade);
-      stripHead(g, e.x * UNIT, e.y * UNIT, e.dirX, e.dirY, len, half, fade);
+      const len = lane.len * UNIT + half, fade = lane.charging ? 0.5 : 1;
+      threatStrip(g, e.x * UNIT, e.y * UNIT, lane.dx, lane.dy, len, half, lane.progress, fade);
+      stripHead(g, e.x * UNIT, e.y * UNIT, lane.dx, lane.dy, len, half, fade);
+      // The second charge is a new telegraph along a new line: a lemon rim round the strip and a second head.
+      if (lane.second) {
+        secondLanes++;
+        const nx = -lane.dy, ny = lane.dx, ox = e.x * UNIT, oy = e.y * UNIT, w = half * 1.28;
+        g.poly([ox - nx * w, oy - ny * w, ox + lane.dx * len - nx * w, oy + lane.dy * len - ny * w, ox + lane.dx * len + nx * w, oy + lane.dy * len + ny * w, ox + nx * w, oy + ny * w])
+          .stroke({ color: ELITE_LEMON, width: 3, alpha: 0.85 * fade });
+        stripHead(g, e.x * UNIT, e.y * UNIT, lane.dx, lane.dy, len - half * 1.1, half, fade);
+      }
     }
     for (const e of world.enemies) {
       const rush = wolfRushLine(world, e);
@@ -851,6 +873,19 @@ export class RealtimeRenderer {
       dashedLine(g, a.x * UNIT, a.y * UNIT, b.x * UNIT, b.y * UNIT, 10, 8);
     }
     if (packs) g.stroke({ color: PALE, width: 3, alpha: 0.3, cap: 'round' });
+    // «Ведёт строем»: a faint line in the colour of the column from the leader through its followers in slot order.
+    let columns = 0;
+    for (const e of world.enemies) {
+      if (!e.elite || e.kind !== 'basic') continue;
+      const followers = formationOf(world, e);
+      if (!followers.length) continue;
+      columns++;
+      let prev: { x: number; y: number } = e;
+      for (const f of followers) { dashedLine(g, prev.x * UNIT, prev.y * UNIT, f.x * UNIT, f.y * UNIT, 8, 7); prev = f; }
+      g.stroke({ color: chainInk(e.color), width: 3, alpha: 0.5, cap: 'round' });
+    }
+    this.eliteShown.formationLines = columns;
+    this.eliteShown.secondLanes = secondLanes;
     this.visibleLanes = lanes;
     this.visiblePackLines = packs;
     this.rushLaneCount = rushes;
@@ -1049,6 +1084,57 @@ export class RealtimeRenderer {
     Object.assign(this.badgeRoles, counts);
     this.signals.roleBadges = total;
     this.signals.affixLabels = labels;
+  }
+
+  /**
+   * Elite armour and presence (package «Урон имеет значение», docs/realtime-design-research.md, 4.3): over an armoured elite a
+   * row of plate pips (filled — left, empty — lost, the growing one has a ring); at 0 plates a lemon pulse with a clock ring
+   * (the window); over any new elite a plaque «Элита · <поведение>» for `PLAQUE_LIFE` seconds. Drawn in screen-sized units.
+   */
+  private drawElites(world: World): void {
+    const g = this.eliteLayer.clear(), p = world.params, px = 1 / Math.max(0.1, this.scale), shown = this.eliteShown;
+    let pips = 0, filled = 0, windows = 0, hot = 0;
+    for (const e of world.enemies) {
+      if (!e.elite) continue;
+      const R = enemyDrawRadius(p) * UNIT * p.eliteArtScale * 1.06, x = e.x * UNIT, y = e.y * UNIT;
+      const seen = this.sees(e, 1.5);
+      if (seen) {
+        const a = eliteArmorView(e);
+        if (a) {
+          if (a.open > 0) { windows++; if (a.clean > 0) hot++; drawWindowPulse(g, x, y, R, a.open, Math.max(0.01, p.eliteWindow), this.clock, px, a.clean); }
+          const d = drawPlatePips(g, x, y, R, a, p.elitePlateRegrow, px);
+          pips += d.pips; filled += d.filled;
+        }
+      }
+      // The plaque of a newcomer: once per elite, 1.5 s of real time.
+      if (!this.plaqued.has(e.id)) {
+        this.plaqued.add(e.id);
+        const label = plaqueText(activeEliteBehavior(world, e)?.title);
+        const text = new Text({ text: label, style: { fontFamily: 'system-ui, sans-serif', fontSize: 26, fontWeight: 'bold', fill: ELITE_LEMON } });
+        text.anchor.set(0.5, 0.5); text.scale.set(0.5);
+        const w = text.width + 14, h = text.height + 8, box = new Container(), bg = new Graphics();
+        bg.roundRect(-w / 2, -h, w, h, h * 0.4).fill({ color: 0x16202a, alpha: 0.92 }).stroke({ color: ELITE_LEMON, width: 1.5, alpha: 0.9 });
+        text.position.set(0, -h / 2);
+        box.addChild(bg, text);
+        this.elitePlaqueLayer.addChild(box);
+        this.plaques.set(e.id, { box, until: this.clock + PLAQUE_LIFE });
+        shown.plaquesSeen++;
+        shown.plaqueText = label;
+      }
+      const pl = this.plaques.get(e.id);
+      if (pl) {
+        pl.box.visible = seen;
+        pl.box.scale.set(px);
+        pl.box.position.set(x, y - R - (e.armor ? 30 : 8) * px);
+        pl.box.alpha = Math.max(0, Math.min(1, (pl.until - this.clock) / PLAQUE_FADE));
+      }
+    }
+    for (const [id, pl] of this.plaques) {
+      if (this.clock < pl.until && world.enemies.some(e => e.id === id)) continue;
+      pl.box.destroy({ children: true });
+      this.plaques.delete(id);
+    }
+    shown.pips = pips; shown.filledPips = filled; shown.windows = windows; shown.hotWindows = hot; shown.plaques = this.plaques.size;
   }
 
   /** Phase A (Т4): the `i`-th affix label text (a pool; drawn at twice the font size and scaled down — crisp at any zoom). */
@@ -1341,7 +1427,23 @@ export class RealtimeRenderer {
       }
       if (ev.type === 'chainHit') {
         this.strikeFx(world, ev, at === lastHit && !moreLinks);
-        if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xffd36b);
+        // A plate hit (damage 0): the plate text comes with the `elitePlates` event.
+        if (!ev.killed && ev.plates === undefined) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xffd36b);
+        continue;
+      }
+      if (ev.type === 'elitePlates') {
+        if (ev.action === 'strip') {
+          this.floatText(`−${ev.removed ?? 1} ${platesWord(ev.removed ?? 1)}`, ev.x * UNIT, ev.y * UNIT - 40, ELITE_LEMON);
+          this.eliteBurst(ev.x, ev.y, 0.9, 0.22, 4);
+          this.eliteShown.stripFlashes++;
+        } else if (ev.action === 'open') this.floatText('окно', ev.x * UNIT, ev.y * UNIT - 84, ELITE_LEMON);
+        continue;
+      }
+      if (ev.type === 'eliteDown') {
+        // The sim adds the 0.08 s hit-stop; here a flash, bigger and with a word for a clean break (killed in the window).
+        this.eliteBurst(ev.x, ev.y, ev.clean ? 2.4 : 1.6, ev.clean ? 0.5 : 0.35, ev.clean ? 8 : 5, true);
+        if (ev.clean) { this.floatText('чистый слом', ev.x * UNIT, ev.y * UNIT - 54, ELITE_LEMON); this.eliteShown.cleanBreaks++; }
+        this.eliteShown.downFlashes++;
         continue;
       }
       if (ev.type === 'blast') {
@@ -1468,7 +1570,9 @@ export class RealtimeRenderer {
   private drawChain(world: World, ui: RenderUi): void {
     const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
     for (const label of this.quillLabels) label.visible = false;
+    for (const label of this.plateLabels) label.visible = false;
     this.signals.quillBadges = 0;
+    this.eliteShown.planPlates = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
     for (const e of world.enemies) {
       if (e.hurtFlash <= 0) continue;
@@ -1551,6 +1655,17 @@ export class RealtimeRenderer {
         label.visible = true;
       }
       const x = pt.x * UNIT, y = pt.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75;
+      if (lp.outcome.plate) {
+        // An armoured elite link: a plate hit, not a kill and not a survivor — a lemon ring and «−1 пластина»; the chain goes on.
+        const R = linked?.elite ? r * p.eliteArtScale * 1.06 : r, bx = x - R * 0.7, by = y - R * 0.75, s = r * 0.2;
+        g.circle(x, y, R + 4).stroke({ color: ELITE_LEMON, width: 4 });
+        g.circle(bx, by, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
+        g.roundRect(bx - s * 0.8, by - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
+        const label = this.plateLabel(this.eliteShown.planPlates++);
+        label.position.set(x, y - R - (armed > 0 ? 36 : 14));
+        label.visible = true;
+        continue;
+      }
       if (lp.outcome.killed) {
         const s = r * 0.2;
         g.circle(cx, cy, r * 0.32).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
@@ -1673,6 +1788,26 @@ export class RealtimeRenderer {
     void kind;
   }
 
+  /** A lemon ring at an arena point (units), `r` units wide, for `life` seconds. */
+  private eliteBurst(x: number, y: number, r: number, life: number, width: number, grow = false): void {
+    const g = new Graphics().circle(0, 0, r * UNIT).fill({ color: ELITE_LEMON, alpha: grow ? 0.3 : 0.18 }).stroke({ color: ELITE_LEMON, width, alpha: 0.95 });
+    g.position.set(x * UNIT, y * UNIT);
+    this.fxLayer.addChild(g);
+    this.bursts.push({ g, life, total: life, ...grow ? { grow: true } : {} });
+  }
+
+  /** «−1 пластина» badges over armoured links of the drawn chain: the `i`-th text (a pool over the root). */
+  private plateLabel(i: number): Text {
+    while (this.plateLabels.length <= i) {
+      const text = new Text({ text: '−1 пластина', style: { fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 'bold', fill: ELITE_LEMON, stroke: { color: 0x1a2330, width: 5 } } });
+      text.anchor.set(0.5, 1);
+      text.visible = false;
+      this.root.addChild(text);
+      this.plateLabels.push(text);
+    }
+    return this.plateLabels[i];
+  }
+
   /** Stage 2, step 2: the `i`-th «−1 HP» badge of porcupine links (a pool of texts over the chain layer). */
   private quillLabel(i: number): Text {
     while (this.quillLabels.length <= i) {
@@ -1720,6 +1855,7 @@ export class RealtimeRenderer {
     this.syncEnemies(world);
     this.drawSignals(world);
     this.drawBadges(world);
+    this.drawElites(world);
     this.drawTargets(world);
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
@@ -1776,6 +1912,10 @@ export class RealtimeRenderer {
     this.enemyViews.clear();
     for (const d of this.dying) d.root.destroy({ children: true });
     this.dying.length = 0;
+    this.plaqued.clear();
+    for (const pl of this.plaques.values()) pl.box.destroy({ children: true });
+    this.plaques.clear();
+    Object.assign(this.eliteShown, { plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0 });
   }
 }
 

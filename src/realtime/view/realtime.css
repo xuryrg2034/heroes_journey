@@ -233,3 +233,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-menu-tools { display: flex; justify-content: flex-end; margin-top: 8px; }
 .rt-run-modal .rt-logs-open { display: block; margin: 10px auto 0; }
 .rt-note-flash { position: absolute; top: 60px; left: 18px; padding: 3px 10px; font-size: 12px; font-weight: 700; color: #1b2017; background: #c4ad77; pointer-events: none; z-index: 4; }
+
+/* Package «Урон имеет значение»: the badge «Элита ×N» next to the goal. */
+.rt-elite-badge { font-family: Georgia, serif; font-size: 13px; font-weight: bold; color: #1a2330; background: #ffff66; border-radius: 9px; padding: 1px 8px; }
+.rt-elite-badge[hidden] { display: none; }

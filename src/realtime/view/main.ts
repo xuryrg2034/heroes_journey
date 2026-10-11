@@ -203,6 +203,10 @@ async function boot(): Promise<void> {
   const energyText = el('span', 'rt-energy');
   const goalText = el('span', 'rt-kills');
   goalText.setAttribute('data-testid', 'goal');
+  // Package «Урон имеет значение»: «Элита ×N» next to the goal while elites live (hidden otherwise).
+  const eliteBadge = el('span', 'rt-elite-badge');
+  eliteBadge.setAttribute('data-testid', 'elite-badge');
+  eliteBadge.hidden = true;
   const chainText = el('span', 'rt-chain');
   const scoreText = el('span', 'rt-score');
   scoreText.setAttribute('data-testid', 'score');
@@ -223,7 +227,7 @@ async function boot(): Promise<void> {
     itemBar.appendChild(slot);
     return slot;
   });
-  hud.append(hpBar, hpText, focusBar, energyText, goalText, scoreText, timeText, infoText, chainText);
+  hud.append(hpBar, hpText, focusBar, energyText, goalText, eliteBadge, scoreText, timeText, infoText, chainText);
   // The action bar at the bottom: abilities (Space, Q) and consumables (1–4) — the top HUD keeps its width.
   const actionBar = el('div', 'rt-actionbar');
   actionBar.setAttribute('data-testid', 'action-bar');
@@ -748,6 +752,9 @@ async function boot(): Promise<void> {
     scoreText.textContent = `очки ${w.stats.score}`;
     goalText.textContent = w.stage === 'greed' ? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
+    const eliteCount = w.enemies.reduce((n, e) => n + (e.elite ? 1 : 0), 0);
+    eliteBadge.hidden = eliteCount === 0;
+    if (eliteCount) eliteBadge.textContent = `Элита ×${eliteCount}`;
     jumpAbility.textContent = `Пробел прыжок · ${jumpCostOf(w)} ⚡`;
     jumpAbility.classList.toggle('rt-ready', w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w));
     spinAbility.textContent = `Q круговой · ${params.spinCost} ⚡`;
@@ -862,7 +869,7 @@ async function boot(): Promise<void> {
         seed: sim.seed,
         ticksPerFrame,
         hero: { ...w.hero },
-        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0, elite: !!e.elite })),
+        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0, elite: !!e.elite, armor: e.armor ? { ...e.armor } : null })),
         objects: w.objects.map(o => ({ ...o })),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
@@ -886,6 +893,8 @@ async function boot(): Promise<void> {
         lanes: renderer.visibleLanes,
         /** Stage 2, step 2: signals of the new enemies drawn in the last frame (shield arcs, archer lines, …). */
         signals: { ...renderer.signals },
+        /** Package «Урон имеет значение»: what the elite view drew (plate pips, window pulses, plan badges, plaques, flashes, …). */
+        eliteView: { ...renderer.eliteShown },
         /** Stage 2, step 3: spin flashes drawn so far, consumables in hand, item flashes drawn so far, frozen and burning on screen. */
         spinsShown: renderer.spinsShown,
         items: w.kit ? { ...w.kit.items } : null,

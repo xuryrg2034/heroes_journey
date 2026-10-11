@@ -39,7 +39,8 @@ export function collectEdgeMarkers(world: World, sees: (p: { x: number; y: numbe
       const beam = shamanBeam(world, e);
       if (beam && (sees(beam.target, 0) || Math.hypot(beam.target.x - world.hero.x, beam.target.y - world.hero.y) <= BEAM_NEAR_HERO)) threat(e);
     }
-    if (e.marked && !sees(e, SEEN_MARGIN)) out.push({ x: e.x, y: e.y, kind: 'goal' });
+    // A marked enemy is a goal; an elite off screen gets the same gold pointer (its rim is gold; package «Урон имеет значение»).
+    if ((e.marked || e.elite) && !sees(e, SEEN_MARGIN)) out.push({ x: e.x, y: e.y, kind: 'goal' });
   }
   for (const b of world.blasts) if (sees(b, world.params.sapperRadius) && !sees(b, SEEN_MARGIN)) threat(b);
   const open = doorOpen(world);
