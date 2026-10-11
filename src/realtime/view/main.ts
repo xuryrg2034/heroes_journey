@@ -924,6 +924,8 @@ async function boot(): Promise<void> {
         heroReachShown: renderer.heroReachShown,
         heroAnchorShown: renderer.heroAnchorShown,
         hint: hintReason,
+        /** Loop research, step 2: the loop's state and what the view drew of it (render.ts `loopShown`). */
+        loop: { closed: w.chainClosed ?? null, shown: { ...renderer.loopShown }, hintText: hintReason ? REFUSAL_TEXT[hintReason] : null },
         /** Phase B (Д5): icons in the build column (visible), their ids and progress texts; icon flashes and texts at the hero so far. */
         buildColumn: buildColumn.el.hidden ? 0 : buildColumn.count,
         buildFolded: buildColumn.folded,

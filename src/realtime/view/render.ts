@@ -13,7 +13,7 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../../render/art';
 import { characterSprite } from '../../render/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, type AffixId } from '../sim/elites';
@@ -28,6 +28,7 @@ import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
 import { HAMMERS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
+import { findLoopHint, type LoopHintFigure } from './loopHint';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -38,6 +39,8 @@ import { fireTextOf } from './buildColumn';
 export const CHAIN_COLORS: readonly number[] = [COLORS[0], COLORS[1], COLORS[2], 0xc8962e, ...COLORS.slice(4)];
 /** The view colour of chain colour `index` (out of range — the last one, as a guard). */
 const chainInk = (index: number): number => CHAIN_COLORS[index] ?? CHAIN_COLORS[CHAIN_COLORS.length - 1];
+/** The part of `SealPreview` the view reads. */
+type SealPreviewLike = NonNullable<ReturnType<typeof planChain>['seal']>;
 /**
  * Phase B (design answer 23): the effects of the player's build — a pale-blue rim (the spin's colour), no hatching and no
  * dark threat outline: the wave, the hammer's blast, the cut, the fire of the dash; the player's bomb too (apart from the
@@ -296,6 +299,17 @@ export class RealtimeRenderer {
   private readonly bursts: { g: Graphics; life: number; total: number; grow?: boolean }[] = [];
   /** Stage 2, step 2: «−1 HP» badges over porcupine links of the drawn chain (reused texts). */
   private readonly quillLabels: Text[] = [];
+  /** Loop research, step 2: the hit numbers on enemies inside a closed ring (reused texts). */
+  private readonly sealLabels: Text[] = [];
+  /**
+   * Loop research, step 2: what the loop drew (tests read it): `candidates` — «замкни» rings shown on an open chain, `closed` — a
+   * closed ring filled, `marks` — enemies marked inside it, `flashes` — outline flashes shown so far (release and strike), `hint` —
+   * the experiment's highlighted figure is on screen.
+   */
+  readonly loopShown = { candidates: 0, closed: 0, marks: 0, flashes: 0, hint: 0 };
+  /** The experiment `loopHint`: the figure found at the last search (the view recomputes it every few frames, never in the sim). */
+  private hintFigure: LoopHintFigure | null = null;
+  private hintFrame = 0;
   private heroArt: Container | null = null;
   private readonly heroRing = new Graphics();
   private arena: ArenaLayout | null = null;
@@ -1303,6 +1317,11 @@ export class RealtimeRenderer {
         if (ev.picked) this.floatText(`+ ${LOOT_TITLE[ev.loot] ?? ev.loot}`, ev.x * UNIT, ev.y * UNIT - 36, 0xffd36b);
         continue;
       }
+      if (ev.type === 'seal') {
+        // Loop research, step 2: the outline flashes at the release and at the strike (the ring as it was fixed).
+        this.sealFlash(ev.points, ev.kind);
+        continue;
+      }
       if (ev.type === 'enemyHit') {
         // Stage 2, step 2: an arrow or a blast wounds an enemy (a kill comes as its own `kill` event).
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xff8a73);
@@ -1417,11 +1436,13 @@ export class RealtimeRenderer {
       }
     }
     if (!world.chain.length) {
+      this.drawLoopHint(g, world);
       // Out of a chain: the reachable buttons / open door get a faint ring (a link of any color).
       if (world.status === 'playing' && !world.move) for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 2, alpha: 0.45 });
       return;
     }
     const plan = planChain(world), color = chainColor(world), ink = color === null ? 0xffffff : chainInk(color);
+    this.loopShown.hint = 0;
     // Line hero → links, navy under the chain color.
     const pts: Vec[] = [{ x: hero.x, y: hero.y }];
     for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
@@ -1431,7 +1452,8 @@ export class RealtimeRenderer {
       g.stroke({ color: c, width: w, alpha: 0.95, cap: 'round', join: 'round' });
     }
     const anchor = chainAnchor(world);
-    if (!plan.endsOnSurvivor && !plan.endsOnObject) {
+    this.drawLoop(g, world, plan.seal, ink);
+    if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
       if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
       // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
       g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
@@ -1443,7 +1465,7 @@ export class RealtimeRenderer {
       }
       for (const e of nextCandidates(world)) g.circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(p) * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
     }
-    if (!plan.endsOnSurvivor && !plan.endsOnObject) {
+    if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
       for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
     }
     // Outcome of each link: dies — white badge with a red cross; wounded — orange ring and «!».
@@ -1476,6 +1498,115 @@ export class RealtimeRenderer {
       }
     }
     this.signals.quillBadges = quills;
+  }
+
+  /** Loop research, step 2: the `i`-th hit number of a closed ring (a pool of texts over the chain layer). */
+  private sealLabel(i: number): Text {
+    while (this.sealLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 16, fontWeight: 'bold', fill: 0xffffff, stroke: { color: NAVY, width: 4 } } });
+      text.anchor.set(0.5, 0.5);
+      text.visible = false;
+      this.root.addChild(text);
+      this.sealLabels.push(text);
+    }
+    return this.sealLabels[i];
+  }
+
+  /** A dashed line a → b (screen pixels). */
+  private dashed(g: Graphics, a: Vec, b: Vec, color: number, width: number, alpha: number, dash = 10, gap = 7): void {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 1) return;
+    const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
+    for (let t = 0; t < len; t += dash + gap) {
+      const e = Math.min(len, t + dash);
+      g.moveTo(a.x + ux * t, a.y + uy * t).lineTo(a.x + ux * e, a.y + uy * e);
+    }
+    g.stroke({ color, width, alpha, cap: 'round' });
+  }
+
+  /**
+   * Loop research, step 2 (docs/realtime-loop-research.md, 3.2): an open chain that could close — a pulsing «замкни» ring on the
+   * first link (or the hero's circle) and a dashed line from the last link to it; a closed one — the ring filled with the chain
+   * colour (alpha 0.15), its outline, and a mark on each enemy inside (the cross if the seal's hit kills it, else the hit
+   * number in a plaque of the chain colour and a ring on the body — held). Nothing here writes to the world.
+   */
+  private drawLoop(g: Graphics, world: World, seal: SealPreviewLike | undefined, ink: number): void {
+    const shown = this.loopShown, r = enemyDrawRadius(world.params) * UNIT;
+    shown.candidates = 0; shown.closed = 0; shown.marks = 0;
+    for (const label of this.sealLabels) label.visible = false;
+    if (seal) {
+      shown.closed = 1;
+      const pts = seal.ring.map(v => ({ x: v.x * UNIT, y: v.y * UNIT }));
+      const poly = (): void => { g.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y); g.closePath(); };
+      poly(); g.fill({ color: ink, alpha: 0.15 });
+      poly(); g.stroke({ color: NAVY, width: 8, alpha: 0.6, join: 'round' });
+      poly(); g.stroke({ color: ink, width: 4, alpha: 0.95, join: 'round' });
+      for (const id of seal.inside) {
+        const e = world.enemies.find(x => x.id === id);
+        if (!e) continue;
+        const x = e.x * UNIT, y = e.y * UNIT, cx = x + r * 0.7, cy = y - r * 0.75;
+        shown.marks++;
+        if (seal.damage >= e.hp) {
+          const s = r * 0.2;
+          g.circle(cx, cy, r * 0.34).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
+          g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
+        } else {
+          g.circle(x, y, r + 4).stroke({ color: ink, width: 3, alpha: 0.9 });
+          g.circle(cx, cy, r * 0.34).fill(ink).stroke({ color: NAVY, width: 2 });
+          const label = this.sealLabel(shown.marks - 1);
+          label.text = String(seal.damage);
+          label.position.set(cx, cy);
+          label.visible = true;
+        }
+      }
+      return;
+    }
+    const last = world.chain.length ? linkPoint(world, world.chain[world.chain.length - 1]) : null;
+    if (!last) return;
+    const pulse = 0.5 + 0.5 * Math.sin(this.clock * 7);
+    for (const kind of loopCandidates(world)) {
+      const target = kind === 'first' ? linkPoint(world, world.chain[0]) : { x: world.hero.x, y: world.hero.y };
+      if (!target) continue;
+      shown.candidates++;
+      const tx = target.x * UNIT, ty = target.y * UNIT, base = (kind === 'first' ? r : heroRadius(world.params) * UNIT) + 8;
+      this.dashed(g, { x: last.x * UNIT, y: last.y * UNIT }, { x: tx, y: ty }, ink, 3, 0.8);
+      g.circle(tx, ty, base + 4 + pulse * 6).stroke({ color: NAVY, width: 7, alpha: 0.5 });
+      g.circle(tx, ty, base + 4 + pulse * 6).stroke({ color: ink, width: 3.5, alpha: 0.65 + 0.35 * pulse });
+    }
+  }
+
+  /**
+   * Loop research, step 2, experiment `loopHint`: with the toggle on and no chain drawn (the player is about to draw), ONE best
+   * closable figure from the hero is outlined faintly — dashed, in its colour. The search runs every 10 frames, view only.
+   */
+  private drawLoopHint(g: Graphics, world: World): void {
+    this.loopShown.hint = 0; this.loopShown.candidates = 0; this.loopShown.closed = 0; this.loopShown.marks = 0;
+    for (const label of this.sealLabels) label.visible = false;
+    if (!world.params.loopHint || !world.params.loopEnabled) { this.hintFigure = null; return; }
+    if (this.hintFrame++ % 10 === 0) this.hintFigure = findLoopHint(world);
+    const f = this.hintFigure;
+    if (!f || world.status !== 'playing' || world.move) return;
+    const ink = chainInk(f.color), pts = f.ring.map(v => ({ x: v.x * UNIT, y: v.y * UNIT }));
+    this.loopShown.hint = 1;
+    for (let i = 0; i < pts.length; i++) this.dashed(g, pts[i], pts[(i + 1) % pts.length], ink, 3, 0.4, 8, 8);
+  }
+
+  /** Loop research, step 2: the outline of the ring flashes (~0.2 s) at the release and at the strike. */
+  private sealFlash(points: readonly Vec[], kind: string): void {
+    if (points.length < 3) return;
+    let cx = 0, cy = 0;
+    for (const v of points) { cx += v.x; cy += v.y; }
+    cx /= points.length; cy /= points.length;
+    const g = new Graphics();
+    g.moveTo((points[0].x - cx) * UNIT, (points[0].y - cy) * UNIT);
+    for (let i = 1; i < points.length; i++) g.lineTo((points[i].x - cx) * UNIT, (points[i].y - cy) * UNIT);
+    g.closePath();
+    g.fill({ color: 0xffffff, alpha: 0.2 }).stroke({ color: 0xffffff, width: 6, alpha: 0.95, join: 'round' });
+    g.position.set(cx * UNIT, cy * UNIT);
+    this.fxLayer.addChild(g);
+    this.bursts.push({ g, life: 0.2, total: 0.2 });
+    this.loopShown.flashes++;
+    void kind;
   }
 
   /** Stage 2, step 2: the `i`-th «−1 HP» badge of porcupine links (a pool of texts over the chain layer). */
