@@ -22,7 +22,7 @@ import { planChain } from './chain';
 import { worldState } from './hash';
 import type { Loadout } from './kit';
 import { defaultParams, type Params } from './params';
-import { greedLine, type PurseDoor } from './purse';
+import { greedLine, purseResources, type PurseDoor } from './purse';
 import { Simulation, replay } from './simulation';
 import type { World, WorldEvent } from './world';
 import { createRtRun, resolveArena, rtAvailableNodes, rtChooseGift, rtDieChoose, rtDieFace, rtDieMult, rtDieView, rtEnterNode, rtRunParams, RT_RUN_FORCED, type RtRunState, type RtRunStep } from '../run/rtRun';
@@ -223,7 +223,8 @@ check('a 3+ chain into the door counts before the exit: the door records ×1,5 a
 });
 
 // The run also plays П3 «Финальная цепь» (12.10.2026): the 9 weak into the door are 9 × 6 = 54, not 45 — the cauldron 105.
-check('the run pays the step: «Забрать» 2 (105 × 1,5; not 1), the roll 1–3 → 1 (105 × 1,5 × 0,5), 4–6 → 5 (105 × 1,5 × 2), on 6 seeds (both halves come up)', () => {
+// The run's rate is 120 (12.10.2026, `RT_RUN_FORCED.purseRate`): 105 × 1,5 = 157,5 → 1 (without the step 105 → 0).
+check('the run pays the step: «Забрать» 1 (105 × 1,5 ÷ 120; without the step 0), the roll 1–3 → 0 (105 × 1,5 × 0,5), 4–6 → 2 (105 × 1,5 × 2), on 6 seeds (both halves come up)', () => {
   assert(RT_RUN_FORCED.greedByDeeds === true && rtRunParams(defaultParams()).greedByDeeds === true && defaultParams().greedByDeeds === false, 'on in the run, off in the sandbox by default');
   const faces = new Set<number>();
   for (let k = 1; k <= 6; k++) {
@@ -236,13 +237,14 @@ check('the run pays the step: «Забрать» 2 (105 × 1,5; not 1), the roll
     assert(w.params.greedByDeeds && door.greed === 1.5, `seed ${k}: the run arena plays with the rule`);
     const shown = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: w.hero.hp, kills: w.stats.kills, damage: 0, time: w.time, purse: door, doorDie: true }), 'resolve');
     const view = rtDieView(shown)!;
-    assert(view && view.cauldron === 105 && view.greed === 1.5 && view.take === 2 && view.low === 1 && view.high === 5, `seed ${k}: the die screen ${JSON.stringify(view)}`);
+    assert(view && view.cauldron === 105 && view.greed === 1.5 && view.rate === 120 && view.take === 1 && view.low === 0 && view.high === 2, `seed ${k}: the die screen ${JSON.stringify(view)}`);
+    assert(purseResources(door.cauldron, door.oath, 1, door.rate) === 0, `seed ${k}: without the step «Забрать» would pay 0`);
     const before = total(shown);
-    assert(total(ok(rtDieChoose(shown, false), 'take')) - before === 2, `seed ${k}: «Забрать» pays 2`);
+    assert(total(ok(rtDieChoose(shown, false), 'take')) - before === 1, `seed ${k}: «Забрать» pays 1`);
     const face = shown.pending?.kind === 'die' ? shown.pending.face : 0;
     faces.add(face);
     const rolled = total(ok(rtDieChoose(shown, true), 'roll')) - before;
-    assert(rolled === (rtDieMult(face) > 1 ? 5 : 1) && face === rtDieFace(run.seed, 0), `seed ${k}: the roll (face ${face}) pays ${rolled}`);
+    assert(rolled === (rtDieMult(face) > 1 ? 2 : 0) && face === rtDieFace(run.seed, 0), `seed ${k}: the roll (face ${face}) pays ${rolled}`);
   }
   assert([...faces].some(x => rtDieMult(x) < 1) && [...faces].some(x => rtDieMult(x) > 1), `both halves of the die: ${[...faces].join()}`);
 });

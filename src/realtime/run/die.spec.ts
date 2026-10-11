@@ -191,21 +191,23 @@ await check('«Забрать» pays doorPayout(door, 1); «Бросить» pay
 });
 
 await check('the caps of the one formula: ×2 → 6 and ×0.5 → 1 without stakes; oath ×2 and die ×2 → 6, not 12; oath ×0.5 and die ×0.5 → cap 1 (0 from a small cauldron)', () => {
+  // The run's rate is 120 embers a resource (12.10.2026, `RT_RUN_FORCED.purseRate`; it was 60): the cauldrons are twice those
+  // of the rate 60, the payouts the same.
   const roll = (high: boolean, target: number, oath?: OathId, jump = false): { door: PurseDoor; paid: number; take: number } => {
     const run = startRun(seedWith(high)), { door, outcome } = fight(run, target, { oath, jump });
     const at = ok(resolveArena(run, outcome), 'resolve');
     assert(at.pending?.kind === 'die' && (at.pending.face > 3) === high && door, 'the wanted face');
     return { door, paid: total(ok(rtDieChoose(at, true), 'roll')) - total(run), take: total(ok(rtDieChoose(at, false), 'take')) - total(run) };
   };
-  const plainHigh = roll(true, 400), plainLow = roll(false, 400);
+  const plainHigh = roll(true, 800), plainLow = roll(false, 800);
   assert(plainHigh.door.oath === 1 && plainHigh.take === 3 && plainHigh.paid === 6, `no stakes ×2: ${JSON.stringify(plainHigh)}`);
   assert(plainLow.take === 3 && plainLow.paid === 1, `no stakes ×0.5: ${JSON.stringify(plainLow)}`);
-  const kept = roll(true, 400, 'no-jump');
+  const kept = roll(true, 800, 'no-jump');
   assert(kept.door.oath === 2 && kept.take === 6 && kept.paid === 6, `oath ×2, die ×2: ${JSON.stringify(kept)} (not 12)`);
-  const broken = roll(false, 400, 'no-jump', true);
+  const broken = roll(false, 800, 'no-jump', true);
   assert(broken.door.oath === 0.5 && broken.take === 1 && broken.paid === 1, `oath ×0.5, die ×0.5: ${JSON.stringify(broken)}`);
-  const small = roll(false, 100, 'no-jump', true);
-  assert(small.door.oath === 0.5 && small.door.cauldron < 240 && small.paid === 0, `a small cauldron under both halvings pays 0: ${JSON.stringify(small)}`);
+  const small = roll(false, 200, 'no-jump', true);
+  assert(small.door.oath === 0.5 && small.door.cauldron < 480 && small.paid === 0, `a small cauldron under both halvings pays 0: ${JSON.stringify(small)}`);
   // The cap of M = 0.25 is still 1 (the formula's floor of the cap).
   assert(purseResources(10_000, 0.5, 0.5) === 1 && purseResources(10_000, 2, 2) === 6 && purseResources(10_000, 1, 2) === 6 && purseResources(10_000, 1, 0.5) === 1, 'the caps');
 });
@@ -220,13 +222,13 @@ await check('the screen shows resources (design 11.10.2026): «Забрать»,
     return view;
   };
   // No oath, a big cauldron: take 3, roll 1 or 6 (on average 3.5 > 3).
-  const plain = screen(400);
+  const plain = screen(800);
   assert(plain.take === 3 && plain.low === 1 && plain.high === 6, `no oath: ${JSON.stringify(plain)}`);
   // A kept oath at the cap: take 6, roll 3 or 6 (on average 4.5 < 6) — the resources show the roll is worse.
-  const kept = screen(400, 'no-jump');
+  const kept = screen(800, 'no-jump');
   assert(kept.oath === 2 && kept.take === 6 && kept.low === 3 && kept.high === 6, `kept oath: ${JSON.stringify(kept)}`);
   // A broken oath: take 1, roll 1 or 3.
-  const broken = screen(400, 'no-jump', true);
+  const broken = screen(800, 'no-jump', true);
   assert(broken.oath === 0.5 && broken.take === 1 && broken.low === 1 && broken.high === 3, `broken oath: ${JSON.stringify(broken)}`);
 });
 
@@ -241,13 +243,13 @@ await check('П11 (LDW guard): a ×0.5 face never pays more than «Забрат�
     assert(event?.type === 'die-resolved' && event.rolled, 'the roll resolved');
     return event;
   };
-  const lows = [resolved(false, 400), resolved(false, 100), resolved(false, 400, 'no-jump'), resolved(false, 400, 'no-jump', true), resolved(false, 200, 'no-jump', true)];
+  const lows = [resolved(false, 800), resolved(false, 200), resolved(false, 800, 'no-jump'), resolved(false, 800, 'no-jump', true), resolved(false, 400, 'no-jump', true)];
   for (const e of lows) assert(e.mult === DIE_LOW_MULT && e.resources.length <= e.base, `a low face is no win: ${e.resources.length} ≤ ${e.base} (face ${e.face})`);
   // A kept oath at the cap: ×2 pays the 6 «Забрать» pays — no flash either.
-  const capped = resolved(true, 400, 'no-jump');
+  const capped = resolved(true, 800, 'no-jump');
   assert(capped.mult === DIE_HIGH_MULT && capped.resources.length === capped.base, `×2 at the cap pays the take: ${capped.resources.length} = ${capped.base}`);
   // A high face that pays more is the only win.
-  const win = resolved(true, 400);
+  const win = resolved(true, 800);
   assert(win.resources.length > win.base, `a real win: ${win.resources.length} > ${win.base}`);
 });
 

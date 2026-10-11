@@ -99,11 +99,13 @@ test('a run arena plays with the cauldron: the HUD shows «котёл N», the r
   expect((await purse(page)).on).toBe(true);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect.poll(() => page.evaluate(() => (window as any).__realtime.snapshot().status), { timeout: 10_000 }).toBe('victory');
-  const door = await page.evaluate(() => (window as any).__realtime.snapshot().purse.door) as { cauldron: number; oath: number; kinds: string[] };
+  const door = await page.evaluate(() => (window as any).__realtime.snapshot().purse.door) as { cauldron: number; oath: number; kinds: string[]; rate: number; greed?: number };
   expect(door.oath).toBe(1);
+  // The run's rate: 120 embers a resource (12.10.2026; the sandbox default stays 60).
+  expect(door.rate).toBe(120);
   expect(door.kinds).toHaveLength(6);
   await expect(page.getByTestId('result')).toContainText('Котёл');
-  await expect(page.getByTestId('result')).toContainText(`${door.cauldron} → ресурсов ${Math.min(3, Math.floor(door.cauldron / 60))}`);
+  await expect(page.getByTestId('result')).toContainText(`${door.cauldron} → ресурсов ${Math.min(3, Math.floor(door.cauldron * (door.greed ?? 1) / door.rate))}`);
   expect(errors).toEqual([]);
 });
 

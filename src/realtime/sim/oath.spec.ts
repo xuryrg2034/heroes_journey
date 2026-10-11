@@ -562,10 +562,11 @@ check('a run arena under an oath: the arena of the node plays it (the rule on by
       // The run's params and loadout on the quiet field (the run reads the finished world as main.ts does).
       const sim = field(null, rtRunParams(quiet({ oathStake: false })), k, rtArenaLoadout(run));
       assert(sim.world.oath?.id === 'no-jump', 'the arena is under the oath');
-      fill(sim, 200);
+      // The run's rate is 120 (12.10.2026): a cauldron of 400 × 2 pays the cap 6.
+      fill(sim, 400);
       exitDoor(sim);
       const door = sim.world.purse!.door!;
-      assert(door.oath === 2, 'kept: ×2');
+      assert(door.oath === 2 && door.rate === 120, 'kept: ×2, the run\'s rate');
       const before = Object.values(run.materials).reduce((a, b) => a + b, 0);
       const after = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: sim.world.hero.hp, kills: 0, damage: 0, time: 1, purse: door }), 'resolve');
       assert(Object.values(after.materials).reduce((a, b) => a + b, 0) - before === doorPayout(door).length && doorPayout(door).length === 6, 'the run gets 6');

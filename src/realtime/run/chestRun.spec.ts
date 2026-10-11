@@ -13,7 +13,7 @@
  * - saves: a save written before B6 at the «Застава» choice (fixture of 7ae55fc) loads and completes the node as before; with `chest` on its
  *   record (as the new code writes) the chest screen follows; the chest screen survives a reload; malformed chest fields are
  *   no run;
- * - a run that never takes the chest saves byte for byte as the code of 7ae55fc (the reroll fixture's whole walks), its
+ * - a run that never takes the chest saves byte for byte as the reroll fixture's whole walks (code of 7ae55fc, re-recorded at the calibration of 12.10.2026), its
  *   «Застава» fights played on the field with the chest;
  * - telemetry: the chest's choice is its own (`chest`), not merged with the «Застава» talismans; no luck line.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
@@ -199,7 +199,7 @@ function walkSaves(k: number, chestField = true, events = true): string[] {
   return saves;
 }
 
-check('a run that never takes the chest saves byte for byte as the code of 7ae55fc: 8 whole runs, «Застава» on the field with the chest', () => {
+check('a run that never takes the chest saves byte for byte as the fixture walks (code of 7ae55fc, re-recorded at the calibration of 12.10.2026): 8 whole runs, «Застава» on the field with the chest', () => {
   const walks = before.walks as Record<string, { steps: number; hash: string; talismansDraws: number; result: string }>;
   let hard = 0;
   for (const [k, want] of Object.entries(walks)) {

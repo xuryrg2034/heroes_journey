@@ -109,7 +109,8 @@ check('the die: «Бросить» counts (faces 4–6 against ½ a roll), «З�
   for (let k = 1; k <= 8 && (rolls < 4 || takes < 1 || highs < 1); k++) {
     let run = newRun(20 + k), runRolls = 0, runHigh = 0;
     for (let fight = 0; fight < 4 && !run.result; fight++) {
-      run = ok(resolveArena(run, playFight(run, { chains: [5, 5, 5], k: fight + 1 }).outcome), 'win');
+      // Six chains of 5 (cauldron 90): at the run's rate 120 (12.10.2026) the roll ×2 pays 1, «Забрать» 0 — the screen opens.
+      run = ok(resolveArena(run, playFight(run, { chains: [5, 5, 5, 5, 5, 5], k: fight + 1 }).outcome), 'win');
       if (run.pending?.kind === 'die') {
         const roll = (rolls + takes) % 3 !== 2, step = rtDieChoose(run, roll);
         assert(step.ok, 'the die');

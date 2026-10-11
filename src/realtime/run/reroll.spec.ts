@@ -5,7 +5,7 @@
  * The run goes by its own commands; its arenas are real fights (journalled commands on the quiet test field of
  * runFight.testkit.ts) whose cauldron pays the resources a reroll costs:
  * - a run without a reroll saves byte for byte as before: whole runs of 8 seeds give the same saves at every step as the
- *   code of 7ae55fc (fixture `walks`);
+ *   code of 7ae55fc (fixture `walks`; re-recorded at the calibration of 12.10.2026: the run's rate and oath offers);
  * - «Застава»: a reroll costs 1, then 2, then 3 resources, paid as the merchant is paid; each new offer has none of the
  *   talismans shown on the screen before; the 4th waits for resources and says why; the offer, the price and the stream
  *   counter survive a reload, and the next reroll after a reload is the same as without it;
@@ -42,7 +42,7 @@ const fnv = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < 
 /**
  * A whole run walked without a reroll: hard nodes first, then events (an event's battle when it can be taken), battles won
  * on the test field (chains 6 6 6 6), talisman screens take their first option, other screens close simply. Returns every
- * save on the way. The same walk wrote the fixture's `walks` with the code of 7ae55fc.
+ * save on the way. The same walk wrote the fixture's `walks` with the code of 7ae55fc (re-recorded at the calibration of 12.10.2026).
  */
 function walkSaves(k: number): string[] {
   let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
@@ -70,7 +70,8 @@ function walkTo(k: number, source: 'hard' | 'event' | 'oath'): RtRunState | null
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;
     if (p?.kind === 'talisman' && p.source === source && p.options.length) return run;
-    if (p?.kind === 'battle') { run = ok(resolveArena(run, playFight(run, { chains: [6, 6, 6, 6], k }).outcome), 'fight'); continue; }
+    // Eight chains of 6 (cauldron 192): the run's rate 120 (12.10.2026) pays 1 a fight, as four chains did at the rate 60.
+    if (p?.kind === 'battle') { run = ok(resolveArena(run, playFight(run, { chains: [6, 6, 6, 6, 6, 6, 6, 6], k }).outcome), 'fight'); continue; }
     if (p?.kind === 'event' && source === 'event') {
       const fight = rtEventView(run)!.options.find(option => option.battle && option.available);
       if (fight) { run = ok(rtChooseEventOption(run, fight.id), 'event battle'); continue; }
@@ -82,7 +83,7 @@ function walkTo(k: number, source: 'hard' | 'event' | 'oath'): RtRunState | null
   return null;
 }
 
-check('a run without a reroll saves byte for byte as the code of 7ae55fc: 8 whole runs, every save on the way', () => {
+check('a run without a reroll saves byte for byte as the fixture walks (code of 7ae55fc, re-recorded at the calibration of 12.10.2026): 8 whole runs, every save on the way', () => {
   const walks = before.walks as Record<string, { steps: number; hash: string; talismansDraws: number; result: string }>;
   let screens = 0;
   for (const [k, want] of Object.entries(walks)) {

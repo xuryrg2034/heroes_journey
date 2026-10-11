@@ -103,8 +103,10 @@ export const RT_RUN_VERSION_V6 = 6;
  * the chest stands on «Застава» (its authored point); taken, a talisman screen of its own follows the won fight's talismans.
  * B7 К9 «Игорный круг гоблинов» (`goblinCircle`, design 12.10.2026) is on: the run view passes it to `rtEnterNode` (the
  * simulation never reads it); an event node from run row 3 may stand as the circle.
+ * The calibration of 12.10.2026 (docs/realtime-casino.md, «Калибровка экономики»): the run pays its cauldron at 120 embers a
+ * resource (`purseRate`; the sandbox default stays 60) — the cap of the payout became rare, the cauldron decides again.
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, greedByDeeds: true, doorFinale: true, oathStake: true, doorDie: true, rosterMix: true,
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 120, greedByDeeds: true, doorFinale: true, oathStake: true, doorDie: true, rosterMix: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
   slotPulls: 3, slotCooldown: 8, slotSpin: 1.2,
   // B6 К7 «Проклятый сундук» (design 12.10.2026): the chest of «Застава».

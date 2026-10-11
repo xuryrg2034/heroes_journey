@@ -408,9 +408,11 @@ check('the run turns the cauldron on; a won arena pays the door\'s resources int
     // The run's values on a quiet field (the arena of the node is not needed: the run reads the finished world as main.ts does).
     const sim = field(rtRunParams(quiet({ purse: false })), k), w = sim.world;
     assert(w.params.purse === true, 'the run arena plays with the cauldron');
-    fillAndExit(sim, 60 + 30 * k);
+    // The run's rate (120 since 12.10.2026, `RT_RUN_FORCED.purseRate`): a cauldron of 120 + 60k pays 1–2 at ×1.
+    fillAndExit(sim, 120 + 60 * k);
     const door = w.purse!.door!, pay = doorPayout(door);
-    assert(pay.length === purseResources(door.cauldron) && pay.length >= 1, `seed ${k}: pays ${pay.length}`);
+    assert(door.rate === RT_RUN_FORCED.purseRate && door.rate === 120, `the run's rate at the door: ${door.rate}`);
+    assert(pay.length === purseResources(door.cauldron, 1, 1, door.rate, door.greed) && pay.length >= 1, `seed ${k}: pays ${pay.length}`);
     const before = { ...run.materials };
     const after = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, purse: door }), 'resolve');
     for (const kind of RESOURCE_KINDS) {
