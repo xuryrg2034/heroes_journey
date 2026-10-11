@@ -172,7 +172,7 @@ export interface HeroMove {
   kind: 'dash' | 'jump' | 'return';
   /** Chain links still to strike (dash) — struck in order on arrival. */
   links: ChainLink[];
-  /** Power carried to the next link: +1 per enemy, HP spend it (docs/chain-budget.md). */
+  /** Power carried to the next link: +1 per enemy, HP spend it (docs/realtime-prototype.md). */
   power: number;
   /** Where the hero stops: the last killed link, or the start when nothing died yet. */
   stop: { x: number; y: number };

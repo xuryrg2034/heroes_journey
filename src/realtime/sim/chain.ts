@@ -2,7 +2,7 @@
  * Chain, focus, the hero's dash and the jump of the real-time prototype (stage 2,
  * docs/realtime-prototype.md, sections 5–6 and design answers 3, 4, 9, 14, 24, 26, 27).
  *
- * Chain power follows the main game (docs/chain-budget.md): it starts at 0, every enemy
+ * Chain power (docs/realtime-prototype.md): it starts at 0, every enemy
  * adds 1 before its hit, HP removed spend it. A weak enemy (0 HP) dies from any hit.
  * When the power is short, the enemy is wounded and survives; the chain cannot pass a
  * survivor, so such a link can only be the last one. The highlight while drawing and
@@ -69,7 +69,7 @@ export const PLATE_POWER = 1;
 
 /**
  * One chain hit on an enemy with `hp`, carrying `power` from the previous links. `factor` multiplies the hit (stage 2,
- * step 3: the cold consumable makes it ×2): as the brittleness of the main game (docs/chain-budget.md), the power spent is
+ * step 3: the cold consumable makes it ×2): as the brittleness of the former turn-based game (docs/realtime-prototype.md), the power spent is
  * the smaller of the power available and the HP really removed — a brittle 5 HP enemy dies from power 3 (hit 6), spends 3.
  * `gain` — what the enemy adds before its hit (1; phase B: «Тяжёлый клинок» 2, build.ts `linkGainOf`). `plates` (the
  * package): an armoured elite with plates left — the hit takes one plate and `PLATE_POWER` power, never HP, whatever the

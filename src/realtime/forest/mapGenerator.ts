@@ -1,5 +1,5 @@
 /**
- * Generated forest map (docs/roguelike-runs.md, section 3; docs/biomes/forest-map.md, «Генерация карты»): a new map
+ * Generated forest map (docs/roguelike-runs.md, section 3; docs/roguelike-runs.md, «Генерация карты»): a new map
  * by the run seed every run, after the Slay the Spire generator. Pure, deterministic, no engine and no run state.
  *
  * Skeleton (rows 1–4 were the turn-based trunk, outside the generated map; a real-time run starts at row 5):
