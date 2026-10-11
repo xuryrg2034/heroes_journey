@@ -19,7 +19,7 @@ import { damageEnemy, type ChainLink, type Enemy, type LoopKind, type SealMove, 
 
 /** The source of the seal's hit (kill events, telemetry `kills.tools.seal`). */
 export const SEAL_SOURCE = 'seal';
-/** Hit-stop of the seal's strike (game seconds, as a chain kill's). */
+/** Hit-stop of the seal's strike (game seconds, as a chain kill's; only with the `hitstop` toggle). */
 export const SEAL_HITSTOP = 0.04;
 
 /** The seal's hit for a ring of `n` enemy links: ⌊(n − 2) ÷ 2⌋, at least 1 (4 → 1, 6 → 2, 8 → 3). */
@@ -68,8 +68,10 @@ export function strikeSeal(world: World, seal: SealMove): void {
     if (!e) continue;
     struck.push(id);
     damageEnemy(world, e, seal.damage, { source: SEAL_SOURCE, credited: true });
-    if (seal.hold > 0 && world.enemies.includes(e)) e.chill = Math.max(e.chill ?? 0, seal.hold);
+    // The hold is the cold without the ×2: a frost-brittle enemy held longer than its cold loses the brittleness (the
+    // hold would otherwise stretch it).
+    if (seal.hold > 0 && world.enemies.includes(e) && seal.hold > (e.chill ?? 0)) { e.chill = seal.hold; delete e.brittle; }
   }
   world.events.push({ type: 'seal', phase: 'strike', kind: seal.kind, points: seal.ring.map(p => ({ x: p.x, y: p.y })), inside: struck, links: seal.links });
-  if (struck.length) world.hitstop = Math.max(world.hitstop, SEAL_HITSTOP);
+  if (struck.length && world.params.hitstop) world.hitstop = Math.max(world.hitstop, SEAL_HITSTOP);
 }

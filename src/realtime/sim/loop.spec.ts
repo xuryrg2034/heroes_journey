@@ -20,6 +20,9 @@ import { wall, type Vec } from './geometry';
 import { defaultParams, type Params } from './params';
 import { sealDamage } from './seal';
 import { Simulation, replay } from './simulation';
+import type { Loadout } from './kit';
+import { runParams } from './params';
+import { worldState } from './hash';
 import type { WorldEvent } from './world';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -44,8 +47,8 @@ function quiet(extra: Partial<Params> = {}): Params {
   p.loopEnabled = true;
   return Object.assign(p, extra);
 }
-function field(extra: Partial<Params> = {}, arena = 'loop-field', k = 1): Simulation {
-  const sim = new Simulation({ arena, params: quiet(extra), seed: seedOf(k), record: true });
+function field(extra: Partial<Params> = {}, arena = 'loop-field', k = 1, loadout?: Loadout): Simulation {
+  const sim = new Simulation({ arena, params: quiet(extra), seed: seedOf(k), record: true, ...loadout ? { loadout } : {} });
   sim.command({ t: 'clear', keepMarked: false });
   sim.command({ t: 'teleport', x: 4.5, y: 5 });
   return sim;
@@ -216,19 +219,131 @@ check('the reaper and the ring\'s links are never inside; a sapper killed by the
   sim.command({ t: 'release' });
   const events = run(sim, 40);
   assert(events.some(e => e.type === 'kill' && e.enemyId === sapper && e.source === 'seal' && e.credited), 'the sapper died by the seal');
-  assert(sim.world.blasts.some(b => b.ownerId === sapper && b.credited) || events.some(e => e.type === 'blast'), 'its blast is the player\'s');
+  const blast = sim.world.blasts.find(b => b.ownerId === sapper);
+  assert(blast && blast.credited, 'its blast is lit as the player\'s');
   assert(sim.world.enemies.some(e => e.id === reaper), 'the reaper stands');
   assert(replays(sim), 'replays');
 });
 
-check('a closed chain opens when one of its links dies while it is drawn (the ring changed)', () => {
-  const sim = field();
-  const ids = SQUARE.map(p => place(sim, p));
-  draw(sim, [...SQUARE, SQUARE[0]]);
+check('a link killed while the chain is drawn (a bomb) opens the loop: released in the same frame there is no seal, the plan agrees', () => {
+  const pent: Vec[] = [{ x: 6, y: 4 }, { x: 7.8, y: 3.6 }, { x: 8.8, y: 5 }, { x: 7.8, y: 6.4 }, { x: 6, y: 6 }];
+  const sim = field({}, 'loop-field', 3, { items: { frost: 0, bomb: 2, healing: 0, fire: 0 } });
+  for (const p of pent) place(sim, p);
+  const inner = place(sim, { x: 7.3, y: 5 }, { color: 2, hp: 2 });
+  draw(sim, [...pent, pent[0]]);
   assert(sim.world.chainClosed === 'first', 'closed');
-  sim.world.enemies = sim.world.enemies.filter(e => e.id !== ids[2]);
-  sim.tick();
-  assert(!sim.world.chainClosed && sim.world.chain.length === 3, 'opened');
+  assert(sim.command({ t: 'item', kind: 'bomb', x: pent[2].x, y: pent[2].y }) === true, 'a bomb on link 3');
+  assert(!planChain(sim.world).seal, 'the plan shows no seal (the ring changed)');
+  sim.command({ t: 'release' });
+  run(sim);
+  assert(sim.world.enemies.find(e => e.id === inner)!.hp === 2, 'no seal struck');
+  // Drawn on: the next tick opens the loop with the reason.
+  const again = field({}, 'loop-field', 4, { items: { frost: 0, bomb: 2, healing: 0, fire: 0 } });
+  for (const p of pent) place(again, p);
+  draw(again, [...pent, pent[0]]);
+  again.command({ t: 'item', kind: 'bomb', x: pent[2].x, y: pent[2].y });
+  again.tick();
+  assert(!again.world.chainClosed && again.world.events.some(e => e.type === 'loop' && e.action === 'open' && e.refusal === 'changed'), 'opened: changed');
+  assert(replays(sim) && replays(again), 'replays');
+});
+
+check('the gesture takes the nearest: a new link beside the first joins; the pointer between the first and the last does not flip the loop', () => {
+  const sim = field();
+  for (const p of SQUARE) place(sim, p);
+  const fifth = place(sim, { x: 6.45, y: 4 });
+  draw(sim, SQUARE);
+  sim.command({ t: 'drag', x: 6.45, y: 4, mode: 'full' });
+  assert(!sim.world.chainClosed && len(sim) === 5 && sim.world.chain[4].id === fifth, 'the fifth joined');
+  // A ring whose last link sits next to the first: four events at the midpoint leave it as the first one did.
+  const near = field({}, 'loop-field', 2);
+  const ring: Vec[] = [{ x: 6, y: 4 }, { x: 7.8, y: 4.4 }, { x: 8.2, y: 6 }, { x: 6.8, y: 6.8 }, { x: 6, y: 5 }];
+  for (const p of ring) place(near, p);
+  draw(near, ring);
+  near.command({ t: 'drag', x: 6, y: 4, mode: 'full' });
+  assert(near.world.chainClosed === 'first', 'closed on the first');
+  const states: string[] = [];
+  for (let i = 0; i < 4; i++) { near.command({ t: 'drag', x: 6, y: 4.45, mode: 'full' }); states.push(String(near.world.chainClosed ?? 'open')); }
+  assert(new Set(states).size === 1, `no flip: ${states.join(',')}`);
+  assert(replays(sim) && replays(near), 'replays');
+});
+
+check('sweep and held-pointer points never close; a crystal is a corner but not counted in n', () => {
+  const sim = field();
+  for (const p of SQUARE) place(sim, p);
+  draw(sim, SQUARE);
+  sim.command({ t: 'drag', x: SQUARE[0].x, y: SQUARE[0].y, mode: 'sweep' });
+  sim.command({ t: 'drag', x: SQUARE[0].x, y: SQUARE[0].y, mode: 'append' });
+  assert(!sim.world.chainClosed, 'no closing by sweep or append');
+  // Three enemies and a crystal: n = 3 < 4 — no closing on the first link.
+  const cr = field({}, 'loop-field', 5);
+  for (const p of SQUARE.slice(0, 3)) place(cr, p);
+  cr.world.objects.push({ id: cr.world.nextId++, kind: 'crystal', x: 6, y: 6, pressed: false, value: 0, born: 0 });
+  draw(cr, [...SQUARE, SQUARE[0]]);
+  assert(len(cr) === 4 && !cr.world.chainClosed, 'n 3 with a crystal corner: open');
+});
+
+check('a ring closed on the hero opens when he walks out of reach (the closing edge is held to its rule every tick)', () => {
+  const sim = field();
+  const arc: Vec[] = [{ x: 6, y: 3.6 }, { x: 7.6, y: 5 }, { x: 6, y: 6.4 }];
+  for (const p of arc) place(sim, p);
+  draw(sim, arc);
+  sim.command({ t: 'drag', x: 4.5, y: 5, mode: 'full' });
+  assert(sim.world.chainClosed === 'hero', 'closed on the hero');
+  sim.command({ t: 'walk', x: -1, y: 0 });
+  const events = run(sim, 120);
+  assert(!sim.world.chainClosed && events.some(e => e.type === 'loop' && e.action === 'open' && e.refusal === 'far'), 'opened: far');
+  assert(replays(sim), 'replays');
+});
+
+check('turning the loop off while closed opens it: the plan, the refusals and the release agree', () => {
+  const sim = field();
+  for (const p of SQUARE) place(sim, p);
+  const inner = place(sim, { x: 7, y: 5 }, { color: 2, hp: 3 });
+  draw(sim, [...SQUARE, SQUARE[0]]);
+  sim.command({ t: 'param', key: 'loopEnabled', value: false });
+  assert(!planChain(sim.world).seal && hoverRefusal(sim.world, { x: 7, y: 5 }, true) !== 'sealed', 'no seal shown, nothing «замкнуто»');
+  sim.command({ t: 'release' });
+  run(sim);
+  assert(sim.world.enemies.find(e => e.id === inner)!.hp === 3, 'nothing struck');
+  assert(replays(sim), 'replays');
+});
+
+check('the seal\'s hit-stop follows the hitstop toggle; the hold takes the frost\'s ×2 away', () => {
+  const sim = field({}, 'loop-field', 6, { items: { frost: 1, bomb: 0, healing: 0, fire: 0 } });
+  for (const p of SQUARE) place(sim, p);
+  const inner = place(sim, { x: 7, y: 5 }, { color: 2, hp: 3 });
+  sim.command({ t: 'item', kind: 'frost', x: 7, y: 5 });
+  const e = sim.world.enemies.find(x => x.id === inner)!;
+  assert(e.brittle, 'brittle by the frost');
+  // Frost brittle until the strike? Let the cold run low first.
+  e.chill = 0.3;
+  draw(sim, [...SQUARE, SQUARE[0]]);
+  sim.command({ t: 'release' });
+  let maxStop = 0;
+  for (let t = 0; t < 120 && sim.world.enemies.includes(e); t++) { sim.tick(); maxStop = Math.max(maxStop, sim.world.hitstop); sim.world.events.length = 0; if ((e.chill ?? 0) > 1) break; }
+  assert(maxStop === 0, `hitstop off — no stop (${maxStop})`);
+  assert((e.chill ?? 0) > 1 && !e.brittle, `held without the ×2 (chill ${e.chill}, brittle ${e.brittle})`);
+});
+
+check('seal kills complete the kill goal; a run plays the loop off; a journal without the loop values plays the same world', () => {
+  registerArena({ id: 'loop-goal', name: 'Цель петли', summary: 'Тест петли', goal: 'kills', width: 20, height: 12,
+    heroStart: { x: 4.5, y: 5 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, enemies: [], killGoal: 6 });
+  const sim = field({}, 'loop-goal');
+  for (const p of SQUARE) place(sim, p);
+  place(sim, { x: 6.8, y: 4.8 }, { color: 1 }); place(sim, { x: 7.2, y: 5.2 }, { color: 1 });
+  draw(sim, [...SQUARE, SQUARE[0]]);
+  sim.command({ t: 'release' });
+  run(sim);
+  assert(sim.world.stats.kills === 6 && sim.world.stage === 'greed', `goal met by 4 + 2 seal kills (stage ${sim.world.stage})`);
+  const run0 = runParams(Object.assign(defaultParams(), { loopEnabled: true, loopHint: true }));
+  assert(!run0.loopEnabled && !run0.loopHint, 'off in a run');
+  const old = quiet({ loopEnabled: false }) as Partial<Params>;
+  for (const key of ['loopEnabled', 'loopMinLinks', 'loopHeroCloses', 'loopHeroMinLinks', 'sealHold', 'sealHoldLong', 'sealLongLinks', 'loopHint'] as const) delete old[key];
+  const a = new Simulation({ arena: 'loop-field', params: quiet({ loopEnabled: false }), seed: seedOf(9) });
+  const b = new Simulation({ arena: 'loop-field', params: old as Params, seed: seedOf(9) });
+  for (const s2 of [a, b]) { s2.command({ t: 'clear', keepMarked: false }); for (const p of SQUARE) s2.command({ t: 'place', x: p.x, y: p.y, color: 0, hp: 0, kind: 'basic' }); s2.command({ t: 'teleport', x: 4.5, y: 5 }); draw(s2, [...SQUARE, SQUARE[0]]); s2.command({ t: 'release' }); run(s2, 60); }
+  const strip = (w: unknown): string => { const o = { ...(w as Record<string, unknown>) }; delete o.params; return JSON.stringify(o); };
+  assert(strip(worldState(a.world)) === strip(worldState(b.world)), 'the same world');
 });
 
 console.log(`${checks} checks passed`);

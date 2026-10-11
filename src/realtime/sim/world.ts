@@ -262,7 +262,8 @@ export type WorldEvent =
   | { type: 'finisher'; kills: number }
   /**
    * Loop research, step 2: the loop gesture — closed (`close`), refused with a reason (`refused`), opened by the pointer on
-   * the last link (`open`).
+   * the last link (`open`, no reason) or by the rules (`open` with `refusal`: `far`, `sight`, `crossed`, `changed` — a link
+   * died, `off` — the loop was turned off).
    */
   | { type: 'loop'; action: 'close' | 'refused' | 'open'; kind: LoopKind; refusal?: string }
   /**
