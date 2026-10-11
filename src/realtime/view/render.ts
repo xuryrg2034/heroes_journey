@@ -34,6 +34,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
+import { dashCheque } from '../sim/purse';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -91,6 +92,8 @@ function greyOf(color: number): number {
 
 /** Pixels per arena unit before fitting to the window (one board cell of the main game). */
 export const UNIT = 72;
+/** Casino «Котёл»: the cheque stands this many pixels over the hero (where the score popup «+N» starts: above the combo counter). */
+const CHEQUE_ABOVE = 122;
 /** Threat color outside the chain palette (design answer 18): white with a dark outline — spawn markers, stage 3 boar lanes. */
 export const THREAT = 0xffffff;
 const THREAT_OUTLINE = 0x0b0f14;
@@ -1415,6 +1418,65 @@ export class RealtimeRenderer {
     text.style.fill = this.powerValue >= 6 ? 0xffe08a : this.powerValue >= 3 ? 0xffc46b : 0xffb86b;
   }
 
+  // ---- Casino «Котёл» (sim/purse.ts, docs/realtime-casino.md): view-only — the caption under the power number, the cheque ----
+  private purseCaption: Text | null = null;
+  private chequeText: Text | null = null;
+  private chequeLife = 0;
+  /** Tests read these: caption changes drawn, the caption now (empty — hidden), the cheques shown in order. */
+  purseShown = { captions: 0, caption: '', cheques: [] as string[] };
+
+  /** Under the power number while it shows: «угли N · ×жар» (· ◆×) — the dash's cheque if it ended now (`dashCheque`). */
+  private drawPurseCaption(world: World): void {
+    if (!this.purseCaption) {
+      this.purseCaption = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 14, fontWeight: 'bold', fill: 0xffd88a, stroke: { color: 0x200c08, width: 4 } } });
+      this.purseCaption.anchor.set(0, 0);
+      this.purseCaption.visible = false;
+      this.root.addChild(this.purseCaption);
+    }
+    const caption = this.purseCaption, move = world.move, power = this.powerText;
+    const cheque = world.params.purse && move?.kind === 'dash' && move.hits > 0 ? dashCheque(move) : null;
+    if (cheque) {
+      const text = `угли ${cheque.embers} · ×${cheque.heat}${cheque.mult > 1 ? ` · ◆${cheque.mult}` : ''}`;
+      if (text !== caption.text) { caption.text = text; this.purseShown.captions++; }
+    }
+    caption.visible = !!world.params.purse && !!power?.visible && caption.text !== '';
+    if (!caption.visible) { caption.text = ''; this.purseShown.caption = ''; return; }
+    this.purseShown.caption = caption.text;
+    caption.position.set(world.hero.x * UNIT + 36, world.hero.y * UNIT - 32);
+    caption.alpha = power!.alpha;
+  }
+
+  /** The end of a dash: its cheque at the hero for 0.8 s, no pause — «8 × 3 × ◆2 = 48» (where the score popup «+N» was: above the combo counter). */
+  private showCheque(world: World, ev: { embers: number; heat: number; mult: number; total: number }): void {
+    if (!this.chequeText) {
+      this.chequeText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 20, fontWeight: 'bold', fill: 0xffe08a, stroke: { color: 0x200c08, width: 5 } } });
+      this.chequeText.anchor.set(0.5);
+      this.root.addChild(this.chequeText);
+    }
+    const text = `${ev.embers} × ${ev.heat}${ev.mult > 1 ? ` × ◆${ev.mult}` : ''} = ${ev.total}`;
+    // The last link and the «добивание» come in the tick the dash ends: the caption takes the cheque's final numbers.
+    const caption = `угли ${ev.embers} · ×${ev.heat}${ev.mult > 1 ? ` · ◆${ev.mult}` : ''}`;
+    if (this.purseCaption && this.purseCaption.text !== caption) { this.purseCaption.text = caption; this.purseShown.captions++; }
+    this.chequeText.text = text;
+    this.chequeText.scale.set(1.25);
+    this.chequeLife = 0.8;
+    this.purseShown.cheques.push(text);
+    if (this.purseShown.cheques.length > 20) this.purseShown.cheques.shift();
+    this.chequeText.position.set(world.hero.x * UNIT, world.hero.y * UNIT - CHEQUE_ABOVE);
+  }
+
+  private drawCheque(world: World, dt: number): void {
+    const text = this.chequeText;
+    if (!text) return;
+    this.chequeLife = Math.max(0, this.chequeLife - dt);
+    text.visible = this.chequeLife > 0;
+    if (!text.visible) return;
+    text.scale.set(Math.max(1, text.scale.x - dt * 2));
+    text.position.set(world.hero.x * UNIT, world.hero.y * UNIT - CHEQUE_ABOVE);
+    text.alpha = Math.min(1, this.chequeLife / 0.3);
+  }
+  // ---- end «Котёл» ----
+
   /**
    * One strike of the dash: the flash and the shake grow with the hit's damage (`ev.damage`, the power the link carried);
    * the last enemy hit of a chain gets a bigger gold ring (the sim's world-wide `finisher` flash for long chains stays as it is).
@@ -1442,6 +1504,8 @@ export class RealtimeRenderer {
     const lastHit = world.events.reduce((n, e, i) => e.type === 'chainHit' ? i : n, -1);
     const moreLinks = !!world.move?.links.some(l => l.kind === 'enemy');
     for (const [at, ev] of world.events.entries()) {
+      // Casino «Котёл»: the chain's cheque at the hero.
+      if (ev.type === 'cheque') { this.showCheque(world, ev); continue; }
       // Phase B (Д5): the build. An item fired — a short text at the hero (its icon flashes in the column, main.ts).
       if (ev.type === 'talismanFired') {
         this.floatText(fireTextOf(ev.id), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
@@ -1563,8 +1627,9 @@ export class RealtimeRenderer {
         continue;
       }
       if (ev.type === 'chainEnd') {
-        // Above the combo counter (its text ends ~100 px over the hero).
-        if (ev.score > 0) this.floatText(`+${ev.score}`, world.hero.x * UNIT, world.hero.y * UNIT - 122, 0xfff2c4);
+        // Above the combo counter (its text ends ~100 px over the hero). Casino «Котёл»: with the cauldron on the cheque takes
+        // this place (`showCheque`) — the score is not the number the player collects then.
+        if (ev.score > 0 && !world.params.purse) this.floatText(`+${ev.score}`, world.hero.x * UNIT, world.hero.y * UNIT - 122, 0xfff2c4);
         this.comboLife = ev.kills > 0 ? 0.9 : 0;
         continue;
       }
@@ -1912,6 +1977,9 @@ export class RealtimeRenderer {
     this.drawOverlay(world);
     this.drawJuice(world, realDt);
     this.drawPowerNumber(world, realDt);
+    // Casino «Котёл»: the caption under the power number and the cheque.
+    this.drawPurseCaption(world);
+    this.drawCheque(world, realDt);
     this.drawEdgeMarkers(world);
   }
 

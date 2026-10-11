@@ -398,6 +398,31 @@ const SLOT_LEGEND = 'Бои с гоблином и их доля среди вс
 const ELITE_HEAD = ['Бои', 'Боёв с элитами', 'Элит', 'Убито (до целей)', 'Живы в конце', 'Жизнь мед., с', 'Цепей на элиту мед.', 'Убито игроком с бронёй', 'Чистый слом', 'Поздно в окне', 'Окон / закрылось', 'Пластины по источникам', 'Добыча выпала / подобрана'];
 const ELITE_LEGEND = 'Жизнь — игровые секунды от появления элиты (или превращения новичка в элиту) до смерти, только убитые; «живы в конце» — не вошли в медиану. Цепей на элиту — рывки, ударившие убитую элиту (удары по пластинам тоже). «Убито игроком с бронёй» — `eliteDown` с зачётом; из них «чистый слом» — в первую `eliteCleanWindow` окна (+1 энергия, добыча ×2), «поздно в окне» — позже в окне (обычная добыча); остальные — не в окне. Окон — снятий последней пластины; «закрылось» — окно кончилось, элита жива. Пластины — снято по источнику удара.';
 
+// ---- Casino «Котёл» (sim/purse.ts, docs/realtime-casino.md): the cauldron of the fights with it on ----
+/** The cauldron of some fights as one row (`label` — the group); null — no fight had the cauldron on. */
+function purseRow(label: string, entries: readonly FightEntry[]): (string | number)[] | null {
+  const list = entries.map(e => e.analysis?.summary.purse).filter((x): x is FightSummary['purse'] => !!x && x.on);
+  if (!list.length) return null;
+  const dist = (values: readonly number[]): string => (values.length ? `${n1(median(values))} / ${Math.max(...values)}` : '—');
+  const embers = list.flatMap(x => x.embers), heat = list.flatMap(x => x.heat), totals = list.flatMap(x => x.totals), kills: Record<string, number> = {};
+  for (const x of list) for (const [k, v] of Object.entries(x.killEmbers)) bump(kills, k, v);
+  const paid = list.map(x => x.resources).filter((x): x is number => x !== null);
+  return [
+    label, list.length, dist(list.map(x => x.cauldron)), totals.length, dist(embers), dist(heat), dist(totals),
+    list.reduce((a, x) => a + x.crystals, 0),
+    Object.entries(kills).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || '—',
+    paid.length ? `${paid.reduce((a, x) => a + x, 0)} (${paid.length} дверей, мед. ${n1(median(paid))})` : '—',
+  ];
+}
+/** Rows of the cauldron table: the runs, the sandbox and, when both had it, all together. */
+function purseRows(runFights: readonly FightEntry[], sandbox: readonly FightEntry[]): (string | number)[][] {
+  const runs = purseRow('походы', runFights), box = purseRow('песочница', sandbox);
+  return [runs, box, runs && box ? purseRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
+}
+const PURSE_HEAD = ['Бои', 'Боёв с котлом', 'Котёл за бой мед. / макс.', 'Чеков', 'Угли на чек мед. / макс.', 'Жар мед. / макс.', 'Чек мед. / макс.', 'Кристаллов в цепях', 'Угли убийств сборки', 'Ресурсов в двери (без кости)'];
+const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом или волной (`purseKill`), по источнику. Ресурсы — ⌊котёл ÷ 40⌋, не больше 3 (`purseDoor`, кость пока не бросается).';
+// ---- end «Котёл» ----
+
 function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
   const rows = new Map<string, { kinds: Set<string>; offered: number; taken: number; refused: number; fired: number; fights: number; active: number }>();
   const row = (id: string) => rows.get(id) ?? rows.set(id, { kinds: new Set(), offered: 0, taken: 0, refused: 0, fired: 0, fights: 0, active: 0 }).get(id)!;
@@ -507,6 +532,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Враги', '', damageSections(fights), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
+    // Casino «Котёл».
+    '## Котёл', '', PURSE_LEGEND, '', table(PURSE_HEAD, purseRows(runFights, sandbox)), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

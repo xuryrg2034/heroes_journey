@@ -58,6 +58,8 @@ export function worldState(world: World): unknown {
     ...world.build ? { build: world.build } : {},
     // Casino stage 1 («Однорукий гоблин», slot.ts): absent until the battle rolls — worlds without it hash as before.
     ...world.slot ? { slot: world.slot } : {},
+    // Casino «Котёл» (purse.ts): the cauldron and the door's record (absent until used — worlds without it hash as before).
+    ...world.purse ? { purse: world.purse } : {},
   };
 }
 

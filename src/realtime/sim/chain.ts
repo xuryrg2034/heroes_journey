@@ -36,6 +36,7 @@ import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
 import { leverReady, pullLever } from './slot';
+import { linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -117,6 +118,11 @@ export interface ChainPlan {
    * Absent while open.
    */
   seal?: SealPreview;
+  /**
+   * Casino «Котёл» (purse.ts): the cheque this chain would put into the cauldron — the same embers and heat the dash counts
+   * (`HeroMove.purse`). Absent while the cauldron is off.
+   */
+  cheque?: Cheque;
 }
 
 /** Loop research, step 2: a closed chain's ring now and who is inside it (`sealPreview`). */
@@ -149,11 +155,14 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // Phase B: the build layer numbers the enemy links only while a build module acts (otherwise the old plan, exactly).
   const build = buildActive(world), chain = build ? nextChainNo(world) : 0, gain = linkGainOf(world);
   let index = 0, elites = 0;
+  // Casino «Котёл»: the struck enemy links and the crystal links of the plan, for its cheque (only while the cauldron is on).
+  const purse = purseOn(world) ? { struck: [] as { enemy: Enemy; outcome: StrikeOutcome }[], crystals: 0 } : null;
   for (const link of links) {
     const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
     if (!enemy) {
       // Stage 3a (М4): a burning brazier adds its power to the rest of the chain (the dash adds the same on arrival).
       if (isBrazier(world, link)) power += brazierPowerOf(world);
+      if (purse && !endsOnSurvivor && isCrystal(world, link)) purse.crystals++;
       out.push({ link, outcome: null });
       continue;
     }
@@ -162,6 +171,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     power = outcome.powerAfter;
     // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
     if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; }
+    // Casino «Котёл»: the dash stops on a survivor — links after it (the world changed since they were drawn) are not in the cheque.
+    if (!endsOnSurvivor) purse?.struck.push({ enemy, outcome });
     if (outcome.killed) kills++;
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
     else if (!outcome.plate) endsOnSurvivor = true;
@@ -170,7 +181,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const last = links[links.length - 1];
   const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
   const seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {} };
+  const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null) : null;
+  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {} };
 }
 
 // ---- Loop research, step 2: the loop («Печать», docs/realtime-loop-research.md, sections 3.1–3.4) ----
@@ -625,6 +637,8 @@ export function releaseChain(world: World): boolean {
     world.move.seal = { kind: seal.kind, links: seal.links, ring: seal.ring, inside: seal.inside, damage: seal.damage, hold: seal.hold };
     world.events.push({ type: 'seal', phase: 'release', kind: seal.kind, points: seal.ring.map(q => ({ x: q.x, y: q.y })), inside: [...seal.inside], links: seal.links });
   }
+  // Casino «Котёл»: the dash counts its cheque (purse.ts; absent while the cauldron is off).
+  if (purseOn(world)) world.move.purse = { embers: 0, links: 0, last: false };
   // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;
@@ -803,6 +817,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
   // Stage 2, step 3: the ×2 of the cold is spent by this hit (a survivor stays frozen while the cold lasts, its next hit is plain).
   delete enemy.brittle;
   if (move.brittle) { move.brittle = move.brittle.filter(id => id !== enemy.id); if (!move.brittle.length) delete move.brittle; }
+  // Casino «Котёл»: the link's embers (the highlight counts the same outcome, `planChain`).
+  if (move.purse) tallyLink(move.purse, linkEmbers(enemy, outcome), outcome.killed);
   move.power = outcome.powerAfter;
   move.hits++;
   world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
@@ -872,6 +888,8 @@ function passFallen(world: World, fallen: FallenLink): void {
   if (world.arena.terrain && overCliff(fallen, world.arena)) (move.detour ??= []).push({ x: fallen.x, y: fallen.y });
   else landAt(move, fallen);
   if (ctx) { noteLink(move, fallen, true); runHook(world, 'onLink', m => m.onLink!(world, ctx, null)); }
+  // Casino «Котёл»: a fallen link counts for the heat (it is dead), its embers came with its death (`purseKill`) or not at all.
+  if (move.purse) tallyLink(move.purse, 0, true);
   if (!fallen.credited) return;
   move.kills++;
   if (ctx) {
@@ -962,6 +980,8 @@ function finishMove(world: World): void {
     world.stats.bestChain = Math.max(world.stats.bestChain, move.kills);
     world.lastChain = { kills: move.kills, hits: move.hits, crystals: move.broken, score, time: world.time };
     world.events.push({ type: 'chainEnd', kills: move.kills, score });
+    // Casino «Котёл»: the chain's cheque goes into the cauldron (purse.ts; nothing while it is off).
+    settleCheque(world, move);
     // Stage F (user 07.10.2026): a chain that killed leaves the hero untouchable for a moment to walk out of the crowd;
     // a new one replaces the rest (no stacking); the hurt invulnerability runs on its own, the larger protects.
     // Phase B: its length is the build's (build.ts `chainShieldOf`: «Добивание», «Быстрые ноги»).

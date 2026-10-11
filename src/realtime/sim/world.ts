@@ -25,6 +25,7 @@ import { updateBurning } from './items';
 import { RngStreams } from './rng';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
+import { purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
 /**
@@ -210,6 +211,8 @@ export interface HeroMove {
   build?: DashBuild;
   /** Loop research, step 2: the seal of a closed chain, fixed at the release, struck at the end of the dash (absent otherwise). */
   seal?: SealMove;
+  /** Casino «Котёл» (purse.ts): the dash's cheque so far — embers, enemy links, the last one dead (absent while the cauldron is off). */
+  purse?: PurseMove;
 }
 
 /** Loop research, step 2: where a chain closes — on its first link, or on the hero (he is a corner of the ring). */
@@ -327,7 +330,15 @@ export type WorldEvent =
    * pull's number); the 3rd reel stopped (`effect`); a rain wave dropped its marks (`wave`); an arrow fell (`land`, its circle).
    */
   | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
-      links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number };
+      links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number }
+  /**
+   * Casino «Котёл» (purse.ts): a chain's cheque went into the cauldron (embers × heat × the crystal multiplier = total; the
+   * cauldron after it; where the hero stands); a build kill put 1 ember (`purseKill`); the door recorded the cauldron
+   * (`purseDoor`: the oath and the resources it pays without the die).
+   */
+  | { type: 'cheque'; embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean; cauldron: number; x: number; y: number }
+  | { type: 'purseKill'; source: string; cauldron: number }
+  | { type: 'purseDoor'; cauldron: number; oath: number; resources: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -414,6 +425,8 @@ export interface World {
   build?: Record<string, unknown>;
   /** Casino stage 1 («Однорукий гоблин», slot.ts): the slot of the arena — absent until the battle rolls (hashed only when present). */
   slot?: SlotState;
+  /** Casino «Котёл» (purse.ts): the cauldron of the fight and the door's record (absent until used — hashed only when present). */
+  purse?: PurseWorld;
 }
 
 /**
@@ -585,6 +598,8 @@ export function win(world: World): void {
   world.endTime = world.time;
   world.chain = [];
   delete world.chainClosed;
+  // Casino «Котёл»: the chain entering the door puts its cheque first, then the door records the cauldron (purse.ts).
+  purseDoor(world);
   world.events.push({ type: 'victory' });
 }
 
@@ -773,6 +788,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   const move = world.move, link = move?.kind === 'dash' && move.links.some(l => l.kind === 'enemy' && l.id === e.id);
   if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {} });
   if (cause.credited) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
+  // Casino «Котёл»: a kill of the player's build outside the chain — 1 ember, no heat (the source decides, purse.ts).
+  purseKill(world, cause);
   if (e.marked) world.stats.markedKills++;
   checkGoals(world);
   behaviorOf(e).onDeath?.(world, e, cause);

@@ -33,6 +33,7 @@ import { DebugPanel, formatTime } from './debugPanel';
 import { loadParams, loadRoleBadges, loadSandboxBuild, PARAMS_STORAGE_KEY, saveParams, saveRoleBadges, saveSandboxBuild } from './paramStorage';
 import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
+import { doorPayout, nextHeat } from '../sim/purse';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
@@ -290,6 +291,11 @@ async function boot(): Promise<void> {
   const hint = el('div', 'rt-hint');
   hint.setAttribute('data-testid', 'link-hint');
   hint.hidden = true;
+  // ---- Casino «Котёл» (sim/purse.ts, docs/realtime-casino.md): the cheque's forecast at the pointer in focus ----
+  const purseHint = el('div', 'rt-purse-hint');
+  purseHint.setAttribute('data-testid', 'purse-forecast');
+  purseHint.hidden = true;
+  // ---- end «Котёл» ----
   // Iteration 2.1 (docs/realtime-slice.md, section 12): a short hint over the consumables at the start of a run arena.
   const itemHint = el('div', 'rt-item-hint', 'Предметы: клавиши <kbd>1</kbd>–<kbd>4</kbd>, бьют в точку курсора');
   itemHint.setAttribute('data-testid', 'item-hint');
@@ -300,7 +306,7 @@ async function boot(): Promise<void> {
   const noteFlash = el('div', 'rt-note-flash', 'отмечено');
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, result, noteFlash);
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, purseHint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, menu);
   if (logsPanel) host.append(logsPanel.el);
 
@@ -500,7 +506,7 @@ async function boot(): Promise<void> {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
     runArenaRecorded = true;
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -656,7 +662,8 @@ async function boot(): Promise<void> {
       ['Арена', runLabel && !sandbox ? runLabel : w.arena.name],
       ['Время', formatTime(end)],
       ['Убито', String(w.stats.kills)],
-      ['Очки', String(w.stats.score)],
+      // Casino «Котёл»: the cauldron and what the door paid for it (no die yet) instead of the score.
+      w.params.purse ? ['Котёл', w.purse?.door ? `${w.purse.door.cauldron} → ресурсов ${doorPayout(w.purse.door).length}` : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
       ['Лучшая цепь', `${w.stats.bestChain} убийств`],
       ['Кристаллов выпало', String(w.stats.crystals)],
       ['В стадии жадности', greed],
@@ -710,6 +717,22 @@ async function boot(): Promise<void> {
       hint.style.top = `${pointerClient.y + 16}px`;
       hint.hidden = false;
     } else if (!hint.hidden) { hint.hidden = true; delete hint.dataset.reason; }
+    // ---- Casino «Котёл»: in focus, from 3 enemy links — «≈ N» (the plan's cheque) and «ещё 1 → ×жар» when one more link raises the heat ----
+    let purseText: string | null = null;
+    if (w.params.purse && live && pointerClient && w.chain.length && !w.move && w.status === 'playing') {
+      const plan = planChain(w), cheque = plan.cheque;
+      if (cheque && cheque.links >= 3) {
+        const more = plan.endsOnSurvivor || plan.endsOnObject || w.chainClosed ? null : nextHeat(cheque, !!plan.seal);
+        purseText = `≈ ${cheque.total}${more ? ` · ещё 1 → ×${more}` : ''}`;
+      }
+    }
+    if (purseText && pointerClient) {
+      if (purseHint.textContent !== purseText) purseHint.textContent = purseText;
+      purseHint.style.left = `${pointerClient.x + 14}px`;
+      purseHint.style.top = `${pointerClient.y - 30}px`;
+      purseHint.hidden = false;
+    } else if (!purseHint.hidden) purseHint.hidden = true;
+    // ---- end «Котёл» ----
     if (params.sound) {
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
       if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }
@@ -763,7 +786,8 @@ async function boot(): Promise<void> {
     energyText.textContent = `⚡ ${w.energy.toFixed(1)} / ${ENERGY_MAX}`;
     energyText.classList.toggle('rt-ready', w.energy >= jumpCostOf(w));
     const goal = goalProgress(w);
-    scoreText.textContent = `очки ${w.stats.score}`;
+    // Casino «Котёл»: with the cauldron on the score line shows the cauldron instead of the score.
+    scoreText.textContent = w.params.purse ? `котёл ${w.purse?.cauldron ?? 0}` : `очки ${w.stats.score}`;
     goalText.textContent = w.stage === 'greed' ? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     const eliteCount = w.enemies.reduce((n, e) => n + (e.elite ? 1 : 0), 0);
@@ -951,6 +975,8 @@ async function boot(): Promise<void> {
         combo: w.move?.kind === 'dash' ? w.move.kills : 0,
         lastChain: w.lastChain ? { ...w.lastChain } : null,
         comboShown: renderer.comboShown,
+        /** Casino «Котёл»: on, the cauldron, the door's record, the forecast at the pointer, what the view drew (render.ts `purseShown`). */
+        purse: { on: !!w.params.purse, cauldron: w.purse?.cauldron ?? null, door: w.purse?.door ? JSON.parse(JSON.stringify(w.purse.door)) : null, forecast: purseHint.hidden ? null : purseHint.textContent, shown: { ...renderer.purseShown, cheques: [...renderer.purseShown.cheques] } },
         /** «Сила видна при рывке»: the power number (largest shown, growths, visible now), strike flashes and closing flashes drawn so far. */
         powerView: { shown: renderer.powerShown, growths: renderer.powerGrowths, visible: renderer.powerVisible, strikeFlashes: renderer.strikeFlashes, finisherFlashes: renderer.finisherFlashes },
         heroInCrowd: heroInCrowd(w),

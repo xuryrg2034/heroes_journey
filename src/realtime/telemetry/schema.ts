@@ -419,6 +419,26 @@ export interface FightSummary {
   /** Path in arena units; seconds standing, in water, in thorns. */
   movement: { path: number; idle: number; water: number; thorns: number };
   abilities: { jumps: number; spins: number; items: Record<string, number> };
+  /** Casino «Котёл» (from 11.10.2026; absent in older records — read them through `withSummaryDefaults`). */
+  purse: PurseSummary;
+}
+
+/** Casino «Котёл» of one fight (docs/realtime-telemetry.md, section 8, «Котёл»; sim/purse.ts). */
+export interface PurseSummary {
+  /** The cauldron was on (`params.purse`) at the end of the fight. */
+  on: boolean;
+  /** The cauldron at the end of the fight (after the last cheque). */
+  cauldron: number;
+  /** Cheques put in (`cheque` events), one number per cheque in order: embers, heat, total. */
+  embers: number[];
+  heat: number[];
+  totals: number[];
+  /** Crystals the chains took (crystal links of the cheques). */
+  crystals: number;
+  /** Embers of the build's kills outside the chain (`purseKill`), by source. */
+  killEmbers: Record<string, number>;
+  /** Resources the door paid without the die (`purseDoor`); null — no exit through the door with the cauldron on. */
+  resources: number | null;
 }
 
 /** The elites of one fight (docs/realtime-telemetry.md, section 8, «Элиты»). */
@@ -490,6 +510,7 @@ export function emptyFightSummary(): FightSummary {
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
     movement: { path: 0, idle: 0, water: 0, thorns: 0 },
     abilities: { jumps: 0, spins: 0, items: {} },
+    purse: { on: false, cauldron: 0, embers: [], heat: [], totals: [], crystals: 0, killEmbers: {}, resources: null },
   };
 }
 

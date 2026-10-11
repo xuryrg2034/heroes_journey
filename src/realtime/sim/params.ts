@@ -547,6 +547,13 @@ export interface Params {
   slotVolleyRadius: number;
   /** Damage of one arrow (to the hero and to an enemy). */
   slotDamage: number;
+  // ---- Casino stage 1, item 1 — «Котёл» (purse.ts, docs/realtime-casino.md). ----
+  /**
+   * The cauldron: every chain puts its cheque (embers × heat × crystals), the build's kills outside the chain 1 ember each; the
+   * door pays crafting resources for it (⌊котёл ÷ 40⌋, at most 3). Off by default; journals without the value: off (no new
+   * world fields, the stream `purse:loot` untouched). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`).
+   */
+  purse: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -852,6 +859,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   slotVolleyMarks: 5,
   slotVolleyRadius: 2.5,
   slotDamage: 1,
+  // Casino «Котёл» (purse.ts): off by default.
+  purse: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1170,6 +1179,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('slotVolleyMarks', 'Однорукий гоблин', 'Залп: меток', 1, 12, 1, 5),
   n('slotVolleyRadius', 'Однорукий гоблин', 'Залп: радиус', 0.5, 6, 0.25, 5, 'ед.'),
   n('slotDamage', 'Однорукий гоблин', 'Урон стрелы', 0, 5, 1, 5),
+  // Casino «Котёл» (purse.ts, docs/realtime-casino.md).
+  { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
+    hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за 40, не больше 3. В походе включено всегда.' },
 ];
 
 const MAX_PHASES = 8;

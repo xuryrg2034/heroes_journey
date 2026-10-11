@@ -154,12 +154,18 @@ async function main(): Promise<void> {
   });
 
   await check('a localStorage quota error evicts notes and summaries and retries once; failing again — memory and bufferFull', async () => {
-    const storage = fake(1500);
+    // The quota is measured, not a number: the fight record grows with every new summary field. It fits the storage only
+    // after some of the 5 notes are evicted (the record's stored size + 1.5 notes).
+    const big: FightRecord = { ...head('S/sandbox/fx/fight', 'fight'), kind: 'fight', fight: 'fx', arena: 'a', seed: 1, outcome: 'victory', ticks: 1, time: 0, hpIn: 1, hpOut: 1, endHash: 'h', journal: { parts: 1, chars: 1, digest: 'd', encoding: 'json' }, summary: { ...emptyFightSummary(), build: { fired: {}, active: ['y'.repeat(75)] } } };
+    const stored = async (records: RtRecord[]): Promise<number> => {
+      const probe = fake(), pb = new TelemetryBuffer({ storage: probe, journals: memoryJournalStore(), limit: 1_000_000 });
+      for (const r of records) await pb.put(r);
+      return [...probe.map.values()].reduce((sum, v) => sum + v.length, 0);
+    };
+    const bigSize = await stored([big]), noteSize = (await stored([note('f0'), note('f1')])) - (await stored([note('f0')]));
+    const storage = fake(bigSize + Math.round(noteSize * 1.5));
     const b = new TelemetryBuffer({ storage, journals: memoryJournalStore(), limit: 1_000_000 });
     for (let i = 0; i < 5; i++) await b.put(note(`f${i}`));
-    const big: FightRecord = { ...head('S/sandbox/fx/fight', 'fight'), kind: 'fight', fight: 'fx', arena: 'a', seed: 1, outcome: 'victory', ticks: 1, time: 0, hpIn: 1, hpOut: 1, endHash: 'h', journal: { parts: 1, chars: 1, digest: 'd', encoding: 'json' }, summary: { ...emptyFightSummary(), build: { fired: {}, active: ['y'.repeat(75)] } } };
-    // The record (≈ 1420 characters with the summary of 11.10.2026, the elite and slot fields included) fits the quota of 1500 only after notes go.
-    assert(JSON.stringify(big).length < 1500 && JSON.stringify(big).length > 1000, `the record's size ${JSON.stringify(big).length}`);
     await b.put(big);
     assert(storage.map.has('ashen-oath-rt-tlm-v1:S/sandbox/fx/fight'), 'the fight is stored after evicting notes');
     assert(b.stats([]).notes < 5, 'some notes were evicted');

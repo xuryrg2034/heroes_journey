@@ -237,3 +237,5 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Package «Урон имеет значение»: the badge «Элита ×N» next to the goal. */
 .rt-elite-badge { font-family: Georgia, serif; font-size: 13px; font-weight: bold; color: #1a2330; background: #ffff66; border-radius: 9px; padding: 1px 8px; }
 .rt-elite-badge[hidden] { display: none; }
+/* Casino «Котёл» (sim/purse.ts): the cheque forecast at the pointer in focus. */
+.rt-purse-hint { position: fixed; z-index: 4; padding: 2px 7px; font-size: 12px; color: #ffd88a; background: #121710e0; border: 1px solid #8a6a2c; pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }

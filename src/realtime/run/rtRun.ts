@@ -37,6 +37,7 @@ import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, p
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { runParams, type Params } from '../sim/params';
+import { doorPayout, type PurseDoor } from '../sim/purse';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
@@ -64,10 +65,11 @@ export const RT_RUN_VERSION = 6;
  * Iteration 2.1: numbers a run arena takes from the run, not from the saved panel (the healing consumable: rtHp(3) = 9).
  * Package «Урон имеет значение» (docs/realtime-damage.md; design answer 11.10.2026): the run turns it on — elite armour and
  * the raised touch, the elite behaviours of the three kinds (docs/realtime-elite-behaviors.md); the tough HP table of the
- * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1: «Однорукий гоблин» is on (which
- * battles may get it — `Loadout.slot`, `rtArenaLoadout`).
+ * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1 (docs/realtime-casino.md): the
+ * cauldron («Котёл», `purse`) is on in every run arena; «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`,
+ * `rtArenaLoadout`).
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true });
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
@@ -232,6 +234,11 @@ export interface RtArenaOutcome {
   /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
   itemsUsed?: number;
   itemHint?: boolean;
+  /**
+   * Casino «Котёл» (sim/purse.ts): the door's record of a won arena — the cauldron, the oath, the resource kinds. The run pays
+   * `doorPayout(record, die)` of them into its materials. Absent — the cauldron was off.
+   */
+  purse?: PurseDoor;
 }
 
 // ---------- Creating a run, the map ----------
@@ -593,6 +600,8 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   // Step 3: the consumables left in hand go on; the banked energy was spent at the start of this arena.
   if (outcome.items) for (const item of ITEM_KINDS) run.items[item] = Math.max(0, Math.floor(Number(outcome.items[item]) || 0));
   for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.materials?.[kind]) || 0));
+  // Casino «Котёл»: the door's payout (the die of item 4 plugs in here as the second argument; 1 — no die yet).
+  if (outcome.purse) for (const kind of doorPayout(outcome.purse, 1)) if (RESOURCE_KINDS.includes(kind)) run.materials[kind]++;
   run.energy = 0;
   const node = rtNode(run, pending.nodeId)!;
   if (pending.battle === 'hard') {

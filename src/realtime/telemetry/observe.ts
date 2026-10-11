@@ -50,6 +50,9 @@
  * - the slot (casino stage 1, «Однорукий гоблин»): `slot` events — `appear` (and the game seconds after the goals of the
  *   first), `pull` (enemy links struck before the lever, the outcome), `effect`; a spin left at the end of the fight is
  *   cancelled; `hit` of the source `slot-volley` / `slot-rain` — the arrows' damage; `kill` of the source `slot` — arrow kills.
+ * - the cauldron (casino «Котёл», sim/purse.ts): `cheque` events — embers, heat and total per cheque in order, crystals of
+ *   the cheques; `purseKill` — the build's kill embers by source; `purseDoor` — the resources the door pays without the die;
+ *   the cauldron at the end — `world.purse`.
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
@@ -221,6 +224,10 @@ export function createFightObserver(start: World): FightObserver {
         case 'jump': s.abilities.jumps++; return;
         case 'spin': s.abilities.spins++; return;
         case 'item': bump(s.abilities.items, ev.kind); return;
+        // Casino «Котёл» (sim/purse.ts): cheques, the build's kill embers, the door's payout without the die.
+        case 'cheque': s.purse.embers.push(ev.embers); s.purse.heat.push(ev.heat); s.purse.totals.push(ev.total); s.purse.crystals += ev.crystals; return;
+        case 'purseKill': bump(s.purse.killEmbers, ev.source); return;
+        case 'purseDoor': s.purse.resources = ev.resources; return;
         default: return;
       }
     });
@@ -335,6 +342,9 @@ export function createFightObserver(start: World): FightObserver {
       out.elites.aliveAtEnd = w.enemies.filter(e => elites.has(e.id)).length;
       // Casino stage 1: a spin still shown when the fight ended (the door, a defeat) never acts.
       out.slot.cancelled = w.status !== 'playing' && w.slot?.goblin?.spin ? 1 : 0;
+      // Casino «Котёл»: on, and the cauldron at the end.
+      out.purse.on = !!w.params.purse;
+      out.purse.cauldron = w.purse?.cauldron ?? 0;
       return out;
     },
   };
