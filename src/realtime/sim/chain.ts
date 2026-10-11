@@ -641,7 +641,10 @@ export function releaseChain(world: World): boolean {
   // Casino «Котёл»: the dash counts its cheque (purse.ts; absent while the cauldron is off).
   if (purseOn(world)) world.move.purse = { embers: 0, links: 0, last: false };
   // Casino «Ставка клятвы» (oath.ts): «Цепи 3+» counts the released chain's enemy links (in the release's tick).
-  if (world.oath) oathRelease(world, links.filter(l => l.kind === 'enemy').length);
+  if (world.oath) {
+    const end = links[links.length - 1], button = end.kind === 'object' ? findObject(world, end.id) : undefined;
+    oathRelease(world, links.filter(l => l.kind === 'enemy').length, button?.kind === 'button' && !button.pressed);
+  }
   // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;

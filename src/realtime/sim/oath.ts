@@ -98,12 +98,17 @@ function meetOath(world: World, oath: OathState): void {
   world.events.push({ type: 'oath', action: 'met', id: oath.id, tick: world.tick });
 }
 
-/** A chain was released with `enemyLinks` enemy links (chain.ts `releaseChain`): «Цепи 3+» counts it. */
-export function oathRelease(world: World, enemyLinks: number): void {
+/**
+ * A chain was released with `enemyLinks` enemy links (chain.ts `releaseChain`): «Цепи 3+» counts it. `onButton` — it ends on
+ * an unpressed button: a button is pressed only by a chain (never by walking), so such a chain never breaks the oath (design
+ * answer 11.10.2026: no stake without a safe way — «Двор кнопок»). The door and the goblin's lever count: the door can be
+ * walked into, the lever is greed.
+ */
+export function oathRelease(world: World, enemyLinks: number, onButton = false): void {
   const oath = active(world);
   if (oath?.id !== 'chains3') return;
   oath.chains = (oath.chains ?? 0) + 1;
-  if (oath.chains > 1 && enemyLinks < OATH_CHAIN_LINKS) breakOath(world, oath);
+  if (oath.chains > 1 && enemyLinks < OATH_CHAIN_LINKS && !onButton) breakOath(world, oath);
 }
 
 /** The hero jumped (chain.ts `jump`). */

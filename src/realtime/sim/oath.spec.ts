@@ -46,6 +46,11 @@ registerArena({
   heroStart: { x: 4.5, y: 6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, enemies: [], killGoal: 999,
 });
 
+registerArena({
+  id: 'oath-buttons', name: 'Кнопка клятвы', summary: 'Тест клятвы', goal: 'kills', width: 20, height: 12,
+  heroStart: { x: 4.5, y: 6 }, obstacles: [], buttons: [{ x: 7.3, y: 6 }], door: { x: 19.3, y: 6 }, enemies: [], killGoal: 999,
+});
+
 /** A quiet fight with the cauldron and the oath stake on: no newcomers, nobody walks or touches, no hit-stop. */
 function quiet(extra: Partial<Params> = {}): Params {
   const p = defaultParams();
@@ -495,14 +500,45 @@ check('the logs of the run: the node card\'s choice is a run choice `oath-stake`
   throw new Error('no oath node met');
 });
 
+check('«Цепи 3+»: a chain ending on an unpressed button never breaks it — a button is pressed only by a chain (design answer 11.10.2026)', () => {
+  const sim = new Simulation({ arena: 'oath-buttons', params: quiet(), seed: seedOf(3), record: true, loadout: { oath: 'chains3' } });
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.5, y: 6 });
+  const one = (): void => { sim.command({ t: 'teleport', x: 4.5, y: 6 }); const id = sim.command({ t: 'place', x: 5.9, y: 6, color: 0, hp: 0, kind: 'basic' }) as number; const e = sim.world.enemies.find(x => x.id === id)!; sim.command({ t: 'begin', x: e.x, y: e.y }); };
+  one(); sim.command({ t: 'release' }); settle(sim);
+  one(); sim.command({ t: 'drag', x: 7.3, y: 6, mode: 'full' });
+  assert(sim.world.chain.length === 2 && sim.world.chain[1].kind === 'object', 'one enemy and the button');
+  sim.command({ t: 'release' }); settle(sim);
+  assert(sim.world.objects.some(o => o.kind === 'button' && o.pressed) && sim.world.oath!.broken === undefined, 'the button is pressed, the oath holds');
+  one(); sim.command({ t: 'release' }); settle(sim);
+  assert(sim.world.oath!.broken !== undefined, 'a short chain without a button breaks it');
+  assert(replays(sim), 'replay');
+});
+
+check('every available node offers its own pair (the node id is mixed in): the path decides the stake; a pair is two different oaths', () => {
+  let differs = 0, nodes = 0;
+  for (let k = 1; k <= 12; k++) {
+    let run = takeGift(createRtRun(seedOf(k + 900), { gift: 'mini' }));
+    for (let step = 0; step < 30; step++) {
+      if (run.pending) { run = closeNode(run); continue; }
+      const offers = rtAvailableNodes(run).map(n => rtOathPreview(run, n)).filter((o): o is NonNullable<typeof o> => !!o);
+      for (const o of offers) { nodes++; assert(o.length === 2 && o[0] !== o[1], `two different oaths: ${o}`); }
+      if (new Set(offers.map(o => o.join())).size > 1) { differs++; break; }
+      const next = rtAvailableNodes(run)[0]; if (!next) break;
+      run = ok(rtEnterNode(run, next.id), 'enter');
+    }
+  }
+  assert(nodes > 0 && differs >= 6, `nodes with offers ${nodes}; runs where available nodes differ ${differs} of 12`);
+});
+
 check('a run arena under an oath: the arena of the node plays it (the rule on by the run), the door records it, the run gets the payout', () => {
   let done = 0;
-  for (let k = 1; k <= 3; k++) {
+  for (let k = 1; k <= 8; k++) {
     let run = takeGift(createRtRun(seedOf(k + 700), { gift: 'mini' }));
     for (let step = 0; step < 80 && !done; step++) {
       if (run.pending) { run = closeNode(run); continue; }
       const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry)?.includes('no-jump'));
-      if (!node) { run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
+      if (!node) { const next = rtAvailableNodes(run)[0]; if (!next) break; run = ok(rtEnterNode(run, next.id), 'enter'); continue; }
       run = ok(rtEnterNode(run, node.id, 'no-jump'), 'enter under «Без прыжков»');
       const pending = run.pending!;
       assert(pending.kind === 'battle', 'a battle');

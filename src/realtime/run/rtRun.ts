@@ -395,8 +395,10 @@ export function rtOathNode(node: Pick<ForestMapNode, 'type' | 'row'>): boolean {
  * The two oaths of the draw `n` of the run's oath stream for `node`: «Элита в окне» only where the battle brings its
  * guaranteed elite (`rtGuaranteedElite`). Pure: the seed, the draw and the node decide it.
  */
-export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, 'type' | 'row'>): OathId[] {
-  const base = mixSeed(mixSeed(seed >>> 0, OATH_SALT), n);
+export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>): OathId[] {
+  // Design answer 11.10.2026: the node's id is mixed in — every node offers its own pair (the path decides the stake); the
+  // run's counter `n` still moves on each entered node, so a reload never re-rolls.
+  const base = mixSeed(mixSeed(forestNodeSeed(seed >>> 0, node.id), OATH_SALT), n);
   const left = OATH_IDS.filter(id => id !== 'elite-window' || rtGuaranteedElite(node, battleKindOf(node))), options: OathId[] = [];
   for (let k = 0; k < RT_OATH_OFFER_SIZE && left.length; k++) options.push(left.splice(mixSeed(base, k) % left.length, 1)[0]);
   return options;
