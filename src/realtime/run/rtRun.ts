@@ -1130,7 +1130,8 @@ export function rtCasinoView(run: RtRunState): RtCasinoView | null {
       available: false, reason: over || (total < RT_DICE_STAKE ? `Нужно ресурсов: ${RT_DICE_STAKE}, есть ${total}` : '') },
     { table: 'wheel', label: forestEvent(CASINO_WHEEL_EVENT)!.title, cost: sliceCosts(option).map(rtCost).map(describeCost).join(' или '),
       outcomes: option.outcomes.map((outcome, n) => ({ odds: chanceText(attemptChances(option), n), text: outcomeText(outcome, []) })),
-      available: false, reason: over || wheelCost.block },
+      // Design 12.10.2026: one wheel, one rule — the event's HP threshold for an option that may lose HP (HP ≥ 6), the same text.
+      available: false, reason: over || wheelCost.block || (mayLoseHp(option) && run.hp < rtHp(EVENT_RISK_MIN_HP) ? hpShort(rtHp(EVENT_RISK_MIN_HP), run.hp) : '') },
   ];
   for (const table of tables) table.available = !table.reason;
   const last = games.length ? { game: games[games.length - 1], ...rtCasinoResult(games[games.length - 1]) } : null;

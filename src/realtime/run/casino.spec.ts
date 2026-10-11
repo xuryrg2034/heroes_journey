@@ -273,17 +273,19 @@ check('«Кости»: stake 1, a sum of 8+ pays 3 resources, the faces are the 
   assert(!refused.ok && refused.reason === 'Нужно ресурсов: 1, есть 0', 'the game is refused');
 });
 
-check('«Колесо костей» in the circle: the event\'s outcomes; «кость в лоб» at 1 HP leaves 1 HP (the wheel is open at any HP); a talisman without the `talismans` stream', () => {
-  // A fight won with 1 HP left, then the circle whose first game rolls «кость в лоб» on the wheel.
-  const { run: low } = toCircle(1, { hp: 1, materials: 2 }, run => {
-    const step = rtCasinoPlay(run, 'wheel');
-    return step.ok && lastGame(step.run).table === 'wheel' && (lastGame(step.run) as { outcome: number }).outcome === BONE_IN_FOREHEAD;
-  });
-  assert(low.hp === 1, `the hero comes with 1 HP (${low.hp})`);
-  const wheelView = rtCasinoView(low)!.tables.find(t => t.table === 'wheel')!;
-  assert(wheelView.available && wheelView.outcomes.length === 6 && wheelView.outcomes.every(o => o.odds === '1 из 6'), 'the wheel is open, six outcomes 1 из 6');
-  const hit = ok(rtCasinoPlay(low, 'wheel'), 'wheel');
-  assert(hit.hp === 1 && total(hit) === total(low) - 1, `«кость в лоб» at 1 HP: ${hit.hp} HP`);
+check('«Колесо костей» in the circle: the event\'s outcomes and HP threshold (design 12.10.2026: HP ≥ 6, as the event); a talisman without the `talismans` stream', () => {
+  // A fight won with 5 HP left, then the circle: the wheel is off with the event's reason, «Кости» stay open.
+  const { run: low } = toCircle(1, { hp: 5, materials: 2 }, () => true);
+  assert(low.hp === 5, `the hero comes with 5 HP (${low.hp})`);
+  const lowView = rtCasinoView(low)!, wheelView = lowView.tables.find(t => t.table === 'wheel')!;
+  assert(!wheelView.available && wheelView.reason === 'Нужно HP ≥ 6 (сейчас 5)', `the wheel is off at 5 HP: ${wheelView.reason}`);
+  assert(wheelView.outcomes.length === 6 && wheelView.outcomes.every(o => o.odds === '1 из 6'), 'six outcomes 1 из 6');
+  assert(lowView.tables.find(t => t.table === 'dice')!.available, '«Кости» are open at any HP');
+  const refused = rtCasinoPlay(low, 'wheel');
+  assert(!refused.ok && refused.reason === 'Нужно HP ≥ 6 (сейчас 5)', 'the spin is refused');
+  // At 6 HP the wheel opens.
+  const { run: six } = toCircle(1, { hp: 6, materials: 2 }, () => true);
+  assert(six.hp === 6 && rtCasinoView(six)!.tables.find(t => t.table === 'wheel')!.available, 'the wheel is open at 6 HP');
   // The same outcome from more HP takes rtHp(1) = 3.
   const { run: full } = toCircle(1, { materials: 2 }, run => {
     const step = rtCasinoPlay(run, 'wheel');

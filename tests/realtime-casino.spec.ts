@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose, rtEnterNode,
-  rtEventView, rtGiftView, rtRestHeal, rtShopLeave, rtChooseEventOption, serializeRtRun, RT_CASINO_TITLE, type RtRunState, type RtRunStep,
+  rtEventView, rtGiftView, rtRestHeal, rtShopLeave, rtChooseEventOption, serializeRtRun, parseRtRun, rtCasinoNode, RT_CASINO_TITLE, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
 
 /**
@@ -52,6 +52,8 @@ function walkTo(stop: (run: RtRunState) => boolean, circle: boolean): string {
   throw new Error('no such run on 400 seeds');
 }
 const circleSave = walkTo(run => run.pending?.kind === 'casino' && Object.values(run.materials).reduce((a, b) => a + b, 0) >= 4, true);
+// A map with an event node the circle may still stand on (the card's hint, design 12.10.2026).
+const hintSave = walkTo(run => !run.pending && !run.casino && rtAvailableNodes(run).some(node => rtCasinoNode(node)), true);
 const wheelSave = walkTo(run => run.pending?.kind === 'event' && rtEventView(run)?.event.id === 'bone-wheel' && !!rtEventView(run)!.options.find(o => o.id === 'spin')?.available, false);
 
 async function openSave(page: Page, errors: string[], save: string): Promise<void> {
@@ -134,6 +136,16 @@ test('the circle: «Кости» rolls and lands on the game\'s faces, the wheel
   expect(state.pending).toBeNull();
   expect(state.currentNodeId).toBe(state.casino.nodeId);
   await expect(page.getByTestId(`node-${state.casino.nodeId}`).locator('title')).toHaveText(RT_CASINO_TITLE);
+  expect(errors).toEqual([]);
+});
+
+test('the map card of an event node the circle may stand on: «Может стать игорным кругом · 30 %», the terms in small print', async ({ page }) => {
+  const errors: string[] = [];
+  await openSave(page, errors, hintSave);
+  const node = rtAvailableNodes(parseRtRun(hintSave)!).find(entry => rtCasinoNode(entry))!;
+  await page.getByTestId(`node-${node.id}`).click();
+  await expect(page.getByTestId('run-casino-hint')).toHaveText('Может стать игорным кругом · 30 %');
+  await expect(page.getByTestId('run-casino-terms')).toHaveText('Не больше одного за поход, нужен хотя бы 1 ресурс.');
   expect(errors).toEqual([]);
 });
 

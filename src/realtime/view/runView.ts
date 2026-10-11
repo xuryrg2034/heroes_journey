@@ -560,9 +560,11 @@ export class RunView {
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? `<p>${arenaLine(arena.arena, arena.roster)}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (STEP1_HINT[node.type] ? `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type]!)}</p>` : '')
-      // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance.
+      // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
+      // print on a second line (design 12.10.2026).
       + (this.host.goblinCircle && !run.casino && rtCasinoNode(node) && (status === 'available' || status === 'locked')
-        ? `<p class="rt-run-hint" data-testid="run-casino-hint">Вместо события может стоять ${escapeHtml(RT_CASINO_TITLE.toLowerCase())}: шанс ${RT_CASINO_CHANCE} %, не больше одного за поход, нужен хотя бы 1 ресурс.</p>` : '')
+        ? `<p class="rt-run-hint" data-testid="run-casino-hint">Может стать игорным кругом · ${RT_CASINO_CHANCE} %</p>`
+          + '<p class="rt-run-note rt-run-fine" data-testid="run-casino-terms">Не больше одного за поход, нужен хотя бы 1 ресурс.</p>' : '')
       + (status === 'available' ? this.enterHtml(run, node) : '')
       + `</aside>`;
   }
