@@ -29,7 +29,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, type RunDie, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
 } from './schema';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
@@ -184,6 +184,12 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       choice(pending.nodeId, pending.source === 'oath' ? 'oath' : 'talisman', pending.options.map(String), taken);
       break;
     }
+    case 'die': {
+      // Casino «Кость у двери»: «Бросить» (`roll`) or «Забрать» (`take`).
+      const resolved = events.find(e => e.type === 'die-resolved');
+      if (resolved?.type === 'die-resolved') choice(pending.nodeId, DIE_SOURCE, ['roll', 'take'], [resolved.rolled ? 'roll' : 'take']);
+      break;
+    }
     case 'hammer':
       choice(pending.nodeId, 'hammer', pending.options.map(String), events.flatMap(e => (e.type === 'hammer-taken' ? [e.id as string] : [])));
       break;
@@ -251,6 +257,8 @@ interface RunMeta {
   fightCount: number;
   /** Arena starts of each node (the attempt of its fight key). */
   attempts: Record<string, number>;
+  /** Casino «Кость у двери»: the die screens (absent — none yet). */
+  dice?: RunDie[];
 }
 
 /** Where a fight is: a run node or the sandbox. */
@@ -598,7 +606,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -633,6 +641,11 @@ export class RtRecorder {
         } else if (ev.type === 'event-resolved') {
           const visit = [...meta.nodes].reverse().find(v => v.nodeId === ev.nodeId), id = before ? rtEventView(before)?.event.id : undefined;
           if (visit) visit.event = { id: id ?? 'unknown', option: ev.option, outcome: ev.outcome };
+        } else if (ev.type === 'die-shown') {
+          (meta.dice ??= []).push({ nodeId: ev.nodeId, cauldron: ev.cauldron, oath: ev.oath, face: ev.face, rolled: null, mult: null, resources: null, base: null });
+        } else if (ev.type === 'die-resolved') {
+          const die = [...meta.dice ?? []].reverse().find(d => d.nodeId === ev.nodeId && d.rolled === null);
+          if (die) Object.assign(die, { rolled: ev.rolled, mult: ev.mult, resources: ev.resources.length, base: ev.base });
         } else if (ev.type === 'run-won') meta.outcome = 'victory';
         else if (ev.type === 'run-lost') meta.outcome = 'defeat';
       }

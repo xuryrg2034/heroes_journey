@@ -79,6 +79,7 @@ Node-тесты (`tsx`), все без браузера:
 | `npm run test:realtime-slot` | «Однорукий гоблин»: появление, рычаг, барабаны, шансы, стрелы |
 | `npm run test:realtime-purse` | Котёл: чек цепи, выплата в двери |
 | `npm run test:realtime-oath` | Ставка клятвы: каталог, нарушение и выполнение, ×2 / ×0,5 в двери, предложения на узлах, сохранение v7 |
+| `npm run test:realtime-die` | Кость у двери: экран после победы с котлом, «Забрать» и бросок ×0,5 / ×2, потолки выплаты, грань по потоку похода без переброса, сохранение v7 |
 | `npm run test:realtime-camera` | Камера |
 | `npm run test:realtime-telemetry`, `-telemetry-recorder`, `-telemetry-plugin`, `-report` | Схема и запись логов, приёмник dev-сервера, отчёт |
 
@@ -89,7 +90,7 @@ npm test                                   # то же, что npx playwright te
 npx playwright test tests/realtime-run.spec.ts
 ```
 
-Набор: песочница, враги, поход, расходники и талисманы, арены, местность, поведение, камера, петля, элиты, «Однорукий гоблин», ставка клятвы и запись логов (`tests/realtime*.spec.ts`). Сервер Vite поднимается сам на порту 4620 (`PLAYWRIGHT_PORT` меняет порт). `RT_GPU=1` оставляет аппаратный GPU; по умолчанию программный рендер. Часть тестов нестабильна под нагрузкой: перед приёмкой прогон повторяют ×3 (`--repeat-each 3`).
+Набор: песочница, враги, поход, расходники и талисманы, арены, местность, поведение, камера, петля, элиты, «Однорукий гоблин», ставка клятвы, кость у двери и запись логов (`tests/realtime*.spec.ts`). Сервер Vite поднимается сам на порту 4620 (`PLAYWRIGHT_PORT` меняет порт). `RT_GPU=1` оставляет аппаратный GPU; по умолчанию программный рендер. Часть тестов нестабильна под нагрузкой: перед приёмкой прогон повторяют ×3 (`--repeat-each 3`).
 
 Полная проверка: `.claude/skills/verify-all/scripts/verify.sh [--browser]` (typecheck, все `test:*`, сборка, с `--browser` и Playwright). Перед приёмкой её запускают в чистой копии. Даты и результаты прогонов записывают в документ изменения. В старых записях встречаются проверки, которых больше нет (`test:golden` и другие проверки пошаговой игры): это история.
 
@@ -121,7 +122,7 @@ npx playwright test tests/realtime-run.spec.ts
 | [events.md](docs/events.md), [talismans.md](docs/talismans.md) | Каталог событий; талисманы, клятвы, реликвии |
 | [realtime-phase-a.md](docs/realtime-phase-a.md), [realtime-phase-b.md](docs/realtime-phase-b.md) | Фаза A (скорости, составы, лучник) и фаза B (сборка) |
 | [realtime-damage.md](docs/realtime-damage.md), [realtime-elite-behaviors.md](docs/realtime-elite-behaviors.md) | Пакет «Урон имеет значение»; поведение элит |
-| [realtime-casino.md](docs/realtime-casino.md) | Казино, этап 1: котёл (чек цепи → ресурсы похода), ставка клятвы, «Однорукий гоблин» |
+| [realtime-casino.md](docs/realtime-casino.md) | Казино, этап 1: котёл (чек цепи → ресурсы похода), ставка клятвы, «Однорукий гоблин», кость у двери |
 | [realtime-stage3.md](docs/realtime-stage3.md) | Этап 3: местность, поведение, камера, большие арены |
 | [realtime-telemetry.md](docs/realtime-telemetry.md), [realtime-playtest.md](docs/realtime-playtest.md) | Логи и метрики; протокол плейтеста |
 | [realtime-transition.md](docs/realtime-transition.md) | План перехода на реальное время |

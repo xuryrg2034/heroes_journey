@@ -146,6 +146,25 @@ export interface RunNodeVisit {
 /** Casino «Ставка клятвы»: the source of the node card's oath choice in `RunRecord.choices` (not the Jailer's `oath`). */
 export const OATH_STAKE_SOURCE = 'oath-stake';
 
+/** Casino «Кость у двери»: the source of the die screen's choice in `RunRecord.choices` (offered `roll` and `take`). */
+export const DIE_SOURCE = 'door-die';
+
+/**
+ * Casino stage 1, item 4: one die screen of the run (`RunRecord.dice`). `face` — the outcome fixed when the screen showed;
+ * `rolled` — «Бросить» (false — «Забрать», null — not chosen yet); `mult` — the die's multiplier paid with (1 for «Забрать»);
+ * `resources` — paid; `base` — what «Забрать» pays.
+ */
+export interface RunDie {
+  nodeId: string;
+  cauldron: number;
+  oath: number;
+  face: number;
+  rolled: boolean | null;
+  mult: number | null;
+  resources: number | null;
+  base: number | null;
+}
+
 /** One choice of the run: what was offered, what was taken, what was refused (a gift, talismans, a hammer, a relic, an oath, the shop, the rest). */
 export interface RunChoice {
   /** The node of the choice (`start` — the starting gift). */
@@ -184,6 +203,8 @@ export interface RunRecord extends RtHeader {
   kit: RunBuild;
   /** The fight keys of the run, in order. */
   fights: string[];
+  /** Casino «Кость у двери» (from 11.10.2026): the die screens of the run in order; absent — none. */
+  dice?: RunDie[];
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }

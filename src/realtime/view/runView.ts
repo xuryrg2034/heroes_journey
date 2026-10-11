@@ -18,7 +18,7 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  rtOathPreview,
+  rtOathPreview, rtDieChoose, rtDieView, DIE_HIGH_MULT, DIE_LOW_FACES, DIE_LOW_MULT,
   type RtArenaOutcome, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -56,6 +56,20 @@ export interface RunHost {
  * of consumables gained since the last arena blink 1 s; the hint «Предметы: клавиши 1–4…» for 4 s (`rtItemHintDue`).
  */
 export interface ArenaItemNotice { blink: ItemKind[]; hint: boolean }
+
+/** Casino stage 1, item 4: the die's roll animation (research 8.5: 1.2 s, a click skips it). */
+export const DIE_ROLL_MS = 1200;
+/** The face changes this often while the die rolls (a picture only: the face was fixed when the screen showed). */
+const DIE_FLICKER_MS = 90;
+const DIE_PIPS = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+/** «1 ресурс», «2 ресурса», «5 ресурсов». */
+export function resourcesWord(n: number): string {
+  const tens = n % 100, ones = n % 10;
+  return `${n} ${tens >= 11 && tens <= 14 ? 'ресурсов' : ones === 1 ? 'ресурс' : ones >= 2 && ones <= 4 ? 'ресурса' : 'ресурсов'}`;
+}
+const multText = (value: number): string => `×${String(value).replace('.', ',')}`;
+/** The die's odds, as the screen shows them: «1–3 ×0,5 · 4–6 ×2». */
+export const DIE_ODDS = `1–${DIE_LOW_FACES} ${multText(DIE_LOW_MULT)} · ${DIE_LOW_FACES + 1}–6 ${multText(DIE_HIGH_MULT)}`;
 
 /** «Холод (клавиша 1 в бою)»: a consumable with the key it is used with on the arena. */
 export const itemWithKey = (item: ItemKind): string => `${ITEM_TITLES[item]} (клавиша ${SLOT_ITEMS.indexOf(item) + 1} в бою)`;
@@ -124,6 +138,11 @@ export class RunView {
   private confirmReset = false;
   /** The arena of the open battle node is on screen. */
   private inArena = false;
+  /**
+   * Casino stage 1, item 4: the thrown die shown over the run screen — its face and payout (the run already paid it: a reload
+   * only drops the picture), `landed` — the animation is over (or skipped by a click).
+   */
+  private dieRoll: { face: number; mult: number; paid: number; kinds: string[]; landed: boolean; timers: number[] } | null = null;
 
   constructor(private readonly host: RunHost, private readonly fixedSeed: number | null) {
     this.el = document.createElement('div');
@@ -188,6 +207,8 @@ export class RunView {
   leaveArena(): void { if (this.inArena) this.open(); }
   /** The run has ended (a lost arena, or the won final arena): the arena's result button leads to the end of the run. */
   get runOver(): boolean { return !!this.run?.result; }
+  /** Casino stage 1, item 4: the won arena waits for the die at the door (the arena's result button leads to it). */
+  get diePending(): boolean { return this.run?.pending?.kind === 'die'; }
 
   /** Start (or start again after a reload) the arena of the open battle node. */
   enterArena(): void {
@@ -211,6 +232,7 @@ export class RunView {
       if (event.type === 'talisman-taken') parts.push(`${rtTalisman(event.id)?.rarity === 'relic' ? 'Реликвия' : rtTalisman(event.id)?.rarity === 'oath' ? 'Клятва' : 'Талисман'} «${talismanName(event.id)}»`);
       if (event.type === 'hammer-taken') parts.push(`Молот «${rtHammer(event.id)?.name ?? event.id}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
+      if (event.type === 'die-resolved') parts.push(event.rolled ? `Кость: ${event.face}, ${multText(event.mult)} — ${resourcesWord(event.resources.length)}` : `Котёл: ${resourcesWord(event.resources.length)}`);
       if (event.type === 'items-gained') parts.push(`+ ${event.items.map(itemWithKey).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
     return parts.join(' · ');
@@ -233,6 +255,11 @@ export class RunView {
     // Casino stage 1, item 2: an oath button of the node card enters the battle under that oath.
     if (action === 'enter-oath' && this.selected && isOathId(target.dataset.oath)) { this.enter(this.selected, target.dataset.oath); return; }
     if (action === 'battle') { this.enterArena(); return; }
+    // Casino stage 1, item 4: the die at the door; a click on the rolling die skips its animation, «Дальше» closes it.
+    if (action === 'die-roll') { this.throwDie(run); return; }
+    if (action === 'die-take') { this.apply(rtDieChoose(run, false)); return; }
+    if (action === 'die-skip') { this.landDie(); return; }
+    if (action === 'die-close') { this.closeDie(); return; }
     if (action === 'rest-heal') { this.apply(rtRestHeal(run)); return; }
     if (action === 'rest-craft') { this.apply(rtRestCraft(run, target.dataset.resource as ResourceKind)); return; }
     if (action === 'rest-finish') { this.apply(rtRestFinish(run)); return; }
@@ -246,12 +273,55 @@ export class RunView {
     if (action === 'gift') { this.apply(rtChooseGift(run, target.dataset.index === 'skip' ? null : Number(target.dataset.index))); return; }
   }
 
+  // ---------- The die at the door (casino stage 1, item 4) ----------
+
+  /** «Бросить»: the run pays by the face fixed at the showing; the die rolls 1.2 s over the next screen, then lands. */
+  private throwDie(run: RtRunState): void {
+    const step = rtDieChoose(run, true);
+    const resolved = step.ok ? step.events.find(event => event.type === 'die-resolved') : undefined;
+    this.clearDieTimers();
+    this.dieRoll = resolved?.type === 'die-resolved' ? { face: resolved.face, mult: resolved.mult, paid: resolved.resources.length, kinds: [...resolved.resources], landed: false, timers: [] } : null;
+    this.apply(step);
+    const roll = this.dieRoll;
+    if (!roll) return;
+    // The rolling picture starts on another face (the landed one shows only at the end).
+    let shown = roll.face % 6 + 1;
+    roll.timers.push(window.setInterval(() => {
+      shown = shown % 6 + 1;
+      const face = this.el.querySelector<HTMLElement>('[data-testid="die-face"]');
+      if (face && !roll.landed) face.textContent = DIE_PIPS[shown - 1];
+    }, DIE_FLICKER_MS), window.setTimeout(() => this.landDie(), DIE_ROLL_MS));
+  }
+  private clearDieTimers(): void {
+    for (const timer of this.dieRoll?.timers ?? []) { window.clearInterval(timer); window.clearTimeout(timer); }
+  }
+  /** The die lands (the animation's end, or a click skips it): the face and the payout. */
+  private landDie(): void {
+    if (!this.dieRoll || this.dieRoll.landed) return;
+    this.clearDieTimers();
+    this.dieRoll.landed = true;
+    this.draw();
+  }
+  private closeDie(): void { this.clearDieTimers(); this.dieRoll = null; this.draw(); }
+
+  /** The thrown die over the run screen: rolling (a click skips), then the face, the multiplier and the resources paid. */
+  private dieRollHtml(): string {
+    const roll = this.dieRoll;
+    if (!roll) return '';
+    const result = roll.landed
+      ? `<p class="rt-die-result" data-testid="die-result">Выпало ${roll.face}: ${multText(roll.mult)} → ${resourcesWord(roll.paid)}${roll.kinds.length ? ` (${roll.kinds.map(kind => RESOURCES[kind as ResourceKind]?.label ?? kind).join(', ')})` : ''}</p>`
+        + `<button class="rt-again" data-action="die-close" data-testid="die-close">Дальше</button>`
+      : `<p class="rt-run-note">Кость катится… (клик — пропустить)</p>`;
+    return `<div class="rt-overlay rt-run-modal rt-die-overlay" data-testid="run-die-roll" data-landed="${roll.landed}"${roll.landed ? '' : ' data-action="die-skip"'}>`
+      + `<div class="rt-card"><h2>Кость у двери</h2><div class="rt-die-face${roll.landed ? '' : ' rt-die-rolling'}" data-testid="die-face" data-face="${roll.landed ? roll.face : ''}">${DIE_PIPS[roll.landed ? roll.face - 1 : roll.face % 6]}</div>${result}</div></div>`;
+  }
+
   // ---------- Drawing ----------
 
   draw(): void {
     const run = this.run;
     if (!run) { this.el.innerHTML = this.startHtml(); return; }
-    this.el.innerHTML = `${this.headerHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${this.detailHtml(run)}</div>${this.modalHtml(run)}`;
+    this.el.innerHTML = `${this.headerHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}`;
   }
 
   private startHtml(): string {
@@ -345,6 +415,16 @@ export class RunView {
       const oath = pending.oath ? `<p data-testid="run-battle-oath">Клятва: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
       return card(`<h2>Бой</h2><p>${arenaLine(pending.arena, pending.roster)}</p>${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
+    }
+    if (pending.kind === 'die') {
+      // Casino stage 1, item 4: the payout as it is, the odds, «Бросить кость» with what each half pays, «Забрать».
+      const view = rtDieView(run)!;
+      const oath = view.oath !== 1 ? ` (клятва ${multText(view.oath)})` : '';
+      return card(`<h2>Кость у двери</h2><p data-testid="die-cauldron">Котёл ${view.cauldron}${oath} → ${resourcesWord(view.take)}.</p>`
+        + `<p class="rt-die-odds" data-testid="die-odds">Бросить кость: ${DIE_ODDS}</p>`
+        + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="die-roll" data-testid="die-roll"><b>Бросить кость</b>`
+        + `<small>1–${DIE_LOW_FACES}: ${resourcesWord(view.low)} · ${DIE_LOW_FACES + 1}–6: ${resourcesWord(view.high)}</small></button>`
+        + `<button class="rt-run-choice" data-action="die-take" data-testid="die-take"><b>Забрать</b><small>${resourcesWord(view.take)}</small></button></div>`, 'run-die');
     }
     if (pending.kind === 'gift') {
       const view = rtGiftView(run)!;

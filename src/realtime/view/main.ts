@@ -523,7 +523,7 @@ async function boot(): Promise<void> {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
     runArenaRecorded = true;
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {} });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -673,14 +673,16 @@ async function boot(): Promise<void> {
     resultCard.classList.toggle('rt-won', won);
     resultTitle.textContent = won ? 'Победа' : 'Поражение';
     // The won final arena ends the run too (step 4): its button leads to the end of the run, as after a defeat.
-    toMap.textContent = won && !runView?.runOver ? 'К карте (Enter)' : 'Итог похода (Enter)';
+    // Casino stage 1, item 4: a won door with a cauldron leads to the die first.
+    toMap.textContent = won && runView?.diePending ? 'К кости у двери (Enter)' : won && !runView?.runOver ? 'К карте (Enter)' : 'Итог похода (Enter)';
     const goal = goalProgress(w);
     const rows: [string, string][] = [
       ['Арена', runLabel && !sandbox ? runLabel : w.arena.name],
       ['Время', formatTime(end)],
       ['Убито', String(w.stats.kills)],
-      // Casino «Котёл»: the cauldron and what the door paid for it (no die yet) instead of the score.
-      w.params.purse ? ['Котёл', w.purse?.door ? `${w.purse.door.cauldron} → ресурсов ${doorPayout(w.purse.door).length}` : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
+      // Casino «Котёл»: the cauldron and what the door pays for it (die ×1) instead of the score; in a run with the die
+      // pending («Кость у двери») the die comes next — the row says so.
+      w.params.purse ? ['Котёл', w.purse?.door ? `${w.purse.door.cauldron} → ресурсов ${doorPayout(w.purse.door).length}${runView?.diePending ? ' (до кости)' : ''}` : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
       ['Лучшая цепь', `${w.stats.bestChain} убийств`],
       ['Кристаллов выпало', String(w.stats.crystals)],
       ['В стадии жадности', greed],

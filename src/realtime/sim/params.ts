@@ -563,6 +563,14 @@ export interface Params {
    * A run turns it on (run/rtRun.ts `RT_RUN_FORCED`).
    */
   oathStake: boolean;
+  // ---- Casino stage 1, item 4 — «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md). ----
+  /**
+   * The die at the door: after a won run arena whose cauldron is above 0 the run shows the die screen — «Забрать» pays the
+   * cauldron as it is, «Бросить» pays it ×0.5 (1–3) or ×2 (4–6) by the run's own die stream. A run-layer rule: the
+   * simulation never reads it (main.ts passes it to the run with the arena's outcome). Off by default — the run pays at
+   * the door at once, as before. A run turns it on (run/rtRun.ts `RT_RUN_FORCED`); the sandbox has no die (no run).
+   */
+  doorDie: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -873,6 +881,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   purseRate: 60,
   // Casino «Ставка клятвы» (oath.ts): off by default.
   oathStake: false,
+  // Casino «Кость у двери» (run/rtRun.ts): off by default.
+  doorDie: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1198,6 +1208,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Casino «Ставка клятвы» (oath.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'oathStake', group: 'Ставка клятвы', label: 'Ставка клятвы', stage: 5,
     hint: 'Клятва на бой: выполнил — котёл ×2 в двери, нарушил — ×0,5, бой идёт дальше. В походе — на карточке узла (с ряда 2, не у Тюремщика и боссов). В песочнице — выбор клятвы ниже.' },
+  // Casino «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md).
+  { kind: 'bool', key: 'doorDie', group: 'Котёл', label: 'Кость у двери (поход)', stage: 5,
+    hint: 'Только поход: после победы с котлом больше 0 — экран кости. «Забрать» — котёл как есть, «Бросить» — 1–3 ×0,5, 4–6 ×2. В походе включено всегда; в песочнице не действует.' },
 ];
 
 const MAX_PHASES = 8;

@@ -15,7 +15,7 @@ import type { Loadout } from '../sim/kit';
 import type { World } from '../sim/world';
 import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
 import {
-  checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
+  checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord, type ThreatTally,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
@@ -420,7 +420,7 @@ function purseRows(runFights: readonly FightEntry[], sandbox: readonly FightEntr
   return [runs, box, runs && box ? purseRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
 }
 const PURSE_HEAD = ['Бои', 'Боёв с котлом', 'Котёл за бой мед. / макс.', 'Чеков', 'Угли на чек мед. / макс.', 'Жар мед. / макс.', 'Чек мед. / макс.', 'Кристаллов в цепях', 'Угли убийств сборки', 'Ресурсов в двери (без кости)'];
-const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл × клятва ÷ 60⌋ (`purseRate`; клятва ×2 / ×0,5, без неё ×1), не больше 3 без клятвы, 6 с выполненной, 1 с нарушенной (`purseDoor`, кость пока не бросается).';
+const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл × клятва ÷ 60⌋ (`purseRate`; клятва ×2 / ×0,5, без неё ×1), не больше 3 без клятвы, 6 с выполненной, 1 с нарушенной (`purseDoor`). Это выплата без кости: кость похода — раздел «Кость у двери».';
 // ---- end «Котёл» ----
 
 // ---- Casino «Ставка клятвы» (sim/oath.ts, docs/realtime-casino.md): offers of the runs, outcomes of the fights ----
@@ -459,12 +459,32 @@ const OATH_HEAD = ['Клятва', 'Предложена', 'Взята', 'Боё
 const OATH_LEGEND = 'Ставка клятвы (`oathStake`; в походе включена): предложена и взята — карточки узлов походов (выбор `oath-stake`), строка «без клятвы» — карточек всего и сколько ушло без клятвы. Бои — походы и песочница. Выполнена / нарушена — итог в двери (котёл ×2 / ×0,5); бой без двери не попадает ни туда, ни туда. Такт нарушения — такт события (у клятвы «хотя бы раз» — такт двери).';
 // ---- end «Ставка клятвы» ----
 
+// ---- Casino «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md): the die screens of the runs ----
+/**
+ * One row of the runs' die screens (`RunRecord.dice`): shown, rolled, taken, open; of the rolls — 1–3 and 4–6; resources
+ * paid, and what «Забрать» would have paid on the same screens. Null — no die screen.
+ */
+function dieRow(runs: readonly RunRecord[]): (string | number)[] | null {
+  const dice = runs.flatMap(r => r.dice ?? []);
+  if (!dice.length) return null;
+  const rolled = dice.filter(d => d.rolled === true), taken = dice.filter(d => d.rolled === false), done = dice.filter(d => d.rolled !== null);
+  const sum = (list: readonly (number | null)[]): number => list.reduce<number>((a, x) => a + (x ?? 0), 0);
+  return [
+    dice.length, rolled.length, taken.length, dice.length - done.length,
+    rolled.filter(d => d.mult !== null && d.mult < 1).length, rolled.filter(d => d.mult !== null && d.mult > 1).length,
+    sum(done.map(d => d.resources)), sum(done.map(d => d.base)),
+  ];
+}
+const DIE_HEAD = ['Экранов', 'Бросить', 'Забрать', 'Не выбрано', 'Выпало 1–3 (×0,5)', 'Выпало 4–6 (×2)', 'Ресурсов выплачено', 'Забрать дал бы'];
+const DIE_LEGEND = 'Кость у двери (`doorDie`; в походе включена): экран после победы на арене с котлом больше 0 (`RunRecord.dice`, выбор `door-die`). Исход фиксируется при показе. «Бросить» платит котёл ×0,5 (1–3) или ×2 (4–6), «Забрать» — ×1; формула и потолок — как у котла. «Забрать дал бы» — выплата ×1 на тех же экранах.';
+// ---- end «Кость у двери» ----
+
 function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
   const rows = new Map<string, { kinds: Set<string>; offered: number; taken: number; refused: number; fired: number; fights: number; active: number }>();
   const row = (id: string) => rows.get(id) ?? rows.set(id, { kinds: new Set(), offered: 0, taken: 0, refused: 0, fired: 0, fights: 0, active: 0 }).get(id)!;
   for (const run of runs) for (const c of run.choices) {
     // Casino «Ставка клятвы»: the node card's oaths have a section of their own.
-    if (c.source === OATH_STAKE_SOURCE) continue;
+    if (c.source === OATH_STAKE_SOURCE || c.source === DIE_SOURCE) continue;
     for (const id of c.offered) { const r = row(id); r.offered++; r.kinds.add(c.source); }
     for (const id of c.taken) { const r = row(id); r.taken++; r.kinds.add(c.source); }
     for (const id of c.refused) { const r = row(id); r.refused++; r.kinds.add(c.source); }
@@ -574,6 +594,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Котёл', '', PURSE_LEGEND, '', table(PURSE_HEAD, purseRows(runFights, sandbox)), '',
     // Casino «Ставка клятвы».
     '## Ставка клятвы', '', OATH_LEGEND, '', table(OATH_HEAD, oathRows(runs, fights)), '',
+    // Casino «Кость у двери».
+    '## Кость у двери', '', DIE_LEGEND, '', table(DIE_HEAD, [dieRow(runs)].filter((r): r is (string | number)[] => !!r)), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

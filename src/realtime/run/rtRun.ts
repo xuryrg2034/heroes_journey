@@ -37,8 +37,8 @@ import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, p
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { runParams, type Params } from '../sim/params';
-import { doorPayout, type PurseDoor } from '../sim/purse';
-import { isOathId, oathDef, OATH_IDS, type OathId } from '../sim/oath';
+import { doorPayout, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
+import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_IDS, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
@@ -61,7 +61,9 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * drawing them again. A version 5 save reads as no run.
  * Version 7 (casino stage 1, item 2, 11.10.2026): the oath stake — the run's own counter of the oath stream (`oathDraws`)
  * and the open battle's offer and oath (`oathOffer`, `oath`). A version 6 save is read and migrated (`migrateRun`): the
- * counter is the number of the oath nodes it entered, its open battle has no offer.
+ * counter is the number of the oath nodes it entered, its open battle has no offer. Casino stage 1, item 4 (the same
+ * version, 11.10.2026): the die at the door — the counter of the die stream (`dieDraws`, absent until the first die) and
+ * the open die screen (`pending` of kind `die`); a version 6 save and a version 7 save without them have thrown no die.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -73,9 +75,10 @@ export const RT_RUN_VERSION_V6 = 6;
  * the raised touch, the elite behaviours of the three kinds (docs/realtime-elite-behaviors.md); the tough HP table of the
  * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1 (docs/realtime-casino.md): the
  * cauldron («Котёл», `purse`) is on in every run arena; «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`,
- * `rtArenaLoadout`); the oath stake is on (which battles offer oaths — `rtOathNode`, the oath of the battle — `Loadout.oath`).
+ * `rtArenaLoadout`); the oath stake is on (which battles offer oaths — `rtOathNode`, the oath of the battle — `Loadout.oath`);
+ * the die at the door is on (`doorDie`: the arena's outcome carries it to `resolveArena`, the simulation never reads it).
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true });
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, oathStake: true, doorDie: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
@@ -118,7 +121,13 @@ export type RtRunPending =
    * Phase B (design answers 1–2): the first won Jailer's row of the run offers a hammer, 3 of 4 by the node's roll (a
    * refusal is possible); the oath or relic choice (`talisman`, source `oath`) follows it.
    */
-  | { kind: 'hammer'; nodeId: string; options: HammerId[] };
+  | { kind: 'hammer'; nodeId: string; options: HammerId[] }
+  /**
+   * Casino stage 1, item 4 («Кость у двери»): the won arena's door record waits for «Забрать» or «Бросить» (`rtDieChoose`).
+   * `face` (1–6) — the die stream's draw `dieDraws − 1`, fixed when the screen was shown: a reload shows the same screen with
+   * the same face. The node's victory (its choice, or the map) follows the die.
+   */
+  | { kind: 'die'; nodeId: string; door: PurseDoor; face: number };
 
 /** One-arena modifiers of events with an analogue in real time (design answer 3 to step 3). */
 export type RtModifier = 'first-chain-power' | 'start-elite' | 'wrath' | 'early-reinforcement';
@@ -161,6 +170,11 @@ export interface RtRunState {
    * node entered. Not one of the forest streams: runStreams.ts is not changed.
    */
   oathDraws: number;
+  /**
+   * Casino stage 1, item 4: draws of the run's own die stream (`mixSeed(mixSeed(seed, «rt-die»), n)`, `rtDieFace`) — one per
+   * die screen shown. Absent until the first (a run without the die saves as before).
+   */
+  dieDraws?: number;
   picks: RtRunPick[];
   /** Last completed node; null before the first. */
   currentNodeId: string | null;
@@ -236,6 +250,13 @@ export type RtRunEvent =
   /** Casino stage 1, item 2: the node card offered these oaths; the battle is entered under `id` (null — «Без клятвы»). */
   | { type: 'oath-offered'; nodeId: string; options: OathId[] }
   | { type: 'oath-taken'; nodeId: string; id: OathId | null }
+  /**
+   * Casino stage 1, item 4: the die screen is shown (`face` — the fixed outcome, the screen does not show it before the
+   * roll), then resolved: `rolled` — «Бросить» (false — «Забрать», die ×1), `mult` — the die's multiplier paid with,
+   * `resources` — the kinds paid, `base` — what «Забрать» pays.
+   */
+  | { type: 'die-shown'; nodeId: string; cauldron: number; oath: number; face: number }
+  | { type: 'die-resolved'; nodeId: string; rolled: boolean; face: number; mult: number; resources: ResourceKind[]; base: number }
   | { type: 'node-completed'; nodeId: string }
   | { type: 'run-won'; nodeId: string }
   | { type: 'run-lost'; nodeId: string };
@@ -260,6 +281,11 @@ export interface RtArenaOutcome {
    * `doorPayout(record, die)` of them into its materials. Absent — the cauldron was off.
    */
   purse?: PurseDoor;
+  /**
+   * Casino stage 1, item 4: the arena played with `Params.doorDie` (a run: always) — a won door with a cauldron above 0 opens
+   * the die screen instead of paying at once. Absent or false — the door pays at once (die ×1), as before.
+   */
+  doorDie?: boolean;
 }
 
 // ---------- Creating a run, the map ----------
@@ -681,17 +707,36 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   // Step 3: the consumables left in hand go on; the banked energy was spent at the start of this arena.
   if (outcome.items) for (const item of ITEM_KINDS) run.items[item] = Math.max(0, Math.floor(Number(outcome.items[item]) || 0));
   for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.materials?.[kind]) || 0));
-  // Casino «Котёл»: the door's payout (the die of item 4 plugs in here as the second argument; 1 — no die yet).
-  if (outcome.purse) for (const kind of doorPayout(outcome.purse, 1)) if (RESOURCE_KINDS.includes(kind)) run.materials[kind]++;
   run.energy = 0;
   const node = rtNode(run, pending.nodeId)!;
   if (pending.battle === 'hard') {
     const amount = Math.max(0, Math.min(rtHp(FOREST_HARD_HEAL), run.maxHp - run.hp));
     run.hp += amount; events.push({ type: 'healed', nodeId: node.id, amount });
   }
+  if (outcome.purse) {
+    // Casino stage 1, item 4: a cauldron above 0 with the die on waits for the die screen (the payout and the node's victory
+    // come after it, `rtDieChoose`); otherwise the door pays at once (die ×1), as before.
+    if (outcome.doorDie && validDoor(outcome.purse) && outcome.purse.cauldron > 0) { showDie(run, node.id, outcome.purse, events); return { ok: true, run, events }; }
+    payDoor(run, outcome.purse, 1);
+  }
+  return afterVictory(run, node, pending.battle, events);
+}
+
+/** Casino «Котёл»: the door record's payout with the die `die` (1 — none) goes into the run's materials; the kinds paid. */
+function payDoor(run: RtRunState, door: PurseDoor, die: number): ResourceKind[] {
+  const paid = doorPayout(door, die).filter(kind => RESOURCE_KINDS.includes(kind));
+  for (const kind of paid) run.materials[kind]++;
+  return paid;
+}
+
+/**
+ * What a won arena node gives after its payout: a hard battle's talismans, the Jailer's hammer or oath, an event's reward,
+ * or the node completes (the boss's final arena wins the run).
+ */
+function afterVictory(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, events: RtRunEvent[]): RtRunStep {
   // Step 3: a won hard battle offers talismans, the Jailer's row oaths and relics (victoryChoice of the turn-based map); a won reward
   // battle of an event — common talismans to choose from (its reward). The next `talismans` draw decides them.
-  const choice = pending.battle === 'event' ? null : victoryChoice(node);
+  const choice = battle === 'event' ? null : victoryChoice(node);
   // Phase B (design answers 1–2): the first Jailer's row of the run offers a hammer first; its oath choice follows.
   if (choice === 'oath' && hammerDue(run, node)) {
     const options = rtHammerOptions(run, node.id);
@@ -700,7 +745,7 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     return { ok: true, run, events };
   }
   if (choice) { offerTalismans(run, node.id, choice, rtTalismanOffer(draw(run, 'talismans', true), choice, talismanPool(run)), events); return { ok: true, run, events }; }
-  if (pending.battle === 'event') {
+  if (battle === 'event') {
     const pick = run.picks.find(entry => entry.nodeId === node.id), option = pick?.eventId ? battleOption(forestEvent(pick.eventId)!) : undefined;
     if (option?.battle) {
       // No «пустышка» in the slice (design answer 10): an empty pool offers nothing, only the refusal. Phase B: the
@@ -711,6 +756,59 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     }
   }
   completeNode(run, node, events); return { ok: true, run, events };
+}
+
+// ---------- The die at the door (casino stage 1, item 4; docs/realtime-casino.md, «Кость у двери») ----------
+
+/** The salt of the run's die stream (`mixSeed(mixSeed(seed, «rt-die»), n)`). */
+export const DIE_SALT = [...'rt-die'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+/** Баланс (research 8.4): faces 1–3 pay the cauldron ×0.5, faces 4–6 ×2. */
+export const DIE_LOW_FACES = 3;
+export const DIE_LOW_MULT = 0.5;
+export const DIE_HIGH_MULT = 2;
+/** The face (1–6) of the draw `n` of the run's die stream. Pure: the run seed and the draw decide it. */
+export function rtDieFace(seed: number, n: number): number { return 1 + mixSeed(mixSeed(seed >>> 0, DIE_SALT), n >>> 0) % 6; }
+/** The die's multiplier of a face: 1–3 — ×0.5, 4–6 — ×2. */
+export const rtDieMult = (face: number): number => (face <= DIE_LOW_FACES ? DIE_LOW_MULT : DIE_HIGH_MULT);
+
+/** The door record the simulation wrote (sim/purse.ts `PurseDoor`): a cauldron, an oath multiplier, 6 kinds, a rate. */
+function validDoor(value: unknown): value is PurseDoor {
+  if (!isRecord(value) || Object.keys(value).some(key => !['cauldron', 'oath', 'kinds', 'rate'].includes(key))) return false;
+  return isCount(value.cauldron) && [1, OATH_KEPT_MULT, OATH_BROKEN_MULT].includes(value.oath as number)
+    && Array.isArray(value.kinds) && value.kinds.length === PAYOUT_CAP_MAX && value.kinds.every(kind => RESOURCE_KINDS.includes(kind as ResourceKind))
+    && typeof value.rate === 'number' && Number.isFinite(value.rate) && value.rate >= 1;
+}
+
+/** The die screen opens: one draw of the die stream fixes its face now (a reload shows the same). */
+function showDie(run: RtRunState, nodeId: string, door: PurseDoor, events: RtRunEvent[]): void {
+  const n = run.dieDraws ?? 0, face = rtDieFace(run.seed, n);
+  run.dieDraws = n + 1;
+  run.pending = { kind: 'die', nodeId, door: structuredClone(door), face };
+  events.push({ type: 'die-shown', nodeId, cauldron: door.cauldron, oath: door.oath, face });
+}
+
+/** What the die screen shows: the cauldron, the oath, and the resources «Забрать» (×1), 1–3 (×0.5) and 4–6 (×2) pay. */
+export interface RtDieView { nodeId: string; cauldron: number; oath: number; rate: number; take: number; low: number; high: number }
+export function rtDieView(run: RtRunState): RtDieView | null {
+  const pending = run.pending;
+  if (pending?.kind !== 'die') return null;
+  const door = pending.door, pays = (die: number) => doorPayout(door, die).length;
+  return { nodeId: pending.nodeId, cauldron: door.cauldron, oath: door.oath, rate: door.rate, take: pays(1), low: pays(DIE_LOW_MULT), high: pays(DIE_HIGH_MULT) };
+}
+
+/**
+ * The die screen's choice: «Бросить» (`roll`) pays the door ×0.5 or ×2 by the face fixed at the showing, «Забрать» pays it
+ * ×1 (the same formula, `doorPayout`: M = oath × die, the cap min(6, ⌊3M⌋) ≥ 1). Then the node's victory goes on.
+ */
+export function rtDieChoose(current: RtRunState, roll: boolean): RtRunStep {
+  const pending = current.pending;
+  if (pending?.kind !== 'die') return fail('Сейчас нет кости.');
+  const run = structuredClone(current), events: RtRunEvent[] = [], node = rtNode(run, pending.nodeId)!;
+  const mult = roll ? rtDieMult(pending.face) : 1, base = doorPayout(pending.door, 1).length;
+  const resources = payDoor(run, pending.door, mult);
+  events.push({ type: 'die-resolved', nodeId: node.id, rolled: roll, face: pending.face, mult, resources, base });
+  run.pending = null;
+  return afterVictory(run, node, battleKindOf(node), events);
 }
 
 // ---------- Rest, find ----------
@@ -1247,6 +1345,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Casino stage 1, item 2: one oath draw for each oath node the run entered (its arena pick), in the order of the picks.
   if (!isCount(run.oathDraws) || run.oathDraws !== run.picks.filter(pick => pick.arena !== undefined && oathNodeOf(map.node(pick.nodeId))).length) return null;
   const eventOf = (nodeId: string) => { const id = run.picks.find(pick => pick.nodeId === nodeId)?.eventId; return id ? forestEvent(id) : undefined; };
+  // Casino stage 1, item 4: at most one die for each won arena (absent — none thrown yet).
+  if (run.dieDraws !== undefined && !(isCount(run.dieDraws) && run.dieDraws <= (run.battles as unknown[]).filter(record => isRecord(record) && record.won === true).length)) return null;
   for (const record of run.battles as unknown[]) {
     if (!isRecord(record) || !known(record.nodeId) || typeof record.arena !== 'string' || record.arena !== run.picks.find(pick => pick.nodeId === record.nodeId)?.arena || typeof record.won !== 'boolean'
       || !isCount(record.kills) || !isCount(record.damage) || typeof record.time !== 'number' || !Number.isFinite(record.time) || record.time < 0) return null;
@@ -1281,6 +1381,14 @@ function checkRun(value: unknown): RtRunState | null {
         if (!rtOathNode(node) || !(run.oathDraws >= 1) || JSON.stringify(pending.oathOffer) !== JSON.stringify(rtOathOffer(run.seed, run.oathDraws - 1, node))) return null;
       }
       if (pending.oath !== undefined && !(isOathId(pending.oath) && Array.isArray(pending.oathOffer) && pending.oathOffer.includes(pending.oath))) return null;
+      break;
+    }
+    case 'die': {
+      // Casino stage 1, item 4: the won arena of this node (its last record), the door the simulation wrote with a cauldron
+      // above 0, the face of the last die draw.
+      const last = [...run.battles].reverse().find(record => record.nodeId === node.id);
+      if (pick?.arena === undefined || !last?.won || !validDoor(pending.door) || !(pending.door.cauldron > 0)) return null;
+      if (!(isCount(run.dieDraws) && run.dieDraws >= 1) || pending.face !== rtDieFace(run.seed, run.dieDraws - 1)) return null;
       break;
     }
     case 'rest': if (node.type !== 'rest' || !isItemList(pending.crafted)) return null; break;

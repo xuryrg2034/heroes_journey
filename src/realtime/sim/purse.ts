@@ -13,7 +13,7 @@
  *
  * Plug-in points for the next items of stage 1:
  * - the oath (K8, oath.ts): `purseOath(world)` — the multiplier of the oath the world is under at the door (1, 2 or 0.5);
- * - the die at the door (8.4): the run layer passes it to `purseResources(cauldron, oath, die)` (1 now);
+ * - the die at the door (8.4): the run layer passes it to `doorPayout(door, die)` (run/rtRun.ts `rtDieChoose`; 1 — «Забрать»);
  * - the goblin's arrow rain: its kills come through `world.ts killEnemy` → `purseKill` (source `slot` in `PURSE_KILL_SOURCES`).
  * Type-only imports from world.ts / chain.ts: world.ts calls this module at run time.
  */
@@ -208,7 +208,7 @@ export function purseDoor(world: World): void {
   world.events.push({ type: 'purseDoor', cauldron: purse.cauldron, oath, resources: purseResources(purse.cauldron, oath, 1, rate) });
 }
 
-/** The resources the door's record pays with the die `die` (the run; 1 — no die yet), as kinds in order. */
+/** The resources the door's record pays with the die `die` (the run: 1 — «Забрать» or no die, 0.5 / 2 — a roll), as kinds in order. */
 export function doorPayout(door: PurseDoor, die = 1): ResourceKind[] {
   return door.kinds.slice(0, purseResources(door.cauldron, door.oath, die, door.rate));
 }
