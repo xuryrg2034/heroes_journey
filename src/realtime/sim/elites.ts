@@ -1,6 +1,6 @@
 /**
  * Elites of the real-time slice (stage 2 of the transition, step 3; docs/realtime-slice.md, section 7) — the modifier of
- * the turn-based game (src/game/elite.ts) over any enemy kind. Numbers — the panel group «Элиты».
+ * the turn-based game (src/game/elite.ts, removed; tag `turn-based-final`) over any enemy kind. Numbers — the panel group «Элиты».
  *
  * - **Modifier** (`makeElite`): HP × `eliteHpFactor` (2; a weak enemy, 0 HP, gets 1), art × `eliteArtScale` (1.25 — the
  *   drawing, the link reach edge and the press circle; the body stays), + `eliteDamageBonus` (1) to every hit on the hero
