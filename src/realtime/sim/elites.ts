@@ -36,12 +36,21 @@
  *   - «Стремительный» (`swift`): walks ×`swiftSpeed` over its class, HP ×`swiftHp` (1); never on a fast kind.
  *   - «Толстый» (`fat`): HP ×`fatHp` (3), walks ×`fatSpeed`; never on a slow kind; never with «Стремительный».
  *   A weak enemy (0 HP) becomes an elite of 1 HP; with affixes — half the factor, rounded (1; «Толстый» 2).
+ * - **Armour** (package «Урон имеет значение», docs/realtime-damage.md; the toggle `eliteArmor`, off by default, on in a
+ *   run): an elite made while it is on keeps its kind's HP (×1; a weak one stays at 0) and gets plates (`Enemy.armor`): the
+ *   run's by its row (`Kit.elitePlates`), else the panel's `elitePlates`; «Стремительный» −1, «Толстый» +1 (at least 1; the
+ *   affixes change no HP then). A hit with plates left takes plates, never HP (`stripPlates` — every source comes here:
+ *   the chain through chain.ts, the rest through world.ts `damageEnemy`): 1 plate, the bomb 2; one firing at most once per
+ *   elite. 0 plates — the window `eliteWindow`: it stands, does not hit, its mechanic off (world.ts `enemyFrozen`; no
+ *   brittleness); then 1 plate at once and +1 every `elitePlateRegrow` up to the maximum; the cold stops the regrowth
+ *   (`updateArmor`). Loot always (`armorLoot`); a kill by the player in the window — +1 energy and the loot ×2. Its death —
+ *   the event `eliteDown` and, with `hitstop`, a hit-stop of `ELITE_DOWN_HITSTOP`. Its touch — world.ts `touchDamage`.
  */
 import { dcos, dhypot, dsin } from './detMath';
 import { enemyKind, kindOf } from './enemies/kinds';
 import { blockedAt, dist, inWater, overCliff, pushOutOfCliffs, type Vec } from './geometry';
 import { heroRadius } from './params';
-import { MAX_AFFIXES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
+import { MAX_AFFIXES, MAX_PLATES, RESOURCE_KINDS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { nextPaletteColor } from './spawn';
 import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World } from './world';
 
@@ -50,6 +59,97 @@ const ELITE_WEAK_HP = 1;
 /** Loot clearance: not this close to the rest of the dash, the hero, other objects. */
 const LOOT_CLEARANCE = 0.6;
 const LOOT_TRIES = 40;
+
+// ---------- Armour (package «Урон имеет значение», docs/realtime-damage.md) ----------
+
+/**
+ * The armour of an elite (`Enemy.armor`, hashed): plates now and their maximum; `open` — game seconds left of the window (0
+ * plates); `regrow` — game seconds to the next plate (after a window, below the maximum); `hit` — the last firing that took
+ * a plate (the tick, the source and its firing id), so one firing never takes two.
+ */
+export interface EliteArmor { plates: number; max: number; open?: number; regrow?: number; hit?: string }
+
+/** Баланс (4.3): plates a hit of this source takes (any other — 1). */
+export const PLATES_BY_SOURCE: Readonly<Record<string, number>> = { bomb: 2 };
+/** Баланс (4.3): hit-stop of an armoured elite's death (real seconds; only with the `hitstop` toggle). */
+export const ELITE_DOWN_HITSTOP = 0.08;
+/** Баланс (4.3, «чистый слом»): energy for a kill in the window; the loot is dropped this many times. */
+export const CLEAN_BREAK_ENERGY = 1;
+export const CLEAN_BREAK_LOOT = 2;
+/** Баланс (4.3, «Награда»): an armoured elite drops one open consumable, or this many resources when none is open. */
+export const ARMOR_RESOURCES = 2;
+/**
+ * Баланс (4.3, «Редкость»): the guaranteed elite's due time is uniform in 0…this many game seconds (the arena's `elite`
+ * stream); the first newcomer stepping out at or after it becomes the elite. With groups every 3–5 s and the marker's 1 s
+ * it comes inside the first 10 s (4 + 5 + 1); an arena with a slower pace may bring it later.
+ */
+export const GUARANTEE_DUE_MAX = 4;
+/** Energy cap (chain.ts `ENERGY_MAX`; not imported: chain.ts imports this module). */
+const ENERGY_CAP = 7;
+
+/** Plates of `e` now (0 — none: not armoured, or open). */
+export const platesOf = (e: Enemy): number => e.armor?.plates ?? 0;
+
+/** The armour for the view (null — not an armoured elite): plates, maximum, the window's seconds left, the regrowth's. */
+export function eliteArmorView(e: Enemy): { plates: number; max: number; open: number; regrow: number } | null {
+  const a = e.armor;
+  return a ? { plates: a.plates, max: a.max, open: Math.max(0, a.open ?? 0), regrow: Math.max(0, a.regrow ?? 0) } : null;
+}
+
+/** Plates an armoured elite of this arena starts with before its affixes: the run's (`Kit.elitePlates`), else the panel's. */
+function basePlates(world: World): number {
+  const n = world.kit?.elitePlates ?? world.params.elitePlates ?? 3;
+  return Number.isFinite(n) ? Math.max(1, Math.min(MAX_PLATES, Math.floor(n))) : 3;
+}
+
+/**
+ * A hit of `cause` on an armoured elite with plates: takes 1 plate (the bomb 2), never HP; at 0 the window opens. `guard`
+ * (every source but the chain, whose link is struck once a dash): one firing — the same tick, source and firing id — takes
+ * plates once. Returns the plates taken.
+ */
+export function stripPlates(world: World, e: Enemy, cause: { source: string; firing?: number }, guard = true): number {
+  const a = e.armor;
+  if (!a || a.plates <= 0) return 0;
+  e.hurtFlash = Math.max(world.params.hitFlash, 0.01);
+  if (guard) {
+    const key = `${world.tick}:${cause.source}:${cause.firing ?? ''}`;
+    if (a.hit === key) return 0;
+    a.hit = key;
+  }
+  const removed = Math.min(a.plates, Math.max(1, PLATES_BY_SOURCE[cause.source] ?? 1));
+  a.plates -= removed;
+  world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'strip', plates: a.plates, removed, source: cause.source, x: e.x, y: e.y });
+  if (a.plates <= 0) {
+    a.plates = 0;
+    delete a.regrow;
+    a.open = Math.max(0.05, world.params.eliteWindow);
+    world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'open', plates: 0, x: e.x, y: e.y });
+  }
+  return removed;
+}
+
+/** The armour's step (once per tick, before the touches): the window runs out (1 plate), the plates regrow (not in the cold). */
+export function updateArmor(world: World, dt: number): void {
+  for (const e of world.enemies) {
+    const a = e.armor;
+    if (!a) continue;
+    if (a.open !== undefined) {
+      a.open -= dt;
+      if (a.open > 1e-9) continue;
+      delete a.open;
+      a.plates = Math.min(a.max, 1);
+      world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'close', plates: a.plates, x: e.x, y: e.y });
+      if (a.plates < a.max) a.regrow = Math.max(0.05, world.params.elitePlateRegrow);
+      continue;
+    }
+    if (a.regrow === undefined || (e.chill ?? 0) > 0) continue;
+    a.regrow -= dt;
+    if (a.regrow > 1e-9) continue;
+    a.plates = Math.min(a.max, a.plates + 1);
+    world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'regrow', plates: a.plates, x: e.x, y: e.y });
+    if (a.plates < a.max) a.regrow += Math.max(0.05, world.params.elitePlateRegrow); else delete a.regrow;
+  }
+}
 
 // ---------- Affixes (phase A, T4) ----------
 
@@ -118,8 +218,14 @@ export function makeElite(world: World, e: Enemy, random = false, affixes: reado
   e.elite = random ? 'random' : true;
   const p = world.params;
   const ids = affixes === 'roll' ? rollAffixes(world, e, affixCountOf(world)) : legalAffixes(e.kind, affixes);
-  const factor = ids.includes('swift') ? p.swiftHp : ids.includes('fat') ? p.fatHp : p.eliteHpFactor;
-  e.hp = e.hp > 0 ? Math.round(e.hp * factor) : ids.length ? Math.max(ELITE_WEAK_HP, Math.round(factor / 2)) : ELITE_WEAK_HP;
+  if (p.eliteArmor) {
+    // The package: plates instead of the HP factor; the HP is the kind's (×1, a weak one stays at 0), the affixes change the plates.
+    const max = Math.max(1, Math.min(MAX_PLATES, basePlates(world) + (ids.includes('fat') ? 1 : 0) - (ids.includes('swift') ? 1 : 0)));
+    e.armor = { plates: max, max };
+  } else {
+    const factor = ids.includes('swift') ? p.swiftHp : ids.includes('fat') ? p.fatHp : p.eliteHpFactor;
+    e.hp = e.hp > 0 ? Math.round(e.hp * factor) : ids.length ? Math.max(ELITE_WEAK_HP, Math.round(factor / 2)) : ELITE_WEAK_HP;
+  }
   if (!ids.length) return;
   e.affixes = ids;
   if (ids.includes('chameleon')) e.chameleon = Math.max(0.05, p.chameleonPeriod);
@@ -191,7 +297,8 @@ export function updateAffixes(world: World, dt: number): void {
   burnHero(world, dt);
   if (world.status !== 'playing' || !world.trails.length) return;
   for (const e of world.enemies) {
-    if (e.singed !== undefined || e.hp <= 0 || kindOf(e).immune || hasAffix(e, 'fiery')) continue;
+    // The package: plates keep the trail off an armoured elite (the trail is no hit: it takes no plate either).
+    if (e.singed !== undefined || e.hp <= 0 || kindOf(e).immune || hasAffix(e, 'fiery') || platesOf(e) > 0) continue;
     if (!trailAt(world, e)) continue;
     // Never below 0 HP: the trail weakens, it never kills (so it credits nobody, design answer 4).
     const damage = Math.min(e.hp, Math.max(0, p.trailEnemyDamage));
@@ -225,19 +332,36 @@ export const eliteCount = (world: World): number => world.enemies.filter(e => e.
 /** Random elites are on in this arena: a run from its row 3, or the sandbox toggle. */
 export const randomElitesOn = (world: World): boolean => !!world.kit?.randomElites || world.params.eliteSandbox;
 
-/** A newcomer just stepped out of its marker: it may become a random elite (one `elite` draw while under the cap). */
+/**
+ * A newcomer just stepped out of its marker: it may become a random elite (one `elite` draw while under the cap). The
+ * package (armour on): the run's guaranteed elite comes first — the due time is drawn once from the `elite` stream at the
+ * first newcomer, the first newcomer at or after it is the elite; random elites wait meanwhile (no draws); the caps are
+ * `eliteArmorCap` / `eliteArmorCapAfter`.
+ */
 export function rollRandomElite(world: World, e: Enemy): void {
   if (e.elite || !kindOf(e).chainable || kindOf(e).immune) return;
+  const kit = world.kit, p = world.params, guarantee = !!kit?.guaranteedElite && !!p.eliteArmor;
   // The event modifier «бой со случайной элитой» (design answer 3): the first newcomer of the arena is a random elite.
-  if (world.kit?.startElite) {
-    world.kit.startElite = false;
+  if (kit?.startElite) {
+    kit.startElite = false;
+    // The package: the event's elite is the arena's guaranteed one.
+    if (guarantee) { delete kit.guaranteedElite; delete kit.eliteDue; }
+    makeElite(world, e, true);
+    world.events.push({ type: 'elite', enemyId: e.id });
+    return;
+  }
+  if (guarantee) {
+    kit!.eliteDue ??= world.rng.stream('elite').next() * GUARANTEE_DUE_MAX;
+    if (world.time + 1e-9 < kit!.eliteDue) return;
+    delete kit!.guaranteedElite; delete kit!.eliteDue;
     makeElite(world, e, true);
     world.events.push({ type: 'elite', enemyId: e.id });
     return;
   }
   if (!randomElitesOn(world)) return;
-  const p = world.params, after = world.stage === 'greed';
-  if (eliteCount(world) >= (after ? p.eliteCapAfter : p.eliteCap)) return;
+  const after = world.stage === 'greed';
+  const cap = p.eliteArmor ? (after ? p.eliteArmorCapAfter : p.eliteArmorCap) : (after ? p.eliteCapAfter : p.eliteCap);
+  if (eliteCount(world) >= cap) return;
   if (world.rng.stream('elite').next() >= (after ? p.eliteChanceAfter : p.eliteChance)) return;
   makeElite(world, e, true);
   world.events.push({ type: 'elite', enemyId: e.id });
@@ -289,15 +413,45 @@ export function rollLoot(world: World, elite: Enemy['elite']): ItemKind | Resour
   return kinds[Math.floor(rng.next() * kinds.length)];
 }
 
-/** An enemy has just died: an elite killed by the player may drop its loot on the arena. */
-export function eliteDeath(world: World, e: Enemy, cause: KillCause): void {
-  if (!e.elite || !cause.credited) return;
-  const loot = rollLoot(world, e.elite);
-  if (!loot) return;
+/**
+ * The package: what an armoured elite drops (4.3, «Награда»): always — one consumable open in the run, or
+ * `ARMOR_RESOURCES` resources when none is open; a clean break — that `CLEAN_BREAK_LOOT` times. No talisman shard.
+ */
+export function armorLoot(world: World, clean: boolean): (ItemKind | ResourceKind)[] {
+  const rng = world.rng.stream('loot'), open = world.kit?.openItems ?? [];
+  const kinds: readonly (ItemKind | ResourceKind)[] = open.length ? open : RESOURCE_KINDS, per = open.length ? 1 : ARMOR_RESOURCES;
+  const out: (ItemKind | ResourceKind)[] = [];
+  for (let i = 0; i < per * (clean ? CLEAN_BREAK_LOOT : 1); i++) out.push(kinds[Math.floor(rng.next() * kinds.length)]);
+  return out;
+}
+
+function dropLoot(world: World, e: Enemy, loot: ItemKind | ResourceKind): void {
   const spot = lootSpot(world, e);
   const object: ArenaObject = { id: world.nextId++, kind: 'loot', x: spot.x, y: spot.y, pressed: false, loot, born: world.time };
   world.objects.push(object);
   world.events.push({ type: 'loot', objectId: object.id, loot, x: spot.x, y: spot.y, picked: false });
+}
+
+/**
+ * An enemy has just died: an elite killed by the player may drop its loot on the arena. The package: an armoured elite's
+ * death is the event `eliteDown` and a hit-stop (with `hitstop`); killed by the player — its loot always, and in its window
+ * a clean break: +1 energy, the loot ×2.
+ */
+export function eliteDeath(world: World, e: Enemy, cause: KillCause): void {
+  if (!e.elite) return;
+  const armor = e.armor;
+  if (armor) {
+    const clean = cause.credited && (armor.open ?? 0) > 0;
+    world.events.push({ type: 'eliteDown', enemyId: e.id, x: e.x, y: e.y, clean, credited: cause.credited });
+    if (world.params.hitstop) world.hitstop = Math.max(world.hitstop, ELITE_DOWN_HITSTOP);
+    if (!cause.credited) return;
+    if (clean) world.energy = Math.min(ENERGY_CAP, world.energy + CLEAN_BREAK_ENERGY);
+    for (const loot of armorLoot(world, clean)) dropLoot(world, e, loot);
+    return;
+  }
+  if (!cause.credited) return;
+  const loot = rollLoot(world, e.elite);
+  if (loot) dropLoot(world, e, loot);
 }
 
 const isItemKind = (kind: string): kind is ItemKind => kind === 'frost' || kind === 'bomb' || kind === 'healing' || kind === 'fire';

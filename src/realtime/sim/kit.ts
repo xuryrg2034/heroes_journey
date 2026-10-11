@@ -55,6 +55,15 @@ export interface Loadout {
    * come in `talismans`.
    */
   hammer?: HammerId;
+  /**
+   * Package «Урон имеет значение» (docs/realtime-damage.md): plates of each armoured elite of the arena (a run by its row:
+   * 1–4 — 2, 5–8 — 3, 9–10 — 4). Acts only while `Params.eliteArmor` is on. Absent — the panel's `elitePlates`.
+   */
+  elitePlates?: number;
+  /** The package: a tough newcomer gets 1…this HP (a run by its row: 5–8 — 3, 9+ — 4). Absent or 2 — the panel's `toughHpMax`. */
+  toughHp?: number;
+  /** The package: one guaranteed elite among the first newcomers (a run from its row 3, an ordinary battle). Needs `eliteArmor`. */
+  guaranteedElite?: boolean;
 }
 
 /**
@@ -95,6 +104,16 @@ export interface Kit {
   chains?: number;
   /** Phase B (build.ts `counterOf` / `setCounter`): arena-long counters of the build modules; absent while empty. */
   counters?: Record<string, number>;
+  /** Package «Урон имеет значение»: plates of an armoured elite here (absent — the panel's; kits before hash as before). */
+  elitePlates?: number;
+  /** The package: the top of the tough HP table, 3–4 (absent — the panel's `toughHpMax`). */
+  toughHp?: number;
+  /**
+   * The package: the guaranteed elite still waits (absent — none, or it came). `eliteDue` — the game time drawn from the
+   * arena's `elite` stream at the first newcomer: the first newcomer stepping out at or after it becomes the elite.
+   */
+  guaranteedElite?: true;
+  eliteDue?: number;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -103,6 +122,9 @@ export const EVENT_EXTRA_ENEMIES = 3;
 export const COLOR_COUNT = 4;
 /** Loop research, step 1: a palette has at least this many colours (fewer in a loadout — the full four). */
 export const MIN_COLORS = 2;
+/** Package «Урон имеет значение»: an armoured elite has at most this many plates; a tough newcomer at most this HP. */
+export const MAX_PLATES = 6;
+export const MAX_TOUGH_HP = 4;
 /** Phase A, T4: an elite has at most this many affixes (four kinds, «Стремительный» and «Толстый» never together). */
 export const MAX_AFFIXES = 3;
 /** Баланс: «подкрепление раньше» — before the goals groups come this many times as often (the interval × 1 / it). */
@@ -136,6 +158,10 @@ export function kitOf(loadout: Loadout): Kit {
     ...count(loadout.eliteAffixes) > 0 ? { eliteAffixes: Math.min(MAX_AFFIXES, count(loadout.eliteAffixes)) } : {},
     ...count(loadout.colors) >= MIN_COLORS && count(loadout.colors) < COLOR_COUNT ? { colors: count(loadout.colors) } : {},
     ...isHammerId(loadout.hammer) ? { hammer: loadout.hammer } : {},
+    // Package «Урон имеет значение»: absent unless the loadout gives them (kits before hash as before).
+    ...count(loadout.elitePlates) >= 1 ? { elitePlates: Math.min(MAX_PLATES, count(loadout.elitePlates)) } : {},
+    ...count(loadout.toughHp) > 2 ? { toughHp: Math.min(MAX_TOUGH_HP, count(loadout.toughHp)) } : {},
+    ...loadout.guaranteedElite ? { guaranteedElite: true as const } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

@@ -20,7 +20,7 @@ import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './e
 import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
-import { affixSpeedFactor, eliteDeath, makeElite, touchLoot, updateAffixes, type AffixId, type TrailPoint } from './elites';
+import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
@@ -102,10 +102,18 @@ export interface Enemy {
   trail?: { x: number; y: number };
   /** Game seconds before a fire trail may hurt this enemy again (absent — it may now). */
   singed?: number;
+  /**
+   * Package «Урон имеет значение» (docs/realtime-damage.md; elites.ts): the armour of an elite made while `eliteArmor` was
+   * on — plates, their maximum, the open window, the regrowth. Absent on every other enemy (worlds without it hash as before).
+   */
+  armor?: EliteArmor;
 }
 
-/** The enemy is frozen now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off. */
-export function enemyFrozen(e: Enemy): boolean { return (e.chill ?? 0) > 0; }
+/**
+ * The enemy is held now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off — frozen by
+ * the cold, or an armoured elite in its open window (elites.ts; the window is not the cold: no brittleness, no ×2).
+ */
+export function enemyFrozen(e: Enemy): boolean { return (e.chill ?? 0) > 0 || (e.armor?.open ?? 0) > 0; }
 
 /**
  * Button or door: a chain link of any color that gives no power and takes no damage (design answer 5),
@@ -254,7 +262,8 @@ export type WorldEvent =
   | { type: 'goals' }
   | { type: 'victory' }
   | { type: 'spawn'; enemyId: number }
-  | { type: 'chainHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number; combo: number }
+  /** `plates` (the package «Урон имеет значение»): the hit took a plate off an armoured elite, this many left (absent otherwise). */
+  | { type: 'chainHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number; combo: number; plates?: number }
   /** Stage 2 of the transition: an enemy hit by something other than the chain (an arrow, a blast). */
   | { type: 'enemyHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number; source: string }
   | { type: 'crystal'; objectId: number; x: number; y: number }
@@ -300,7 +309,14 @@ export type WorldEvent =
   /** Phase B, Т2: a hammer acted — `fire` laid, the end `blast`, a `cut`, the `return` run; at a point, with a circle if any. */
   | { type: 'hammer'; kind: HammerEventKind; x: number; y: number; r?: number }
   /** Phase B, Т1 («Ударная волна»): a wave of radius `r` around the hero at the end of the dash. */
-  | { type: 'wave'; x: number; y: number; r: number };
+  | { type: 'wave'; x: number; y: number; r: number }
+  /**
+   * Package «Урон имеет значение» (elites.ts): the armour of an elite changed — `strip` (a hit took `removed` plates; `source`
+   * names it), `open` (0 plates: the window starts), `close` (the window ended: 1 plate), `regrow` (+1 plate). `plates` — left now.
+   */
+  | { type: 'elitePlates'; enemyId: number; action: 'strip' | 'open' | 'close' | 'regrow'; plates: number; removed?: number; source?: string; x: number; y: number }
+  /** The package: an armoured elite died (`clean` — in its window, by the player: +1 energy, loot ×2). */
+  | { type: 'eliteDown'; enemyId: number; x: number; y: number; clean: boolean; credited: boolean };
 
 export interface World {
   arena: ArenaTemplate;
@@ -550,8 +566,24 @@ export function win(world: World): void {
 
 /** Contact damage of one enemy now: its kind decides (the reaper, a wolf with its pack bonus, the base touch). */
 export function touchDamage(world: World, e: Enemy): number {
-  // The elite bonus comes in `hurtHero` (every hit of an elite, stage 2, step 3).
-  return kindOf(e).touchDamage(world, e);
+  // The elite bonus comes in `hurtHero` (every hit of an elite, stage 2, step 3) — not on a raised touch (`touchRaised`).
+  const base = kindOf(e).touchDamage(world, e);
+  if (base <= 0 || !touchRaised(world, e)) return base;
+  // Package «Урон имеет значение»: the base touch (`contactDamage`) is raised to the elite's / the tough one's; the kind's own
+  // part on top of it (the wolf's pack bonus) stays.
+  const p = world.params, raised = e.armor ? p.eliteTouchDamage : p.toughTouchDamage ?? 2;
+  return base + Math.max(0, raised - p.contactDamage);
+}
+
+/**
+ * Package «Урон имеет значение» (docs/realtime-damage.md): the touch of `e` is raised now — an armoured elite (its touch
+ * `eliteTouchDamage`), or with `toughTouch` an elite or an enemy with HP ≥ 2 at this moment (`toughTouchDamage`). Never the
+ * reaper. A raised touch of an elite takes no `eliteDamageBonus` on top.
+ */
+export function touchRaised(world: World, e: Enemy): boolean {
+  if (kindOf(e).immune) return false;
+  if (e.armor) return true;
+  return !!world.params.toughTouch && (!!e.elite || e.hp >= 2);
 }
 
 /**
@@ -693,7 +725,14 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
  * `credited` — the player's kill (counted in kills and score; the blast of a sapper the player killed); not credited —
  * an enemy's ability (an arrow, the blast of a sapper lit by touch). `source` names it in the events.
  */
-export interface KillCause { source: string; credited: boolean; fall?: boolean }
+export interface KillCause {
+  source: string; credited: boolean; fall?: boolean;
+  /**
+   * Package «Урон имеет значение» (elites.ts `stripPlates`): which firing of the source this is (a blast's id) — one firing
+   * takes plates off an elite once. Absent — the source and the tick tell the firing.
+   */
+  firing?: number;
+}
 
 /**
  * An enemy dies outside the chain: it leaves the arena with a `kill` event. A credited kill counts as the player's
@@ -723,6 +762,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
  */
 export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {
   if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
+  // Package «Урон имеет значение»: an armoured elite with plates loses plates, not HP (elites.ts — the one place of the rule).
+  if (platesOf(e) > 0) { stripPlates(world, e, cause); return; }
   const killed = damage >= e.hp;
   e.hurtFlash = Math.max(world.params.hitFlash, 0.01);
   world.events.push({ type: 'enemyHit', enemyId: e.id, damage, killed, x: e.x, y: e.y, source: cause.source });
@@ -740,7 +781,7 @@ export function addBlast(world: World, at: Vec, blast: { radius: number; damage:
 
 /** A blast goes off: its burning owner dies in it, then the hero (first: his death comes before a goal) and the enemies are hit. */
 function detonate(world: World, b: Blast): void {
-  const cause: KillCause = { source: b.source, credited: b.credited }, p = world.params;
+  const cause: KillCause = { source: b.source, credited: b.credited, firing: b.id }, p = world.params;
   world.events.push({ type: 'blast', x: b.x, y: b.y, radius: b.radius, source: b.source });
   const owner = world.enemies.find(e => e.id === b.ownerId);
   if (owner) killEnemy(world, owner, cause);
@@ -1006,7 +1047,15 @@ function contactDamage(world: World, dt: number): void {
   if (!striker || damage <= 0) return;
   striker.brake = params.brakeRecovery;
   striker.strikeFlash = 0.18;
-  hurtHero(world, striker, damage, kindOf(striker).hitSource);
+  // Package «Урон имеет значение»: a raised touch of an elite takes no elite bonus on top (it is the elite's touch already).
+  const raisedElite = !!striker.elite && touchRaised(world, striker);
+  hurtHero(world, raisedElite ? { id: striker.id } : striker, damage, kindOf(striker).hitSource);
+  // An armoured elite's touch knocks the hero back (as the boar's charge, `knockHero`), away from it.
+  const knock = striker.armor ? params.eliteKnockback : 0;
+  if (knock > 0 && world.status === 'playing') {
+    const dx = hero.x - striker.x, dy = hero.y - striker.y, d = dhypot(dx, dy);
+    if (d > 1e-6) knockHero(world, dx / d, dy / d, knock);
+  }
 }
 
 /** The boar's knockback slides the hero (game time), stopped by obstacles; a dash or jump cancels it. */
@@ -1105,5 +1154,7 @@ export function update(world: World, dt: number, realDt = dt): void {
   updateAffixes(world, dt);
   if (world.status !== 'playing') return;
   updateBraziers(world, dt);
+  // Package «Урон имеет значение»: the armour's window and regrowth (elites with armour only), before the touches.
+  updateArmor(world, dt);
   contactDamage(world, dt);
 }

@@ -32,7 +32,7 @@ import { BUILD_SOURCES, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath, segmentDistance } from './buildHits';
 import { startReturnRun } from './chain';
 import { dhypot } from './detMath';
-import { eliteAffixes } from './elites';
+import { eliteAffixes, platesOf } from './elites';
 import { bodyRadiusOf, kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
 import type { Enemy, HeroMove, World } from './world';
@@ -256,7 +256,8 @@ function firstTouch(world: World, path: readonly Vec[], e: Enemy, reach: number)
 /** One hit of the return run (decision 15, «как strike»): the power now; kills at HP ≤ power, spends the HP removed. */
 function returnHit(world: World, move: HeroMove, e: Enemy): void {
   const power = move.power, hp = e.hp;
-  move.power = power >= hp ? power - hp : 0;
+  // The package «Урон имеет значение»: an armoured elite with plates takes a plate and 1 power (as a chain hit on it).
+  move.power = platesOf(e) > 0 ? power - Math.min(power, 1) : power >= hp ? power - hp : 0;
   buildHit(world, e, power, BUILD_SOURCES.hammerReturn);
 }
 

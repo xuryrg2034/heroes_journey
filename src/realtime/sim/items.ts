@@ -101,7 +101,8 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
   const at = targets[0];
   if (kind === 'bomb') {
     world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: 0, targets: 1 });
-    damageEnemy(world, at, params.bombDamage, { source: 'bomb', credited: true });
+    // The bombs left tell this use from another one in the same tick (elites.ts `stripPlates`: one firing, one strip).
+    damageEnemy(world, at, params.bombDamage, { source: 'bomb', credited: true, firing: world.kit!.items.bomb });
     return true;
   }
   // Fire: a new burning replaces what is left of an old one (ticks from the start).

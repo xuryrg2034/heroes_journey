@@ -28,7 +28,7 @@
  */
 import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
-import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, trailAt } from './elites';
+import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, stripPlates, trailAt } from './elites';
 import { hasTalisman } from './kit';
 import { afterLinkPowerOf, buildActive, chainShieldOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainEnd, type LinkContext } from './build';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
@@ -56,15 +56,30 @@ export interface StrikeOutcome {
   killed: boolean;
   /** Power carried to the next link. */
   powerAfter: number;
+  /**
+   * Package «Урон имеет значение» (docs/realtime-damage.md): the hit took a plate off an armoured elite (`platesAfter` left)
+   * — no HP removed, 1 power spent, not a survivor: the chain goes on. Absent on every other hit.
+   */
+  plate?: true;
+  platesAfter?: number;
 }
+
+/** Power a chain hit on a plate spends (4.3, rule 1: as a weak enemy's +1 taken back). */
+export const PLATE_POWER = 1;
 
 /**
  * One chain hit on an enemy with `hp`, carrying `power` from the previous links. `factor` multiplies the hit (stage 2,
  * step 3: the cold consumable makes it ×2): as the brittleness of the main game (docs/chain-budget.md), the power spent is
  * the smaller of the power available and the HP really removed — a brittle 5 HP enemy dies from power 3 (hit 6), spends 3.
- * `gain` — what the enemy adds before its hit (1; phase B: «Тяжёлый клинок» 2, build.ts `linkGainOf`).
+ * `gain` — what the enemy adds before its hit (1; phase B: «Тяжёлый клинок» 2, build.ts `linkGainOf`). `plates` (the
+ * package): an armoured elite with plates left — the hit takes one plate and `PLATE_POWER` power, never HP, whatever the
+ * power or the ×2.
  */
-export function strike(power: number, hp: number, factor = 1, gain = 1): StrikeOutcome {
+export function strike(power: number, hp: number, factor = 1, gain = 1, plates = 0): StrikeOutcome {
+  if (plates > 0) {
+    const available = power + gain;
+    return { available, damage: 0, hpBefore: hp, hpAfter: hp, killed: false, powerAfter: available - Math.min(available, PLATE_POWER), plate: true, platesAfter: plates - 1 };
+  }
   const available = power + gain, damage = available * factor;
   const killed = damage >= hp;
   const spent = Math.min(available, Math.min(damage, hp));
@@ -141,11 +156,12 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
       continue;
     }
     const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true } : null;
-    const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain);
+    const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy));
     power = outcome.powerAfter;
     if (ctx) { if (outcome.killed) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; }
     if (outcome.killed) kills++;
-    else endsOnSurvivor = true;
+    // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
+    else if (!outcome.plate) endsOnSurvivor = true;
     out.push({ link, outcome });
   }
   const last = links[links.length - 1];
@@ -760,7 +776,7 @@ function maybeFinisher(world: World): void {
 function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkContext | null; outcome: StrikeOutcome } {
   const b = move.build;
   const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false } : null;
-  return { ctx, outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world)) };
+  return { ctx, outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy)) };
 }
 
 /** Phase B: the layer notes an enemy link the dash reached (struck or passed fallen). */
@@ -784,7 +800,16 @@ function hitEnemy(world: World, enemy: Enemy): void {
   move.hits++;
   world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
   enemy.hurtFlash = Math.max(p.hitFlash, 0.01);
-  world.events.push({ type: 'chainHit', enemyId: enemy.id, damage: outcome.damage, killed: outcome.killed, x: enemy.x, y: enemy.y, combo: move.hits });
+  world.events.push({ type: 'chainHit', enemyId: enemy.id, damage: outcome.damage, killed: outcome.killed, x: enemy.x, y: enemy.y, combo: move.hits, ...outcome.plate ? { plates: outcome.platesAfter } : {} });
+  if (outcome.plate) {
+    // The package (4.3, rule 1): the hit takes a plate (at 0 the window opens), the elite is no survivor — the chain goes on
+    // through it; the hero does not take its spot (it stands). As the last link: back to the stop, as from a survivor.
+    stripPlates(world, enemy, { source: 'chain' }, false);
+    if (ctx) { noteLink(move, enemy, false); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
+    if (!move.links.length) returnToStop(move);
+    maybeFinisher(world);
+    return;
+  }
   if (outcome.killed) {
     landAt(move, enemy);
     world.enemies.splice(world.enemies.indexOf(enemy), 1);

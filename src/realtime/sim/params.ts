@@ -473,7 +473,7 @@ export interface Params {
   /**
    * Elite behaviours by kind (docs/realtime-elite-behaviors.md): the basic elite leads a column of weak enemies of its colour,
    * the wolf elite is the pack leader, the boar elite charges twice. Off by default; journals without the value: off (every
-   * existing journal replays to the same hash). Not forced in a run (`RUN_FORCED`): the panel decides.
+   * existing journal replays to the same hash). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`, design answer 11.10.2026).
    */
   eliteBehaviors: boolean;
   /** «Ведёт строем»: weak enemies of its colour the basic elite leads, the radius it picks them up in, the spacing of the column. */
@@ -486,6 +486,31 @@ export interface Params {
   wolfLeaderThrow: number;
   /** «Двойной рывок»: the windup of the elite boar's second charge (its line re-aimed at the hero). */
   boarSecondWindup: number;
+  // ---- Package «Урон имеет значение» (docs/realtime-damage.md; user decision 11.10.2026). Every value off / as before by
+  // default; journals without them replay as before (a missing value reads as off / the old number). A run turns the
+  // package on (run/rtRun.ts `RT_RUN_FORCED`) and passes its numbers by the row in the loadout.
+  /**
+   * Elite armour (docs/realtime-design-research.md, 4.3): an elite made while it is on gets plates instead of HP × the factor
+   * (its HP is the kind's, ×1); a hit takes plates off before any HP; 0 plates — the window. Off — the elite of before.
+   */
+  eliteArmor: boolean;
+  /** Sandbox: plates of an armoured elite (a run passes its own by the row, `Loadout.elitePlates`). */
+  elitePlates: number;
+  /** Game seconds an armoured elite stands open at 0 plates (stands, does not hit, its mechanic off). */
+  eliteWindow: number;
+  /** After the window: 1 plate at once, then +1 every this many game seconds up to its maximum (the cold stops it). */
+  elitePlateRegrow: number;
+  /** Touch of an armoured elite (instead of the base touch; no `eliteDamageBonus` on top) and the knock of the hero, units. */
+  eliteTouchDamage: number;
+  eliteKnockback: number;
+  /** With armour on: no random elite while this many elites live — before the goals, and after them (instead of `eliteCap*`). */
+  eliteArmorCap: number;
+  eliteArmorCapAfter: number;
+  /** Tough enemies: a tough newcomer gets 1…this HP, uniform (2 — the 1 or 2 of before; a run passes its own by the row). */
+  toughHpMax: number;
+  /** Touch of an enemy with HP ≥ 2 at the touch, or of an elite: `toughTouchDamage` instead of the base touch. */
+  toughTouch: boolean;
+  toughTouchDamage: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -758,6 +783,18 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   wolfLeaderSettleCount: 2,
   wolfLeaderThrow: 5,
   boarSecondWindup: 0.6,
+  // Package «Урон имеет значение» (docs/realtime-damage.md): off by default.
+  eliteArmor: false,
+  elitePlates: 3,
+  eliteWindow: 3,
+  elitePlateRegrow: 4,
+  eliteTouchDamage: 2,
+  eliteKnockback: 1,
+  eliteArmorCap: 1,
+  eliteArmorCapAfter: 2,
+  toughHpMax: 2,
+  toughTouch: false,
+  toughTouchDamage: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1040,6 +1077,20 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('wolfLeaderSettleCount', 'Элиты: поведение', 'Вожак: вой за волков', 1, 8, 1, 5, '', 'Пока вожак в кольце, стая воет, когда столько волков на местах.'),
   n('wolfLeaderThrow', 'Элиты: поведение', 'Вожак: длина броска', 0.5, 10, 0.25, 5, 'ед.', 'Бросок воя, в котором вожак.'),
   n('boarSecondWindup', 'Элиты: поведение', 'Кабан: замах второго рывка', 0.1, 3, 0.05, 5, 'с', 'Второй рывок — по новой линии к герою.'),
+  // Package «Урон имеет значение» (docs/realtime-damage.md).
+  { kind: 'bool', key: 'eliteArmor', group: 'Броня элит', label: 'Броня элит (пластины)', stage: 5,
+    hint: 'Элита получает пластины вместо HP ×2 (HP — как у вида). Удар снимает пластину (бомба — две), цепь проходит сквозь элиту. 0 пластин — окно: стоит, не бьёт. В походе включено всегда.' },
+  n('elitePlates', 'Броня элит', 'Пластин у элиты', 1, 6, 1, 5, '', 'Только песочница. В походе по ряду: 1–4 — 2, 5–8 — 3, 9–10 — 4. «Стремительный» −1, «Толстый» +1.'),
+  n('eliteWindow', 'Броня элит', 'Окно без пластин', 0.5, 10, 0.1, 5, 'с', 'Элита стоит, не бьёт, механика выключена. Убийство в окне — +1 энергия и добыча ×2.'),
+  n('elitePlateRegrow', 'Броня элит', 'Пластина отрастает раз в', 0.5, 20, 0.5, 5, 'с', 'После окна сразу 1 пластина, дальше по одной. Холод останавливает.'),
+  n('eliteTouchDamage', 'Броня элит', 'Касание элиты', 0, 6, 1, 5, '', 'Вместо обычного касания; прибавка урона элиты к касанию не добавляется.'),
+  n('eliteKnockback', 'Броня элит', 'Касание элиты отбрасывает героя', 0, 4, 0.25, 5, 'ед.'),
+  n('eliteArmorCap', 'Броня элит', 'Не больше элит до целей (броня)', 0, 10, 1, 5),
+  n('eliteArmorCapAfter', 'Броня элит', 'Не больше элит после целей (броня)', 0, 10, 1, 5),
+  n('toughHpMax', 'Крепкие враги', 'HP крепкого: до', 2, 4, 1, 5, '', 'Крепкий новичок получает от 1 до стольких HP, равновероятно. В походе по ряду: 1–4 — 2, 5–8 — 3, с 9 — 4.'),
+  { kind: 'bool', key: 'toughTouch', group: 'Крепкие враги', label: 'Касание крепких и элит сильнее', stage: 5,
+    hint: 'Касание врага с HP от 2 (в момент удара) и элиты — урон ниже; HP 0–1 — обычное касание. В походе включено всегда.' },
+  n('toughTouchDamage', 'Крепкие враги', 'Касание крепкого', 0, 6, 1, 5),
 ];
 
 const MAX_PHASES = 8;

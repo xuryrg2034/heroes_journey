@@ -16,7 +16,7 @@
 import { dcos, dsin } from './detMath';
 import { behaviorOf, enemyKind } from './enemies/kinds';
 import { rollRandomElite } from './elites';
-import { COLOR_COUNT, EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, MIN_COLORS } from './kit';
+import { COLOR_COUNT, EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, MAX_TOUGH_HP, MIN_COLORS } from './kit';
 import { type ArenaShape, blockedAt, dist, inWater, type Vec } from './geometry';
 import { enemyBodyRadius, rollGroupInterval, type Params } from './params';
 import type { Rng } from './rng';
@@ -196,10 +196,24 @@ function pointNear(world: World, anchor: Vec): Vec | null {
   return null;
 }
 
+/**
+ * The top of the tough HP table (package «Урон имеет значение», docs/realtime-damage.md): the run's by its row
+ * (`Kit.toughHp`: 5–8 — 3, 9+ — 4), else the panel's `toughHpMax`; journals without it — 2 (the 1 or 2 of before).
+ */
+export function toughHpMaxOf(world: World): number {
+  const n = world.kit?.toughHp ?? world.params.toughHpMax ?? 2;
+  return Number.isFinite(n) ? Math.max(2, Math.min(MAX_TOUGH_HP, Math.floor(n))) : 2;
+}
+
+/**
+ * HP of a newcomer of the tough roll: 0 (weak), or 1…`toughHpMaxOf` uniform for a tough one. Two draws whatever the table —
+ * tough or not, then its HP (at 2: below 0.5 — 1, else 2, the draws and numbers of before).
+ */
 function rollHp(world: World): number {
   const rng = rollRng(world);
   if (rng.next() >= world.pressure.phase.toughShare) return 0;
-  return rng.next() < 0.5 ? 1 : 2;
+  const top = toughHpMaxOf(world);
+  return 1 + Math.min(top - 1, Math.floor(rng.next() * top));
 }
 
 function rollSize(world: World, min: number, max: number): number {

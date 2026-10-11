@@ -33,6 +33,8 @@ export function spin(world: World): boolean {
   if (!canSpin(world)) return false;
   const p = world.params, hero = world.hero;
   world.energy -= p.spinCost;
+  // The energy left tells this spin from another one in the same tick (elites.ts `stripPlates`: one firing, one strip).
+  const firing = world.energy;
   // Collected first: a kill (a sapper's fuse, a fallen link) changes the list.
   const struck = spinTargets(world);
   world.events.push({ type: 'spin', x: hero.x, y: hero.y, radius: p.spinRadius, hits: struck.length });
@@ -41,7 +43,7 @@ export function spin(world: World): boolean {
     // abilities) and is spent by it.
     const factor = brittleNow(e) ? Math.max(1, p.frostFactor) : 1;
     if (e.brittle) delete e.brittle;
-    damageEnemy(world, e, p.spinDamage * factor, { source: 'spin', credited: true });
+    damageEnemy(world, e, p.spinDamage * factor, { source: 'spin', credited: true, firing });
   }
   return true;
 }
