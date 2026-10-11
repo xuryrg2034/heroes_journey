@@ -12,20 +12,22 @@
  * - The loop «Печать» (loop research, step 2): the fixtures, written before the loop fields, read them as 0 and still agree
  *   with the replay; a sandbox fight with the loop (loopFight.testkit.ts) shows seals, empty share, close attempts, unseals,
  *   inside median / total, step backs with re-adds and seal kills in the arena and sandbox tables.
+ * - П6 and П8 (12.10.2026): hand-written run records (with and without `endedAt`, with `mapSigns`) give the share of ended
+ *   runs followed by a new run within 2 minutes, the median pause and the sign's choice share, counted by hand.
  * - The package «Урон имеет значение»: the fixtures, written before the elite fields, are not compared on them; a sandbox
  *   fight with armoured elites (eliteFight.testkit.ts) agrees with the replay and fills the «Элиты» table, the chain shares
  *   (a tough one not first, ended on a survivor) and the raised touches line.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, latestRuns, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, latestRuns, mapSignStats, newRunGroups, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
 import type { Simulation } from '../src/realtime/sim/simulation';
 import {
-  emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
-  type FightRecord, type FightSummary, type JournalPart, type RtRecord,
+  emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
+  type FightRecord, type FightSummary, type JournalPart, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -202,6 +204,63 @@ async function main(): Promise<void> {
     // The fixtures have no chest fights: the section is there, empty.
     const empty = md.slice(md.indexOf('## Проклятый сундук'), md.indexOf('## Кость у двери'));
     assert(empty.includes('_нет данных_'), 'no chest fights, no rows');
+  });
+
+  // Run and fight records written by hand: only what the П6 / П8 metrics read (the fights have no journals: no replay here).
+  const base = fights[0].record, runBase = latestRuns(set.records)[0];
+  const at = (hms: string): string => `2026-10-12T${hms}.000Z`;
+  const runOf = (session: string, run: string, outcome: RunRecord['outcome'], extra: Partial<RunRecord> = {}): RunRecord =>
+    ({ ...JSON.parse(JSON.stringify(runBase)), id: runRecordId(session, run), session, run, outcome, at: at('00:00:00'), tester: undefined, ...extra });
+  const firstFightOf = (session: string, run: string, when: string): FightRecord =>
+    ({ ...JSON.parse(JSON.stringify(base)), id: fightRecordId(session, run, 'f01-n1-a1'), fight: 'f01-n1-a1', session, run, at: at(when) });
+  const tested = { tester: 'Аня' };
+
+  await check('П6 the report: ended runs followed by a new run within 2 minutes, the median pause, «нет данных» without `endedAt`', () => {
+    const records: RtRecord[] = [
+      // Аня, two browser sessions. R1 ends 10:00:00; R2 starts 10:01:30 (90 s, within) and ends 10:10:00; R3 starts 10:15:00 (300 s) and ends
+      // 10:30:00; R4 (a defeat from before `endedAt`) starts 11:00:00 (R3's pause is 1800 s); R5 is open and starts earlier than R1's end (not a «next» run).
+      runOf('sA1', 'r1', 'defeat', { ...tested, endedAt: at('10:00:00') }), firstFightOf('sA1', 'r1', '09:50:00'),
+      runOf('sA1', 'r2', 'defeat', { ...tested, endedAt: at('10:10:00') }), firstFightOf('sA1', 'r2', '10:01:30'),
+      runOf('sA2', 'r3', 'victory', { ...tested, endedAt: at('10:30:00') }), firstFightOf('sA2', 'r3', '10:15:00'),
+      runOf('sA2', 'r4', 'defeat', tested), firstFightOf('sA2', 'r4', '11:00:00'),
+      runOf('sA2', 'r5', 'open', tested), firstFightOf('sA2', 'r5', '09:55:00'),
+      // Session s2 (no tester): R6 ends 12:00:00; an abandoned R7 starts 12:01:00 (60 s, within) — a started run is a new run; R8 started before the end.
+      runOf('s2', 'r6', 'defeat', { endedAt: at('12:00:00') }), firstFightOf('s2', 'r6', '11:50:00'),
+      runOf('s2', 'r7', 'abandoned'), firstFightOf('s2', 'r7', '12:01:00'),
+      runOf('s2', 'r8', 'open'), firstFightOf('s2', 'r8', '11:55:00'),
+      // Session s3: a single ended run, nothing after it.
+      runOf('s3', 'r9', 'victory', { endedAt: at('13:00:00') }), firstFightOf('s3', 'r9', '12:30:00'),
+    ];
+    const groups = newRunGroups(records), g = (name: string) => groups.find(x => x.group === name)!;
+    assert(groups.length === 4 && groups[groups.length - 1].group === 'всего', `groups ${groups.map(x => x.group).join(', ')}`);
+    assert(JSON.stringify(g('Аня')) === JSON.stringify({ group: 'Аня', ended: 3, noData: 1, within: 1, noNext: 0, pauses: [90000, 300000, 1800000] }), JSON.stringify(g('Аня')));
+    assert(JSON.stringify(g('s2')) === JSON.stringify({ group: 's2', ended: 1, noData: 0, within: 1, noNext: 0, pauses: [60000] }), JSON.stringify(g('s2')));
+    assert(JSON.stringify(g('s3')) === JSON.stringify({ group: 's3', ended: 1, noData: 0, within: 0, noNext: 1, pauses: [] }), JSON.stringify(g('s3')));
+    assert(JSON.stringify(g('всего')) === JSON.stringify({ group: 'всего', ended: 5, noData: 1, within: 2, noNext: 1, pauses: [90000, 300000, 1800000, 60000] }), JSON.stringify(g('всего')));
+    const text = reportMarkdown(collectRecords([{ name: 'p6.json', text: JSON.stringify(records) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-12T14:00:00Z'), source: 'p6' });
+    const section = text.slice(text.indexOf('## Новый поход после конца'), text.indexOf('## Новое на карте'));
+    // 3 groups and the total; the total: 5 ended, 1 without data, 2 within (40 %), 1 without a next run, the median of 60, 90, 300, 1800 s = 195 s.
+    assert(section.includes('| `Аня` | 3 | 1 | 1 (33%) | 0 | 300 с |') && section.includes('| `s2` | 1 | 0 | 1 (100%) | 0 | 60 с |') && section.includes('| `s3` | 1 | 0 | 0 (0%) | 1 | — |')
+      && section.includes('| всего | 5 | 1 | 2 (40%) | 1 | 195 с |'), section);
+    // The fixtures' runs were recorded before `endedAt`: the ended ones are «нет данных», no share.
+    const old = md.slice(md.indexOf('## Новый поход после конца'), md.indexOf('## Новое на карте'));
+    assert(old.includes('| всего | 0 | 1 | 0 (—) | 0 | — |'), `the fixtures' section: ${old}`);
+  });
+
+  await check('П8 the report: the share of map choices where the chosen node wore the sign, with counts; no signs — an empty table', () => {
+    const signs = (...chosen: boolean[]) => chosen.map((chosenSigned, i) => ({ nodeId: `n${i + 1}`, signed: [`n${i + 1}`], chosenSigned }));
+    const runs = [
+      runOf('s1', 'a', 'open', { mapSigns: signs(true, true, false) }),
+      runOf('s1', 'b', 'defeat', { mapSigns: signs(false) }),
+      runOf('s1', 'c', 'open'),
+    ];
+    const stats = mapSignStats(runs);
+    assert(stats.runs === 2 && stats.choices === 4 && stats.chosenSigned === 2, JSON.stringify(stats));
+    const text = reportMarkdown(collectRecords([{ name: 'p8.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-12T14:00:00Z'), source: 'p8' });
+    const section = text.slice(text.indexOf('## Новое на карте'), text.indexOf('## Угрозы'));
+    assert(section.includes('| 2 | 4 | 2 (50%) | 2 |') && section.includes('55–75'), section);
+    const none = md.slice(md.indexOf('## Новое на карте'), md.indexOf('## Угрозы'));
+    assert(none.includes('_нет данных_'), 'the fixtures have no signs');
   });
 
   console.log(`${checks} checks passed`);

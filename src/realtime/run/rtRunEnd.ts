@@ -23,18 +23,20 @@ import type { RtBattleRecord, RtRunState } from './rtRun';
 
 /**
  * Russian names of the enemy kinds (the telemetry report's names, telemetry/report.ts reads them from here). `basic` names an
- * adjective there («обычный»); the killer line says «обычный враг» (`RT_RUN_END_TEXT.basicKiller`).
+ * adjective there («обычный»); the killer line says «враг», and «элита» for its elite (design 12.10.2026, `RT_RUN_END_TEXT`).
  */
 export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   basic: 'обычный', wolf: 'волк', boar: 'кабан', reaper: 'жнец', shield: 'щитоносец', archer: 'лучник', sapper: 'сапёр', porcupine: 'дикобраз', lynx: 'рысь', shaman: 'шаман',
 };
 
 /**
- * The killing blow of an enemy's ability (its `hit.source`) — the line names the ability, not the kind. A hit source not
- * here and not a touch (thorns, the goblin's rain and volley) has no killer line.
+ * The killing blow of an ability or of the field (its `hit.source`) — the line names it, not the kind: the enemies' abilities,
+ * the thorns (`thorns`, no striker) and the goblin's arrows (`slot-rain` the rain, `slot-volley` the volley, no striker;
+ * design 12.10.2026). A hit source not here and not a touch has no killer line.
  */
 export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   arrow: 'стрела лучника', blast: 'взрыв сапёра', quills: 'иглы дикобраза', lynx: 'прыжок рыси', boar: 'рывок кабана', 'fire-trail': 'огненный след',
+  thorns: 'шипы', 'slot-rain': 'стрелы гоблина', 'slot-volley': 'стрелы гоблина',
 };
 /** The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. */
 export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper'];
@@ -42,7 +44,9 @@ export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper'];
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
   killer: (what: string): string => `Сразил: ${what}`,
-  basicKiller: 'обычный враг',
+  /** The basic enemy and its elite (design 12.10.2026); the other kinds name themselves, an elite adds `eliteMark`. */
+  basicKiller: 'враг',
+  basicEliteKiller: 'элита',
   eliteMark: '-элита',
   armor: 'броня',
   rowLeft: (row: number, left: number): string => `Ряд ${row} · до «Последнего рубежа» ${left}`,
@@ -93,9 +97,10 @@ export function rtDeathLine(death: RtDeath | undefined): string | null {
   const ability = Object.hasOwn(RT_DEATH_ABILITY, death.source) ? RT_DEATH_ABILITY[death.source] : undefined;
   if (ability) return RT_RUN_END_TEXT.killer(ability);
   if (!RT_DEATH_TOUCH.includes(death.source) || !death.enemy || !Object.hasOwn(RT_KIND_TITLES, death.enemy)) return null;
-  const name = death.enemy === 'basic' ? RT_RUN_END_TEXT.basicKiller : RT_KIND_TITLES[death.enemy];
+  const basic = death.enemy === 'basic';
+  const name = basic ? (death.elite ? RT_RUN_END_TEXT.basicEliteKiller : RT_RUN_END_TEXT.basicKiller) : RT_KIND_TITLES[death.enemy];
   const marks = [...death.armor ? [RT_RUN_END_TEXT.armor] : [], ...(death.affixes ?? []).map(id => AFFIX_TITLES[id].toLowerCase())];
-  return RT_RUN_END_TEXT.killer(`${name}${death.elite ? RT_RUN_END_TEXT.eliteMark : ''}${marks.length ? ` (${marks.join(', ')})` : ''}`);
+  return RT_RUN_END_TEXT.killer(`${name}${death.elite && !basic ? RT_RUN_END_TEXT.eliteMark : ''}${marks.length ? ` (${marks.join(', ')})` : ''}`);
 }
 
 /**

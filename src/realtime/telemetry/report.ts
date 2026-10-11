@@ -536,6 +536,69 @@ const DIE_HEAD = ['Экранов', 'Бросить', 'Забрать', 'Не в
 const DIE_LEGEND = 'Кость у двери (`doorDie`; в походе включена): экран после победы на арене с котлом больше 0 (`RunRecord.dice`, выбор `door-die`). Исход фиксируется при показе. «Бросить» платит котёл ×0,5 (1–3) или ×2 (4–6), «Забрать» — ×1; формула и потолок — как у котла. «Забрать дал бы» — выплата ×1 на тех же экранах.';
 // ---- end «Кость у двери» ----
 
+// ---- П6 «Незакрытое дело»: a new run soon after the end (RunRecord.endedAt); П8 «Новое на карте»: the sign on the map (RunRecord.mapSigns) ----
+/** П6 metric: a new run is «soon» when its first fight is recorded within this many ms after the end. */
+export const NEW_RUN_WINDOW_MS = 2 * 60 * 1000;
+
+/** One group of runs of the П6 metric. `ended` — runs with a known end, `noData` — ended runs of records before `endedAt`. */
+export interface NewRunGroup { group: string; ended: number; noData: number; within: number; noNext: number; pauses: number[] }
+
+/**
+ * П6 metric over the runs (the latest record of each, `latestRuns`): among the runs that ended (`victory` or `defeat`) with
+ * `endedAt`, the share whose next run's first fight is recorded within 2 minutes, and the pauses (ended → the next run's first
+ * fight, `at` of both). Groups: the tester's name, else the browser session (the run table's columns). The next run is the
+ * group's run with the earliest first fight after the end. An ended run without `endedAt` (a record before 12.10.2026) is
+ * skipped and counted in `noData`; open and abandoned runs have no end. Rows: the groups by name, then «всего».
+ */
+export function newRunGroups(records: readonly RtRecord[]): NewRunGroup[] {
+  const firstFight = new Map<string, number>();
+  for (const r of records) {
+    if (r.kind !== 'fight') continue;
+    const at = Date.parse(r.at);
+    if (Number.isFinite(at) && at < (firstFight.get(r.run) ?? Infinity)) firstFight.set(r.run, at);
+  }
+  const runs = latestRuns(records), groupOf = (r: RunRecord): string => r.tester ?? r.session;
+  const groups = new Map<string, NewRunGroup>();
+  for (const run of runs.filter(r => r.outcome === 'victory' || r.outcome === 'defeat')) {
+    const g = groups.get(groupOf(run)) ?? groups.set(groupOf(run), { group: groupOf(run), ended: 0, noData: 0, within: 0, noNext: 0, pauses: [] }).get(groupOf(run))!;
+    const end = run.endedAt === undefined ? NaN : Date.parse(run.endedAt);
+    if (!Number.isFinite(end)) { g.noData++; continue; }
+    g.ended++;
+    const starts = runs.filter(r => r.run !== run.run && groupOf(r) === groupOf(run)).map(r => firstFight.get(r.run)).filter((at): at is number => at !== undefined && at > end);
+    if (!starts.length) { g.noNext++; continue; }
+    const pause = Math.min(...starts) - end;
+    g.pauses.push(pause);
+    if (pause <= NEW_RUN_WINDOW_MS) g.within++;
+  }
+  const list = [...groups.values()].sort((a, b) => a.group.localeCompare(b.group));
+  if (!list.length) return [];
+  const all: NewRunGroup = { group: 'всего', ended: 0, noData: 0, within: 0, noNext: 0, pauses: [] };
+  for (const g of list) { all.ended += g.ended; all.noData += g.noData; all.within += g.within; all.noNext += g.noNext; all.pauses.push(...g.pauses); }
+  return [...list, all];
+}
+const NEW_RUN_HEAD = ['Группа', 'Концов с отметкой', 'Нет данных', 'Новый поход ≤ 2 мин', 'Нового похода нет', 'Пауза мед.'];
+const NEW_RUN_LEGEND = 'П6 «Незакрытое дело». Конец похода — победа или поражение; отметка конца — `RunRecord.endedAt` (с 12.10.2026). Новый поход — первый бой другого похода той же группы (имя тестера, а без него — сессия) после конца; время — `at` записей. «Нет данных» — концы в записях без `endedAt`: в долю они не входят. Доля — от концов с отметкой (без нового похода — в знаменателе, не в числителе). Пауза — от конца до первого боя следующего похода, медиана по тем, у кого он был (не только по уложившимся в 2 минуты). Цель исследования 40–60 % (эвристика; если 90 %+ при жалобах на усталость — пересмотреть).';
+function newRunRows(records: readonly RtRecord[]): (string | number)[][] {
+  return newRunGroups(records).map(g => [
+    g.group === 'всего' ? 'всего' : `\`${g.group}\``, g.ended, g.noData, `${g.within} (${pct(g.within, g.ended)})`, g.noNext,
+    g.pauses.length ? `${Math.round(median(g.pauses) / 1000)} с` : '—',
+  ]);
+}
+
+/** П8 metric: the map choices made with a sign shown. `chosenSigned` — the chosen node wore the sign. */
+export interface MapSignStats { runs: number; choices: number; chosenSigned: number }
+export function mapSignStats(runs: readonly RunRecord[]): MapSignStats {
+  const signs = runs.flatMap(r => r.mapSigns ?? []);
+  return { runs: runs.filter(r => r.mapSigns?.length).length, choices: signs.length, chosenSigned: signs.filter(s => s.chosenSigned).length };
+}
+const MAP_SIGN_HEAD = ['Походов со знаком', 'Выборов со знаком', 'Выбран узел со знаком', 'Выбран узел без знака'];
+const MAP_SIGN_LEGEND = 'П8 «Новое на карте». Выбор узла на карте, при котором хоть на одной доступной карточке стоял знак «✦ новое» (`RunRecord.mapSigns`; выключатель выключен — не пишется, записи до 12.10.2026 поля не имеют). Доля — выборов, где выбранный узел был со знаком, от всех таких выборов. Цель исследования 55–75 % «при равной альтернативе» (эвристика); отчёт не отделяет выборы с равной альтернативой, поэтому доля грубая.';
+function mapSignRows(runs: readonly RunRecord[]): (string | number)[][] {
+  const s = mapSignStats(runs);
+  return s.choices ? [[s.runs, s.choices, `${s.chosenSigned} (${pct(s.chosenSigned, s.choices)})`, s.choices - s.chosenSigned]] : [];
+}
+// ---- end П6 / П8 ----
+
 function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
   const rows = new Map<string, { kinds: Set<string>; offered: number; taken: number; refused: number; fired: number; fights: number; active: number }>();
   const row = (id: string) => rows.get(id) ?? rows.set(id, { kinds: new Set(), offered: 0, taken: 0, refused: 0, fired: 0, fights: 0, active: 0 }).get(id)!;
@@ -655,6 +718,9 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Проклятый сундук', '', CHEST_LEGEND, '', table(CHEST_HEAD, chestRows(runFights, sandbox)), '',
     // Casino «Кость у двери».
     '## Кость у двери', '', DIE_LEGEND, '', table(DIE_HEAD, [dieRow(runs)].filter((r): r is (string | number)[] => !!r)), '',
+    // П6 «Незакрытое дело»: a new run after the end. П8 «Новое на карте»: the sign on the map.
+    '## Новый поход после конца', '', NEW_RUN_LEGEND, '', table(NEW_RUN_HEAD, newRunRows(set.records)), '',
+    '## Новое на карте', '', MAP_SIGN_LEGEND, '', table(MAP_SIGN_HEAD, mapSignRows(runs)), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

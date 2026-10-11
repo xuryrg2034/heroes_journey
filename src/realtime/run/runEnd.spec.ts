@@ -17,7 +17,8 @@ import { createRtRun, parseRtRun, resolveArena, rtNode, serializeRtRun, type RtA
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { rtDeathLine, rtRunEndLines } from './rtRunEnd';
 import { runRow } from './arenaPools';
-import { assert, closeNode, ok, playFight, same, seedOf, takeGift, ticks, toBattle } from './runFight.testkit';
+import { assert, closeNode, ok, playFight, pullBare, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
+import { inThorns } from '../sim/geometry';
 import { defaultParams } from '../sim/params';
 import type { Simulation } from '../sim/simulation';
 import type { World } from '../sim/world';
@@ -55,13 +56,14 @@ const touchedBy = (kind: string, elite: boolean, affixes: string[] = []) => (sim
   ticks(sim, 60 * 120, seen);
 };
 
-check('the killer of an elite\'s touch: its kind, «-элита», armour and affixes; a plain enemy\'s touch — its kind', () => {
+check('the killer of an elite\'s touch: its kind, «-элита» (the basic enemy\'s elite — «элита»), armour and affixes; a plain enemy\'s touch — «враг»', () => {
   const cases: { kind: string; affixes: string[]; elite: boolean; death: object; text: string }[] = [
     // The shield-bearer is slow: «Толстый» is not its affix (sim/elites.ts `affixAllowed`).
     { kind: 'shield', elite: true, affixes: ['swift'], death: { source: 'touch', enemy: 'shield', elite: true, armor: true, affixes: ['swift'] }, text: 'Сразил: щитоносец-элита (броня, стремительный)' },
     { kind: 'wolf', elite: true, affixes: [], death: { source: 'wolf', enemy: 'wolf', elite: true, armor: true }, text: 'Сразил: волк-элита (броня)' },
-    { kind: 'basic', elite: true, affixes: ['fat', 'chameleon'], death: { source: 'touch', enemy: 'basic', elite: true, armor: true, affixes: ['chameleon', 'fat'] }, text: 'Сразил: обычный враг-элита (броня, хамелеон, толстый)' },
-    { kind: 'basic', elite: false, affixes: [], death: { source: 'touch', enemy: 'basic' }, text: 'Сразил: обычный враг' },
+    { kind: 'basic', elite: true, affixes: ['fat', 'chameleon'], death: { source: 'touch', enemy: 'basic', elite: true, armor: true, affixes: ['chameleon', 'fat'] }, text: 'Сразил: элита (броня, хамелеон, толстый)' },
+    { kind: 'basic', elite: true, affixes: ['fiery'], death: { source: 'touch', enemy: 'basic', elite: true, armor: true, affixes: ['fiery'] }, text: 'Сразил: элита (броня, огненный)' },
+    { kind: 'basic', elite: false, affixes: [], death: { source: 'touch', enemy: 'basic' }, text: 'Сразил: враг' },
   ];
   cases.forEach((c, i) => {
     const run = newRun(1 + i);
@@ -103,6 +105,59 @@ check('the killer of an ability: an archer\'s arrow; a sapper\'s blast (the sapp
   assert(lines(lostToBlast)[0] === 'Сразил: взрыв сапёра', lines(lostToBlast)[0]);
 });
 
+/**
+ * The goblin's arrows kill: the hero's HP is set low and the arrows' damage to its highest (journalled `param` commands, clamped
+ * by the panel's ranges), bare pulls until the pull is a rain or a volley, then the arrows land (marks over the hero).
+ */
+const killedByArrows = (outcomeName: 'rain' | 'volley') => (sim: Simulation, seen: (w: World) => void): void => {
+  sim.command({ t: 'param', key: 'heroHp', value: 3 });
+  sim.command({ t: 'param', key: 'slotDamage', value: 5 });
+  if (outcomeName === 'rain') { sim.command({ t: 'param', key: 'slotRainMin', value: 30 }); sim.command({ t: 'param', key: 'slotRainMax', value: 30 }); }
+  else sim.command({ t: 'param', key: 'slotVolleyMarks', value: 12 });
+  summonGoblin(sim);
+  for (let pull = 0; pull < 3 && sim.world.status === 'playing'; pull++) {
+    let got: ReturnType<typeof pullBare>;
+    // The other arrows of an earlier pull may fell the hero before this pull's dash: that seed does not serve.
+    try { got = pullBare(sim, seen); } catch (error) { if (sim.world.status !== 'playing') break; throw error; }
+    if (got.outcome !== outcomeName) continue;
+    ticks(sim, 60 * 20, seen);
+    break;
+  }
+  if (sim.world.status === 'playing') throw new Error(MISS);
+};
+const MISS = 'no such pull on this seed';
+
+check('the killer of the field and of the goblin: thorns — «шипы»; the goblin\'s rain or volley — «стрелы гоблина»', () => {
+  // Thorns: the hero stands in a hedge of the thorns arena; it pricks at once and every interval until he falls.
+  const hedge = newRun(41);
+  const pricked = playFight(hedge, { chains: [], k: 41, arena: 'thorns', finish: (sim, seen) => {
+    sim.command({ t: 'teleport', x: 8, y: 7.05 });
+    assert(inThorns(sim.world.hero, sim.world.arena), 'the hero stands in thorns');
+    ticks(sim, 60 * 300, seen);
+  } });
+  assert(pricked.sim.world.status === 'defeat', 'the thorns took him');
+  assert(pricked.events.filter(ev => ev.type === 'hit').every(ev => ev.type === 'hit' && ev.source === 'thorns'), 'only thorns hit');
+  assert(same(pricked.outcome.death, { source: 'thorns' }), JSON.stringify(pricked.outcome.death));
+  assert(lines(ok(resolveArena(hedge, pricked.outcome), 'lost'))[0] === 'Сразил: шипы', 'thorns line');
+
+  // The goblin: the pull must be a rain / a volley, which depends on the seed's reels: the first seeds that give one.
+  for (const outcomeName of ['rain', 'volley'] as const) {
+    let found = false;
+    for (let k = 1; k <= 120 && !found; k++) {
+      const run = newRun(k);
+      let fight: ReturnType<typeof playFight>;
+      try { fight = playFight(run, { chains: [], k, finish: killedByArrows(outcomeName) }); } catch (error) { if (error instanceof Error && error.message === MISS) continue; throw error; }
+      found = true;
+      const source = outcomeName === 'rain' ? 'slot-rain' : 'slot-volley';
+      // An earlier pull of the other arrows may have been the lethal one (the damage is 5, the HP 3): then the seed does not serve.
+      if (fight.outcome.death?.source !== source) { found = false; continue; }
+      assert(same(fight.outcome.death, { source }), JSON.stringify(fight.outcome.death));
+      assert(lines(ok(resolveArena(run, fight.outcome), 'lost'))[0] === 'Сразил: стрелы гоблина', `${outcomeName}: goblin line`);
+    }
+    assert(found, `a seed with a lethal ${outcomeName} within 120`);
+  }
+});
+
 check('a defeat before the Jailer: killer, row and rows left, «Тюремщик не пройден», the peak (kills, its row); a reload keeps them', () => {
   let run = newRun(21);
   assert(rowOf(run) === 1, 'the first battle is on row 1');
@@ -127,12 +182,12 @@ check('a defeat after the Jailer says «Тюремщик пройден»; a def
   for (let k = 40; k < 80 && rowOf(run) !== 6; k++) run = walkTo(newRun(k), 6);
   assert(rowOf(run) === 6, `row ${rowOf(run)}`);
   run = ok(resolveArena(run, playFight(run, { chains: [3], k: 3, lose: true }).outcome), 'lost on row 6');
-  assert(same(lines(run), ['Сразил: обычный враг', 'Ряд 6 · до «Последнего рубежа» 4', 'Тюремщик пройден', 'Лучшая цепь похода: 3 убийства · ряд 6']), JSON.stringify(lines(run)));
+  assert(same(lines(run), ['Сразил: враг', 'Ряд 6 · до «Последнего рубежа» 4', 'Тюремщик пройден', 'Лучшая цепь похода: 3 убийства · ряд 6']), JSON.stringify(lines(run)));
 
   let final = walkTo(newRun(23), 10);
   assert(rtNode(final, final.pending!.kind === 'battle' ? final.pending!.nodeId : '')!.type === 'boss', 'the final arena');
   final = ok(resolveArena(final, playFight(final, { chains: [], k: 4, lose: true }).outcome), 'lost on the final');
-  assert(same(lines(final), ['Сразил: обычный враг', 'Ряд 10 · «Последний рубеж» не пройден', 'Тюремщик пройден']), JSON.stringify(lines(final)));
+  assert(same(lines(final), ['Сразил: враг', 'Ряд 10 · «Последний рубеж» не пройден', 'Тюремщик пройден']), JSON.stringify(lines(final)));
 });
 
 check('victory: only the final row and the peak (no killer, no Jailer line); no chain recorded — no peak line', () => {
@@ -180,7 +235,7 @@ check('the save: a won fight keeps no death; a malformed death is not kept; malf
   moved.battles[0].death = moved.battles[1].death;
   assert(parseRtRun(JSON.stringify(moved)) === null, 'a death on a won earlier record: no run');
   // Known kinds' lines: the elite mark only with the kind; an unknown source has none.
-  assert(rtDeathLine({ source: 'thorns' }) === null && rtDeathLine({ source: 'slot-rain' }) === null && rtDeathLine({ source: 'touch' }) === null, 'no line');
+  assert(rtDeathLine({ source: 'touch' }) === null && rtDeathLine({ source: 'slot-other' }) === null && rtDeathLine({ source: 'thorns', enemy: 'wolf' }) === 'Сразил: шипы', 'no line');
   assert(rtDeathLine({ source: 'quills', enemy: 'porcupine', elite: true, armor: true }) === 'Сразил: иглы дикобраза', 'quills');
   assert(rtDeathLine({ source: 'lynx', enemy: 'lynx' }) === 'Сразил: прыжок рыси' && rtDeathLine({ source: 'boar', enemy: 'boar' }) === 'Сразил: рывок кабана'
     && rtDeathLine({ source: 'fire-trail', enemy: 'boar', elite: true, armor: true, affixes: ['fiery'] }) === 'Сразил: огненный след', 'abilities');
@@ -203,7 +258,7 @@ check('a save written before П6 (fixture) loads unchanged; lost the old way it 
   assert(same(lines(reloaded), ['Ряд 9 · до «Последнего рубежа» 1', 'Тюремщик пройден']), JSON.stringify(lines(reloaded)));
   // Played on with this build: the killer is there.
   const lostNow = ok(resolveArena(run, old), 'lost now');
-  assert(same(lines(lostNow), ['Сразил: обычный враг', 'Ряд 9 · до «Последнего рубежа» 1', 'Тюремщик пройден']), JSON.stringify(lines(lostNow)));
+  assert(same(lines(lostNow), ['Сразил: враг', 'Ряд 9 · до «Последнего рубежа» 1', 'Тюремщик пройден']), JSON.stringify(lines(lostNow)));
 });
 
 console.log(`\n${checks} checks passed`);
