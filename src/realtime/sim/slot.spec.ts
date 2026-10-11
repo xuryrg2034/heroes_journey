@@ -434,6 +434,29 @@ function crowd(sim: Simulation, extra: (x: number, y: number) => { kind?: string
 /** Plays out a pull's effect (the spin, every wave, every arrow), collecting the events. */
 const playOut = (sim: Simulation): WorldEvent[] => ticks(sim, tick(5));
 
+check('with the cauldron on, every enemy the arrows kill puts 1 ember (source `slot`, no heat); with it off — none', () => {
+  for (const purse of [true, false]) {
+    const p = quiet({ slotSkulls: 6, purse });
+    const found = findPull('rain', p, 300, 2000);
+    const s = field(p, found.k), w = s.world;
+    summon(s); waitReady(s);
+    const L = lever(s), dir = inward(w, L);
+    s.command({ t: 'teleport', x: L.x + dir.x * 1.2, y: L.y + dir.y * 1.2 });
+    s.command({ t: 'begin', x: L.x, y: L.y });
+    s.command({ t: 'release' });
+    const events = settle(s);
+    crowd(s);
+    const before = w.purse?.cauldron ?? 0;
+    events.push(...playOut(s));
+    const kills = of(events, 'kill').filter(e => e.source === 'slot').length;
+    const embers = of(events, 'purseKill').filter(e => e.source === 'slot').length;
+    assert(kills > 0, 'the rain killed');
+    if (purse) assert(embers === kills && (w.purse?.cauldron ?? 0) - before === kills, `1 ember per arrow kill: kills ${kills}, embers ${embers}, cauldron +${(w.purse?.cauldron ?? 0) - before}`);
+    else assert(embers === 0 && !w.purse, 'no cauldron, no embers');
+    assert(replays(s), 'replay');
+  }
+});
+
 check('the rain hits enemies (the player\'s kills, source `slot`) and the hero; the jackpot rain never the hero', () => {
   let heroHits = 0, jackpotCovered = 0;
   for (const want of ['rain', 'jackpot'] as const) {

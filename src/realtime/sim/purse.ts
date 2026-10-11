@@ -14,10 +14,13 @@
  * Plug-in points for the next items of stage 1:
  * - the oath (K8): `purseOath(world)` — the multiplier of the oath the world is under at the door (1 now: no oaths yet);
  * - the die at the door (8.4): the run layer passes it to `purseResources(cauldron, oath, die)` (1 now);
- * - the goblin's arrow rain: its kills come through `world.ts killEnemy` → `purseKill`; add its source to `PURSE_KILL_SOURCES`.
+ * - the goblin's arrow rain: its kills come through `world.ts killEnemy` → `purseKill` (source `slot` in `PURSE_KILL_SOURCES`).
  * Type-only imports from world.ts / chain.ts: world.ts calls this module at run time.
  */
 import { BUILD_SOURCES } from './buildIds';
+
+/** The kill source of the goblin's arrows (slot.ts uses the same string). */
+export const SLOT_KILL_SOURCE = 'slot';
 import type { StrikeOutcome } from './chain';
 import { RESOURCE_KINDS, type ResourceKind } from './kit';
 import type { Enemy, HeroMove, KillCause, World } from './world';
@@ -42,10 +45,10 @@ export const PAYOUT_CAP_BASE = 3;
 export const PAYOUT_CAP_MAX = 6;
 /**
  * Credited kills outside the chain that put 1 ember (no heat; research 3.3, 8.5): the hammers' fire, end blast, cut and
- * return, «Ударная волна». The goblin's arrow rain (source `slot`) joins here when it lands. The seal's kills put nothing
+ * return, «Ударная волна», the goblin's arrow rain (source `slot`, casino stage 1). The seal's kills put nothing
  * here: its row of the cheque counts everyone inside.
  */
-export const PURSE_KILL_SOURCES: ReadonlySet<string> = new Set<string>(Object.values(BUILD_SOURCES));
+export const PURSE_KILL_SOURCES: ReadonlySet<string> = new Set<string>([...Object.values(BUILD_SOURCES), SLOT_KILL_SOURCE]);
 
 /** The dash's count of its cheque so far (`HeroMove.purse`; present only while the cauldron is on). */
 export interface PurseMove {
