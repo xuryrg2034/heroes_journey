@@ -4,7 +4,8 @@ import { test, expect, type Page } from '@playwright/test';
  * Casino stage 1, item 2 — «Ставка клятвы» (src/realtime/sim/oath.ts, src/realtime/run/rtRun.ts, docs/realtime-casino.md):
  * the run with real clicks. A run row 1 battle has no oaths («Идти»); the row 2 battle's card shows two oaths and
  * «Без клятвы»; a reload shows the same two; the oath taken shows one line under the goal («Клятва: без прыжков ✓»); a real
- * jump (Space, then a click) breaks it — the line dims and shows «×0,5»; the door records ×0.5.
+ * jump (Space, then a click) breaks it — the line dims and shows «×0,5»; the door records ×0.5 and the line stays dim (П11:
+ * a broken oath is no win).
  *
  * Seed 10 (a seeded run gets the full gift): the gift button 1 takes no second pick; `r5c0` is a battle of run row 1, `r6c1`
  * a battle of run row 2 whose card offers «Не больше 2 урона» and «Без прыжков» (the run's oath stream with the node id, draw 0).
@@ -97,6 +98,9 @@ test('the oath stake: the card of a row 2 battle offers two oaths and «Без �
   // The door records ×0.5.
   await winArena(page);
   expect((await snapshot(page)).purse.door?.oath).toBe(0.5);
+  // П11 (LDW guard): the door does not turn a broken oath into a win — the line stays dim with «×0,5», no ✓.
+  await expect(page.getByTestId('oath-line')).toHaveText('Клятва: без прыжков ×0,5');
+  await expect(page.getByTestId('oath-line')).toHaveClass(/rt-oath-broken/);
   expect(errors).toEqual([]);
 });
 

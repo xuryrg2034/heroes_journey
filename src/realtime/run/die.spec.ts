@@ -230,6 +230,27 @@ await check('the screen shows resources (design 11.10.2026): «Забрать»,
   assert(broken.oath === 0.5 && broken.take === 1 && broken.low === 1 && broken.high === 3, `broken oath: ${JSON.stringify(broken)}`);
 });
 
+await check('П11 (LDW guard): a ×0.5 face never pays more than «Забрать» — the roll the view flashes (`die-resolved`: resources > base) never comes from 1–3, with or without an oath; ×2 at the cap is no win either', () => {
+  // runView.ts `throwDie` flashes the result only when `resources.length > base` of the run's `die-resolved` event.
+  const ok2 = (step: RtRunStep): Extract<RtRunStep, { ok: true }> => { if (!step.ok) throw new Error(step.reason); return step; };
+  const resolved = (high: boolean, target: number, oath?: OathId, jump = false) => {
+    const run = startRun(seedWith(high)), { outcome } = fight(run, target, { oath, jump });
+    const at = ok(resolveArena(run, outcome), 'resolve');
+    assert(at.pending?.kind === 'die' && (at.pending.face > 3) === high, `the wanted face (${JSON.stringify(at.pending)})`);
+    const event = ok2(rtDieChoose(at, true)).events.find(e => e.type === 'die-resolved');
+    assert(event?.type === 'die-resolved' && event.rolled, 'the roll resolved');
+    return event;
+  };
+  const lows = [resolved(false, 400), resolved(false, 100), resolved(false, 400, 'no-jump'), resolved(false, 400, 'no-jump', true), resolved(false, 200, 'no-jump', true)];
+  for (const e of lows) assert(e.mult === DIE_LOW_MULT && e.resources.length <= e.base, `a low face is no win: ${e.resources.length} ≤ ${e.base} (face ${e.face})`);
+  // A kept oath at the cap: ×2 pays the 6 «Забрать» pays — no flash either.
+  const capped = resolved(true, 400, 'no-jump');
+  assert(capped.mult === DIE_HIGH_MULT && capped.resources.length === capped.base, `×2 at the cap pays the take: ${capped.resources.length} = ${capped.base}`);
+  // A high face that pays more is the only win.
+  const win = resolved(true, 400);
+  assert(win.resources.length > win.base, `a real win: ${win.resources.length} > ${win.base}`);
+});
+
 await check('no screen when both halves pay what «Забрать» pays (a small cauldron): the door pays at once, no die drawn', () => {
   let small = 0;
   for (let k = 1; k <= 4; k++) {

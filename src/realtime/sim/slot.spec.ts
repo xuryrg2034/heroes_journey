@@ -15,7 +15,12 @@
  * - the rain hits enemies (the player's kills, source `slot`) and the hero; the jackpot rain never the hero; the volley hits
  *   the hero only; a jump and the invulnerability spare him; one plate per wave off an armoured elite; a sapper killed by an
  *   arrow blows up as the player's; ❤ never above the maximum HP;
- * - every fight replays to its hash (and the hashes every 300 ticks); a journal without the key plays the same world.
+ * - every fight replays to its hash (and the hashes every 300 ticks); a journal without the key plays the same world;
+ * - П11 «Правило частоты случая» (docs/realtime-engagement-research.md, П11; docs/realtime-casino.md, the section of that
+ *   name): with the default params a run battle reveals chance at most 3 times, at least 8 s apart, each reveal at most
+ *   1,2 s, even for a greedy player; the reel symbols the player sees are the outcome's own draw (χ² against s ÷ (4 + s));
+ *   the view's stopped reels show the pull's reels only, its spinning blur does not depend on the outcome; a broken oath
+ *   is no win. The gaps found (the panel ranges, the blur's fixed mix) are marked `// П11 gap:` and listed in the doc.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
@@ -23,14 +28,17 @@ import { objectRefusal, planChain, type StrikeOutcome } from './chain';
 import { lineOfSight } from './geometry';
 import { worldState } from './hash';
 import type { Loadout } from './kit';
-import { defaultParams, heroRadius, type Params } from './params';
+import { Graphics } from 'pixi.js';
+import { oathLine, oathMark } from './oath';
+import { defaultParams, heroRadius, PARAM_DEFS, type Params } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
-import { goblinOf, leverOf, pullOdds, skullOdds, type Goblin, type SlotOutcome } from './slot';
+import { GOOD_SYMBOLS, goblinOf, leverOf, outcomeOf, pullOdds, skullOdds, type Goblin, type SlotOutcome, type SlotSymbol } from './slot';
 import { slotOddsText, slotPlanOdds } from './slotPlan';
 import type { Enemy, World, WorldEvent } from './world';
 import { createRtRun, rtArenaLoadout, rtMapNodes, rtRunParams, RT_SLOT_ROW, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 import { createFightObserver } from '../telemetry/observe';
+import { drawSymbol, SlotView } from '../view/slotView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -647,5 +655,202 @@ function collectReplayEvents(journal: Journal): WorldEvent[] {
   replay(journal, r => { out.push(...r.world.events); r.world.events.length = 0; });
   return out;
 }
+
+// ---- П11 «Правило частоты случая» (docs/realtime-engagement-research.md, П11; docs/realtime-casino.md) -----------------
+// A chance reveal in a fight: at most once per 8 s of play, at most 1,2 s long, at most 3 per fight; the reel symbols the
+// player sees are drawn from the outcome's own distribution (no tuned near-misses); a ×0,5 outcome has no win effect.
+
+/** Every event of a journal's replay with the tick it came in. */
+function replayLog(sim: Simulation): { tick: number; ev: WorldEvent }[] {
+  const out: { tick: number; ev: WorldEvent }[] = [];
+  replay(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal, r => { for (const ev of r.world.events) out.push({ tick: r.world.tick, ev }); r.world.events.length = 0; });
+  return out;
+}
+
+check('П11: the defaults keep the rule (8 s, 1,2 s, 3 pulls) and a run does not change them; the panel ranges are listed', () => {
+  for (const [where, p] of [['sandbox', defaultParams()], ['run', rtRunParams(defaultParams())]] as const) {
+    assert(p.slotCooldown >= 8 && p.slotSpin <= 1.2 && p.slotPulls <= 3, `${where}: cooldown ${p.slotCooldown}, spin ${p.slotSpin}, pulls ${p.slotPulls}`);
+  }
+  // П11 gap: the debug panel's ranges (params.ts PARAM_DEFS, `slotPulls`, `slotCooldown`, `slotSpin`) allow values that
+  // break the rule, and a run plays the saved panel (main.ts: `rtRunParams(loadParams())`); nothing in slot.ts clamps them.
+  // Documented, not fixed: the design session decides (docs/realtime-casino.md, «Расхождения с правилом»).
+  const range = (key: string) => PARAM_DEFS.find(d => d.kind === 'number' && d.key === key) as { min: number; max: number } | undefined;
+  const pulls = range('slotPulls'), cooldown = range('slotCooldown'), spin = range('slotSpin');
+  assert(pulls && cooldown && spin, 'the panel has the three numbers');
+  if (pulls.max > 3) console.log(`   П11 gap: the panel allows ${pulls.max} pulls a fight (rule: 3)`);
+  if (cooldown.min < 8) console.log(`   П11 gap: the panel allows a cooldown of ${cooldown.min} s (rule: 8 s)`);
+  if (spin.max > 1.2) console.log(`   П11 gap: the panel allows a spin of ${spin.max} s (rule: 1,2 s)`);
+});
+
+check('П11: a run battle (default params) reveals chance at most 3 times, ≥ 8 s apart, each reveal ≤ 1,2 s — a greedy player pulls the moment the lever allows', () => {
+  const p = rtRunParams(quiet());
+  let fights = 0, tries = 0;
+  for (let k = 1; k <= 80 && fights < 5; k++) {
+    const sim = field(p, 3000 + k, k % 2 ? 'slot-field' : 'slot-walls', { slot: true }), w = sim.world;
+    sim.command({ t: 'teleport', x: 10, y: 6 });
+    sim.command({ t: 'goals' });
+    ticks(sim, tick(3.2));
+    if (!goblinOf(w)) continue;
+    // Greedy: wait for the lever and pull it at once, again and again, until it stays dark for 20 s.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      waitReady(sim);
+      if (objectRefusal(w, lever(sim)) === 'lever') break;
+      bareTo(sim);
+      tries++;
+    }
+    const L = lever(sim);
+    sim.command({ t: 'teleport', x: L.x + 1, y: L.y });
+    assert(sim.command({ t: 'begin', x: L.x, y: L.y }) === false, `seed ${k}: no 4th pull`);
+    ticks(sim, tick(3));
+    const log = replayLog(sim);
+    const pulls = log.filter(e => e.ev.type === 'slot' && e.ev.action === 'pull').map(e => e.tick);
+    const effects = log.filter(e => e.ev.type === 'slot' && e.ev.action === 'effect').map(e => e.tick);
+    assert(pulls.length === 3 && effects.length === 3, `seed ${k}: 3 reveals (${pulls.length} pulls, ${effects.length} effects)`);
+    for (let i = 0; i < pulls.length; i++) {
+      const reveal = (effects[i] - pulls[i]) * SIM_DT;
+      assert(reveal > 0 && reveal <= 1.2 + 1e-9, `seed ${k}: reveal ${i + 1} lasts ${reveal.toFixed(3)} s`);
+      if (i) {
+        const gap = (pulls[i] - pulls[i - 1]) * SIM_DT;
+        assert(gap >= 8 - 1e-9, `seed ${k}: reveals ${i} and ${i + 1} are ${gap.toFixed(3)} s apart`);
+        assert(effects[i - 1] < pulls[i], `seed ${k}: the reveal ${i} is over before the next pull`);
+      }
+    }
+    // At most 7,5 reveals a minute of fight (the research's metric): 3 reveals need at least 16 s.
+    assert((pulls[2] - pulls[0]) * SIM_DT >= 16 - 1e-9, `seed ${k}: three reveals within ${((pulls[2] - pulls[0]) * SIM_DT).toFixed(2)} s`);
+    fights++;
+  }
+  assert(fights === 5 && tries === 15, `fights ${fights}, pulls ${tries}`);
+});
+
+check('П11: the reel symbols the player sees are the outcome\'s own draw — a reel with s skulls shows ☠ with s ÷ (4 + s), each good symbol 1 ÷ (4 + s) (χ², 2 × 150 seeds, 3 pulls each)', () => {
+  const SYMBOLS: readonly SlotSymbol[] = ['skull', ...GOOD_SYMBOLS];
+  const groups = new Map<number, Record<string, number>>();
+  for (const [skulls, from] of [[2, 4000], [0, 4200]] as const) {
+    const params = skulls === 2 ? quiet() : quiet({ slotSkulls: skulls });
+    for (let k = 1; k <= 150; k++) {
+      const sim = field(params, from + k);
+      summon(sim);
+      for (let n = 0; n < 3; n++) {
+        waitReady(sim);
+        const { pull } = bareTo(sim);
+        // What the reels show is what decides the outcome: one symbol per reel, no other draw for the display.
+        assert(pull.reels && pull.reels.length === 3 && pull.outcome === outcomeOf(pull.reels), `the shown reels are the outcome: ${JSON.stringify(pull)}`);
+        pull.reels.forEach((sym, i) => {
+          const s = pull.skulls![i], tally = groups.get(s) ?? Object.fromEntries(SYMBOLS.map(x => [x, 0]));
+          tally[sym]++;
+          groups.set(s, tally);
+        });
+      }
+    }
+  }
+  // χ² critical values at p = 0,001 (a heuristic: the seeds are fixed, so the check is deterministic).
+  const critical: Record<number, number> = { 3: 16.27, 4: 18.47 };
+  assert([0, 1, 2, 3].every(s => groups.has(s)), `skull counts seen: ${[...groups.keys()]}`);
+  for (const [s, tally] of [...groups].sort((a, b) => a[0] - b[0])) {
+    const n = SYMBOLS.reduce((a, x) => a + tally[x], 0);
+    let chi = 0, cats = 0;
+    for (const x of SYMBOLS) {
+      const expected = n * (x === 'skull' ? s : 1) / (GOOD_SYMBOLS.length + s);
+      if (expected === 0) { assert(tally[x] === 0, `s ${s}: no ${x} on a reel without it`); continue; }
+      assert(expected >= 5, `s ${s}: enough symbols for χ² (${expected})`);
+      chi += (tally[x] - expected) ** 2 / expected;
+      cats++;
+    }
+    assert(chi < critical[cats - 1], `s ${s}: χ² ${chi.toFixed(2)} over ${n} symbols ${JSON.stringify(tally)}`);
+    console.log(`   s ${s}: ${n} symbols ${JSON.stringify(tally)}, χ² ${chi.toFixed(2)}`);
+  }
+});
+
+check('П11 (view, slotView.ts): the stopped reels show the pull\'s reels only; the spinning blur is the same whatever the outcome', () => {
+  // Each symbol is told apart by the first fill colour drawSymbol (exported by the view) gives it, counted per drawing.
+  const fills = (g: Graphics): number[] => ((g as unknown as { context: { instructions: { action: string; data: { style: { color: number } } }[] } }).context.instructions)
+    .filter(i => i.action === 'fill').map(i => i.data.style.color);
+  const SYMBOLS: readonly SlotSymbol[] = ['skull', ...GOOD_SYMBOLS];
+  const sig = new Map<SlotSymbol, { color: number; per: number }>();
+  for (const sym of SYMBOLS) {
+    const g = new Graphics();
+    drawSymbol(g, sym, 0, 0, 10);
+    const own = fills(g);
+    sig.set(sym, { color: own[0], per: own.filter(c => c === own[0]).length });
+  }
+  assert(new Set([...sig.values()].map(v => v.color)).size === SYMBOLS.length, 'the symbols have distinct key colours');
+  const view = new SlotView(40), shownNow = () => ({ ...view.shown });
+  const sim = field(quiet(), 7), w = sim.world;
+  summon(sim); waitReady(sim);
+  const count = (base?: Map<SlotSymbol, number>): Map<SlotSymbol, number> => {
+    const all = fills(view.layer), out = new Map<SlotSymbol, number>();
+    for (const sym of SYMBOLS) {
+      const { color, per } = sig.get(sym)!, raw = all.filter(c => c === color).length - (base?.get(sym) ?? 0) * per;
+      out.set(sym, raw / per);
+    }
+    return out;
+  };
+  view.draw(w, 0, 0, null);
+  { const s = shownNow(); assert(s.idols === 1 && s.spinning === 0 && s.stopped === 0, 'the idol alone'); }
+  const idol = count();
+  /** Frames of a fresh spin (all three reels spinning) at fixed clocks: the symbols drawn in each. */
+  const blur = (): { frames: string[]; skulls: number; symbols: number } => {
+    const frames: string[] = [];
+    let skulls = 0, symbols = 0;
+    for (let j = 0; j < 600; j++) {
+      view.draw(w, j * 0.0123, 0, null);
+      { const s = shownNow(); assert(s.spinning === 3 && s.stopped === 0, `a fresh spin: ${JSON.stringify(s)}`); }
+      const seen = count(idol), total = [...seen.values()].reduce((a, b) => a + b, 0);
+      assert(total === 3, `three symbols drawn: ${JSON.stringify([...seen])}`);
+      frames.push(SYMBOLS.map(s => seen.get(s)).join());
+      skulls += seen.get('skull')!; symbols += total;
+    }
+    return { frames, skulls, symbols };
+  };
+  const pulls: { reels: SlotSymbol[]; skulls: number[]; blur: ReturnType<typeof blur> }[] = [];
+  for (let n = 0; n < 3; n++) {
+    waitReady(sim);
+    const { pull } = bareTo(sim);
+    const b = blur();
+    // The 3rd reel stops; the result glows: exactly three symbols — the pull's reels, nothing above or below the line.
+    ticks(sim, tick(1.25));
+    view.draw(w, 0, 0.01, null);
+    { const s = shownNow(); assert(s.stopped === 3 && s.spinning === 0, `stopped: ${JSON.stringify(s)}`); }
+    const shown = count(idol);
+    for (const sym of SYMBOLS) assert(shown.get(sym) === pull.reels!.filter(r => r === sym).length, `pull ${n + 1}: the line shows ${pull.reels} (${JSON.stringify([...shown])})`);
+    pulls.push({ reels: pull.reels!, skulls: pull.skulls!, blur: b });
+  }
+  // The blur does not read the reels or the outcome: no tuned near-miss in the spin (the pulls' reels differ).
+  assert(new Set(pulls.map(q => q.reels.join())).size > 1, `different reels: ${pulls.map(q => q.reels.join()).join(' | ')}`);
+  for (const q of pulls.slice(1)) assert(q.blur.frames.join('|') === pulls[0].blur.frames.join('|'), 'the same blur for every pull');
+  // The blur's ☠ share against the outcome's (the mean of s ÷ (4 + s) over the reels).
+  const outcomeShare = (skulls: readonly number[]): number => skulls.reduce((a, s) => a + s / (GOOD_SYMBOLS.length + s), 0) / skulls.length;
+  const blurShare = pulls[0].blur.skulls / pulls[0].blur.symbols;
+  assert(Math.abs(blurShare - outcomeShare(pulls[0].skulls)) < 0.05, `the first pull (skulls ${pulls[0].skulls}): blur ☠ ${blurShare.toFixed(3)} ≈ ${outcomeShare(pulls[0].skulls).toFixed(3)}`);
+  // П11 gap: the blur runs a fixed cycle (slotView.ts `CYCLE`: 2 ☠ of 6) for every pull, so it matches the outcome only
+  // with 2 skulls a reel; after greed (3 ☠) or struck links (0–1 ☠) its ☠ share stays 1/3. It never depends on the
+  // outcome (above), so it is no tuned near-miss; the design session decides (docs/realtime-casino.md, «Расхождения»).
+  const last = pulls[2];
+  assert(Math.abs(last.blur.skulls / last.blur.symbols - blurShare) < 1e-9, 'the blur keeps its ☠ share after greed');
+  console.log(`   П11 gap: the spin blur shows ☠ ${blurShare.toFixed(3)} for every pull; the 3rd pull's reels (skulls ${last.skulls}) give ☠ ${outcomeShare(last.skulls).toFixed(3)}`);
+  assert(replays(sim), 'replay');
+});
+
+check('П11: a broken oath is no win — the HUD line dims to «×0,5» without ✓, the door records ×0,5 and keeps the line', () => {
+  for (let k = 1; k <= 3; k++) {
+    const sim = field(quiet({ oathStake: true }), 60 + k, 'slot-field', { oath: 'no-jump' }), w = sim.world;
+    assert(oathLine(w) === 'Клятва: без прыжков ✓' && oathMark(w)?.mark === 'holds', `the oath holds: ${oathLine(w)}`);
+    sim.command({ t: 'energy', value: 7 });
+    sim.command({ t: 'jump', x: 11.5, y: 7 });
+    const events = settle(sim);
+    assert(of(events, 'oath').some(e => e.action === 'broken'), 'the jump broke it');
+    assert(oathMark(w)?.mark === 'broken' && oathLine(w) === 'Клятва: без прыжков ×0,5', `broken: ${oathLine(w)}`);
+    sim.command({ t: 'goals' });
+    sim.command({ t: 'teleport', x: 16.5, y: 6 });
+    sim.command({ t: 'walk', x: 1, y: 0 });
+    const end: WorldEvent[] = [];
+    for (let i = 0; i < 600 && w.status === 'playing'; i++) ticks(sim, 1, end);
+    assert(w.status === 'victory', `the door (${w.status})`);
+    const door = of(end, 'oath').find(e => e.action === 'door');
+    assert(door && door.kept === false && door.mult === 0.5, `the door records ×0,5: ${JSON.stringify(door)}`);
+    assert(oathLine(w) === 'Клятва: без прыжков ×0,5' && !oathLine(w)!.includes('✓'), `after the door: ${oathLine(w)}`);
+    assert(replays(sim), 'replay');
+  }
+});
 
 console.log(`${checks} checks passed`);
