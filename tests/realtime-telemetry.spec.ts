@@ -7,7 +7,7 @@ import {
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 import { FightTap } from '../src/realtime/telemetry/recorder';
-import { fightKey } from '../src/realtime/telemetry/schema';
+import { emptyFightSummary, fightKey } from '../src/realtime/telemetry/schema';
 import { createFightObserver } from '../src/realtime/telemetry/observe';
 import { analyzeJournal, collectRecords } from '../src/realtime/telemetry/report';
 
@@ -119,6 +119,18 @@ test('a sandbox fight with real actions is recorded: the fight and its journal; 
   expect(strip(fight.summary)).toEqual(strip(report.summary));
   expect(fight.summary.chain.count).toBeGreaterThanOrEqual(1);
   expect(fight.summary.kills.chain).toBeGreaterThanOrEqual(3);
+  // A fresh record of this build carries every field of the summary schema (the report skips a field missing in a record
+  // only for old records — design answer 11.10.2026: this test keeps that skip safe).
+  const missing: string[] = [];
+  const walk = (base: unknown, value: unknown, path: string): void => {
+    if (!base || typeof base !== 'object' || Array.isArray(base)) return;
+    for (const [k, v] of Object.entries(base as Record<string, unknown>)) {
+      const here = value && typeof value === 'object' ? (value as Record<string, unknown>)[k] : undefined;
+      if (here === undefined) missing.push(`${path}${k}`); else walk(v, here, `${path}${k}.`);
+    }
+  };
+  walk(emptyFightSummary(), fight.summary, '');
+  expect(missing).toEqual([]);
   // A replay fed through the tap with an observer that reads every tick and command gives the same hash too.
   let ticks = 0, commands = 0;
   const reading = { tick: (w: { events: unknown[]; enemies: unknown[] }) => { ticks++; void w.events.length; void w.enemies.length; }, command: () => { commands++; }, summary: () => ({}) as FightSummary };
