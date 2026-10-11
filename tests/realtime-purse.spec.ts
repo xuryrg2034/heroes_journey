@@ -151,3 +151,46 @@ test('П4 «Раздув за дела»: the panel toggle; after the goals the 
   await page.evaluate(() => (window as any).__realtime.clear(false));
   expect(errors).toEqual([]);
 });
+
+/** Draws a chain of weak enemies at `xs` (y 9.2) with the mouse from the hero at x 1 and waits for the dash to end. */
+async function dashChain(page: Page, xs: readonly number[]): Promise<void> {
+  await page.evaluate(() => (window as any).__realtime.teleport(1, 9.2));
+  for (const x of xs) await place(page, x, 9.2);
+  const screens: { x: number; y: number }[] = [];
+  for (const x of xs) screens.push(await screen(page, x, 9.2));
+  await page.mouse.move(screens[0].x, screens[0].y);
+  await page.mouse.down();
+  for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y);
+  await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(xs.length);
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.snapshot().lastChain?.kills ?? 0), { timeout: 8_000 }).toBe(xs.length);
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime.snapshot().move), { timeout: 8_000 }).toBe(false);
+}
+const feel = (page: Page): Promise<{ popups: number; quiet: number; outlines: number; finals: number }> =>
+  page.evaluate(() => (window as any).__realtime.snapshot().feel);
+
+test('П2 «Тихая мелочь, громкая цепь»: a 2-link chain shows no pop-up over the hero, a 3-link chain does (with and without the cauldron)', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await freeze(page);
+  // The sandbox without the cauldron: the score «+N» over the hero only from 3 enemy links.
+  await dashChain(page, [2, 3]);
+  expect(await feel(page)).toMatchObject({ popups: 0, quiet: 1 });
+  await expect(page.getByTestId('score')).toHaveText(/^очки [1-9]\d*$/);
+  await dashChain(page, [2, 3, 4]);
+  expect(await feel(page)).toMatchObject({ popups: 1, quiet: 1 });
+  // The cauldron: a 2-link cheque goes only into the HUD line, a 3-link one pops up over the hero.
+  await page.evaluate(() => (window as any).__realtime.setParam('purse', true));
+  await dashChain(page, [2, 3]);
+  await expect(page.getByTestId('score')).toHaveText('котёл 2');
+  expect((await purse(page)).shown.cheques).toEqual([]);
+  expect(await feel(page)).toMatchObject({ popups: 1, quiet: 2 });
+  await dashChain(page, [2, 3, 4]);
+  await expect.poll(async () => (await purse(page)).shown.cheques).toEqual(['3 × 2 = 6']);
+  await expect(page.getByTestId('score')).toHaveText('котёл 8');
+  expect(await feel(page)).toMatchObject({ popups: 2, quiet: 2 });
+  // 6 links: the hero's outline flashes.
+  await dashChain(page, [2, 3, 4, 5, 6, 7]);
+  expect((await feel(page)).outlines).toBe(1);
+  expect(errors).toEqual([]);
+});

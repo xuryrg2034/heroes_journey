@@ -35,6 +35,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
 import { dashCheque } from '../sim/purse';
+import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 
 /**
@@ -93,6 +94,8 @@ function greyOf(color: number): number {
 
 /** Pixels per arena unit before fitting to the window (one board cell of the main game). */
 export const UNIT = 72;
+/** П2: real seconds of the hero's outline flash at the end of a 6–9 link dash. */
+const OUTLINE_LIFE = 0.4;
 /** Casino «Котёл»: the cheque stands this many pixels over the hero (where the score popup «+N» starts: above the combo counter). */
 const CHEQUE_ABOVE = 122;
 /** Threat color outside the chain palette (design answer 18): white with a dark outline — spawn markers, stage 3 boar lanes. */
@@ -412,6 +415,18 @@ export class RealtimeRenderer {
   talismanTexts = 0;
   /** П9 «Второе дыхание»: flashes with the text «второе дыхание» shown at the hero so far (tests read it). */
   secondWindShown = 0;
+  /**
+   * П2 «Тихая мелочь, громкая цепь» (view/chainFeel.ts): enemy links of the dash as released — the shake, the sound (main.ts)
+   * and the sandbox «+N» follow them.
+   */
+  readonly dashLinks = new DashLinks();
+  /**
+   * П2 (tests read it): pop-ups over the hero at the end of a dash (the cheque or the sandbox «+N»), dashes that ended quietly
+   * (1–2 links: no pop-up), flashes of the hero's outline (6–9 links). П3: final flashes of a chain into the door.
+   */
+  readonly feelShown = { popups: 0, quiet: 0, outlines: 0, finals: 0 };
+  /** П2: real seconds left of the hero's outline flash. */
+  private outlineLeft = 0;
   /** Phase B: the cut trail and the fire of the hammer drawn per frame (the fire under the crowd, the trail over it). */
   private readonly playerFxLayer = new Graphics();
   /** The hero's path in the current or last dash / return run (view memory, age in real seconds) for the cut trail. */
@@ -1382,6 +1397,11 @@ export class RealtimeRenderer {
     const ring = this.heroRing.clear();
     ring.ellipse(0, 26, 30, 9).fill({ color: 0x050a07, alpha: 0.4 });
     if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: 0xffffff, alpha: 0.55 * hurt });
+    // П2: the end of a 6–9 link dash — a bright outline round the hero, widening and fading.
+    if (this.outlineLeft > 0) {
+      const k = this.outlineLeft / OUTLINE_LIFE;
+      ring.circle(0, 0, UNIT * (0.66 + 0.3 * (1 - k))).stroke({ color: 0xfff2c4, width: 6 * k + 2, alpha: 0.95 * k });
+    }
     // Stage F: the after-chain invulnerability — a blinking gold rim, unlike the hurt blink, while it lasts.
     if (hero.chainShield > 0 && world.status === 'playing' && Math.floor(this.clock * 12) % 2 === 0)
       ring.circle(0, 0, UNIT * 0.6).stroke({ color: 0xffd36b, width: 3, alpha: 0.9 });
@@ -1483,8 +1503,18 @@ export class RealtimeRenderer {
     caption.alpha = power!.alpha;
   }
 
-  /** The end of a dash: its cheque at the hero for 0.8 s, no pause — «8 × 3 × ◆2 = 48» (where the score popup «+N» was: above the combo counter). */
-  private showCheque(world: World, ev: { embers: number; heat: number; mult: number; total: number }): void {
+  /**
+   * The end of a dash: its cheque at the hero for 0.8 s, no pause — «8 × 3 × ◆2 = 48» (where the score popup «+N» was: above
+   * the combo counter). П2: a cheque of 1–2 enemy links has no pop-up — the caption takes its numbers, the HUD line the cauldron.
+   */
+  private showCheque(world: World, ev: { embers: number; heat: number; mult: number; total: number; links: number }): void {
+    if (ev.links <= QUIET_LINKS) {
+      const caption = `угли ${ev.embers} · ×${ev.heat}${ev.mult > 1 ? ` · ◆${ev.mult}` : ''}`;
+      if (this.purseCaption && this.purseCaption.text !== caption) { this.purseCaption.text = caption; this.purseShown.captions++; }
+      this.feelShown.quiet++;
+      return;
+    }
+    this.feelShown.popups++;
     if (!this.chequeText) {
       this.chequeText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 20, fontWeight: 'bold', fill: 0xffe08a, stroke: { color: 0x200c08, width: 5 } } });
       this.chequeText.anchor.set(0.5);
@@ -1518,7 +1548,7 @@ export class RealtimeRenderer {
    * One strike of the dash: the flash and the shake grow with the hit's damage (`ev.damage`, the power the link carried);
    * the last enemy hit of a chain gets a bigger gold ring (the sim's world-wide `finisher` flash for long chains stays as it is).
    */
-  private strikeFx(world: World, ev: { damage: number; x: number; y: number }, last: boolean): void {
+  private strikeFx(world: World, ev: { damage: number; x: number; y: number }, last: boolean, quiet = false): void {
     const k = Math.min(1, ev.damage / 8);
     const r = (0.3 + 0.35 * k) * (last ? 1.9 : 1) * UNIT;
     const g = new Graphics().circle(0, 0, r).fill({ color: last ? 0xffd36b : 0xfff2c4, alpha: (last ? 0.5 : 0.3) + 0.25 * k }).stroke({ color: last ? 0xffb347 : 0xffffff, width: last ? 7 : 3 + 3 * k });
@@ -1528,7 +1558,8 @@ export class RealtimeRenderer {
     this.bursts.push({ g, life, total: life });
     this.strikeFlashes++;
     if (last) this.finisherFlashes++;
-    const base = world.params.dashShake;
+    // П2: a quiet dash (1–2 enemy links at the release) does not shake.
+    const base = quiet ? 0 : world.params.dashShake;
     if (base > 0) {
       // A stronger hit shakes more, but never past `dashShake` (design answer 22: the shake must not grow beyond it); the
       // flash and the sound carry the rest of the growth. The last link shakes a little longer.
@@ -1540,8 +1571,10 @@ export class RealtimeRenderer {
   private handleEvents(world: World): void {
     const lastHit = world.events.reduce((n, e, i) => e.type === 'chainHit' ? i : n, -1);
     const moreLinks = !!world.move?.links.some(l => l.kind === 'enemy');
+    // П2: the dash's enemy links as released decide its shake, the sandbox «+N» and the outline.
+    const feel = chainFeel(this.dashLinks.of(world));
     for (const [at, ev] of world.events.entries()) {
-      // Casino «Котёл»: the chain's cheque at the hero.
+      // Casino «Котёл»: the chain's cheque at the hero (П2: over the hero only from 3 links; otherwise only the HUD line).
       if (ev.type === 'cheque') { this.showCheque(world, ev); continue; }
       // Phase B (Д5): the build. An item fired — a short text at the hero (its icon flashes in the column, main.ts).
       if (ev.type === 'talismanFired') {
@@ -1579,7 +1612,7 @@ export class RealtimeRenderer {
         continue;
       }
       if (ev.type === 'chainHit') {
-        this.strikeFx(world, ev, at === lastHit && !moreLinks);
+        this.strikeFx(world, ev, at === lastHit && !moreLinks, feel === 'quiet');
         // A plate hit (damage 0): the plate text comes with the `elitePlates` event.
         if (!ev.killed && ev.plates === undefined) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xffd36b);
         continue;
@@ -1673,7 +1706,12 @@ export class RealtimeRenderer {
       if (ev.type === 'chainEnd') {
         // Above the combo counter (its text ends ~100 px over the hero). Casino «Котёл»: with the cauldron on the cheque takes
         // this place (`showCheque`) — the score is not the number the player collects then.
-        if (ev.score > 0 && !world.params.purse) this.floatText(`+${ev.score}`, world.hero.x * UNIT, world.hero.y * UNIT - 122, 0xfff2c4);
+        // П2: a quiet dash (1–2 enemy links) has no «+N» over the hero; 6–9 links flash the hero's outline (10+ have the finisher).
+        if (ev.score > 0 && !world.params.purse) {
+          if (feel === 'quiet') this.feelShown.quiet++;
+          else { this.floatText(`+${ev.score}`, world.hero.x * UNIT, world.hero.y * UNIT - 122, 0xfff2c4); this.feelShown.popups++; }
+        }
+        if (feel === 'chord') { this.outlineLeft = OUTLINE_LIFE; this.feelShown.outlines++; }
         this.comboLife = ev.kills > 0 ? 0.9 : 0;
         continue;
       }
@@ -2064,6 +2102,7 @@ export class RealtimeRenderer {
     this.drawTargets(world);
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
+    this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
     this.drawHero(world);
     this.drawOverlay(world);
     this.drawJuice(world, realDt);
@@ -2106,6 +2145,7 @@ export class RealtimeRenderer {
   resetEffects(): void {
     this.shakeLeft = 0;
     this.flashLeft = 0;
+    this.outlineLeft = 0;
     this.comboLife = 0;
     this.comboValue = 0;
     this.powerLife = 0;

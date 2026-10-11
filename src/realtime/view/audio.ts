@@ -1,8 +1,11 @@
 /**
  * Chain hit sound of the real-time prototype (iteration 2, stage C, docs/realtime-prototype.md 9г item 6):
- * a short synthesized «tick» whose pitch rises along the chain (a semitone per hit, up to two octaves).
- * Web Audio only, no files. The context is created on the first user gesture (browser autoplay rule).
+ * a short synthesized «tick» whose pitch rises along the chain (a semitone per hit; П2, 12.10.2026: a ladder of 8 steps,
+ * then it stays). Web Audio only, no files. The context is created on the first user gesture (browser autoplay rule).
  */
+/** П2 «Тихая мелочь, громкая цепь»: steps of the hit's pitch ladder (a semitone each), then the pitch stays. */
+export const HIT_STEPS = 8;
+
 export class ChainAudio {
   private ctx: AudioContext | null = null;
 
@@ -18,11 +21,14 @@ export class ChainAudio {
     } catch { this.ctx = null; }
   }
 
-  /** One hit of the chain: `combo` — its number in the dash (1, 2, …); a kill sounds brighter than a wound. */
+  /**
+   * One hit of the chain: `combo` — its number in the dash (1, 2, …); a kill sounds brighter than a wound. The pitch climbs a
+   * semitone per hit for `HIT_STEPS` steps (П2), then stays. A quiet dash (1–2 links) passes a lower `volume` (view/chainFeel.ts).
+   */
   hit(combo: number, killed: boolean, volume: number, power = 0): void {
     // View-only: a hit carrying more power is louder and a bit longer (up to power 8).
     const k = Math.min(1, power / 8);
-    this.tone(330 * Math.pow(2, Math.min(24, Math.max(0, combo - 1)) / 12), killed ? 'triangle' : 'square', 0.09 + 0.06 * k, volume * (killed ? 1 : 0.6) * (0.75 + 0.25 * k));
+    this.tone(330 * Math.pow(2, Math.min(HIT_STEPS - 1, Math.max(0, combo - 1)) / 12), killed ? 'triangle' : 'square', 0.09 + 0.06 * k, volume * (killed ? 1 : 0.6) * (0.75 + 0.25 * k));
   }
 
   /** Package «Урон имеет значение»: a marker announces an elite — a low horn. */
@@ -38,6 +44,11 @@ export class ChainAudio {
   /** A crystal breaks: a high glassy ping at the current pitch. */
   crystal(combo: number, volume: number): void {
     this.tone(990 * Math.pow(2, Math.min(12, combo) / 24), 'sine', 0.22, volume * 0.8);
+  }
+
+  /** П2: the end of a long dash (6+ enemy links) — a short major chord. */
+  chord(volume: number): void {
+    for (const [i, semis] of [0, 4, 7, 12].entries()) this.tone(392 * Math.pow(2, semis / 12), 'triangle', 0.4, volume * 0.45, i * 0.03);
   }
 
   /** The finisher: a low thump under the last hit. */

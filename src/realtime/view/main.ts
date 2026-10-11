@@ -29,6 +29,7 @@ import { rtRunParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
+import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadSessionClock, PARAMS_STORAGE_KEY, saveLinkDepth, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
 import { SessionClock } from './session';
@@ -375,6 +376,8 @@ async function boot(): Promise<void> {
     recorder?.beforeCommand(sim.world);
     const done = sim.command(cmd);
     recorder?.afterCommand(cmd, sim.world);
+    // П2: the released chain's enemy links (the plan at the release) decide the dash's sound and shake.
+    if (cmd.t === 'release') renderer.dashLinks.release(sim.world);
     return done;
   };
   renderer.buildArena(world().arena);
@@ -801,8 +804,11 @@ async function boot(): Promise<void> {
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
       if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }
       for (const m of w.markers) if (m.elite && !eliteMarkersHeard.has(m.id)) { eliteMarkersHeard.add(m.id); audio.eliteMarker(params.soundVolume); }
+      // П2 «Тихая мелочь, громкая цепь»: 1–2 enemy links at the release sound −6 dB; 6+ end with a chord.
+      const feel = chainFeel(renderer.dashLinks.of(w)), hitVolume = params.soundVolume * (feel === 'quiet' ? QUIET_GAIN : 1);
       for (const ev of w.events) {
-        if (ev.type === 'chainHit') { if (ev.plates !== undefined) audio.plate(params.soundVolume); else audio.hit(ev.combo, ev.killed, params.soundVolume, ev.damage); }
+        if (ev.type === 'chainHit') { if (ev.plates !== undefined) audio.plate(hitVolume); else audio.hit(ev.combo, ev.killed, hitVolume, ev.damage); }
+        else if (ev.type === 'chainEnd') { if (feel === 'chord' || feel === 'finale') audio.chord(params.soundVolume); }
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, params.soundVolume);
@@ -1054,6 +1060,8 @@ async function boot(): Promise<void> {
         /** Casino «Ставка клятвы»: the oath of the fight (null — none), its mark and the HUD line as drawn. */
         oath: w.oath && w.params.oathStake ? { ...w.oath, mark: oathMark(w)!.mark, line: oathText.hidden ? null : oathText.textContent, dim: oathText.classList.contains('rt-oath-broken') } : null,
         /** «Сила видна при рывке»: the power number (largest shown, growths, visible now), strike flashes and closing flashes drawn so far. */
+        /** П2 «Тихая мелочь, громкая цепь» (chainFeel.ts): pop-ups over the hero, quiet dash ends, outline flashes; П3 final flashes. */
+        feel: { ...renderer.feelShown },
         powerView: { shown: renderer.powerShown, growths: renderer.powerGrowths, visible: renderer.powerVisible, strikeFlashes: renderer.strikeFlashes, finisherFlashes: renderer.finisherFlashes },
         heroInCrowd: heroInCrowd(w),
         reachCircles: renderer.visibleReachCircles,
