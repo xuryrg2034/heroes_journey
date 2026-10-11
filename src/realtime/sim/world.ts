@@ -25,7 +25,7 @@ import { updateBurning } from './items';
 import { RngStreams } from './rng';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
-import { purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
+import { fallenEmbers, purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
 /**
@@ -164,6 +164,8 @@ export interface ChainSummary { kills: number; hits: number; crystals: number; s
  */
 export interface FallenLink {
   id: number; x: number; y: number; credited: boolean;
+  /** Casino «Котёл»: embers for the chain's cheque — a credited death while the cauldron is on (absent otherwise). */
+  embers?: number;
   /** Phase B: it was an elite — noted only on a dash the build layer counts (`HeroMove.build`), so older dashes hash as before. */
   elite?: true;
 }
@@ -786,10 +788,12 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {} });
   // A link of the dash ahead of the hero stays a link (chain.ts, `passFallen`): its score comes with the chain's.
   const move = world.move, link = move?.kind === 'dash' && move.links.some(l => l.kind === 'enemy' && l.id === e.id);
-  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {} });
+  // Casino «Котёл»: a link the player's tool killed keeps its embers for the chain's cheque (only while the cauldron is on).
+  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {} });
   if (cause.credited) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
-  // Casino «Котёл»: a kill of the player's build outside the chain — 1 ember, no heat (the source decides, purse.ts).
-  purseKill(world, cause);
+  // Casino «Котёл»: a kill of the player's build outside the chain — 1 ember, no heat (the source decides, purse.ts). A link of
+  // the dash ahead is the chain's: its embers come in the cheque (`fallenEmbers`, as its score comes with the chain's).
+  if (!link) purseKill(world, cause);
   if (e.marked) world.stats.markedKills++;
   checkGoals(world);
   behaviorOf(e).onDeath?.(world, e, cause);

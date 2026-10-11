@@ -20,7 +20,7 @@
  */
 import { registerArena } from './arenas';
 import { planChain } from './chain';
-import { HAMMERS } from './buildIds';
+import { BUILD_SOURCES, HAMMERS } from './buildIds';
 import { worldState } from './hash';
 import type { Loadout } from './kit';
 import { defaultParams, type Params } from './params';
@@ -84,6 +84,11 @@ function settle(sim: Simulation, out: WorldEvent[] = []): WorldEvent[] {
   return out;
 }
 type Ev<T extends WorldEvent['type']> = Extract<WorldEvent, { type: T }>;
+function ticks(sim: Simulation, n: number): WorldEvent[] {
+  const out: WorldEvent[] = [];
+  for (let i = 0; i < n && sim.world.status === 'playing'; i++) { sim.tick(); out.push(...sim.world.events); sim.world.events.length = 0; }
+  return out;
+}
 const of = <T extends WorldEvent['type']>(events: readonly WorldEvent[], type: T): Ev<T>[] => events.filter((e): e is Ev<T> => e.type === type);
 const replays = (sim: Simulation): boolean => replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash();
 const short = (c: Pick<Cheque, 'embers' | 'heat' | 'mult' | 'total'>): string => `${c.embers}×${c.heat}×${c.mult}=${c.total}`;
@@ -223,6 +228,33 @@ check('the hammer «Взрыв на конце»: its kills put 1 ember each, no
   assert(kills.length === 2 && kills.every(k => k.source === 'hammer-blast'), `two blast kills, 1 ember each: ${JSON.stringify(kills)}`);
   assert(blast.sim.world.purse?.cauldron === 8 && plain.sim.world.purse?.cauldron === 6, `the cauldrons ${blast.sim.world.purse?.cauldron} / ${plain.sim.world.purse?.cauldron}`);
   assert(replays(blast.sim), 'replay');
+});
+
+check('the hammer «Огненный проход» burns links ahead of the hero: they bring their embers into the cheque, the highlight is the dash (review 11.10.2026)', () => {
+  for (const [spec, want] of [[[0, 0, 0, 0, 0, 0], '6×4×1=24'], [[0, 0, 0, 0, 0, 2], '7×4×1=28']] as const) {
+    const sim = field(quiet(), 1, { talismans: [], hammer: HAMMERS.fire });
+    const links = lay(sim, spec);
+    const { cheque, events } = chain(sim, links);
+    const burned = of(events, 'kill').filter(e => e.source === BUILD_SOURCES.hammerFire);
+    assert(burned.length > 0, 'the fire burned links ahead of the hero');
+    assert(short(cheque) === want, `the cheque ${short(cheque)} (want ${want})`);
+    assert(of(events, 'purseKill').length === 0 && sim.world.purse?.cauldron === cheque.total, `no separate embers for the dash's links; the cauldron ${sim.world.purse?.cauldron}`);
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('the bomb, the fire item and the spin put no embers (decision 2): the cauldron stays 0', () => {
+  const sim = field(quiet({ spinCost: 1 }), 2, { items: { frost: 0, bomb: 2, healing: 0, fire: 1 }, energy: 7 });
+  const h = sim.world.hero;
+  const a = place(sim, h.x + 1.5, h.y, 0), b = place(sim, h.x - 1.5, h.y, 0), c = place(sim, h.x, h.y + 1, 0);
+  sim.command({ t: 'item', kind: 'bomb', x: a.x, y: a.y });
+  sim.command({ t: 'item', kind: 'fire', x: b.x, y: b.y });
+  sim.command({ t: 'spin' });
+  const events = ticks(sim, 240);
+  const credited = of(events, 'kill').filter(e => e.credited).length;
+  assert(credited >= 2 && !sim.world.enemies.includes(c), `the tools killed (${credited})`);
+  assert(of(events, 'purseKill').length === 0 && (sim.world.purse?.cauldron ?? 0) === 0, `no embers: ${sim.world.purse?.cauldron}`);
+  assert(replays(sim), 'replay');
 });
 
 // ---- The door and the payout ----

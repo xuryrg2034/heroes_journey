@@ -888,8 +888,9 @@ function passFallen(world: World, fallen: FallenLink): void {
   if (world.arena.terrain && overCliff(fallen, world.arena)) (move.detour ??= []).push({ x: fallen.x, y: fallen.y });
   else landAt(move, fallen);
   if (ctx) { noteLink(move, fallen, true); runHook(world, 'onLink', m => m.onLink!(world, ctx, null)); }
-  // Casino «Котёл»: a fallen link counts for the heat (it is dead), its embers came with its death (`purseKill`) or not at all.
-  if (move.purse) tallyLink(move.purse, 0, true);
+  // Casino «Котёл»: a fallen link counts for the heat (it is dead); a credited one brings its embers (`fallenEmbers`), an enemy
+  // ability's kill none.
+  if (move.purse) tallyLink(move.purse, fallen.embers ?? 0, true);
   if (!fallen.credited) return;
   move.kills++;
   if (ctx) {

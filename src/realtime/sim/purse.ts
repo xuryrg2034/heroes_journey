@@ -18,12 +18,12 @@
  * Type-only imports from world.ts / chain.ts: world.ts calls this module at run time.
  */
 import { BUILD_SOURCES } from './buildIds';
-
-/** The kill source of the goblin's arrows (slot.ts uses the same string). */
-export const SLOT_KILL_SOURCE = 'slot';
 import type { StrikeOutcome } from './chain';
 import { RESOURCE_KINDS, type ResourceKind } from './kit';
 import type { Enemy, HeroMove, KillCause, World } from './world';
+
+/** The kill source of the goblin's arrows (slot.ts uses this constant). */
+export const SLOT_KILL_SOURCE = 'slot';
 
 // ---- Numbers (docs/realtime-casino.md, «Котёл»; research K1 and 3.1). Constants: the run and the sim share one payout. ----
 
@@ -85,6 +85,16 @@ export function linkEmbers(enemy: Pick<Enemy, 'armor'>, outcome: StrikeOutcome):
   if (outcome.plate) return PLATE_EMBERS;
   const own = Math.max(1, outcome.hpBefore - outcome.hpAfter);
   return own + (outcome.killed && enemy.armor ? ELITE_KILL_EMBERS : 0);
+}
+
+/**
+ * Embers of a link the player's tool killed before the dash reached it (a fallen link, chain.ts `passFallen`): as if the
+ * dash had killed it — its HP before the death (at least 1), +5 for an armoured elite. The chain's cheque counts them (the
+ * plan counted the link too), and the kill puts no separate ember (`purseKill` skips the dash's links) — review 11.10.2026:
+ * the fire-pass hammer burns links ahead of the hero.
+ */
+export function fallenEmbers(e: Pick<Enemy, 'hp' | 'armor'>): number {
+  return Math.max(1, e.hp) + (e.armor ? ELITE_KILL_EMBERS : 0);
 }
 
 /** The crystal multiplier: none ×1, one ×2, two or more ×4. */
