@@ -176,8 +176,8 @@ test('the die at the door: «Забрать» pays the cauldron as it is, no rol
 test('the die at the door: a high face that pays more than «Забрать» flashes as a win', async ({ page }) => {
   const errors: string[] = [];
   await openRun(page, errors);
-  // Seed 8: the run's first die face is 5, its first battles play «Поляна» (seed 14's «Двор кнопок» needs its buttons for
-  // the door, which the test hook `winArena` does not press — review 11.10.2026).
+  // Seed 8: the run's first die face is 5, its first battles play «Поляна» (chosen 11.10.2026 when the hook `winArena` could
+  // not win with the hero already on the door, as on «Двор кнопок»; the hook now steps him off first — 12.10.2026).
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 8);
   await page.getByTestId('gift-1').click();
   if (await page.getByTestId('run-gift').count()) await page.locator('[data-action="gift-pick"]').first().click();

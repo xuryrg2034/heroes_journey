@@ -1096,19 +1096,26 @@ async function boot(): Promise<void> {
     camera: () => ({ ...renderer.cameraState(), frozen: dragging, edge: { ...renderer.edgeShown }, arrows: renderer.edgePositions.map(a => ({ ...a })), pointer: ui.pointer ? { ...ui.pointer } : null, hint: hintReason }),
     /**
      * The run (stage 2; null in the sandbox): its state, a new run, entering a node, and the test hook `winArena` — the
-     * goals done and the hero put on the open door through journalled commands (the next tick walks him in).
+     * goals done and the hero put on the open door through journalled commands (the next tick walks him in). Walking in
+     * needs a new touch (design 07.10.2026): a hero already on the door (a chain ended there; on «Двор кнопок» the start is
+     * by the door) is first put 2 units off it towards the arena's centre, and the hook waits for a tick off the door.
      */
     run: runView ? {
       state: () => runView.state ? JSON.parse(JSON.stringify(runView.state)) : null,
       newRun: (seed?: number) => { runView.newRun(seed); },
       enter: (nodeId: string) => runView.enter(nodeId),
       arenaOpen: () => runView.arenaOpen,
-      winArena: () => {
+      winArena: async () => {
         const w = world();
         if (!runView.arenaOpen || w.status !== 'playing') return false;
         command({ t: 'cancel' });
         if (w.stage === 'goals') command({ t: 'goals' });
         const door = w.objects.find(o => o.kind === 'door')!;
+        if (w.heroOnDoor) {
+          const dx = w.arena.width / 2 - door.x, dy = w.arena.height / 2 - door.y, len = Math.hypot(dx, dy) || 1;
+          command({ t: 'teleport', x: door.x + 2 * dx / len, y: door.y + 2 * dy / len });
+          for (let frame = 0; frame < 120 && world().heroOnDoor && world().status === 'playing'; frame++) await new Promise(r => requestAnimationFrame(r));
+        }
         command({ t: 'teleport', x: door.x, y: door.y });
         return true;
       },
