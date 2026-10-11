@@ -71,6 +71,11 @@ export interface ArenaTemplate extends ArenaShape {
   braziers?: Vec[];
   /** Phase A (Т2): the cap of boars on the arena (a roster's own, «Натиск»); omitted — the panel slider «Кабанов на арене». */
   boarMax?: number;
+  /**
+   * К7 «Проклятый сундук» (chest.ts; design 12.10.2026): the authored point of the cursed chest — only «Застава». The chest
+   * stands there while `Params.cursedChest` is on; omitted — no chest.
+   */
+  chest?: Vec;
 }
 
 /** Old name of the template (prototype stages 1–3). */
@@ -442,6 +447,8 @@ export const OUTPOST_ARENA: ArenaTemplate = registerArena({
   // Баланс: section 5 — kill 30.
   killGoal: 30,
   newcomers: ALL_FOUR,
+  // К7 «Проклятый сундук» (design 12.10.2026): in the east corner of the yard, behind the elites — through a gate.
+  chest: { x: 13.8, y: 7.7 },
 });
 
 /**

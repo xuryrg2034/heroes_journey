@@ -600,6 +600,15 @@ export interface Params {
    * without the value: off (no `world.secondWind`). A sandbox rule: a run arena plays it off (`RUN_FORCED`).
    */
   secondWind: boolean;
+  // ---- К7 «Проклятый сундук» (chest.ts, docs/realtime-casino.md, «Проклятый сундук (К7)»; design 12.10.2026). ----
+  /**
+   * The cursed chest: an arena with an authored chest point (only «Застава», `ArenaTemplate.chest`) puts the chest there. A
+   * chain takes it as a pass-through link (as an elite's loot: any colour, anywhere, no power, no embers) or the walking
+   * hero by touch. Taken, the curse starts: +1 to every touch (`touchDamage`; not the reaper's) until 12 kills of the dash or
+   * the end of the fight. Off by default; journals without the value: off (no chest, no `world.curse`). A run turns it on
+   * (run/rtRun.ts `RT_RUN_FORCED`; the reward screen after the victory is the run's).
+   */
+  cursedChest: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -920,6 +929,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   rosterMix: false,
   // П9 «Второе дыхание» (world.ts `hurtHero`): off by default.
   secondWind: false,
+  // К7 «Проклятый сундук» (chest.ts): off by default.
+  cursedChest: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1258,6 +1269,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Roster mix (run/arenaPools.ts, docs/realtime-phase-a.md, section 4).
   { kind: 'bool', key: 'rosterMix', group: 'Составы', label: 'Составы Заставы и Брода (поход)', stage: 5,
     hint: 'Только поход: «Застава» и «Брод» примерно в половине боёв берут состав пула из встреченных видов («Шаманский щит» — не на «Броде»); «Логово» — на рядах 6–8. В походе включено всегда; в песочнице не действует.' },
+  // К7 «Проклятый сундук» (chest.ts, docs/realtime-casino.md).
+  { kind: 'bool', key: 'cursedChest', group: 'Котёл', label: 'Проклятый сундук', stage: 5,
+    hint: 'Только «Застава»: в её точке стоит сундук (новый бой арены). Взять — звеном цепи любого цвета или касанием. Проклятие: касание врага +1 (не Жнец; стрелы, иглы, взрывы, шипы — без +1), пока проход не убьёт 12 врагов, или до конца боя. В походе включено всегда; награда — экран талисманов после победы.' },
 ];
 
 const MAX_PHASES = 8;

@@ -29,7 +29,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, type RunDie, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, type RunDie, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
 } from './schema';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
@@ -183,7 +183,8 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       // B5 К10: a reroll is no choice — the options it took away go back to the pool, they are not refused.
       if (events.some(e => e.type === 'talisman-rerolled')) break;
       const taken = events.flatMap(e => (e.type === 'talisman-taken' ? [e.id as string] : []));
-      choice(pending.nodeId, pending.source === 'oath' ? 'oath' : 'talisman', pending.options.map(String), taken);
+      // B6 К7: the chest's screen is a choice of its own on the same node (not merged with the «Застава» talismans).
+      choice(pending.nodeId, pending.source === 'oath' ? 'oath' : pending.source === 'chest' ? CHEST_SOURCE : 'talisman', pending.options.map(String), taken);
       break;
     }
     case 'die': {

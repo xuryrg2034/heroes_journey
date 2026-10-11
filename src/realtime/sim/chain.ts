@@ -29,6 +29,7 @@
 import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, stripPlates, trailAt } from './elites';
+import { curseKill, takeChest } from './chest';
 import { hasTalisman } from './kit';
 import { afterLinkPowerOf, buildActive, chainShieldOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainEnd, type LinkContext } from './build';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
@@ -317,13 +318,14 @@ export function isCrystal(world: World, link: ChainLink): boolean {
 
 /**
  * A link the chain goes on after: a crystal (it changes the colour), the loot of an elite (stage 2, step 3: picked up as
- * a crystal, any colour, anywhere in the chain; it does not change the colour, gives no power, is not a kill) or a brazier
- * (stage 3a, М4: any colour, keeps the colour, +`brazierPower` to the rest, not a kill).
+ * a crystal, any colour, anywhere in the chain; it does not change the colour, gives no power, is not a kill), a brazier
+ * (stage 3a, М4: any colour, keeps the colour, +`brazierPower` to the rest, not a kill) or the cursed chest (К7, chest.ts:
+ * taken as the loot).
  */
 export function passObject(world: World, link: ChainLink): boolean {
   if (link.kind !== 'object') return false;
   const kind = findObject(world, link.id)?.kind;
-  return kind === 'crystal' || kind === 'loot' || kind === 'brazier';
+  return kind === 'crystal' || kind === 'loot' || kind === 'brazier' || kind === 'chest';
 }
 
 /** Stage 3a (М4): a burning brazier link (one put out is not a link: `objectRefusal` says `unlit`). */
@@ -859,6 +861,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
     world.enemies.splice(world.enemies.indexOf(enemy), 1);
     world.stats.kills++;
     move.kills++;
+    // К7 «Проклятый сундук»: a kill of the dash counts toward lifting the curse (nothing without it).
+    if (world.curse) curseKill(world);
     if (enemy.marked) world.stats.markedKills++;
     world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true });
     // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse); an elite's loot (step 3).
@@ -1064,6 +1068,8 @@ function advanceMove(world: World, move: HeroMove, budget: number, path: Vec[] |
         if (object.kind === 'crystal') { move.links.shift(); breakCrystal(world, object); continue; }
         // Stage 2, step 3: the loot of an elite — picked up, the hero takes its spot, the chain goes on.
         if (object.kind === 'loot') { move.links.shift(); landAt(move, object); pickLoot(world, object); continue; }
+        // К7 «Проклятый сундук»: taken as the loot — the hero takes its spot, the curse starts, the chain goes on.
+        if (object.kind === 'chest') { move.links.shift(); landAt(move, object); takeChest(world, object, 'chain'); continue; }
         // Stage 3a (М4): a brazier — +power to the rest of the chain, it goes out; the hero takes its spot, the chain goes on.
         if (object.kind === 'brazier') { move.links.shift(); takeBrazier(world, object); continue; }
         reachObject(world, object);

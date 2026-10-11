@@ -37,6 +37,7 @@ import { slotPlanOdds } from '../sim/slotPlan';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
+import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -161,6 +162,8 @@ const CHASM = 0x07090a, CHASM_RIM = 0x9a8a66;
 const THORN = 0x2b3a1d, THORN_INK = 0x9a8452;
 /** Stage 3a (М4): the brazier's fire and the grey of a brazier put out. */
 const EMBER = 0xff8a3a, FLAME = 0xffd36b, ASH = 0x7a7a72;
+/** К7 «Проклятый сундук»: the curse's violet (the chest's eye and chain glow, the hero's border, the counter). */
+const CURSE = 0xb57cff, CURSE_DARK = 0x2a1440;
 
 /** Path of a zone outline (a band is a stroke along its spine, drawn by the caller). */
 function areaPath(g: Graphics, area: Area): Graphics {
@@ -1313,7 +1316,7 @@ export class RealtimeRenderer {
   /** Buttons (stone plates, sunk and green when pressed) and the door (barred, glowing when open). */
   private drawObjects(world: World): void {
     const g = this.objectLayer.clear(), R = OBJECT_RADIUS * UNIT, pulse = 0.5 + 0.5 * Math.sin(this.clock * 4);
-    let lit = 0, out = 0;
+    let lit = 0, out = 0, chests = 0;
     for (const o of world.objects) {
       const x = o.x * UNIT, y = o.y * UNIT;
       if (o.kind === 'brazier') {
@@ -1337,6 +1340,19 @@ export class RealtimeRenderer {
       }
       // Casino stage 1: the goblin's lever is drawn with its idol (slotView.ts).
       if (o.kind === 'lever') continue;
+      if (o.kind === 'chest') {
+        // К7 «Проклятый сундук»: a dark chest bound with a chain, an eye on its lid, a violet glow.
+        chests++;
+        const w = R * 1.9, h = R * 1.35, top = y - h * 0.55;
+        g.ellipse(x, y + h * 0.55, w * 0.55, R * 0.22).fill({ color: 0x050a07, alpha: 0.45 });
+        g.circle(x, y, R * 1.55).fill({ color: CURSE, alpha: 0.1 + 0.1 * pulse });
+        g.roundRect(x - w / 2, top, w, h, 6).fill(0x4a2f22).stroke({ color: NAVY, width: 3 });
+        g.roundRect(x - w / 2, top, w, h * 0.38, 6).fill(0x5d3b2b).stroke({ color: NAVY, width: 3 });
+        g.moveTo(x - w / 2, top + h * 0.15).lineTo(x + w / 2, top + h * 0.75).moveTo(x - w / 2, top + h * 0.75).lineTo(x + w / 2, top + h * 0.15).stroke({ color: 0x8f8a9a, width: 4, alpha: 0.95 });
+        g.ellipse(x, top + h * 0.45, R * 0.42, R * 0.26).fill(BONE).stroke({ color: NAVY, width: 2 });
+        g.circle(x, top + h * 0.45, R * 0.15).fill(CURSE).circle(x, top + h * 0.45, R * 0.06).fill(CURSE_DARK);
+        continue;
+      }
       if (o.kind === 'loot') {
         // Stage 2, step 3: the loot of an elite — a consumable (a flask of its colour) or a resource (a small bundle), bobbing.
         const bob = Math.sin(this.clock * 3 + o.id) * 2, cy = y + bob, color = LOOT_COLOR[o.loot ?? ''] ?? 0xd8c690, item = ['frost', 'bomb', 'healing', 'fire'].includes(o.loot ?? '');
@@ -1386,6 +1402,7 @@ export class RealtimeRenderer {
       }
     }
     this.signals.braziersLit = lit; this.signals.braziersOut = out;
+    this.curseShown.chests = chests;
   }
 
   private drawHero(world: World): void {
@@ -1407,10 +1424,39 @@ export class RealtimeRenderer {
     // Stage F: the after-chain invulnerability — a blinking gold rim, unlike the hurt blink, while it lasts.
     if (hero.chainShield > 0 && world.status === 'playing' && Math.floor(this.clock * 12) % 2 === 0)
       ring.circle(0, 0, UNIT * 0.6).stroke({ color: 0xffd36b, width: 3, alpha: 0.9 });
+    // К7 «Проклятый сундук»: while the curse lasts — a violet border round the hero, breathing.
+    const curse = cursed(world) && world.status === 'playing';
+    if (curse) {
+      const breath = 0.5 + 0.5 * Math.sin(this.clock * 3);
+      ring.circle(0, 0, UNIT * 0.7).stroke({ color: CURSE_DARK, width: 7, alpha: 0.7 }).circle(0, 0, UNIT * 0.7).stroke({ color: CURSE, width: 3 + 2 * breath, alpha: 0.75 + 0.25 * breath });
+    }
+    this.curseShown.border = curse;
     // Small HP bar under the hero: the eye stays near the action.
     const w = 58, frac = hero.maxHp > 0 ? hero.hp / hero.maxHp : 0;
     ring.roundRect(-w / 2, 40, w, 7, 3).fill(0x1a1d17).stroke({ color: 0x0b0d0a, width: 1 });
     ring.roundRect(-w / 2 + 1, 41, (w - 2) * frac, 5, 2).fill(frac > 0.34 ? 0xbd7165 : 0xe0523f);
+  }
+
+  // ---- К7 «Проклятый сундук» (sim/chest.ts): view-only — the chest, the hero's border and the counter under the HP bar ----
+  private curseText: Text | null = null;
+  /** Tests read these: chests drawn, the border drawn, the counter's text now (empty — hidden) in the last frame. */
+  curseShown = { chests: 0, border: false, label: '' };
+
+  /** «проклятие 7/12» under the hero's HP bar while the curse lasts: the dash's kills toward lifting it. */
+  private drawCurseCounter(world: World): void {
+    if (!this.curseText) {
+      this.curseText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 15, fontWeight: 'bold', fill: CURSE, stroke: { color: CURSE_DARK, width: 4 } } });
+      this.curseText.anchor.set(0.5, 0);
+      this.curseText.visible = false;
+      this.root.addChild(this.curseText);
+    }
+    const text = this.curseText, curse = world.curse, on = !!curse && cursed(world) && world.status === 'playing';
+    text.visible = on;
+    if (!on) { this.curseShown.label = ''; return; }
+    const label = `проклятие ${curse!.kills}/${CHEST_CURSE_KILLS}`;
+    if (text.text !== label) text.text = label;
+    text.position.set(world.hero.x * UNIT, world.hero.y * UNIT + 50);
+    this.curseShown.label = label;
   }
 
   private drawOverlay(world: World): void {
@@ -2117,6 +2163,7 @@ export class RealtimeRenderer {
     this.drawPlayerFx(world, realDt);
     this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
     this.drawHero(world);
+    this.drawCurseCounter(world);
     this.drawOverlay(world);
     this.drawJuice(world, realDt);
     this.drawPowerNumber(world, realDt);

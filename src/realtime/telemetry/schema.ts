@@ -146,6 +146,9 @@ export interface RunNodeVisit {
 /** Casino «Ставка клятвы»: the source of the node card's oath choice in `RunRecord.choices` (not the Jailer's `oath`). */
 export const OATH_STAKE_SOURCE = 'oath-stake';
 
+/** B6 К7 «Проклятый сундук»: the source of the chest's talisman choice in `RunRecord.choices` (not the «Застава» `talisman`). */
+export const CHEST_SOURCE = 'chest';
+
 /** Casino «Кость у двери»: the source of the die screen's choice in `RunRecord.choices` (offered `roll` and `take`). */
 export const DIE_SOURCE = 'door-die';
 

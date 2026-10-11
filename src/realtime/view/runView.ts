@@ -528,16 +528,19 @@ export class RunView {
         + `<div class="rt-run-choices">${options}</div><button class="rt-other" data-action="hammer" data-option="" data-testid="hammer-refuse">Отказаться</button>`, 'run-hammer');
     }
     if (pending.kind === 'talisman') {
-      const title = pending.source === 'oath' ? 'Клятва или реликвия' : 'Талисман';
+      // B6 К7 «Проклятый сундук»: the chest's own screen after the «Застава» talismans (its card `run-chest`).
+      const chest = pending.source === 'chest';
+      const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : 'Талисман на выбор';
       const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option))}</b>${talismanCardLines(option)}</button>`).join('');
-      const note = pending.source === 'oath' ? 'У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
-      // B5 К10 «Переброс»: «Застава» and an event's reward (not the Jailer); the price grows on the screen, off with its reason.
+      const note = pending.source === 'oath' ? 'У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.'
+        : chest ? 'Награда за сундук: талисман на выбор. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
+      // B5 К10 «Переброс»: «Застава», an event's reward and the chest (not the Jailer); the price grows on the screen, off with its reason.
       const reroll = rtRerollView(run);
       const rerollHtml = reroll ? `<button class="rt-other" data-action="talisman-reroll" data-testid="talisman-reroll" ${reroll.available ? '' : 'disabled'}>Перебросить — ${resourcesWord(reroll.price)}</button>`
         + `<p class="rt-run-note rt-run-reroll-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="talisman-reroll-note">${reroll.available
           ? `Ресурсов: ${reroll.total}. Показанные вернутся в пул, но на этом экране не выпадут.` : escapeHtml(reroll.reason)}</p>` : '';
-      return card(`<h2>${title} на выбор</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
-        + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, 'run-talisman');
+      return card(`<h2>${title}</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
+        + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : 'run-talisman');
     }
     if (pending.kind === 'find') {
       const options = pending.options.map(item => `<button class="rt-run-choice" data-action="find" data-item="${item}" data-testid="find-${item}"><b>${escapeHtml(ITEM_TITLES[item])}</b>`

@@ -64,6 +64,8 @@ export function worldState(world: World): unknown {
     ...world.oath ? { oath: world.oath } : {},
     // П9 «Второе дыхание» (world.ts): the tick and game time the second wind was used (absent until then — worlds hash as before).
     ...world.secondWind ? { secondWind: world.secondWind } : {},
+    // К7 «Проклятый сундук» (chest.ts): the curse of the fight (absent until the chest is taken — worlds hash as before).
+    ...world.curse ? { curse: world.curse } : {},
   };
 }
 

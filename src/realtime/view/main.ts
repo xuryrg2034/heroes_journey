@@ -564,7 +564,7 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} });
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -1090,6 +1090,9 @@ async function boot(): Promise<void> {
         talismanTexts: renderer.talismanTexts,
         /** П9 «Второе дыхание»: the tick it was used (null — not yet) and the flashes with its text shown so far. */
         secondWind: { used: w.secondWind?.tick ?? null, shown: renderer.secondWindShown },
+        /** К7 «Проклятый сундук»: the curse of the fight (null — the chest not taken) and what the view drew in the last frame. */
+        curse: w.curse ? { ...w.curse } : null,
+        curseView: { ...renderer.curseShown },
         /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */
         playerEffects: { ...renderer.playerEffects },
         /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */

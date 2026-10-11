@@ -29,6 +29,8 @@ import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type Purs
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
+// К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
+import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -133,7 +135,7 @@ export interface ArenaObject {
    * Stage 3a (М4): `brazier` — a link of any colour anywhere in the chain (no colour change); the rest of the chain gets
    * +`brazierPower`; the dash puts it out for `brazierCooldown` game seconds (`out`).
    */
-  kind: 'button' | 'door' | 'crystal' | 'loot' | 'brazier' | 'lever';
+  kind: 'button' | 'door' | 'crystal' | 'loot' | 'brazier' | 'lever' | 'chest';
   x: number;
   y: number;
   /** Button: pressed once and for all. */
@@ -147,7 +149,8 @@ export interface ArenaObject {
   /** Brazier (stage 3a, М4): game seconds left until it burns again; absent — it burns (a chain may take it). */
   out?: number;
   // Casino stage 1: `lever` — the lever of «Однорукий гоблин» (slot.ts): any colour, the last link, as a button; its state
-  // (marker, cooldown, pulls) lives in `World.slot`.
+  // (marker, cooldown, pulls) lives in `World.slot`. К7: `chest` — the cursed chest (chest.ts): a pass-through link as the
+  // loot, taken by a chain or a touch; its curse lives in `World.curse`.
 }
 
 /** Radius of a button, the door or a crystal (units): the drawn circle, the pick circle, the door entry. */
@@ -314,6 +317,9 @@ export type WorldEvent =
    * them; `enemy` and `elite` — the striker's kind if it stood on the arena at the hit (a porcupine the same dash kills next).
    */
   | { type: 'secondWind'; x: number; y: number; hp: number; enemyId: number; source: HitSource; enemy?: EnemyKind; elite?: boolean }
+  /** К7 «Проклятый сундук» (chest.ts): the hero took the chest (`by` a chain link or a touch); the dash's kills lifted the curse. */
+  | { type: 'chest'; objectId: number; x: number; y: number; by: CurseState['by'] }
+  | { type: 'curseLifted'; kills: number }
   | { type: 'focusRefill' }
   /**
    * Stage 3a, steps 3–4: a kind's own signal for the view and the sound — the wolves' howl (`howl`), the lynx announcing
@@ -454,6 +460,8 @@ export interface World {
    * Absent until used (worlds without it hash as before).
    */
   secondWind?: { tick: number; time: number };
+  /** К7 «Проклятый сундук» (chest.ts, `Params.cursedChest`): the curse of the fight, absent until the chest is taken. */
+  curse?: CurseState;
 }
 
 /**
@@ -561,6 +569,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     if (s.elite) makeElite(world, e);
     pushOutOfObstacles(e, bodyRadiusOf(params, e), arena);
   }
+  // К7 «Проклятый сундук»: the chest at the template's point (after the start enemies: they keep their ids).
+  placeChest(world);
   world.stats.spawned = 0;
   world.events.length = 0;
   // Phase B: the build modules see the arena start (the kit and the start enemies are there).
@@ -637,6 +647,11 @@ export function win(world: World, by: DoorExit): void {
 
 /** Contact damage of one enemy now: its kind decides (the reaper, a wolf with its pack bonus, the base touch). */
 export function touchDamage(world: World, e: Enemy): number {
+  // К7 «Проклятый сундук»: the curse adds +1 to the touch (not the reaper's); nothing while the chest is not taken.
+  const damage = touchBase(world, e);
+  return world.curse ? curseTouch(world, e, damage) : damage;
+}
+function touchBase(world: World, e: Enemy): number {
   // The elite bonus comes in `hurtHero` (every hit of an elite, stage 2, step 3) — not on a raised touch (`touchRaised`).
   const base = kindOf(e).touchDamage(world, e);
   if (base <= 0 || !touchRaised(world, e)) return base;
@@ -1249,6 +1264,8 @@ export function update(world: World, dt: number, realDt = dt): void {
   stepHeroWalk(world, dt);
   // Stage 2, step 3: the walking hero picks up the loot he touches.
   touchLoot(world);
+  // К7 «Проклятый сундук»: and the chest (nothing on an arena without it).
+  touchChest(world);
   // Walking in wins on a NEW touch of the open door only (design 07.10.2026): a hero standing on the door when it opens
   // keeps the choice to stay greedy — he must step off and touch it again (or enter by a chain or a jump).
   const onDoor = heroTouchesDoor(world), touchedNow = onDoor && !world.heroOnDoor;

@@ -24,6 +24,13 @@ registerArena({
   id: 'run-fight-field', name: 'Поле похода', summary: 'Тест боя похода', goal: 'kills', width: 20, height: 12,
   heroStart: { x: 4.5, y: 6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, enemies: [], killGoal: 999,
 });
+/** B6 К7 (chestRun.spec.ts): the same field with a cursed chest point, as «Застава» has one — below the hero, off the chains' row. */
+export const RUN_CHEST_FIELD = 'run-chest-field';
+export const RUN_CHEST_POINT = { x: 4.5, y: 9.5 };
+registerArena({
+  id: RUN_CHEST_FIELD, name: 'Поле похода с сундуком', summary: 'Тест проклятого сундука в походе', goal: 'kills', width: 20, height: 12,
+  heroStart: { x: 4.5, y: 6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, enemies: [], killGoal: 999, chest: RUN_CHEST_POINT,
+});
 
 /** A quiet fight: no newcomers, nobody walks or touches, no hit-stop. The run's params go on top (`rtRunParams`). */
 export function quiet(extra: Partial<Params> = {}): Params {
@@ -58,6 +65,10 @@ export interface FightPlan {
   lose?: boolean;
   /** The fight's seed index (`seedOf`). */
   k?: number;
+  /** The test field the fight plays on (B6 К7: `RUN_CHEST_FIELD`); absent — `run-fight-field`. */
+  arena?: string;
+  /** Journalled play before the chains (B6 К7: take the chest). */
+  start?: (sim: Simulation, seen: (w: World) => void) => void;
   /** More journalled play after the chains (before the end). */
   play?: (sim: Simulation, seen: (w: World) => void) => void;
   /** Every tick's events, as the view's frame sees them. */
@@ -70,15 +81,16 @@ export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}): Rt
   assert(pending?.kind === 'battle', 'an open battle');
   return { nodeId: pending.nodeId, won: w.status === 'victory', hp: w.status === 'victory' ? Math.min(run.maxHp, w.hero.hp) : 0, kills: w.stats.kills, bestChain: w.stats.bestChain,
     ...Object.keys(luck).length ? { luck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {},
-    ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} };
+    ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {} };
 }
 
 /** The open battle of `run` played on the quiet field by `plan`; it replays from its journal to the same hash. */
 export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; outcome: RtArenaOutcome; events: WorldEvent[] } {
-  const sim = new Simulation({ arena: 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(plan.k ?? 1), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp } });
+  const sim = new Simulation({ arena: plan.arena ?? 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(plan.k ?? 1), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp } });
   const luck: RtLuckTally = {}, events: WorldEvent[] = [];
   const seen = (w: World): void => { observeFightLuck(luck, w.events); events.push(...w.events); plan.seen?.(w); };
   sim.command({ t: 'clear', keepMarked: false });
+  plan.start?.(sim, seen);
   for (const n of plan.chains) chainOf(sim, n, seen);
   plan.play?.(sim, seen);
   if (plan.lose) {

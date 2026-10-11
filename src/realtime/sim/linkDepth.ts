@@ -29,8 +29,8 @@ export const LINK_DEPTH_BUDGET = 200;
 /** The view shows the number only from this depth on. */
 export const LINK_DEPTH_SHOWN = 2;
 
-/** Objects the chain goes on after (`passObject` of chain.ts): crystal, loot, a burning brazier. */
-const PASS_KINDS: ReadonlySet<string> = new Set(['crystal', 'loot', 'brazier']);
+/** Objects the chain goes on after (`passObject` of chain.ts): crystal, loot, a burning brazier, the cursed chest (К7). */
+const PASS_KINDS: ReadonlySet<string> = new Set(['crystal', 'loot', 'brazier', 'chest']);
 
 export interface LinkDepth {
   /** The candidate enemy. */

@@ -72,6 +72,9 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * (the same version, 12.10.2026): the run's luck tally `luck` (rtLuck.ts), absent until the first chance; a save before it has none.
  * B5 К10 «Переброс» (the same version, 12.10.2026): an open talisman offer may carry `rerolls` and `rerolled`, absent until its
  * first reroll; a save before it has none (its offer rerolls from price 1).
+ * B6 К7 «Проклятый сундук» (the same version, 12.10.2026): a battle record may carry `chest` (the chest of «Застава» taken),
+ * an open talisman offer may come from the chest (source `chest`, after the «Застава» talismans); a save before it has
+ * neither (its «Застава» offer completes the node as before).
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -89,11 +92,14 @@ export const RT_RUN_VERSION_V6 = 6;
  * `createRtRun`), the arena and roster choices read it there; the simulation never reads it. П4 «Раздув за дела»
  * (`greedByDeeds`, design 11.10.2026) is on: the greed step after the goals multiplies the cauldron at the door
  * (`PurseDoor.greed`, paid by `doorPayout` with or without the die). П3 «Финальная цепь» (`doorFinale`, design 12.10.2026) is
- on: a chain into the door gets +1 heat in its cheque.
+ * on: a chain into the door gets +1 heat in its cheque. B6 К7 «Проклятый сундук» (`cursedChest`, design 12.10.2026) is on:
+ * the chest stands on «Застава» (its authored point); taken, a talisman screen of its own follows the won fight's talismans.
  */
 export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, greedByDeeds: true, doorFinale: true, oathStake: true, doorDie: true, rosterMix: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
-  slotPulls: 3, slotCooldown: 8, slotSpin: 1.2 });
+  slotPulls: 3, slotCooldown: 8, slotSpin: 1.2,
+  // B6 К7 «Проклятый сундук» (design 12.10.2026): the chest of «Застава».
+  cursedChest: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
@@ -130,6 +136,8 @@ export type RtRunPending =
   /**
    * Step 3: a talisman choice — after a won hard battle (`hard`), the Jailer's row (`oath`: oaths and, phase B, relics) or an event's reward
    * battle (`event`: common talismans); one option or a refusal (an empty offer — the refusal only), the node completes after it.
+   * B6 К7 «Проклятый сундук» (the same version 7, 12.10.2026): after the `hard` choice of a fight whose record has `chest`, the
+   * chest's own offer (`chest`: RT_CHEST_TALISMANS common talismans) follows; the node completes after that one.
    * B5 К10 «Переброс» (the same version 7, 12.10.2026; `rtRerollTalismans`): `rerolls` — the rerolls made on this screen (the
    * next costs RT_REROLL_PRICE + rerolls), `rerolled` — every talisman shown and rerolled away here (not drawn again on this
    * screen; back in the pool after it). Both absent until the first reroll: a screen without one saves as before.
@@ -167,7 +175,14 @@ export interface RtShopPurchase { good: RtShopGoodKind; slot?: number; item?: It
  * One arena of the run, won or lost: what the result screen shows. `bestChain` (П10 «Личный рекорд», the same version 7,
  * 12.10.2026) — the fight's longest chain in kills (`stats.bestChain`, the HUD's «цепь N»); absent — a record saved before it.
  */
-export interface RtBattleRecord { nodeId: string; arena: string; won: boolean; kills: number; damage: number; time: number; bestChain?: number }
+export interface RtBattleRecord {
+  nodeId: string; arena: string; won: boolean; kills: number; damage: number; time: number; bestChain?: number;
+  /**
+   * B6 К7 «Проклятый сундук» (the same version 7, 12.10.2026): the hero took the chest in this fight (only «Застава»; its curse
+   * lifted or not). Absent — not taken, or a record saved before it. A won fight with it owes the chest's talisman screen.
+   */
+  chest?: true;
+}
 /**
  * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
  * template's own composition.
@@ -305,6 +320,8 @@ export interface RtArenaOutcome {
   nodeId: string; won: boolean; hp: number; kills: number; damage: number; time: number;
   /** П10 «Личный рекорд»: the fight's longest chain in kills (`stats.bestChain`); absent — not recorded (the record has none). */
   bestChain?: number;
+  /** B6 К7 «Проклятый сундук»: the hero took the chest in the fight (`world.curse` is there); absent or false — not taken. */
+  chest?: boolean;
   /**
    * П5 «Журнал удачи»: the fight's chance as the view saw it in the sim's events (rtLuck.ts `observeFightLuck`: the goblin's
    * pulls, the player's kills of armoured elites); only the fight's keys (`RT_FIGHT_LUCK_KEYS`) are taken. Absent — none.
@@ -511,8 +528,17 @@ function offerTalismans(run: RtRunState, nodeId: string, source: RtTalismanSourc
   run.pending = { kind: 'talisman', nodeId, source, options };
   events.push({ type: 'talisman-offered', nodeId, options: [...options] });
 }
-/** Where a talisman offer comes from: a won hard battle, the Jailer's row (oaths and relics), an event's reward battle. */
-export type RtTalismanSource = 'hard' | 'oath' | 'event';
+/**
+ * Where a talisman offer comes from: a won hard battle, the Jailer's row (oaths and relics), an event's reward battle, the
+ * cursed chest of a won hard battle (B6 К7, after the hard battle's own offer).
+ */
+export type RtTalismanSource = 'hard' | 'oath' | 'event' | 'chest';
+/** Баланс (research К7, design 12.10.2026): the chest offers this many common talismans (an empty rarity gives way to uncommon). */
+export const RT_CHEST_TALISMANS = 2;
+/** B6 К7: the won fight of `nodeId` took the cursed chest — its talisman screen follows the hard battle's. */
+export function rtChestOwed(run: Pick<RtRunState, 'battles'>, nodeId: string): boolean {
+  return run.battles.some(record => record.nodeId === nodeId && record.won && record.chest === true);
+}
 /**
  * The talisman offer of `source` at `nodeId` from `base` (one draw of the run's `talismans` stream) over the run's pool with
  * `exclude` out of it too: a hard battle's three, the Jailer's oaths and relics, an event battle's common ones (its
@@ -522,6 +548,8 @@ export type RtTalismanSource = 'hard' | 'oath' | 'event';
  */
 function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSource, base: number, exclude: readonly RtTalismanId[] = []): RtTalismanOption[] | null {
   const pool = exclude.length ? { taken: run.talismans, gone: [...run.talismansGone, ...exclude] } : talismanPool(run);
+  // B6 К7: the chest's commons — the real-time draw of the gift and events (no rare ones).
+  if (source === 'chest') return rtEventTalismanOffer(base, RT_CHEST_TALISMANS, pool);
   if (source !== 'event') return rtTalismanOffer(base, source, pool);
   const pick = run.picks.find(entry => entry.nodeId === nodeId), battle = pick?.eventId ? battleOption(forestEvent(pick.eventId)!)?.battle : undefined;
   return battle ? rtEventTalismanOffer(base, battle.talismanChoice, pool) : null;
@@ -532,10 +560,11 @@ function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSour
 /** Баланс (design 12.10.2026): the first reroll of a screen costs this many resources; each next one on the screen 1 more. */
 export const RT_REROLL_PRICE = 1;
 /**
- * The offers that may be rerolled (design 12.10.2026): «Застава» (`hard`) and an event's reward (`event`); not the Jailer's
- * oaths and relics (`oath`). The reroll works on the open offer by its source (`talismanOfferOf`), not on the screen.
+ * The offers that may be rerolled (design 12.10.2026): «Застава» (`hard`), an event's reward (`event`) and the cursed chest
+ * (`chest`, B6); not the Jailer's oaths and relics (`oath`). The reroll works on the open offer by its source
+ * (`talismanOfferOf`), not on the screen.
  */
-export const RT_REROLL_SOURCES: readonly RtTalismanSource[] = ['hard', 'event'];
+export const RT_REROLL_SOURCES: readonly RtTalismanSource[] = ['hard', 'event', 'chest'];
 /** The reroll of the open offer: its price now, the resources in hand, the rerolls made on this screen, why it is off. */
 export interface RtRerollView { price: number; total: number; rerolls: number; available: boolean; reason: string }
 /**
@@ -573,7 +602,9 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
 }
 /**
  * Take one of the offered talismans or refuse (`null`). The options not taken leave the pool for the rest of the run; the
- * slice has no «пустышка» (design answer 10). An event's reward battle completes its event; the node completes.
+ * slice has no «пустышка» (design answer 10). An event's reward battle completes its event; the node completes — unless the
+ * hard battle took the cursed chest (B6 К7): then the chest's offer opens (the next `talismans` draw over the pool after this
+ * choice) and the node completes after it.
  */
 export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption | null): RtRunStep {
   const pending = current.pending;
@@ -589,6 +620,10 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
       run.eventChoices.push({ nodeId: node.id, option: option.id, outcome: 0 });
       events.push({ type: 'event-resolved', nodeId: node.id, option: option.id, outcome: 0, text: chosen ? `победа, талисман «${rtTalisman(chosen)?.name ?? chosen}»` : 'победа' });
     }
+  }
+  if (pending.source === 'hard' && rtChestOwed(run, node.id)) {
+    offerTalismans(run, node.id, 'chest', talismanOfferOf(run, node.id, 'chest', draw(run, 'talismans', true))!, events);
+    return { ok: true, run, events };
   }
   completeNode(run, node, events); return { ok: true, run, events };
 }
@@ -801,7 +836,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   const run = structuredClone(current), events: RtRunEvent[] = [];
   const count = (value: number) => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
   run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0),
-    ...outcome.bestChain !== undefined ? { bestChain: count(outcome.bestChain) } : {} });
+    ...outcome.bestChain !== undefined ? { bestChain: count(outcome.bestChain) } : {},
+    // B6 К7: the chest of «Застава» was taken (no other arena has one).
+    ...outcome.chest === true && pending.arena === HARD_ARENA ? { chest: true as const } : {} });
   // П5: the fight's chance joins the run's tally (a lost fight's too).
   const luck = addLuck(run.luck, outcome.luck, RT_FIGHT_LUCK_KEYS);
   if (luck) run.luck = luck;
@@ -1527,6 +1564,8 @@ function checkRun(value: unknown): RtRunState | null {
     if (!isRecord(record) || !known(record.nodeId) || typeof record.arena !== 'string' || record.arena !== run.picks.find(pick => pick.nodeId === record.nodeId)?.arena || typeof record.won !== 'boolean'
       || !isCount(record.kills) || !isCount(record.damage) || typeof record.time !== 'number' || !Number.isFinite(record.time) || record.time < 0
       || (record.bestChain !== undefined && !isCount(record.bestChain))) return null;
+    // B6 К7: only «Застава» has the chest.
+    if (record.chest !== undefined && (record.chest !== true || record.arena !== HARD_ARENA)) return null;
   }
   // П5: the luck tally — known sources, valid counts; no more die rolls than dice shown.
   if (run.luck !== undefined && !(validLuckTally(run.luck) && (run.luck.die?.tries ?? 0) <= (run.dieDraws ?? 0))) return null;
@@ -1573,7 +1612,9 @@ function checkRun(value: unknown): RtRunState | null {
     case 'rest': if (node.type !== 'rest' || !isItemList(pending.crafted)) return null; break;
     case 'talisman': {
       const source = pending.source, options = pending.options;
-      if (!(source === 'hard' && node.type === 'hard' || source === 'oath' && node.type === 'checkpoint' || source === 'event' && node.type === 'event')) return null;
+      if (!(source === 'hard' && node.type === 'hard' || source === 'oath' && node.type === 'checkpoint' || source === 'event' && node.type === 'event'
+        // B6 К7: the chest's offer — a hard node whose won fight took the chest (its own offer was chosen before).
+        || source === 'chest' && node.type === 'hard' && rtChestOwed(run, node.id))) return null;
       if (!Array.isArray(options) || options.length > 3 || !options.every(option => isRtTalisman(option)) || new Set(options).size !== options.length) return null;
       // B5 К10 (the same version 7): the rerolls of this screen and the talismans they took away — both or neither; only an
       // offer that is rerolled; each reroll took at least one shown talisman and one `talismans` draw; the shown ones are
