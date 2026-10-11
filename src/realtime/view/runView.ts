@@ -27,6 +27,7 @@ import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanText } from '../run/rtT
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
+import type { SessionClock } from './session';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 
 /** What the run asks of the arena view. */
@@ -54,6 +55,11 @@ export interface RunHost {
    * звена»; П7 adds «Часы сессии». Absent or empty — no gear.
    */
   viewToggles?: readonly RunViewToggle[];
+  /**
+   * П7 «Часы сессии»: the viewer's session clock and whether its lines are on (the gear's toggle). Absent — no lines. The
+   * lines are the end screen's «В игре … · походов …» and, after 90 minutes, one quiet line on the map (never in a fight).
+   */
+  session?: { clock: SessionClock; on(): boolean };
 }
 
 /** One checkbox of the gear on the run map: its id (`data-testid` `view-<id>`), label, tooltip, value now and setter. */
@@ -150,6 +156,8 @@ export class RunView {
   private settingsOpen = false;
   /** The arena of the open battle node is on screen. */
   private inArena = false;
+  /** П7: the nudge taken for this showing of the map (null — none due); a fight or a new run drops it. */
+  private sessionNudge: string | null = null;
   /**
    * Casino stage 1, item 4: the thrown die shown over the run screen — its face and payout (the run already paid it: a reload
    * only drops the picture), `landed` — the animation is over (or skipped by a click).
@@ -170,6 +178,7 @@ export class RunView {
   /** Shows the run screen: the map of the saved run, or the start of a new one. */
   open(): void {
     this.inArena = false;
+    this.sessionNudge = null;
     this.el.hidden = false;
     this.host.onScreenChange(true);
     this.draw();
@@ -181,6 +190,7 @@ export class RunView {
     const value = (seed ?? this.fixedSeed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     const previous = this.run;
     this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded });
+    this.host.session?.clock.runStarted();
     this.store.save(this.run);
     this.host.runStarted?.(previous, this.run);
     this.selected = null; this.notice = ''; this.confirmReset = false;
@@ -266,6 +276,7 @@ export class RunView {
     if (action === 'view-toggle') {
       const toggle = this.host.viewToggles?.find(t => t.id === target.dataset.toggle);
       if (toggle) toggle.set((target as HTMLInputElement).checked);
+      this.draw(); // П7: a line shown or hidden by the toggle follows at once (the box stays open)
       return;
     }
     if (!run) return;
@@ -344,6 +355,9 @@ export class RunView {
   draw(): void {
     const run = this.run;
     if (!run) { this.el.innerHTML = this.startHtml(); return; }
+    // П7: on the map (not in a fight, not at the end) a due nudge is taken once and stays until the map is left.
+    const session = this.host.session;
+    if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
     this.el.innerHTML = `${this.headerHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}`;
   }
 
@@ -371,12 +385,12 @@ export class RunView {
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}${this.logsButton()}${this.settingsHtml()}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
-      + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '');
+      + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '')
+      + (this.sessionNudge && this.host.session?.on() && !run.result ? `<p class="rt-run-session" data-testid="run-session-nudge">${escapeHtml(this.sessionNudge)}</p>` : '');
   }
 
   /**
-   * П1: the gear of the map header and, open, its view settings — one checkbox per `viewToggles` entry (П7 adds «Часы
-   * сессии» as the next one). Not in the fight HUD.
+   * П1: the gear of the map header and, open, its view settings — one checkbox per `viewToggles` entry («Часы сессии» (П7) is the next one). Not in the fight HUD.
    */
   private settingsHtml(): string {
     const toggles = this.host.viewToggles ?? [];
@@ -441,6 +455,7 @@ export class RunView {
       const won = run.result.outcome === 'victory', kills = run.battles.reduce((sum, b) => sum + b.kills, 0), damage = run.battles.reduce((sum, b) => sum + b.damage, 0);
       return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2><dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd><dt>Ряд похода</dt><dd>${runRow(rtNode(run, run.result.nodeId)!.row)}</dd></dl>`
+        + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
         + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }
     const pending = run.pending;

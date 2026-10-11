@@ -80,3 +80,17 @@ export function loadSandboxBuild(): SandboxBuild {
 export function saveSandboxBuild(build: SandboxBuild): void {
   try { localStorage.setItem(BUILD_KEY, JSON.stringify(build)); } catch { /* storage may be unavailable */ }
 }
+
+/**
+ * П7 «Часы сессии»: the end-screen line and the 90-minute nudge on the run map — a local setting of the view, not a Param:
+ * its own key, on by default; storage may be unavailable (then on). The gear of the run map switches it.
+ */
+const SESSION_CLOCK_KEY = 'ashen-oath-realtime-session-clock';
+
+export function loadSessionClock(): boolean {
+  try { return localStorage.getItem(SESSION_CLOCK_KEY) !== '0'; } catch { return true; }
+}
+
+export function saveSessionClock(on: boolean): void {
+  try { localStorage.setItem(SESSION_CLOCK_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
+}

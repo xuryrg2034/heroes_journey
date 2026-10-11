@@ -30,7 +30,8 @@ import { replay, Simulation, type Journal } from '../sim/simulation';
 import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, PARAMS_STORAGE_KEY, saveLinkDepth, saveParams, saveRoleBadges, saveSandboxBuild } from './paramStorage';
+import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadSessionClock, PARAMS_STORAGE_KEY, saveLinkDepth, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
+import { SessionClock } from './session';
 import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
 import { doorPayout, nextHeat } from '../sim/purse';
@@ -501,6 +502,15 @@ async function boot(): Promise<void> {
   const running = (): boolean => !paused && !menuOpen && !runScreenOpen && world().status === 'playing';
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
+  // П7 «Часы сессии»: the viewer's session clock (the view only); heartbeat while the tab is visible, so only a hidden or
+  // closed tab for 10+ minutes counts as a break.
+  const sessionClock = new SessionClock();
+  let sessionClockOn = loadSessionClock();
+  sessionClock.touch();
+  if (!sandbox) {
+    window.setInterval(() => { if (document.visibilityState === 'visible') sessionClock.touch(); }, 30_000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sessionClock.touch(); });
+  }
   const runView: RunView | null = sandbox ? null : new RunView({
     startArena(arenaId, seed, hero, label, loadout, notice, roster) {
       runLabel = label;
@@ -519,10 +529,12 @@ async function boot(): Promise<void> {
       runStarted: (previous, run) => recorder?.runStarted(previous, run),
     } : {},
     ...logsPanel ? { openLogs: () => logsPanel.show() } : {},
-    // П1: the view settings on the gear of the run map (the fight HUD has none). П7 adds «Часы сессии» here.
+    // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [
       { id: 'link-depth', label: 'Глубина звена', hint: 'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него.', get: () => renderer.showLinkDepth, set: setLinkDepth },
+      { id: 'session-clock', label: 'Часы сессии', hint: 'Время в игре на экране конца похода и одна тихая строка на карте после 90 минут игры.', get: () => sessionClockOn, set: on => { sessionClockOn = on; saveSessionClock(on); } },
     ],
+    session: { clock: sessionClock, on: () => sessionClockOn },
   }, fixedSeed);
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
@@ -1113,6 +1125,13 @@ async function boot(): Promise<void> {
      * by the door) is first put 2 units off it towards the arena's centre, and the hook waits for a tick off the door.
      */
     run: runView ? {
+      /** П7 test hook: `play(ms)` moves the session clock forward with heartbeats (nothing waits 90 minutes), `advance(ms)` jumps (a break if 10+ minutes), `info()` reads it. */
+      session: {
+        advance: (ms: number) => sessionClock.advance(ms),
+        /** Plays `ms` of session time in 5-minute steps with a heartbeat each (one jump of 10+ minutes would be a break). */
+        play: (ms: number) => { for (let left = ms; left > 0; left -= 5 * 60_000) { sessionClock.advance(Math.min(left, 5 * 60_000)); sessionClock.touch(); } },
+        info: () => sessionClock.info(),
+      },
       state: () => runView.state ? JSON.parse(JSON.stringify(runView.state)) : null,
       newRun: (seed?: number) => { runView.newRun(seed); },
       enter: (nodeId: string) => runView.enter(nodeId),
