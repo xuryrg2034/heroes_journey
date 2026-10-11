@@ -13,6 +13,7 @@ import { makeElite } from './elites';
 import { beginChain, cancelChain, dragChain, dragChainAlong, jump, releaseChain, type DragMode } from './chain';
 import { setParam, setPhases, type ParamKey, type Phase } from './params';
 import { spawnBurst, spawnEnemy } from './spawn';
+import { summonGoblin } from './slot';
 import { completeGoals, type EnemyKind, type World } from './world';
 
 export type Command =
@@ -62,7 +63,9 @@ export type Command =
    */
   | { t: 'chill'; id: number; seconds: number }
   /** Test setup (stage 2, step 3): the number of consumables of `kind` in hand (a world without a kit gets one). */
-  | { t: 'items'; kind: ItemKind; count: number };
+  | { t: 'items'; kind: ItemKind; count: number }
+  /** Casino stage 1 (the sandbox panel button «Гоблин»): «Однорукий гоблин» near the hero now, by its place rules (slot.ts). */
+  | { t: 'slot' };
 
 /** What a command returned: true/false for the chain, the jump and the spin, the new id for `place` and `crystal`. */
 export type CommandResult = boolean | number | void;
@@ -121,5 +124,6 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       if (Object.hasOwn(world.kit.items, cmd.kind)) world.kit.items[cmd.kind] = Math.max(0, Math.floor(cmd.count));
       return;
     }
+    case 'slot': return summonGoblin(world);
   }
 }

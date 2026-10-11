@@ -403,6 +403,8 @@ export interface FightSummary {
   };
   /** Package «Урон имеет значение» (from 11.10.2026): the elites of the fight (`elite` set; armoured or not). */
   elites: EliteSummary;
+  /** Casino stage 1 (from 11.10.2026; absent in older records — `withSummaryDefaults`): «Однорукий гоблин» of the fight. */
+  slot: SlotSummary;
   kills: {
     chain: number;
     /** Kills by the player's tools: hammer, wave, bomb, a sapper's blast set off by the chain … */
@@ -446,6 +448,29 @@ export interface EliteSummary {
   loot: { dropped: number; picked: number };
 }
 
+/**
+ * Casino stage 1: «Однорукий гоблин» (sim/slot.ts) in one fight — read from the `slot` events, the `hit` events of the arrows
+ * (`slot-volley`, `slot-rain`) and the `kill` events of the source `slot`.
+ */
+export interface SlotSummary {
+  /** Goblins that appeared (the battle's roll or the sandbox button). */
+  appeared: number;
+  /** Game seconds from the goals to the first appearance (null — none, or before the goals: the sandbox button). */
+  appearAfterGoals: number | null;
+  /** Pulls of the lever; enemy links the dash struck before the lever, one number per pull. */
+  pulls: number;
+  links: number[];
+  /** Outcomes of the pulls by kind (`rain`, `volley`, `heart3` … `none`; sim/slot.ts `SlotOutcome`). */
+  outcomes: Record<string, number>;
+  /** Effects that came (the 3rd reel stopped); spins cut by the end of the fight (the door, a defeat). */
+  effects: number;
+  cancelled: number;
+  /** HP the hero lost to the volley and to the rain. */
+  damage: { volley: number; rain: number };
+  /** Enemies the arrows killed (the player's; also in `kills.tools.slot`). */
+  kills: number;
+}
+
 /** A summary of nothing (a fight without an observer, the start of a fight). */
 export function emptyFightSummary(): FightSummary {
   return {
@@ -459,6 +484,7 @@ export function emptyFightSummary(): FightSummary {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,
       platesBySource: {}, loot: { dropped: 0, picked: 0 },
     },
+    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0 },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },

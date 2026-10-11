@@ -53,10 +53,29 @@ export class ChainAudio {
     else if (kind === 'empower') this.tone(180, 'triangle', 0.25, volume * 0.6);
   }
 
-  private tone(freq: number, type: OscillatorType, length: number, volume: number): void {
+  /** Casino stage 1 («Однорукий гоблин»): the idol appears — a jingle of coins. */
+  coins(volume: number): void {
+    for (let i = 0; i < 4; i++) this.tone(1320 + 220 * (i % 2), 'triangle', 0.09, volume * 0.45, i * 0.07);
+  }
+
+  /** Casino stage 1: the lever pulled — a wooden clack and the rattle of the reels. */
+  lever(volume: number): void {
+    this.tone(150, 'square', 0.06, volume * 0.6);
+    for (let i = 1; i <= 6; i++) this.tone(700, 'square', 0.025, volume * 0.2, i * 0.15);
+  }
+
+  /** Casino stage 1: the 3rd reel stopped — coins for a good result, a low horn for arrows, a snicker for nothing. */
+  slotResult(outcome: string, volume: number): void {
+    if (outcome === 'rain' || outcome === 'volley') { this.tone(98, 'sawtooth', 0.5, volume * 0.5); return; }
+    if (outcome === 'none') { for (let i = 0; i < 3; i++) this.tone(520 - 60 * i, 'square', 0.07, volume * 0.25, i * 0.1); return; }
+    const notes = outcome === 'jackpot' || outcome.endsWith('3') ? 6 : 3;
+    for (let i = 0; i < notes; i++) this.tone(990 * Math.pow(2, i / 12 * 2), 'triangle', 0.1, volume * 0.5, i * 0.06);
+  }
+
+  private tone(freq: number, type: OscillatorType, length: number, volume: number, delay = 0): void {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running' || volume <= 0) return;
-    const t = ctx.currentTime, osc = ctx.createOscillator(), gain = ctx.createGain();
+    const t = ctx.currentTime + Math.max(0, delay), osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
     osc.frequency.exponentialRampToValueAtTime(freq * 0.7, t + length);

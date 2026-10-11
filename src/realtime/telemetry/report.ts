@@ -374,6 +374,27 @@ function eliteRows(runFights: readonly FightEntry[], sandbox: readonly FightEntr
   const runs = eliteRow('походы', runFights), box = eliteRow('песочница', sandbox);
   return [runs, box, runs && box ? eliteRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
 }
+/** Casino stage 1: «Однорукий гоблин» of some fights as one row (`label` — the group); null — no goblin there. */
+function slotRow(label: string, entries: readonly FightEntry[]): (string | number)[] | null {
+  const list = entries.filter(e => (e.analysis?.summary.slot?.appeared ?? 0) > 0), slots = list.map(e => e.analysis!.summary.slot);
+  if (!slots.length) return null;
+  const sum = (f: (x: FightSummary['slot']) => number): number => slots.reduce((a, x) => a + f(x), 0);
+  const outcomes: Record<string, number> = {};
+  for (const x of slots) for (const [k, v] of Object.entries(x.outcomes)) bump(outcomes, k, v);
+  const pulled = slots.filter(x => x.pulls > 0).length, links = slots.flatMap(x => x.links);
+  const after = list.map(e => e.analysis!.summary.tempo.afterGoals).filter((x): x is number => x !== null);
+  const appearAt = slots.map(x => x.appearAfterGoals).filter((x): x is number => x !== null);
+  const deaths = list.filter(e => e.record.outcome === 'defeat' && e.analysis!.summary.tempo.afterGoals !== null).length;
+  return [
+    label, `${list.length} из ${entries.length}`, `${pulled} (${pct(pulled, list.length)})`, n1(median(slots.map(x => x.pulls))),
+    links.length ? n1(median(links)) : '—', Object.entries(outcomes).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || '—',
+    `${sum(x => x.effects)} / ${sum(x => x.cancelled)}`, `${sum(x => x.damage.volley)} / ${sum(x => x.damage.rain)}`, sum(x => x.kills), deaths,
+    appearAt.length ? n1(median(appearAt)) : '—', after.length ? n1(median(after)) : '—',
+  ];
+}
+const SLOT_HEAD = ['Бои', 'С гоблином', 'С рывком', 'Рывков мед.', 'Звеньев на рычаг мед.', 'Исходы', 'Эффектов / отменено', 'Урон залп / дождь', 'Убито стрелами', 'Смертей после целей', 'Появился после целей мед., с', 'После целей мед., с'];
+const SLOT_LEGEND = 'Бои с гоблином и их доля среди всех боёв группы. «С рывком» — бои, где рычаг дёрнули хоть раз. Звенья — вражеские звенья, по которым рывок ударил до рычага. Исходы — `rain` (☠☠☠), `volley` (два ☠), тройки `heart3`, `bolt3`, `gem3`, `jackpot`, пары `heart`, `bolt`, `gem`, `pot`, `none`. «Отменено» — бой кончился, пока крутились барабаны. «После целей» — игровые секунды от целей до конца боя (цель дизайна: медиана 15–30 с).';
+
 const ELITE_HEAD = ['Бои', 'Боёв с элитами', 'Элит', 'Убито (до целей)', 'Живы в конце', 'Жизнь мед., с', 'Цепей на элиту мед.', 'Убито игроком с бронёй', 'Чистый слом', 'Поздно в окне', 'Окон / закрылось', 'Пластины по источникам', 'Добыча выпала / подобрана'];
 const ELITE_LEGEND = 'Жизнь — игровые секунды от появления элиты (или превращения новичка в элиту) до смерти, только убитые; «живы в конце» — не вошли в медиану. Цепей на элиту — рывки, ударившие убитую элиту (удары по пластинам тоже). «Убито игроком с бронёй» — `eliteDown` с зачётом; из них «чистый слом» — в первую `eliteCleanWindow` окна (+1 энергия, добыча ×2), «поздно в окне» — позже в окне (обычная добыча); остальные — не в окне. Окон — снятий последней пластины; «закрылось» — окно кончилось, элита жива. Пластины — снято по источнику удара.';
 
@@ -485,6 +506,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
+    '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

@@ -443,6 +443,8 @@ async function boot(): Promise<void> {
     onOpenChange() { relayout(); },
     onCompleteGoals() { command({ t: 'goals' }); },
     onPhasesChange(phases) { command({ t: 'phases', phases }); saveParams(params); },
+    // Casino stage 1: the sandbox button «Гоблин» — the toggle on (journalled), then the goblin near the hero.
+    ...sandbox ? { onSlot() { if (!params.slot) { command({ t: 'param', key: 'slot', value: true }); saveParams(params); panel.refresh(); } command({ t: 'slot' }); } } : {},
   });
   // Phase A (Т3): role badges under bodies — a view setting with its own storage key (Params are hashed).
   renderer.showRoleBadges = loadRoleBadges();
@@ -717,6 +719,12 @@ async function boot(): Promise<void> {
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, params.soundVolume);
+        // Casino stage 1 («Однорукий гоблин»): coins as it appears, the lever, the result.
+        else if (ev.type === 'slot') {
+          if (ev.action === 'appear') audio.coins(params.soundVolume);
+          else if (ev.action === 'pull') audio.lever(params.soundVolume);
+          else if (ev.action === 'effect') audio.slotResult(ev.outcome ?? 'none', params.soundVolume);
+        }
       }
     }
     // Iteration 2.1: a used consumable counts for the run and ends the hint at once.
@@ -785,7 +793,7 @@ async function boot(): Promise<void> {
       const lastLink = plan.links[plan.links.length - 1];
       const lastOutcome = lastLink?.outcome;
       const tail = plan.endsOnSurvivor && lastOutcome ? ` · последний выживет (${lastOutcome.hpBefore}→${lastOutcome.hpAfter} HP)`
-        : plan.endsOnObject ? (w.objects.find(o => o.id === lastLink.link.id)?.kind === 'door' ? ' · в дверь' : ' · на кнопку') : '';
+        : plan.endsOnObject ? ({ door: ' · в дверь', lever: ' · на рычаг' } as Record<string, string>)[w.objects.find(o => o.id === lastLink.link.id)?.kind ?? ''] ?? ' · на кнопку' : '';
       chainText.textContent = `цепь ${w.chain.length} · сила ${plan.power}${tail}`;
     } else chainText.textContent = '';
     infoText.textContent = `${runLabel && !sandbox ? runLabel : w.arena.name} · врагов ${w.enemies.length} · ${w.stage === 'greed' ? `жадность ${formatTime(w.time - (w.greedStart ?? 0))}, фаза ${w.pressure.phaseIndex + 1}` : 'до целей'}`;
@@ -913,6 +921,15 @@ async function boot(): Promise<void> {
         packLines: renderer.visiblePackLines,
         /** Phase A (Т3): wolf rush lanes and role badges drawn in the last frame (also in `signals`), badges by role. */
         rushLanes: renderer.signals.rushLanes,
+        /**
+         * Casino stage 1 («Однорукий гоблин»): the goblin (null — none), its pulls, skulls, spin; what the view drew (the idol,
+         * the marker, reels spinning / stopped, the dark lever, the odds line and its text, pulls and results so far); the arrow
+         * marks in the last frame and the falls flashed so far.
+         */
+        slot: (() => {
+          const g = w.slot?.goblin;
+          return { goblin: g ? { id: g.id, x: g.x, y: g.y, pulls: g.pulls, skulls: [...g.skulls], spinning: !!g.spin } : null, shown: { ...renderer.slotView.shown }, marks: renderer.slotMarks, flashes: renderer.slotFlashes };
+        })(),
         /** Phase A (Т6): archers' mark circles drawn in the last frame, arrow-fall flashes shown so far. */
         archerMarks: renderer.signals.archerMarks,
         /** Phase A (Т4): affix labels under bodies, fire trail points, chameleons blinking in their window — last frame. */

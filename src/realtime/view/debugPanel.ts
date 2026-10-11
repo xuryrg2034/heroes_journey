@@ -13,6 +13,8 @@ export interface PanelCallbacks {
   onOpenChange(open: boolean): void;
   onCompleteGoals(): void;
   onPhasesChange(phases: Phase[]): void;
+  /** Casino stage 1: the sandbox button «Гоблин» — «Однорукий гоблин» near the hero now (absent — no button). */
+  onSlot?(): void;
 }
 
 export interface PanelStats {
@@ -115,6 +117,8 @@ export class DebugPanel {
     button('Сбросить по умолчанию', () => callbacks.onReset(), 'reset-params');
     this.goalsButton = button('Цели выполнены', () => callbacks.onCompleteGoals(), 'complete-goals');
     this.goalsButton.title = 'Сразу выполнить цели арены: дверь открывается, начинается стадия жадности (таблица фаз и Жнец).';
+    // Casino stage 1: «Однорукий гоблин» at once near the hero (the toggle «Однорукий гоблин» turns on with it).
+    if (callbacks.onSlot) button('Гоблин', () => callbacks.onSlot!(), 'slot-goblin').title = 'Однорукий гоблин сразу у героя (3–7 ед., на виду). Включает переключатель «Однорукий гоблин».';
     el.appendChild(actions);
     // Phase A (Т3): settings of the view only (not Params: they do not reach the journal or the hash).
     this.viewSection.className = 'rt-group';

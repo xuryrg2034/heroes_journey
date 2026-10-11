@@ -64,9 +64,10 @@ export const RT_RUN_VERSION = 6;
  * Iteration 2.1: numbers a run arena takes from the run, not from the saved panel (the healing consumable: rtHp(3) = 9).
  * Package «Урон имеет значение» (docs/realtime-damage.md; design answer 11.10.2026): the run turns it on — elite armour and
  * the raised touch, the elite behaviours of the three kinds (docs/realtime-elite-behaviors.md); the tough HP table of the
- * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`).
+ * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1: «Однорукий гоблин» is on (which
+ * battles may get it — `Loadout.slot`, `rtArenaLoadout`).
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true });
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
@@ -297,6 +298,8 @@ export const rtElitePlates = (row: number): number => (row >= 9 ? 4 : row >= 5 ?
 export const rtToughHp = (row: number): number => (row >= 9 ? 4 : row >= 5 ? 3 : 2);
 /** Баланс (the package, 4.3 «Редкость»): one guaranteed elite in an ordinary battle (not «Застава», not the final) from this run row. */
 export const RT_GUARANTEED_ELITE_ROW = 3;
+/** Баланс (casino stage 1, «Однорукий гоблин», 8.3): the goblin may come in battles from this run row (not the Jailer, not bosses). */
+export const RT_SLOT_ROW = 3;
 /** What the run's arena takes from the panel beside its params (the sandbox panel is saved and read by the run). */
 export interface RtLoadoutOptions {
   /** Loop research, step 1: the palette by the row (`Params.colorsByRow`). Off — 4 colours, the loadout as before. */
@@ -321,6 +324,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && rtToughHp(runRow(node.row)) > 2 ? { toughHp: rtToughHp(runRow(node.row)) } : {},
     // Design answer 11.10.2026: not on the Jailer's node (a boss fight; the focus is on him) — the breakthrough keeps it.
     ...node && pending?.kind === 'battle' && (pending.battle === 'battle' || pending.battle === 'event') && node.type !== 'checkpoint' && runRow(node.row) >= RT_GUARANTEED_ELITE_ROW ? { guaranteedElite: true } : {},
+    // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row 3 may get the goblin — not the Jailer's, not a boss's.
+    ...node && pending?.kind === 'battle' && node.type !== 'checkpoint' && node.type !== 'boss' && runRow(node.row) >= RT_SLOT_ROW ? { slot: true } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},

@@ -64,6 +64,11 @@ export interface Loadout {
   toughHp?: number;
   /** The package: one guaranteed elite among the first newcomers (a run from its row 3, an ordinary battle). Needs `eliteArmor`. */
   guaranteedElite?: boolean;
+  /**
+   * Casino stage 1 («Однорукий гоблин», slot.ts): this battle may get the goblin after its goals (a run node from row 3, not the
+   * Jailer, not a boss). Acts only while `Params.slot` is on. Absent — never (the sandbox: the debug command only).
+   */
+  slot?: boolean;
 }
 
 /**
@@ -114,6 +119,8 @@ export interface Kit {
    */
   guaranteedElite?: true;
   eliteDue?: number;
+  /** Casino stage 1: the battle may get the goblin (absent — no: kits before hash as before). */
+  slot?: true;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -162,6 +169,7 @@ export function kitOf(loadout: Loadout): Kit {
     ...count(loadout.elitePlates) >= 1 ? { elitePlates: Math.min(MAX_PLATES, count(loadout.elitePlates)) } : {},
     ...count(loadout.toughHp) > 2 ? { toughHp: Math.min(MAX_TOUGH_HP, count(loadout.toughHp)) } : {},
     ...loadout.guaranteedElite ? { guaranteedElite: true as const } : {},
+    ...loadout.slot ? { slot: true as const } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

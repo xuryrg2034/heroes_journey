@@ -34,6 +34,8 @@ import { afterLinkPowerOf, buildActive, chainShieldOf, crystalEveryOf, focusMaxO
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
+// Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
+import { leverReady, pullLever } from './slot';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -371,7 +373,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -390,6 +392,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   // Loop research, step 2: the closing edge crosses the ring; the chain is closed — nothing may join.
   crossed: 'нить пересеклась',
   sealed: 'петля замкнута',
+  // Casino stage 1: the goblin's lever during its marker, its cooldown and after the last pull (dark).
+  lever: 'рычаг не готов',
 };
 
 /**
@@ -450,6 +454,8 @@ export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan
   if (object.kind === 'button' && object.pressed) return 'pressed';
   if (object.kind === 'door' && !doorOpen(world)) return 'closed';
   if (object.kind === 'brazier' && object.out !== undefined) return 'unlit';
+  // Casino stage 1 («Однорукий гоблин»): the lever is a target only while it is ready (slot.ts `leverReady`).
+  if (object.kind === 'lever' && !leverReady(world, object)) return 'lever';
   return reachRefusal(world, object, OBJECT_RADIUS);
 }
 
@@ -911,6 +917,9 @@ function reachObject(world: World, object: ArenaObject): void {
     object.pressed = true;
     world.events.push({ type: 'button', objectId: object.id });
     checkGoals(world);
+  } else if (object.kind === 'lever') {
+    // Casino stage 1 («Однорукий гоблин»): the pull — the enemy links this dash really struck (kills and plate hits) count.
+    pullLever(world, object, move.hits);
   } else if (doorOpen(world)) {
     win(world);
   }

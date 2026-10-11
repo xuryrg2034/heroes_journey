@@ -515,6 +515,38 @@ export interface Params {
   /** Touch of an enemy with HP ≥ 2 at the touch, or of an elite: `toughTouchDamage` instead of the base touch. */
   toughTouch: boolean;
   toughTouchDamage: number;
+  // ---- Casino stage 1: «Однорукий гоблин» (slot.ts; docs/realtime-casino.md). Off by default; journals without the key: off
+  // (every existing journal replays to the same hash). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`) and says in the
+  // loadout which battles may get it (`Loadout.slot`); the sandbox has the panel button «Гоблин».
+  /** The slot: a stone goblin idol with a lever may appear after the goals; a chain ending on the lever spins 3 reels. */
+  slot: boolean;
+  /** Chance of the goblin in a battle that may get it (stream `slot:appear`). */
+  slotChance: number;
+  /** Game seconds after the goals it appears. */
+  slotDelay: number;
+  /** Game seconds of its marker (the lever is not a target yet). */
+  slotMarker: number;
+  /** Its spot: this near … this far from the hero (seen from him). */
+  slotNear: number;
+  slotFar: number;
+  /** Pulls a fight; game seconds between pulls; game seconds the reels spin (the effect comes at their end). */
+  slotPulls: number;
+  slotCooldown: number;
+  slotSpin: number;
+  /** Skulls on each reel at the start (each reel has 4 good symbols too: a skull with s ÷ (4 + s)). */
+  slotSkulls: number;
+  /** Enemy links the dash really struck per skull taken off for the pull. */
+  slotLinksPerSkull: number;
+  /** The rain: waves, marks per wave (min … max), game seconds between waves. */
+  slotRainWaves: number;
+  slotRainMin: number;
+  slotRainMax: number;
+  slotRainStep: number;
+  /** The volley: marks around the hero, within this radius. */
+  slotVolleyMarks: number;
+  slotVolleyRadius: number;
+  /** Damage of one arrow (to the hero and to an enemy). */
+  slotDamage: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -801,6 +833,25 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   toughHpMax: 2,
   toughTouch: false,
   toughTouchDamage: 2,
+  // Casino stage 1: «Однорукий гоблин» (slot.ts) — off by default.
+  slot: false,
+  slotChance: 0.35,
+  slotDelay: 3,
+  slotMarker: 2,
+  slotNear: 3,
+  slotFar: 7,
+  slotPulls: 3,
+  slotCooldown: 8,
+  slotSpin: 1.2,
+  slotSkulls: 2,
+  slotLinksPerSkull: 2,
+  slotRainWaves: 3,
+  slotRainMin: 10,
+  slotRainMax: 12,
+  slotRainStep: 0.8,
+  slotVolleyMarks: 5,
+  slotVolleyRadius: 2.5,
+  slotDamage: 1,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1099,6 +1150,26 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'toughTouch', group: 'Крепкие враги', label: 'Касание крепких и элит сильнее', stage: 5,
     hint: 'Касание врага с HP от 2 (в момент удара) и элиты — урон ниже; HP 0–1 — обычное касание. В походе включено всегда.' },
   n('toughTouchDamage', 'Крепкие враги', 'Касание крепкого', 0, 6, 1, 5),
+  // Casino stage 1: «Однорукий гоблин» (slot.ts).
+  { kind: 'bool', key: 'slot', group: 'Однорукий гоблин', label: 'Однорукий гоблин (слот)', stage: 5,
+    hint: 'Каменный идол с рычагом. В походе появляется после целей (с ряда 3, не у Тюремщика и боссов). В песочнице — кнопка «Гоблин». Цепь на рычаг крутит 3 барабана.' },
+  n('slotChance', 'Однорукий гоблин', 'Шанс в бою', 0, 1, 0.05, 5, '', 'Только поход: бросок на бой.'),
+  n('slotDelay', 'Однорукий гоблин', 'Появляется после целей через', 0, 30, 0.5, 5, 'с'),
+  n('slotMarker', 'Однорукий гоблин', 'Метка появления', 0, 5, 0.1, 5, 'с', 'Пока метка, рычаг не цель.'),
+  n('slotNear', 'Однорукий гоблин', 'Место: не ближе', 0, 10, 0.5, 5, 'ед.'),
+  n('slotFar', 'Однорукий гоблин', 'Место: не дальше', 1, 15, 0.5, 5, 'ед.'),
+  n('slotPulls', 'Однорукий гоблин', 'Рывков за бой', 1, 10, 1, 5),
+  n('slotCooldown', 'Однорукий гоблин', 'Между рывками', 0, 30, 0.5, 5, 'с'),
+  n('slotSpin', 'Однорукий гоблин', 'Барабаны крутятся', 0, 5, 0.1, 5, 'с', 'Эффект — когда встаёт третий барабан.'),
+  n('slotSkulls', 'Однорукий гоблин', 'Черепов на барабане', 0, 6, 1, 5, '', 'Череп выпадает с шансом s ÷ (4 + s). После рывка +1 череп (барабаны по очереди).'),
+  n('slotLinksPerSkull', 'Однорукий гоблин', 'Звеньев за снятый череп', 1, 6, 1, 5, '', 'Считаются вражеские звенья, по которым рывок реально ударил.'),
+  n('slotRainWaves', 'Однорукий гоблин', 'Дождь: волн', 1, 6, 1, 5),
+  n('slotRainMin', 'Однорукий гоблин', 'Дождь: меток в волне от', 1, 30, 1, 5),
+  n('slotRainMax', 'Однорукий гоблин', 'Дождь: меток в волне до', 1, 30, 1, 5),
+  n('slotRainStep', 'Однорукий гоблин', 'Дождь: шаг волн', 0.1, 3, 0.1, 5, 'с'),
+  n('slotVolleyMarks', 'Однорукий гоблин', 'Залп: меток', 1, 12, 1, 5),
+  n('slotVolleyRadius', 'Однорукий гоблин', 'Залп: радиус', 0.5, 6, 0.25, 5, 'ед.'),
+  n('slotDamage', 'Однорукий гоблин', 'Урон стрелы', 0, 5, 1, 5),
 ];
 
 const MAX_PHASES = 8;

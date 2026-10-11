@@ -31,6 +31,9 @@ import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
 import { HAMMERS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
+// Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
+import { SlotView } from './slotView';
+import { slotPlanOdds } from '../sim/slotPlan';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -276,6 +279,10 @@ export class RealtimeRenderer {
   private archerMarksSeen = new Map<number, { x: number; y: number; r: number; progress: number }>();
   /** Arrow-fall flashes shown so far (tests read it). */
   arrowFlashes = 0;
+  /** Casino stage 1 («Однорукий гоблин»): the idol view; the arrow marks drawn in the last frame and the falls flashed so far. */
+  readonly slotView = new SlotView(UNIT);
+  slotMarks = 0;
+  slotFlashes = 0;
   /** Phase A (Т4): the fire trail of «Огненный» elites — ground under the crowd. */
   private readonly trailLayer = new Graphics();
   /** Fire trail points drawn in the last frame (carried into `signals`). */
@@ -396,7 +403,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.slotView.layer, this.slotView.textLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -1048,6 +1055,19 @@ export class RealtimeRenderer {
     }
     this.archerMarksSeen = marks;
     Object.assign(this.signals, counts);
+    // Casino stage 1 («Однорукий гоблин»): the arrows of the rain and the volley — the archer's mark (a hatched threat circle
+    // filling until the arrow falls); the fall flashes on its `land` event (`handleEvents`).
+    let slotMarks = 0;
+    if (world.status === 'playing') for (const m of world.slot?.marks ?? []) {
+      slotMarks++;
+      const X = m.x * UNIT, Y = m.y * UNIT, R = m.r * UNIT, progress = m.total > 0 ? Math.max(0, Math.min(1, 1 - m.left / m.total)) : 1;
+      g.circle(X, Y, R).fill({ color: THREAT, alpha: 0.16 });
+      if (progress > 0) g.circle(X, Y, R * progress).fill({ color: THREAT, alpha: 0.28 });
+      hatchCircle(g, X, Y, R, 0.32 * UNIT);
+      g.stroke({ color: THREAT, width: 2.5, alpha: 0.6 });
+      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 }).circle(X, Y, R).stroke({ color: THREAT, width: 2, alpha: 0.95 });
+    }
+    this.slotMarks = slotMarks;
   }
 
   /**
@@ -1258,6 +1278,8 @@ export class RealtimeRenderer {
         }
         continue;
       }
+      // Casino stage 1: the goblin's lever is drawn with its idol (slotView.ts).
+      if (o.kind === 'lever') continue;
       if (o.kind === 'loot') {
         // Stage 2, step 3: the loot of an elite — a consumable (a flask of its colour) or a resource (a small bundle), bobbing.
         const bob = Math.sin(this.clock * 3 + o.id) * 2, cy = y + bob, color = LOOT_COLOR[o.loot ?? ''] ?? 0xd8c690, item = ['frost', 'bomb', 'healing', 'fire'].includes(o.loot ?? '');
@@ -1424,6 +1446,20 @@ export class RealtimeRenderer {
       if (ev.type === 'talismanFired') {
         this.floatText(fireTextOf(ev.id), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
         this.talismanTexts++;
+        continue;
+      }
+      // Casino stage 1 («Однорукий гоблин»): an arrow fell (the archer's flash); the result over the idol.
+      if (ev.type === 'slot') {
+        if (ev.action === 'land') {
+          const flash = new Graphics().circle(0, 0, (ev.r ?? 1) * UNIT).fill({ color: THREAT, alpha: 0.5 }).stroke({ color: THREAT_OUTLINE, width: 4 });
+          flash.position.set(ev.x * UNIT, ev.y * UNIT);
+          this.fxLayer.addChild(flash);
+          this.bursts.push({ g: flash, life: 0.25, total: 0.25 });
+          this.slotFlashes++;
+        } else {
+          const text = this.slotView.handle(ev);
+          if (text) this.floatText(text, ev.x * UNIT, ev.y * UNIT - OBJECT_RADIUS * UNIT * 5.8, 0xffd36b);
+        }
         continue;
       }
       if (ev.type === 'wave') { this.playerBurst(ev.x, ev.y, ev.r, PLAYER_FX, 0.16, 0.35, true); this.playerEffects.waves++; continue; }
@@ -1868,6 +1904,7 @@ export class RealtimeRenderer {
     this.drawSignals(world);
     this.drawBadges(world);
     this.drawElites(world);
+    this.slotView.draw(world, this.clock, realDt, world.chain.length && !world.move ? slotPlanOdds(world) : null);
     this.drawTargets(world);
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
@@ -1920,6 +1957,7 @@ export class RealtimeRenderer {
     this.bursts.length = 0;
     this.dashTrail = [];
     this.cutSeen = false;
+    this.slotView.reset();
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });
     this.enemyViews.clear();
     for (const d of this.dying) d.root.destroy({ children: true });

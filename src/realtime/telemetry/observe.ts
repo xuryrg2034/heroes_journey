@@ -47,6 +47,9 @@
  *   its lifetime — game seconds to its `kill` event; chains per elite — dashes with a `chainHit` on it (plate hits too);
  *   before the goals — its kill came before the `goals` event; `elitePlates` (strip by source, open, close), `eliteDown`
  *   (credited — downs; `clean` — clean kills; `inWindow` without `clean` — late window kills), `loot` (dropped, picked).
+ * - the slot (casino stage 1, «Однорукий гоблин»): `slot` events — `appear` (and the game seconds after the goals of the
+ *   first), `pull` (enemy links struck before the lever, the outcome), `effect`; a spin left at the end of the fight is
+ *   cancelled; `hit` of the source `slot-volley` / `slot-rain` — the arrows' damage; `kill` of the source `slot` — arrow kills.
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
@@ -144,6 +147,9 @@ export function createFightObserver(start: World): FightObserver {
       switch (ev.type) {
         case 'hit': {
           const source = ev.source === 'wolf' && rushing.has(ev.enemyId) ? WOLF_RUSH_SOURCE : ev.source;
+          // Casino stage 1: the goblin's arrows.
+          if (ev.source === 'slot-volley') s.slot.damage.volley += ev.damage;
+          else if (ev.source === 'slot-rain') s.slot.damage.rain += ev.damage;
           s.damage.total += ev.damage;
           bump(s.damage.bySource, source, ev.damage);
           bump(s.damage.hits, source);
@@ -160,6 +166,7 @@ export function createFightObserver(start: World): FightObserver {
             s.elites.chainsPer.push(elite.chains);
             if (!goalsDone) s.elites.beforeGoals++;
           }
+          if (ev.source === 'slot') s.slot.kills++;
           if (ev.source === 'chain') s.kills.chain++;
           else if (ev.credited) bump(s.kills.tools, ev.source ?? 'other');
           else s.kills.enemies++;
@@ -205,6 +212,12 @@ export function createFightObserver(start: World): FightObserver {
         case 'talismanFired': bump(s.build.fired, ev.id); return;
         case 'hammer': bump(s.build.fired, world.kit?.hammer ?? 'hammer'); return;
         case 'ward': bump(s.build.fired, 'ash-ward'); return;
+        case 'slot':
+          // Casino stage 1 («Однорукий гоблин»): appearances, pulls (links before the lever, outcomes), effects.
+          if (ev.action === 'appear') { s.slot.appeared++; if (s.slot.appearAfterGoals === null && world.greedStart !== null) s.slot.appearAfterGoals = world.time - world.greedStart; }
+          else if (ev.action === 'pull') { s.slot.pulls++; s.slot.links.push(ev.links ?? 0); bump(s.slot.outcomes, ev.outcome ?? 'none'); }
+          else if (ev.action === 'effect') s.slot.effects++;
+          return;
         case 'jump': s.abilities.jumps++; return;
         case 'spin': s.abilities.spins++; return;
         case 'item': bump(s.abilities.items, ev.kind); return;
@@ -320,6 +333,8 @@ export function createFightObserver(start: World): FightObserver {
       out.tempo.toDoor = w.status === 'victory' ? end : null;
       out.build.active = (w.kit?.talismans ?? []).filter(id => !FIRING.has(id));
       out.elites.aliveAtEnd = w.enemies.filter(e => elites.has(e.id)).length;
+      // Casino stage 1: a spin still shown when the fight ended (the door, a defeat) never acts.
+      out.slot.cancelled = w.status !== 'playing' && w.slot?.goblin?.spin ? 1 : 0;
       return out;
     },
   };

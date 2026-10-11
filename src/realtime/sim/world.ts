@@ -23,6 +23,8 @@ import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type Resourc
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
+// Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
+import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
 /**
@@ -128,7 +130,7 @@ export interface ArenaObject {
    * Stage 3a (М4): `brazier` — a link of any colour anywhere in the chain (no colour change); the rest of the chain gets
    * +`brazierPower`; the dash puts it out for `brazierCooldown` game seconds (`out`).
    */
-  kind: 'button' | 'door' | 'crystal' | 'loot' | 'brazier';
+  kind: 'button' | 'door' | 'crystal' | 'loot' | 'brazier' | 'lever';
   x: number;
   y: number;
   /** Button: pressed once and for all. */
@@ -141,6 +143,8 @@ export interface ArenaObject {
   loot?: ItemKind | ResourceKind;
   /** Brazier (stage 3a, М4): game seconds left until it burns again; absent — it burns (a chain may take it). */
   out?: number;
+  // Casino stage 1: `lever` — the lever of «Однорукий гоблин» (slot.ts): any colour, the last link, as a button; its state
+  // (marker, cooldown, pulls) lives in `World.slot`.
 }
 
 /** Radius of a button, the door or a crystal (units): the drawn circle, the pick circle, the door entry. */
@@ -316,7 +320,14 @@ export type WorldEvent =
    */
   | { type: 'elitePlates'; enemyId: number; action: 'strip' | 'open' | 'close' | 'regrow'; plates: number; removed?: number; source?: string; x: number; y: number }
   /** The package: an armoured elite died (`clean` — in its window, by the player: +1 energy, loot ×2). */
-  | { type: 'eliteDown'; enemyId: number; x: number; y: number; clean: boolean; inWindow: boolean; credited: boolean };
+  | { type: 'eliteDown'; enemyId: number; x: number; y: number; clean: boolean; inWindow: boolean; credited: boolean }
+  /**
+   * Casino stage 1 («Однорукий гоблин», slot.ts): the idol appeared (`appear`); the lever was pulled (`pull`: the reels, the
+   * outcome, the struck enemy links, skulls taken off and the skulls of this pull, the odds of the rain and the volley, the
+   * pull's number); the 3rd reel stopped (`effect`); a rain wave dropped its marks (`wave`); an arrow fell (`land`, its circle).
+   */
+  | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
+      links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -401,6 +412,8 @@ export interface World {
    * hammer's fire …); JSON values only. Absent while empty — hashed only when present.
    */
   build?: Record<string, unknown>;
+  /** Casino stage 1 («Однорукий гоблин», slot.ts): the slot of the arena — absent until the battle rolls (hashed only when present). */
+  slot?: SlotState;
 }
 
 /**
@@ -1152,6 +1165,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   // Stage 3a (М2): bodies pushed over a cliff fall (only on an arena with a cliff).
   dropIntoCliffs(world, shoved, undefined, knocked);
   updateBlasts(world, dt);
+  if (world.status !== 'playing') return;
+  // Casino stage 1 («Однорукий гоблин»): the roll after the goals, the reels, the arrows (nothing while the toggle is off).
+  updateSlot(world, dt);
   if (world.status !== 'playing') return;
   // Stage 2, step 3: burning enemies (the fire consumable) take their ticks after the blasts, before the touches.
   updateBurning(world, dt);

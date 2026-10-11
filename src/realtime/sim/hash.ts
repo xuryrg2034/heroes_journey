@@ -56,6 +56,8 @@ export function worldState(world: World): unknown {
     // Phase B (build.ts): structures of the build modules (absent while empty — worlds without them hash as before). The kit's
     // `hammer`, `chains`, `counters` and the dash's `build` come with the kit and the move.
     ...world.build ? { build: world.build } : {},
+    // Casino stage 1 («Однорукий гоблин», slot.ts): absent until the battle rolls — worlds without it hash as before.
+    ...world.slot ? { slot: world.slot } : {},
   };
 }
 
