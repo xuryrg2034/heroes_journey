@@ -346,6 +346,8 @@ export class RealtimeRenderer {
   private scale = 1;
   private freeW = 1280;
   private freeH = 720;
+  /** The top band of the window taken by the HUD plate: the view starts under it. */
+  private freeTop = 0;
   private readonly edgeLayer = new Graphics();
   /** Off-screen pointers drawn in the last frame, by kind (tests read it). */
   readonly edgeShown = { threat: 0, goal: 0, spawn: 0 };
@@ -451,26 +453,38 @@ export class RealtimeRenderer {
    * `CAMERA.refW/refH`) into the free part, as the whole arena was fitted before the camera: a 16×10 arena looks the same.
    * The view shows `freeWidth / (UNIT·scale)` units across; a larger arena scrolls under the camera.
    */
-  layout(freeWidth: number, height: number): void {
-    const margin = 12;
-    this.scale = Math.max(0.1, Math.min((freeWidth - margin * 2) / (CAMERA.refW * UNIT), (height - margin * 2) / (CAMERA.refH * UNIT)));
-    this.freeW = freeWidth; this.freeH = height;
-    this.root.scale.set(this.scale);
+  layout(freeWidth: number, height: number, top = 0): void {
+    this.freeW = freeWidth; this.freeH = height; this.freeTop = top;
+    this.fitScale();
     this.camera.clamp(this.bounds());
     this.placeRoot();
+  }
+
+  /**
+   * The scale from the window and the arena. The reference view (16×10) is fitted into the whole free part — a larger arena
+   * keeps this zoom and scrolls under the camera, its view starting below the HUD plate. An arena that fits the reference
+   * view (16×10) is fitted into the part under the plate (`freeTop`), so its top row is not hidden by the plate.
+   */
+  private fitScale(): void {
+    const margin = 12;
+    let scale = Math.min((this.freeW - margin * 2) / (CAMERA.refW * UNIT), (this.freeH - margin * 2) / (CAMERA.refH * UNIT));
+    const a = this.arena;
+    if (!a || (a.width <= CAMERA.refW && a.height <= CAMERA.refH)) scale = Math.min(scale, (this.freeH - this.freeTop - margin * 2) / (CAMERA.refH * UNIT));
+    this.scale = Math.max(0.1, scale);
+    this.root.scale.set(this.scale);
   }
 
   /** The view in units and the arena it stays inside. */
   private bounds(): CameraBounds {
     const k = UNIT * this.scale;
-    return { viewW: this.freeW / k, viewH: this.freeH / k, arenaW: this.arena?.width ?? CAMERA.refW, arenaH: this.arena?.height ?? CAMERA.refH };
+    return { viewW: this.freeW / k, viewH: (this.freeH - this.freeTop) / k, arenaW: this.arena?.width ?? CAMERA.refW, arenaH: this.arena?.height ?? CAMERA.refH };
   }
 
   /** The origin of the arena on screen from the camera: the camera's point is in the middle of the free area. */
   private placeRoot(): void {
     const k = UNIT * this.scale;
     this.base.x = Math.round(this.freeW / 2 - this.camera.x * k);
-    this.base.y = Math.round(this.freeH / 2 - this.camera.y * k);
+    this.base.y = Math.round(this.freeTop + (this.freeH - this.freeTop) / 2 - this.camera.y * k);
     this.root.position.set(this.base.x, this.base.y);
   }
 
@@ -520,7 +534,7 @@ export class RealtimeRenderer {
    */
   private drawEdgeMarkers(world: World): void {
     const g = this.edgeLayer.clear(), b = this.bounds(), counts = { threat: 0, goal: 0, spawn: 0 };
-    const cx = this.freeW / 2, cy = this.freeH / 2;
+    const cx = this.freeW / 2, cy = this.freeTop + (this.freeH - this.freeTop) / 2;
     // Phase A (Т5, design answer 9): pointers to spawn markers only on an arena larger than the view.
     const large = b.arenaW > b.viewW + 1e-6 || b.arenaH > b.viewH + 1e-6;
     const items = collectEdgeMarkers(world, (p, margin) => this.camera.sees(p, b, margin), large).map(m => {
@@ -554,6 +568,7 @@ export class RealtimeRenderer {
 
   buildArena(arena: ArenaLayout): void {
     this.arena = arena;
+    this.fitScale();
     const f = this.floor.clear(), w = arena.width * UNIT, h = arena.height * UNIT;
     f.rect(0, 0, w, h).fill(0x1b2617);
     for (let y = 0; y < arena.height; y++) for (let x = 0; x < arena.width; x++)

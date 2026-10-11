@@ -58,8 +58,9 @@ test('a 16×10 arena: the camera stands in its centre while the hero walks (same
   const first = await camera(page);
   expect(first.x).toBeCloseTo(8, 5);
   expect(first.y).toBeCloseTo(5, 5);
-  // The scale is the one that fitted the whole arena: 16 units in (1280 − 24) px, 10 in (720 − 24).
-  expect(first.scale).toBeCloseTo(Math.min((1280 - 24) / (16 * 72), (720 - 24) / (10 * 72)), 5);
+  // The scale fits the whole arena: 16 units in (1280 − 24) px, 10 in the part under the HUD plate (14 px + its 44 px
+  // min-height + 4 px = 62 px from the top, 12 px margin at both ends; 11.10.2026: the plate no longer hides the top row).
+  expect(first.scale).toBeCloseTo(Math.min((1280 - 24) / (16 * 72), (720 - 62 - 24) / (10 * 72)), 5);
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(900);
   await page.keyboard.up('KeyD');
@@ -462,5 +463,87 @@ test('the mouse stands, the camera moves: the pointer takes the new point of the
   await place(page, p1.x, p1.y, 1);
   await expect.poll(async () => (await camera(page)).hint).not.toBeNull();
   await expect(page.getByTestId('link-hint')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// ---- Layout at 1280×720 (fixed 11.10.2026): the chain text vs. the sandbox buttons, the HUD vs. the top row ----
+type Box = { left: number; top: number; right: number; bottom: number };
+const box = (page: Page, sel: string): Promise<Box | null> => page.evaluate(sel => {
+  const n = document.querySelector(sel) as HTMLElement | null;
+  if (!n || n.hidden) return null;
+  const r = n.getBoundingClientRect();
+  return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+}, sel);
+const hit = (a: Box, b: Box): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+test('sandbox: the chain text of the HUD does not overlap the «Арены» and «Отладка» buttons while a chain is drawn', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await still(page);
+  const hero = (await snap(page)).hero as { x: number; y: number };
+  // A short chain that ends on a survivor: the longest tail of the text («последний выживет (a→b HP)»).
+  const at = [0, 1, 2].map(i => ({ x: hero.x + 1.4 + i * 1.2, y: hero.y }));
+  for (let i = 0; i < 3; i++) await place(page, at[i].x, at[i].y, 0, i === 2 ? 6 : 0);
+  const pts = [];
+  for (const p of at) pts.push(await screen(page, p.x, p.y));
+  await page.mouse.move(pts[0].x, pts[0].y);
+  await page.mouse.down();
+  for (const p of pts.slice(1)) await page.mouse.move(p.x, p.y);
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(3);
+  await expect(page.locator('.rt-chain')).toContainText('цепь 3');
+  await page.screenshot({ path: 'artifacts/realtime-layout-chain-text.png' });
+  const chain = await box(page, '.rt-chain');
+  const hud = await box(page, '.rt-hud');
+  expect(chain).not.toBeNull();
+  for (const sel of ['.rt-menu-open', '.rt-open']) {
+    const b = await box(page, sel);
+    expect(b, sel).not.toBeNull();
+    expect(hit(chain!, b!), `chain text ${JSON.stringify(chain)} overlaps ${sel} ${JSON.stringify(b)}`).toBe(false);
+    expect(hit(hud!, b!), `HUD ${JSON.stringify(hud)} overlaps ${sel} ${JSON.stringify(b)}`).toBe(false);
+  }
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+test('16×10 arenas fit under the HUD plate: the top row and a goal in it (button at y 0.8, door at y 0.7) are not covered', async ({ page }) => {
+  const errors: string[] = [];
+  // «Нажать 3 кнопки» (arena 2): the third button at y 0.8; «Убить 30» (arena 1): the door at y 0.7, open after the goals.
+  for (const arena of [1, 2]) {
+    await open(page, errors, arena);
+    await still(page);
+    if (arena === 1) await page.evaluate(() => (window as any).__realtime.completeGoals());
+    const hud = (await box(page, '.rt-hud'))!;
+    const goal = ((await snap(page)).objects as { kind: string; x: number; y: number }[]).find(o => o.y < 1)!;
+    expect(goal, `arena ${arena}: a goal in the top row`).toBeTruthy();
+    const top = await screen(page, goal.x, 0);
+    const at = await screen(page, goal.x, goal.y);
+    expect(top.y, `arena ${arena}: the first row starts under the HUD (${hud.bottom})`).toBeGreaterThanOrEqual(hud.bottom);
+    expect(at.y).toBeGreaterThan(hud.bottom);
+    // The whole 16×10 arena is still on the 1280×720 screen.
+    const corner = await screen(page, 16, 10);
+    expect(corner.y).toBeLessThanOrEqual(720);
+    expect(corner.x).toBeLessThanOrEqual(1280);
+    await page.screenshot({ path: `artifacts/realtime-layout-top-row-${arena}.png` });
+  }
+  expect(errors).toEqual([]);
+});
+
+test('a larger arena: a goal under the HUD plate gets a pointer (the view starts below the plate)', async ({ page }) => {
+  const errors: string[] = [];
+  // «Последний рубеж» (24×15, arena 10): the door at y 0.7 after the goals. The hero stands so that the view's top edge is
+  // below the door: the door is then under the plate (the old view took it for visible and gave no pointer).
+  await open(page, errors, 10);
+  await still(page);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await teleport(page, 12, 6.3);
+  await settled(page);
+  const hud = (await box(page, '.rt-hud'))!;
+  const door = ((await snap(page)).objects as { kind: string; x: number; y: number }[]).find(o => o.kind === 'door')!;
+  const at = await screen(page, door.x, door.y);
+  expect(at.y).toBeLessThan(hud.bottom);
+  await expect.poll(async () => (await camera(page)).edge.goal).toBe(1);
+  const arrow = (await camera(page)).arrows.find(a => a.kind === 'goal')!;
+  expect(arrow.y).toBeGreaterThan(hud.bottom);
+  await page.screenshot({ path: 'artifacts/realtime-layout-big-arena-goal.png' });
   expect(errors).toEqual([]);
 });

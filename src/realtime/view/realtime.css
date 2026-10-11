@@ -8,7 +8,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--rt-bg)
 button { font: inherit; color: inherit; cursor: pointer; }
 [hidden] { display: none !important; }
 
-.rt-hud { position: absolute; top: 14px; left: 18px; display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: #121710d9; border: 1px solid var(--rt-line); pointer-events: none; font-size: 13px; }
+.rt-hud { position: absolute; top: 14px; left: 18px; display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 8px 14px; background: #121710d9; border: 1px solid var(--rt-line); pointer-events: none; font-size: 13px; }
+/* Sandbox: the plate ends before the «Арены» and «Отладка» buttons (right 118 px + their width + a gap); a long chain text wraps to a second row instead of running under them. */
+.rt-hud-sandbox { flex-wrap: wrap; row-gap: 2px; max-width: calc(100vw - 18px - 232px); }
 .rt-hp { width: 160px; height: 10px; background: #2a2e22; border: 1px solid #0b0d0a; }
 .rt-hp-fill { display: block; height: 100%; width: 100%; background: #bd7165; transition: width .12s; }
 .rt-hp-text { font-family: Georgia, serif; font-size: 17px; color: #e5c8a8; min-width: 54px; }

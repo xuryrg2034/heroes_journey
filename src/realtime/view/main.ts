@@ -189,7 +189,7 @@ async function boot(): Promise<void> {
   window.addEventListener('hashchange', () => { if ((location.hash === '#sandbox') !== sandbox && urlParams.get('sandbox') !== '1') location.reload(); });
 
   const stage = el('div', 'rt-stage');
-  const hud = el('div', 'rt-hud');
+  const hud = el('div', sandbox ? 'rt-hud rt-hud-sandbox' : 'rt-hud');
   hud.setAttribute('data-testid', 'hud');
   const hpFill = el('span', 'rt-hp-fill');
   const hpBar = el('div', 'rt-hp');
@@ -597,7 +597,9 @@ async function boot(): Promise<void> {
   const relayout = (): void => {
     const panelWidth = panel.open ? panel.el.getBoundingClientRect().width : 0;
     openButton.hidden = panel.open;
-    renderer.layout(window.innerWidth - panelWidth, window.innerHeight);
+    // The band of the one-row HUD plate (its CSS min-height, not its live height: a wrapped chain row must not rescale the arena).
+    const hudStyle = getComputedStyle(hud);
+    renderer.layout(window.innerWidth - panelWidth, window.innerHeight, (parseFloat(hudStyle.top) || 0) + (parseFloat(hudStyle.minHeight) || 0) + 4);
     measureEdgeInset();
   };
   window.addEventListener('resize', relayout);
