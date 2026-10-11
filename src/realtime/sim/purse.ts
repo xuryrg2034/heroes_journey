@@ -40,7 +40,11 @@ export const SEAL_HEAT = 2;
 /** Crystals in the chain multiply the total: one ×2, two or more ×4 (the cap). */
 export const CRYSTAL_MULT_CAP = 4;
 /** Embers per crafting resource at the door, the payout cap without stakes and the cap whatever the stakes. */
-export const EMBERS_PER_RESOURCE = 40;
+/**
+ * Embers per resource of the payout — the default of `Params.purseRate` (design 11.10.2026: 60, a calibration before the
+ * playtest — the greedy bot filled a cauldron of 58–410 in 12–38 s; research 3.1 had 40). The door records the rate it paid at.
+ */
+export const EMBERS_PER_RESOURCE = 60;
 export const PAYOUT_CAP_BASE = 3;
 export const PAYOUT_CAP_MAX = 6;
 /**
@@ -68,7 +72,7 @@ export interface PurseWorld {
 }
 
 /** The door's record: the run pays `purseResources(cauldron, oath, die)` of `kinds` (taken from the front). */
-export interface PurseDoor { cauldron: number; oath: number; kinds: ResourceKind[] }
+export interface PurseDoor { cauldron: number; oath: number; kinds: ResourceKind[]; /** Embers per resource at the door (`purseRate`). */ rate: number }
 
 /** A cheque: embers × heat × the crystal multiplier = total. `links` — enemy links counted, `crystals` — crystal links. */
 export interface Cheque { embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean }
@@ -82,7 +86,8 @@ export function purseOn(world: World): boolean { return !!world.params.purse; }
  * an armoured elite killed — +5.
  */
 export function linkEmbers(enemy: Pick<Enemy, 'armor'>, outcome: StrikeOutcome): number {
-  if (outcome.plate) return PLATE_EMBERS;
+  // Design 11.10.2026: only the elite's own plates pay, once each — a plate that grew back pays 0 (no endless source).
+  if (outcome.plate) return enemy.armor && (enemy.armor.stripped ?? 0) < enemy.armor.max ? PLATE_EMBERS : 0;
   const own = Math.max(1, outcome.hpBefore - outcome.hpAfter);
   return own + (outcome.killed && enemy.armor ? ELITE_KILL_EMBERS : 0);
 }
@@ -173,13 +178,14 @@ export function purseKill(world: World, cause: KillCause): void {
 export function purseOath(_world: World): number { return 1; }
 
 /**
- * The payout of a cauldron (research 8.5, «Потолок выплаты»): M = oath × die; ⌊cauldron × M ÷ 40⌋ resources, at most
- * min(6, ⌊3 × M⌋) and that cap never below 1. Without stakes (M = 1) — at most 3. The sim and the run call this one function.
+ * The payout of a cauldron (research 8.5, «Потолок выплаты»): M = oath × die; ⌊cauldron × M ÷ rate⌋ resources (rate —
+ * `purseRate`, 60), at most min(6, ⌊3 × M⌋) and that cap never below 1. Without stakes (M = 1) — at most 3. The sim and the
+ * run call this one function.
  */
-export function purseResources(cauldron: number, oath = 1, die = 1): number {
-  const m = Math.max(0, oath) * Math.max(0, die);
+export function purseResources(cauldron: number, oath = 1, die = 1, rate = EMBERS_PER_RESOURCE): number {
+  const m = Math.max(0, oath) * Math.max(0, die), per = Math.max(1, rate);
   const cap = Math.max(1, Math.min(PAYOUT_CAP_MAX, Math.floor(PAYOUT_CAP_BASE * m)));
-  return Math.max(0, Math.min(cap, Math.floor(Math.max(0, cauldron) * m / EMBERS_PER_RESOURCE)));
+  return Math.max(0, Math.min(cap, Math.floor(Math.max(0, cauldron) * m / per)));
 }
 
 /**
@@ -193,11 +199,12 @@ export function purseDoor(world: World): void {
   const purse = cauldronOf(world), rng = world.rng.stream('purse:loot'), oath = purseOath(world);
   const kinds: ResourceKind[] = [];
   for (let i = 0; i < PAYOUT_CAP_MAX; i++) kinds.push(RESOURCE_KINDS[Math.floor(rng.next() * RESOURCE_KINDS.length)]);
-  purse.door = { cauldron: purse.cauldron, oath, kinds };
-  world.events.push({ type: 'purseDoor', cauldron: purse.cauldron, oath, resources: purseResources(purse.cauldron, oath, 1) });
+  const rate = Math.max(1, world.params.purseRate ?? EMBERS_PER_RESOURCE);
+  purse.door = { cauldron: purse.cauldron, oath, kinds, rate };
+  world.events.push({ type: 'purseDoor', cauldron: purse.cauldron, oath, resources: purseResources(purse.cauldron, oath, 1, rate) });
 }
 
 /** The resources the door's record pays with the die `die` (the run; 1 — no die yet), as kinds in order. */
 export function doorPayout(door: PurseDoor, die = 1): ResourceKind[] {
-  return door.kinds.slice(0, purseResources(door.cauldron, door.oath, die));
+  return door.kinds.slice(0, purseResources(door.cauldron, door.oath, die, door.rate));
 }

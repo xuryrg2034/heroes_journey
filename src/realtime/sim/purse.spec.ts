@@ -11,7 +11,7 @@
  *   heat;
  * - the hammer's kills outside the chain: 1 ember each, no heat;
  * - the highlight's cheque (`planChain`) is the dash's (several shapes, the sketch of 3.2: 8 × 3 × ◆2 = 48);
- * - the door: a chain into the door puts its cheque first; the payout ⌊котёл ÷ 40⌋, at most 3 (the function with M 0.5 / 2 /
+ * - the door: a chain into the door puts its cheque first; the payout ⌊котёл ÷ 60⌋ (`purseRate`), at most 3 (the function with M 0.5 / 2 /
  *   4: caps 1 / 6 / 6); the resource kinds by the stream `purse:loot` vary over seeds, a replay repeats them; the other
  *   streams and the fight itself do not change with the cauldron;
  * - the run turns the cauldron on and its materials get the door's payout on a win;
@@ -166,6 +166,19 @@ check('an armoured elite: each plate 2 embers, the chain goes on; its kill in th
   assert(replays(sim) && replays(one), 'replay');
 });
 
+check('a plate that grew back pays no embers (design 11.10.2026): only the elite\'s own plates pay, once each; the highlight agrees', () => {
+  const sim = field(quiet({ eliteArmor: true, elitePlates: 1 })), w = sim.world;
+  const at = lay(sim, ['elite']);
+  assert(short(chain(sim, at).cheque) === '2×1×1=2', 'its own plate: 2');
+  const elite = w.enemies.find(e => e.elite)!;
+  for (let i = 0; i < 900 && !(elite.armor && elite.armor.plates > 0 && !elite.armor.open); i++) { sim.tick(); w.events.length = 0; }
+  assert(elite.armor!.plates === 1 && !elite.armor!.open, 'the window closed, a plate grew back');
+  sim.command({ t: 'teleport', x: 4.5, y: 6 });
+  const again = chain(sim, [{ x: elite.x, y: elite.y }]).cheque;
+  assert(short(again) === '0×1×1=0' && elite.armor!.stripped === 2, `the grown plate pays 0: ${short(again)}`);
+  assert(replays(sim), 'replay');
+});
+
 check('every 3rd enemy link +1 heat: 9 weak = 9 × 5; a crystal dropped during the dash (the 6th kill) is not in its cheque', () => {
   const sim = field(), w = sim.world;
   const { cheque, events } = chain(sim, lay(sim, Array<number>(9).fill(0), 4.5));
@@ -259,12 +272,13 @@ check('the bomb, the fire item and the spin put no embers (decision 2): the caul
 
 // ---- The door and the payout ----
 
-check('the payout function: ⌊котёл × M ÷ 40⌋; cap min(6, ⌊3 × M⌋), at least 1 — M 1: 3, M 0.5: 1, M 2: 6, M 4: 6', () => {
+check('the payout function: ⌊котёл × M ÷ 60⌋ (the rate, design 11.10.2026); cap min(6, ⌊3 × M⌋), at least 1 — M 1: 3, M 0.5: 1, M 2: 6, M 4: 6', () => {
   const at = (cauldron: number, oath = 1, die = 1) => purseResources(cauldron, oath, die);
-  assert(at(0) === 0 && at(39) === 0 && at(40) === 1 && at(119) === 2 && at(120) === 3 && at(1000) === 3, 'M 1: floor, cap 3');
-  assert(at(79, 0.5) === 0 && at(80, 0.5) === 1 && at(1000, 0.5) === 1 && at(1000, 1, 0.5) === 1, 'M 0.5: cap 1');
-  assert(at(1000, 2) === 6 && at(1000, 1, 2) === 6 && at(100, 2) === 5, 'M 2: cap 6');
+  assert(at(0) === 0 && at(59) === 0 && at(60) === 1 && at(179) === 2 && at(180) === 3 && at(1000) === 3, 'M 1: floor, cap 3');
+  assert(at(119, 0.5) === 0 && at(120, 0.5) === 1 && at(1000, 0.5) === 1 && at(1000, 1, 0.5) === 1, 'M 0.5: cap 1');
+  assert(at(1000, 2) === 6 && at(1000, 1, 2) === 6 && at(150, 2) === 5, 'M 2: cap 6');
   assert(at(1000, 2, 2) === 6 && at(1000, 4) === 6, 'M 4: cap 6, not 12');
+  assert(purseResources(119, 1, 1, 40) === 2 && purseResources(120, 1, 1, 40) === 3, 'the rate is an argument (40 — the research\'s first estimate)');
 });
 
 /** Chains of 5 weak links (5 × 3 = 15, no crystal drop) until the cauldron reaches `target`, then a chain of 4 into the open door (12). */
@@ -289,16 +303,17 @@ function fillAndExit(sim: Simulation, target: number): { door: Ev<'purseDoor'>; 
   return { door: doors[0], last: cheques[0] };
 }
 
-check('the door: a chain into the door puts its cheque first; ⌊котёл ÷ 40⌋ (27 — 0, 42 — 1); without stakes it stops at 3 (192 pays 3, not 4)', () => {
+check('the door: a chain into the door puts its cheque first; ⌊котёл ÷ 60⌋ (27 — 0, 72 — 1; `purseRate` 40: 42 — 1); without stakes it stops at 3 (192 pays 3)', () => {
   const sim = field();
   const { door, last } = fillAndExit(sim, 180);
   assert(short(last) === '4×3×1=12' && door.cauldron === 192 && door.oath === 1, `cauldron ${door.cauldron}, last ${short(last)}`);
   assert(door.resources === 3 && doorPayout(sim.world.purse!.door!).length === 3, `the payout ${door.resources}`);
-  const none = field(), one = field();
-  const zero = fillAndExit(none, 1).door, low = fillAndExit(one, 30).door;
+  const none = field(), one = field(), rate40 = field(quiet({ purseRate: 40 }));
+  const zero = fillAndExit(none, 1).door, low = fillAndExit(one, 50).door, old = fillAndExit(rate40, 30).door;
   assert(zero.cauldron === 27 && zero.resources === 0 && doorPayout(none.world.purse!.door!).length === 0, `a cauldron of 27 pays 0: ${zero.resources}`);
-  assert(low.cauldron === 42 && low.resources === 1, `a cauldron of 42 pays 1: ${low.resources}`);
-  assert(replays(sim) && replays(none) && replays(one), 'replay');
+  assert(low.cauldron === 72 && low.resources === 1 && one.world.purse!.door!.rate === 60, `a cauldron of 72 pays 1: ${low.resources}`);
+  assert(old.cauldron === 42 && old.resources === 1 && doorPayout(rate40.world.purse!.door!).length === 1, `the panel rate 40: 42 pays 1 (${old.resources})`);
+  assert(replays(sim) && replays(none) && replays(one) && replays(rate40), 'replay');
 });
 
 check('the resource kinds come from the stream `purse:loot`: they vary over seeds, a replay repeats them; the fight and the other streams are as without the cauldron', () => {

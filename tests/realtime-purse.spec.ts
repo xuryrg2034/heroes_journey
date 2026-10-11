@@ -103,6 +103,6 @@ test('a run arena plays with the cauldron: the HUD shows «котёл N», the r
   expect(door.oath).toBe(1);
   expect(door.kinds).toHaveLength(6);
   await expect(page.getByTestId('result')).toContainText('Котёл');
-  await expect(page.getByTestId('result')).toContainText(`${door.cauldron} → ресурсов ${Math.min(3, Math.floor(door.cauldron / 40))}`);
+  await expect(page.getByTestId('result')).toContainText(`${door.cauldron} → ресурсов ${Math.min(3, Math.floor(door.cauldron / 60))}`);
   expect(errors).toEqual([]);
 });

@@ -554,6 +554,8 @@ export interface Params {
    * world fields, the stream `purse:loot` untouched). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`).
    */
   purse: boolean;
+  /** «Котёл»: embers per crafting resource at the door (60; design 11.10.2026 — a calibration before the playtest). */
+  purseRate: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -861,6 +863,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   slotDamage: 1,
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
+  purseRate: 60,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1182,6 +1185,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Casino «Котёл» (purse.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за 40, не больше 3. В походе включено всегда.' },
+  n('purseRate', 'Котёл', 'Углей за ресурс', 10, 200, 5, 5, '', 'В двери: ресурс крафта за каждые N углей, не больше 3 без ставок. В походе — 60.'),
 ];
 
 const MAX_PHASES = 8;

@@ -69,7 +69,7 @@ export const RT_RUN_VERSION = 6;
  * cauldron («Котёл», `purse`) is on in every run arena; «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`,
  * `rtArenaLoadout`).
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true });
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60 });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 

@@ -68,7 +68,9 @@ const LOOT_TRIES = 40;
  * 11.10.2026, variant 3); `regrow` — game seconds to the next plate (after a window, below the maximum); `hit` — the last
  * firing that took a plate (the tick, the source and its firing id), so one firing never takes two.
  */
-export interface EliteArmor { plates: number; max: number; open?: number; clean?: number; regrow?: number; hit?: string }
+export interface EliteArmor { plates: number; max: number; open?: number; clean?: number; regrow?: number; hit?: string;
+  /** Casino «Котёл»: plates stripped so far by any source (counted only while the cauldron is on): the first `max` pay embers. */
+  stripped?: number }
 
 /** Баланс (4.3): plates a hit of this source takes (any other — 1). */
 export const PLATES_BY_SOURCE: Readonly<Record<string, number>> = { bomb: 2 };
@@ -119,6 +121,8 @@ export function stripPlates(world: World, e: Enemy, cause: { source: string; fir
   }
   const removed = Math.min(a.plates, Math.max(1, PLATES_BY_SOURCE[cause.source] ?? 1));
   a.plates -= removed;
+  // Casino «Котёл»: the count of stripped plates (only the elite's first `max` pay embers; absent while the cauldron is off).
+  if (world.params.purse) a.stripped = (a.stripped ?? 0) + removed;
   world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'strip', plates: a.plates, removed, source: cause.source, x: e.x, y: e.y });
   if (a.plates <= 0) {
     a.plates = 0;

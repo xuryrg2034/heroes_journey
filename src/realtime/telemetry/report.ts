@@ -420,7 +420,7 @@ function purseRows(runFights: readonly FightEntry[], sandbox: readonly FightEntr
   return [runs, box, runs && box ? purseRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
 }
 const PURSE_HEAD = ['Бои', 'Боёв с котлом', 'Котёл за бой мед. / макс.', 'Чеков', 'Угли на чек мед. / макс.', 'Жар мед. / макс.', 'Чек мед. / макс.', 'Кристаллов в цепях', 'Угли убийств сборки', 'Ресурсов в двери (без кости)'];
-const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл ÷ 40⌋, не больше 3 (`purseDoor`, кость пока не бросается).';
+const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл ÷ 60⌋ (`purseRate`), не больше 3 (`purseDoor`, кость пока не бросается).';
 // ---- end «Котёл» ----
 
 function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
