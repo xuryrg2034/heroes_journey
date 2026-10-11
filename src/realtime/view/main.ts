@@ -33,9 +33,9 @@ import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadSessionClock, PARAMS_STORAGE_KEY, saveLinkDepth, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
 import { SessionClock } from './session';
-import { CHAIN_COLORS, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
+import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
-import { doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
+import { DOOR_HEAT, doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
 import { oathLine, oathMark, OATHS, type OathId } from '../sim/oath';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
 import { BuildColumn, labelOf } from './buildColumn';
@@ -742,6 +742,8 @@ async function boot(): Promise<void> {
     result.hidden = false;
   };
 
+  /** П3: the victory of this world waits `left` real seconds before the result screen (main loop). */
+  let resultWait: { world: World; left: number } | null = null;
   let last = performance.now(), fpsFrames = 0, fpsTime = 0, fps = 0, statsTimer = 0, workMs = 0, ticksPerFrame = 0;
   const frame = (now: number): void => {
     const realDt = Math.min(MAX_FRAME, Math.max(0, (now - last) / 1000));
@@ -785,10 +787,12 @@ async function boot(): Promise<void> {
       hint.hidden = false;
     } else if (!hint.hidden) { hint.hidden = true; delete hint.dataset.reason; }
     // ---- Casino «Котёл»: in focus, from 3 enemy links — «≈ N» (the plan's cheque) and «ещё 1 → ×жар» when one more link raises the heat ----
+    // П3 «Финальная цепь»: a chain into the door shows from 1 enemy link — «≈ N · дверь +1» (its cheque has the +1 heat).
     let purseText: string | null = null;
     if (w.params.purse && live && pointerClient && w.chain.length && !w.move && w.status === 'playing') {
       const plan = planChain(w), cheque = plan.cheque;
-      if (cheque && cheque.links >= 3) {
+      if (cheque?.door && cheque.links >= 1) purseText = `≈ ${cheque.total} · дверь +${DOOR_HEAT}`;
+      else if (cheque && cheque.links >= 3) {
         const more = plan.endsOnSurvivor || plan.endsOnObject || w.chainClosed ? null : nextHeat(cheque, !!plan.seal);
         purseText = `≈ ${cheque.total}${more ? ` · ещё 1 → ×${more}` : ''}`;
       }
@@ -905,7 +909,11 @@ async function boot(): Promise<void> {
       if (recorder?.recording) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
       recordRunArena();
     }
-    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen) showResult();
+    // П3 «Финальная цепь»: a victory opens the result screen FINAL_FLASH real seconds later (the final flash is seen); a defeat at once.
+    if (w.status === 'victory' && resultWait?.world !== w) resultWait = { world: w, left: FINAL_FLASH };
+    if (resultWait && resultWait.world === w) resultWait.left -= realDt;
+    const resultDue = w.status !== 'victory' || (resultWait?.world === w && resultWait.left <= 0);
+    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen && resultDue) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;

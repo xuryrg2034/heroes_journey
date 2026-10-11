@@ -53,7 +53,8 @@
  *   cancelled; `hit` of the source `slot-volley` / `slot-rain` — the arrows' damage; `kill` of the source `slot` — arrow kills.
  * - the cauldron (casino «Котёл», sim/purse.ts): `cheque` events — embers, heat and total per cheque in order, crystals of
  *   the cheques; `purseKill` — the build's kill embers by source; `purseDoor` — the resources the door pays without the die
- *   and, with П4 «Раздув за дела» on, the greed step at the door (`exitStep`); the cauldron at the end — `world.purse`.
+ *   and how the hero went in (`exitBy`: chain, jump, walk); with П4 «Раздув за дела» on, the greed step at the door
+ *   (`exitStep`); the cauldron at the end — `world.purse`.
  * - the oath stake (casino «Ставка клятвы», sim/oath.ts): the oath of the fight and its met / broken ticks — `world.oath` at
  *   the end; the door's `oath` event — kept or not and the cauldron's multiplier.
  * - the second wind (П9, sandbox; sim/world.ts): the `secondWind` event — the tick of the lethal hit, the HP before it, its
@@ -242,7 +243,7 @@ export function createFightObserver(start: World): FightObserver {
         // Casino «Котёл» (sim/purse.ts): cheques, the build's kill embers, the door's payout without the die.
         case 'cheque': s.purse.embers.push(ev.embers); s.purse.heat.push(ev.heat); s.purse.totals.push(ev.total); s.purse.crystals += ev.crystals; return;
         case 'purseKill': bump(s.purse.killEmbers, ev.source); return;
-        case 'purseDoor': s.purse.resources = ev.resources; if (ev.step !== undefined) s.purse.exitStep = ev.step; return;
+        case 'purseDoor': s.purse.resources = ev.resources; s.purse.exitBy = ev.by; if (ev.step !== undefined) s.purse.exitStep = ev.step; return;
         // Casino «Ставка клятвы» (sim/oath.ts): the door settled the oath.
         case 'oath': if (ev.action === 'door') { s.oath.kept = ev.kept ?? null; s.oath.mult = ev.mult ?? null; } return;
         default: return;

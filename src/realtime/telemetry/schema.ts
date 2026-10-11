@@ -510,6 +510,11 @@ export interface PurseSummary {
    * door (`purseDoor.step`: 0–3 — ×1, ×1,5, ×2, ×3); null — no exit through the door with the rule on.
    */
   exitStep: number | null;
+  /**
+   * П3 «Финальная цепь» (from 12.10.2026; absent in older records — `withSummaryDefaults` reads null): how the hero went
+   * through the door (`purseDoor.by`) — the chain ending on it, a jump, walking in; null — no exit with the cauldron on.
+   */
+  exitBy: 'chain' | 'jump' | 'walk' | null;
 }
 
 /** The elites of one fight (docs/realtime-telemetry.md, section 8, «Элиты»). */
@@ -581,7 +586,7 @@ export function emptyFightSummary(): FightSummary {
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
     movement: { path: 0, idle: 0, water: 0, thorns: 0 },
     abilities: { jumps: 0, spins: 0, items: {} },
-    purse: { on: false, cauldron: 0, embers: [], heat: [], totals: [], crystals: 0, killEmbers: {}, resources: null, exitStep: null },
+    purse: { on: false, cauldron: 0, embers: [], heat: [], totals: [], crystals: 0, killEmbers: {}, resources: null, exitStep: null, exitBy: null },
     oath: { id: null, kept: null, brokenTick: null, metTick: null, mult: null },
     secondWind: null,
   };

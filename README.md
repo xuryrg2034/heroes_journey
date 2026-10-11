@@ -83,6 +83,7 @@ Node-тесты (`tsx`), все без браузера:
 | `npm run test:realtime-elite-behaviors`, `-elite-armor` | Поведение и броня элит |
 | `npm run test:realtime-slot` | «Однорукий гоблин»: появление, рычаг, барабаны, шансы, стрелы |
 | `npm run test:realtime-purse` | Котёл: чек цепи, выплата в двери |
+| `npm run test:realtime-door-finale` | Финальная цепь (П3): +1 жар цепи в дверь, прогноз = чек, выход в логах |
 | `npm run test:realtime-greed` | «Раздув за дела»: ступени котла за цепи 3+ после целей, удар снимает ступень, выплата и кость со ступенью, потолок прежний |
 | `npm run test:realtime-second-wind` | «Второе дыхание» (песочница): раз за бой смертельный удар оставляет 3 HP и 2 с неуязвимости, котёл боя 0, клятва нарушена, оберег первым, второй смертельный удар убивает; иглы дикобраза не ранят в окне 2 с после подъёма; запись `secondWind` в сводке боя; повтор по журналу |
 | `npm run test:realtime-oath` | Ставка клятвы: каталог, нарушение и выполнение, ×2 / ×0,5 в двери, предложения на узлах, сохранение v7 |
@@ -131,7 +132,7 @@ npx playwright test tests/realtime-run.spec.ts
 | [events.md](docs/events.md), [talismans.md](docs/talismans.md) | Каталог событий; талисманы, клятвы, реликвии |
 | [realtime-phase-a.md](docs/realtime-phase-a.md), [realtime-phase-b.md](docs/realtime-phase-b.md) | Фаза A (скорости, составы, лучник) и фаза B (сборка) |
 | [realtime-damage.md](docs/realtime-damage.md), [realtime-elite-behaviors.md](docs/realtime-elite-behaviors.md) | Пакет «Урон имеет значение»; поведение элит |
-| [realtime-casino.md](docs/realtime-casino.md) | Казино, этап 1: котёл (чек цепи → ресурсы похода), ставка клятвы, «Однорукий гоблин», кость у двери; этап 2: «Раздув за дела» |
+| [realtime-casino.md](docs/realtime-casino.md) | Казино, этап 1: котёл (чек цепи → ресурсы похода), ставка клятвы, «Однорукий гоблин», кость у двери; этап 2: «Раздув за дела», «Финальная цепь» |
 | [realtime-stage3.md](docs/realtime-stage3.md) | Этап 3: местность, поведение, камера, большие арены |
 | [realtime-telemetry.md](docs/realtime-telemetry.md), [realtime-playtest.md](docs/realtime-playtest.md) | Логи и метрики; протокол плейтеста |
 | [realtime-transition.md](docs/realtime-transition.md) | План перехода на реальное время |

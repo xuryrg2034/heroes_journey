@@ -36,7 +36,7 @@ import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
 import { leverReady, pullLever } from './slot';
-import { greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
+import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathRelease } from './oath';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
@@ -182,7 +182,10 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const last = links[links.length - 1];
   const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
   const seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
-  const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null) : null;
+  // П3 «Финальная цепь»: the dash enters the door — its last link is the open door and no survivor stops it before.
+  const end = endsOnObject && !endsOnSurvivor && purse && doorFinaleOn(world) ? findObject(world, last.id) : undefined;
+  const door = end?.kind === 'door' && doorOpen(world);
+  const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null, door) : null;
   return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {} };
 }
 
@@ -962,7 +965,7 @@ function reachObject(world: World, object: ArenaObject): void {
     // Casino stage 1 («Однорукий гоблин»): the pull — the enemy links this dash really struck (kills and plate hits) count.
     pullLever(world, object, move.hits);
   } else if (doorOpen(world)) {
-    win(world);
+    win(world, 'chain');
   }
 }
 
@@ -1020,7 +1023,7 @@ function finishMove(world: World): void {
     // Phase B: the dash is over — the build modules' end of chain (a wave, the end blast, the return run …).
     if (end) runHook(world, 'onChainEnd', m => { if (world.status === 'playing') m.onChainEnd!(world, end); });
   }
-  if (move.kind === 'jump' && landsInDoor(world, hero)) win(world);
+  if (move.kind === 'jump' && landsInDoor(world, hero)) win(world, 'jump');
   if (move.kind === 'return') runHook(world, 'onMoveEnd', m => m.onMoveEnd!(world, move));
 }
 

@@ -94,6 +94,8 @@ function greyOf(color: number): number {
 
 /** Pixels per arena unit before fitting to the window (one board cell of the main game). */
 export const UNIT = 72;
+/** П3 «Финальная цепь»: real seconds of the final flash of a chain into the door (the result screen waits as long, main.ts). */
+export const FINAL_FLASH = 0.8;
 /** П2: real seconds of the hero's outline flash at the end of a 6–9 link dash. */
 const OUTLINE_LIFE = 0.4;
 /** Casino «Котёл»: the cheque stands this many pixels over the hero (where the score popup «+N» starts: above the combo counter). */
@@ -1507,7 +1509,7 @@ export class RealtimeRenderer {
    * The end of a dash: its cheque at the hero for 0.8 s, no pause — «8 × 3 × ◆2 = 48» (where the score popup «+N» was: above
    * the combo counter). П2: a cheque of 1–2 enemy links has no pop-up — the caption takes its numbers, the HUD line the cauldron.
    */
-  private showCheque(world: World, ev: { embers: number; heat: number; mult: number; total: number; links: number }): void {
+  private showCheque(world: World, ev: { embers: number; heat: number; mult: number; total: number; links: number; door?: boolean }): void {
     if (ev.links <= QUIET_LINKS) {
       const caption = `угли ${ev.embers} · ×${ev.heat}${ev.mult > 1 ? ` · ◆${ev.mult}` : ''}`;
       if (this.purseCaption && this.purseCaption.text !== caption) { this.purseCaption.text = caption; this.purseShown.captions++; }
@@ -1520,7 +1522,8 @@ export class RealtimeRenderer {
       this.chequeText.anchor.set(0.5);
       this.root.addChild(this.chequeText);
     }
-    const text = `${ev.embers} × ${ev.heat}${ev.mult > 1 ? ` × ◆${ev.mult}` : ''} = ${ev.total}`;
+    // П3: a chain into the door — «8 × 4 · дверь = 32» (its +1 heat is in the 4).
+    const text = `${ev.embers} × ${ev.heat}${ev.door ? ' · дверь' : ''}${ev.mult > 1 ? ` × ◆${ev.mult}` : ''} = ${ev.total}`;
     // The last link and the «добивание» come in the tick the dash ends: the caption takes the cheque's final numbers.
     const caption = `угли ${ev.embers} · ×${ev.heat}${ev.mult > 1 ? ` · ◆${ev.mult}` : ''}`;
     if (this.purseCaption && this.purseCaption.text !== caption) { this.purseCaption.text = caption; this.purseShown.captions++; }
@@ -1530,6 +1533,15 @@ export class RealtimeRenderer {
     this.purseShown.cheques.push(text);
     if (this.purseShown.cheques.length > 20) this.purseShown.cheques.shift();
     this.chequeText.position.set(world.hero.x * UNIT, world.hero.y * UNIT - CHEQUE_ABOVE);
+  }
+
+  /** П3 «Финальная цепь»: the chain entered the door — a gold ring widens from the hero for 0.8 s, no pause of the world. */
+  private finalFlash(x: number, y: number): void {
+    const g = new Graphics().circle(0, 0, 2.6 * UNIT).fill({ color: 0xffd36b, alpha: 0.3 }).stroke({ color: 0xffe08a, width: 8, alpha: 0.95 });
+    g.position.set(x * UNIT, y * UNIT);
+    this.fxLayer.addChild(g);
+    this.bursts.push({ g, life: FINAL_FLASH, total: FINAL_FLASH, grow: true });
+    this.feelShown.finals++;
   }
 
   private drawCheque(world: World, dt: number): void {
@@ -1575,7 +1587,8 @@ export class RealtimeRenderer {
     const feel = chainFeel(this.dashLinks.of(world));
     for (const [at, ev] of world.events.entries()) {
       // Casino «Котёл»: the chain's cheque at the hero (П2: over the hero only from 3 links; otherwise only the HUD line).
-      if (ev.type === 'cheque') { this.showCheque(world, ev); continue; }
+      // П3 «Финальная цепь»: a chain into the door — the final flash always (the cheque's pop-up follows П2).
+      if (ev.type === 'cheque') { if (ev.door) this.finalFlash(ev.x, ev.y); this.showCheque(world, ev); continue; }
       // Phase B (Д5): the build. An item fired — a short text at the hero (its icon flashes in the column, main.ts).
       if (ev.type === 'talismanFired') {
         this.floatText(fireTextOf(ev.id), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);

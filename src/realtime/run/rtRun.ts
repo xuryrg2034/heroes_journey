@@ -86,9 +86,10 @@ export const RT_RUN_VERSION_V6 = 6;
  * The roster mix (design decision 11.10.2026, `rosterMix`) is on: a new run keeps it in its state (`RtRunState.rosterMix`,
  * `createRtRun`), the arena and roster choices read it there; the simulation never reads it. П4 «Раздув за дела»
  * (`greedByDeeds`, design 11.10.2026) is on: the greed step after the goals multiplies the cauldron at the door
- * (`PurseDoor.greed`, paid by `doorPayout` with or without the die).
+ * (`PurseDoor.greed`, paid by `doorPayout` with or without the die). П3 «Финальная цепь» (`doorFinale`, design 12.10.2026) is
+ on: a chain into the door gets +1 heat in its cheque.
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, greedByDeeds: true, oathStake: true, doorDie: true, rosterMix: true,
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, greedByDeeds: true, doorFinale: true, oathStake: true, doorDie: true, rosterMix: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
   slotPulls: 3, slotCooldown: 8, slotSpin: 1.2 });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */

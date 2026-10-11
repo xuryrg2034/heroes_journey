@@ -194,3 +194,55 @@ test('П2 «Тихая мелочь, громкая цепь»: a 2-link chain s
   expect((await feel(page)).outlines).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('П3 «Финальная цепь»: a chain into the door shows «≈ N · дверь +1» from 1 link, the cheque «3 × 3 · дверь = 9», the final flash; the result screen ~0.8 s after the victory', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await freeze(page);
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('purse', true); rt.setParam('doorFinale', true); rt.completeGoals(); });
+  await expect(page.getByTestId('goal')).toContainText('дверь открыта');
+  const door = await page.evaluate(() => (window as any).__realtime.snapshot().objects.find((o: { kind: string }) => o.kind === 'door')) as { x: number; y: number };
+  // Enemies in a row from the door toward the middle of the arena, the hero beyond them.
+  const dir = door.x > 8 ? -1 : 1, at = (i: number) => ({ x: door.x + dir * 1.4 * i, y: door.y });
+  const drawTo = async (n: number): Promise<void> => {
+    await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [at(n + 1).x, at(n + 1).y] as const);
+    for (let i = n; i >= 1; i--) await place(page, at(i).x, at(i).y);
+    const points = [...Array.from({ length: n }, (_, k) => at(n - k)), door];
+    const screens: { x: number; y: number }[] = [];
+    for (const p of points) screens.push(await screen(page, p.x, p.y));
+    await page.mouse.move(screens[0].x, screens[0].y);
+    await page.mouse.down();
+    for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y);
+    await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(n + 1);
+  };
+  // One weak enemy into the door: 1 × 2 (the door's +1 heat) — the forecast shows already at 1 link.
+  await drawTo(1);
+  await expect(page.getByTestId('purse-forecast')).toHaveText('≈ 2 · дверь +1');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  // Three weak enemies into the door: 3 × 3 = 9 (3rd link +1, the door +1).
+  await drawTo(3);
+  await expect(page.getByTestId('purse-forecast')).toHaveText('≈ 9 · дверь +1');
+  // The result screen waits for the final flash: measured in the page from the victory's frame to the screen's frame.
+  const timing = page.evaluate(() => new Promise<{ wait: number }>(resolve => {
+    let won = 0;
+    const step = (): void => {
+      const s = (window as any).__realtime.snapshot(), el = document.querySelector('[data-testid="result"]') as HTMLElement | null;
+      if (!won && s.status === 'victory') won = performance.now();
+      if (won && el && !el.hidden) { resolve({ wait: performance.now() - won }); return; }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }));
+  await page.mouse.up();
+  const { wait } = await timing;
+  expect(wait).toBeGreaterThanOrEqual(700);
+  expect(wait).toBeLessThan(3_000);
+  expect((await purse(page)).shown.cheques).toEqual(['3 × 3 · дверь = 9']);
+  expect((await feel(page)).finals).toBe(1);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  await expect(page.getByTestId('result')).toContainText('Котёл');
+  expect((await purse(page)).door.cauldron).toBe(9);
+  expect(errors).toEqual([]);
+});

@@ -412,14 +412,19 @@ function purseRow(label: string, entries: readonly FightEntry[]): (string | numb
   // П4 «Раздув за дела»: the greed step at the door, doors by step (older records and fights without the rule: none).
   const steps = list.map(x => x.exitStep).filter((x): x is number => typeof x === 'number');
   const stepCell = steps.length ? GREED_STEP_NAMES.map((name, i) => `${name} ${steps.filter(x => x === i).length}`).join(', ') : '—';
+  // П3 «Финальная цепь»: how the hero went through the door (older records: none).
+  const exits = list.map(x => x.exitBy).filter((x): x is NonNullable<typeof x> => !!x);
+  const exitCell = exits.length ? EXIT_NAMES.map(([by, name]) => `${name} ${exits.filter(x => x === by).length}`).join(', ') : '—';
   return [
     label, list.length, dist(list.map(x => x.cauldron)), totals.length, dist(embers), dist(heat), dist(totals),
     list.reduce((a, x) => a + x.crystals, 0),
     Object.entries(kills).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || '—',
     paid.length ? `${paid.reduce((a, x) => a + x, 0)} (${paid.length} дверей, мед. ${n1(median(paid))})` : '—',
-    stepCell,
+    stepCell, exitCell,
   ];
 }
+/** П3: the exits through the door as the report names them. */
+const EXIT_NAMES: readonly (readonly [NonNullable<FightSummary['purse']['exitBy']>, string])[] = [['chain', 'цепью'], ['jump', 'прыжком'], ['walk', 'ходьбой']];
 /** П4: the greed steps as the HUD names them (step 0–3). */
 const GREED_STEP_NAMES = ['×1', '×1,5', '×2', '×3'];
 /** Rows of the cauldron table: the runs, the sandbox and, when both had it, all together. */
@@ -427,8 +432,8 @@ function purseRows(runFights: readonly FightEntry[], sandbox: readonly FightEntr
   const runs = purseRow('походы', runFights), box = purseRow('песочница', sandbox);
   return [runs, box, runs && box ? purseRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
 }
-const PURSE_HEAD = ['Бои', 'Боёв с котлом', 'Котёл за бой мед. / макс.', 'Чеков', 'Угли на чек мед. / макс.', 'Жар мед. / макс.', 'Чек мед. / макс.', 'Кристаллов в цепях', 'Угли убийств сборки', 'Ресурсов в двери (без кости)', 'Ступень раздува в двери'];
-const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл × клятва ÷ 60⌋ (`purseRate`; клятва ×2 / ×0,5, без неё ×1), не больше 3 без клятвы, 6 с выполненной, 1 с нарушенной (`purseDoor`). Это выплата без кости: кость похода — раздел «Кость у двери». Ступень раздува (П4 «Раздув за дела», `greedByDeeds`; в походе включён с 11.10.2026) — `purse.exitStep`, двери по ступеням ×1 / ×1,5 / ×2 / ×3; котёл в двери умножается на ступень, потолок выплаты прежний. «—» — нет дверей с правилом (и все записи до него).';
+const PURSE_HEAD = ['Бои', 'Боёв с котлом', 'Котёл за бой мед. / макс.', 'Чеков', 'Угли на чек мед. / макс.', 'Жар мед. / макс.', 'Чек мед. / макс.', 'Кристаллов в цепях', 'Угли убийств сборки', 'Ресурсов в двери (без кости)', 'Ступень раздува в двери', 'Выход в дверь'];
+const PURSE_LEGEND = 'Котёл (`purse`; в походе включён): чек цепи — угли × жар × кристаллы (`cheque`), один на рывок с вражеским звеном. Угли убийств сборки — 1 за убитого молотом, волной или стрелой гоблина (`purseKill`), по источнику. Ресурсы — ⌊котёл × клятва ÷ 60⌋ (`purseRate`; клятва ×2 / ×0,5, без неё ×1), не больше 3 без клятвы, 6 с выполненной, 1 с нарушенной (`purseDoor`). Это выплата без кости: кость похода — раздел «Кость у двери». Ступень раздува (П4 «Раздув за дела», `greedByDeeds`; в походе включён с 11.10.2026) — `purse.exitStep`, двери по ступеням ×1 / ×1,5 / ×2 / ×3; котёл в двери умножается на ступень, потолок выплаты прежний. «—» — нет дверей с правилом (и все записи до него). Выход в дверь (`purse.exitBy`, с 12.10.2026) — цепью, прыжком или ходьбой; цепь в дверь с П3 «Финальная цепь» (`doorFinale`; в походе включён с 12.10.2026) получает +1 жар. «—» — записи до 12.10.2026.';
 // ---- end «Котёл» ----
 
 // ---- Casino «Ставка клятвы» (sim/oath.ts, docs/realtime-casino.md): offers of the runs, outcomes of the fights ----

@@ -222,7 +222,8 @@ check('a 3+ chain into the door counts before the exit: the door records ×1,5 a
   assert(replays(on.f), 'the fight replays');
 });
 
-check('the run pays the step: «Забрать» 2 (not 1), the roll 1–3 → 1 (96 × 1,5 × 0,5), 4–6 → 4 (96 × 1,5 × 2), on 6 seeds (both halves come up)', () => {
+// The run also plays П3 «Финальная цепь» (12.10.2026): the 9 weak into the door are 9 × 6 = 54, not 45 — the cauldron 105.
+check('the run pays the step: «Забрать» 2 (105 × 1,5; not 1), the roll 1–3 → 1 (105 × 1,5 × 0,5), 4–6 → 5 (105 × 1,5 × 2), on 6 seeds (both halves come up)', () => {
   assert(RT_RUN_FORCED.greedByDeeds === true && rtRunParams(defaultParams()).greedByDeeds === true && defaultParams().greedByDeeds === false, 'on in the run, off in the sandbox by default');
   const faces = new Set<number>();
   for (let k = 1; k <= 6; k++) {
@@ -235,13 +236,13 @@ check('the run pays the step: «Забрать» 2 (not 1), the roll 1–3 → 1
     assert(w.params.greedByDeeds && door.greed === 1.5, `seed ${k}: the run arena plays with the rule`);
     const shown = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: w.hero.hp, kills: w.stats.kills, damage: 0, time: w.time, purse: door, doorDie: true }), 'resolve');
     const view = rtDieView(shown)!;
-    assert(view && view.cauldron === 96 && view.greed === 1.5 && view.take === 2 && view.low === 1 && view.high === 4, `seed ${k}: the die screen ${JSON.stringify(view)}`);
+    assert(view && view.cauldron === 105 && view.greed === 1.5 && view.take === 2 && view.low === 1 && view.high === 5, `seed ${k}: the die screen ${JSON.stringify(view)}`);
     const before = total(shown);
     assert(total(ok(rtDieChoose(shown, false), 'take')) - before === 2, `seed ${k}: «Забрать» pays 2`);
     const face = shown.pending?.kind === 'die' ? shown.pending.face : 0;
     faces.add(face);
     const rolled = total(ok(rtDieChoose(shown, true), 'roll')) - before;
-    assert(rolled === (rtDieMult(face) > 1 ? 4 : 1) && face === rtDieFace(run.seed, 0), `seed ${k}: the roll (face ${face}) pays ${rolled}`);
+    assert(rolled === (rtDieMult(face) > 1 ? 5 : 1) && face === rtDieFace(run.seed, 0), `seed ${k}: the roll (face ${face}) pays ${rolled}`);
   }
   assert([...faces].some(x => rtDieMult(x) < 1) && [...faces].some(x => rtDieMult(x) > 1), `both halves of the die: ${[...faces].join()}`);
 });

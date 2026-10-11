@@ -25,7 +25,7 @@ import { updateBurning } from './items';
 import { RngStreams } from './rng';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
-import { fallenEmbers, greedHurt, purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
+import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
@@ -344,13 +344,14 @@ export type WorldEvent =
   /**
    * Casino «Котёл» (purse.ts): a chain's cheque went into the cauldron (embers × heat × the crystal multiplier = total; the
    * cauldron after it; where the hero stands); a build kill put 1 ember (`purseKill`); the door recorded the cauldron
-   * (`purseDoor`: the oath and the resources it pays without the die; with П4 on — the greed step's multiplier and the step).
+   * (`purseDoor`: the oath and the resources it pays without the die, how the hero went in; with П4 on — the greed step's
+   * multiplier and the step). П3 «Финальная цепь»: the cheque of a chain entering the door with `doorFinale` on has `door`.
    * П4 «Раздув за дела»: the greed step went up or down (`greed`: a counted chain or a hit; the step 0–3 after it, the counted
    * chains toward the next one, the step's multiplier).
    */
-  | { type: 'cheque'; embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean; cauldron: number; x: number; y: number }
+  | { type: 'cheque'; embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean; door?: true; cauldron: number; x: number; y: number }
   | { type: 'purseKill'; source: string; cauldron: number }
-  | { type: 'purseDoor'; cauldron: number; oath: number; resources: number; greed?: number; step?: number }
+  | { type: 'purseDoor'; cauldron: number; oath: number; by: DoorExit; resources: number; greed?: number; step?: number }
   | { type: 'greed'; cause: 'chain' | 'hit'; step: number; chains: number; mult: number }
   /**
    * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath broke (`broken`) or an «at least once» oath was met (`met`) in
@@ -620,7 +621,8 @@ export function nextFiring(world: World): number {
 }
 
 /** Entering the open door: the arena is won. */
-export function win(world: World): void {
+/** The hero goes through the open door — `by` the chain ending on it, a jump landing in it or walking in. */
+export function win(world: World, by: DoorExit): void {
   if (world.status !== 'playing') return;
   world.status = 'victory';
   world.endTime = world.time;
@@ -629,7 +631,7 @@ export function win(world: World): void {
   // Casino «Ставка клятвы»: an «at least once» oath not met by now breaks here; the door then records its multiplier.
   if (world.oath) oathDoor(world);
   // Casino «Котёл»: the chain entering the door puts its cheque first, then the door records the cauldron (purse.ts).
-  purseDoor(world);
+  purseDoor(world, by);
   world.events.push({ type: 'victory' });
 }
 
@@ -1251,7 +1253,7 @@ export function update(world: World, dt: number, realDt = dt): void {
   // keeps the choice to stay greedy — he must step off and touch it again (or enter by a chain or a jump).
   const onDoor = heroTouchesDoor(world), touchedNow = onDoor && !world.heroOnDoor;
   world.heroOnDoor = onDoor;
-  if (world.params.doorWalkIn && !world.move && touchedNow && doorOpen(world)) { win(world); return; }
+  if (world.params.doorWalkIn && !world.move && touchedNow && doorOpen(world)) { win(world, 'walk'); return; }
   updateFlow(world, dt);
   const knocked = moveEnemies(world, dt);
   const shoved = separate(world);

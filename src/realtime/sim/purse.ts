@@ -21,6 +21,11 @@
  * with the door open; a hit on the hero takes one step off and resets the count. The door multiplies the cauldron by its
  * step (`PurseDoor.greed`); the cap of the payout stays the cap of the stakes (oath × die). The cheque and its highlight do
  * not change.
+ *
+ * П3 «Финальная цепь» (docs/realtime-casino.md, «Финальная цепь (П3)»; `Params.doorFinale`, needs `purse`): a chain that
+ * enters the open door gets +1 heat in its cheque (`DOOR_HEAT`). The plan knows it from its last link (the open door, the
+ * dash reaching it — no survivor before it); the dash — from the exit (`purseDoor` settles the cheque of the dash that
+ * entered). A walk or a jump into the door settles no cheque. П4's count of links does not change.
  * Type-only imports from world.ts / chain.ts: world.ts calls this module at run time.
  */
 import { BUILD_SOURCES } from './buildIds';
@@ -42,6 +47,8 @@ export const ELITE_KILL_EMBERS = 5;
 export const HEAT_EVERY = 3;
 /** «Добивание»: +1 heat when the last enemy link died and the chain had at least this many enemy links. */
 export const FINISH_LINKS = 4;
+/** П3 «Финальная цепь»: heat of a chain that enters the open door (`doorFinale`). */
+export const DOOR_HEAT = 1;
 /** Heat of a chain that closed the seal (the loop, sandbox only); +1 ember for every enemy inside. */
 export const SEAL_HEAT = 2;
 /** П4 «Раздув за дела»: the greed steps' multipliers of the cauldron at the door (step 0 — ×1, the ceiling — ×3). */
@@ -100,11 +107,17 @@ export interface PurseDoor {
   greed?: number;
 }
 
-/** A cheque: embers × heat × the crystal multiplier = total. `links` — enemy links counted, `crystals` — crystal links. */
-export interface Cheque { embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean }
+/**
+ * A cheque: embers × heat × the crystal multiplier = total. `links` — enemy links counted, `crystals` — crystal links.
+ * `door` — П3: the chain enters the door, its +1 heat is in `heat` (absent otherwise).
+ */
+export interface Cheque { embers: number; heat: number; crystals: number; mult: number; total: number; links: number; finish: boolean; door?: true }
 
 /** The cauldron is on in this world. */
 export function purseOn(world: World): boolean { return !!world.params.purse; }
+
+/** П3 «Финальная цепь» acts in this world: `doorFinale` with the cauldron on (journals without the key: off). */
+export function doorFinaleOn(world: World): boolean { return purseOn(world) && !!world.params.doorFinale; }
 
 /**
  * Embers of one struck enemy link (K1, K4): a plate taken — 2; otherwise the HP the hit removed, at least 1 (a weak enemy
@@ -133,13 +146,14 @@ export function crystalMult(crystals: number): number { return crystals <= 0 ? 1
 
 /**
  * The cheque of a chain: embers of its links (+1 per enemy inside a seal), heat 1 + 1 per every 3rd enemy link + 1 for
- * the «добивание» (the last enemy link died, 4+ enemy links) + 2 for a seal, × the crystals.
+ * the «добивание» (the last enemy link died, 4+ enemy links) + 2 for a seal + 1 for entering the door (П3, `door`), × the
+ * crystals.
  */
-export function chequeOf(tally: PurseMove, crystals: number, seal: { inside: number } | null): Cheque {
+export function chequeOf(tally: PurseMove, crystals: number, seal: { inside: number } | null, door = false): Cheque {
   const finish = tally.last && tally.links >= FINISH_LINKS;
-  const heat = 1 + Math.floor(tally.links / HEAT_EVERY) + (finish ? 1 : 0) + (seal ? SEAL_HEAT : 0);
+  const heat = 1 + Math.floor(tally.links / HEAT_EVERY) + (finish ? 1 : 0) + (seal ? SEAL_HEAT : 0) + (door ? DOOR_HEAT : 0);
   const embers = tally.embers + (seal ? seal.inside : 0), mult = crystalMult(crystals);
-  return { embers, heat, crystals, mult, total: embers * heat * mult, links: tally.links, finish };
+  return { embers, heat, crystals, mult, total: embers * heat * mult, links: tally.links, finish, ...door ? { door: true as const } : {} };
 }
 
 /** Counts one struck enemy link into the tally (the plan and the dash alike). */
@@ -151,12 +165,13 @@ export function tallyLink(tally: PurseMove, embers: number, dead: boolean): void
 
 /**
  * The highlight's cheque (`planChain`): `links` — the plan's enemy links in order with their struck outcomes and their
- * enemies, `crystals` — crystal links of the plan, `sealInside` — enemies inside the closed chain (null — not closed).
+ * enemies, `crystals` — crystal links of the plan, `sealInside` — enemies inside the closed chain (null — not closed), `door`
+ * — П3: the dash would enter the door (`doorFinale` on, the last link the open door, no survivor before it).
  */
-export function planCheque(links: readonly { enemy: Pick<Enemy, 'armor'>; outcome: StrikeOutcome }[], crystals: number, sealInside: number | null): Cheque {
+export function planCheque(links: readonly { enemy: Pick<Enemy, 'armor'>; outcome: StrikeOutcome }[], crystals: number, sealInside: number | null, door = false): Cheque {
   const tally: PurseMove = { embers: 0, links: 0, last: false };
   for (const { enemy, outcome } of links) tallyLink(tally, linkEmbers(enemy, outcome), outcome.killed);
-  return chequeOf(tally, crystals, sealInside === null ? null : { inside: sealInside });
+  return chequeOf(tally, crystals, sealInside === null ? null : { inside: sealInside }, door);
 }
 
 /**
@@ -168,19 +183,25 @@ export function nextHeat(cheque: Cheque, sealed: boolean): number | null {
   return next > cheque.heat ? next : null;
 }
 
-/** The running dash's cheque if it ended now (the caption under the power number). Null — no cheque counted. */
-export function dashCheque(move: HeroMove | null): Cheque | null {
+/**
+ * The running dash's cheque if it ended now (the caption under the power number). Null — no cheque counted. `door` — П3: the
+ * dash enters the door now (`purseDoor`).
+ */
+export function dashCheque(move: HeroMove | null, door = false): Cheque | null {
   if (!move?.purse) return null;
-  return chequeOf(move.purse, move.broken, move.seal ? { inside: move.seal.inside.length } : null);
+  return chequeOf(move.purse, move.broken, move.seal ? { inside: move.seal.inside.length } : null, door);
 }
 
 /** The cauldron of the world, made on first use (absent while nothing was put: worlds without it hash as before). */
 function cauldronOf(world: World): PurseWorld { return world.purse ??= { cauldron: 0 }; }
 
-/** The dash `move` ends (or enters the door): its cheque goes into the cauldron, once. Event `cheque`. */
-export function settleCheque(world: World, move: HeroMove | null = world.move): Cheque | null {
+/**
+ * The dash `move` ends (or enters the door): its cheque goes into the cauldron, once. Event `cheque`. `door` — П3: the dash
+ * enters the door with `doorFinale` on (+1 heat).
+ */
+export function settleCheque(world: World, move: HeroMove | null = world.move, door = false): Cheque | null {
   if (!move || move.kind !== 'dash' || !move.purse) return null;
-  const cheque = dashCheque(move)!, greed = !!move.purse.greed;
+  const cheque = dashCheque(move, door)!, greed = !!move.purse.greed;
   delete move.purse;
   if (!cheque.links && !cheque.embers) return cheque;
   const purse = cauldronOf(world);
@@ -302,14 +323,17 @@ export function purseResources(cauldron: number, oath = 1, die = 1, rate = EMBER
 /** The cap of the payout at the stakes M = oath × die: min(6, ⌊3 × M⌋), never below 1. П4's greed step is not in it. */
 export function payoutCap(m: number): number { return Math.max(1, Math.min(PAYOUT_CAP_MAX, Math.floor(PAYOUT_CAP_BASE * Math.max(0, m)))); }
 
+/** How the hero went through the door: the chain ending on it, a jump landing in it, walking in (`doorWalkIn`). */
+export type DoorExit = 'chain' | 'jump' | 'walk';
+
 /**
- * The exit into the door (world.ts `win`): the running dash's cheque first (a chain ending on the door), then the door's
- * record — the cauldron, the oath, `PAYOUT_CAP_MAX` resource kinds of the stream `purse:loot` (the run takes as many from
- * the front as the payout says). Event `purseDoor` with the payout without the die.
+ * The exit into the door (world.ts `win`): the running dash's cheque first (a chain ending on the door; П3 — +1 heat with
+ * `doorFinale`), then the door's record — the cauldron, the oath, `PAYOUT_CAP_MAX` resource kinds of the stream `purse:loot`
+ * (the run takes as many from the front as the payout says). Event `purseDoor` with the payout without the die and the exit.
  */
-export function purseDoor(world: World): void {
+export function purseDoor(world: World, by: DoorExit): void {
   if (!purseOn(world)) return;
-  settleCheque(world);
+  settleCheque(world, world.move, by === 'chain' && doorFinaleOn(world));
   const purse = cauldronOf(world), rng = world.rng.stream('purse:loot'), oath = purseOath(world);
   const kinds: ResourceKind[] = [];
   for (let i = 0; i < PAYOUT_CAP_MAX; i++) kinds.push(RESOURCE_KINDS[Math.floor(rng.next() * RESOURCE_KINDS.length)]);
@@ -317,7 +341,7 @@ export function purseDoor(world: World): void {
   // П4: the greed step at the exit multiplies the cauldron (recorded only with the rule on; old doors have no field).
   const greed = greedOn(world) ? GREED_MULTS[greedStep(world)] : undefined;
   purse.door = { cauldron: purse.cauldron, oath, kinds, rate, ...greed !== undefined ? { greed } : {} };
-  world.events.push({ type: 'purseDoor', cauldron: purse.cauldron, oath, resources: purseResources(purse.cauldron, oath, 1, rate, greed),
+  world.events.push({ type: 'purseDoor', cauldron: purse.cauldron, oath, by, resources: purseResources(purse.cauldron, oath, 1, rate, greed),
     ...greed !== undefined ? { greed, step: greedStep(world) } : {} });
 }
 
