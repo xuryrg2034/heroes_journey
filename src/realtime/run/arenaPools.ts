@@ -53,7 +53,7 @@ export const ARENA_POOLS_BEFORE_MIX: readonly ArenaPoolEntry[] = [
  * order of the candidates stays); every other entry as before. On rows 2–5 «Логово» lost to the own arenas of unmet kinds,
  * so its pool rosters came only before any meeting; on rows 6–9 the kinds are usually met.
  */
-export const ARENA_POOLS: readonly ArenaPoolEntry[] = ARENA_POOLS_BEFORE_MIX.map(entry => entry.arena === 'marked' ? { arena: 'marked', rows: [6, 9] as const } : entry);
+export const ARENA_POOLS: readonly ArenaPoolEntry[] = ARENA_POOLS_BEFORE_MIX.map(entry => entry.arena === 'marked' ? { arena: 'marked', rows: [6, 8] as const } : entry);
 /** The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) — `ARENA_POOLS_BEFORE_MIX`. */
 export const runArenaPools = (mix: boolean): readonly ArenaPoolEntry[] => mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */

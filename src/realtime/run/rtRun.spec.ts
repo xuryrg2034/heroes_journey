@@ -352,7 +352,8 @@ check('step 4 pools: every run row 1–9 has its own arenas, «Брод» on row
   // No temporary stand-ins any more (steps 1–3): every run row of the map (map rows 5–13) has arenas of its own.
   for (let row = 1; row <= 9; row++) assert(arenaCandidates(row).length > 0, `run row ${row} has arenas of its own`);
   // Stage 3a: row 9 also holds the lynx's and the shaman's arenas (rows 2–9 and 5–9); the roster mix (11.10.2026) — «Логово» (rows 6–9).
-  assert(arenaCandidates(9).join() === 'marked,ford,lynx-den,shaman-circle' && arenaCandidates(10).length === 0, `run row 9: ${arenaCandidates(9)}`);
+  // The mix (design 11.10.2026): «Логово» on rows 6–8, row 9 left to «Круг шамана».
+  assert(arenaCandidates(8).join().startsWith('marked,') && arenaCandidates(9).join() === 'ford,lynx-den,shaman-circle' && arenaCandidates(10).length === 0, `run rows 8–9: ${arenaCandidates(8)} / ${arenaCandidates(9)}`);
   assert(arenaCandidates(9, ARENA_POOLS_BEFORE_MIX).join() === 'ford,lynx-den,shaman-circle', `run row 9 before the mix: ${arenaCandidates(9, ARENA_POOLS_BEFORE_MIX)}`);
   const ford = ARENA_POOLS.find(entry => entry.arena === 'ford');
   assert(ford && ford.rows[0] === 6 && ford.rows[1] === 9, 'Брод: run rows 6–9');
@@ -489,7 +490,7 @@ check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first me
     assert(arenaNewKinds(arena).length === 0, `${arena} brings none of the four kinds of the first-meeting rule`);
   }
   // Never met, they are never overdue: past their rows a run that met the four kinds plays the row's pool (row 9 — Брод).
-  assert(ordinaryArenaChoices(9, all).join() === 'marked,ford,lynx-den,shaman-circle' && ordinaryArenaChoices(2, all).join() === 'glade,buttons,lynx-den', `rows 2 and 9, the four met: ${ordinaryArenaChoices(2, all)} / ${ordinaryArenaChoices(9, all)}`);
+  assert(ordinaryArenaChoices(9, all).join() === 'ford,lynx-den,shaman-circle' && ordinaryArenaChoices(2, all).join() === 'glade,buttons,lynx-den', `rows 2 and 9, the four met: ${ordinaryArenaChoices(2, all)} / ${ordinaryArenaChoices(9, all)}`);
   /** The walk of 300 runs with the roster mix on (a new run) or off (a run before 11.10.2026): the counts and the rule's checks. */
   const measure = (mix: boolean) => {
     const pools = runArenaPools(mix), runs = 300, ordinary = new Map<string, number>(), hard = new Map<string, number>(), final = new Map<string, number>();
@@ -552,13 +553,13 @@ check('design answers 1–2 to step 4: on ordinary nodes a new enemy is first me
   const before = measure(false);
   assert(before.lynx === 141 && before.shaman === 115 && before.runsWith.final === 18 && before.runsWith.hard === 115 && before.fordRuns === 93 && before.previews === 2096,
     `the measure of c8df2d4 without the mix: lynx ${before.lynx}, shaman ${before.shaman}, final ${before.runsWith.final}, hard ${before.runsWith.hard}, ford ${before.fordRuns}, previews ${before.previews}`);
-  // With the mix (A3, design decision 11.10.2026: «Логово» on rows 6–9) — the new reference of the run, recorded in
-  // docs/realtime-phase-a.md, section 4. The design targets of 09.10.2026 that still hold: a kind first met on the final in
-  // at most 25 runs of 300, on «Застава» in at most 120, «Рысье логово» in at least 100. «Круг шамана» falls below its 100
-  // (83 runs on 11.10.2026: «Логово» shares rows 6–9 with it) — an open question to the design, printed, not asserted.
+  // With the mix (design decision 11.10.2026: «Логово» on rows 6–8, row 9 left to «Круг шамана») — the new reference of the
+  // run, recorded in docs/realtime-phase-a.md, section 4. The design targets of 09.10.2026 hold: a kind first met on the
+  // final in at most 25 runs of 300, on «Застава» in at most 120, «Рысье логово» and «Круг шамана» in at least 100 each.
   const mixed = measure(true);
   assert(mixed.runsWith.final <= 25 && mixed.runsWith.hard <= 120, `first met on the final in ${mixed.runsWith.final} runs, on «Застава» in ${mixed.runsWith.hard}`);
   assert(mixed.lynx >= 100, `«Рысье логово» in ${mixed.lynx} runs`);
+  assert(mixed.shaman >= 100, `«Круг шамана» in ${mixed.shaman} runs (target ≥ 100 of 300)`);
 });
 
 check('the final arena «Последний рубеж»: a save at it loads back, a loss there ends the run as a defeat; a save of steps 1–3 with a temporary arena reads as no run', () => {
