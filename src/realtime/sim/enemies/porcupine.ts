@@ -1,6 +1,7 @@
 /**
  * The porcupine (stage 2 of the transition, docs/realtime-slice.md, section 4): HP 1, walks as everyone. A chain hit on it
- * (a kill or a wound) hurts the hero for 1 — during the dash and through any invulnerability (the quills). The hero
+ * (a kill or a wound) hurts the hero for 1 — during the dash and through any invulnerability (the quills; П9: not through
+ * the recovery window of the second wind, `secondWindRecovering`). The hero
  * falling to the quills falls before the strike lands. The cold takes the quills off (`enemyFrozen`). Numbers — the panel
  * group «Дикобраз».
  *
@@ -12,7 +13,7 @@
  *
  * State in `enemy.vars`: `up` (1 — the quills are up), `timer` — game seconds left in this state.
  */
-import { enemyFrozen, heroDamage, hurtHero, type Enemy, type World } from '../world';
+import { enemyFrozen, heroDamage, hurtHero, secondWindRecovering, type Enemy, type World } from '../world';
 import { registerBehavior, registerEnemyKind } from './kinds';
 
 /** Timers reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */
@@ -52,11 +53,15 @@ registerBehavior({
     return false;
   },
   // The badge and the release read the damage the quills would do now (`heroDamage`: the elite +1, as `hurtHero`).
-  armed: (world, e) => quillsUp(world, e) ? heroDamage(world, e, world.params.porcupineQuills) : 0,
+  // П9 (design decision 12.10.2026): in the recovery window of the second wind the quills do not pierce — no badge, the
+  // release does not arm them.
+  armed: (world, e) => quillsUp(world, e) && !secondWindRecovering(world) ? heroDamage(world, e, world.params.porcupineQuills) : 0,
   onChainHit(world, e) {
     // The quills of the release (chain.ts), not of now: up at the release — they hurt even if they went down on the way.
     if (!world.move?.armed?.includes(e.id) || world.status !== 'playing') return;
-    // Not `canBeHurt`: the quills hurt in the dash and through invulnerability (section 4, «Общие правила»).
+    // Not `canBeHurt`: the quills hurt in the dash and through invulnerability (section 4, «Общие правила»). П9: except the
+    // recovery window of the second wind — a chain released before the wind (its first quills stood the hero up) spares him.
+    if (secondWindRecovering(world)) return;
     hurtHero(world, e, world.params.porcupineQuills, 'quills');
   },
 });

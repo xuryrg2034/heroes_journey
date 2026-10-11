@@ -56,6 +56,8 @@
  *   and, with П4 «Раздув за дела» on, the greed step at the door (`exitStep`); the cauldron at the end — `world.purse`.
  * - the oath stake (casino «Ставка клятвы», sim/oath.ts): the oath of the fight and its met / broken ticks — `world.oath` at
  *   the end; the door's `oath` event — kept or not and the cauldron's multiplier.
+ * - the second wind (П9, sandbox; sim/world.ts): the `secondWind` event — the tick of the lethal hit, the HP before it, its
+ *   source (named as in `damage.bySource`) and the striker's kind if it stood on the arena at the hit (the event names it).
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
@@ -220,6 +222,14 @@ export function createFightObserver(start: World): FightObserver {
         case 'talismanFired': bump(s.build.fired, ev.id); return;
         case 'hammer': bump(s.build.fired, world.kit?.hammer ?? 'hammer'); return;
         case 'ward': bump(s.build.fired, 'ash-ward'); return;
+        // П9 «Второе дыхание» (sandbox): the lethal hit the hero stood up from — the tick, his HP before it, its source.
+        case 'secondWind':
+          s.secondWind = {
+            tick: world.secondWind?.tick ?? world.tick, hpBefore: ev.hp,
+            source: ev.source === 'wolf' && rushing.has(ev.enemyId) ? WOLF_RUSH_SOURCE : ev.source,
+            ...ev.enemy ? { enemy: ev.enemy } : {}, ...ev.elite ? { elite: true } : {},
+          };
+          return;
         case 'slot':
           // Casino stage 1 («Однорукий гоблин»): appearances, pulls (links before the lever, outcomes), effects.
           if (ev.action === 'appear') { s.slot.appeared++; if (s.slot.appearAfterGoals === null && world.greedStart !== null) s.slot.appearAfterGoals = world.time - world.greedStart; }

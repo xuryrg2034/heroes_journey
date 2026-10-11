@@ -452,6 +452,24 @@ export interface FightSummary {
   purse: PurseSummary;
   /** Casino «Ставка клятвы» (from 11.10.2026; absent in older records — `withSummaryDefaults`): the oath of the fight. */
   oath: OathSummary;
+  /**
+   * П9 «Второе дыхание» (from 12.10.2026; sandbox only — the run keeps the rule off; absent in older records —
+   * `withSummaryDefaults` reads null): the lethal hit the hero stood up from; null — no second wind in the fight.
+   */
+  secondWind: SecondWindSummary | null;
+}
+
+/** П9 «Второе дыхание» of one fight (docs/realtime-telemetry.md, section 8, «Второе дыхание»; sim/world.ts `secondWind`). */
+export interface SecondWindSummary {
+  /** The tick of the lethal hit (`world.secondWind.tick`: ticks run before it, as `lowHp`'s tick minus one). */
+  tick: number;
+  /** The hero's HP before the lethal hit. */
+  hpBefore: number;
+  /** The source of the lethal hit as `damage.bySource` names it (`hit.source`; a rushing wolf's `wolf` — `wolf-rush`). */
+  source: string;
+  /** The striker's enemy kind, if it stood on the arena at the hit (absent for a hit without an enemy: thorns, a dead sapper's blast). */
+  enemy?: string;
+  elite?: boolean;
 }
 
 /**
@@ -565,6 +583,7 @@ export function emptyFightSummary(): FightSummary {
     abilities: { jumps: 0, spins: 0, items: {} },
     purse: { on: false, cauldron: 0, embers: [], heat: [], totals: [], crystals: 0, killEmbers: {}, resources: null, exitStep: null },
     oath: { id: null, kept: null, brokenTick: null, metTick: null, mult: null },
+    secondWind: null,
   };
 }
 

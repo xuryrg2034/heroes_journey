@@ -467,6 +467,19 @@ const OATH_HEAD = ['Клятва', 'Предложена', 'Взята', 'Боё
 const OATH_LEGEND = 'Ставка клятвы (`oathStake`; в походе включена): предложена и взята — карточки узлов походов (выбор `oath-stake`), строка «без клятвы» — карточек всего и сколько ушло без клятвы. Бои — походы и песочница. Выполнена / нарушена — итог в двери (котёл ×2 / ×0,5); бой без двери не попадает ни туда, ни туда. Такт нарушения — такт события (у клятвы «хотя бы раз» — такт двери).';
 // ---- end «Ставка клятвы» ----
 
+// ---- П9 «Второе дыхание» (sim/world.ts, docs/realtime-prototype.md, 9н; sandbox only): one line under the sandbox ----
+/** The second winds of the sandbox fights as one line; null — none (older records read as none). */
+function secondWindLine(sandbox: readonly FightEntry[]): string | null {
+  const list = sandbox.filter(e => e.analysis?.summary.secondWind), winds = list.map(e => e.analysis!.summary.secondWind!);
+  if (!winds.length) return null;
+  const sources: Record<string, number> = {};
+  for (const w of winds) bump(sources, w.source);
+  const won = list.filter(e => e.record.outcome === 'victory').length, lost = list.filter(e => e.record.outcome === 'defeat').length;
+  return `Второе дыхание (П9, \`secondWind\`): боёв с ним ${winds.length} из ${sandbox.length}; HP до смертельного удара мед. ${n1(median(winds.map(w => w.hpBefore)))}; `
+    + `источник удара: ${Object.entries(sources).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}; потом победа ${won}, поражение ${lost}.`;
+}
+// ---- end «Второе дыхание» ----
+
 // ---- Casino «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md): the die screens of the runs ----
 /**
  * One row of the runs' die screens (`RunRecord.dice`): shown, rolled, taken, open; of the rolls — 1–3 and 4–6; resources
@@ -609,7 +622,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     table(THREAT_HEAD, threatRows(fights)), '',
     '## Предметы', '', itemsSection(runs, fights), '',
     '## Отметки N', '', notesSection(analysis, options.source), '',
-    '## Песочница', '', sandbox.length ? [table(FIGHT_HEAD, fightRows(sandbox)), '', '### Угрозы в песочнице', '', table(THREAT_HEAD, threatRows(sandbox))].join('\n') : '_боёв песочницы нет_', '');
+    '## Песочница', '', sandbox.length ? [table(FIGHT_HEAD, fightRows(sandbox)), '', ...secondWindLine(sandbox) ? [secondWindLine(sandbox)!, ''] : [], '### Угрозы в песочнице', '', table(THREAT_HEAD, threatRows(sandbox))].join('\n') : '_боёв песочницы нет_', '');
   return out.join('\n');
 }
 

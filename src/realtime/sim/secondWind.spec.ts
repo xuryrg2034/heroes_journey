@@ -9,18 +9,26 @@
  * - the lethal hit is still a hit (stats, П4 takes a greed step off); the cauldron of the fight is 0 after it and later
  *   chains fill it again; the oath of the fight is broken — the door pays the cauldron ×0,5;
  * - «Пепельный оберег» saves first, the second wind only after it;
+ * - the recovery window (design decision 12.10.2026): the 2 s after it the porcupine's quills do not hurt (no «−N HP» badge,
+ *   a chain released before the wind spares the hero after its first quills); after it they hurt as before, through an
+ *   ordinary invulnerability too; the window lasts as the wind's invulnerability, a hit-stop included;
+ * - telemetry: the fight summary (the report's replay, `analyzeJournal`) has `secondWind` — the tick, the HP before the lethal
+ *   hit, its source and striker — after a real second wind, null otherwise;
  * - fights on several seeds with walking enemies replay to the same hash; a journal without the
  *   key plays the old world (the lethal hit ends it); a run arena plays it off whatever the panel holds. The fights last a
  *   few hundred ticks: hashes every 60 ticks.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
+import { armedDamage } from './chain';
 import { worldState } from './hash';
 import { oathMark } from './oath';
 import { defaultParams, type Params } from './params';
 import { Simulation, replay, type Journal } from './simulation';
-import type { World, WorldEvent } from './world';
+import type { Enemy, World, WorldEvent } from './world';
 import { rtRunParams } from '../run/rtRun';
+import { analyzeJournal } from '../telemetry/report';
+import { withSummaryDefaults } from '../telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -194,6 +202,144 @@ check('«Пепельный оберег» saves first; the second wind only on 
   touch(f);
   assert(statusOf(w) === 'defeat', 'the third lethal hit kills');
   assert(replays(f), 'the fight replays');
+});
+
+// ---- The recovery window (design decision 12.10.2026): the quills do not pierce the 2 s after the wind ----
+
+/** Quills always up (no down part of the cycle): every porcupine placed is armed. */
+const quills = (extra: Partial<Params> = {}): Params => quiet({ porcupineDownTime: 0, ...extra });
+
+/** `n` porcupines in a row from the hero (teleported to x = 3), drawn into a chain (not released yet). */
+function drawPorcupines(f: Fight, n: number): Enemy[] {
+  const w = f.sim.world, before = new Set(w.enemies.map(e => e.id));
+  f.sim.command({ t: 'teleport', x: 3, y: 6 });
+  for (let i = 1; i <= n; i++) f.sim.command({ t: 'place', x: 3 + 1.4 * i, y: 6, color: 0, hp: 0, kind: 'porcupine' });
+  const list = w.enemies.filter(e => !before.has(e.id));
+  f.sim.command({ t: 'begin', x: list[0].x, y: list[0].y });
+  for (const e of list.slice(1)) f.sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+  assert(list.length === n && w.chain.length === n, `the chain took ${w.chain.length} porcupines, wanted ${n}`);
+  return list;
+}
+function release(f: Fight): void { f.sim.command({ t: 'release' }); settle(f); }
+const quillHits = (events: readonly WorldEvent[]): Ev<'hit'>[] => of(events, 'hit').filter(e => e.source === 'quills');
+/** Runs ticks until `seconds` game seconds passed since `from` (a hit-stop tick does not count). */
+function waitUntil(f: Fight, from: number, seconds: number): void {
+  for (let i = 0; i < 1200 && f.sim.world.time - from < seconds; i++) tick(f);
+}
+
+check('the 2 s after the wind: the quills do not hurt and show no badge; after them they hurt as before, through an ordinary invulnerability too', () => {
+  const f = fight(quills(), { hp: 1 }), w = f.sim.world;
+  touch(f);
+  assert(statusOf(w) === 'playing' && hpOf(w) === 3 && winds(f).length === 1, 'the second wind');
+  const windAt = w.time;
+  // In the window: the drawn chain shows no «−1 HP», the dash through the porcupine leaves the hero at 3 HP.
+  const first = drawPorcupines(f, 1);
+  assert(armedDamage(w, first[0]) === 0, `no badge in the window: −${armedDamage(w, first[0])} HP`);
+  const before = f.events.length;
+  release(f);
+  assert(of(f.events.slice(before), 'chainHit').some(e => e.enemyId === first[0].id), 'the dash struck the porcupine');
+  assert(w.time - windAt < 2, `struck inside the window (${(w.time - windAt).toFixed(3)} s)`);
+  assert(hpOf(w) === 3 && !quillHits(f.events.slice(before)).length, `the quills spared the hero: ${w.hero.hp} HP`);
+  // After the window: the badge is back and the quills hurt.
+  waitUntil(f, windAt, 2.1);
+  assert(w.hero.invulnerable === 0, 'the invulnerability of the wind is over');
+  const second = drawPorcupines(f, 1);
+  assert(armedDamage(w, second[0]) === 1, `the badge after the window: −${armedDamage(w, second[0])} HP`);
+  const after = f.events.length;
+  release(f);
+  assert(hpOf(w) === 2 && quillHits(f.events.slice(after)).length === 1, `after the window the quills hurt: ${w.hero.hp} HP`);
+  // An ordinary invulnerability (that quill hit's) is pierced as before.
+  assert(w.hero.invulnerable > 0, 'the quills left an ordinary invulnerability');
+  const third = drawPorcupines(f, 1);
+  assert(armedDamage(w, third[0]) === 1, 'the badge through an ordinary invulnerability');
+  const last = f.events.length;
+  release(f);
+  assert(hpOf(w) === 1 && quillHits(f.events.slice(last)).length === 1, `the quills pierce an ordinary invulnerability: ${w.hero.hp} HP`);
+  assert(replays(f), 'the fight replays');
+});
+
+check('a chain released before the wind: its first quills stand the hero up, the next porcupines of the chain spare him (a hit-stop on)', () => {
+  const play = (on: boolean): Fight => {
+    const f = fight(quills({ secondWind: on, hitstop: true }), { hp: 1 });
+    const list = drawPorcupines(f, 3);
+    assert(list.every(e => armedDamage(f.sim.world, e) === 1), 'every link shows «−1 HP» before the release');
+    release(f);
+    return f;
+  };
+  const off = play(false);
+  assert(statusOf(off.sim.world) === 'defeat' && quillHits(off.events).length === 1, 'off: the first quills kill (as before)');
+  const f = play(true), w = f.sim.world;
+  assert(statusOf(w) === 'playing' && hpOf(w) === 3, `on: the hero stands with 3 HP after the chain (${w.hero.hp}, ${w.status})`);
+  assert(quillHits(f.events).length === 1 && winds(f)[0]?.source === 'quills', 'only the lethal quills hit; the wind names them');
+  assert(of(f.events, 'kill').filter(e => e.source === 'chain').length === 3, 'the chain killed all three');
+  // The dash is short: a few more ticks reach a checkpoint of the replay.
+  for (let i = 0; i < CHECKPOINT; i++) tick(f);
+  assert(replays(f), 'the fight replays');
+});
+
+check('without the wind the quills pierce any invulnerability as before (the rule on but unused, and off)', () => {
+  for (const on of [true, false]) {
+    const f = fight(quills({ secondWind: on }), { hp: 12 }), w = f.sim.world;
+    touch(f);
+    assert(hpOf(w) === 11 && w.hero.invulnerable > 0 && !w.secondWind, `${on}: an ordinary hit, invulnerable`);
+    drawPorcupines(f, 2);
+    release(f);
+    assert(hpOf(w) === 9 && quillHits(f.events).length === 2, `${on}: both quills pierce: ${w.hero.hp} HP`);
+  }
+});
+
+check('the window lasts as the invulnerability of the wind, a hit-stop included: the release after it arms the quills, inside it does not', () => {
+  // Fights alike up to the delay: the wind, a chain of 3 (a hit-stop freezes a few ticks), then a porcupine released later
+  // each time. The release fixes the quills (as their up / down state): the badge at the release tells what the strike does.
+  let spared = 0, hurt = 0, frozen = 0;
+  for (let delay = 100; delay <= 135; delay++) {
+    const f = fight(quills({ hitstop: true }), { hp: 1 }), w = f.sim.world;
+    touch(f);
+    assert(hpOf(w) === 3, 'the second wind');
+    const windTick = w.tick, windTime = w.time;
+    chain(f, 3);
+    frozen = Math.max(frozen, (w.tick - windTick) - Math.round((w.time - windTime) * 60));
+    while (w.tick - windTick < delay) tick(f);
+    const [p] = drawPorcupines(f, 1);
+    const invAtRelease = w.hero.invulnerable, badge = armedDamage(w, p);
+    // Over: nothing but the crumb of the 1/60 s sums is left of the 2 s.
+    assert((badge > 0) === invAtRelease < 1e-6, `delay ${delay}: invulnerable ${invAtRelease} at the release, badge −${badge} HP`);
+    const before = f.events.length;
+    release(f);
+    assert(of(f.events.slice(before), 'chainHit').some(e => e.enemyId === p.id), `delay ${delay}: the dash struck the porcupine`);
+    const hit = quillHits(f.events.slice(before)).length > 0;
+    assert(hit === badge > 0, `delay ${delay}: the badge −${badge} HP, the quills ${hit ? 'hurt' : 'spared'}`);
+    if (hit) hurt++; else spared++;
+  }
+  assert(frozen > 0, 'the hit-stop froze ticks in the window');
+  assert(spared > 0 && hurt > 0, `both sides of the edge: spared ${spared}, hurt ${hurt}`);
+});
+
+// ---- Telemetry ----
+
+check('telemetry: the fight summary has the second wind (tick, HP before, source, striker) after a real one, null otherwise', () => {
+  const touched = fight(quiet({ contactDamage: 2 }), { hp: 3 });
+  touch(touched);
+  const lethal = touch(touched);
+  const a = analyzeJournal(touched.sim.exportJournal()!).summary.secondWind;
+  assert(a && a.tick === lethal.tick && a.tick === touched.sim.world.secondWind!.tick, `the tick of the lethal hit: ${JSON.stringify(a)}`);
+  assert(a.hpBefore === 1 && a.source === 'touch' && a.enemy === 'basic' && !a.elite, `HP before 1, a touch of a basic enemy: ${JSON.stringify(a)}`);
+
+  const quilled = fight(quills({ hitstop: true }), { hp: 1 });
+  drawPorcupines(quilled, 3);
+  release(quilled);
+  const q = analyzeJournal(quilled.sim.exportJournal()!).summary.secondWind;
+  assert(q && q.hpBefore === 1 && q.source === 'quills' && q.enemy === 'porcupine', `the quills of a porcupine: ${JSON.stringify(q)}`);
+  assert(q.tick === quilled.sim.world.secondWind!.tick, 'the tick of the quills');
+
+  const unused = fight(quiet(), { hp: 12 });
+  touch(unused);
+  assert(analyzeJournal(unused.sim.exportJournal()!).summary.secondWind === null, 'a hit that does not kill: null');
+  const off = fight(quiet({ secondWind: false }), { hp: 1 });
+  touch(off);
+  const offSummary = analyzeJournal(off.sim.exportJournal()!);
+  assert(offSummary.status === 'defeat' && offSummary.summary.secondWind === null, 'off: defeat, null');
+  assert(withSummaryDefaults({}).secondWind === null, 'an older record reads it as absent');
 });
 
 // ---- Determinism and the run ----

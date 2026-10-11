@@ -308,8 +308,12 @@ export type WorldEvent =
   | { type: 'elite'; enemyId: number }
   /** Stage 2, step 3: «Пепельный оберег» saved the hero from a lethal hit (1 HP left) and crumbled. */
   | { type: 'ward' }
-  /** П9 «Второе дыхание»: a lethal hit did not end the fight — the hero stood up here (render: a flash and a short text). */
-  | { type: 'secondWind'; x: number; y: number }
+  /**
+   * П9 «Второе дыхание»: a lethal hit did not end the fight — the hero stood up here (render: a flash and a short text).
+   * `hp` — his HP before the lethal hit; `enemyId` and `source` — its striker and source, as the `hit` event of that hit names
+   * them; `enemy` and `elite` — the striker's kind if it stood on the arena at the hit (a porcupine the same dash kills next).
+   */
+  | { type: 'secondWind'; x: number; y: number; hp: number; enemyId: number; source: HitSource; enemy?: EnemyKind; elite?: boolean }
   | { type: 'focusRefill' }
   /**
    * Stage 3a, steps 3–4: a kind's own signal for the view and the sound — the wolves' howl (`howl`), the lynx announcing
@@ -444,10 +448,11 @@ export interface World {
   /** Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight (absent without one — hashed only when present). */
   oath?: OathState;
   /**
-   * П9 «Второе дыхание» (`Params.secondWind`, sandbox only): the tick the hero stood up after a lethal hit — once per fight.
+   * П9 «Второе дыхание» (`Params.secondWind`, sandbox only): the tick and the game time the hero stood up after a lethal hit —
+   * once per fight. `time` counts the recovery window (`secondWindRecovering`: game seconds, a hit-stop does not shorten it).
    * Absent until used (worlds without it hash as before).
    */
-  secondWind?: { tick: number };
+  secondWind?: { tick: number; time: number };
 }
 
 /**
@@ -762,12 +767,14 @@ export function heroDamage(world: World, striker: { elite?: Enemy['elite'] }, da
 
 /**
  * Applies damage to the hero: invulnerability, flash, stats, defeat. The caller decides whether he can be hurt now
- * (`canBeHurt`; the porcupine's quills ignore it). `striker` — the enemy (or the id of a dead one: a blast) in the event.
+ * (`canBeHurt`; the porcupine's quills ignore it, except the recovery window of the second wind, `secondWindRecovering`).
+ * `striker` — the enemy (or the id of a dead one: a blast) in the event.
  */
 export function hurtHero(world: World, striker: { id: number; elite?: Enemy['elite'] }, damage: number, source: HitSource): void {
   const { hero, params } = world;
   if (damage <= 0) return;
   damage = heroDamage(world, striker, damage);
+  const hpBefore = hero.hp;
   hero.hp = Math.max(0, hero.hp - damage);
   // Stage 2, step 3 («Пепельный оберег», once a run): a hit that would kill leaves the hero with 1 HP; the ward crumbles.
   const kit = world.kit;
@@ -782,7 +789,7 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
   // П4 «Раздув за дела» (purse.ts): a hit takes one greed step off and resets the count (nothing while the rule is off).
   if (world.purse?.greed) greedHurt(world);
   // П9 «Второе дыхание» (sandbox; the ward above goes first): once per fight the lethal hit leaves the hero standing.
-  if (hero.hp <= 0 && world.params.secondWind && !world.secondWind) secondWind(world);
+  if (hero.hp <= 0 && world.params.secondWind && !world.secondWind) secondWind(world, { hp: hpBefore, enemyId: striker.id, source });
   if (hero.hp <= 0) {
     world.status = 'defeat';
     world.endTime = world.time;
@@ -797,17 +804,33 @@ export const SECOND_WIND_INVULNERABLE = 2;
 /**
  * П9 «Второе дыхание» (design decision 11.10.2026; docs/realtime-prototype.md): called by `hurtHero` after the lethal hit
  * counted as an ordinary hit (stats, the hit event, the oath's own check, П4's step off). The hero stands up with 3 HP and
- * 2 s of invulnerability (the ordinary one: the porcupine's quills ignore it as any invulnerability); the cauldron of the
- * fight goes to 0 (later cheques fill it again); the oath of the fight counts as broken. Once per fight (`world.secondWind`).
+ * 2 s of invulnerability — a recovery window (design decision 12.10.2026): the porcupine's quills, which pierce any other
+ * invulnerability, do not pierce it (`secondWindRecovering`). The cauldron of the fight goes to 0 (later cheques fill it
+ * again); the oath of the fight counts as broken. Once per fight (`world.secondWind`). `lethal` — the HP before the lethal
+ * hit, its striker and source (the event: telemetry).
  */
-function secondWind(world: World): void {
+function secondWind(world: World, lethal: { hp: number; enemyId: number; source: HitSource }): void {
   const { hero } = world;
   hero.hp = Math.min(SECOND_WIND_HP, hero.maxHp);
   hero.invulnerable = SECOND_WIND_INVULNERABLE;
-  world.secondWind = { tick: world.tick };
+  world.secondWind = { tick: world.tick, time: world.time };
   if (world.purse) world.purse.cauldron = 0;
   if (world.oath) oathForfeit(world);
-  world.events.push({ type: 'secondWind', x: hero.x, y: hero.y });
+  const striker = world.enemies.find(e => e.id === lethal.enemyId);
+  world.events.push({ type: 'secondWind', x: hero.x, y: hero.y, ...lethal, ...striker ? { enemy: striker.kind } : {}, ...striker?.elite ? { elite: true } : {} });
+}
+
+/** Slack of the recovery window against the sums of 1/60 s (its last tick is the last tick of the wind's invulnerability). */
+const SECOND_WIND_EPS = 1e-6;
+
+/**
+ * П9 (design decision 12.10.2026): the hero is in the recovery window of the second wind — less than
+ * `SECOND_WIND_INVULNERABLE` game seconds since he stood up (the same seconds as the invulnerability it gave; a hit-stop
+ * freezes both). The porcupine's quills do not pierce it; false without the wind (worlds without it play as before).
+ */
+export function secondWindRecovering(world: World): boolean {
+  const wind = world.secondWind;
+  return !!wind && world.time - wind.time < SECOND_WIND_INVULNERABLE - SECOND_WIND_EPS;
 }
 
 /**
