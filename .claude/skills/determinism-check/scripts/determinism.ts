@@ -95,6 +95,8 @@ function playChain(sim: Simulation): void {
 const LOADOUT: Loadout = {
   items: { frost: 1, bomb: 1, healing: 1, fire: 1 }, energy: 3, openItems: [...ITEM_KINDS], randomElites: true,
   eliteAffixes: 1, elitePlates: 3, toughHp: 3, talismans: ['whetstone', 'millstone-shard'],
+  // Casino stage 1: battles may get the goblin (with the run's params the slot is on).
+  slot: true,
 };
 
 interface Fight { arena: string; seed: number; sim: Simulation; checkpoints: string[] }

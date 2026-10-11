@@ -76,8 +76,9 @@ export class SlotView {
     if (!lever) return;
     shown.idols = 1;
     const X = goblin.x * U, Y = goblin.y * U, R = OBJECT_RADIUS * U;
-    const age = world.time - goblin.born, marker = Math.max(0, world.params.slotMarker ?? 2);
-    const appearing = age < marker;
+    // The marker as the rule fixed it when the idol appeared (`ready` before the first pull), not the live panel value.
+    const age = world.time - goblin.born, marker = goblin.pulls === 0 ? Math.max(0, goblin.ready - goblin.born) : 0;
+    const appearing = goblin.pulls === 0 && world.time < goblin.ready;
     if (appearing) {
       // The marker: a gold rim pulsing on the ground, the idol rising out of it.
       shown.markers = 1;

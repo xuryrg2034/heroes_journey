@@ -26,6 +26,8 @@ export function slotPlanOdds(world: World, plan: ChainPlan = planChain(world)): 
   const last = world.chain[world.chain.length - 1];
   const onLever = last.kind === 'object' && last.id === lever.id;
   if (!onLever && !canLinkObject(world, lever, plan)) return null;
+  // A survivor before the lever stops the dash there: no pull, no line (review 11.10.2026).
+  if (plan.endsOnSurvivor) return null;
   const links = plan.links.filter(l => l.outcome !== null).length;
   const odds = pullOdds(world, links);
   return { links, skulls: odds.skulls, rain: odds.rain, volley: odds.volley, onLever };

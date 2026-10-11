@@ -434,6 +434,20 @@ function crowd(sim: Simulation, extra: (x: number, y: number) => { kind?: string
 /** Plays out a pull's effect (the spin, every wave, every arrow), collecting the events. */
 const playOut = (sim: Simulation): WorldEvent[] => ticks(sim, tick(5));
 
+check('the odds line hides when a survivor stands before the lever (the dash stops there, no pull) — review 11.10.2026', () => {
+  const sim = field(quiet(), 7);
+  summon(sim); waitReady(sim);
+  const row = rowTo(sim, 2), L = lever(sim);
+  draw(sim, [...row, L]);
+  assert(slotPlanOdds(sim.world)?.onLever, 'the chain ends on the lever: the line shows');
+  // A shaman's empowering (`shamanEmpowerHp`) raises a link's HP while the chain is held; stood in by setting it here.
+  row[1].hp = 5;
+  assert(planChain(sim.world).endsOnSurvivor && slotPlanOdds(sim.world) === null, 'a survivor before the lever: no line');
+  sim.command({ t: 'release' });
+  const events = settle(sim);
+  assert(slotEvents(events, 'pull').length === 0, 'and no pull');
+});
+
 check('with the cauldron on, every enemy the arrows kill puts 1 ember (source `slot`, no heat); with it off — none', () => {
   for (const purse of [true, false]) {
     const p = quiet({ slotSkulls: 6, purse });

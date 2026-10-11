@@ -112,7 +112,8 @@ export function leverOf(world: World): ArenaObject | null {
 /** The lever `o` may be the last link now: its goblin stands, its marker and cooldown are over, pulls are left. */
 export function leverReady(world: World, o: ArenaObject): boolean {
   const g = goblinOf(world), p = world.params;
-  return !!p.slot && !!g && g.id === o.id && g.pulls < num(p, 'slotPulls') && world.time + EPS >= g.ready;
+  // Not while the reels spin (a short panel cooldown must not let a pull drop the previous pull's effect).
+  return !!p.slot && !!g && g.id === o.id && !g.spin && g.pulls < num(p, 'slotPulls') && world.time + EPS >= g.ready;
 }
 
 /** Skulls per reel for a pull after `struck` enemy links: one off per `slotLinksPerSkull`, reels 1, 2, 3, 1 …, a reel at 0 skipped. */
