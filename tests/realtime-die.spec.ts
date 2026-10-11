@@ -55,14 +55,17 @@ async function fillCauldron(page: Page): Promise<number> {
     await page.mouse.down();
     for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y);
     const links = (await snapshot(page)).chain.length;
-    await page.mouse.up();
     if (links === spec.length) {
+      await page.mouse.up();
       await expect.poll(async () => (await snapshot(page)).moving, { timeout: 8_000 }).toBeNull();
       await expect.poll(async () => (await snapshot(page)).purse.cauldron, { timeout: 8_000 }).toBeGreaterThan(0);
       return (await snapshot(page)).purse.cauldron as number;
     }
-    // A blocked line (a tree, water): clear it and try another direction.
+    // A blocked line (a tree, water): cancel the short chain BEFORE the button goes up (otherwise it dashes and the next
+    // tries start while the hero still moves — review 11.10.2026), then clear and try another direction.
     await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expect.poll(async () => (await snapshot(page)).moving, { timeout: 8_000 }).toBeNull();
     await page.evaluate(() => (window as any).__realtime.clear(false));
   }
   throw new Error('no free line for the chain');
@@ -173,8 +176,9 @@ test('the die at the door: «Забрать» pays the cauldron as it is, no rol
 test('the die at the door: a high face that pays more than «Забрать» flashes as a win', async ({ page }) => {
   const errors: string[] = [];
   await openRun(page, errors);
-  // Seed 14: the run's first die face is 5.
-  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 14);
+  // Seed 8: the run's first die face is 5, its first battles play «Поляна» (seed 14's «Двор кнопок» needs its buttons for
+  // the door, which the test hook `winArena` does not press — review 11.10.2026).
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 8);
   await page.getByTestId('gift-1').click();
   if (await page.getByTestId('run-gift').count()) await page.locator('[data-action="gift-pick"]').first().click();
   await page.locator('[data-status="available"][data-type="battle"]').first().click();

@@ -156,6 +156,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-die-overlay[data-landed="true"] { cursor: default; }
 .rt-die-face { font-size: 96px; line-height: 1; text-align: center; color: #f2dfb4; }
 .rt-die-rolling { animation: rt-die-shake .18s linear infinite; }
+/* The run already paid when the die is thrown: while it rolls the layer is opaque, so the new resources and the result line
+   under it are not readable before the die lands (review 11.10.2026). */
+.rt-die-overlay[data-landed="false"] { background: #080e09; }
 @keyframes rt-die-shake { 0% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } 100% { transform: rotate(-12deg); } }
 .rt-die-result { font: 600 20px Georgia, serif; color: #c9c3ad; text-align: center; }
 /* Only a roll that paid more than «Забрать» flashes gold (LDW guard: ×0,5 is no win). */
