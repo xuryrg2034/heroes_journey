@@ -75,6 +75,9 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * B6 К7 «Проклятый сундук» (the same version, 12.10.2026): a battle record may carry `chest` (the chest of «Застава» taken),
  * an open talisman offer may come from the chest (source `chest`, after the «Застава» talismans); a save before it has
  * neither (its «Застава» offer completes the node as before).
+ * B7 К9 «Игорный круг гоблинов» (the same version, 12.10.2026): the counter of the run's casino stream (`casinoDraws`), the
+ * run's circle and its games (`casino`), the open circle screen (`pending` of kind `casino`) — all absent until a circle
+ * stands; a save before it (or a run that never met one) has none and plays on as before.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -94,12 +97,16 @@ export const RT_RUN_VERSION_V6 = 6;
  * (`PurseDoor.greed`, paid by `doorPayout` with or without the die). П3 «Финальная цепь» (`doorFinale`, design 12.10.2026) is
  * on: a chain into the door gets +1 heat in its cheque. B6 К7 «Проклятый сундук» (`cursedChest`, design 12.10.2026) is on:
  * the chest stands on «Застава» (its authored point); taken, a talisman screen of its own follows the won fight's talismans.
+ * B7 К9 «Игорный круг гоблинов» (`goblinCircle`, design 12.10.2026) is on: the run view passes it to `rtEnterNode` (the
+ * simulation never reads it); an event node from run row 3 may stand as the circle.
  */
 export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 60, greedByDeeds: true, doorFinale: true, oathStake: true, doorDie: true, rosterMix: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
   slotPulls: 3, slotCooldown: 8, slotSpin: 1.2,
   // B6 К7 «Проклятый сундук» (design 12.10.2026): the chest of «Застава».
-  cursedChest: true });
+  cursedChest: true,
+  // B7 К9 «Игорный круг гоблинов» (design 12.10.2026): a run-layer key, read by `rtEnterNode` through the run view.
+  goblinCircle: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
@@ -153,7 +160,12 @@ export type RtRunPending =
    * `face` (1–6) — the die stream's draw `dieDraws − 1`, fixed when the screen was shown: a reload shows the same screen with
    * the same face. The node's victory (its choice, or the map) follows the die.
    */
-  | { kind: 'die'; nodeId: string; door: PurseDoor; face: number };
+  | { kind: 'die'; nodeId: string; door: PurseDoor; face: number }
+  /**
+   * B7 К9 «Игорный круг гоблинов»: the circle stands on this event node (instead of its event); its games are the run's
+   * `casino.games` (one circle a run). «Уйти» completes the node.
+   */
+  | { kind: 'casino'; nodeId: string };
 
 /** One-arena modifiers of events with an analogue in real time (design answer 3 to step 3). */
 export type RtModifier = 'first-chain-power' | 'start-elite' | 'wrath' | 'early-reinforcement';
@@ -218,6 +230,14 @@ export interface RtRunState {
    * die screen shown. Absent until the first (a run without the die saves as before).
    */
   dieDraws?: number;
+  /**
+   * B7 К9 «Игорный круг гоблинов»: draws of the run's casino stream (`rtCasinoDraw`, `mixSeed(mixSeed(seed, «rt-casino»), n)`)
+   * spent so far — the circle's standing (draw 0) and one per game. Absent until a circle stands (a run without one saves
+   * as before).
+   */
+  casinoDraws?: number;
+  /** B7 К9: the run's circle (at most one) — its node and the games played there, in order. Absent until it stands. */
+  casino?: RtCasino;
   picks: RtRunPick[];
   /** Last completed node; null before the first. */
   currentNodeId: string | null;
@@ -308,6 +328,10 @@ export type RtRunEvent =
    */
   | { type: 'die-shown'; nodeId: string; cauldron: number; oath: number; face: number }
   | { type: 'die-resolved'; nodeId: string; rolled: boolean; face: number; mult: number; resources: ResourceKind[]; base: number }
+  /** B7 К9: the circle stands on the entered event node; a game was played (`game` — its fixed outcome, `text` — the line). */
+  | { type: 'casino-opened'; nodeId: string }
+  | { type: 'casino-played'; nodeId: string; game: RtCasinoGame; text: string; win: boolean }
+  | { type: 'casino-left'; nodeId: string; games: number }
   | { type: 'node-completed'; nodeId: string }
   | { type: 'run-won'; nodeId: string }
   | { type: 'run-lost'; nodeId: string };
@@ -762,12 +786,20 @@ export function rtEventCandidates(run: RtRunState, node: Pick<ForestMapNode, 'ro
 
 // ---------- Entering a node ----------
 
+/** Run-layer rules the run view passes on entering a node (the simulation never reads them). */
+export interface RtEnterOptions {
+  /** B7 К9 `Params.goblinCircle`: an event node may stand as the goblins' circle. Absent or false — every event as before. */
+  goblinCircle?: boolean;
+}
+
 /**
  * Move to one of rtAvailableNodes(run): a battle starts its arena; a rest, find, event or merchant opens its screen.
  * Casino stage 1, item 2: an oath node (`rtOathNode`) spends one draw of the oath stream — its two oaths — and is entered
- * under `oath` (one of them; null or absent — «Без клятвы»).
+ * under `oath` (one of them; null or absent — «Без клятвы»). B7 К9 (`options.goblinCircle`): an event node whose casino
+ * roll comes (`rtCasinoDue`) opens the goblins' circle instead of its event — before the `events` draw, which it does not
+ * spend (no event is met there).
  */
-export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | null = null): RtRunStep {
+export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | null = null, options: RtEnterOptions = {}): RtRunStep {
   const node = rtNode(current, nodeId);
   if (!node) return fail('Такого узла нет на карте.');
   if (current.result) return fail('Поход уже завершён.');
@@ -796,6 +828,8 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
     run.pending = { kind: 'shop', nodeId, stock: { items: stock.items, talisman: rtShopTalisman(base, talismanPool(run)) }, bought: [] };
     return { ok: true, run, events };
   }
+  // B7 К9: the circle's roll comes before the event's draw; the circle spends no `events` draw.
+  if (options.goblinCircle && rtCasinoDue(run, node)) { openCasino(run, node, events); return { ok: true, run, events }; }
   // An event node: one `events` draw picks the event (and is the base of its outcomes); none left — a find.
   const index = run.streams.events, base = draw(run, 'events', true), candidates = rtEventCandidates(run, node);
   if (!candidates.length) {
@@ -815,8 +849,12 @@ function offerFind(run: RtRunState, nodeId: string, events: RtRunEvent[]): void 
   events.push({ type: 'find-offered', nodeId, options: [...options] });
 }
 
-/** The node as the map shows it: an entered event node with its event's title, an event node that became a find as a find. */
+/**
+ * The node as the map shows it: an entered event node with its event's title, an event node that became a find as a find,
+ * the goblins' circle by its name once entered (B7 К9; before that it is an event node, as the map was generated).
+ */
 export function rtNodeTitle(run: RtRunState, node: ForestMapNode): string {
+  if (run.casino?.nodeId === node.id) return RT_CASINO_TITLE;
   const pick = run.picks.find(entry => entry.nodeId === node.id);
   if (pick?.eventId) return forestEvent(pick.eventId)?.title ?? node.name;
   if (pick?.find) return 'Находка';
@@ -994,6 +1032,163 @@ export function rtDieChoose(current: RtRunState, roll: boolean): RtRunStep {
   events.push({ type: 'die-resolved', nodeId: node.id, rolled: roll, face: pending.face, mult, resources, base });
   run.pending = null;
   return afterVictory(run, node, battleKindOf(node), events);
+}
+
+// ---------- B7 К9 «Игорный круг гоблинов» (docs/realtime-casino.md, «Игорный круг (К9)») ----------
+
+/** The salt of the run's casino stream (`mixSeed(mixSeed(seed, «rt-casino»), n)`). */
+export const CASINO_SALT = [...'rt-casino'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+/** The salt of the wheel's talisman pick inside a game's draw (the `talismans` stream is not spent). */
+const CASINO_TALISMAN_SALT = 0x5c2a9e11;
+/** What the map card and the screen call the circle. */
+export const RT_CASINO_TITLE = 'Игорный круг гоблинов';
+/** Баланс (design 12.10.2026): the circle may stand on event nodes from this run row. */
+export const RT_CASINO_ROW = 3;
+/** Баланс (design 12.10.2026): the chance (percent) an eligible event node stands as the circle. */
+export const RT_CASINO_CHANCE = 30;
+/** Баланс (design 12.10.2026; П11): games a visit allows over all tables. */
+export const RT_CASINO_GAMES = 3;
+/** Баланс (research К9): «Кости» — the stake, the winning sum of two dice, the prize (resources). */
+export const RT_DICE_STAKE = 1;
+export const RT_DICE_WIN_SUM = 8;
+export const RT_DICE_PRIZE = 3;
+/** The chance two dice sum to RT_DICE_WIN_SUM or more: 15/36 for 8. */
+export const RT_DICE_WIN_CHANCE = Array.from({ length: 36 }, (_, n) => (n % 6) + Math.floor(n / 6) + 2).filter(sum => sum >= RT_DICE_WIN_SUM).length / 36;
+/** «Колесо костей» of the circle: the catalogue's own event and option (forestEvents.ts `bone-wheel`, «Крутить»). */
+export const CASINO_WHEEL_EVENT = 'bone-wheel';
+const wheelOption = (): EventOption => eventOption(forestEvent(CASINO_WHEEL_EVENT)!, 'spin')!;
+export type RtCasinoTable = 'dice' | 'wheel';
+export const RT_CASINO_TABLES: readonly RtCasinoTable[] = ['dice', 'wheel'];
+/**
+ * One game of the circle, its outcome fixed at the click (a reload shows the same): «Кости» — the two faces and the
+ * resources won (none — the stake lost); the wheel — the outcome's index in «Крутить», the resources it gave, the talisman.
+ */
+export type RtCasinoGame =
+  | { table: 'dice'; faces: [number, number]; gain: ResourceKind[] }
+  | { table: 'wheel'; outcome: number; gain: ResourceKind[]; talisman?: RtTalismanId };
+/** The run's circle: its node and its games in order. */
+export interface RtCasino { nodeId: string; games: RtCasinoGame[] }
+
+/** The draw `n` of the run's casino stream. Pure: the run seed and the draw decide it. */
+export function rtCasinoDraw(seed: number, n: number): number { return mixSeed(mixSeed(seed >>> 0, CASINO_SALT), n >>> 0); }
+/**
+ * The circle's roll of an event node (0–99; below RT_CASINO_CHANCE — the circle): the casino stream's draw 0 with the node's
+ * own seed. Not spent while no circle stands (every node has its own roll, a reload rolls the same); the circle spends it.
+ */
+export function rtCasinoRoll(seed: number, nodeId: string): number { return mixSeed(rtCasinoDraw(seed, 0), forestNodeSeed(seed >>> 0, nodeId)) % 100; }
+/** A node the circle may stand on: an event node from run row RT_CASINO_ROW. */
+export const rtCasinoNode = (node: Pick<ForestMapNode, 'type' | 'row'>): boolean => node.type === 'event' && runRow(node.row) >= RT_CASINO_ROW;
+/** The circle stands on `node` entered now: an eligible node, no circle in the run yet, a resource to stake, the roll comes. */
+export function rtCasinoDue(run: RtRunState, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>): boolean {
+  return rtCasinoNode(node) && !run.casino && run.casinoDraws === undefined && stockTotal(run.materials) >= 1 && rtCasinoRoll(run.seed, node.id) < RT_CASINO_CHANCE;
+}
+/** «Кости» of a game's draw: two faces 1–6 and the three resource kinds a win pays. */
+export function rtCasinoDice(value: number): { faces: [number, number]; kinds: ResourceKind[] } {
+  return { faces: [1 + mixSeed(value, 1) % 6, 1 + mixSeed(value, 2) % 6], kinds: Array.from({ length: RT_DICE_PRIZE }, (_, n) => RESOURCE_KINDS[mixSeed(value, 3 + n) % RESOURCE_KINDS.length]) };
+}
+/** The wheel of a game's draw: the outcome of «Крутить» (1 of 6, as the event rolls it) and the resource kinds it may give. */
+export function rtCasinoWheel(value: number): { outcome: number; kinds: ResourceKind[] } {
+  const option = wheelOption();
+  return { outcome: eventOutcomeIndex(value, option), kinds: eventResourceKinds(value, option) };
+}
+/** The wheel's base of its talisman pick (inside the game's draw). */
+const wheelTalismanBase = (value: number): number => mixSeed(value, CASINO_TALISMAN_SALT);
+
+function openCasino(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]): void {
+  run.casinoDraws = 1;
+  run.casino = { nodeId: node.id, games: [] };
+  run.pending = { kind: 'casino', nodeId: node.id };
+  events.push({ type: 'casino-opened', nodeId: node.id });
+}
+
+const resourceWordRu = (n: number): string => { const tens = n % 100, ones = n % 10; return tens >= 11 && tens <= 14 ? 'ресурсов' : ones === 1 ? 'ресурс' : ones >= 2 && ones <= 4 ? 'ресурса' : 'ресурсов'; };
+/** A game's line and whether it is a win (the flash): «Кости» — the sum reached; the wheel — more resources than the stake, or a talisman. */
+export function rtCasinoResult(game: RtCasinoGame): { text: string; win: boolean } {
+  if (game.table === 'dice') {
+    const [a, b] = game.faces, sum = a + b, win = sum >= RT_DICE_WIN_SUM;
+    const kinds = game.gain.map(kind => RESOURCES[kind].label).join(', ');
+    return { text: `Кости: ${a} и ${b} = ${sum} → ${win ? `+${game.gain.length} ${resourceWordRu(game.gain.length)} (${kinds})` : 'ставка проиграна'}`, win };
+  }
+  const rolled = wheelOption().outcomes[game.outcome];
+  const talisman = game.talisman ? ` — «${rtTalisman(game.talisman)?.name ?? game.talisman}»` : rolled.effect.talisman ? ' — талисманов не осталось' : '';
+  return { text: `Колесо костей: ${outcomeText(rolled, game.gain)}${talisman}`, win: game.gain.length > RT_DICE_STAKE || !!game.talisman };
+}
+
+/** One table of the open circle: its stake, its odds and outcomes as shown, whether it can be played now and why not. */
+export interface RtCasinoTableView { table: RtCasinoTable; label: string; cost: string; outcomes: { odds: string; text: string }[]; available: boolean; reason: string }
+export interface RtCasinoView { nodeId: string; played: number; max: number; total: number; tables: RtCasinoTableView[]; last: { game: RtCasinoGame; text: string; win: boolean } | null }
+/** The open circle: the two tables (off after RT_CASINO_GAMES games or without the stake), the games played, the last result. */
+export function rtCasinoView(run: RtRunState): RtCasinoView | null {
+  const pending = run.pending;
+  if (pending?.kind !== 'casino' || run.casino?.nodeId !== pending.nodeId) return null;
+  const games = run.casino.games, played = games.length, total = stockTotal(run.materials);
+  const over = played >= RT_CASINO_GAMES ? `Игр больше нет (${RT_CASINO_GAMES} из ${RT_CASINO_GAMES})` : '';
+  const option = wheelOption(), wheelCost = payableCost(run, option);
+  const tables: RtCasinoTableView[] = [
+    { table: 'dice', label: 'Кости', cost: `${RT_DICE_STAKE} ${resourceWordRu(RT_DICE_STAKE)} крафта (любых)`,
+      outcomes: [{ odds: '15 из 36', text: `две кости, сумма ${RT_DICE_WIN_SUM} и больше: +${RT_DICE_PRIZE} ресурса крафта` }, { odds: '21 из 36', text: 'меньше — ставка проиграна' }],
+      available: false, reason: over || (total < RT_DICE_STAKE ? `Нужно ресурсов: ${RT_DICE_STAKE}, есть ${total}` : '') },
+    { table: 'wheel', label: forestEvent(CASINO_WHEEL_EVENT)!.title, cost: sliceCosts(option).map(rtCost).map(describeCost).join(' или '),
+      outcomes: option.outcomes.map((outcome, n) => ({ odds: chanceText(attemptChances(option), n), text: outcomeText(outcome, []) })),
+      available: false, reason: over || wheelCost.block },
+  ];
+  for (const table of tables) table.available = !table.reason;
+  const last = games.length ? { game: games[games.length - 1], ...rtCasinoResult(games[games.length - 1]) } : null;
+  return { nodeId: pending.nodeId, played, max: RT_CASINO_GAMES, total, tables, last };
+}
+
+/**
+ * Play a table of the open circle: pay its stake (the merchant's way), take the next draw of the casino stream — its outcome
+ * fixed now and kept in the save — and apply it. «Кости»: two faces, a sum of RT_DICE_WIN_SUM or more pays RT_DICE_PRIZE
+ * resources. The wheel: «Крутить» of «Колесо костей» — its outcome as the event's, its talisman drawn from the same draw
+ * (the `talismans` stream is not spent); HP never below 1. At most RT_CASINO_GAMES games a visit; no pause between them.
+ */
+export function rtCasinoPlay(current: RtRunState, table: RtCasinoTable): RtRunStep {
+  const view = rtCasinoView(current);
+  if (!view) return fail('Сейчас нет игорного круга.');
+  const entry = view.tables.find(t => t.table === table);
+  if (!entry) return fail('Такого стола нет.');
+  if (!entry.available) return fail(entry.reason);
+  const run = structuredClone(current), events: RtRunEvent[] = [], gained: RtRunEvent[] = [];
+  const n = run.casinoDraws!, value = rtCasinoDraw(run.seed, n);
+  run.casinoDraws = n + 1;
+  let game: RtCasinoGame;
+  if (table === 'dice') {
+    payCost(run, { resources: RT_DICE_STAKE });
+    const { faces, kinds } = rtCasinoDice(value), win = faces[0] + faces[1] >= RT_DICE_WIN_SUM, gain = win ? kinds : [];
+    for (const kind of gain) run.materials[kind]++;
+    game = { table: 'dice', faces, gain };
+    // П5 «Журнал удачи»: a game of «Кости» — a hit is the winning sum (15/36 each).
+    const luck = { ...run.luck }; countLuck(luck, 'casino-dice', win, RT_DICE_WIN_CHANCE); run.luck = luck;
+  } else {
+    const option = wheelOption();
+    payCost(run, payableCost(run, option).cost);
+    const { outcome, kinds } = rtCasinoWheel(value), effect = option.outcomes[outcome].effect, gain = kinds.slice(0, effect.resources ?? 0);
+    const talisman = applyEffect(run, effect, kinds, () => wheelTalismanBase(value), gained);
+    game = { table: 'wheel', outcome, gain, ...talisman ? { talisman } : {} };
+  }
+  run.casino!.games.push(game);
+  events.push({ type: 'casino-played', nodeId: view.nodeId, game: structuredClone(game), ...rtCasinoResult(game) }, ...gained);
+  return { ok: true, run, events };
+}
+
+/** «Уйти»: the circle's node completes (with or without games). */
+export function rtCasinoLeave(current: RtRunState): RtRunStep {
+  const pending = current.pending;
+  if (pending?.kind !== 'casino') return fail('Сейчас нет игорного круга.');
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'casino-left', nodeId: pending.nodeId, games: run.casino?.games.length ?? 0 }];
+  completeNode(run, rtNode(run, pending.nodeId)!, events);
+  return { ok: true, run, events };
+}
+
+/**
+ * П5: the wheel's spins in the circle as the luck block lists event outcomes — the outcome and its odds (1 из 6); «Кости»
+ * are counted in the tally (`casino-dice`).
+ */
+export function rtCasinoLuck(run: Pick<RtRunState, 'casino'>): RtEventLuck[] {
+  const option = wheelOption(), chances = attemptChances(option);
+  return (run.casino?.games ?? []).flatMap(game => game.table !== 'wheel' || !option.outcomes[game.outcome] ? []
+    : [{ title: RT_CASINO_TITLE, option: forestEvent(CASINO_WHEEL_EVENT)!.title, outcome: outcomeText(option.outcomes[game.outcome], []), odds: chanceText(chances, game.outcome) }]);
 }
 
 // ---------- Rest, find ----------
@@ -1223,6 +1418,39 @@ export function rtEventView(run: RtRunState): RtEventView | null {
   }) };
 }
 
+/** Pay a (real-time) cost the run can pay (`payableCost`): energy, consumables, HP, the maximum, resources (the merchant's way). */
+function payCost(run: RtRunState, cost: EventCost | null): void {
+  if (!cost) return;
+  if (cost.energy) run.energy -= cost.energy;
+  for (const item of ITEM_KINDS) if (cost.items?.[item]) run.items[item] -= cost.items[item]!;
+  if (cost.hp) run.hp -= cost.hp;
+  if (cost.maxHp) { run.maxHp -= cost.maxHp; run.hp = Math.min(run.hp, run.maxHp); }
+  if (cost.resources || cost.materials) {
+    const paid = cost.resources ? shopPayment(run.materials, cost.resources) : emptyMaterials();
+    for (const kind of RESOURCE_KINDS) paid[kind] += cost.materials?.[kind] ?? 0;
+    for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+  }
+}
+/**
+ * Apply an outcome's effect in real-time numbers: HP and the maximum ×RT_HP_SCALE (HP never below 1 or above the maximum),
+ * the resources of `kinds`, energy banked for the next arena (up to 7), a modifier of the next arena, a talisman of the
+ * rarity (one draw of `talismanBase`: the run's `talismans` stream for an event, `rt-casino` for the circle's wheel — the
+ * real-time draw over the run's list, its chain stopping at the uncommon ones, design answer 5 of phase B), consumables
+ * (they open). Returns the talisman taken, if any.
+ */
+function applyEffect(run: RtRunState, effect: EventOption['outcomes'][number]['effect'], kinds: readonly ResourceKind[], talismanBase: () => number, gained: RtRunEvent[]): RtTalismanId | undefined {
+  if (effect.maxHp) { run.maxHp += rtHp(effect.maxHp); run.hp += rtHp(effect.maxHp); }
+  run.hp = Math.min(run.maxHp, Math.max(1, run.hp + rtHp(effect.hp ?? 0)));
+  for (const kind of [...kinds.slice(0, effect.resources ?? 0), ...RESOURCE_KINDS.flatMap(kind => Array<ResourceKind>(effect.materials?.[kind] ?? 0).fill(kind))]) run.materials[kind]++;
+  // Step 3: energy is banked for the next arena (up to 7); a consumable joins the run and opens.
+  run.energy = Math.min(ENERGY_MAX, run.energy + (effect.energy ?? 0));
+  if (isRtModifier(effect.modifier) && !run.modifiers?.includes(effect.modifier)) (run.modifiers ??= []).push(effect.modifier);
+  let drawn: RtTalismanId | undefined;
+  if (effect.talisman) { [drawn] = rtTalismanDraw(talismanBase(), effect.talisman, 1, talismanPool(run)); if (drawn) takeTalisman(run, drawn, gained); }
+  gainItems(run, ITEM_KINDS.flatMap(item => Array<ItemKind>(effect.items?.[item] ?? 0).fill(item)), gained);
+  return drawn;
+}
+
 /**
  * Take an event option. The reward battle starts the arena of the node's row (the event completes with its victory; a
  * defeat ends the run). An escalation option pays and rolls one attempt (its own `events` draw) and keeps the event open.
@@ -1237,34 +1465,15 @@ export function rtChooseEventOption(current: RtRunState, optionId: string): RtRu
   if (!state.available) return fail(state.reason);
   const run = structuredClone(current), nodeId = view.nodeId, node = rtNode(run, nodeId)!, pending = run.pending as Extract<RtRunPending, { kind: 'event' }>, events: RtRunEvent[] = [];
   if (option.battle) { startArena(run, { ...node, type: 'battle' }, 'event', events); return { ok: true, run, events }; }
-  const cost = payableCost(run, option).cost;
-  if (cost) {
-    if (cost.energy) run.energy -= cost.energy;
-    for (const item of ITEM_KINDS) if (cost.items?.[item]) run.items[item] -= cost.items[item]!;
-    if (cost.hp) run.hp -= cost.hp;
-    if (cost.maxHp) { run.maxHp -= cost.maxHp; run.hp = Math.min(run.hp, run.maxHp); }
-    if (cost.resources || cost.materials) {
-      const paid = cost.resources ? shopPayment(run.materials, cost.resources) : emptyMaterials();
-      for (const kind of RESOURCE_KINDS) paid[kind] += cost.materials?.[kind] ?? 0;
-      for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
-    }
-  }
+  payCost(run, payableCost(run, option).cost);
   const attempt = pending.attempts?.length ?? 0;
   let base = streamValue(run.seed, 'events', pending.draw);
   if (option.escalation) base = draw(run, 'events', true);
   const outcome = eventOutcomeIndex(base, option, attemptChances(option, option.escalation ? attempt : 0)), rolled = option.outcomes[outcome];
   const effect = rolled.effect, kinds = eventResourceKinds(base, option);
-  if (effect.maxHp) { run.maxHp += rtHp(effect.maxHp); run.hp += rtHp(effect.maxHp); }
-  run.hp = Math.min(run.maxHp, Math.max(1, run.hp + rtHp(effect.hp ?? 0)));
-  for (const kind of [...kinds.slice(0, effect.resources ?? 0), ...RESOURCE_KINDS.flatMap(kind => Array<ResourceKind>(effect.materials?.[kind] ?? 0).fill(kind))]) run.materials[kind]++;
-  // Step 3: energy is banked for the next arena (up to 7); a consumable joins the run and opens.
-  run.energy = Math.min(ENERGY_MAX, run.energy + (effect.energy ?? 0));
-  if (isRtModifier(effect.modifier) && !run.modifiers?.includes(effect.modifier)) (run.modifiers ??= []).push(effect.modifier);
   const gained: RtRunEvent[] = [];
-  // Step 3: a talisman of the rarity from the pool (the next `talismans` draw). Phase B: the real-time draw over the run's
-  // list, its chain stopping at the uncommon ones (design answer 5).
-  if (effect.talisman) { const [drawn] = rtTalismanDraw(draw(run, 'talismans', true), effect.talisman, 1, talismanPool(run)); if (drawn) takeTalisman(run, drawn, gained); }
-  gainItems(run, ITEM_KINDS.flatMap(item => Array<ItemKind>(effect.items?.[item] ?? 0).fill(item)), gained);
+  // Step 3: a talisman of the rarity from the pool (the next `talismans` draw).
+  applyEffect(run, effect, kinds, () => draw(run, 'talismans', true), gained);
   const text = outcomeText(rolled, effect.resources ? kinds : []);
   if (option.escalation) {
     (pending.attempts ??= []).push(outcome);
@@ -1298,7 +1507,7 @@ export function rtEventLuck(run: Pick<RtRunState, 'picks' | 'eventChoices'>): Rt
 }
 
 /** П5: the block «Удача похода» of the run-end screen — the tally's sources, then the event outcomes with odds. */
-export function rtLuckReport(run: RtRunState): RtLuckLine[] { return rtLuckLines(run.luck, rtEventLuck(run)); }
+export function rtLuckReport(run: RtRunState): RtLuckLine[] { return rtLuckLines(run.luck, [...rtEventLuck(run), ...rtCasinoLuck(run)]); }
 
 // ---------- The start gift ----------
 
@@ -1486,6 +1695,35 @@ const oathNodeOf = (node: ForestMapNode | undefined): boolean => !!node && rtOat
 const validShopTalisman = (value: unknown): boolean => isRtTalisman(value) && !isRtOath(value) && rtTalisman(value)?.rarity !== 'relic';
 const isTalismanList = (value: unknown): value is RtTalismanId[] => Array.isArray(value) && value.every(isRtTalisman) && new Set(value).size === value.length;
 
+/**
+ * B7 К9: the run's circle in a save — an event node of run row 3 or later whose roll stands the circle, no event picked
+ * there, completed or open now; at most RT_CASINO_GAMES games, each drawn again from the casino stream (draw 1 + its index:
+ * the faces and the resources won, the wheel's outcome and resources, a talisman of the run where the outcome gives one);
+ * the counter is the standing draw and one per game.
+ */
+function validCasino(run: RtRunState, map: ForestRunMap): boolean {
+  const casino = run.casino as unknown, same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  if (!isRecord(casino) || Object.keys(casino).some(key => !['nodeId', 'games'].includes(key)) || typeof casino.nodeId !== 'string' || !Array.isArray(casino.games)) return false;
+  const node = map.node(casino.nodeId);
+  if (!node || !rtCasinoNode(node) || rtCasinoRoll(run.seed, node.id) >= RT_CASINO_CHANCE || run.picks.some(pick => pick.nodeId === node.id)) return false;
+  const open = isRecord(run.pending) && run.pending.kind === 'casino' && run.pending.nodeId === node.id;
+  if (!run.visited.includes(node.id) && !open) return false;
+  if (!isCount(run.casinoDraws) || casino.games.length > RT_CASINO_GAMES || run.casinoDraws !== 1 + casino.games.length) return false;
+  const option = wheelOption();
+  return casino.games.every((game: unknown, i: number) => {
+    if (!isRecord(game)) return false;
+    const value = rtCasinoDraw(run.seed, 1 + i);
+    if (game.table === 'dice') {
+      const { faces, kinds } = rtCasinoDice(value);
+      return Object.keys(game).length === 3 && same(game.faces, faces) && same(game.gain, faces[0] + faces[1] >= RT_DICE_WIN_SUM ? kinds : []);
+    }
+    if (game.table !== 'wheel' || Object.keys(game).some(key => !['table', 'outcome', 'gain', 'talisman'].includes(key))) return false;
+    const { outcome, kinds } = rtCasinoWheel(value), effect = option.outcomes[outcome].effect;
+    if (game.outcome !== outcome || !same(game.gain, kinds.slice(0, effect.resources ?? 0))) return false;
+    return game.talisman === undefined || (!!effect.talisman && isRtTalisman(game.talisman) && run.talismans.includes(game.talisman as RtTalismanId));
+  });
+}
+
 function checkRun(value: unknown): RtRunState | null {
   if (!isRecord(value) || value.version !== RT_RUN_VERSION || !isSeed(value.seed) || validateStoredMap(value.map).length) return null;
   if (value.seeded !== undefined && value.seeded !== true) return null;
@@ -1567,8 +1805,11 @@ function checkRun(value: unknown): RtRunState | null {
     // B6 К7: only «Застава» has the chest.
     if (record.chest !== undefined && (record.chest !== true || record.arena !== HARD_ARENA)) return null;
   }
-  // П5: the luck tally — known sources, valid counts; no more die rolls than dice shown.
-  if (run.luck !== undefined && !(validLuckTally(run.luck) && (run.luck.die?.tries ?? 0) <= (run.dieDraws ?? 0))) return null;
+  // B7 К9: the circle and the casino stream's counter — both or neither (absent: no circle stood in the run).
+  if ((run.casinoDraws === undefined) !== (run.casino === undefined) || (run.casino !== undefined && !validCasino(run, map))) return null;
+  // П5: the luck tally — known sources, valid counts; no more die rolls than dice shown, no more «Кости» than played.
+  if (run.luck !== undefined && !(validLuckTally(run.luck) && (run.luck.die?.tries ?? 0) <= (run.dieDraws ?? 0)
+    && (run.luck['casino-dice']?.tries ?? 0) <= (run.casino?.games.filter(game => game.table === 'dice').length ?? 0))) return null;
   for (const choice of run.eventChoices as unknown[]) {
     if (!isRecord(choice) || !known(choice.nodeId) || typeof choice.option !== 'string') return null;
     const event = eventOf(choice.nodeId), option = event ? eventOption(event, choice.option) : undefined;
@@ -1609,6 +1850,8 @@ function checkRun(value: unknown): RtRunState | null {
       if (!(isCount(run.dieDraws) && run.dieDraws >= 1) || pending.face !== rtDieFace(run.seed, run.dieDraws - 1)) return null;
       break;
     }
+    // B7 К9: the open circle is the run's circle (checked above).
+    case 'casino': if (node.type !== 'event' || run.casino?.nodeId !== pending.nodeId || Object.keys(pending).length !== 2) return null; break;
     case 'rest': if (node.type !== 'rest' || !isItemList(pending.crafted)) return null; break;
     case 'talisman': {
       const source = pending.source, options = pending.options;

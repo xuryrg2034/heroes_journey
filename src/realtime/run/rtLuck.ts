@@ -14,6 +14,8 @@
  *   (never in a run: the run turns `eliteArmor` on) send no `eliteDown` and are not counted. Written by the fight.
  * - `die` — «Кость у двери»: every roll («Забрать» is no roll); a hit — faces 4–6; expected ½ each. Written by the run
  *   (`rtDieChoose`).
+ * - `casino-dice` — «Кости» of the goblins' circle (B7 К9): every game; a hit — two dice summing 8 or more; expected 15/36
+ *   each. Written by the run (`rtCasinoPlay`). The circle's wheel spins are listed as event outcomes (rtRun.ts `rtCasinoLuck`).
  * Event outcomes with odds are not stored here: the save already keeps every choice and its outcome (`eventChoices`), so
  * their lines are read from it (rtRun.ts `rtEventLuck`), also for a save written before the tally.
  *
@@ -24,8 +26,8 @@
 import type { WorldEvent } from '../sim/world';
 import { slotOddsText } from '../sim/slotPlan';
 
-export type RtLuckKey = 'slot-rain' | 'slot-volley' | 'elite-loot' | 'die';
-export const RT_LUCK_KEYS: readonly RtLuckKey[] = ['slot-rain', 'slot-volley', 'elite-loot', 'die'];
+export type RtLuckKey = 'slot-rain' | 'slot-volley' | 'elite-loot' | 'die' | 'casino-dice';
+export const RT_LUCK_KEYS: readonly RtLuckKey[] = ['slot-rain', 'slot-volley', 'elite-loot', 'die', 'casino-dice'];
 /** The keys a fight writes (`RtArenaOutcome.luck`); the others the run writes itself. */
 export const RT_FIGHT_LUCK_KEYS: readonly RtLuckKey[] = ['slot-rain', 'slot-volley', 'elite-loot'];
 
@@ -113,6 +115,11 @@ const LUCK_LINES: readonly ((tally: RtLuckTally) => RtLuckLine | null)[] = [
   tally => {
     const die = tally.die;
     return die ? { id: 'die', label: 'Кость у двери', text: `${word(die.tries, 'бросок', 'броска', 'бросков')} · 4–6 выпало ${vs(die)}` } : null;
+  },
+  tally => {
+    // B7 К9: «Кости» of the goblins' circle — the winning sum (8+, 15 из 36) against its expectation.
+    const dice = tally['casino-dice'];
+    return dice ? { id: 'casino-dice', label: 'Кости (игорный круг)', text: `${word(dice.tries, 'игра', 'игры', 'игр')} · 8+ выпало ${vs(dice)}` } : null;
   },
   tally => {
     // Design 12.10.2026: no line while the loot has no chance (armour always leaves it — every run); it comes back with a chance.

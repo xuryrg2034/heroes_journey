@@ -531,6 +531,8 @@ async function boot(): Promise<void> {
     },
     // Loop research, step 1: the panel's palette by the row (off by default — the loadout as before).
     loadoutOptions: { colorsByRow: params.colorsByRow },
+    // B7 К9 «Игорный круг гоблинов»: the run's key (`RT_RUN_FORCED`; the simulation never reads it).
+    goblinCircle: params.goblinCircle,
     onScreenChange(open) {
       runScreenOpen = open;
       if (open) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; result.hidden = true; }

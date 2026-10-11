@@ -15,7 +15,7 @@ import type { Loadout } from '../sim/kit';
 import type { World } from '../sim/world';
 import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
 import {
-  checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
+  checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord, type ThreatTally,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
@@ -541,7 +541,7 @@ function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]
   const row = (id: string) => rows.get(id) ?? rows.set(id, { kinds: new Set(), offered: 0, taken: 0, refused: 0, fired: 0, fights: 0, active: 0 }).get(id)!;
   for (const run of runs) for (const c of run.choices) {
     // Casino «Ставка клятвы»: the node card's oaths have a section of their own.
-    if (c.source === OATH_STAKE_SOURCE || c.source === DIE_SOURCE) continue;
+    if (c.source === OATH_STAKE_SOURCE || c.source === DIE_SOURCE || c.source === CASINO_SOURCE) continue;
     for (const id of c.offered) { const r = row(id); r.offered++; r.kinds.add(c.source); }
     for (const id of c.taken) { const r = row(id); r.taken++; r.kinds.add(c.source); }
     for (const id of c.refused) { const r = row(id); r.refused++; r.kinds.add(c.source); }

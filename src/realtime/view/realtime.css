@@ -178,6 +178,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-modal .rt-other:disabled { opacity: .55; cursor: default; border-color: #6b6a4c; }
 .rt-run-reroll-note { margin: 6px 0 0; font-size: 13px; }
 .rt-run-reroll-note.rt-run-reason { color: #e0a596; }
+/* B7 К9 «Игорный круг гоблинов» and К12 «Колесо костей» вживую: the circle's card, its last game, the roll over the run screen
+   (opaque while it rolls, as the die at the door: the run already paid). */
+.rt-casino-count { margin: 0 0 10px; text-align: center; color: #c9c3ad; }
+.rt-casino-last { margin: 10px 0 0; text-align: center; font: 600 16px Georgia, serif; color: #c9c3ad; }
+.rt-casino-last.rt-die-win { color: #ffd88a; }
+.rt-roll-dice { display: flex; justify-content: center; gap: 22px; }
+.rt-wheel { position: relative; width: 240px; height: 240px; margin: 4px auto 12px; }
+.rt-wheel-disc { width: 240px; height: 240px; }
+.rt-wheel-disc svg { display: block; width: 240px; height: 240px; }
+.rt-wheel-spin { animation: rt-wheel-spin 1.2s cubic-bezier(.12, .62, .22, 1) forwards; }
+@keyframes rt-wheel-spin { from { transform: rotate(0deg); } to { transform: rotate(var(--rt-wheel-end)); } }
+.rt-wheel-pointer { position: absolute; left: 50%; top: -6px; width: 0; height: 0; transform: translateX(-50%); border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 22px solid #ffd88a; filter: drop-shadow(0 2px 3px #000c); }
+.rt-wheel-sector { stroke: #14190f; stroke-width: 2; }
+.rt-wheel-label { fill: #f2dfb4; font: 600 12px Georgia, serif; text-anchor: middle; }
+.rt-wheel-hit { fill: #6e5a26; }
 .rt-result-buttons:has(> :only-child) { grid-template-columns: 1fr; }
 
 /* Stage 2, step 3: abilities (Space, Q) with their price; ready when there is energy for them now. */

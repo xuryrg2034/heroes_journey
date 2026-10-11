@@ -29,7 +29,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, type RunDie, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
 } from './schema';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
@@ -191,6 +191,12 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       // Casino «Кость у двери»: «Бросить» (`roll`) or «Забрать» (`take`).
       const resolved = events.find(e => e.type === 'die-resolved');
       if (resolved?.type === 'die-resolved') choice(pending.nodeId, DIE_SOURCE, ['roll', 'take'], [resolved.rolled ? 'roll' : 'take']);
+      break;
+    }
+    case 'casino': {
+      // B7 К9: each game (`dice`, `wheel`) and «Уйти» (`leave`); merged into one entry of the visit.
+      const played = events.find(e => e.type === 'casino-played'), left = events.some(e => e.type === 'casino-left');
+      if (played?.type === 'casino-played' || left) choice(pending.nodeId, CASINO_SOURCE, ['dice', 'wheel', 'leave'], [played?.type === 'casino-played' ? played.game.table : 'leave']);
       break;
     }
     case 'hammer':

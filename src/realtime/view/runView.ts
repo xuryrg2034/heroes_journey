@@ -19,7 +19,8 @@ import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
-  type RtArenaOutcome, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
+  rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
+  type RtArenaOutcome, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
@@ -30,6 +31,7 @@ import { RT_NODE_TYPES } from './nodeTypes';
 import type { SessionClock } from './session';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { multText } from '../sim/purse';
+import { eventOption, forestEvent } from '../forest/forestEvents';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -40,6 +42,11 @@ export interface RunHost {
   startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice, roster?: string): void;
   /** Loop research, step 1: what the arena's loadout takes from the panel (the palette by the row). Absent — nothing. */
   loadoutOptions?: RtLoadoutOptions;
+  /**
+   * B7 К9 «Игорный круг гоблинов» (`Params.goblinCircle`; a run: always on): an event node may stand as the circle. Passed to
+   * `rtEnterNode`; absent or false — every event node as before.
+   */
+  goblinCircle?: boolean;
   /** The run screen covers the arena (true) or the arena is on screen (false). */
   onScreenChange(open: boolean): void;
   /**
@@ -77,6 +84,12 @@ export const DIE_ROLL_MS = 1200;
 /** The face changes this often while the die rolls (a picture only: the face was fixed when the screen showed). */
 const DIE_FLICKER_MS = 90;
 const DIE_PIPS = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+/** B7 К9, К12: «Кости» of the circle and «Колесо костей» (the circle's table and the ordinary event) roll this long; a click skips (П11). */
+export const CHANCE_ROLL_MS = 1200;
+/** The wheel turns this many whole times before it lands (a picture only: the outcome was fixed by the click). */
+const WHEEL_TURNS = 3;
+/** B7 К9: the map icon of the entered circle (the node stays an event node of the generated map). */
+const CASINO_ICON = '⚃';
 /** «1 ресурс», «2 ресурса», «5 ресурсов». */
 export function resourcesWord(n: number): string {
   const tens = n % 100, ones = n % 10;
@@ -145,6 +158,9 @@ function giftText(option: GiftOption): string {
   }
 }
 
+/** B7 К9, К12: one roll of chance over the run screen (see `RunView.chanceRoll`). */
+interface ChanceRoll { kind: 'dice' | 'wheel'; title: string; faces?: [number, number]; outcome?: number; text: string; win: boolean; landed: boolean; timers: number[] }
+
 export class RunView {
   readonly el: HTMLDivElement;
   private run: RtRunState | null;
@@ -166,6 +182,12 @@ export class RunView {
    * only drops the picture), `landed` — the animation is over (or skipped by a click).
    */
   private dieRoll: { face: number; paid: number; kinds: string[]; win: boolean; landed: boolean; timers: number[] } | null = null;
+  /**
+   * B7 К9 and К12: a game of the circle or the ordinary «Колесо костей» shown over the run screen — the outcome the run already
+   * applied (a reload only drops the picture: the circle's card shows its last game), `landed` — the animation is over (or
+   * skipped by a click). The win flash only for `win`.
+   */
+  private chanceRoll: ChanceRoll | null = null;
 
   constructor(private readonly host: RunHost, private readonly fixedSeed: number | null) {
     this.el = document.createElement('div');
@@ -216,7 +238,9 @@ export class RunView {
   }
 
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
-  enter(nodeId: string, oath: OathId | null = null): string { return this.run ? this.apply(rtEnterNode(this.run, nodeId, oath)) : 'Нет похода.'; }
+  enter(nodeId: string, oath: OathId | null = null): string {
+    return this.run ? this.apply(rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle })) : 'Нет похода.';
+  }
 
   /**
    * The arena of the open battle node is over: its outcome goes into the run and is saved at once (the frame the arena
@@ -257,6 +281,7 @@ export class RunView {
       if (event.type === 'talisman-taken') parts.push(`${rtTalisman(event.id)?.rarity === 'relic' ? 'Реликвия' : rtTalisman(event.id)?.rarity === 'oath' ? 'Клятва' : 'Талисман'} «${talismanName(event.id)}»`);
       if (event.type === 'hammer-taken') parts.push(`Молот «${rtHammer(event.id)?.name ?? event.id}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
+      if (event.type === 'casino-played') parts.push(event.text);
       if (event.type === 'die-resolved') parts.push(event.rolled ? `Кость: ${event.face} — ${resourcesWord(event.resources.length)}` : `Котёл: ${resourcesWord(event.resources.length)}`);
       if (event.type === 'items-gained') parts.push(`+ ${event.items.map(itemWithKey).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
@@ -305,7 +330,12 @@ export class RunView {
     if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
     if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
-    if (action === 'event-option') { this.apply(rtChooseEventOption(run, target.dataset.option!)); return; }
+    // B7 К9: the circle's tables (the outcome fixed at the click, then 1.2 s of rolling), «Уйти»; a click skips the roll.
+    if (action === 'casino-play') { this.playCasino(run, target.dataset.table as RtCasinoTable); return; }
+    if (action === 'casino-leave') { this.apply(rtCasinoLeave(run)); return; }
+    if (action === 'roll-skip') { this.landChance(); return; }
+    if (action === 'roll-close') { this.closeChance(); return; }
+    if (action === 'event-option') { this.chooseEventOption(run, target.dataset.option!); return; }
     if (action === 'gift') { this.apply(rtChooseGift(run, target.dataset.index === 'skip' ? null : Number(target.dataset.index))); return; }
   }
 
@@ -357,6 +387,96 @@ export class RunView {
       + `<div class="rt-card"><h2>Кость у двери</h2><div class="rt-die-face${roll.landed ? '' : ' rt-die-rolling'}" data-testid="die-face" data-face="${roll.landed ? roll.face : ''}">${DIE_PIPS[roll.landed ? roll.face - 1 : roll.face % 6]}</div>${result}</div></div>`;
   }
 
+  // ---------- B7 К9 «Игорный круг гоблинов», К12 «Колесо костей» вживую ----------
+
+  /** A table of the circle: the run applies the game (its outcome fixed now), the picture rolls 1.2 s over the next screen. */
+  private playCasino(run: RtRunState, table: RtCasinoTable): void {
+    const step = rtCasinoPlay(run, table);
+    const played = step.ok ? step.events.find(event => event.type === 'casino-played') : undefined;
+    if (played?.type === 'casino-played') {
+      const game = played.game;
+      this.startChance(game.table === 'dice'
+        ? { kind: 'dice', title: 'Кости', faces: game.faces, text: played.text, win: played.win }
+        : { kind: 'wheel', title: forestEvent(CASINO_WHEEL_EVENT)!.title, outcome: game.outcome, text: played.text, win: played.win });
+    }
+    this.apply(step);
+    this.rollTimers();
+  }
+  /**
+   * К12: «Крутить» of the ordinary event «Колесо костей» — the event's own outcome (its `events` draw, unchanged), shown by
+   * the live wheel; every other option as before. The flash (LDW): more resources than the one paid, or a talisman taken.
+   */
+  private chooseEventOption(run: RtRunState, optionId: string): void {
+    const event = rtEventView(run)?.event, step = rtChooseEventOption(run, optionId);
+    const resolved = step.ok ? step.events.find(entry => entry.type === 'event-resolved') : undefined;
+    if (event?.id === CASINO_WHEEL_EVENT && optionId === 'spin' && resolved?.type === 'event-resolved') {
+      const rolled = eventOption(event, optionId)!.outcomes[resolved.outcome], gave = step.ok && step.events.some(entry => entry.type === 'talisman-taken');
+      this.startChance({ kind: 'wheel', title: event.title, outcome: resolved.outcome, text: resolved.text, win: (rolled.effect.resources ?? 0) > 1 || gave });
+    }
+    this.apply(step);
+    this.rollTimers();
+  }
+  private startChance(roll: Omit<ChanceRoll, 'landed' | 'timers'>): void {
+    this.clearChanceTimers();
+    this.chanceRoll = { ...roll, landed: false, timers: [] };
+  }
+  /** The roll's timers: the dice faces flicker (a picture only: the faces were fixed by the click), the end lands it. */
+  private rollTimers(): void {
+    const roll = this.chanceRoll;
+    if (!roll || roll.landed || roll.timers.length) return;
+    let shown = 0;
+    if (roll.kind === 'dice') roll.timers.push(window.setInterval(() => {
+      shown++;
+      this.el.querySelectorAll<HTMLElement>('[data-testid^="roll-face-"]').forEach((face, i) => { if (!roll.landed) face.textContent = DIE_PIPS[(shown * (i + 2) + i * 3) % 6]; });
+    }, DIE_FLICKER_MS));
+    roll.timers.push(window.setTimeout(() => this.landChance(), CHANCE_ROLL_MS));
+  }
+  private clearChanceTimers(): void {
+    for (const timer of this.chanceRoll?.timers ?? []) { window.clearInterval(timer); window.clearTimeout(timer); }
+  }
+  /** The roll lands (the animation's end, or a click skips it): the faces or the wheel's sector, and the outcome. */
+  private landChance(): void {
+    if (!this.chanceRoll || this.chanceRoll.landed) return;
+    this.clearChanceTimers();
+    this.chanceRoll.landed = true;
+    this.draw();
+  }
+  private closeChance(): void { this.clearChanceTimers(); this.chanceRoll = null; this.draw(); }
+
+  /** The wheel of «Колесо костей»: the six sectors of «Крутить» (1 из 6 each), the pointer on top; `turn` — its angle at the end. */
+  private wheelHtml(turn: number, spinning: boolean, hit: number | null): string {
+    const option = eventOption(forestEvent(CASINO_WHEEL_EVENT)!, 'spin')!, n = option.outcomes.length, c = 120, r = 112;
+    const at = (deg: number, radius: number) => `${(c + radius * Math.sin(deg * Math.PI / 180)).toFixed(2)} ${(c - radius * Math.cos(deg * Math.PI / 180)).toFixed(2)}`;
+    const sectors = option.outcomes.map((outcome, k) => {
+      const from = k * 360 / n, to = (k + 1) * 360 / n, mid = (from + to) / 2;
+      return `<path class="rt-wheel-sector${hit === k ? ' rt-wheel-hit' : ''}" data-sector="${k}" fill="${k % 2 ? '#2f3a28' : '#3d3423'}" d="M ${c} ${c} L ${at(from, r)} A ${r} ${r} 0 0 1 ${at(to, r)} Z"/>`
+        // A label of two words and more on two lines (a sector is narrow): «целебный / дым».
+        + `<text class="rt-wheel-label" transform="rotate(${mid} ${c} ${c})" x="${c}" y="${c - r * 0.7}">${(outcome.label ?? '').replace(/ /, '\n').split('\n')
+          .map((line, i) => `<tspan x="${c}" dy="${i ? '1.1em' : '0'}">${escapeHtml(line)}</tspan>`).join('')}</text>`;
+    }).join('');
+    return `<div class="rt-wheel" data-testid="roll-wheel"${hit !== null ? ` data-outcome="${hit}"` : ''}><div class="rt-wheel-disc${spinning ? ' rt-wheel-spin' : ''}" style="${spinning ? `--rt-wheel-end: ${turn}deg` : `transform: rotate(${turn}deg)`}">`
+      + `<svg viewBox="0 0 240 240">${sectors}<circle cx="${c}" cy="${c}" r="16" fill="#14190f" stroke="#82774e"/></svg></div><div class="rt-wheel-pointer"></div></div>`;
+  }
+
+  /**
+   * The roll over the run screen: «Кости» — two faces flickering, then the game's faces; the wheel — 1.2 s of turning, then
+   * the outcome's sector under the pointer. A click skips; «Дальше» closes it. The gold flash only for a win (LDW guard).
+   */
+  private chanceHtml(): string {
+    const roll = this.chanceRoll;
+    if (!roll) return '';
+    const sector = 360 / eventOption(forestEvent(CASINO_WHEEL_EVENT)!, 'spin')!.outcomes.length;
+    const picture = roll.kind === 'dice'
+      ? `<div class="rt-roll-dice">${roll.faces!.map((face, i) => `<div class="rt-die-face${roll.landed ? '' : ' rt-die-rolling'}" data-testid="roll-face-${i}" data-face="${roll.landed ? face : ''}">${DIE_PIPS[roll.landed ? face - 1 : (face + i + 2) % 6]}</div>`).join('')}</div>`
+      : this.wheelHtml(WHEEL_TURNS * 360 - (roll.outcome! * sector + sector / 2), !roll.landed, roll.landed ? roll.outcome! : null);
+    const result = roll.landed
+      ? `<p class="rt-die-result${roll.win ? ' rt-die-win' : ''}" data-testid="roll-result" data-win="${roll.win}">${escapeHtml(roll.text)}</p>`
+        + `<button class="rt-again" data-action="roll-close" data-testid="roll-close">Дальше</button>`
+      : `<p class="rt-run-note">${roll.kind === 'dice' ? 'Кости катятся…' : 'Колесо крутится…'} (клик — пропустить)</p>`;
+    return `<div class="rt-overlay rt-run-modal rt-die-overlay" data-testid="run-roll" data-kind="${roll.kind}" data-landed="${roll.landed}"${roll.landed ? '' : ' data-action="roll-skip"'}>`
+      + `<div class="rt-card"><h2>${escapeHtml(roll.title)}</h2>${picture}${result}</div></div>`;
+  }
+
   // ---------- Drawing ----------
 
   draw(): void {
@@ -365,7 +485,7 @@ export class RunView {
     // П7: on the map (not in a fight, not at the end) a due nudge is taken once and stays until the map is left.
     const session = this.host.session;
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
-    this.el.innerHTML = `${this.headerHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}`;
+    this.el.innerHTML = `${this.headerHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
   }
 
   private startHtml(): string {
@@ -421,8 +541,10 @@ export class RunView {
     })).join('');
     const circles = nodes.map(node => {
       const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type], shown = node.type === 'event' && rtNodeTitle(run, node) === 'Находка' ? RT_NODE_TYPES.find : info;
+      // B7 К9: the circle's node keeps the event's place on the map; once entered, it shows a die.
+      const icon = run.casino?.nodeId === node.id ? CASINO_ICON : shown.icon;
       return `<g class="rt-node rt-${status}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${node.type}" transform="translate(${x(node)},${y(node)})">`
-        + `<circle r="17"/><text dy="6">${shown.icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title></g>`;
+        + `<circle r="17"/><text dy="6">${icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title></g>`;
     }).join('');
     return `<svg class="rt-run-map" viewBox="0 0 ${W} ${H}" data-testid="run-map">${edges}${circles}</svg>`;
   }
@@ -438,6 +560,9 @@ export class RunView {
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? `<p>${arenaLine(arena.arena, arena.roster)}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (STEP1_HINT[node.type] ? `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type]!)}</p>` : '')
+      // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance.
+      + (this.host.goblinCircle && !run.casino && rtCasinoNode(node) && (status === 'available' || status === 'locked')
+        ? `<p class="rt-run-hint" data-testid="run-casino-hint">Вместо события может стоять ${escapeHtml(RT_CASINO_TITLE.toLowerCase())}: шанс ${RT_CASINO_CHANCE} %, не больше одного за поход, нужен хотя бы 1 ресурс.</p>` : '')
       + (status === 'available' ? this.enterHtml(run, node) : '')
       + `</aside>`;
   }
@@ -497,6 +622,18 @@ export class RunView {
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="die-take" data-testid="die-take"><b>Забрать: ${resourcesWord(view.take)}</b></button>`
         + `<button class="rt-run-choice" data-action="die-roll" data-testid="die-roll"><b data-testid="die-odds">${dieRollText(view.low, view.high)}</b>`
         + `<small>Кость: 1–${DIE_LOW_FACES} и ${DIE_LOW_FACES + 1}–6 поровну.</small></button></div>`, 'run-die');
+    }
+    if (pending.kind === 'casino') {
+      // B7 К9: two tables and «Уйти»; at most RT_CASINO_GAMES games; the last game's result stays (a reload shows the same).
+      const view = rtCasinoView(run);
+      if (!view) return '';
+      const tables = view.tables.map(table => `<button class="rt-run-choice" data-action="casino-play" data-table="${table.table}" data-testid="casino-${table.table}" ${table.available ? '' : 'disabled'}>`
+        + `<b>${escapeHtml(table.label)} <em>(${escapeHtml(table.cost)})</em></b>${table.outcomes.map(outcome => `<small>${escapeHtml(outcome.odds)}: ${escapeHtml(outcome.text)}</small>`).join('')}`
+        + (table.reason ? `<small class="rt-run-reason">${escapeHtml(table.reason)}</small>` : '') + `</button>`).join('');
+      const last = view.last ? `<p class="rt-casino-last${view.last.win ? ' rt-die-win' : ''}" data-testid="casino-last" data-win="${view.last.win}">${escapeHtml(view.last.text)}</p>` : '';
+      return card(`<h2>${escapeHtml(RT_CASINO_TITLE)}</h2><p>Гоблины расставили столы у костра. Ставка — ресурсы крафта, до ${RT_CASINO_GAMES} игр за визит.</p>`
+        + `<p class="rt-casino-count" data-testid="casino-count">Игр: ${view.played} из ${view.max} · ресурсов: ${view.total}</p><div class="rt-run-choices">${tables}</div>${last}`
+        + `<button class="rt-other" data-action="casino-leave" data-testid="casino-leave">Уйти</button>`, 'run-casino');
     }
     if (pending.kind === 'gift') {
       const view = rtGiftView(run)!;

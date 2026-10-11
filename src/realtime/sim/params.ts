@@ -584,6 +584,14 @@ export interface Params {
    * the door at once, as before. A run turns it on (run/rtRun.ts `RT_RUN_FORCED`); the sandbox has no die (no run).
    */
   doorDie: boolean;
+  // ---- B7 К9 — «Игорный круг гоблинов» (run/rtRun.ts, docs/realtime-casino.md, «Игорный круг (К9)»). ----
+  /**
+   * The goblins' gambling circle: an event node of run row 3 and later may stand as the circle instead of its event (30 % by
+   * the run's own stream `rt-casino`, at most one a run, not with 0 resources). A run-layer rule: the simulation never reads
+   * it (the run view passes it to `rtEnterNode`). Off by default — every event node is its event, as before. A run turns
+   * it on (run/rtRun.ts `RT_RUN_FORCED`); the sandbox has no run.
+   */
+  goblinCircle: boolean;
   // ---- Roster mix (run/arenaPools.ts, docs/realtime-phase-a.md, section 4; design decision 11.10.2026). ----
   /**
    * The roster mix of the run: «Застава» and «Брод» take a pool roster whose kinds are all met in about half of their fights
@@ -925,6 +933,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   oathStake: false,
   // Casino «Кость у двери» (run/rtRun.ts): off by default.
   doorDie: false,
+  // B7 К9 «Игорный круг гоблинов» (run/rtRun.ts): off by default.
+  goblinCircle: false,
   // Roster mix (run/arenaPools.ts): off by default.
   rosterMix: false,
   // П9 «Второе дыхание» (world.ts `hurtHero`): off by default.
@@ -1266,6 +1276,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Casino «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'doorDie', group: 'Котёл', label: 'Кость у двери (поход)', stage: 5,
     hint: 'Только поход: после победы с котлом больше 0 — экран кости. «Забрать» — котёл как есть, «Бросить» — 1–3 ×0,5, 4–6 ×2. В походе включено всегда; в песочнице не действует.' },
+  // B7 К9 «Игорный круг гоблинов» (run/rtRun.ts, docs/realtime-casino.md).
+  { kind: 'bool', key: 'goblinCircle', group: 'Котёл', label: 'Игорный круг (поход)', stage: 5,
+    hint: 'Только поход: узел события с ряда 3 с шансом 30 % — игорный круг гоблинов (не больше одного за поход, нужен хотя бы 1 ресурс): «Кости» и «Колесо костей», до 3 игр. В походе включено всегда; в песочнице не действует.' },
   // Roster mix (run/arenaPools.ts, docs/realtime-phase-a.md, section 4).
   { kind: 'bool', key: 'rosterMix', group: 'Составы', label: 'Составы Заставы и Брода (поход)', stage: 5,
     hint: 'Только поход: «Застава» и «Брод» примерно в половине боёв берут состав пула из встреченных видов («Шаманский щит» — не на «Броде»); «Логово» — на рядах 6–8. В походе включено всегда; в песочнице не действует.' },

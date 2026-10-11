@@ -152,6 +152,9 @@ export const CHEST_SOURCE = 'chest';
 /** Casino «Кость у двери»: the source of the die screen's choice in `RunRecord.choices` (offered `roll` and `take`). */
 export const DIE_SOURCE = 'door-die';
 
+/** B7 К9 «Игорный круг гоблинов»: the source of the circle's choices in `RunRecord.choices` (offered `dice`, `wheel`, `leave`; one entry a visit). */
+export const CASINO_SOURCE = 'casino';
+
 /**
  * Casino stage 1, item 4: one die screen of the run (`RunRecord.dice`). `face` — the outcome fixed when the screen showed;
  * `rolled` — «Бросить» (false — «Забрать», null — not chosen yet); `mult` — the die's multiplier paid with (1 for «Забрать»);
