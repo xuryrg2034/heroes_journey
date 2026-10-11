@@ -971,6 +971,32 @@ test('the 6th kill of one chain drops a crystal off the rest of the path; a long
   expect(errors).toEqual([]);
 });
 
+test('the chain power shows as a number beside the hero during the dash and grows link by link; the last link flashes bigger', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors, 1);
+  await freeze(page);
+  // Slow dash so the test can look at it mid-way; six weak enemies of one color in the free bottom row.
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.dashSpeed = 5; rt.teleport(1, 9.2); });
+  const ids: number[] = [];
+  for (let i = 0; i < 6; i++) ids.push(await place(page, 2 + i, 9.2, 0));
+  await chainAt(page, ids.map((_, i) => ({ x: 2 + i, y: 9.2 })));
+  await expect.poll(async () => (await juiceSnapshot(page)).chain.length).toBe(6);
+  expect((await juiceSnapshot(page) as any).powerView).toMatchObject({ shown: 0, visible: false });
+  await page.mouse.up();
+  // Mid-dash: the number is on screen and has grown more than once.
+  await expect.poll(async () => (await juiceSnapshot(page) as any).powerView, { timeout: 8_000, intervals: [30] }).toMatchObject({ visible: true, growths: expect.any(Number) });
+  await expect.poll(async () => (await juiceSnapshot(page) as any).powerView.growths, { timeout: 8_000, intervals: [30] }).toBeGreaterThanOrEqual(3);
+  await page.screenshot({ path: 'artifacts/realtime-power-dash.png' });
+  await expect.poll(async () => (await juiceSnapshot(page)).moving).toBeNull();
+  const done = (await juiceSnapshot(page) as any).powerView;
+  expect(done.shown).toBeGreaterThanOrEqual(5);
+  expect(done.strikeFlashes).toBe(6);
+  expect(done.finisherFlashes).toBe(1);
+  // The number fades after the dash.
+  await expect.poll(async () => (await juiceSnapshot(page) as any).powerView.visible, { timeout: 4_000 }).toBe(false);
+  expect(errors).toEqual([]);
+});
+
 test('a crystal is a link of any color: it changes the chain color, gives score when broken and can start a chain', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 1);

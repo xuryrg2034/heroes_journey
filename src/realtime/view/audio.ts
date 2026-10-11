@@ -19,8 +19,10 @@ export class ChainAudio {
   }
 
   /** One hit of the chain: `combo` — its number in the dash (1, 2, …); a kill sounds brighter than a wound. */
-  hit(combo: number, killed: boolean, volume: number): void {
-    this.tone(330 * Math.pow(2, Math.min(24, Math.max(0, combo - 1)) / 12), killed ? 'triangle' : 'square', 0.09, volume * (killed ? 1 : 0.6));
+  hit(combo: number, killed: boolean, volume: number, power = 0): void {
+    // View-only: a hit carrying more power is louder and a bit longer (up to power 8).
+    const k = Math.min(1, power / 8);
+    this.tone(330 * Math.pow(2, Math.min(24, Math.max(0, combo - 1)) / 12), killed ? 'triangle' : 'square', 0.09 + 0.06 * k, volume * (killed ? 1 : 0.6) * (0.75 + 0.25 * k));
   }
 
   /** A crystal breaks: a high glassy ping at the current pitch. */

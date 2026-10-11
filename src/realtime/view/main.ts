@@ -703,7 +703,7 @@ async function boot(): Promise<void> {
     } else if (!hint.hidden) { hint.hidden = true; delete hint.dataset.reason; }
     if (params.sound) {
       for (const ev of w.events) {
-        if (ev.type === 'chainHit') audio.hit(ev.combo, ev.killed, params.soundVolume);
+        if (ev.type === 'chainHit') audio.hit(ev.combo, ev.killed, params.soundVolume, ev.damage);
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
         else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, params.soundVolume);
@@ -919,6 +919,8 @@ async function boot(): Promise<void> {
         combo: w.move?.kind === 'dash' ? w.move.kills : 0,
         lastChain: w.lastChain ? { ...w.lastChain } : null,
         comboShown: renderer.comboShown,
+        /** «Сила видна при рывке»: the power number (largest shown, growths, visible now), strike flashes and closing flashes drawn so far. */
+        powerView: { shown: renderer.powerShown, growths: renderer.powerGrowths, visible: renderer.powerVisible, strikeFlashes: renderer.strikeFlashes, finisherFlashes: renderer.finisherFlashes },
         heroInCrowd: heroInCrowd(w),
         reachCircles: renderer.visibleReachCircles,
         heroReachShown: renderer.heroReachShown,

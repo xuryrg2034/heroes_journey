@@ -1258,8 +1258,72 @@ export class RealtimeRenderer {
     this.bursts.push({ g, life, total: life, grow });
   }
 
+  // ---- «Сила видна при рывке» (package «Урон имеет значение», item 4): view-only, reads `move.power` and the chainHit events ----
+  /** The chain's power as a small number beside the hero while the dash runs; it fades after the dash. */
+  private powerText: Text | null = null;
+  private powerLife = 0;
+  private powerValue = -1;
+  /** Tests read these: the largest power shown, how many times the number grew, strike flashes and the closing flashes drawn. */
+  powerShown = 0;
+  powerGrowths = 0;
+  strikeFlashes = 0;
+  finisherFlashes = 0;
+  get powerVisible(): boolean { return !!this.powerText?.visible; }
+
+  /** The power number: beside the hero (right and up, away from the combo counter and from the enemies ahead), grows link by link. */
+  private drawPowerNumber(world: World, dt: number): void {
+    if (!this.powerText) {
+      this.powerText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 'bold', fill: 0xffb86b, stroke: { color: 0x200c08, width: 5 } } });
+      this.powerText.anchor.set(0, 1);
+      this.powerText.visible = false;
+      this.root.addChild(this.powerText);
+    }
+    const text = this.powerText, move = world.move;
+    if (move?.kind === 'dash' && move.hits > 0) {
+      this.powerLife = 0.8;
+      if (move.power !== this.powerValue) {
+        if (move.power > this.powerValue) this.powerGrowths++;
+        this.powerValue = move.power;
+        text.text = `сила ${move.power}`;
+        text.scale.set(1.3);
+      }
+      this.powerShown = Math.max(this.powerShown, move.power);
+    } else this.powerLife = Math.max(0, this.powerLife - dt);
+    text.visible = this.powerLife > 0;
+    if (!text.visible) { this.powerValue = -1; return; }
+    text.scale.set(Math.max(1, text.scale.x - dt * 2.5));
+    text.position.set(world.hero.x * UNIT + 34, world.hero.y * UNIT - 34);
+    text.alpha = move?.kind === 'dash' ? 1 : Math.min(1, this.powerLife / 0.4);
+    // Warmer as the power grows.
+    text.style.fill = this.powerValue >= 6 ? 0xffe08a : this.powerValue >= 3 ? 0xffc46b : 0xffb86b;
+  }
+
+  /**
+   * One strike of the dash: the flash and the shake grow with the hit's damage (`ev.damage`, the power the link carried);
+   * the last enemy hit of a chain gets a bigger gold ring (the sim's world-wide `finisher` flash for long chains stays as it is).
+   */
+  private strikeFx(world: World, ev: { damage: number; x: number; y: number }, last: boolean): void {
+    const k = Math.min(1, ev.damage / 8);
+    const r = (0.3 + 0.35 * k) * (last ? 1.9 : 1) * UNIT;
+    const g = new Graphics().circle(0, 0, r).fill({ color: last ? 0xffd36b : 0xfff2c4, alpha: (last ? 0.5 : 0.3) + 0.25 * k }).stroke({ color: last ? 0xffb347 : 0xffffff, width: last ? 7 : 3 + 3 * k });
+    g.position.set(ev.x * UNIT, ev.y * UNIT);
+    this.fxLayer.addChild(g);
+    const life = last ? 0.38 : 0.2;
+    this.bursts.push({ g, life, total: life });
+    this.strikeFlashes++;
+    if (last) this.finisherFlashes++;
+    const base = world.params.dashShake;
+    if (base > 0) {
+      // A stronger hit shakes more: up to double the base amplitude, a bit longer for the last link.
+      const amp = base * (1 + k) * (last ? 1.3 : 1);
+      if (this.shakeLeft <= 0.02 || amp > this.shakeAmp) { this.shakeLeft = this.shakeTotal = last ? 0.14 : 0.08; this.shakeAmp = amp; }
+    }
+  }
+
   private handleEvents(world: World): void {
-    for (const ev of world.events) {
+    const lastHit = world.events.reduce((n, e, i) => e.type === 'chainHit' ? i : n, -1);
+    const moreLinks = !!world.move?.links.some(l => l.kind === 'enemy');
+    for (const [at, ev] of world.events.entries()) {
       // Phase B (Д5): the build. An item fired — a short text at the hero (its icon flashes in the column, main.ts).
       if (ev.type === 'talismanFired') {
         this.floatText(fireTextOf(ev.id), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
@@ -1275,8 +1339,7 @@ export class RealtimeRenderer {
         continue;
       }
       if (ev.type === 'chainHit') {
-        // Dash shake stays light: not stronger than dashShake (design answer 22).
-        if (world.params.dashShake > 0 && this.shakeLeft <= 0.02) { this.shakeLeft = this.shakeTotal = 0.08; this.shakeAmp = world.params.dashShake; }
+        this.strikeFx(world, ev, at === lastHit && !moreLinks);
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xffd36b);
         continue;
       }
@@ -1662,6 +1725,7 @@ export class RealtimeRenderer {
     this.drawHero(world);
     this.drawOverlay(world);
     this.drawJuice(world, realDt);
+    this.drawPowerNumber(world, realDt);
     this.drawEdgeMarkers(world);
   }
 
@@ -1699,6 +1763,8 @@ export class RealtimeRenderer {
     this.flashLeft = 0;
     this.comboLife = 0;
     this.comboValue = 0;
+    this.powerLife = 0;
+    this.powerValue = -1;
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();
