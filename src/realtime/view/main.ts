@@ -1049,6 +1049,8 @@ async function boot(): Promise<void> {
         buildFlashing: buildColumn.flashing,
         talismanFlashes: buildColumn.flashes,
         talismanTexts: renderer.talismanTexts,
+        /** П9 «Второе дыхание»: the tick it was used (null — not yet) and the flashes with its text shown so far. */
+        secondWind: { used: w.secondWind?.tick ?? null, shown: renderer.secondWindShown },
         /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */
         playerEffects: { ...renderer.playerEffects },
         /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */

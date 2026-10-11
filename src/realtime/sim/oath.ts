@@ -144,6 +144,12 @@ export function oathHurt(world: World): void {
   if (oath?.id === 'damage2' && world.stats.damageTaken > OATH_DAMAGE_MAX) breakOath(world, oath);
 }
 
+/** П9 «Второе дыхание» (world.ts): the hero survived a lethal hit — the oath of the fight counts as broken, whatever it is. */
+export function oathForfeit(world: World): void {
+  const oath = active(world);
+  if (oath) breakOath(world, oath);
+}
+
 /** A dash broke a crystal (chain.ts `breakCrystal`). */
 export function oathCrystal(world: World): void {
   const oath = active(world);

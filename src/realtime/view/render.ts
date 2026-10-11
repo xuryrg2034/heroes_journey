@@ -410,6 +410,8 @@ export class RealtimeRenderer {
   heroReachRadius = 0;
   /** Phase B (Д5): short texts at the hero for fired items so far (`talismanFired`). */
   talismanTexts = 0;
+  /** П9 «Второе дыхание»: flashes with the text «второе дыхание» shown at the hero so far (tests read it). */
+  secondWindShown = 0;
   /** Phase B: the cut trail and the fire of the hammer drawn per frame (the fire under the crowd, the trail over it). */
   private readonly playerFxLayer = new Graphics();
   /** The hero's path in the current or last dash / return run (view memory, age in real seconds) for the cut trail. */
@@ -1559,6 +1561,13 @@ export class RealtimeRenderer {
           const text = this.slotView.handle(ev);
           if (text) this.floatText(text, ev.x * UNIT, ev.y * UNIT - OBJECT_RADIUS * UNIT * 5.8, 0xffd36b);
         }
+        continue;
+      }
+      // П9 «Второе дыхание» (sandbox): the hero stood up after a lethal hit — a flash and a short text at him.
+      if (ev.type === 'secondWind') {
+        this.playerBurst(ev.x, ev.y, 1.6, 0xffffff, 0.45, 0.5, true);
+        this.floatText('второе дыхание', ev.x * UNIT, ev.y * UNIT - 150, PLAYER_FX);
+        this.secondWindShown++;
         continue;
       }
       if (ev.type === 'wave') { this.playerBurst(ev.x, ev.y, ev.r, PLAYER_FX, 0.16, 0.35, true); this.playerEffects.waves++; continue; }

@@ -27,7 +27,7 @@ import { RngStreams } from './rng';
 import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type PurseMove, type PurseWorld } from './purse';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
-import { oathDoor, oathHurt, startOath, type OathId, type OathState } from './oath';
+import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
 import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 
 /**
@@ -308,6 +308,8 @@ export type WorldEvent =
   | { type: 'elite'; enemyId: number }
   /** Stage 2, step 3: «Пепельный оберег» saved the hero from a lethal hit (1 HP left) and crumbled. */
   | { type: 'ward' }
+  /** П9 «Второе дыхание»: a lethal hit did not end the fight — the hero stood up here (render: a flash and a short text). */
+  | { type: 'secondWind'; x: number; y: number }
   | { type: 'focusRefill' }
   /**
    * Stage 3a, steps 3–4: a kind's own signal for the view and the sound — the wolves' howl (`howl`), the lynx announcing
@@ -441,6 +443,11 @@ export interface World {
   purse?: PurseWorld;
   /** Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight (absent without one — hashed only when present). */
   oath?: OathState;
+  /**
+   * П9 «Второе дыхание» (`Params.secondWind`, sandbox only): the tick the hero stood up after a lethal hit — once per fight.
+   * Absent until used (worlds without it hash as before).
+   */
+  secondWind?: { tick: number };
 }
 
 /**
@@ -774,11 +781,33 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
   if (world.oath) oathHurt(world);
   // П4 «Раздув за дела» (purse.ts): a hit takes one greed step off and resets the count (nothing while the rule is off).
   if (world.purse?.greed) greedHurt(world);
+  // П9 «Второе дыхание» (sandbox; the ward above goes first): once per fight the lethal hit leaves the hero standing.
+  if (hero.hp <= 0 && world.params.secondWind && !world.secondWind) secondWind(world);
   if (hero.hp <= 0) {
     world.status = 'defeat';
     world.endTime = world.time;
     world.events.push({ type: 'defeat' });
   }
+}
+
+/** П9 «Второе дыхание»: HP the hero stands up with (at most his max) and game seconds of his invulnerability after it. */
+export const SECOND_WIND_HP = 3;
+export const SECOND_WIND_INVULNERABLE = 2;
+
+/**
+ * П9 «Второе дыхание» (design decision 11.10.2026; docs/realtime-prototype.md): called by `hurtHero` after the lethal hit
+ * counted as an ordinary hit (stats, the hit event, the oath's own check, П4's step off). The hero stands up with 3 HP and
+ * 2 s of invulnerability (the ordinary one: the porcupine's quills ignore it as any invulnerability); the cauldron of the
+ * fight goes to 0 (later cheques fill it again); the oath of the fight counts as broken. Once per fight (`world.secondWind`).
+ */
+function secondWind(world: World): void {
+  const { hero } = world;
+  hero.hp = Math.min(SECOND_WIND_HP, hero.maxHp);
+  hero.invulnerable = SECOND_WIND_INVULNERABLE;
+  world.secondWind = { tick: world.tick };
+  if (world.purse) world.purse.cauldron = 0;
+  if (world.oath) oathForfeit(world);
+  world.events.push({ type: 'secondWind', x: hero.x, y: hero.y });
 }
 
 /**

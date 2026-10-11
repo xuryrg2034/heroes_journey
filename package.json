@@ -41,6 +41,7 @@
     "test:realtime-slot": "tsx src/realtime/sim/slot.spec.ts",
     "test:realtime-purse": "tsx src/realtime/sim/purse.spec.ts",
     "test:realtime-greed": "tsx src/realtime/sim/greed.spec.ts",
+    "test:realtime-second-wind": "tsx src/realtime/sim/secondWind.spec.ts",
     "test:realtime-oath": "tsx src/realtime/sim/oath.spec.ts",
     "test:realtime-die": "tsx src/realtime/run/die.spec.ts",
     "test:realtime-telemetry": "tsx src/realtime/telemetry/schema.spec.ts",

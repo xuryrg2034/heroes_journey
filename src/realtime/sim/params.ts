@@ -587,6 +587,13 @@ export interface Params {
    * sandbox has no run.
    */
   rosterMix: boolean;
+  // ---- П9 «Второе дыхание» (world.ts `hurtHero`, docs/realtime-prototype.md; design decision 11.10.2026: sandbox only). ----
+  /**
+   * The second wind: once per fight a lethal hit does not end it — the hero stands up with 3 HP, invulnerable 2 s; the
+   * cauldron of the fight goes to 0 and its oath counts as broken. «Пепельный оберег» saves first. Off by default; journals
+   * without the value: off (no `world.secondWind`). A sandbox rule: a run arena plays it off (`RUN_FORCED`).
+   */
+  secondWind: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -903,6 +910,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   doorDie: false,
   // Roster mix (run/arenaPools.ts): off by default.
   rosterMix: false,
+  // П9 «Второе дыхание» (world.ts `hurtHero`): off by default.
+  secondWind: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -916,6 +925,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'По доле HP (Brotato): (урон ÷ макс. HP) ÷ 0,15 × 0,4 с, в пределах 0,2–0,4 с.',
     options: [{ value: 'constant', label: 'постоянная' }, { value: 'byDamage', label: 'по доле HP' }] },
   n('invulnerability', 'Герой и урон', 'Постоянная неуязвимость', 0, 2, 0.05, 1, 'с'),
+  // П9 «Второе дыхание» (world.ts `hurtHero`, docs/realtime-prototype.md): sandbox only.
+  { kind: 'bool', key: 'secondWind', group: 'Герой и урон', label: 'Второе дыхание (песочница)', stage: 5,
+    hint: 'Раз за бой смертельный удар не кончает бой: герой встаёт с 3 HP, неуязвим 2 с. Котёл боя обнуляется, клятва боя считается нарушенной. Пепельный оберег спасает первым. В походе не действует.' },
   n('chainShield', 'Герой и урон', 'Неуязвимость после цепи', 0, 1.5, 0.05, 2, 'с', 'После цепи, убившей врага: шанс выйти из толпы ходьбой. Новая заменяет остаток.'),
   n('chainShieldMinKills', 'Герой и урон', 'Мин. убийств цепи для неуязвимости', 1, 10, 1, 2),
   n('touchFactor', 'Герой и урон', 'Касание: доля радиуса тела врага', 0.3, 1.2, 0.05, 1, '×', 'Враг ранит, когда его тело, уменьшенное до этой доли, касается круга героя. На этом расстоянии враг упирается в героя.'),
@@ -1280,9 +1292,10 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off). Phase A:
  * speed classes are on; the sandbox's affix count is 0 (the run passes its own by the row, `Loadout.eliteAffixes`); Т6: the
  * archer's point shot is on. Loop research, step 1: the sandbox palette `colorCount` is 4 (the run's palette by its row comes
- * from `colorsByRow`, `Loadout.colors`). Step 2: the loop is a sandbox experiment — off in a run.
+ * from `colorsByRow`, `Loadout.colors`). Step 2: the loop is a sandbox experiment — off in a run. П9 «Второе дыхание»
+ * (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved panel holds.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, secondWind: false });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

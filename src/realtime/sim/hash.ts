@@ -62,6 +62,8 @@ export function worldState(world: World): unknown {
     ...world.purse ? { purse: world.purse } : {},
     // Casino «Ставка клятвы» (oath.ts): the oath of the fight, its met and broken ticks (absent without one — worlds hash as before).
     ...world.oath ? { oath: world.oath } : {},
+    // П9 «Второе дыхание» (world.ts): the tick the second wind was used (absent until then — worlds hash as before).
+    ...world.secondWind ? { secondWind: world.secondWind } : {},
   };
 }
 
