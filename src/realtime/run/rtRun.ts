@@ -66,7 +66,8 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
  * the open die screen (`pending` of kind `die`); a version 6 save and a version 7 save without them have thrown no die.
  * The roster mix (the same version, design decision 11.10.2026): the run's flag `rosterMix`, set at its creation; a save
  * without it (version 6, or version 7 before the mix) is read and keeps the old pools and rosters to its end — its arenas
- * and rosters are chosen again by the rule they were chosen with, so no save in progress is rejected.
+ * and rosters are chosen again by the rule they were chosen with, so no save in progress is rejected. П10 «Личный рекорд»
+ * (the same version, 12.10.2026): a battle record may carry `bestChain`; records saved before it have none.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -154,8 +155,11 @@ const isRtModifier = (value: unknown): value is RtModifier => typeof value === '
 export interface RtShopStock { items: ItemKind[]; talisman: string | null }
 export type RtShopGoodKind = 'heal' | 'harden' | 'item' | 'talisman';
 export interface RtShopPurchase { good: RtShopGoodKind; slot?: number; item?: ItemKind; talisman?: string; price: number; paid: Record<ResourceKind, number> }
-/** One arena of the run, won or lost: what the result screen shows. */
-export interface RtBattleRecord { nodeId: string; arena: string; won: boolean; kills: number; damage: number; time: number }
+/**
+ * One arena of the run, won or lost: what the result screen shows. `bestChain` (П10 «Личный рекорд», the same version 7,
+ * 12.10.2026) — the fight's longest chain in kills (`stats.bestChain`, the HUD's «цепь N»); absent — a record saved before it.
+ */
+export interface RtBattleRecord { nodeId: string; arena: string; won: boolean; kills: number; damage: number; time: number; bestChain?: number }
 /**
  * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
  * template's own composition.
@@ -283,6 +287,8 @@ const fail = (reason: string): RtRunStep => ({ ok: false, reason });
 /** What an arena gives back to the run (main.ts reads it from the finished world). */
 export interface RtArenaOutcome {
   nodeId: string; won: boolean; hp: number; kills: number; damage: number; time: number;
+  /** П10 «Личный рекорд»: the fight's longest chain in kills (`stats.bestChain`); absent — not recorded (the record has none). */
+  bestChain?: number;
   /** Step 3: consumables in hand at the end (used ones gone, picked-up loot added); absent — as carried in. */
   items?: Partial<Record<ItemKind, number>>;
   /** Step 3: crafting resources picked up on the arena (the loot of elites). */
@@ -713,7 +719,8 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   if (outcome.won && !(outcome.hp >= 1)) return fail('Победа с 0 HP невозможна.');
   const run = structuredClone(current), events: RtRunEvent[] = [];
   const count = (value: number) => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
-  run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0) });
+  run.battles.push({ nodeId: pending.nodeId, arena: pending.arena, won: outcome.won, kills: count(outcome.kills), damage: count(outcome.damage), time: Math.max(0, Number(outcome.time) || 0),
+    ...outcome.bestChain !== undefined ? { bestChain: count(outcome.bestChain) } : {} });
   // Step 3: the modifiers of events acted on this arena (they act on one arena).
   delete run.modifiers;
   // Iteration 2.1 (interface): this arena showed the new consumables and maybe the hint; a used consumable ends the hints.
@@ -780,6 +787,16 @@ function afterVictory(run: RtRunState, node: ForestMapNode, battle: RtBattleKind
     }
   }
   completeNode(run, node, events); return { ok: true, run, events };
+}
+
+/**
+ * П10 «Личный рекорд» (docs/realtime-slice.md, section 9): the run's longest chain in kills over its recorded fights, won or
+ * lost; null — no fight of the run recorded one yet (a new run, or records saved before 12.10.2026).
+ */
+export function rtRunBestChain(run: Pick<RtRunState, 'battles'> | null | undefined): number | null {
+  let best: number | null = null;
+  for (const record of run?.battles ?? []) if (record.bestChain !== undefined) best = Math.max(best ?? 0, record.bestChain);
+  return best;
 }
 
 // ---------- The die at the door (casino stage 1, item 4; docs/realtime-casino.md, «Кость у двери») ----------
@@ -1397,7 +1414,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (run.dieDraws !== undefined && !(isCount(run.dieDraws) && run.dieDraws <= (run.battles as unknown[]).filter(record => isRecord(record) && record.won === true).length)) return null;
   for (const record of run.battles as unknown[]) {
     if (!isRecord(record) || !known(record.nodeId) || typeof record.arena !== 'string' || record.arena !== run.picks.find(pick => pick.nodeId === record.nodeId)?.arena || typeof record.won !== 'boolean'
-      || !isCount(record.kills) || !isCount(record.damage) || typeof record.time !== 'number' || !Number.isFinite(record.time) || record.time < 0) return null;
+      || !isCount(record.kills) || !isCount(record.damage) || typeof record.time !== 'number' || !Number.isFinite(record.time) || record.time < 0
+      || (record.bestChain !== undefined && !isCount(record.bestChain))) return null;
   }
   for (const choice of run.eventChoices as unknown[]) {
     if (!isRecord(choice) || !known(choice.nodeId) || typeof choice.option !== 'string') return null;

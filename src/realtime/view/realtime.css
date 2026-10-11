@@ -266,3 +266,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-oath[hidden] { display: none; }
 .rt-oath.rt-oath-broken { color: #9a9481; opacity: .6; }
 .rt-purse-hint { position: fixed; z-index: 4; padding: 2px 7px; font-size: 12px; color: #ffd88a; background: #121710e0; border: 1px solid #8a6a2c; pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* П10 «Личный рекорд» (run fight result): the line, and its short flash on a new run or all-time record. */
+.rt-result-chain { margin: -8px 0 18px; text-align: center; font-size: 14px; color: #e5dcc0; font-variant-numeric: tabular-nums; }
+.rt-result-chain.rt-record-flash { animation: rt-record-flash .7s ease-out 2; }
+@keyframes rt-record-flash { 0% { color: #e5dcc0; text-shadow: none; } 30% { color: #ffd88a; text-shadow: 0 0 18px #ffd88a; } 100% { color: #e5dcc0; text-shadow: none; } }

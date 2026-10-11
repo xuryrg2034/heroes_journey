@@ -41,7 +41,8 @@ import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
-import { rtNode } from '../run/rtRun';
+import { rtNode, rtRunBestChain } from '../run/rtRun';
+import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
@@ -290,7 +291,11 @@ async function boot(): Promise<void> {
   const toMap = button('rt-again', 'К карте', 'result-map');
   const resultButtons = el('div', 'rt-result-buttons');
   if (sandbox) resultButtons.append(again, other); else resultButtons.append(toMap);
-  resultCard.append(resultTitle, resultStats, resultButtons);
+  // П10 «Личный рекорд» (run only): «Лучшая цепь боя N · похода M · рекорд R»; a new run or all-time record flashes it.
+  const resultChain = el('p', 'rt-result-chain');
+  resultChain.setAttribute('data-testid', 'result-chain');
+  resultChain.hidden = true;
+  resultCard.append(resultTitle, resultStats, resultChain, resultButtons);
   result.appendChild(resultCard);
 
   const pausedBadge = el('div', 'rt-paused', 'Пауза');
@@ -515,6 +520,7 @@ async function boot(): Promise<void> {
     startArena(arenaId, seed, hero, label, loadout, notice, roster) {
       runLabel = label;
       runArenaRecorded = false;
+      fightChainLine = null;
       // Phase A (Т2): the node's roster over the template (the journal keeps it, sim/simulation.ts).
       startArena(roster !== undefined ? withRoster(arenaTemplate(arenaId), roster) : arenaTemplate(arenaId), seed, hero, loadout, notice);
     },
@@ -541,11 +547,17 @@ async function boot(): Promise<void> {
    * reload on the result screen keeps the victory or the end of the run. `runArenaRecorded` — the current arena is in.
    */
   let runArenaRecorded = false;
+  /** П10: the viewer's all-time chain record and the line of the run fight just recorded (null — none: the sandbox). */
+  const chainRecord = new ChainRecordStore();
+  let fightChainLine: ChainLine | null = null;
   const recordRunArena = (): void => {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
     runArenaRecorded = true;
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} });
+    const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
+    fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
+    chainRecord.submit(w.stats.bestChain);
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -707,7 +719,8 @@ async function boot(): Promise<void> {
       // Casino «Котёл»: the cauldron and what the door pays for it (die ×1) instead of the score; in a run with the die
       // pending («Кость у двери») the die comes next — the row says so.
       w.params.purse ? ['Котёл', w.purse?.door ? `${w.purse.door.cauldron}${(w.purse.door.greed ?? 1) > 1 ? ` ×${multText(w.purse.door.greed!)}` : ''} → ресурсов ${doorPayout(w.purse.door).length}${runView?.diePending ? ' (до кости)' : ''}` : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
-      ['Лучшая цепь', `${w.stats.bestChain} убийств`],
+      // П10: a run fight says it in its own line under the table.
+      ...fightChainLine ? [] : [['Лучшая цепь', `${w.stats.bestChain} убийств`] as [string, string]],
       ['Кристаллов выпало', String(w.stats.crystals)],
       ['В стадии жадности', greed],
       ['Цель', `${goal.label} ${goal.done} / ${goal.total}`],
@@ -715,6 +728,10 @@ async function boot(): Promise<void> {
       ['Врагов пришло', String(w.stats.spawned)],
     ];
     resultStats.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    resultChain.hidden = !fightChainLine;
+    resultChain.textContent = fightChainLine?.text ?? '';
+    resultChain.classList.remove('rt-record-flash');
+    if (fightChainLine?.flash) { void resultChain.offsetWidth; resultChain.classList.add('rt-record-flash'); resultChain.dataset.flash = fightChainLine.flash; } else delete resultChain.dataset.flash;
     result.hidden = false;
   };
 
