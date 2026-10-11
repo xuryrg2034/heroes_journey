@@ -64,16 +64,17 @@ const LOOT_TRIES = 40;
 
 /**
  * The armour of an elite (`Enemy.armor`, hashed): plates now and their maximum; `open` — game seconds left of the window (0
- * plates); `regrow` — game seconds to the next plate (after a window, below the maximum); `hit` — the last firing that took
- * a plate (the tick, the source and its firing id), so one firing never takes two.
+ * plates); `clean` — game seconds left of its first `eliteCleanWindow` (a kill then is a clean break; design answer
+ * 11.10.2026, variant 3); `regrow` — game seconds to the next plate (after a window, below the maximum); `hit` — the last
+ * firing that took a plate (the tick, the source and its firing id), so one firing never takes two.
  */
-export interface EliteArmor { plates: number; max: number; open?: number; regrow?: number; hit?: string }
+export interface EliteArmor { plates: number; max: number; open?: number; clean?: number; regrow?: number; hit?: string }
 
 /** Баланс (4.3): plates a hit of this source takes (any other — 1). */
 export const PLATES_BY_SOURCE: Readonly<Record<string, number>> = { bomb: 2 };
 /** Баланс (4.3): hit-stop of an armoured elite's death (real seconds; only with the `hitstop` toggle). */
 export const ELITE_DOWN_HITSTOP = 0.08;
-/** Баланс (4.3, «чистый слом»): energy for a kill in the window; the loot is dropped this many times. */
+/** Баланс (4.3, «чистый слом»; design answer 11.10.2026): energy for a kill in the first `eliteCleanWindow` of the window; the loot is dropped this many times. */
 export const CLEAN_BREAK_ENERGY = 1;
 export const CLEAN_BREAK_LOOT = 2;
 /** Баланс (4.3, «Награда»): an armoured elite drops one open consumable, or this many resources when none is open. */
@@ -91,9 +92,9 @@ const ENERGY_CAP = 7;
 export const platesOf = (e: Enemy): number => e.armor?.plates ?? 0;
 
 /** The armour for the view (null — not an armoured elite): plates, maximum, the window's seconds left, the regrowth's. */
-export function eliteArmorView(e: Enemy): { plates: number; max: number; open: number; regrow: number } | null {
+export function eliteArmorView(e: Enemy): { plates: number; max: number; open: number; clean: number; regrow: number } | null {
   const a = e.armor;
-  return a ? { plates: a.plates, max: a.max, open: Math.max(0, a.open ?? 0), regrow: Math.max(0, a.regrow ?? 0) } : null;
+  return a ? { plates: a.plates, max: a.max, open: Math.max(0, a.open ?? 0), clean: Math.max(0, a.clean ?? 0), regrow: Math.max(0, a.regrow ?? 0) } : null;
 }
 
 /** Plates an armoured elite of this arena starts with before its affixes: the run's (`Kit.elitePlates`), else the panel's. */
@@ -123,6 +124,8 @@ export function stripPlates(world: World, e: Enemy, cause: { source: string; fir
     a.plates = 0;
     delete a.regrow;
     a.open = Math.max(0.05, world.params.eliteWindow);
+    const clean = Math.min(a.open, Math.max(0, world.params.eliteCleanWindow ?? 0));
+    if (clean > 0) a.clean = clean;
     world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'open', plates: 0, x: e.x, y: e.y });
   }
   return removed;
@@ -135,8 +138,10 @@ export function updateArmor(world: World, dt: number): void {
     if (!a) continue;
     if (a.open !== undefined) {
       a.open -= dt;
+      if (a.clean !== undefined) { a.clean -= dt; if (a.clean <= 1e-9) delete a.clean; }
       if (a.open > 1e-9) continue;
       delete a.open;
+      delete a.clean;
       a.plates = Math.min(a.max, 1);
       world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'close', plates: a.plates, x: e.x, y: e.y });
       if (a.plates < a.max) a.regrow = Math.max(0.05, world.params.elitePlateRegrow);
@@ -434,15 +439,16 @@ function dropLoot(world: World, e: Enemy, loot: ItemKind | ResourceKind): void {
 
 /**
  * An enemy has just died: an elite killed by the player may drop its loot on the arena. The package: an armoured elite's
- * death is the event `eliteDown` and a hit-stop (with `hitstop`); killed by the player — its loot always, and in its window
- * a clean break: +1 energy, the loot ×2.
+ * death is the event `eliteDown` and a hit-stop (with `hitstop`); killed by the player — its loot always, and in the first
+ * `eliteCleanWindow` of its window a clean break: +1 energy, the loot ×2 (later in the window — the plain loot;
+ * design answer 11.10.2026, variant 3).
  */
 export function eliteDeath(world: World, e: Enemy, cause: KillCause): void {
   if (!e.elite) return;
   const armor = e.armor;
   if (armor) {
-    const clean = cause.credited && (armor.open ?? 0) > 0;
-    world.events.push({ type: 'eliteDown', enemyId: e.id, x: e.x, y: e.y, clean, credited: cause.credited });
+    const inWindow = (armor.open ?? 0) > 0, clean = cause.credited && inWindow && (armor.clean ?? 0) > 0;
+    world.events.push({ type: 'eliteDown', enemyId: e.id, x: e.x, y: e.y, clean, inWindow, credited: cause.credited });
     if (world.params.hitstop) world.hitstop = Math.max(world.hitstop, ELITE_DOWN_HITSTOP);
     if (!cause.credited) return;
     if (clean) world.energy = Math.min(ENERGY_CAP, world.energy + CLEAN_BREAK_ENERGY);

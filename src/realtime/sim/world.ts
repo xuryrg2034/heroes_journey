@@ -316,7 +316,7 @@ export type WorldEvent =
    */
   | { type: 'elitePlates'; enemyId: number; action: 'strip' | 'open' | 'close' | 'regrow'; plates: number; removed?: number; source?: string; x: number; y: number }
   /** The package: an armoured elite died (`clean` — in its window, by the player: +1 energy, loot ×2). */
-  | { type: 'eliteDown'; enemyId: number; x: number; y: number; clean: boolean; credited: boolean };
+  | { type: 'eliteDown'; enemyId: number; x: number; y: number; clean: boolean; inWindow: boolean; credited: boolean };
 
 export interface World {
   arena: ArenaTemplate;

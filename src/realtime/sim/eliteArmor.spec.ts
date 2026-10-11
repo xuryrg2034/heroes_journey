@@ -8,7 +8,8 @@
  *   highlight's outcome of every link is the dash's;
  * - the bomb takes 2 plates, the spin, a burning tick, a sapper's blast, the seal of the loop — 1 each; the end blast of the
  *   hammer — 1, however it touches the elite;
- * - 0 plates — the window: the elite stands and does not touch; a kill in it — +1 energy, the loot ×2; the loot always
+ * - 0 plates — the window: the elite stands and does not touch; a kill in its first second — +1 energy, the loot ×2
+ *   (later — the plain loot; design answer 11.10.2026); the loot always
  *   drops; after the window 1 plate at once, +1 every 4 s; the cold stops the regrowth;
  * - the elite's touch: 2 (no elite bonus on top) and the hero knocked back 1;
  * - tough newcomers 1–3 / 1–4 HP by the table (the sandbox slider, the run by its row); with the raised touch HP ≥ 2 at the
@@ -196,6 +197,32 @@ check('a kill in the window: +1 energy and the loot ×2 (one open consumable eac
       assert(replays(sim), 'replay');
     }
   }
+});
+
+check('a kill later than the first second of the window (design answer 11.10.2026, variant 3): the plain loot, no energy; the clean second is a param', () => {
+  for (const [wait, clean] of [[0.5, true], [1.5, false]] as const) {
+    const sim = field(quiet({ elitePlates: 1, energyPerKill: 0 }), { openItems: ['frost'], items: { bomb: 1 } }, 7), w = sim.world;
+    const elite = place(sim, 6, 5, 0, { elite: true });
+    sim.command({ t: 'item', kind: 'bomb', x: elite.x, y: elite.y });
+    ticks(sim, tick(wait));
+    assert(plates(elite) === 0 && elite.armor?.open, 'still open');
+    assert(clean ? (elite.armor?.clean ?? 0) > 0 : elite.armor?.clean === undefined, `the clean second ${clean ? 'runs' : 'is over'}`);
+    const energy = w.energy;
+    draw(sim, [elite]);
+    sim.command({ t: 'release' });
+    const events = settle(sim);
+    const down = of(events, 'eliteDown')[0];
+    const loot = of(events, 'loot').filter(l => !l.picked);
+    assert(!alive(w, elite) && down?.inWindow && down.clean === clean, `wait ${wait}: ${JSON.stringify(down)}`);
+    assert(w.energy === energy + (clean ? 1 : 0) && loot.length === (clean ? 2 : 1), `wait ${wait}: energy ${energy} → ${w.energy}, loot ${loot.length}`);
+    assert(replays(sim), 'replay');
+  }
+  // The param: 0 — no clean break at all.
+  const none = field(quiet({ elitePlates: 1, eliteCleanWindow: 0 }), { items: { bomb: 1 } }, 8);
+  const e = place(none, 6, 5, 0, { elite: true });
+  none.command({ t: 'item', kind: 'bomb', x: e.x, y: e.y });
+  ticks(none, 1);
+  assert(e.armor?.open && e.armor.clean === undefined, 'no clean second');
 });
 
 check('the death of an armoured elite: the hit-stop 0.08 s with the toggle, none without it', () => {

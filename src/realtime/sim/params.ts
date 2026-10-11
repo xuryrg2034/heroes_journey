@@ -498,6 +498,8 @@ export interface Params {
   elitePlates: number;
   /** Game seconds an armoured elite stands open at 0 plates (stands, does not hit, its mechanic off). */
   eliteWindow: number;
+  /** The first game seconds of the window when a kill is a clean break (+1 energy, the loot ×2; design answer 11.10.2026). */
+  eliteCleanWindow: number;
   /** After the window: 1 plate at once, then +1 every this many game seconds up to its maximum (the cold stops it). */
   elitePlateRegrow: number;
   /** Touch of an armoured elite (instead of the base touch; no `eliteDamageBonus` on top) and the knock of the hero, units. */
@@ -787,6 +789,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   eliteArmor: false,
   elitePlates: 3,
   eliteWindow: 3,
+  eliteCleanWindow: 1,
   elitePlateRegrow: 4,
   eliteTouchDamage: 2,
   eliteKnockback: 1,
@@ -1081,7 +1084,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'eliteArmor', group: 'Броня элит', label: 'Броня элит (пластины)', stage: 5,
     hint: 'Элита получает пластины вместо HP ×2 (HP — как у вида). Удар снимает пластину (бомба — две), цепь проходит сквозь элиту. 0 пластин — окно: стоит, не бьёт. В походе включено всегда.' },
   n('elitePlates', 'Броня элит', 'Пластин у элиты', 1, 6, 1, 5, '', 'Только песочница. В походе по ряду: 1–4 — 2, 5–8 — 3, 9–10 — 4. «Стремительный» −1, «Толстый» +1.'),
-  n('eliteWindow', 'Броня элит', 'Окно без пластин', 0.5, 10, 0.1, 5, 'с', 'Элита стоит, не бьёт, механика выключена. Убийство в окне — +1 энергия и добыча ×2.'),
+  n('eliteWindow', 'Броня элит', 'Окно без пластин', 0.5, 10, 0.1, 5, 'с', 'Элита стоит, не бьёт, механика выключена.'),
+  n('eliteCleanWindow', 'Броня элит', 'Чистый слом: первые', 0, 10, 0.1, 5, 'с', 'Убийство в эти первые секунды окна — +1 энергия и добыча ×2; позже — обычная добыча.'),
   n('elitePlateRegrow', 'Броня элит', 'Пластина отрастает раз в', 0.5, 20, 0.5, 5, 'с', 'После окна сразу 1 пластина, дальше по одной. Холод останавливает.'),
   n('eliteTouchDamage', 'Броня элит', 'Касание элиты', 0, 6, 1, 5, '', 'Вместо обычного касания; прибавка урона элиты к касанию не добавляется.'),
   n('eliteKnockback', 'Броня элит', 'Касание элиты отбрасывает героя', 0, 4, 0.25, 5, 'ед.'),
