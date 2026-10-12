@@ -875,7 +875,7 @@ async function boot(): Promise<void> {
       shiftHint.hidden = false;
     } else if (!shiftHint.hidden) shiftHint.hidden = true;
     // The sound of a free colour: once when the link that freed it joins the drawn chain.
-    const freedBy = shiftOpen && shiftLeft === 0 ? renderer.colorShiftShown : 0;
+    const freedBy = shiftLeft === 0 ? renderer.colorShiftShown : 0;
     if (freedBy && freedBy !== shiftSounded && params.sound) audio.colorShift(params.soundVolume);
     shiftSounded = freedBy;
     if (params.sound) {

@@ -2031,8 +2031,10 @@ export class RealtimeRenderer {
     }
     this.signals.quillBadges = quills;
     // «Смена цвета» (sim `colorShiftLeft`): the chain's colour is free — the link that freed it gets a rainbow ring of the
-    // arena's colours (the bodies of every colour are lit: `chainColor` is null, nothing is dimmed).
-    if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal && colorShiftLeft(world) === 0) {
+    // arena's colours (the bodies of every colour are lit: `chainColor` is null, nothing is dimmed). The dash's rule (design
+    // answer 12.10.2026): the shift comes unless the chain ends on that link as a survivor — a button, the door or a loop after
+    // it does not cancel it (the sim pays «Призма» there too).
+    if (!plan.endsOnSurvivor && colorShiftLeft(world) === 0) {
       const id = colorShiftIds(world).at(-1), e = id === undefined ? undefined : world.enemies.find(x => x.id === id);
       if (e) { this.drawRainbow(g, world, e); this.colorShiftShown = e.id; }
     }

@@ -1006,8 +1006,9 @@ function hitEnemy(world: World, enemy: Enemy): void {
   world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
   enemy.hurtFlash = Math.max(p.hitFlash, 0.01);
   world.events.push({ type: 'chainHit', enemyId: enemy.id, damage: outcome.damage, killed: outcome.killed, x: enemy.x, y: enemy.y, combo: move.hits, ...outcome.plate ? { plates: outcome.platesAfter } : {} });
-  // «Смена цвета»: the link that freed the colour, whatever its outcome (a kill, a plate, a survivor).
-  if (move.shifts) reachShift(world, move, enemy);
+  // «Смена цвета» (design answer 12.10.2026): the link that freed the colour — killed or a plate taken; a survivor ends the
+  // chain on it, the colour never became free: no shift (the highlight shows no rainbow on a survivor either).
+  if (move.shifts && (outcome.killed || outcome.plate)) reachShift(world, move, enemy);
   if (outcome.plate) {
     // The package (4.3, rule 1): the hit takes a plate (at 0 the window opens), the elite is no survivor — the chain goes on
     // through it; the hero does not take its spot (it stands). As the last link: back to the stop, as from a survivor.

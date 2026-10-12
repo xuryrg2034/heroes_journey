@@ -178,8 +178,9 @@ check('a survivor ends the chain as before: nothing joins after it, whatever the
   assert(planChain(survivor.sim.world).endsOnSurvivor, 'the plan ends on the survivor');
   const early = tryRow([0, 0, { color: 0, hp: 9 }, 0]);
   assert(early.taken === 3 && early.refusal === 'afterSurvivor', `after a surviving 3rd: ${early.taken}, ${early.refusal}`);
+  // Design answer 12.10.2026: a surviving 6th link ends the chain — the colour never became free, no shift.
   const events = dash(survivor.sim);
-  assert(of(events, 'chainHit').length === 6 && of(events, 'colorShift').length === 1, 'the survivor is struck; it was the 6th link — the shift is reached');
+  assert(of(events, 'chainHit').length === 6 && of(events, 'colorShift').length === 0, 'the survivor is struck; the 6th survived — no shift');
   assert(replays(survivor.sim), 'replay');
 });
 
@@ -272,6 +273,10 @@ check('«Призма»: +1 energy per shift the dash reaches (2 in a chain of 1
   const p = quiet({ energyPerKill: 0 });
   const with2 = run(p, prism), without = run(p, undefined);
   assert(near(with2.energy, 2) && with2.fired === 2 && near(without.energy, 0), `energy ${with2.energy} (fired ${with2.fired}) against ${without.energy}`);
+  // Design answer 12.10.2026: a chain released on the 6th killed link — the shift came (unused): +1; a surviving 6th — none.
+  const six = run(p, prism, rep(0, 6)), survived = run(p, prism, [...rep(0, 5), { color: 0, hp: 9 }]);
+  assert(near(six.energy, 1) && six.fired === 1, `released on the 6th kill: ${six.energy}`);
+  assert(near(survived.energy, 0) && survived.fired === 0, `a surviving 6th: ${survived.energy}`);
   const crystal = run(p, prism, [0, 0, 'crystal', 1, 1]);
   assert(near(crystal.energy, 1) && crystal.fired === 1, `a crystal: ${crystal.energy}`);
   const off = run(quiet({ energyPerKill: 0, colorShiftLinks: 0 }), prism, rep(0, 13));

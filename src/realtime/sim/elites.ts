@@ -269,7 +269,8 @@ export function chameleonWarn(world: World, e: Enemy): { next: number; left: num
 
 /**
  * A chain of `color` has just taken `e` (chain.ts): a chameleon of another colour in its window takes the chain's colour and
- * its period starts again. Nothing for others, nor for the first link (`color` null — it sets the colour of the chain).
+ * its period starts again. Nothing for others, nor for a link that sets the colour (`color` null — the first link, or the
+ * free link of «Смена цвета»: the chameleon keeps its colour and the new segment takes it).
  */
 export function adoptChainColor(world: World, e: Enemy, color: number | null): void {
   if (color === null || e.color === color || !chameleonOpen(world, e)) return;
