@@ -27,7 +27,7 @@ import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geo
 import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
 import { rtRunParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
-import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
+import { focusGuarded, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { DebugPanel, formatTime } from './debugPanel';
@@ -1164,6 +1164,8 @@ async function boot(): Promise<void> {
         /** К7 «Проклятый сундук»: the curse of the fight (null — the chest not taken) and what the view drew in the last frame. */
         curse: w.curse ? { ...w.curse } : null,
         curseView: { ...renderer.curseShown },
+        /** «Щит фокуса»: the rim round the hero this frame, and the rule now (sim `focusGuarded`). */
+        focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
         /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */
         playerEffects: { ...renderer.playerEffects },
         /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */

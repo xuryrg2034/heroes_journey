@@ -238,6 +238,12 @@ export interface Params {
   focusKillRefill: boolean;
   focusPerKill: number;
   focusNoDamage: boolean;
+  /**
+   * «Щит фокуса» (design 12.10.2026, playtest v34: 28 % of the damage came while drawing a chain): from this many enemy links of
+   * the drawn chain on, while the focus is not empty, touches and hits do not hurt the hero (`canBeHurt`); the goblin's bust
+   * still does. 0 — off; a journal without the key plays the old path. A run plays 3 (`RT_RUN_FORCED`).
+   */
+  focusGuardLinks: number;
   /** Stage E (user 07.10.2026): each new link of a chain (an enemy or a crystal, once per chain) refreshes focus. */
   linkRefreshesFocus: boolean;
   /** Focus a new link gives back: 0 — to the full reserve, otherwise +N s up to the maximum. */
@@ -790,6 +796,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   focusKillRefill: false,
   focusPerKill: 0.3,
   focusNoDamage: false,
+  focusGuardLinks: 0,
   linkRefreshesFocus: true,
   focusPerLink: 0,
   energyPerKill: 0.5,
@@ -1131,6 +1138,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Каждое новое звено цепи (враг или кристалл) восстанавливает фокус — один раз за цепь; кнопка и дверь — нет.' },
   n('focusPerLink', 'Фокус', 'Сколько восстанавливает звено', 0, 3, 0.1, 2, 'с', '0 — до полного запаса.'),
   { kind: 'bool', key: 'focusNoDamage', group: 'Фокус', label: 'В фокусе враги не ранят', stage: 2 },
+  n('focusGuardLinks', 'Фокус', 'Щит фокуса: со звена', 0, 10, 1, 5, '', 'С этого вражеского звена цепи, пока фокус не пуст, касания и удары не ранят (взрыв гоблина ранит). 0 — выкл. В походе — 3.'),
   n('energyPerKill', 'Прыжок', 'Энергия за врага', 0, 3, 0.1, 2),
   n('jumpCost', 'Прыжок', 'Цена прыжка', 0, 10, 0.5, 2),
   n('jumpRadius', 'Прыжок', 'Радиус прыжка', 0.5, 8, 0.25, 2, 'ед.'),

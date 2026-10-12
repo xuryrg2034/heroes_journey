@@ -34,7 +34,7 @@ import { defaultParams, heroRadius, PARAM_DEFS, type Params, sanitizeParams } fr
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
 import { bustOdds, GOOD_SYMBOLS, goblinOf, leverOf, outcomeOf, pullOdds, safePullsLeft, skullOdds, slotCharges, type Goblin, type SlotOutcome, type SlotSymbol } from './slot';
 import { bustText, slotOddsText, slotPlanOdds } from './slotPlan';
-import type { Enemy, World, WorldEvent } from './world';
+import { focusGuarded, type Enemy, type World, type WorldEvent } from './world';
 import { createRtRun, rtArenaLoadout, rtMapNodes, rtRunParams, RT_SLOT_ROW, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
@@ -939,12 +939,12 @@ check('«Перебор»: the plan\'s line is the pull\'s numbers — «без�
   assert(slotCharges(field(bustParams(), 1).world).safe === 3 && slotCharges(field(quiet({ slotPulls: 6 }), 1).world).safe === 6, 'without the rule every pull is safe');
 });
 
-check('«Перебор»: the bust hits the hero for 4 wherever he is — through the invulnerability, the chain shield, the dash and the jump; the goblin and its lever are gone', () => {
+check('«Перебор»: the bust hits the hero for 4 wherever he is — through the invulnerability, the chain shield, the dash, the jump and «Щит фокуса»; the goblin and its lever are gone', () => {
   const [k] = bustSeeds(true, 1);
-  type Guard = 'none' | 'invulnerable' | 'shield' | 'dash' | 'jump';
-  const lead: Record<Guard, number> = { none: 0.05, invulnerable: 0.25, shield: 0.45, dash: 0.12, jump: 0.1 };
-  for (const guard of ['none', 'invulnerable', 'shield', 'dash', 'jump'] as const) {
-    const sim = field(bustParams({ slotSafePulls: 0 }), k), w = sim.world;
+  type Guard = 'none' | 'invulnerable' | 'shield' | 'dash' | 'jump' | 'focus';
+  const lead: Record<Guard, number> = { none: 0.05, invulnerable: 0.25, shield: 0.45, dash: 0.12, jump: 0.1, focus: 0.3 };
+  for (const guard of ['none', 'invulnerable', 'shield', 'dash', 'jump', 'focus'] as const) {
+    const sim = field(bustParams({ slotSafePulls: 0, focusGuardLinks: 3 }), k), w = sim.world;
     summon(sim); waitReady(sim);
     const { pull } = bareTo(sim);
     assert(pull.bust === true, `seed ${k} busts`);
@@ -954,16 +954,18 @@ check('«Перебор»: the bust hits the hero for 4 wherever he is — throu
     if (guard === 'invulnerable') { sim.command({ t: 'param', key: 'contactDamage', value: 1 }); place(sim, h.x + 0.3, h.y, 0, { color: 1 }); }
     if (guard === 'shield') { const row = [1, 2, 3].map(i => place(sim, h.x + d.x * 0.9 * i, h.y + d.y * 0.9 * i)); draw(sim, row); sim.command({ t: 'release' }); }
     if (guard === 'dash') { const row = [1, 2, 3, 4, 5, 6].map(i => place(sim, h.x + d.x * 1.0 * i, h.y + d.y * 1.0 * i)); draw(sim, row); sim.command({ t: 'release' }); }
+    // «Щит фокуса» (design 12.10.2026): a chain of 3 held while the reels stop.
+    if (guard === 'focus') draw(sim, [1, 2, 3].map(i => place(sim, h.x + d.x * 0.9 * i, h.y + d.y * 0.9 * i)));
     if (guard === 'jump') { sim.command({ t: 'energy', value: 7 }); assert(sim.command({ t: 'jump', x: h.x + d.x * 2, y: h.y + d.y * 2 }) === true, 'the jump starts'); }
     // Tick by tick to the effect: the guard stands in the tick before it.
-    let before = { hp: h.hp as number, inv: 0, shield: 0, move: null as string | null };
+    let before = { hp: h.hp as number, inv: 0, shield: 0, move: null as string | null, focus: false };
     for (let i = 0; i < tick(2) && goblinOf(w); i++) {
-      before = { hp: h.hp as number, inv: h.invulnerable, shield: h.chainShield, move: w.move?.kind ?? null };
+      before = { hp: h.hp as number, inv: h.invulnerable, shield: h.chainShield, move: w.move?.kind ?? null, focus: focusGuarded(w) };
       ticks(sim, 1, events);
     }
     const effect = slotEvents(events, 'effect'), hits = of(events, 'hit').filter(e => e.source === 'slot-bust');
     assert(effect.length === 1 && effect[0].outcome === 'bust', `${guard}: the bust came`);
-    const guarded = { none: true, invulnerable: before.inv > 0, shield: before.shield > 0, dash: before.move === 'dash', jump: before.move === 'jump' }[guard];
+    const guarded = { none: true, invulnerable: before.inv > 0, shield: before.shield > 0, dash: before.move === 'dash', jump: before.move === 'jump', focus: before.focus }[guard];
     assert(guarded, `${guard}: the guard stood in the tick before the bust (${JSON.stringify(before)})`);
     assert(hits.length === 1 && hits[0].damage === 4 && h.hp === before.hp - 4, `${guard}: −4 HP (${before.hp} → ${h.hp}, ${JSON.stringify(hits)})`);
     // Gone: no goblin, no lever object, the lever's spot starts no chain; nothing shows a charge.

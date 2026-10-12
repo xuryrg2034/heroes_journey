@@ -26,7 +26,7 @@ import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } 
 import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
-import { NO_COLOR, doorOpen, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
+import { NO_COLOR, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
 import { HAMMERS } from '../sim/buildIds';
@@ -169,6 +169,8 @@ const EMBER = 0xff8a3a, FLAME = 0xffd36b, ASH = 0x7a7a72;
 const CAPTION_COLOR = 0xc8b0ff;
 /** К7 «Проклятый сундук»: the curse's violet (the chest's eye and chain glow, the hero's border, the counter). */
 const CURSE = 0xb57cff, CURSE_DARK = 0x2a1440;
+/** «Щит фокуса»: the hero's rim while the drawn chain guards him (the focus bar's blue) and its dark outline. */
+const FOCUS_GUARD = 0x8fd3ff, NAVY_RIM = 0x18232d;
 
 /** Path of a zone outline (a band is a stroke along its spine, drawn by the caller). */
 function areaPath(g: Graphics, area: Area): Graphics {
@@ -1489,6 +1491,9 @@ export class RealtimeRenderer {
     // Stage F: the after-chain invulnerability — a blinking gold rim, unlike the hurt blink, while it lasts.
     if (hero.chainShield > 0 && world.status === 'playing' && Math.floor(this.clock * 12) % 2 === 0)
       ring.circle(0, 0, UNIT * 0.6).stroke({ color: 0xffd36b, width: 3, alpha: 0.9 });
+    // «Щит фокуса»: while the drawn chain guards the hero — a steady pale-blue rim (the focus colour), unlike the gold blink.
+    this.focusGuardShown = focusGuarded(world);
+    if (this.focusGuardShown) ring.circle(0, 0, UNIT * 0.64).stroke({ color: NAVY_RIM, width: 6, alpha: 0.6 }).circle(0, 0, UNIT * 0.64).stroke({ color: FOCUS_GUARD, width: 3.5, alpha: 0.95 });
     // К7 «Проклятый сундук»: while the curse lasts — a violet border round the hero, breathing.
     const curse = cursed(world) && world.status === 'playing';
     if (curse) {
@@ -1506,6 +1511,8 @@ export class RealtimeRenderer {
   private curseText: Text | null = null;
   /** Tests read these: chests drawn, the border drawn, the counter's text now (empty — hidden) in the last frame. */
   curseShown = { chests: 0, border: false, label: '' };
+  /** «Щит фокуса»: the rim was drawn this frame (tests read it). */
+  focusGuardShown = false;
 
   /** «проклятие 7/12» under the hero's HP bar while the curse lasts: the dash's kills toward lifting it. */
   private drawCurseCounter(world: World): void {

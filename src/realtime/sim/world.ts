@@ -807,7 +807,21 @@ const HERO_KNOCK_TIME = 0.15;
 /** The hero can be hurt now: playing, no invulnerability or after-chain shield, not dashing or jumping, not spared by focus. */
 export function canBeHurt(world: World): boolean {
   if (world.status !== 'playing' || world.hero.invulnerable > 0 || world.hero.chainShield > 0 || world.move) return false;
+  if (focusGuarded(world)) return false;
   return !(world.params.focusNoDamage && world.focusing);
+}
+
+/**
+ * «Щит фокуса» (`focusGuardLinks`, design 12.10.2026): the drawn chain has that many enemy links (an elite with plates is a
+ * link) and the focus is not empty (`focusing`: the time slowed) — touches and hits spare the hero. The released dash plays
+ * by the usual rules (the dash itself, then the after-chain shield). Off (0 or no key) — never. The view's rim reads it.
+ */
+export function focusGuarded(world: World): boolean {
+  const need = world.params.focusGuardLinks;
+  if (!(need > 0) || !world.focusing || world.move || world.status !== 'playing') return false;
+  let links = 0;
+  for (const link of world.chain) if (link.kind === 'enemy' && ++links >= need) return true;
+  return false;
 }
 
 /**

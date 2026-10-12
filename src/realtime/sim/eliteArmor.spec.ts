@@ -27,7 +27,7 @@ import { worldState } from './hash';
 import { defaultParams, sanitizeParams, type Params } from './params';
 import { Simulation, SIM_DT, replay } from './simulation';
 import type { Loadout } from './kit';
-import { touchDistanceOf, type Enemy, type World, type WorldEvent } from './world';
+import { focusGuarded, touchDistanceOf, type Enemy, type World, type WorldEvent } from './world';
 import { createRtRun, rtArenaLoadout, rtElitePlates, rtMapNodes, rtRunParams, rtToughHp, type RtBattleKind, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 
@@ -464,6 +464,42 @@ check('the run: the after-chain shield only for 3+ kills (design 12.10.2026) —
   assert(one.shield === 0 && one.hurtAt >= 0 && one.hurtAt <= 2, `a chain of 1: no shield, the touch hurts at once (${JSON.stringify(one)})`);
   assert(two.shield === 0 && two.hurtAt <= 2, `a chain of 2: no shield (${JSON.stringify(two)})`);
   assert(near(three.shield, 0.5, 2 * SIM_DT) && three.hurtAt >= tick(0.5) - 2, `a chain of 3: 0.5 s (less the tick the dash ended in), the touch hurts only after it (${JSON.stringify(three)})`);
+});
+
+check('«Щит фокуса» (design 12.10.2026): drawing a chain of 2 in a crowd — a touch hurts; of 3 — no wound while the focus lasts; the focus empty — it hurts', () => {
+  assert(rtRunParams(defaultParams()).focusGuardLinks === 3 && defaultParams().focusGuardLinks === 0, 'the run 3, the sandbox 0');
+  /** Draws (holds, never releases) a chain of `n` weak enemies, then a standing enemy of another colour against the hero. */
+  const hold = (n: number, params: Params): { hurtAt: number; emptyAt: number; guardedTicks: number } => {
+    const sim = field(params), w = sim.world;
+    const links = Array.from({ length: n }, (_, i) => place(sim, 5.6 + 1.1 * i, 5, 0));
+    draw(sim, links);
+    assert(w.chain.length === n, `the chain of ${n} drawn (${w.chain.length})`);
+    place(sim, 4.5 - touchDistanceOf(params, { kind: 'basic' } as Enemy) + 0.02, 5, 0, { color: 1 });
+    const hp = w.hero.hp as number;
+    let hurtAt = -1, emptyAt = -1, guardedTicks = 0;
+    for (let t = 0; t < tick(3) && hurtAt < 0; t++) {
+      ticks(sim, 1);
+      if (focusGuarded(w)) guardedTicks++;
+      if (emptyAt < 0 && w.focus <= 0) emptyAt = t;
+      if ((w.hero.hp as number) < hp) hurtAt = t;
+    }
+    assert(w.chain.length === n && !w.move, 'the chain is still held');
+    assert(replays(sim), `replay ${n}`);
+    return { hurtAt, emptyAt, guardedTicks };
+  };
+  const run = rtRunParams(quiet({ contactDamage: 1 }));
+  const two = hold(2, run), three = hold(3, run), four = hold(4, run);
+  assert(two.hurtAt >= 0 && two.hurtAt <= 1 && two.guardedTicks === 0, `2 links: hurt at once (${JSON.stringify(two)})`);
+  for (const [n, r] of [[3, three], [4, four]] as const) {
+    assert(r.emptyAt > tick(0.5) && r.guardedTicks >= r.emptyAt - 1, `${n} links: guarded until the focus is empty (${JSON.stringify(r)})`);
+    assert(r.hurtAt >= r.emptyAt && r.hurtAt <= r.emptyAt + 2, `${n} links: the first wound right after the focus ran out (${JSON.stringify(r)})`);
+  }
+  // The sandbox default (0): a chain of 3 does not guard; a journal without the key plays the old path.
+  const off = hold(3, quiet({ contactDamage: 1 }));
+  assert(off.hurtAt >= 0 && off.hurtAt <= 1 && off.guardedTicks === 0, `the key 0: hurt at once (${JSON.stringify(off)})`);
+  const old = quiet({ contactDamage: 1 }) as Partial<Params>;
+  delete old.focusGuardLinks;
+  assert(JSON.stringify(hold(3, old as Params)) === JSON.stringify(off), 'no key — the old path');
 });
 
 check('caps with armour: random elites at most 1 before the goals and 2 after', () => {

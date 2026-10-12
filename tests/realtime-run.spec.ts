@@ -569,3 +569,55 @@ test('run (playtest v34, design 12.10.2026): a mouse chain of 1 leaves no after-
   expect(hurtThree).toBeGreaterThanOrEqual(0.4);
   expect(errors).toEqual([]);
 });
+
+test('run (design 12.10.2026, «Щит фокуса»): holding a mouse chain of 2 in a crowd — a touch hurts; of 3 — the rim is on and no wound while the focus lasts; the focus out — it hurts', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await newRun(page);
+  await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['boarMax', 0], ['hitstop', false]] as const) rt.setParam(k, v);
+    rt.clear(false);
+  });
+  expect(await page.evaluate(() => (window as any).__realtime.params.focusGuardLinks)).toBe(3);
+  const start = await page.evaluate(() => { const h = (window as any).__realtime.snapshot().hero; return { x: h.x as number, y: h.y as number }; });
+  /** Holds a mouse chain through `n` weak enemies by the hero (not released), then puts a standing enemy of another colour against him. */
+  const hold = async (n: number): Promise<{ hurtAt: number; emptyAt: number; rim: boolean }> => {
+    // From the arena's start point each time (the first dash moved the hero), the links of the shield test above.
+    const at = await page.evaluate(([n, start]) => {
+      const rt = (window as any).__realtime, out: { x: number; y: number }[] = [];
+      rt.teleport(start.x, start.y);
+      for (const [dx, dy] of [[1, 0], [1.6, 0.8], [0.8, 1.4]].slice(0, n)) { rt.place(start.x + dx, start.y + dy, 0, 0, 'basic'); out.push(rt.toScreen(start.x + dx, start.y + dy)); }
+      return out;
+    }, [n, start] as const);
+    await page.mouse.move(at[0].x, at[0].y);
+    await page.mouse.down();
+    for (const p of at.slice(1)) await page.mouse.move(p.x, p.y);
+    await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(n);
+    if (n === 3) await page.screenshot({ path: 'artifacts/realtime-focus-guard.png' });
+    const t0 = await page.evaluate(() => { const rt = (window as any).__realtime, s = rt.snapshot(); rt.place(s.hero.x - 0.35, s.hero.y, 1, 0, 'basic'); return { time: s.time as number, hp: s.hero.hp as number }; });
+    // Every frame: the rim while guarded, when the focus ran out, when the hero was first hurt (game seconds from the touch).
+    const r = await untilFrame(page, (s, a: { time: number; hp: number; rim: boolean; emptyAt: number }, late) => {
+      if (s.focusGuard.rim) a.rim = true;
+      if (a.emptyAt < 0 && s.focus <= 0) a.emptyAt = s.time - a.time;
+      if (s.hero.hp < a.hp) return { hurtAt: s.time - a.time, emptyAt: a.emptyAt, rim: a.rim };
+      return late ? { hurtAt: -1, emptyAt: a.emptyAt, rim: a.rim } : undefined;
+    }, { ...t0, rim: false, emptyAt: -1 }, 3);
+    await page.mouse.up();
+    return r;
+  };
+  const two = await hold(2);
+  expect(two.rim).toBe(false);
+  expect(two.hurtAt).toBeGreaterThanOrEqual(0);
+  expect(two.hurtAt).toBeLessThan(0.1);
+  // The wound's invulnerability and the dash over, the field cleared.
+  await untilFrame(page, (s, _a: null, late) => (s.hero.invulnerable <= 0 && s.hero.chainShield <= 0 && !s.moving) || late ? true : undefined, null, 5);
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  const three = await hold(3);
+  expect(three.rim).toBe(true);
+  expect(three.emptyAt).toBeGreaterThan(0.4);
+  expect(three.hurtAt).toBeGreaterThanOrEqual(three.emptyAt);
+  expect(errors).toEqual([]);
+});

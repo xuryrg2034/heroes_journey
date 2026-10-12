@@ -121,7 +121,10 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   spawnGroupHold: true,
   // Playtest v34 (design 12.10.2026): the after-chain shield only for a chain of 3+ kills — quick single-target clicks into a
   // crowd gave 0.5 s each; the sandbox default stays 1.
-  chainShieldMinKills: 3 });
+  chainShieldMinKills: 3,
+  // «Щит фокуса» (design 12.10.2026, playtest v34): from the 3rd enemy link of the drawn chain, while the focus lasts, the hero
+  // is not hurt — a long chain is no longer punished while it is drawn.
+  focusGuardLinks: 3 });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
