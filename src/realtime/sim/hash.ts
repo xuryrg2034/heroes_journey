@@ -70,6 +70,8 @@ export function worldState(world: World): unknown {
     ...world.curse ? { curse: world.curse } : {},
     // The prologue «Опушка» (world.ts `updateRestore`): the start enemies' ids and the due return (absent on every other arena).
     ...world.restore ? { restore: world.restore } : {},
+    // The prologue: the enemies sleep until the first press (absent on every other arena and once they woke).
+    ...world.asleep ? { asleep: true } : {},
   };
 }
 

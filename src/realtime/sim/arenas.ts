@@ -100,6 +100,12 @@ export interface ArenaTemplate extends ArenaShape {
    * so the hand's chain starts where he stands. Only with `restore`.
    */
   restoreHero?: boolean;
+  /**
+   * The prologue (design answer 12.10.2026, room 5, variant Б): the enemies sleep — stand, do not touch the hero, are not
+   * parted by his walk — until the player's first press (`begin`, whatever it takes); then they wake for good (a return does
+   * not put them to sleep again). No timer. `World.asleep` while they sleep.
+   */
+  sleepUntilChain?: boolean;
   /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
   goblin?: Vec;
   /** The prologue: energy at the start instead of the loadout's — `'jump'`: the price of one jump in this world; up to the cap. */

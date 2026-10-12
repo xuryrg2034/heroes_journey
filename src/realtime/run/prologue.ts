@@ -49,8 +49,9 @@ export const PROLOGUE_FORCED: readonly Readonly<Partial<Params>>[] = Object.free
   NO_INFLOW,
   NO_INFLOW,
   NO_INFLOW,
-  // `enemySpeed` 0.72 — the run's 1.2 × 0.6 (design answer 12.10.2026: the goal is the lever, the damage is secondary).
-  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, enemySpeed: 0.72 }),
+  // `enemySpeed` 0.72 — the run's 1.2 × 0.6 (design answer 12.10.2026: the goal is the lever, the damage is secondary); the
+  // enemies sleep until the first press (the arena's `sleepUntilChain`).
+  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, enemySpeed: 0.72, invulnerability: 3.4 }),
   Object.freeze({ maxEnemies: 12 }),
 ]);
 
@@ -58,7 +59,7 @@ const TITLES = ['Тропа', 'Два цвета', 'Крепкий', 'Радуг
 const enemies = (n: number): PrologueTarget[] => Array.from({ length: n }, (_, i) => ({ enemy: i }));
 const ROUTES: readonly (readonly PrologueTarget[] | null)[] = [
   // 1: the arc; 2: the five blue (the reds are left); 3: the weak ones, the tough one last; 4: six blue, the shift, four green;
-  // 5: the ring (as it walks in), the lever last.
+  // 5: the four blue round the goblin (the reds are another colour), the lever last.
   enemies(3), enemies(5), enemies(4), enemies(10), [...enemies(6), { object: 'lever' }], null,
 ];
 
@@ -123,7 +124,8 @@ function segmentDistance(a: Vec, b: Vec, p: Vec): number {
  * chain would take (the sweep would add it). What it must give:
  * - room 1 (`kills`): any chain — the most kills found;
  * - rooms 2–4 (`chain`, `marked`): a chain that meets the goal (N kills; the marked one killed) — the most kills found;
- * - room 5 (`pull`): a chain ending on the lever — the most enemy links found (just the lever when none can come before it).
+ * - room 5 (`pull`): enemies, then the lever — the most enemy links found (never the lever alone: that chain works, the hand
+ *   does not show it).
  * None — empty (the view shows no hand). Room 6 — always empty. Reads the world only (no random draw); the drawn chain is put
  * back as it was.
  */
@@ -176,7 +178,8 @@ export function prologueRoute(world: World, n: number): ChainLink[] {
   /** Depth-first over the targets in the preferred order; true — stop (every target used, or the budget spent). */
   const visit = (): boolean => {
     if (--budget < 0) return true;
-    if (goal === 'pull' ? lever && fits(path, lever) : path.length) {
+    // Room 5 (design answer 12.10.2026): the hand never shows the lever alone — enemies, then the lever.
+    if (path.length && (goal !== 'pull' || (lever && fits(path, lever)))) {
       const value = goal === 'pull' ? path.length : score(path);
       if (value > bestScore) { bestScore = value; best = goal === 'pull' ? [...path, lever!] : [...path]; }
       if (path.length === targets.length) return true;

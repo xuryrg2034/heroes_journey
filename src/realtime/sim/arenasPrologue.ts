@@ -129,11 +129,11 @@ export const PROLOGUE_RAINBOW: ArenaTemplate = registerArena({
 });
 
 /**
- * Room 5 «Гоблин» (design answers 12.10.2026: the goal is the lever, the damage is secondary): the goblin stands from the start
- * 1.8 from the hero (the lever alone is a chain he can draw at once), six blue in a small ring far on the right (radius 1.1,
- * ≥ 9.4 from the hero: at the room's ×0.6 pace even the fastest of the spread touches him only after ≈ 9 s). Pull the lever
- * once; the chain the hand shows grows with the enemies that walked into reach (they pass the goblin on their way). The
- * enemies walk and touch (touch 1), no inflow. The return only when no start enemy is left and the lever was never pulled.
+ * Room 5 «Гоблин» (design answers 12.10.2026: the goal is the lever, the damage is secondary; variant Б): four blue in an arc
+ * round the goblin and two red under it, all asleep until the first press (`sleepUntilChain`), then they walk at ×0.6 and
+ * touch for 1. The chain «four blue → lever» is open from the start (the first blue 1.7 from the hero, the last 1.4 from the
+ * lever); the reds are another colour (they take no part in it). The return only when no start enemy is left and the lever was
+ * never pulled (they come back awake).
  */
 export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   id: 'prologue-5',
@@ -142,21 +142,21 @@ export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   goal: 'pull',
   killGoal: 1,
   restore: 'whenGone',
-  goblin: { x: 3.3, y: 4 },
-  width: 14,
+  sleepUntilChain: true,
+  goblin: { x: 4.6, y: 4.0 },
+  width: 12,
   height: 8,
-  heroStart: { x: 1.5, y: 4 },
-  obstacles: [tree(1.4, 1.2), tree(1.4, 6.8), tree(7.5, 7.0)],
+  heroStart: { x: 2, y: 4 },
+  obstacles: [tree(1.4, 1.2), tree(10.6, 6.8), tree(9.0, 1.4)],
   buttons: [],
-  door: { x: 7, y: 0.7 },
-  // The ring from the side of the hero round (angles 180°, 240° … 120° round (12, 4)).
+  door: { x: 11.2, y: 4 },
   enemies: [
-    { x: 10.9, y: 4.0, color: BLUE },
-    { x: 11.45, y: 3.05, color: BLUE },
-    { x: 12.55, y: 3.05, color: BLUE },
-    { x: 13.1, y: 4.0, color: BLUE },
-    { x: 12.55, y: 4.95, color: BLUE },
-    { x: 11.45, y: 4.95, color: BLUE },
+    { x: 3.2, y: 2.8, color: BLUE },
+    { x: 4.6, y: 2.4, color: BLUE },
+    { x: 5.9, y: 3.1, color: BLUE },
+    { x: 5.9, y: 4.6, color: BLUE },
+    { x: 3.2, y: 5.4, color: RED },
+    { x: 4.5, y: 5.7, color: RED },
   ],
 });
 

@@ -531,6 +531,8 @@ export interface World {
    * with `restore` (`none` too: the ids are kept for the hand's route; other worlds hash as before).
    */
   restore?: RestoreState;
+  /** The prologue (`ArenaTemplate.sleepUntilChain`): the enemies sleep until the first press. Absent otherwise and once awake. */
+  asleep?: true;
 }
 
 /**
@@ -644,6 +646,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
   const startIds = arena.enemies.map(s => placeStartEnemy(world, s).id);
   // The prologue: the start enemies are watched for their return (only on an arena with `restore`).
   if (arena.restore) world.restore = { ids: startIds };
+  // The prologue: the enemies sleep until the first press (only on an arena with `sleepUntilChain`).
+  if (arena.sleepUntilChain) world.asleep = true;
   // К7 «Проклятый сундук»: the chest at the template's point (after the start enemies: they keep their ids).
   placeChest(world);
   // The prologue: the goblin of the template stands from the start (after the start enemies: they keep their ids).
@@ -1175,8 +1179,9 @@ export function knockHero(world: World, dirX: number, dirY: number, distance: nu
 function moveEnemies(world: World, dt: number): Set<Enemy> | null {
   const { hero, params, arena, flow } = world;
   const knocked = hasZone(arena, 'cliff') ? new Set<Enemy>() : null;
-  // The prologue: in a calm arena the enemies stand — no group step, no own step, no walk (a knockback still slides them).
-  const calm = !!arena.calm;
+  // The prologue: in a calm arena (and while they sleep) the enemies stand — no group step, no own step, no walk (a knockback
+  // still slides them).
+  const calm = !!arena.calm || !!world.asleep;
   // Stage 3a, step 3: group steps of the behaviours that have one (the wolves' ring), once per tick before anyone moves.
   if (!calm) for (const group of groupBehaviors()) {
     const members = world.enemies.filter(e => behaviorOf(e) === group);
@@ -1285,7 +1290,7 @@ function stepHeroWalk(world: World, dt: number): void {
 function separate(world: World): Map<Enemy, Enemy> | null {
   const { enemies, hero, params, arena } = world;
   // The prologue: in a calm arena the enemies hold their posts — the walking hero passes through them without parting them.
-  if (arena.calm) return null;
+  if (arena.calm || world.asleep) return null;
   // Stage 3a (М2): on an arena with a cliff the pushing does not stop at its edge; who was shoved by a heavier body (the
   // charging boar) is noted for the fall's cause (`dropIntoCliffs`).
   const cliffs = hasZone(arena, 'cliff'), shoved = cliffs ? new Map<Enemy, Enemy>() : null;
@@ -1387,7 +1392,8 @@ function contactDamage(world: World, dt: number): void {
     // The cold thaws on game time; the brittleness of the cold consumable goes with it.
     if (e.chill !== undefined) { e.chill -= dt; if (e.chill <= 1e-9) { delete e.chill; delete e.brittle; } }
   }
-  if (!canBeHurt(world)) return;
+  // The prologue: sleeping enemies do not touch.
+  if (world.asleep || !canBeHurt(world)) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.
   // The strongest touching enemy counts: the reaper (design answer 30) or a wolf with its pack.
   // A behaviour may say its touch does not hurt now: the charging boar's hit is the charge (enemies/boar.ts).

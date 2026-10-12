@@ -20,7 +20,7 @@
  * - every fight replays from its journal to the same hash (checkpoints every 300 ticks), twice.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { canJump, canLink, linkPoint, planChain, type ChainPlan } from '../sim/chain';
+import { canJump, canLink, canLinkObject, linkPoint, planChain, type ChainPlan } from '../sim/chain';
 import { worldState } from '../sim/hash';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import { goblinOf, leverReady } from '../sim/slot';
@@ -154,7 +154,8 @@ check('the rooms: six, in order, ids prologue-1 … prologue-6, titles; numbers 
   assert(PROLOGUE_FORCED.slice(0, 5).every(f => f.maxEnemies === 0) && PROLOGUE_FORCED[5].maxEnemies === 12, 'inflow');
   const p5 = prologueParams(5);
   assert(p5.slot && p5.slotBust && p5.slotPulls === 3 && p5.slotSafePulls === 3 && p5.slotSafePerLongChain === 0 && p5.contactDamage === 1, 'room 5 numbers');
-  assert(Math.abs(p5.enemySpeed - prologueParams(4).enemySpeed * 0.6) < 1e-9 && PROLOGUE_ROOMS[4].arena.enemies.length === 6, 'room 5: six enemies at ×0.6 the run\'s pace');
+  assert(Math.abs(p5.enemySpeed - prologueParams(4).enemySpeed * 0.6) < 1e-9 && PROLOGUE_ROOMS[4].arena.enemies.length === 6 && PROLOGUE_ROOMS[4].arena.sleepUntilChain, 'room 5: six enemies, asleep until the first press, ×0.6 the run\'s pace');
+  assert(p5.invulnerability === 3.4 && p5.invulnerabilityMode === 'constant', 'room 5: 3.4 s after a hit');
   assert(PROLOGUE_ROOMS.slice(0, 4).every(r => r.arena.calm) && !PROLOGUE_ROOMS[4].arena.calm && !PROLOGUE_ROOMS[5].arena.calm, 'calm rooms 1–4');
   assert(PROLOGUE_ROOMS.map(r => r.arena.restore).join(',') === 'none,afterDash,afterDash,afterDash,whenGone,none', 'return by room');
   // The start enemies' ids are kept by every room (`World.restore`), the same as the enemies standing on the posts at the start.
@@ -171,8 +172,8 @@ check('rooms 1–5: the ghost hand\'s chain, drawn by the commands, is the drawn
   for (const r of PROLOGUE_ROOMS.slice(0, 5)) for (const k of [1, 2, 3]) {
     const sim = room(r.number, k), w = sim.world, label = `${r.id} seed ${k}`;
     const route = prologueRoute(w, r.number);
-    // Room 5: the ring stands far at the start — the hand's chain is the lever alone until the enemies walk into reach.
-    assert(r.number === 5 ? route.length === 1 && route[0].kind === 'object' : route.length === r.route!.length, `${label}: the route on the arena`);
+    // Room 5: the four blue round the goblin, then the lever (the reds are another colour).
+    assert(r.number === 5 ? route.length === 5 && route[4].kind === 'object' : route.length === r.route!.length, `${label}: the route on the arena`);
     const hand = planChain(w, route);
     const plan = draw(sim, route);
     assert(JSON.stringify(plan.links) === JSON.stringify(hand.links) && plan.kills === hand.kills, `${label}: the hand's highlight is the drawn one`);
@@ -363,24 +364,23 @@ function pullAgain(sim: Simulation): void {
   draw(sim, [{ kind: 'object', id: goblinOf(w)!.id }]);
 }
 
-/** Room 5: waits by the goblin until the hand's chain takes enemies too (they walk in past it); returns that chain. */
-function handWithEnemies(sim: Simulation): ChainLink[] {
-  let route: ChainLink[] = [];
-  until(sim, x => (route = prologueRoute(x, 5)).length > 1, 60 * 16);
-  return route;
-}
-
-check('room 5: the hand\'s chain from the start is the lever alone, it meets the goal; waiting by the goblin, the hand takes the enemies that walked in, then the lever; three pulls, none risky, no bust (seeds 1–5)', () => {
+check('room 5: the enemies sleep until the first press — 10 s without one: HP 15, everybody on the posts; the hand at that moment is 4 blue → the lever, drawn by the commands (the press wakes them), it meets the goal; three pulls, none risky, no bust (seeds 1–5)', () => {
   for (let k = 1; k <= 5; k++) {
     const sim = room(5, k), w = sim.world, label = `seed ${k}`;
-    assert(goblinOf(w) && w.slot?.goblin?.pulls === 0, `${label}: the goblin stands from the start`);
-    const route = handWithEnemies(sim);
-    assert(route[route.length - 1].kind === 'object', `${label}: the hand ends on the lever`);
+    assert(goblinOf(w) && w.slot?.goblin?.pulls === 0 && w.asleep, `${label}: the goblin stands, the enemies sleep`);
+    // Walking about does not wake them either (only a press does).
+    walkTo(sim, { x: 2, y: 6.5 }, 0.1);
+    walkTo(sim, w.arena.heroStart, 0.05);
+    wait(sim, 10);
+    assert(w.hero.hp === 15 && w.asleep && allAtPosts(w), `${label}: 10 s asleep — HP ${w.hero.hp}, on the posts`);
+    const route = prologueRoute(w, 5);
+    assert(route.length === 5 && route.slice(0, 4).every(l => l.kind === 'enemy') && route[4].kind === 'object', `${label}: the hand is 4 enemies → the lever`);
     const plan = draw(sim, route);
+    assert(!w.asleep, `${label}: the press woke them`);
     const events = dash(sim);
     planIsDash(plan, events, label);
-    assert(doorOpen(w) && goblinOf(w)!.pulls === 1 && plan.kills === route.length - 1, `${label}: the pull meets the goal (${plan.kills} enemies before it)`);
-    // Two more pulls: the lever alone (the enemies left killed first, back to the lever, its cooldown and spin over).
+    assert(doorOpen(w) && goblinOf(w)!.pulls === 1 && plan.kills === 4, `${label}: the pull meets the goal`);
+    // Two more pulls: the lever alone (the reds killed first, back to the lever, its cooldown and spin over).
     for (const pull of [2, 3]) {
       pullAgain(sim);
       dash(sim);
@@ -394,23 +394,44 @@ check('room 5: the hand\'s chain from the start is the lever alone, it meets the
   }
 });
 
-check('room 5 (design answer 12.10.2026): standing still 10 s the hero loses at most 3 HP of 15 — the enemies walk in at ×0.6 and touch for 1 (seeds 1–10)', () => {
-  const at4: number[] = [], at10: number[] = [];
-  let touched = false;
+check('room 5: the hand never shows the lever alone (that chain still pulls it) — with no enemy chain into the lever, no hand', () => {
+  const sim = room(5, 2), w = sim.world;
+  // Every enemy by single chains: none left (the return comes 1 s later) — no enemy chain into the lever, no hand.
+  killDownTo(sim, 0);
+  assert(!w.enemies.length && prologueRoute(w, 5).length === 0, 'no hand without enemies');
+  // The lever alone is still a chain that pulls it (the return may have come meanwhile: the enemies are awake).
+  walkTo(sim, goblinOf(w)!, 1.2);
+  const lever = { kind: 'object' as const, id: goblinOf(w)!.id };
+  assert(canLinkObject(w, w.objects.find(o => o.id === lever.id)!), 'the lever alone is a chain');
+  draw(sim, [lever]);
+  dash(sim);
+  assert(goblinOf(w)!.pulls === 1 && doorOpen(w), 'the lever alone pulls it, as in the run');
+});
+
+check('room 5 (design answer 12.10.2026): from the waking press 10 s without actions cost at most 3 HP of 15 — the enemies walk at ×0.6, touch for 1, 3.4 s after each hit (seeds 1–10)', () => {
+  const lost: number[] = [];
   for (let k = 1; k <= 10; k++) {
-    const sim = room(5, k), w = sim.world, hp = w.hero.hp;
-    wait(sim, 4);
-    at4.push(hp - w.hero.hp);
-    wait(sim, 6);
-    at10.push(hp - w.hero.hp);
-    assert(hp === 15 && hp - w.hero.hp <= 3 && w.status === 'playing', `seed ${k}: lost ${hp - w.hero.hp} in 10 s`);
-    // They do walk in and hit (each touch 1).
-    until(sim, x => x.stats.hitsTaken > 0, 60 * 10);
-    assert(w.stats.hitsTaken > 0 && w.events.every(e => e.type !== 'hit' || e.damage === 1), `seed ${k}: the touch is 1`);
-    touched = true;
+    const sim = room(5, k), w = sim.world;
+    // The press wakes them; the chain is let go without a dash (the right button).
+    const first = linkPoint(w, starts(w)[0])!;
+    sim.command({ t: 'begin', x: first.x, y: first.y });
+    sim.command({ t: 'cancel' });
+    assert(!w.asleep && !w.move, `seed ${k}: awake, no dash`);
+    wait(sim, 10);
+    lost.push(15 - w.hero.hp);
+    assert(w.status === 'playing' && 15 - w.hero.hp <= 3 && w.stats.hitsTaken > 0 && w.events.every(e => e.type !== 'hit' || e.damage === 1), `seed ${k}: lost ${15 - w.hero.hp}`);
   }
-  assert(touched, 'touched');
-  console.log(`   HP lost standing still: 4 s — ${Math.min(...at4)}…${Math.max(...at4)}, 10 s — ${Math.min(...at10)}…${Math.max(...at10)}`);
+  console.log(`   HP lost in 10 s from the waking press: ${Math.min(...lost)}…${Math.max(...lost)}`);
+});
+
+check('room 5: after a return the enemies stay awake (they sleep once, until the first press)', () => {
+  const sim = room(5, 3), w = sim.world, mark = w.events.length;
+  killDownTo(sim, 0);
+  until(sim, x => restores(x, mark) > 0, 60 * 3);
+  assert(!w.asleep && w.enemies.length > 0, 'awake after the return');
+  const before = w.enemies.map(e => `${e.x},${e.y}`).join(';');
+  wait(sim, 1);
+  assert(w.enemies.map(e => `${e.x},${e.y}`).join(';') !== before, 'they walk');
 });
 
 check('room 5: the return only when no start enemy is left and the lever was never pulled', () => {
@@ -503,13 +524,16 @@ check('the spin (Q) starts the return too: energy earned by chains, the spin kil
   replays(sim, 'room 2 spin');
 });
 
-check('room 5: the skulls (rain, volley) of one pull cannot kill the hero from full HP — numbers (HP 15; the rain ≤ waves × damage = 3, the volley ≤ 1) and real pulls on many seeds', () => {
+check('room 5: the skulls (rain, volley) of one pull cannot kill the hero from full HP — numbers (HP 15; the rain ≤ 1 with 3.4 s after a hit, the volley ≤ 1) and real pulls on many seeds', () => {
   const p = prologueParams(5);
-  // One wave's marks land in one tick: the first hit's invulnerability spares the rest; the waves come `slotRainStep` apart,
-  // longer than the invulnerability — each wave may hit once. The volley is one tick of marks — once.
-  assert(p.invulnerabilityMode === 'constant' && p.slotRainStep > p.invulnerability, `waves ${p.slotRainStep} s apart, invulnerability ${p.invulnerability} s`);
-  const rainMax = p.slotRainWaves * p.slotDamage, volleyMax = p.slotDamage;
-  assert(p.heroHp === 15 && rainMax === 3 && volleyMax === 1 && Math.max(rainMax, volleyMax) < p.heroHp, `HP ${p.heroHp}, rain ${rainMax}, volley ${volleyMax}`);
+  // One wave's marks land in one tick: the first hit's invulnerability spares the rest; the waves come `slotRainStep` apart — a
+  // wave hits only when the invulnerability of the last hit is over (room 5: 3.4 s, so one of the 3 waves 0.8 s apart). The volley
+  // is one tick of marks — once.
+  assert(p.invulnerabilityMode === 'constant', 'constant invulnerability');
+  let rainHits = 0, free = -Infinity;
+  for (let i = 0; i < p.slotRainWaves; i++) { const t = i * p.slotRainStep; if (t >= free) { rainHits++; free = t + p.invulnerability; } }
+  const rainMax = rainHits * p.slotDamage, volleyMax = p.slotDamage;
+  assert(p.heroHp === 15 && rainMax === 1 && volleyMax === 1 && Math.max(rainMax, volleyMax) < p.heroHp, `HP ${p.heroHp}, rain ${rainMax}, volley ${volleyMax}`);
   // Real pulls: the hand's chain into the lever, then the lever alone twice; the skulls' hits of each pull summed.
   const seen = { rain: 0, volley: 0 };
   let worst = 0;
