@@ -83,7 +83,7 @@ export class ChainAudio {
   /** Casino stage 1: the 3rd reel stopped — coins for a good result, a low horn for arrows, a snicker for nothing. */
   slotResult(outcome: string, volume: number): void {
     // «Перебор»: the goblin blows up — lower and longer than the arrows' horn (98 Hz).
-    if (outcome === 'bust') { this.tone(55, 'sawtooth', 0.8, volume * 0.7); this.tone(41, 'square', 0.6, volume * 0.5, 0.05); return; }
+    if (outcome === 'bust') { this.tone(55, 'sawtooth', 0.8, volume * 0.7); this.tone(41, 'square', 0.6, volume * 0.5, 0.05); this.tone(1500, 'sawtooth', 0.14, volume * 0.22, 0.02); return; } // + a short zap: the spark finds the hero (task 5б)
     if (outcome === 'rain' || outcome === 'volley') { this.tone(98, 'sawtooth', 0.5, volume * 0.5); return; }
     if (outcome === 'none') { for (let i = 0; i < 3; i++) this.tone(520 - 60 * i, 'square', 0.07, volume * 0.25, i * 0.1); return; }
     const notes = outcome === 'jackpot' || outcome.endsWith('3') ? 6 : 3;

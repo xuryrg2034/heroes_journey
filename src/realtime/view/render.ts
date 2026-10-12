@@ -26,7 +26,7 @@ import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } 
 import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
-import { NO_COLOR, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World } from '../sim/world';
+import { NO_COLOR, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
 import { HAMMERS } from '../sim/buildIds';
@@ -98,6 +98,8 @@ function greyOf(color: number): number {
 
 /** Pixels per arena unit before fitting to the window (one board cell of the main game). */
 export const UNIT = 72;
+/** Task 5б: real seconds the bust's spark to the hero lasts. */
+const BUST_SPARK_LIFE = 0.4;
 /** П3 «Финальная цепь»: real seconds of the final flash of a chain into the door (the result screen waits as long, main.ts). */
 export const FINAL_FLASH = 0.8;
 /** П2: real seconds of the hero's outline flash at the end of a 6–9 link dash. */
@@ -346,6 +348,8 @@ export class RealtimeRenderer {
   private quillCounts = { quillsRaised: 0, quillsTrembling: 0 };
   private readonly bodyTextures = new Map<string, { texture: Texture; ax: number; ay: number }>();
   private readonly floating: FloatingText[] = [];
+  /** Task 5б: the sparks from a bursting idol to the hero (see `bustSpark`). */
+  private readonly sparks: { g: Graphics; fx: number; fy: number; tx: number; ty: number; life: number; seed: number }[] = [];
   /** Stage 2, step 2: blast flashes fading out. */
   private readonly bursts: { g: Graphics; life: number; total: number; grow?: boolean }[] = [];
   /** Stage 2, step 2: «−1 HP» badges over porcupine links of the drawn chain (reused texts). */
@@ -1736,11 +1740,17 @@ export class RealtimeRenderer {
             this.fxLayer.addChild(boom);
             this.bursts.push({ g: boom, life: 0.55, total: 0.55 });
             this.shakeLeft = this.shakeTotal = 0.3; this.shakeAmp = Math.max(this.shakeAmp, 9);
+            // Task 5б: the blow finds the hero wherever he is (the ring is the idol's, the hit is not): a spark from the idol to the
+            // hero and a flash on him, at the point of the `hit` (source `slot-bust`) of this very tick, else at the hero.
+            const hit = world.events.find((h): h is Extract<WorldEvent, { type: 'hit' }> => h.type === 'hit' && h.source === 'slot-bust');
+            this.bustSpark(ev.x, ev.y, hit ? hit.x : world.hero.x, hit ? hit.y : world.hero.y);
           }
           const text = this.slotView.handle(ev);
+          // The outcome word floats over the reels, or under them when the reels stand under the idol (no room above, slotView.ts).
+          const anchor = this.slotView.outcomeAnchor();
           // «Длинная цепь кормит гоблина»: the long chain's text over the hero (the event's point), not over the idol.
           if (text && ev.action === 'feed') this.floatText(text, ev.x * UNIT, ev.y * UNIT - 180, 0xffd36b);
-          else if (text) this.floatText(text, ev.x * UNIT, ev.y * UNIT - OBJECT_RADIUS * UNIT * 5.8, 0xffd36b);
+          else if (text) this.floatText(text, ev.x * UNIT, ev.y * UNIT + anchor.dy, 0xffd36b, 45 * anchor.dir);
         }
         continue;
       }
@@ -1894,11 +1904,55 @@ export class RealtimeRenderer {
   /** Stage 2, step 3: a short note at an arena point (why a consumable was not used). */
   notice(text: string, x: number, y: number): void { this.floatText(text, x * UNIT, y * UNIT - 30, 0xf2e6c8); }
 
-  private floatText(value: string, x: number, y: number, fill: number): void {
+  private floatText(value: string, x: number, y: number, fill: number, dir = -45): void {
     const text = new Text({ text: value, style: { fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 'bold', fill, stroke: { color: 0x200c08, width: 4 } } });
     text.anchor.set(0.5); text.position.set(x, y);
     this.fxLayer.addChild(text);
-    this.floating.push({ text, life: 0.7, vy: -45 });
+    this.floating.push({ text, life: 0.7, vy: dir });
+  }
+
+  /**
+   * Task 5б, «Перебор»: the blast found the hero. A jagged spark from the idol's point to the hero (navy outline, orange body, pale
+   * core; 0.4 s, it flickers 25 times a second and fades) and a ring flash on the hero (0.45 s, widening). The jitter comes from a
+   * hash of the points and the frame (`imul`), not from `Math.random`: the same blast draws the same spark.
+   */
+  private bustSpark(fx: number, fy: number, tx: number, ty: number): void {
+    const g = new Graphics();
+    this.fxLayer.addChild(g);
+    this.sparks.push({ g, fx, fy, tx, ty, life: BUST_SPARK_LIFE, seed: Math.imul(Math.round(fx * 100) + 31, 2654435761) ^ Math.imul(Math.round(ty * 100) + 17, 40503) });
+    this.drawSpark(this.sparks[this.sparks.length - 1]);
+    const ring = new Graphics().circle(0, 0, 1.1 * UNIT).fill({ color: 0xffe08a, alpha: 0.5 }).stroke({ color: 0xe0562f, width: 6, alpha: 0.95 });
+    ring.position.set(tx * UNIT, ty * UNIT);
+    this.fxLayer.addChild(ring);
+    this.bursts.push({ g: ring, life: 0.45, total: 0.45, grow: true });
+    this.slotView.shown.sparks++; this.slotView.shown.heroFlashes++;
+    this.slotView.shown.sparkFrom = { x: fx, y: fy }; this.slotView.shown.sparkTo = { x: tx, y: ty };
+  }
+
+  private drawSpark(s: { g: Graphics; fx: number; fy: number; tx: number; ty: number; life: number; seed: number }): void {
+    const g = s.g.clear(), dx = s.tx - s.fx, dy = s.ty - s.fy, len = Math.hypot(dx, dy) || 1e-6, n = Math.min(40, Math.max(2, Math.ceil(len / 0.5)));
+    const frame = Math.floor((BUST_SPARK_LIFE - s.life) * 25), nx = -dy / len, ny = dx / len;
+    const pts: number[] = [s.fx * UNIT, s.fy * UNIT];
+    for (let i = 1; i < n; i++) {
+      // A hash in −1…1 per point and frame; the offset shrinks toward both ends so the spark starts at the idol and lands on the hero.
+      const h = Math.imul(s.seed ^ Math.imul(i + 1, 374761393) ^ Math.imul(frame + 1, 668265263), 2246822519) >>> 0;
+      const j = (h / 4294967295) * 2 - 1, t = i / n, off = j * 0.28 * UNIT * Math.min(1, 4 * t * (1 - t) * 2);
+      pts.push((s.fx + dx * t) * UNIT + nx * off, (s.fy + dy * t) * UNIT + ny * off);
+    }
+    pts.push(s.tx * UNIT, s.ty * UNIT);
+    const k = Math.max(0, s.life / BUST_SPARK_LIFE);
+    g.poly(pts, false).stroke({ color: 0x18232d, width: 11, alpha: 0.8 * k, join: 'round', cap: 'round' });
+    g.poly(pts, false).stroke({ color: 0xe0562f, width: 6, alpha: k, join: 'round', cap: 'round' });
+    g.poly(pts, false).stroke({ color: 0xfff2c4, width: 2.5, alpha: k, join: 'round', cap: 'round' });
+  }
+
+  private updateSparks(dt: number): void {
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i];
+      s.life -= dt;
+      if (s.life <= 0) { s.g.destroy(); this.sparks.splice(i, 1); continue; }
+      this.drawSpark(s);
+    }
   }
 
   /** Death of an enemy: a full turn and a shrink to nothing. */
@@ -2323,6 +2377,7 @@ export class RealtimeRenderer {
     this.handleEvents(world);
     this.updateFloating(realDt);
     this.updateBursts(realDt);
+    this.updateSparks(realDt);
     this.updateDying(realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
@@ -2334,6 +2389,7 @@ export class RealtimeRenderer {
     this.drawBadges(world);
     this.drawElites(world);
     this.drawCaptions(world);
+    this.slotView.setFrame(this.base.x, this.base.y, this.scale, this.edgeInset.top);
     this.slotView.draw(world, this.clock, realDt, world.chain.length && !world.move ? slotPlanOdds(world) : null);
     this.drawTargets(world);
     this.drawChain(world, ui);
@@ -2387,6 +2443,8 @@ export class RealtimeRenderer {
     this.comboValue = 0;
     this.powerLife = 0;
     this.powerValue = -1;
+    for (const sp of this.sparks) sp.g.destroy();
+    this.sparks.length = 0;
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();

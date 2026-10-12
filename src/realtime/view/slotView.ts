@@ -5,7 +5,9 @@
  * and after the last pull; the odds line «дождь N % · залп M %» over the idol while the drawn chain can end on the lever.
  * «Перебор» (`slotBust`): charge dots under the idol (gold safe, red risky, dark spent) and a caption over it — «безопасно: N»,
  * then the bust odds; the odds line of a risky pull is red. «Длинная цепь кормит гоблина» (`slotSafePerLongChain`): the event
- * `feed` floats «+1 рывок без риска» over the hero (render.ts), the caption and the dots read the grown count. Nothing in the HUD. Drawing only: it reads the world and the plan, it never changes them. The arrow marks are drawn by the
+ * `feed` floats «+1 рывок без риска» over the hero (render.ts), the caption and the dots read the grown count. Nothing in the HUD.
+ * Task 5б (12.10.2026): the texts and the reels stand OVER the idol while the room above it (below the HUD plate and the screen
+ * edge, `setFrame`) allows, else UNDER the dots (`place`); the bust's spark to the hero is drawn by render.ts. Drawing only: it reads the world and the plan, it never changes them. The arrow marks are drawn by the
  * renderer with the archer's mark (render.ts `drawSignals`).
  */
 import { Container, Graphics, Text } from 'pixi.js';
@@ -79,12 +81,26 @@ export function feedText(n: number): string {
   return `+${n} ${word} без риска`;
 }
 
+/** Task 5б: a text stack over the idol needs this many px for the odds line (font 17 + stroke) and for the caption (font 15 + stroke). */
+const ODDS_H = 24;
+const CAP_H = 21;
+/** Task 5б: px between the dots and the first text under the idol; between the texts and the reels under it. */
+const GAP_PX = 4;
+/** A rectangle in stage pixels (what the tests compare with the HUD's `getBoundingClientRect`). */
+export interface ScreenRect { left: number; top: number; right: number; bottom: number }
+
 /** What the slot view drew (tests read it): last frame — idols, markers, spinning reels, dark levers, odds lines; totals — pulls, results. */
 export interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string;
   /** «Перебор»: the caption over the idol (empty — none), whether it is the risky one, the dots by colour, the busts seen. */
   caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number;
   /** «Длинная цепь кормит гоблина»: texts floated for the long chains (count) and the last one. */
-  feeds: number; feedText: string }
+  feeds: number; feedText: string;
+  /**
+   * Task 5б: where the caption / odds line and the reels stood in the last frame — 'up' (over the idol) or 'down' (under its dots)
+   * — and their rectangles in stage px (null — not shown); the spark of the last bust and the flashes at the hero so far.
+   */
+  textPlace: 'up' | 'down'; reelsPlace: 'up' | 'down'; captionRect: ScreenRect | null; oddsRect: ScreenRect | null; reelsRect: ScreenRect | null;
+  sparks: number; sparkFrom: { x: number; y: number } | null; sparkTo: { x: number; y: number } | null; heroFlashes: number }
 
 export class SlotView {
   /** The idol, the lever, the reels (over the crowd, under the chain). */
@@ -100,7 +116,12 @@ export class SlotView {
   private pullRisky = false;
   /** The bust chance the risky strip shows (the world's `slotBustChance`, set each frame of a spin). */
   private bustChance = 0;
-  readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0, feeds: 0, feedText: '' };
+  readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0, feeds: 0, feedText: '',
+    textPlace: 'up', reelsPlace: 'up', captionRect: null, oddsRect: null, reelsRect: null, sparks: 0, sparkFrom: null, sparkTo: null, heroFlashes: 0 };
+  /** The arena on the stage (render.ts, each frame): origin, scale and the y (stage px) under which the HUD plate ends. */
+  private frame = { baseX: 0, baseY: 0, scale: 1, top: -Infinity };
+  /** Where the texts and the reels stood at the last idol (kept after it is gone: the bust's word floats from the same spot). */
+  private place = { textsDown: false, reelsDown: false, floatY: 0, floatDir: -1 };
 
   constructor(private readonly unit: number) {
     this.oddsLabel = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 17, fontWeight: 'bold', fill: GOLD, stroke: { color: 0x200c08, width: 4 } } });
@@ -125,7 +146,16 @@ export class SlotView {
     return null;
   }
 
-  reset(): void { this.result = null; this.pullSkulls = null; this.pullRisky = false; this.oddsLabel.visible = false; this.captionLabel.visible = false; }
+  /** Task 5б: the arena's origin and scale on the stage and the stage y the HUD plate reaches (render.ts, before `draw`). */
+  setFrame(baseX: number, baseY: number, scale: number, top: number): void { this.frame = { baseX, baseY, scale: scale > 0 ? scale : 1, top }; }
+
+  /**
+   * Task 5б: where the outcome word of a pull floats from, relative to the idol's centre (px in arena drawing space): over the
+   * reels (dir −1, the floating text rises), or under them when they stand under the idol (dir +1, it sinks).
+   */
+  outcomeAnchor(): { dy: number; dir: 1 | -1 } { return { dy: this.place.floatY, dir: this.place.floatDir < 0 ? -1 : 1 }; }
+
+  reset(): void { this.place = { textsDown: false, reelsDown: false, floatY: 0, floatDir: -1 }; this.result = null; this.pullSkulls = null; this.pullRisky = false; this.oddsLabel.visible = false; this.captionLabel.visible = false; }
 
   /** Draws the goblin of the world; `odds` — the plan's odds line (null — none now). */
   draw(world: World, clock: number, dt: number, odds: SlotPlanOdds | null): void {
@@ -134,12 +164,21 @@ export class SlotView {
     shown.idols = 0; shown.markers = 0; shown.spinning = 0; shown.stopped = 0; shown.dark = 0; shown.odds = 0;
     this.oddsLabel.visible = false;
     this.captionLabel.visible = false;
+    shown.captionRect = null; shown.oddsRect = null; shown.reelsRect = null;
     shown.caption = ''; shown.captionRisky = false; shown.dots.gold = 0; shown.dots.red = 0; shown.dots.dark = 0;
     if (!goblin) { this.result = null; return; }
     const lever = world.objects.find(o => o.id === goblin.id);
     if (!lever) return;
     shown.idols = 1;
     const X = goblin.x * U, Y = goblin.y * U, R = OBJECT_RADIUS * U;
+    // Task 5б: is there room above the idol (the HUD plate, the screen edge)? Decided from the highest stack the idol can carry
+    // (the odds line over the reels; over the caption), not from what shows now, so nothing jumps while a pull runs.
+    const limit = (this.frame.top - this.frame.baseY) / this.frame.scale;
+    const reelsDown = Y - R * (REELS_UP + 1.1) - ODDS_H < limit, textsDown = Y - R * 2.75 - ODDS_H < limit;
+    const dotsBottom = R * 1.5 + R * 0.2 + 2, textTop = dotsBottom + GAP_PX;
+    const reelsDy = reelsDown ? (textsDown ? textTop + CAP_H + ODDS_H + 1 : dotsBottom) + GAP_PX * 2 + R * 0.71 : -R * REELS_UP;
+    this.place = { textsDown, reelsDown, floatY: reelsDown ? reelsDy + R * 0.71 + 22 : -R * 5.8, floatDir: reelsDown ? 1 : -1 };
+    shown.textPlace = textsDown ? 'down' : 'up'; shown.reelsPlace = reelsDown ? 'down' : 'up';
     // The marker as the rule fixed it when the idol appeared (`ready` before the first pull), not the live panel value.
     const age = world.time - goblin.born, marker = goblin.pulls === 0 ? Math.max(0, goblin.ready - goblin.born) : 0;
     const appearing = goblin.pulls === 0 && world.time < goblin.ready;
@@ -154,23 +193,23 @@ export class SlotView {
         g.circle(X + Math.cos(a) * rr, Y + Math.sin(a) * rr, 4).fill(GOLD).stroke({ color: NAVY, width: 1.5 });
       }
       this.drawIdol(g, X, Y, R, 0.25 + 0.75 * k, false, clock);
-      this.drawCharges(world, goblin.pulls, g, X, Y, R, 0.25 + 0.75 * k);
+      this.drawCharges(world, goblin.pulls, g, X, Y, R, 0.25 + 0.75 * k, null);
       return;
     }
     const ready = leverReady(world, lever);
     if (!ready) shown.dark = 1;
     this.drawIdol(g, X, Y, R, 1, ready, clock);
-    const caption = this.drawCharges(world, goblin.pulls, g, X, Y, R, 1);
+    const caption = this.drawCharges(world, goblin.pulls, g, X, Y, R, 1, textsDown ? textTop : null);
     // The reels: spinning (each stops at a third of the spin), or the last result glowing for a moment after the effect.
     const spin = goblin.spin;
     if (spin) {
       const done = spin.total > 0 ? 1 - spin.left / spin.total : 1;
       this.bustChance = world.params.slotBustChance ?? 0;
-      this.drawReels(g, X, Y - R * REELS_UP, R, spin.reels.map((s, i) => (done >= (i + 1) / 3 ? s : null)), clock, false);
+      this.drawReels(g, X, Y + reelsDy, R, spin.reels.map((s, i) => (done >= (i + 1) / 3 ? s : null)), clock, false);
       this.result = { reels: [...spin.reels], outcome: spin.outcome, life: RESULT_LIFE };
     } else if (this.result && this.result.life > 0) {
       this.result.life -= dt;
-      this.drawReels(g, X, Y - R * REELS_UP, R, this.result.reels, clock, true);
+      this.drawReels(g, X, Y + reelsDy, R, this.result.reels, clock, true);
     }
     if (odds) {
       shown.odds = 1; shown.oddsText = slotOddsText(odds);
@@ -178,17 +217,46 @@ export class SlotView {
       this.oddsLabel.style.fill = odds.bust ? RISK_TEXT : GOLD;
       // The risky odds line already says what the red caption says: one of them on screen.
       if (odds.bust) this.captionLabel.visible = false;
-      // Over the caption (when there is one) and under the reels.
-      this.oddsLabel.position.set(X, Y - R * (spin || this.result?.life ? REELS_UP + 1.1 : caption && !odds.bust ? 2.75 : 2.3));
+      const hasCaption = caption && !odds.bust, showsReels = !!(spin || this.result?.life);
+      if (textsDown) {
+        // Under the dots, below the caption (the caption is one line above it); the reels hang under both.
+        this.oddsLabel.anchor.set(0.5, 0);
+        this.oddsLabel.position.set(X, Y + textTop + (hasCaption ? CAP_H : 0));
+      } else {
+        // Over the caption (when there is one) and under the reels (over them while they show and stand over the idol).
+        this.oddsLabel.anchor.set(0.5, 1);
+        this.oddsLabel.position.set(X, Y - R * (showsReels && !reelsDown ? REELS_UP + 1.1 : hasCaption ? 2.75 : 2.3));
+      }
       this.oddsLabel.visible = true;
+      shown.oddsRect = this.rectOf(this.oddsLabel);
     }
+    if (spin || this.result?.life) {
+      const w = R * 3.45, h = R * 1.41;
+      shown.reelsRect = this.toStage(X - w / 2, Y + reelsDy - h / 2, X + w / 2, Y + reelsDy + h / 2);
+    }
+    if (shown.caption && this.captionLabel.visible) shown.captionRect = this.rectOf(this.captionLabel);
+  }
+
+  /** A rectangle of arena drawing space as stage px. */
+  private toStage(l: number, t: number, r: number, b: number): ScreenRect {
+    const f = this.frame;
+    return { left: f.baseX + l * f.scale, top: f.baseY + t * f.scale, right: f.baseX + r * f.scale, bottom: f.baseY + b * f.scale };
+  }
+
+  /** The label's rectangle in stage px (its anchor decides which side of `position` it hangs). */
+  private rectOf(label: Text): ScreenRect {
+    // A measured size in the browser; the Node spec has no canvas to measure with — a coarse estimate there.
+    let w: number, h: number;
+    try { w = label.width; h = label.height; } catch { const size = Number(label.style.fontSize) || 16; w = label.text.length * size * 0.55; h = size + 6; }
+    const x = label.position.x, y = label.position.y, top = label.anchor.y >= 1 ? y - h : y;
+    return this.toStage(x - w / 2, top, x + w / 2, top + h);
   }
 
   /**
    * «Перебор»: the charge dots under the idol and the caption over its head; nothing with `slotBust` off. Returns whether a
-   * caption is shown. Numbers come from `slotCharges`, `safePullsLeft`, `bustOdds` (sim/slot.ts), never computed here.
+   * caption is shown (over the idol, or `below` px under its centre). Numbers come from `slotCharges`, `safePullsLeft`, `bustOdds` (sim/slot.ts), never computed here.
    */
-  private drawCharges(world: World, pulls: number, g: Graphics, X: number, Y: number, R: number, alpha: number): boolean {
+  private drawCharges(world: World, pulls: number, g: Graphics, X: number, Y: number, R: number, alpha: number, below: number | null): boolean {
     if (!world.params.slotBust) return false;
     const shown = this.shown, { total } = slotCharges(world), r = R * 0.2, step = R * 0.5, y = Y + R * 1.5;
     // The pulls ahead: the first `safePullsLeft` gold, the rest red (a long chain after a risky pull turns the next one gold).
@@ -205,7 +273,9 @@ export class SlotView {
     shown.caption = text; shown.captionRisky = left === 0;
     this.captionLabel.text = text;
     this.captionLabel.style.fill = left === 0 ? RISK_TEXT : GOLD;
-    this.captionLabel.position.set(X, Y - R * 1.7);
+    // Task 5б: under the dots (`below` — its top, px under the idol's centre) when there is no room over the idol.
+    this.captionLabel.anchor.set(0.5, below === null ? 1 : 0);
+    this.captionLabel.position.set(X, below === null ? Y - R * 1.7 : Y + below);
     this.captionLabel.visible = true;
     return true;
   }

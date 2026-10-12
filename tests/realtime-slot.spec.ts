@@ -7,7 +7,9 @@ import { gameWait, untilFrame } from './realtimeFrames';
  * the idol, the release pulls the lever — the reels spin and stop, the result shows, the lever goes dark. Runs through
  * playwright.realtime.config.ts only. The rules themselves are checked in Node (src/realtime/sim/slot.spec.ts).
  */
-interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number; feeds: number; feedText: string }
+interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number; feeds: number; feedText: string;
+  textPlace: 'up' | 'down'; reelsPlace: 'up' | 'down'; captionRect: Rect | null; oddsRect: Rect | null; reelsRect: Rect | null; sparks: number; sparkFrom: { x: number; y: number } | null; sparkTo: { x: number; y: number } | null; heroFlashes: number }
+interface Rect { left: number; top: number; right: number; bottom: number }
 interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number }; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number } }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
@@ -111,7 +113,7 @@ test('the panel button «Гоблин», a mouse chain to the lever with the odd
 const BUST_SEED = Math.imul(6, 2654435761) >>> 0;
 const SAFE_SEED = Math.imul(1, 2654435761) >>> 0;
 
-async function openBustSandbox(page: Page, seed: number): Promise<string[]> {
+async function openBustSandbox(page: Page, seed: number, topEdge = false): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -122,17 +124,23 @@ async function openBustSandbox(page: Page, seed: number): Promise<string[]> {
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await page.keyboard.press('1');
   await expect(page.getByTestId('menu')).toBeHidden();
-  await page.evaluate(seed => {
+  await page.evaluate(([seed, topEdge]) => {
     const rt = (window as any).__realtime;
     rt.restart(seed);
     // A quiet field (as above); six pulls, a short cooldown, the rule on — all journalled commands.
     for (const [k, v] of Object.entries({ enemySpeed: 0, speedSpread: 0, baseIntervalMin: 20, baseIntervalMax: 20, baseFloor: 0, contactDamage: 0, slot: true, slotBust: true, slotPulls: 6, slotCooldown: 0.5 })) rt.setParam(k, v);
     rt.params.maxEnemies = 0;
     rt.clear(false);
-    rt.teleport(8, 5);
+    rt.teleport(8, topEdge ? 1 : 5);
     rt.summonGoblin();
-  }, seed);
+  }, [seed, topEdge] as const);
   await expect.poll(async () => (await snap(page)).slot.goblin !== null).toBe(true);
+  // Task 5б: the idol at the top edge — summon again (a standing idol is replaced, another spot by the rules) until it stands in the top 1.3 units.
+  for (let i = 0; topEdge && i < 60 && (await snap(page)).slot.goblin!.y > 1.3; i++) {
+    await page.evaluate(() => (window as any).__realtime.summonGoblin());
+    await gameWait(page, 0.1);
+  }
+  if (topEdge) expect((await snap(page)).slot.goblin!.y).toBeLessThanOrEqual(1.3);
   // The marker first, then the lever is ready.
   await untilFrame(page, snap => snap.slot.shown.idols === 1 && snap.slot.shown.markers === 0 && snap.slot.shown.dark === 0 ? true : undefined, null, 20);
   return errors;
@@ -343,5 +351,85 @@ test('task 5, the run: no «Зарок» on the cards, the goblin after the goal
   await expect(page.getByTestId('run-stake-line')).toHaveCount(0);
   await expect(page.getByTestId('run-detail')).not.toContainText('Зарок');
   await expect(page.getByTestId('run-enter')).toHaveText('Идти');
+  expect(errors).toEqual([]);
+});
+
+const hudBox = async (page: Page): Promise<Rect> => {
+  const b = (await page.getByTestId('hud').boundingBox())!;
+  return { left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height };
+};
+const meets = (a: Rect, b: Rect): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+/**
+ * Task 5б (12.10.2026): an idol at the top edge. The caption «безопасно: 3», the odds line of a drawn chain and the reels
+ * would stand under the HUD plate over the idol; they stand under its dots instead, clear of the plate and of the idol.
+ */
+test('task 5б: an idol at the top edge — the caption, the odds line and the reels stand under the dots, clear of the HUD', async ({ page }) => {
+  const errors = await openBustSandbox(page, SAFE_SEED, true);
+  const hud = await hudBox(page);
+  await untilFrame(page, snap => snap.slot.shown.caption !== '' ? true : undefined, null, 5);
+  let s = await snap(page);
+  const g = s.slot.goblin!, idol = await screen(page, g.x, g.y);
+  expect(s.slot.shown.caption).toBe('безопасно: 3');
+  expect(s.slot.shown.textPlace).toBe('down');
+  const cap = s.slot.shown.captionRect!;
+  expect(meets(cap, hud)).toBe(false);
+  expect(cap.top).toBeGreaterThan(idol.y); // under the idol's centre, below its dots
+  expect(cap.top).toBeGreaterThanOrEqual(0);
+  await page.screenshot({ path: 'artifacts/realtime-slot-top-edge.png' });
+  // A chain drawn to the lever: the odds line under the caption, still clear of the plate.
+  await pullByMouse(page, async () => {
+    const v = (await snap(page)).slot.shown;
+    expect(v.oddsText).not.toBe('');
+    expect(v.textPlace).toBe('down');
+    expect(meets(v.oddsRect!, hud)).toBe(false);
+    expect(v.captionRect === null || v.oddsRect!.top >= v.captionRect.bottom - 1).toBe(true); // below the caption, not on it
+  });
+  // The reels: under the idol too (clear of the plate), the outcome word floats from under them.
+  await untilFrame(page, snap => snap.slot.shown.reelsRect ? true : undefined, null, 5);
+  s = await snap(page);
+  expect(s.slot.shown.reelsPlace).toBe('down');
+  expect(meets(s.slot.shown.reelsRect!, hud)).toBe(false);
+  expect(s.slot.shown.reelsRect!.top).toBeGreaterThan(idol.y);
+  await untilFrame(page, snap => snap.slot.shown.results >= 1 ? true : undefined, null, 5);
+  await gameWait(page, 0.2);
+  await page.screenshot({ path: 'artifacts/realtime-slot-top-edge-reels.png' });
+  expect(errors).toEqual([]);
+});
+
+/** The idol in the open middle keeps the old look: everything over it (no regression of the common case). */
+test('task 5б: an idol with room above keeps the caption over it', async ({ page }) => {
+  const errors = await openBustSandbox(page, SAFE_SEED);
+  await untilFrame(page, snap => snap.slot.shown.caption !== '' ? true : undefined, null, 5);
+  const s = await snap(page), idol = await screen(page, s.slot.goblin!.x, s.slot.goblin!.y);
+  expect(s.slot.shown.textPlace).toBe('up');
+  expect(s.slot.shown.captionRect!.bottom).toBeLessThan(idol.y);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 5б, «Перебор»: the blast finds the hero wherever he is. The hero walks out of the ring (here: far away) during the spin; the
+ * bust still takes 4 HP, and the view draws a spark from the idol's point to the hero and a flash on him.
+ */
+test('task 5б: a bust with the hero far from the idol — the spark from the idol to the hero and the flash on him', async ({ page }) => {
+  const errors = await openBustSandbox(page, BUST_SEED);
+  for (let i = 0; i < 3; i++) { await pullByMouse(page); await untilReady(page); }
+  await untilFrame(page, snap => snap.slot.marks === 0 ? true : undefined, null, 30);
+  const hpBefore = (await snap(page)).hero.hp;
+  await pullByMouse(page);
+  await untilFrame(page, snap => snap.slot.shown.spinning > 0 ? true : undefined, null, 5);
+  const g = (await snap(page)).slot.goblin!;
+  // Out of the ring (2.2) by far: to the other side of the arena.
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [g.x < 8 ? 14 : 2, g.y < 5 ? 8 : 2] as const);
+  await untilFrame(page, snap => snap.slot.shown.busts >= 1 ? true : undefined, null, 10);
+  await page.screenshot({ path: 'artifacts/realtime-slot-bust-far.png' });
+  const s = await snap(page), v = s.slot.shown;
+  const hero = await page.evaluate(() => { const h = (window as any).__realtime.snapshot().hero; return { x: h.x, y: h.y }; });
+  expect(Math.hypot(hero.x - g.x, hero.y - g.y)).toBeGreaterThan(4);
+  expect(s.hero.hp).toBe(hpBefore - 4); // the ring did not protect him
+  expect(v.sparks).toBe(1);
+  expect(v.heroFlashes).toBe(1);
+  expect(v.sparkFrom!.x).toBeCloseTo(g.x, 3); expect(v.sparkFrom!.y).toBeCloseTo(g.y, 3);
+  expect(v.sparkTo!.x).toBeCloseTo(hero.x, 3); expect(v.sparkTo!.y).toBeCloseTo(hero.y, 3);
   expect(errors).toEqual([]);
 });
