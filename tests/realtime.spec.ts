@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import { gameWait, untilFrame } from './realtimeFrames';
 

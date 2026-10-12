@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * The view of «Прямая», the barbarian's pierce (docs/realtime-prototype.md, «Прямая»; loop research step 3), in the sandbox:

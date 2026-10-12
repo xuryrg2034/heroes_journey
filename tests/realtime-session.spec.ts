@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * П7 «Часы сессии» (docs/realtime-slice.md, «Часы сессии»; docs/realtime-engagement-research.md): with real input at 1280×720

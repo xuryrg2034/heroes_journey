@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * П10 «Личный рекорд» (src/realtime/view/chainRecord.ts, docs/realtime-slice.md, section 9): with real input at 1280×720 —

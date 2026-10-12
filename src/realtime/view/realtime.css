@@ -310,3 +310,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-line { margin: 0; padding: 4px 18px; color: var(--rt-muted); font-size: 12px; }
 .rt-run-modal .rt-run-line { padding: 0; margin: 10px 0 0; text-align: center; }
 .rt-run-head button.rt-run-hints-reset { padding: 3px 8px; font-size: 12px; }
+
+/* The prologue «Опушка» (task 6, step 4; docs/realtime-onboarding.md): the room's name, the corner button, the fade, the lean HUD. */
+.rt-prologue-title { position: absolute; left: 50%; top: 28%; transform: translate(-50%, -50%); z-index: 6; font: bold 56px/1.1 Georgia, serif; letter-spacing: 0.02em; color: #fff2c4; text-shadow: 0 3px 14px #000, 0 0 3px #000; white-space: nowrap; pointer-events: none; }
+.rt-prologue-skip { position: absolute; top: 14px; right: 18px; z-index: 7; padding: 3px 9px; font-size: 12px; color: var(--rt-muted); background: #121710b3; border: 1px solid var(--rt-line); cursor: pointer; opacity: 0.75; }
+.rt-prologue-skip:hover { opacity: 1; color: var(--rt-ink); }
+.rt-prologue-fade { position: absolute; inset: 0; z-index: 9; background: #000; opacity: 0; pointer-events: none; }
+.rt-pl .rt-score, .rt-pl .rt-info, .rt-pl .rt-time, .rt-pl .rt-focus, .rt-pl .rt-elite-badge { display: none; }
+.rt-pl-early .rt-energy { display: none; }

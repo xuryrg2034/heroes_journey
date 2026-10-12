@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import {
   canonicalJson, checkRecord, orderedParts, parseExport, unpackJournal,

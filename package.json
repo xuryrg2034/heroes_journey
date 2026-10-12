@@ -41,6 +41,7 @@
     "test:realtime-session": "tsx src/realtime/view/session.spec.ts",
     "test:realtime-new-seen": "tsx src/realtime/view/newSeen.spec.ts",
     "test:realtime-hints": "tsx src/realtime/view/hints.spec.ts",
+    "test:realtime-prologue-view": "tsx src/realtime/view/prologueFlow.spec.ts",
     "test:realtime-link-depth": "tsx src/realtime/sim/linkDepth.spec.ts",
     "test:realtime-color-shift": "tsx src/realtime/sim/colorShift.spec.ts",
     "test:realtime-elite-behaviors": "tsx src/realtime/sim/eliteBehaviors.spec.ts",

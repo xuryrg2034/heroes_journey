@@ -345,6 +345,8 @@ export class RealtimeRenderer {
   private readonly chainLayer = new Graphics();
   private readonly dying: DyingView[] = [];
   private readonly fxLayer = new Container();
+  /** The prologue's lamps, hand and smoke (view/prologueView.ts): arena pixels, over the heroes, under the floating texts. */
+  readonly prologueLayer = new Container();
   private readonly enemyViews = new Map<number, EnemyView>();
   /** Iteration 2.1: porcupines drawn with raised / trembling quills in the last `syncEnemies`. */
   private quillCounts = { quillsRaised: 0, quillsTrembling: 0 };
@@ -479,7 +481,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.slotView.textLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.slotView.textLayer, this.targetLayer, this.chainLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);

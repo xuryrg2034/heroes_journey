@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * The view of the loop «Печать» (docs/realtime-loop-research.md, 3.2; loop research step 2) in the sandbox with the loop on:

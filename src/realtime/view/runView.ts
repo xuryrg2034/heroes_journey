@@ -82,11 +82,12 @@ export interface RunHost {
    */
   newSeen?: { store: NewSeenStore; on(): boolean };
   /**
-   * «Обучение v1» (view/hints.ts): the viewer's memory of what was shown, the toggle «Подсказки» (`on`, `set`) and the button
-   * «Показать подсказки снова» on the gear. The screen lines (Э2 on the map, Э4 at the die) read the same memory. Absent
-   * (the sandbox) — no lines, no toggle.
+   * «Обучение» (view/hints.ts): the viewer's memory of what was shown, the toggle «Подсказки» (`on`, `set`) and the button
+   * «Обучение» on the gear (task 6, step 4): it clears the memory and `startPrologue()` plays the prologue «Опушка» again over the
+   * map (the run is not touched). The screen lines (Э2 on the map, Э4 at the die) read the same memory. Absent (the sandbox) — no
+   * lines, no toggle, no button.
    */
-  hints?: { store: HintStore; on(): boolean; set(on: boolean): void };
+  hints?: { store: HintStore; on(): boolean; set(on: boolean): void; startPrologue(): void };
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -197,8 +198,6 @@ export class RunView {
   private readonly profile = createRtProfileStore();
   /** «Обучение v1»: the lines on the screens (first two appearances each); absent in the sandbox. */
   private readonly lines: ScreenLines | null;
-  /** The button «Показать подсказки снова» was pressed (the gear says so until it closes). */
-  private hintsReset = false;
   private selected: string | null = null;
   private notice = '';
   private confirmReset = false;
@@ -349,9 +348,10 @@ export class RunView {
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
-    if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.hintsReset = false; this.draw(); return; }
+    if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
     if (action === 'hints-toggle') { this.host.hints?.set((target as HTMLInputElement).checked); this.draw(); return; }
-    if (action === 'hints-reset') { this.host.hints?.store.reset(); this.hintsReset = true; this.draw(); return; }
+    // «Обучение»: the labels' memory starts over and the prologue plays again; the run (map, save) stays as it is.
+    if (action === 'prologue') { this.host.hints?.store.reset(); this.settingsOpen = false; this.host.hints?.startPrologue(); return; }
     // П5: the summary of «Удача похода» opens and closes the block (the redraw keeps it as it is).
     if (action === 'luck') { event.preventDefault(); this.luckOpen = !this.luckOpen; this.draw(); return; }
     if (action === 'view-toggle') {
@@ -584,7 +584,7 @@ export class RunView {
     if (!toggles.length && !hints) return '';
     // «Обучение v1»: «Подсказки» and «Показать подсказки снова» (the memory of what was shown starts over).
     const hintRows = hints ? `<label class="rt-run-setting" title="Подписи у предметов в бою (раз на зрителя, уходят после действия) и строки на экранах похода."><input type="checkbox" data-action="hints-toggle" data-testid="view-hints"${hints.on() ? ' checked' : ''}> Подсказки</label>`
-      + `<button class="rt-run-hints-reset" data-action="hints-reset" data-testid="hints-reset">${this.hintsReset ? 'Подсказки покажутся снова ✓' : 'Показать подсказки снова'}</button>` : '';
+      + `<button class="rt-run-hints-reset" data-action="prologue" data-testid="prologue-start" title="Пройти пролог «Опушка» ещё раз и заново показать подписи у предметов в походе. Поход не меняется.">Обучение</button>` : '';
     const rows = hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
     return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки вида" aria-expanded="${this.settingsOpen}">⚙</button>`
       + (this.settingsOpen ? `<span class="rt-run-settings" data-testid="run-settings-panel">${rows}</span>` : '') + '</span>';

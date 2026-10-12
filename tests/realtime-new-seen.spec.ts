@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * П8 «Новое на карте» (docs/realtime-slice.md, «Новое на карте»; docs/realtime-engagement-research.md): with real input at

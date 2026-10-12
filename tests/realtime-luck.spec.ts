@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * П5 «Журнал удачи» (src/realtime/run/rtLuck.ts, src/realtime/view/runView.ts, docs/realtime-slice.md, section 9): with real

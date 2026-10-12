@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 import { readFileSync } from 'node:fs';
 import { gameWait, untilFrame } from './realtimeFrames';
 
@@ -10,7 +11,7 @@ import { gameWait, untilFrame } from './realtimeFrames';
  * - «Застава»: «Пластина — 1 удар» over the armoured elite and the chest's price at the chest, each until the action (a real
  *   click on the elite takes a plate, a real click on the chest takes it), then gone and not back in the next fight;
  * - the goblin: «Закончи цепь здесь» at the lever until the first pull, odds line and dots stay; gone for the next fight;
- * - the gear's toggle «Подсказки» hides the labels, «Показать подсказки снова» clears the memory (a later step renames it);
+ * - the gear's toggle «Подсказки» hides the labels, «Обучение» (it was «Показать подсказки снова») clears the memory and plays the prologue;
  * - the sandbox shows no label, no pulse and no box, keeps no memory;
  * - the lines on the screens (Э2); a won run fight has no «Котёл» row (Э1) and no die screen (Э4).
  * The scenes are frozen with `maxEnemies` 0 and still enemies (docs/realtime-slice.md, section 13); waits are in game time.
@@ -361,7 +362,7 @@ test('the goblin: «Закончи цепь здесь» stands at the lever unt
   expect(errors).toEqual([]);
 });
 
-test('the toggle «Подсказки» off hides the labels and marks NOTHING (a pull with it off leaves the label for later); on again the label is there; a pull then marks b9 and «Показать подсказки снова» clears the memory', async ({ page }) => {
+test('the toggle «Подсказки» off hides the labels and marks NOTHING (a pull with it off leaves the label for later); on again the label is there; a pull then marks b9 and «Обучение» clears the memory', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
@@ -399,13 +400,15 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
   await movingNull(page);
   await leaveFight(page);
 
-  // «Показать подсказки снова»: the memory is empty, the label comes again in the next fight.
+  // «Обучение»: the memory is empty, the label comes again in the next fight.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
-  await page.getByTestId('hints-reset').click();
-  await expect(page.getByTestId('hints-reset')).toHaveText('Подсказки покажутся снова ✓');
+  await page.getByTestId('prologue-start').click();
+  await expect.poll(async () => (await snap(page)).prologue.active).toBe(true);
   expect(await shownHints(page)).toEqual({});
+  await page.getByTestId('prologue-skip').click();
+  await expect(page.getByTestId('run')).toBeVisible();
   await goblinFight();
   await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id)).toEqual(['b9']);
   expect(errors).toEqual([]);
@@ -444,7 +447,7 @@ test('the sandbox shows no label (the chest\'s price included), no box and no pu
   expect(errors).toEqual([]);
 });
 
-test('the lines on the screens: Э2 on the first two appearances of the map, then quiet, back after «Показать подсказки снова»; the toggle off hides it', async ({ page }) => {
+test('the lines on the screens: Э2 on the first two appearances of the map, then quiet, back after «Обучение»; the toggle off hides it', async ({ page }) => {
   const errors: string[] = [];
   await freshViewer(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
@@ -462,8 +465,11 @@ test('the lines on the screens: Э2 on the first two appearances of the map, the
   await expect(page.getByTestId('line-resources')).toHaveCount(0);
   expect((await stored(page))?.shown.e2).toBe(2);
   await gearOpen(page);
-  await page.getByTestId('hints-reset').click();
+  await page.getByTestId('prologue-start').click();
+  await expect.poll(async () => (await snap(page)).prologue.active).toBe(true);
+  await page.getByTestId('prologue-skip').click();
   await expect(page.getByTestId('line-resources')).toBeVisible();
+  await gearOpen(page);
   await page.getByTestId('view-hints').uncheck();
   await expect(page.getByTestId('line-resources')).toHaveCount(0);
   expect(errors).toEqual([]);

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * П9 «Второе дыхание» (src/realtime/sim/world.ts `hurtHero`, docs/realtime-prototype.md, «Второе дыхание»): the sandbox

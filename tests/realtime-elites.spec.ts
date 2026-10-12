@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * The view of elite armour and elite behaviours (package «Урон имеет значение», docs/realtime-damage.md,

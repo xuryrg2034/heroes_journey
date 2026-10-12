@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose, rtEnterNode,
   rtEventView, rtGiftView, rtRestHeal, rtShopLeave, rtChooseEventOption, serializeRtRun, parseRtRun, rtCasinoNode, RT_CASINO_TITLE, type RtRunState, type RtRunStep,

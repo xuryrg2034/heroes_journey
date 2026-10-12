@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * Casino stage 1, item 4 — «Кость у двери» (src/realtime/run/rtRun.ts, src/realtime/view/runView.ts, docs/realtime-casino.md).

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * The mixed arenas 8–10 of the slice in the sandbox (stage 2 of the transition, step 4; docs/realtime-slice.md, section 5

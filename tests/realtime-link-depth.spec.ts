@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 import { linkDepths } from '../src/realtime/sim/linkDepth';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 

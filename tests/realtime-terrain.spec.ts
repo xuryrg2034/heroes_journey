@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
 
 /**
  * Terrain samples of stage 3a, step 1 in the sandbox (docs/realtime-stage3.md): «Река», «Обрыв», «Терновник», «Жаровни»,

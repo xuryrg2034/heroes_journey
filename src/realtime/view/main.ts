@@ -24,10 +24,11 @@ import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit
 import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
-import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
+import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
 import { rtRunParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
-import { focusGuarded, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
+import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
+import { linkPoint } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { DebugPanel, formatTime } from './debugPanel';
@@ -46,7 +47,11 @@ import { rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { detectLabels, labelActions, WorldLabelLayer } from './worldLabels';
+import { detectLabels, labelActions, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { prologueHandSpot, prologueLoadout, prologueParams, prologueRoom, prologueRoute } from '../run/prologue';
+import { RT_RUN_HP } from '../run/hpScale';
+import { HandGuide, PROLOGUE_ROOM_COUNT, PrologueStore, TITLE_SECONDS, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
+import { PrologueDom, PrologueLayer } from './prologueView';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RtDeathWatch } from '../run/rtRunEnd';
@@ -385,10 +390,15 @@ async function boot(): Promise<void> {
   };
   /** П6 «Незакрытое дело»: the fight's killing blow (rtRunEnd.ts) — enemies seen before every tick, the events every frame. */
   const deathWatch = new RtDeathWatch();
-  const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout: Loadout = sandboxLoadout()): Simulation => {
+  /**
+   * `simParams` — the prologue's room: its own `Params` (`prologueParams`), its loadout as given (rooms 1–5 have none: the same
+   * world the Node tests play), no telemetry tap and no death watch (the prologue is not a run fight).
+   */
+  const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, simParams?: Params): Simulation => {
     motion.clear();
     deathWatch.reset();
-    return new Simulation({ arena, params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); }, ...hero ? { hero } : {}, loadout });
+    if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
+    return new Simulation({ arena, params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
 
   /**
@@ -401,6 +411,20 @@ async function boot(): Promise<void> {
   let hintsOn = loadHintsOn();
   const labelLayer = new WorldLabelLayer(host);
   const hints = { store: hintStore, log: [] as { id: string; t: number }[] };
+  /**
+   * The prologue «Опушка» (view/prologueFlow.ts, view/prologueView.ts, run/prologue.ts; task 6, step 4): six rooms before the run's
+   * first start, for a viewer without the key «пролог пройден». The sandbox has none. `prologueDue` — the page starts with it.
+   */
+  const prologueStore = new PrologueStore(sandbox ? null : undefined);
+  const prologueDue = !sandbox && !prologueStore.done();
+  /** The room being played (null — not in the prologue). */
+  let prologue: { n: number; attempt: number; guide: HandGuide | null; label: PrologueLabelMemo; titleLeft: number; lastTime: number; seconds: number } | null = null;
+  /** Between rooms: the fade out (`t` below 0 is a beat to look at the room), the switch at its end, then the fade in. */
+  let transition: { kind: 'next' | 'retry' | 'finish'; t: number; switched: boolean } | null = null;
+  const transitionKind = (): string | null => transition?.kind ?? null;
+  let fadeIn = 0;
+  /** Room 6: Space and Q breathe until each was used once. */
+  let spaceUsed = false, spinUsed = false;
 
   let arenaIndex = 0;
   let sim = newSimulation(SANDBOX_ARENAS[arenaIndex], nextSeed(fixedSeed));
@@ -442,11 +466,11 @@ async function boot(): Promise<void> {
   let lastSlotCounts: number[] | null = null;
   let arenaItemsUsed = 0, arenaHintShown = false;
   /** Starts a fight on `arena` (the sandbox's menu, or the arena of a run node with the run's HP). */
-  const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice): void => {
+  const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice, simParams?: Params): void => {
     renderer.resetEffects();
-    sim = newSimulation(arena, seed, hero, loadout);
+    sim = newSimulation(arena, seed, hero, loadout, simParams);
     labelLayer.hideAll();
-    recorder?.beginFight(sim, fightContext());
+    if (!simParams) recorder?.beginFight(sim, fightContext());
     SLOT_ITEMS.forEach((kind, i) => { slotBlink[i] = notice?.blink.includes(kind) ? ITEM_BLINK : 0; });
     lastSlotCounts = null;
     arenaItemsUsed = 0;
@@ -549,7 +573,7 @@ async function boot(): Promise<void> {
   other.addEventListener('click', showMenu);
   jumpButton.addEventListener('click', () => { ui.jumpMode = !ui.jumpMode && canJump(world()); jumpButton.blur(); });
 
-  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && world().status === 'playing';
+  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && world().status === 'playing';
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
   // П7 «Часы сессии»: the viewer's session clock (the view only); heartbeat while the tab is visible, so only a hidden or
@@ -598,7 +622,7 @@ async function boot(): Promise<void> {
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
     // «Обучение v1»: the toggle «Подсказки» and «Показать подсказки снова» on the gear; the screen lines read the same memory.
-    ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); } } },
+    ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); }, startPrologue: () => startPrologue() } },
   }, fixedSeed);
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap };
   /**
@@ -631,7 +655,8 @@ async function boot(): Promise<void> {
   if (runView) {
     host.appendChild(runView.el);
     // A reload in the middle of an arena: the run shows its open battle node, whose arena starts again from the start.
-    runView.open();
+    // A viewer without the key «пролог пройден» gets the prologue instead (started at the end of boot).
+    if (prologueDue) runView.el.hidden = true; else runView.open();
   }
 
   // Mouse: press on an enemy (or a button / the open door) near the hero starts the chain, drag adds links, release strikes.
@@ -648,6 +673,7 @@ async function boot(): Promise<void> {
     ui.pointer = arenaPoint(event);
     pointerClient = { x: event.clientX, y: event.clientY };
     if (!running()) return;
+    prologue?.guide?.press();
     if (event.button === 2) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; return; }
     if (event.button !== 0) return;
     if (ui.jumpMode) { if (command({ t: 'jump', x: ui.pointer.x, y: ui.pointer.y })) ui.jumpMode = false; return; }
@@ -740,9 +766,9 @@ async function boot(): Promise<void> {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
       if (runScreenOpen) return;
       if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
-      else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
-      else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
-      else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
+      else if (event.code === 'Space') { event.preventDefault(); prologue?.guide?.press(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
+      else if (event.code === 'KeyQ') { prologue?.guide?.press(); if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
+      else if (itemKey(event.code) >= 0) { prologue?.guide?.press(); useItemKey(itemKey(event.code)); }
       else if (event.code === 'KeyP') paused = !paused;
       else if (event.code === 'KeyN') markNote();
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
@@ -761,6 +787,123 @@ async function boot(): Promise<void> {
     else if (event.code === 'KeyN') markNote();
     else if (event.key === 'Enter' && ended) restart();
   });
+
+
+  // ---- The prologue «Опушка»: rooms, the flow between them, the hand, the lamps (docs/realtime-onboarding.md) ----
+  const prologueDom = new PrologueDom();
+  const prologueLayer = new PrologueLayer();
+  renderer.prologueLayer.addChild(prologueLayer.layer);
+  host.append(...prologueDom.elements);
+  prologueDom.skip.addEventListener('click', () => skipPrologue());
+  /** The log of the prologue on this page (the tests read it; the telemetry of the next step takes the same points through `PrologueHooks`). */
+  const prologueLog: { type: string; room: number; attempt?: number; outcome?: RoomOutcome; kind?: string; seconds?: number }[] = [];
+  const prologueHooks: PrologueHooks = {
+    roomStart: (room, attempt) => { prologueLog.push({ type: 'roomStart', room, attempt }); },
+    roomEnd: (room, attempt, outcome, seconds) => { prologueLog.push({ type: 'roomEnd', room, attempt, outcome, seconds }); },
+    handShown: (room, kind) => { prologueLog.push({ type: 'hand', room, kind }); },
+    skip: room => { prologueLog.push({ type: 'skip', room }); },
+    end: how => { prologueLog.push({ type: 'end', room: 0, kind: how }); },
+  };
+  const FADE_OUT = 0.35, FADE_IN = 0.35, DEATH_BEAT = 0.6;
+  const startPrologueRoom = (n: number, attempt: number): void => {
+    const room = prologueRoom(n);
+    runScreenOpen = false;
+    if (runView) runView.el.hidden = true;
+    runLabel = null;
+    startArena(room.arena, prologueSeed(n, attempt, fixedSeed), { hp: RT_RUN_HP, maxHp: RT_RUN_HP }, prologueLoadout(n), undefined, prologueParams(n, loadParams()));
+    prologueLayer.reset();
+    const guide = n < PROLOGUE_ROOM_COUNT ? new HandGuide({ route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind)) : null;
+    prologue = { n, attempt, guide, label: { done: false }, titleLeft: TITLE_SECONDS, lastTime: 0, seconds: 0 };
+    prologueDom.showTitle(roomTitle(n));
+    prologueHooks.roomStart?.(n, attempt);
+  };
+  /** From the first start and from the gear's «Обучение». */
+  function startPrologue(): void {
+    if (sandbox) return;
+    spaceUsed = false; spinUsed = false; transition = null; fadeIn = 0;
+    prologueDom.setFade(0);
+    startPrologueRoom(1, 1);
+  }
+  /** The prologue is over (room 6 passed, or skipped): the run screen. */
+  const leavePrologue = (): void => {
+    prologue = null;
+    prologueDom.hideTitle();
+    prologueLayer.reset();
+    labelLayer.hideAll();
+    dragging = false; ui.jumpMode = false;
+    runView?.open();
+  };
+  function skipPrologue(): void {
+    const pl = prologue;
+    if (!pl || transition?.kind === 'finish') return;
+    prologueStore.markDone();
+    if (!transition) prologueHooks.roomEnd?.(pl.n, pl.attempt, 'skip', pl.seconds);
+    prologueHooks.skip?.(pl.n);
+    prologueHooks.end?.('skip');
+    command({ t: 'cancel' });
+    dragging = false; ui.jumpMode = false;
+    transition = { kind: 'finish', t: 0, switched: false };
+    prologueDom.hideTitle();
+  }
+  /** One frame of the prologue room: smoke, name, hand, lamps, the end of the room and the fade. `live` — the room runs. */
+  const stepPrologue = (w: World, realDt: number, live: boolean): void => {
+    const pl = prologue;
+    if (!pl) return;
+    for (const ev of w.events) {
+      if (ev.type === 'restore') { for (const e of ev.enemies) prologueLayer.puff(e); if (ev.hero) prologueLayer.puff(ev.hero); }
+      else if (ev.type === 'jump') spaceUsed = true;
+      else if (ev.type === 'spin') spinUsed = true;
+    }
+    if (!transition && pl.titleLeft > 0 && live) {
+      pl.titleLeft -= realDt;
+      if (pl.titleLeft <= 0) prologueDom.hideTitle(); else prologueDom.title.style.opacity = String(Math.min(1, pl.titleLeft / 0.35));
+    }
+    const gdt = Math.max(0, w.time - pl.lastTime);
+    pl.lastTime = w.time;
+    if (w.status === 'playing' && !transition) {
+      pl.seconds += gdt;
+      pl.guide?.update(live ? gdt : 0, w.input.x !== 0 || w.input.y !== 0, dragging || !!w.move || w.chain.length > 0 || ui.jumpMode);
+    }
+    const door = w.objects.find(o => o.kind === 'door');
+    const handPoints = pl.guide?.show === 'hand' ? pl.guide.route.flatMap(l => { const p = linkPoint(w, l); return p ? [p] : []; }) : [];
+    if (door) prologueLayer.draw(live ? realDt : 0, { lamps: goalLamps(w), door, arena: w.arena, hero: w.hero, guide: pl.guide, handPoints });
+    if (!transition && w.status !== 'playing') {
+      const won = w.status === 'victory', last = pl.n === PROLOGUE_ROOM_COUNT;
+      prologueHooks.roomEnd?.(pl.n, pl.attempt, won ? 'win' : 'death', pl.seconds);
+      if (won && last) { prologueStore.markDone(); prologueHooks.end?.('done'); }
+      transition = { kind: won ? (last ? 'finish' : 'next') : 'retry', t: won ? 0 : -DEATH_BEAT, switched: false };
+      prologueDom.hideTitle();
+    }
+    if (transition) {
+      const tr = transition;
+      tr.t += realDt;
+      prologueDom.setFade(Math.max(0, tr.t) / FADE_OUT);
+      if (tr.t >= FADE_OUT && !tr.switched) {
+        tr.switched = true;
+        transition = null;
+        fadeIn = FADE_IN;
+        if (tr.kind === 'next') startPrologueRoom(pl.n + 1, 1);
+        else if (tr.kind === 'retry') startPrologueRoom(pl.n, pl.attempt + 1);
+        else leavePrologue();
+      }
+    }
+  };
+  /** The prologue's part of `snapshot()` (the tests read it). */
+  const prologueSnapshot = () => {
+    const pl = prologue, g = pl?.guide;
+    return {
+      active: !!pl, room: pl?.n ?? 0, attempt: pl?.attempt ?? 0, done: prologueStore.done(),
+      title: prologueDom.title.hidden ? null : prologueDom.title.textContent,
+      skipVisible: !prologueDom.skip.hidden, fade: Number(prologueDom.fade.style.opacity || 0), transition: transitionKind(),
+      lamps: pl ? goalLamps(world()) : null,
+      guide: g ? { show: g.show, arrow: g.arrow, circle: g.circle ? { ...g.circle } : null, rest: g.rest, links: g.route.length } : null,
+      shown: { ...prologueLayer.shown, circle: prologueLayer.shown.circle ? { ...prologueLayer.shown.circle } : null },
+      pulse: { space: jumpAbility.classList.contains('rt-pulse'), q: spinAbility.classList.contains('rt-pulse') },
+      hud: { energy: getComputedStyle(energyText).display !== 'none', actionBar: !actionBar.hidden, score: getComputedStyle(scoreText).display !== 'none', info: getComputedStyle(infoText).display !== 'none' },
+      log: prologueLog.map(e => ({ ...e })),
+    };
+  };
+  // ---- end the prologue ----
 
   const showResult = (): void => {
     const w = world();
@@ -914,23 +1057,38 @@ async function boot(): Promise<void> {
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
     if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); }
+    // The prologue: the room's own step, the HUD that shows only what the room teaches, the fade back in after a switch.
+    if (prologue && !runScreenOpen) stepPrologue(w, realDt, live);
+    if (fadeIn > 0 && !transition) { fadeIn = Math.max(0, fadeIn - realDt); prologueDom.setFade(fadeIn / FADE_IN); }
+    {
+      const early = !!prologue && prologue.n < PROLOGUE_ROOM_COUNT;
+      host.classList.toggle('rt-pl', !!prologue);
+      host.classList.toggle('rt-pl-early', early);
+      actionBar.hidden = early; jumpButton.hidden = early; help.hidden = !!prologue; itemBar.hidden = !!prologue;
+      prologueDom.skip.hidden = !prologue;
+    }
     // World labels (view/worldLabels.ts): the run only. With the toggle on, an action done in this frame marks its label for this
     // viewer (off: nothing is marked, as the screen lines count nothing), and the labels whose object stands (and were not done
     // before) hang at the object. A fight that is playing, no screen over it.
     if (!sandbox) {
-      const labelling = hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded && w.status === 'playing';
-      if (labelling) {
-        for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
-        const specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
-        if (specs.length) {
-          const stageBox = stage.getBoundingClientRect();
-          const barTop = actionBar.hidden ? stageBox.bottom : actionBar.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
-          const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
-          for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom }, renderer.plateRects())) {
-            hints.log.push({ id, t: now });
-            if (runView) recorder?.hintShown(runView.state, id);
-          }
-        } else labelLayer.hideAll();
+      // The action of the frame marks its label whatever the fight's status now (a chain that took the chest or a plate and entered the door).
+      const runLabelling = hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded;
+      if (runLabelling) for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
+      let specs: LabelSpec[] = [];
+      if (runLabelling && w.status === 'playing') specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
+      else if (prologue && !runScreenOpen) {
+        // The prologue's labels (one at a time, until the action; docs/realtime-onboarding.md): not tied to the toggle «Подсказки».
+        const spec = prologueLabel(w, prologue.n, prologue.label);
+        if (spec && renderer.sees(spec.at)) specs = [spec];
+      }
+      if (specs.length) {
+        const stageBox = stage.getBoundingClientRect();
+        const barTop = actionBar.hidden ? stageBox.bottom : actionBar.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
+        const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
+        for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom }, renderer.plateRects())) {
+          hints.log.push({ id, t: now });
+          if (runView && runLabelling) recorder?.hintShown(runView.state, id);
+        }
       } else labelLayer.hideAll();
     }
     w.events.length = 0;
@@ -958,6 +1116,7 @@ async function boot(): Promise<void> {
     scoreText.textContent = w.params.purse ? `котёл ${w.purse?.cauldron ?? 0}` : `очки ${w.stats.score}`;
     // П4 «Раздув за дела» (purse.ts `greedLine`): after the goals the line shows the cauldron, its greed step and the next one.
     goalText.textContent = w.stage === 'greed' ? greedLine(w) ?? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
+    if (prologue) goalText.textContent = prologueGoalLine(w);
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     // Casino «Ставка клятвы»: the oath's line under the goal (none without an oath).
     const oathNow = oathHudLine(w);
@@ -987,6 +1146,12 @@ async function boot(): Promise<void> {
       SLOT_ITEMS.forEach((kind, i) => setPulse(itemSlots[i], pulsing && (w.kit?.items[kind] ?? 0) >= 1));
     }
     spinAbility.classList.toggle('rt-ready', canSpin(w));
+    // The prologue's last room: «Пробел» and «Q» breathe until each was used once (view/pulse.ts; this prologue only).
+    {
+      const pulsing = prologue?.n === PROLOGUE_ROOM_COUNT && w.status === 'playing' && !transition;
+      setPulse(jumpAbility, pulsing && !spaceUsed);
+      setPulse(spinAbility, pulsing && !spinUsed);
+    }
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(w) && !ui.jumpMode;
     if (w.chain.length) {
@@ -1001,14 +1166,14 @@ async function boot(): Promise<void> {
     pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen || runScreenOpen;
     if (w.status !== 'playing' && !runScreenOpen) {
       // Telemetry: the fight record in the frame the fight ended — the journal and the hash of the same tick.
-      if (recorder?.recording) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
+      if (recorder?.recording && !prologue) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
       recordRunArena();
     }
     // П3 «Финальная цепь»: a victory opens the result screen FINAL_FLASH real seconds later (the final flash is seen); a defeat at once.
     if (w.status === 'victory' && resultWait?.world !== w) resultWait = { world: w, left: FINAL_FLASH };
     if (resultWait && resultWait.world === w) resultWait.left -= realDt;
     const resultDue = w.status !== 'victory' || (resultWait?.world === w && resultWait.left <= 0);
-    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen && resultDue) showResult();
+    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen && resultDue && !prologue) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
@@ -1070,6 +1235,8 @@ async function boot(): Promise<void> {
   // `?arena=N` (1–18) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
+  // A viewer without the key «пролог пройден» starts in the prologue (the run map stays hidden until it ends).
+  if (prologueDue) startPrologue();
 
   // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
   // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.
@@ -1210,8 +1377,21 @@ async function boot(): Promise<void> {
         /** «Обучение»: the toggle, the world labels on screen (id, text, rectangle in stage px), the ids in this viewer's memory, the labels shown on this page (id, real ms). */
         onboarding: { on: hintsOn, labels: labelLayer.shown(), shown: hints.store.shownIds(), log: hints.log.map(h => ({ ...h })) },
         logsOpen: !!logsPanel?.open,
+        /** The prologue «Опушка»: room, lamps, the hand and the arrow, the title, the fade, the pulse, the log of its hooks. */
+        prologue: prologueSnapshot(),
       };
     },
+    /**
+     * The prologue's test hooks (null in the sandbox): `route()` — where the hand's chain stands NOW on the screen (stage px; from
+     * `prologueRoute`, only to know where to drag with the real mouse — it sends nothing), `spot()` — the blinking circle on the
+     * screen (null — none), `spotWorld()` the same in arena units, `skip()` — the corner button's action.
+     */
+    prologue: !sandbox ? {
+      route: () => { const pl = prologue; if (!pl) return []; return prologueRoute(world(), pl.n).flatMap(l => { const p = linkPoint(world(), l); return p ? [{ ...renderer.toScreen(p.x, p.y), kind: l.kind, id: l.id }] : []; }); },
+      spot: () => { const c = prologue?.guide?.circle; return c ? renderer.toScreen(c.x, c.y) : null; },
+      spotWorld: () => { const c = prologue?.guide?.circle; return c ? { ...c } : null; },
+      skip: () => skipPrologue(),
+    } : null,
     /** Telemetry: replay a journal up to a tick and show it paused (`ReplayTo`). */
     replayTo,
     /**
