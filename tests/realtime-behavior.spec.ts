@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { untilFrame } from './realtimeFrames';
 
 /**
  * Enemy behaviour of stage 3a, steps 3–4 in the sandbox (docs/realtime-stage3.md, section 10): the wolves' howl circle,
@@ -39,6 +40,11 @@ async function quiet(page: Page, hero: { x: number; y: number }): Promise<void> 
   await page.evaluate(([x, y]) => {
     const rt = (window as any).__realtime;
     for (const [key, value] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wolfPackBonus', 0], ['lynxDamage', 0]] as const) rt.setParam(key, value);
+    // De-flake 12.10.2026: the group timer rolled at the start still fires once after the interval changes, and its
+    // newcomers stepped into the scene (a wolf of it walked into the ring: four rush lanes, not three). An arena limit of 0
+    // keeps the queue empty — a direct write, since the journalled `setParam` clamps the limit to the panel's 1 (the replay
+    // test of this file does not use this helper).
+    rt.params.maxEnemies = 0;
     rt.clear(false);
     rt.teleport(x, y);
   }, [hero.x, hero.y] as const);
@@ -176,14 +182,20 @@ test('phase A: the archer\'s mark circle is drawn while it aims and flashes when
   await openSandbox(page, '&arena=1');
   await quiet(page, { x: 8, y: 5 });
   // Default windup first: the mark appears, fills and the arrow falls with a flash.
+  // De-flake 12.10.2026: the signals are read frame by frame inside the page and the waits bounded by game time (20 s of
+  // wall time could pass before a loaded page played the archer's cycle).
   const archer = await place(page, 11.5, 6.0, 3, 1, 'archer');
-  await expect.poll(async () => (await snap(page) as any).archerMarks, SIGNAL_POLL).toBe(1);
-  const flashes = (await snap(page) as any).arrowFlashes as number;
-  await expect.poll(async () => (await snap(page) as any).arrowFlashes, SIGNAL_POLL).toBeGreaterThan(flashes);
+  const marked = await untilFrame(page, (s, _: null, late) => s.archerMarks === 1 || late ? { marks: s.archerMarks, flashes: s.arrowFlashes } : undefined, null, 10);
+  expect(marked.marks).toBe(1);
+  expect(await untilFrame(page, (s, before: number, late) => s.arrowFlashes > before || late ? s.arrowFlashes : undefined, marked.flashes, 10)).toBeGreaterThan(marked.flashes);
   // Lengthened howl and windup: the mark and the howl together on screen.
   await page.evaluate(([id]) => { const rt = (window as any).__realtime; rt.setParam('wolfHowl', 6); rt.setParam('archerWindup', 6); }, [archer] as const);
   for (const deg of [-150, -90, -30]) await place(page, 8 + Math.cos(deg * Math.PI / 180) * 3, 5 + Math.sin(deg * Math.PI / 180) * 3, 0, 0, 'wolf');
-  await expect.poll(async () => { const s = await snap(page) as any; return s.signals.howls === 1 && s.archerMarks === 1 && s.rushLanes === 3; }, SIGNAL_POLL).toBe(true);
+  const together = await untilFrame(page, (s, _: null, late) => {
+    const v = { howls: s.signals.howls, archerMarks: s.archerMarks, rushLanes: s.rushLanes };
+    return v.howls === 1 && v.archerMarks === 1 && v.rushLanes === 3 || late ? v : undefined;
+  }, null, 20);
+  expect(together).toEqual({ howls: 1, archerMarks: 1, rushLanes: 3 });
   await page.screenshot({ path: 'artifacts/realtime-phaseA-archer-mark-howl.png' });
   expect(errors).toEqual([]);
 });

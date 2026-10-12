@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { gameWait, untilFrame } from './realtimeFrames';
 
 /**
  * Smoke test of the real-time game (index.html; realtime.html redirects to it; docs/realtime-prototype.md).
@@ -409,6 +410,10 @@ async function freeze(page: Page, clear = true): Promise<void> {
     rt.params.boarMax = 0;
     // Stage 3a (П1): no wolf ring — its howl and rush would move the frozen scene too (the ring has its own tests).
     rt.params.wolfRing = false;
+    // De-flake 12.10.2026: the group timer rolled at the start (3–5 s) still fires once after the intervals above change,
+    // and its 2–4 newcomers stepped out at the edges into the scene (a body in front of the wading enemy of the pond test,
+    // an extra link under the pointer). An arena limit of 0 keeps the queue empty; the test's own `place` is not limited.
+    rt.params.maxEnemies = 0;
     rt.clear(!clear);
   }, clear);
 }
@@ -611,17 +616,23 @@ test('the boar announces its charge with a lane, shoves the crowd without hurtin
   const before = await arenaSnapshot(page);
   const pos = (snap: ArenaSnapshot, id: number) => snap.enemies.find(e => e.id === id)!;
 
-  await expect.poll(async () => pos(await arenaSnapshot(page), boar).boar, { timeout: 5_000 }).toBe('windup');
-  // The lane (and the «!») is drawn while the charge is announced; the boar stands.
-  await expect.poll(async () => (await arenaSnapshot(page)).lanes).toBeGreaterThan(0);
+  // The lane (and the «!») is drawn while the charge is announced; the boar stands. De-flake 12.10.2026: the windup lasts
+  // 1 game s and a poll from Node (up to 1 s apart, then a screenshot) read the boar after it had charged; now the windup,
+  // the lane, the boar's place and the hero's HP are read in one frame inside the page (game time bounds the wait).
+  const windup = await untilFrame(page, (s, id: number, late) => {
+    const b = s.enemies.find((e: any) => e.id === id);
+    return b?.boar === 'windup' && s.lanes > 0 || late ? { boar: b?.boar, lanes: s.lanes, x: b?.x, y: b?.y, hp: s.hero.hp } : undefined;
+  }, boar, 5);
+  expect(windup.boar).toBe('windup');
+  expect(windup.lanes).toBeGreaterThan(0);
+  expect(Math.hypot(windup.x - (hx - 3), windup.y - hy)).toBeLessThan(0.05);
+  expect(windup.hp).toBe(maxHp);
   await page.screenshot({ path: 'artifacts/realtime-boar-lane.png' });
-  let snap = await arenaSnapshot(page);
-  expect(Math.hypot(pos(snap, boar).x - (hx - 3), pos(snap, boar).y - hy)).toBeLessThan(0.05);
-  expect(snap.hero.hp).toBe(maxHp);
 
-  await expect.poll(async () => (await arenaSnapshot(page)).stats.boarHits, { timeout: 5_000 }).toBe(1);
-  await page.waitForTimeout(400);
-  snap = await arenaSnapshot(page);
+  expect(await untilFrame(page, (s, _: null, late) => s.stats.boarHits >= 1 || late ? s.stats.boarHits : undefined, null, 5)).toBe(1);
+  // The knockback runs out within 0.4 game s (it was 400 ms of wall time, which a loaded page may not turn into game time).
+  await gameWait(page, 0.4);
+  const snap = await arenaSnapshot(page);
   // Damage 2 and a knockback of ~1.5 along the charge (to +x).
   expect(snap.stats.damageTaken).toBe(2);
   expect(snap.hero.hp).toBe(maxHp - 2);
@@ -644,10 +655,16 @@ test('wolves hit harder next to other wolves and their pack is drawn', async ({ 
   await open(page, errors, 1);
   await freeze(page);
   const { x: hx, y: hy } = (await arenaSnapshot(page)).hero;
-  // A lone wolf touching the hero: base damage 1.
+  // A lone wolf touching the hero: base damage 1. De-flake 12.10.2026: the wolf goes on hitting after each invulnerability,
+  // so the first hit is read and the wolf cleared in the same frame inside the page (a poll and a later `clear` from Node
+  // let a second hit in); game time bounds the waits.
   await placeKind(page, hx + 0.55, hy, 2, 0, 'wolf');
-  await expect.poll(async () => (await arenaSnapshot(page)).stats.damageTaken, { timeout: 5_000 }).toBe(1);
-  await page.evaluate(() => (window as any).__realtime.clear());
+  const lone = await untilFrame(page, (s, _: null, late, rt) => {
+    if (s.stats.damageTaken < 1 && !late) return undefined;
+    rt.clear();
+    return { damage: s.stats.damageTaken, hits: s.stats.hitsTaken };
+  }, null, 5);
+  expect(lone).toEqual({ damage: 1, hits: 1 });
   // Two wolves next to each other (one pack line), not touching the hero.
   await placeKind(page, hx + 1.4, hy, 2, 0, 'wolf');
   await placeKind(page, hx + 1.0, hy + 0.9, 2, 0, 'wolf');
@@ -655,8 +672,8 @@ test('wolves hit harder next to other wolves and their pack is drawn', async ({ 
   expect((await arenaSnapshot(page)).stats.damageTaken).toBe(1);
   // A third wolf touches the hero with two packmates in the radius: every hit is 1 + 2 = 3.
   await placeKind(page, hx - 0.55, hy, 2, 0, 'wolf');
-  await expect.poll(async () => (await arenaSnapshot(page)).stats.hitsTaken, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
-  const snap = await arenaSnapshot(page);
+  const snap = await untilFrame(page, (s, _: null, late) => s.stats.hitsTaken >= 2 || late ? { packLines: s.packLines, stats: s.stats } : undefined, null, 5);
+  expect(snap.stats.hitsTaken).toBeGreaterThanOrEqual(2);
   expect(snap.packLines).toBe(3);
   expect(snap.stats.damageTaken).toBe(1 + 3 * (snap.stats.hitsTaken - 1));
   await page.screenshot({ path: 'artifacts/realtime-wolves.png' });
@@ -828,13 +845,18 @@ test('the pond is passable: the hero and an enemy wade in slowed, with ripples; 
   const slow = await page.evaluate(() => (window as any).__realtime.params.waterSlow as number);
   expect(slow).toBe(0.5);
   expect((await waterSnapshot(page)).heroInWater).toBe(true);
-  // Speed between two snapshots taken while the key is held (no key latency in the measure).
+  // Speed between two frames read while the key is held (no key latency in the measure). De-flake 12.10.2026: both are
+  // read frame by frame inside the page — from Node a slow round trip let the hero wade out of the pond before the second.
   await page.keyboard.down('KeyD');
-  await expect.poll(async () => (await waterSnapshot(page)).hero.x, { intervals: [20] }).toBeGreaterThan(12.25);
-  const a = await waterSnapshot(page);
-  await expect.poll(async () => (await waterSnapshot(page)).time, { intervals: [20] }).toBeGreaterThan(a.time + 0.25);
-  let s = await waterSnapshot(page);
+  const wade = await untilFrame(page, (snap, _: null, late) => {
+    const w = window as any, now = { x: snap.hero.x as number, time: snap.time as number };
+    if (!w.__pondFrom) { if (now.x > 12.25) w.__pondFrom = now; return late ? { a: now, s: now, inWater: snap.heroInWater, ripples: snap.ripples } : undefined; }
+    if (now.time <= w.__pondFrom.time + 0.25 && !late) return undefined;
+    const a = w.__pondFrom; delete w.__pondFrom;
+    return { a, s: now, inWater: snap.heroInWater as boolean, ripples: snap.ripples as number };
+  }, null, 5);
   await page.keyboard.up('KeyD');
+  const a = { hero: { x: wade.a.x }, time: wade.a.time }, s = { hero: { x: wade.s.x }, time: wade.s.time, heroInWater: wade.inWater, ripples: wade.ripples };
   const heroSpeed = (s.hero.x - a.hero.x) / (s.time - a.time);
   expect(heroSpeed).toBeGreaterThan(1.7);
   expect(heroSpeed).toBeLessThan(2.2);
@@ -845,13 +867,16 @@ test('the pond is passable: the hero and an enemy wade in slowed, with ripples; 
   // An enemy walks straight (pathfinding off) through the pond: half speed in the water.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.enemySpeed = 1.2; rt.params.pathfinding = false; rt.teleport(14.1, 4.6); });
   const id = await place(page, 10, 4.6, 0);
-  const samples: { t: number; x: number }[] = [];
-  await expect.poll(async () => {
-    const w = await waterSnapshot(page);
-    const e = w.enemies.find(x => x.id === id)!;
-    samples.push({ t: w.time, x: e.x });
-    return e.x;
-  }, { timeout: 15_000, intervals: [50] }).toBeGreaterThan(13.3);
+  // Its place every frame (inside the page), until it is through; 12 game s bound the walk (it takes about 5).
+  const samples = await untilFrame(page, (snap, id: number, late) => {
+    const w = window as any, e = snap.enemies.find((x: any) => x.id === id);
+    const list: { t: number; x: number }[] = w.__pondWalk ??= [];
+    if (e) list.push({ t: snap.time, x: e.x });
+    if (!late && (!e || e.x <= 13.3)) return undefined;
+    delete w.__pondWalk;
+    return list;
+  }, id, 12);
+  expect(samples[samples.length - 1].x).toBeGreaterThan(13.3);
   const speedIn = (lo: number, hi: number): number => {
     const inside = samples.filter(p => p.x >= lo && p.x <= hi);
     const first = inside[0], last = inside[inside.length - 1];
@@ -869,7 +894,7 @@ test('the pond is passable: the hero and an enemy wade in slowed, with ripples; 
   await chainAt(page, [{ x: 12.5, y: 4.6 }, { x: 13.7, y: 4.6 }]);
   await expect.poll(async () => (await walkSnapshot(page)).chain).toEqual([l1, l2]);
   await page.mouse.up();
-  await expect.poll(async () => (await walkSnapshot(page)).kills, { timeout: 5_000 }).toBe(2);
+  expect(await untilFrame(page, (snap, _: null, late) => snap.kills >= 2 || late ? snap.kills : undefined, null, 5)).toBe(2);
   expect(errors).toEqual([]);
 });
 

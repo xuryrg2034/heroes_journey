@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { untilFrame } from './realtimeFrames';
 
 /**
  * The new enemies of the slice in the sandbox (stage 2 of the transition, step 2; docs/realtime-slice.md, sections 4–5).
@@ -38,6 +39,10 @@ async function quiet(page: Page): Promise<void> {
   await page.evaluate(() => {
     const rt = (window as any).__realtime;
     for (const [key, value] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 20], ['baseIntervalMax', 20], ['baseFloor', 0], ['contactDamage', 0]] as const) rt.setParam(key, value);
+    // De-flake 12.10.2026: the group timer rolled at the start still fires once (and every 20 s), and its newcomers (on
+    // arena 7 porcupines too) stepped into the scene. An arena limit of 0 keeps the queue empty — a direct write, since the
+    // journalled `setParam` clamps the limit to the panel's 1 (no test of this file replays its journal).
+    rt.params.maxEnemies = 0;
     rt.clear(false);
     rt.teleport(8, 5);
   });
@@ -241,9 +246,11 @@ test('porcupine (iteration 2.1): with the quills down no «−1 HP» and no woun
   expect(after.hero.hp).toBe(after.hero.maxHp);
   // The cycle again with a long warning (3 s ≥ the 2 s down): every moment of the down part trembles.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('porcupineUpTime', 2.5); rt.setParam('porcupineWarn', 3); });
+  // De-flake 12.10.2026: the wait is read frame by frame in the page and bounded by game time (one cycle is 4.5 game s;
+  // the 10 s of wall time of the old poll could pass before a loaded page played that much).
   await place(page, 10, 6, 'porcupine', 2, 1);
-  await expect.poll(async () => (await snap(page)).signals.quillsTrembling, { timeout: 10_000 }).toBe(1);
+  expect(await untilFrame(page, (s, _: null, late) => s.signals.quillsTrembling === 1 || late ? s.signals.quillsTrembling : undefined, null, 10)).toBe(1);
   await page.screenshot({ path: 'artifacts/realtime-porcupine-trembling.png' });
-  await expect.poll(async () => (await snap(page)).signals.quillsRaised, { timeout: 10_000 }).toBe(1);
+  expect(await untilFrame(page, (s, _: null, late) => s.signals.quillsRaised === 1 || late ? s.signals.quillsRaised : undefined, null, 10)).toBe(1);
   expect(errors).toEqual([]);
 });

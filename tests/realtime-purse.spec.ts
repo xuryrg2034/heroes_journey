@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { untilFrame } from './realtimeFrames';
 
 /**
  * Casino «Котёл» (src/realtime/sim/purse.ts, docs/realtime-casino.md): the view with real mouse input in the sandbox — the
@@ -27,6 +28,10 @@ async function freeze(page: Page): Promise<void> {
     rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000; rt.params.baseFloor = 0;
     for (const phase of rt.params.phases) phase.floor = 0;
     rt.params.boarMax = 0; rt.params.wolfRing = false;
+    // De-flake 12.10.2026: the group timer rolled at the start still fires once after the interval change, and its
+    // newcomers stepped out at the bottom edge onto the row the chains are drawn along (a 7th link under the pointer of
+    // the 6-link chain of П2). An arena limit of 0 keeps the queue empty; the test's own `place` is not limited.
+    rt.params.maxEnemies = 0;
     rt.clear(false);
   });
 }
@@ -165,8 +170,9 @@ async function dashChain(page: Page, xs: readonly number[]): Promise<void> {
   for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y);
   await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(xs.length);
   await page.mouse.up();
-  await expect.poll(() => page.evaluate(() => (window as any).__realtime.snapshot().lastChain?.kills ?? 0), { timeout: 8_000 }).toBe(xs.length);
-  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime.snapshot().move), { timeout: 8_000 }).toBe(false);
+  // The dash's end, read in the page frame by frame and bounded by game time (de-flake 12.10.2026).
+  const end = await untilFrame(page, (s, n: number, late) => (s.lastChain?.kills ?? 0) === n && !s.moving || late ? { kills: s.lastChain?.kills ?? 0, moving: s.moving } : undefined, xs.length, 8);
+  expect(end).toEqual({ kills: xs.length, moving: null });
 }
 const feel = (page: Page): Promise<{ popups: number; quiet: number; outlines: number; finals: number }> =>
   page.evaluate(() => (window as any).__realtime.snapshot().feel);

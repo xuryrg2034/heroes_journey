@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { gameWait } from './realtimeFrames';
 
 /**
  * Camera of the real-time arena (docs/realtime-stage3.md, section 11): it follows the hero on an arena larger than the
@@ -30,6 +31,9 @@ async function still(page: Page): Promise<void> {
     const r = (window as any).__realtime;
     r.params.enemySpeed = 0; r.params.wolfSpeed = 0; r.params.speedSpread = 0;
     r.params.baseIntervalMin = 1000; r.params.baseIntervalMax = 1000; r.params.baseFloor = 0;
+    // De-flake 12.10.2026: the group timer rolled at the start still fires once after the interval change; an arena limit
+    // of 0 keeps its newcomers out of the scene (and from under the pointer). The test's own `place` is not limited.
+    r.params.maxEnemies = 0;
     r.clear();
   });
 }
@@ -150,9 +154,10 @@ test('while a chain is drawn the camera stands, even when the hero walks; after 
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain).toEqual([a]);
   expect((await camera(page)).frozen).toBe(true);
-  // The hero walks left while the button is held: the world must not slide under the pointer.
+  // The hero walks left while the button is held: the world must not slide under the pointer. De-flake 12.10.2026: the
+  // walks are held for game seconds, not wall seconds — a loaded page plays less game time (the hero walked too little).
   await page.keyboard.down('KeyA');
-  await page.waitForTimeout(1200);
+  await gameWait(page, 1.2);
   await page.keyboard.up('KeyA');
   const held = await camera(page);
   expect((await snap(page)).hero.x).toBeLessThan(11);
@@ -162,7 +167,7 @@ test('while a chain is drawn the camera stands, even when the hero walks; after 
   await page.mouse.move(640, 360);
   expect((await camera(page)).frozen).toBe(false);
   await page.keyboard.down('KeyA');
-  await page.waitForTimeout(1500);
+  await gameWait(page, 1.5);
   await page.keyboard.up('KeyA');
   expect((await camera(page)).x).toBeLessThan(before.x - 0.5);
   expect(errors).toEqual([]);
@@ -447,9 +452,10 @@ test('the mouse stands, the camera moves: the pointer takes the new point of the
   // An enemy out of reach under the pointer: the hint says why it is not taken.
   await place(page, p0.x, p0.y, 1);
   await expect.poll(async () => (await camera(page)).hint).not.toBeNull();
-  // The hero walks right, the camera follows, the mouse does not move.
+  // The hero walks right, the camera follows, the mouse does not move. De-flake 12.10.2026: held for 1.5 game s, not
+  // 1.5 wall s — a loaded page played less game time and the camera came 0.8 short of the mark.
   await page.keyboard.down('KeyD');
-  await page.waitForTimeout(1500);
+  await gameWait(page, 1.5);
   await page.keyboard.up('KeyD');
   const moved = await settled(page);
   expect(moved.x).toBeGreaterThan(first.x + 1);

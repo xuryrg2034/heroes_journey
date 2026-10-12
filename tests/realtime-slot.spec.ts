@@ -25,7 +25,13 @@ test('the panel button «Гоблин», a mouse chain to the lever with the odd
   // A quiet field: no newcomers, nobody walks or touches; the hero in the open middle.
   await page.evaluate(() => {
     const rt = (window as any).__realtime;
-    for (const [k, v] of Object.entries({ enemySpeed: 0, speedSpread: 0, baseIntervalMin: 20, baseIntervalMax: 20, baseFloor: 0, contactDamage: 0 })) rt.setParam(k, v);
+    // De-flake 12.10.2026: the lever stays dark for `slotCooldown` game s after the pull, and the hint check came after
+    // the spin, two screenshots and the hover; on a loaded runner the 8 s ran out first and the lever lit again (no hint).
+    // 30 s keeps it dark through the check (the cooldown's length is Node's, src/realtime/sim/slot.spec.ts).
+    for (const [k, v] of Object.entries({ enemySpeed: 0, speedSpread: 0, baseIntervalMin: 20, baseIntervalMax: 20, baseFloor: 0, contactDamage: 0, slotCooldown: 30 })) rt.setParam(k, v);
+    // The group timer rolled at the start still fires once (and every 20 s): an arena limit of 0 keeps its newcomers out
+    // of the scene — a direct write, since the journalled `setParam` clamps the limit to the panel's 1.
+    rt.params.maxEnemies = 0;
     rt.clear(false);
     rt.teleport(8, 5);
   });
