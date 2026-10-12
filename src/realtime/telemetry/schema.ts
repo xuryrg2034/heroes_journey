@@ -202,6 +202,14 @@ export interface RunBuild {
  */
 export interface RunMapSign { nodeId: string; signed: string[]; chosenSigned: boolean }
 
+/**
+ * Consumables of a run by kind (`frost`, `bomb`, `healing`, `fire`; from 12.10.2026, the report «Расходники по походам»):
+ * `gained` — came into the hand (the gift, a find, a purchase, an event, a pickup in a fight), `used` — went out of it (used
+ * in a fight, paid for an event), `left` — in the hand now (at the end for an ended run; for a lost one, at the end of the
+ * lost fight). A kind that did not move is absent from `gained` and `used`.
+ */
+export interface RunItems { gained: Record<string, number>; used: Record<string, number>; left: Record<string, number> }
+
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
   kind: 'run';
@@ -226,6 +234,8 @@ export interface RunRecord extends RtHeader {
   endedAt?: string;
   /** П8 «Новое на карте» (from 12.10.2026): the map choices made with a sign shown, in order; absent — none (older records too). */
   mapSigns?: RunMapSign[];
+  /** Consumables gained / used / left (from 12.10.2026; absent in older records — the report reads «нет данных»). */
+  items?: RunItems;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }

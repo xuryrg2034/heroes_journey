@@ -16,16 +16,20 @@
  *   back-forward cache records its fight on; one `pagehide` stash per fight; a duplicated tab takes a new session.
  * - Run choices from real run steps (the start gift).
  * - П6: the run record gets `endedAt` from the step that ended the run (a lost fight), not before; an abandoned run has none.
+ * - Run consumables (12.10.2026): `RunRecord.items` — gained / used / left — from a real gift step, steps that close nodes, a won
+ *   run fight (used by journal commands, one pickup set in the world) and a lost one (the left hand is the world's, not the stale run's).
  */
 import shieldsWolvesJournal from '../../../tests/fixtures/realtime-browser-journal-shields-wolves.json';
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
 import type { Command } from '../sim/commands';
-import { copyParams } from '../sim/params';
+import { copyParams, defaultParams } from '../sim/params';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import type { World } from '../sim/world';
-import { createRtRun, resolveArena, rtAvailableNodes, rtChooseGift, rtEnterNode, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { createRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseGift, rtEnterNode, rtRunParams, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { ITEM_KINDS } from '../forest/items';
+import type { ItemKind } from '../forest/types';
 import type { RunRecord } from './schema';
-import { takeGift } from '../run/runFight.testkit';
+import { closeNode, outcomeOf, quiet, seedOf, takeGift } from '../run/runFight.testkit';
 import { TelemetryBuffer, memoryJournalStore, TLM_INDEX_KEY, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type KeyValueStore } from './buffer';
 import { playLoopFight } from './loopFight.testkit';
 import { createFightObserver, EventCursor } from './observe';
@@ -448,6 +452,80 @@ async function main(): Promise<void> {
     rec.runStep(run, lost);
     const ended = await latest(1002);
     assert(ended.outcome === 'defeat' && typeof ended.endedAt === 'string' && Date.parse(ended.endedAt) >= before - 1000 && Date.parse(ended.endedAt) <= Date.now() + 1000, `ended: ${ended.outcome} ${ended.endedAt}`);
+    rec.dispose();
+  });
+
+  await check('run consumables: gained / used / left from a gift step, a won fight with a pickup and a lost fight', async () => {
+    const local = fake(), params = rtRunParams(quiet());
+    const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params, observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+    const latest = async (): Promise<RunRecord> => { await new Promise(r => setTimeout(r, 10)); return (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === 7001).pop()!; };
+    let run: RtRunState = createRtRun(7001, { gift: 'mini' });
+    rec.runStarted(null, run);
+    const feed = (step: RtRunStep): void => { assert(step.ok, step.ok ? '' : step.reason); rec.runStep(run, step); run = step.run; };
+    // The gift's first option: two random consumables (one of each kind).
+    feed(rtChooseGift(run, 0));
+    const [a, b] = ITEM_KINDS.filter(k => run.items[k] > 0);
+    assert(b !== undefined && ITEM_KINDS.filter(k => run.items[k] > 0).length === 2 && run.items[a] === 1 && run.items[b] === 1, `the gift gave ${JSON.stringify(run.items)}`);
+    let rec0 = await latest();
+    assert(JSON.stringify(rec0.items) === JSON.stringify({ gained: { [a]: 1, [b]: 1 }, used: {}, left: { frost: run.items.frost, bomb: run.items.bomb, healing: run.items.healing, fire: run.items.fire } }), `after the gift: ${JSON.stringify(rec0.items)}`);
+    const toBattle = (): void => {
+      for (let i = 0; i < 300 && run.pending?.kind !== 'battle'; i++) {
+        if (run.pending) feed({ ok: true, run: closeNode(run), events: [] });
+        else { const step = rtEnterNode(run, rtAvailableNodes(run)[0].id); feed(step); }
+      }
+      assert(run.pending?.kind === 'battle', 'a battle is open');
+    };
+    /** A run fight played by journal commands through the recorder's hooks; `pickup` — a consumable the world gets (the view has no hook for a floor pickup in a test). */
+    const fight = (use: ItemKind[], how: { lose?: boolean; pickup?: ItemKind }): { sim: Simulation; step: RtRunStep } => {
+      run = { ...run, hp: run.maxHp - 6 };
+      const nodeId = (run.pending as { nodeId: string }).nodeId;
+      const sim = new Simulation({ arena: 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(3), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp }, beforeTick: w => rec.beforeTick(w) });
+      rec.beginFight(sim, { nodeId, runState: run });
+      const cmd = (c: Command): void => { rec.beforeCommand(sim.world); sim.command(c); rec.afterCommand(c, sim.world); };
+      const tick = (n: number): void => { for (let i = 0; i < n && sim.world.status === 'playing'; i++) { sim.tick(); rec.frameEnd(sim.world, null, 1); sim.world.events.length = 0; } };
+      cmd({ t: 'clear', keepMarked: false });
+      for (const kind of use) {
+        const held = sim.world.kit!.items[kind];
+        cmd({ t: 'place', x: 6.5, y: 6, color: 0, hp: 2, kind: 'basic' });
+        cmd({ t: 'item', kind, x: kind === 'healing' ? sim.world.hero.x : 6.5, y: kind === 'healing' ? sim.world.hero.y : 6 });
+        assert(sim.world.kit!.items[kind] === held - 1, `${kind} was used`);
+      }
+      if (how.lose) {
+        cmd({ t: 'param', key: 'contactDamage', value: defaultParams().contactDamage }); cmd({ t: 'param', key: 'enemySpeed', value: defaultParams().enemySpeed });
+        const hero = sim.world.hero;
+        for (let k = 0; k < 8; k++) cmd({ t: 'place', x: hero.x + Math.cos(k * Math.PI / 4) * 0.6, y: hero.y + Math.sin(k * Math.PI / 4) * 0.6, color: k % 4, hp: 2, kind: 'basic' });
+        tick(60 * 60);
+        assert(sim.world.status === 'defeat', `the hero fell (${sim.world.status})`);
+      } else {
+        cmd({ t: 'goals' }); cmd({ t: 'teleport', x: 16.5, y: 6 }); cmd({ t: 'walk', x: 1, y: 0 });
+        tick(600);
+        assert(sim.world.status === 'victory', `the hero walked into the door (${sim.world.status})`);
+      }
+      if (how.pickup) sim.world.kit!.items[how.pickup]++;
+      rec.endFight(sim.world.status === 'victory' ? 'victory' : 'defeat');
+      return { sim, step: resolveArena(run, outcomeOf(run, sim.world)) };
+    };
+    // Fight 1, won: `a` used, one `b` picked up on the floor. Deltas against the record before the fight step.
+    toBattle();
+    rec0 = await latest();
+    const handIn = { ...run.items };
+    const won = fight([a], { pickup: b });
+    feed(won.step);
+    const rec1 = await latest(), diff = (x: Record<string, number>, y: Record<string, number>, k: string): number => (x[k] ?? 0) - (y[k] ?? 0);
+    assert(diff(rec1.items!.used, rec0.items!.used, a) === 1 && diff(rec1.items!.used, rec0.items!.used, b) === 0, `won: used ${JSON.stringify(rec1.items!.used)}`);
+    assert(diff(rec1.items!.gained, rec0.items!.gained, b) === 1 && diff(rec1.items!.gained, rec0.items!.gained, a) === 0, `won: gained ${JSON.stringify(rec1.items!.gained)}`);
+    assert(ITEM_KINDS.every(k => rec1.items!.left[k] === run.items[k]) && run.items[b] === handIn[b] + 1 && run.items[a] === handIn[a] - 1, `won: left ${JSON.stringify(rec1.items!.left)} hand ${JSON.stringify(run.items)}`);
+    // Fight 2, lost: `b` used. The run's hand stays as before the fight (a lost run is not updated), the record's `left` is the world's.
+    toBattle();
+    const handBefore = { ...run.items }, rec2 = await latest();
+    const lost = fight([b], { lose: true });
+    feed(lost.step);
+    const rec3 = await latest();
+    assert(run.result?.outcome === 'defeat' && rec3.outcome === 'defeat', 'the run is lost');
+    assert(diff(rec3.items!.used, rec2.items!.used, b) === 1 && diff(rec3.items!.gained, rec2.items!.gained, b) === 0, `lost: ${JSON.stringify(rec3.items)}`);
+    assert(ITEM_KINDS.every(k => rec3.items!.left[k] === lost.sim.world.kit!.items[k]) && rec3.items!.left[b] === handBefore[b] - 1 && run.items[b] === handBefore[b], `lost: left ${JSON.stringify(rec3.items!.left)} stale hand ${JSON.stringify(run.items)}`);
+    // The hand starts empty and every move is in a step: gained − used = left for every kind.
+    assert(ITEM_KINDS.every(k => (rec3.items!.gained[k] ?? 0) - (rec3.items!.used[k] ?? 0) === rec3.items!.left[k]), `conservation ${JSON.stringify(rec3.items)}`);
     rec.dispose();
   });
 

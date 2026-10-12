@@ -14,13 +14,15 @@
  *   inside median / total, step backs with re-adds and seal kills in the arena and sandbox tables.
  * - П6 and П8 (12.10.2026): hand-written run records (with and without `endedAt`, with `mapSigns`) give the share of ended
  *   runs followed by a new run within 2 minutes, the median pause and the sign's choice share, counted by hand.
+ * - Consumables per run (12.10.2026): hand-written run records with `items` (and one without) give the gained / used / left of
+ *   each run by kind, the totals and the medians, counted by hand; a record before the field reads «нет данных».
  * - The package «Урон имеет значение»: the fixtures, written before the elite fields, are not compared on them; a sandbox
  *   fight with armoured elites (eliteFight.testkit.ts) agrees with the replay and fills the «Элиты» table, the chain shares
  *   (a tough one not first, ended on a survivor) and the raised touches line.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, latestRuns, mapSignStats, newRunGroups, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, latestRuns, mapSignStats, newRunGroups, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
@@ -261,6 +263,36 @@ async function main(): Promise<void> {
     assert(section.includes('| 2 | 4 | 2 (50%) | 2 |') && section.includes('55–75'), section);
     const none = md.slice(md.indexOf('## Новое на карте'), md.indexOf('## Угрозы'));
     assert(none.includes('_нет данных_'), 'the fixtures have no signs');
+  });
+
+  await check('consumables per run: gained / used / left by kind, totals and medians over the runs with data; an old record is «нет данных»', () => {
+    const zero = { frost: 0, bomb: 0, healing: 0, fire: 0 };
+    const items = (gained: Partial<typeof zero>, used: Partial<typeof zero>, left: Partial<typeof zero>) => ({ gained: { ...gained }, used: { ...used }, left: { ...zero, ...left } });
+    const runs = [
+      runOf('s1', 'a', 'victory', { items: items({ frost: 1, healing: 3 }, { frost: 1, healing: 1 }, { healing: 2 }) }),
+      runOf('s1', 'b', 'defeat', { items: items({ bomb: 2, healing: 1 }, { bomb: 1 }, { bomb: 1, healing: 1 }) }),
+      runOf('s1', 'c', 'open', { items: items({ healing: 2, fire: 1 }, { healing: 2 }, { fire: 1 }) }),
+      runOf('s1', 'd', 'victory'),
+    ];
+    const st = runItemStats(runs);
+    const tri = (t: { gained: number; used: number; left: number }) => `${t.gained}/${t.used}/${t.left}`;
+    // By hand. Run a: frost 1/1/0, healing 3/1/2, all 4/2/2. b: bomb 2/1/1, healing 1/0/1, all 3/1/2. c: healing 2/2/0, fire 1/0/1, all 3/2/1. d has no data.
+    assert(st.rows.length === 3 && st.noData === 1, `${st.rows.length} runs with data, ${st.noData} without`);
+    assert(tri(st.rows[0].byKind.healing) === '3/1/2' && tri(st.rows[0].all) === '4/2/2' && tri(st.rows[1].all) === '3/1/2' && tri(st.rows[2].all) === '3/2/1', 'per run');
+    // Totals: frost 1/1/0, bomb 2/1/1, healing 6/3/3, fire 1/0/1, all 10/5/5.
+    assert(['frost', 'bomb', 'healing', 'fire'].map(k => tri(st.total.byKind[k])).join(' ') === '1/1/0 2/1/1 6/3/3 1/0/1' && tri(st.total.all) === '10/5/5', JSON.stringify(st.total));
+    // Medians of the three runs, each number apart: healing gained 1,2,3 → 2, used 0,1,2 → 1, left 0,1,2 → 1; the other kinds sit mostly at 0; all gained 3,3,4 → 3, used 1,2,2 → 2, left 1,2,2 → 2.
+    assert(['frost', 'bomb', 'healing', 'fire'].map(k => tri(st.median.byKind[k])).join(' ') === '0/0/0 0/0/0 2/1/1 0/0/0' && tri(st.median.all) === '3/2/2', JSON.stringify(st.median));
+    const text = reportMarkdown(collectRecords([{ name: 'items.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-12T14:00:00Z'), source: 'items' });
+    const section = text.slice(text.indexOf('### Расходники по походам'), text.indexOf('## Отметки N'));
+    assert(section.includes('| Поход | Итог | Холод | Бомба | Лечение | Огонь | Всего |'), section);
+    assert(section.includes('| `a` | победа | 1 / 1 / 0 | 0 / 0 / 0 | 3 / 1 / 2 | 0 / 0 / 0 | 4 / 2 / 2 |') && section.includes('| `b` | поражение | 0 / 0 / 0 | 2 / 1 / 1 | 1 / 0 / 1 | 0 / 0 / 0 | 3 / 1 / 2 |')
+      && section.includes('| `c` | не закончен | 0 / 0 / 0 | 0 / 0 / 0 | 2 / 2 / 0 | 1 / 0 / 1 | 3 / 2 / 1 |') && !section.includes('`d`'), section);
+    assert(section.includes('| **всего** | походов: 3 | 1 / 1 / 0 | 2 / 1 / 1 | 6 / 3 / 3 | 1 / 0 / 1 | 10 / 5 / 5 |') && section.includes('| **медиана** |  | 0 / 0 / 0 | 0 / 0 / 0 | 2 / 1 / 1 | 0 / 0 / 0 | 3 / 2 / 2 |'), section);
+    assert(section.includes('Нет данных (записи до 12.10.2026), походов: 1;'), 'the old record is counted apart');
+    // The fixtures' runs were recorded before the field: «нет данных», no rows.
+    const old = md.slice(md.indexOf('### Расходники по походам'), md.indexOf('## Отметки N'));
+    assert(old.includes('_нет данных_') && old.includes('Нет данных (записи до 12.10.2026), походов: 1;'), old);
   });
 
   console.log(`${checks} checks passed`);

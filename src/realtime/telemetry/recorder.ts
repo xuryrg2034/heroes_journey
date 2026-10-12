@@ -22,6 +22,7 @@ import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
 import { rtEventView, rtGiftView, rtNode, rtRestView, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
+import { ITEM_KINDS } from '../forest/items';
 import { TelemetryBuffer, telemetryKeys, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type BufferOptions, type BufferStats, type KeyValueStore } from './buffer';
 import { EventCursor } from './observe';
 import { artifactSource, DeliveryQueue, type SinkSource } from './sinks';
@@ -29,7 +30,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunMapSign, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapSign, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
 } from './schema';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
@@ -272,6 +273,8 @@ interface RunMeta {
   endedAt?: string;
   /** П8: the map choices made with the sign «✦ новое» shown (absent — none yet). */
   mapSigns?: RunMapSign[];
+  /** Consumables gained / used / left (absent — no step seen yet). */
+  items?: RunItems;
 }
 
 /** Where a fight is: a run node or the sandbox. */
@@ -284,6 +287,10 @@ interface OpenFight {
   run: string;
   ctx: FightContext;
   hpIn: number;
+  /** The consumables in hand when the run fight began (the run's own count). */
+  itemsIn?: Record<string, number>;
+  /** Set when the fight ended with a result: the hand at the end and the consumables used; the next run step takes it once. */
+  itemsOut?: { end: Record<string, number>; used: Record<string, number> };
   done: boolean;
   /** `pagehide` cut the fight (its stash key): a page restored from the back-forward cache records it on. */
   hidden?: string;
@@ -444,7 +451,7 @@ export class RtRecorder {
         key = fightKey(meta.fightCount, ctx.nodeId, meta.attempts[ctx.nodeId]);
         this.saveMeta();
       }
-      this.fight = { sim, tap: new FightTap(this.observer(world), world), key, run, ctx, hpIn: world.hero.hp, done: false };
+      this.fight = { sim, tap: new FightTap(this.observer(world), world), key, run, ctx, hpIn: world.hero.hp, ...ctx.runState ? { itemsIn: { ...ctx.runState.items } } : {}, done: false };
     });
   }
 
@@ -487,6 +494,7 @@ export class RtRecorder {
       ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
       ...view ? { view } : {}, summary: f.tap.summary(world),
     };
+    if (f.itemsIn && world.kit && (outcome === 'victory' || outcome === 'defeat')) f.itemsOut = { end: { ...world.kit.items }, used: { ...body.summary.abilities.items } };
     if (f.run !== SANDBOX_RUN && this.meta?.key === f.run) {
       const meta = this.meta;
       if (!meta.fights.includes(f.key)) meta.fights.push(f.key);
@@ -619,7 +627,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.items ? { items: meta.items } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -676,11 +684,41 @@ export class RtRecorder {
         }
       }
       for (const c of stepChoices(before, step)) mergeChoice(meta.choices, c);
+      if (before && before.seed === after.seed) this.trackItems(meta, before, step);
       const last = meta.nodes[meta.nodes.length - 1];
       if (last) { last.hpOut = after.hp; last.maxHp = after.maxHp; }
       this.saveMeta();
       this.writeRun(after);
     });
+  }
+
+  /**
+   * Consumables of the run (`RunRecord.items`) from a step: a step outside a fight counts the change of the hand (up — gained,
+   * down — used, an event's price); the step that feeds a finished fight back counts the fight's own numbers — used (the
+   * summary's `abilities.items`) and picked up (the hand at its end, minus the start, plus the used) — plus what the node gave
+   * after the victory. A lost fight leaves the run's hand as it was, so its end is the world's.
+   */
+  private trackItems(meta: RunMeta, before: RtRunState, step: Extract<RtRunStep, { ok: true }>): void {
+    const after = step.run, fightStep = after.battles.length > before.battles.length;
+    const f = this.fight, nodeId = before.pending?.kind === 'battle' ? before.pending.nodeId : null;
+    const own = fightStep && f && f.done && f.run === meta.key && f.ctx.nodeId === nodeId && f.itemsIn && f.itemsOut ? f : null;
+    const lost = step.events.some(e => e.type === 'run-lost');
+    const items = meta.items ??= { gained: {}, used: {}, left: { ...before.items } };
+    const add = (map: Record<string, number>, kind: string, n: number): void => { if (n > 0) map[kind] = (map[kind] ?? 0) + n; };
+    for (const kind of ITEM_KINDS) {
+      const moved = after.items[kind] - before.items[kind];
+      if (own) {
+        const inHand = own.itemsIn![kind] ?? 0, end = own.itemsOut!.end[kind] ?? 0, used = own.itemsOut!.used[kind] ?? 0;
+        add(items.gained, kind, end - inHand + used); add(items.used, kind, used);
+        // What the node gave or took after a won fight (the hand moved beyond the fight's own change).
+        if (!lost) { const rest = moved - (end - inHand); add(items.gained, kind, rest); add(items.used, kind, -rest); }
+        items.left[kind] = lost ? end : after.items[kind];
+      } else {
+        add(items.gained, kind, moved); add(items.used, kind, -moved);
+        items.left[kind] = after.items[kind];
+      }
+    }
+    if (own) own.itemsOut = undefined;
   }
 
   // ---- The «Логи» panel ----

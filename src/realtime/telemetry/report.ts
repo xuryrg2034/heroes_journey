@@ -11,7 +11,7 @@ import { arenaTemplate } from '../sim/arenas';
 import { worldState } from '../sim/hash';
 import { copyParams, type Params } from '../sim/params';
 import { Simulation, type Journal } from '../sim/simulation';
-import type { Loadout } from '../sim/kit';
+import { ITEM_TITLES, SLOT_ITEMS, type Loadout } from '../sim/kit';
 import type { World } from '../sim/world';
 import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
 import {
@@ -599,6 +599,48 @@ function mapSignRows(runs: readonly RunRecord[]): (string | number)[][] {
 }
 // ---- end П6 / П8 ----
 
+// ---- Consumables per run (12.10.2026) ----
+
+/** Gained / used / left of one run in one cell group: a kind, or all kinds together (`kind` absent). */
+export interface ItemTriple { gained: number; used: number; left: number }
+export interface RunItemStats {
+  /** The runs with `RunRecord.items`, in the order given, each with its triple per kind and in all. */
+  rows: { run: RunRecord; byKind: Record<string, ItemTriple>; all: ItemTriple }[];
+  /** Runs whose record has no `items` (records before 12.10.2026): left out of the totals and medians. */
+  noData: number;
+  total: { byKind: Record<string, ItemTriple>; all: ItemTriple };
+  /** The median over the runs with data, each number on its own (the three medians need not add up). */
+  median: { byKind: Record<string, ItemTriple>; all: ItemTriple };
+}
+export function runItemStats(runs: readonly RunRecord[]): RunItemStats {
+  const sum = (t: readonly ItemTriple[]): ItemTriple => ({ gained: t.reduce((a, x) => a + x.gained, 0), used: t.reduce((a, x) => a + x.used, 0), left: t.reduce((a, x) => a + x.left, 0) });
+  const mid = (t: readonly ItemTriple[]): ItemTriple => t.length ? ({ gained: median(t.map(x => x.gained)), used: median(t.map(x => x.used)), left: median(t.map(x => x.left)) }) : { gained: 0, used: 0, left: 0 };
+  const rows = runs.filter(r => r.items).map(run => {
+    const it = run.items!, byKind: Record<string, ItemTriple> = {};
+    for (const k of SLOT_ITEMS) byKind[k] = { gained: it.gained[k] ?? 0, used: it.used[k] ?? 0, left: it.left[k] ?? 0 };
+    return { run, byKind, all: sum(Object.values(byKind)) };
+  });
+  const per = (f: (t: readonly ItemTriple[]) => ItemTriple): RunItemStats['total'] => ({
+    byKind: Object.fromEntries(SLOT_ITEMS.map(k => [k, f(rows.map(r => r.byKind[k]))])), all: f(rows.map(r => r.all)),
+  });
+  return { rows, noData: runs.length - rows.length, total: per(sum), median: per(mid) };
+}
+const ITEM_RUN_HEAD = ['Поход', 'Итог', ...SLOT_ITEMS.map(k => ITEM_TITLES[k]), 'Всего'];
+const ITEM_RUN_LEGEND = 'Расходники по походам (`RunRecord.items`, с 12.10.2026): в каждой ячейке «получено / использовано / осталось». Получено — попало в руку (дар, находка, покупка, событие, подобрано в бою); использовано — ушло из руки (в бою, цена события); осталось — в руке в конце (у проигравшего похода — в конце проигранного боя; у открытого — сейчас). Медиана — по походам с данными, каждое из трёх чисел отдельно. Цель — увидеть, копят ли лечение: много «осталось» у лечения в конце похода значит, что его не тратят (эвристика, не оценка баланса).';
+function itemRunTable(runs: readonly RunRecord[]): string {
+  const st = runItemStats(runs), cell3 = (t: ItemTriple): string => `${n1(t.gained)} / ${n1(t.used)} / ${n1(t.left)}`;
+  const row = (label: string, outcome: string, p: { byKind: Record<string, ItemTriple>; all: ItemTriple }) => [label, outcome, ...SLOT_ITEMS.map(k => cell3(p.byKind[k])), cell3(p.all)];
+  const rows = st.rows.length ? [
+    ...st.rows.map(r => row(`\`${r.run.run}\``, OUTCOME_TITLES[r.run.outcome] ?? r.run.outcome, r)),
+    row('**всего**', `походов: ${st.rows.length}`, st.total), row('**медиана**', '', st.median),
+  ] : [];
+  return [
+    ITEM_RUN_LEGEND, '', table(ITEM_RUN_HEAD, rows),
+    ...st.noData ? ['', `Нет данных (записи до 12.10.2026), походов: ${st.noData}; в «всего» и в медиану они не входят.`] : [],
+  ].join('\n');
+}
+// ---- end consumables per run ----
+
 function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
   const rows = new Map<string, { kinds: Set<string>; offered: number; taken: number; refused: number; fired: number; fights: number; active: number }>();
   const row = (id: string) => rows.get(id) ?? rows.set(id, { kinds: new Set(), offered: 0, taken: 0, refused: 0, fired: 0, fights: 0, active: 0 }).get(id)!;
@@ -626,7 +668,8 @@ function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]
     'Предложен / взят / отказ — из выборов походов; «сработал» — события сборки в повторе боёв (`talismanFired`, молот, оберег);',
     '«действует» — постоянный модификатор без срабатываний (число боёв, где он был в сборке).', '',
     table(['Предмет', 'Выбор', 'Предложен', 'Взят', 'Отказ', 'Сработал'], list), '',
-    '### Расходники в боях', '', table(['Расходник', 'Использован'], usedRows),
+    '### Расходники в боях', '', table(['Расходник', 'Использован'], usedRows), '',
+    '### Расходники по походам', '', itemRunTable(runs),
   ].join('\n');
 }
 
