@@ -42,6 +42,7 @@
     "test:realtime-new-seen": "tsx src/realtime/view/newSeen.spec.ts",
     "test:realtime-hints": "tsx src/realtime/view/hints.spec.ts",
     "test:realtime-link-depth": "tsx src/realtime/sim/linkDepth.spec.ts",
+    "test:realtime-color-shift": "tsx src/realtime/sim/colorShift.spec.ts",
     "test:realtime-elite-behaviors": "tsx src/realtime/sim/eliteBehaviors.spec.ts",
     "test:realtime-elite-armor": "tsx src/realtime/sim/eliteArmor.spec.ts",
     "test:realtime-loot-opens": "tsx src/realtime/sim/lootOpens.spec.ts",

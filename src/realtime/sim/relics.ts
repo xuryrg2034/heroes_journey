@@ -74,7 +74,8 @@ function killCounter(id: string, every: number, fire: (world: World) => void): P
   };
 }
 
-registerBuildModule({ id: RELICS.millstone, modify: { crystalEvery: (_world, value) => millstoneEvery(value) } });
+// «Смена цвета» on (`colorShiftLinks` > 0): the relic makes the shift 2 links sooner instead of the crystal (build.ts `colorShiftOf`).
+registerBuildModule({ id: RELICS.millstone, modify: { crystalEvery: (_world, value) => millstoneEvery(value), colorShift: (_world, value) => millstoneEvery(value) } });
 
 registerBuildModule({
   id: RELICS.heavyBlade,

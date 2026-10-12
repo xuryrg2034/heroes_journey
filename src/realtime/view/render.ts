@@ -13,7 +13,7 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, colorShiftIds, colorShiftLeft, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
@@ -851,6 +851,7 @@ export class RealtimeRenderer {
     // Crowd readability (design answer 10): while a chain is drawn, other colors are muted.
     const color = world.chain.length ? chainColor(world) : null;
     const mode = world.params.dimMode, strength = world.params.dimStrength;
+    let dimmed = 0;
     for (const e of world.enemies) {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
@@ -876,6 +877,7 @@ export class RealtimeRenderer {
       // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).
       view.root.visible = this.sees(e, 1.5);
       const dim = color !== null && e.color !== color ? strength : 0;
+      if (dim > 0 && view.root.visible) dimmed++;
       view.root.alpha = mode === 'alpha' ? 1 - dim : 1;
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
@@ -899,6 +901,7 @@ export class RealtimeRenderer {
       }
     }
     this.quillCounts = { quillsRaised, quillsTrembling };
+    this.dimmedShown = dimmed;
     for (const [id, view] of this.enemyViews) if (!seen.has(id)) { view.root.destroy({ children: true }); this.enemyViews.delete(id); }
     this.enemyLayer.sortableChildren = true;
   }
@@ -1513,6 +1516,10 @@ export class RealtimeRenderer {
   curseShown = { chests: 0, border: false, label: '' };
   /** «Щит фокуса»: the rim was drawn this frame (tests read it). */
   focusGuardShown = false;
+  /** «Смена цвета»: the enemy id of the link with the rainbow ring this frame (0 — none; tests read it). */
+  colorShiftShown = 0;
+  /** Bodies on screen dimmed as «another colour» of the drawn chain in the last frame (tests read it: a free colour dims none). */
+  dimmedShown = 0;
 
   /** «проклятие 7/12» under the hero's HP bar while the curse lasts: the dash's kills toward lifting it. */
   private drawCurseCounter(world: World): void {
@@ -1914,6 +1921,7 @@ export class RealtimeRenderer {
     this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
+    this.colorShiftShown = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
     for (const e of world.enemies) {
       if (e.hurtFlash <= 0) continue;
@@ -2022,6 +2030,25 @@ export class RealtimeRenderer {
       }
     }
     this.signals.quillBadges = quills;
+    // «Смена цвета» (sim `colorShiftLeft`): the chain's colour is free — the link that freed it gets a rainbow ring of the
+    // arena's colours (the bodies of every colour are lit: `chainColor` is null, nothing is dimmed).
+    if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal && colorShiftLeft(world) === 0) {
+      const id = colorShiftIds(world).at(-1), e = id === undefined ? undefined : world.enemies.find(x => x.id === id);
+      if (e) { this.drawRainbow(g, world, e); this.colorShiftShown = e.id; }
+    }
+  }
+
+  /** «Смена цвета»: a rainbow ring round `e` — arcs of the arena's chain colours over a navy rim, turning slowly. */
+  private drawRainbow(g: Graphics, world: World, e: Enemy): void {
+    const p = world.params, x = e.x * UNIT, y = e.y * UNIT;
+    const R = enemyDrawRadius(p) * UNIT * (e.elite ? p.eliteArtScale * 1.06 : 1) + 10;
+    const colors = CHAIN_COLORS.slice(0, Math.max(2, Math.min(CHAIN_COLORS.length, p.colorCount)));
+    g.circle(x, y, R).stroke({ color: NAVY, width: 12, alpha: 0.8 });
+    const turn = this.clock * 1.6, part = (Math.PI * 2) / colors.length;
+    colors.forEach((c, i) => {
+      const a0 = turn + i * part, a1 = a0 + part;
+      g.moveTo(x + Math.cos(a0) * R, y + Math.sin(a0) * R).arc(x, y, R, a0, a1).stroke({ color: c, width: 7.5, alpha: 1, cap: 'butt' });
+    });
   }
 
   /**

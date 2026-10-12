@@ -14,7 +14,8 @@
  *   that left the hero at 3 HP or lower (`tick` — ticks run, `world.tick`).
  * - chain: a chain is a dash that started (`world.move` of kind `dash` appeared). Length — enemy links at the release;
  *   colour changes — changes of colour between consecutive enemy links of the released chain (through a crystal);
- *   crystals — crystals dropped (`crystal` events); cancels — a drawn chain emptied by a command without a dash (cancel,
+ *   crystals — crystals dropped (`crystal` events); colour shifts — `colorShift` events (the dash reached the link that freed
+ *   the colour, «Смена цвета»); cancels — a drawn chain emptied by a command without a dash (cancel,
  *   the step back off the last link, a release with no link left); steps back — a command that shortened the drawn chain
  *   and left it non-empty; focus spent — real seconds of focus burnt while focusing; empty focus — ticks a chain was drawn
  *   with no focus left; chains with a survivor — dashes that struck a link that survived (the chain stopped there; a hit
@@ -219,6 +220,8 @@ export function createFightObserver(start: World): FightObserver {
           return;
         case 'loot': if (ev.picked) s.elites.loot.picked++; else s.elites.loot.dropped++; return;
         case 'crystal': s.chain.crystals++; return;
+        // «Смена цвета»: the dash reached the link that freed the colour (a shift by length, not through a crystal).
+        case 'colorShift': s.chain.colorShifts++; return;
         case 'loop':
           // The pointer on the last link opens (no reason); the rules open with one (sim `syncLoop`).
           if (ev.action === 'open') { if (ev.refusal) bump(s.chain.loopBreaks, ev.refusal); else s.chain.unseals++; lastRefusal = null; return; }

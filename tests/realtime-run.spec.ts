@@ -621,3 +621,61 @@ test('run (design 12.10.2026, «Щит фокуса»): holding a mouse chain of
   expect(three.hurtAt).toBeGreaterThanOrEqual(three.emptyAt);
   expect(errors).toEqual([]);
 });
+
+test('run (design 12.10.2026, «Смена цвета»): a mouse chain of 6 enemies of one colour, «до смены 2» and «1» at the pointer, the 6th gets the rainbow ring and nothing is dimmed, the 7th of another colour joins', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await newRun(page);
+  await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['boarMax', 0], ['hitstop', false], ['contactDamage', 0]] as const) rt.setParam(k, v);
+    rt.clear(false);
+  });
+  const rule = await page.evaluate(() => { const rt = (window as any).__realtime; return { crystals: rt.params.crystals, links: rt.params.colorShiftLinks, every: rt.snapshot().colorShift.every }; });
+  expect(rule).toEqual({ crystals: false, links: 6, every: 6 });
+  // The help line tells the run's rule, not the crystal (no crystals fall in the run).
+  await expect(page.getByTestId('help-color')).toHaveText('каждые 6 звеньев — смена цвета');
+  // Six weak enemies of colour 0 in a spiral round the hero (1 apart), the 7th of colour 1 after the 6th; one more of colour 2
+  // off the path (it shows the dimming).
+  const offsets = [[1, 0], [1.6, 0.8], [0.8, 1.4], [-0.2, 1.3], [-1, 0.6], [-1, -0.4], [-0.2, -1.1]];
+  const { at, ids } = await page.evaluate((offsets) => {
+    const rt = (window as any).__realtime, h = rt.snapshot().hero;
+    const at = offsets.map(([dx, dy], i) => { rt.place(h.x + dx, h.y + dy, i < 6 ? 0 : 1, 0, 'basic'); return rt.toScreen(h.x + dx, h.y + dy) as { x: number; y: number }; });
+    rt.place(h.x + 2.6, h.y - 1.2, 2, 0, 'basic');
+    return { at, ids: rt.snapshot().enemies.map((e: { id: number }) => e.id) as number[] };
+  }, offsets);
+  type Reading = { links: number; text: string | null; rainbow: number; dimmed: number; left: number | null; every: number };
+  /** The frame the drawn chain has `n` links and the pointer line caught up (from 4 links it shows; the 6th — the ring). */
+  const reading = (n: number): Promise<Reading> => untilFrame(page, (s, n: number, late) =>
+    (s.chain.length === n && (n < 4 || n > 6 || (n === 6 ? s.colorShift.rainbow !== 0 : s.colorShift.text !== null))) || late ? { links: s.chain.length, ...s.colorShift } : undefined, n, 3);
+  await page.mouse.move(at[0].x, at[0].y);
+  await page.mouse.down();
+  const seen: Record<number, Reading> = {};
+  for (let i = 1; i < 6; i++) {
+    await page.mouse.move(at[i].x, at[i].y);
+    seen[i + 1] = await reading(i + 1);
+  }
+  expect(seen[3]).toMatchObject({ links: 3, text: null, rainbow: 0 });
+  expect(seen[4]).toMatchObject({ links: 4, left: 2, text: 'до смены 2', rainbow: 0 });
+  expect(seen[5]).toMatchObject({ links: 5, left: 1, text: 'до смены 1', rainbow: 0 });
+  // Five of colour 0: the bodies of colours 1 and 2 are dimmed.
+  expect(seen[5].dimmed).toBeGreaterThanOrEqual(2);
+  // The 6th: the colour is free — the rainbow on it, no pointer line, nothing dimmed.
+  const sixth = await page.evaluate(() => (window as any).__realtime.snapshot().chain[5] as number);
+  expect(seen[6]).toMatchObject({ links: 6, left: 0, text: null, rainbow: sixth, dimmed: 0 });
+  await page.screenshot({ path: 'artifacts/realtime-color-shift.png' });
+  await page.mouse.move(at[6].x, at[6].y);
+  // The 7th (colour 1) joins; it set the new colour and the count started again: 5 left, no ring.
+  expect(await reading(7)).toMatchObject({ links: 7, left: 5, rainbow: 0 });
+  await page.mouse.up();
+  await page.mouse.move(20, 20);
+  // The dash kills all seven.
+  const alive = await untilFrame(page, (s, ids: number[], late) => {
+    const left = ids.slice(0, 7).filter(id => s.enemies.some((e: { id: number }) => e.id === id)).length;
+    return (!s.moving && left === 0) || late ? left : undefined;
+  }, ids, 5);
+  expect(alive).toBe(0);
+  expect(errors).toEqual([]);
+});

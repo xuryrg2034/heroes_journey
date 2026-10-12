@@ -31,7 +31,7 @@ import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman } from './kit';
-import { afterLinkPowerOf, buildActive, chainShieldOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainEnd, type LinkContext } from './build';
+import { afterLinkPowerOf, buildActive, chainShieldOf, colorShiftOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainEnd, type LinkContext } from './build';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
@@ -44,7 +44,7 @@ import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, ene
 
 export { OBJECT_RADIUS };
 // Phase B: these two moved to build.ts (the build may change them); the view and the tests import them from here as before.
-export { crystalEveryOf, jumpCostOf };
+export { colorShiftOf, crystalEveryOf, jumpCostOf };
 
 /** Energy cap, as in the main game. */
 export const ENERGY_MAX = 7;
@@ -383,18 +383,61 @@ export function isBrazier(world: World, link: ChainLink): boolean {
 export const brazierPowerOf = (world: World): number => Math.max(0, world.params.brazierPower);
 
 /**
+ * The colour segments of `links` (design 12.10.2026, «Смена цвета»): `color` — the colour of the last segment (null — none
+ * yet: no enemy since the start or the last crystal), `count` — its enemy links, `shifts` — the ids of the links that freed
+ * the colour (the `every`-th link of each segment; empty while the rule is off).
+ *
+ * A segment starts at the first enemy link, after a crystal (it resets the colour and the count) and, with `every` > 0, at
+ * the first enemy link after `every` links of the segment (that link may be of any colour; it sets the new one). Every enemy
+ * link counts, whatever its outcome (an elite's plate hit too); objects that keep the colour (loot, a brazier, the chest)
+ * do not count and do not reset. A link of another colour inside a segment (a link before it died while the chain was
+ * drawn: the chain is counted again from the links left) just counts.
+ */
+function colorSegments(world: World, links: readonly ChainLink[], every: number): { color: number | null; count: number; shifts: number[] } {
+  let color: number | null = null, count = 0;
+  const shifts: number[] = [];
+  for (const link of links) {
+    if (isCrystal(world, link)) { color = null; count = 0; continue; }
+    if (link.kind !== 'enemy') continue;
+    const e = findEnemy(world, link.id);
+    if (!e) continue;
+    if (color === null || (every > 0 && count >= every)) { color = e.color; count = 0; }
+    count++;
+    if (every > 0 && count === every) shifts.push(e.id);
+  }
+  return { color, count, shifts };
+}
+
+/**
  * Color of the drawn chain: the first enemy link after the last crystal (a crystal changes the color:
- * the next enemy sets the new one). Null — any color (no enemy yet, or a crystal is the last link).
+ * the next enemy sets the new one). Null — any color (no enemy yet, or a crystal is the last link). «Смена цвета»
+ * (`colorShiftOf` > 0): also null once the last colour segment has that many enemy links — the next enemy link may be of
+ * any colour. `canLink`, the refusals, the highlight and П1 (linkDepth.ts) read this one function.
  */
 export function chainColor(world: World): number | null {
-  let color: number | null = null;
-  for (const link of world.chain) {
-    if (isCrystal(world, link)) { color = null; continue; }
-    if (link.kind !== 'enemy' || color !== null) continue;
-    const e = findEnemy(world, link.id);
-    if (e) color = e.color;
-  }
-  return color;
+  const every = colorShiftOf(world), { color, count } = colorSegments(world, world.chain, every);
+  return every > 0 && count >= every ? null : color;
+}
+
+/**
+ * «Смена цвета»: enemy links the drawn chain's colour segment still needs before the colour is free (0 — free now: the last
+ * enemy link freed it). Null — the rule is off or no colour is set yet (no enemy link since the start or the last crystal).
+ * The view's «до смены N» and the rainbow ring read it.
+ */
+export function colorShiftLeft(world: World): number | null {
+  const every = colorShiftOf(world);
+  if (every <= 0) return null;
+  const { color, count } = colorSegments(world, world.chain, every);
+  return color === null ? null : Math.max(0, every - count);
+}
+
+/**
+ * «Смена цвета»: the ids of the enemy links of `links` that free the colour (the last link of each full colour segment), in
+ * order. Empty while the rule is off. The release fixes them for the dash (`HeroMove.shifts`).
+ */
+export function colorShiftIds(world: World, links: readonly ChainLink[] = world.chain): number[] {
+  const every = colorShiftOf(world);
+  return every > 0 ? colorSegments(world, links, every).shifts : [];
 }
 
 /** Score of a finished chain with `kills` kills: per kill × K × (1 + bonus × K), or flat per kill with the toggle off. */
@@ -698,6 +741,9 @@ export function releaseChain(world: World): boolean {
     world.events.push({ type: 'seal', phase: 'release', kind: seal.kind, points: seal.ring.map(q => ({ x: q.x, y: q.y })), inside: [...seal.inside], links: seal.links });
   }
   if (pierce) fixPierce(world, world.move, pierce);
+  // «Смена цвета»: the links that free the colour, as drawn (absent while the rule is off or the chain has none).
+  const shifts = colorShiftIds(world, links);
+  if (shifts.length) world.move.shifts = shifts;
   // Casino «Котёл»: the dash counts its cheque (purse.ts; absent while the cauldron is off).
   if (purseOn(world)) world.move.purse = { embers: 0, links: 0, last: false };
   // П4 «Раздув за дела»: a chain released with the door open counts toward a greed step (absent while the rule is off).
@@ -960,6 +1006,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
   world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
   enemy.hurtFlash = Math.max(p.hitFlash, 0.01);
   world.events.push({ type: 'chainHit', enemyId: enemy.id, damage: outcome.damage, killed: outcome.killed, x: enemy.x, y: enemy.y, combo: move.hits, ...outcome.plate ? { plates: outcome.platesAfter } : {} });
+  // «Смена цвета»: the link that freed the colour, whatever its outcome (a kill, a plate, a survivor).
+  if (move.shifts) reachShift(world, move, enemy);
   if (outcome.plate) {
     // The package (4.3, rule 1): the hit takes a plate (at 0 the window opens), the elite is no survivor — the chain goes on
     // through it; the hero does not take its spot (it stands). As the last link: back to the stop, as from a survivor.
@@ -1030,6 +1078,7 @@ function passFallen(world: World, fallen: FallenLink): void {
   // ability's kill none.
   if (move.purse) tallyLink(move.purse, fallen.embers ?? 0, true);
   if (world.oath) oathLink(world);
+  if (move.shifts) reachShift(world, move, fallen);
   if (!fallen.credited) return;
   move.kills++;
   if (ctx) {
@@ -1038,6 +1087,20 @@ function passFallen(world: World, fallen: FallenLink): void {
   }
   if (p.crystals && crystalEveryOf(world) > 0 && move.kills % crystalEveryOf(world) === 0) dropCrystal(world, { x: fallen.x, y: fallen.y });
   maybeFinisher(world);
+}
+
+/**
+ * «Смена цвета»: the dash reached `link` — if it freed the chain's colour (`HeroMove.shifts`), event `colorShift`, «Кристалл в
+ * цепи» of the oath is met (a shift counts as a crystal broken), the build's `onColorShift` («Призма»: +1 energy).
+ */
+function reachShift(world: World, move: HeroMove, link: { id: number; x: number; y: number }): void {
+  const shifts = move.shifts!, at = shifts.indexOf(link.id);
+  if (at < 0) return;
+  shifts.splice(at, 1);
+  if (!shifts.length) delete move.shifts;
+  world.events.push({ type: 'colorShift', enemyId: link.id, x: link.x, y: link.y });
+  if (world.oath) oathCrystal(world);
+  runHook(world, 'onColorShift', m => m.onColorShift!(world, { id: link.id, x: link.x, y: link.y }));
 }
 
 /** Stage 3a (М4): the dash takes a burning brazier: +`brazierPower` to the rest, it goes out for `brazierCooldown` s. */

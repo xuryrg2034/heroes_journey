@@ -50,7 +50,8 @@ const RT_SLICE_TALISMANS: readonly RtTalismanDef[] = [
   turn('whetstone', 'Первая цепь каждой арены начинается с силой 1'),
   turn('dew-flask', `Лечение на привале на ${RT_DEW_FLASK_HEAL} HP больше`),
   turn('tough-hide', `+${RT_TOUGH_HIDE_HP} к максимуму HP (и +${RT_TOUGH_HIDE_HP} HP сразу)`),
-  turn('millstone-shard', 'Кристалл падает за каждые 5 убийств цепью вместо 6'),
+  // «Смена цвета» (design 12.10.2026): same id, the run's new action (sim/build.ts `colorShiftOf`); the sandbox with crystals — the crystal step.
+  turn('millstone-shard', 'Смена цвета на 1 звено раньше: после 5 звеньев одного цвета вместо 6'),
   turn('hourglass', 'Фазы после целей начинаются на 10 с позже'),
   turn('nimble-paws', 'Прыжок стоит 1 энергию вместо 2'),
   turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается'),
@@ -75,7 +76,7 @@ export const RT_TURN_TALISMANS: readonly TalismanId[] = RT_SLICE_TALISMANS.map(e
 export const RT_COUNTER_TALISMANS: readonly RtTalismanDef[] = [
   { id: CT.fifthLink, name: 'Пятое звено', rarity: 'common', effect: 'Каждое 5-е звено цепи (5, 10, 15…) получает +2 силы перед ударом' },
   { id: CT.thirdChain, name: 'Третья цепь', rarity: 'common', effect: 'Каждая 3-я цепь арены, убившая хотя бы одного: следующий прыжок за 5 с бесплатен' },
-  { id: CT.prism, name: 'Призма', rarity: 'common', effect: '+1 энергия за каждый кристалл, разбитый проходом' },
+  { id: CT.prism, name: 'Призма', rarity: 'common', effect: '+1 энергия за каждую смену цвета цепи и за каждый кристалл, разбитый проходом' },
   { id: CT.shockwave, name: 'Ударная волна', rarity: 'uncommon', effect: 'Цепь из 8+ звеньев: в конце прохода волна радиусом 2 вокруг героя бьёт на 1 всех врагов' },
   { id: CT.finisher, name: 'Добивание', rarity: 'uncommon', effect: 'Последнее звено цепи погибло: неуязвимость после цепи 1 с вместо 0,5 с', excludes: [RL.swiftFeet] },
   { id: CT.eliteHunter, name: 'Охотник на элит', rarity: 'uncommon', effect: 'Элита в цепи: звенья после неё получают +3 силы (один раз)' },
@@ -84,7 +85,7 @@ export const RT_COUNTER_TALISMANS: readonly RtTalismanDef[] = [
 ];
 /** Т3. Relics (section 5): a strong plus and a price; offered with the oaths by the Jailer's row, never sold. */
 export const RT_RELICS: readonly RtTalismanDef[] = [
-  { id: RL.millstone, name: 'Жернов', rarity: 'relic', effect: 'Кристалл за каждые 4 убийства цепью', price: 'максимум HP −3' },
+  { id: RL.millstone, name: 'Жернов', rarity: 'relic', effect: 'Смена цвета на 2 звена раньше: после 4 звеньев одного цвета вместо 6', price: 'максимум HP −3' },
   { id: RL.heavyBlade, name: 'Тяжёлый клинок', rarity: 'relic', effect: 'Каждое звено даёт +2 силы вместо +1', price: 'запас фокуса вдвое меньше' },
   { id: RL.swiftFeet, name: 'Быстрые ноги', rarity: 'relic', effect: 'Скорость героя +25%', price: 'нет неуязвимости после цепи', excludes: [CT.finisher] },
   { id: RL.wideCircle, name: 'Широкий круг', rarity: 'relic', effect: 'Радиус звена R +25%', price: 'враги ходят на 10% быстрее' },

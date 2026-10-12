@@ -123,6 +123,13 @@ export interface Params {
   // Crystals (stage C): a colour-change crystal for every N kills of one chain, as in the main game
   crystals: boolean;
   crystalEvery: number;
+  /**
+   * «Смена цвета» (design 12.10.2026, task 4): after this many enemy links of one colour segment the drawn chain is free — the
+   * next enemy link may be of any colour; it sets the colour and the count starts again (6: the 7th, 13th … link). A crystal
+   * resets the colour and the count. An elite's plate hit is a link. Talismans: «Осколок жернова» −1, «Жернов» −2, not below 2
+   * (build.ts `colorShiftOf`). 0 — off; a journal without the key plays the old path. A run plays 6 (`RT_RUN_FORCED`).
+   */
+  colorShiftLinks: number;
   /** Game seconds a crystal lies on the arena; 0 — until a chain breaks it. */
   crystalLife: number;
   /** Score for breaking a crystal = this × kills of the chain that dropped it (main game: 20). */
@@ -716,6 +723,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   blastPush: 0.8,
   crystals: true,
   crystalEvery: 6,
+  colorShiftLinks: 0,
   crystalLife: 0,
   crystalScorePerKill: 20,
   crystalDropRadius: 4,
@@ -1053,6 +1061,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'crystals', group: 'Кристаллы', label: 'Кристаллы смены цвета', stage: 4,
     hint: 'На каждом N-м убийстве одной цепью падает кристалл в случайной точке вне оставшегося пути цепи. Кристалл — звено любого цвета: меняет цвет цепи, силы не даёт, убийством не считается.' },
   n('crystalEvery', 'Кристаллы', 'Кристалл за каждые … убийств цепи', 2, 20, 1, 4),
+  n('colorShiftLinks', 'Кристаллы', 'Смена цвета: после … звеньев', 0, 20, 1, 4, '', 'После стольких вражеских звеньев одного цвета следующее звено может быть любого цвета, с него цвет и счёт начинаются заново. Кристалл тоже сбрасывает цвет и счёт. «Осколок жернова» −1, «Жернов» −2 (не меньше 2). 0 — выкл. В походе — 6, кристаллы выключены.'),
   n('crystalLife', 'Кристаллы', 'Срок жизни кристалла', 0, 120, 5, 4, 'с', '0 — лежит, пока цепь его не разобьёт.'),
   n('crystalScorePerKill', 'Кристаллы', 'Очки за кристалл, × убийств породившей цепи', 0, 100, 5, 4),
   n('crystalDropRadius', 'Кристаллы', 'Радиус падения от места убийства', 0, 16, 0.5, 4, 'ед.', '0 — вся арена. Кристалл рядом с кучей продолжает комбо.'),

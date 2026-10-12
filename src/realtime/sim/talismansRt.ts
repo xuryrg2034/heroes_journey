@@ -33,7 +33,7 @@ export const SHOCKWAVE_LINKS = 8;
 export const SHOCKWAVE_RADIUS = 2;
 /** … that hits every enemy in it for this much (credited, source `wave`). */
 export const SHOCKWAVE_DAMAGE = 1;
-/** «Призма»: energy for every crystal the dash breaks (up to the energy cap). */
+/** «Призма»: energy for every crystal the dash breaks and every colour shift it reaches (up to the energy cap). */
 export const PRISM_ENERGY = 1;
 /** Energy cap (chain.ts `ENERGY_MAX`, as in the main game; kept here so this module needs chain.ts for nothing). */
 const ENERGY_CAP = 7;
@@ -136,15 +136,15 @@ registerBuildModule({
   },
 });
 
-// ---- «Призма»: every crystal the dash breaks +1 energy (up to the cap) ----
+// ---- «Призма»: every crystal the dash breaks +1 energy (up to the cap); with «Смена цвета» (`colorShiftLinks` > 0) also every
+// colour shift the dash reaches (the link that freed the colour, chain.ts `reachShift`) — a shift is the run's crystal ----
 
-registerBuildModule({
-  id: COUNTER_TALISMANS.prism,
-  onCrystal: w => {
-    w.energy = Math.min(ENERGY_CAP, w.energy + PRISM_ENERGY);
-    talismanFired(w, COUNTER_TALISMANS.prism);
-  },
-});
+const prismFires = (w: World): void => {
+  w.energy = Math.min(ENERGY_CAP, w.energy + PRISM_ENERGY);
+  talismanFired(w, COUNTER_TALISMANS.prism);
+};
+
+registerBuildModule({ id: COUNTER_TALISMANS.prism, onCrystal: prismFires, onColorShift: prismFires });
 
 // ---- «Добивание»: the last enemy link died — the after-chain invulnerability ×2; not with «Быстрые ноги» ----
 

@@ -21,7 +21,7 @@ import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
-import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
+import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey } from '../sim/params';
@@ -255,7 +255,16 @@ async function boot(): Promise<void> {
   const actionBar = el('div', 'rt-actionbar');
   actionBar.setAttribute('data-testid', 'action-bar');
   actionBar.append(abilities, itemBar);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · кристалл — смена цвета · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · <kbd>1</kbd>–<kbd>4</kbd> расходник в точку курсора · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза') + (recorder ? ' · <kbd>N</kbd> отметка' : ''));
+  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · <span class="rt-help-color" data-testid="help-color">кристалл — смена цвета</span> · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · <kbd>1</kbd>–<kbd>4</kbd> расходник в точку курсора · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза') + (recorder ? ' · <kbd>N</kbd> отметка' : ''));
+  // «Смена цвета»: the help's colour part follows the fight's rule (the run: «каждые 6 звеньев — смена цвета», no crystals fall).
+  const helpColor = help.querySelector<HTMLElement>('.rt-help-color')!;
+  const helpColorText = (w: World): string => {
+    const every = colorShiftOf(w);
+    if (every <= 0) return 'кристалл — смена цвета';
+    if (every === 1) return 'цвет любой';
+    const few = every % 10 >= 2 && every % 10 <= 4 && (every % 100 < 12 || every % 100 > 14), links = `каждые ${every} ${few ? 'звена' : 'звеньев'}`;
+    return w.params.crystals ? `кристалл или ${links} — смена цвета` : `${links} — смена цвета`;
+  };
   const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
@@ -322,6 +331,10 @@ async function boot(): Promise<void> {
   purseHint.setAttribute('data-testid', 'purse-forecast');
   purseHint.hidden = true;
   // ---- end «Котёл» ----
+  // «Смена цвета» (sim `colorShiftLeft`): «до смены 2», «до смены 1» at the pointer while the drawn chain nears a free colour.
+  const shiftHint = el('div', 'rt-shift-hint');
+  shiftHint.setAttribute('data-testid', 'shift-hint');
+  shiftHint.hidden = true;
   // Iteration 2.1 (docs/realtime-slice.md, section 12): a short hint over the consumables at the start of a run arena.
   const itemHint = el('div', 'rt-item-hint', 'Предметы: клавиши <kbd>1</kbd>–<kbd>4</kbd>, бьют в точку курсора');
   itemHint.setAttribute('data-testid', 'item-hint');
@@ -336,7 +349,7 @@ async function boot(): Promise<void> {
   const noteFlash = el('div', 'rt-note-flash', 'отмечено');
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, hintBox, help, pausedBadge, jumpButton, hint, purseHint, result, noteFlash);
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, hintBox, help, pausedBadge, jumpButton, hint, purseHint, shiftHint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, menu);
   if (logsPanel) host.append(logsPanel.el);
 
@@ -419,6 +432,8 @@ async function boot(): Promise<void> {
   let hintReason: Refusal | null = null;
   /** Stage 3a: why a jump would not start at the pointer (jump aiming only). */
   let jumpHint: JumpRefusal | null = null;
+  /** «Смена цвета»: links left before a free colour this frame (sim `colorShiftLeft`; null — off or no colour) and the link whose free colour already sounded. */
+  let shiftLeft: number | null = null, shiftSounded = 0;
 
   /**
    * Iteration 2.1 (interface): seconds left of each slot's blink and of the item hint (real time while the arena runs),
@@ -847,6 +862,22 @@ async function boot(): Promise<void> {
       purseHint.hidden = false;
     } else if (!purseHint.hidden) purseHint.hidden = true;
     // ---- end «Котёл» ----
+    { const text = helpColorText(w); if (helpColor.textContent !== text) helpColor.textContent = text; }
+    // «Смена цвета»: from N − 2 enemy links of the colour segment — «до смены 2», then «до смены 1» (numbers from the sim; the
+    // free colour itself is the rainbow ring of the renderer). Below the pointer's refusal line.
+    shiftLeft = live && w.chain.length && !w.move && w.status === 'playing' ? colorShiftLeft(w) : null;
+    const shiftOpen = shiftLeft !== null && !w.chainClosed && (() => { const plan = planChain(w); return !plan.endsOnSurvivor && !plan.endsOnObject; })();
+    const shiftText = shiftOpen && (shiftLeft === 1 || shiftLeft === 2) ? `до смены ${shiftLeft}` : null;
+    if (shiftText && pointerClient) {
+      if (shiftHint.textContent !== shiftText) shiftHint.textContent = shiftText;
+      shiftHint.style.left = `${pointerClient.x + 14}px`;
+      shiftHint.style.top = `${pointerClient.y + 40}px`;
+      shiftHint.hidden = false;
+    } else if (!shiftHint.hidden) shiftHint.hidden = true;
+    // The sound of a free colour: once when the link that freed it joins the drawn chain.
+    const freedBy = shiftOpen && shiftLeft === 0 ? renderer.colorShiftShown : 0;
+    if (freedBy && freedBy !== shiftSounded && params.sound) audio.colorShift(params.soundVolume);
+    shiftSounded = freedBy;
     if (params.sound) {
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
       if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }
@@ -1166,6 +1197,8 @@ async function boot(): Promise<void> {
         curseView: { ...renderer.curseShown },
         /** «Щит фокуса»: the rim round the hero this frame, and the rule now (sim `focusGuarded`). */
         focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
+        /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */
+        colorShift: { every: colorShiftOf(w), left: shiftLeft, text: shiftHint.hidden ? null : shiftHint.textContent, rainbow: renderer.colorShiftShown, dimmed: renderer.dimmedShown },
         /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */
         playerEffects: { ...renderer.playerEffects },
         /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */

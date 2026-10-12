@@ -225,6 +225,11 @@ export interface HeroMove {
    * ground (absent otherwise: dashes without it hash as before).
    */
   pierce?: PierceMove;
+  /**
+   * «Смена цвета» (`colorShiftLinks`, chain.ts `colorShiftIds`): the links of the release that freed the chain's colour (the
+   * last link of each colour segment), not reached yet (absent when none: dashes without the rule hash as before).
+   */
+  shifts?: number[];
 }
 
 /**
@@ -311,6 +316,8 @@ export type WorldEvent =
   | { type: 'enemyHit'; enemyId: number; damage: number; killed: boolean; x: number; y: number; source: string }
   | { type: 'crystal'; objectId: number; x: number; y: number }
   | { type: 'crystalBreak'; objectId: number; x: number; y: number; score: number; combo: number }
+  /** «Смена цвета»: the dash reached the link that freed the chain's colour (the N-th link of a colour segment). */
+  | { type: 'colorShift'; enemyId: number; x: number; y: number }
   | { type: 'finisher'; kills: number }
   /**
    * Loop research, step 2: the loop gesture — closed (`close`), refused with a reason (`refused`), opened by the pointer on

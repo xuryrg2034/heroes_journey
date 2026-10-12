@@ -7,7 +7,7 @@
  * - «Цепи 3+» — every released chain except the first has at least 3 enemy links;
  * - «Без прыжков» — no jump;
  * - «Без урона после целей» — no HP lost after the goals;
- * - «Кристалл в цепи» — a dash breaks a crystal at least once;
+ * - «Кристалл в цепи» — a dash breaks a crystal at least once (with «Смена цвета» on, a colour shift the dash reaches counts too);
  * - «Не больше 2 урона за бой» — at most 2 HP lost in the fight;
  * - «Элита в окне» — the player kills an armoured elite in its open window at least once (offered only where the battle
  *   brings its guaranteed elite: run/rtRun.ts `rtOathOffer`);
@@ -58,7 +58,7 @@ export const OATHS: readonly OathDef[] = [
   { id: 'chains3', name: 'Цепи 3+', short: 'цепи 3+', rule: `Каждая цепь, кроме первой, — из ${OATH_CHAIN_LINKS}+ врагов.`, once: false },
   { id: 'no-jump', name: 'Без прыжков', short: 'без прыжков', rule: 'Ни одного прыжка.', once: false },
   { id: 'clean-after-goals', name: 'Без урона после целей', short: 'без урона после целей', rule: 'После целей герой не теряет HP.', once: false },
-  { id: 'crystal-chain', name: 'Кристалл в цепи', short: 'кристалл в цепи', rule: 'Хотя бы раз разбить кристалл цепью.', once: true },
+  { id: 'crystal-chain', name: 'Кристалл в цепи', short: 'кристалл в цепи', rule: 'Хотя бы раз разбить кристалл цепью или сменить ей цвет.', once: true },
   { id: 'damage2', name: `Не больше ${OATH_DAMAGE_MAX} урона`, short: `не больше ${OATH_DAMAGE_MAX} урона`, rule: `За бой герой теряет не больше ${OATH_DAMAGE_MAX} HP.`, once: false },
   { id: 'elite-window', name: 'Элита в окне', short: 'элита в окне', rule: 'Хотя бы раз убить элиту в окне (без пластин).', once: true },
   { id: 'chain6', name: `Цепь ${OATH_LONG_CHAIN_LINKS}+ хотя бы раз`, short: `цепь ${OATH_LONG_CHAIN_LINKS}+`, rule: `Хотя бы раз рывок цепи бьёт ${OATH_LONG_CHAIN_LINKS}+ врагов.`, once: true },
@@ -180,7 +180,7 @@ export function oathForfeit(world: World): void {
   if (oath) breakOath(world, oath);
 }
 
-/** A dash broke a crystal (chain.ts `breakCrystal`). */
+/** A dash broke a crystal (chain.ts `breakCrystal`), or reached a colour shift («Смена цвета», chain.ts `reachShift`). */
 export function oathCrystal(world: World): void {
   const oath = active(world);
   if (oath?.id === 'crystal-chain') meetOath(world, oath);

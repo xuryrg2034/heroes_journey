@@ -105,6 +105,8 @@ export interface BuildModifiers {
   jumpCost?(world: World, value: number): number;
   /** Kills of one chain per crystal (`crystalEveryOf`). */
   crystalEvery?(world: World, value: number): number;
+  /** Enemy links of one colour segment before the chain is free («Смена цвета», `colorShiftOf`). */
+  colorShift?(world: World, value: number): number;
   /** Power every enemy link adds before its hit (`linkGainOf`, base 1). */
   linkGain?(world: World, value: number): number;
   /** Seconds of the after-chain invulnerability (`chainShieldOf`); `end` — the dash that gives it (null without the layer's count). */
@@ -135,6 +137,11 @@ export interface BuildModule {
   onChainKill?(world: World, kill: ChainKill): void;
   /** The dash broke a crystal. */
   onCrystal?(world: World, crystal: { id: number; x: number; y: number }): void;
+  /**
+   * «Смена цвета» (`colorShiftLinks`): the dash reached the link that freed the chain's colour — the last link of a colour
+   * segment (chain.ts `colorShiftIds`), struck or passed fallen.
+   */
+  onColorShift?(world: World, link: { id: number; x: number; y: number }): void;
   /**
    * The hero's path in this tick of a dash or a return run, after the tick's hits (and before `onChainEnd` on the tick the
    * dash ends). Kill only non-links here or accept that a killed link becomes a fallen one.
@@ -240,10 +247,34 @@ export function jumpCostOf(world: World): number {
   return modded(world, 'jumpCost', base);
 }
 
-/** A crystal for every N kills of one chain: the panel's N, one fewer with «Осколок жернова» (stage 2, step 3), at least 2; then the modules. */
+/**
+ * A crystal for every N kills of one chain: the panel's N, one fewer with «Осколок жернова» (stage 2, step 3), at least 2; then
+ * the modules. With «Смена цвета» on (`colorShiftLinks` > 0) the millstone items act on the shift instead (`colorShiftOf`):
+ * the crystal step is the panel's.
+ */
 export function crystalEveryOf(world: World): number {
   const every = world.params.crystalEvery;
+  if (colorShiftOn(world)) return every;
   return modded(world, 'crystalEvery', hasTalisman(world, 'millstone-shard') ? Math.max(2, every - MILLSTONE_STEP) : every);
+}
+
+/** «Смена цвета» is on: `colorShiftLinks` > 0 (no key — off, the old path). */
+export const colorShiftOn = (world: World): boolean => world.params.colorShiftLinks > 0;
+
+/** The floor of the millstone items on the shift: never below 2, a step already at 2 or less stays (as `millstoneEvery`). */
+export const COLOR_SHIFT_MIN = 2;
+
+/**
+ * «Смена цвета» (design 12.10.2026): enemy links of one colour segment after which the drawn chain is free — the panel's
+ * `colorShiftLinks`, one fewer with «Осколок жернова», then the modules («Жернов» two fewer), never below `COLOR_SHIFT_MIN`
+ * (a step already at it or lower stays). 0 — off. The rule (chain.ts `chainColor`), the dash (`colorShiftIds`) and the view
+ * («до смены N») read this one number.
+ */
+export function colorShiftOf(world: World): number {
+  const base = world.params.colorShiftLinks;
+  if (!(base > 0)) return 0;
+  const talisman = hasTalisman(world, 'millstone-shard') && base > COLOR_SHIFT_MIN ? Math.max(COLOR_SHIFT_MIN, base - MILLSTONE_STEP) : base;
+  return modded(world, 'colorShift', talisman);
 }
 
 /** Power the active modules add to the link before its hit. */

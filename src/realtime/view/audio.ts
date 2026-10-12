@@ -46,6 +46,11 @@ export class ChainAudio {
     this.tone(990 * Math.pow(2, Math.min(12, combo) / 24), 'sine', 0.22, volume * 0.8);
   }
 
+  /** «Смена цвета»: the drawn chain's colour is free (the N-th link of a colour segment) — a quick rising glassy arpeggio. */
+  colorShift(volume: number): void {
+    for (const [i, semis] of [0, 4, 7, 11].entries()) this.tone(880 * Math.pow(2, semis / 12), 'sine', 0.14, volume * 0.55, i * 0.045);
+  }
+
   /** П2: the end of a long dash (6+ enemy links) — a short major chord. */
   chord(volume: number): void {
     for (const [i, semis] of [0, 4, 7, 12].entries()) this.tone(392 * Math.pow(2, semis / 12), 'triangle', 0.4, volume * 0.45, i * 0.03);
