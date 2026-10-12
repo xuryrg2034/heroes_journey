@@ -25,8 +25,8 @@ export interface LabelSpec {
   text: string;
   /** The object's point (arena units). */
   at: Vec;
-  /** 'above' — centred over the point, `lift` arena units up; 'side' — to the right of it (to the left when the right edge is near), `lift` units away. */
-  place: 'above' | 'side';
+  /** 'above' — centred over the point, `lift` arena units up; 'below' — centred under it, `lift` units down (over it when there is no room under: the elite's tags and chips hang over it and under it, so the label stands clear of both); 'side' — to the right of it (to the left when the right edge is near), `lift` units away. */
+  place: 'above' | 'below' | 'side';
   lift: number;
 }
 
@@ -40,7 +40,7 @@ export const LABEL_TEXT = {
 export const chestText = (): string => `+${CHEST_CURSE_TOUCH} урон касания, ${CHEST_CURSE_KILLS} убийств`;
 
 /** Arena units: how high above an elite's centre the label hangs; above the chest; how far the goblin's label stands from the idol's centre. */
-const ELITE_LIFT = 1.15, CHEST_LIFT = 0.85, LEVER_SIDE = 1.15;
+const ELITE_LIFT = 1.0, CHEST_LIFT = 0.85, LEVER_SIDE = 1.15;
 
 /**
  * The labels whose object stands now: an armoured enemy with plates left in view (the nearest to the hero — one label for all
@@ -55,7 +55,7 @@ export function detectLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec
     const d = (e.x - w.hero.x) ** 2 + (e.y - w.hero.y) ** 2;
     if (d < best) { best = d; elite = e; }
   }
-  if (elite) out.push({ id: 'b6', text: LABEL_TEXT.elite, at: { x: elite.x, y: elite.y }, place: 'above', lift: ELITE_LIFT });
+  if (elite) out.push({ id: 'b6', text: LABEL_TEXT.elite, at: { x: elite.x, y: elite.y }, place: 'below', lift: ELITE_LIFT });
   const chest = w.objects.find(o => o.kind === 'chest' && onScreen(o));
   if (chest) out.push({ id: 'b8', text: chestText(), at: { x: chest.x, y: chest.y }, place: 'above', lift: CHEST_LIFT });
   const lever = leverOf(w);
@@ -88,6 +88,10 @@ export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: 
   let left: number, top: number;
   if (spec.place === 'above') {
     left = at.x - size.w / 2; top = at.y - spec.lift * k - size.h;
+  } else if (spec.place === 'below') {
+    left = at.x - size.w / 2; top = at.y + spec.lift * k;
+    // No room under the object (the action bar, the screen edge): over it, as the 'side' label flips to the other side.
+    if (top + size.h > bounds.bottom - gap) top = at.y - spec.lift * k - size.h;
   } else {
     left = at.x + spec.lift * k; top = at.y - size.h / 2;
     if (left + size.w > bounds.right - gap) left = at.x - spec.lift * k - size.w;

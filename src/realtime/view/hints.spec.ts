@@ -116,7 +116,7 @@ check('labels (task 6, 12.10.2026): the three of the run stand at their object a
   assert(ids(world({ enemies: [{ ...armoured, armor: { plates: 0, max: 2 } }] })).length === 0, 'plates gone (the window): no label');
   const far = { ...armoured, id: 100, x: 18, y: 2 }, near = { ...armoured, id: 101, x: 5, y: 6 };
   const two = detectLabels(world({ enemies: [far, near] }), seen).filter(l => l.id === 'b6');
-  assert(two.length === 1 && two[0].at.x === 5 && two[0].text === 'Пластина — 1 удар', 'one label, on the nearest to the hero');
+  assert(two.length === 1 && two[0].at.x === 5 && two[0].text === 'Пластина — 1 удар' && two[0].place === 'below', 'one label, under the nearest to the hero');
   const chest = { id: 7, kind: 'chest', x: 8, y: 4, pressed: false };
   const c = detectLabels(world({ objects: [chest] }), seen);
   assert(c.length === 1 && c[0].id === 'b8' && c[0].at.x === 8 && c[0].at.y === 4, 'the chest in view, not taken');
@@ -147,6 +147,9 @@ check('labels: placement — over the object, a side label flips to the left at 
   assert(high.top >= bounds.top, 'not under the HUD plate');
   const edge = placeLabel({ place: 'above', lift: 1 }, { x: 5, y: 300 }, 60, size, bounds);
   assert(edge.left >= 0, 'not past the left edge');
+  const below = placeLabel({ place: 'below', lift: 1 }, { x: 600, y: 300 }, 60, size, bounds), noRoom = placeLabel({ place: 'below', lift: 1 }, { x: 600, y: 620 }, 60, size, bounds);
+  assert(below.top === 360 && below.left === 530, `centred under: ${JSON.stringify(below)}`);
+  assert(noRoom.bottom <= 620 - 60 && noRoom.bottom <= bounds.bottom, `no room under — over the object: ${JSON.stringify(noRoom)}`);
   const right = placeLabel({ place: 'side', lift: 1 }, { x: 300, y: 300 }, 60, size, bounds), flipped = placeLabel({ place: 'side', lift: 1 }, { x: 1200, y: 300 }, 60, size, bounds);
   assert(right.left === 360 && flipped.right <= 1200 && flipped.right <= 1280, `right ${JSON.stringify(right)}, flipped ${JSON.stringify(flipped)}`);
   const low = placeLabel({ place: 'side', lift: 1 }, { x: 300, y: 700 }, 60, size, bounds);

@@ -211,13 +211,15 @@ test('«Застава»: «Пластина — 1 удар» hangs over the arm
   expect(eliteLabel.text).toBe('Пластина — 1 удар');
   expect(chestLabel.text).toBe('+1 урон касания, 12 убийств');
   const eliteAt = await screen(page, elite.x, elite.y), chestAt = await screen(page, chest.x, chest.y);
+  // The chest's price stands over the chest; the elite's label UNDER the elite (its tag and plaques hang over it), or over it when there is no room.
   for (const [label, at] of [[eliteLabel, eliteAt], [chestLabel, chestAt]] as const) {
-    expect(Math.abs(centreX(label) - at.x), `${label.id} stands over its object`).toBeLessThan(label.right - label.left);
-    expect(label.bottom, `${label.id} is above its object`).toBeLessThanOrEqual(at.y);
-    expect(at.y - label.bottom, `${label.id} is near its object`).toBeLessThan(110);
+    expect(Math.abs(centreX(label) - at.x), `${label.id} stands at its object`).toBeLessThan(label.right - label.left);
+    expect(Math.min(Math.abs(label.bottom - at.y), Math.abs(label.top - at.y)), `${label.id} is near its object`).toBeLessThan(110);
     expect(label.left).toBeGreaterThanOrEqual(0);
     expect(label.right).toBeLessThanOrEqual(1280);
   }
+  expect(chestLabel.bottom).toBeLessThanOrEqual(chestAt.y);
+  expect(eliteLabel.top, 'the elite label is under the elite').toBeGreaterThanOrEqual(eliteAt.y);
   const hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
   for (const label of [eliteLabel, chestLabel]) expect(overlaps(label, hud) || overlaps(label, bar), `${label.id} clear of the HUD`).toBe(false);
   expect(await page.getByTestId('world-label').first().evaluate(node => getComputedStyle(node).pointerEvents)).toBe('none');
