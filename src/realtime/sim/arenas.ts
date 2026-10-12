@@ -94,6 +94,11 @@ export interface ArenaTemplate extends ArenaShape {
   calm?: boolean;
   /** The prologue: the start enemies come back (see `RestoreMode`); omitted — never. */
   restore?: RestoreMode;
+  /**
+   * The prologue (design answer 12.10.2026, rooms 2–4): the return puts the hero back on `heroStart` too (his knockback gone),
+   * so the hand's chain starts where he stands. Only with `restore`.
+   */
+  restoreHero?: boolean;
   /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
   goblin?: Vec;
   /** The prologue: energy at the start (over the loadout's), up to the cap. */

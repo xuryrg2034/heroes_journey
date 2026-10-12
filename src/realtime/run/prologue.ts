@@ -79,9 +79,9 @@ export function prologueParams(n: number, base: Params = defaultParams()): Param
 }
 
 /**
- * What room `n` starts with: nothing in hand. Room 6 is a battle of run row 1 — it may get the goblin (`slot`, after its
- * goals, as in the run) and its elites' plates are the row's; its start energy is the arena's (`startEnergy`). Rooms 1–5: no
- * loadout (room 5's goblin is the arena's own).
+ * What room `n` starts with: nothing in hand. Room 6 is a battle of run row 1 (`slot` as a run battle of its row; its goblin
+ * stands from the start — the arena's own, so it never rolls another — and its elites' plates are the row's); its start energy
+ * is the arena's (`startEnergy`). Rooms 1–5: no loadout (room 5's goblin is the arena's own).
  */
 export function prologueLoadout(n: number): Loadout | undefined {
   prologueRoom(n);

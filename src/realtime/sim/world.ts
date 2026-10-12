@@ -418,9 +418,10 @@ export type WorldEvent =
   | { type: 'oath'; action: 'broken' | 'met' | 'door'; id: OathId; tick: number; kept?: boolean; mult?: number }
   /**
    * The prologue «Опушка» (`ArenaTemplate.restore`, `updateRestore`): the start enemies stand at their posts with full HP again
-   * (the view's smoke) — every start enemy now, its id (a new one for those that came back from death) and its post.
+   * (the view's smoke) — every start enemy now, its id (a new one for those that came back from death) and its post; `hero` —
+   * where the hero was put back (`ArenaTemplate.restoreHero`; absent otherwise).
    */
-  | { type: 'restore'; enemies: { id: number; x: number; y: number }[] };
+  | { type: 'restore'; enemies: { id: number; x: number; y: number }[]; hero?: { x: number; y: number } };
 
 export interface World {
   arena: ArenaTemplate;
@@ -682,7 +683,8 @@ function restoreNeeded(world: World, state: RestoreState): boolean {
  * The prologue «Опушка» (`ArenaTemplate.restore`, design 12.10.2026): while no chain is drawn and no dash or jump runs, a
  * needed return is due `RESTORE_DELAY` game seconds later; when it is due (and still needed, and still nothing is drawn or
  * run — a chain drawn then makes it wait for its end) every start enemy stands at its post with full HP: a living one is put
- * back (its knockback, cold and burning gone), a dead one comes back (a new id; not counted as spawned). Event `restore`.
+ * back (its knockback, cold and burning gone), a dead one comes back (a new id; not counted as spawned); with `restoreHero` the
+ * hero stands on his start again. Event `restore`.
  */
 function updateRestore(world: World, state: RestoreState): void {
   if (world.chain.length || world.move) return;
@@ -705,7 +707,13 @@ function updateRestore(world: World, state: RestoreState): void {
     out.push({ id: e.id, x: e.x, y: e.y });
   });
   world.stats.spawned = spawned;
-  world.events.push({ type: 'restore', enemies: out });
+  // Design answer 12.10.2026 (rooms 2–4): the hero goes back to the start with the same return.
+  const hero = world.hero, back = world.arena.restoreHero ? world.arena.heroStart : null;
+  if (back) {
+    hero.x = back.x; hero.y = back.y; hero.knock = 0; hero.knockVx = 0; hero.knockVy = 0;
+    pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
+  }
+  world.events.push({ type: 'restore', enemies: out, ...back ? { hero: { x: hero.x, y: hero.y } } : {} });
 }
 
 export function findObject(world: World, id: number): ArenaObject | undefined {

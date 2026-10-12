@@ -9,17 +9,20 @@
  * - rooms 2 and 4: a chain shorter than N leaves the door shut, its lamps go out after the dash, and 1 s of game time later the
  *   start enemies stand at their posts with full HP (event `restore`) — not before; a chain being drawn makes it wait;
  * - room 3: the tough one struck first survives and is healed by the return; weak ones killed one by one come back;
+ * - rooms 2–4: the return puts the hero back on his start too, and the hand's chain drawn from there wins; the spin (Q)
+ *   starts a return as a dash does;
  * - room 1 has no return; room 5 returns only when no start enemy is left and the lever was never pulled;
- * - room 5: the lever pulled meets the goal; three pulls, none risky, no bust (several seeds);
+ * - room 5: the lever pulled meets the goal; three pulls, none risky, no bust (several seeds); the skulls of one pull (rain ≤ 3,
+ *   volley ≤ 1) cannot kill the hero from his 15 HP — by the numbers and on 60 seeds;
  * - rooms 1–4: the hero walking into the enemies loses no HP, the enemies stand; room 5 and 6: the enemies walk and hit;
- * - room 6: the inflow keeps at most 12, varies by seed, the start energy is one jump, the goblin comes after the goals;
+ * - room 6: the inflow keeps at most 12, varies by seed, the start energy is one jump, the goblin stands from the start;
  * - every fight replays from its journal to the same hash (checkpoints every 300 ticks), twice.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { canJump, linkPoint, planChain, type ChainPlan } from '../sim/chain';
 import { worldState } from '../sim/hash';
 import { Simulation, replay, type Journal } from '../sim/simulation';
-import { goblinOf } from '../sim/slot';
+import { goblinOf, leverReady } from '../sim/slot';
 import { LAMPS_HOLD, RESTORE_DELAY, doorOpen, goalLamps, goalProgress, type ChainLink, type World, type WorldEvent } from '../sim/world';
 import { arenaTemplate } from '../sim/arenas';
 import { PROLOGUE_FORCED, PROLOGUE_ROOMS, prologueLoadout, prologueParams, prologueRoom, prologueRoute, startEnemyIds } from './prologue';
@@ -113,6 +116,11 @@ function awaitReturn(sim: Simulation, label: string, max = 4): number {
   const w = sim.world, mark = w.events.length, t0 = w.time;
   until(sim, x => restores(x, mark) > 0, 60 * max * 4);
   assert(allAtPosts(w), `${label}: all at their posts with full HP`);
+  // Rooms 2–4 (`restoreHero`, design answer 12.10.2026): the hero is back on his start in the same return, the event says so.
+  const event = w.events.slice(mark).find(e => e.type === 'restore');
+  const start = w.arena.heroStart, home = w.hero.x === start.x && w.hero.y === start.y;
+  if (w.arena.restoreHero) assert(home && event?.type === 'restore' && event.hero?.x === start.x && event.hero?.y === start.y, `${label}: the hero back on his start`);
+  else assert(event?.type === 'restore' && !event.hero, `${label}: the hero stays`);
   return w.time - t0;
 }
 
@@ -185,7 +193,7 @@ check('the lamps of «N by one chain»: they burn by the kills of the dash going
     wait(sim, LAMPS_HOLD);
     assert(goalLamps(w).lit === 0 && !doorOpen(w), `room ${n}: then out`);
     awaitReturn(sim, `room ${n}`);
-    walkTo(sim, w.arena.heroStart);
+    // The hand's chain from where the return put the hero.
     draw(sim, prologueRoute(w, n));
     const events = dash(sim), goals = events.findIndex(e => e.type === 'goals');
     const killsBefore = events.slice(0, goals).filter(e => e.type === 'kill').length;
@@ -194,7 +202,7 @@ check('the lamps of «N by one chain»: they burn by the kills of the dash going
   }
 });
 
-check('rooms 2 and 4: a chain shorter than N keeps the door shut; 1 s of game time after the dash the start enemies stand at their posts with full HP (not before); a chain drawn then waits for its end', () => {
+check('rooms 2 and 4: a chain shorter than N keeps the door shut; 1 s of game time after the dash the start enemies stand at their posts with full HP and the hero on his start (not before); a chain drawn then waits for its end; the hand\'s chain from there wins', () => {
   for (const n of [2, 4]) for (const k of [1, 2]) {
     const sim = room(n, k), w = sim.world, N = prologueRoom(n).arena.killGoal!, label = `room ${n} seed ${k}`;
     const route = prologueRoute(w, n);
@@ -203,8 +211,7 @@ check('rooms 2 and 4: a chain shorter than N keeps the door shut; 1 s of game ti
     assert(!doorOpen(w) && w.stats.bestChain === N - 3 && w.enemies.length === w.arena.enemies.length - (N - 3), `${label}: short chain, door shut`);
     const took = awaitReturn(sim, label);
     assert(took >= RESTORE_DELAY - 1e-6 && took <= RESTORE_DELAY + 0.05 && !doorOpen(w), `${label}: the return after ${took.toFixed(3)} s`);
-    // A short chain again; a chain drawn before its return is due — the return waits for that chain's end.
-    walkTo(sim, w.arena.heroStart);
+    // A short chain again (the hero stands on his start); a chain drawn before its return is due — the return waits for that chain's end.
     draw(sim, prologueRoute(w, n).slice(0, 2));
     dash(sim);
     wait(sim, 0.5);
@@ -214,8 +221,7 @@ check('rooms 2 and 4: a chain shorter than N keeps the door shut; 1 s of game ti
     assert(restores(w, mark) === 0 && w.chain.length === 1, `${label}: no return while a chain is drawn`);
     sim.command({ t: 'release' });
     awaitReturn(sim, `${label}, at the end of that chain`, 2);
-    // The room is still won by the hand's chain after the returns (walked back to the start).
-    walkTo(sim, w.arena.heroStart);
+    // The room is won by the hand's chain drawn from where the return put the hero (no walk).
     draw(sim, prologueRoute(w, n));
     dash(sim);
     assert(doorOpen(w), `${label}: won after the returns`);
@@ -257,8 +263,7 @@ check('room 3: the tough one struck first survives (3 → 2) and the return heal
       awaitReturn(sim, `${label}: the weak ones are back`);
     }
     assert(w0 && w1, 'weak ones');
-    // The hand's chain from where the hero stands now (the weak one's post): walk back to the start first.
-    walkTo(sim, w.arena.heroStart);
+    // The hand's chain from where the return put the hero (his start).
     const win = draw(sim, prologueRoute(w, 3));
     planIsDash(win, dash(sim), label);
     assert(doorOpen(w) && w.stats.markedKills === 1 && w2, `${label}: the tough one dies last, the door opens`);
@@ -358,12 +363,14 @@ check('room 5: the return only when no start enemy is left and the lever was nev
   replays(sim, 'room 5 return');
 });
 
-check('room 6: start energy = one jump; the enemies walk and hit; the inflow keeps at most 12 and varies by seed; the goblin comes after the goals', () => {
+check('room 6: start energy = one jump; the goblin stands from the start (its lever a target at once); the enemies walk and hit; the inflow keeps at most 12 and varies by seed', () => {
   const hashes = new Set<string>(), spawns = new Set<string>();
   let hit = 0;
   for (let k = 1; k <= 4; k++) {
     const sim = room(6, k), w = sim.world;
     assert(w.energy === w.params.jumpCost && canJump(w) && !w.arena.calm, `seed ${k}: energy ${w.energy}`);
+    const g = goblinOf(w);
+    assert(g && g.x === w.arena.goblin!.x && g.y === w.arena.goblin!.y && g.pulls === 0 && leverReady(w, w.objects.find(o => o.id === g.id)!), `seed ${k}: the goblin from the start`);
     // The hero stands: the crowd walks in and hits (he may fall — the room then starts again in the view).
     let max = 0;
     for (let i = 0; i < 60 * 12 && w.status === 'playing'; i++) { sim.tick(); max = Math.max(max, w.enemies.length + w.markers.length); }
@@ -371,16 +378,65 @@ check('room 6: start energy = one jump; the enemies walk and hit; the inflow kee
     hashes.add(sim.hash());
     spawns.add(JSON.stringify(w.events.filter(e => e.type === 'spawn').map(e => e.type === 'spawn' && e.enemyId)));
     if (w.stats.hitsTaken > 0) hit++;
+    // No second goblin: the battle never rolls (its slot stands from the start).
+    assert(goblinOf(w)?.id === g.id && !w.events.some(e => e.type === 'slot' && e.action === 'appear'), `seed ${k}: the same goblin`);
     replays(sim, `room 6 seed ${k}`);
-    // The goals (the debug command) — the goblin as in the run: `slotDelay` later, the battle's roll (chance 1 in the run).
-    const sim2 = room(6, k), w2 = sim2.world;
-    wait(sim2, 1);
-    sim2.command({ t: 'goals' });
-    wait(sim2, w2.params.slotDelay + 0.1);
-    assert(goblinOf(w2) && w2.events.some(e => e.type === 'slot' && e.action === 'appear'), `seed ${k}: the goblin appears`);
   }
   assert(hashes.size === 4 && spawns.size >= 2, `the seeds differ (${hashes.size} worlds, ${spawns.size} inflows)`);
   assert(hit > 0, 'the enemies hit the hero');
+});
+
+check('the spin (Q) starts the return too: energy earned by chains, the spin kills the enemies next to the hero, 1 s later the room is back (room 2)', () => {
+  const sim = room(2), w = sim.world, all = starts(w);
+  // Energy from the chains (+0.5 per enemy link struck): four reds, then two blues — 3, the spin's price; each comes back.
+  draw(sim, all.slice(5));
+  dash(sim);
+  awaitReturn(sim, 'after the reds');
+  draw(sim, starts(w).slice(0, 2));
+  dash(sim);
+  awaitReturn(sim, 'after two blues');
+  assert(w.energy >= w.params.spinCost, `energy ${w.energy}`);
+  // A step to the first blue, then Q: no dash at all.
+  walkTo(sim, { x: 2.8, y: 4 }, 0.05);
+  const mark = w.events.length;
+  assert(sim.command({ t: 'spin' }) === true, 'the spin');
+  const killed = w.events.slice(mark).filter(e => e.type === 'kill').length;
+  assert(killed >= 1 && !w.move && w.chain.length === 0, `the spin killed ${killed}`);
+  const took = awaitReturn(sim, 'after the spin');
+  assert(took >= RESTORE_DELAY - 1e-6 && took <= RESTORE_DELAY + 0.05 && !doorOpen(w), `the return ${took.toFixed(3)} s after the spin`);
+  replays(sim, 'room 2 spin');
+});
+
+check('room 5: the skulls (rain, volley) of one pull cannot kill the hero from full HP — numbers (HP 15; the rain ≤ waves × damage = 3, the volley ≤ 1) and real pulls on many seeds', () => {
+  const p = prologueParams(5);
+  // One wave's marks land in one tick: the first hit's invulnerability spares the rest; the waves come `slotRainStep` apart,
+  // longer than the invulnerability — each wave may hit once. The volley is one tick of marks — once.
+  assert(p.invulnerabilityMode === 'constant' && p.slotRainStep > p.invulnerability, `waves ${p.slotRainStep} s apart, invulnerability ${p.invulnerability} s`);
+  const rainMax = p.slotRainWaves * p.slotDamage, volleyMax = p.slotDamage;
+  assert(p.heroHp === 15 && rainMax === 3 && volleyMax === 1 && Math.max(rainMax, volleyMax) < p.heroHp, `HP ${p.heroHp}, rain ${rainMax}, volley ${volleyMax}`);
+  // Real pulls: the hand's chain into the lever, then the lever alone twice; the skulls' hits of each pull summed.
+  const seen = { rain: 0, volley: 0 };
+  let worst = 0;
+  for (let k = 1; k <= 60; k++) {
+    const sim = room(5, k), w = sim.world;
+    draw(sim, prologueRoute(w, 5));
+    for (let pull = 1; pull <= 3; pull++) {
+      if (pull > 1) {
+        until(sim, x => !goblinOf(x)!.spin && x.time >= goblinOf(x)!.ready && !x.move, 60 * 10);
+        draw(sim, [{ kind: 'object', id: goblinOf(w)!.id }]);
+      }
+      const mark = w.events.length;
+      dash(sim);
+      wait(sim, 5);
+      const events = w.events.slice(mark), out = events.find(e => e.type === 'slot' && e.action === 'pull');
+      const damage = events.reduce((sum, e) => sum + (e.type === 'hit' && (e.source === 'slot-rain' || e.source === 'slot-volley') ? e.damage : 0), 0);
+      if (out?.type === 'slot' && (out.outcome === 'rain' || out.outcome === 'volley')) seen[out.outcome]++;
+      assert(damage <= (out?.type === 'slot' && out.outcome === 'rain' ? rainMax : volleyMax) && w.status === 'playing', `seed ${k} pull ${pull}: ${damage} from ${out?.type === 'slot' && out.outcome}`);
+      worst = Math.max(worst, damage);
+    }
+  }
+  assert(seen.rain > 0 && seen.volley > 0, `the skulls came: ${JSON.stringify(seen)}`);
+  console.log(`   60 seeds × 3 pulls: rain ${seen.rain}, volley ${seen.volley}, the worst pull took ${worst} HP of 15`);
 });
 
 check('old worlds are untouched: a run arena hashes without the prologue fields (no `restore`, no calm), the same seed gives the same world twice', () => {

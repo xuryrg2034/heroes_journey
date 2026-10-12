@@ -38,7 +38,7 @@ export const PROLOGUE_TRAIL: ArenaTemplate = registerArena({
 
 /**
  * Room 2 «Два цвета»: five blue in a zigzag, four red between them (each red on the line between two blues: a sweep over it
- * is refused «не тот цвет»); five by one chain. Calm; the return after a dash.
+ * is refused «не тот цвет»); five by one chain. Calm; the return after a dash (rooms 2–4: the hero back on his start too).
  */
 export const PROLOGUE_TWO_COLOURS: ArenaTemplate = registerArena({
   id: 'prologue-2',
@@ -48,6 +48,7 @@ export const PROLOGUE_TWO_COLOURS: ArenaTemplate = registerArena({
   killGoal: 5,
   calm: true,
   restore: 'afterDash',
+  restoreHero: true,
   width: 12,
   height: 8,
   heroStart: { x: 2, y: 4 },
@@ -79,6 +80,7 @@ export const PROLOGUE_TOUGH: ArenaTemplate = registerArena({
   goal: 'marked',
   calm: true,
   restore: 'afterDash',
+  restoreHero: true,
   width: 12,
   height: 8,
   heroStart: { x: 2, y: 4 },
@@ -105,6 +107,7 @@ export const PROLOGUE_RAINBOW: ArenaTemplate = registerArena({
   killGoal: 9,
   calm: true,
   restore: 'afterDash',
+  restoreHero: true,
   width: 14,
   height: 8,
   heroStart: { x: 1.6, y: 4.5 },
@@ -162,7 +165,8 @@ const CROWD_PACE = { floor: 10, intervalMin: 2, intervalMax: 3.5, toughShare: 0.
 
 /**
  * Room 6 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 12; kill 15. The
- * enemies hit as on run row 1; the goblin comes as in the run (after the goals); the hero starts with the energy of one jump.
+ * enemies hit as on run row 1; the goblin stands from the start between the hero and the door (design answer 12.10.2026),
+ * its pulls by the run's rules; the hero starts with the energy of one jump.
  */
 export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   id: 'prologue-6',
@@ -171,6 +175,7 @@ export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   goal: 'kills',
   killGoal: 15,
   startEnergy: DEFAULT_PARAMS.jumpCost,
+  goblin: { x: 8, y: 3.4 },
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 6 },
