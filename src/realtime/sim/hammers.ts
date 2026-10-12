@@ -7,7 +7,8 @@
  * counter, the flat score per kill, the kill goal, an elite's loot) but not a kill of the chain (no combo, no crystal, no
  * chain score) — except a link ahead of the dash: it becomes a fallen link the dash passes (chain.ts `passFallen`). Not the
  * reaper; no ×2 on a frozen brittle enemy (it keeps its brittleness for the chain); no quills, no shield (only the chain
- * meets them). Numbers are constants of this file, not `Params`.
+ * meets them). Numbers are constants of this file, not `Params` — except the end blast's chain threshold
+ * (`Params.endBlastMinLinks`, `endBlastMinLinks` below).
  *
  * - **«Огненный проход»** (`fire-pass`): the hero's path of the dash leaves fire points every `FIRE_STEP` (radius
  *   `FIRE_RADIUS`, `FIRE_LIFE` game seconds); none in water (as the trail of a fiery elite) and none over a cliff (no
@@ -16,7 +17,8 @@
  *   The burn runs in the world step (`onUpdate`: after burning, before thorns).
  * - **«Взрыв на конце»** (`end-blast`): at the end of the dash a blast of `BLAST_RADIUS` around the last enemy link — the
  *   point where it died, or the survivor where it stands now — hits every enemy whose body touches it for `BLAST_DAMAGE`.
- *   No push (no fall into a cliff), the hero is not hurt (not `addBlast`, which hurts him). A chain without an enemy link — no blast.
+ *   No push (no fall into a cliff), the hero is not hurt (not `addBlast`, which hurts him). A chain without an enemy link — no blast;
+ *   a chain of fewer than `endBlastMinLinks` enemy links reached (3 by default) — no blast.
  * - **«Режущий проход»** (`cutting-pass`): the dash hits for `CUT_DAMAGE` every enemy of any colour whose body comes within
  *   `CUT_RADIUS` of the hero's path, once a dash; the links of the chain are not cut.
  * - **«Возврат»** (`return-pass`): after the dash the hero runs back along its path to the start of the chain (a move
@@ -35,6 +37,7 @@ import { dhypot } from './detMath';
 import { eliteAffixes, platesOf } from './elites';
 import { bodyRadiusOf, kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
+import type { Params } from './params';
 import type { Enemy, HeroMove, World } from './world';
 
 // ---- Numbers (design 10.10.2026; start values, balance after the playtest) ----
@@ -173,14 +176,18 @@ registerBuildModule({
  * Баланс (decision of the user 11.10.2026, playtest v17: the blast went off on chains of one link — 79 hammer kills to 89
  * chain kills in 4 fights): the end blast needs a chain of at least this many enemy links — reached by the dash: struck,
  * passed fallen (as «Пятое звено»), the survivor at the end; crystals, braziers, buttons, the door and loot do not count.
+ * The panel key `endBlastMinLinks` (12.10.2026; default 3, a run forces 3). A journal without the key — recorded before
+ * the key — plays the old path: `END_BLAST_LEGACY_MIN_LINKS` 1, the blast on any chain with a last enemy link (a last link
+ * means at least one link reached).
  */
-export const END_BLAST_MIN_LINKS = 3;
+export const END_BLAST_LEGACY_MIN_LINKS = 1;
+export function endBlastMinLinks(params: Params): number { return params.endBlastMinLinks ?? END_BLAST_LEGACY_MIN_LINKS; }
 
 registerBuildModule({
   id: HAMMERS.blast,
   onChainEnd: (world, end) => {
     const last = end.last;
-    if (!last || end.links < END_BLAST_MIN_LINKS) return;
+    if (!last || end.links < endBlastMinLinks(world.params)) return;
     // Decision 17: a surviving last link — around the survivor where it stands now.
     const survivor = last.killed ? undefined : world.enemies.find(e => e.id === last.id);
     const at = survivor ? { x: survivor.x, y: survivor.y } : { x: last.x, y: last.y };
@@ -189,8 +196,8 @@ registerBuildModule({
   },
   // The column shows the links of the drawn chain (or of the dash) up to the threshold, as «Ударная волна» does.
   progress: world => {
-    const links = chainEnemyLinks(world);
-    return links === null ? null : { value: Math.min(links, END_BLAST_MIN_LINKS), max: END_BLAST_MIN_LINKS };
+    const links = chainEnemyLinks(world), max = endBlastMinLinks(world.params);
+    return links === null ? null : { value: Math.min(links, max), max };
   },
 });
 

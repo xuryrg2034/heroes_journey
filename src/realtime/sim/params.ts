@@ -325,6 +325,12 @@ export interface Params {
   hourglassDelay: number;
   /** Sandbox: a talisman an arena of the sandbox starts with (an id of run/rtTalismans.ts, '' — none); a run passes its own. */
   sandboxTalismans: string;
+  /**
+   * Hammer «Взрыв на конце» (sim/hammers.ts, decision of the user 11.10.2026): the blast needs a chain of at least this many
+   * enemy links reached by the dash. A journal without the value (recorded before 12.10.2026) plays the old path: 1 — the
+   * blast on any chain with a last enemy link. A run forces 3.
+   */
+  endBlastMinLinks: number;
   // Look
   dimMode: DimMode;
   dimStrength: number;
@@ -824,6 +830,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Баланс: section 8 — «Песочные часы» 10 s.
   hourglassDelay: 10,
   sandboxTalismans: '',
+  // Баланс: decision of the user 11.10.2026 (playtest v17) — a chain of 3+ links.
+  endBlastMinLinks: 3,
   dimMode: 'alpha',
   dimStrength: 0.65,
   enemyLook: 'circle',
@@ -1154,6 +1162,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Только песочница (со следующей арены); в походе действуют талисманы похода. «Якорь у героя» — и переключатель «Якорь у героя» группы «Цепь».',
     options: [{ value: '', label: 'нет' }, { value: 'hero-anchor', label: 'Якорь у героя' }, { value: 'whetstone', label: 'Точильный камень' }, { value: 'millstone-shard', label: 'Осколок жернова' },
       { value: 'hourglass', label: 'Песочные часы' }, { value: 'nimble-paws', label: 'Ловкие лапы' }, { value: 'ash-ward', label: 'Пепельный оберег' }] },
+  n('endBlastMinLinks', 'Талисманы', '«Взрыв на конце»: звеньев от', 1, 6, 1, 5, '', 'Молот срабатывает, если проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются). В походе — 3.'),
   { kind: 'choice', key: 'dimMode', group: 'Вид', label: 'Приглушение не того цвета', stage: 2,
     options: [{ value: 'darken', label: 'затемнение' }, { value: 'alpha', label: 'полупрозрачность' }, { value: 'desaturate', label: 'обесцвечивание' }] },
   n('dimStrength', 'Вид', 'Сила приглушения', 0, 1, 0.05, 2),
@@ -1374,7 +1383,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
  * panel holds.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3 });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

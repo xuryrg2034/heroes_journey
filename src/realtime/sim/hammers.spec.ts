@@ -24,9 +24,9 @@ import { BUILD_SOURCES, HAMMERS, type HammerId } from './buildIds';
 import { chainScore } from './chain';
 import { bodyRadiusOf } from './enemies/kinds';
 import { inWater, pond } from './geometry';
-import { BLAST_RADIUS, CUT_RADIUS, END_BLAST_MIN_LINKS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, hammerFirePoints, type FirePoint } from './hammers';
+import { BLAST_RADIUS, CUT_RADIUS, END_BLAST_LEGACY_MIN_LINKS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, hammerFirePoints, type FirePoint } from './hammers';
 import { worldState } from './hash';
-import { defaultParams, type Params } from './params';
+import { defaultParams, runParams, type Params } from './params';
 import { SIM_DT, Simulation, replay, type Journal } from './simulation';
 import { canBeHurt, doorOf, type Enemy, type World, type WorldEvent } from './world';
 import type { Loadout } from './kit';
@@ -271,8 +271,8 @@ registerBuildModule({
   },
 });
 
-check(`end blast (decision of the user 11.10.2026): only a chain of ${END_BLAST_MIN_LINKS}+ enemy links — 2 links: no blast and no event; 3: the blast; a link fallen ahead counts; the column shows the links up to 3`, () => {
-  assert(END_BLAST_MIN_LINKS === 3, 'the threshold');
+check('end blast (decision of the user 11.10.2026): only a chain of 3+ enemy links (`endBlastMinLinks` 3) — 2 links: no blast and no event; 3: the blast; a link fallen ahead counts; the column shows the links up to 3', () => {
+  assert(defaultParams().endBlastMinLinks === 3, 'the threshold by default');
   const blastOf = (hps: readonly number[], extra: Loadout = {}) => {
     const sim = fight(HAMMERS.blast, quiet(), 11, 'kills', extra), w = sim.world;
     const links = row(sim, hps);
@@ -299,6 +299,50 @@ check(`end blast (decision of the user 11.10.2026): only a chain of ${END_BLAST_
   sim.command({ t: 'drag', x: links[1].x, y: links[1].y, mode: 'full' });
   const p = module.progress!(w);
   assert(p !== null && p.value === 2 && p.max === 3, `progress ${JSON.stringify(p)}`);
+});
+
+check('end blast: a journal without `endBlastMinLinks` (recorded before the key, 12.10.2026) plays the old path — a chain of 1 or 2 links blasts; its replay is the fight recorded with the key absent; a run forces 3', () => {
+  assert(END_BLAST_LEGACY_MIN_LINKS === 1, 'the old path: any chain with a last link');
+  const noKey = (extra: Partial<Params> = {}): Params => { const p = quiet(extra); delete (p as Partial<Params>).endBlastMinLinks; return p; };
+  /** The same commands as the threshold check: a row of weak links, one weak enemy of another colour by the last. */
+  const blastOf = (params: Params, n: number) => {
+    const sim = fight(HAMMERS.blast, params), w = sim.world;
+    const links = row(sim, new Array<number>(n).fill(0));
+    const last = links[links.length - 1];
+    const near1 = place(sim, last.x + 0.9, last.y + 0.3, 0, { color: 1 });
+    dash(sim, links);
+    const events = settle(sim);
+    ticks(sim, 30, events);
+    return { sim, w, near1, blasts: hammerEvents(events, 'blast') };
+  };
+  for (const n of [1, 2]) {
+    // Recorded today (the key 3): no blast.
+    const today = blastOf(quiet(), n);
+    assert(today.blasts.length === 0 && alive(today.w, today.near1), `key 3, ${n} link(s): no blast`);
+    // Recorded with the key absent (a build before the key): the blast, and it replays to its hash.
+    const old = blastOf(noKey(), n);
+    assert(old.blasts.length === 1 && !alive(old.w, old.near1), `no key, ${n} link(s): the blast (${old.blasts.length})`);
+    assert(replays(old.sim), `no key, ${n} link(s): replay`);
+    // The panel at 1 plays the same world (only the hashed params differ).
+    const one = blastOf(quiet({ endBlastMinLinks: 1 }), n);
+    const strip = (w: World) => { const { params: _, ...rest } = worldState(w) as Record<string, unknown>; return JSON.stringify(rest); };
+    assert(strip(one.w) === strip(old.w), `key 1 and no key: the same world (${n} link(s))`);
+    // The journal of today's fight with the key taken out replays the old path: the fight recorded with the key absent.
+    const journal = JSON.parse(JSON.stringify(today.sim.exportJournal()!)) as Journal;
+    assert(journal.params.endBlastMinLinks === 3, 'the journal keeps the key');
+    delete (journal.params as Partial<Params>).endBlastMinLinks;
+    const again = replay(journal);
+    assert(again.hash() === old.sim.hash() && again.hash() !== today.sim.hash(), `no key, ${n} link(s): the replay hash is the old fight's`);
+    assert(!again.world.enemies.some(e => e.id === today.near1.id), `no key, ${n} link(s): the replay blasts`);
+  }
+  // The progress of a drawn chain of one link without the key: 1 of 1.
+  const sim = fight(HAMMERS.blast, noKey()), w = sim.world, links = row(sim, [0]);
+  sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+  const p = buildModules().find(m => m.id === HAMMERS.blast)!.progress!(w);
+  assert(p !== null && p.value === 1 && p.max === 1, `progress without the key ${JSON.stringify(p)}`);
+  // A run plays the threshold of the user's decision whatever the saved panel holds.
+  const panel = defaultParams(); panel.endBlastMinLinks = 1;
+  assert(runParams(panel).endBlastMinLinks === 3, 'a run forces 3');
 });
 
 // ---- «Режущий проход» ----
