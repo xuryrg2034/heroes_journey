@@ -21,6 +21,13 @@
  * an edge counts if it holds in either direction (R + the larger body), the corridor is measured to body centres.
  * The palette by the row adds the colours of the arena's own start enemies (spawn.ts `palette`), as the game does.
  *
+ * `--pierce` (loop research, step 3, «Прямая»; design 12.10.2026, point 14): only the base variant, by arena — how often the
+ * field offers a pierce and how often it would kill. Every 0.5 s a search over the real chain rules (a shadow of the world with
+ * its own chain, as sim/linkDepth.ts: `canLink` from the hero's first link, enemy links only, 3–5 of them, at most
+ * `PIERCE_BUDGET` chain states) asks the sim's own plan (`planChain(...).pierce`, sim/pierce.ts `pierceShape`) on each path of 3+:
+ * «доступна» — some path gives a pierce (a straight tail, its last link dies, P ≥ 1); «≥ 1 убит» — some pierce kills a body of
+ * its corridor. The pierce is turned on in the shadow only; the bot's own chains play without it. Measurement = rule.
+ *
  * Variants (section 4.2): base (the run's params, 4 colours, mixed groups); «палитра по рядам» (the run's `Loadout.colors`
  * by the row, rtRun.ts `rtColorsByRow`); «одноцветные группы» (`groupColor 'mono'`); «R 2,25» (the mage's R); and together.
  * The arenas are the run's 12 (pools, «Застава», «Последний рубеж») from their templates, without the phase A rosters.
@@ -29,13 +36,13 @@
 import { arenaTemplate, type ArenaTemplate } from '../src/realtime/sim/arenas';
 import '../src/realtime/sim/arenasStage3';
 import '../src/realtime/sim/arenasCamera';
-import { chainAnchor, nextCandidates, nextObjectCandidates, planChain } from '../src/realtime/sim/chain';
+import { NO_PIERCE, canLink, chainAnchor, nextCandidates, nextObjectCandidates, planChain } from '../src/realtime/sim/chain';
 import { enemyArtRadius, kindOf } from '../src/realtime/sim/enemies/kinds';
 import { dist, lineOfSight, type Vec } from '../src/realtime/sim/geometry';
 import type { Params } from '../src/realtime/sim/params';
 import { defaultParams } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
-import { NO_COLOR, type Enemy, type World } from '../src/realtime/sim/world';
+import { NO_COLOR, type ChainLink, type Enemy, type World } from '../src/realtime/sim/world';
 import { ARENA_POOLS, arenaCandidates, arenaTitle, FINAL_ARENA, HARD_ARENA } from '../src/realtime/run/arenaPools';
 import { rtColorsByRow, rtRunParams } from '../src/realtime/run/rtRun';
 
@@ -181,6 +188,66 @@ function readMoment(w: World): Moment {
   return m;
 }
 
+// ---- «Прямая» (`--pierce`) ----
+
+/** Chain states a pierce search may expand per moment (a dense crowd finds both answers long before). */
+const PIERCE_BUDGET = 600;
+interface PierceMoment { available: boolean; kill: boolean; cut: boolean }
+
+/** Is a pierce on the field now — a path of 3–5 enemy links by the chain's own rules whose plan gives one (and kills)? */
+function readPierce(w: World): PierceMoment {
+  const shadow: World = { ...w, chain: [], params: { ...w.params, pierceEnabled: true } };
+  delete shadow.chainClosed;
+  const m: PierceMoment = { available: false, kill: false, cut: false };
+  let left = PIERCE_BUDGET;
+  const visit = (): void => {
+    const n = shadow.chain.length;
+    if (n >= 3) {
+      const pierce = planChain(shadow).pierce;
+      if (pierce) { m.available = true; if (pierce.kills > 0) m.kill = true; }
+    }
+    if (m.kill || n >= MAX_ARC) return;
+    const plan = planChain(shadow, shadow.chain, NO_PIERCE);
+    if (plan.endsOnSurvivor) return;
+    if (left-- <= 0) { m.cut = true; return; }
+    for (const e of w.enemies) {
+      if (!canLink(shadow, e, plan)) continue;
+      shadow.chain.push({ kind: 'enemy', id: e.id } as ChainLink);
+      visit();
+      shadow.chain.pop();
+      if (m.kill || m.cut) return;
+    }
+  };
+  visit();
+  return m;
+}
+
+interface PierceTally { fights: number; chains: number; samples: number; available: number; kill: number; cut: number }
+
+function measurePierce(arenaId: string): PierceTally {
+  const t: PierceTally = { fights: 0, chains: 0, samples: 0, available: 0, kill: 0, cut: 0 };
+  const arena = endless(arenaTemplate(arenaId)), params = paramsOf(VARIANTS[0]);
+  for (let k = 1; k <= SEEDS; k++) {
+    t.fights++;
+    const sim = new Simulation({ arena, params, seed: seedOf(700 + k) }), w = sim.world;
+    for (let tick = 0; tick < SECS * 60 && w.status === 'playing'; tick++) {
+      if (WALKING && tick % 60 === 0) { const [x, y] = WALK[(tick / 60) % WALK.length]; sim.command({ t: 'walk', x, y }); }
+      if (tick === BASE_S * 60) sim.command({ t: 'goals' });
+      if (tick % EVERY === 15) t.chains += playChain(sim);
+      sim.tick();
+      w.events.length = 0;
+      if (tick % 30 === 29 && !w.move) {
+        const m = readPierce(w);
+        t.samples++;
+        if (m.available) t.available++;
+        if (m.kill) t.kill++;
+        if (m.cut) t.cut++;
+      }
+    }
+  }
+  return t;
+}
+
 // ---- Tallies ----
 
 interface Tally { fights: number; chains: number; samples: number; field: number; cycle: number; cycleHero: number; cycleIn: number[]; arc: number; arcIn: number[]; line: number; lineHit: number; lineAhead: number[] }
@@ -227,6 +294,20 @@ const HEAD = '| | тел | (а) 4-цикл | (а) от героя | внутри
 const ARENAS = [...ARENA_POOLS.map(e => e.arena), HARD_ARENA, FINAL_ARENA];
 const ROWS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const started = Date.now();
+if (process.argv.includes('--pierce')) {
+  console.log(`# Измерение «Прямой» (шаг 3): ${SEEDS} seed × ${ARENAS.length} арен, ${SECS} с (база ${BASE_S} с, затем цели), срез каждые 0,5 с, цепь бота каждые ${(EVERY / 60).toFixed(2).replace('.', ',')} с, герой ${WALKING ? 'ходит' : 'стоит'}, поиск до ${PIERCE_BUDGET} состояний\n`);
+  console.log('| Арена | срезов | доступна | ≥ 1 тело убито | поиск обрезан |\n| --- | --- | --- | --- | --- |');
+  const all: PierceTally = { fights: 0, chains: 0, samples: 0, available: 0, kill: 0, cut: 0 };
+  for (const arena of ARENAS) {
+    const t = measurePierce(arena);
+    all.fights += t.fights; all.chains += t.chains; all.samples += t.samples; all.available += t.available; all.kill += t.kill; all.cut += t.cut;
+    console.log(`| ${arenaTitle(arena)} | ${t.samples} | ${pct(t.available, t.samples)} | ${pct(t.kill, t.samples)} | ${pct(t.cut, t.samples)} |`);
+  }
+  console.log(`| **все арены** | ${all.samples} | ${pct(all.available, all.samples)} | ${pct(all.kill, all.samples)} | ${pct(all.cut, all.samples)} |`);
+  console.log(`\nЦепей бота за бой: ${(all.chains / Math.max(1, all.fights)).toFixed(1).replace('.', ',')}.`);
+  console.log(`(${((Date.now() - started) / 1000).toFixed(0)} с)`);
+  process.exit(0);
+}
 console.log(`# Измерение петли (шаг 0): ${SEEDS} seed × ${ARENAS.length} арен, ${SECS} с (база ${BASE_S} с, затем цели), срез каждые 0,5 с, цепь бота каждые ${(EVERY / 60).toFixed(2).replace('.', ',')} с, герой ${WALKING ? 'ходит' : 'стоит'}\n`);
 console.log('«внутри», «тел впереди» — медиана (среднее) по моментам, где фигура есть.\n');
 for (const v of ACTIVE) {
