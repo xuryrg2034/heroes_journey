@@ -724,20 +724,20 @@ function restoreStart(world: World, state: RestoreState, i: number): { id: numbe
  * once. Event `restore` for each batch (the late ones in their own event).
  */
 function updateRestore(world: World, state: RestoreState): void {
-  if (state.wait) {
-    // Late posts: each comes once the hero is off it (while the goal is still not met).
-    if (world.stage !== 'goals') delete state.wait;
-    else {
-      const ready = state.wait.filter(i => !postOnHero(world, world.arena.enemies[i]));
-      if (ready.length) {
-        state.wait = state.wait.filter(i => !ready.includes(i));
-        if (!state.wait.length) delete state.wait;
-        world.events.push({ type: 'restore', enemies: ready.map(i => restoreStart(world, state, i)) });
-      }
-    }
-  }
   if (world.move) { delete state.due; return; }
-  if (world.chain.length || state.wait) return;
+  if (world.chain.length) return;
+  if (state.wait) {
+    // Late posts (review 12.10.2026: they too wait for the end of a chain and of a dash): each comes once the hero is off it,
+    // while the goal is still not met.
+    if (world.stage !== 'goals') { delete state.wait; return; }
+    const ready = state.wait.filter(i => !postOnHero(world, world.arena.enemies[i]));
+    if (ready.length) {
+      state.wait = state.wait.filter(i => !ready.includes(i));
+      if (!state.wait.length) delete state.wait;
+      world.events.push({ type: 'restore', enemies: ready.map(i => restoreStart(world, state, i)) });
+    }
+    return;
+  }
   if (!restoreNeeded(world, state)) { delete state.due; return; }
   if (state.due === undefined) { state.due = world.time + RESTORE_DELAY; return; }
   if (world.time + 1e-9 < state.due) return;

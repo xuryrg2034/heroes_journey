@@ -11,10 +11,10 @@ import { PROLOGUE_ARENAS } from '../sim/arenasPrologue';
 import type { ArenaTemplate } from '../sim/arenas';
 import { HERO_CANCEL_RADIUS, NO_PIERCE, canLink, canLinkObject, linkPoint, planChain } from '../sim/chain';
 import { enemyArtRadius } from '../sim/enemies/kinds';
-import { dist, type Vec } from '../sim/geometry';
+import { blockedAt, dist, inWater, type Vec } from '../sim/geometry';
 import { goblinOf } from '../sim/slot';
 import type { Loadout } from '../sim/kit';
-import { defaultParams, runParams, type Params } from '../sim/params';
+import { defaultParams, heroRadius, runParams, type Params } from '../sim/params';
 import { OBJECT_RADIUS, type ChainLink, type World } from '../sim/world';
 import { RT_RUN_FORCED, rtElitePlates } from './rtRun';
 
@@ -197,4 +197,42 @@ export function prologueRoute(world: World, n: number): ChainLink[] {
     if (savedClosed) world.chainClosed = savedClosed; else delete world.chainClosed;
   }
   return best;
+}
+
+/** The hand's spot: candidates round a target this far from it (inside R ≈ 2.2, outside the hero's cancel circle). */
+const SPOT_RING = 1.4;
+/** Eight directions round a target (unit vectors; no trigonometry). */
+const SPOT_DIRS: readonly Vec[] = [
+  { x: -1, y: 0 }, { x: -0.7071, y: -0.7071 }, { x: 0, y: -1 }, { x: 0.7071, y: -0.7071 },
+  { x: 1, y: 0 }, { x: 0.7071, y: 0.7071 }, { x: 0, y: 1 }, { x: -0.7071, y: 0.7071 },
+];
+/** At most this many candidates are tried (nearest to the hero first). */
+const SPOT_TRIES = 20;
+
+/**
+ * Where the hero should go when the hand has no chain from where he stands (design answer 12.10.2026: the view shows an arrow
+ * and a blinking circle there; once he is there, the hand comes). The nearest to the hero of a few candidates — the room's
+ * start, and points `SPOT_RING` round the hand's possible first links (the room's targets still on the arena) — that is free
+ * ground on the arena (not in an obstacle or water) and from which `prologueRoute` is not empty. None of the first
+ * `SPOT_TRIES` (nearest first) — the room's start. Null — room 6 or the hand has a chain from here already (nothing to
+ * show). Reads the world only: the hero is put at each candidate for the check and put back exactly (no random draw).
+ */
+export function prologueHandSpot(world: World, n: number): Vec | null {
+  const room = prologueRoom(n);
+  if (!room.route || world.status !== 'playing' || world.move || prologueRoute(world, n).length) return null;
+  const arena = world.arena, r = heroRadius(world.params), hero = world.hero, home = { x: hero.x, y: hero.y };
+  const ids = startEnemyIds(world), g = goblinOf(world), points: Vec[] = [{ x: arena.heroStart.x, y: arena.heroStart.y }];
+  for (const target of room.route) {
+    const at = 'enemy' in target ? world.enemies.find(e => e.id === ids[target.enemy]) : g;
+    if (at) for (const d of SPOT_DIRS) points.push({ x: at.x + d.x * SPOT_RING, y: at.y + d.y * SPOT_RING });
+  }
+  const free = points.filter(p => !blockedAt(p, r, arena) && !inWater(p, arena));
+  free.sort((a, b) => dist(a, home) - dist(b, home));
+  try {
+    for (const p of free.slice(0, SPOT_TRIES)) {
+      hero.x = p.x; hero.y = p.y;
+      if (prologueRoute(world, n).length) return p;
+    }
+  } finally { hero.x = home.x; hero.y = home.y; }
+  return { x: arena.heroStart.x, y: arena.heroStart.y };
 }

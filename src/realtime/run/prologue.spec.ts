@@ -26,7 +26,7 @@ import { Simulation, replay, type Journal } from '../sim/simulation';
 import { goblinOf, leverReady } from '../sim/slot';
 import { LAMPS_HOLD, RESTORE_DELAY, doorOpen, goalLamps, goalProgress, type ChainLink, type World, type WorldEvent } from '../sim/world';
 import { arenaTemplate } from '../sim/arenas';
-import { PROLOGUE_FORCED, PROLOGUE_ROOMS, prologueLoadout, prologueParams, prologueRoom, prologueRoute, startEnemyIds } from './prologue';
+import { PROLOGUE_FORCED, PROLOGUE_ROOMS, prologueHandSpot, prologueLoadout, prologueParams, prologueRoom, prologueRoute, startEnemyIds } from './prologue';
 import { RT_RUN_FORCED } from './rtRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -191,7 +191,7 @@ check('rooms 1–5: the ghost hand\'s chain, drawn by the commands, is the drawn
   }
 });
 
-check('the hand when it shows (4 s without a press, the hero where real play left him, seeds 1–4): its chain, drawn by the commands, is the drawn chain, the highlight is the dash; rooms 2–5 meet the goal (or no hand)', () => {
+check('the hand when it shows (4 s without a press; from the start, or after a short chain — rooms 2–4: the return put the hero on his start, rooms 1 and 5: where the dash left him; seeds 1–4): its chain, drawn by the commands, is the drawn chain, the highlight is the dash; rooms 2–5 meet the goal. A hero standing where no chain can start gets no hand (empty route): the next check', () => {
   let shown = 0, none = 0;
   for (const r of PROLOGUE_ROOMS.slice(0, 5)) for (const k of [1, 2, 3, 4]) for (const before of ['fresh', 'short'] as const) {
     const sim = room(r.number, k), w = sim.world, label = `${r.id} seed ${k} ${before}`;
@@ -200,7 +200,7 @@ check('the hand when it shows (4 s without a press, the hero where real play lef
     wait(sim, 4);
     if (w.status !== 'playing' || doorOpen(w)) continue;
     const route = prologueRoute(w, r.number);
-    if (!route.length) { none++; assert(r.number === 5, `${label}: rooms 1–4 always have a hand`); continue; }
+    if (!route.length) { none++; assert(r.number === 5, `${label}: rooms 1–4 have a hand in these starts`); continue; }
     shown++;
     const hand = planChain(w, route), plan = draw(sim, route);
     assert(JSON.stringify(plan.links) === JSON.stringify(hand.links), `${label}: the hand's highlight is the drawn one`);
@@ -211,6 +211,42 @@ check('the hand when it shows (4 s without a press, the hero where real play lef
     replays(sim, label);
   }
   console.log(`   ${shown} hands drawn and played, ${none} rooms without a hand`);
+});
+
+check('no hand from where the hero walked: the spot the view points to (`prologueHandSpot`) is found, walked to by the commands, and from there the hand\'s chain is drawn by the commands and does what the room needs (rooms 1–5, seeds 1–3); the call changes nothing', () => {
+  let tried = 0, slowest = 0, total = 0, calls = 0;
+  for (const r of PROLOGUE_ROOMS.slice(0, 5)) for (const k of [1, 2, 3]) {
+    const sim = room(r.number, k), w = sim.world, label = `${r.id} seed ${k}`;
+    // Walk into a corner the hand has no chain from (the first such corner; room 5's enemies sleep through the walk).
+    const corners = [{ x: w.arena.width - 0.9, y: w.arena.height - 0.9 }, { x: w.arena.width - 0.9, y: 0.9 }, { x: 0.9, y: w.arena.height - 0.9 }, { x: 0.9, y: 0.9 }];
+    let found = false;
+    for (const c of corners) {
+      for (let i = 0; i < 60 * 6 && Math.hypot(c.x - w.hero.x, c.y - w.hero.y) > 0.15; i++) {
+        const dx = c.x - w.hero.x, dy = c.y - w.hero.y, d = Math.hypot(dx, dy);
+        sim.command({ t: 'walk', x: dx / d, y: dy / d });
+        sim.tick();
+      }
+      sim.command({ t: 'walk', x: 0, y: 0 });
+      if (!prologueRoute(w, r.number).length) { found = true; break; }
+    }
+    if (!found) continue;
+    tried++;
+    const before = sim.hash(), t0 = performance.now();
+    const spot = prologueHandSpot(w, r.number)!;
+    const ms = performance.now() - t0;
+    slowest = Math.max(slowest, ms); total += ms; calls++;
+    assert(spot && sim.hash() === before && prologueRoute(w, r.number).length === 0, `${label}: a spot, the world unchanged`);
+    walkTo(sim, spot, 0.05);
+    const route = prologueRoute(w, r.number);
+    assert(route.length > 0 && prologueHandSpot(w, r.number) === null, `${label}: from the spot the hand has a chain`);
+    const plan = draw(sim, route), events = dash(sim);
+    planIsDash(plan, events, label);
+    if (r.number >= 2) assert(doorOpen(w), `${label}: the goal is met from the spot`);
+    else assert(plan.kills === route.length, `${label}: the chain kills what it takes`);
+    replays(sim, `${label} spot`);
+  }
+  assert(tried >= 10, `rooms with a hero out of the hand's reach: ${tried}`);
+  console.log(`   ${tried} heroes out of reach led back; prologueHandSpot ${(total / calls).toFixed(2)} ms on average, ${slowest.toFixed(2)} ms at most`);
 });
 
 check('the lamps of «N by one chain»: they burn by the kills of the dash going now, all at its N-th kill; a short one goes out at its end (rooms 2 and 4)', () => {
@@ -477,6 +513,31 @@ check('room 5: a post under the hero waits until he steps off it; the others com
     until(sim, x => restores(x, mark) > 1, 60);
     assert(!w.restore?.wait && w.enemies.length === posts.length && !w.events.slice(mark).some(e => e.type === 'spawn'), `${label}: the last one comes when he steps off; no spawn events`);
     replays(sim, `room 5 waiting post ${label}`);
+  }
+});
+
+check('room 5: a late post waits for the end of a dash too — the hero dashes off the post: no return during the dash, the post comes after it (seeds 1–5)', () => {
+  for (let k = 1; k <= 5; k++) {
+    const sim = room(5, k), w = sim.world, label = `seed ${k}`;
+    walkTo(sim, w.arena.enemies[0], 1.5);
+    killDownTo(sim, 0);
+    const posts = w.arena.enemies, near = posts.reduce((a, b) => Math.hypot(b.x - w.hero.x, b.y - w.hero.y) < Math.hypot(a.x - w.hero.x, a.y - w.hero.y) ? b : a);
+    const mark = w.events.length;
+    walkTo(sim, near, 0.05);
+    until(sim, x => restores(x, mark) > 0, 60 * 3);
+    assert(w.restore?.wait?.length === 1, `${label}: one post waits`);
+    // A dash off the post: the nearest enemy the chain takes now.
+    until(sim, x => x.enemies.some(e => canLink(x, e) && Math.hypot(e.x - x.hero.x, e.y - x.hero.y) > 0.6), 60 * 3);
+    const e = w.enemies.filter(x => canLink(w, x) && Math.hypot(x.x - w.hero.x, x.y - w.hero.y) > 0.6)[0];
+    draw(sim, [{ kind: 'enemy', id: e.id }]);
+    const during = w.events.length;
+    sim.command({ t: 'release' });
+    let duringDash = 0;
+    until(sim, x => { if (x.move) duringDash = restores(x, during); return !x.move; }, 60 * 5);
+    assert(duringDash === 0, `${label}: no return during the dash`);
+    until(sim, x => restores(x, during) > 0, 60 * 3);
+    assert(!w.move && !w.restore?.wait, `${label}: the late post came after the dash`);
+    replays(sim, `room 5 late post ${label}`);
   }
 });
 
