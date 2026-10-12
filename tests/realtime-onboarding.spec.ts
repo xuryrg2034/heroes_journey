@@ -290,6 +290,9 @@ test('Б8 stands on screen before the chest is taken (first in the queue); the h
   expect((await onboarding(page)).text).toBe('Проклятый сундук: касания врагов +1 урон до 12 убийств цепью. Награда за победу — талисман.');
   expect((await onboarding(page)).pending).toContain('b6');
   await expect(page.getByTestId('onboarding-hint')).toBeVisible();
+  // One hint at a time: the item hint of the arena start (it stood over the action bar at the same moment) waits.
+  expect((await snap(page)).itemHint).toBe(false);
+  await expect(page.getByTestId('item-hint')).toBeHidden();
 
   // The hero starts at the bottom edge of the yard, under the box: it is faded to a quarter (the arena edges are spawn places,
   // the hero and the markers must not stay covered).
@@ -305,14 +308,26 @@ test('Б8 stands on screen before the chest is taken (first in the queue); the h
   await expect.poll(solid).toBeLessThan(0.3);
   await page.mouse.move(640, 120);
   await page.screenshot({ path: 'artifacts/realtime-onboarding-faded.png' });
-  // He walks to the top of the yard (the camera follows): the box is solid again.
+  // The display time runs only while the box is not faded: 5 s (wall time) with the hero under it, Б8 is still there and
+  // the item hint still waits...
   await quiet(page);
+  await page.waitForTimeout(5_000);
+  expect((await onboarding(page)).id).toBe('b8');
+  expect((await onboarding(page)).faded).toBe(true);
+  expect((await snap(page)).itemHint).toBe(false);
+  // ...he walks to the top of the yard (the camera follows): Б8 is still shown, now at full opacity, and can be read.
   await page.evaluate(() => (window as any).__realtime.teleport(10, 3));
   await gameWait(page, 1.5);
   const far = await heroAt();
   expect(far.y).toBeLessThan(box.top - 40);
   await expect.poll(async () => (await onboarding(page)).faded).toBe(false);
   await expect.poll(solid).toBeGreaterThan(0.95);
+  expect((await onboarding(page)).id).toBe('b8');
+  await page.waitForTimeout(2_000);
+  expect((await onboarding(page)).id).toBe('b8');
+  await expect.poll(solid).toBeGreaterThan(0.95);
+  await page.mouse.move(640, 120);
+  await page.screenshot({ path: 'artifacts/realtime-onboarding-b8-readable.png' });
   // And back under it: faded again.
   await page.evaluate(() => (window as any).__realtime.teleport(10, 12.5));
   await gameWait(page, 1.5);
@@ -364,8 +379,11 @@ test('the «Котёл» row of a won run fight is the arithmetic of the payout,
   expect(door.cauldron).toBe(cauldron);
   const greed = door.greed ?? 1, paid = Math.min(3, Math.floor(door.cauldron * greed / door.rate));
   const text = (n: number) => String(n).replace('.', ',');
-  const expected = `Котёл ${door.cauldron}${greed !== 1 ? ` ×${text(greed)}` : ''} ÷ ${door.rate} → ресурсов ${paid}${paid >= 3 ? ' (потолок 3)' : ''} (до кости)`;
+  const expected = `${door.cauldron}${greed !== 1 ? ` ×${text(greed)}` : ''} ÷ ${door.rate} → ресурсов ${paid}${paid >= 3 ? ' (потолок 3)' : ''} (до кости)`;
   await expect(page.getByTestId('result')).toContainText(expected);
+  // The row's label is «Котёл»; its value does not repeat the word.
+  await expect(page.getByTestId('result').locator('dt', { hasText: 'Котёл' })).toHaveCount(1);
+  await expect(page.getByTestId('result').locator('dd', { hasText: '→ ресурсов' })).toHaveText(expected);
   await page.screenshot({ path: 'artifacts/realtime-onboarding-result.png' });
   const before = await page.evaluate(() => (window as any).__realtime.run.state().materials) as Record<string, number>;
   await page.getByTestId('result-map').click();

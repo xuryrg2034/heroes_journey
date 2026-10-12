@@ -890,7 +890,7 @@ async function boot(): Promise<void> {
       const hinting = hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded && w.status === 'playing';
       if (hinting) {
         for (const id of detectHints(w, p => renderer.sees(p))) hints.queue.offer(id);
-        const started = hints.queue.update(now);
+        const started = hints.queue.update(now, hintBox.classList.contains('rt-faded'));
         if (started) {
           hintBox.textContent = started.text;
           hintBox.dataset.id = started.id;
@@ -954,8 +954,10 @@ async function boot(): Promise<void> {
       itemSlots[i].classList.toggle('rt-blink', slotBlink[i] > 0);
     });
     lastSlotCounts = SLOT_ITEMS.map(kind => w.kit?.items[kind] ?? 0);
-    if (live) itemHintLeft = Math.max(0, itemHintLeft - realDt);
-    itemHint.hidden = !(itemHintLeft > 0 && !runScreenOpen);
+    // «Обучение v1»: one hint at a time — while a box hint is shown the item hint waits (its timer stands still).
+    const boxUp = !hintBox.hidden;
+    if (live && !boxUp) itemHintLeft = Math.max(0, itemHintLeft - realDt);
+    itemHint.hidden = !(itemHintLeft > 0 && !runScreenOpen && !boxUp);
     spinAbility.classList.toggle('rt-ready', canSpin(w));
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(w) && !ui.jumpMode;

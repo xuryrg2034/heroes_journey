@@ -10,7 +10,7 @@
  * - **Memory** — `HintStore` in the viewer's `localStorage` (`HINTS_KEY`), `{version: 1, shown: {id: count}}`. A fight hint is
  *   shown once per viewer; a screen line the first `SCREEN_LINE_SHOWS` appearances. The gear of the run map resets it.
  * - **Queue** — one hint at a time, at least `HINT_GAP_MS` between the starts of two hints; a hint stays `HINT_SHOW_MS` or
- *   until the next chain release, whichever is later. Times are real (wall) time: a person reads, the fight does not pause.
+ *   until the next chain release, whichever is later, but at most `HINT_MAX_MS`; the display time does not run while the box is faded. Times are real (wall) time: a person reads, the fight does not pause.
  * - **Triggers** — read from the world and its events of the frame, BEFORE main.ts clears `world.events`. Rules are not
  *   copied here: the numbers in the texts come from the world's `params` and the modules' constants.
  */
@@ -29,6 +29,8 @@ const HINTS_VERSION = 1;
 export const SCREEN_LINE_SHOWS = 2;
 /** A fight hint stays at least this long (ms of real time), and until the next chain release if that is later. */
 export const HINT_SHOW_MS = 4000;
+/** A hint never stays longer than this (ms of display, not counting the time it is faded) even if no chain is released. */
+export const HINT_MAX_MS = 12_000;
 /** At least this long (ms of real time) from the start of one hint to the start of the next. */
 export const HINT_GAP_MS = 6000;
 /** The hint box fades while the hero is within this many pixels of it. */
@@ -76,13 +78,13 @@ export function stakeLine(kept: number, broken: number): string { return `Ста
 export function dieLine(lowFaces: number): string { return `1–${lowFaces} — половина, ${lowFaces + 1}–6 — вдвое, но не выше потолка. «Забрать» — без риска.`; }
 
 /**
- * Э1, the «Котёл» row of a run fight's result: «Котёл 250 ×1,5 ×2 ÷ 120 → ресурсов 4 (потолок 6)». The greed step and the
+ * Э1, the value of the «Котёл» row of a run fight's result (the label is the row's own): «250 ×1,5 ×2 ÷ 120 → ресурсов 4 (потолок 6)». The greed step and the
  * oath are written only when they are not 1; the cap only when the payout stands at it. The numbers are `purseResources` of
  * the door's record (the rate it paid at), the same call the run pays with.
  */
 export function purseResultLine(door: PurseDoor): string {
   const greed = door.greed ?? 1, paid = purseResources(door.cauldron, door.oath, 1, door.rate, greed), cap = payoutCap(door.oath);
-  return `Котёл ${door.cauldron}${greed !== 1 ? ` ×${multText(greed)}` : ''}${door.oath !== 1 ? ` ×${multText(door.oath)}` : ''} ÷ ${door.rate} → ресурсов ${paid}${paid >= cap ? ` (потолок ${cap})` : ''}`;
+  return `${door.cauldron}${greed !== 1 ? ` ×${multText(greed)}` : ''}${door.oath !== 1 ? ` ×${multText(door.oath)}` : ''} ÷ ${door.rate} → ресурсов ${paid}${paid >= cap ? ` (потолок ${cap})` : ''}`;
 }
 
 /** The part of `Storage` the store uses (a plain object in the Node test). */
@@ -108,6 +110,8 @@ export class HintStore {
 
   /** The id was shown once more. */
   bump(id: string): void { this.shown[id] = this.count(id) + 1; this.save(); }
+  /** Takes back a `bump` (a hint cut short before it could be read). */
+  unbump(id: string): void { if (this.count(id) > 1) this.shown[id]--; else delete this.shown[id]; this.save(); }
   /** «Показать подсказки снова» (the gear of the run map): everything is new again. */
   reset(): void { this.shown = {}; this.save(); }
 
@@ -135,28 +139,35 @@ export class ScreenLines {
   }
 }
 
-/** A hint on the screen: its id, text and when it started (ms) and whether a chain was released since. */
-export interface ShownHint { id: HintId; text: string; since: number; released: boolean }
+/**
+ * A hint on the screen: its id, text, when it started (ms), whether a chain was released since, and `shown` — the ms it has
+ * been on screen NOT faded (the display time counts only while the player can read it).
+ */
+export interface ShownHint { id: HintId; text: string; since: number; released: boolean; shown: number }
 
 /** Hints that must come before another one in the queue (Б4 before Б5: the cauldron before the door that pays it). */
 const BEFORE: Partial<Record<HintId, HintId>> = { b4: 'b5' };
 /**
- * Hints that go to the front of the queue: Б8 names the price of the chest, so it must stand before the player can take the
- * chest unseen (the design: «the price visible before the decision»). It still waits for the hint on screen and the 6 s.
+ * Hints that go to the front of the queue AND start at once: Б8 names the price of the chest, so it must stand before the
+ * player can take the chest unseen (design 12.10.2026: «the price visible before the decision»). It interrupts the hint on
+ * screen (which goes back to the front of the queue, as if not shown) and does not wait for the 6 s gap.
  */
-const FIRST: ReadonlySet<HintId> = new Set<HintId>(['b8']);
+const URGENT: ReadonlySet<HintId> = new Set<HintId>(['b8']);
 
 /**
  * The fight hints' queue and its timing. Times are passed in (real ms), so the Node test drives a fake clock.
  * - `offer(id)` — a trigger fired: queued unless shown before (the store), already queued or on screen.
  * - `release(now)` — the player released a chain.
- * - `update(now)` — call every frame; returns the hint that started in this call (to log it), else null.
+ * - `update(now, faded)` — call every frame; `faded` — the box is faded now (the hero stands under it). Returns the hint that
+ *   started in this call (to log it), else null. A hint goes after `HINT_SHOW_MS` of display and a release, or at the latest
+ *   after `HINT_MAX_MS` of display; the display time does not run while the box is faded.
  * - `reset()` — a new fight: the queue and the hint on screen are dropped (not marked: only a started hint counts as shown).
  */
 export class HintQueue {
   current: ShownHint | null = null;
   private queue: HintId[] = [];
   private lastStart = -Infinity;
+  private tickAt = 0;
 
   constructor(private readonly store: HintStore, private readonly text: (id: HintId) => string = id => hintText(id)) {}
 
@@ -167,20 +178,33 @@ export class HintQueue {
   offer(id: HintId): void {
     if (this.store.count(id) > 0 || this.queue.includes(id) || this.current?.id === id) return;
     const after = BEFORE[id], at = after ? this.queue.indexOf(after) : -1;
-    if (FIRST.has(id)) this.queue.unshift(id);
+    if (URGENT.has(id)) this.queue.unshift(id);
     else if (at >= 0) this.queue.splice(at, 0, id);
     else this.queue.push(id);
   }
 
   release(now: number): void { if (this.current && now >= this.current.since) this.current.released = true; }
 
-  update(now: number): ShownHint | null {
-    if (this.current && now - this.current.since >= HINT_SHOW_MS && this.current.released) this.current = null;
-    if (this.current || !this.queue.length || now - this.lastStart < HINT_GAP_MS) return null;
-    const id = this.queue.shift()!;
-    this.store.bump(id);
+  update(now: number, faded = false): ShownHint | null {
+    const cur = this.current;
+    if (cur) {
+      if (!faded) cur.shown += Math.max(0, now - this.tickAt);
+      if ((cur.shown >= HINT_SHOW_MS && cur.released) || cur.shown >= HINT_MAX_MS) this.current = null;
+    }
+    this.tickAt = now;
+    const next = this.queue[0];
+    if (next === undefined) return null;
+    const urgent = URGENT.has(next);
+    if (!urgent && (this.current || now - this.lastStart < HINT_GAP_MS)) return null;
+    if (this.current) {
+      // An urgent hint cuts in: the one on screen waits at the front of the queue and is not counted as shown.
+      this.store.unbump(this.current.id);
+      this.queue.splice(1, 0, this.current.id);
+    }
+    this.queue.shift();
+    this.store.bump(next);
     this.lastStart = now;
-    this.current = { id, text: this.text(id), since: now, released: false };
+    this.current = { id: next, text: this.text(next), since: now, released: false, shown: 0 };
     return this.current;
   }
 }

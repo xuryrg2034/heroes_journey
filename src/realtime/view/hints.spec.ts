@@ -20,7 +20,7 @@ import { RtRecorder, type SessionStore } from '../telemetry/recorder';
 import { collectRecords, hintStats, latestRuns } from '../telemetry/report';
 import { checkRecord } from '../telemetry/schema';
 import {
-  detectHints, dieLine, heroUnderBox, HINT_GAP_MS, HINT_IDS, HINT_SHOW_MS, HINTS_KEY, HintQueue, HintStore, hintText, LINE_RESOURCES, purseResultLine,
+  detectHints, dieLine, heroUnderBox, HINT_GAP_MS, HINT_MAX_MS, HINT_IDS, HINT_SHOW_MS, HINTS_KEY, HintQueue, HintStore, hintText, LINE_RESOURCES, purseResultLine,
   ScreenLines, SCREEN_LINE_SHOWS, stakeLine, type HintId, type HintStorage,
 } from './hints';
 
@@ -97,10 +97,39 @@ check('queue: one hint at a time, at least 6 s between starts, shown 4 s or unti
   assert(queue.update(5900) === null && on() === null, 'the next waits for 6 s from the start of the last');
   assert(queue.update(6000)?.id === 'b2', 'b2 at 6 s');
   // No release: it stays past 4 s, and goes at the first release after that (the next one then starts in the same call).
-  assert(queue.update(30_000) === null && on() === 'b2', 'no release — b2 stays');
-  queue.release(30_500);
-  assert(queue.update(30_500)?.id === 'b3' && on() === 'b3', 'released later than 4 s — b2 goes and b3 (6 s long passed) comes');
-  assert(HINT_SHOW_MS === 4000 && HINT_GAP_MS === 6000, 'the design numbers');
+  assert(queue.update(11_000) === null && on() === 'b2', 'no release — b2 stays');
+  queue.release(12_100);
+  assert(queue.update(12_100)?.id === 'b3' && on() === 'b3', 'released later than 4 s — b2 goes and b3 (6 s long passed) comes');
+  assert(HINT_SHOW_MS === 4000 && HINT_GAP_MS === 6000 && HINT_MAX_MS === 12_000, 'the design numbers');
+});
+
+check('queue: a hint nobody releases a chain under goes after 12 s of display; the time does not run while the box is faded', () => {
+  const store = new HintStore(memory().storage), queue = new HintQueue(store);
+  const on = (): string | null => queue.current?.id ?? null;
+  queue.offer('b1'); queue.offer('b2');
+  queue.update(0);
+  assert(queue.update(11_900) === null && on() === 'b1', 'no release: still there at 11.9 s');
+  assert(queue.update(12_000)?.id === 'b2' && on() === 'b2', 'the cap: b1 goes at 12 s, b2 comes');
+  // Faded: the clock of the display stands still, the wall clock of the gap does not.
+  const q2 = new HintQueue(new HintStore(memory().storage));
+  q2.offer('b6'); q2.offer('b1');
+  q2.update(0, true);
+  q2.release(100);
+  for (let t = 100; t <= 5000; t += 100) q2.update(t, true);
+  assert(q2.current?.id === 'b6' && q2.current.shown === 0, 'faded 5 s: not a millisecond of display counted, still there');
+  for (let t = 5100; t <= 8000; t += 100) q2.update(t, false);
+  assert(q2.current?.id === 'b6', 'only 2.9 s of display after he walked out');
+  q2.update(9000, false);
+  assert((q2.current as { id: string } | null)?.id === 'b1', `4 s of display and a release: b6 goes, b1 (6 s long passed) comes: ${q2.current?.id}`);
+  const q3 = new HintQueue(new HintStore(memory().storage));
+  q3.offer('b6');
+  q3.update(0, true);
+  for (let t = 100; t <= 60_000; t += 100) q3.update(t, true);
+  assert(q3.current?.id === 'b6', 'a hero who stays under it for a minute: still there (not even the cap runs)');
+  for (let t = 60_100; t <= 71_900; t += 100) q3.update(t, false);
+  assert(q3.current?.id === 'b6', 'the cap counts display time only');
+  q3.update(72_100, false);
+  assert(q3.current === null, 'cap after 12 s of display');
 });
 
 check('queue: over a long fight starts are never closer than 6 s, never overlap, and each id shows once per viewer', () => {
@@ -141,13 +170,24 @@ check('queue: Б4 goes before Б5 — when the door opens first, and when Б5 is
   assert(qc.pending.join() === 'b5', 'b4 is not shown twice');
 });
 
-check('queue: Б8 (the chest\'s price) goes to the front, before the hints already waiting, but not before the one on screen', () => {
+check('queue: Б8 (the chest\'s price) goes to the front and starts at once — it cuts the hint on screen and does not wait for the 6 s', () => {
   const store = new HintStore(memory().storage), queue = new HintQueue(store);
   queue.offer('b6'); queue.offer('b1'); queue.offer('b8');
   assert(queue.pending.join() === 'b8,b6,b1', queue.pending.join());
   assert(queue.update(0)?.id === 'b8', 'b8 is the first to stand');
   queue.offer('b8');
   assert(queue.pending.join() === 'b6,b1', 'not queued twice');
+  // Cutting in: b3 is on screen 1 s, b8 comes at once; b3 is not counted as shown and waits at the front.
+  const s2 = new HintStore(memory().storage), q2 = new HintQueue(s2);
+  q2.offer('b3');
+  q2.update(0);
+  q2.update(1000);
+  q2.offer('b8');
+  assert(q2.update(1100)?.id === 'b8' && q2.current?.id === 'b8', 'b8 cuts in 1.1 s after b3 started');
+  assert(s2.count('b3') === 0 && s2.count('b8') === 1 && q2.pending.join() === 'b3', `b3 waits unmarked: ${q2.pending}, ${s2.shownIds()}`);
+  assert(q2.update(6000) === null, 'b3 comes back only 6 s after b8 started');
+  q2.release(6100);
+  assert(q2.update(7100)?.id === 'b3', 'b3 later');
 });
 
 /** A quiet field for the real worlds: nobody walks or comes. */
@@ -302,7 +342,7 @@ check('Э1: the text is the arithmetic of the payout the run pays — real doors
   for (const [k, target, afterGoals, oath, jump] of cases) {
     const door = doorOfFight(k, target, afterGoals, oath, jump);
     const text = purseResultLine(door), paid = doorPayout(door).length, cap = payoutCap(door.oath);
-    const expected = `Котёл ${door.cauldron}${(door.greed ?? 1) !== 1 ? ` ×${multText(door.greed!)}` : ''}${door.oath !== 1 ? ` ×${multText(door.oath)}` : ''} ÷ ${door.rate} → ресурсов ${paid}${paid >= cap ? ` (потолок ${cap})` : ''}`;
+    const expected = `${door.cauldron}${(door.greed ?? 1) !== 1 ? ` ×${multText(door.greed!)}` : ''}${door.oath !== 1 ? ` ×${multText(door.oath)}` : ''} ÷ ${door.rate} → ресурсов ${paid}${paid >= cap ? ` (потолок ${cap})` : ''}`;
     assert(text === expected, `seed ${k}: «${text}» against «${expected}»`);
     assert(door.rate === 120, `seed ${k}: the run's rate is 120 (${door.rate})`);
     if ((door.greed ?? 1) !== 1) withGreed++;
@@ -316,11 +356,11 @@ check('Э1: the text is the arithmetic of the payout the run pays — real doors
 
 check('Э1: hand-made doors — no multipliers written for 1, the cap only when the payout stands at it', () => {
   const door = (cauldron: number, oath: number, greed?: number): PurseDoor => ({ cauldron, oath, kinds: ['wood', 'wood', 'wood', 'wood', 'wood', 'wood'] as never, rate: 120, ...greed !== undefined ? { greed } : {} });
-  assert(purseResultLine(door(250, 1)) === 'Котёл 250 ÷ 120 → ресурсов 2', purseResultLine(door(250, 1)));
-  assert(purseResultLine(door(250, 1, 1)) === 'Котёл 250 ÷ 120 → ресурсов 2', 'greed 1 is not written');
-  assert(purseResultLine(door(250, 2, 1.5)) === 'Котёл 250 ×1,5 ×2 ÷ 120 → ресурсов 6 (потолок 6)', purseResultLine(door(250, 2, 1.5)));
-  assert(purseResultLine(door(250, 0.5)) === 'Котёл 250 ×0,5 ÷ 120 → ресурсов 1 (потолок 1)', purseResultLine(door(250, 0.5)));
-  assert(purseResultLine(door(30, 1)) === 'Котёл 30 ÷ 120 → ресурсов 0', 'a small cauldron pays nothing');
+  assert(purseResultLine(door(250, 1)) === '250 ÷ 120 → ресурсов 2', purseResultLine(door(250, 1)));
+  assert(purseResultLine(door(250, 1, 1)) === '250 ÷ 120 → ресурсов 2', 'greed 1 is not written');
+  assert(purseResultLine(door(250, 2, 1.5)) === '250 ×1,5 ×2 ÷ 120 → ресурсов 6 (потолок 6)', purseResultLine(door(250, 2, 1.5)));
+  assert(purseResultLine(door(250, 0.5)) === '250 ×0,5 ÷ 120 → ресурсов 1 (потолок 1)', purseResultLine(door(250, 0.5)));
+  assert(purseResultLine(door(30, 1)) === '30 ÷ 120 → ресурсов 0', 'a small cauldron pays nothing');
 });
 
 // ---- Telemetry: RunRecord.hints and the report section ----

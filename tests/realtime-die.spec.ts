@@ -86,7 +86,7 @@ test('the die at the door: the screen after a won arena with a cauldron, the odd
   await expect.poll(async () => (await snapshot(page)).status, { timeout: 10_000 }).toBe('victory');
   // The result leads to the die (the cauldron row says what «Забрать» pays before the die).
   // The run's rate is 120 (12.10.2026): 96 pays 0 before the die, the roll ×2 — 1.
-  await expect(page.getByTestId('result')).toContainText(`Котёл ${cauldron} ÷ 120 → ресурсов 0 (до кости)`);
+  await expect(page.getByTestId('result')).toContainText(`${cauldron} ÷ 120 → ресурсов 0 (до кости)`);
   await expect(page.getByTestId('result-map')).toHaveText('К кости у двери (Enter)');
   const before = await runState(page);
   expect(before.pending.kind).toBe('die');
