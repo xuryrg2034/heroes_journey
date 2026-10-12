@@ -441,6 +441,31 @@ check('the raised touch: HP ≥ 2 at the moment of the touch hurts 2, HP 0–1 �
   assert(replays(sim), 'replay');
 });
 
+check('the run: the after-chain shield only for 3+ kills (design 12.10.2026) — a chain of 1 leaves the hero open to a touch, of 3 shields him 0.5 s', () => {
+  assert(rtRunParams(defaultParams()).chainShieldMinKills === 3 && defaultParams().chainShieldMinKills === 1, 'the run 3, the sandbox 1');
+  /** A chain of `n` weak enemies to the right, then the hero beside a standing enemy of another colour: [shield, first hurt tick]. */
+  const after = (n: number): { shield: number; hurtAt: number } => {
+    const p = rtRunParams(quiet({ contactDamage: 1 }));
+    const sim = field(p), w = sim.world;
+    const links = Array.from({ length: n }, (_, i) => place(sim, 5.6 + 1.1 * i, 5, 0));
+    const blocker = place(sim, 12, 8, 0, { color: 1 });
+    draw(sim, links);
+    sim.command({ t: 'release' });
+    settle(sim);
+    assert(w.stats.kills === n && !w.move, `${n} kills (${w.stats.kills})`);
+    const shield = w.hero.chainShield, hp = w.hero.hp as number;
+    sim.command({ t: 'teleport', x: blocker.x - touchDistanceOf(p, blocker) + 0.02, y: blocker.y });
+    let hurtAt = -1;
+    for (let t = 0; t < tick(1.5) && hurtAt < 0; t++) { ticks(sim, 1); if ((w.hero.hp as number) < hp) hurtAt = t; }
+    assert(replays(sim), `replay ${n}`);
+    return { shield, hurtAt };
+  };
+  const one = after(1), two = after(2), three = after(3);
+  assert(one.shield === 0 && one.hurtAt >= 0 && one.hurtAt <= 2, `a chain of 1: no shield, the touch hurts at once (${JSON.stringify(one)})`);
+  assert(two.shield === 0 && two.hurtAt <= 2, `a chain of 2: no shield (${JSON.stringify(two)})`);
+  assert(near(three.shield, 0.5, 2 * SIM_DT) && three.hurtAt >= tick(0.5) - 2, `a chain of 3: 0.5 s (less the tick the dash ended in), the touch hurts only after it (${JSON.stringify(three)})`);
+});
+
 check('caps with armour: random elites at most 1 before the goals and 2 after', () => {
   for (let k = 1; k <= 2; k++) {
     const sim = new Simulation({ arena: 'armor-open', params: harmless({ eliteArmor: true, eliteSandbox: true, eliteChance: 1, eliteChanceAfter: 1 }), seed: seedOf(60 + k), record: true });

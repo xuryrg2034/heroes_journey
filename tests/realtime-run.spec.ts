@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { untilFrame } from './realtimeFrames';
 
 /**
  * The run of the real-time game in the browser (stage 2, step 1; docs/realtime-slice.md). Runs through
@@ -516,5 +517,55 @@ test('run (phase B, Д4): the Jailer\'s row offers a hammer 3 of 4, then an oath
   await expect(page.getByTestId(`build-${relicId}`)).toHaveAttribute('data-kind', 'relic');
   await expect(page.getByTestId(`build-${relicId}`).locator('.rt-build-price')).not.toBeEmpty();
   await page.screenshot({ path: 'artifacts/realtime-phaseB-run-column.png' });
+  expect(errors).toEqual([]);
+});
+
+test('run (playtest v34, design 12.10.2026): a mouse chain of 1 leaves no after-chain shield — a touch hurts at once; a chain of 3 kills shields the hero 0.5 s', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await newRun(page);
+  await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  // Only the test's enemies, standing still (journalled); the run's own numbers stay (`chainShieldMinKills` 3).
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['boarMax', 0], ['hitstop', false]] as const) rt.setParam(k, v);
+    rt.clear(false);
+  });
+  expect(await page.evaluate(() => (window as any).__realtime.params.chainShieldMinKills)).toBe(3);
+  /** A mouse chain through weak enemies placed at these offsets from the hero; waits for the dash to end; the hero's shield then. */
+  const chain = async (offsets: readonly (readonly [number, number])[]): Promise<number> => {
+    const at = await page.evaluate(offsets => {
+      const rt = (window as any).__realtime, h = rt.snapshot().hero;
+      return offsets.map(([dx, dy]) => { rt.place(h.x + dx, h.y + dy, 0, 0, 'basic'); return rt.toScreen(h.x + dx, h.y + dy) as { x: number; y: number }; });
+    }, offsets);
+    const before = await page.evaluate(() => (window as any).__realtime.snapshot().lastChain?.time ?? -1);
+    await page.mouse.move(at[0].x, at[0].y);
+    await page.mouse.down();
+    for (const p of at.slice(1)) await page.mouse.move(p.x, p.y);
+    await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(offsets.length);
+    await page.mouse.up();
+    await page.mouse.move(20, 20);
+    // The frame the dash ended in: its shield.
+    return untilFrame(page, (s, t0: number) => s.lastChain && s.lastChain.time > t0 && !s.moving ? s.hero.chainShield as number : undefined, before, 5);
+  };
+  /** A standing enemy of another colour put against the hero: game seconds until the first wound (−1 — none within 1.2 s). */
+  const touch = async (): Promise<number> => {
+    const t0 = await page.evaluate(() => { const rt = (window as any).__realtime, s = rt.snapshot(); rt.place(s.hero.x + 0.35, s.hero.y, 1, 0, 'basic'); return s.time as number; });
+    const hp0 = await page.evaluate(() => (window as any).__realtime.snapshot().hero.hp as number);
+    return untilFrame(page, (s, a: { t0: number; hp0: number }, late) => s.hero.hp < a.hp0 ? s.time - a.t0 : late ? -1 : undefined, { t0, hp0 }, 1.2);
+  };
+  const one = await chain([[1, 0]]);
+  expect(one).toBe(0);
+  const hurtOne = await touch();
+  expect(hurtOne).toBeGreaterThanOrEqual(0);
+  expect(hurtOne).toBeLessThan(0.2);
+  // The wound's own invulnerability out, the blocker gone; then a chain of 3.
+  await untilFrame(page, (s, _a: null, late) => s.hero.invulnerable <= 0 || late ? true : undefined, null, 3);
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  const three = await chain([[1, 0], [1.6, 0.8], [0.8, 1.4]]);
+  expect(three).toBeGreaterThan(0.4);
+  const hurtThree = await touch();
+  expect(hurtThree).toBeGreaterThanOrEqual(0.4);
   expect(errors).toEqual([]);
 });

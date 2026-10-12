@@ -116,7 +116,10 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   // B7 К9 «Игорный круг гоблинов» (design 12.10.2026): a run-layer key, read by `rtEnterNode` through the run view.
   goblinCircle: true,
   // Design 12.10.2026: a queued spawn group stays together (spawn.ts `placeQueued`).
-  spawnGroupHold: true });
+  spawnGroupHold: true,
+  // Playtest v34 (design 12.10.2026): the after-chain shield only for a chain of 3+ kills — quick single-target clicks into a
+  // crowd gave 0.5 s each; the sandbox default stays 1.
+  chainShieldMinKills: 3 });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 
