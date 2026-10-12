@@ -125,6 +125,12 @@ function awaitReturn(sim: Simulation, label: string, max = 4): number {
   return w.time - t0;
 }
 
+/** Ticks to the next return (any arena; no check of the posts). */
+function awaitReturnAny(sim: Simulation): void {
+  const mark = sim.world.events.length;
+  until(sim, x => restores(x, mark) > 0, 60 * 4);
+}
+
 /** Walks the hero (the `walk` command) to `to`, stopping within `within`. */
 function walkTo(sim: Simulation, to: { x: number; y: number }, within = 0.12): void {
   const w = sim.world;
@@ -497,6 +503,37 @@ check('room 5 (design answer 12.10.2026): from the waking press 10 s without act
     assert(w.status === 'playing' && 15 - w.hero.hp <= 3 && w.stats.hitsTaken > 0 && w.events.every(e => e.type !== 'hit' || e.damage === 1), `seed ${k}: lost ${15 - w.hero.hp}`);
   }
   console.log(`   HP lost in 10 s from the waking press: ${Math.min(...lost)}…${Math.max(...lost)}`);
+});
+
+check('room 5: sleeping enemies are not parted by the hero walking through them, do not touch him standing in their bodies, and any press wakes them — an empty one too; the journal replays awake (seeds 1–3)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = room(5, k), w = sim.world, label = `seed ${k}`;
+    // Through every sleeping body and back to the start: nobody moved.
+    for (const e of [...w.enemies]) walkTo(sim, e, 0.05);
+    walkTo(sim, w.arena.heroStart, 0.05);
+    assert(w.asleep && allAtPosts(w), `${label}: walked through — everybody on the posts`);
+    // Standing in a sleeping body 5 s: no touch.
+    walkTo(sim, w.enemies[0], 0.02);
+    wait(sim, 5);
+    assert(w.asleep && w.hero.hp === 15 && w.stats.hitsTaken === 0, `${label}: 5 s in a body — HP ${w.hero.hp}`);
+    // A press on an empty spot (no link taken) wakes them.
+    walkTo(sim, w.arena.heroStart, 0.05);
+    assert(sim.command({ t: 'begin', x: w.arena.width - 0.5, y: 0.5 }) === false && w.chain.length === 0, `${label}: the press took nothing`);
+    assert(!w.asleep, `${label}: the empty press woke them`);
+    wait(sim, 1);
+    assert(!allAtPosts(w), `${label}: awake, they walk`);
+    const again = replay(JSON.parse(JSON.stringify(sim.exportJournal())) as Journal);
+    assert(again.hash() === sim.hash() && !again.world.asleep, `${label}: the journal replays to the same awake world`);
+  }
+});
+
+check('room 5: no spot for the hand when no chain «enemies → lever» can be drawn from anywhere — null, no arrow (none left, the return not come yet)', () => {
+  const sim = room(5, 2), w = sim.world;
+  killDownTo(sim, 0);
+  assert(!w.enemies.length && prologueRoute(w, 5).length === 0 && prologueHandSpot(w, 5) === null, 'no enemies — no hand anywhere, no spot');
+  // The return brings them back: a spot (or the hand itself) again.
+  awaitReturnAny(sim);
+  assert(prologueRoute(w, 5).length > 0 || prologueHandSpot(w, 5) !== null, 'after the return: a hand or a spot');
 });
 
 check('room 5: after a return the enemies stay awake (they sleep once, until the first press)', () => {

@@ -214,8 +214,9 @@ const SPOT_TRIES = 20;
  * and a blinking circle there; once he is there, the hand comes). The nearest to the hero of a few candidates — the room's
  * start, and points `SPOT_RING` round the hand's possible first links (the room's targets still on the arena) — that is free
  * ground on the arena (not in an obstacle or water) and from which `prologueRoute` is not empty. None of the first
- * `SPOT_TRIES` (nearest first) — the room's start. Null — room 6 or the hand has a chain from here already (nothing to
- * show). Reads the world only: the hero is put at each candidate for the check and put back exactly (no random draw).
+ * `SPOT_TRIES` (nearest first) — the room's start if the hand has a chain from there (review 12.10.2026: never a spot without
+ * one). Null — room 6, the hand has a chain from here already, or no candidate gives one (no arrow; the view asks again in a
+ * moment: the enemies of room 5 move, a return comes). Reads the world only: the hero is put at each candidate for the check and put back exactly (no random draw).
  */
 export function prologueHandSpot(world: World, n: number): Vec | null {
   const room = prologueRoom(n);
@@ -228,11 +229,12 @@ export function prologueHandSpot(world: World, n: number): Vec | null {
   }
   const free = points.filter(p => !blockedAt(p, r, arena) && !inWater(p, arena));
   free.sort((a, b) => dist(a, home) - dist(b, home));
+  const start = { x: arena.heroStart.x, y: arena.heroStart.y };
   try {
-    for (const p of free.slice(0, SPOT_TRIES)) {
+    for (const p of [...free.slice(0, SPOT_TRIES), start]) {
       hero.x = p.x; hero.y = p.y;
       if (prologueRoute(world, n).length) return p;
     }
   } finally { hero.x = home.x; hero.y = home.y; }
-  return { x: arena.heroStart.x, y: arena.heroStart.y };
+  return null;
 }
