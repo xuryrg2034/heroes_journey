@@ -35,11 +35,12 @@ import { afterLinkPowerOf, buildActive, chainShieldOf, crystalEveryOf, focusMaxO
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
+import { PIERCE_HITSTOP, PIERCE_SOURCE, pierceOn, pierceShape } from './pierce';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
 import { leverReady, pullLever } from './slot';
 import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease } from './oath';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, doorOf, doorOpen, enemyFrozen, findObject, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
 // Phase B: these two moved to build.ts (the build may change them); the view and the tests import them from here as before.
@@ -125,7 +126,28 @@ export interface ChainPlan {
    * (`HeroMove.purse`). Absent while the cauldron is off.
    */
   cheque?: Cheque;
+  /**
+   * Loop research, step 3 («Прямая», pierce.ts): the pierce the release would fix now — the axis, the end, the corridor's
+   * bodies with the outcome of the chain's power on each. Absent without one (off, a bent tail, the last link survives, P 0,
+   * a closed loop, not the drawn chain).
+   */
+  pierce?: PiercePreview;
 }
+
+/**
+ * Loop research, step 3: the pierce of the drawn chain as it would be released now. `power` — P, the chain's power after its
+ * last link (not spent by the bodies); each body's outcome is `strike(P, hp, ×2 of the cold, 0, plates)`.
+ */
+export interface PiercePreview {
+  from: Vec; to: Vec; length: number; ux: number; uy: number; power: number;
+  bodies: { id: number; t: number; outcome: StrikeOutcome }[];
+  kills: number;
+}
+
+/** What `planChain` computes besides the links: `pierce: false` — no pierce (the rule checks of the drawing, П1's search). */
+export interface PlanOptions { pierce?: boolean }
+/** The plan of the rule checks: the pierce never decides whether a link may join (design 12.10.2026, point 12). */
+export const NO_PIERCE: Readonly<PlanOptions> = Object.freeze({ pierce: false });
 
 /** Loop research, step 2: a closed chain's ring now and who is inside it (`sealPreview`). */
 export interface SealPreview { kind: LoopKind; ring: Vec[]; inside: number[]; links: number; damage: number; hold: number }
@@ -151,7 +173,7 @@ export function chainStartPower(world: World): number { return world.kit?.firstP
  * Highlight of the drawn chain: who dies, who is wounded. Same `strike` as the dash; phase B: the same pure power hooks of
  * the build modules with the same link context (build.ts `linkPowerOf`, `afterLinkPowerOf`) — nothing here changes the world.
  */
-export function planChain(world: World, links: readonly ChainLink[] = world.chain): ChainPlan {
+export function planChain(world: World, links: readonly ChainLink[] = world.chain, options: Readonly<PlanOptions> = {}): ChainPlan {
   let power = chainStartPower(world), kills = 0, endsOnSurvivor = false;
   const out: LinkPlan[] = [];
   // Phase B: the build layer numbers the enemy links only while a build module acts (otherwise the old plan, exactly).
@@ -183,11 +205,33 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const last = links[links.length - 1];
   const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
   const seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
+  // Loop research, step 3: the pierce of the drawn chain only (a closed loop — the seal wins).
+  const pierce = options.pierce !== false && links === world.chain && pierceOn(world) && !loopClosed(world) && !endsOnSurvivor
+    ? planPierce(world, links, out, power) : null;
   // П3 «Финальная цепь»: the dash enters the door — its last link is the open door and no survivor stops it before.
   const end = endsOnObject && !endsOnSurvivor && purse && doorFinaleOn(world) ? findObject(world, last.id) : undefined;
   const door = end?.kind === 'door' && doorOpen(world);
-  const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null, door) : null;
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {} };
+  // «Прямая» (design point 9): the pierced bodies' embers go into the cheque as links' do; heat, «Добивание» and П4 unchanged.
+  const pierceEmbers = purse && pierce ? pierce.bodies.reduce((sum, b) => sum + linkEmbers(findEnemy(world, b.id)!, b.outcome), 0) : 0;
+  const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null, door, pierceEmbers) : null;
+  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {} };
+}
+
+/**
+ * Loop research, step 3 («Прямая»): the pierce the plan `out` of `links` gives (rules 1–5 of the design 12.10.2026): the last
+ * link is an enemy the chain kills (a plate taken is no kill), P = the power after it ≥ 1, the tail is straight and the cut
+ * leaves some length. Null — no pierce. Pure: the world is only read.
+ */
+function planPierce(world: World, links: readonly ChainLink[], out: readonly LinkPlan[], power: number): PiercePreview | null {
+  const last = out[out.length - 1];
+  if (!last || last.link.kind !== 'enemy' || !last.outcome?.killed || power < 1) return null;
+  const shape = pierceShape(world, links, l => linkPoint(world, l));
+  if (!shape) return null;
+  const bodies = shape.bodies.flatMap(b => {
+    const e = findEnemy(world, b.id);
+    return e ? [{ id: b.id, t: b.t, outcome: strike(power, e.hp, chainFactor(world, e), 0, platesOf(e)) }] : [];
+  });
+  return { from: shape.from, to: shape.to, length: shape.length, ux: shape.ux, uy: shape.uy, power, bodies, kills: bodies.filter(b => b.outcome.killed).length };
 }
 
 // ---- Loop research, step 2: the loop («Печать», docs/realtime-loop-research.md, sections 3.1–3.4) ----
@@ -227,7 +271,7 @@ export function loopKindAt(world: World, p: Vec): LoopKind | null {
   const n = chainEnemyCount(world), first = world.chain[0];
   // The same nearest pick as the drag (links of the chain and new candidates): a new link next to the first one is taken
   // as a link, not read as the closing (review 11.10.2026).
-  const plan = planChain(world);
+  const plan = planChain(world, world.chain, NO_PIERCE);
   const under = pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
     o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan));
@@ -243,7 +287,7 @@ export function loopKindAt(world: World, p: Vec): LoopKind | null {
  */
 export function loopRefusal(world: World, kind: LoopKind): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
-  if (planChain(world).endsOnObject) return 'afterObject';
+  if (planChain(world, world.chain, NO_PIERCE).endsOnObject) return 'afterObject';
   const first = world.chain[0], last = world.chain[world.chain.length - 1];
   const from = linkPoint(world, last);
   if (!from) return 'far';
@@ -445,7 +489,7 @@ function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
  * started by dragging from an empty spot also starts only within R of the hero, design answer 36), in sight (toggle),
  * not taken, not after a survivor or an object. Null — it can.
  */
-export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planChain(world)): Refusal | null {
+export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
   if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
   if (inChain(world, enemy) >= 0) return 'inChain';
@@ -463,7 +507,7 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   return guard && !guard(world, enemy, chainAnchor(world)) ? 'guarded' : null;
 }
 
-export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(world)): boolean {
+export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): boolean {
   return enemyRefusal(world, enemy, plan) === null;
 }
 
@@ -471,7 +515,7 @@ export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(
  * Why the object cannot be the next link: an unpressed button or the open door (then the last link), or a crystal not
  * yet in the chain (stage C: the chain goes on after it); any color, within R (to the edge of its circle) and in sight.
  */
-export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan = planChain(world)): Refusal | null {
+export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
   if (linkIndex(world, { kind: 'object', id: object.id }) >= 0) return 'inChain';
   if (loopClosed(world)) return 'sealed';
@@ -485,18 +529,18 @@ export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan
   return reachRefusal(world, object, OBJECT_RADIUS);
 }
 
-export function canLinkObject(world: World, object: ArenaObject, plan: ChainPlan = planChain(world)): boolean {
+export function canLinkObject(world: World, object: ArenaObject, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): boolean {
   return objectRefusal(world, object, plan) === null;
 }
 
 /** Valid next links right now (render: outline). */
 export function nextCandidates(world: World): Enemy[] {
-  const plan = planChain(world);
+  const plan = planChain(world, world.chain, NO_PIERCE);
   return world.enemies.filter(e => canLink(world, e, plan));
 }
 
 export function nextObjectCandidates(world: World): ArenaObject[] {
-  const plan = planChain(world);
+  const plan = planChain(world, world.chain, NO_PIERCE);
   return world.objects.filter(o => canLinkObject(world, o, plan));
 }
 
@@ -543,7 +587,7 @@ export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
   world.chain = [];
   delete world.chainClosed;
-  const plan = planChain(world);
+  const plan = planChain(world, world.chain, NO_PIERCE);
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
   if (!target) return false;
   world.chain = [target];
@@ -571,7 +615,7 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
     if (world.params.cancelOnHero || (world.params.chainStepBack && world.chain.length === 1)) { world.chain = []; delete world.chainClosed; }
     return;
   }
-  const plan = planChain(world), truncate = mode === 'full';
+  const plan = planChain(world, world.chain, NO_PIERCE), truncate = mode === 'full';
   const target = pick(world, p,
     e => (truncate && inChain(world, e) >= 0) || canLink(world, e, plan),
     o => (truncate && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan));
@@ -619,7 +663,7 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
   if (world.move && !held) return null;
   // Loop research, step 2: on the closing target of an open chain — why it would not close.
   if (!world.chainClosed) { const kind = loopKindAt(world, p); if (kind) return loopRefusal(world, kind); }
-  const plan = planChain(world);
+  const plan = planChain(world, world.chain, NO_PIERCE);
   if (pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
     o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan))) return null;
@@ -642,6 +686,8 @@ export function armedDamage(world: World, enemy: Enemy): number { return Math.ma
 export function releaseChain(world: World): boolean {
   // Loop research, step 2: a closed chain fixes its seal now — the ring and who is inside, as the player saw it last.
   const seal = loopClosed(world) && world.status === 'playing' && !world.move ? sealPreview(world, world.chainClosed!) : null;
+  // Loop research, step 3 («Прямая»): the pierce the player saw last — its end and its bodies are fixed now (as the seal's).
+  const pierce = pierceOn(world) && world.status === 'playing' && !world.move ? planChain(world).pierce : undefined;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
@@ -651,6 +697,7 @@ export function releaseChain(world: World): boolean {
     world.move.seal = { kind: seal.kind, links: seal.links, ring: seal.ring, inside: seal.inside, damage: seal.damage, hold: seal.hold };
     world.events.push({ type: 'seal', phase: 'release', kind: seal.kind, points: seal.ring.map(q => ({ x: q.x, y: q.y })), inside: [...seal.inside], links: seal.links });
   }
+  if (pierce) fixPierce(world, world.move, pierce);
   // Casino «Котёл»: the dash counts its cheque (purse.ts; absent while the cauldron is off).
   if (purseOn(world)) world.move.purse = { embers: 0, links: 0, last: false };
   // П4 «Раздув за дела»: a chain released with the door open counts toward a greed step (absent while the rule is off).
@@ -675,6 +722,70 @@ export function releaseChain(world: World): boolean {
     runHook(world, 'onRelease', m => m.onRelease!(world, { chain, links, start }));
   }
   return true;
+}
+
+// ---- Loop research, step 3: «Прямая» (pierce.ts; design decisions 12.10.2026) ----
+
+/**
+ * The release fixes the pierce of the plan (rule 3): the end, the bodies in the order the hero passes them, the ×2 of those
+ * frozen and brittle now (as `move.brittle`), one firing for their plates. Event `pierce` `release`.
+ */
+function fixPierce(world: World, move: HeroMove, pierce: PiercePreview): void {
+  const brittle = pierce.bodies.flatMap(b => { const e = findEnemy(world, b.id); return e && chainFactor(world, e) > 1 ? [b.id] : []; });
+  move.pierce = {
+    from: { ...pierce.from }, to: { ...pierce.to }, length: pierce.length, bodies: pierce.bodies.map(b => ({ id: b.id, t: b.t })),
+    ...brittle.length ? { brittle } : {}, ...world.params.eliteArmor ? { firing: nextFiring(world) } : {}, hits: 0, kills: 0,
+  };
+  world.events.push({ type: 'pierce', phase: 'release', from: { ...pierce.from }, to: { ...pierce.to }, bodies: pierce.bodies.map(b => b.id), power: pierce.power });
+}
+
+/** The last link died on the ground (rule 4): the run starts where the hero stands, with the dash's power (0 — no pierce). */
+function beginPierce(world: World, move: HeroMove): void {
+  const pierce = move.pierce!;
+  if (move.power < 1) { cancelPierce(world, move); return; }
+  pierce.start = { x: world.hero.x, y: world.hero.y };
+}
+
+/** No pierce after all: the last link survived, lost only a plate, fell into a cliff, or the power is 0. Event `cancel`. */
+function cancelPierce(world: World, move: HeroMove): void {
+  delete move.pierce;
+  world.events.push({ type: 'pierce', phase: 'cancel' });
+}
+
+/** Where the run passes the body at `t`: its share `t ÷ length` of the way start → end. */
+function piercePoint(pierce: NonNullable<HeroMove['pierce']>, t: number): Vec {
+  const s = pierce.start!, k = Math.min(1, Math.max(0, t / pierce.length));
+  return { x: s.x + (pierce.to.x - s.x) * k, y: s.y + (pierce.to.y - s.y) * k };
+}
+
+/**
+ * The run passes a body (rules 2, 7, 8): if it is still on the arena, the chain's power hits it — `strike(P, hp, ×2 fixed at
+ * the release, 0, plates)`, P not spent; a plate goes by `stripPlates` with the pierce's one firing. Credited, source
+ * `pierce` (kills, score per kill, goal, marked, loot, a sapper's blast are the player's); no combo, crystal, chain score,
+ * energy, focus or quills. Its embers go into the cheque (no heat). One hit-stop per pierce.
+ */
+function pierceHit(world: World, move: HeroMove, id: number): void {
+  const pierce = move.pierce!, enemy = findEnemy(world, id);
+  if (!enemy) return;
+  const factor = pierce.brittle?.includes(id) ? Math.max(1, world.params.frostFactor) : 1;
+  const outcome = strike(move.power, enemy.hp, factor, 0, platesOf(enemy));
+  if (move.purse) move.purse.embers += linkEmbers(enemy, outcome);
+  // The ×2 of the cold is spent by the hit (as a link's).
+  delete enemy.brittle;
+  if (pierce.brittle) { pierce.brittle = pierce.brittle.filter(x => x !== id); if (!pierce.brittle.length) delete pierce.brittle; }
+  pierce.hits++;
+  const cause = { source: PIERCE_SOURCE, credited: true, ...pierce.firing !== undefined ? { firing: pierce.firing } : {} };
+  if (outcome.plate) stripPlates(world, enemy, cause);
+  else { damageEnemy(world, enemy, outcome.damage, cause); if (outcome.killed) pierce.kills++; }
+  if (!pierce.stopped && world.params.hitstop) { pierce.stopped = true; world.hitstop = Math.max(world.hitstop, PIERCE_HITSTOP); }
+}
+
+/** The run reached the end: the hero stops there (the dash's end). Event `pierce` `end`. */
+function endPierce(world: World, move: HeroMove): void {
+  const pierce = move.pierce!;
+  landAt(move, pierce.to);
+  delete move.pierce;
+  world.events.push({ type: 'pierce', phase: 'end', hits: pierce.hits, kills: pierce.kills, x: pierce.to.x, y: pierce.to.y });
 }
 
 /**
@@ -1088,6 +1199,8 @@ function advanceMove(world: World, move: HeroMove, budget: number, path: Vec[] |
         if (!arrived) return false;
         move.links.shift();
         passFallen(world, fallen);
+        // «Прямая»: the last link fell on the ground (not into a cliff) — the run starts.
+        if (move.pierce && !move.pierce.start && !move.links.length && !move.detour) beginPierce(world, move);
         continue;
       }
       // A kill takes the enemy's spot; a survivor is struck from the touch distance.
@@ -1099,7 +1212,24 @@ function advanceMove(world: World, move: HeroMove, budget: number, path: Vec[] |
       move.links.shift();
       hitEnemy(world, enemy);
       if (world.status !== 'playing') return false;
+      // «Прямая»: the last link died by the hit — the run starts (a survivor or a plate taken cancels it below).
+      if (move.pierce && !move.pierce.start && !move.links.length && !world.enemies.includes(enemy) && !move.point && !move.detour) beginPierce(world, move);
       // Hit-stop: the rest of this tick's dash waits with the world (the next ticks are frozen while it lasts).
+      if (world.hitstop > 0) break;
+      continue;
+    }
+    // Loop research, step 3 («Прямая»): the links are done — the run to the fixed end, the bodies hit as the hero passes them.
+    const pierce = move.pierce;
+    if (pierce) {
+      if (!pierce.start) { cancelPierce(world, move); continue; }
+      const next = pierce.bodies[0];
+      const arrived = moveHero(next ? piercePoint(pierce, next.t) : pierce.to, budget);
+      budget -= dist(before, world.hero);
+      if (!arrived) return false;
+      if (!next) { endPierce(world, move); continue; }
+      pierce.bodies.shift();
+      pierceHit(world, move, next.id);
+      if (world.status !== 'playing') return false;
       if (world.hitstop > 0) break;
       continue;
     }
@@ -1115,7 +1245,7 @@ function advanceMove(world: World, move: HeroMove, budget: number, path: Vec[] |
     if (move.detour) { returnToStop(move); continue; }
     return true;
   }
-  if (world.move && !move.links.length && !move.point) { if (move.detour) returnToStop(move); else return true; }
+  if (world.move && !move.links.length && !move.point && !move.pierce) { if (move.detour) returnToStop(move); else return true; }
   return false;
 }
 

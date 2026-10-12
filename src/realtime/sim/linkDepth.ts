@@ -17,7 +17,7 @@
  *   checked (every enemy and every passable object of the arena). A search cut by the budget gives the best path found
  *   so far (`cut`); it never gives a path that is not valid.
  */
-import { OBJECT_RADIUS, canLink, canLinkObject, chainAnchors, nextCandidates, planChain, reachOf } from './chain';
+import { NO_PIERCE, OBJECT_RADIUS, canLink, canLinkObject, chainAnchors, nextCandidates, planChain, reachOf } from './chain';
 import { enemyArtRadius } from './enemies/kinds';
 import { dist } from './geometry';
 import type { ChainLink, Enemy, World } from './world';
@@ -68,7 +68,8 @@ export function linkDepth(world: World, enemy: Enemy, options: LinkDepthOptions 
   const visit = (count: number): void => {
     if (count > result.depth) { result.depth = count; result.path = shadow.chain.slice(base); }
     if (result.depth >= max || count >= max) return;
-    const plan = planChain(shadow);
+    // «Прямая» never decides whether a link may join (design 12.10.2026, point 12): the search plans without it.
+    const plan = planChain(shadow, shadow.chain, NO_PIERCE);
     if (plan.endsOnSurvivor || plan.endsOnObject) return;
     if (left <= 0) { result.cut = true; return; }
     left--;

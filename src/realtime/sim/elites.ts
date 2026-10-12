@@ -140,7 +140,8 @@ export function stripPlates(world: World, e: Enemy, cause: { source: string; fir
 export function updateArmor(world: World, dt: number): void {
   // An elite the running dash still heads for keeps its armour as it was at the release (the window, its clean second and the
   // regrowth wait): the highlight the player released is what the dash does (review 11.10.2026).
-  const held = world.move?.kind === 'dash' ? new Set(world.move.links.filter(l => l.kind === 'enemy').map(l => l.id)) : null;
+  // Loop research, step 3 («Прямая»): so do the pierce's bodies not passed yet (absent without a pierce: as before).
+  const move = world.move, held = move?.kind === 'dash' ? new Set([...move.links.filter(l => l.kind === 'enemy').map(l => l.id), ...move.pierce?.bodies.map(b => b.id) ?? []]) : null;
   for (const e of world.enemies) {
     const a = e.armor;
     if (!a || held?.has(e.id)) continue;

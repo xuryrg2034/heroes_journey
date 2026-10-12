@@ -27,6 +27,8 @@
  *   seals — released closed chains (`seal` events of the phase `release`), empty ones — nobody inside, `sealInside` — how
  *   many were inside, one number per seal in order (at the release, as the player saw it). Seal kills land in
  *   `kills.tools.seal` by the kill rule below (credited, source `seal`).
+ * - «Прямая» (loop research, step 3): pierces — `pierce` events `release` (fixed at the release); `pierceHits` — the bodies a
+ *   run struck, one number per `pierce` `end` (0 — empty; a cancelled pierce has none). Pierce kills — `kills.tools.pierce`.
  * - step-back re-adds: a link a step back took off and a later command took again into the same chain within
  *   `BACKSTEP_READD_WINDOW` real seconds (an accidental step back). Real time: each tick costs `SIM_DT ÷ tickScale` (the
  *   hit-stop tick — `SIM_DT`), the price `Simulation.nextTickCost` charges, read from the world before the tick; commands
@@ -229,6 +231,11 @@ export function createFightObserver(start: World): FightObserver {
           s.chain.seals++;
           if (!ev.inside.length) s.chain.sealsEmpty++;
           s.chain.sealInside.push(ev.inside.length);
+          return;
+        // Loop research, step 3 («Прямая», sandbox): pierces fixed at the release; bodies struck by each run that ended.
+        case 'pierce':
+          if (ev.phase === 'release') s.chain.pierces++;
+          else if (ev.phase === 'end') s.chain.pierceHits.push(ev.hits);
           return;
         case 'talismanFired': bump(s.build.fired, ev.id); return;
         case 'hammer': bump(s.build.fired, world.kit?.hammer ?? 'hammer'); return;

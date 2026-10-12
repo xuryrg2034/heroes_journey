@@ -220,6 +220,35 @@ export interface HeroMove {
   seal?: SealMove;
   /** Casino «Котёл» (purse.ts): the dash's cheque so far — embers, enemy links, the last one dead (absent while the cauldron is off). */
   purse?: PurseMove;
+  /**
+   * Loop research, step 3 («Прямая», sim/pierce.ts): the pierce fixed at the release — run after the last link died on the
+   * ground (absent otherwise: dashes without it hash as before).
+   */
+  pierce?: PierceMove;
+}
+
+/**
+ * Loop research, step 3: the pierce a dash carries (fixed at the release, as the seal). The hero runs from where the last link
+ * died to `to`; a body is hit when he passes its share `t ÷ length` of that run, if it is still on the arena.
+ */
+export interface PierceMove {
+  /** The axis's start (the last link at the release) and its fixed end; `length` — the cut length between them. */
+  from: Vec;
+  to: Vec;
+  length: number;
+  /** Corridor bodies not passed yet, by t. */
+  bodies: { id: number; t: number }[];
+  /** Bodies frozen and brittle at the release: struck ×`frostFactor` (absent when none). */
+  brittle?: number[];
+  /** The firing id of its plate strips (absent while the elites' armour is off). */
+  firing?: number;
+  /** Where the run began (absent until the last link died on the ground). */
+  start?: Vec;
+  /** Bodies struck and killed so far. */
+  hits: number;
+  kills: number;
+  /** The pierce's one hit-stop was given (absent until then). */
+  stopped?: true;
 }
 
 /** Loop research, step 2: where a chain closes — on its first link, or on the hero (he is a corner of the ring). */
@@ -294,6 +323,13 @@ export type WorldEvent =
    * dash (`strike`: who of them was still on the arena and was hit).
    */
   | { type: 'seal'; phase: 'release' | 'strike'; kind: LoopKind; points: Vec[]; inside: number[]; links: number }
+  /**
+   * Loop research, step 3 («Прямая»): the pierce fixed at the release (the axis's start, the end, the corridor's bodies, the
+   * power), its end (bodies struck and killed) or its cancel (the last link did not die on the ground at the dash).
+   */
+  | { type: 'pierce'; phase: 'release'; from: Vec; to: Vec; bodies: number[]; power: number }
+  | { type: 'pierce'; phase: 'end'; hits: number; kills: number; x: number; y: number }
+  | { type: 'pierce'; phase: 'cancel' }
   | { type: 'chainEnd'; kills: number; score: number }
   | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean; fall?: boolean }
   /** Stage 3a (М4): the dash took a brazier (`lit` false — it went out) or it burns again (`lit` true). */

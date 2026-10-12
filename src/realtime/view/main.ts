@@ -1096,6 +1096,8 @@ async function boot(): Promise<void> {
         hint: hintReason,
         /** Loop research, step 2: the loop's state and what the view drew of it (render.ts `loopShown`). */
         loop: { closed: w.chainClosed ?? null, shown: { ...renderer.loopShown }, hintText: hintReason ? REFUSAL_TEXT[hintReason] : null },
+        /** Loop research, step 3 («Прямая»): the drawn chain's pierce (its end and bodies; null — none) and what the view drew of it. */
+        pierce: { plan: (() => { const pc = w.chain.length ? planChain(w).pierce : undefined; return pc ? { to: { ...pc.to }, length: pc.length, power: pc.power, bodies: pc.bodies.map(b => ({ id: b.id, killed: b.outcome.killed })) } : null; })(), shown: { ...renderer.pierceShown } },
         /** Phase B (Д5): icons in the build column (visible), their ids and progress texts; icon flashes and texts at the hero so far. */
         buildColumn: buildColumn.el.hidden ? 0 : buildColumn.count,
         buildFolded: buildColumn.folded,

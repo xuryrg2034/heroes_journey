@@ -429,6 +429,17 @@ export interface Params {
   sealLongLinks: number;
   /** Loop research, step 2 (experiment): in focus before the first link the view hints the best loop from the hero. Off by default. */
   loopHint: boolean;
+  /**
+   * Loop research, step 3 (docs/realtime-loop-research.md, К1; design decisions 12.10.2026): «Прямая», the barbarian's pierce
+   * (sim/pierce.ts). Sandbox only: off by default, a run forces it off (`RUN_FORCED`). A chain whose tail of the last 3 enemy
+   * links turns at most `pierceTurn` degrees at every corner, whose last enemy link dies and whose power after it is ≥ 1, goes on
+   * `pierceLength` along the line (cut by obstacles, the edge and cliffs); every body within `pierceCorridor` of the line takes
+   * the chain's power (not spent). Journals without these values: off (the numbers read their defaults).
+   */
+  pierceEnabled: boolean;
+  pierceTurn: number;
+  pierceLength: number;
+  pierceCorridor: number;
   wolfRushPack: number;
   wolfHowl: number;
   wolfRushSpeed: number;
@@ -861,6 +872,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   sealHoldLong: 2,
   sealLongLinks: 8,
   loopHint: false,
+  pierceEnabled: false,
+  pierceTurn: 25,
+  pierceLength: 1.875,
+  pierceCorridor: 0.5,
   wolfRushPack: 3,
   wolfHowl: 0.6,
   wolfRushSpeed: 6,
@@ -1198,6 +1213,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('sealLongLinks', 'Петля', 'Длинная петля: врагов от', 4, 20, 1, 5),
   { kind: 'bool', key: 'loopHint', group: 'Петля', label: 'Подсказка петли (эксперимент)', stage: 5,
     hint: 'В фокусе до первого звена слабо подсвечена одна лучшая петля от героя.' },
+  { kind: 'bool', key: 'pierceEnabled', group: 'Прямая', label: 'Прямая (пробой)', stage: 5,
+    hint: 'Исследование петли, шаг 3. Только песочница. Хвост цепи из последних 3 врагов почти прямой, последнее звено гибнет, сила после него ≥ 1: проход продолжается по линии, все тела в коридоре получают силу цепи (она не тратится).' },
+  n('pierceTurn', 'Прямая', 'Поворот хвоста не больше', 0, 60, 1, 5, '°', 'Каждый поворот хвоста (последние 3 вражеских звена и предметы между ними). Отрезок герой → первое звено не считается.'),
+  n('pierceLength', 'Прямая', 'Длина пробоя', 0.5, 5, 0.125, 5, 'ед.', 'От последнего звена по линии; препятствие, край и обрыв обрезают.'),
+  n('pierceCorridor', 'Прямая', 'Коридор: от линии не дальше', 0.1, 1.5, 0.05, 5, 'ед.', 'До центра тела.'),
   n('wolfRushPack', 'Волк', 'Бросок: волков в кольце', 1, 8, 1, 5),
   n('wolfHowl', 'Волк', 'Вой перед броском', 0, 3, 0.05, 5, 'с', 'Круг вокруг героя. Направление броска фиксируется в конце воя.'),
   n('wolfRushSpeed', 'Волк', 'Бросок: скорость', 0.5, 20, 0.25, 5, 'ед/с', 'По прямой; вода и терновник не замедляют, стена и обрыв останавливают.'),
@@ -1339,10 +1359,11 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * saved panel holds. Stage 3a, step 3: the wolves' ring is a rule of the run — on (the sandbox may switch it off). Phase A:
  * speed classes are on; the sandbox's affix count is 0 (the run passes its own by the row, `Loadout.eliteAffixes`); Т6: the
  * archer's point shot is on. Loop research, step 1: the sandbox palette `colorCount` is 4 (the run's palette by its row comes
- * from `colorsByRow`, `Loadout.colors`). Step 2: the loop is a sandbox experiment — off in a run. П9 «Второе дыхание»
- * (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved panel holds.
+ * from `colorsByRow`, `Loadout.colors`). Step 2: the loop is a sandbox experiment — off in a run; step 3, «Прямая», too
+ * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
+ * panel holds.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, secondWind: false });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

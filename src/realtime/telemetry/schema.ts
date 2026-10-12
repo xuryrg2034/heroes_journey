@@ -460,6 +460,13 @@ export interface FightSummary {
      * one number per released chain in order (0.01 s); cancelled chains are not counted.
      */
     drawTime: number[];
+    /**
+     * Loop research, step 3 «Прямая» (from 12.10.2026, sandbox only; absent in older records — `withSummaryDefaults`): pierces
+     * fixed at the release (`pierce` events `release`); bodies the run struck, one number per pierce that ran to its end, in
+     * order (0 — an empty pierce). Pierce kills land in `kills.tools.pierce`.
+     */
+    pierces: number;
+    pierceHits: number[];
   };
   /** Package «Урон имеет значение» (from 11.10.2026): the elites of the fight (`elite` set; armoured or not). */
   elites: EliteSummary;
@@ -621,6 +628,7 @@ export function emptyFightSummary(): FightSummary {
     chain: {
       count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0,
       closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0, toughNotFirst: 0, drawTime: [],
+      pierces: 0, pierceHits: [],
     },
     elites: {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,

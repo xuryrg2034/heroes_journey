@@ -51,6 +51,8 @@ export const CHAIN_COLORS: readonly number[] = [COLORS[0], COLORS[1], COLORS[2],
 const chainInk = (index: number): number => CHAIN_COLORS[index] ?? CHAIN_COLORS[CHAIN_COLORS.length - 1];
 /** The part of `SealPreview` the view reads. */
 type SealPreviewLike = NonNullable<ReturnType<typeof planChain>['seal']>;
+/** Loop research, step 3: the plan's pierce the view reads. */
+type PiercePreviewLike = NonNullable<ReturnType<typeof planChain>['pierce']>;
 /**
  * Phase B (design answer 23): the effects of the player's build — a pale-blue rim (the spin's colour), no hatching and no
  * dark threat outline: the wave, the hammer's blast, the cut, the fire of the dash; the player's bomb too (apart from the
@@ -370,6 +372,12 @@ export class RealtimeRenderer {
    * the experiment's highlighted figure is on screen.
    */
   readonly loopShown = { candidates: 0, closed: 0, marks: 0, flashes: 0, hint: 0 };
+  /**
+   * Loop research, step 3 («Прямая»): what the pierce drew (tests read it): `arrow` — the arrow of the drawn chain's pierce is on
+   * screen, `marks` — corridor bodies marked with their outcome, `end` — the end mark; `releases` / `ends` — `pierce` events seen
+   * so far (fixed at a release, a run that reached its end).
+   */
+  readonly pierceShown = { arrow: 0, marks: 0, end: 0, releases: 0, ends: 0 };
   /** The experiment `loopHint`: the figure found at the last search (the view recomputes it every few frames, never in the sim). */
   private hintFigure: LoopHintFigure | null = null;
   private hintFrame = 0;
@@ -1791,6 +1799,12 @@ export class RealtimeRenderer {
         this.sealFlash(ev.points, ev.kind);
         continue;
       }
+      if (ev.type === 'pierce') {
+        // Loop research, step 3 («Прямая»): the fixed arrow flashes at the release; the run's end is counted.
+        if (ev.phase === 'release') { this.pierceShown.releases++; this.pierceFlash(ev.from, ev.to); }
+        else if (ev.phase === 'end') this.pierceShown.ends++;
+        continue;
+      }
       if (ev.type === 'enemyHit') {
         // Stage 2, step 2: an arrow or a blast wounds an enemy (a kill comes as its own `kill` event).
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xff8a73);
@@ -1882,6 +1896,7 @@ export class RealtimeRenderer {
     for (const label of this.plateLabels) label.visible = false;
     for (const label of this.depthLabels) label.visible = false;
     this.linkDepthShown.labels = [];
+    this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
@@ -1933,6 +1948,7 @@ export class RealtimeRenderer {
     }
     const anchor = chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
+    this.drawPierce(g, world, plan.pierce, ink);
     if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
       if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
       // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
@@ -1991,6 +2007,63 @@ export class RealtimeRenderer {
       }
     }
     this.signals.quillBadges = quills;
+  }
+
+  /**
+   * Loop research, step 3 («Прямая», design 12.10.2026, point 12): the drawn chain gives a pierce — a faint corridor band, the
+   * arrow from the last link to the fixed end (navy under the chain colour, a head at the end), an end mark across the line, and
+   * on each corridor body the mark of its outcome as on a link (dies — the cross badge, wounded — the orange ring and «!», a
+   * plated elite — the lemon ring and «−1 пластина»). Nothing in the HUD; nothing written to the world.
+   */
+  private drawPierce(g: Graphics, world: World, pierce: PiercePreviewLike | undefined, ink: number): void {
+    if (!pierce) return;
+    const p = world.params, r = enemyDrawRadius(p) * UNIT, shown = this.pierceShown;
+    const a = { x: pierce.from.x * UNIT, y: pierce.from.y * UNIT }, b = { x: pierce.to.x * UNIT, y: pierce.to.y * UNIT };
+    const ux = pierce.ux, uy = pierce.uy, nx = -uy, ny = ux, half = (p.pierceCorridor ?? 0.5) * UNIT;
+    g.moveTo(a.x + nx * half, a.y + ny * half).lineTo(b.x + nx * half, b.y + ny * half).lineTo(b.x - nx * half, b.y - ny * half).lineTo(a.x - nx * half, a.y - ny * half).closePath();
+    g.fill({ color: ink, alpha: 0.1 });
+    // A dashed shaft (the bodies under it stay readable) stops short of the head; the head is a triangle at the end.
+    const head = 15, tip = { x: b.x, y: b.y }, back = { x: b.x - ux * head, y: b.y - uy * head };
+    this.dashed(g, a, back, NAVY, 7, 0.55, 12, 8);
+    this.dashed(g, a, back, ink, 3.5, 0.95, 12, 8);
+    g.moveTo(tip.x, tip.y).lineTo(back.x + nx * 9, back.y + ny * 9).lineTo(back.x - nx * 9, back.y - ny * 9).closePath();
+    g.fill({ color: ink, alpha: 0.95 }).stroke({ color: NAVY, width: 2.5, alpha: 0.8, join: 'round' });
+    shown.arrow = 1;
+    // The end mark: a bar across the line at the end (where the hero stops).
+    g.moveTo(b.x + nx * half, b.y + ny * half).lineTo(b.x - nx * half, b.y - ny * half).stroke({ color: NAVY, width: 7, alpha: 0.7, cap: 'round' });
+    g.moveTo(b.x + nx * half, b.y + ny * half).lineTo(b.x - nx * half, b.y - ny * half).stroke({ color: 0xffffff, width: 3, alpha: 0.95, cap: 'round' });
+    shown.end = 1;
+    for (const body of pierce.bodies) {
+      const e = world.enemies.find(x => x.id === body.id);
+      if (!e) continue;
+      const x = e.x * UNIT, y = e.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75, o = body.outcome;
+      shown.marks++;
+      if (o.plate) {
+        const R = e.elite ? r * p.eliteArtScale * 1.06 : r, bx = x - R * 0.7, by = y - R * 0.75, s = r * 0.2;
+        g.circle(x, y, R + 4).stroke({ color: ELITE_LEMON, width: 4 });
+        g.circle(bx, by, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
+        g.roundRect(bx - s * 0.8, by - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
+        const label = this.plateLabel(this.eliteShown.planPlates++);
+        label.position.set(x, y - R - 14);
+        label.visible = true;
+      } else if (o.killed) {
+        const s = r * 0.2;
+        g.circle(cx, cy, r * 0.32).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
+        g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
+      } else {
+        g.circle(x, y, r + 4).stroke({ color: 0xffa040, width: 4 });
+        g.circle(cx, cy, r * 0.32).fill(0xffa040).stroke({ color: NAVY, width: 2 });
+        g.rect(cx - 2, cy - r * 0.18, 4, r * 0.22).rect(cx - 2, cy + r * 0.1, 4, 4).fill(NAVY);
+      }
+    }
+  }
+
+  /** Loop research, step 3: the fixed arrow flashes white (~0.2 s) at the release. */
+  private pierceFlash(from: Vec, to: Vec): void {
+    const g = new Graphics();
+    g.moveTo(from.x * UNIT, from.y * UNIT).lineTo(to.x * UNIT, to.y * UNIT).stroke({ color: 0xffffff, width: 8, alpha: 0.9, cap: 'round' });
+    this.fxLayer.addChild(g);
+    this.bursts.push({ g, life: 0.2, total: 0.2 });
   }
 
   /** Loop research, step 2: the `i`-th hit number of a closed ring (a pool of texts over the chain layer). */

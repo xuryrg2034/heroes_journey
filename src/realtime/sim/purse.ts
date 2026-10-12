@@ -70,7 +70,8 @@ export const PAYOUT_CAP_MAX = 6;
 /**
  * Credited kills outside the chain that put 1 ember (no heat; research 3.3, 8.5): the hammers' fire, end blast, cut and
  * return, «Ударная волна», the goblin's arrow rain (source `slot`, casino stage 1). The seal's kills put nothing
- * here: its row of the cheque counts everyone inside.
+ * here: its row of the cheque counts everyone inside. Nor the pierce's («Прямая», source `pierce`): its bodies' embers are in
+ * the chain's cheque.
  */
 export const PURSE_KILL_SOURCES: ReadonlySet<string> = new Set<string>([...Object.values(BUILD_SOURCES), SLOT_KILL_SOURCE]);
 
@@ -166,11 +167,14 @@ export function tallyLink(tally: PurseMove, embers: number, dead: boolean): void
 /**
  * The highlight's cheque (`planChain`): `links` — the plan's enemy links in order with their struck outcomes and their
  * enemies, `crystals` — crystal links of the plan, `sealInside` — enemies inside the closed chain (null — not closed), `door`
- * — П3: the dash would enter the door (`doorFinale` on, the last link the open door, no survivor before it).
+ * — П3: the dash would enter the door (`doorFinale` on, the last link the open door, no survivor before it). `pierce` — loop
+ * research, step 3 («Прямая», design 12.10.2026, point 9): embers of the pierced bodies (`linkEmbers` of each); they add to
+ * the embers only — no heat, no link count, «Добивание» stays the last link's (the dash adds the same, chain.ts `pierceHit`).
  */
-export function planCheque(links: readonly { enemy: Pick<Enemy, 'armor'>; outcome: StrikeOutcome }[], crystals: number, sealInside: number | null, door = false): Cheque {
+export function planCheque(links: readonly { enemy: Pick<Enemy, 'armor'>; outcome: StrikeOutcome }[], crystals: number, sealInside: number | null, door = false, pierce = 0): Cheque {
   const tally: PurseMove = { embers: 0, links: 0, last: false };
   for (const { enemy, outcome } of links) tallyLink(tally, linkEmbers(enemy, outcome), outcome.killed);
+  tally.embers += pierce;
   return chequeOf(tally, crystals, sealInside === null ? null : { inside: sealInside }, door);
 }
 
