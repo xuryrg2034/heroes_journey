@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { gameWait, untilFrame } from './realtimeFrames';
 
 /**
@@ -88,7 +89,7 @@ test('a new viewer plays the prologue: room 1 «1/6 · Тропа» for 1.5 s, o
   expect(p.title).toBe('1/6 · Тропа');
   expect(p.skipVisible).toBe(true);
   expect(p.lamps).toEqual({ lit: 0, total: 3 });
-  expect(p.hud).toEqual({ energy: false, actionBar: false, score: false, info: false });
+  expect(p.hud).toEqual({ energy: false, actionBar: false, score: false, focus: false, info: false });
   await expect(page.getByTestId('goal')).toHaveText('Убей: 0 / 3');
   await expect(page.getByTestId('hud')).toBeVisible();
   await expect(page.getByTestId('run')).toBeHidden();
@@ -174,7 +175,7 @@ test('room 3: the tough one struck first survives (its HP drops), the enemies co
   await drag(page, pts, 1);
   const gone = await untilFrame(page, s => s.kills >= 1 ? true : undefined, 0, 3);
   expect(gone).toBe(true);
-  const back = await untilFrame(page, s => s.enemies.length === 4 && s.prologue.shown.smokesStarted > 0 && s.enemies.every((e: any) => e.hp === 0 || e.hp > 0) ? true : undefined, 0, 5);
+  const back = await untilFrame(page, s => s.enemies.length === 4 && s.prologue.shown.smokesStarted > 0 && s.enemies.find((e: any) => e.marked)?.hp === 4 ? true : undefined, 0, 5);
   expect(back).toBe(true);
   // The tough one first: the hero walks up to it (no chain can start on the far end) and strikes it alone.
   const tough = (s: any) => s.enemies.find((e: any) => e.marked);
@@ -185,9 +186,11 @@ test('room 3: the tough one struck first survives (its HP drops), the enemies co
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();
   await page.mouse.up();
-  await gameWait(page, 0.6);
+  // The strike lands: the tough one is alive with less HP than the 4 it has (read in the frames of the dash).
+  const hurt = await untilFrame(page, s => { const m = s.enemies.find((e: any) => e.marked); return m && m.hp > 0 && m.hp < 4 ? m.hp : undefined; }, 0, 4);
+  expect(hurt).toBeGreaterThan(0);
+  expect(hurt).toBeLessThan(4);
   const after = await snap(page);
-  expect(after.enemies.some((e: any) => e.marked)).toBe(true);
   expect(after.stage).toBe('goals');
   // Back at the start: everyone with full HP; the full chain now.
   const fresh = await untilFrame(page, s => s.enemies.length === 4 && s.enemies.every((e: any) => !e.marked || e.hp === 4) && s.hero.x < 3 ? true : undefined, 0, 6);
@@ -199,6 +202,7 @@ test('room 3: the tough one struck first survives (its HP drops), the enemies co
   await gameWait(page, 2);
   const win = await snap(page);
   expect(win.stage).toBe('greed');
+  expect(win.enemies.some((e: any) => e.marked), 'the tough one is dead').toBe(false);
   expect(win.prologue.lamps).toEqual({ lit: 1, total: 1 });
 });
 
@@ -257,42 +261,67 @@ test('room 5: the goblin — the label at the lever until the first pull; the re
   await inRoom(page, 6);
 });
 
-test('room 6: energy and the action bar appear, Space and Q pulse until used once, 15 kills (real chains, then the debug command if the fight is slow) and the door end the prologue: the key is set, the run map follows', async ({ page }) => {
-  await newViewer(page);
+test('room 6: energy and the action bar appear, Space and Q pulse until used once, 15 kills by real chains (jump by Space and a click, Q by its key) and the door end the prologue: the key is set, the run map follows', async ({ page }) => {
+  test.setTimeout(540_000);
+  const errors: string[] = [];
+  await newViewer(page, errors);
   await goToRoom(page, 6);
   await titleShot(page, '6');
   let p = await pro(page);
   expect(p.hud.energy).toBe(true);
+  expect(p.hud.focus).toBe(true);
   expect(p.hud.actionBar).toBe(true);
   expect(p.pulse).toEqual({ space: true, q: true });
   expect(p.lamps.total).toBe(15);
   await expect(page.getByTestId('ability-jump')).toBeVisible();
-  // Q (needs energy): the spin is used, Q stops breathing, Space still does.
-  await page.evaluate(() => (window as any).__realtime.setEnergy(10));
-  await page.keyboard.press('KeyQ');
-  await gameWait(page, 0.3);
+  await titleGone(page);
+  // The start energy is one jump: Space, then a click on free ground — the jump; Space stops breathing, Q still does.
+  const hero = (await snap(page)).hero;
+  const landing = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [hero.x + 2.5, hero.y + 1] as const);
+  await page.keyboard.press('Space');
+  await page.mouse.move(landing.x, landing.y);
+  await page.mouse.down(); await page.mouse.up();
+  expect(await untilFrame(page, s => s.prologue.pulse.space === false ? true : undefined, 0, 4)).toBe(true);
   p = await pro(page);
-  expect(p.pulse).toEqual({ space: true, q: false });
-  // Real chains on what comes.
-  for (let i = 0; i < 40 && (await snap(page)).kills < 15 && (await pro(page)).room === 6; i++) {
+  expect(p.pulse).toEqual({ space: false, q: true });
+  // Real chains on what comes (the longest chain from the enemies in reach — 3 links and more bring the chain shield and the focus shield);
+  // Q by its key when the chains have earned the energy and a crowd stands round the hero. A death plays the room again: the loop goes on
+  // (up to 60 attempts; the waits end with the attempt, the world's clock starts anew).
+  const settle = async (seconds: number): Promise<void> => {
+    const attempt = (await pro(page)).attempt;
+    await untilFrame(page, (sn, a: number) => sn.prologue.attempt !== a || sn.stage === 'greed' ? true : undefined, attempt, seconds);
+  };
+  let spun = false;
+  while ((await pro(page)).room === 6 && (await pro(page)).attempt <= 60) {
     const s = await snap(page);
-    const near = s.enemies.filter((e: any) => Math.hypot(e.x - s.hero.x, e.y - s.hero.y) < 1.9).sort((a: any, b: any) => Math.hypot(a.x - s.hero.x, a.y - s.hero.y) - Math.hypot(b.x - s.hero.x, b.y - s.hero.y));
-    if (!near.length) { await gameWait(page, 0.4); continue; }
-    const chain = [near[0]];
-    for (let guard = 0; guard < 8; guard++) {
-      const last = chain[chain.length - 1];
-      const next = s.enemies.filter((e: any) => e.color === last.color && !chain.includes(e) && Math.hypot(e.x - last.x, e.y - last.y) < 1.8).sort((a: any, b: any) => Math.hypot(a.x - last.x, a.y - last.y) - Math.hypot(b.x - last.x, b.y - last.y))[0];
-      if (!next) break;
-      chain.push(next);
+    if (s.status !== 'playing') { await page.waitForTimeout(100); continue; }
+    if (s.stage === 'greed') { expect(s.kills, 'the 15 kills are the real chains\'').toBeGreaterThanOrEqual(15); await walkIn(page, 6); await page.waitForTimeout(300); continue; } // a hit on the way may end the attempt: the loop plays the room again; no game-time wait here — after the win the map is open and the world stands
+    const dist = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
+    const reach = s.enemies.filter((e: any) => dist(e, s.hero) < 1.9);
+    if (s.energy >= 3 && reach.length >= (spun ? 3 : 2)) {
+      await page.keyboard.press('KeyQ');
+      spun = true;
+      await settle(0.6);
+      expect((await pro(page)).pulse.q).toBe(false);
+      continue;
+    }
+    if (!reach.length) { await settle(0.4); continue; }
+    let best: any[] = [];
+    for (const first of reach) {
+      const chain = [first];
+      for (let guard = 0; guard < 12; guard++) {
+        const last = chain[chain.length - 1];
+        const next = s.enemies.filter((e: any) => e.color === last.color && !chain.includes(e) && dist(e, last) < 1.8).sort((x: any, y: any) => dist(x, last) - dist(y, last))[0];
+        if (!next) break;
+        chain.push(next);
+      }
+      if (chain.length > best.length) best = chain;
     }
     const screens: { x: number; y: number }[] = [];
-    for (const e of chain) screens.push(await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const));
-    await drag(page, screens.map((q, k) => ({ ...q, kind: 'enemy', id: chain[k].id })));
-    await gameWait(page, 0.8);
+    for (const e of best) screens.push(await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const));
+    await drag(page, screens.map((q, k) => ({ ...q, kind: 'enemy', id: best[k].id })));
+    await settle(0.8);
   }
-  if ((await snap(page)).prologue.room === 6 && (await snap(page)).stage === 'goals') await page.evaluate(() => (window as any).__realtime.completeGoals());
-  await gameWait(page, 0.3);
-  if ((await pro(page)).room === 6) await walkIn(page, 6);
   await expect(page.getByTestId('run')).toBeVisible({ timeout: 15_000 });
   expect(await page.evaluate(k => localStorage.getItem(k), KEY)).toBe('1');
   expect((await pro(page)).active).toBe(false);
@@ -408,7 +437,7 @@ test('a death in room 6 plays room 6 again at once with full HP and no defeat sc
   await newViewer(page);
   await goToRoom(page, 6);
   await titleGone(page);
-  // Make the touch deadly (journalled debug commands on this room's world only), then stand and wait.
+  // Why a debug command: a real death needs the hero to stand through many hits (15 HP, a long wait, a different fight on each seed). The journalled `setParam` commands make the touch deadly in THIS room's world only; the death, the retry and the HUD after it are the real flow.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); rt.setParam('chainShield', 0); });
   const died = await untilFrame(page, s => s.prologue.log.some((e: any) => e.type === 'roomEnd' && e.outcome === 'death') ? true : undefined, 0, 90);
   expect(died).toBe(true);
@@ -448,3 +477,63 @@ async function goToRoom(page: Page, n: number): Promise<void> {
   }
   await inRoom(page, n);
 }
+
+test('rooms 1–5: Space, Q and the item keys 1–4 do nothing — no command, no jump aiming — and the hand still comes after 4 s of rest', async ({ page }) => {
+  await newViewer(page);
+  await inRoom(page, 1);
+  await titleGone(page);
+  for (const key of ['Space', 'KeyQ', 'Digit1', 'Digit2', 'Digit3', 'Digit4']) { await page.keyboard.press(key); await frame(page); }
+  const hero = (await snap(page)).hero;
+  const aim = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [hero.x - 1.5, hero.y + 1] as const);
+  await page.keyboard.press('Space');
+  await page.mouse.move(aim.x, aim.y);
+  await frame(page);
+  expect((await snap(page)).prologue.guide.show).toBe('none');
+  const before = (await snap(page)).hero;
+  const shown = await untilFrame(page, s => s.prologue.shown.hand ? s.time : undefined, 0, 6);
+  expect(typeof shown).toBe('number');
+  // The keys were no press: the hand came at the 4 s of rest from the start of the room.
+  expect(shown as number).toBeLessThan(5.5);
+  const journal = await page.evaluate(() => (window as any).__realtime.journal());
+  expect(journal.commands.filter((c: any) => ['jump', 'spin', 'item'].includes(c.cmd.t))).toEqual([]);
+  const after = (await snap(page)).hero;
+  expect(Math.hypot(after.x - before.x, after.y - before.y), 'the hero did not jump').toBeLessThan(0.01);
+});
+
+test('a death in room 5 plays room 5 again (attempt 2) with full HP, the enemies asleep again, no defeat screen', async ({ page }) => {
+  test.setTimeout(120_000);
+  await newViewer(page);
+  await goToRoom(page, 5);
+  await titleGone(page);
+  // Why a debug command: see the room 6 death test. The first press (an empty one) wakes the room.
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); });
+  await page.mouse.move(40, 600);
+  await page.mouse.down(); await page.mouse.up();
+  const died = await untilFrame(page, s => s.prologue.log.some((e: any) => e.type === 'roomEnd' && e.room === 5 && e.outcome === 'death') ? true : undefined, 0, 60);
+  expect(died).toBe(true);
+  await expect(page.getByTestId('result')).toBeHidden();
+  const again = await untilFrame(page, s => s.prologue.room === 5 && s.prologue.attempt === 2 && !s.prologue.transition && s.status === 'playing' ? true : undefined, 0, 6);
+  expect(again).toBe(true);
+  const s = await snap(page);
+  expect(s.hero.hp).toBe(s.hero.maxHp);
+  expect(s.prologue.title).toBe('5/6 · Гоблин');
+  expect(s.enemies.length).toBe(6);
+});
+
+test('an old run save and no key: the prologue plays, «Пропустить» leads to the SAME run (state and save unchanged)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  const save = readFileSync(new URL('./fixtures/rt-run-save-hard-battle.json', import.meta.url), 'utf8').trim();
+  await page.evaluate(([key, text]) => { localStorage.clear(); localStorage.setItem(key, text); }, ['ashen-oath-rt-run-v7', save] as const);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.snapshot().prologue.active)).toBe(true);
+  const state = await page.evaluate(() => JSON.stringify((window as any).__realtime.run.state()));
+  expect(state).not.toBe('null');
+  const stored = await page.evaluate(() => localStorage.getItem('ashen-oath-rt-run-v7'));
+  await page.getByTestId('prologue-skip').click();
+  await expect(page.getByTestId('run')).toBeVisible({ timeout: 10_000 });
+  expect(await page.evaluate(() => JSON.stringify((window as any).__realtime.run.state()))).toBe(state);
+  expect(await page.evaluate(() => localStorage.getItem('ashen-oath-rt-run-v7'))).toBe(stored);
+  expect(errors).toEqual([]);
+});

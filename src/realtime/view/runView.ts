@@ -582,7 +582,7 @@ export class RunView {
   private settingsHtml(): string {
     const toggles = this.host.viewToggles ?? [], hints = this.host.hints;
     if (!toggles.length && !hints) return '';
-    // «Обучение v1»: «Подсказки» and «Показать подсказки снова» (the memory of what was shown starts over).
+    // «Подсказки» and «Обучение» (the memory of what was shown starts over and the prologue plays again).
     const hintRows = hints ? `<label class="rt-run-setting" title="Подписи у предметов в бою (раз на зрителя, уходят после действия) и строки на экранах похода."><input type="checkbox" data-action="hints-toggle" data-testid="view-hints"${hints.on() ? ' checked' : ''}> Подсказки</label>`
       + `<button class="rt-run-hints-reset" data-action="prologue" data-testid="prologue-start" title="Пройти пролог «Опушка» ещё раз и заново показать подписи у предметов в походе. Поход не меняется.">Обучение</button>` : '';
     const rows = hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');

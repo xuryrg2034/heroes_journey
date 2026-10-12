@@ -166,7 +166,7 @@ const CROWD_PACE = { floor: 10, intervalMin: 2, intervalMax: 3.5, toughShare: 0.
 
 /**
  * Room 6 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 12; kill 15. The
- * enemies hit as on run row 1; the goblin stands from the start between the hero and the door (design answer 12.10.2026),
+ * enemies hit as on run row 1; the goblin stands from the start to the right of the hero, off the door's lamps (design answers 12.10.2026 and 13.10.2026),
  * its pulls by the run's rules; the hero starts with the energy of one jump.
  */
 export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
@@ -177,7 +177,7 @@ export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   killGoal: 15,
   startEnergy: 'jump',
   restore: 'none',
-  goblin: { x: 8, y: 3.4 },
+  goblin: { x: 12, y: 5.4 },
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 6 },

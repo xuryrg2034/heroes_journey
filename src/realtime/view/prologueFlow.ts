@@ -8,7 +8,7 @@
  * save. The hand SHOWS a chain; the player draws it.
  */
 import type { Vec } from '../sim/geometry';
-import { goalProgress, type ChainLink, type World } from '../sim/world';
+import { OBJECT_RADIUS, goalProgress, type ChainLink, type World } from '../sim/world';
 import { goblinOf, leverOf } from '../sim/slot';
 import { prologueRoom, startEnemyIds } from '../run/prologue';
 import type { LabelSpec } from './worldLabels';
@@ -53,7 +53,7 @@ export function prologueGoalLine(w: World): string {
 }
 
 /** Arena units: how far the lamps stand from the door's centre (the door's frame is ≈ 0.55 wide), the gap between neighbours. */
-const LAMP_MIN_RADIUS = 1.15, LAMP_MAX_RADIUS = 2.3, LAMP_GAP = 0.34;
+const LAMP_MIN_RADIUS = 1.2, LAMP_MAX_RADIUS = 2.4, LAMP_GAP = 0.46;
 
 /**
  * The places of `total` lamps over the door: on an arc round the door, on the side that faces the arena's middle (so they stand
@@ -266,7 +266,8 @@ export function prologueLabel(w: World, n: number, memo: PrologueLabelMemo): Lab
     const g = goblinOf(w), lever = leverOf(w);
     if (!g || !lever) return null;
     if (g.pulls > 0) { memo.done = true; return null; }
-    return { id: PROLOGUE_LABEL_IDS.lever, text: PROLOGUE_LABEL_TEXT.lever, at: { x: lever.x, y: lever.y }, place: 'side', lift: 1.15 };
+    // At the red knob of the lever (slotView.ts `drawIdol`: the knob stands 1.07 object radii right of the idol's point), to its right and at the idol's height (a row higher meets the odds line and the blue ones round the idol).
+    return { id: PROLOGUE_LABEL_IDS.lever, text: PROLOGUE_LABEL_TEXT.lever, at: { x: lever.x + OBJECT_RADIUS * 1.07, y: lever.y - 0.1 }, place: 'side', lift: 0.25 };
   }
   return null;
 }

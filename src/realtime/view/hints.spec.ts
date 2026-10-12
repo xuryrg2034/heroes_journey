@@ -171,6 +171,18 @@ check('labels: placement — over the object, a side label flips to the left at 
   assert(low.bottom <= bounds.bottom, 'over the action bar');
 });
 
+check('labels: a label keeps off the bodies of enemies — the first other place that covers none; none free — where it was', () => {
+  const bounds = { left: 0, top: 70, right: 1280, bottom: 700 }, size = { w: 120, h: 24 }, at = { x: 600, y: 300 };
+  const cover = (r: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) => r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top;
+  const above = placeLabel({ place: 'above', lift: 1 }, at, 60, size, bounds);
+  const body = { left: above.left + 20, top: above.top - 5, right: above.left + 70, bottom: above.bottom + 5 };
+  const moved = placeLabel({ place: 'above', lift: 1 }, at, 60, size, bounds, 6, [], [body]);
+  assert(!cover(moved, body) && moved.top > above.top, 'moved off the body (under it)');
+  const walled = [{ left: 0, top: 70, right: 1280, bottom: 700 }];
+  const stuck = placeLabel({ place: 'above', lift: 1 }, at, 60, size, bounds, 6, [], walled);
+  assert(stuck.top === above.top && stuck.left === above.left, 'no free place: where it was');
+});
+
 check('labels: a real spin (Q) takes a plate off an armoured elite — the strip event is the label\'s action, as for a chain', () => {
   const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(8), record: true });
   sim.command({ t: 'clear', keepMarked: false });

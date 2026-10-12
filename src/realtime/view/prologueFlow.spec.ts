@@ -149,6 +149,18 @@ check('the lamps: N on an arc on the arena side of the door, each inside the are
   assert(one.x < 10 && Math.abs(one.y - 4) < 1e-6, 'one lamp towards the middle');
 });
 
+check('room 6: the lamps keep off the goblin, its lever and its odds line («безопасно: 3» over the idol, the knob at its right, the reels over it)', () => {
+  const room6 = PROLOGUE_ROOMS[5].arena, g = room6.goblin!;
+  // The idol with its lever and the text over it: x ±1.5 units, from 1.8 up to 0.8 down (the knob 1.07 radii right, 1.15 up; the odds line and reels over the head).
+  const box = { x0: g.x - 1.5, x1: g.x + 1.5, y0: g.y - 1.8, y1: g.y + 0.8 };
+  const pts = lampPoints(room6.door, room6, 15), lampRadius = 14 / 72;
+  assert(pts.length === 15, '15 lamps');
+  for (const p of pts) assert(p.x + lampRadius < box.x0 || p.x - lampRadius > box.x1 || p.y + lampRadius < box.y0 || p.y - lampRadius > box.y1, `a lamp at (${p.x.toFixed(2)}, ${p.y.toFixed(2)}) is clear of the goblin box`);
+  // And off the enemies the room starts with and the hero.
+  for (const e of room6.enemies) for (const p of pts) assert(Math.hypot(p.x - e.x, p.y - e.y) > 0.7, 'a lamp is clear of a start enemy');
+  assert(pts.every(p => Math.hypot(p.x - room6.heroStart.x, p.y - room6.heroStart.y) > 1.5), 'clear of the hero');
+});
+
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 const room = (n: number, k = 1): Simulation => new Simulation({ arena: PROLOGUE_ROOMS[n - 1].id, params: prologueParams(n), seed: seedOf(k), record: true, ...prologueLoadout(n) ? { loadout: prologueLoadout(n) } : {} });
 const draw = (sim: Simulation, links: ChainLink[]): void => {

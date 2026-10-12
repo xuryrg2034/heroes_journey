@@ -318,5 +318,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-prologue-skip { position: absolute; top: 14px; right: 18px; z-index: 7; padding: 3px 9px; font-size: 12px; color: var(--rt-muted); background: #121710b3; border: 1px solid var(--rt-line); cursor: pointer; opacity: 0.75; }
 .rt-prologue-skip:hover { opacity: 1; color: var(--rt-ink); }
 .rt-prologue-fade { position: absolute; inset: 0; z-index: 9; background: #000; opacity: 0; pointer-events: none; }
-.rt-pl .rt-score, .rt-pl .rt-info, .rt-pl .rt-time, .rt-pl .rt-focus, .rt-pl .rt-elite-badge { display: none; }
-.rt-pl-early .rt-energy { display: none; }
+.rt-pl .rt-score, .rt-pl .rt-info, .rt-pl .rt-time, .rt-pl .rt-elite-badge { display: none; }
+/* Rooms 1–5: only HP and the goal; the energy and the focus bars come with room 6 (it teaches the focus shield). */
+.rt-pl-early .rt-energy, .rt-pl-early .rt-focus { display: none; }

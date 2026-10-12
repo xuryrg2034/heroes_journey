@@ -106,10 +106,12 @@ export class PrologueLayer {
     points.forEach((p, i) => {
       const x = p.x * UNIT, y = p.y * UNIT;
       if (i < lamps.lit) {
-        g.circle(x, y, 17).fill({ color: GOLD, alpha: 0.2 + 0.1 * pulse });
-        g.circle(x, y, 9).fill(0xfff2c4).stroke({ color: 0xc99a2e, width: 3 });
+        // Burning: bright, with a halo.
+        g.circle(x, y, 26).fill({ color: GOLD, alpha: 0.22 + 0.12 * pulse });
+        g.circle(x, y, 14).fill(0xfff2c4).stroke({ color: 0xe0a62e, width: 3.5 });
       } else {
-        g.circle(x, y, 9).fill(0x1b1712).stroke({ color: 0x6b5f4c, width: 3 });
+        // Waiting: a dark fill with a light rim (a place to light, not a hole).
+        g.circle(x, y, 14).fill(0x2b2519).stroke({ color: 0xd9cba0, width: 3.5 });
       }
     });
   }

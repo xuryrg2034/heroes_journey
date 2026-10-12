@@ -621,7 +621,7 @@ async function boot(): Promise<void> {
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
-    // «Обучение v1»: the toggle «Подсказки» and «Показать подсказки снова» on the gear; the screen lines read the same memory.
+    // «Обучение»: the toggle «Подсказки» and the button «Обучение» (the prologue again) on the gear; the screen lines read the same memory.
     ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); }, startPrologue: () => startPrologue() } },
   }, fixedSeed);
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap };
@@ -766,9 +766,11 @@ async function boot(): Promise<void> {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
       if (runScreenOpen) return;
       if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
-      else if (event.code === 'Space') { event.preventDefault(); prologue?.guide?.press(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
-      else if (event.code === 'KeyQ') { prologue?.guide?.press(); if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
-      else if (itemKey(event.code) >= 0) { prologue?.guide?.press(); useItemKey(itemKey(event.code)); }
+      // Rooms 1–5 of the prologue hide the action bar: Space, Q and the item keys do nothing there (no jump aiming, no command, and
+      // no press for the hand) — design 13.10.2026. Room 6 has them.
+      else if (event.code === 'Space') { event.preventDefault(); if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
+      else if (event.code === 'KeyQ') { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
+      else if (itemKey(event.code) >= 0) { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; useItemKey(itemKey(event.code)); }
       else if (event.code === 'KeyP') paused = !paused;
       else if (event.code === 'KeyN') markNote();
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
@@ -899,7 +901,7 @@ async function boot(): Promise<void> {
       guide: g ? { show: g.show, arrow: g.arrow, circle: g.circle ? { ...g.circle } : null, rest: g.rest, links: g.route.length } : null,
       shown: { ...prologueLayer.shown, circle: prologueLayer.shown.circle ? { ...prologueLayer.shown.circle } : null },
       pulse: { space: jumpAbility.classList.contains('rt-pulse'), q: spinAbility.classList.contains('rt-pulse') },
-      hud: { energy: getComputedStyle(energyText).display !== 'none', actionBar: !actionBar.hidden, score: getComputedStyle(scoreText).display !== 'none', info: getComputedStyle(infoText).display !== 'none' },
+      hud: { energy: getComputedStyle(energyText).display !== 'none', actionBar: !actionBar.hidden, score: getComputedStyle(scoreText).display !== 'none', focus: getComputedStyle(focusBar).display !== 'none', info: getComputedStyle(infoText).display !== 'none' },
       log: prologueLog.map(e => ({ ...e })),
     };
   };
@@ -1078,14 +1080,17 @@ async function boot(): Promise<void> {
       if (runLabelling && w.status === 'playing') specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
       else if (prologue && !runScreenOpen) {
         // The prologue's labels (one at a time, until the action; docs/realtime-onboarding.md): not tied to the toggle «Подсказки».
-        const spec = prologueLabel(w, prologue.n, prologue.label);
+        // While the arrow and the circle show (no chain from the hero's place) the label waits: it comes back with the hand.
+        const spec = prologue.guide?.circle ? null : prologueLabel(w, prologue.n, prologue.label);
         if (spec && renderer.sees(spec.at)) specs = [spec];
       }
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
         const barTop = actionBar.hidden ? stageBox.bottom : actionBar.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
         const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
-        for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom }, renderer.plateRects())) {
+        // The bodies of the enemies in view (the label's own object excepted): a label keeps off them (`placeLabel`, `bodies`).
+        const half = 0.42 * k, bodies = w.enemies.filter(e => renderer.sees(e) && !specs.some(sp => Math.hypot(sp.at.x - e.x, sp.at.y - e.y) < 0.3)).map(e => { const c = renderer.toScreen(e.x, e.y); return { left: c.x - half, top: c.y - half, right: c.x + half, bottom: c.y + half }; });
+        for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom }, renderer.plateRects(), bodies)) {
           hints.log.push({ id, t: now });
           if (runView && runLabelling) recorder?.hintShown(runView.state, id);
         }

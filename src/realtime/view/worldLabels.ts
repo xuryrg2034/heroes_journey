@@ -89,23 +89,37 @@ export interface Rect { left: number; top: number; right: number; bottom: number
  * inside `bounds` (the stage minus the HUD plate and the action bar). A 'side' label flips to the left of the object when the
  * right does not fit.
  */
-export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: number, size: { w: number; h: number }, bounds: Rect, gap = 6, avoid: readonly Rect[] = []): Rect {
-  let left: number, top: number;
-  if (spec.place === 'above') {
-    left = at.x - size.w / 2; top = at.y - spec.lift * k - size.h;
-  } else if (spec.place === 'below') {
-    left = at.x - size.w / 2; top = at.y + spec.lift * k;
-    // No room under the object (the action bar, the screen edge): over it, as the 'side' label flips to the other side.
-    if (top + size.h > bounds.bottom - gap) top = at.y - spec.lift * k - size.h;
-  } else {
-    left = at.x + spec.lift * k; top = at.y - size.h / 2;
+export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: number, size: { w: number; h: number }, bounds: Rect, gap = 6, avoid: readonly Rect[] = [], bodies: readonly Rect[] = []): Rect {
+  const clampTo = (left: number, top: number): Rect => {
+    left = Math.max(bounds.left + gap, Math.min(bounds.right - gap - size.w, left));
+    top = Math.max(bounds.top + gap, Math.min(bounds.bottom - gap - size.h, top));
+    return { left, top, right: left + size.w, bottom: top + size.h };
+  };
+  const spot = (kind: 'above' | 'below' | 'side' | 'left'): Rect => {
+    if (kind === 'above') return clampTo(at.x - size.w / 2, at.y - spec.lift * k - size.h);
+    if (kind === 'below') {
+      // No room under the object (the action bar, the screen edge): over it, as the 'side' label flips to the other side.
+      let top = at.y + spec.lift * k;
+      if (top + size.h > bounds.bottom - gap) top = at.y - spec.lift * k - size.h;
+      return clampTo(at.x - size.w / 2, top);
+    }
+    if (kind === 'left') return clampTo(at.x - spec.lift * k - size.w, at.y - size.h / 2);
+    let left = at.x + spec.lift * k;
     if (left + size.w > bounds.right - gap) left = at.x - spec.lift * k - size.w;
+    return clampTo(left, at.y - size.h / 2);
+  };
+  const hits = (r: Rect, list: readonly Rect[]): Rect | undefined => list.find(a => r.left < a.right && r.right > a.left && r.top < a.bottom && r.bottom > a.top);
+  let rect = spot(spec.place);
+  // Clear of the bodies of the enemies (review 12.10.2026): the first of the other places that covers none; none — as it was.
+  if (bodies.length && hits(rect, bodies)) {
+    const order = (['above', 'below', 'side', 'left'] as const).filter(kind => kind !== spec.place);
+    const free = order.map(spot).find(r => !hits(r, bodies));
+    if (free) rect = free;
   }
-  left = Math.max(bounds.left + gap, Math.min(bounds.right - gap - size.w, left));
-  top = Math.max(bounds.top + gap, Math.min(bounds.bottom - gap - size.h, top));
+  let { left, top } = rect;
   // Clear of the elite plaques and caption plates (`avoid`): under the plate that is in the way, else over it.
   for (let pass = 0; pass < avoid.length; pass++) {
-    const hit = avoid.find(a => left < a.right && left + size.w > a.left && top < a.bottom && top + size.h > a.top);
+    const hit = hits({ left, top, right: left + size.w, bottom: top + size.h }, avoid);
     if (!hit) break;
     const under = hit.bottom + 4, over = hit.top - 4 - size.h;
     top = under + size.h <= bounds.bottom - gap ? under : Math.max(bounds.top + gap, over);
@@ -123,7 +137,7 @@ export class WorldLabelLayer {
   constructor(private readonly parent: HTMLElement) {}
 
   /** `project` — arena units to px of the stage; `k` — px per arena unit; `bounds` — where a label may stand; `avoid` — rectangles (the elite plaques) it keeps clear of. Returns the ids that appeared in this call. */
-  update(specs: readonly LabelSpec[], project: (x: number, y: number) => Vec, k: number, bounds: Rect, avoid: readonly Rect[] = []): string[] {
+  update(specs: readonly LabelSpec[], project: (x: number, y: number) => Vec, k: number, bounds: Rect, avoid: readonly Rect[] = [], bodies: readonly Rect[] = []): string[] {
     const appeared: string[] = [], keep = new Set<string>();
     this.shownNow = [];
     for (const spec of specs) {
@@ -140,7 +154,7 @@ export class WorldLabelLayer {
       if (el.hidden) appeared.push(spec.id);
       if (el.textContent !== spec.text) el.textContent = spec.text;
       el.hidden = false;
-      const rect = placeLabel(spec, project(spec.at.x, spec.at.y), k, { w: el.offsetWidth, h: el.offsetHeight }, bounds, 6, avoid);
+      const rect = placeLabel(spec, project(spec.at.x, spec.at.y), k, { w: el.offsetWidth, h: el.offsetHeight }, bounds, 6, avoid, bodies);
       el.style.left = `${Math.round(rect.left)}px`;
       el.style.top = `${Math.round(rect.top)}px`;
       keep.add(spec.id);
