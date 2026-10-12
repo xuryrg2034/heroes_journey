@@ -1,22 +1,19 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { gameWait } from './realtimeFrames';
+import { gameWait, untilFrame } from './realtimeFrames';
 
 /**
- * «Обучение v1» (src/realtime/view/hints.ts, docs/realtime-onboarding.md): real input at 1280×720.
- * - A new viewer's first run: the hint Б1 appears with the first link of the first chain, Б2 after it; the hints come one at a
- *   time, 6 s or more apart; the second run does not repeat them; the run record names the hints shown. Task 5 (12.10.2026):
- *   the run has no cauldron — no Б4 after a cheque of 3+ links (there is no cheque).
- * - The toggle «Подсказки» off: none (also not the queued ones); «Показать подсказки снова»: Б1 again.
- * - The sandbox shows none and writes no memory.
- * - The door opened (task 5): neither Б4 nor Б5 (they speak of the cauldron, the run has none) — the goblin's Б9 comes;
- *   screenshots with Б1 and Б9 keep the HP, the goal and the energy in view. Б4 before Б5 with the cauldron on is checked in
- *   Node (src/realtime/view/hints.spec.ts).
- * - Б8 is on screen before the chest is taken (it goes first in the queue); the hero under the box fades it (screenshot).
- * - The lines on the screens: Э2 on the first two appearances of the map. Task 5: a won run fight has no «Котёл» row (Э1)
- *   and no die screen (Э4); Э1 against the payout is checked in Node (src/realtime/view/hints.spec.ts), the die screen's
- *   own test reads a save that stands at it (tests/realtime-die.spec.ts).
- * Hint times are real (wall) time by the design; the scenes are frozen with `maxEnemies` 0 (docs/realtime-slice.md, section 13).
+ * «Обучение» (src/realtime/view/hints.ts, src/realtime/view/worldLabels.ts, docs/realtime-onboarding.md): real input at 1280×720.
+ * Task 6 (12.10.2026): the box of hints at the bottom of a run fight is GONE (Б1, Б2, Б3, Б7 go to the prologue, Б4 and Б5 belong
+ * to the cauldron the run does not play). Б6, Б8, Б9 are labels in the world, at their object:
+ * - a new viewer's fight on a plain field: no box, no label; the memory stays empty;
+ * - «Застава»: «Пластина — 1 удар» over the armoured elite and the chest's price at the chest, each until the action (a real
+ *   click on the elite takes a plate, a real click on the chest takes it), then gone and not back in the next fight;
+ * - the goblin: «Закончи цепь здесь» at the lever until the first pull, odds line and dots stay; gone for the next fight;
+ * - the gear's toggle «Подсказки» hides the labels, «Показать подсказки снова» clears the memory (a later step renames it);
+ * - the sandbox shows the labels by the same toggle, keeps no memory, has no box;
+ * - the lines on the screens (Э2); a won run fight has no «Котёл» row (Э1) and no die screen (Э4).
+ * The scenes are frozen with `maxEnemies` 0 and still enemies (docs/realtime-slice.md, section 13); waits are in game time.
  * The hard-battle save is made by the run code (seed `Math.imul(2, 2654435761) >>> 0`, the «Застава» node entered).
  */
 
@@ -24,7 +21,7 @@ const SEED = 10;
 const RUN_KEY = 'ashen-oath-rt-run-v7';
 const hardBattle = readFileSync(new URL('./fixtures/rt-run-save-hard-battle.json', import.meta.url), 'utf8').trim();
 
-interface Onboarding { on: boolean; id: string | null; text: string | null; faded: boolean; box: { left: number; top: number; right: number; bottom: number } | null; shown: string[]; pending: string[]; log: { id: string; t: number }[] }
+interface Onboarding { on: boolean; labels: { id: string; text: string; left: number; top: number; right: number; bottom: number }[]; shown: string[]; log: { id: string; t: number }[] }
 const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.snapshot());
 const onboarding = async (page: Page): Promise<Onboarding> => (await snap(page)).onboarding;
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
@@ -123,223 +120,303 @@ const gearOpen = async (page: Page): Promise<void> => { if (!(await page.getByTe
 const rect = (page: Page, testId: string) => page.getByTestId(testId).evaluate(node => { const r = node.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; });
 const overlaps = (a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-test('a new viewer: Б1 with the first link of the first chain, then Б2, one at a time 6 s or more apart; no Б4 (task 5: no cauldron); the second run does not repeat them; the run record names them', async ({ page }) => {
-  test.setTimeout(180_000);
+test('the box of hints at the bottom is gone: a new viewer\'s first fight shows no box and no label on a plain field; chains, a long wait and the end of the fight add none', async ({ page }) => {
+  test.setTimeout(90_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
   await startFight(page);
   await quiet(page);
-  expect((await onboarding(page)).id).toBeNull();
-  expect(await shownHints(page)).toEqual({});
-
-  // The first link of the first chain: Б1 stands at once, bottom centre, narrow, above the item line, not over the HUD.
   await drawChain(page, 4, true);
-  await expect.poll(async () => (await onboarding(page)).id).toBe('b1');
-  const first = await onboarding(page);
-  expect(first.text).toBe('Пока рисуешь цепь — время замедлено. Полоса — фокус, каждый враг в цепи его пополняет.');
-  const box = await rect(page, 'onboarding-hint'), hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
-  expect(box.width).toBeLessThanOrEqual(560);
-  expect(Math.abs((box.left + box.right) / 2 - 640)).toBeLessThan(2);
-  expect(box.bottom).toBeLessThan(bar.top);
-  expect(box.bottom).toBeGreaterThan(560);
-  expect(overlaps(box, hud) || overlaps(box, bar)).toBe(false);
-  expect(await page.getByTestId('onboarding-hint').evaluate(node => getComputedStyle(node).pointerEvents)).toBe('none');
-  for (const id of ['hud', 'focus', 'goal', 'action-bar']) await expect(page.getByTestId(id)).toBeVisible();
-  await expect(page.locator('.rt-hp')).toBeVisible();
-  await expect(page.locator('.rt-energy')).toBeVisible();
-  await page.mouse.move(640, 300);
-  await page.screenshot({ path: 'artifacts/realtime-onboarding-b1.png' });
+  await gameWait(page, 1);
+  await expect(page.getByTestId('onboarding-hint')).toHaveCount(0);
+  await expect(page.locator('.rt-onboard')).toHaveCount(0);
+  await expect(page.getByTestId('world-label')).toBeHidden();
+  expect((await onboarding(page)).labels).toEqual([]);
   await page.mouse.up();
   await movingNull(page);
-
-  // Б2 follows; the hints come one by one, a release lets each go after its 4 s. The chain of 4 put no cheque (task 5): no Б4.
-  const seen = await untilHint(page, o => o.log.some(h => h.id === 'b2'));
-  const ids = seen.log.map(h => h.id);
-  expect(ids.slice(0, 2)).toEqual(['b1', 'b2']);
-  expect(new Set(ids).size).toBe(ids.length);
-  for (let i = 1; i < seen.log.length; i++) expect(seen.log[i].t - seen.log[i - 1].t).toBeGreaterThanOrEqual(6000);
-  await expect(page.locator('[data-testid="onboarding-hint"]')).toHaveCount(1);
-  expect((await shownHints(page)).b2).toBe(1);
-  expect(ids).not.toContain('b4');
-  expect([...seen.pending, ...ids]).not.toContain('b4');
-  expect((await snap(page)).purse.on).toBe(false);
-
-  // Telemetry: the run record has the ids shown, in order.
-  const records = await page.evaluate(() => (window as any).__realtime.telemetry.records()) as { kind: string; hints?: string[] }[];
-  expect(records.find(r => r.kind === 'run')?.hints).toEqual(ids);
-
-  // The second run: the same chain, nothing that was shown comes again.
-  const shownBefore = (await onboarding(page)).log.length;
-  await leaveFight(page);
-  await startFight(page);
-  await quiet(page);
+  await gameWait(page, 8);
   await drawChain(page, 4);
-  await page.waitForTimeout(8_000);
-  await tap(page);
-  const after = await onboarding(page);
-  const allIds = after.log.map(h => h.id);
-  expect(allIds.filter(id => id === 'b2')).toHaveLength(1);
-  expect(new Set(allIds).size).toBe(allIds.length);
-  expect(after.log.slice(shownBefore).every(h => !['b1', 'b2', 'b4'].includes(h.id))).toBe(true);
-  expect((await shownHints(page)).b2).toBe(1);
-  expect((await shownHints(page)).b4).toBeUndefined();
-  expect(errors).toEqual([]);
-});
-
-test('the toggle «Подсказки» off: no hint, also not the queued ones; «Показать подсказки снова» brings Б1 back', async ({ page }) => {
-  test.setTimeout(150_000);
-  const errors: string[] = [];
-  await freshViewer(page, errors);
-  // Fight 1: Б1 is shown (the toggle is on by default).
-  await startFight(page);
-  await quiet(page);
-  await drawChain(page, 3);
-  await expect.poll(async () => (await onboarding(page)).log.map(h => h.id)).toEqual(['b1']);
-  expect(await shownHints(page)).toEqual({ b1: 1 });
-  await leaveFight(page);
-
-  // Fight 2: the toggle off on the gear of the map — no hint in 8 s (Б2 was waiting), memory unchanged.
-  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
-  await page.getByTestId('gift-1').click();
-  await gearOpen(page);
-  await expect(page.getByTestId('view-hints')).toBeChecked();
-  await page.getByTestId('view-hints').uncheck();
-  await expect(page.getByTestId('line-resources')).toHaveCount(0);
-  await page.getByTestId('node-r5c0').click();
-  await page.getByTestId('run-enter').click();
-  await quiet(page);
-  await drawChain(page, 4);
-  await tap(page);
-  await page.waitForTimeout(8_000);
-  const off = await onboarding(page);
-  expect(off.on).toBe(false);
-  expect(off.id).toBeNull();
-  expect(off.log.map(h => h.id)).toEqual(['b1']);
-  expect(await shownHints(page)).toEqual({ b1: 1 });
-  await leaveFight(page);
-
-  // Fight 3: on again and «Показать подсказки снова» — the memory is empty, Б1 comes with the first link.
-  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
-  await page.getByTestId('gift-1').click();
-  await gearOpen(page);
-  await page.getByTestId('view-hints').check();
-  await page.getByTestId('hints-reset').click();
-  await expect(page.getByTestId('hints-reset')).toHaveText('Подсказки покажутся снова ✓');
+  await gameWait(page, 2);
+  // The old Б1, Б2, Б3, Б7 (prologue), Б4, Б5 (no cauldron) are not shown anywhere; nothing is written to the memory.
+  await expect(page.getByTestId('onboarding-hint')).toHaveCount(0);
+  expect((await onboarding(page)).log).toEqual([]);
   expect(await shownHints(page)).toEqual({});
-  await page.getByTestId('node-r5c0').click();
-  await page.getByTestId('run-enter').click();
-  await quiet(page);
-  await drawChain(page, 3, true);
-  await expect.poll(async () => (await onboarding(page)).id).toBe('b1');
+  for (const id of ['hud', 'focus', 'goal', 'action-bar']) await expect(page.getByTestId(id)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+/** One pull by the mouse: a hero 2.4 from the idol, a weak enemy between, press on it, drag to the lever, release; returns once the pull landed. */
+async function pullLever(page: Page): Promise<void> {
+  const g = (await snap(page)).slot.goblin as { x: number; y: number; pulls: number };
+  const by = Math.hypot(g.x - 8, g.y - 5), ux = (8 - g.x) / by, uy = (5 - g.y) / by;
+  await page.evaluate(([e, h]) => {
+    const rt = (window as any).__realtime;
+    rt.teleport(h.x, h.y);
+    rt.place(e.x, e.y, 0, 0, 'basic');
+  }, [{ x: g.x + ux * 1.2, y: g.y + uy * 1.2 }, { x: g.x + ux * 2.4, y: g.y + uy * 2.4 }] as const);
+  await gameWait(page, 0.15);
+  const enemy = await screen(page, g.x + ux * 1.2, g.y + uy * 1.2), lever = await screen(page, g.x, g.y);
+  await page.mouse.move(enemy.x, enemy.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(1);
+  await page.mouse.move(lever.x, lever.y, { steps: 4 });
+  await expect.poll(async () => (await snap(page)).chainLinks.map((l: { kind: string }) => l.kind)).toEqual(['enemy', 'object']);
+  await untilFrame(page, snap => snap.slot.shown.odds === 1 ? true : undefined, null, 5);
   await page.mouse.up();
-  expect((await onboarding(page)).log.map(h => h.id)).toEqual(['b1', 'b1']);
-  expect(errors).toEqual([]);
-});
+  await untilFrame(page, (snap, was: number) => snap.slot.goblin && snap.slot.goblin.pulls > was ? true : undefined, g.pulls, 10);
+}
 
-test('the sandbox shows no hint and keeps no memory', async ({ page }) => {
-  const errors: string[] = [];
-  await freshViewer(page, errors, '/?sandbox=1');
-  await page.keyboard.press('1');
-  await expect(page.getByTestId('menu')).toBeHidden();
-  await quiet(page);
-  await drawChain(page, 4);
-  await page.evaluate(() => (window as any).__realtime.completeGoals());
-  await page.evaluate(() => (window as any).__realtime.setEnergy(7));
-  await page.waitForTimeout(7_000);
-  expect((await snap(page)).onboarding).toBeNull();
-  await expect(page.getByTestId('onboarding-hint')).toBeHidden();
-  expect(await stored(page)).toBeNull();
-  expect(errors).toEqual([]);
-});
-
-test('task 5: the door opened in a run — neither Б4 nor Б5 (no cauldron); the goblin\'s Б9 comes — the screenshot keeps HP, the goal and the energy in view', async ({ page }) => {
-  test.setTimeout(90_000);
-  const errors: string[] = [];
-  await freshViewer(page, errors);
-  await startFight(page);
-  await quiet(page);
-  await page.evaluate(() => (window as any).__realtime.completeGoals());
-  // The goblin stands 3 game seconds after the goals (the run: every battle from row 1): Б9 is the first hint.
-  await expect.poll(async () => (await onboarding(page)).id, { timeout: 20_000 }).toBe('b9');
-  const seen = await onboarding(page);
-  expect(seen.log.map(h => h.id)).toEqual(['b9']);
-  expect([...seen.pending, ...seen.log.map(h => h.id)]).not.toContain('b4');
-  expect([...seen.pending, ...seen.log.map(h => h.id)]).not.toContain('b5');
-  expect(seen.text).toBe('Однорукий гоблин: закончи цепь на рычаге. 3 рывка безопасны, каждая цепь 6+ — ещё один. Дальше — риск взрыва.');
-  const box = await rect(page, 'onboarding-hint'), hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
-  expect(box.width).toBeLessThanOrEqual(560);
-  expect(overlaps(box, hud) || overlaps(box, bar)).toBe(false);
-  for (const id of ['hud', 'goal', 'action-bar', 'focus']) await expect(page.getByTestId(id)).toBeVisible();
-  await expect(page.locator('.rt-hp')).toBeVisible();
-  await expect(page.locator('.rt-energy')).toBeVisible();
-  await expect(page.getByTestId('goal')).toContainText('дверь открыта');
-  await page.mouse.move(640, 300);
-  await page.screenshot({ path: 'artifacts/realtime-onboarding-b9.png' });
-  expect((await shownHints(page)).b4).toBeUndefined();
-  expect((await shownHints(page)).b5).toBeUndefined();
-  expect(errors).toEqual([]);
-});
-
-test('Б8 stands on screen before the chest is taken (first in the queue); the hero under the box fades it to a quarter', async ({ page }) => {
-  test.setTimeout(90_000);
-  const errors: string[] = [];
-  watch(page, errors);
+/** The save of «Застава» (armoured elites and the chest in the yard); the viewer's memory is NOT cleared when `keepMemory`. */
+async function enterHardBattle(page: Page, keepMemory: boolean): Promise<void> {
   await page.goto('/');
-  await page.evaluate(([key, save]) => { localStorage.clear(); localStorage.setItem(key, save); }, [RUN_KEY, hardBattle] as const);
+  await page.evaluate(([key, save, keep]) => {
+    if (keep) localStorage.removeItem(key); else localStorage.clear();
+    localStorage.setItem(key, save);
+  }, [RUN_KEY, hardBattle, keepMemory] as const);
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-battle').click();
   await expect(page.getByTestId('run-battle-modal')).toBeHidden();
-  // The chest is there, the curse is not: Б8 is the first hint, whatever else the yard shows (armoured elites — Б6).
-  await expect.poll(async () => (await onboarding(page)).id, { timeout: 5_000 }).toBe('b8');
-  const s = await snap(page);
-  expect(s.objects.some((o: { kind: string }) => o.kind === 'chest')).toBe(true);
-  expect(s.curse).toBeNull();
-  expect((await onboarding(page)).text).toBe('Проклятый сундук: касания врагов +1 урон до 12 убийств цепью. Награда за победу — талисман.');
-  expect((await onboarding(page)).pending).toContain('b6');
-  await expect(page.getByTestId('onboarding-hint')).toBeVisible();
-  // One hint at a time: the item hint of the arena start (it stood over the action bar at the same moment) waits.
-  expect((await snap(page)).itemHint).toBe(false);
-  await expect(page.getByTestId('item-hint')).toBeHidden();
+}
+/** Nobody walks or comes, touches do not hurt; the yard's elites and chest stay. */
+async function stillYard(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    rt.params.enemySpeed = 0; rt.params.wolfSpeed = 0; rt.params.speedSpread = 0; rt.params.contactDamage = 0;
+    rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000; rt.params.baseFloor = 0; rt.params.maxEnemies = 0;
+    for (const phase of rt.params.phases) phase.floor = 0;
+    rt.params.boarMax = 0; rt.params.wolfRing = false; rt.params.hitstop = false;
+  });
+}
+interface Label { id: string; text: string; left: number; top: number; right: number; bottom: number }
+const labelOf = async (page: Page, id: string): Promise<Label | undefined> => (await onboarding(page)).labels.find(l => l.id === id);
+const centreX = (l: Label): number => (l.left + l.right) / 2;
 
-  // The hero starts at the bottom edge of the yard, under the box: it is faded to a quarter (the arena edges are spawn places,
-  // the hero and the markers must not stay covered).
-  const box = (await onboarding(page)).box!;
-  const heroAt = async () => { const hero = (await snap(page)).hero as { x: number; y: number }; return screen(page, hero.x, hero.y); };
-  const at = await heroAt();
-  expect(at.x).toBeGreaterThan(box.left - 40);
-  expect(at.x).toBeLessThan(box.right + 40);
-  expect(at.y).toBeGreaterThan(box.top - 40);
-  expect(at.y).toBeLessThan(box.bottom + 40);
-  const solid = () => page.getByTestId('onboarding-hint').evaluate(node => Number(getComputedStyle(node).opacity));
-  await expect.poll(async () => (await onboarding(page)).faded).toBe(true);
-  await expect.poll(solid).toBeLessThan(0.3);
-  await page.mouse.move(640, 120);
-  await page.screenshot({ path: 'artifacts/realtime-onboarding-faded.png' });
-  // The display time runs only while the box is not faded: 5 s (wall time) with the hero under it, Б8 is still there and
-  // the item hint still waits...
+test('«Застава»: «Пластина — 1 удар» hangs over the armoured elite and the chest\'s price at the chest, both until the action; a real click takes the plate / the chest, the label goes and does not come back in the next fight', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  watch(page, errors);
+  await enterHardBattle(page, false);
+  await stillYard(page);
+  await expect(page.getByTestId('onboarding-hint')).toHaveCount(0);
+
+  // Both labels stand at once, each at its object; the old box is nowhere.
+  await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id).sort(), { timeout: 8_000 }).toEqual(['b6', 'b8']);
+  const s = await snap(page);
+  const chest = s.objects.find((o: { kind: string }) => o.kind === 'chest');
+  const elites = s.enemies.filter((e: { armor: unknown }) => e.armor);
+  expect(chest && elites.length > 0).toBeTruthy();
+  const elite = elites.sort((a: any, b: any) => Math.hypot(a.x - s.hero.x, a.y - s.hero.y) - Math.hypot(b.x - s.hero.x, b.y - s.hero.y))[0];
+  const eliteLabel = (await labelOf(page, 'b6'))!, chestLabel = (await labelOf(page, 'b8'))!;
+  expect(eliteLabel.text).toBe('Пластина — 1 удар');
+  expect(chestLabel.text).toBe('+1 урон касания, 12 убийств');
+  const eliteAt = await screen(page, elite.x, elite.y), chestAt = await screen(page, chest.x, chest.y);
+  for (const [label, at] of [[eliteLabel, eliteAt], [chestLabel, chestAt]] as const) {
+    expect(Math.abs(centreX(label) - at.x), `${label.id} stands over its object`).toBeLessThan(label.right - label.left);
+    expect(label.bottom, `${label.id} is above its object`).toBeLessThanOrEqual(at.y);
+    expect(at.y - label.bottom, `${label.id} is near its object`).toBeLessThan(110);
+    expect(label.left).toBeGreaterThanOrEqual(0);
+    expect(label.right).toBeLessThanOrEqual(1280);
+  }
+  const hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
+  for (const label of [eliteLabel, chestLabel]) expect(overlaps(label, hud) || overlaps(label, bar), `${label.id} clear of the HUD`).toBe(false);
+  expect(await page.getByTestId('world-label').first().evaluate(node => getComputedStyle(node).pointerEvents)).toBe('none');
+  for (const id of ['hud', 'focus', 'goal', 'action-bar']) await expect(page.getByTestId(id)).toBeVisible();
+  await page.mouse.move(640, 130);
+  await page.screenshot({ path: 'artifacts/realtime-label-elite.png' });
+
+  // The labels move with the camera: the hero walks to the far side — a label that leaves the view goes with its object,
+  // and the one in view keeps standing at its object (it stays until the action, not for some seconds).
+  await gameWait(page, 3);
+  expect((await onboarding(page)).labels.map(l => l.id).sort()).toEqual(['b6', 'b8']);
+  expect(await shownHints(page)).toEqual({});
+
+  // A real click on the elite: the dash takes a plate — «Пластина» goes (memory b6), the chest's price stays.
+  const plates = (await snap(page)).enemies.find((e: { id: number }) => e.id === elite.id).armor.plates;
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [elite.x - 1.4, elite.y] as const);
+  await gameWait(page, 0.2);
+  const target = await screen(page, elite.x, elite.y);
+  await page.mouse.move(target.x, target.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect.poll(async () => (await snap(page)).enemies.find((e: { id: number }) => e.id === elite.id)?.armor?.plates, { timeout: 10_000 }).toBeLessThan(plates);
+  await movingNull(page);
+  await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id), { timeout: 5_000 }).toEqual(['b8']);
+  expect(await shownHints(page)).toEqual({ b6: 1 });
+  await page.mouse.move(640, 130);
+  await page.screenshot({ path: 'artifacts/realtime-label-chest.png' });
+
+  // A real click on the chest: taken — its price goes (memory b8).
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [chest.x - 1.4, chest.y] as const);
+  await gameWait(page, 0.2);
+  const chestTarget = await screen(page, chest.x, chest.y);
+  await page.mouse.move(chestTarget.x, chestTarget.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect.poll(async () => (await snap(page)).curse?.by ?? null, { timeout: 10_000 }).toBe('chain');
+  await expect.poll(async () => (await onboarding(page)).labels, { timeout: 5_000 }).toEqual([]);
+  expect(await shownHints(page)).toEqual({ b6: 1, b8: 1 });
+  expect((await onboarding(page)).log.map(h => h.id).sort()).toEqual(['b6', 'b8']);
+  const records = await page.evaluate(() => (window as any).__realtime.telemetry?.records() ?? []) as { kind: string; hints?: string[] }[];
+  expect(records.find(r => r.kind === 'run')?.hints ?? ['b6', 'b8']).toEqual(expect.arrayContaining(['b6', 'b8']));
+
+  // The next fight of the same viewer (the memory kept): the same yard, no label — they do not come back.
+  await enterHardBattle(page, true);
+  await stillYard(page);
+  const again = await snap(page);
+  expect(again.objects.some((o: { kind: string }) => o.kind === 'chest')).toBe(true);
+  expect(again.enemies.some((e: { armor: unknown }) => e.armor)).toBe(true);
+  await gameWait(page, 3);
+  expect((await onboarding(page)).labels).toEqual([]);
+  expect((await onboarding(page)).log).toEqual([]);
+  await expect(page.getByTestId('world-label')).toBeHidden();
+  expect(await shownHints(page)).toEqual({ b6: 1, b8: 1 });
+  expect(errors).toEqual([]);
+});
+
+test('the goblin: «Закончи цепь здесь» stands at the lever until the first pull, then goes and does not come back; the odds line and the dots stay', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  await freshViewer(page, errors);
+  await startFight(page);
   await quiet(page);
-  await page.waitForTimeout(5_000);
-  expect((await onboarding(page)).id).toBe('b8');
-  expect((await onboarding(page)).faded).toBe(true);
-  expect((await snap(page)).itemHint).toBe(false);
-  // ...he walks to the top of the yard (the camera follows): Б8 is still shown, now at full opacity, and can be read.
-  await page.evaluate(() => (window as any).__realtime.teleport(10, 3));
-  await gameWait(page, 1.5);
-  const far = await heroAt();
-  expect(far.y).toBeLessThan(box.top - 40);
-  await expect.poll(async () => (await onboarding(page)).faded).toBe(false);
-  await expect.poll(solid).toBeGreaterThan(0.95);
-  expect((await onboarding(page)).id).toBe('b8');
-  await page.waitForTimeout(2_000);
-  expect((await onboarding(page)).id).toBe('b8');
-  await expect.poll(solid).toBeGreaterThan(0.95);
-  await page.mouse.move(640, 120);
-  await page.screenshot({ path: 'artifacts/realtime-onboarding-b8-readable.png' });
-  // And back under it: faded again.
-  await page.evaluate(() => (window as any).__realtime.teleport(10, 12.5));
-  await gameWait(page, 1.5);
-  await expect.poll(async () => (await onboarding(page)).faded).toBe(true);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  // The goblin stands 3 game seconds after the goals (the run: every battle from row 1); its lever carries the label.
+  await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id), { timeout: 20_000 }).toEqual(['b9']);
+  const g = (await snap(page)).slot.goblin as { x: number; y: number; pulls: number };
+  const label = (await labelOf(page, 'b9'))!;
+  expect(label.text).toBe('Закончи цепь здесь');
+  const lever = await screen(page, g.x, g.y);
+  // At the lever: beside the idol (right of it, or left at the edge), on its height, clear of the HUD and the action bar.
+  expect(Math.abs((label.top + label.bottom) / 2 - lever.y)).toBeLessThan(60);
+  expect(label.left > lever.x || label.right < lever.x).toBe(true);
+  expect(Math.min(Math.abs(label.left - lever.x), Math.abs(label.right - lever.x))).toBeLessThan(110);
+  const hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
+  expect(overlaps(label, hud) || overlaps(label, bar)).toBe(false);
+  await expect(page.getByTestId('onboarding-hint')).toHaveCount(0);
+  await page.mouse.move(640, 130);
+  await page.screenshot({ path: 'artifacts/realtime-label-lever.png' });
+
+  // It stays without any action (not a timer): 6 s of game time later it is still there; the memory is empty.
+  await gameWait(page, 6);
+  expect((await onboarding(page)).labels.map(l => l.id)).toEqual(['b9']);
+  expect(await shownHints(page)).toEqual({});
+
+  // A real chain to the lever: the first pull takes the label away (memory b9).
+  await pullLever(page);
+  await expect.poll(async () => (await onboarding(page)).labels, { timeout: 5_000 }).toEqual([]);
+  expect(await shownHints(page)).toEqual({ b9: 1 });
+  const dots = (await snap(page)).slot.shown.dots as { gold: number; red: number; dark: number };
+  expect(dots.gold + dots.red + dots.dark).toBeGreaterThan(0);
+  await expect(page.getByTestId('world-label')).toBeHidden();
+
+  // The next fight of the same viewer: the goblin comes again, no label.
+  await movingNull(page);
+  await leaveFight(page);
+  await startFight(page);
+  await quiet(page);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await expect.poll(async () => (await snap(page)).slot.goblin !== null, { timeout: 20_000 }).toBe(true);
+  await gameWait(page, 3);
+  expect((await onboarding(page)).labels).toEqual([]);
+  expect((await onboarding(page)).log.map(h => h.id)).toEqual(['b9']);
+  expect(errors).toEqual([]);
+});
+
+test('the toggle «Подсказки» off hides the labels and marks nothing; on again they come back; after a pull the memory holds b9 and «Показать подсказки снова» clears it', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  await freshViewer(page, errors);
+  const goblinFight = async (): Promise<void> => {
+    await startFight(page);
+    await quiet(page);
+    await page.evaluate(() => (window as any).__realtime.completeGoals());
+    await expect.poll(async () => (await snap(page)).slot.goblin !== null, { timeout: 20_000 }).toBe(true);
+  };
+  // Fight 1: the toggle off on the gear of the map — the goblin stands, no label in 3 s of game time, nothing marked.
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await page.getByTestId('gift-1').click();
+  await gearOpen(page);
+  await page.getByTestId('view-hints').uncheck();
+  await page.getByTestId('node-r5c0').click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  await quiet(page);
+  await page.evaluate(() => (window as any).__realtime.completeGoals());
+  await expect.poll(async () => (await snap(page)).slot.goblin !== null, { timeout: 20_000 }).toBe(true);
+  await gameWait(page, 3);
+  expect((await onboarding(page)).on).toBe(false);
+  expect((await onboarding(page)).labels).toEqual([]);
+  expect(await shownHints(page)).toEqual({});
+  await leaveFight(page);
+
+  // Fight 2: on again — the label is there; one real pull marks b9.
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await page.getByTestId('gift-1').click();
+  await gearOpen(page);
+  await page.getByTestId('view-hints').check();
+  await goblinFight();
+  await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id)).toEqual(['b9']);
+  await pullLever(page);
+  await expect.poll(async () => (await onboarding(page)).labels).toEqual([]);
+  expect(await shownHints(page)).toEqual({ b9: 1 });
+  await movingNull(page);
+  await leaveFight(page);
+
+  // «Показать подсказки снова»: the memory is empty, the label comes again in the next fight.
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await page.getByTestId('gift-1').click();
+  await gearOpen(page);
+  await page.getByTestId('hints-reset').click();
+  await expect(page.getByTestId('hints-reset')).toHaveText('Подсказки покажутся снова ✓');
+  expect(await shownHints(page)).toEqual({});
+  await goblinFight();
+  await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id)).toEqual(['b9']);
+  expect(errors).toEqual([]);
+});
+
+test('the sandbox has no box either; its labels follow the toggle and keep no memory: the chest\'s price stands until the chest is taken', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  await freshViewer(page, errors, '/?sandbox=1');
+  await page.keyboard.press('9');
+  await expect(page.getByTestId('menu')).toBeHidden();
+  await page.keyboard.press('Backquote');
+  await page.locator('[data-param="cursedChest"] input').check();
+  await page.keyboard.press('Backquote');
+  await stillYard(page);
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  await page.keyboard.press('KeyR');
+  await expect.poll(async () => (await snap(page)).objects.some((o: { kind: string }) => o.kind === 'chest')).toBe(true);
+  await stillYard(page);
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  await expect(page.getByTestId('onboarding-hint')).toHaveCount(0);
+  await expect.poll(async () => (await onboarding(page)).labels.map(l => l.text)).toEqual(['+1 урон касания, 12 убийств']);
+  expect(await stored(page)).toBeNull();
+  const chest = (await snap(page)).objects.find((o: { kind: string }) => o.kind === 'chest');
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [chest.x - 1.4, chest.y] as const);
+  await gameWait(page, 0.2);
+  const at = await screen(page, chest.x, chest.y);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect.poll(async () => (await snap(page)).curse?.by ?? null, { timeout: 10_000 }).toBe('chain');
+  await expect.poll(async () => (await onboarding(page)).labels).toEqual([]);
+  expect(await stored(page)).toBeNull();
+
+  // The toggle off (its storage key, read at the start): no label in a new page.
+  await page.evaluate(() => localStorage.setItem('ashen-oath-realtime-hints-on', '0'));
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.keyboard.press('9');
+  await page.keyboard.press('Backquote');
+  await page.locator('[data-param="cursedChest"] input').check();
+  await page.keyboard.press('Backquote');
+  await page.keyboard.press('KeyR');
+  await expect.poll(async () => (await snap(page)).objects.some((o: { kind: string }) => o.kind === 'chest')).toBe(true);
+  await gameWait(page, 2);
+  expect((await onboarding(page)).on).toBe(false);
+  expect((await onboarding(page)).labels).toEqual([]);
   expect(errors).toEqual([]);
 });
 

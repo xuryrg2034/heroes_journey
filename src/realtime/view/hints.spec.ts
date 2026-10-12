@@ -9,7 +9,7 @@
 import { registerArena } from '../sim/arenas';
 import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
 import { defaultParams, type Params } from '../sim/params';
-import { GREED_LINKS, doorPayout, multText, payoutCap, type PurseDoor } from '../sim/purse';
+import { doorPayout, multText, payoutCap, type PurseDoor } from '../sim/purse';
 import { OATH_BROKEN_MULT, OATH_KEPT_MULT } from '../sim/oath';
 import { Simulation } from '../sim/simulation';
 import type { World } from '../sim/world';
@@ -19,10 +19,11 @@ import { createFightObserver } from '../telemetry/observe';
 import { RtRecorder, type SessionStore } from '../telemetry/recorder';
 import { collectRecords, hintStats, latestRuns } from '../telemetry/report';
 import { checkRecord } from '../telemetry/schema';
+import type { Vec } from '../sim/geometry';
 import {
-  detectHints, dieLine, heroUnderBox, HINT_GAP_MS, HINT_MAX_MS, HINT_IDS, HINT_SHOW_MS, HINTS_KEY, HintQueue, HintStore, hintText, LINE_RESOURCES, purseResultLine,
-  ScreenLines, SCREEN_LINE_SHOWS, stakeLine, type HintId, type HintStorage,
+  dieLine, HINT_IDS, HINTS_KEY, HintStore, LINE_RESOURCES, purseResultLine, ScreenLines, SCREEN_LINE_SHOWS, stakeLine, type HintStorage,
 } from './hints';
+import { detectLabels, labelActions, placeLabel } from './worldLabels';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
@@ -73,123 +74,6 @@ check('screen lines: the first two appearances show, a redraw of the same one is
   assert(lines.show('e2', 'map|1|7') && store.count('e2') === 1, 'after the reset the line is new again');
 });
 
-/** Drives the queue on a fake clock: returns the starts `[id, ms]` seen while `until` ms pass, a release at each time in `releases`. */
-function drive(queue: HintQueue, from: number, until: number, releases: readonly number[] = [], step = 100): [HintId, number][] {
-  const starts: [HintId, number][] = [];
-  for (let now = from; now <= until; now += step) {
-    for (const r of releases) if (r > now - step && r <= now) queue.release(r);
-    const started = queue.update(now);
-    if (started) starts.push([started.id, now]);
-  }
-  return starts;
-}
-
-check('queue: one hint at a time, at least 6 s between starts, shown 4 s or until the next release — whichever is later', () => {
-  const store = new HintStore(memory().storage), queue = new HintQueue(store);
-  const on = (): string | null => queue.current?.id ?? null;
-  for (const id of ['b1', 'b2', 'b3'] as const) queue.offer(id);
-  assert(queue.update(0)?.id === 'b1' && on() === 'b1', 'the first starts at once');
-  assert(queue.update(100) === null && on() === 'b1', 'never two at once');
-  // A release at 1 s: the hint still stays until 4 s.
-  queue.release(1000);
-  assert(queue.update(3900) === null && on() === 'b1', 'before 4 s it stays after a release');
-  assert(queue.update(4000) === null && on() === null, 'at 4 s, released — it goes');
-  assert(queue.update(5900) === null && on() === null, 'the next waits for 6 s from the start of the last');
-  assert(queue.update(6000)?.id === 'b2', 'b2 at 6 s');
-  // No release: it stays past 4 s, and goes at the first release after that (the next one then starts in the same call).
-  assert(queue.update(11_000) === null && on() === 'b2', 'no release — b2 stays');
-  queue.release(12_100);
-  assert(queue.update(12_100)?.id === 'b3' && on() === 'b3', 'released later than 4 s — b2 goes and b3 (6 s long passed) comes');
-  assert(HINT_SHOW_MS === 4000 && HINT_GAP_MS === 6000 && HINT_MAX_MS === 12_000, 'the design numbers');
-});
-
-check('queue: a hint nobody releases a chain under goes after 12 s of display; the time does not run while the box is faded', () => {
-  const store = new HintStore(memory().storage), queue = new HintQueue(store);
-  const on = (): string | null => queue.current?.id ?? null;
-  queue.offer('b1'); queue.offer('b2');
-  queue.update(0);
-  assert(queue.update(11_900) === null && on() === 'b1', 'no release: still there at 11.9 s');
-  assert(queue.update(12_000)?.id === 'b2' && on() === 'b2', 'the cap: b1 goes at 12 s, b2 comes');
-  // Faded: the clock of the display stands still, the wall clock of the gap does not.
-  const q2 = new HintQueue(new HintStore(memory().storage));
-  q2.offer('b6'); q2.offer('b1');
-  q2.update(0, true);
-  q2.release(100);
-  for (let t = 100; t <= 5000; t += 100) q2.update(t, true);
-  assert(q2.current?.id === 'b6' && q2.current.shown === 0, 'faded 5 s: not a millisecond of display counted, still there');
-  for (let t = 5100; t <= 8000; t += 100) q2.update(t, false);
-  assert(q2.current?.id === 'b6', 'only 2.9 s of display after he walked out');
-  q2.update(9000, false);
-  assert((q2.current as { id: string } | null)?.id === 'b1', `4 s of display and a release: b6 goes, b1 (6 s long passed) comes: ${q2.current?.id}`);
-  const q3 = new HintQueue(new HintStore(memory().storage));
-  q3.offer('b6');
-  q3.update(0, true);
-  for (let t = 100; t <= 60_000; t += 100) q3.update(t, true);
-  assert(q3.current?.id === 'b6', 'a hero who stays under it for a minute: still there (not even the cap runs)');
-  for (let t = 60_100; t <= 71_900; t += 100) q3.update(t, false);
-  assert(q3.current?.id === 'b6', 'the cap counts display time only');
-  q3.update(72_100, false);
-  assert(q3.current === null, 'cap after 12 s of display');
-});
-
-check('queue: over a long fight starts are never closer than 6 s, never overlap, and each id shows once per viewer', () => {
-  const store = new HintStore(memory().storage), queue = new HintQueue(store);
-  for (const id of HINT_IDS) queue.offer(id);
-  queue.offer('b3'); queue.offer('b3');
-  const starts = drive(queue, 0, 120_000, [500, 2000, 4500, 5000, 9000, 15_000, 20_000, 26_000, 33_000, 40_000, 47_000, 53_000, 60_000, 70_000]);
-  assert(starts.length === 9 && new Set(starts.map(s => s[0])).size === 9, `nine different hints: ${JSON.stringify(starts)}`);
-  for (let i = 1; i < starts.length; i++) assert(starts[i][1] - starts[i - 1][1] >= HINT_GAP_MS, `start ${i} is ${starts[i][1] - starts[i - 1][1]} ms after the last`);
-  queue.reset();
-  for (const id of HINT_IDS) queue.offer(id);
-  assert(queue.pending.length === 0, 'a viewer who saw them all is shown none');
-});
-
-check('queue: a hint not started when the fight ended is not marked; a new fight starts clean and the hint can still come', () => {
-  const store = new HintStore(memory().storage), queue = new HintQueue(store);
-  queue.offer('b1'); queue.offer('b2');
-  queue.update(0);
-  queue.reset();
-  assert(queue.current === null && queue.pending.length === 0, 'cleared');
-  assert(store.count('b1') === 1 && store.count('b2') === 0, 'b1 was shown, b2 never started');
-  queue.offer('b2'); queue.offer('b1');
-  assert(queue.pending.join() === 'b2', 'b1 is not offered again');
-  assert(queue.update(1)?.id === 'b2', 'a new fight has no gap to the old one');
-});
-
-check('queue: Б4 goes before Б5 — when the door opens first, and when Б5 is already waiting', () => {
-  const a = new HintStore(memory().storage), qa = new HintQueue(a);
-  for (const id of ['b1', 'b2', 'b4', 'b5'] as const) qa.offer(id);
-  assert(qa.pending.join() === 'b1,b2,b4,b5', 'in the order of the triggers');
-  const b = new HintStore(memory().storage), qb = new HintQueue(b);
-  qb.offer('b1'); qb.offer('b5'); qb.offer('b4');
-  assert(qb.pending.join() === 'b1,b4,b5', `b4 steps in front of the waiting b5: ${qb.pending}`);
-  // Seen Б4 already: only Б5 comes.
-  const c = new HintStore(memory().storage); c.bump('b4');
-  const qc = new HintQueue(c);
-  qc.offer('b4'); qc.offer('b5');
-  assert(qc.pending.join() === 'b5', 'b4 is not shown twice');
-});
-
-check('queue: Б8 (the chest\'s price) goes to the front and starts at once — it cuts the hint on screen and does not wait for the 6 s', () => {
-  const store = new HintStore(memory().storage), queue = new HintQueue(store);
-  queue.offer('b6'); queue.offer('b1'); queue.offer('b8');
-  assert(queue.pending.join() === 'b8,b6,b1', queue.pending.join());
-  assert(queue.update(0)?.id === 'b8', 'b8 is the first to stand');
-  queue.offer('b8');
-  assert(queue.pending.join() === 'b6,b1', 'not queued twice');
-  // Cutting in: b3 is on screen 1 s, b8 comes at once; b3 is not counted as shown and waits at the front.
-  const s2 = new HintStore(memory().storage), q2 = new HintQueue(s2);
-  q2.offer('b3');
-  q2.update(0);
-  q2.update(1000);
-  q2.offer('b8');
-  assert(q2.update(1100)?.id === 'b8' && q2.current?.id === 'b8', 'b8 cuts in 1.1 s after b3 started');
-  assert(s2.count('b3') === 0 && s2.count('b8') === 1 && q2.pending.join() === 'b3', `b3 waits unmarked: ${q2.pending}, ${s2.shownIds()}`);
-  assert(q2.update(6000) === null, 'b3 comes back only 6 s after b8 started');
-  q2.release(6100);
-  assert(q2.update(7100)?.id === 'b3', 'b3 later');
-});
-
 /** A quiet field for the real worlds: nobody walks or comes. */
 registerArena({
   id: 'hints-field', name: 'Поле подсказок', summary: 'Тест подсказок', goal: 'kills', width: 20, height: 12,
@@ -216,131 +100,87 @@ function drawRow(sim: Simulation, hps: number[]): void {
   sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
   for (const p of points.slice(1)) sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
 }
-/** Ticks until the dash ends, collecting the hints detected in every tick before its events are dropped (as main.ts does per frame). */
-function run(sim: Simulation, collect: Set<HintId>): void {
-  for (let i = 0; i < 900 && (sim.world.move || i === 0); i++) { sim.tick(); for (const id of detectHints(sim.world, seen)) collect.add(id); sim.world.events.length = 0; }
+/** Ticks until the dash ends, collecting the label actions of every tick before its events are dropped (as main.ts does per frame). */
+function run(sim: Simulation, collect: Set<string>): void {
+  for (let i = 0; i < 900 && (sim.world.move || i === 0); i++) { sim.tick(); for (const id of labelActions(sim.world)) collect.add(id); sim.world.events.length = 0; }
 }
 
-check('triggers from a real world (the cauldron on): the chain gives Б1+Б2, a survivor Б3, a 3+ cheque Б4, the opened door Б4+Б5 in that order, energy Б7', () => {
-  const sim = new Simulation({ arena: 'hints-field', params: cauldronOn(), seed: seedOf(1), record: true });
-  sim.command({ t: 'clear', keepMarked: false });
-  assert(detectHints(sim.world, seen).length === 0, 'a quiet start triggers nothing');
-  drawRow(sim, [0, 0, 0, 0]);
-  assert(detectHints(sim.world, seen).join() === 'b1,b2', `a chain being drawn: ${detectHints(sim.world, seen)}`);
-  sim.command({ t: 'release' });
-  const got = new Set<HintId>();
-  run(sim, got);
-  assert(got.has('b4') && !got.has('b3') && !got.has('b5'), `four kills: a cheque, no survivor, no door yet: ${[...got]}`);
-  // A survivor: one tough enemy (4 HP) as the only link.
-  sim.command({ t: 'clear', keepMarked: false });
-  drawRow(sim, [4]);
-  sim.command({ t: 'release' });
-  const survivor = new Set<HintId>();
-  run(sim, survivor);
-  assert(survivor.has('b3'), `a hit that did not kill: ${[...survivor]}`);
-  // The door opens: Б4 and Б5, in this order, from the goals event and from the stage.
-  sim.command({ t: 'goals' });
-  assert(detectHints(sim.world, seen).filter(id => id === 'b4' || id === 'b5').join() === 'b4,b5', `the door: ${detectHints(sim.world, seen)}`);
-  // Energy for a jump (the chain hits earned it already; set it by the journalled command both ways).
-  sim.command({ t: 'energy', value: 0 });
-  assert(!detectHints(sim.world, seen).includes('b7'), 'no energy, no Б7');
-  sim.command({ t: 'energy', value: 7 });
-  assert(detectHints(sim.world, seen).includes('b7'), 'energy ≥ the jump cost');
-  const low = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(2) });
-  assert(!detectHints(low.world, seen).includes('b7'), 'no energy, no Б7');
-});
-
-check('triggers (the cauldron on): a cheque of 2 links is not enough for Б4; a killing chain is not Б3; a plate hit is not Б3', () => {
-  const sim = new Simulation({ arena: 'hints-field', params: cauldronOn(), seed: seedOf(3), record: true });
-  sim.command({ t: 'clear', keepMarked: false });
-  drawRow(sim, [0, 0]);
-  sim.command({ t: 'release' });
-  const got = new Set<HintId>();
-  run(sim, got);
-  assert(!got.has('b4') && !got.has('b3'), `two weak kills: ${[...got]}`);
-  const w = sim.world;
-  const fake = (events: unknown[]): World => ({ ...w, events } as unknown as World);
-  assert(!detectHints(fake([{ type: 'chainHit', enemyId: 1, damage: 1, killed: false, x: 0, y: 0, combo: 1, plates: 2 }]), seen).includes('b3'), 'a plate taken is not «выжил»');
-  assert(detectHints(fake([{ type: 'chainHit', enemyId: 1, damage: 1, killed: false, x: 0, y: 0, combo: 1 }]), seen).includes('b3'), 'a plain survivor is');
-  assert(!detectHints(fake([{ type: 'cheque', embers: 4, heat: 1, crystals: 0, mult: 1, total: 4, links: 2, finish: false, cauldron: 4, x: 0, y: 0 }]), seen).includes('b4'), '2 links');
-  assert(detectHints(fake([{ type: 'cheque', embers: 6, heat: 1, crystals: 0, mult: 1, total: 6, links: 3, finish: false, cauldron: 6, x: 0, y: 0 }]), seen).includes('b4'), '3 links');
-});
-
-check('the run (task 5, 12.10.2026): no cauldron — a 3+ chain and the opened door give neither Б4 nor Б5; the other hints come as before', () => {
-  const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet({ purse: true })), seed: seedOf(1), record: true });
-  assert(!sim.world.params.purse, 'the run has no cauldron');
-  sim.command({ t: 'clear', keepMarked: false });
-  drawRow(sim, [0, 0, 0, 0]);
-  const got = new Set<HintId>(detectHints(sim.world, seen));
-  sim.command({ t: 'release' });
-  run(sim, got);
-  sim.command({ t: 'goals' });
-  for (const id of detectHints(sim.world, seen)) got.add(id);
-  sim.command({ t: 'energy', value: 7 });
-  for (const id of detectHints(sim.world, seen)) got.add(id);
-  assert(sim.world.stage === 'greed' && !got.has('b4') && !got.has('b5'), `no Б4, no Б5: ${[...got]}`);
-  assert(got.has('b1') && got.has('b2') && got.has('b7'), `Б1, Б2, Б7 as before: ${[...got]}`);
-});
-
-check('triggers: an armoured enemy in view Б6, the chest in view Б8, the goblin Б9 — and only in view', () => {
+check('labels (task 6, 12.10.2026): the three of the run stand at their object and only in view; one label for all the armoured elites (the nearest)', () => {
   const w = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(4) }).world;
   const armoured = { id: 99, kind: 'basic', x: 10, y: 5, armor: { plates: 2, max: 2 } };
   const world = (patch: object): World => ({ ...w, ...patch } as unknown as World);
-  assert(detectHints(world({ enemies: [armoured] }), seen).includes('b6'), 'armoured, in view');
-  assert(!detectHints(world({ enemies: [armoured] }), () => false).includes('b6'), 'armoured, out of view');
-  assert(!detectHints(world({ enemies: [{ ...armoured, armor: undefined }] }), seen).includes('b6'), 'a plain enemy');
+  const ids = (x: World, view: (p: Vec) => boolean = seen): string[] => detectLabels(x, view).map(l => l.id);
+  assert(ids(world({ enemies: [armoured] })).join() === 'b6', 'armoured, in view');
+  assert(ids(world({ enemies: [armoured] }), () => false).length === 0, 'armoured, out of view');
+  assert(ids(world({ enemies: [{ ...armoured, armor: undefined }] })).length === 0, 'a plain enemy');
+  assert(ids(world({ enemies: [{ ...armoured, armor: { plates: 0, max: 2 } }] })).length === 0, 'plates gone (the window): no label');
+  const far = { ...armoured, id: 100, x: 18, y: 2 }, near = { ...armoured, id: 101, x: 5, y: 6 };
+  const two = detectLabels(world({ enemies: [far, near] }), seen).filter(l => l.id === 'b6');
+  assert(two.length === 1 && two[0].at.x === 5 && two[0].text === 'Пластина — 1 удар', 'one label, on the nearest to the hero');
   const chest = { id: 7, kind: 'chest', x: 8, y: 4, pressed: false };
-  assert(detectHints(world({ objects: [chest] }), seen).includes('b8'), 'the chest in view, not taken');
-  assert(!detectHints(world({ objects: [chest] }), () => false).includes('b8'), 'the chest out of view');
-  assert(!detectHints(world({ objects: [] }), seen).includes('b8'), 'the chest taken (gone from the objects)');
+  const c = detectLabels(world({ objects: [chest] }), seen);
+  assert(c.length === 1 && c[0].id === 'b8' && c[0].at.x === 8 && c[0].at.y === 4, 'the chest in view, not taken');
+  assert(c[0].text === `+${CHEST_CURSE_TOUCH} урон касания, ${CHEST_CURSE_KILLS} убийств` && c[0].text === '+1 урон касания, 12 убийств', `the price is read from the code: ${c[0].text}`);
+  assert(ids(world({ objects: [chest] }), () => false).length === 0 && ids(world({ objects: [] })).length === 0, 'out of view; taken (gone from the objects)');
   const lever = { id: 8, kind: 'lever', x: 12, y: 8, pressed: false };
-  assert(detectHints(world({ slot: { goblin: { id: 8 } }, objects: [lever] }), seen).includes('b9'), 'the lever in view');
-  assert(!detectHints(world({ slot: { goblin: { id: 8 } }, objects: [lever] }), () => false).includes('b9'), 'the lever out of view');
-  assert(detectHints(world({ events: [{ type: 'slot', action: 'appear', x: 1, y: 1 }] }), () => false).includes('b9'), 'the goblin appearing');
+  const l = detectLabels(world({ slot: { goblin: { id: 8 } }, objects: [lever] }), seen);
+  assert(l.length === 1 && l[0].id === 'b9' && l[0].text === 'Закончи цепь здесь' && l[0].place === 'side', 'the lever in view');
+  assert(ids(world({ slot: { goblin: { id: 8 } }, objects: [lever] }), () => false).length === 0, 'the lever out of view');
+  for (const spec of [...two, ...c, ...l]) assert(spec.text.split(/\s+/).filter(t => /[\p{L}\d]/u.test(t)).length <= 5, `${spec.id}: short text «${spec.text}»`);
 });
 
-check('texts: the final strings of the design; numbers come from the code, not from literals; at most 14 words', () => {
-  const spec: Record<HintId, string> = {
-    b1: 'Пока рисуешь цепь — время замедлено. Полоса — фокус, каждый враг в цепи его пополняет.',
-    b2: 'Каждый враг в цепи +1 к силе. Крепкий тратит силу на свои HP.',
-    b3: 'Не хватило силы — враг выжил. Длиннее цепь — сильнее удар.',
-    b4: 'Цепь кладёт в котёл угли × жар. Котёл платит ресурсами у двери.',
-    b5: 'Дверь открыта. Выйди — котёл станет ресурсами. Цепи 3+ растят множитель, удар его снижает.',
-    b6: 'Броня: удар снимает пластину. Сняв все — добей в окне.',
-    b7: 'Энергия — от ударов цепи. Пробел и клик — прыжок, Q — круговой удар.',
-    b8: 'Проклятый сундук: касания врагов +1 урон до 12 убийств цепью. Награда за победу — талисман.',
-    b9: 'Однорукий гоблин: закончи цепь на рычаге. Первые 3 рывка безопасны, дальше — риск взрыва.',
-  };
-  const params = defaultParams();
-  for (const id of HINT_IDS) {
-    assert(hintText(id, params) === spec[id], `${id}: ${hintText(id, params)}`);
-    const words = hintText(id, params).split(/\s+/).filter(word => word !== '—');
-    assert(words.length <= 14, `${id}: ${words.length} words`);
-  }
-  // Б9 as the run plays it since task 5 (design answer 12.10.2026: the long chains feed the goblin; the design's own text,
-  // 17 words — over the 14 of «Обучение v1», the design's choice).
-  const run = rtRunParams(defaultParams());
-  assert(hintText('b9', run) === 'Однорукий гоблин: закончи цепь на рычаге. 3 рывка безопасны, каждая цепь 6+ — ещё один. Дальше — риск взрыва.', `Б9 in the run: ${hintText('b9', run)}`);
-  assert(hintText('b9', { slotSafePulls: 1, slotSafePerLongChain: 2, slotLongChainLinks: 8 }).includes('1 рывок безопасен, каждая цепь 8+ — ещё 2.'), 'Б9 follows the params');
-  {
-  }
-  assert(CHEST_CURSE_TOUCH === 1 && CHEST_CURSE_KILLS === 12 && GREED_LINKS === 3 && params.slotSafePulls === 3, 'the numbers of the design are the code\'s today');
-  assert(hintText('b9', { slotSafePulls: 5 }).includes('Первые 5 рывков безопасны, дальше'), 'Б9 follows the param (5)');
-  assert(hintText('b9', { slotSafePulls: 1 }).includes('Первый рывок безопасен, дальше'), 'Б9 follows the param (1)');
+check('labels: the action of each is read from the frame\'s events — a plate taken off, the chest taken, the first pull; nothing else', () => {
+  const w = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(5) }).world;
+  const withEvents = (events: unknown[]): World => ({ ...w, events } as unknown as World);
+  assert(labelActions(withEvents([{ type: 'chainHit', enemyId: 1, damage: 0, killed: false, x: 1, y: 1, combo: 1, plates: 1 }])).join() === 'b6', 'a plate off');
+  assert(labelActions(withEvents([{ type: 'chainHit', enemyId: 1, damage: 0, killed: false, x: 1, y: 1, combo: 1, plates: 0 }])).join() === 'b6', 'the last plate (plates left 0)');
+  assert(labelActions(withEvents([{ type: 'chainHit', enemyId: 1, damage: 1, killed: true, x: 1, y: 1, combo: 1 }])).length === 0, 'a plain hit is no action');
+  assert(labelActions(withEvents([{ type: 'chest', objectId: 3, x: 1, y: 1, by: 'chain' }])).join() === 'b8', 'the chest');
+  assert(labelActions(withEvents([{ type: 'slot', action: 'appear', x: 1, y: 1 }])).length === 0 && labelActions(withEvents([{ type: 'slot', action: 'pull', x: 1, y: 1 }])).join() === 'b9', 'the pull, not the appearing');
+});
+
+check('labels: placement — over the object, a side label flips to the left at the right edge, everything stays inside the bounds (below the HUD plate, over the action bar)', () => {
+  const bounds = { left: 0, top: 70, right: 1280, bottom: 640 }, size = { w: 140, h: 24 };
+  const above = placeLabel({ place: 'above', lift: 1 }, { x: 600, y: 300 }, 60, size, bounds);
+  assert(above.left === 530 && above.bottom === 240 && above.right - above.left === 140, `centred over: ${JSON.stringify(above)}`);
+  const high = placeLabel({ place: 'above', lift: 1 }, { x: 600, y: 90 }, 60, size, bounds);
+  assert(high.top >= bounds.top, 'not under the HUD plate');
+  const edge = placeLabel({ place: 'above', lift: 1 }, { x: 5, y: 300 }, 60, size, bounds);
+  assert(edge.left >= 0, 'not past the left edge');
+  const right = placeLabel({ place: 'side', lift: 1 }, { x: 300, y: 300 }, 60, size, bounds), flipped = placeLabel({ place: 'side', lift: 1 }, { x: 1200, y: 300 }, 60, size, bounds);
+  assert(right.left === 360 && flipped.right <= 1200 && flipped.right <= 1280, `right ${JSON.stringify(right)}, flipped ${JSON.stringify(flipped)}`);
+  const low = placeLabel({ place: 'side', lift: 1 }, { x: 300, y: 700 }, 60, size, bounds);
+  assert(low.bottom <= bounds.bottom, 'over the action bar');
+});
+
+check('labels: a real dash on an armoured elite takes a plate — the event the label waits for; a dash on a plain enemy is no action', () => {
+  const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(6), record: true });
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.5, y: 6 });
+  sim.command({ t: 'place', x: 6, y: 6, color: 0, hp: 0, kind: 'basic' });
+  sim.command({ t: 'begin', x: 6, y: 6 });
+  sim.command({ t: 'release' });
+  const plain = new Set<string>();
+  run(sim, plain);
+  assert(sim.world.stats.kills === 1 && plain.size === 0, `a plain enemy killed, no label action (${[...plain]})`);
+  const elite = sim.command({ t: 'place', x: 6, y: 6, color: 0, hp: 0, kind: 'basic', elite: true, affixes: ['armored'] }) as number;
+  const enemy = sim.world.enemies.find(e => e.id === elite);
+  assert(!!enemy?.armor && enemy.armor.plates > 0, `the placed elite is armoured (${JSON.stringify(enemy?.armor)})`);
+  assert(detectLabels(sim.world, seen).some(l => l.id === 'b6'), 'its label stands');
+  sim.command({ t: 'teleport', x: 4.5, y: 6 });
+  sim.command({ t: 'begin', x: 6, y: 6 });
+  sim.command({ t: 'release' });
+  const hit = new Set<string>();
+  run(sim, hit);
+  assert(hit.has('b6'), `the dash took a plate: label action b6 (${[...hit]})`);
+});
+
+check('screen texts (Э2, Э3, Э4) are unchanged; numbers come from the code', () => {
   assert(LINE_RESOURCES === 'Ресурсы — крафт на привале, покупки у торговца, переброс талисманов.', 'Э2');
   assert(stakeLine(OATH_KEPT_MULT, OATH_BROKEN_MULT) === 'Ставка на котёл этого боя: сдержишь ×2, нарушишь ×0,5.', 'Э3');
   assert(dieLine(DIE_LOW_FACES) === '1–3 — половина, 4–6 — вдвое, но не выше потолка. «Забрать» — без риска.', 'Э4');
 });
 
-check('fade: the hero under the box or within 40 px of it fades it; far away does not', () => {
-  const box = { left: 360, top: 560, right: 920, bottom: 610 };
-  assert(heroUnderBox({ x: 640, y: 580 }, box), 'under it');
-  assert(heroUnderBox({ x: 640, y: 520 }, box), '40 px above');
-  assert(!heroUnderBox({ x: 640, y: 519 }, box), '41 px above');
-  assert(heroUnderBox({ x: 330, y: 580 }, box) && !heroUnderBox({ x: 319, y: 580 }, box), 'the sides');
-});
-
-/** The door's record of a real fight: chains fill the cauldron, `afterGoals` more chains of 5 after the goals (the greed step), the hero walks in. */
 function doorOfFight(k: number, target: number, afterGoals: number, oath: 'no-jump' | null, jump: boolean): PurseDoor {
   const params = cauldronOn();
   const sim = new Simulation({ arena: 'hints-field', params, seed: seedOf(k), record: true, loadout: oath ? { oath } : {} });

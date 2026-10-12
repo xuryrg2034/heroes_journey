@@ -583,7 +583,7 @@ export class RunView {
     const toggles = this.host.viewToggles ?? [], hints = this.host.hints;
     if (!toggles.length && !hints) return '';
     // «Обучение v1»: «Подсказки» and «Показать подсказки снова» (the memory of what was shown starts over).
-    const hintRows = hints ? `<label class="rt-run-setting" title="Короткие подсказки в бою (по одной, один раз) и строки на экранах похода."><input type="checkbox" data-action="hints-toggle" data-testid="view-hints"${hints.on() ? ' checked' : ''}> Подсказки</label>`
+    const hintRows = hints ? `<label class="rt-run-setting" title="Подписи у предметов в бою (раз на зрителя, уходят после действия) и строки на экранах похода."><input type="checkbox" data-action="hints-toggle" data-testid="view-hints"${hints.on() ? ' checked' : ''}> Подсказки</label>`
       + `<button class="rt-run-hints-reset" data-action="hints-reset" data-testid="hints-reset">${this.hintsReset ? 'Подсказки покажутся снова ✓' : 'Показать подсказки снова'}</button>` : '';
     const rows = hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
     return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки вида" aria-expanded="${this.settingsOpen}">⚙</button>`

@@ -44,7 +44,8 @@ import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
 import { rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
-import { detectHints, heroUnderBox, HintQueue, HintStore, hintText, purseResultLine, type HintId } from './hints';
+import { HintStore, purseResultLine } from './hints';
+import { detectLabels, labelActions, WorldLabelLayer } from './worldLabels';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RtDeathWatch } from '../run/rtRunEnd';
@@ -339,17 +340,13 @@ async function boot(): Promise<void> {
   const itemHint = el('div', 'rt-item-hint', 'Предметы: клавиши <kbd>1</kbd>–<kbd>4</kbd>, бьют в точку курсора');
   itemHint.setAttribute('data-testid', 'item-hint');
   itemHint.hidden = true;
-  // «Обучение v1» (view/hints.ts): the one-time hint of a run fight, bottom centre above the item line (never in the sandbox).
-  const hintBox = el('div', 'rt-onboard');
-  hintBox.setAttribute('data-testid', 'onboarding-hint');
-  hintBox.hidden = true;
   // Phase B (Д5, design answer 23): the build column on the left (x 8–70 from y ≈ 72), only the items taken.
   const buildColumn = new BuildColumn();
   // Telemetry: «отмечено» under the HUD for a second after the N key.
   const noteFlash = el('div', 'rt-note-flash', 'отмечено');
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, hintBox, help, pausedBadge, jumpButton, hint, purseHint, shiftHint, result, noteFlash);
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, purseHint, shiftHint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, menu);
   if (logsPanel) host.append(logsPanel.el);
 
@@ -395,12 +392,14 @@ async function boot(): Promise<void> {
   };
 
   /**
-   * «Обучение v1» (view/hints.ts; run only — the sandbox neither reads nor writes it): the viewer's memory, the queue of the
-   * fight hints and the log of the hints started on this page (id and real time: the tests read it). `hintsOn` — the gear's toggle.
+   * «Обучение» (view/hints.ts, view/worldLabels.ts; 12.10.2026): the viewer's memory (the run keeps it in `localStorage`; the
+   * sandbox only for the page: it keeps no memory), the world labels at the elite, the chest and the lever (the box of hints at
+   * the bottom is gone), and the log of the labels shown on this page (id and real time: the tests read it). `hintsOn` — the gear's toggle.
    */
-  const hintStore = sandbox ? null : new HintStore();
+  const hintStore = new HintStore(sandbox ? null : undefined);
   let hintsOn = loadHintsOn();
-  const hints = hintStore ? { store: hintStore, queue: new HintQueue(hintStore, id => hintText(id, sim.world.params)), log: [] as { id: HintId; t: number }[] } : null;
+  const labelLayer = new WorldLabelLayer(host);
+  const hints = { store: hintStore, log: [] as { id: string; t: number }[] };
 
   let arenaIndex = 0;
   let sim = newSimulation(SANDBOX_ARENAS[arenaIndex], nextSeed(fixedSeed));
@@ -413,8 +412,6 @@ async function boot(): Promise<void> {
   /** Every command goes through here: the telemetry sees the world before it changes and the command after it. */
   const command = (cmd: Command) => {
     recorder?.beforeCommand(sim.world);
-    // «Обучение v1»: a chain released (one that had links) lets the hint on screen go once its time is over.
-    if (cmd.t === 'release' && sim.world.chain.length > 0) hints?.queue.release(performance.now());
     const done = sim.command(cmd);
     recorder?.afterCommand(cmd, sim.world);
     // П2: the released chain's enemy links (the plan at the release) decide the dash's sound and shake.
@@ -447,8 +444,7 @@ async function boot(): Promise<void> {
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout);
-    hints?.queue.reset();
-    hintBox.hidden = true;
+    labelLayer.hideAll();
     recorder?.beginFight(sim, fightContext());
     SLOT_ITEMS.forEach((kind, i) => { slotBlink[i] = notice?.blink.includes(kind) ? ITEM_BLINK : 0; });
     lastSlotCounts = null;
@@ -602,7 +598,7 @@ async function boot(): Promise<void> {
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
     // «Обучение v1»: the toggle «Подсказки» and «Показать подсказки снова» on the gear; the screen lines read the same memory.
-    ...hints ? { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) { hints.queue.reset(); hintBox.hidden = true; } } } } : {},
+    ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); } } },
   }, fixedSeed);
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap };
   /**
@@ -918,26 +914,21 @@ async function boot(): Promise<void> {
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
     if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); }
-    // «Обучение v1»: the one-time hints, from the same events (a run fight that is playing; the sandbox has none).
-    if (hints) {
-      const hinting = hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded && w.status === 'playing';
-      if (hinting) {
-        for (const id of detectHints(w, p => renderer.sees(p))) hints.queue.offer(id);
-        const started = hints.queue.update(now, hintBox.classList.contains('rt-faded'));
-        if (started) {
-          hintBox.textContent = started.text;
-          hintBox.dataset.id = started.id;
-          hints.log.push({ id: started.id, t: now });
-          recorder?.hintShown(runView!.state, started.id);
+    // World labels (view/worldLabels.ts): an action done in this frame marks its label for this viewer, and the labels whose
+    // object stands (and not done before) hang at the object. A fight that is playing; the run — its arena, no screen over it.
+    {
+      for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
+      const labelling = hintsOn && (sandbox || (!!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded)) && w.status === 'playing';
+      if (labelling) {
+        const specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
+        const stageBox = stage.getBoundingClientRect();
+        const barTop = actionBar.hidden ? stageBox.bottom : actionBar.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
+        const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
+        for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom })) {
+          hints.log.push({ id, t: now });
+          if (runView) recorder?.hintShown(runView.state, id);
         }
-      }
-      const current = hinting ? hints.queue.current : null;
-      hintBox.hidden = !current;
-      if (current) {
-        // The hero (and the markers at the edges) must not stay covered: the box fades while he is under it or near it.
-        const box = hintBox.getBoundingClientRect(), stageBox = stage.getBoundingClientRect(), at = renderer.toScreen(w.hero.x, w.hero.y);
-        hintBox.classList.toggle('rt-faded', heroUnderBox({ x: stageBox.left + at.x, y: stageBox.top + at.y }, box));
-      }
+      } else labelLayer.hideAll();
     }
     w.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
@@ -987,10 +978,8 @@ async function boot(): Promise<void> {
       itemSlots[i].classList.toggle('rt-blink', slotBlink[i] > 0);
     });
     lastSlotCounts = SLOT_ITEMS.map(kind => w.kit?.items[kind] ?? 0);
-    // «Обучение v1»: one hint at a time — while a box hint is shown the item hint waits (its timer stands still).
-    const boxUp = !hintBox.hidden;
-    if (live && !boxUp) itemHintLeft = Math.max(0, itemHintLeft - realDt);
-    itemHint.hidden = !(itemHintLeft > 0 && !runScreenOpen && !boxUp);
+    if (live) itemHintLeft = Math.max(0, itemHintLeft - realDt);
+    itemHint.hidden = !(itemHintLeft > 0 && !runScreenOpen);
     spinAbility.classList.toggle('rt-ready', canSpin(w));
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(w) && !ui.jumpMode;
@@ -1209,8 +1198,8 @@ async function boot(): Promise<void> {
         /** Telemetry (track ТA): the browser buffer — records, characters, not delivered, notes, a record kept in memory only. Null — off. */
         telemetry: recorder ? (({ records, chars, undelivered, notes, bufferFull }) => ({ records, chars, undelivered, notes, bufferFull }))(recorder.stats()) : null,
         noteFlash: !noteFlash.hidden,
-        /** «Обучение v1»: the toggle, the hint on screen (id, text, faded under the hero), the ids shown to this viewer, the hints started on this page (id, real ms). Null in the sandbox. */
-        onboarding: hints ? { on: hintsOn, id: hintBox.hidden ? null : hintBox.dataset.id ?? null, text: hintBox.hidden ? null : hintBox.textContent, faded: !hintBox.hidden && hintBox.classList.contains('rt-faded'), box: hintBox.hidden ? null : (({ left, top, right, bottom }) => ({ left, top, right, bottom }))(hintBox.getBoundingClientRect()), shown: hints.store.shownIds(), pending: [...hints.queue.pending], log: hints.log.map(h => ({ ...h })) } : null,
+        /** «Обучение»: the toggle, the world labels on screen (id, text, rectangle in stage px), the ids in this viewer's memory, the labels shown on this page (id, real ms). */
+        onboarding: { on: hintsOn, labels: labelLayer.shown(), shown: hints.store.shownIds(), log: hints.log.map(h => ({ ...h })) },
         logsOpen: !!logsPanel?.open,
       };
     },

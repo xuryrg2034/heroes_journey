@@ -302,10 +302,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-luck-lines li { margin: 2px 0; }
 .rt-luck-lines b { color: #e0d4ad; font-weight: 600; }
 
-/* «Обучение v1» (view/hints.ts, docs/realtime-onboarding.md): the one-time fight hint — bottom centre above the item line, at
-   most 560 px wide, ~70 % background, never takes the pointer; it fades to ~25 % while the hero is under it or within 40 px. */
-.rt-onboard { position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); z-index: 3; box-sizing: border-box; width: max-content; max-width: 560px; padding: 8px 14px; font-size: 14px; line-height: 1.3; text-align: center; color: #f4ecd2; background: rgba(18, 23, 16, 0.7); border: 1px solid rgba(200, 165, 107, 0.6); pointer-events: none; transition: opacity .2s; }
-.rt-onboard.rt-faded { opacity: .25; }
+/* World labels (view/worldLabels.ts, docs/realtime-onboarding.md): a short verb or price at an object of the arena. Over the
+   stage, never takes the pointer; the text has a dark outline to read on the floor tiles at 1280x720. */
+.rt-world-label { position: absolute; z-index: 3; box-sizing: border-box; width: max-content; max-width: 260px; padding: 2px 7px; font: bold 15px/1.25 Georgia, serif; text-align: center; white-space: nowrap; color: #fff1c4; background: rgba(18, 23, 16, 0.72); border: 1px solid rgba(255, 211, 107, 0.7); border-radius: 3px; text-shadow: 0 1px 2px #000; pointer-events: none; }
 /* The quiet lines on the run screens (Э2 under the map header, Э4 at the die). */
 .rt-run-line { margin: 0; padding: 4px 18px; color: var(--rt-muted); font-size: 12px; }
 .rt-run-modal .rt-run-line { padding: 0; margin: 10px 0 0; text-align: center; }
