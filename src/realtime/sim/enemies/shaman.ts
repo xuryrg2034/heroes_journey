@@ -8,8 +8,9 @@
  * `shamanBeam` (1.5 s) while the shaman stands; at its end the target becomes tough: `shamanEmpowerHp` (2), its colour
  * and kind stay. The beam is magic: a chain does not cut it. It breaks when the target or the shaman dies. It holds
  * however far the target walks. The cold on the shaman stops the beam and its cooldown (they wait); the cold on the
- * target does not. When the target is a link of a released chain still dashing, the end of the beam waits for the dash
- * to end — the dash strikes the HP the highlight showed at the release. The first beam comes `shamanFirstMin`…
+ * target does not. When the target is a link of a released chain still dashing, or a body of its pierce («Прямая», sandbox)
+ * the run has not passed yet, the end of the beam waits for the dash to end — the dash strikes the HP the highlight showed
+ * at the release. The first beam comes `shamanFirstMin`…
  * `shamanFirstMax` (2–6 s, stream `behavior:shaman`) after it appears, so shamans standing together do not beam at once.
  * Numbers — the panel group «Шаман».
  *
@@ -35,8 +36,12 @@ function pickTarget(world: World, shaman: Enemy): Enemy | null {
   return best;
 }
 
-/** The target is a link of the chain the hero is dashing along now. */
-const dashingAt = (world: World, id: number): boolean => world.move?.kind === 'dash' && world.move.links.some(l => l.kind === 'enemy' && l.id === id);
+/**
+ * The target is a link of the chain the hero is dashing along now, or (loop research, step 3, «Прямая») a body of the dash's
+ * pierce the run has not passed yet — absent without a pierce, as before.
+ */
+const dashingAt = (world: World, id: number): boolean => world.move?.kind === 'dash'
+  && (world.move.links.some(l => l.kind === 'enemy' && l.id === id) || !!world.move.pierce?.bodies.some(b => b.id === id));
 
 function endBeam(world: World, e: Enemy): void {
   delete e.vars.beam;

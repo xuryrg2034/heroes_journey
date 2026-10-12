@@ -178,6 +178,25 @@ check('the set is fixed at the release: a walker that comes into the corridor af
   assertPlanIsDash(sim, plan, events, 'fixed set');
 });
 
+check('a shaman\'s beam ending mid-run waits for the run: the weak body the plan kills with P 1 dies (the empower holds, as for a link)', () => {
+  const sim = field({ shamanFirstMin: 0.05, shamanFirstMax: 0.05 } as Partial<Params>);
+  place(sim, LINE[0]); place(sim, LINE[1]); place(sim, LINE[2], { hp: 2 });
+  const body = place(sim, { x: 10.0, y: 5 }, { color: 1, hp: 0 });
+  const shaman = place(sim, { x: 11.5, y: 7 }, { color: 2, kind: 'shaman' });
+  for (let t = 0; t < 400; t++) { sim.tick(); const s = enemy(sim, shaman); if (s?.vars.beam !== undefined && s.vars.t < 0.2) break; }
+  const s = enemy(sim, shaman)!;
+  assert(s.vars.beam === body && s.vars.t > 0 && s.vars.t < 0.2, `the beam on the body ends soon (${s.vars.beam}, ${s.vars.t})`);
+  sim.world.events.length = 0;
+  draw(sim, LINE);
+  const plan = planChain(sim.world);
+  assert(plan.pierce?.power === 1 && plan.pierce.bodies.length === 1 && plan.pierce.bodies[0].id === body && plan.pierce.bodies[0].outcome.killed, 'the plan: P 1 kills the weak body');
+  sim.command({ t: 'release' });
+  const events = runDash(sim);
+  assertPlanIsDash(sim, plan, events, 'shaman');
+  assert(!events.some(e => e.type === 'enemySignal' && e.signal === 'empower' && e.enemyId === body), 'no empower before the hit');
+  assert(replays(sim), 'replays');
+});
+
 check('P is not spent: two 3-HP bodies in a row both die from P 3', () => {
   const sim = field();
   for (const p of LINE) place(sim, p);
