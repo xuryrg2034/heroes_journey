@@ -3,13 +3,14 @@ import { join } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import {
-  checkRecord, orderedParts, parseExport, unpackJournal,
+  canonicalJson, checkRecord, orderedParts, parseExport, unpackJournal,
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 import { FightTap } from '../src/realtime/telemetry/recorder';
 import { emptyFightSummary, fightKey } from '../src/realtime/telemetry/schema';
 import { createFightObserver } from '../src/realtime/telemetry/observe';
-import { analyzeJournal, collectRecords } from '../src/realtime/telemetry/report';
+import { analyzeJournal, analyzeRecords, collectRecords } from '../src/realtime/telemetry/report';
+import { gameWait, untilFrame } from './realtimeFrames';
 
 /**
  * Track ТA of the real-time telemetry (docs/realtime-telemetry.md, section 8): the browser records fights, runs and N
@@ -343,8 +344,31 @@ test('the «Логи» panel: from the sandbox menu, the tester name goes into r
   expect(errors).toEqual([]);
 });
 
-test('the run is recorded: nodes, the gift choice, the fight of a node; a reload in a fight leaves an «unload» fight; a new run abandons the old', async ({ page }) => {
+/**
+ * Real input in a run fight: walking keys, then a chain drawn with the mouse from the enemy nearest the hero to the nearest
+ * one of its colour (the arena's own enemies; whatever the chain does, the input goes through the journal).
+ */
+async function playRunFight(page: Page): Promise<void> {
+  await page.keyboard.down('KeyD'); await gameWait(page, 0.4); await page.keyboard.up('KeyD');
+  await page.keyboard.down('KeyS'); await gameWait(page, 0.3); await page.keyboard.up('KeyS');
+  const s = await page.evaluate(() => (window as any).__realtime.snapshot()) as { hero: { x: number; y: number }; enemies: { x: number; y: number; color: number }[] };
+  const dist = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
+  const first = [...s.enemies].sort((a, b) => dist(a, s.hero) - dist(b, s.hero))[0];
+  expect(first, 'the run arena has enemies').toBeTruthy();
+  const second = s.enemies.filter(e => e !== first && e.color === first.color).sort((a, b) => dist(a, first) - dist(b, first))[0] ?? s.hero;
+  const a = await screen(page, first.x, first.y), b = await screen(page, second.x, second.y);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 6 });
+  await page.mouse.up();
+  // The dash (if the chain made one) ends; then a little more walking.
+  expect(await untilFrame(page, (snap, _a: null, late) => snap.moving === null ? true : late ? snap.moving : undefined, null, 10)).toBe(true);
+  await page.keyboard.down('KeyA'); await gameWait(page, 0.3); await page.keyboard.up('KeyA');
+}
+
+test('the run is recorded: nodes, the gift choice, the fight of a node; a reload in a fight leaves an «unload» fight; a new run abandons the old', async ({ page, context }) => {
   test.setTimeout(90_000);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -369,6 +393,7 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   await expect(page.getByTestId('run-battle-modal')).toBeVisible();
   await page.getByTestId('run-battle').click();
   await expect.poll(async () => (await snap(page)).time).toBeGreaterThan(0.3);
+  await playRunFight(page);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
   await page.getByTestId('result-map').click();
@@ -381,6 +406,9 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   expect(won.fight).toBe(fightKey(2, nodeId, 2));
   // Both journals name the run's Params by hash and replay with the run record's Params to their hashes.
   for (const f of [unload, won]) expect(replay(await journalOf(all, f)).hash()).toBe(f.endHash);
+  // The won fight carries the real input (walking keys, the mouse chain).
+  const played = new Set((await journalOf(all, won)).commands.map(c => c.cmd.t));
+  for (const t of ['walk', 'begin', 'release']) expect(played.has(t as never), `the journal has «${t}»`).toBe(true);
   const runs = all.filter((r): r is RunRecord => r.kind === 'run');
   expect(runs).toHaveLength(1);
   const run = runs[0];
@@ -390,6 +418,35 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   expect(run.nodes[0]).toMatchObject({ fight: won.fight, hpOut: won.hpOut });
   expect(run.fights).toEqual([unload.fight, won.fight]);
   expect(run.runParams).toBeTruthy();
+  // The «Экспорт» of the map's «Логи» panel, replayed by the report in Node: every run fight to its endHash. Then the same
+  // export with every object key sorted, as the claude.ai artifact database hands records back (playtest v32, 12.10.2026):
+  // the run record's Params come back in another key order, the journals name them by hash, the hashes still agree.
+  await page.evaluate(() => (window as any).__realtime.telemetry.settle());
+  await page.getByTestId('logs-open').click();
+  await page.getByTestId('logs-export').click();
+  await expect(page.getByTestId('logs-status')).toContainText('Скопировано');
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  await page.getByTestId('logs-close').click();
+  const exported = parseExport(text);
+  const exportedRun = exported.records.find((r): r is RunRecord => r.kind === 'run')!;
+  for (const f of [unload, won]) {
+    const parts = exported.records.filter((r): r is JournalPart => r.kind === 'journal' && r.fight === f.fight);
+    await expect(unpackJournal(orderedParts(parts, f.fight, f.journal.digest), f.journal), 'the journal names its Params by hash').rejects.toThrow(/by hash/);
+  }
+  const sortedText = JSON.stringify(JSON.parse(canonicalJson(JSON.parse(text))));
+  const sortedRun = (JSON.parse(sortedText) as { records: RtRecord[] }).records.find((r): r is RunRecord => r.kind === 'run')!;
+  expect(Object.keys(sortedRun.runParams)).toEqual(Object.keys(exportedRun.runParams).sort());
+  expect(Object.keys(sortedRun.runParams)).not.toEqual(Object.keys(exportedRun.runParams));
+  for (const [name, input] of [['export', text], ['export with sorted keys', sortedText]] as const) {
+    const report = await analyzeRecords(collectRecords([{ name, text: input }]));
+    const replayed = report.fights.filter(e => e.record.run === run.run);
+    expect(replayed.map(e => e.record.fight).sort(), name).toEqual([unload.fight, won.fight].sort());
+    for (const e of replayed) {
+      expect(e.error, `${name} ${e.record.fight}`).toBeNull();
+      expect(e.analysis!.hash, `${name} ${e.record.fight}: the report's replay hash`).toBe(e.record.endHash);
+      expect(e.hashOk, `${name} ${e.record.fight}`).toBe(true);
+    }
+  }
   // A new run: the old one is recorded as abandoned (the same id, the last copy wins), the new one opens.
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();

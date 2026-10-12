@@ -10,12 +10,13 @@
  * - `drag` leaves out `mode` when it is `'full'`;
  * - a command of another shape (debug and test commands, a field added later) goes whole: `[dt, 'o', {…}]`;
  * - with `paramsRef` the start Params are left out when their hash is that ref (the run record keeps them once per run);
- *   Params of another hash stay in the journal whole.
+ *   Params of another hash stay in the journal whole. Params taken from the run record are put back into the game's key
+ *   order (`canonicalParams`): the record may come back with its keys sorted, and the world hash reads the order.
  * Every top-level field of the journal other than `params` and `commands` is kept as it is (fields added later too).
  */
 import type { Command } from '../sim/commands';
 import { hashText } from '../sim/hash';
-import type { Params } from '../sim/params';
+import { canonicalParams, type Params } from '../sim/params';
 import type { Journal, JournalEntry } from '../sim/simulation';
 
 /** How a journal text is written: plain JSON of `Journal`, the compact codec, the compact codec gzipped into base64. */
@@ -161,7 +162,11 @@ export function decodeJournal(text: string, params?: Params): Journal {
     if (!params) throw new Error(`the journal names its Params by hash ${raw.pr}: pass the Params of the run record`);
     const h = paramsHash(params);
     if (h !== raw.pr) throw new Error(`the Params passed have hash ${h}, the journal names ${raw.pr}`);
-    start = JSON.parse(JSON.stringify(params)) as Params;
+    // The run record is an object a store may hand back with its keys reordered (the claude.ai artifact database sorts
+    // them): `paramsHash` does not see the order, the world hash does (`params` in sim/hash.ts) — restore the game's order.
+    // Not needed for `p` or a plain-JSON journal: they live inside the journal text, which a store keeps as a string and
+    // `assembleParts` checks by digest.
+    start = canonicalParams(JSON.parse(JSON.stringify(params)) as Params);
   }
   const commands: JournalEntry[] = [];
   let tick = 0, last: Point = null;

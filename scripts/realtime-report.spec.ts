@@ -16,6 +16,8 @@
  *   runs followed by a new run within 2 minutes, the median pause and the sign's choice share, counted by hand.
  * - Consumables per run (12.10.2026): hand-written run records with `items` (and one without) give the gained / used / left of
  *   each run by kind, the totals and the medians, counted by hand; a record before the field reads «нет данных».
+ * - Records handed back with every object key sorted (the claude.ai artifact database; playtest v32, 12.10.2026): the run
+ *   fights, whose journals name their Params by hash, still replay to their `endHash` (`canonicalParams`, sim/params.ts).
  * - The package «Урон имеет значение»: the fixtures, written before the elite fields, are not compared on them; a sandbox
  *   fight with armoured elites (eliteFight.testkit.ts) agrees with the replay and fills the «Элиты» table, the chain shares
  *   (a tough one not first, ended on a survivor) and the raised touches line.
@@ -27,8 +29,9 @@ import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFi
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
 import type { Simulation } from '../src/realtime/sim/simulation';
+import { defaultParams } from '../src/realtime/sim/params';
 import {
-  emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
+  canonicalJson, emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
   type FightRecord, type FightSummary, type JournalPart, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 
@@ -91,6 +94,24 @@ async function main(): Promise<void> {
     const top = md.indexOf('## Ошибки детерминизма'), runs = md.indexOf('## Походы'), row = md.indexOf('`0123456789abcdef`');
     assert(top > 0 && top < runs && row > top && row < runs, 'the spoiled hash is listed under «Ошибки детерминизма», before the runs');
     assert(md.slice(top, runs).includes(`\`${bad[0].analysis!.hash}\``), 'the replay hash is shown next to it');
+  });
+
+  await check('records handed back with every object key sorted (the claude.ai artifact database, playtest v32) replay the run fights to their endHash', async () => {
+    // The run fights of the fixtures name their Params by hash (`pr`): the replay takes them from the run record.
+    const sorted = set.records.map(r => JSON.parse(canonicalJson(r)) as RtRecord);
+    const run = sorted.find(r => r.kind === 'run');
+    assert(run && run.kind === 'run' && Object.keys(run.runParams).join() === Object.keys(run.runParams).sort().join(), 'the run record came back sorted');
+    assert(Object.keys(run.runParams).join() !== Object.keys(defaultParams()).join(), 'sorted is not the game order (the check means something)');
+    const again = await analyzeRecords(collectRecords([{ name: 'sorted', text: JSON.stringify(sorted) }]));
+    const runFights = again.fights.filter(f => f.record.run !== SANDBOX_RUN);
+    assert(runFights.length === 3, `run fights ${runFights.length}`);
+    for (const f of runFights) {
+      assert(!f.error && f.analysis, `${f.record.fight}: ${f.error}`);
+      assert(f.hashOk && f.analysis.hash === f.record.endHash, `${f.record.fight}: replay ${f.analysis.hash}, endHash ${f.record.endHash}`);
+      // The Params are back in the game's order: the journal is the one the browser recorded, not only its hash.
+      const original = fights.find(o => o.record.id === f.record.id)!;
+      assert(JSON.stringify(f.journal!.params) === JSON.stringify(original.journal!.params), `${f.record.fight}: Params in another key order`);
+    }
   });
 
   await check('the browser summaries (the same observer) agree with the replay', () => {

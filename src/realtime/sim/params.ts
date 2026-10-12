@@ -1384,6 +1384,32 @@ export function runParams(params: Params, forced: Readonly<Partial<Params>> = {}
 /** A deep copy (the journal keeps the values a run started with). */
 export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
 
+/** Keys of `source` in the order of `order`'s keys, then the keys `order` lacks in their given order; values as they are. */
+function inKeyOrder<T extends object>(source: T, order: object): T {
+  const src = source as Record<string, unknown>, out: Record<string, unknown> = {};
+  for (const k of Object.keys(order)) if (Object.prototype.hasOwnProperty.call(src, k)) out[k] = src[k];
+  for (const k of Object.keys(src)) if (!(k in out)) out[k] = src[k];
+  return out as T;
+}
+
+/**
+ * Params in the key order the browser builds them (`sanitizeParams`, then `copyParams` / `runParams`): top-level keys in
+ * `DEFAULT_PARAMS` order, then unknown keys in their given order; each `phases` entry in the key order of the default
+ * entry at its index (the last one beyond the table, as `sanitizePhases` does). Values are not touched; a deep copy.
+ *
+ * Why: the world hash (sim/hash.ts) serializes `world.params` in insertion order, while `paramsHash` is key-order free.
+ * A store that returns the run record with its keys sorted (the claude.ai artifact database, playtest v32, 12.10.2026)
+ * keeps the Params' hash but changes the world hash of a replay. For Params built by the game this is the identity.
+ */
+export function canonicalParams(params: Params): Params {
+  const out = inKeyOrder(params, DEFAULT_PARAMS);
+  if (Array.isArray(params.phases)) {
+    out.phases = params.phases.map((p, i) => p && typeof p === 'object'
+      ? inKeyOrder({ ...p }, DEFAULT_PHASES[Math.min(i, DEFAULT_PHASES.length - 1)]) : p);
+  }
+  return out;
+}
+
 export function setParam(params: Params, key: ParamKey, value: unknown): void {
   const next = sanitizeParams({ ...params, [key]: value });
   (params as unknown as Record<string, unknown>)[key] = (next as unknown as Record<string, unknown>)[key];
