@@ -87,6 +87,8 @@ export interface Goblin {
   /** Game time from which the lever may be pulled (the marker, then the cooldown). */
   ready: number;
   spin?: SlotSpin;
+  /** «Перебор»: risky pulls made so far (absent while none — goblins without them hash as before). */
+  risky?: number;
 }
 
 /** An arrow mark: where, its circle, game seconds to the fall and the whole wait, whom it hits, the firing (a wave) it is of. */
@@ -152,15 +154,28 @@ export function skullsFor(world: World, struck: number): number[] {
 const feedPer = (p: Params): number => Math.max(0, Math.floor(num(p, 'slotSafePerLongChain')));
 
 /**
- * «Перебор»: the goblin's pulls in all, how many of them are safe (all while `slotBust` is off). «Длинная цепь кормит
- * гоблина» on: + `slotSafePerLongChain` per long chain of the fight, at most `slotPulls` − 1 (the last pull is always risky).
+ * «Перебор»: safe pulls left now — the safe credit (`slotSafePulls`, + `slotSafePerLongChain` per long chain of the fight with
+ * «Длинная цепь кормит гоблина» on, `extraChains` more for a chain not counted yet) less the safe pulls made (pulls − risky
+ * ones). With the long chains on, never more than the pulls left − 1: the last pull is always risky (review 12.10.2026: a long
+ * chain after a risky pull makes the NEXT pull safe, it does not land in the past). All pulls are safe while «Перебор» is
+ * off. Before the goblin stands: as for a goblin with no pulls.
+ */
+function safeLeftOf(world: World, extraChains = 0): number {
+  const p = world.params, g = goblinOf(world), total = Math.max(0, Math.floor(num(p, 'slotPulls')));
+  const pulls = g?.pulls ?? 0, risky = g?.risky ?? 0, left = Math.max(0, total - pulls);
+  if (!p.slotBust) return left;
+  const base = Math.min(total, Math.max(0, Math.floor(num(p, 'slotSafePulls')))), per = feedPer(p);
+  const credit = Math.max(0, base + per * ((world.slotChains ?? 0) + extraChains) - (pulls - risky));
+  return per > 0 ? Math.min(credit, Math.max(0, left - 1)) : Math.min(credit, left);
+}
+
+/**
+ * «Перебор»: the goblin's pulls in all and how many of them are safe — the safe ones made plus the safe ones left (all while
+ * «Перебор» is off). The idol's dots read `safePullsLeft` for the pulls ahead.
  */
 export function slotCharges(world: World, extraChains = 0): { total: number; safe: number } {
-  const p = world.params, total = Math.max(0, Math.floor(num(p, 'slotPulls')));
-  if (!p.slotBust) return { total, safe: total };
-  const base = Math.min(total, Math.max(0, Math.floor(num(p, 'slotSafePulls')))), per = feedPer(p);
-  if (per <= 0) return { total, safe: base };
-  return { total, safe: Math.max(0, Math.min(total - 1, base + per * ((world.slotChains ?? 0) + extraChains))) };
+  const g = goblinOf(world), total = Math.max(0, Math.floor(num(world.params, 'slotPulls')));
+  return { total, safe: (g ? g.pulls - (g.risky ?? 0) : 0) + safeLeftOf(world, extraChains) };
 }
 
 /**
@@ -182,9 +197,10 @@ export function feedFor(world: World, struck: number): number {
 /** Counts a long chain of `struck` enemy links (if it is one and the rule acts); event `slot` `feed` when the safe pulls grew. */
 function feedChain(world: World, struck: number): number {
   if (!feedFor(world, struck)) return 0;
-  const before = slotCharges(world).safe;
+  // The safe pulls ahead, not in all: a chain after a risky pull makes the next one safe (review 12.10.2026).
+  const before = safeLeftOf(world);
   world.slotChains = (world.slotChains ?? 0) + 1;
-  const grew = slotCharges(world).safe - before;
+  const grew = safeLeftOf(world) - before;
   if (grew > 0) world.events.push({ type: 'slot', action: 'feed', x: world.hero.x, y: world.hero.y, safe: grew, links: struck, chains: world.slotChains });
   return grew;
 }
@@ -202,8 +218,7 @@ export function slotFeedEnd(world: World, move: HeroMove): number {
 
 /** «Перебор»: safe pulls left before the risky ones (0 — the next pull is risky; null — no goblin). */
 export function safePullsLeft(world: World, extraChains = 0): number | null {
-  const g = goblinOf(world);
-  return g ? Math.max(0, slotCharges(world, extraChains).safe - g.pulls) : null;
+  return goblinOf(world) ? safeLeftOf(world, extraChains) : null;
 }
 
 /**
@@ -309,6 +324,7 @@ export function pullLever(world: World, lever: ArenaObject, struck: number): voi
   const spin = Math.max(0, num(p, 'slotSpin'));
   const sum = (list: readonly number[]): number => list.reduce((a, b) => a + b, 0), removed = sum(g.skulls) - sum(odds.skulls);
   g.pulls++;
+  if (risk) g.risky = (g.risky ?? 0) + 1;
   g.ready = world.time + Math.max(0, num(p, 'slotCooldown'));
   g.skulls[g.next]++;
   g.next = (g.next + 1) % g.skulls.length;

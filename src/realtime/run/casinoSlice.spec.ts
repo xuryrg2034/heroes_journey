@@ -241,6 +241,31 @@ check('a long chain after the goblin appears counts; a chain of 6 into the lever
   assert(checked.six >= 3 && checked.five >= 3, `checked: ${JSON.stringify(checked)}`);
 });
 
+check('review 12.10.2026: a long chain after a risky pull makes the NEXT pull safe (the caption and the dots say so); after the last pull a long chain feeds nothing', () => {
+  let checked = 0;
+  for (let k = 1; k <= 40 && checked < 3; k++) {
+    const run = firstBattle(120 + k), sim = arena(run, 120 + k), w = sim.world;
+    goalsAndGoblin(sim);
+    if (!goblinOf(w)) continue;
+    for (let i = 0; i < 3; i++) assert(!pull(sim).pull.risky, `seed ${k}: safe pull ${i + 1}`);
+    const fourth = pull(sim).pull;
+    assert(fourth.risky === true, `seed ${k}: the 4th risky`);
+    waitLever(sim);
+    if (!goblinOf(w)) continue;
+    const fed = chain(sim, 6);
+    assert(slotEvents(fed, 'feed').length === 1 && slotEvents(fed, 'feed')[0].safe === 1 && safePullsLeft(w) === 1 && !bustOdds(w), `seed ${k}: fed — the 5th pull safe (${safePullsLeft(w)})`);
+    const fifth = pull(sim);
+    assert(fifth.pull.risky === false && !fifth.planRisky, `seed ${k}: the 5th pull safe, as its line said`);
+    const sixth = pull(sim);
+    assert(sixth.pull.risky === true && sixth.planRisky, `seed ${k}: the 6th — the last — risky`);
+    waitLever(sim);
+    const late = chain(sim, 6);
+    assert(!slotEvents(late, 'feed').length, `seed ${k}: no pull left — no feed, no text`);
+    checked++;
+  }
+  assert(checked === 3, `fights checked: ${checked}`);
+});
+
 check('the Jailer and a boss: no goblin, long chains feed nothing (no state, no event)', () => {
   let seen = 0;
   const base = takeGift(createRtRun(seedOf(77), { gift: 'mini' }));

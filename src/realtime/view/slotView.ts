@@ -190,13 +190,14 @@ export class SlotView {
    */
   private drawCharges(world: World, pulls: number, g: Graphics, X: number, Y: number, R: number, alpha: number): boolean {
     if (!world.params.slotBust) return false;
-    const shown = this.shown, { total, safe } = slotCharges(world), r = R * 0.2, step = R * 0.5, y = Y + R * 1.5;
+    const shown = this.shown, { total } = slotCharges(world), r = R * 0.2, step = R * 0.5, y = Y + R * 1.5;
+    // The pulls ahead: the first `safePullsLeft` gold, the rest red (a long chain after a risky pull turns the next one gold).
+    const left = safePullsLeft(world), risk = bustOdds(world), safeAhead = left ?? 0;
     for (let i = 0; i < total; i++) {
-      const spent = i < pulls, color = spent ? SPENT : i < safe ? GOLD : RISK_RED;
+      const spent = i < pulls, safe = !spent && i - pulls < safeAhead, color = spent ? SPENT : safe ? GOLD : RISK_RED;
       g.circle(X + (i - (total - 1) / 2) * step, y, r).fill({ color, alpha }).stroke({ color: NAVY, width: 2, alpha });
-      if (spent) shown.dots.dark++; else if (i < safe) shown.dots.gold++; else shown.dots.red++;
+      if (spent) shown.dots.dark++; else if (safe) shown.dots.gold++; else shown.dots.red++;
     }
-    const left = safePullsLeft(world), risk = bustOdds(world);
     // No pulls left: no caption. A risky next pull: the bust odds; else the safe pulls left.
     if (pulls >= total || left === null || alpha < 1) return false;
     const text = left > 0 ? `безопасно: ${left}` : risk ? bustText(risk) : '';
