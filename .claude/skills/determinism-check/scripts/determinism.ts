@@ -29,7 +29,13 @@ const root = resolve(import.meta.dirname, '..', '..', '..', '..');
 const args = process.argv.slice(2);
 const option = (name: string): string | undefined => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : undefined; };
 const SEEDS = Number(option('--seeds') ?? 3), TICKS = Number(option('--ticks') ?? 1500);
-const KEYS = option('--keys')?.split(',').map(key => key.trim()).filter(Boolean);
+// `--keys a,b=0`: a named key; `=value` (a number, true/false) is its «off» value for the play (a number key has no
+// implicit off: 0 for one rule, the old default for another). Without `=` a boolean key is played false, others as they are.
+const KEY_SPECS = option('--keys')?.split(',').map(key => key.trim()).filter(Boolean).map(spec => {
+  const [key, raw] = spec.split('=');
+  return { key: key.trim(), off: raw === undefined ? undefined : raw === 'true' ? true : raw === 'false' ? false : Number(raw) };
+});
+const KEYS = KEY_SPECS?.map(spec => spec.key);
 
 let failures = 0, checks = 0;
 function check(name: string, run: () => void): void {
@@ -156,9 +162,10 @@ function keysToStrip(params: Params): string[] {
 /** The params of the keys check: the named boolean keys are turned off first (a rule that is off plays the old path). */
 function withKeysOff(base: Params): Params {
   const params = structuredClone(base) as unknown as Record<string, unknown>;
-  for (const key of KEYS ?? []) {
+  for (const { key, off } of KEY_SPECS ?? []) {
     assert(key in params, `the key «${key}» is not in the params`);
-    if (typeof params[key] === 'boolean') params[key] = false;
+    if (off !== undefined) { assert(typeof off === 'boolean' || Number.isFinite(off), `the off value of «${key}»`); params[key] = off; }
+    else if (typeof params[key] === 'boolean') params[key] = false;
   }
   return params as unknown as Params;
 }
