@@ -223,8 +223,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-item.rt-empty .rt-item-icon { filter: grayscale(1); }
 .rt-item.rt-blink { animation: rt-item-blink .25s ease-in-out 4 alternate; }
 @keyframes rt-item-blink { from { box-shadow: 0 0 0 0 #ffd36b00; } to { box-shadow: 0 0 0 3px #ffd36bcc; background: #5a4a1ecc; } }
-/* The pulse (view/pulse.ts): a control breathes until the player does what it is for. After `rt-blink` in the file: it wins on a slot. */
+/* The pulse (view/pulse.ts): a control breathes until the player does what it is for. After `rt-blink` in the file; on a blinking slot the blink wins (the rule below). */
 .rt-item.rt-pulse, .rt-pulse { animation: rt-pulse 1s ease-in-out infinite alternate; }
+/* Review 12.10.2026: while a slot blinks for a consumable just gained, the blink is what shows; the pulse goes on after it. */
+.rt-item.rt-pulse.rt-blink { animation: rt-item-blink .25s ease-in-out 4 alternate; }
 @keyframes rt-pulse { from { box-shadow: 0 0 0 0 #ffd36b00; } to { box-shadow: 0 0 0 4px #ffd36bd9, 0 0 14px 2px #ffd36b80; background: #5a4a1ecc; } }
 .rt-run-items { color: #cfe3c0; }
 .rt-run-energy { color: #9ad1ff; }

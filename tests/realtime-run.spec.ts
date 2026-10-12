@@ -391,7 +391,12 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   await expect.poll(async () => (((await page.evaluate(() => (window as any).__realtime.snapshot())) as { slotsPulsing: string[] }).slotsPulsing).sort()).toEqual([...gained].sort());
   const first = await page.evaluate(() => (window as any).__realtime.snapshot()) as { slotsBright: string[]; slotsBlinking: string[]; slotsPulsing: string[] };
   for (const kind of gained) await expect(page.getByTestId(`item-${kind}`)).toHaveClass(/rt-pulse/);
-  expect(await page.getByTestId(`item-${gained[0]}`).evaluate(node => getComputedStyle(node).animationName)).toBe('rt-pulse');
+  // What shows (computed animation): the blink of a slot that has just gained a consumable wins over the pulse; once it ends, the pulse.
+  const animationOf = (kind: string) => page.getByTestId(`item-${kind}`).evaluate(node => ({ blinking: node.classList.contains('rt-blink'), pulsing: node.classList.contains('rt-pulse'), name: getComputedStyle(node).animationName }));
+  const seen = await animationOf(gained[0]);
+  if (seen.blinking) expect(seen.name).toBe('rt-item-blink');
+  await expect.poll(async () => { const a = await animationOf(gained[0]); return a.blinking ? a.name === 'rt-item-blink' : a.name === 'rt-pulse'; }).toBe(true);
+  await expect.poll(async () => (await animationOf(gained[0])).name, { timeout: 10_000 }).toBe('rt-pulse');
   for (const kind of ['frost', 'bomb', 'healing', 'fire'].filter(k => !gained.includes(k))) await expect(page.getByTestId(`item-${kind}`)).not.toHaveClass(/rt-pulse/);
   expect([...first.slotsBright].sort()).toEqual([...gained].sort());
   expect([...first.slotsBlinking].sort()).toEqual([...gained].sort());

@@ -131,6 +131,8 @@ const MAGIC = 0xc58cff;
 const SPAWN_ARROW = 0xc9d5de;
 /** Task 6: the words over a struck elite («−1 пластина», «окно») rise this many px over it (the power number stands up to ~75 px over the hero) — over the chain power number, which stands beside the hero (the hero is at the elite when it strikes). */
 const ELITE_WORD_UP = 120;
+/** Review 12.10.2026: an elite at the top edge (the words would stand under the HUD plate or off the screen) gets its words UNDER it, this many px below its centre, drifting down — as its plaques (`stackUnderHud`). */
+const ELITE_WORD_DOWN = 78;
 /** Phase A (Т3): the plaque of a badge under a body and the ink of its glyph. */
 const BADGE_PLAQUE = 0x10171d;
 /** Phase A (Т3): the badge glyph in screen pixels (its half size) and the plaque around it. */
@@ -1216,9 +1218,9 @@ export class RealtimeRenderer {
   }
 
   /** Tests read it: the rectangles (stage px) of the elite plaques and the caption plates on screen now. */
-  plateRects(): { kind: 'plaque' | 'caption'; left: number; top: number; right: number; bottom: number }[] {
-    const rect = (kind: 'plaque' | 'caption', box: Container) => { const b = box.getBounds(); return { kind, left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height }; };
-    return [...[...this.plaques.values()].filter(p => p.box.visible && p.box.alpha > 0).map(p => rect('plaque', p.box)), ...this.captions.filter(c => c.box.visible && c.box.alpha > 0).map(c => rect('caption', c.box))];
+  plateRects(): { kind: 'plaque' | 'caption'; enemyId: number; left: number; top: number; right: number; bottom: number }[] {
+    const rect = (kind: 'plaque' | 'caption', enemyId: number, box: Container) => { const b = box.getBounds(); return { kind, enemyId, left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height }; };
+    return [...[...this.plaques.entries()].filter(([, p]) => p.box.visible && p.box.alpha > 0).map(([id, p]) => rect('plaque', id, p.box)), ...this.captions.filter(c => c.box.visible && c.box.alpha > 0).map(c => rect('caption', c.id, c.box))];
   }
 
   /** Would a stack standing `liftPx` screen px over the arena y `top` (drawing px) reach the HUD plate or the screen top? */
@@ -1226,6 +1228,11 @@ export class RealtimeRenderer {
     return this.base.y + top * this.scale - liftPx < this.freeTop + 6;
   }
   /** The y (drawing px) of the top of a stack UNDER an enemy: below its chips (the world label dodges the plates, `WorldLabelLayer`). */
+  /** Where a word over a struck elite at arena y `y` (drawing px) goes: `ELITE_WORD_UP` over it, or under it when that would reach the HUD plate or the screen top. `extra` — a further lift (the second word). */
+  private eliteWord(y: number, extra = 0): { y: number; dir: number } {
+    const up = y - ELITE_WORD_UP - extra;
+    return this.base.y + (up - 34) * this.scale < this.freeTop + 6 ? { y: y + ELITE_WORD_DOWN + extra, dir: 45 } : { y: up, dir: -45 };
+  }
   private underElite(e: Enemy, y: number, R: number, px: number): number {
     return y + R + (e.elite ? 34 : 8) * px;
   }
@@ -1810,16 +1817,16 @@ export class RealtimeRenderer {
       if (ev.type === 'elitePlates') {
         if (ev.action === 'strip') {
           // The strip that opens the window shows only «окно» (one text, not three on top of each other with the power).
-          if (ev.plates > 0) this.floatText(`−${ev.removed ?? 1} ${platesWord(ev.removed ?? 1)}`, ev.x * UNIT, ev.y * UNIT - ELITE_WORD_UP, ELITE_LEMON);
+          if (ev.plates > 0) { const at = this.eliteWord(ev.y * UNIT); this.floatText(`−${ev.removed ?? 1} ${platesWord(ev.removed ?? 1)}`, ev.x * UNIT, at.y, ELITE_LEMON, at.dir); }
           this.eliteBurst(ev.x, ev.y, 0.9, 0.22, 4);
           this.eliteShown.stripFlashes++;
-        } else if (ev.action === 'open') this.floatText('окно', ev.x * UNIT, ev.y * UNIT - ELITE_WORD_UP, ELITE_LEMON);
+        } else if (ev.action === 'open') { const at = this.eliteWord(ev.y * UNIT); this.floatText('окно', ev.x * UNIT, at.y, ELITE_LEMON, at.dir); }
         continue;
       }
       if (ev.type === 'eliteDown') {
         // The sim adds the 0.08 s hit-stop; here a flash, bigger and with a word for a clean break (killed in the window).
         this.eliteBurst(ev.x, ev.y, ev.clean ? 2.4 : 1.6, ev.clean ? 0.5 : 0.35, ev.clean ? 8 : 5, true);
-        if (ev.clean) { this.floatText('чистый слом', ev.x * UNIT, ev.y * UNIT - ELITE_WORD_UP - 16, ELITE_LEMON); this.eliteShown.cleanBreaks++; }
+        if (ev.clean) { const at = this.eliteWord(ev.y * UNIT, 16); this.floatText('чистый слом', ev.x * UNIT, at.y, ELITE_LEMON, at.dir); this.eliteShown.cleanBreaks++; }
         this.eliteShown.downFlashes++;
         continue;
       }

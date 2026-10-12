@@ -278,6 +278,36 @@ test('«Застава»: «Пластина — 1 удар» hangs over the arm
   expect(errors).toEqual([]);
 });
 
+test('«Застава»: an elite at the top edge struck by a real click — its words («−1 пластина», «окно», «чистый слом») stand in the screen and not under the HUD plate (under the elite when there is no room over it)', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = [];
+  watch(page, errors);
+  await enterHardBattle(page, false);
+  await stillYard(page);
+  // An armoured elite of our own right under the top edge of the arena (the camera stands clamped there): no room over it for a word.
+  const hero0 = (await snap(page)).hero;
+  const topId = await page.evaluate(([x, y]) => { const rt = (window as any).__realtime; rt.teleport(x - 1.4, y); return rt.place(x, y, 0, 0, 'basic', true, ['armored']); }, [hero0.x, 0.9] as const) as number;
+  await gameWait(page, 1.5);
+  const top = (await snap(page)).enemies.find((e: { id: number }) => e.id === topId);
+  expect(top?.armor, 'an armoured elite stands at the top').toBeTruthy();
+  const at = await screen(page, top.x, top.y), hud = await rect(page, 'hud');
+  expect(at.y, 'the elite stands near the top of the screen').toBeLessThan(hud.bottom + 90);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  const word = await page.waitForFunction(() => { const f = (window as any).__realtime.snapshot().floatRects; return f.words.some((w: { text: string }) => /пластин|окно|слом/.test(w.text)) ? f.words : false; }, null, { polling: 'raf', timeout: 10_000 });
+  const words = (await word.jsonValue() as (Label & { text: string })[]).filter(w => /пластин|окно|слом/.test(w.text));
+  expect(words.length).toBeGreaterThan(0);
+  for (const w of words) {
+    expect(w.top, `«${w.text}» is not under the HUD plate`).toBeGreaterThanOrEqual(hud.bottom - 1);
+    expect(w.left).toBeGreaterThanOrEqual(0);
+    expect(w.right).toBeLessThanOrEqual(1280);
+    expect(w.bottom).toBeLessThanOrEqual(720);
+    expect(w.top, `«${w.text}» goes under the elite, which has no room over it`).toBeGreaterThan(at.y - 5);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('«Застава»: the plaques of the elites (tag «Элита», the behaviours\' captions) at the top edge go UNDER the elite, clear of the HUD and of the label «Пластина — 1 удар»', async ({ page }) => {
   test.setTimeout(60_000);
   const errors: string[] = [];
@@ -305,7 +335,9 @@ test('«Застава»: the plaques of the elites (tag «Элита», the beh
   // The elite at the top: its plaques stand below it (and below its label), none over it.
   const top = s.enemies.filter((e: { armor: unknown }) => e.armor).sort((a: { y: number }, b: { y: number }) => a.y - b.y)[0];
   const at = await screen(page, top.x, top.y);
-  expect(plates.some(p => p.top > at.y)).toBe(true);
+  const own = (plates as { enemyId: number; top: number }[]).filter(p => p.enemyId === top.id);
+  expect(own.length, 'the top elite has plaques of its own').toBeGreaterThan(0);
+  for (const p of own) expect(p.top, 'its plaques stand below it, none over it').toBeGreaterThan(at.y);
   const nearest = s.enemies.filter((e: { armor: unknown }) => e.armor);
   expect(nearest.length).toBeGreaterThan(0);
   await page.mouse.move(640, 640);
@@ -411,6 +443,55 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
   await expect(page.getByTestId('run')).toBeVisible();
   await goblinFight();
   await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id)).toEqual(['b9']);
+  expect(errors).toEqual([]);
+});
+
+test('the slot pulse follows the toggle «Подсказки»: off — no pulse and an item used marks nothing; on — the pulse, the first item used stops it for good; «Обучение» brings it back', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  await freshViewer(page, errors);
+  /** A quiet fight with one bomb in hand. */
+  const bombFight = async (): Promise<void> => {
+    await startFight(page);
+    await quiet(page);
+    await page.evaluate(() => (window as any).__realtime.setItems('bomb', 1));
+    await gameWait(page, 0.5);
+  };
+  const useBomb = async (): Promise<void> => {
+    const hero = (await snap(page)).hero;
+    await page.evaluate(([x, y]) => (window as any).__realtime.place(x, y, 0, 5, 'basic'), [hero.x + 2, hero.y] as const);
+    const at = await screen(page, hero.x + 2, hero.y);
+    await page.mouse.move(at.x, at.y);
+    await page.keyboard.press('2');
+    await expect.poll(async () => (await snap(page)).items.bomb).toBe(0);
+  };
+  // Off: no pulse, the use marks nothing.
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await page.getByTestId('gift-1').click();
+  await gearOpen(page);
+  await page.getByTestId('view-hints').uncheck();
+  await bombFight();
+  expect((await snap(page)).slotsPulsing).toEqual([]);
+  await useBomb();
+  expect((await stored(page))?.shown.item).toBeUndefined();
+  await leaveFight(page);
+  // On: the next fight pulses (nothing was marked); the first use stops it and is remembered.
+  await gearOpen(page);
+  await page.getByTestId('view-hints').check();
+  await bombFight();
+  await expect.poll(async () => (await snap(page)).slotsPulsing).toEqual(['bomb']);
+  await useBomb();
+  await expect.poll(async () => (await snap(page)).slotsPulsing).toEqual([]);
+  expect((await stored(page))?.shown.item).toBe(1);
+  await leaveFight(page);
+  // «Обучение» clears the memory: the pulse is back.
+  await gearOpen(page);
+  await page.getByTestId('prologue-start').click();
+  await expect.poll(async () => (await snap(page)).prologue.active).toBe(true);
+  await page.getByTestId('prologue-skip').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  await bombFight();
+  await expect.poll(async () => (await snap(page)).slotsPulsing).toEqual(['bomb']);
   expect(errors).toEqual([]);
 });
 

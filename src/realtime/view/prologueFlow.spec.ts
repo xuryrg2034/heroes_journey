@@ -42,21 +42,25 @@ function fake(): { route: ChainLink[]; spot: Vec | null; routeCalls: number; spo
   f.guide = new HandGuide({ route: () => { f.routeCalls++; return f.route; }, spot: () => { f.spotCalls++; return f.spot; } }, kind => f.shown.push(kind));
   return f;
 }
+/** Reads through functions: the guide changes between reads, TypeScript must not narrow its fields. */
+const showOf = (g: HandGuide): string => g.show;
+const lenOf = (g: HandGuide): number => g.route.length;
+const circleX = (g: HandGuide): number | undefined => g.circle?.x;
 const run = (g: HandGuide, seconds: number, walking = false, busy = false, step = 1 / 60): void => { for (let t = 0; t < seconds - 1e-9; t += step) g.update(step, walking, busy); };
 
 check('the hand: after 4 s of rest with a chain from here; not before; a press takes it away and the 4 s start again', () => {
   const f = fake();
   f.route = [LINK];
   run(f.guide, HAND_IDLE - 0.1);
-  assert(f.guide.show === 'none', 'not yet');
+  assert(showOf(f.guide) === 'none', 'not yet');
   run(f.guide, 0.2);
-  assert(f.guide.show === 'hand' && f.guide.route.length === 1 && f.shown.join() === 'hand', 'the hand at 4 s');
+  assert(showOf(f.guide) === 'hand' && lenOf(f.guide) === 1 && f.shown.join() === 'hand', 'the hand at 4 s');
   f.guide.press();
-  assert(f.guide.show === 'none' && f.guide.route.length === 0, 'a press takes it away');
+  assert(showOf(f.guide) === 'none' && lenOf(f.guide) === 0, 'a press takes it away');
   run(f.guide, 3.5);
-  assert(f.guide.show === 'none', 'rest counts again from the press');
+  assert(showOf(f.guide) === 'none', 'rest counts again from the press');
   run(f.guide, 0.7);
-  assert(f.guide.show === 'hand', 'back after 4 s of rest');
+  assert(showOf(f.guide) === 'hand', 'back after 4 s of rest');
 });
 
 check('the hand: a chain drawn or a move going counts as a press every frame; walking resets the rest and hides the hand', () => {
@@ -65,30 +69,30 @@ check('the hand: a chain drawn or a move going counts as a press every frame; wa
   run(f.guide, 3, false, true);
   assert(f.guide.rest === 0, 'busy: no rest');
   run(f.guide, 3.9, true);
-  assert(f.guide.show === 'none' && f.guide.rest === 0, 'walking: no rest');
+  assert(showOf(f.guide) === 'none' && f.guide.rest === 0, 'walking: no rest');
   run(f.guide, 4.1);
-  assert(f.guide.show === 'hand', 'rest after walking');
+  assert(showOf(f.guide) === 'hand', 'rest after walking');
   run(f.guide, 0.1, true);
-  assert(f.guide.show === 'none', 'a walk key takes an ordinary hand away');
+  assert(showOf(f.guide) === 'none', 'a walk key takes an ordinary hand away');
 });
 
 check('the arrow: no chain from here — after 4 s the circle and the arrow; null spot — nothing, asked again; walking hides the arrow (the circle stays), rest brings it back', () => {
   const f = fake();
   run(f.guide, HAND_IDLE + 0.3);
-  assert(f.guide.show === 'none' && f.guide.circle === null && f.spotCalls >= 1, 'no spot: nothing');
+  assert(showOf(f.guide) === 'none' && f.guide.circle === null && f.spotCalls >= 1, 'no spot: nothing');
   const calls = f.spotCalls;
   run(f.guide, 1);
   assert(f.spotCalls > calls, 'asked again');
   f.spot = { x: 5, y: 4 };
   run(f.guide, HAND_ASK + 0.05);
-  assert(f.guide.show === 'arrow' && f.guide.arrow && f.guide.circle?.x === 5 && f.shown.join() === 'arrow', 'the arrow and the circle');
+  assert(showOf(f.guide) === 'arrow' && f.guide.arrow && circleX(f.guide) === 5 && f.shown.join() === 'arrow', 'the arrow and the circle');
   run(f.guide, 0.5, true);
   assert(!f.guide.arrow && f.guide.circle !== null, 'walking: no arrow, the circle stays');
   run(f.guide, HAND_IDLE + 0.1);
   assert(f.guide.arrow, 'the arrow again after 4 s');
   f.spot = { x: 9, y: 9 };
   run(f.guide, 1);
-  assert(f.guide.circle?.x === 5, 'the circle stays where it was set');
+  assert(circleX(f.guide) === 5, 'the circle stays where it was set');
 });
 
 check('the circle reached: the hand at once, no new 4 s, the circle gone; it stays through walking until a press', () => {
@@ -98,19 +102,19 @@ check('the circle reached: the hand at once, no new 4 s, the circle gone; it sta
   assert(f.guide.arrow, 'arrow');
   f.route = [LINK];
   run(f.guide, 0.5, true);
-  assert(f.guide.show === 'hand' && f.guide.circle === null && !f.guide.arrow, 'the hand at once, while walking');
+  assert(showOf(f.guide) === 'hand' && f.guide.circle === null && !f.guide.arrow, 'the hand at once, while walking');
   run(f.guide, 1, true);
-  assert(f.guide.show === 'hand', 'through walking');
+  assert(showOf(f.guide) === 'hand', 'through walking');
   f.guide.press();
-  assert(f.guide.show === 'none', 'a press');
+  assert(showOf(f.guide) === 'none', 'a press');
   // The hand goes when the chain from here is gone (the enemies moved), and the arrow may follow at once.
   const g = fake();
   g.route = [LINK];
   run(g.guide, HAND_IDLE + 0.3);
-  assert(g.guide.show === 'hand', 'hand');
+  assert(showOf(g.guide) === 'hand', 'hand');
   g.route = []; g.spot = { x: 2, y: 2 };
   run(g.guide, 0.6);
-  assert(g.guide.show === 'arrow', 'chain gone: the arrow');
+  assert(showOf(g.guide) === 'arrow', 'chain gone: the arrow');
 });
 
 check('the hand draws: it presses on the first link, passes each in order, holds at the end, fades and loops; the picture only reads points', () => {
@@ -185,6 +189,8 @@ check('labels: room 1 at the nearest enemy until the first link; room 4 from the
   const sim5 = room(5), w5 = sim5.world, memo5: PrologueLabelMemo = { done: false };
   const l5 = prologueLabel(w5, 5, memo5);
   assert(l5 && l5.text === 'Закончи цепь здесь' && l5.place === 'side', 'room 5: at the lever');
+  w5.slot!.goblin!.pulls = 1;
+  assert(prologueLabel(w5, 5, memo5) === null && memo5.done, 'room 5: gone with the first pull');
   for (const n of [2, 3, 6]) assert(prologueLabel(room(n).world, n, { done: false }) === null, `room ${n}: no label`);
   assert([...['Зажми и веди', 'Цвет свободен', 'Закончи цепь здесь']].every(t => t.split(' ').length <= 3), '≤ 3 words');
 });

@@ -8,6 +8,7 @@
  */
 import { registerArena } from '../sim/arenas';
 import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
+import { BUILD_SOURCES, HAMMERS } from '../sim/buildIds';
 import { defaultParams, type Params } from '../sim/params';
 import { doorPayout, multText, payoutCap, type PurseDoor } from '../sim/purse';
 import { OATH_BROKEN_MULT, OATH_KEPT_MULT } from '../sim/oath';
@@ -133,7 +134,8 @@ check('labels: the action of each is read from the frame\'s events — a plate t
   const w = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(5) }).world;
   const withEvents = (events: unknown[]): World => ({ ...w, events } as unknown as World);
   const strip = (source: string | undefined) => ({ type: 'elitePlates', enemyId: 1, action: 'strip', plates: 1, removed: 1, ...source ? { source } : {}, x: 1, y: 1 });
-  for (const source of ['chain', 'spin', 'bomb', 'fire', 'fire-trail', 'slot']) assert(labelActions(withEvents([strip(source)])).join() === 'b6', `a plate off by ${source}`);
+  for (const source of ['chain', 'spin', 'bomb', 'fire', 'slot', ...Object.values(BUILD_SOURCES)]) assert(labelActions(withEvents([strip(source)])).join() === 'b6', `a plate off by ${source}`);
+  assert(labelActions(withEvents([strip('fire-trail')])).length === 0, 'the elite\'s own fire trail is an enemy\'s property, not the player\'s action');
   for (const source of ['arrow', 'blast', 'push', undefined]) assert(labelActions(withEvents([strip(source)])).length === 0, `a plate off by ${source}: not the player's`);
   assert(labelActions(withEvents([{ type: 'elitePlates', enemyId: 1, action: 'open', plates: 0, source: 'chain', x: 1, y: 1 }])).length === 0, 'the window opening is no strip');
   assert(labelActions(withEvents([{ type: 'chainHit', enemyId: 1, damage: 1, killed: true, x: 1, y: 1, combo: 1 }])).length === 0, 'a plain hit is no action');
@@ -203,6 +205,26 @@ check('labels: a real dash on an armoured elite takes a plate — the event the 
   const hit = new Set<string>();
   run(sim, hit);
   assert(hit.has('b6'), `the dash took a plate: label action b6 (${[...hit]})`);
+});
+
+check("labels: a hammer's blast (a tool of the player's build) takes a plate off an armoured elite — the label's action (review 12.10.2026)", () => {
+  const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(1), record: true, loadout: { talismans: [], hammer: HAMMERS.blast } });
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.5, y: 6 });
+  for (const x of [6, 7.5, 9]) sim.command({ t: 'place', x, y: 6, color: 0, hp: 0, kind: 'basic' });
+  const id = sim.command({ t: 'place', x: 9.6, y: 6.3, color: 1, hp: 2, kind: 'basic', elite: true, affixes: ['armored'] }) as number;
+  const enemy = sim.world.enemies.find(e => e.id === id)!, plates = enemy.armor!.plates;
+  assert(plates > 0, 'armoured');
+  sim.command({ t: 'begin', x: 6, y: 6 }); sim.command({ t: 'drag', x: 7.5, y: 6, mode: 'full' }); sim.command({ t: 'drag', x: 9, y: 6, mode: 'full' });
+  sim.command({ t: 'release' });
+  const sources: string[] = [], done = new Set<string>();
+  for (let i = 0; i < 300; i++) {
+    sim.tick();
+    for (const ev of sim.world.events) if (ev.type === 'elitePlates' && ev.action === 'strip' && ev.source) sources.push(ev.source);
+    for (const a of labelActions(sim.world)) done.add(a);
+    sim.world.events.length = 0;
+  }
+  assert(enemy.armor!.plates < plates && sources.includes(BUILD_SOURCES.hammerBlast) && done.has('b6'), `the blast took a plate (${plates} → ${enemy.armor!.plates}); sources ${sources}; label actions ${[...done]}`);
 });
 
 check('screen texts (Э2, Э3, Э4) are unchanged; numbers come from the code', () => {

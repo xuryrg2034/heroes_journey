@@ -16,6 +16,7 @@ import type { Vec } from '../sim/geometry';
 import type { World } from '../sim/world';
 import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
 import { leverOf } from '../sim/slot';
+import { BUILD_SOURCES } from '../sim/buildIds';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
 export type LabelId = 'b6' | 'b8' | 'b9';
@@ -63,8 +64,8 @@ export function detectLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec
   return out;
 }
 
-/** Sources whose strip of a plate is the PLAYER's (`elitePlates` `source`): the chain, the spin (Q), the items, the goblin's effects. The archer's arrow, a sapper's blast and a push are not. */
-export const PLAYER_PLATE_SOURCES: ReadonlySet<string> = new Set(['chain', 'spin', 'bomb', 'fire', 'fire-trail', 'slot']);
+/** Sources whose strip of a plate is the PLAYER's (`elitePlates` `source`): the chain, the spin (Q), the items, the goblin's effects, the tools of the player's build (a hammer's fire, blast, cut and return, the wave: `BUILD_SOURCES`). The archer's arrow, a sapper's blast, a push and the elite's own fire trail (`fire-trail`, an enemy's property) are not. */
+export const PLAYER_PLATE_SOURCES: ReadonlySet<string> = new Set(['chain', 'spin', 'bomb', 'fire', 'slot', ...Object.values(BUILD_SOURCES)]);
 
 /**
  * The labels whose action was done in this frame (read from `w.events`, before they are cleared): a plate of any elite taken off
