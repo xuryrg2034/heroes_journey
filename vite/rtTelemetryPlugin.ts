@@ -9,9 +9,9 @@ import type { Plugin } from 'vite';
 export const RT_TELEMETRY_PATH = '/__rt-telemetry';
 export const RT_TELEMETRY_MAX_BODY = 512 * 1024;
 // Own copy of the id rule (the plugin does not import src/): `RECORD_ID_RE` and `isRecordId` of
-// src/realtime/telemetry/schema.ts — `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>` (i < n), `S/R/<fight>/n<tick>`;
+// src/realtime/telemetry/schema.ts — `S/R/run`, `S/P/prologue`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>` (i < n), `S/R/<fight>/n<tick>`;
 // the plugin's check compares the two on a set of ids.
-export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
+export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|prologue|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
 
 export interface RtTelemetryOptions {
   /** Folder for the logs. Default: `<vite root>/playtest-logs`. */

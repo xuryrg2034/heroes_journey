@@ -2,7 +2,7 @@
  * The prologue «Опушка», the view side (task 6, step 4, 12.10.2026; docs/realtime-onboarding.md, «Пролог: вид и поток»). The pure
  * part, testable in Node (`npm run test:realtime-prologue-view`): the viewer's key «пролог пройден», the ghost hand's state
  * machine (`HandGuide`), the labels at the place (`prologueLabel`), the goal line, the lamps' places over the door, the seed of a
- * room, the hooks the telemetry will take (`PrologueHooks`).
+ * room, the hooks the telemetry takes (`PrologueHooks`, telemetry/prologue.ts).
  *
  * A view feature only: it reads the world and `run/prologue.ts`, sends no command, is no Param, in no journal, no hash, no run
  * save. The hand SHOWS a chain; the player draws it.
@@ -273,16 +273,18 @@ export function prologueLabel(w: World, n: number, memo: PrologueLabelMemo): Lab
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Hooks for the telemetry (the next step records through them; today the page keeps a log for the tests)
+// Hooks for the telemetry (telemetry/prologue.ts records through them; the page also keeps a log for the tests)
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** How a room ended. */
 export type RoomOutcome = 'win' | 'death' | 'skip';
-/** The points the prologue's telemetry takes: a room starts (attempt from 1), a room ends (game seconds spent in the attempt), the hand or the arrow shows, the viewer skips. */
+/** The points the prologue's telemetry takes: a room starts (attempt from 1), a room ends (game and real seconds spent in the attempt), the hand or the arrow shows, the start enemies come back, the viewer skips. */
 export interface PrologueHooks {
   roomStart?(room: number, attempt: number): void;
-  roomEnd?(room: number, attempt: number, outcome: RoomOutcome, seconds: number): void;
+  roomEnd?(room: number, attempt: number, outcome: RoomOutcome, seconds: number, realSeconds: number): void;
   handShown?(room: number, kind: 'hand' | 'arrow'): void;
+  /** The start enemies came back (one return; the late batch under the hero in rooms 2–4 is not a new one). */
+  restore?(room: number): void;
   skip?(room: number): void;
   /** The whole prologue ends (room 6 won, or skipped). */
   end?(how: 'done' | 'skip'): void;

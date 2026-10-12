@@ -18,6 +18,8 @@
  * - П6: the run record gets `endedAt` from the step that ended the run (a lost fight), not before; an abandoned run has none.
  * - Run consumables (12.10.2026): `RunRecord.items` — gained / used / left — from a real gift step, steps that close nodes, a won
  *   run fight (used by journal commands, one pickup set in the world) and a lost one (the left hand is the world's, not the stale run's).
+ * - The prologue (13.10.2026): a playthrough's hooks in the view's order give one `prologue` record (one id, the last copy wins)
+ *   with the rooms' attempts, deaths, returns, hand and arrow counts and times; the skip's room; no fight, journal or run record.
  */
 import shieldsWolvesJournal from '../../../tests/fixtures/realtime-browser-journal-shields-wolves.json';
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
@@ -28,7 +30,7 @@ import type { World } from '../sim/world';
 import { createRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseGift, rtEnterNode, rtRunParams, type RtRunState, type RtRunStep } from '../run/rtRun';
 import { ITEM_KINDS } from '../forest/items';
 import type { ItemKind } from '../forest/types';
-import type { RunRecord } from './schema';
+import type { PrologueRecord, RunRecord } from './schema';
 import { closeNode, outcomeOf, quiet, seedOf, takeGift } from '../run/runFight.testkit';
 import { TelemetryBuffer, memoryJournalStore, TLM_INDEX_KEY, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type KeyValueStore } from './buffer';
 import { playLoopFight } from './loopFight.testkit';
@@ -37,7 +39,7 @@ import { FightTap, mergeChoice, RtRecorder, stepChoices, TLM_UNLOAD_KEY, unloadK
 import { analyzeJournal } from './report';
 import { DeliveryQueue, RETRY_FIRST_MS, type SinkSource } from './sinks';
 import {
-  emptyFightSummary, fightKey, isRecordId, orderedParts, RT_TELEMETRY_SCHEMA, unpackJournal, type FightObserver, type FightRecord, type FightSummary, type JournalPart, type RtRecord,
+  checkRecord, emptyFightSummary, fightKey, isRecordId, orderedParts, RT_TELEMETRY_SCHEMA, unpackJournal, type FightObserver, type FightRecord, type FightSummary, type JournalPart, type RtRecord,
 } from './schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -526,6 +528,35 @@ async function main(): Promise<void> {
     assert(ITEM_KINDS.every(k => rec3.items!.left[k] === lost.sim.world.kit!.items[k]) && rec3.items!.left[b] === handBefore[b] - 1 && run.items[b] === handBefore[b], `lost: left ${JSON.stringify(rec3.items!.left)} stale hand ${JSON.stringify(run.items)}`);
     // The hand starts empty and every move is in a step: gained − used = left for every kind.
     assert(ITEM_KINDS.every(k => (rec3.items!.gained[k] ?? 0) - (rec3.items!.used[k] ?? 0) === rec3.items!.left[k]), `conservation ${JSON.stringify(rec3.items)}`);
+    rec.dispose();
+  });
+
+  await check('the prologue: the hooks of two playthroughs (first launch, passed with a death and returns; the gear, skipped) give one record each, no fight or run record', async () => {
+    const local = fake();
+    const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: defaultParams(), local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+    const prologues = async (): Promise<PrologueRecord[]> => { await rec.settle(); return (await rec.buffer.all()).filter((r): r is PrologueRecord => r.kind === 'prologue'); };
+    // The first launch: room 1 with the hand twice, won; room 2 with two returns and an arrow, won; room 5: a death, then won.
+    const t = rec.beginPrologue('first')!;
+    t.roomStart(1, 1); t.shown(1, 'hand'); t.shown(1, 'hand'); t.roomEnd(1, 'win', 12.345, 13.5);
+    const mid = await prologues();
+    assert(mid.length === 1 && mid[0].outcome === 'open' && mid[0].rooms.length === 1 && mid[0].rooms[0].outcome === 'win' && mid[0].rooms[0].hands === 2 && mid[0].rooms[0].gameSeconds === 12.35, `after room 1: ${JSON.stringify(mid)}`);
+    t.roomStart(2, 1); t.restore(2); t.shown(2, 'arrow'); t.restore(2); t.roomEnd(2, 'win', 20, 22);
+    t.roomStart(5, 1); t.roomEnd(5, 'death', 8, 9); t.roomStart(5, 2); t.roomEnd(5, 'win', 10, 11);
+    t.end('done');
+    t.roomStart(6, 1);
+    const [done] = await prologues();
+    assert(checkRecord(done) === null, `checkRecord: ${checkRecord(done)}`);
+    assert(done.from === 'first' && done.outcome === 'done' && done.skipRoom === null && typeof done.endedAt === 'string' && done.id.endsWith(`/${done.run}/prologue`) && done.run.startsWith('p'), JSON.stringify(done));
+    const [r1, r2, r5] = done.rooms;
+    assert(done.rooms.length === 3 && r1.room === 1 && r2.room === 2 && r5.room === 5, 'the rooms reached, in order; nothing after the end');
+    assert(r2.restores === 2 && r2.arrows === 1 && r2.hands === 0 && r2.attempts === 1 && r2.realSeconds === 22, JSON.stringify(r2));
+    assert(r5.attempts === 2 && r5.deaths === 1 && r5.gameSeconds === 18 && r5.realSeconds === 20 && r5.outcome === 'win', JSON.stringify(r5));
+    // The gear: room 1 won, skipped in room 2.
+    const g = rec.beginPrologue('gear')!;
+    g.roomStart(1, 1); g.roomEnd(1, 'win', 5, 5); g.roomStart(2, 1); g.roomEnd(2, 'skip', 3, 3); g.skip(2); g.end('skip');
+    const all = await prologues(), gear = all.find(r => r.from === 'gear')!;
+    assert(all.length === 2 && gear.id !== done.id && gear.outcome === 'skip' && gear.skipRoom === 2 && gear.rooms[1].outcome === 'skip', JSON.stringify(gear));
+    assert((await rec.buffer.all()).every(r => r.kind === 'prologue'), 'no fight, journal or run record');
     rec.dispose();
   });
 

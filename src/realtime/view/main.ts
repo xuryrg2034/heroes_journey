@@ -58,6 +58,7 @@ import { RtDeathWatch } from '../run/rtRunEnd';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
+import type { PrologueTally } from '../telemetry/prologue';
 import { devSource } from '../telemetry/sinks';
 import { LogsPanel } from './logsPanel';
 
@@ -418,7 +419,9 @@ async function boot(): Promise<void> {
   const prologueStore = new PrologueStore(sandbox ? null : undefined);
   const prologueDue = !sandbox && !prologueStore.done();
   /** The room being played (null — not in the prologue). */
-  let prologue: { n: number; attempt: number; guide: HandGuide | null; label: PrologueLabelMemo; titleLeft: number; lastTime: number; seconds: number } | null = null;
+  let prologue: { n: number; attempt: number; guide: HandGuide | null; label: PrologueLabelMemo; titleLeft: number; lastTime: number; seconds: number; real: number } | null = null;
+  /** The telemetry of this playthrough (telemetry/prologue.ts; null — no recorder). */
+  let prologueTally: PrologueTally | null = null;
   /** Between rooms: the fade out (`t` below 0 is a beat to look at the room), the switch at its end, then the fade in. */
   let transition: { kind: 'next' | 'retry' | 'finish'; t: number; switched: boolean } | null = null;
   const transitionKind = (): string | null => transition?.kind ?? null;
@@ -622,7 +625,7 @@ async function boot(): Promise<void> {
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
     // «Обучение»: the toggle «Подсказки» and the button «Обучение» (the prologue again) on the gear; the screen lines read the same memory.
-    ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); }, startPrologue: () => startPrologue() } },
+    ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); }, startPrologue: () => startPrologue('gear') } },
   }, fixedSeed);
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap };
   /**
@@ -772,7 +775,7 @@ async function boot(): Promise<void> {
       else if (event.code === 'KeyQ') { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
       else if (itemKey(event.code) >= 0) { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; useItemKey(itemKey(event.code)); }
       else if (event.code === 'KeyP') paused = !paused;
-      else if (event.code === 'KeyN') markNote();
+      else if (event.code === 'KeyN') { if (!prologue) markNote(); }
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
       return;
     }
@@ -797,14 +800,15 @@ async function boot(): Promise<void> {
   renderer.prologueLayer.addChild(prologueLayer.layer);
   host.append(...prologueDom.elements);
   prologueDom.skip.addEventListener('click', () => skipPrologue());
-  /** The log of the prologue on this page (the tests read it; the telemetry of the next step takes the same points through `PrologueHooks`). */
+  /** The log of the prologue on this page (the tests read it); the telemetry takes the same points (`prologueTally`). */
   const prologueLog: { type: string; room: number; attempt?: number; outcome?: RoomOutcome; kind?: string; seconds?: number }[] = [];
   const prologueHooks: PrologueHooks = {
-    roomStart: (room, attempt) => { prologueLog.push({ type: 'roomStart', room, attempt }); },
-    roomEnd: (room, attempt, outcome, seconds) => { prologueLog.push({ type: 'roomEnd', room, attempt, outcome, seconds }); },
-    handShown: (room, kind) => { prologueLog.push({ type: 'hand', room, kind }); },
-    skip: room => { prologueLog.push({ type: 'skip', room }); },
-    end: how => { prologueLog.push({ type: 'end', room: 0, kind: how }); },
+    roomStart: (room, attempt) => { prologueLog.push({ type: 'roomStart', room, attempt }); prologueTally?.roomStart(room, attempt); },
+    roomEnd: (room, attempt, outcome, seconds, real) => { prologueLog.push({ type: 'roomEnd', room, attempt, outcome, seconds }); prologueTally?.roomEnd(room, outcome, seconds, real); },
+    handShown: (room, kind) => { prologueLog.push({ type: 'hand', room, kind }); prologueTally?.shown(room, kind); },
+    restore: room => { prologueLog.push({ type: 'restore', room }); prologueTally?.restore(room); },
+    skip: room => { prologueLog.push({ type: 'skip', room }); prologueTally?.skip(room); },
+    end: how => { prologueLog.push({ type: 'end', room: 0, kind: how }); prologueTally?.end(how); },
   };
   const FADE_OUT = 0.35, FADE_IN = 0.35, DEATH_BEAT = 0.6;
   const startPrologueRoom = (n: number, attempt: number): void => {
@@ -815,13 +819,14 @@ async function boot(): Promise<void> {
     startArena(room.arena, prologueSeed(n, attempt, fixedSeed), { hp: RT_RUN_HP, maxHp: RT_RUN_HP }, prologueLoadout(n), undefined, prologueParams(n, loadParams()));
     prologueLayer.reset();
     const guide = n < PROLOGUE_ROOM_COUNT ? new HandGuide({ route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind)) : null;
-    prologue = { n, attempt, guide, label: { done: false }, titleLeft: TITLE_SECONDS, lastTime: 0, seconds: 0 };
+    prologue = { n, attempt, guide, label: { done: false }, titleLeft: TITLE_SECONDS, lastTime: 0, seconds: 0, real: 0 };
     prologueDom.showTitle(roomTitle(n));
     prologueHooks.roomStart?.(n, attempt);
   };
-  /** From the first start and from the gear's «Обучение». */
-  function startPrologue(): void {
+  /** From the first start (`first`) and from the gear's «Обучение» (`gear`). */
+  function startPrologue(from: 'first' | 'gear' = 'first'): void {
     if (sandbox) return;
+    prologueTally = recorder?.beginPrologue(from) ?? null;
     spaceUsed = false; spinUsed = false; transition = null; fadeIn = 0;
     prologueDom.setFade(0);
     startPrologueRoom(1, 1);
@@ -839,7 +844,7 @@ async function boot(): Promise<void> {
     const pl = prologue;
     if (!pl || transition?.kind === 'finish') return;
     prologueStore.markDone();
-    if (!transition) prologueHooks.roomEnd?.(pl.n, pl.attempt, 'skip', pl.seconds);
+    if (!transition) prologueHooks.roomEnd?.(pl.n, pl.attempt, 'skip', pl.seconds, pl.real);
     prologueHooks.skip?.(pl.n);
     prologueHooks.end?.('skip');
     command({ t: 'cancel' });
@@ -852,7 +857,7 @@ async function boot(): Promise<void> {
     const pl = prologue;
     if (!pl) return;
     for (const ev of w.events) {
-      if (ev.type === 'restore') { for (const e of ev.enemies) prologueLayer.puff(e); if (ev.hero) prologueLayer.puff(ev.hero); }
+      if (ev.type === 'restore') { for (const e of ev.enemies) prologueLayer.puff(e); if (ev.hero) prologueLayer.puff(ev.hero); if (ev.hero || !w.arena.restoreHero) prologueHooks.restore?.(pl.n); }
       else if (ev.type === 'jump') spaceUsed = true;
       else if (ev.type === 'spin') spinUsed = true;
     }
@@ -864,6 +869,7 @@ async function boot(): Promise<void> {
     pl.lastTime = w.time;
     if (w.status === 'playing' && !transition) {
       pl.seconds += gdt;
+      if (live) pl.real += realDt;
       pl.guide?.update(live ? gdt : 0, w.input.x !== 0 || w.input.y !== 0, dragging || !!w.move || w.chain.length > 0 || ui.jumpMode);
     }
     const door = w.objects.find(o => o.kind === 'door');
@@ -871,7 +877,7 @@ async function boot(): Promise<void> {
     if (door) prologueLayer.draw(live ? realDt : 0, { lamps: goalLamps(w), door, arena: w.arena, hero: w.hero, guide: pl.guide, handPoints });
     if (!transition && w.status !== 'playing') {
       const won = w.status === 'victory', last = pl.n === PROLOGUE_ROOM_COUNT;
-      prologueHooks.roomEnd?.(pl.n, pl.attempt, won ? 'win' : 'death', pl.seconds);
+      prologueHooks.roomEnd?.(pl.n, pl.attempt, won ? 'win' : 'death', pl.seconds, pl.real);
       if (won && last) { prologueStore.markDone(); prologueHooks.end?.('done'); }
       transition = { kind: won ? (last ? 'finish' : 'next') : 'retry', t: won ? 0 : -DEATH_BEAT, switched: false };
       prologueDom.hideTitle();
@@ -1241,7 +1247,7 @@ async function boot(): Promise<void> {
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
   // A viewer without the key «пролог пройден» starts in the prologue (the run map stays hidden until it ends).
-  if (prologueDue) startPrologue();
+  if (prologueDue) startPrologue('first');
 
   // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
   // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.

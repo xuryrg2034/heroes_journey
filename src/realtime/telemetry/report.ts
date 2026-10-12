@@ -16,11 +16,12 @@ import type { World } from '../sim/world';
 import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
-  type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord, type ThreatTally,
+  type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type RunRecord, type ThreatTally,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_KIND_TITLES } from '../run/rtRunEnd';
 import { HINT_IDS, HINT_TITLES } from '../view/hints';
+import { PROLOGUE_ROOMS } from '../run/prologue';
 
 // ---- Replay with the observers ----
 
@@ -619,6 +620,64 @@ function hintRows(runs: readonly RunRecord[]): (string | number)[][] {
 
 // ---- end П6 / П8 ----
 
+// ---- The prologue «Опушка» (PrologueRecord, from 13.10.2026) ----
+
+/** One room of the prologue over some playthroughs. Times — medians over the playthroughs that passed the room. */
+export interface PrologueRoomStat {
+  room: number;
+  title: string;
+  /** Playthroughs that reached the room / passed it / were skipped in it. */
+  reached: number; passed: number; skipped: number;
+  /** Median game and real seconds to pass (all attempts together); null — nobody passed. */
+  gameMedian: number | null; realMedian: number | null;
+  /** Playthroughs in which the ghost hand / the arrow came at least once in the room. */
+  withHand: number; withArrow: number;
+  /** Median attempts (starts of the room) over those who reached it; deaths in all; median returns of the enemies. */
+  attemptsMedian: number; deaths: number; restoresMedian: number;
+}
+/** The prologue by where it was started. `players` — distinct testers (by name, else session). */
+export interface PrologueOriginStat { from: PrologueFrom; playthroughs: number; players: number; done: number; skipped: number; open: number; rooms: PrologueRoomStat[] }
+
+/** The prologue records of the set (the latest copy of each id is already chosen by `collectRecords`), grouped by origin. */
+export function prologueStats(records: readonly RtRecord[]): PrologueOriginStat[] {
+  const all = records.filter((r): r is PrologueRecord => r.kind === 'prologue');
+  const out: PrologueOriginStat[] = [];
+  for (const from of ['first', 'gear'] as const) {
+    const list = all.filter(r => r.from === from);
+    if (!list.length) continue;
+    const rooms = PROLOGUE_ROOMS.map((room): PrologueRoomStat => {
+      const here = list.flatMap(r => r.rooms.filter(x => x.room === room.number)), passed = here.filter(x => x.outcome === 'win');
+      return {
+        room: room.number, title: room.title, reached: here.length, passed: passed.length, skipped: list.filter(r => r.skipRoom === room.number).length,
+        gameMedian: passed.length ? median(passed.map(x => x.gameSeconds)) : null, realMedian: passed.length ? median(passed.map(x => x.realSeconds)) : null,
+        withHand: here.filter(x => x.hands > 0).length, withArrow: here.filter(x => x.arrows > 0).length,
+        attemptsMedian: median(here.map(x => x.attempts)), deaths: here.reduce((a, x) => a + x.deaths, 0), restoresMedian: median(here.map(x => x.restores)),
+      };
+    });
+    out.push({
+      from, playthroughs: list.length, players: new Set(list.map(r => r.tester ?? r.session)).size,
+      done: list.filter(r => r.outcome === 'done').length, skipped: list.filter(r => r.outcome === 'skip').length, open: list.filter(r => r.outcome === 'open').length, rooms,
+    });
+  }
+  return out;
+}
+const PROLOGUE_FROM_TITLES: Record<PrologueFrom, string> = { first: 'первый запуск', gear: 'шестерёнка «Обучение»' };
+const PROLOGUE_HEAD = ['Откуда', 'Прохождений', 'Игроков', 'Пройден', 'Пропущен', 'Не закончен'];
+const PROLOGUE_ROOM_HEAD = ['Комната', 'Дошли', 'Прошли', 'Время мед., игра / реально', 'Рука показана', 'Стрелка показана', 'Попыток мед.', 'Смертей', 'Возвратов мед.', 'Пропущено здесь'];
+const PROLOGUE_LEGEND = 'Пролог «Опушка» (`PrologueRecord`, с 13.10.2026; docs/realtime-onboarding.md): запись на каждое прохождение, без журналов боя. «Первый запуск» — новый зритель без отметки «пролог пройден», «шестерёнка» — кнопка «Обучение». Игроки — имя тестера, а без него — сессия. Доли — от прохождений, дошедших до комнаты. Время — медиана по прошедшим комнату, все попытки вместе: игровые секунды (`world.time`) и реальные (кадры без паузы); затемнение между комнатами не входит. Попытки — запуски комнаты (смерть в 5–6 запускает её снова); возвраты — враги вернулись на места (комнаты 2–5). «Рука показана» — призрачная рука пришла хоть раз; «стрелка» — стрелка с кругом. Записей до 13.10.2026 нет — «_нет данных_».';
+function prologueSection(records: readonly RtRecord[]): string {
+  const stats = prologueStats(records);
+  if (!stats.length) return `${PROLOGUE_LEGEND}\n\n_нет данных_`;
+  const head = table(PROLOGUE_HEAD, stats.map(s => [PROLOGUE_FROM_TITLES[s.from], s.playthroughs, s.players, `${s.done} (${pct(s.done, s.playthroughs)})`, `${s.skipped} (${pct(s.skipped, s.playthroughs)})`, s.open]));
+  const sec = (x: number | null): string => (x === null ? '—' : n1(x));
+  const rooms = (s: PrologueOriginStat): string => table(PROLOGUE_ROOM_HEAD, s.rooms.map(r => [
+    `${r.room} · ${r.title}`, r.reached, `${r.passed} (${pct(r.passed, r.reached)})`, `${sec(r.gameMedian)} / ${sec(r.realMedian)} с`,
+    `${r.withHand} (${pct(r.withHand, r.reached)})`, `${r.withArrow} (${pct(r.withArrow, r.reached)})`, n1(r.attemptsMedian), r.deaths, n1(r.restoresMedian), r.skipped,
+  ]));
+  return [PROLOGUE_LEGEND, '', head, ...stats.flatMap(s => ['', `### Комнаты: ${PROLOGUE_FROM_TITLES[s.from]}`, '', rooms(s)])].join('\n');
+}
+// ---- end the prologue ----
+
 // ---- Consumables per run (12.10.2026) ----
 
 /** Gained / used / left of one run in one cell group: a kind, or all kinds together (`kind` absent). */
@@ -785,6 +844,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Новый поход после конца', '', NEW_RUN_LEGEND, '', table(NEW_RUN_HEAD, newRunRows(set.records)), '',
     '## Новое на карте', '', MAP_SIGN_LEGEND, '', table(MAP_SIGN_HEAD, mapSignRows(runs)), '',
     '## Подсказки', '', HINT_LEGEND, '', table(HINT_HEAD, hintRows(runs)), '',
+    '## Пролог', '', prologueSection(set.records), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

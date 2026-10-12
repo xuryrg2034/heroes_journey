@@ -21,7 +21,7 @@
   - срез, поход и арены — `docs/realtime-slice.md`;
   - фазы A и B (сборка) — `docs/realtime-phase-a.md`, `docs/realtime-phase-b.md`;
   - пакет «Урон имеет значение» (броня элит, крепкие, касание 2; поход включает его сам) — `docs/realtime-damage.md`, `docs/realtime-elite-behaviors.md`;
-  - обучение (коробка подсказок снята 12.10.2026: Б6, Б8, Б9 — подписи у места, `view/worldLabels.ts`; пролог «Опушка» реализован (шесть комнат до похода, лампы, призрачная рука, подписи у места, «Пропустить», шестерёнка «Обучение»; вид — `view/prologueFlow.ts`, `view/prologueView.ts`; правила комнат — `run/prologue.ts`; телеметрия пролога — следующий шаг); v1: строки экранов, «Зарок» вместо «Клятва» в ставке, слова разработчика вон из экранов похода) — `docs/realtime-onboarding.md`;
+  - обучение (коробка подсказок снята 12.10.2026: Б6, Б8, Б9 — подписи у места, `view/worldLabels.ts`; пролог «Опушка» реализован (шесть комнат до похода, лампы, призрачная рука, подписи у места, «Пропустить», шестерёнка «Обучение»; вид — `view/prologueFlow.ts`, `view/prologueView.ts`; правила комнат — `run/prologue.ts`; телеметрия пролога — запись `prologue` на прохождение, раздел отчёта «Пролог», `telemetry/prologue.ts`); v1: строки экранов, «Зарок» вместо «Клятва» в ставке, слова разработчика вон из экранов похода) — `docs/realtime-onboarding.md`;
   - телеметрия — `docs/realtime-telemetry.md`;
   - исследования и очередь работ — `docs/realtime-design-research.md`, `docs/realtime-loop-research.md`, `docs/realtime-casino-research.md`.
 - **План уровней** (решение 08.10.2026, `docs/realtime-growth-research.md`, раздел 8): лес → гарнизон (`docs/biomes/garrison-roster.md`) → замок колдуна (финал). Мета — разнообразие и мягкие улучшения удобства с потолком, без постоянной силы.

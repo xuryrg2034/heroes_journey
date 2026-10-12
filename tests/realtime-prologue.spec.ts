@@ -537,3 +537,53 @@ test('an old run save and no key: the prologue plays, «Пропустить» l
   expect(await page.evaluate(() => localStorage.getItem('ashen-oath-rt-run-v7'))).toBe(stored);
   expect(errors).toEqual([]);
 });
+
+/**
+ * The prologue's telemetry (task 6, step 5; docs/realtime-telemetry.md, «Пролог»): the page's own records buffer. A new viewer waits
+ * for the hand in room 1, passes it with real chains, walks in, skips in room 2; then the gear's «Обучение» plays it again and it is
+ * skipped in room 1. One `prologue` record per playthrough; the prologue's rooms write no fight, journal or note record.
+ */
+test('telemetry: one prologue record per playthrough — room 1 passed with the hand shown, the skip in room 2; the gear replay skipped in room 1; no fight records', async ({ page }) => {
+  const records = async (): Promise<any[]> => page.evaluate(() => (window as any).__realtime.telemetry.records());
+  await newViewer(page);
+  await inRoom(page, 1);
+  await titleGone(page);
+  expect(await untilFrame(page, s => s.prologue.shown.hand ? true : undefined, 0, 6)).toBe(true);
+  await goToRoom(page, 2);
+  // Room 2: a chain of three of five — the enemies come back once (the hero too: one return, not two).
+  await titleGone(page);
+  await drag(page, await route(page), 3);
+  expect(await untilFrame(page, s => s.prologue.shown.smokesStarted > 0 && s.enemies.length === 9 ? true : undefined, 0, 6)).toBe(true);
+  // The key N in the prologue marks nothing (no fight of a run to mark).
+  await page.keyboard.press('KeyN');
+  await page.getByTestId('prologue-skip').click();
+  await expect(page.getByTestId('run')).toBeVisible({ timeout: 10_000 });
+  let all = await records();
+  expect(all.filter(r => r.kind === 'fight' || r.kind === 'journal' || r.kind === 'note')).toEqual([]);
+  const first = all.filter(r => r.kind === 'prologue');
+  expect(first.length).toBe(1);
+  const rec = first[0];
+  expect(rec.id).toBe(`${rec.session}/${rec.run}/prologue`);
+  expect([rec.from, rec.outcome, rec.skipRoom, rec.rooms.length]).toEqual(['first', 'skip', 2, 2]);
+  expect(typeof rec.endedAt).toBe('string');
+  const [r1, r2] = rec.rooms;
+  expect([r1.room, r1.outcome, r1.attempts, r1.deaths, r1.restores]).toEqual([1, 'win', 1, 0, 0]);
+  expect(r1.hands).toBeGreaterThanOrEqual(1);
+  expect(r1.gameSeconds).toBeGreaterThan(4);
+  expect(r1.realSeconds).toBeGreaterThan(r1.gameSeconds * 0.5);
+  expect([r2.room, r2.outcome, r2.attempts, r2.restores]).toEqual([2, 'skip', 1, 1]);
+  // The gear's «Обучение» (a run on the map): a second record, from the gear, skipped in room 1.
+  await page.evaluate(() => { (window as any).__realtime.run.newRun(10); });
+  await page.getByTestId('gift-1').click();
+  await page.getByTestId('run-settings').click();
+  await page.getByTestId('prologue-start').click();
+  await inRoom(page, 1);
+  await page.getByTestId('prologue-skip').click();
+  await expect(page.getByTestId('run')).toBeVisible({ timeout: 10_000 });
+  all = await records();
+  const gear = all.filter(r => r.kind === 'prologue' && r.from === 'gear');
+  expect(gear.length).toBe(1);
+  expect([gear[0].outcome, gear[0].skipRoom, gear[0].rooms.map((r: any) => r.outcome)]).toEqual(['skip', 1, ['skip']]);
+  expect(all.filter(r => r.kind === 'prologue').length).toBe(2);
+  expect(all.filter(r => r.kind === 'fight' || r.kind === 'journal' || r.kind === 'note')).toEqual([]);
+});

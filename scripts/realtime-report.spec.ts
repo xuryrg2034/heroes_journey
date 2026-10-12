@@ -21,18 +21,21 @@
  * - The package «Урон имеет значение»: the fixtures, written before the elite fields, are not compared on them; a sandbox
  *   fight with armoured elites (eliteFight.testkit.ts) agrees with the replay and fills the «Элиты» table, the chain shares
  *   (a tough one not first, ended on a survivor) and the raised touches line.
+ * - The prologue (13.10.2026): hand-written prologue records (first launches passed, skipped, left open; a gear replay; an older
+ *   copy of one record) give per room the median times, the hand and arrow shares, the attempts, deaths, returns and the skips,
+ *   and the completion shares by origin, counted by hand; the fixtures (before the record) read «нет данных».
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, hintStats, latestRuns, mapSignStats, newRunGroups, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
 import type { Simulation } from '../src/realtime/sim/simulation';
 import { defaultParams } from '../src/realtime/sim/params';
 import {
-  canonicalJson, emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
-  type FightRecord, type FightSummary, type JournalPart, type RtRecord, type RunRecord,
+  canonicalJson, emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, prologueRecordId, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
+  type FightRecord, type FightSummary, type JournalPart, type PrologueRecord, type PrologueRoomTally, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -295,9 +298,9 @@ async function main(): Promise<void> {
     const stats = hintStats(runs);
     assert(stats.find(s => s.id === 'b4')!.runs === 2 && stats.find(s => s.id === 'b1')!.runs === 1 && stats.find(s => s.id === 'b9')!.runs === 0, JSON.stringify(stats));
     const text = reportMarkdown(collectRecords([{ name: 'hints.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-12T14:00:00Z'), source: 'hints' });
-    const section = text.slice(text.indexOf('## Подсказки'), text.indexOf('## Угрозы'));
+    const section = text.slice(text.indexOf('## Подсказки'), text.indexOf('## Пролог'));
     assert(section.includes('| Б4 Котёл | 2 | 67% |') && section.includes('| Б1 Фокус | 1 | 33% |') && section.includes('| Б9 Гоблин | 0 | 0% |') && section.includes('12.10.2026'), section);
-    const none = md.slice(md.indexOf('## Подсказки'), md.indexOf('## Угрозы'));
+    const none = md.slice(md.indexOf('## Подсказки'), md.indexOf('## Пролог'));
     assert(none.includes('_нет данных_'), 'the fixtures have no hints');
   });
 
@@ -329,6 +332,46 @@ async function main(): Promise<void> {
     // The fixtures' runs were recorded before the field: «нет данных», no rows.
     const old = md.slice(md.indexOf('### Расходники по походам'), md.indexOf('## Отметки N'));
     assert(old.includes('_нет данных_') && old.includes('Нет данных (записи до 12.10.2026), походов: 1;'), old);
+  });
+
+  await check('the prologue: per room median time, hand and arrow shares, attempts, deaths, returns, skips; completion by origin; the older copy dropped; no records — «нет данных»', () => {
+    const room = (n: number, outcome: PrologueRoomTally['outcome'], game: number, real: number, extra: Partial<PrologueRoomTally> = {}): PrologueRoomTally =>
+      ({ room: n, attempts: 1, deaths: 0, restores: 0, gameSeconds: game, realSeconds: real, hands: 0, arrows: 0, outcome, ...extra });
+    const pro = (session: string, key: string, from: PrologueRecord['from'], outcome: PrologueRecord['outcome'], rooms: PrologueRoomTally[], extra: Partial<PrologueRecord> = {}): PrologueRecord => ({
+      schema: RT_TELEMETRY_SCHEMA, id: prologueRecordId(session, key), kind: 'prologue', build: 'test', params: { storage: 's', hash: 'h' }, session, run: key, at: '2026-10-13T10:00:00.000Z',
+      from, outcome, skipRoom: null, rooms, ...extra,
+    });
+    const records: RtRecord[] = [
+      // A (Аня): all six rooms; two returns and an arrow in room 2, a death in room 5. Its older copy (room 1 only, open) is dropped.
+      pro('s1', 'pa', 'first', 'done', [room(1, 'win', 10, 11, { hands: 1 }), room(2, 'win', 30, 32, { restores: 2, arrows: 1 }), room(3, 'win', 20, 21), room(4, 'win', 25, 26), room(5, 'win', 40, 42, { attempts: 2, deaths: 1 }), room(6, 'win', 60, 61)], { tester: 'Аня', endedAt: '2026-10-13T10:05:00.000Z' }),
+      pro('s1', 'pa', 'first', 'open', [room(1, 'open', 3, 3)], { tester: 'Аня', at: '2026-10-13T09:58:00.000Z' }),
+      // B: room 1, then skipped in room 2 after a return (the hand came there).
+      pro('s2', 'pb', 'first', 'skip', [room(1, 'win', 20, 22), room(2, 'skip', 9, 9, { restores: 1, hands: 1 })], { skipRoom: 2 }),
+      // C: room 1 with the hand twice, the page closed in room 2.
+      pro('s3', 'pc', 'first', 'open', [room(1, 'win', 40, 45, { hands: 2 }), room(2, 'open', 5, 5)]),
+      // D (Аня again, from the gear): skipped in room 1.
+      pro('s1', 'pd', 'gear', 'skip', [room(1, 'skip', 2, 2)], { tester: 'Аня', skipRoom: 1 }),
+    ];
+    const set = collectRecords([{ name: 'prologue.json', text: JSON.stringify(records) }]);
+    assert(!set.problems.length && set.duplicates === 1, `problems ${set.problems.join('; ')}, duplicates ${set.duplicates}`);
+    const [first, gear] = prologueStats(set.records);
+    assert(first.from === 'first' && first.playthroughs === 3 && first.players === 3 && first.done === 1 && first.skipped === 1 && first.open === 1, JSON.stringify({ ...first, rooms: undefined }));
+    assert(gear.from === 'gear' && gear.playthroughs === 1 && gear.players === 1 && gear.skipped === 1, JSON.stringify({ ...gear, rooms: undefined }));
+    // By hand. Room 1: three reached and passed, game 10, 20, 40 → 20, real 11, 22, 45 → 22; the hand in A and C (2 of 3).
+    const [r1, r2, , , r5, r6] = first.rooms;
+    assert(r1.reached === 3 && r1.passed === 3 && r1.gameMedian === 20 && r1.realMedian === 22 && r1.withHand === 2 && r1.withArrow === 0 && r1.attemptsMedian === 1 && r1.skipped === 0, JSON.stringify(r1));
+    // Room 2: A passed (30 / 32 s), B skipped, C open; the hand in B, the arrow in A; returns 2, 1, 0 → 1.
+    assert(r2.reached === 3 && r2.passed === 1 && r2.gameMedian === 30 && r2.realMedian === 32 && r2.withHand === 1 && r2.withArrow === 1 && r2.restoresMedian === 1 && r2.skipped === 1, JSON.stringify(r2));
+    assert(r5.reached === 1 && r5.attemptsMedian === 2 && r5.deaths === 1 && r6.passed === 1 && r6.gameMedian === 60, `${JSON.stringify(r5)} ${JSON.stringify(r6)}`);
+    assert(gear.rooms[0].reached === 1 && gear.rooms[0].passed === 0 && gear.rooms[0].gameMedian === null && gear.rooms[0].skipped === 1 && gear.rooms[1].reached === 0, JSON.stringify(gear.rooms.slice(0, 2)));
+    const text = reportMarkdown(set, { fights: [], orphanNotes: [] }, { now: new Date('2026-10-13T14:00:00Z'), source: 'prologue' });
+    const section = text.slice(text.indexOf('## Пролог'), text.indexOf('## Угрозы'));
+    assert(section.includes('| Откуда | Прохождений | Игроков | Пройден | Пропущен | Не закончен |') && section.includes('| первый запуск | 3 | 3 | 1 (33%) | 1 (33%) | 1 |') && section.includes('| шестерёнка «Обучение» | 1 | 1 | 0 (0%) | 1 (100%) | 0 |'), section);
+    assert(section.includes('| 1 · Тропа | 3 | 3 (100%) | 20 / 22 с | 2 (67%) | 0 (0%) | 1 | 0 | 0 | 0 |') && section.includes('| 2 · Два цвета | 3 | 1 (33%) | 30 / 32 с | 1 (33%) | 1 (33%) | 1 | 0 | 1 | 1 |'), section);
+    assert(section.includes('### Комнаты: шестерёнка «Обучение»') && section.includes('| 1 · Тропа | 1 | 0 (0%) | — / — с | 0 (0%) | 0 (0%) | 1 | 0 | 0 | 1 |'), section);
+    // The fixtures were recorded before the prologue record.
+    const none = md.slice(md.indexOf('## Пролог'), md.indexOf('## Угрозы'));
+    assert(none.includes('_нет данных_') && !none.includes('| Откуда'), none);
   });
 
   console.log(`${checks} checks passed`);

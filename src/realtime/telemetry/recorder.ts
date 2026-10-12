@@ -28,10 +28,11 @@ import { EventCursor } from './observe';
 import { artifactSource, DeliveryQueue, type SinkSource } from './sinks';
 import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
-  sessionKey, splitParts, RT_TELEMETRY_SCHEMA,
+  sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapSign, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapSign, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
+import { PrologueTally } from './prologue';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
 /**
@@ -733,6 +734,21 @@ export class RtRecorder {
       }
     }
     if (own) own.itemsOut = undefined;
+  }
+
+  // ---- The prologue «Опушка» (13.10.2026) ----
+
+  /**
+   * A playthrough of the prologue starts (`first` — the first launch, `gear` — the gear's «Обучение»): its tally writes the
+   * record `S/P/prologue` at each room's start and end and at the end (the same id; the last copy wins). No fight record, no
+   * journal, no run record: the prologue's rooms are not fights of a run.
+   */
+  beginPrologue(from: PrologueFrom): PrologueTally | null {
+    return safe(null, () => {
+      const salt = Math.floor(Math.random() * 0x100000000), key = prologueKey(Date.now(), salt), session = this.session;
+      const id = prologueRecordId(session, key), hash = paramsHash(this.options.params);
+      return new PrologueTally(from, body => safe(undefined, () => { void this.put([{ ...this.header(id, 'prologue', key, hash), session, ...body } as PrologueRecord]); }));
+    });
   }
 
   // ---- The «Логи» panel ----

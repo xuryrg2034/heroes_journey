@@ -22,10 +22,11 @@ export const RT_TELEMETRY_SCHEMA = 1;
 /** One segment of a record id: letters, digits, `_` and `-`, 1–64 characters (no dots, no slashes). */
 export const ID_SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /**
- * A record id: `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>`, `S/R/<fight>/n<tick>` (S — session, R — run).
+ * A record id: `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>`, `S/R/<fight>/n<tick>` (S — session, R — run);
+ * `S/P/prologue` — one playthrough of the prologue «Опушка» (P — its key `prologueKey`; from 13.10.2026).
  * The Vite plugin (ТC) checks every POSTed id with it: a valid id is a safe relative path.
  */
-export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
+export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|prologue|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
 /** The run key of the sandbox fights (decision 8). */
 export const SANDBOX_RUN = 'sandbox';
 
@@ -47,6 +48,9 @@ export function sessionKey(timeMs: number, salt: number): string { return `s${co
 /** A run key: `r<start time base36>-<seed hex>`; sandbox fights use `SANDBOX_RUN`. */
 export function runKey(timeMs: number, seed: number): string { return `r${count(Math.floor(timeMs), 'time').toString(36)}-${(seed >>> 0).toString(16)}`; }
 
+/** A prologue key: `p<start time base36>-<salt hex>` (one playthrough of the prologue «Опушка»; the header's `run`). */
+export function prologueKey(timeMs: number, salt: number): string { return `p${count(Math.floor(timeMs), 'time').toString(36)}-${(salt >>> 0).toString(16)}`; }
+
 /**
  * A fight key: `f<index, 2 digits>-<node>-a<attempt>` (`f03-n5a-a1`). `index` — the fight's number in the run (or the
  * sandbox session), `attempt` — the try of this arena (restarts). Characters of the node outside `[A-Za-z0-9_-]` become
@@ -59,6 +63,7 @@ export function fightKey(index: number, nodeId: string | null | undefined, attem
 }
 
 export const runRecordId = (session: string, run: string): string => `${segment(session, 'session')}/${segment(run, 'run')}/run`;
+export const prologueRecordId = (session: string, key: string): string => `${segment(session, 'session')}/${segment(key, 'prologue key')}/prologue`;
 export const fightRecordId = (session: string, run: string, fight: string): string => `${segment(session, 'session')}/${segment(run, 'run')}/${segment(fight, 'fight')}/fight`;
 export function journalPartId(session: string, run: string, fight: string, index: number, parts: number): string {
   if (count(index, 'part') >= count(parts, 'parts')) throw new Error(`telemetry id: part ${index} of ${parts}`);
@@ -70,6 +75,7 @@ export const noteRecordId = (session: string, run: string, fight: string, tick: 
 /** A record id taken apart; null for a malformed one. */
 export type ParsedRecordId =
   | { kind: 'run'; session: string; run: string }
+  | { kind: 'prologue'; session: string; run: string }
   | { kind: 'fight'; session: string; run: string; fight: string }
   | { kind: 'journal'; session: string; run: string; fight: string; index: number; parts: number }
   | { kind: 'note'; session: string; run: string; fight: string; tick: number };
@@ -78,6 +84,7 @@ export function parseRecordId(id: unknown): ParsedRecordId | null {
   if (typeof id !== 'string' || !RECORD_ID_RE.test(id)) return null;
   const [session, run, fight, last] = id.split('/');
   if (fight === 'run' && last === undefined) return { kind: 'run', session, run };
+  if (fight === 'prologue' && last === undefined) return { kind: 'prologue', session, run };
   if (last === 'fight') return { kind: 'fight', session, run, fight };
   const part = /^j(\d+)of(\d+)$/.exec(last);
   if (part) {
@@ -89,7 +96,7 @@ export function parseRecordId(id: unknown): ParsedRecordId | null {
 
 // ---- Records ----
 
-export type RtRecordKind = 'run' | 'fight' | 'journal' | 'note';
+export type RtRecordKind = 'run' | 'fight' | 'journal' | 'note' | 'prologue';
 
 /** The common header of every record. */
 export interface RtHeader {
@@ -103,7 +110,7 @@ export interface RtHeader {
   params: { storage: string; hash: string };
   /** The browser session key. */
   session: string;
-  /** The run key (`runKey`) or `SANDBOX_RUN`. */
+  /** The run key (`runKey`) or `SANDBOX_RUN`; a prologue record — its prologue key (`prologueKey`). */
   run: string;
   /** When the record was made (ISO). */
   at: string;
@@ -291,7 +298,52 @@ export interface NoteRecord extends RtHeader {
   hero: { x: number; y: number };
 }
 
-export type RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord;
+/** Where a prologue playthrough was started: the first launch of a viewer without the key «пролог пройден», or the gear's «Обучение». */
+export type PrologueFrom = 'first' | 'gear';
+/** How a prologue playthrough ended: room 6 won (`done`), «Пропустить обучение» (`skip`), or not yet / the page closed (`open`). */
+export type PrologueOutcome = 'done' | 'skip' | 'open';
+
+/**
+ * One room of a prologue playthrough (all its attempts together). Times sum over the attempts: game seconds (`world.time` while
+ * the room plays) and real seconds (frames while the room plays, not paused); the fade between rooms and the beat after a death
+ * are left out.
+ */
+export interface PrologueRoomTally {
+  /** 1…6. */
+  room: number;
+  /** Starts of the room (1 + the replays after a death). */
+  attempts: number;
+  /** Deaths (rooms 5 and 6: a death plays the room again). */
+  deaths: number;
+  /** Returns of the start enemies (event `restore`; rooms 2–5). A late batch under the hero in rooms 2–4 is the same return. */
+  restores: number;
+  gameSeconds: number;
+  realSeconds: number;
+  /** Times the ghost hand came / the arrow with the circle came (0 — never shown). */
+  hands: number;
+  arrows: number;
+  /** `win` — passed; `skip` — skipped in it; `open` — left unfinished (the page closed, or the room plays now). */
+  outcome: 'win' | 'skip' | 'open';
+}
+
+/**
+ * The prologue record (`S/P/prologue`, from 13.10.2026): one playthrough of the prologue «Опушка» — light, without fight
+ * journals (the rooms' determinism is checked by the Node tests). Written at each room's start and end and at the end, sent again
+ * under the same id (the last copy wins). Older logs have no such records; the report's section «Пролог» reads «нет данных».
+ */
+export interface PrologueRecord extends RtHeader {
+  kind: 'prologue';
+  from: PrologueFrom;
+  outcome: PrologueOutcome;
+  /** The room in which «Пропустить обучение» was pressed (null — not skipped). */
+  skipRoom: number | null;
+  /** The rooms reached, in order. */
+  rooms: PrologueRoomTally[];
+  /** When the playthrough ended (ISO; absent — open). */
+  endedAt?: string;
+}
+
+export type RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord | PrologueRecord;
 
 /** A receiver of records (the artifact's `window.__rtTelemetrySink`, the dev-server channel …). A failed write keeps the record in the browser buffer. */
 export interface RtTelemetrySink {
@@ -343,6 +395,17 @@ export function checkRecord(value: unknown): string | null {
     case 'note': {
       const hero = r.hero as Record<string, unknown> | undefined;
       if (r.fight !== parsed.fight || r.tick !== parsed.tick || typeof r.arena !== 'string' || !hero || typeof hero.x !== 'number' || typeof hero.y !== 'number') return 'note fields';
+      return null;
+    }
+    case 'prologue': {
+      if (!['first', 'gear'].includes(r.from as string) || !['done', 'skip', 'open'].includes(r.outcome as string)) return 'prologue from or outcome';
+      if (r.skipRoom !== null && !num('skipRoom')) return 'prologue skipRoom';
+      if (!Array.isArray(r.rooms)) return 'prologue rooms';
+      for (const room of r.rooms as unknown[]) {
+        const o = room as Record<string, unknown> | null;
+        if (!o || typeof o !== 'object' || !['room', 'attempts', 'deaths', 'restores', 'gameSeconds', 'realSeconds', 'hands', 'arrows'].every(k => typeof o[k] === 'number' && Number.isFinite(o[k]))
+          || !['win', 'skip', 'open'].includes(o.outcome as string)) return 'prologue room fields';
+      }
       return null;
     }
   }

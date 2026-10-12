@@ -36,7 +36,8 @@ for (const a of ['8.8.8.8', '172.15.0.1', '172.32.0.1', '192.169.0.1', '11.0.0.1
 assert(!allowedAddress(undefined, true), 'no address is refused');
 // The plugin's id check answers as the schema's `isRecordId` (a journal part index below the count, too).
 for (const id of ['s/r/run', 's/r/f01-x-a1/fight', 's/r/f01-x-a1/j0of1', 's/r/f01-x-a1/j4of5', 's/r/f01-x-a1/j5of1', 's/r/f01-x-a1/j1of1',
-  's/r/f01-x-a1/j5of5', 's/r/f01-x-a1/j0of0', 's/r/f01-x-a1/j01of2', 's/r/f01-x-a1/n0', 's/r/f01-x-a1/n12', 's/r/f01-x-a1/n01', 's/r', 's/r/a/b/c', '../r/run', '', 7, null]) {
+  's/r/f01-x-a1/j5of5', 's/r/f01-x-a1/j0of0', 's/r/f01-x-a1/j01of2', 's/r/f01-x-a1/n0', 's/r/f01-x-a1/n12', 's/r/f01-x-a1/n01', 's/r', 's/r/a/b/c', '../r/run', '', 7, null,
+  's/p1-a/prologue', 's/p1-a/prologue/x', 's/p1-a/prologues']) {
   assert((parseRecordId(id) !== null) === isRecordId(id), `id ${JSON.stringify(id)}: plugin ${parseRecordId(id) !== null}, schema ${isRecordId(id)}`);
 }
 // Host (DNS rebinding): loopback names with or without a port; a private IPv4 literal only with lan; Vite's allowedHosts.
@@ -52,6 +53,7 @@ assert(allowedHost('dev.example.test:5173', false, ['dev.example.test']) && !all
 assert(allowedHost('a.example.test', false, ['.example.test']) && allowedHost('example.test', false, ['.example.test']) && !allowedHost('badexample.test', false, ['.example.test']), 'allowedHosts: a leading dot takes subdomains');
 assert(allowedHost('anything.example', false, true), 'allowedHosts: true takes any host (as Vite)');
 assert(recordFile('/x/logs', ['s', 'r', 'run']) === '/x/logs/s/r/run.json', 'file of a 3-segment id');
+assert(parseRecordId('s/p1-a/prologue') !== null && recordFile('/x/logs', parseRecordId('s/p1-a/prologue')!) === '/x/logs/s/p1-a/prologue.json', 'file of a prologue record (from 13.10.2026)');
 assert(recordFile('/x/logs', ['s', 'r', 'f03', 'fight']) === '/x/logs/s/r/f03-fight.json', 'file of a 4-segment id');
 assert(recordFile('/x/logs', ['..', 'r', 'run']) === null, 'a ".." segment leaves the base');
 

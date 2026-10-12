@@ -8,6 +8,7 @@
  * - Params named by hash: the journal needs the run's Params, a wrong set is refused.
  * - Record ids: the builders give the documented shapes; paths with `..`, slashes, empty or long segments are refused.
  * - A spoiled, missing or extra part is caught by the assembly.
+ * - The prologue record (13.10.2026): its id `S/P/prologue`, its check; an export of the older kinds alone still reads back.
  */
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
 import shieldsWolvesJournal from '../../../tests/fixtures/realtime-browser-journal-shields-wolves.json';
@@ -17,8 +18,8 @@ import { Simulation, replay, type Journal } from '../sim/simulation';
 import {
   assembleParts, checkRecord, decodeJournal, emptyFightSummary, encodeJournal, fightKey, fightRecordId, gunzipBase64, gzipBase64,
   isIdSegment, isRecordId, journalPartId, makeExport, noteRecordId, nullObserver, orderedParts, packJournal, paramsHash, parseExport,
-  parseRecordId, runKey, runRecordId, sessionKey, splitParts, unpackJournal, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
-  type FightRecord, type JournalPart, type NoteRecord, type RtHeader, type RunRecord,
+  parseRecordId, prologueKey, prologueRecordId, runKey, runRecordId, sessionKey, splitParts, unpackJournal, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
+  type FightRecord, type JournalPart, type NoteRecord, type PrologueRecord, type RtHeader, type RunRecord,
 } from './schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -274,6 +275,28 @@ async function main(): Promise<void> {
     const text = orderedParts(back.records.filter((x): x is JournalPart => x.kind === 'journal'), readFight.fight, readFight.journal.digest);
     assert(replay(await unpackJournal(text, readFight.journal, readRun.runParams)).hash() === readFight.endHash, 'the exported fight replays to its end hash');
     assert(throws(() => parseExport(JSON.stringify({ ...JSON.parse(file), format: 'other' }))), 'a foreign file is refused');
+  });
+
+  await check('the prologue record (13.10.2026): the id `S/P/prologue` and its check; an export without it still reads', () => {
+    const s = sessionKey(Date.UTC(2026, 9, 13), 0xabc), p = prologueKey(Date.UTC(2026, 9, 13, 9), 0x1f);
+    assert(/^p[0-9a-z]+-1f$/.test(p), `prologue key ${p}`);
+    const id = prologueRecordId(s, p);
+    assert(id === `${s}/${p}/prologue` && isRecordId(id), id);
+    const parsed = parseRecordId(id);
+    assert(parsed?.kind === 'prologue' && parsed.session === s && parsed.run === p, JSON.stringify(parsed));
+    assert(parseRecordId(`${s}/${p}/prologue/fight`)?.kind === 'fight' && !isRecordId(`${s}/${p}/prologues/x/y`), 'a fight key «prologue» is still a fight');
+    const rec: PrologueRecord = {
+      ...header(id, 'prologue', s, p), kind: 'prologue', from: 'first', outcome: 'skip', skipRoom: 3, endedAt: '2026-10-13T09:05:00.000Z',
+      rooms: [{ room: 1, attempts: 1, deaths: 0, restores: 0, gameSeconds: 14.2, realSeconds: 15, hands: 1, arrows: 0, outcome: 'win' }],
+    };
+    assert(checkRecord(rec) === null, String(checkRecord(rec)));
+    assert(checkRecord({ ...rec, from: 'menu' }) !== null && checkRecord({ ...rec, outcome: 'won' }) !== null && checkRecord({ ...rec, skipRoom: 'x' }) !== null, 'from, outcome, skipRoom');
+    assert(checkRecord({ ...rec, rooms: [{ ...rec.rooms[0], hands: undefined }] }) !== null && checkRecord({ ...rec, rooms: [{ ...rec.rooms[0], outcome: 'lost' }] }) !== null, 'room fields');
+    assert(checkRecord({ ...rec, kind: 'run' }) !== null, 'kind against the id');
+    assert(throws(() => prologueRecordId(s, 'a/b')), 'a bad key');
+    // A file with the prologue record and one without (older logs) both read back.
+    assert(parseExport(JSON.stringify(makeExport(s, [rec], '2026-10-13T10:00:00.000Z'))).records[0].kind === 'prologue', 'with');
+    assert(parseExport(JSON.stringify(makeExport(s, [], '2026-10-13T10:00:00.000Z'))).records.length === 0, 'without');
   });
 
   await check('the null observer only reads and gives an empty summary; a fight observed by it keeps its hash', () => {
