@@ -21,7 +21,7 @@ allowed-tools: Bash, Read
 
 ## Когда нужен `--browser`
 
-Обязательно, если затронуты `src/realtime/view/`, `src/realtime/art/`, `index.html`, ввод, HUD, запись логов в браузере или то, что Playwright проверяет в `tests/`. Для чисто логических правок в `src/realtime/sim/`, `run/`, `forest/` достаточно запуска без флага. Часть тестов браузера нестабильна под нагрузкой: перед приёмкой прогон повторяют ×3 (`npx playwright test --repeat-each 3`) в чистой копии (`AGENTS.md`).
+Обязательно, если затронуты `src/realtime/view/`, `src/realtime/art/`, `index.html`, ввод, HUD, запись логов в браузере или то, что Playwright проверяет в `tests/`. Для чисто логических правок в `src/realtime/sim/`, `run/`, `forest/` достаточно запуска без флага. Перед приёмкой прогон повторяют ×3 (`npx playwright test --repeat-each 3`) в чистой копии (`AGENTS.md`). Известные нестабильные под нагрузкой тесты исправлены 12.10.2026 (`docs/realtime-slice.md`, раздел 13); новое падение под нагрузкой разбирать, а не списывать на нагрузку.
 
 Playwright-тесты перезаписывают скриншоты в `artifacts/*.png`. Они в `.gitignore`; изменения в них не считаются изменениями проекта. Журналы-фикстуры `tests/fixtures/realtime-browser-journal*.json` перезаписываются только при `RT_RECORD_JOURNAL=1`.
 
