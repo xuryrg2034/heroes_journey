@@ -180,6 +180,14 @@ export interface Params {
   maxEnemies: number;
   markerDelay: number;
   spawnMinDistance: number;
+  /**
+   * A queued group stays together (spawn.ts `placeQueued`; design 12.10.2026, docs/realtime-prototype.md, «Появление»): a
+   * member that finds no free point at its group's anchor keeps the anchor and tries again every tick; after
+   * `SPAWN_HOLD_LIMIT` (1 s of game time) the whole remaining group takes a new anchor, as it does at once when the anchor
+   * goes stale. Off by default; journals without the value: off (the member drops its anchor, the path of before). A run
+   * turns it on (run/rtRun.ts `RT_RUN_FORCED`); the sandbox panel has a toggle.
+   */
+  spawnGroupHold: boolean;
   // Growth over time and the time limit
   angerTierSeconds: number;
   angerSpeedStep: number;
@@ -725,6 +733,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   maxEnemies: 60,
   markerDelay: 1,
   spawnMinDistance: 3,
+  spawnGroupHold: false,
   angerTierSeconds: 30,
   angerSpeedStep: 0,
   reaperEnabled: false,
@@ -1050,6 +1059,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('maxEnemies', 'Появление', 'Предел врагов на арене', 1, 150, 1, 1, '', 'При пределе новые ждут в очереди меток.'),
   n('markerDelay', 'Появление', 'Задержка метки', 0, 3, 0.1, 1, 'с'),
   n('spawnMinDistance', 'Появление', 'Запретный радиус у героя', 0, 6, 0.25, 1, 'ед.'),
+  { kind: 'bool', key: 'spawnGroupHold', group: 'Появление', label: 'Группа держится вместе', stage: 5,
+    hint: 'Члену группы негде встать у якоря — он ждёт у того же якоря до 1 с, потом новый якорь всей оставшейся группе. Выключено — член группы теряет якорь и может выйти далеко от своих. В походе включено.' },
   n('angerSpeedStep', 'Время', 'Рост скорости за ступень', 0, 0.5, 0.01, 1, '', 'По умолчанию 0: быстрых даёт состав фаз.'),
   n('angerTierSeconds', 'Время', 'Ступень роста скорости', 5, 120, 5, 1, 'с'),
   { kind: 'bool', key: 'reaperEnabled', group: 'Время', label: 'Жнец (после целей)', stage: 1 },

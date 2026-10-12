@@ -49,7 +49,16 @@ export interface QueuedSpawn {
   anchor: Vec | null;
   /** Stage 2, step 3: an extra enemy of the event modifier «злость» — never an elite. Absent otherwise. */
   plain?: true;
+  /**
+   * `spawnGroupHold` on: game seconds since this member, at the head of the queue, first found no free point at its anchor
+   * (0 on that tick; up to `SPAWN_HOLD_LIMIT`). Absent while it has not waited — and always without the rule (worlds hash
+   * as before).
+   */
+  held?: number;
 }
+
+/** `spawnGroupHold` (design 12.10.2026): a member waits at its group's anchor this long (game seconds), then the group moves. */
+export const SPAWN_HOLD_LIMIT = 1;
 
 const ANCHOR_TRIES = 24;
 const POINT_TRIES = 16;
@@ -289,10 +298,52 @@ function rollGroup(world: World, forceSingle = false): void {
   }
 }
 
-function placeQueued(world: World): void {
+/**
+ * `spawnGroupHold`: the group of `q` (every queued member sharing its anchor object) moves to a new anchor (`findAnchor`),
+ * their waits restart. A single (no anchor) moves alone. None found — nothing changes (the group keeps its anchor and
+ * tries again next tick); false.
+ */
+function moveGroup(world: World, q: QueuedSpawn): boolean {
+  const stale = q.anchor, fresh = findAnchor(world);
+  if (!fresh) return false;
+  if (stale) for (const r of world.queue) if (r !== q && r.anchor === stale) { r.anchor = fresh; delete r.held; }
+  q.anchor = fresh;
+  delete q.held;
+  return true;
+}
+
+/**
+ * `spawnGroupHold` (design 12.10.2026): a free point for the head of the queue, or null (it waits; the queue waits behind it).
+ * - An anchor gone stale (or none) — at once a new anchor for the whole remaining group, on every arena.
+ * - No free point at a current anchor — the member keeps the anchor and tries again next tick (every try draws
+ *   `spawnPlace` as `pointNear` does); after `SPAWN_HOLD_LIMIT` game seconds of waiting the whole group takes a new anchor.
+ * - `findAnchor` finds none — the group keeps its anchor and tries again next tick (no stall beyond the arena having no
+ *   anchor at all, as before the rule).
+ */
+function heldPoint(world: World, q: QueuedSpawn, dt: number): Vec | null {
+  if ((!q.anchor || !anchorCurrent(world, q.anchor)) && !moveGroup(world, q)) return null;
+  const p = pointNear(world, q.anchor!);
+  if (p) { delete q.held; return p; }
+  // The wait counts from the first failed try (0 then): the group moves on the try 1 s of game time after it.
+  const held = q.held === undefined ? 0 : q.held + dt;
+  q.held = held;
+  // 1e-9: sixty ticks of 1/60 add up to a hair under 1.
+  if (held < SPAWN_HOLD_LIMIT - 1e-9) return null;
+  return moveGroup(world, q) ? pointNear(world, q.anchor!) : null;
+}
+
+function placeQueued(world: World, dt: number): void {
   const max = enemyLimit(world.params, world.arena), delay = world.params.markerDelay;
+  const hold = world.params.spawnGroupHold === true;
   while (world.queue.length && world.enemies.length + world.markers.length < max) {
     const q = world.queue[0];
+    if (hold) {
+      const p = heldPoint(world, q, dt);
+      if (!p) return;
+      world.queue.shift();
+      pushMarker(world, q, p, delay);
+      continue;
+    }
     if (!q.anchor || !anchorCurrent(world, q.anchor)) {
       const stale = q.anchor, fresh = findAnchor(world);
       // Т5 (review 09.10.2026): on a big arena the group keeps together — its members still in the queue share the new
@@ -303,12 +354,17 @@ function placeQueued(world: World): void {
     const p = q.anchor ? pointNear(world, q.anchor) : null;
     if (!p) { q.anchor = null; return; }
     world.queue.shift();
-    // The package (armour on): the elite is decided as the marker appears, so the marker can show it (a longer wait). The
-    // `elite` stream draws in another order than without armour (at the marker, not at the step-out) — only with armour.
-    const elite = !q.plain && !!world.params.eliteArmor && eliteRoll(world, q.kind);
-    const wait = elite ? Math.max(delay, world.params.eliteMarkerDelay ?? delay) : delay;
-    world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: wait, total: wait, ...q.plain ? { plain: true as const } : {}, ...elite ? { elite: true as const } : {} });
+    pushMarker(world, q, p, delay);
   }
+}
+
+/** The marker of a queued newcomer at `p`. */
+function pushMarker(world: World, q: QueuedSpawn, p: Vec, delay: number): void {
+  // The package (armour on): the elite is decided as the marker appears, so the marker can show it (a longer wait). The
+  // `elite` stream draws in another order than without armour (at the marker, not at the step-out) — only with armour.
+  const elite = !q.plain && !!world.params.eliteArmor && eliteRoll(world, q.kind);
+  const wait = elite ? Math.max(delay, world.params.eliteMarkerDelay ?? delay) : delay;
+  world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: wait, total: wait, ...q.plain ? { plain: true as const } : {}, ...elite ? { elite: true as const } : {} });
 }
 
 /** The hero stands near a marker: the marker moves and its countdown restarts. */
@@ -349,7 +405,7 @@ export function updateSpawning(world: World, dt: number): void {
     }
   }
   topUpToFloor(world);
-  placeQueued(world);
+  placeQueued(world, dt);
   for (let i = world.markers.length - 1; i >= 0; i--) {
     const m = world.markers[i];
     if (dist(m, world.hero) < world.params.spawnMinDistance) { relocateMarker(world, m); continue; }

@@ -114,7 +114,9 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.
   eliteLootOpens: true,
   // B7 К9 «Игорный круг гоблинов» (design 12.10.2026): a run-layer key, read by `rtEnterNode` through the run view.
-  goblinCircle: true });
+  goblinCircle: true,
+  // Design 12.10.2026: a queued spawn group stays together (spawn.ts `placeQueued`).
+  spawnGroupHold: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 

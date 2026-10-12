@@ -144,6 +144,24 @@ test('before the goals the pace stays base; the goals button starts the greed ta
   expect(errors).toEqual([]);
 });
 
+test('the panel toggle «Группа держится вместе» (spawnGroupHold, off in the sandbox) turns the rule on through the journal; a restart keeps it', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await page.keyboard.press('Backquote');
+  const box = page.locator('[data-param="spawnGroupHold"] input');
+  await expect(box).not.toBeChecked();
+  expect(await page.evaluate(() => (window as any).__realtime.params.spawnGroupHold)).toBe(false);
+  await box.check();
+  expect(await page.evaluate(() => (window as any).__realtime.params.spawnGroupHold)).toBe(true);
+  // The click is a journalled command of this fight; the next fight starts with the rule in its values.
+  const journal = await page.evaluate(() => (window as any).__realtime.journal() as Journal);
+  expect(journal.commands.some(c => c.cmd.t === 'param' && c.cmd.key === 'spawnGroupHold' && c.cmd.value === true)).toBe(true);
+  await page.getByTestId('restart').click();
+  await gameWait(page, 0.2);
+  expect(await page.evaluate(() => (window as any).__realtime.journal().params.spawnGroupHold)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 // ---- Stage 2: chain, focus, dash ----
 
 interface ChainSnapshot extends Snapshot {
