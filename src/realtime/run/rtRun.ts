@@ -836,7 +836,7 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
   if (current.result) return fail('Поход уже завершён.');
   if (current.pending) return fail('Сначала заверши текущий узел.');
   if (!rtAvailableNodes(current).some(entry => entry.id === nodeId)) return fail('Этот узел сейчас недоступен.');
-  if (oath !== null && !(rtOathPreview(current, node) ?? []).includes(oath)) return fail('Этой клятвы нет среди предложенных.');
+  if (oath !== null && !(rtOathPreview(current, node) ?? []).includes(oath)) return fail('Этого зарока нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'node-entered', nodeId, row: node.row }];
   if (isArenaNode(node)) {
     startArena(run, node, battleKindOf(node), events);
@@ -1442,7 +1442,7 @@ export function rtEventView(run: RtRunState): RtEventView | null {
     const gap = sliceOptionGap(option), max = optionAttempts(option), now = option.escalation ? Math.min(done, max - 1) : 0;
     const cost = payableCost(run, option), optionBase = option.escalation ? attemptBase(run, pending.draw, now) : base;
     const chances = attemptChances(option, now), kinds = eventResourceKinds(optionBase, option);
-    let reason = gap ? `Нет в срезе: ${gap}` : option.escalation && done >= max ? `Попыток больше нет (${max} из ${max})` : cost.block;
+    let reason = gap ? 'Недоступно в этом походе' : option.escalation && done >= max ? `Попыток больше нет (${max} из ${max})` : cost.block;
     // An option that may lose HP needs EVENT_RISK_MIN_HP of the turn-based run, scaled as every HP threshold (2 → 6; 2 → 5 before iteration 2.1).
     if (!reason && mayLoseHp(option, now) && run.hp < rtHp(EVENT_RISK_MIN_HP)) reason = hpShort(rtHp(EVENT_RISK_MIN_HP), run.hp);
     if (!reason && optionNeedsTalisman(option) && !rtTalismanLeft(talismanPool(run))) reason = 'Талисманов не осталось';
@@ -1604,7 +1604,7 @@ export function rtGiftView(run: RtRunState): RtGiftView | null {
     const gap = giftOptionGap(option);
     // A deal or an oath with nothing left to give cannot be taken (as the turn-based gift).
     const empty = option.kind === 'deal' ? (option.reward.kind === 'pick-talisman' ? !option.reward.talismans.length : !option.reward.talisman) : option.kind === 'oath' && !option.oath;
-    return { index, option, available: !gap && !empty, reason: gap ? `Нет в срезе: ${gap}` : empty ? 'Талисманов не осталось' : '' };
+    return { index, option, available: !gap && !empty, reason: gap ? 'Недоступно в этом походе' : empty ? 'Талисманов не осталось' : '' };
   });
   const chosen = run.gift.chosen ?? null;
   return { kind: run.gift.kind, options, canSkip: !options.some(entry => entry.available), chosen, picks: chosen === null ? [] : giftPicks(all[chosen]).map(String) };

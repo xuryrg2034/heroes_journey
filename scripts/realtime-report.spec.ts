@@ -24,7 +24,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, latestRuns, mapSignStats, newRunGroups, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, hintStats, latestRuns, mapSignStats, newRunGroups, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
@@ -284,6 +284,21 @@ async function main(): Promise<void> {
     assert(section.includes('| 2 | 4 | 2 (50%) | 2 |') && section.includes('55–75'), section);
     const none = md.slice(md.indexOf('## Новое на карте'), md.indexOf('## Угрозы'));
     assert(none.includes('_нет данных_'), 'the fixtures have no signs');
+  });
+
+  await check('«Обучение v1» the report: the section «Подсказки» counts the runs that showed each hint; no data — an empty table', () => {
+    const runs = [
+      runOf('s1', 'a', 'open', { hints: ['b1', 'b2', 'b4'] }),
+      runOf('s1', 'b', 'defeat', { hints: ['b4', 'b5'] }),
+      runOf('s1', 'c', 'open'),
+    ];
+    const stats = hintStats(runs);
+    assert(stats.find(s => s.id === 'b4')!.runs === 2 && stats.find(s => s.id === 'b1')!.runs === 1 && stats.find(s => s.id === 'b9')!.runs === 0, JSON.stringify(stats));
+    const text = reportMarkdown(collectRecords([{ name: 'hints.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-12T14:00:00Z'), source: 'hints' });
+    const section = text.slice(text.indexOf('## Подсказки'), text.indexOf('## Угрозы'));
+    assert(section.includes('| Б4 Котёл | 2 | 67% |') && section.includes('| Б1 Фокус | 1 | 33% |') && section.includes('| Б9 Гоблин | 0 | 0% |') && section.includes('12.10.2026'), section);
+    const none = md.slice(md.indexOf('## Подсказки'), md.indexOf('## Угрозы'));
+    assert(none.includes('_нет данных_'), 'the fixtures have no hints');
   });
 
   await check('consumables per run: gained / used / left by kind, totals and medians over the runs with data; an old record is «нет данных»', () => {

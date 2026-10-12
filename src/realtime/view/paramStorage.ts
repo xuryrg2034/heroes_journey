@@ -108,3 +108,18 @@ export function loadNewOnMap(): boolean {
 export function saveNewOnMap(on: boolean): void {
   try { localStorage.setItem(NEW_ON_MAP_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
 }
+
+/**
+ * «Обучение v1» (view/hints.ts): the toggle «Подсказки» of the run map's gear — one-time hints in a fight and the lines on the
+ * run screens. A local setting of the view, not a Param: its own key, on by default; storage may be unavailable (then on).
+ * What was already shown is the memory `ashen-oath-realtime-hints` (HintStore), not this key.
+ */
+const HINTS_ON_KEY = 'ashen-oath-realtime-hints-on';
+
+export function loadHintsOn(): boolean {
+  try { return localStorage.getItem(HINTS_ON_KEY) !== '0'; } catch { return true; }
+}
+
+export function saveHintsOn(on: boolean): void {
+  try { localStorage.setItem(HINTS_ON_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
+}

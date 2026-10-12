@@ -31,6 +31,7 @@ import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
 import type { SessionClock } from './session';
 import { NEW_SIGN, newKindsOfArena, type NewSeenStore } from './newSeen';
+import { dieLine, LINE_RESOURCES, ScreenLines, stakeLine, type HintStore } from './hints';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { multText } from '../sim/purse';
 import { eventOption, forestEvent } from '../forest/forestEvents';
@@ -75,6 +76,12 @@ export interface RunHost {
    * sign «✦ новое» stands on the arena line of the card of an AVAILABLE arena node whose arena has a kind not met yet.
    */
   newSeen?: { store: NewSeenStore; on(): boolean };
+  /**
+   * «Обучение v1» (view/hints.ts): the viewer's memory of what was shown, the toggle «Подсказки» (`on`, `set`) and the button
+   * «Показать подсказки снова» on the gear. The screen lines (Э2 on the map, Э4 at the die) read the same memory. Absent
+   * (the sandbox) — no lines, no toggle.
+   */
+  hints?: { store: HintStore; on(): boolean; set(on: boolean): void };
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -118,16 +125,20 @@ export const itemWithKey = (item: ItemKind): string => `${ITEM_TITLES[item]} (к
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
 const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', open: 'Открыт', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение' } as const;
-/** Hints where the node works differently from the turn-based run. */
-const STEP1_HINT: Partial<Record<ForestMapNode['type'], string>> = {
-  find: 'Находка: один из трёх расходников.',
-  rest: `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`,
-  shop: `Расходники, лечение и «Закалка» за ресурсы крафта.`,
-  hard: `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`,
-  checkpoint: 'Тюремщика-босса в срезе нет: обычная арена своего ряда. Победа: молот на выбор (первый ряд Тюремщика), затем клятва или реликвия.',
-  breakthrough: 'Прорыв: обычная арена своего ряда.',
-  battle: 'Обычный бой: арена пула своего ряда.',
-  boss: 'Босса в срезе нет: финальная арена «Последний рубеж». Победа завершает поход.',
+/** What the node card says about the node (the rules of this run). */
+const nodeHint = (node: ForestMapNode): string | undefined => {
+  const row = runRow(node.row);
+  switch (node.type) {
+    case 'find': return 'Находка: один из трёх расходников.';
+    case 'rest': return `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`;
+    case 'shop': return `Расходники, лечение и «Закалка» за ресурсы крафта.`;
+    case 'hard': return `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
+    case 'checkpoint': return 'Тюремщик: обычная арена своего ряда. Победа: молот на выбор, затем клятва или реликвия.';
+    case 'breakthrough': return `Прорыв: арена ряда ${row}.`;
+    case 'battle': return `Обычный бой: арена ряда ${row}.`;
+    case 'boss': return 'Последний рубеж: финальная арена. Победа завершает поход.';
+    default: return undefined;
+  }
 };
 
 /**
@@ -179,6 +190,10 @@ export class RunView {
   private run: RtRunState | null;
   private readonly store = createRtRunStore();
   private readonly profile = createRtProfileStore();
+  /** «Обучение v1»: the lines on the screens (first two appearances each); absent in the sandbox. */
+  private readonly lines: ScreenLines | null;
+  /** The button «Показать подсказки снова» was pressed (the gear says so until it closes). */
+  private hintsReset = false;
   private selected: string | null = null;
   private notice = '';
   private confirmReset = false;
@@ -208,6 +223,7 @@ export class RunView {
     this.el.setAttribute('data-testid', 'run');
     this.el.addEventListener('click', event => this.onClick(event));
     this.run = this.store.load();
+    this.lines = host.hints ? new ScreenLines(host.hints.store, host.hints.on) : null;
   }
 
   get state(): RtRunState | null { return this.run; }
@@ -328,7 +344,9 @@ export class RunView {
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
-    if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
+    if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.hintsReset = false; this.draw(); return; }
+    if (action === 'hints-toggle') { this.host.hints?.set((target as HTMLInputElement).checked); this.draw(); return; }
+    if (action === 'hints-reset') { this.host.hints?.store.reset(); this.hintsReset = true; this.draw(); return; }
     // П5: the summary of «Удача похода» opens and closes the block (the redraw keeps it as it is).
     if (action === 'luck') { event.preventDefault(); this.luckOpen = !this.luckOpen; this.draw(); return; }
     if (action === 'view-toggle') {
@@ -518,8 +536,7 @@ export class RunView {
 
   private startHtml(): string {
     return `<div class="rt-run-start rt-card"><h2>Поход</h2><p>Карта леса, арены в реальном времени, привалы, события и торговец. Поражение на арене заканчивает поход.</p>`
-      + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>`
-      + `<p class="rt-run-note">Песочница арен прототипа с панелью отладки — <a href="#sandbox">#sandbox</a>.</p></div>`;
+      + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button></div>`;
   }
 
   private headerHtml(run: RtRunState): string {
@@ -539,18 +556,31 @@ export class RunView {
     return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
-      + `<span class="rt-run-res">${resources}</span><span class="rt-run-seed">seed ${run.seed}</span>${reset}${this.logsButton()}${this.settingsHtml()}<a class="rt-run-sandbox" href="#sandbox">Песочница</a></header>`
+      + `<span class="rt-run-res">${resources}</span>${reset}${this.logsButton()}${this.settingsHtml()}</header>`
+      + this.mapLineHtml(run)
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '')
       + (this.sessionNudge && this.host.session?.on() && !run.result ? `<p class="rt-run-session" data-testid="run-session-nudge">${escapeHtml(this.sessionNudge)}</p>` : '');
+  }
+
+  /**
+   * «Обучение v1», Э2: one quiet line under the header of the map — what the resources are for. The first two appearances of
+   * the map only (a redraw of the same map is not a new one); not under a modal screen and not at the end of the run.
+   */
+  private mapLineHtml(run: RtRunState): string {
+    if (run.pending || run.result || this.inArena) return '';
+    return this.lines?.show('e2', `map|${run.seed}|${run.visited.length}`) ? `<p class="rt-run-line" data-testid="line-resources">${escapeHtml(LINE_RESOURCES)}</p>` : '';
   }
 
   /**
    * П1: the gear of the map header and, open, its view settings — one checkbox per `viewToggles` entry («Часы сессии» (П7) is the next one). Not in the fight HUD.
    */
   private settingsHtml(): string {
-    const toggles = this.host.viewToggles ?? [];
-    if (!toggles.length) return '';
-    const rows = toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
+    const toggles = this.host.viewToggles ?? [], hints = this.host.hints;
+    if (!toggles.length && !hints) return '';
+    // «Обучение v1»: «Подсказки» and «Показать подсказки снова» (the memory of what was shown starts over).
+    const hintRows = hints ? `<label class="rt-run-setting" title="Короткие подсказки в бою (по одной, один раз) и строки на экранах похода."><input type="checkbox" data-action="hints-toggle" data-testid="view-hints"${hints.on() ? ' checked' : ''}> Подсказки</label>`
+      + `<button class="rt-run-hints-reset" data-action="hints-reset" data-testid="hints-reset">${this.hintsReset ? 'Подсказки покажутся снова ✓' : 'Показать подсказки снова'}</button>` : '';
+    const rows = hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
     return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки вида" aria-expanded="${this.settingsOpen}">⚙</button>`
       + (this.settingsOpen ? `<span class="rt-run-settings" data-testid="run-settings-panel">${rows}</span>` : '') + '</span>';
   }
@@ -587,7 +617,7 @@ export class RunView {
     return `<aside class="rt-run-detail" data-testid="run-detail"><h3>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h3>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? `<p>${arenaLine(arena.arena, arena.roster, status === 'available' && this.hasNewSign(run, node))}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
-      + (STEP1_HINT[node.type] ? `<p class="rt-run-hint">${escapeHtml(STEP1_HINT[node.type]!)}</p>` : '')
+      + (nodeHint(node) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node)!)}</p>` : '')
       // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
       // print on a second line (design 12.10.2026).
       + (this.host.goblinCircle && !run.casino && rtCasinoNode(node) && (status === 'available' || status === 'locked')
@@ -604,11 +634,10 @@ export class RunView {
   private enterHtml(run: RtRunState, node: ForestMapNode): string {
     const oaths = rtOathPreview(run, node);
     if (!oaths) return `<button class="rt-again" data-action="enter" data-testid="run-enter">Идти</button>`;
-    const mult = (value: number) => String(value).replace('.', ',');
-    const buttons = oaths.map(id => `<button class="rt-run-choice" data-action="enter-oath" data-oath="${id}" data-testid="oath-${id}"><b>Клятва: ${escapeHtml(oathDef(id).name)}</b>`
+    const buttons = oaths.map(id => `<button class="rt-run-choice" data-action="enter-oath" data-oath="${id}" data-testid="oath-${id}"><b>Зарок: ${escapeHtml(oathDef(id).name)}</b>`
       + `<small>${escapeHtml(oathDef(id).rule)}</small></button>`).join('');
-    return `<div class="rt-run-oaths" data-testid="run-oaths"><p class="rt-run-hint">Ставка — котёл этого боя: клятва выполнена — ×${mult(OATH_KEPT_MULT)}, нарушена — ×${mult(OATH_BROKEN_MULT)}. HP и поход не на кону.</p>`
-      + `<div class="rt-run-choices">${buttons}</div><button class="rt-again" data-action="enter" data-testid="run-enter">Без клятвы</button></div>`;
+    return `<div class="rt-run-oaths" data-testid="run-oaths"><p class="rt-run-hint" data-testid="run-stake-line">${stakeLine(OATH_KEPT_MULT, OATH_BROKEN_MULT)} HP и поход не на кону.</p>`
+      + `<div class="rt-run-choices">${buttons}</div><button class="rt-again" data-action="enter" data-testid="run-enter">Без зарока</button></div>`;
   }
 
   /**
@@ -640,7 +669,7 @@ export class RunView {
     if (!pending) return '';
     if (pending.kind === 'battle') {
       if (this.inArena) return '';
-      const oath = pending.oath ? `<p data-testid="run-battle-oath">Клятва: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
+      const oath = pending.oath ? `<p data-testid="run-battle-oath">Зарок: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
       return card(`<h2>Бой</h2><p>${arenaLine(pending.arena, pending.roster)}</p>${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
@@ -648,13 +677,14 @@ export class RunView {
       // Casino stage 1, item 4 (design 11.10.2026): the outcomes in resources, not multipliers — «Забрать» and each half of
       // the roll, the cap and the oath included.
       const view = rtDieView(run)!;
-      const oath = view.oath > 1 ? ' · клятва выполнена' : view.oath < 1 ? ' · клятва нарушена' : '';
+      const oath = view.oath > 1 ? ' · зарок выполнен' : view.oath < 1 ? ' · зарок нарушен' : '';
       // П4 «Раздув за дела»: the greed step the door recorded (the payouts below include it).
       const greed = view.greed > 1 ? ` ×${multText(view.greed)}` : '';
       return card(`<h2>Кость у двери</h2><p data-testid="die-cauldron">Котёл ${view.cauldron}${greed}${oath}.</p>`
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="die-take" data-testid="die-take"><b>Забрать: ${resourcesWord(view.take)}</b></button>`
         + `<button class="rt-run-choice" data-action="die-roll" data-testid="die-roll"><b data-testid="die-odds">${dieRollText(view.low, view.high)}</b>`
-        + `<small>Кость: 1–${DIE_LOW_FACES} и ${DIE_LOW_FACES + 1}–6 поровну.</small></button></div>`, 'run-die');
+        + `<small>Кость: 1–${DIE_LOW_FACES} и ${DIE_LOW_FACES + 1}–6 поровну.</small></button></div>`
+        + (this.lines?.show('e4', `die|${run.seed}|${run.visited.length}`) ? `<p class="rt-run-line" data-testid="line-die">${escapeHtml(dieLine(DIE_LOW_FACES))}</p>` : ''), 'run-die');
     }
     if (pending.kind === 'casino') {
       // B7 К9: two tables and «Уйти»; at most RT_CASINO_GAMES games; the last game's result stays (a reload shows the same).
@@ -678,7 +708,7 @@ export class RunView {
       }
       const buttons = view.options.map(entry => `<button class="rt-run-choice" data-action="gift" data-index="${entry.index}" data-testid="gift-${entry.index}" ${entry.available ? '' : 'disabled'}>`
         + `<b>${escapeHtml(giftText(entry.option))}</b>${entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}</button>`).join('');
-      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Кнопки без аналога в срезе выключены.</p><div class="rt-run-choices">${buttons}</div>`
+      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p><div class="rt-run-choices">${buttons}</div>`
         + (view.canSkip ? `<button class="rt-other" data-action="gift" data-index="skip" data-testid="gift-skip">Дальше без дара</button>` : ''), 'run-gift');
     }
     if (pending.kind === 'rest') {

@@ -31,12 +31,12 @@ import { goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World }
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, PARAMS_STORAGE_KEY, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
+import { loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, PARAMS_STORAGE_KEY, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
 import { SessionClock } from './session';
 import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
 import { DOOR_HEAT, doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
-import { oathLine, oathMark, OATHS, type OathId } from '../sim/oath';
+import { OATH_BROKEN_MULT, oathMark, OATHS, type OathId } from '../sim/oath';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
@@ -44,6 +44,7 @@ import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
 import { rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
+import { detectHints, heroUnderBox, HintQueue, HintStore, hintText, purseResultLine, type HintId } from './hints';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RtDeathWatch } from '../run/rtRunEnd';
@@ -58,6 +59,14 @@ import { LogsPanel } from './logsPanel';
  * one the Node report replays with (track ТB, `telemetry/observe.ts`); `nullObserver` of schema.ts records no summary.
  */
 const FIGHT_OBSERVER: FightObserverFactory = fightObserver;
+/**
+ * «Обучение v1», the rename «Клятва» → «Зарок» (view texts only; ids, saves and `sim/oath.ts oathLine`, which the report reads, stay):
+ * the HUD line under the goal — «Зарок: без прыжков ✓», «Зарок: кристалл в цепи» (not met yet), «Зарок: без прыжков ×0,5» (broken).
+ */
+function oathHudLine(w: World): string | null {
+  const state = oathMark(w);
+  return state ? `Зарок: ${state.def.short}${state.mark === 'broken' ? ` ×${multText(OATH_BROKEN_MULT)}` : state.mark === 'holds' ? ' ✓' : ''}` : null;
+}
 /** The N note flashes «отмечено» at the HUD this long (ms). */
 const NOTE_FLASH_MS = 1000;
 
@@ -317,13 +326,17 @@ async function boot(): Promise<void> {
   const itemHint = el('div', 'rt-item-hint', 'Предметы: клавиши <kbd>1</kbd>–<kbd>4</kbd>, бьют в точку курсора');
   itemHint.setAttribute('data-testid', 'item-hint');
   itemHint.hidden = true;
+  // «Обучение v1» (view/hints.ts): the one-time hint of a run fight, bottom centre above the item line (never in the sandbox).
+  const hintBox = el('div', 'rt-onboard');
+  hintBox.setAttribute('data-testid', 'onboarding-hint');
+  hintBox.hidden = true;
   // Phase B (Д5, design answer 23): the build column on the left (x 8–70 from y ≈ 72), only the items taken.
   const buildColumn = new BuildColumn();
   // Telemetry: «отмечено» under the HUD for a second after the N key.
   const noteFlash = el('div', 'rt-note-flash', 'отмечено');
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, purseHint, result, noteFlash);
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, hintBox, help, pausedBadge, jumpButton, hint, purseHint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, menu);
   if (logsPanel) host.append(logsPanel.el);
 
@@ -368,6 +381,14 @@ async function boot(): Promise<void> {
     return new Simulation({ arena, params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); }, ...hero ? { hero } : {}, loadout });
   };
 
+  /**
+   * «Обучение v1» (view/hints.ts; run only — the sandbox neither reads nor writes it): the viewer's memory, the queue of the
+   * fight hints and the log of the hints started on this page (id and real time: the tests read it). `hintsOn` — the gear's toggle.
+   */
+  const hintStore = sandbox ? null : new HintStore();
+  let hintsOn = loadHintsOn();
+  const hints = hintStore ? { store: hintStore, queue: new HintQueue(hintStore, id => hintText(id, sim.world.params)), log: [] as { id: HintId; t: number }[] } : null;
+
   let arenaIndex = 0;
   let sim = newSimulation(SANDBOX_ARENAS[arenaIndex], nextSeed(fixedSeed));
   /** A run arena: the node and arena names for the HUD (null in the sandbox). */
@@ -379,6 +400,8 @@ async function boot(): Promise<void> {
   /** Every command goes through here: the telemetry sees the world before it changes and the command after it. */
   const command = (cmd: Command) => {
     recorder?.beforeCommand(sim.world);
+    // «Обучение v1»: a chain released (one that had links) lets the hint on screen go once its time is over.
+    if (cmd.t === 'release' && sim.world.chain.length > 0) hints?.queue.release(performance.now());
     const done = sim.command(cmd);
     recorder?.afterCommand(cmd, sim.world);
     // П2: the released chain's enemy links (the plan at the release) decide the dash's sound and shake.
@@ -409,6 +432,8 @@ async function boot(): Promise<void> {
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout);
+    hints?.queue.reset();
+    hintBox.hidden = true;
     recorder?.beginFight(sim, fightContext());
     SLOT_ITEMS.forEach((kind, i) => { slotBlink[i] = notice?.blink.includes(kind) ? ITEM_BLINK : 0; });
     lastSlotCounts = null;
@@ -559,6 +584,8 @@ async function boot(): Promise<void> {
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
+    // «Обучение v1»: the toggle «Подсказки» and «Показать подсказки снова» on the gear; the screen lines read the same memory.
+    ...hints ? { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) { hints.queue.reset(); hintBox.hidden = true; } } } } : {},
   }, fixedSeed);
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap };
   /**
@@ -740,7 +767,8 @@ async function boot(): Promise<void> {
       ['Убито', String(w.stats.kills)],
       // Casino «Котёл»: the cauldron and what the door pays for it (die ×1) instead of the score; in a run with the die
       // pending («Кость у двери») the die comes next — the row says so.
-      w.params.purse ? ['Котёл', w.purse?.door ? `${w.purse.door.cauldron}${(w.purse.door.greed ?? 1) > 1 ? ` ×${multText(w.purse.door.greed!)}` : ''} → ресурсов ${doorPayout(w.purse.door).length}${runView?.diePending ? ' (до кости)' : ''}` : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
+      // «Обучение v1», Э1 (a run fight): the same row with the whole arithmetic of the payout (`purseResultLine`, the door's own rate).
+      w.params.purse ? ['Котёл', w.purse?.door ? (runView ? purseResultLine(w.purse.door) : `${w.purse.door.cauldron}${(w.purse.door.greed ?? 1) > 1 ? ` ×${multText(w.purse.door.greed!)}` : ''} → ресурсов ${doorPayout(w.purse.door).length}`) + (runView?.diePending ? ' (до кости)' : '') : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
       // П10: a run fight says it in its own line under the table.
       ...fightChainLine ? [] : [['Лучшая цепь', `${w.stats.bestChain} убийств`] as [string, string]],
       ['Кристаллов выпало', String(w.stats.crystals)],
@@ -857,6 +885,27 @@ async function boot(): Promise<void> {
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
     if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); }
+    // «Обучение v1»: the one-time hints, from the same events (a run fight that is playing; the sandbox has none).
+    if (hints) {
+      const hinting = hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded && w.status === 'playing';
+      if (hinting) {
+        for (const id of detectHints(w, p => renderer.sees(p))) hints.queue.offer(id);
+        const started = hints.queue.update(now);
+        if (started) {
+          hintBox.textContent = started.text;
+          hintBox.dataset.id = started.id;
+          hints.log.push({ id: started.id, t: now });
+          recorder?.hintShown(runView!.state, started.id);
+        }
+      }
+      const current = hinting ? hints.queue.current : null;
+      hintBox.hidden = !current;
+      if (current) {
+        // The hero (and the markers at the edges) must not stay covered: the box fades while he is under it or near it.
+        const box = hintBox.getBoundingClientRect(), stageBox = stage.getBoundingClientRect(), at = renderer.toScreen(w.hero.x, w.hero.y);
+        hintBox.classList.toggle('rt-faded', heroUnderBox({ x: stageBox.left + at.x, y: stageBox.top + at.y }, box));
+      }
+    }
     w.events.length = 0;
     // CPU time of simulation + scene update (GPU work excluded), smoothed.
     workMs += (performance.now() - workStart - workMs) * 0.05;
@@ -884,7 +933,7 @@ async function boot(): Promise<void> {
     goalText.textContent = w.stage === 'greed' ? greedLine(w) ?? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     // Casino «Ставка клятвы»: the oath's line under the goal (none without an oath).
-    const oathNow = oathLine(w);
+    const oathNow = oathHudLine(w);
     oathText.hidden = !oathNow;
     if (oathNow && oathText.textContent !== oathNow) oathText.textContent = oathNow;
     oathText.classList.toggle('rt-oath-broken', oathMark(w)?.mark === 'broken');
@@ -1121,6 +1170,8 @@ async function boot(): Promise<void> {
         /** Telemetry (track ТA): the browser buffer — records, characters, not delivered, notes, a record kept in memory only. Null — off. */
         telemetry: recorder ? (({ records, chars, undelivered, notes, bufferFull }) => ({ records, chars, undelivered, notes, bufferFull }))(recorder.stats()) : null,
         noteFlash: !noteFlash.hidden,
+        /** «Обучение v1»: the toggle, the hint on screen (id, text, faded under the hero), the ids shown to this viewer, the hints started on this page (id, real ms). Null in the sandbox. */
+        onboarding: hints ? { on: hintsOn, id: hintBox.hidden ? null : hintBox.dataset.id ?? null, text: hintBox.hidden ? null : hintBox.textContent, faded: !hintBox.hidden && hintBox.classList.contains('rt-faded'), box: hintBox.hidden ? null : (({ left, top, right, bottom }) => ({ left, top, right, bottom }))(hintBox.getBoundingClientRect()), shown: hints.store.shownIds(), pending: [...hints.queue.pending], log: hints.log.map(h => ({ ...h })) } : null,
         logsOpen: !!logsPanel?.open,
       };
     },

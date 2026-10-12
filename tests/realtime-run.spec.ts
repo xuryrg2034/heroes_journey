@@ -342,12 +342,22 @@ test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the d
   expect(await page.evaluate(() => (window as any).__realtime.run)).toBeNull();
 });
 
-test('the sandbox opens by the anchor too: the run screen links to #sandbox, the link boots the sandbox (a published build keeps no query)', async ({ page }) => {
+test('the sandbox opens by the anchor too: a changed #sandbox boots it (a published build keeps no query); the run screen shows no dev words — no seed, no sandbox link', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
   await expect(page.getByTestId('run-new')).toBeVisible();
-  await page.locator('a[href="#sandbox"]').first().click();
+  // «Обучение v1» (12.10.2026): the start screen has no hint of the sandbox, a map has neither the seed nor the link.
+  await expect(page.getByTestId('run')).not.toContainText('#sandbox');
+  await expect(page.locator('a[href="#sandbox"]')).toHaveCount(0);
+  await page.evaluate(() => (window as any).__realtime.run.newRun(10));
+  await page.getByTestId('gift-1').click();
+  await expect(page.getByTestId('run-map')).toBeVisible();
+  await expect(page.locator('.rt-run-head')).not.toContainText('seed');
+  await expect(page.locator('.rt-run-head')).not.toContainText('Песочница');
+  await expect(page.locator('a[href="#sandbox"]')).toHaveCount(0);
+  // The anchor itself still boots the sandbox (testers type it).
+  await page.evaluate(() => { location.hash = '#sandbox'; });
   await expect(page.getByTestId('menu')).toBeVisible();
   await expect(page.getByTestId('open-panel')).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).__realtime?.run)).toBeNull();

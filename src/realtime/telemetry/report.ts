@@ -20,6 +20,7 @@ import {
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_KIND_TITLES } from '../run/rtRunEnd';
+import { HINT_IDS, HINT_TITLES } from '../view/hints';
 
 // ---- Replay with the observers ----
 
@@ -597,6 +598,21 @@ function mapSignRows(runs: readonly RunRecord[]): (string | number)[][] {
   const s = mapSignStats(runs);
   return s.choices ? [[s.runs, s.choices, `${s.chosenSigned} (${pct(s.chosenSigned, s.choices)})`, s.choices - s.chosenSigned]] : [];
 }
+// ---- «Обучение v1»: the fight hints shown per run (RunRecord.hints) ----
+
+/** The share of runs in which each fight hint was shown (the order of the design, Б1–Б9). */
+export interface HintStat { id: string; title: string; runs: number }
+export function hintStats(runs: readonly RunRecord[]): HintStat[] {
+  return HINT_IDS.map(id => ({ id, title: HINT_TITLES[id], runs: runs.filter(r => r.hints?.includes(id)).length }));
+}
+const HINT_HEAD = ['Подсказка', 'Походов с показом', 'Доля походов'];
+const HINT_LEGEND = '«Обучение v1» (12.10.2026). Походы, где подсказка боя показана на экране (`RunRecord.hints`); доля — от всех походов набора. Подсказка показывается зрителю один раз за всё время (память браузера), поэтому у возвращающегося тестера доли ниже, а у новых зрителей — около доли походов, где сработал триггер. Выключатель «Подсказки» выключен и песочница — поле не пишется; записи до 12.10.2026 поля не имеют.';
+function hintRows(runs: readonly RunRecord[]): (string | number)[][] {
+  const stats = hintStats(runs);
+  return stats.some(s => s.runs) ? stats.map(s => [s.title, s.runs, pct(s.runs, runs.length)]) : [];
+}
+// ---- end «Обучение v1» ----
+
 // ---- end П6 / П8 ----
 
 // ---- Consumables per run (12.10.2026) ----
@@ -764,6 +780,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     // П6 «Незакрытое дело»: a new run after the end. П8 «Новое на карте»: the sign on the map.
     '## Новый поход после конца', '', NEW_RUN_LEGEND, '', table(NEW_RUN_HEAD, newRunRows(set.records)), '',
     '## Новое на карте', '', MAP_SIGN_LEGEND, '', table(MAP_SIGN_HEAD, mapSignRows(runs)), '',
+    '## Подсказки', '', HINT_LEGEND, '', table(HINT_HEAD, hintRows(runs)), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',

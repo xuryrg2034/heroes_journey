@@ -234,6 +234,8 @@ export interface RunRecord extends RtHeader {
   endedAt?: string;
   /** П8 «Новое на карте» (from 12.10.2026): the map choices made with a sign shown, in order; absent — none (older records too). */
   mapSigns?: RunMapSign[];
+  /** «Обучение v1» (from 12.10.2026): the ids of the fight hints shown in this run (`b1`…`b9`, in the order shown); absent — none shown (older records too, the toggle off, a viewer who had seen them all). */
+  hints?: string[];
   /** Consumables gained / used / left (from 12.10.2026; absent in older records — the report reads «нет данных»). */
   items?: RunItems;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */

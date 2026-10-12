@@ -273,6 +273,8 @@ interface RunMeta {
   endedAt?: string;
   /** П8: the map choices made with the sign «✦ новое» shown (absent — none yet). */
   mapSigns?: RunMapSign[];
+  /** «Обучение v1»: the fight hints shown in this run (absent — none yet). */
+  hints?: string[];
   /** Consumables gained / used / left (absent — no step seen yet). */
   items?: RunItems;
 }
@@ -627,7 +629,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.items ? { items: meta.items } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -652,6 +654,18 @@ export class RtRecorder {
     safe(undefined, () => {
       const meta = this.metaFor(run);
       (meta.mapSigns ??= []).push({ nodeId: choice.nodeId, signed: [...choice.signed], chosenSigned: choice.chosenSigned });
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
+  /** «Обучение v1»: a fight hint started in this run; its id goes into the run record once (the record is written again). */
+  hintShown(run: RtRunState | null, id: string): void {
+    if (!run) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      if (meta.hints?.includes(id)) return;
+      (meta.hints ??= []).push(id);
       this.saveMeta();
       this.writeRun(run);
     });
