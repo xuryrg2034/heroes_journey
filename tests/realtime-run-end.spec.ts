@@ -80,10 +80,12 @@ test('П6 defeat: the end screen says the killer, the row and rows left, the Jai
   await expect(page.getByTestId('run')).toBeHidden();
   const speed = await quiet(page);
   await drawChain(page, 4);
-  // An elite shield-bearer with «Стремительный» at the hero's side walks into him (the only enemy on the arena).
+  // An elite shield-bearer with «Стремительный» at the hero's side walks into him (the only enemy on the arena: the limit of
+  // 1 keeps newcomers out while it walks, so no plain enemy lands the last hit — a flake of 12.10.2026 under load).
   await page.evaluate(speedBack => {
     const rt = (window as any).__realtime, hero = rt.snapshot().hero;
-    rt.params.enemySpeed = speedBack;
+    rt.params.enemySpeed = speedBack; rt.params.maxEnemies = 1;
+    rt.clear(false);
     rt.place(hero.x + 0.6, hero.y, 0, 2, 'shield', true, ['swift']);
   }, speed);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 60_000 });
