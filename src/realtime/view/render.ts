@@ -129,6 +129,8 @@ const MAGIC = 0xc58cff;
 /** Phase A (Т5): pointers to spawn markers off screen on a large arena — a cold pale grey, apart from the white of a
  * danger and the gold of a goal; smaller and steady (no blinking). */
 const SPAWN_ARROW = 0xc9d5de;
+/** Task 6: the words over a struck elite («−1 пластина», «окно») rise this many px over it (the power number stands up to ~75 px over the hero) — over the chain power number, which stands beside the hero (the hero is at the elite when it strikes). */
+const ELITE_WORD_UP = 120;
 /** Phase A (Т3): the plaque of a badge under a body and the ink of its glyph. */
 const BADGE_PLAQUE = 0x10171d;
 /** Phase A (Т3): the badge glyph in screen pixels (its half size) and the plaque around it. */
@@ -1205,6 +1207,27 @@ export class RealtimeRenderer {
     this.signals.affixLabels = labels;
   }
 
+  /** Tests read it: the power number's rectangle (stage px, null — hidden) and the floating words now (text and rectangle). */
+  floatRects(): { power: { left: number; top: number; right: number; bottom: number } | null; words: { text: string; left: number; top: number; right: number; bottom: number }[] } {
+    const box = (t: Text) => { const b = t.getBounds(); return { left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height }; };
+    return { power: this.powerText?.visible ? box(this.powerText) : null, words: this.floating.map(f => ({ text: f.text.text, ...box(f.text) })) };
+  }
+
+  /** Tests read it: the rectangles (stage px) of the elite plaques and the caption plates on screen now. */
+  plateRects(): { kind: 'plaque' | 'caption'; left: number; top: number; right: number; bottom: number }[] {
+    const rect = (kind: 'plaque' | 'caption', box: Container) => { const b = box.getBounds(); return { kind, left: b.x, top: b.y, right: b.x + b.width, bottom: b.y + b.height }; };
+    return [...[...this.plaques.values()].filter(p => p.box.visible && p.box.alpha > 0).map(p => rect('plaque', p.box)), ...this.captions.filter(c => c.box.visible && c.box.alpha > 0).map(c => rect('caption', c.box))];
+  }
+
+  /** Would a stack standing `liftPx` screen px over the arena y `top` (drawing px) reach the HUD plate or the screen top? */
+  private stackUnderHud(top: number, liftPx: number): boolean {
+    return this.base.y + top * this.scale - liftPx < this.freeTop + 6;
+  }
+  /** The y (drawing px) of the top of a stack UNDER an enemy: below its chips (the world label dodges the plates, `WorldLabelLayer`). */
+  private underElite(e: Enemy, y: number, R: number, px: number): number {
+    return y + R + (e.elite ? 34 : 8) * px;
+  }
+
   /**
    * Elite armour and presence (package «Урон имеет значение», docs/realtime-design-research.md, 4.3): over an armoured elite a
    * row of plate pips (filled — left, empty — lost, the growing one has a ring); at 0 plates a lemon pulse with a clock ring
@@ -1244,7 +1267,10 @@ export class RealtimeRenderer {
       if (pl) {
         pl.box.visible = seen;
         pl.box.scale.set(px);
-        pl.box.position.set(x, y - R - (e.armor ? 30 : 8) * px);
+        const lift = (e.armor ? 30 : 8) + 24, boxH = pl.box.height / Math.max(1e-6, pl.box.scale.y);
+        // No room over the elite (the HUD plate, the screen top): the plaque goes UNDER it, below its chips; the world label «Пластина — 1 удар» (view/worldLabels.ts) steps aside to stand clear of the plates.
+        if (this.stackUnderHud(y - R, lift)) pl.box.position.set(x, this.underElite(e, y, R, px) + boxH * px);
+        else pl.box.position.set(x, y - R - (e.armor ? 30 : 8) * px);
         pl.box.alpha = Math.max(0, Math.min(1, (pl.until - this.clock) / PLAQUE_FADE));
       }
     }
@@ -1294,7 +1320,11 @@ export class RealtimeRenderer {
       const R = (e.elite ? enemyDrawRadius(world.params) * UNIT * world.params.eliteArtScale * 1.06 : enemyDrawRadius(world.params) * UNIT), lift = e.elite ? (e.armor ? 30 : 8) + 26 : 8;
       c.box.visible = this.sees(e, 1.5);
       c.box.scale.set(px);
-      c.box.position.set(e.x * UNIT, e.y * UNIT - R - (lift + c.slot * 26) * px);
+      // The same under the HUD rule as the elite's plaque: under the elite, the plaque first and the captions after it.
+      if (this.stackUnderHud(e.y * UNIT - R, lift + c.slot * 26 + 24)) {
+        const boxH = c.box.height / Math.max(1e-6, c.box.scale.y);
+        c.box.position.set(e.x * UNIT, this.underElite(e, e.y * UNIT, R, px) + ((e.elite ? 1 : 0) + c.slot) * 26 * px + boxH * px);
+      } else c.box.position.set(e.x * UNIT, e.y * UNIT - R - (lift + c.slot * 26) * px);
       c.box.alpha = Math.max(0, Math.min(1, (c.until - this.clock) / PLAQUE_FADE));
     }
     shown.live = this.captions.length;
@@ -1778,16 +1808,16 @@ export class RealtimeRenderer {
       if (ev.type === 'elitePlates') {
         if (ev.action === 'strip') {
           // The strip that opens the window shows only «окно» (one text, not three on top of each other with the power).
-          if (ev.plates > 0) this.floatText(`−${ev.removed ?? 1} ${platesWord(ev.removed ?? 1)}`, ev.x * UNIT, ev.y * UNIT - 40, ELITE_LEMON);
+          if (ev.plates > 0) this.floatText(`−${ev.removed ?? 1} ${platesWord(ev.removed ?? 1)}`, ev.x * UNIT, ev.y * UNIT - ELITE_WORD_UP, ELITE_LEMON);
           this.eliteBurst(ev.x, ev.y, 0.9, 0.22, 4);
           this.eliteShown.stripFlashes++;
-        } else if (ev.action === 'open') this.floatText('окно', ev.x * UNIT, ev.y * UNIT - 40, ELITE_LEMON);
+        } else if (ev.action === 'open') this.floatText('окно', ev.x * UNIT, ev.y * UNIT - ELITE_WORD_UP, ELITE_LEMON);
         continue;
       }
       if (ev.type === 'eliteDown') {
         // The sim adds the 0.08 s hit-stop; here a flash, bigger and with a word for a clean break (killed in the window).
         this.eliteBurst(ev.x, ev.y, ev.clean ? 2.4 : 1.6, ev.clean ? 0.5 : 0.35, ev.clean ? 8 : 5, true);
-        if (ev.clean) { this.floatText('чистый слом', ev.x * UNIT, ev.y * UNIT - 54, ELITE_LEMON); this.eliteShown.cleanBreaks++; }
+        if (ev.clean) { this.floatText('чистый слом', ev.x * UNIT, ev.y * UNIT - ELITE_WORD_UP - 16, ELITE_LEMON); this.eliteShown.cleanBreaks++; }
         this.eliteShown.downFlashes++;
         continue;
       }

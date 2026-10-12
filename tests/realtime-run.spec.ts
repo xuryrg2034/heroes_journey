@@ -368,7 +368,7 @@ test('the sandbox opens by the anchor too: a changed #sandbox boots it (a publis
   expect(errors).toEqual([]);
 });
 
-test('run (iteration 2.1): consumables are noticed — the map says their key, the arena blinks their slots bright and shows the hint; after one is used the next arena has no hint', async ({ page }) => {
+test('run (iteration 2.1, task 6): consumables are noticed — the map says their key, the arena blinks their slots bright and the slots PULSE (no plate over the bar) until one is used; the next arena does not pulse', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
   await openRun(page, errors);
@@ -384,14 +384,19 @@ test('run (iteration 2.1): consumables are noticed — the map says their key, t
   await expect(page.getByTestId('run-notice')).toContainText(/\(клавиша [1-4] в бою\)/);
   await enterFirstNode(page);
   await expect(page.getByTestId('run')).toBeHidden();
-  // Arena 1: the hint is on; slots with a consumable are bright, the others dim; only gained ones blink at the start.
-  await expect(page.getByTestId('item-hint')).toBeVisible();
-  await expect(page.getByTestId('item-hint')).toHaveText('Предметы: клавиши 1–4, бьют в точку курсора');
-  const first = await page.evaluate(() => (window as any).__realtime.snapshot()) as { slotsBright: string[]; slotsBlinking: string[] };
+  // Arena 1: no plate «Предметы: клавиши 1–4…» (task 6, 12.10.2026); slots with a consumable are bright and pulse, the others dim; only gained ones blink at the start.
+  await expect(page.getByTestId('item-hint')).toHaveCount(0);
+  await expect(page.getByText('Предметы: клавиши')).toHaveCount(0);
+  await expect.poll(async () => (((await page.evaluate(() => (window as any).__realtime.snapshot())) as { slotsPulsing: string[] }).slotsPulsing).sort()).toEqual([...gained].sort());
+  const first = await page.evaluate(() => (window as any).__realtime.snapshot()) as { slotsBright: string[]; slotsBlinking: string[]; slotsPulsing: string[] };
+  for (const kind of gained) await expect(page.getByTestId(`item-${kind}`)).toHaveClass(/rt-pulse/);
+  expect(await page.getByTestId(`item-${gained[0]}`).evaluate(node => getComputedStyle(node).animationName)).toBe('rt-pulse');
+  for (const kind of ['frost', 'bomb', 'healing', 'fire'].filter(k => !gained.includes(k))) await expect(page.getByTestId(`item-${kind}`)).not.toHaveClass(/rt-pulse/);
   expect([...first.slotsBright].sort()).toEqual([...gained].sort());
   expect([...first.slotsBlinking].sort()).toEqual([...gained].sort());
   for (const kind of ['frost', 'bomb', 'healing', 'fire']) await expect(page.getByTestId(`item-${kind}`)).toHaveClass(gained.includes(kind) ? /rt-has/ : /rt-empty/);
-  await page.screenshot({ path: 'artifacts/realtime-item-hint.png' });
+  await page.mouse.move(640, 200);
+  await page.screenshot({ path: 'artifacts/realtime-item-pulse.png' });
   // Use one: a bomb, frost or fire on an enemy next to the hero (a bomb is given if the gift held only healing).
   const kind = await page.evaluate(() => {
     const rt = (window as any).__realtime, s = rt.snapshot();
@@ -405,7 +410,9 @@ test('run (iteration 2.1): consumables are noticed — the map says their key, t
   const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [hero.x + 2, hero.y]);
   await page.mouse.move(at.x, at.y);
   await page.keyboard.press(String(['frost', 'bomb', 'healing', 'fire'].indexOf(kind) + 1));
-  await expect(page.getByTestId('item-hint')).toBeHidden();
+  // The first item used stops the pulse for good (the viewer's memory).
+  await expect.poll(async () => ((await page.evaluate(() => (window as any).__realtime.snapshot())) as { slotsPulsing: string[] }).slotsPulsing).toEqual([]);
+  expect(JSON.parse(await page.evaluate(() => localStorage.getItem('ashen-oath-realtime-hints') ?? '{}')).shown.item).toBe(1);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
   await page.getByTestId('result-map').click();
@@ -422,7 +429,8 @@ test('run (iteration 2.1): consumables are noticed — the map says their key, t
   }
   await expect(page.getByTestId('run')).toBeHidden();
   await expect.poll(async () => (await snapshot(page)).time).toBeGreaterThan(0.2);
-  await expect(page.getByTestId('item-hint')).toBeHidden();
+  await expect(page.getByTestId('item-hint')).toHaveCount(0);
+  expect(((await page.evaluate(() => (window as any).__realtime.snapshot())) as { slotsPulsing: string[] }).slotsPulsing).toEqual([]);
   expect(errors).toEqual([]);
 });
 
@@ -636,8 +644,10 @@ test('run (design 12.10.2026, «Смена цвета»): a mouse chain of 6 ene
   });
   const rule = await page.evaluate(() => { const rt = (window as any).__realtime; return { crystals: rt.params.crystals, links: rt.params.colorShiftLinks, every: rt.snapshot().colorShift.every }; });
   expect(rule).toEqual({ crystals: false, links: 6, every: 6 });
-  // The help line tells the run's rule, not the crystal (no crystals fall in the run).
-  await expect(page.getByTestId('help-color')).toHaveText('каждые 6 звеньев — смена цвета');
+  // The line of keys (task 6): only the keys, whole in 1280×720 — the colour rule is in the rings of the chain, not in the line.
+  await expect(page.getByTestId('help-color')).toHaveCount(0);
+  await expect(page.locator('.rt-help')).toHaveText('WASD идти · ЛКМ цепь · ПКМ/Esc отмена');
+  expect(await page.locator('.rt-help').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   // Six weak enemies of colour 0 in a spiral round the hero (1 apart), the 7th of colour 1 after the 6th; one more of colour 2
   // off the path (it shows the dimming).
   const offsets = [[1, 0], [1.6, 0.8], [0.8, 1.4], [-0.2, 1.3], [-1, 0.6], [-1, -0.4], [-0.2, -1.1]];

@@ -1,10 +1,10 @@
 /**
- * «Обучение v1» (view/hints.ts; docs/realtime-onboarding.md): the viewer's memory on a plain-object storage, the queue and its
- * real-time rules on a fake clock, the triggers read from real worlds (journalled commands on a quiet field) and from small
- * hand-made ones, the final texts, and the Э1 line against the payout the run really pays (`doorPayout`) on several seeds
- * with a greed step and a stake other than 1. Node only: `npm run test:realtime-hints`. The end-to-end result (the box on
- * screen, the toggle, the sandbox, the fade) is tests/realtime-onboarding.spec.ts.
- * Seeds `Math.imul(k, 2654435761) >>> 0`.
+ * «Обучение» (view/hints.ts, view/worldLabels.ts; docs/realtime-onboarding.md): the viewer's memory on a plain-object storage, the
+ * screen lines, the world labels (what stands now from small hand-made worlds, the actions read from the frame's events and from
+ * real dashes and a real spin Q on an armoured elite, the placement), the screen texts and the Э1 line against the payout the run
+ * really pays (`doorPayout`) on several seeds with a greed step and a stake other than 1, the telemetry field. Node only:
+ * `npm run test:realtime-hints`. The end-to-end result (labels on screen, the toggle, the pulse) is tests/realtime-onboarding.spec.ts.
+ * The box of hints and its queue (v1) are gone (12.10.2026). Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from '../sim/arenas';
 import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
@@ -129,14 +129,27 @@ check('labels (task 6, 12.10.2026): the three of the run stand at their object a
   for (const spec of [...two, ...c, ...l]) assert(spec.text.split(/\s+/).filter(t => /[\p{L}\d]/u.test(t)).length <= 5, `${spec.id}: short text «${spec.text}»`);
 });
 
-check('labels: the action of each is read from the frame\'s events — a plate taken off, the chest taken, the first pull; nothing else', () => {
+check('labels: the action of each is read from the frame\'s events — a plate taken off BY THE PLAYER (any source), the chest taken, the first pull; an arrow\'s or a blast\'s strip is no action', () => {
   const w = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(5) }).world;
   const withEvents = (events: unknown[]): World => ({ ...w, events } as unknown as World);
-  assert(labelActions(withEvents([{ type: 'chainHit', enemyId: 1, damage: 0, killed: false, x: 1, y: 1, combo: 1, plates: 1 }])).join() === 'b6', 'a plate off');
-  assert(labelActions(withEvents([{ type: 'chainHit', enemyId: 1, damage: 0, killed: false, x: 1, y: 1, combo: 1, plates: 0 }])).join() === 'b6', 'the last plate (plates left 0)');
+  const strip = (source: string | undefined) => ({ type: 'elitePlates', enemyId: 1, action: 'strip', plates: 1, removed: 1, ...source ? { source } : {}, x: 1, y: 1 });
+  for (const source of ['chain', 'spin', 'bomb', 'fire', 'fire-trail', 'slot']) assert(labelActions(withEvents([strip(source)])).join() === 'b6', `a plate off by ${source}`);
+  for (const source of ['arrow', 'blast', 'push', undefined]) assert(labelActions(withEvents([strip(source)])).length === 0, `a plate off by ${source}: not the player's`);
+  assert(labelActions(withEvents([{ type: 'elitePlates', enemyId: 1, action: 'open', plates: 0, source: 'chain', x: 1, y: 1 }])).length === 0, 'the window opening is no strip');
   assert(labelActions(withEvents([{ type: 'chainHit', enemyId: 1, damage: 1, killed: true, x: 1, y: 1, combo: 1 }])).length === 0, 'a plain hit is no action');
   assert(labelActions(withEvents([{ type: 'chest', objectId: 3, x: 1, y: 1, by: 'chain' }])).join() === 'b8', 'the chest');
   assert(labelActions(withEvents([{ type: 'slot', action: 'appear', x: 1, y: 1 }])).length === 0 && labelActions(withEvents([{ type: 'slot', action: 'pull', x: 1, y: 1 }])).join() === 'b9', 'the pull, not the appearing');
+});
+
+check('labels: a label keeps clear of the plates it would lie on (under the plate, over it when there is no room under)', () => {
+  const bounds = { left: 0, top: 70, right: 1280, bottom: 640 }, size = { w: 140, h: 24 }, at = { x: 600, y: 300 };
+  const plate = { left: 500, top: 230, right: 700, bottom: 255 };
+  const free = placeLabel({ place: 'above', lift: 1 }, at, 60, size, bounds, 6, []);
+  assert(free.bottom === 240, 'without a plate: over the object');
+  const dodged = placeLabel({ place: 'above', lift: 1 }, at, 60, size, bounds, 6, [plate]);
+  assert(dodged.top >= plate.bottom && dodged.left === free.left, `under the plate: ${JSON.stringify(dodged)}`);
+  const low = placeLabel({ place: 'above', lift: 1 }, { x: 600, y: 700 }, 60, size, bounds, 6, [{ left: 500, top: 560, right: 700, bottom: 640 }]);
+  assert(low.bottom <= 560 && low.top >= bounds.top, `no room under the plate: over it ${JSON.stringify(low)}`);
 });
 
 check('labels: placement — over the object, a side label flips to the left at the right edge, everything stays inside the bounds (below the HUD plate, over the action bar)', () => {
@@ -154,6 +167,20 @@ check('labels: placement — over the object, a side label flips to the left at 
   assert(right.left === 360 && flipped.right <= 1200 && flipped.right <= 1280, `right ${JSON.stringify(right)}, flipped ${JSON.stringify(flipped)}`);
   const low = placeLabel({ place: 'side', lift: 1 }, { x: 300, y: 700 }, 60, size, bounds);
   assert(low.bottom <= bounds.bottom, 'over the action bar');
+});
+
+check('labels: a real spin (Q) takes a plate off an armoured elite — the strip event is the label\'s action, as for a chain', () => {
+  const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(8), record: true });
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.5, y: 6 });
+  const id = sim.command({ t: 'place', x: 5.2, y: 6, color: 0, hp: 0, kind: 'basic', elite: true, affixes: ['armored'] }) as number;
+  const enemy = sim.world.enemies.find(e => e.id === id)!, plates = enemy.armor!.plates;
+  assert(plates > 0, 'armoured');
+  sim.command({ t: 'energy', value: 7 });
+  sim.command({ t: 'spin' });
+  const done = new Set<string>();
+  for (let i = 0; i < 300; i++) { sim.tick(); for (const a of labelActions(sim.world)) done.add(a); sim.world.events.length = 0; }
+  assert(enemy.armor!.plates < plates && done.has('b6'), `the spin took a plate (${plates} → ${enemy.armor!.plates}); label action ${[...done]}`);
 });
 
 check('labels: a real dash on an armoured elite takes a plate — the event the label waits for; a dash on a plain enemy is no action', () => {

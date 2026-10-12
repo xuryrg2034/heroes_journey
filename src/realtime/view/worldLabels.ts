@@ -63,14 +63,18 @@ export function detectLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec
   return out;
 }
 
+/** Sources whose strip of a plate is the PLAYER's (`elitePlates` `source`): the chain, the spin (Q), the items, the goblin's effects. The archer's arrow, a sapper's blast and a push are not. */
+export const PLAYER_PLATE_SOURCES: ReadonlySet<string> = new Set(['chain', 'spin', 'bomb', 'fire', 'fire-trail', 'slot']);
+
 /**
- * The labels whose action was done in this frame (read from `w.events`, before they are cleared): the first plate taken off
- * (any elite's), the chest taken, the first pull of the lever.
+ * The labels whose action was done in this frame (read from `w.events`, before they are cleared): a plate of any elite taken off
+ * BY THE PLAYER (event `elitePlates` `strip`, whatever the way: the chain, the spin Q, a bomb, fire, the goblin), the chest
+ * taken, the first pull of the lever.
  */
 export function labelActions(w: World): LabelId[] {
   const ids: LabelId[] = [];
   const events = w.events;
-  if (events.some(e => e.type === 'chainHit' && e.plates !== undefined)) ids.push('b6');
+  if (events.some(e => e.type === 'elitePlates' && e.action === 'strip' && e.source !== undefined && PLAYER_PLATE_SOURCES.has(e.source))) ids.push('b6');
   if (events.some(e => e.type === 'chest')) ids.push('b8');
   if (events.some(e => e.type === 'slot' && e.action === 'pull')) ids.push('b9');
   return ids;
@@ -84,7 +88,7 @@ export interface Rect { left: number; top: number; right: number; bottom: number
  * inside `bounds` (the stage minus the HUD plate and the action bar). A 'side' label flips to the left of the object when the
  * right does not fit.
  */
-export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: number, size: { w: number; h: number }, bounds: Rect, gap = 6): Rect {
+export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: number, size: { w: number; h: number }, bounds: Rect, gap = 6, avoid: readonly Rect[] = []): Rect {
   let left: number, top: number;
   if (spec.place === 'above') {
     left = at.x - size.w / 2; top = at.y - spec.lift * k - size.h;
@@ -98,6 +102,13 @@ export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: 
   }
   left = Math.max(bounds.left + gap, Math.min(bounds.right - gap - size.w, left));
   top = Math.max(bounds.top + gap, Math.min(bounds.bottom - gap - size.h, top));
+  // Clear of the elite plaques and caption plates (`avoid`): under the plate that is in the way, else over it.
+  for (let pass = 0; pass < avoid.length; pass++) {
+    const hit = avoid.find(a => left < a.right && left + size.w > a.left && top < a.bottom && top + size.h > a.top);
+    if (!hit) break;
+    const under = hit.bottom + 4, over = hit.top - 4 - size.h;
+    top = under + size.h <= bounds.bottom - gap ? under : Math.max(bounds.top + gap, over);
+  }
   return { left, top, right: left + size.w, bottom: top + size.h };
 }
 
@@ -110,8 +121,8 @@ export class WorldLabelLayer {
   private shownNow: ShownLabel[] = [];
   constructor(private readonly parent: HTMLElement) {}
 
-  /** `project` — arena units to px of the stage; `k` — px per arena unit; `bounds` — where a label may stand. Returns the ids that appeared in this call. */
-  update(specs: readonly LabelSpec[], project: (x: number, y: number) => Vec, k: number, bounds: Rect): string[] {
+  /** `project` — arena units to px of the stage; `k` — px per arena unit; `bounds` — where a label may stand; `avoid` — rectangles (the elite plaques) it keeps clear of. Returns the ids that appeared in this call. */
+  update(specs: readonly LabelSpec[], project: (x: number, y: number) => Vec, k: number, bounds: Rect, avoid: readonly Rect[] = []): string[] {
     const appeared: string[] = [], keep = new Set<string>();
     this.shownNow = [];
     for (const spec of specs) {
@@ -128,7 +139,7 @@ export class WorldLabelLayer {
       if (el.hidden) appeared.push(spec.id);
       if (el.textContent !== spec.text) el.textContent = spec.text;
       el.hidden = false;
-      const rect = placeLabel(spec, project(spec.at.x, spec.at.y), k, { w: el.offsetWidth, h: el.offsetHeight }, bounds);
+      const rect = placeLabel(spec, project(spec.at.x, spec.at.y), k, { w: el.offsetWidth, h: el.offsetHeight }, bounds, 6, avoid);
       el.style.left = `${Math.round(rect.left)}px`;
       el.style.top = `${Math.round(rect.top)}px`;
       keep.add(spec.id);

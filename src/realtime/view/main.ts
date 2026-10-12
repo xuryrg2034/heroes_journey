@@ -45,6 +45,7 @@ import { runRow } from '../run/arenaPools';
 import { rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
+import { ITEM_PULSE_ID, setPulse } from './pulse';
 import { detectLabels, labelActions, WorldLabelLayer } from './worldLabels';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
@@ -103,7 +104,6 @@ function arenaOfKey(code: string, shift: boolean): number {
 const MAX_FRAME = 0.05;
 /** Iteration 2.1 (interface): a slot blinks this long (s) for a consumable gained; the item hint stays this long (s). */
 const ITEM_BLINK = 1;
-const ITEM_HINT_TIME = 4;
 /** Length of the focus bar (px) at the panel's reserve `focusMax`; the build's reserve (`focusMaxOf`) scales it. */
 const FOCUS_BAR_PX = 90;
 /** Hero walking keys (physical codes): WASD and arrows. */
@@ -256,9 +256,13 @@ async function boot(): Promise<void> {
   const actionBar = el('div', 'rt-actionbar');
   actionBar.setAttribute('data-testid', 'action-bar');
   actionBar.append(abilities, itemBar);
-  const help = el('div', 'rt-help', '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · <span class="rt-help-color" data-testid="help-color">кристалл — смена цвета</span> · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · <kbd>1</kbd>–<kbd>4</kbd> расходник в точку курсора · ' + (sandbox ? '<kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' : '<kbd>P</kbd> пауза') + (recorder ? ' · <kbd>N</kbd> отметка' : ''));
+  // The line of keys (task 6, 12.10.2026): the run says only the keys — the rules are taught in the world (labels, the prologue, the
+  // rings). The sandbox keeps its long line (its testers need the panel keys).
+  const help = el('div', 'rt-help', sandbox
+    ? '<kbd>WASD</kbd> идти · цепь: от врага у героя по врагам одного цвета, отпусти · <span class="rt-help-color" data-testid="help-color">кристалл — смена цвета</span> · кнопка, дверь — последнее звено · навести на предпоследнее звено — шаг назад · <kbd>Esc</kbd>/ПКМ отмена · <kbd>Пробел</kbd> прыжок · <kbd>Q</kbd> круговой удар · <kbd>1</kbd>–<kbd>4</kbd> расходник в точку курсора · <kbd>M</kbd> арены · <kbd>R</kbd> заново · <kbd>P</kbd> пауза · <kbd>`</kbd> отладка' + (recorder ? ' · <kbd>N</kbd> отметка' : '')
+    : '<kbd>WASD</kbd> идти · <kbd>ЛКМ</kbd> цепь · <kbd>ПКМ</kbd>/<kbd>Esc</kbd> отмена');
   // «Смена цвета»: the help's colour part follows the fight's rule (the run: «каждые 6 звеньев — смена цвета», no crystals fall).
-  const helpColor = help.querySelector<HTMLElement>('.rt-help-color')!;
+  const helpColor = help.querySelector<HTMLElement>('.rt-help-color');
   const helpColorText = (w: World): string => {
     const every = colorShiftOf(w);
     if (every <= 0) return 'кристалл — смена цвета';
@@ -336,17 +340,13 @@ async function boot(): Promise<void> {
   const shiftHint = el('div', 'rt-shift-hint');
   shiftHint.setAttribute('data-testid', 'shift-hint');
   shiftHint.hidden = true;
-  // Iteration 2.1 (docs/realtime-slice.md, section 12): a short hint over the consumables at the start of a run arena.
-  const itemHint = el('div', 'rt-item-hint', 'Предметы: клавиши <kbd>1</kbd>–<kbd>4</kbd>, бьют в точку курсора');
-  itemHint.setAttribute('data-testid', 'item-hint');
-  itemHint.hidden = true;
   // Phase B (Д5, design answer 23): the build column on the left (x 8–70 from y ≈ 72), only the items taken.
   const buildColumn = new BuildColumn();
   // Telemetry: «отмечено» under the HUD for a second after the N key.
   const noteFlash = el('div', 'rt-note-flash', 'отмечено');
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, itemHint, help, pausedBadge, jumpButton, hint, purseHint, shiftHint, result, noteFlash);
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, help, pausedBadge, jumpButton, hint, purseHint, shiftHint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, menu);
   if (logsPanel) host.append(logsPanel.el);
 
@@ -392,9 +392,10 @@ async function boot(): Promise<void> {
   };
 
   /**
-   * «Обучение» (view/hints.ts, view/worldLabels.ts; 12.10.2026): the viewer's memory (the run keeps it in `localStorage`; the
-   * sandbox only for the page: it keeps no memory), the world labels at the elite, the chest and the lever (the box of hints at
-   * the bottom is gone), and the log of the labels shown on this page (id and real time: the tests read it). `hintsOn` — the gear's toggle.
+   * «Обучение» (view/hints.ts, view/worldLabels.ts, view/pulse.ts; 12.10.2026; the run only — the sandbox shows no label and no pulse
+   * and writes no memory): the viewer's memory in `localStorage`, the world labels at the elite, the chest and the lever (the box
+   * of hints at the bottom is gone), the pulse of the consumable slots, and the log of the labels shown on this page (id and
+   * real time: the tests read it). `hintsOn` — the gear's toggle; with it off nothing is shown and nothing is marked.
    */
   const hintStore = new HintStore(sandbox ? null : undefined);
   let hintsOn = loadHintsOn();
@@ -439,7 +440,7 @@ async function boot(): Promise<void> {
    */
   const slotBlink = SLOT_ITEMS.map(() => 0);
   let lastSlotCounts: number[] | null = null;
-  let itemHintLeft = 0, arenaItemsUsed = 0, arenaHintShown = false;
+  let arenaItemsUsed = 0, arenaHintShown = false;
   /** Starts a fight on `arena` (the sandbox's menu, or the arena of a run node with the run's HP). */
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice): void => {
     renderer.resetEffects();
@@ -450,7 +451,6 @@ async function boot(): Promise<void> {
     lastSlotCounts = null;
     arenaItemsUsed = 0;
     arenaHintShown = !!notice?.hint;
-    itemHintLeft = arenaHintShown ? ITEM_HINT_TIME : 0;
     renderer.buildArena(world().arena);
     // The panel's phase table is the current arena's: say what the arena forces over it, or that it keeps its own.
     panel.setArenaPhaseNote(arena.phases?.length ? `«${arena.name}»: своя таблица фаз, эта таблица на неё не действует.`
@@ -860,7 +860,7 @@ async function boot(): Promise<void> {
       purseHint.hidden = false;
     } else if (!purseHint.hidden) purseHint.hidden = true;
     // ---- end «Котёл» ----
-    { const text = helpColorText(w); if (helpColor.textContent !== text) helpColor.textContent = text; }
+    if (helpColor) { const text = helpColorText(w); if (helpColor.textContent !== text) helpColor.textContent = text; }
     // «Смена цвета»: from N − 2 enemy links of the colour segment — «до смены 2», then «до смены 1» (numbers from the sim; the
     // free colour itself is the rainbow ring of the renderer). Below the pointer's refusal line.
     shiftLeft = live && w.chain.length && !w.move && w.status === 'playing' ? colorShiftLeft(w) : null;
@@ -898,7 +898,7 @@ async function boot(): Promise<void> {
     }
     // Iteration 2.1: a used consumable counts for the run and ends the hint at once.
     const used = w.events.filter(ev => ev.type === 'item').length;
-    if (used) { arenaItemsUsed += used; itemHintLeft = 0; }
+    if (used) { arenaItemsUsed += used; if (hintsOn && !sandbox && hints.store.count(ITEM_PULSE_ID) === 0) hints.store.bump(ITEM_PULSE_ID); }
     // Phase B (Д5): an item fired — its icon flashes in the column (the renderer writes the short text at the hero).
     for (const ev of w.events) if (ev.type === 'talismanFired') buildColumn.flash(ev.id);
     // Stage E: a short flash of the focus bar when a link refreshes it.
@@ -914,20 +914,23 @@ async function boot(): Promise<void> {
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
     if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); }
-    // World labels (view/worldLabels.ts): an action done in this frame marks its label for this viewer, and the labels whose
-    // object stands (and not done before) hang at the object. A fight that is playing; the run — its arena, no screen over it.
-    {
-      for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
-      const labelling = hintsOn && (sandbox || (!!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded)) && w.status === 'playing';
+    // World labels (view/worldLabels.ts): the run only. With the toggle on, an action done in this frame marks its label for this
+    // viewer (off: nothing is marked, as the screen lines count nothing), and the labels whose object stands (and were not done
+    // before) hang at the object. A fight that is playing, no screen over it.
+    if (!sandbox) {
+      const labelling = hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded && w.status === 'playing';
       if (labelling) {
+        for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
         const specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
-        const stageBox = stage.getBoundingClientRect();
-        const barTop = actionBar.hidden ? stageBox.bottom : actionBar.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
-        const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
-        for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom })) {
-          hints.log.push({ id, t: now });
-          if (runView) recorder?.hintShown(runView.state, id);
-        }
+        if (specs.length) {
+          const stageBox = stage.getBoundingClientRect();
+          const barTop = actionBar.hidden ? stageBox.bottom : actionBar.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
+          const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
+          for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom }, renderer.plateRects())) {
+            hints.log.push({ id, t: now });
+            if (runView) recorder?.hintShown(runView.state, id);
+          }
+        } else labelLayer.hideAll();
       } else labelLayer.hideAll();
     }
     w.events.length = 0;
@@ -978,8 +981,11 @@ async function boot(): Promise<void> {
       itemSlots[i].classList.toggle('rt-blink', slotBlink[i] > 0);
     });
     lastSlotCounts = SLOT_ITEMS.map(kind => w.kit?.items[kind] ?? 0);
-    if (live) itemHintLeft = Math.max(0, itemHintLeft - realDt);
-    itemHint.hidden = !(itemHintLeft > 0 && !runScreenOpen);
+    // The pulse (view/pulse.ts): a slot with a consumable breathes until the viewer has used one — the run only, the toggle «Подсказки» rules it.
+    {
+      const pulsing = hintsOn && !sandbox && !!runView?.arenaOpen && !runScreenOpen && w.status === 'playing' && hints.store.count(ITEM_PULSE_ID) === 0;
+      SLOT_ITEMS.forEach((kind, i) => setPulse(itemSlots[i], pulsing && (w.kit?.items[kind] ?? 0) >= 1));
+    }
     spinAbility.classList.toggle('rt-ready', canSpin(w));
     jumpButton.classList.toggle('rt-on', ui.jumpMode);
     jumpButton.disabled = !canJump(w) && !ui.jumpMode;
@@ -1108,6 +1114,9 @@ async function boot(): Promise<void> {
         signals: { ...renderer.signals },
         /** Package «Урон имеет значение»: what the elite view drew (plate pips, window pulses, plan badges, plaques, flashes, …). */
         eliteView: { ...renderer.eliteShown },
+        /** Task 6: the rectangles (stage px) of the elite plaques and caption plates on screen now. */
+        plateRects: renderer.plateRects(),
+        floatRects: renderer.floatRects(),
         /** П8 «Новое на карте»: the caption plates shown in this fight (texts) and on screen now. */
         captions: { texts: [...renderer.captionShown.texts], live: renderer.captionShown.live },
         /** Stage 2, step 3: spin flashes drawn so far, consumables in hand, item flashes drawn so far, frozen and burning on screen. */
@@ -1116,7 +1125,7 @@ async function boot(): Promise<void> {
         materials: w.kit ? { ...w.kit.materials } : null,
         itemsShown: { ...renderer.itemsShown },
         /** Iteration 2.1: the item hint is on screen; slots blinking; slots bright (one in hand). */
-        itemHint: !itemHint.hidden,
+        slotsPulsing: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-pulse')),
         slotsBlinking: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-blink')),
         slotsBright: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-has')),
         packLines: renderer.visiblePackLines,

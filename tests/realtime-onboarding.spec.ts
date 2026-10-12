@@ -11,7 +11,7 @@ import { gameWait, untilFrame } from './realtimeFrames';
  *   click on the elite takes a plate, a real click on the chest takes it), then gone and not back in the next fight;
  * - the goblin: «Закончи цепь здесь» at the lever until the first pull, odds line and dots stay; gone for the next fight;
  * - the gear's toggle «Подсказки» hides the labels, «Показать подсказки снова» clears the memory (a later step renames it);
- * - the sandbox shows the labels by the same toggle, keeps no memory, has no box;
+ * - the sandbox shows no label, no pulse and no box, keeps no memory;
  * - the lines on the screens (Э2); a won run fight has no «Котёл» row (Э1) and no die screen (Э4).
  * The scenes are frozen with `maxEnemies` 0 and still enemies (docs/realtime-slice.md, section 13); waits are in game time.
  * The hard-battle save is made by the run code (seed `Math.imul(2, 2654435761) >>> 0`, the «Застава» node entered).
@@ -92,20 +92,6 @@ async function drawChain(page: Page, count: number, hold = false): Promise<void>
   }
   throw new Error('no free line for the chain');
 }
-/** One more chain release (a mouse press on one enemy beside the hero): lets a hint on screen go once its time is over. */
-const tap = (page: Page): Promise<void> => drawChain(page, 1);
-
-/** Releases chains until `done` holds (the hints need releases to go); the wait is wall time by the design. */
-async function untilHint(page: Page, done: (o: Onboarding) => boolean, seconds = 90): Promise<Onboarding> {
-  const end = Date.now() + seconds * 1000;
-  for (;;) {
-    const o = await onboarding(page);
-    if (done(o)) return o;
-    if (Date.now() > end) throw new Error(`the hint did not come: ${JSON.stringify(o)}`);
-    await tap(page);
-    await page.waitForTimeout(400);
-  }
-}
 async function leaveFight(page: Page): Promise<void> {
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect.poll(async () => (await snap(page)).status, { timeout: 15_000 }).toBe('victory');
@@ -120,7 +106,7 @@ const gearOpen = async (page: Page): Promise<void> => { if (!(await page.getByTe
 const rect = (page: Page, testId: string) => page.getByTestId(testId).evaluate(node => { const r = node.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; });
 const overlaps = (a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-test('the box of hints at the bottom is gone: a new viewer\'s first fight shows no box and no label on a plain field; chains, a long wait and the end of the fight add none', async ({ page }) => {
+test('the box of hints at the bottom is gone: a new viewer\'s first fight on a plain field shows no box and no label, with chains drawn and after a long wait; nothing is written to the memory', async ({ page }) => {
   test.setTimeout(90_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
@@ -202,6 +188,8 @@ test('«Застава»: «Пластина — 1 удар» hangs over the arm
 
   // Both labels stand at once, each at its object; the old box is nowhere.
   await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id).sort(), { timeout: 8_000 }).toEqual(['b6', 'b8']);
+  // The plaques of the newcomers (1.5 s) make a label step aside (own test below); measure the place of the label without them.
+  await page.waitForFunction(() => (window as any).__realtime.snapshot().plateRects.length === 0, null, { polling: 'raf', timeout: 8_000 });
   const s = await snap(page);
   const chest = s.objects.find((o: { kind: string }) => o.kind === 'chest');
   const elites = s.enemies.filter((e: { armor: unknown }) => e.armor);
@@ -225,12 +213,21 @@ test('«Застава»: «Пластина — 1 удар» hangs over the arm
   expect(await page.getByTestId('world-label').first().evaluate(node => getComputedStyle(node).pointerEvents)).toBe('none');
   for (const id of ['hud', 'focus', 'goal', 'action-bar']) await expect(page.getByTestId(id)).toBeVisible();
   await page.mouse.move(640, 130);
-  await page.screenshot({ path: 'artifacts/realtime-label-elite.png' });
+  await page.screenshot({ path: 'artifacts/realtime-label-both.png' });
 
-  // The labels move with the camera: the hero walks to the far side — a label that leaves the view goes with its object,
-  // and the one in view keeps standing at its object (it stays until the action, not for some seconds).
+  // The labels stay without any action (not a timer) and move with the camera: the hero walks to the other end of the yard, the
+  // camera follows, the elite is drawn elsewhere on the screen — its label is still under it, at the new place.
   await gameWait(page, 3);
   expect((await onboarding(page)).labels.map(l => l.id).sort()).toEqual(['b6', 'b8']);
+  expect(await shownHints(page)).toEqual({});
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [elite.x, elite.y + 2.2] as const);
+  await gameWait(page, 1.5);
+  const moved = await screen(page, elite.x, elite.y);
+  expect(Math.abs(moved.y - eliteAt.y), 'the camera moved: the elite is drawn at another place').toBeGreaterThan(20);
+  const after = await labelOf(page, 'b6');
+  expect(after, 'the label of the elite is still shown').toBeDefined();
+  expect(Math.abs(centreX(after!) - moved.x)).toBeLessThan(after!.right - after!.left);
+  expect(Math.abs(after!.top - moved.y), 'and stands at the elite, not where it stood').toBeLessThan(110);
   expect(await shownHints(page)).toEqual({});
 
   // A real click on the elite: the dash takes a plate — «Пластина» goes (memory b6), the chest's price stays.
@@ -241,6 +238,10 @@ test('«Застава»: «Пластина — 1 удар» hangs over the arm
   await page.mouse.move(target.x, target.y);
   await page.mouse.down();
   await page.mouse.up();
+  // The hit's words «−1 пластина» and the number «сила N» at the hero must not lie on each other (both are on screen for a moment).
+  const both = await page.waitForFunction(() => { const f = (window as any).__realtime.snapshot().floatRects; return f.power && f.words.some((w: { text: string }) => /пластин/.test(w.text)) ? f : false; }, null, { polling: 'raf', timeout: 10_000 });
+  const f = await both.jsonValue() as { power: Label; words: (Label & { text: string })[] };
+  for (const w of f.words.filter(w => /пластин/.test(w.text))) expect(overlaps(f.power, w), 'the power number is off the plate words').toBe(false);
   await expect.poll(async () => (await snap(page)).enemies.find((e: { id: number }) => e.id === elite.id)?.armor?.plates, { timeout: 10_000 }).toBeLessThan(plates);
   await movingNull(page);
   await expect.poll(async () => (await onboarding(page)).labels.map(l => l.id), { timeout: 5_000 }).toEqual(['b8']);
@@ -259,8 +260,8 @@ test('«Застава»: «Пластина — 1 удар» hangs over the arm
   await expect.poll(async () => (await onboarding(page)).labels, { timeout: 5_000 }).toEqual([]);
   expect(await shownHints(page)).toEqual({ b6: 1, b8: 1 });
   expect((await onboarding(page)).log.map(h => h.id).sort()).toEqual(['b6', 'b8']);
-  const records = await page.evaluate(() => (window as any).__realtime.telemetry?.records() ?? []) as { kind: string; hints?: string[] }[];
-  expect(records.find(r => r.kind === 'run')?.hints ?? ['b6', 'b8']).toEqual(expect.arrayContaining(['b6', 'b8']));
+  const records = await page.evaluate(() => (window as any).__realtime.telemetry.records()) as { kind: string; hints?: string[] }[];
+  expect(records.find(r => r.kind === 'run')?.hints).toEqual(expect.arrayContaining(['b6', 'b8']));
 
   // The next fight of the same viewer (the memory kept): the same yard, no label — they do not come back.
   await enterHardBattle(page, true);
@@ -273,6 +274,41 @@ test('«Застава»: «Пластина — 1 удар» hangs over the arm
   expect((await onboarding(page)).log).toEqual([]);
   await expect(page.getByTestId('world-label')).toBeHidden();
   expect(await shownHints(page)).toEqual({ b6: 1, b8: 1 });
+  expect(errors).toEqual([]);
+});
+
+test('«Застава»: the plaques of the elites (tag «Элита», the behaviours\' captions) at the top edge go UNDER the elite, clear of the HUD and of the label «Пластина — 1 удар»', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = [];
+  watch(page, errors);
+  await page.goto('/');
+  await page.evaluate(([key, save]) => { localStorage.clear(); localStorage.setItem(key, save); }, [RUN_KEY, hardBattle] as const);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.getByTestId('run-battle').click();
+  await expect(page.getByTestId('run-battle-modal')).toBeHidden();
+  await stillYard(page);
+  // The plaques live 1.5 s of real time: read them (and the labels) in the frame where the plaques of both elites stand.
+  await page.waitForFunction(() => { const s = (window as any).__realtime.snapshot(); return s.plateRects.length >= 3 && s.onboarding.labels.some((l: { id: string }) => l.id === 'b6'); }, null, { polling: 'raf', timeout: 5_000 });
+  const s = await snap(page), hud = await rect(page, 'hud');
+  const labels = s.onboarding.labels as Label[], eliteLabel = labels.find(l => l.id === 'b6')!;
+  const plates = s.plateRects as { kind: string; left: number; top: number; right: number; bottom: number }[];
+  expect(plates.length).toBeGreaterThanOrEqual(3);
+  for (const p of plates) {
+    expect(p.top, `a ${p.kind} is not under the HUD plate`).toBeGreaterThanOrEqual(hud.bottom - 1);
+    expect(overlaps(p, hud), `a ${p.kind} clear of the HUD`).toBe(false);
+    for (const l of labels) expect(overlaps(p, l), `a ${p.kind} clear of the label ${l.id}`).toBe(false);
+    expect(p.left).toBeGreaterThanOrEqual(0);
+    expect(p.right).toBeLessThanOrEqual(1280);
+  }
+  // The elite at the top: its plaques stand below it (and below its label), none over it.
+  const top = s.enemies.filter((e: { armor: unknown }) => e.armor).sort((a: { y: number }, b: { y: number }) => a.y - b.y)[0];
+  const at = await screen(page, top.x, top.y);
+  expect(plates.some(p => p.top > at.y)).toBe(true);
+  const nearest = s.enemies.filter((e: { armor: unknown }) => e.armor);
+  expect(nearest.length).toBeGreaterThan(0);
+  await page.mouse.move(640, 640);
+  await page.screenshot({ path: 'artifacts/realtime-label-elite.png' });
   expect(errors).toEqual([]);
 });
 
@@ -325,7 +361,7 @@ test('the goblin: «Закончи цепь здесь» stands at the lever unt
   expect(errors).toEqual([]);
 });
 
-test('the toggle «Подсказки» off hides the labels and marks nothing; on again they come back; after a pull the memory holds b9 and «Показать подсказки снова» clears it', async ({ page }) => {
+test('the toggle «Подсказки» off hides the labels and marks NOTHING (a pull with it off leaves the label for later); on again the label is there; a pull then marks b9 and «Показать подсказки снова» clears the memory', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
@@ -335,24 +371,22 @@ test('the toggle «Подсказки» off hides the labels and marks nothing; 
     await page.evaluate(() => (window as any).__realtime.completeGoals());
     await expect.poll(async () => (await snap(page)).slot.goblin !== null, { timeout: 20_000 }).toBe(true);
   };
-  // Fight 1: the toggle off on the gear of the map — the goblin stands, no label in 3 s of game time, nothing marked.
+  // Fight 1: the toggle off on the gear of the map — the goblin stands, no label; the lever is pulled with it off: nothing marked.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('view-hints').uncheck();
-  await page.getByTestId('node-r5c0').click();
-  await page.getByTestId('run-enter').click();
-  await expect(page.getByTestId('run')).toBeHidden();
-  await quiet(page);
-  await page.evaluate(() => (window as any).__realtime.completeGoals());
-  await expect.poll(async () => (await snap(page)).slot.goblin !== null, { timeout: 20_000 }).toBe(true);
+  await goblinFight();
   await gameWait(page, 3);
   expect((await onboarding(page)).on).toBe(false);
   expect((await onboarding(page)).labels).toEqual([]);
+  await pullLever(page);
+  await gameWait(page, 1);
   expect(await shownHints(page)).toEqual({});
+  await movingNull(page);
   await leaveFight(page);
 
-  // Fight 2: on again — the label is there; one real pull marks b9.
+  // Fight 2: on again — the label at the lever is there (the pull of fight 1 did not take it away); one real pull marks b9.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
@@ -377,7 +411,7 @@ test('the toggle «Подсказки» off hides the labels and marks nothing; 
   expect(errors).toEqual([]);
 });
 
-test('the sandbox has no box either; its labels follow the toggle and keep no memory: the chest\'s price stands until the chest is taken', async ({ page }) => {
+test('the sandbox shows no label (the chest\'s price included), no box and no pulse, and keeps no memory', async ({ page }) => {
   test.setTimeout(90_000);
   const errors: string[] = [];
   await freshViewer(page, errors, '/?sandbox=1');
@@ -391,10 +425,13 @@ test('the sandbox has no box either; its labels follow the toggle and keep no me
   await page.keyboard.press('KeyR');
   await expect.poll(async () => (await snap(page)).objects.some((o: { kind: string }) => o.kind === 'chest')).toBe(true);
   await stillYard(page);
-  await page.evaluate(() => (window as any).__realtime.clear(false));
+  await gameWait(page, 3);
   await expect(page.getByTestId('onboarding-hint')).toHaveCount(0);
-  await expect.poll(async () => (await onboarding(page)).labels.map(l => l.text)).toEqual(['+1 урон касания, 12 убийств']);
-  expect(await stored(page)).toBeNull();
+  await expect(page.getByTestId('world-label')).toHaveCount(0);
+  expect((await onboarding(page)).labels).toEqual([]);
+  expect((await snap(page)).slotsPulsing).toEqual([]);
+  // The sandbox keeps its long line of keys.
+  await expect(page.locator('.rt-help')).toContainText('смена цвета');
   const chest = (await snap(page)).objects.find((o: { kind: string }) => o.kind === 'chest');
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [chest.x - 1.4, chest.y] as const);
   await gameWait(page, 0.2);
@@ -403,22 +440,7 @@ test('the sandbox has no box either; its labels follow the toggle and keep no me
   await page.mouse.down();
   await page.mouse.up();
   await expect.poll(async () => (await snap(page)).curse?.by ?? null, { timeout: 10_000 }).toBe('chain');
-  await expect.poll(async () => (await onboarding(page)).labels).toEqual([]);
   expect(await stored(page)).toBeNull();
-
-  // The toggle off (its storage key, read at the start): no label in a new page.
-  await page.evaluate(() => localStorage.setItem('ashen-oath-realtime-hints-on', '0'));
-  await page.reload();
-  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
-  await page.keyboard.press('9');
-  await page.keyboard.press('Backquote');
-  await page.locator('[data-param="cursedChest"] input').check();
-  await page.keyboard.press('Backquote');
-  await page.keyboard.press('KeyR');
-  await expect.poll(async () => (await snap(page)).objects.some((o: { kind: string }) => o.kind === 'chest')).toBe(true);
-  await gameWait(page, 2);
-  expect((await onboarding(page)).on).toBe(false);
-  expect((await onboarding(page)).labels).toEqual([]);
   expect(errors).toEqual([]);
 });
 

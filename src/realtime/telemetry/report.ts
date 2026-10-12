@@ -602,7 +602,7 @@ function mapSignRows(runs: readonly RunRecord[]): (string | number)[][] {
   const s = mapSignStats(runs);
   return s.choices ? [[s.runs, s.choices, `${s.chosenSigned} (${pct(s.chosenSigned, s.choices)})`, s.choices - s.chosenSigned]] : [];
 }
-// ---- «Обучение v1»: the fight hints shown per run (RunRecord.hints) ----
+// ---- «Обучение»: the hints / world labels shown per run (RunRecord.hints) ----
 
 /** The share of runs in which each fight hint was shown (the order of the design, Б1–Б9). */
 export interface HintStat { id: string; title: string; runs: number }
@@ -610,7 +610,7 @@ export function hintStats(runs: readonly RunRecord[]): HintStat[] {
   return HINT_IDS.map(id => ({ id, title: HINT_TITLES[id], runs: runs.filter(r => r.hints?.includes(id)).length }));
 }
 const HINT_HEAD = ['Подсказка', 'Походов с показом', 'Доля походов'];
-const HINT_LEGEND = '«Обучение v1» (12.10.2026). Походы, где подсказка боя показана на экране (`RunRecord.hints`); доля — от всех походов набора. Подсказка показывается зрителю один раз за всё время (память браузера), поэтому у возвращающегося тестера доли ниже, а у новых зрителей — около доли походов, где сработал триггер. Выключатель «Подсказки» выключен и песочница — поле не пишется; записи до 12.10.2026 поля не имеют.';
+const HINT_LEGEND = '«Обучение» (12.10.2026). Походы, где зритель увидел подпись у предмета (`RunRecord.hints`; с задачи 6 живы только Б6 «Элита», Б8 «Сундук», Б9 «Гоблин», у старых записей — Б1–Б9 коробки v1); доля — от всех походов набора. Подпись держится до действия и после него не возвращается этому зрителю (память браузера), поэтому у возвращающегося тестера доли ниже, а у новых зрителей — около доли походов, где предмет встретился. Выключатель «Подсказки» выключен и песочница — поле не пишется; записи до 12.10.2026 поля не имеют.';
 function hintRows(runs: readonly RunRecord[]): (string | number)[][] {
   const stats = hintStats(runs);
   return stats.some(s => s.runs) ? stats.map(s => [s.title, s.runs, pct(s.runs, runs.length)]) : [];

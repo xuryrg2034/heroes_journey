@@ -234,7 +234,7 @@ export interface RunRecord extends RtHeader {
   endedAt?: string;
   /** П8 «Новое на карте» (from 12.10.2026): the map choices made with a sign shown, in order; absent — none (older records too). */
   mapSigns?: RunMapSign[];
-  /** «Обучение v1» (from 12.10.2026): the ids of the fight hints shown in this run (`b1`…`b9`, in the order shown); absent — none shown (older records too, the toggle off, a viewer who had seen them all). */
+  /** «Обучение» (from 12.10.2026): the ids of the hints shown in this run, in the order shown — from task 6 the world labels `b6`, `b8`, `b9` (marked at first sight; the v1 box's `b1`…`b5`, `b7` in older records); absent — none shown (older records too, the toggle off, the sandbox, a viewer who had done them all). */
   hints?: string[];
   /** Consumables gained / used / left (from 12.10.2026; absent in older records — the report reads «нет данных»). */
   items?: RunItems;
