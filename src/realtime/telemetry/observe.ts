@@ -53,7 +53,8 @@
  *   (credited — downs; `clean` — clean kills; `inWindow` without `clean` — late window kills), `loot` (dropped, picked).
  * - the slot (casino stage 1, «Однорукий гоблин»): `slot` events — `appear` (and the game seconds after the goals of the
  *   first), `pull` (enemy links struck before the lever, the outcome), `effect`; a spin left at the end of the fight is
- *   cancelled; `hit` of the source `slot-volley` / `slot-rain` — the arrows' damage; `kill` of the source `slot` — arrow kills.
+ *   cancelled; `hit` of the source `slot-volley` / `slot-rain` — the arrows' damage; `kill` of the source `slot` — arrow kills;
+ *   `feed` — the safe pulls the long chains added («Длинная цепь кормит гоблина»).
  * - the cauldron (casino «Котёл», sim/purse.ts): `cheque` events — embers, heat and total per cheque in order, crystals of
  *   the cheques; `purseKill` — the build's kill embers by source; `purseDoor` — the resources the door pays without the die
  *   and how the hero went in (`exitBy`: chain, jump, walk); with П4 «Раздув за дела» on, the greed step at the door
@@ -260,6 +261,8 @@ export function createFightObserver(start: World): FightObserver {
           if (ev.action === 'appear') { s.slot.appeared++; if (s.slot.appearAfterGoals === null && world.greedStart !== null) s.slot.appearAfterGoals = world.time - world.greedStart; }
           else if (ev.action === 'pull') { s.slot.pulls++; s.slot.links.push(ev.links ?? 0); bump(s.slot.outcomes, ev.outcome ?? 'none'); if (ev.risky) s.slot.risky++; }
           else if (ev.action === 'effect') { s.slot.effects++; if (ev.outcome === 'bust') s.slot.busts++; }
+          // «Длинная цепь кормит гоблина»: the safe pulls a long chain added.
+          else if (ev.action === 'feed') s.slot.safeFromChains += ev.safe ?? 0;
           return;
         case 'jump': s.abilities.jumps++; return;
         case 'spin': s.abilities.spins++; return;

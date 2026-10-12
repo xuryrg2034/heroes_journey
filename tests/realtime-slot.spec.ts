@@ -7,7 +7,7 @@ import { gameWait, untilFrame } from './realtimeFrames';
  * the idol, the release pulls the lever — the reels spin and stop, the result shows, the lever goes dark. Runs through
  * playwright.realtime.config.ts only. The rules themselves are checked in Node (src/realtime/sim/slot.spec.ts).
  */
-interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number }
+interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number; feeds: number; feedText: string }
 interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number }; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number } }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
@@ -239,5 +239,109 @@ test('«Перебор»: a risky pull that does not bust gives a triple of a go
   // The caption keeps warning: the 5th pull is risky too.
   await untilReady(page);
   expect((await snap(page)).slot.shown.caption).toBe('взрыв 55 % · −4 HP');
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 5 «Срез казино-слоя в походе + гоблин главный» (12.10.2026; docs/realtime-casino.md, «Срез казино-слоя в походе»): a run
+ * with real clicks and a real mouse chain. Seed 10, the full gift button 1: `r5c0` is a battle of run row 1, `r6c1` a battle
+ * of run row 2 (its card offered oaths before task 5). Row 1: the card says «Идти», no «Зарок»; after the goals the goblin
+ * stands; a chain of 6 drawn with the mouse floats «+1 рывок без риска» over the hero and the caption over the idol grows
+ * «безопасно: 3» → «безопасно: 4»; the hero goes through the door: the result has no «Котёл» row and leads to the map, no die
+ * screen. Row 2: the card says «Идти», no «Зарок», no stake line.
+ */
+test('task 5, the run: no «Зарок» on the cards, the goblin after the goals of a row-1 battle, a mouse chain of 6 — «+1 рывок без риска» and the caption grows; no «Котёл», no die', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await page.getByTestId('gift-1').click();
+  await page.getByTestId('node-r5c0').click();
+  await expect(page.getByTestId('run-detail')).toBeVisible();
+  await expect(page.getByTestId('run-oaths')).toHaveCount(0);
+  await expect(page.getByTestId('run-detail')).not.toContainText('Зарок');
+  await expect(page.getByTestId('run-enter')).toHaveText('Идти');
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  await expect(page.getByTestId('oath-line')).toBeHidden();
+
+  // A quiet arena (journalled setup): nobody walks, touches or comes.
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of Object.entries({ enemySpeed: 0, speedSpread: 0, baseIntervalMin: 20, baseIntervalMax: 20, baseFloor: 0, contactDamage: 0 })) rt.setParam(k, v);
+    rt.params.maxEnemies = 0;
+    rt.clear(false);
+    rt.completeGoals();
+  });
+  // The goblin after the goals (the run's chance 1), its marker, then the caption «безопасно: 3».
+  await untilFrame(page, (snap, _a, late) => snap.slot.goblin || late ? true : undefined, null, 6);
+  await untilFrame(page, (snap, _a, late) => (snap.slot.shown.idols === 1 && snap.slot.shown.markers === 0 && snap.slot.shown.caption !== '') || late ? true : undefined, null, 6);
+  let s = await snap(page);
+  expect(s.slot.goblin).not.toBeNull();
+  expect(s.slot.shown.caption).toBe('безопасно: 3');
+  expect(s.slot.shown.dots).toEqual({ gold: 3, red: 3, dark: 0 });
+  const g = s.slot.goblin!;
+
+  // A chain of 6 weak enemies drawn with the mouse on a free line away from the idol (other lines when one is blocked).
+  const view = { hero: (await page.evaluate(() => (window as any).__realtime.snapshot().hero)) as { x: number; y: number } };
+  const tries: [number, number, number, number][] = [];
+  for (const [ox, oy] of [[0, 0], [0, 3], [0, -3], [4, 0], [-4, 0], [3, 3], [-3, -3], [3, -3], [-3, 3]]) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) tries.push([ox, oy, dx, dy]);
+  let drawn = false;
+  for (const [ox, oy, dx, dy] of tries) {
+    const start = { x: view.hero.x + ox, y: view.hero.y + oy };
+    const points = Array.from({ length: 6 }, (_, i) => ({ x: start.x + dx * 1.2 * (i + 1), y: start.y + dy * 1.2 * (i + 1) }));
+    // Off the idol and inside the arena's near edge (a line that leaves the arena takes fewer links and is tried no further).
+    if ([start, ...points].some(p => Math.hypot(p.x - g.x, p.y - g.y) < 2 || p.x < 0.8 || p.y < 0.8)) continue;
+    await page.evaluate(([h, pts]) => { const rt = (window as any).__realtime; rt.teleport(h.x, h.y); for (const p of pts) rt.place(p.x, p.y, 0, 0, 'basic'); }, [start, points] as const);
+    await gameWait(page, 0.15);
+    const screens: { x: number; y: number }[] = [];
+    for (const p of points) screens.push(await screen(page, p.x, p.y));
+    await page.mouse.move(screens[0].x, screens[0].y);
+    await page.mouse.down();
+    for (const p of screens.slice(1)) await page.mouse.move(p.x, p.y, { steps: 3 });
+    const links = (await snap(page)).chainLinks;
+    if (links.length === 6 && links.every(l => l.kind === 'enemy')) {
+      await page.mouse.up();
+      drawn = true;
+      break;
+    }
+    // A blocked line (a tree, water, a wall): cancel before the button goes up, clear, try another.
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await untilFrame(page, (snap, _a, late) => snap.moving === null || late ? true : undefined, null, 5);
+    await page.evaluate(() => (window as any).__realtime.clear(false));
+  }
+  expect(drawn).toBe(true);
+  // The dash ends: «+1 рывок без риска» floats over the hero, the caption grows.
+  const fed = await untilFrame(page, (snap, _a, late) => snap.slot.shown.feeds >= 1 || late ? { feeds: snap.slot.shown.feeds, text: snap.slot.shown.feedText } : undefined, null, 8);
+  await page.screenshot({ path: 'artifacts/realtime-slot-long-chain.png' });
+  expect(fed).toEqual({ feeds: 1, text: '+1 рывок без риска' });
+  await untilFrame(page, (snap, _a, late) => snap.moving === null || late ? true : undefined, null, 5);
+  s = await snap(page);
+  expect(s.slot.shown.dots).toEqual({ gold: 4, red: 2, dark: 0 });
+  expect(s.slot.shown.caption).toBe('безопасно: 4');
+  expect(await page.evaluate(() => (window as any).__realtime.snapshot().purse.on)).toBe(false);
+
+  // Out by the door: no «Котёл» row, the result leads to the map, no die.
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await untilFrame(page, (snap, _a, late) => snap.status === 'victory' || late ? true : undefined, null, 10);
+  await expect(page.getByTestId('result')).toBeVisible();
+  await expect(page.getByTestId('result')).not.toContainText('Котёл');
+  await expect(page.getByTestId('result-map')).toHaveText('К карте (Enter)');
+  await page.getByTestId('result-map').click();
+  await expect(page.getByTestId('run-map')).toBeVisible();
+  await expect(page.getByTestId('run-die')).toHaveCount(0);
+
+  // Run row 2 (its card offered oaths before task 5): «Идти», no «Зарок», no stake line.
+  await page.getByTestId('node-r6c1').click();
+  await expect(page.getByTestId('run-detail')).toBeVisible();
+  await expect(page.getByTestId('run-oaths')).toHaveCount(0);
+  await expect(page.getByTestId('run-stake-line')).toHaveCount(0);
+  await expect(page.getByTestId('run-detail')).not.toContainText('Зарок');
+  await expect(page.getByTestId('run-enter')).toHaveText('Идти');
   expect(errors).toEqual([]);
 });

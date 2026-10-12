@@ -1738,7 +1738,9 @@ export class RealtimeRenderer {
             this.shakeLeft = this.shakeTotal = 0.3; this.shakeAmp = Math.max(this.shakeAmp, 9);
           }
           const text = this.slotView.handle(ev);
-          if (text) this.floatText(text, ev.x * UNIT, ev.y * UNIT - OBJECT_RADIUS * UNIT * 5.8, 0xffd36b);
+          // «Длинная цепь кормит гоблина»: the long chain's text over the hero (the event's point), not over the idol.
+          if (text && ev.action === 'feed') this.floatText(text, ev.x * UNIT, ev.y * UNIT - 180, 0xffd36b);
+          else if (text) this.floatText(text, ev.x * UNIT, ev.y * UNIT - OBJECT_RADIUS * UNIT * 5.8, 0xffd36b);
         }
         continue;
       }

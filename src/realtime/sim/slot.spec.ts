@@ -226,8 +226,9 @@ check('appearance in a battle that may get it (the sandbox default chance; the r
   console.log(`   goblin in ${came} of ${rolled} battles`);
 });
 
-check('the run gives the leave from row 3, not to the Jailer and not to a boss', () => {
-  let rows = 0, jailer = 0, boss = 0, early = 0;
+check('the run gives the leave from row 1 (task 5, 12.10.2026; was row 3), not to the Jailer and not to a boss', () => {
+  assert(RT_SLOT_ROW === 1, `the run's first goblin row: ${RT_SLOT_ROW}`);
+  let rows = 0, jailer = 0, boss = 0, early = 0, first = 0;
   for (let k = 1; k <= 4; k++) {
     const base = createRtRun(seedOf(500 + k));
     for (const node of rtMapNodes(base)) {
@@ -238,10 +239,10 @@ check('the run gives the leave from row 3, not to the Jailer and not to a boss',
       if (node.type === 'checkpoint') { assert(!leave, 'not the Jailer'); jailer++; }
       else if (node.type === 'boss') { assert(!leave, 'not a boss'); boss++; }
       else if (row < RT_SLOT_ROW) { assert(!leave, `not row ${row}`); early++; }
-      else { assert(leave, `${node.type} row ${row}: may get the goblin`); rows++; }
+      else { assert(leave, `${node.type} row ${row}: may get the goblin`); rows++; if (row <= 2) first++; }
     }
   }
-  assert(rows > 0 && jailer > 0 && boss > 0 && early > 0, `checked: ${rows} battles, Jailer ${jailer}, boss ${boss}, rows 1–2 ${early}`);
+  assert(rows > 0 && jailer > 0 && boss > 0 && early === 0 && first > 0, `checked: ${rows} battles (rows 1–2: ${first}), Jailer ${jailer}, boss ${boss}, before row ${RT_SLOT_ROW}: ${early}`);
 });
 
 check('the lever ends a chain of any colour; a 0-link pull; dark during the cooldown and after the 3rd pull; greed +1 skull a pull', () => {
@@ -670,15 +671,16 @@ function replayLog(sim: Simulation): { tick: number; ev: WorldEvent }[] {
   return out;
 }
 
-check('П11: the sandbox defaults keep the rule (8 s, 1,2 s, 3 pulls); a run plays its own whatever the saved panel says — since «Перебор» (design 12.10.2026) 6 pulls 5 s apart, 3 safe', () => {
+check('П11: the sandbox defaults keep the rule (8 s, 1,2 s, 3 pulls); a run plays its own whatever the saved panel says — since «Перебор» (design 12.10.2026) 6 pulls 5 s apart, 3 safe; since task 5 the goblin in every battle, +1 safe pull a chain of 6+', () => {
   const d = defaultParams(), r = rtRunParams(defaultParams());
   assert(d.slotCooldown === 8 && d.slotSpin === 1.2 && d.slotPulls === 3 && d.slotChance === 0.35 && !d.slotBust, `sandbox: cooldown ${d.slotCooldown}, spin ${d.slotSpin}, pulls ${d.slotPulls}`);
-  const runRule = (p: Params): boolean => p.slotCooldown === 5 && p.slotSpin === 1.2 && p.slotPulls === 6 && p.slotChance === 0.5 && p.slotBust === true
-    && p.slotSafePulls === 3 && p.slotBustChance === 0.55 && p.slotBustDamage === 4;
+  const runRule = (p: Params): boolean => p.slotCooldown === 5 && p.slotSpin === 1.2 && p.slotPulls === 6 && p.slotChance === 1 && p.slotBust === true
+    && p.slotSafePulls === 3 && p.slotBustChance === 0.55 && p.slotBustDamage === 4 && p.slotSafePerLongChain === 1 && p.slotLongChainLinks === 6;
+  assert(d.slotSafePerLongChain === 0 && d.slotLongChainLinks === 6, `sandbox: the long chain off (${d.slotSafePerLongChain})`);
   assert(runRule(r), `run: cooldown ${r.slotCooldown}, spin ${r.slotSpin}, pulls ${r.slotPulls}, chance ${r.slotChance}, bust ${r.slotBust}`);
   // The sandbox panel may debug anything (its ranges stay wide); the run's copy is forced back to the rule.
   const range = (key: string) => PARAM_DEFS.find(d => d.kind === 'number' && d.key === key) as { min: number; max: number } | undefined;
-  const keys = ['slotPulls', 'slotCooldown', 'slotSpin', 'slotChance', 'slotSafePulls', 'slotBustChance', 'slotBustDamage'] as const;
+  const keys = ['slotPulls', 'slotCooldown', 'slotSpin', 'slotChance', 'slotSafePulls', 'slotBustChance', 'slotBustDamage', 'slotSafePerLongChain', 'slotLongChainLinks'] as const;
   assert(keys.every(k => range(k)) && PARAM_DEFS.some(d => d.key === 'slotBust' && d.group === 'Однорукий гоблин'), 'the panel has the numbers and the toggle');
   const wild = rtRunParams(sanitizeParams({ ...Object.fromEntries(keys.map(k => [k, range(k)!.max])), slotBust: false, slotCooldown: range('slotCooldown')!.min }));
   assert(runRule(wild), `a run with a wild panel: ${wild.slotPulls} / ${wild.slotCooldown} / ${wild.slotSpin} / ${wild.slotBust}`);
@@ -1008,7 +1010,7 @@ check('«Перебор»: the bust may kill (source `slot-bust`, the run-end li
   }
 });
 
-check('«Перебор» in a run battle: the goblin in ≈ 50 % of battles; a greedy player gets 3 safe pulls, then risky ones ≥ 5 s apart, each reveal ≤ 1,2 s, until a bust or the 6th pull', () => {
+check('«Перебор» in a run battle: the goblin in every battle (task 5: chance 1, was 50 %); a greedy player of bare pulls gets 3 safe pulls, then risky ones ≥ 5 s apart, each reveal ≤ 1,2 s, until a bust or the 6th pull', () => {
   const p = rtRunParams(quiet());
   let rolled = 0, came = 0;
   for (let k = 1; k <= 300; k++) {
@@ -1020,7 +1022,7 @@ check('«Перебор» in a run battle: the goblin in ≈ 50 % of battles; a 
     rolled++;
     if (goblinOf(sim.world)) came++;
   }
-  assert(rolled === 300 && came / rolled > 0.42 && came / rolled < 0.58, `the goblin in ${came} of ${rolled} run battles (50 %)`);
+  assert(rolled === 300 && came === rolled, `the goblin in ${came} of ${rolled} run battles (all: the open field always has a spot)`);
   let fights = 0, busted = 0;
   for (let k = 1; k <= 80 && fights < 8; k++) {
     const sim = field(p, 3000 + k, k % 2 ? 'slot-field' : 'slot-walls', { slot: true }), w = sim.world;

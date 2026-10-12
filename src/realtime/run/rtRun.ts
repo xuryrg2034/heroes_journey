@@ -91,26 +91,33 @@ export const RT_RUN_VERSION_V6 = 6;
  * Iteration 2.1: numbers a run arena takes from the run, not from the saved panel (the healing consumable: rtHp(3) = 9).
  * Package «Урон имеет значение» (docs/realtime-damage.md; design answer 11.10.2026): the run turns it on — elite armour and
  * the raised touch, the elite behaviours of the three kinds (docs/realtime-elite-behaviors.md); the tough HP table of the
- * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1 (docs/realtime-casino.md): the
- * cauldron («Котёл», `purse`) is on in every run arena; «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`,
- * `rtArenaLoadout`); the oath stake is on (which battles offer oaths — `rtOathNode`, the oath of the battle — `Loadout.oath`);
- * the die at the door is on (`doorDie`: the arena's outcome carries it to `resolveArena`, the simulation never reads it).
+ * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1 (docs/realtime-casino.md):
+ * «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`, `rtArenaLoadout`; task 5, 12.10.2026: every battle
+ * from run row 1, a long chain feeds it). Task 5 «Срез казино-слоя в походе» (design 12.10.2026): the cauldron («Котёл»,
+ * `purse`), the oath stake (`oathStake`: `rtEnterNode` offers no oaths, `rtOathPreview` shows none) and the die at the door
+ * (`doorDie`) are off in the run; their code and the sandbox stay. Before it they were on (a save's open die screen or
+ * chosen oath still loads: `parseRtRun`).
  * The roster mix (design decision 11.10.2026, `rosterMix`) is on: a new run keeps it in its state (`RtRunState.rosterMix`,
  * `createRtRun`), the arena and roster choices read it there; the simulation never reads it. П4 «Раздув за дела»
- * (`greedByDeeds`, design 11.10.2026) is on: the greed step after the goals multiplies the cauldron at the door
- * (`PurseDoor.greed`, paid by `doorPayout` with or without the die). П3 «Финальная цепь» (`doorFinale`, design 12.10.2026) is
- * on: a chain into the door gets +1 heat in its cheque. B6 К7 «Проклятый сундук» (`cursedChest`, design 12.10.2026) is on:
+ * (`greedByDeeds`, design 11.10.2026) and П3 «Финальная цепь» (`doorFinale`, design 12.10.2026) stay on but act only with the
+ * cauldron (sim/purse.ts `greedOn`, `doorFinaleOn`) — nothing in the run since task 5. B6 К7 «Проклятый сундук» (`cursedChest`, design 12.10.2026) is on:
  * the chest stands on «Застава» (its authored point); taken, a talisman screen of its own follows the won fight's talismans.
  * B7 К9 «Игорный круг гоблинов» (`goblinCircle`, design 12.10.2026) is on: the run view passes it to `rtEnterNode` (the
  * simulation never reads it); an event node from run row 3 may stand as the circle.
- * The calibration of 12.10.2026 (docs/realtime-casino.md, «Калибровка экономики»): the run pays its cauldron at 120 embers a
- * resource (`purseRate`; the sandbox default stays 60) — the cap of the payout became rare, the cauldron decides again.
+ * The calibration of 12.10.2026 (docs/realtime-casino.md, «Калибровка экономики»): `purseRate` 120 (the sandbox default stays
+ * 60) — kept for the cauldron's return; the run has no cauldron since task 5.
  */
-export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 120, greedByDeeds: true, doorFinale: true, oathStake: true, doorDie: true, rosterMix: true,
+export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purseRate: 120, greedByDeeds: true, doorFinale: true, rosterMix: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — a 1.2 s spin; the sandbox panel is free.
   // «Перебор» (design 12.10.2026, playtest v34): 6 pulls (3 safe, then the bust roll), 5 s apart (6 × 8 s was too long after
-  // the goals), the goblin in half of the battles that may get it (was 35 %: 2 battles of 17).
-  slotPulls: 6, slotCooldown: 5, slotSpin: 1.2, slotChance: 0.5, slotBust: true, slotSafePulls: 3, slotBustChance: 0.55, slotBustDamage: 4,
+  // the goals).
+  slotPulls: 6, slotCooldown: 5, slotSpin: 1.2, slotBust: true, slotSafePulls: 3, slotBustChance: 0.55, slotBustDamage: 4,
+  // Task 5 «Срез казино-слоя в походе» (design 12.10.2026): the run plays no cauldron, no die at the door, no oath stake — the
+  // code and the sandbox keep them (П4 `greedByDeeds`, П3 `doorFinale` and `purseRate` act only with the cauldron: nothing now).
+  purse: false, doorDie: false, oathStake: false,
+  // Task 5: the goblin in every battle that may get it (was 0.5; from run row 1, `RT_SLOT_ROW`), and a chain of 6+ enemy links
+  // gives +1 safe pull (the last pull stays risky).
+  slotChance: 1, slotSafePerLongChain: 1, slotLongChainLinks: 6,
   // B6 К7 «Проклятый сундук» (design 12.10.2026): the chest of «Застава».
   cursedChest: true,
   // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.
@@ -474,8 +481,12 @@ export const rtElitePlates = (row: number): number => (row >= 9 ? 4 : row >= 5 ?
 export const rtToughHp = (row: number): number => (row >= 9 ? 4 : row >= 5 ? 3 : 2);
 /** Баланс (the package, 4.3 «Редкость»): one guaranteed elite in an ordinary battle (not «Застава», not the final) from this run row. */
 export const RT_GUARANTEED_ELITE_ROW = 3;
-/** Баланс (casino stage 1, «Однорукий гоблин», 8.3): the goblin may come in battles from this run row (not the Jailer, not bosses). */
-export const RT_SLOT_ROW = 3;
+/**
+ * Баланс (casino stage 1, «Однорукий гоблин», 8.3): the goblin may come in battles from this run row (not the Jailer, not
+ * bosses). Task 5 (design 12.10.2026): from row 1 (was 3) — the goblin is the run's casino now. A reloaded open battle of row
+ * 1–2 of an older save starts again with the goblin (its loadout is computed from the run); fight journals keep their own.
+ */
+export const RT_SLOT_ROW = 1;
 /** What the run's arena takes from the panel beside its params (the sandbox panel is saved and read by the run). */
 export interface RtLoadoutOptions {
   /** Loop research, step 1: the palette by the row (`Params.colorsByRow`). Off — 4 colours, the loadout as before. */
@@ -500,7 +511,7 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && rtToughHp(runRow(node.row)) > 2 ? { toughHp: rtToughHp(runRow(node.row)) } : {},
     // Design answer 11.10.2026: not on the Jailer's node (a boss fight; the focus is on him) — the breakthrough keeps it.
     ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle) ? { guaranteedElite: true } : {},
-    // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row 3 may get the goblin — not the Jailer's, not a boss's.
+    // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row `RT_SLOT_ROW` may get the goblin — not the Jailer's, not a boss's.
     ...node && pending?.kind === 'battle' && node.type !== 'checkpoint' && node.type !== 'boss' && runRow(node.row) >= RT_SLOT_ROW ? { slot: true } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
@@ -562,10 +573,10 @@ export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, '
 }
 /**
  * The oaths the card of an available node shows now (the next draw, not spent: a reload shows the same); null — the node
- * offers none, or it is not available.
+ * offers none, it is not available, or the oath stake is off (`stake`; absent — the run's own, off since task 5).
  */
-export function rtOathPreview(run: RtRunState, node: ForestMapNode): OathId[] | null {
-  if (!rtOathNode(node) || run.picks.some(pick => pick.nodeId === node.id) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return null;
+export function rtOathPreview(run: RtRunState, node: ForestMapNode, stake?: boolean): OathId[] | null {
+  if (!rtOathStakeOn(stake) || !rtOathNode(node) || run.picks.some(pick => pick.nodeId === node.id) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return null;
   return rtOathOffer(run.seed, run.oathDraws, node);
 }
 /** The oath's card text: «Без прыжков — Ни одного прыжка.» */
@@ -832,12 +843,22 @@ export function rtEventCandidates(run: RtRunState, node: Pick<ForestMapNode, 'ro
 export interface RtEnterOptions {
   /** B7 К9 `Params.goblinCircle`: an event node may stand as the goblins' circle. Absent or false — every event as before. */
   goblinCircle?: boolean;
+  /**
+   * Casino stage 1, item 2 (`Params.oathStake`): an oath node offers its oaths. Absent — the run's own value
+   * (`RT_RUN_FORCED.oathStake`: off since task 5, 12.10.2026); true — the oath stake as before (tests, a future return).
+   */
+  oathStake?: boolean;
 }
+
+/** The oath stake of the run (task 5, 12.10.2026: off — `RT_RUN_FORCED.oathStake`); `on` — a caller's own value. */
+export const rtOathStakeOn = (on?: boolean): boolean => on ?? RT_RUN_FORCED.oathStake === true;
 
 /**
  * Move to one of rtAvailableNodes(run): a battle starts its arena; a rest, find, event or merchant opens its screen.
  * Casino stage 1, item 2: an oath node (`rtOathNode`) spends one draw of the oath stream — its two oaths — and is entered
- * under `oath` (one of them; null or absent — «Без клятвы»). B7 К9 (`options.goblinCircle`): an event node whose casino
+ * under `oath` (one of them; null or absent — «Без клятвы»). Task 5 (12.10.2026): with the oath stake off (the run's default,
+ * `options.oathStake`) the node still moves the counter `oathDraws` (the run's own stream; no other stream reads it, and the
+ * save's check — one draw per entered oath node — holds for saves before and after), but offers nothing and takes no oath. B7 К9 (`options.goblinCircle`): an event node whose casino
  * roll comes (`rtCasinoDue`) opens the goblins' circle instead of its event — before the `events` draw, which it does not
  * spend (no event is met there).
  */
@@ -847,13 +868,15 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
   if (current.result) return fail('Поход уже завершён.');
   if (current.pending) return fail('Сначала заверши текущий узел.');
   if (!rtAvailableNodes(current).some(entry => entry.id === nodeId)) return fail('Этот узел сейчас недоступен.');
-  if (oath !== null && !(rtOathPreview(current, node) ?? []).includes(oath)) return fail('Этого зарока нет среди предложенных.');
+  const stake = rtOathStakeOn(options.oathStake);
+  if (oath !== null && !(rtOathPreview(current, node, stake) ?? []).includes(oath)) return fail('Этого зарока нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'node-entered', nodeId, row: node.row }];
   if (isArenaNode(node)) {
     startArena(run, node, battleKindOf(node), events);
     if (rtOathNode(node) && run.pending?.kind === 'battle') {
       const options = rtOathOffer(run.seed, run.oathDraws, node);
       run.oathDraws++;
+      if (!stake) return { ok: true, run, events };
       run.pending.oathOffer = options;
       if (oath !== null) run.pending.oath = oath;
       events.push({ type: 'oath-offered', nodeId, options: [...options] }, { type: 'oath-taken', nodeId, id: oath });

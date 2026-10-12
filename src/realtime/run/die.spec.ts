@@ -14,7 +14,9 @@
  * - the save: version 7 with the counter `dieDraws` (absent until the first die); a version 6 save migrates with 0 draws;
  *   a forged face, counter or door is no run;
  * - the toggle off: the run pays at once, its save has no die counter, its streams are those of a run without the die;
- * - the logs: the run choice `door-die`, the run record's `dice` and the report's section.
+ * - the logs: the run choice `door-die`, the run record's `dice` and the report's section;
+ * - task 5 (12.10.2026): the run plays no die and no cauldron — a won run arena records no door; the checks above turn both
+ *   on over the run's values (the run layer's code stays).
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from '../sim/arenas';
@@ -47,6 +49,12 @@ registerArena({
   heroStart: { x: 4.5, y: 6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, enemies: [], killGoal: 999,
 });
 
+/**
+ * Task 5 (12.10.2026): the run plays no cauldron and no die (`RT_RUN_FORCED`); the run layer's die stays (a future return, the
+ * saves of before). Its checks below play the run's values with the cauldron, the die and the oath stake turned on (`dieOn`); what the run
+ * does now is the check «task 5: the run plays no die».
+ */
+const dieOn = (): Params => ({ ...rtRunParams(quiet()), purse: true, doorDie: true, oathStake: true });
 /** A quiet fight: no newcomers, nobody walks or touches, no hit-stop. The run's params on top (`rtRunParams`). */
 function quiet(extra: Partial<Params> = {}): Params {
   const p = defaultParams();
@@ -75,7 +83,7 @@ function fight(run: RtRunState, target: number, options: { params?: Params; oath
   const pending = run.pending;
   assert(pending?.kind === 'battle', 'an open battle');
   const loadout: Loadout = { ...rtArenaLoadout(run), ...options.oath ? { oath: options.oath } : {} };
-  const sim = new Simulation({ arena: 'die-field', params: options.params ?? rtRunParams(quiet()), seed: seedOf(options.k ?? 1), record: true, loadout });
+  const sim = new Simulation({ arena: 'die-field', params: options.params ?? dieOn(), seed: seedOf(options.k ?? 1), record: true, loadout });
   sim.command({ t: 'clear', keepMarked: false });
   while ((sim.world.purse?.cauldron ?? 0) < target) chainOfFive(sim);
   if (options.jump) { sim.command({ t: 'energy', value: 7 }); sim.command({ t: 'jump', x: 6, y: 8 }); for (let i = 0; i < 300 && sim.world.move; i++) sim.tick(); }
@@ -137,8 +145,14 @@ function seedWith(high: boolean, from = 1): number {
 
 // ---- The screen and the payout ----
 
-await check('the run turns the die on (RT_RUN_FORCED); the sandbox default is off', () => {
-  assert(RT_RUN_FORCED.doorDie === true && defaultParams().doorDie === false && rtRunParams(defaultParams()).doorDie === true, 'the toggle');
+await check('task 5 (12.10.2026): the run plays no die (RT_RUN_FORCED off, whatever the panel says) — a won run arena records no door and no die, the node completes at once; the sandbox default is off', () => {
+  assert(RT_RUN_FORCED.doorDie === false && defaultParams().doorDie === false && rtRunParams({ ...defaultParams(), doorDie: true, purse: true }).doorDie === false, 'the toggle');
+  for (let k = 1; k <= 3; k++) {
+    const run = startRun(seedOf(k + 40)), { door, outcome } = fight(run, 0, { params: rtRunParams(quiet({ purse: true, doorDie: true })), k });
+    assert(!door && outcome.purse === undefined && outcome.doorDie === undefined, `seed ${k}: no door record, no die`);
+    const done = ok(resolveArena(run, outcome), 'resolve');
+    assert(done.pending?.kind !== 'die' && done.dieDraws === undefined && !serializeRtRun(done).includes('dieDraws'), `seed ${k}: no die screen, no counter`);
+  }
 });
 
 await check('the screen opens only after a won arena whose cauldron is above 0; the payout waits for it; a reload shows the same screen and face', () => {
@@ -359,13 +373,13 @@ await check('the toggle off: the run pays at once as before — no screen, no co
   for (let k = 1; k <= 4; k++) {
     const run = startRun(seedOf(k + 90));
     // The arena of a world without `doorDie` (the sandbox default): main.ts passes no die.
-    const off = fight(run, 200, { params: rtRunParams(quiet()), k });
+    const off = fight(run, 200, { params: dieOn(), k });
     const offOutcome = { ...off.outcome };
     delete offOutcome.doorDie;
     const paid = ok(resolveArena(run, offOutcome), 'resolve without the die');
     assert(paid.pending === null && total(paid) - total(run) === doorPayout(off.door!, 1).length, 'paid at once');
     assert(!serializeRtRun(paid).includes('dieDraws') && same(paid.streams, ok(resolveArena(run, { ...offOutcome, doorDie: true }), 'with').streams), 'the save and the streams');
-    const world = fight(run, 200, { params: Object.assign(rtRunParams(quiet()), { doorDie: false }), k });
+    const world = fight(run, 200, { params: Object.assign(dieOn(), { doorDie: false }), k });
     assert(world.outcome.doorDie === undefined, 'a world with the toggle off carries no die');
     assert(ok(resolveArena(run, world.outcome), 'off world').pending === null, 'no screen');
   }

@@ -39,7 +39,12 @@ export const HINT_FADE_MARGIN = 40;
 /** The fight hints, numbered as in the design (Б1–Б9). */
 export const HINT_IDS = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9'] as const;
 export type HintId = typeof HINT_IDS[number];
-/** The screen lines: Э2 (the map's resources), Э4 (the die). Э1 is the fight result's row, Э3 is the node card's stake line. */
+/**
+ * The screen lines: Э2 (the map's resources), Э4 (the die). Э1 is the fight result's row, Э3 is the node card's stake line.
+ * Э1, Э3 and Э4 belong to their rules (the cauldron, the oath stake, the die): they show only where the rule is on — the
+ * «Котёл» row with `purse`, the stake line with the node's oaths, the die line on the die screen (task 5, 12.10.2026: none
+ * of the three in the run).
+ */
 export const SCREEN_LINE_IDS = ['e2', 'e4'] as const;
 export type ScreenLineId = typeof SCREEN_LINE_IDS[number];
 /** Short names for the telemetry report. */
@@ -221,10 +226,11 @@ export function detectHints(w: World, onScreen: (p: Vec) => boolean): HintId[] {
   if (w.chain.length > 0) ids.push('b1', 'b2');
   // Б3: a chain hit that did not kill and took no plate.
   if (events.some(e => e.type === 'chainHit' && !e.killed && e.plates === undefined)) ids.push('b3');
-  // Б4: a cheque of 3+ links, or the door opening (the door is Б5's trigger: Б4 goes before it).
+  // Б4: a cheque of 3+ links, or the door opening (the door is Б5's trigger: Б4 goes before it). Both speak of the cauldron:
+  // only while it is on (`Params.purse`; task 5, 12.10.2026 — the run has none, so neither shows there).
   const doorOpened = w.stage === 'greed' || events.some(e => e.type === 'goals');
-  if (doorOpened || events.some(e => e.type === 'cheque' && e.links >= 3)) ids.push('b4');
-  if (doorOpened) ids.push('b5');
+  if (w.params.purse && (doorOpened || events.some(e => e.type === 'cheque' && e.links >= 3))) ids.push('b4');
+  if (w.params.purse && doorOpened) ids.push('b5');
   // Б6: an armoured enemy in view (the starting elites of «Застава» send no `elite` event: read `armor`).
   if (w.enemies.some(e => e.armor && onScreen(e))) ids.push('b6');
   // Б7: energy for a jump.

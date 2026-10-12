@@ -602,6 +602,15 @@ export interface Params {
   slotSafePulls: number;
   slotBustChance: number;
   slotBustDamage: number;
+  /**
+   * «Длинная цепь кормит гоблина» (design 12.10.2026, task 5): every chain of `slotLongChainLinks` or more enemy links in the
+   * fight (struck, a plate taken, passed fallen — counted at the dash's end), before or after the goblin appears, gives
+   * +`slotSafePerLongChain` safe pulls; safe pulls never exceed `slotPulls` − 1 while it is on (the last pull is always
+   * risky). Acts with `slot` and `slotBust`, only in a battle the goblin may still come to or stands in (slot.ts
+   * `slotFeedOpen`). 0 — off (the default; a journal without the key plays the old path: no `world.slotChains`). The run: 1.
+   */
+  slotSafePerLongChain: number;
+  slotLongChainLinks: number;
   // ---- Casino stage 1, item 1 — «Котёл» (purse.ts, docs/realtime-casino.md). ----
   /**
    * The cauldron: every chain puts its cheque (embers × heat × crystals), the build's kills outside the chain 1 ember each; the
@@ -992,6 +1001,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   slotSafePulls: 3,
   slotBustChance: 0.55,
   slotBustDamage: 4,
+  // «Длинная цепь кормит гоблина» (slot.ts): off by default (0); a chain of 6+ enemy links counts.
+  slotSafePerLongChain: 0,
+  slotLongChainLinks: 6,
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
   purseRate: 60,
@@ -1349,6 +1361,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('slotSafePulls', 'Однорукий гоблин', '«Перебор»: безопасных рывков', 0, 10, 1, 5),
   n('slotBustChance', 'Однорукий гоблин', '«Перебор»: шанс взрыва', 0, 1, 0.05, 5),
   n('slotBustDamage', 'Однорукий гоблин', '«Перебор»: урон взрыва', 0, 15, 1, 5, 'HP'),
+  n('slotSafePerLongChain', 'Однорукий гоблин', 'Длинная цепь: +безопасных рывков', 0, 3, 1, 5, '',
+    'Каждая цепь из N+ врагов за бой (до и после появления гоблина) даёт столько безопасных рывков; последний рывок всегда с риском. 0 — выкл. В походе — 1.'),
+  n('slotLongChainLinks', 'Однорукий гоблин', 'Длинная цепь: врагов от', 2, 12, 1, 5, '', 'Вражеские звенья, до которых дошёл рывок (удар, снятая пластина, павший по пути).'),
   // Casino «Котёл» (purse.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за «Углей за ресурс» (60), не больше 3 без ставок. В походе включено всегда.' },

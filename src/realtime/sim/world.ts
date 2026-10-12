@@ -221,6 +221,11 @@ export interface HeroMove {
   /** Casino «Котёл» (purse.ts): the dash's cheque so far — embers, enemy links, the last one dead (absent while the cauldron is off). */
   purse?: PurseMove;
   /**
+   * «Длинная цепь кормит гоблина» (slot.ts `slotFeedRelease`): enemy links the dash reached so far (struck, a plate taken, passed
+   * fallen — as the cheque's `links`); absent while the rule does not act in this battle (dashes without it hash as before).
+   */
+  slotLinks?: number;
+  /**
    * Loop research, step 3 («Прямая», sim/pierce.ts): the pierce fixed at the release — run after the last link died on the
    * ground (absent otherwise: dashes without it hash as before).
    */
@@ -388,9 +393,12 @@ export type WorldEvent =
    * outcome, the struck enemy links, skulls taken off and the skulls of this pull, the odds of the rain and the volley, the
    * pull's number); the 3rd reel stopped (`effect`); a rain wave dropped its marks (`wave`); an arrow fell (`land`, its circle).
    * «Перебор» (`slotBust` on): a pull says whether it was risky and whether it busts (the effect `bust` blows the goblin up).
+   * «Длинная цепь кормит гоблина» (`slotSafePerLongChain` > 0): a long chain raised the safe pulls (`feed`: `safe` — by how
+   * many, `links` — the chain's enemy links, `chains` — long chains of the fight; where the hero stands). Only when they grew.
    */
-  | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
-      links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number; risky?: boolean; bust?: boolean }
+  | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land' | 'feed'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
+      links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number; risky?: boolean; bust?: boolean;
+      safe?: number; chains?: number }
   /**
    * Casino «Котёл» (purse.ts): a chain's cheque went into the cauldron (embers × heat × the crystal multiplier = total; the
    * cauldron after it; where the hero stands); a build kill put 1 ember (`purseKill`); the door recorded the cauldron
@@ -494,6 +502,11 @@ export interface World {
   build?: Record<string, unknown>;
   /** Casino stage 1 («Однорукий гоблин», slot.ts): the slot of the arena — absent until the battle rolls (hashed only when present). */
   slot?: SlotState;
+  /**
+   * «Длинная цепь кормит гоблина» (slot.ts `slotFeedEnd`): long chains of this fight that fed the goblin (each +`slotSafePerLongChain`
+   * safe pulls, `slotCharges`). Absent while 0 — hashed only when present.
+   */
+  slotChains?: number;
   /** Casino «Котёл» (purse.ts): the cauldron of the fight and the door's record (absent until used — hashed only when present). */
   purse?: PurseWorld;
   /** Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight (absent without one — hashed only when present). */

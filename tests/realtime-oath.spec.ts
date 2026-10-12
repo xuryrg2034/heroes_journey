@@ -1,15 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * Casino stage 1, item 2 — «Ставка клятвы» (src/realtime/sim/oath.ts, src/realtime/run/rtRun.ts, docs/realtime-casino.md):
- * the run with real clicks. A run row 1 battle has no oaths («Идти»); the row 2 battle's card shows two oaths and
- * «Без зарока»; a reload shows the same two; the oath taken shows one line under the goal: «Цепь 6+ хотя бы раз» waits —
- * «Зарок: цепь 6+», no ✓; the hero goes through the door without such a chain — the door breaks it, records ×0.5, the line
- * dims with «×0,5» (П11: a broken oath is no win).
+ * Casino stage 1, item 2 — «Ставка клятвы» (src/realtime/sim/oath.ts, src/realtime/run/rtRun.ts, docs/realtime-casino.md).
+ * Task 5 (12.10.2026, «Срез казино-слоя в походе»): the run offers no oaths — the cards of row 1 and row 2 battles say «Идти»
+ * (a reload too), no stake line, no oath line in the battle. Seed 10 (a seeded run gets the full gift): the gift button 1
+ * takes no second pick; `r5c0` is a battle of run row 1, `r6c1` a battle of run row 2 whose card offered «Не больше 2 урона»
+ * and «Цепь 6+ хотя бы раз» before task 5. The run's oath card with its choices has no end-to-end test since task 5 (the run
+ * layer's code is checked in Node with the stake on: src/realtime/sim/oath.spec.ts).
  *
- * Seed 10 (a seeded run gets the full gift): the gift button 1 takes no second pick; `r5c0` is a battle of run row 1, `r6c1`
- * a battle of run row 2 whose card offers «Не больше 2 урона» and «Цепь 6+ хотя бы раз» (the run's oath stream with the node
- * id, draw 0; before the calibration of 12.10.2026 the same draw offered «Без прыжков» in its place).
+ * The sandbox: the panel's oath choice puts the fight under it (journalled) and shows the line; an unmet «Цепь 6+» breaks at
+ * the door — the line dims with «×0,5», no ✓ (П11: a broken oath is no win).
  */
 
 const SEED = 10;
@@ -30,66 +30,73 @@ async function winArena(page: Page): Promise<void> {
   await expect.poll(async () => (await snapshot(page)).status, { timeout: 10_000 }).toBe('victory');
 }
 
-test('the oath stake («Зарок» on screen): the card of a row 2 battle offers two oaths and «Без зарока», a reload keeps them; the HUD line waits; the door breaks an unmet «Цепь 6+» — «×0,5», dimmed', async ({ page }) => {
+test('task 5: the run offers no «Зарок» — row 1 and row 2 cards say «Идти» (a reload too), no stake line; the battle has no oath line', async ({ page }) => {
   const errors: string[] = [];
   await openRun(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
   await page.getByTestId('gift-1').click();
-
-  // Run row 1: no oaths — the card keeps «Идти»; the arena has no oath line.
   await page.getByTestId('node-r5c0').click();
   await expect(page.getByTestId('run-detail')).toBeVisible();
   await expect(page.getByTestId('run-oaths')).toHaveCount(0);
   await expect(page.getByTestId('run-enter')).toHaveText('Идти');
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
-  await expect(page.getByTestId('oath-line')).toBeHidden();
-  expect((await snapshot(page)).oath).toBeNull();
   await winArena(page);
   await page.getByTestId('result-map').click();
   await expect(page.getByTestId('run')).toBeVisible();
 
-  // Run row 2: two oaths and «Без зарока».
+  // Run row 2: the card offered two oaths before task 5; now «Идти» only.
   await page.getByTestId('node-r6c1').click();
-  await expect(page.getByTestId('run-oaths')).toBeVisible();
-  await expect(page.getByTestId('run-oaths').locator('[data-action="enter-oath"]')).toHaveCount(2);
-  await expect(page.getByTestId('oath-chain6')).toContainText('Зарок: Цепь 6+ хотя бы раз');
-  await expect(page.getByTestId('oath-chain6')).toContainText('Хотя бы раз рывок цепи бьёт 6+ врагов.');
-  await expect(page.getByTestId('oath-no-jump')).toHaveCount(0);
-  await expect(page.getByTestId('oath-damage2')).toContainText('Зарок: Не больше 2 урона');
-  await expect(page.getByTestId('run-enter')).toHaveText('Без зарока');
-  await expect(page.getByTestId('run-oaths')).toContainText('×2');
-  await expect(page.getByTestId('run-oaths')).toContainText('×0,5');
-  // «Обучение v1»: the stake line says it plainly (Э3) and the word of the screen is «зарок», not «клятва».
-  await expect(page.getByTestId('run-stake-line')).toHaveText('Ставка на котёл этого боя: сдержишь ×2, нарушишь ×0,5. HP и поход не на кону.');
-  await expect(page.getByTestId('run-oaths')).not.toContainText('Клятва');
-  await expect(page.getByTestId('run-oaths')).not.toContainText('клятва');
+  await expect(page.getByTestId('run-detail')).toBeVisible();
+  await expect(page.getByTestId('run-oaths')).toHaveCount(0);
+  await expect(page.getByTestId('run-stake-line')).toHaveCount(0);
+  await expect(page.locator('[data-action="enter-oath"]')).toHaveCount(0);
+  await expect(page.getByTestId('run-detail')).not.toContainText('Зарок');
+  await expect(page.getByTestId('run-enter')).toHaveText('Идти');
   await page.screenshot({ path: 'artifacts/realtime-oath-card.png' });
-
-  // A reload re-rolls nothing.
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('node-r6c1').click();
-  await expect(page.getByTestId('oath-chain6')).toBeVisible();
-  await expect(page.getByTestId('oath-damage2')).toBeVisible();
-
-  // Swear «Цепь 6+ хотя бы раз»: the arena opens under it, one line under the goal — it waits, no ✓.
-  await page.getByTestId('oath-chain6').click();
+  await expect(page.getByTestId('run-oaths')).toHaveCount(0);
+  await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
   const state = await page.evaluate(() => (window as any).__realtime.run.state());
-  expect(state.pending.oath).toBe('chain6');
-  expect(state.pending.oathOffer).toEqual(['damage2', 'chain6']);
+  expect(state.pending.oathOffer).toBeUndefined();
+  expect(state.pending.oath).toBeUndefined();
+  // The run's oath counter still moves one per oath node (the save's check), though nothing was offered.
+  expect(state.oathDraws).toBe(1);
+  await expect(page.getByTestId('oath-line')).toBeHidden();
+  expect((await snapshot(page)).oath).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test('the sandbox (П11): an unmet «Цепь 6+» breaks at the door — the line dims with «×0,5», no ✓', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.keyboard.press('1');
+  await expect(page.getByTestId('menu')).toBeHidden();
+  await page.getByTestId('open-panel').click();
+  await page.getByTestId('oath-choice').selectOption('chain6');
   await expect(page.getByTestId('oath-line')).toHaveText('Зарок: цепь 6+');
   await expect(page.getByTestId('oath-line')).not.toHaveClass(/rt-oath-broken/);
-  expect((await snapshot(page)).oath?.mark).toBe('waits');
-  await page.screenshot({ path: 'artifacts/realtime-oath-hud.png' });
-
-  // Through the door without a chain of 6: the door breaks it and records ×0.5.
-  await winArena(page);
-  const broken = await snapshot(page);
-  expect(broken.oath?.broken).toEqual(expect.any(Number));
-  expect(broken.purse.door?.oath).toBe(0.5);
-  // П11 (LDW guard): the door does not turn a broken oath into a win — the line dims with «×0,5», no ✓.
+  await page.getByTestId('oath-choice').blur();
+  // Through the door without a chain of 6 (the goals done, the hero put on the door by journalled commands).
+  await page.evaluate(async () => {
+    const rt = (window as any).__realtime;
+    rt.clear(false);
+    rt.completeGoals();
+    const door = rt.snapshot().objects.find((o: { kind: string }) => o.kind === 'door');
+    rt.teleport(door.x + (door.x > 8 ? -2 : 2), door.y);
+    for (let i = 0; i < 10; i++) await new Promise(r => requestAnimationFrame(r));
+    rt.teleport(door.x, door.y);
+  });
+  await expect.poll(async () => (await snapshot(page)).status, { timeout: 10_000 }).toBe('victory');
+  expect((await snapshot(page)).oath?.broken).toEqual(expect.any(Number));
   await expect(page.getByTestId('oath-line')).toHaveText('Зарок: цепь 6+ ×0,5');
   await expect(page.getByTestId('oath-line')).toHaveClass(/rt-oath-broken/);
   await page.screenshot({ path: 'artifacts/realtime-oath-broken.png' });

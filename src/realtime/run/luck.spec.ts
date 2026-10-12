@@ -15,11 +15,11 @@
  * - the run's outputs for the seed do not depend on the tally.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { createRtRun, parseRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtDieChoose, rtEnterNode, rtEventLuck, rtEventView, rtLuckReport, serializeRtRun,
+import { createRtRun, parseRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtDieChoose, rtEnterNode, rtEventLuck, rtEventView, rtLuckReport, rtRunParams, serializeRtRun,
   type RtRunState } from './rtRun';
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { luckNumber, rtLuckLines, type RtLuckTally } from './rtLuck';
-import { assert, closeNode, ok, playFight, pullBare, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
+import { assert, closeNode, ok, playFight, pullBare, quiet, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
 import type { Simulation } from '../sim/simulation';
 import type { World, WorldEvent } from '../sim/world';
 import saveBefore from '../../../tests/fixtures/rt-run-save-before-record.json';
@@ -104,13 +104,15 @@ check('the elites\' loot: armoured elites killed by the player — every loot fe
   }
 });
 
-check('the die: «Бросить» counts (faces 4–6 against ½ a roll), «Забрать» does not', () => {
+// Task 5 (12.10.2026): the run plays no cauldron and no die; the run layer's tally of the die stays — the fights turn both on.
+check('the die (the cauldron and the die turned on over the run\'s values): «Бросить» counts (faces 4–6 against ½ a roll), «Забрать» does not', () => {
+  const params = { ...rtRunParams(quiet()), purse: true, doorDie: true };
   let rolls = 0, takes = 0, highs = 0;
   for (let k = 1; k <= 8 && (rolls < 4 || takes < 1 || highs < 1); k++) {
     let run = newRun(20 + k), runRolls = 0, runHigh = 0;
     for (let fight = 0; fight < 4 && !run.result; fight++) {
       // Six chains of 5 (cauldron 90): at the run's rate 120 (12.10.2026) the roll ×2 pays 1, «Забрать» 0 — the screen opens.
-      run = ok(resolveArena(run, playFight(run, { chains: [5, 5, 5, 5, 5, 5], k: fight + 1 }).outcome), 'win');
+      run = ok(resolveArena(run, playFight(run, { chains: [5, 5, 5, 5, 5, 5], k: fight + 1, params }).outcome), 'win');
       if (run.pending?.kind === 'die') {
         const roll = (rolls + takes) % 3 !== 2, step = rtDieChoose(run, roll);
         assert(step.ok, 'the die');

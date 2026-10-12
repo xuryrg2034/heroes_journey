@@ -4,7 +4,7 @@
  * run/rtRun.ts `RT_RUN_FORCED`, and passes whether the node may have one, `Loadout.slot`). Numbers — the panel group
  * «Однорукий гоблин».
  *
- * - **Appearance.** A battle whose kit allows it (`Kit.slot`: a run node from row 3, not the Jailer, not a boss) rolls once,
+ * - **Appearance.** A battle whose kit allows it (`Kit.slot`: a run node from row 1 — row 3 before 12.10.2026 —, not the Jailer, not a boss) rolls once,
  *   `slotDelay` game seconds after the goals: with `slotChance` the stone idol stands on a free spot the hero sees, `slotNear`
  *   … `slotFar` from him (stream `slot:appear`; spot and roll vary by seed). Its marker lasts `slotMarker` s (the lever is
  *   not a target meanwhile), then it stands until the hero leaves by the door. Not an enemy: no body, no hit, no touch.
@@ -42,6 +42,14 @@
  *   source `slot-bust`; the goblin and its lever are gone. Else the outcome is a sure triple of a good symbol (❤ ⚡ ◆ 🍲,
  *   equally likely, the same stream); skulls do not act on a risky pull. Leaving by the door during the spin cancels it.
  *   The odds the plan and the idol show read `bustOdds` — the pull's own numbers.
+ * - **«Длинная цепь кормит гоблина»** (`slotSafePerLongChain` > 0, design 12.10.2026, task 5; a run: 1): every chain of
+ *   `slotLongChainLinks` (6) or more enemy links in the fight — struck, a plate taken, passed fallen, as the cheque's `links`,
+ *   but without the cauldron — gives +`slotSafePerLongChain` safe pulls. Counted when the dash ends (`slotFeedEnd`; a chain
+ *   that ends on the lever pulls first, with the safe pulls as they were — the plan line reads the same), before the goblin
+ *   appears or while it stands (`slotFeedOpen`: not in a battle that cannot get one — the Jailer, a boss —, not after an empty
+ *   roll or a bust). With the rule on the safe pulls never exceed `slotPulls` − 1: the last pull is always risky
+ *   (`slotCharges`). The idol's caption, its dots, the plan line and the pull read `slotCharges` / `safePullsLeft` /
+ *   `bustOdds`. Event `slot` `feed` only when the safe pulls grew (the view's «+1 рывок без риска»). State `World.slotChains`.
  *
  * State: `World.slot` — absent until the battle rolls (or the command), so worlds without the slot hash as before.
  */
@@ -50,7 +58,7 @@ import { blockedAt, dist, inThorns, inWater, lineOfSight, type Vec } from './geo
 import { RESOURCE_KINDS, type ItemKind, type ResourceKind } from './kit';
 import { DEFAULT_PARAMS, heroRadius, type Params } from './params';
 import { bodyRadiusOf } from './enemies/kinds';
-import { OBJECT_RADIUS, canBeHurt, damageEnemy, hurtHero, type ArenaObject, type World } from './world';
+import { OBJECT_RADIUS, canBeHurt, damageEnemy, hurtHero, type ArenaObject, type HeroMove, type World } from './world';
 import { SLOT_KILL_SOURCE } from './purse';
 
 /** A reel symbol: the skull, or one of the four good ones (❤ ⚡ ◆ 🍲). */
@@ -105,7 +113,7 @@ const EPS = 1e-9;
 
 type SlotKey = 'slotChance' | 'slotDelay' | 'slotMarker' | 'slotNear' | 'slotFar' | 'slotPulls' | 'slotCooldown' | 'slotSpin' | 'slotSkulls'
   | 'slotLinksPerSkull' | 'slotRainWaves' | 'slotRainMin' | 'slotRainMax' | 'slotRainStep' | 'slotVolleyMarks' | 'slotVolleyRadius' | 'slotDamage'
-  | 'slotSafePulls' | 'slotBustChance' | 'slotBustDamage';
+  | 'slotSafePulls' | 'slotBustChance' | 'slotBustDamage' | 'slotSafePerLongChain' | 'slotLongChainLinks';
 /** A number of the slot (a journal that turned the slot on by a `param` command may lack it: the default). */
 const num = (p: Params, key: SlotKey): number => { const v = p[key]; return typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_PARAMS[key]; };
 const markRadius = (p: Params): number => p.archerMarkRadius ?? DEFAULT_PARAMS.archerMarkRadius;
@@ -139,10 +147,56 @@ export function skullsFor(world: World, struck: number): number[] {
   return skulls;
 }
 
-/** «Перебор»: the goblin's pulls in all, how many of them are safe (all while `slotBust` is off). */
+/** «Длинная цепь кормит гоблина»: safe pulls one long chain gives (0 — the rule is off). */
+const feedPer = (p: Params): number => Math.max(0, Math.floor(num(p, 'slotSafePerLongChain')));
+
+/**
+ * «Перебор»: the goblin's pulls in all, how many of them are safe (all while `slotBust` is off). «Длинная цепь кормит
+ * гоблина» on: + `slotSafePerLongChain` per long chain of the fight, at most `slotPulls` − 1 (the last pull is always risky).
+ */
 export function slotCharges(world: World): { total: number; safe: number } {
   const p = world.params, total = Math.max(0, Math.floor(num(p, 'slotPulls')));
-  return { total, safe: p.slotBust ? Math.min(total, Math.max(0, Math.floor(num(p, 'slotSafePulls')))) : total };
+  if (!p.slotBust) return { total, safe: total };
+  const base = Math.min(total, Math.max(0, Math.floor(num(p, 'slotSafePulls')))), per = feedPer(p);
+  if (per <= 0) return { total, safe: base };
+  return { total, safe: Math.max(0, Math.min(total - 1, base + per * (world.slotChains ?? 0))) };
+}
+
+/**
+ * «Длинная цепь кормит гоблина» acts now: the rule is on (with the slot and «Перебор»), the fight goes on, and the goblin may
+ * still come (the battle has not rolled and its kit allows one) or stands. Not in a battle that cannot get one (the Jailer, a
+ * boss; the sandbox before the command «Гоблин»), not after an empty roll or a bust.
+ */
+export function slotFeedOpen(world: World): boolean {
+  const p = world.params;
+  if (!p.slot || !p.slotBust || feedPer(p) <= 0 || world.status !== 'playing') return false;
+  return world.slot ? !!world.slot.goblin : !!world.kit?.slot;
+}
+
+/** The release (chain.ts `releaseChain`): the dash counts its enemy links while the rule acts (absent otherwise). */
+export function slotFeedRelease(world: World, move: HeroMove): void {
+  if (slotFeedOpen(world)) move.slotLinks = 0;
+}
+
+/** The dash reached an enemy link (struck, a plate taken, passed fallen — chain.ts `hitEnemy`, `passFallen`). */
+export function slotFeedLink(move: HeroMove): void {
+  if (move.slotLinks !== undefined) move.slotLinks++;
+}
+
+/**
+ * The dash `move` ended (chain.ts `finishMove`): a chain of `slotLongChainLinks`+ enemy links counts as long while the rule
+ * still acts; event `slot` `feed` when the safe pulls grew. Returns by how many they grew.
+ */
+export function slotFeedEnd(world: World, move: HeroMove): number {
+  const links = move.slotLinks;
+  if (links === undefined) return 0;
+  delete move.slotLinks;
+  if (links < Math.max(1, Math.floor(num(world.params, 'slotLongChainLinks'))) || !slotFeedOpen(world)) return 0;
+  const before = slotCharges(world).safe;
+  world.slotChains = (world.slotChains ?? 0) + 1;
+  const grew = slotCharges(world).safe - before;
+  if (grew > 0) world.events.push({ type: 'slot', action: 'feed', x: world.hero.x, y: world.hero.y, safe: grew, links, chains: world.slotChains });
+  return grew;
 }
 
 /** «Перебор»: safe pulls left before the risky ones (0 — the next pull is risky; null — no goblin). */

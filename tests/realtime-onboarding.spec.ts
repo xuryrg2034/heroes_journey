@@ -4,14 +4,18 @@ import { gameWait } from './realtimeFrames';
 
 /**
  * «Обучение v1» (src/realtime/view/hints.ts, docs/realtime-onboarding.md): real input at 1280×720.
- * - A new viewer's first run: the hint Б1 appears with the first link of the first chain, Б4 after the first cheque of 3+ links;
- *   the hints come one at a time, 6 s or more apart; the second run does not repeat them; the run record names the hints shown.
+ * - A new viewer's first run: the hint Б1 appears with the first link of the first chain, Б2 after it; the hints come one at a
+ *   time, 6 s or more apart; the second run does not repeat them; the run record names the hints shown. Task 5 (12.10.2026):
+ *   the run has no cauldron — no Б4 after a cheque of 3+ links (there is no cheque).
  * - The toggle «Подсказки» off: none (also not the queued ones); «Показать подсказки снова»: Б1 again.
  * - The sandbox shows none and writes no memory.
- * - The door opened before any cheque: Б4 goes before Б5; screenshots with Б1 and Б5 keep the HP, the goal and the energy in view.
+ * - The door opened (task 5): neither Б4 nor Б5 (they speak of the cauldron, the run has none) — the goblin's Б9 comes;
+ *   screenshots with Б1 and Б9 keep the HP, the goal and the energy in view. Б4 before Б5 with the cauldron on is checked in
+ *   Node (src/realtime/view/hints.spec.ts).
  * - Б8 is on screen before the chest is taken (it goes first in the queue); the hero under the box fades it (screenshot).
- * - The lines on the screens: Э2 on the first two appearances of the map, Э4 at the die, Э1 (the «Котёл» row of the result)
- *   equals the payout the die screen offers.
+ * - The lines on the screens: Э2 on the first two appearances of the map. Task 5: a won run fight has no «Котёл» row (Э1)
+ *   and no die screen (Э4); Э1 against the payout is checked in Node (src/realtime/view/hints.spec.ts), the die screen's
+ *   own test reads a save that stands at it (tests/realtime-die.spec.ts).
  * Hint times are real (wall) time by the design; the scenes are frozen with `maxEnemies` 0 (docs/realtime-slice.md, section 13).
  * The hard-battle save is made by the run code (seed `Math.imul(2, 2654435761) >>> 0`, the «Застава» node entered).
  */
@@ -119,7 +123,7 @@ const gearOpen = async (page: Page): Promise<void> => { if (!(await page.getByTe
 const rect = (page: Page, testId: string) => page.getByTestId(testId).evaluate(node => { const r = node.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; });
 const overlaps = (a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-test('a new viewer: Б1 with the first link of the first chain, Б4 after the first cheque of 3+ links, one at a time 6 s or more apart; the second run does not repeat them; the run record names them', async ({ page }) => {
+test('a new viewer: Б1 with the first link of the first chain, then Б2, one at a time 6 s or more apart; no Б4 (task 5: no cauldron); the second run does not repeat them; the run record names them', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
@@ -148,34 +152,37 @@ test('a new viewer: Б1 with the first link of the first chain, Б4 after the fi
   await page.mouse.up();
   await movingNull(page);
 
-  // The cheque of 4 links queues Б4; the hints come one by one, a release lets each go after its 4 s.
-  const seen = await untilHint(page, o => o.log.some(h => h.id === 'b4'));
+  // Б2 follows; the hints come one by one, a release lets each go after its 4 s. The chain of 4 put no cheque (task 5): no Б4.
+  const seen = await untilHint(page, o => o.log.some(h => h.id === 'b2'));
   const ids = seen.log.map(h => h.id);
   expect(ids.slice(0, 2)).toEqual(['b1', 'b2']);
   expect(new Set(ids).size).toBe(ids.length);
   for (let i = 1; i < seen.log.length; i++) expect(seen.log[i].t - seen.log[i - 1].t).toBeGreaterThanOrEqual(6000);
   await expect(page.locator('[data-testid="onboarding-hint"]')).toHaveCount(1);
-  expect((await shownHints(page)).b4).toBe(1);
+  expect((await shownHints(page)).b2).toBe(1);
+  expect(ids).not.toContain('b4');
+  expect([...seen.pending, ...ids]).not.toContain('b4');
+  expect((await snap(page)).purse.on).toBe(false);
 
   // Telemetry: the run record has the ids shown, in order.
   const records = await page.evaluate(() => (window as any).__realtime.telemetry.records()) as { kind: string; hints?: string[] }[];
   expect(records.find(r => r.kind === 'run')?.hints).toEqual(ids);
 
-  // The second run: the same chain and cheque, nothing that was shown comes again.
+  // The second run: the same chain, nothing that was shown comes again.
   const shownBefore = (await onboarding(page)).log.length;
   await leaveFight(page);
   await startFight(page);
   await quiet(page);
   await drawChain(page, 4);
-  await expect.poll(async () => (await snap(page)).purse.cauldron).toBeGreaterThan(0);
   await page.waitForTimeout(8_000);
   await tap(page);
   const after = await onboarding(page);
   const allIds = after.log.map(h => h.id);
-  expect(allIds.filter(id => id === 'b4')).toHaveLength(1);
+  expect(allIds.filter(id => id === 'b2')).toHaveLength(1);
   expect(new Set(allIds).size).toBe(allIds.length);
   expect(after.log.slice(shownBefore).every(h => !['b1', 'b2', 'b4'].includes(h.id))).toBe(true);
-  expect((await shownHints(page)).b4).toBe(1);
+  expect((await shownHints(page)).b2).toBe(1);
+  expect((await shownHints(page)).b4).toBeUndefined();
   expect(errors).toEqual([]);
 });
 
@@ -245,21 +252,20 @@ test('the sandbox shows no hint and keeps no memory', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('the door opened before any cheque: Б4 first, then Б5 six seconds later — the screenshot keeps HP, the goal and the energy in view', async ({ page }) => {
+test('task 5: the door opened in a run — neither Б4 nor Б5 (no cauldron); the goblin\'s Б9 comes — the screenshot keeps HP, the goal and the energy in view', async ({ page }) => {
   test.setTimeout(90_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
   await startFight(page);
   await quiet(page);
   await page.evaluate(() => (window as any).__realtime.completeGoals());
-  await expect.poll(async () => (await onboarding(page)).id).toBe('b4');
-  expect((await onboarding(page)).text).toBe('Цепь кладёт в котёл угли × жар. Котёл платит ресурсами у двери.');
-  expect((await onboarding(page)).pending).toEqual(['b5']);
-  // Б4 goes after its 4 s and a release; Б5 starts 6 s after Б4.
-  const seen = await untilHint(page, o => o.log.some(h => h.id === 'b5'));
-  expect(seen.log.map(h => h.id)).toEqual(['b4', 'b5']);
-  expect(seen.log[1].t - seen.log[0].t).toBeGreaterThanOrEqual(6000);
-  expect(seen.text).toBe('Дверь открыта. Выйди — котёл станет ресурсами. Цепи 3+ растят множитель, удар его снижает.');
+  // The goblin stands 3 game seconds after the goals (the run: every battle from row 1): Б9 is the first hint.
+  await expect.poll(async () => (await onboarding(page)).id, { timeout: 20_000 }).toBe('b9');
+  const seen = await onboarding(page);
+  expect(seen.log.map(h => h.id)).toEqual(['b9']);
+  expect([...seen.pending, ...seen.log.map(h => h.id)]).not.toContain('b4');
+  expect([...seen.pending, ...seen.log.map(h => h.id)]).not.toContain('b5');
+  expect(seen.text).toBe('Однорукий гоблин: закончи цепь на рычаге. Первые 3 рывка безопасны, дальше — риск взрыва.');
   const box = await rect(page, 'onboarding-hint'), hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
   expect(box.width).toBeLessThanOrEqual(560);
   expect(overlaps(box, hud) || overlaps(box, bar)).toBe(false);
@@ -268,7 +274,9 @@ test('the door opened before any cheque: Б4 first, then Б5 six seconds later �
   await expect(page.locator('.rt-energy')).toBeVisible();
   await expect(page.getByTestId('goal')).toContainText('дверь открыта');
   await page.mouse.move(640, 300);
-  await page.screenshot({ path: 'artifacts/realtime-onboarding-b5.png' });
+  await page.screenshot({ path: 'artifacts/realtime-onboarding-b9.png' });
+  expect((await shownHints(page)).b4).toBeUndefined();
+  expect((await shownHints(page)).b5).toBeUndefined();
   expect(errors).toEqual([]);
 });
 
@@ -360,39 +368,27 @@ test('the lines on the screens: Э2 on the first two appearances of the map, the
   expect(errors).toEqual([]);
 });
 
-test('the «Котёл» row of a won run fight is the arithmetic of the payout, the die screen carries its line; the numbers equal what «Забрать» pays', async ({ page }) => {
+test('task 5: a won run fight has no «Котёл» row (Э1) — «Очки» instead — and no die screen (Э4): the result leads to the map', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
   await startFight(page);
   await quiet(page);
-  // Two chains of 5 weak enemies fill the cauldron (a chain of 5 gives ≥ 5 embers × heat; the exact number is read from the world).
   await drawChain(page, 5);
   await drawChain(page, 5);
-  await drawChain(page, 5);
-  await drawChain(page, 5);
-  const cauldron = (await snap(page)).purse.cauldron as number;
-  expect(cauldron).toBeGreaterThan(0);
+  expect((await snap(page)).purse.on).toBe(false);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect.poll(async () => (await snap(page)).status, { timeout: 15_000 }).toBe('victory');
-  const door = (await snap(page)).purse.door as { cauldron: number; oath: number; rate: number; greed?: number };
-  expect(door.cauldron).toBe(cauldron);
-  const greed = door.greed ?? 1, paid = Math.min(3, Math.floor(door.cauldron * greed / door.rate));
-  const text = (n: number) => String(n).replace('.', ',');
-  const expected = `${door.cauldron}${greed !== 1 ? ` ×${text(greed)}` : ''} ÷ ${door.rate} → ресурсов ${paid}${paid >= 3 ? ' (потолок 3)' : ''} (до кости)`;
-  await expect(page.getByTestId('result')).toContainText(expected);
-  // The row's label is «Котёл»; its value does not repeat the word.
-  await expect(page.getByTestId('result').locator('dt', { hasText: 'Котёл' })).toHaveCount(1);
-  await expect(page.getByTestId('result').locator('dd', { hasText: '→ ресурсов' })).toHaveText(expected);
+  await expect(page.getByTestId('result')).toBeVisible();
+  await expect(page.getByTestId('result').locator('dt', { hasText: 'Котёл' })).toHaveCount(0);
+  await expect(page.getByTestId('result').locator('dt', { hasText: 'Очки' })).toHaveCount(1);
+  await expect(page.getByTestId('result')).not.toContainText('→ ресурсов');
+  await expect(page.getByTestId('result-map')).toHaveText('К карте (Enter)');
   await page.screenshot({ path: 'artifacts/realtime-onboarding-result.png' });
-  const before = await page.evaluate(() => (window as any).__realtime.run.state().materials) as Record<string, number>;
   await page.getByTestId('result-map').click();
-  await expect(page.getByTestId('run-die')).toBeVisible();
-  await expect(page.getByTestId('line-die')).toHaveText('1–3 — половина, 4–6 — вдвое, но не выше потолка. «Забрать» — без риска.');
-  await expect(page.getByTestId('die-take')).toContainText(`${paid}`);
-  await page.getByTestId('die-take').click();
-  const after = await page.evaluate(() => (window as any).__realtime.run.state().materials) as Record<string, number>;
-  const sum = (m: Record<string, number>) => Object.values(m).reduce((a, b) => a + b, 0);
-  expect(sum(after) - sum(before)).toBe(paid);
+  await expect(page.getByTestId('run-map')).toBeVisible();
+  await expect(page.getByTestId('run-die')).toHaveCount(0);
+  await expect(page.getByTestId('line-die')).toHaveCount(0);
+  expect((await stored(page))?.shown.e4).toBeUndefined();
   expect(errors).toEqual([]);
 });

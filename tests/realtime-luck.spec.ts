@@ -3,9 +3,10 @@ import { test, expect, type Page } from '@playwright/test';
 /**
  * П5 «Журнал удачи» (src/realtime/run/rtLuck.ts, src/realtime/view/runView.ts, docs/realtime-slice.md, section 9): with real
  * input at 1280×720 — a run fight of seed 10 (`r5c0`): a mouse chain of 2 weak enemies to the goblin's lever (the odds line
- * «дождь 2,2 % · залп 17,8 %»), a chain that fills the cauldron, the door; «Бросить» at the die; a reload; the next fight is
- * lost. The run-end screen has the block «Удача похода», collapsed; opened, it says the goblin's pull with the odds the lever
- * showed and what came, and the die's roll with what came; a reload keeps it (collapsed again). The goblin is put by the
+ * «дождь 2,2 % · залп 17,8 %»), the door (task 5, 12.10.2026: no cauldron, no die — the result leads to the map); a reload; the
+ * next fight is lost. The run-end screen has the block «Удача похода», collapsed; opened, it says the goblin's pull with the
+ * odds the lever showed and what came, and no die line; a reload keeps it (collapsed again). The die's line is checked in
+ * Node (src/realtime/run/luck.spec.ts, the run layer with the die turned on). The goblin is put by the
  * journalled debug command (`summonGoblin`); the arena is won by the run hook `winArena`.
  */
 
@@ -34,7 +35,6 @@ async function quiet(page: Page): Promise<void> {
   });
 }
 
-/** The cauldron by a chain drawn with the mouse along a free line from the hero (weak, ◆, weak, ◆, weak, weak, tough 4 HP). */
 async function fillCauldron(page: Page): Promise<void> {
   const spec = ['weak', 'crystal', 'weak', 'crystal', 'weak', 'weak', 'tough'] as const;
   const start = (await snapshot(page)).hero as { x: number; y: number };
@@ -89,7 +89,7 @@ async function pullLever(page: Page): Promise<string> {
   return odds;
 }
 
-test('the run-end block «Удача похода»: collapsed; the goblin\'s pull with the odds the lever showed, the die\'s roll; a reload keeps it', async ({ page }) => {
+test('the run-end block «Удача похода»: collapsed; the goblin\'s pull with the odds the lever showed (no die since task 5); a reload keeps it', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await page.goto('/');
@@ -108,20 +108,15 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   const odds = await pullLever(page);
   expect(odds).toBe('дождь 2,2 % · залп 17,8 %');
   await page.evaluate(() => (window as any).__realtime.clear(false));
-  await fillCauldron(page);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect.poll(async () => (await snapshot(page)).status, { timeout: 10_000 }).toBe('victory');
   const won = await runState(page);
   const pullOutcome = { rain: won.luck['slot-rain'].hits as number, volley: won.luck['slot-volley'].hits as number };
   expect(won.luck['slot-rain'].tries).toBe(1);
   await page.getByTestId('result-map').click();
-  // The die: «Бросить», a click skips the roll; the face is the one the run fixed.
-  await expect(page.getByTestId('run-die')).toBeVisible();
-  const face = (await runState(page)).pending.face as number;
-  await page.getByTestId('die-roll').click();
-  await page.getByTestId('run-die-roll').click();
-  await expect(page.getByTestId('die-face')).toHaveAttribute('data-face', String(face));
-  await page.getByTestId('die-close').click();
+  // Task 5: no die after the door — the map.
+  await expect(page.getByTestId('run-map')).toBeVisible();
+  await expect(page.getByTestId('run-die')).toHaveCount(0);
 
   // A reload, then the next fight is lost (a ring of enemies around the standing hero).
   await page.reload();
@@ -137,7 +132,7 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   await page.getByTestId('result-map').click();
   await expect(page.getByTestId('run-result-defeat')).toBeVisible();
 
-  // The block: collapsed by default; opened — the goblin (hand-counted: 1/45 → «0», 8/45 → «0,2») and the die (½ → «0,5»).
+  // The block: collapsed by default; opened — the goblin (hand-counted: 1/45 → «0», 8/45 → «0,2»); no die line (task 5).
   const block = page.getByTestId('run-luck');
   await expect(block).toBeVisible();
   await expect(block).not.toHaveAttribute('open', /.*/);
@@ -146,9 +141,8 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   await page.getByTestId('run-luck-toggle').click();
   await expect(block).toHaveAttribute('open', '');
   const goblin = `Гоблин: 1 рывок · на рычаге в среднем ${odds} · выпало: дождь ${pullOutcome.rain} (ожидание 0), залп ${pullOutcome.volley} (ожидание 0,2)`;
-  const die = `Кость у двери: 1 бросок · 4–6 выпало ${face >= 4 ? 1 : 0} (ожидание 0,5)`;
   await expect(page.getByTestId('luck-slot')).toHaveText(goblin);
-  await expect(page.getByTestId('luck-die')).toHaveText(die);
+  await expect(page.getByTestId('luck-die')).toHaveCount(0);
   await page.screenshot({ path: 'artifacts/realtime-luck-open.png' });
 
   // A reload: the end screen again, the block collapsed, the same contents.
@@ -158,7 +152,7 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   await expect(page.getByTestId('run-luck')).not.toHaveAttribute('open', /.*/);
   await page.getByTestId('run-luck-toggle').click();
   await expect(page.getByTestId('luck-slot')).toHaveText(goblin);
-  await expect(page.getByTestId('luck-die')).toHaveText(die);
+  await expect(page.getByTestId('luck-die')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

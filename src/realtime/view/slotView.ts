@@ -4,7 +4,8 @@
  * three reels over the idol — they spin 1.2 s and stop one by one, then the result glows; the lever dark during the cooldown
  * and after the last pull; the odds line «дождь N % · залп M %» over the idol while the drawn chain can end on the lever.
  * «Перебор» (`slotBust`): charge dots under the idol (gold safe, red risky, dark spent) and a caption over it — «безопасно: N»,
- * then the bust odds; the odds line of a risky pull is red. Nothing in the HUD. Drawing only: it reads the world and the plan, it never changes them. The arrow marks are drawn by the
+ * then the bust odds; the odds line of a risky pull is red. «Длинная цепь кормит гоблина» (`slotSafePerLongChain`): the event
+ * `feed` floats «+1 рывок без риска» over the hero (render.ts), the caption and the dots read the grown count. Nothing in the HUD. Drawing only: it reads the world and the plan, it never changes them. The arrow marks are drawn by the
  * renderer with the archer's mark (render.ts `drawSignals`).
  */
 import { Container, Graphics, Text } from 'pixi.js';
@@ -71,10 +72,19 @@ export const OUTCOME_TEXT: Readonly<Record<SlotOutcome, string>> = {
   heart: '+1 HP', bolt: '+1 энергия', gem: 'кристалл', pot: 'добыча', none: 'хе-хе', bust: 'Перебор!',
 };
 
+/** «+1 рывок без риска» — the floating text of a long chain that fed the goblin (`n` — by how many the safe pulls grew). */
+export function feedText(n: number): string {
+  const tens = n % 100, ones = n % 10;
+  const word = ones === 1 && tens !== 11 ? 'рывок' : ones >= 2 && ones <= 4 && (tens < 12 || tens > 14) ? 'рывка' : 'рывков';
+  return `+${n} ${word} без риска`;
+}
+
 /** What the slot view drew (tests read it): last frame — idols, markers, spinning reels, dark levers, odds lines; totals — pulls, results. */
 export interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string;
   /** «Перебор»: the caption over the idol (empty — none), whether it is the risky one, the dots by colour, the busts seen. */
-  caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number }
+  caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number;
+  /** «Длинная цепь кормит гоблина»: texts floated for the long chains (count) and the last one. */
+  feeds: number; feedText: string }
 
 export class SlotView {
   /** The idol, the lever, the reels (over the crowd, under the chain). */
@@ -90,7 +100,7 @@ export class SlotView {
   private pullRisky = false;
   /** The bust chance the risky strip shows (the world's `slotBustChance`, set each frame of a spin). */
   private bustChance = 0;
-  readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0 };
+  readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0, feeds: 0, feedText: '' };
 
   constructor(private readonly unit: number) {
     this.oddsLabel = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 17, fontWeight: 'bold', fill: GOLD, stroke: { color: 0x200c08, width: 4 } } });
@@ -105,6 +115,7 @@ export class SlotView {
 
   /** A slot event of the world (render.ts `handleEvents`): returns the text to float over the idol, if any. */
   handle(ev: Extract<WorldEvent, { type: 'slot' }>): string | null {
+    if (ev.action === 'feed') { const text = feedText(ev.safe ?? 1); this.shown.feeds++; this.shown.feedText = text; return text; }
     if (ev.action === 'pull') { this.shown.pulls++; this.result = null; this.pullSkulls = ev.skulls ? [...ev.skulls] : null; this.pullRisky = !!ev.risky; return null; }
     if (ev.action === 'effect' && ev.outcome) {
       this.shown.results++; this.shown.lastResult = ev.outcome;

@@ -18,7 +18,7 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  rtOathPreview, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
+  rtOathPreview, rtOathStakeOn, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   type RtArenaOutcome, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
@@ -50,6 +50,11 @@ export interface RunHost {
    * `rtEnterNode`; absent or false — every event node as before.
    */
   goblinCircle?: boolean;
+  /**
+   * Casino stage 1, item 2 (`Params.oathStake`; the run: off since task 5, 12.10.2026): oath nodes offer oaths on their card.
+   * Passed to `rtEnterNode` and `rtOathPreview`; absent — the run's own value (off).
+   */
+  oathStake?: boolean;
   /** The run screen covers the arena (true) or the arena is on screen (false). */
   onScreenChange(open: boolean): void;
   /**
@@ -277,7 +282,7 @@ export class RunView {
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
   enter(nodeId: string, oath: OathId | null = null): string {
     if (!this.run) return 'Нет похода.';
-    const step = rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle });
+    const step = rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle, oathStake: rtOathStakeOn(this.host.oathStake) });
     // П8: a choice made with the sign shown is recorded (only then): which nodes wore it, which was chosen.
     if (step.ok && this.host.mapChoice) {
       const signed = rtAvailableNodes(this.run).filter(node => this.hasNewSign(this.run!, node)).map(node => node.id);
@@ -632,7 +637,7 @@ export class RunView {
    * made before the battle; a reload shows the same two, `rtOathPreview`).
    */
   private enterHtml(run: RtRunState, node: ForestMapNode): string {
-    const oaths = rtOathPreview(run, node);
+    const oaths = rtOathPreview(run, node, rtOathStakeOn(this.host.oathStake));
     if (!oaths) return `<button class="rt-again" data-action="enter" data-testid="run-enter">Идти</button>`;
     const buttons = oaths.map(id => `<button class="rt-run-choice" data-action="enter-oath" data-oath="${id}" data-testid="oath-${id}"><b>Зарок: ${escapeHtml(oathDef(id).name)}</b>`
       + `<small>${escapeHtml(oathDef(id).rule)}</small></button>`).join('');
@@ -669,7 +674,8 @@ export class RunView {
     if (!pending) return '';
     if (pending.kind === 'battle') {
       if (this.inArena) return '';
-      const oath = pending.oath ? `<p data-testid="run-battle-oath">Зарок: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
+      // Task 5: an older save's chosen oath is not played with the stake off (sim/oath.ts `startOath`) — not shown either.
+      const oath = pending.oath && rtOathStakeOn(this.host.oathStake) ? `<p data-testid="run-battle-oath">Зарок: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
       return card(`<h2>Бой</h2><p>${arenaLine(pending.arena, pending.roster)}</p>${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }

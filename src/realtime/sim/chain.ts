@@ -37,7 +37,7 @@ import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
 import { PIERCE_HITSTOP, PIERCE_SOURCE, pierceOn, pierceShape } from './pierce';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the lever — the last link, as a button.
-import { leverReady, pullLever } from './slot';
+import { leverReady, pullLever, slotFeedEnd, slotFeedLink, slotFeedRelease } from './slot';
 import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease } from './oath';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
@@ -748,6 +748,8 @@ export function releaseChain(world: World): boolean {
   if (purseOn(world)) world.move.purse = { embers: 0, links: 0, last: false };
   // П4 «Раздув за дела»: a chain released with the door open counts toward a greed step (absent while the rule is off).
   greedRelease(world, world.move);
+  // «Длинная цепь кормит гоблина» (slot.ts): the dash counts its enemy links (absent while the rule does not act).
+  slotFeedRelease(world, world.move);
   // Casino «Ставка клятвы» (oath.ts): «Цепи 3+» counts the released chain's enemy links (in the release's tick).
   if (world.oath) {
     const end = links[links.length - 1], button = end.kind === 'object' ? findObject(world, end.id) : undefined;
@@ -999,6 +1001,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
   if (move.brittle) { move.brittle = move.brittle.filter(id => id !== enemy.id); if (!move.brittle.length) delete move.brittle; }
   // Casino «Котёл»: the link's embers (the highlight counts the same outcome, `planChain`).
   if (move.purse) tallyLink(move.purse, linkEmbers(enemy, outcome), outcome.killed);
+  slotFeedLink(move);
   // Casino «Ставка клятвы»: the dash reached an enemy link — «Цепь 6+ хотя бы раз» counts it (the links П4 counts).
   if (world.oath) oathLink(world);
   move.power = outcome.powerAfter;
@@ -1078,6 +1081,7 @@ function passFallen(world: World, fallen: FallenLink): void {
   // Casino «Котёл»: a fallen link counts for the heat (it is dead); a credited one brings its embers (`fallenEmbers`), an enemy
   // ability's kill none.
   if (move.purse) tallyLink(move.purse, fallen.embers ?? 0, true);
+  slotFeedLink(move);
   if (world.oath) oathLink(world);
   if (move.shifts) reachShift(world, move, fallen);
   if (!fallen.credited) return;
@@ -1192,6 +1196,8 @@ function finishMove(world: World): void {
     world.events.push({ type: 'chainEnd', kills: move.kills, score });
     // Casino «Котёл»: the chain's cheque goes into the cauldron (purse.ts; nothing while it is off).
     settleCheque(world, move);
+    // «Длинная цепь кормит гоблина» (slot.ts): a chain of 6+ enemy links adds safe pulls (nothing while the rule does not act).
+    slotFeedEnd(world, move);
     // Stage F (user 07.10.2026): a chain that killed leaves the hero untouchable for a moment to walk out of the crowd;
     // a new one replaces the rest (no stacking); the hurt invulnerability runs on its own, the larger protects.
     // Phase B: its length is the build's (build.ts `chainShieldOf`: «Добивание», «Быстрые ноги»).

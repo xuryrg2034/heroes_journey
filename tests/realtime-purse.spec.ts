@@ -4,7 +4,8 @@ import { untilFrame } from './realtimeFrames';
 /**
  * Casino «Котёл» (src/realtime/sim/purse.ts, docs/realtime-casino.md): the view with real mouse input in the sandbox — the
  * HUD line «котёл N» instead of «очки N», the forecast «≈ N» at the pointer in focus from 3 enemy links with «ещё 1 → ×жар»,
- * the caption «угли N · ×жар» under the power number during the dash and the cheque at the end («8 × 3 × ◆2 = 48»).
+ * the caption «угли N · ×жар» under the power number during the dash and the cheque at the end («8 × 3 × ◆2 = 48»). Task 5
+ * (12.10.2026): the run has no cauldron — its arena shows «очки N» and no «Котёл» row.
  */
 
 async function open(page: Page, errors: string[]): Promise<void> {
@@ -87,7 +88,7 @@ test('the cauldron: «котёл N» in the HUD, the forecast at the pointer fro
   expect(errors).toEqual([]);
 });
 
-test('a run arena plays with the cauldron: the HUD shows «котёл N», the result shows the cauldron and the resources it pays', async ({ page }) => {
+test('task 5 (12.10.2026): a run arena has no cauldron — the HUD shows «очки N», the door records nothing, the result has no «Котёл» row', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -100,17 +101,14 @@ test('a run arena plays with the cauldron: the HUD shows «котёл N», the r
   await page.locator('[data-status="available"]').first().click();
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
-  await expect(page.getByTestId('score')).toHaveText(/^котёл \d+$/);
-  expect((await purse(page)).on).toBe(true);
+  await expect(page.getByTestId('score')).toHaveText(/^очки \d+$/);
+  expect((await purse(page)).on).toBe(false);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect.poll(() => page.evaluate(() => (window as any).__realtime.snapshot().status), { timeout: 10_000 }).toBe('victory');
-  const door = await page.evaluate(() => (window as any).__realtime.snapshot().purse.door) as { cauldron: number; oath: number; kinds: string[]; rate: number; greed?: number };
-  expect(door.oath).toBe(1);
-  // The run's rate: 120 embers a resource (12.10.2026; the sandbox default stays 60).
-  expect(door.rate).toBe(120);
-  expect(door.kinds).toHaveLength(6);
-  await expect(page.getByTestId('result')).toContainText('Котёл');
-  await expect(page.getByTestId('result')).toContainText(`${door.cauldron} → ресурсов ${Math.min(3, Math.floor(door.cauldron * (door.greed ?? 1) / door.rate))}`);
+  expect(await page.evaluate(() => (window as any).__realtime.snapshot().purse.door)).toBeNull();
+  await expect(page.getByTestId('result')).toBeVisible();
+  await expect(page.getByTestId('result').locator('dt', { hasText: 'Котёл' })).toHaveCount(0);
+  await expect(page.getByTestId('result').locator('dt', { hasText: 'Очки' })).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 

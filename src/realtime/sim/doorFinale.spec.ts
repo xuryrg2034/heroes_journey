@@ -227,9 +227,12 @@ check('the rule without the cauldron does nothing; a journal without the key pla
 
 // ---- The run ----
 
-check('the run turns the rule on: a run arena\'s chain into the door pays its +1 heat (sandbox default off)', () => {
-  assert(RT_RUN_FORCED.doorFinale === true && rtRunParams(defaultParams()).doorFinale === true && defaultParams().doorFinale === false, 'on in the run, off by default');
-  const f = fight(rtRunParams(quiet({ purse: false, doorFinale: false, contactDamage: 0 }))), w = f.sim.world;
+check('the run keeps the rule on, idle without its cauldron (task 5, 12.10.2026): a run arena\'s chain into the door puts no cheque; with the cauldron turned on over the run\'s values it pays its +1 heat (sandbox default off)', () => {
+  assert(RT_RUN_FORCED.doorFinale === true && RT_RUN_FORCED.purse === false && rtRunParams(defaultParams()).doorFinale === true && defaultParams().doorFinale === false, 'on in the run (no cauldron there), off by default');
+  const run = fight(rtRunParams(quiet({ purse: true, contactDamage: 0 })));
+  goals(run);
+  assert(chain(run, weak(4), true) === null && run.sim.world.status === 'victory' && run.sim.world.purse === undefined, 'the run arena: no cheque, no door record');
+  const f = fight({ ...rtRunParams(quiet({ doorFinale: false, contactDamage: 0 })), purse: true }), w = f.sim.world;
   goals(f);
   const c = chain(f, weak(4), true)!;
   assert(c.door && c.heat === 4 && w.purse?.door?.cauldron === 22, `the run arena: ${shape(c)} → ${w.purse?.door?.cauldron}`);

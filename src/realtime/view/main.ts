@@ -581,6 +581,8 @@ async function boot(): Promise<void> {
     loadoutOptions: { colorsByRow: params.colorsByRow },
     // B7 К9 «Игорный круг гоблинов»: the run's key (`RT_RUN_FORCED`; the simulation never reads it).
     goblinCircle: params.goblinCircle,
+    // Casino «Ставка клятвы»: the run's key (`RT_RUN_FORCED`; off since task 5, 12.10.2026) — oath nodes offer no oaths.
+    oathStake: params.oathStake,
     onScreenChange(open) {
       runScreenOpen = open;
       if (open) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; result.hidden = true; }

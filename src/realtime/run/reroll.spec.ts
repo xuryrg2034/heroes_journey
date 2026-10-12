@@ -5,7 +5,8 @@
  * The run goes by its own commands; its arenas are real fights (journalled commands on the quiet test field of
  * runFight.testkit.ts) whose cauldron pays the resources a reroll costs:
  * - a run without a reroll saves byte for byte as before: whole runs of 8 seeds give the same saves at every step as the
- *   code of 7ae55fc (fixture `walks`; re-recorded at the calibration of 12.10.2026: the run's rate and oath offers);
+ *   code of 7ae55fc (fixture `walks`; re-recorded at the calibration and at task 5 of 12.10.2026: the run's rate and oath offers; and at
+ *   task 5, 12.10.2026: no cauldron, die or oath stake in the run, the goblin from row 1);
  * - «Застава»: a reroll costs 1, then 2, then 3 resources, paid as the merchant is paid; each new offer has none of the
  *   talismans shown on the screen before; the 4th waits for resources and says why; the offer, the price and the stream
  *   counter survive a reload, and the next reroll after a reload is the same as without it;
@@ -42,7 +43,7 @@ const fnv = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < 
 /**
  * A whole run walked without a reroll: hard nodes first, then events (an event's battle when it can be taken), battles won
  * on the test field (chains 6 6 6 6), talisman screens take their first option, other screens close simply. Returns every
- * save on the way. The same walk wrote the fixture's `walks` with the code of 7ae55fc (re-recorded at the calibration of 12.10.2026).
+ * save on the way. The same walk wrote the fixture's `walks` with the code of 7ae55fc (re-recorded at the calibration and at task 5 of 12.10.2026).
  */
 function walkSaves(k: number): string[] {
   let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
@@ -62,7 +63,8 @@ function walkSaves(k: number): string[] {
 }
 
 /**
- * Walks seed `k` by the run's commands (fights won on the test field, so the cauldron pays resources) until a talisman offer
+ * Walks seed `k` by the run's commands (fights won on the test field; since task 5, 12.10.2026, the run has no cauldron, so they
+ * pay no resources — the checks add what a reroll costs) until a talisman offer
  * of `source` is open; an event takes its battle when it can. Other offers on the way are refused. Null — none on the way.
  */
 function walkTo(k: number, source: 'hard' | 'event' | 'oath'): RtRunState | null {
@@ -83,7 +85,7 @@ function walkTo(k: number, source: 'hard' | 'event' | 'oath'): RtRunState | null
   return null;
 }
 
-check('a run without a reroll saves byte for byte as the fixture walks (code of 7ae55fc, re-recorded at the calibration of 12.10.2026): 8 whole runs, every save on the way', () => {
+check('a run without a reroll saves byte for byte as the fixture walks (code of 7ae55fc, re-recorded at the calibration and at task 5 of 12.10.2026): 8 whole runs, every save on the way', () => {
   const walks = before.walks as Record<string, { steps: number; hash: string; talismansDraws: number; result: string }>;
   let screens = 0;
   for (const [k, want] of Object.entries(walks)) {
@@ -152,8 +154,10 @@ check('several seeds: «Застава» offers reroll to different new offers; 
   const offers = new Set<string>();
   let seeds = 0;
   for (let k = 1; k <= 40 && seeds < 6; k++) {
-    const at = walkTo(k, 'hard');
-    if (!at || total(at) < RT_REROLL_PRICE) continue;
+    // Task 5 (12.10.2026): the run's fights pay no cauldron any more — the price of one reroll is put in by hand.
+    const found = walkTo(k, 'hard');
+    if (!found) continue;
+    const at: RtRunState = { ...found, materials: { ...found.materials, dew: found.materials.dew + RT_REROLL_PRICE } };
     const a = ok(rtRerollTalismans(at), 'reroll'), b = ok(rtRerollTalismans(structuredClone(at)), 'reroll again');
     assert(same(a, b), `seed ${k}: the same state rerolls the same`);
     const offer = offerOf(a).options;

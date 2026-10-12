@@ -16,7 +16,10 @@
  *   loadout); a version 6 save loads into version 7; a forged offer is no run; since 12.10.2026 the run offers
  *   «Цепь 6+ хотя бы раз» where it offered «Без прыжков» and never «Без прыжков»; a save of df42809 with an open battle
  *   under «Без прыжков» loads and plays as before (fixture `rt-run-save-before-chain6.json`);
- * - off by default: a journal without the value plays the same world (everything but the params); every fight replays.
+ * - off by default: a journal without the value plays the same world (everything but the params); every fight replays;
+ * - task 5 (12.10.2026): the run offers no oaths — no node card shows them, an oath is refused on entering, the counter of
+ *   the oath stream still moves one per entered oath node (old and new saves check the same); a save with an oath already
+ *   sworn (fixture) loads and its arena plays without the oath. The run-layer checks above turn the stake on explicitly.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
@@ -45,6 +48,15 @@ let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+/**
+ * Task 5 (12.10.2026): the run offers no oaths (`RT_RUN_FORCED.oathStake` off) and plays no cauldron. The run layer's oath
+ * code stays (a future return, the saves of before): its checks below turn the stake on explicitly — the node card
+ * (`previewOn`, `enterOn`) and the arena (`runOn`: the run's values with the cauldron and the stake on). What the run does
+ * now is the check «task 5: the run offers no oaths».
+ */
+const previewOn = (run: RtRunState, node: Parameters<typeof rtOathPreview>[1]): OathId[] | null => rtOathPreview(run, node, true);
+const enterOn = (run: RtRunState, nodeId: string, oath: OathId | null = null): RtRunStep => rtEnterNode(run, nodeId, oath, { oathStake: true });
+const runOn = (): Params => ({ ...rtRunParams(quiet()), purse: true, oathStake: true });
 
 registerArena({
   id: 'oath-field', name: 'Поле клятвы', summary: 'Тест клятвы', goal: 'kills', width: 20, height: 12,
@@ -360,7 +372,7 @@ check('the sandbox command: an oath from now (journalled), none again; nothing w
 });
 
 check('off by default: a journal without the value plays the same world; the loadout\'s oath does nothing; no `world.oath`', () => {
-  assert(defaultParams().oathStake === false && RT_RUN_FORCED.oathStake === true && rtRunParams(defaultParams()).oathStake === true, 'off in the sandbox, on in the run');
+  assert(defaultParams().oathStake === false && RT_RUN_FORCED.oathStake === false && rtRunParams({ ...defaultParams(), oathStake: true }).oathStake === false, 'off in the sandbox by default, off in the run (task 5)');
   for (let k = 1; k <= 3; k++) {
     const old = quiet({ oathStake: false, contactDamage: 1 }) as Partial<Params>;
     delete old.oathStake;
@@ -439,10 +451,10 @@ function walk(seed: number, pickNode: (nodes: number) => number, swear: boolean)
   for (let step = 0; step < 200 && !run.result; step++) {
     if (run.pending) { run = closeNode(run); continue; }
     const nodes = rtAvailableNodes(run), node = nodes[pickNode(nodes.length) % nodes.length];
-    const preview = rtOathPreview(run, node), loaded = parseRtRun(serializeRtRun(run))!;
-    assert(same(rtOathPreview(loaded, node), preview), 'a reload shows the same offer');
+    const preview = previewOn(run, node), loaded = parseRtRun(serializeRtRun(run))!;
+    assert(same(previewOn(loaded, node), preview), 'a reload shows the same offer');
     const oath = swear && preview ? preview[0] : null;
-    run = ok(rtEnterNode(run, node.id, oath), 'enter');
+    run = ok(enterOn(run, node.id, oath), 'enter');
     const pending = run.pending;
     const offer = pending?.kind === 'battle' ? pending.oathOffer ?? null : null;
     assert(same(offer, preview), `${node.id} (${node.type}): the offer is the preview`);
@@ -509,9 +521,9 @@ check('since 12.10.2026 the run offers «Цепь 6+ хотя бы раз» wher
   let run = takeGift(createRtRun(seedOf(1250), { gift: 'mini' }));
   for (let step = 0; step < 80; step++) {
     if (run.pending) { run = closeNode(run); continue; }
-    const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry));
-    if (!node) { run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
-    assert(!rtEnterNode(run, node.id, 'no-jump').ok, '«Без прыжков» is no offer');
+    const node = rtAvailableNodes(run).find(entry => previewOn(run, entry));
+    if (!node) { run = ok(enterOn(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
+    assert(!enterOn(run, node.id, 'no-jump').ok, '«Без прыжков» is no offer');
     return;
   }
   throw new Error('no oath node met');
@@ -526,7 +538,7 @@ check('a save of df42809 with an open battle sworn «Без прыжков» (fi
   // A forged twin: the same save with «Цепь 6+» sworn though «Без прыжков» was offered — no run.
   assert(parseRtRun(text.replace('"oath":"no-jump"', '"oath":"chain6"')) === null, 'an oath outside the old offer is no run');
   const play = (jump: boolean) => {
-    const sim = field(null, rtRunParams(quiet({ oathStake: false })), 1, rtArenaLoadout(run));
+    const sim = field(null, runOn(), 1, rtArenaLoadout(run));
     assert(sim.world.oath?.id === 'no-jump', 'under the oath');
     fill(sim, 400);
     if (jump) { sim.command({ t: 'energy', value: 7 }); sim.command({ t: 'jump', x: 6, y: 8 }); settle(sim); }
@@ -541,8 +553,8 @@ check('a save of df42809 with an open battle sworn «Без прыжков» (fi
   for (let step = 0; step < 60 && !next.result && seen < 3; step++) {
     if (next.pending) { next = closeNode(next); continue; }
     const nodes = rtAvailableNodes(next);
-    for (const node of nodes) { const offer = rtOathPreview(next, node); if (offer) { seen++; assert(offer.every(id => RT_OATH_IDS.includes(id)), `the new list: ${offer}`); } }
-    next = ok(rtEnterNode(next, nodes[0].id), 'enter');
+    for (const node of nodes) { const offer = previewOn(next, node); if (offer) { seen++; assert(offer.every(id => RT_OATH_IDS.includes(id)), `the new list: ${offer}`); } }
+    next = ok(enterOn(next, nodes[0].id), 'enter');
   }
   assert(seen >= 1, `offers after the old battle: ${seen}`);
 });
@@ -553,15 +565,15 @@ check('a reload re-rolls nothing: the preview, the offer on entering and the oat
     let run = takeGift(createRtRun(seedOf(k + 300), { gift: 'mini' }));
     for (let step = 0; step < 80 && !run.result; step++) {
       if (run.pending) { run = closeNode(run); continue; }
-      const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry));
-      if (!node) { run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
-      const offer = rtOathPreview(run, node)!;
+      const node = rtAvailableNodes(run).find(entry => previewOn(run, entry));
+      if (!node) { run = ok(enterOn(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
+      const offer = previewOn(run, node)!;
       const loaded = parseRtRun(serializeRtRun(run))!;
-      const a = ok(rtEnterNode(run, node.id, offer[1]), 'enter'), b = ok(rtEnterNode(loaded, node.id, offer[1]), 'enter after a reload');
+      const a = ok(enterOn(run, node.id, offer[1]), 'enter'), b = ok(enterOn(loaded, node.id, offer[1]), 'enter after a reload');
       assert(same(a, b), 'the same run after a reload');
       const loadout = rtArenaLoadout(parseRtRun(serializeRtRun(a))!);
       assert(loadout.oath === offer[1] && same(arenaPreview(run, node), arenaPreview(loaded, node)), 'the arena\'s oath after a reload');
-      assert(!rtEnterNode(run, node.id, OATH_IDS.find(id => !offer.includes(id))!).ok, 'an oath not offered is refused');
+      assert(!enterOn(run, node.id, OATH_IDS.find(id => !offer.includes(id))!).ok, 'an oath not offered is refused');
       checked++;
       break;
     }
@@ -579,8 +591,8 @@ check('the save: version 7 with the counter; a version 6 save loads into version
     for (let step = 0; step < 200 && !at.result; step++) {
       if (at.pending?.kind === 'battle' && at.pending.oathOffer && at.visited.length >= 2) break;
       if (at.pending) { at = closeNode(at); continue; }
-      const nodes = rtAvailableNodes(at), node = nodes[k % nodes.length], preview = rtOathPreview(at, node);
-      at = ok(rtEnterNode(at, node.id, preview ? preview[0] : null), 'enter');
+      const nodes = rtAvailableNodes(at), node = nodes[k % nodes.length], preview = previewOn(at, node);
+      at = ok(enterOn(at, node.id, preview ? preview[0] : null), 'enter');
     }
     for (const state of [run, at]) {
       // The phase B save of the same run: no counter, no offer, version 6.
@@ -594,7 +606,7 @@ check('the save: version 7 with the counter; a version 6 save loads into version
       // It plays on: the next node enters; the save goes under the new key.
       let next = loaded;
       if (next.pending) next = closeNode(next);
-      if (!next.result && rtAvailableNodes(next).length) next = ok(rtEnterNode(next, rtAvailableNodes(next)[0].id), 'enter after the migration');
+      if (!next.result && rtAvailableNodes(next).length) next = ok(enterOn(next, rtAvailableNodes(next)[0].id), 'enter after the migration');
       assert(store.save(next) && storage.getItem(RT_RUN_STORAGE_KEY) !== null && same(store.load(), next), 'saved under -v7');
       store.clear();
       assert(storage.getItem(RT_RUN_STORAGE_KEY_V6) === null && store.load() === null, 'clear removes both');
@@ -620,9 +632,9 @@ check('the logs of the run: the node card\'s choice is a run choice `oath-stake`
   let run = takeGift(createRtRun(seedOf(900), { gift: 'mini' }));
   for (let step = 0; step < 80; step++) {
     if (run.pending) { run = closeNode(run); continue; }
-    const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry));
-    if (!node) { run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
-    const offer = rtOathPreview(run, node)!, step1 = rtEnterNode(run, node.id, offer[0]), step2 = rtEnterNode(run, node.id, null);
+    const node = rtAvailableNodes(run).find(entry => previewOn(run, entry));
+    if (!node) { run = ok(enterOn(run, rtAvailableNodes(run)[0].id), 'enter'); continue; }
+    const offer = previewOn(run, node)!, step1 = enterOn(run, node.id, offer[0]), step2 = enterOn(run, node.id, null);
     assert(step1.ok && step2.ok, 'entered');
     const taken = stepChoices(run, step1), refused = stepChoices(run, step2);
     assert(same(taken, [{ nodeId: node.id, source: OATH_STAKE_SOURCE, offered: offer, taken: [offer[0]], refused: [offer[1]] }]), `taken ${JSON.stringify(taken)}`);
@@ -670,29 +682,29 @@ check('every available node offers its own pair (the node id is mixed in): the p
     let run = takeGift(createRtRun(seedOf(k + 900), { gift: 'mini' }));
     for (let step = 0; step < 30; step++) {
       if (run.pending) { run = closeNode(run); continue; }
-      const offers = rtAvailableNodes(run).map(n => rtOathPreview(run, n)).filter((o): o is NonNullable<typeof o> => !!o);
+      const offers = rtAvailableNodes(run).map(n => previewOn(run, n)).filter((o): o is NonNullable<typeof o> => !!o);
       for (const o of offers) { nodes++; assert(o.length === 2 && o[0] !== o[1], `two different oaths: ${o}`); }
       if (new Set(offers.map(o => o.join())).size > 1) { differs++; break; }
       const next = rtAvailableNodes(run)[0]; if (!next) break;
-      run = ok(rtEnterNode(run, next.id), 'enter');
+      run = ok(enterOn(run, next.id), 'enter');
     }
   }
   assert(nodes > 0 && differs >= 6, `nodes with offers ${nodes}; runs where available nodes differ ${differs} of 12`);
 });
 
-check('a run arena under an oath: the arena of the node plays it (the rule on by the run), the door records it, the run gets the payout', () => {
+check('a run arena under an oath (the stake and the cauldron turned on over the run\'s values — the run itself has neither since task 5): the arena of the node plays it, the door records it, the run layer pays', () => {
   let done = 0;
   for (let k = 1; k <= 8; k++) {
     let run = takeGift(createRtRun(seedOf(k + 700), { gift: 'mini' }));
     for (let step = 0; step < 80 && !done; step++) {
       if (run.pending) { run = closeNode(run); continue; }
-      const node = rtAvailableNodes(run).find(entry => rtOathPreview(run, entry)?.includes('chain6'));
-      if (!node) { const next = rtAvailableNodes(run)[0]; if (!next) break; run = ok(rtEnterNode(run, next.id), 'enter'); continue; }
-      run = ok(rtEnterNode(run, node.id, 'chain6'), 'enter under «Цепь 6+ хотя бы раз»');
+      const node = rtAvailableNodes(run).find(entry => previewOn(run, entry)?.includes('chain6'));
+      if (!node) { const next = rtAvailableNodes(run)[0]; if (!next) break; run = ok(enterOn(run, next.id), 'enter'); continue; }
+      run = ok(enterOn(run, node.id, 'chain6'), 'enter under «Цепь 6+ хотя бы раз»');
       const pending = run.pending!;
       assert(pending.kind === 'battle', 'a battle');
       // The run's params and loadout on the quiet field (the run reads the finished world as main.ts does).
-      const sim = field(null, rtRunParams(quiet({ oathStake: false })), k, rtArenaLoadout(run));
+      const sim = field(null, runOn(), k, rtArenaLoadout(run));
       assert(sim.world.oath?.id === 'chain6', 'the arena is under the oath');
       chain(sim, [0, 0, 0, 0, 0, 0]);
       assert(sim.world.oath?.met !== undefined, 'a chain of 6 met it');
@@ -710,6 +722,45 @@ check('a run arena under an oath: the arena of the node plays it (the rule on by
     if (done) break;
   }
   assert(done === 1, 'a run arena under «Цепь 6+ хотя бы раз» played');
+});
+
+check('task 5 (12.10.2026): the run offers no oaths — no node card, an oath refused on entering, the counter still one per entered oath node (the save loads back); an old save with an oath sworn loads and its arena plays without it', () => {
+  let oathNodes = 0;
+  for (let k = 1; k <= 12; k++) {
+    let run = createRtRun(seedOf(k + 1900), { gift: 'mini' });
+    for (let step = 0; step < 200 && !run.result; step++) {
+      if (run.pending) { run = closeNode(run); continue; }
+      const nodes = rtAvailableNodes(run), node = nodes[k % nodes.length];
+      assert(nodes.every(n => rtOathPreview(run, n) === null), `seed ${k}: no node card offers an oath`);
+      if (rtOathNode(node)) {
+        oathNodes++;
+        // What the card would have offered with the stake on: refused now, the node enters without it.
+        const would = rtOathPreview(run, node, true)!;
+        assert(would.length === 2 && !rtEnterNode(run, node.id, would[0]).ok, `seed ${k}: an oath is refused`);
+      }
+      const before = run.oathDraws;
+      run = ok(rtEnterNode(run, node.id), 'enter');
+      assert(run.oathDraws === before + (rtOathNode(node) ? 1 : 0), `seed ${k}: the counter moves one per oath node`);
+      const pending = run.pending;
+      if (pending?.kind === 'battle') assert(pending.oathOffer === undefined && pending.oath === undefined && rtArenaLoadout(run).oath === undefined, 'no offer, no oath');
+      const back = parseRtRun(serializeRtRun(run));
+      assert(back && same(back, run), `seed ${k}: the save loads back`);
+    }
+    assert(run.streams.pool === run.picks.filter(pick => pick.arena !== undefined).length, 'the pool stream as before');
+  }
+  assert(oathNodes >= 40, `oath nodes entered: ${oathNodes}`);
+  // The save of df42809 (an open battle sworn «Без прыжков»): it loads; the loadout keeps the oath, the run's arena does not play it.
+  const old = parseRtRun(saveBeforeChain6.save)!;
+  assert(old && old.pending?.kind === 'battle' && old.pending.oath === 'no-jump' && rtArenaLoadout(old).oath === 'no-jump', 'the old save loads with its oath');
+  const sim = field(null, rtRunParams(quiet()), 1, rtArenaLoadout(old));
+  assert(sim.world.oath === undefined && !sim.world.params.oathStake && !sim.world.params.purse, 'the run arena: no oath, no cauldron');
+  chain(sim, [0, 0, 0]);
+  sim.command({ t: 'energy', value: 7 }); sim.command({ t: 'jump', x: 6, y: 8 }); settle(sim);
+  const events = exitDoor(sim);
+  assert(sim.world.status === 'victory' && !of(events, 'oath').length && sim.world.purse === undefined, 'won without an oath or a door record');
+  assert(replays(sim), 'replay');
+  const next = ok(resolveArena(old, { nodeId: old.pending.nodeId, won: true, hp: old.hp, kills: 0, damage: 0, time: 1 }), 'resolve');
+  assert(rtAvailableNodes(next).every(n => rtOathPreview(next, n) === null), 'the next nodes offer nothing');
 });
 
 function memoryStorage(initial: Record<string, string> = {}): RunStorage {

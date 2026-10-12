@@ -68,6 +68,11 @@ export interface FightPlan {
   k?: number;
   /** The test field the fight plays on (B6 К7: `RUN_CHEST_FIELD`); absent — `run-fight-field`. */
   arena?: string;
+  /**
+   * The arena's params; absent — the run's own (`rtRunParams(quiet())`). Task 5 (12.10.2026): the run plays no cauldron and
+   * no die — a check of the run layer's die turns them on here.
+   */
+  params?: Params;
   /** Journalled play before the chains (B6 К7: take the chest). */
   start?: (sim: Simulation, seen: (w: World) => void) => void;
   /** More journalled play after the chains (before the end). */
@@ -94,7 +99,7 @@ export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}, dea
 /** The open battle of `run` played on the quiet field by `plan`; it replays from its journal to the same hash. */
 export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; outcome: RtArenaOutcome; events: WorldEvent[] } {
   const watch = new RtDeathWatch();
-  const sim = new Simulation({ arena: plan.arena ?? 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(plan.k ?? 1), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp },
+  const sim = new Simulation({ arena: plan.arena ?? 'run-fight-field', params: plan.params ?? rtRunParams(quiet()), seed: seedOf(plan.k ?? 1), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp },
     beforeTick: w => watch.seen(w) });
   const luck: RtLuckTally = {}, events: WorldEvent[] = [];
   const seen = (w: World): void => { observeFightLuck(luck, w.events); watch.read(w, w.events); events.push(...w.events); plan.seen?.(w); };

@@ -58,6 +58,7 @@
     "test:realtime-reroll": "tsx src/realtime/run/reroll.spec.ts",
     "test:realtime-chest": "tsx src/realtime/sim/chest.spec.ts && tsx src/realtime/run/chestRun.spec.ts",
     "test:realtime-casino": "tsx src/realtime/run/casino.spec.ts",
+    "test:realtime-casino-slice": "tsx src/realtime/run/casinoSlice.spec.ts",
     "test:realtime-run-end": "tsx src/realtime/run/runEnd.spec.ts",
     "test:realtime-telemetry": "tsx src/realtime/telemetry/schema.spec.ts",
     "test:realtime-telemetry-recorder": "tsx src/realtime/telemetry/recorder.spec.ts",

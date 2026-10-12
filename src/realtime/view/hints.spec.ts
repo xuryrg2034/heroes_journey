@@ -202,6 +202,12 @@ function quiet(extra: Partial<Params> = {}): Params {
   return Object.assign(p, extra);
 }
 const seen = (_: unknown): boolean => true;
+/**
+ * Task 5 (12.10.2026): the run plays no cauldron, die or oath stake. Б4, Б5 and Э1 belong to the cauldron: their checks play
+ * the run's values with the cauldron (and the stake) turned on (`cauldronOn`) — the sandbox's way; the run's own is the check
+ * «the run (task 5): no Б4, no Б5».
+ */
+const cauldronOn = (): Params => ({ ...rtRunParams(quiet()), purse: true, oathStake: true });
 /** A row of `hps.length` enemies laid out from the hero and a chain drawn over them (journalled commands). */
 function drawRow(sim: Simulation, hps: number[]): void {
   sim.command({ t: 'teleport', x: 4.5, y: 6 });
@@ -215,8 +221,8 @@ function run(sim: Simulation, collect: Set<HintId>): void {
   for (let i = 0; i < 900 && (sim.world.move || i === 0); i++) { sim.tick(); for (const id of detectHints(sim.world, seen)) collect.add(id); sim.world.events.length = 0; }
 }
 
-check('triggers from a real world: the chain gives Б1+Б2, a survivor Б3, a 3+ cheque Б4, the opened door Б4+Б5 in that order, energy Б7', () => {
-  const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(1), record: true });
+check('triggers from a real world (the cauldron on): the chain gives Б1+Б2, a survivor Б3, a 3+ cheque Б4, the opened door Б4+Б5 in that order, energy Б7', () => {
+  const sim = new Simulation({ arena: 'hints-field', params: cauldronOn(), seed: seedOf(1), record: true });
   sim.command({ t: 'clear', keepMarked: false });
   assert(detectHints(sim.world, seen).length === 0, 'a quiet start triggers nothing');
   drawRow(sim, [0, 0, 0, 0]);
@@ -244,8 +250,8 @@ check('triggers from a real world: the chain gives Б1+Б2, a survivor Б3, a 3+
   assert(!detectHints(low.world, seen).includes('b7'), 'no energy, no Б7');
 });
 
-check('triggers: a cheque of 2 links is not enough for Б4; a killing chain is not Б3; a plate hit is not Б3', () => {
-  const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet()), seed: seedOf(3), record: true });
+check('triggers (the cauldron on): a cheque of 2 links is not enough for Б4; a killing chain is not Б3; a plate hit is not Б3', () => {
+  const sim = new Simulation({ arena: 'hints-field', params: cauldronOn(), seed: seedOf(3), record: true });
   sim.command({ t: 'clear', keepMarked: false });
   drawRow(sim, [0, 0]);
   sim.command({ t: 'release' });
@@ -258,6 +264,22 @@ check('triggers: a cheque of 2 links is not enough for Б4; a killing chain is n
   assert(detectHints(fake([{ type: 'chainHit', enemyId: 1, damage: 1, killed: false, x: 0, y: 0, combo: 1 }]), seen).includes('b3'), 'a plain survivor is');
   assert(!detectHints(fake([{ type: 'cheque', embers: 4, heat: 1, crystals: 0, mult: 1, total: 4, links: 2, finish: false, cauldron: 4, x: 0, y: 0 }]), seen).includes('b4'), '2 links');
   assert(detectHints(fake([{ type: 'cheque', embers: 6, heat: 1, crystals: 0, mult: 1, total: 6, links: 3, finish: false, cauldron: 6, x: 0, y: 0 }]), seen).includes('b4'), '3 links');
+});
+
+check('the run (task 5, 12.10.2026): no cauldron — a 3+ chain and the opened door give neither Б4 nor Б5; the other hints come as before', () => {
+  const sim = new Simulation({ arena: 'hints-field', params: rtRunParams(quiet({ purse: true })), seed: seedOf(1), record: true });
+  assert(!sim.world.params.purse, 'the run has no cauldron');
+  sim.command({ t: 'clear', keepMarked: false });
+  drawRow(sim, [0, 0, 0, 0]);
+  const got = new Set<HintId>(detectHints(sim.world, seen));
+  sim.command({ t: 'release' });
+  run(sim, got);
+  sim.command({ t: 'goals' });
+  for (const id of detectHints(sim.world, seen)) got.add(id);
+  sim.command({ t: 'energy', value: 7 });
+  for (const id of detectHints(sim.world, seen)) got.add(id);
+  assert(sim.world.stage === 'greed' && !got.has('b4') && !got.has('b5'), `no Б4, no Б5: ${[...got]}`);
+  assert(got.has('b1') && got.has('b2') && got.has('b7'), `Б1, Б2, Б7 as before: ${[...got]}`);
 });
 
 check('triggers: an armoured enemy in view Б6, the chest in view Б8, the goblin Б9 — and only in view', () => {
@@ -313,7 +335,7 @@ check('fade: the hero under the box or within 40 px of it fades it; far away doe
 
 /** The door's record of a real fight: chains fill the cauldron, `afterGoals` more chains of 5 after the goals (the greed step), the hero walks in. */
 function doorOfFight(k: number, target: number, afterGoals: number, oath: 'no-jump' | null, jump: boolean): PurseDoor {
-  const params = rtRunParams(quiet());
+  const params = cauldronOn();
   const sim = new Simulation({ arena: 'hints-field', params, seed: seedOf(k), record: true, loadout: oath ? { oath } : {} });
   sim.command({ t: 'clear', keepMarked: false });
   const chain = (): void => {

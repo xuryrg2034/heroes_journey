@@ -10,7 +10,7 @@
  *   printed; only loose bounds asserted), never twice in a run, never with 0 resources, never without the key;
  * - entering it spends no run stream: the `events` draw and every other stream stay as they were, no event is met;
  * - runs without the key, and runs with it where the circle never stands, save byte for byte as the code before it
- *   (the 8 whole runs of the reroll fixture `walks`, code of 7ae55fc re-recorded at the calibration of 12.10.2026, and 300 runs against the same walk without the key);
+ *   (the 8 whole runs of the reroll fixture `walks`, code of 7ae55fc re-recorded at the calibration and at task 5 of 12.10.2026, and 300 runs against the same walk without the key);
  * - at most 3 games a visit over both tables; «Уйти» completes the node;
  * - «Кости»: a stake of 1, a sum of 8 or more pays 3 resources (the faces shown are the game's), about 15/36 of the games;
  * - «Колесо костей» in the circle: the event's outcomes, its talisman drawn without the `talismans` stream, «кость в лоб» at
@@ -148,7 +148,7 @@ check('without the key, and with it where the circle never stands, a run saves b
   assert(without >= 50 && prefixes >= 50, 'both kinds of runs');
 });
 
-check('the 8 whole runs of the reroll fixture (real fights, code of 7ae55fc, re-recorded at the calibration of 12.10.2026): byte for byte without the key; with it, those the circle never meets too', () => {
+check('the 8 whole runs of the reroll fixture (real fights, code of 7ae55fc, re-recorded at the calibration and at task 5 of 12.10.2026): byte for byte without the key; with it, those the circle never meets too', () => {
   const fnv = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0; return h.toString(16).padStart(8, '0'); };
   const walkSaves = (k: number, circle: boolean): string[] => {
     let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));

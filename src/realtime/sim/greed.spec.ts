@@ -22,7 +22,7 @@ import { planChain } from './chain';
 import { worldState } from './hash';
 import type { Loadout } from './kit';
 import { defaultParams, type Params } from './params';
-import { greedLine, purseResources, type PurseDoor } from './purse';
+import { greedLine, greedOn, purseResources, type PurseDoor } from './purse';
 import { Simulation, replay } from './simulation';
 import type { World, WorldEvent } from './world';
 import { createRtRun, resolveArena, rtAvailableNodes, rtChooseGift, rtDieChoose, rtDieFace, rtDieMult, rtDieView, rtEnterNode, rtRunParams, RT_RUN_FORCED, type RtRunState, type RtRunStep } from '../run/rtRun';
@@ -224,15 +224,18 @@ check('a 3+ chain into the door counts before the exit: the door records ×1,5 a
 
 // The run also plays П3 «Финальная цепь» (12.10.2026): the 9 weak into the door are 9 × 6 = 54, not 45 — the cauldron 105.
 // The run's rate is 120 (12.10.2026, `RT_RUN_FORCED.purseRate`): 105 × 1,5 = 157,5 → 1 (without the step 105 → 0).
-check('the run pays the step: «Забрать» 1 (105 × 1,5 ÷ 120; without the step 0), the roll 1–3 → 0 (105 × 1,5 × 0,5), 4–6 → 2 (105 × 1,5 × 2), on 6 seeds (both halves come up)', () => {
-  assert(RT_RUN_FORCED.greedByDeeds === true && rtRunParams(defaultParams()).greedByDeeds === true && defaultParams().greedByDeeds === false, 'on in the run, off in the sandbox by default');
+// Task 5 (12.10.2026): the run plays no cauldron and no die — the run layer still pays such a door record (the cauldron and the
+// die turned on over the run's values, the sandbox's way); the run's own arena has no greed (no cauldron, `greedOn` false).
+check('the run layer pays the step: «Забрать» 1 (105 × 1,5 ÷ 120; without the step 0), the roll 1–3 → 0 (105 × 1,5 × 0,5), 4–6 → 2 (105 × 1,5 × 2), on 6 seeds (both halves come up)', () => {
+  assert(RT_RUN_FORCED.greedByDeeds === true && RT_RUN_FORCED.purse === false && rtRunParams(defaultParams()).greedByDeeds === true && defaultParams().greedByDeeds === false, 'on in the run (no cauldron there), off in the sandbox by default');
+  assert(!greedOn(new Simulation({ arena: 'greed-field', params: rtRunParams(quiet()), seed: seedOf(1) }).world), 'the run arena: the greed rule idle');
   const faces = new Set<number>();
   for (let k = 1; k <= 6; k++) {
     let run = ok(rtChooseGift(createRtRun(seedOf(k), { gift: 'mini' }), 1), 'gift');
     run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter');
     const pending = run.pending;
     assert(pending?.kind === 'battle', 'a battle node');
-    const params = rtRunParams(quiet({ purse: false, greedByDeeds: false, contactDamage: 0 }));
+    const params = { ...rtRunParams(quiet({ greedByDeeds: false, contactDamage: 0 })), purse: true };
     const { f, door } = exitAt96(params, k), w = f.sim.world;
     assert(w.params.greedByDeeds && door.greed === 1.5, `seed ${k}: the run arena plays with the rule`);
     const shown = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: w.hero.hp, kills: w.stats.kills, damage: 0, time: w.time, purse: door, doorDie: true }), 'resolve');

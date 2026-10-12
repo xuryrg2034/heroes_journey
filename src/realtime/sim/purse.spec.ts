@@ -397,8 +397,23 @@ function ok(step: RtRunStep, what: string): RtRunState {
   return step.run;
 }
 
-check('the run turns the cauldron on; a won arena pays the door\'s resources into the run\'s materials', () => {
-  assert(RT_RUN_FORCED.purse === true && rtRunParams(defaultParams()).purse === true && defaultParams().purse === false, 'on in the run, off in the sandbox by default');
+check('task 5 (12.10.2026): the run plays no cauldron (off whatever the panel says); the run layer still pays a door record of a cauldron that was on into the run\'s materials', () => {
+  assert(RT_RUN_FORCED.purse === false && rtRunParams(defaultParams()).purse === false && rtRunParams({ ...defaultParams(), purse: true }).purse === false && defaultParams().purse === false, 'off in the run, off in the sandbox by default');
+  // The run's arena: chains put nothing, the door records nothing (no `world.purse`).
+  const plain = field(rtRunParams(quiet({ purse: true })), 1), pw = plain.world;
+  plain.command({ t: 'teleport', x: 4.5, y: 6 });
+  draw(plain, lay(plain, Array<number>(6).fill(0)));
+  assert(pw.chain.length === 6 && planChain(pw).cheque === undefined, 'the highlight has no cheque');
+  plain.command({ t: 'release' });
+  const firstEvents = settle(plain);
+  plain.command({ t: 'goals' });
+  plain.command({ t: 'teleport', x: 12.1, y: 6 });
+  const door = pw.objects.find(o => o.kind === 'door')!;
+  draw(plain, [...lay(plain, [0, 0, 0, 0]), { x: door.x, y: door.y }]);
+  plain.command({ t: 'release' });
+  const plainEvents = settle(plain);
+  assert(pw.status === 'victory' && pw.purse === undefined && pw.params.purse === false, 'the run arena has no cauldron');
+  assert(![...firstEvents, ...plainEvents].some(e => e.type === 'cheque' || e.type === 'purseDoor'), 'no cheque, no door record');
   let paidTotal = 0;
   for (let k = 1; k <= 3; k++) {
     let run = ok(rtChooseGift(createRtRun(seedOf(k), { gift: 'mini' }), 1), 'gift');
@@ -406,8 +421,9 @@ check('the run turns the cauldron on; a won arena pays the door\'s resources int
     const pending = run.pending;
     assert(pending?.kind === 'battle', 'a battle node');
     // The run's values on a quiet field (the arena of the node is not needed: the run reads the finished world as main.ts does).
-    const sim = field(rtRunParams(quiet({ purse: false })), k), w = sim.world;
-    assert(w.params.purse === true, 'the run arena plays with the cauldron');
+    // The cauldron turned on over the run's values (the sandbox's way; the run's rate stays 120).
+    const sim = field({ ...rtRunParams(quiet()), purse: true }, k), w = sim.world;
+    assert(w.params.purse === true, 'the arena plays with the cauldron');
     // The run's rate (120 since 12.10.2026, `RT_RUN_FORCED.purseRate`): a cauldron of 120 + 60k pays 1–2 at ×1.
     fillAndExit(sim, 120 + 60 * k);
     const door = w.purse!.door!, pay = doorPayout(door);
