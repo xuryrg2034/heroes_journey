@@ -11,11 +11,10 @@
  */
 import { registerArena, type ArenaTemplate } from './arenas';
 import { tree } from './geometry';
-import { DEFAULT_PARAMS } from './params';
 
 const RED = 0, GREEN = 1, BLUE = 2;
 
-/** Room 1 «Тропа»: three blue in an arc in front of the hero; kill 3 (any chains). Calm, no return. */
+/** Room 1 «Тропа»: three blue in an arc in front of the hero; kill 3 (any chains). Calm, no return (`none`: the ids are kept). */
 export const PROLOGUE_TRAIL: ArenaTemplate = registerArena({
   id: 'prologue-1',
   name: 'Тропа',
@@ -23,6 +22,7 @@ export const PROLOGUE_TRAIL: ArenaTemplate = registerArena({
   goal: 'kills',
   killGoal: 3,
   calm: true,
+  restore: 'none',
   width: 12,
   height: 8,
   heroStart: { x: 3, y: 4 },
@@ -129,9 +129,11 @@ export const PROLOGUE_RAINBOW: ArenaTemplate = registerArena({
 });
 
 /**
- * Room 5 «Гоблин»: the goblin with its lever stands from the start in the middle, eight blue in a ring round it (radius 1.6);
- * pull the lever once. The enemies walk and touch (touch 1 — the run's base touch), no inflow. The return only when no start
- * enemy is left and the lever was never pulled.
+ * Room 5 «Гоблин» (design answers 12.10.2026: the goal is the lever, the damage is secondary): the goblin stands from the start
+ * 1.8 from the hero (the lever alone is a chain he can draw at once), six blue in a small ring far on the right (radius 1.1,
+ * ≥ 9.4 from the hero: at the room's ×0.6 pace even the fastest of the spread touches him only after ≈ 9 s). Pull the lever
+ * once; the chain the hand shows grows with the enemies that walked into reach (they pass the goblin on their way). The
+ * enemies walk and touch (touch 1), no inflow. The return only when no start enemy is left and the lever was never pulled.
  */
 export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   id: 'prologue-5',
@@ -140,23 +142,21 @@ export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   goal: 'pull',
   killGoal: 1,
   restore: 'whenGone',
-  goblin: { x: 7, y: 4 },
-  width: 12,
+  goblin: { x: 3.3, y: 4 },
+  width: 14,
   height: 8,
-  heroStart: { x: 3.8, y: 4 },
-  obstacles: [tree(1.4, 1.4), tree(1.4, 6.6), tree(10.6, 1.2)],
+  heroStart: { x: 1.5, y: 4 },
+  obstacles: [tree(1.4, 1.2), tree(1.4, 6.8), tree(7.5, 7.0)],
   buttons: [],
-  door: { x: 11.2, y: 4 },
-  // The ring from the side of the hero round (angles 180°, 225° … 135° from the goblin): a hand route takes them in order.
+  door: { x: 7, y: 0.7 },
+  // The ring from the side of the hero round (angles 180°, 240° … 120° round (12, 4)).
   enemies: [
-    { x: 5.4, y: 4.0, color: BLUE },
-    { x: 5.87, y: 2.87, color: BLUE },
-    { x: 7.0, y: 2.4, color: BLUE },
-    { x: 8.13, y: 2.87, color: BLUE },
-    { x: 8.6, y: 4.0, color: BLUE },
-    { x: 8.13, y: 5.13, color: BLUE },
-    { x: 7.0, y: 5.6, color: BLUE },
-    { x: 5.87, y: 5.13, color: BLUE },
+    { x: 10.9, y: 4.0, color: BLUE },
+    { x: 11.45, y: 3.05, color: BLUE },
+    { x: 12.55, y: 3.05, color: BLUE },
+    { x: 13.1, y: 4.0, color: BLUE },
+    { x: 12.55, y: 4.95, color: BLUE },
+    { x: 11.45, y: 4.95, color: BLUE },
   ],
 });
 
@@ -174,7 +174,8 @@ export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   summary: 'Пролог, комната 6: убей 15. Щит цепи, щит фокуса, прыжок, круговой удар.',
   goal: 'kills',
   killGoal: 15,
-  startEnergy: DEFAULT_PARAMS.jumpCost,
+  startEnergy: 'jump',
+  restore: 'none',
   goblin: { x: 8, y: 3.4 },
   width: 16,
   height: 10,

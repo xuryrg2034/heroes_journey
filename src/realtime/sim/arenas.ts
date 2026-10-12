@@ -21,11 +21,12 @@ export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull';
 
 /**
  * The prologue: when the start enemies come back to their posts with full HP (world.ts `updateRestore`). `afterDash` — the
- * goal is not met and a start enemy is dead or wounded while no chain is drawn and no dash runs (a dash ended); `whenGone` —
- * the goal is not met, no start enemy is left and the lever was never pulled. Either way 1 s of game time later
- * (`RESTORE_DELAY`), and only while no chain is drawn and no dash runs (a chain then waits for its end).
+ * goal is not met and a start enemy is dead or wounded while no chain is drawn and no dash runs (a dash ended, or the spin
+ * hit); `whenGone` — the goal is not met, no start enemy is left and the lever was never pulled; `none` — never (the start
+ * enemies' ids are kept for the hand's route). The return comes `RESTORE_DELAY` (1 s) of game time after the last dash ended,
+ * and only while no chain is drawn and no dash runs (a chain then waits for its end).
  */
-export type RestoreMode = 'afterDash' | 'whenGone';
+export type RestoreMode = 'afterDash' | 'whenGone' | 'none';
 
 /** An enemy standing on the arena from the start; `marked` — a target of the `marked` goal (a gold reticle). */
 export interface StartEnemy {
@@ -92,7 +93,7 @@ export interface ArenaTemplate extends ArenaShape {
    * behaviour step; a knockback still slides them) and nothing hurts the hero (`hurtHero` does nothing).
    */
   calm?: boolean;
-  /** The prologue: the start enemies come back (see `RestoreMode`); omitted — never. */
+  /** The prologue: the start enemies' ids are kept and they come back by the mode (see `RestoreMode`); omitted — no state at all. */
   restore?: RestoreMode;
   /**
    * The prologue (design answer 12.10.2026, rooms 2–4): the return puts the hero back on `heroStart` too (his knockback gone),
@@ -101,8 +102,8 @@ export interface ArenaTemplate extends ArenaShape {
   restoreHero?: boolean;
   /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
   goblin?: Vec;
-  /** The prologue: energy at the start (over the loadout's), up to the cap. */
-  startEnergy?: number;
+  /** The prologue: energy at the start instead of the loadout's — `'jump'`: the price of one jump in this world; up to the cap. */
+  startEnergy?: number | 'jump';
 }
 
 /** Old name of the template (prototype stages 1–3). */

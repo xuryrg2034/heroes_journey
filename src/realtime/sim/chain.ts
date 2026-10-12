@@ -49,7 +49,7 @@ export { colorShiftOf, crystalEveryOf, jumpCostOf };
 /** Energy cap, as in the main game. */
 export const ENERGY_MAX = 7;
 /** Pointer this close to the hero cancels the drawn chain (units). */
-const HERO_CANCEL_RADIUS = 0.42;
+export const HERO_CANCEL_RADIUS = 0.42;
 /** Jump flight time in real seconds (contact damage is off in flight). */
 const JUMP_TIME = 0.18;
 

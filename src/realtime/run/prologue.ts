@@ -9,10 +9,13 @@
  */
 import { PROLOGUE_ARENAS } from '../sim/arenasPrologue';
 import type { ArenaTemplate } from '../sim/arenas';
+import { HERO_CANCEL_RADIUS, NO_PIERCE, canLink, canLinkObject, linkPoint, planChain } from '../sim/chain';
+import { enemyArtRadius } from '../sim/enemies/kinds';
+import { dist, type Vec } from '../sim/geometry';
 import { goblinOf } from '../sim/slot';
 import type { Loadout } from '../sim/kit';
 import { defaultParams, runParams, type Params } from '../sim/params';
-import type { ChainLink, World } from '../sim/world';
+import { OBJECT_RADIUS, type ChainLink, type World } from '../sim/world';
 import { RT_RUN_FORCED, rtElitePlates } from './rtRun';
 
 /** A target of a hand route: a start enemy of the arena by its index in the template, or the goblin's lever. */
@@ -28,7 +31,7 @@ export interface PrologueRoom {
   arena: ArenaTemplate;
   /** Existing `Params` keys over `RT_RUN_FORCED` (`prologueParams`). */
   forced: Readonly<Partial<Params>>;
-  /** The ghost hand's chain (rooms 1–5), in order; null — no hand (room 6). */
+  /** The ghost hand's preferred chain (rooms 1–5), in order — `prologueRoute` builds the real one from it; null — no hand (room 6). */
   route: readonly PrologueTarget[] | null;
 }
 
@@ -46,7 +49,8 @@ export const PROLOGUE_FORCED: readonly Readonly<Partial<Params>>[] = Object.free
   NO_INFLOW,
   NO_INFLOW,
   NO_INFLOW,
-  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0 }),
+  // `enemySpeed` 0.72 — the run's 1.2 × 0.6 (design answer 12.10.2026: the goal is the lever, the damage is secondary).
+  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, enemySpeed: 0.72 }),
   Object.freeze({ maxEnemies: 12 }),
 ]);
 
@@ -54,8 +58,8 @@ const TITLES = ['Тропа', 'Два цвета', 'Крепкий', 'Радуг
 const enemies = (n: number): PrologueTarget[] => Array.from({ length: n }, (_, i) => ({ enemy: i }));
 const ROUTES: readonly (readonly PrologueTarget[] | null)[] = [
   // 1: the arc; 2: the five blue (the reds are left); 3: the weak ones, the tough one last; 4: six blue, the shift, four green;
-  // 5: the ring round, the lever last.
-  enemies(3), enemies(5), enemies(4), enemies(10), [...enemies(8), { object: 'lever' }], null,
+  // 5: the ring (as it walks in), the lever last.
+  enemies(3), enemies(5), enemies(4), enemies(10), [...enemies(6), { object: 'lever' }], null,
 ];
 
 /** The six rooms in order. */
@@ -89,32 +93,105 @@ export function prologueLoadout(n: number): Loadout | undefined {
 }
 
 /**
- * The ids of the arena's start enemies now, by their index in the template: the return keeps them (`World.restore`); an arena
- * without it — the ids `createWorld` gave them (after the buttons, the door and the braziers, in order).
+ * The ids of the arena's start enemies now, by their index in the template (`World.restore`: every prologue arena keeps them —
+ * rooms 1 and 6 with the mode `none`). Empty for an arena without it.
  */
 export function startEnemyIds(world: World): number[] {
-  if (world.restore) return [...world.restore.ids];
-  const first = world.arena.buttons.length + 1 + (world.arena.braziers?.length ?? 0) + 1;
-  return world.arena.enemies.map((_, i) => first + i);
+  return world.restore ? [...world.restore.ids] : [];
+}
+
+/** Steps of the hand's search (a deterministic cap: the rooms have at most 10 targets; the preferred order is found at once). */
+const ROUTE_BUDGET = 4000;
+/** Slack of the hand's link points against the hero's cancel circle (the enemies move a little while the chain is drawn). */
+const CANCEL_SLACK = 0.06;
+
+/** Distance from `p` to the segment `a`–`b`. */
+function segmentDistance(a: Vec, b: Vec, p: Vec): number {
+  const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
+  return dist(p, { x: a.x + dx * t, y: a.y + dy * t });
 }
 
 /**
- * The ghost hand's chain of room `n` in this world: the route's targets still on the arena, in order (a start enemy killed
- * already is skipped; the lever only while the goblin stands). Empty for room 6. The view moves the hand along their points;
- * `planChain(world, links)` is what the chain would do.
+ * The ghost hand's chain of room `n` in THIS world (review 12.10.2026): built from the targets still on the arena and where the
+ * hero stands now, so the commands the hand shows — the press on the first link, the pointer from link to link (`sweep`), the
+ * release — draw exactly these links, and `planChain(world, links)` is what the dash will do.
+ *
+ * A search over the room's targets (its authored order first — at the start it is the authored chain): each next link must be
+ * one the drawn chain would take now (`canLink` / `canLinkObject`: colour, R, sight, after no survivor), not under the hero's
+ * cancel circle (the pointer there takes nothing), and the pointer's straight way to it must not cross another target the
+ * chain would take (the sweep would add it). What it must give:
+ * - room 1 (`kills`): any chain — the most kills found;
+ * - rooms 2–4 (`chain`, `marked`): a chain that meets the goal (N kills; the marked one killed) — the most kills found;
+ * - room 5 (`pull`): a chain ending on the lever — the most enemy links found (just the lever when none can come before it).
+ * None — empty (the view shows no hand). Room 6 — always empty. Reads the world only (no random draw); the drawn chain is put
+ * back as it was.
  */
 export function prologueRoute(world: World, n: number): ChainLink[] {
-  const route = prologueRoom(n).route;
-  if (!route) return [];
-  const ids = startEnemyIds(world), out: ChainLink[] = [];
-  for (const target of route) {
+  const room = prologueRoom(n), goal = room.arena.goal;
+  if (!room.route || world.status !== 'playing' || world.move) return [];
+  const ids = startEnemyIds(world), g = goblinOf(world), targets: ChainLink[] = [];
+  let lever: ChainLink | null = null;
+  for (const target of room.route) {
     if ('enemy' in target) {
       const id = ids[target.enemy];
-      if (id !== undefined && world.enemies.some(e => e.id === id)) out.push({ kind: 'enemy', id });
-    } else {
-      const g = goblinOf(world);
-      if (g) out.push({ kind: 'object', id: g.id });
-    }
+      if (id !== undefined && world.enemies.some(e => e.id === id)) targets.push({ kind: 'enemy', id });
+    } else if (g) lever = { kind: 'object', id: g.id };
   }
-  return out;
+  const need = goal === 'chain' ? world.arena.killGoal ?? 1 : 1;
+  const marked = new Set(world.enemies.filter(e => e.marked).map(e => e.id));
+  const saved = world.chain, savedClosed = world.chainClosed;
+  /** `next` may follow `path` by the commands the hand shows. */
+  const fits = (path: ChainLink[], next: ChainLink): boolean => {
+    world.chain = path;
+    delete world.chainClosed;
+    const plan = planChain(world, path, NO_PIERCE);
+    const enemy = next.kind === 'enemy' ? world.enemies.find(e => e.id === next.id) : undefined;
+    const object = next.kind === 'object' ? world.objects.find(o => o.id === next.id) : undefined;
+    if (enemy ? !canLink(world, enemy, plan) : !object || !canLinkObject(world, object, plan)) return false;
+    if (!path.length) return true;
+    const to = linkPoint(world, next)!, from = linkPoint(world, path[path.length - 1])!;
+    if (dist(to, world.hero) <= HERO_CANCEL_RADIUS + CANCEL_SLACK) return false;
+    const same = (l: ChainLink, kind: ChainLink['kind'], id: number): boolean => l.kind === kind && l.id === id;
+    for (const e of world.enemies) {
+      if (same(next, 'enemy', e.id) || path.some(l => same(l, 'enemy', e.id)) || !canLink(world, e, plan)) continue;
+      if (segmentDistance(from, to, e) <= enemyArtRadius(world.params, e) * world.params.pickSlack) return false;
+    }
+    for (const o of world.objects) {
+      if (same(next, 'object', o.id) || path.some(l => same(l, 'object', o.id)) || !canLinkObject(world, o, plan)) continue;
+      if (segmentDistance(from, to, o) <= OBJECT_RADIUS * 1.3) return false;
+    }
+    return true;
+  };
+  /** How good a finished chain is (−1 — it does not do what the room needs). */
+  const score = (path: ChainLink[]): number => {
+    if (goal === 'pull') return -1;
+    world.chain = path;
+    const plan = planChain(world, path, NO_PIERCE);
+    if (goal === 'marked' && !plan.links.some(l => l.link.kind === 'enemy' && l.outcome?.killed && marked.has(l.link.id))) return -1;
+    return plan.kills >= need ? plan.kills : -1;
+  };
+  let best: ChainLink[] = [], bestScore = -1, budget = ROUTE_BUDGET;
+  const path: ChainLink[] = [];
+  /** Depth-first over the targets in the preferred order; true — stop (every target used, or the budget spent). */
+  const visit = (): boolean => {
+    if (--budget < 0) return true;
+    if (goal === 'pull' ? lever && fits(path, lever) : path.length) {
+      const value = goal === 'pull' ? path.length : score(path);
+      if (value > bestScore) { bestScore = value; best = goal === 'pull' ? [...path, lever!] : [...path]; }
+      if (path.length === targets.length) return true;
+    }
+    for (const next of targets) {
+      if (path.some(l => l.id === next.id && l.kind === next.kind) || !fits(path, next)) continue;
+      path.push(next);
+      if (visit()) return true;
+      path.pop();
+    }
+    return false;
+  };
+  try { visit(); } finally {
+    world.chain = saved;
+    if (savedClosed) world.chainClosed = savedClosed; else delete world.chainClosed;
+  }
+  return best;
 }

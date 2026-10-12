@@ -13,7 +13,7 @@ import { type ArenaTemplate, type StartEnemy, markedCount } from './arenas';
 import './enemies/index';
 // Phase B: the build modules (talismans Т1, hammers Т2, relics Т3) register on import; the core reads them through build.ts.
 import './buildModules';
-import { enemyWalkFactorOf, focusMaxOf, heroSpeedOf, runHook, type DashBuild } from './build';
+import { enemyWalkFactorOf, focusMaxOf, heroSpeedOf, jumpCostOf, runHook, type DashBuild } from './build';
 import type { HammerEventKind } from './buildIds';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
@@ -527,14 +527,17 @@ export interface World {
   curse?: CurseState;
   /**
    * The prologue «Опушка» (`ArenaTemplate.restore`): the ids of the start enemies now (index — the template's enemy; a new id
-   * after one came back from death) and the game time the return is due (absent — none waits). Present only on an arena with
-   * `restore` (other worlds hash as before).
+   * after one came back from death), the game time the return is due, the posts waiting for the hero. Present only on an arena
+   * with `restore` (`none` too: the ids are kept for the hand's route; other worlds hash as before).
    */
   restore?: RestoreState;
 }
 
-/** The prologue's return of the start enemies (`World.restore`). */
-export interface RestoreState { ids: number[]; due?: number }
+/**
+ * The prologue's start enemies and their return (`World.restore`): their ids now (by the template's index), the game time a
+ * return is due (absent — none waits), the posts waiting for the hero to step off them (absent — none).
+ */
+export interface RestoreState { ids: number[]; due?: number; wait?: number[] }
 
 /** The prologue: game seconds from the moment a return is needed to the return (design 12.10.2026: 1 s). */
 export const RESTORE_DELAY = 1;
@@ -635,8 +638,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     // Casino «Ставка клятвы»: the oath the run's node card took (only while `oathStake` is on).
     if (loadout.oath !== undefined) startOath(world, loadout.oath);
   }
-  // The prologue: the arena's own start energy (over the loadout's), up to the cap.
-  if (arena.startEnergy !== undefined) world.energy = Math.max(0, Math.min(ENERGY_CAP, arena.startEnergy));
+  // The prologue: the arena's own start energy instead of the loadout's (`'jump'` — the price of one jump), up to the cap.
+  if (arena.startEnergy !== undefined) world.energy = Math.max(0, Math.min(ENERGY_CAP, arena.startEnergy === 'jump' ? jumpCostOf(world) : arena.startEnergy));
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   const startIds = arena.enemies.map(s => placeStartEnemy(world, s).id);
   // The prologue: the start enemies are watched for their return (only on an arena with `restore`).
@@ -670,49 +673,81 @@ function placeStartEnemy(world: World, s: StartEnemy): Enemy {
 
 /**
  * The prologue «Опушка»: a return is needed now — the goal is not met and, by the arena's mode, a start enemy is dead or
- * wounded (`afterDash`), or none is left and the lever was never pulled (`whenGone`).
+ * wounded (`afterDash`), or none is left and the lever was never pulled (`whenGone`); never with `none`.
  */
 function restoreNeeded(world: World, state: RestoreState): boolean {
-  if (world.stage !== 'goals') return false;
+  const mode = world.arena.restore;
+  if (world.stage !== 'goals' || mode === 'none') return false;
   const starts = world.arena.enemies, alive = state.ids.map(id => world.enemies.find(e => e.id === id));
-  if (world.arena.restore === 'whenGone') return alive.every(e => !e) && (goblinOf(world)?.pulls ?? 0) === 0;
+  if (mode === 'whenGone') return alive.every(e => !e) && (goblinOf(world)?.pulls ?? 0) === 0;
   return alive.some((e, i) => !e || e.hp < startHp(world, starts[i]));
 }
 
+/** The prologue: a start enemy put on its post now would stand on the hero's body (it would touch him at once). */
+function postOnHero(world: World, post: Vec): boolean {
+  return dist(post, world.hero) <= touchDistance(world.params) + CONTACT_SLACK;
+}
+
 /**
- * The prologue «Опушка» (`ArenaTemplate.restore`, design 12.10.2026): while no chain is drawn and no dash or jump runs, a
- * needed return is due `RESTORE_DELAY` game seconds later; when it is due (and still needed, and still nothing is drawn or
- * run — a chain drawn then makes it wait for its end) every start enemy stands at its post with full HP: a living one is put
- * back (its knockback, cold and burning gone), a dead one comes back (a new id; not counted as spawned); with `restoreHero` the
- * hero stands on his start again. Event `restore`.
+ * The prologue: start enemy `i` stands at its post with full HP — a living one is put back (its knockback, cold and burning
+ * gone), a dead one comes back (a new id; no `spawn` event, not counted as spawned: the `restore` event says it).
+ */
+function restoreStart(world: World, state: RestoreState, i: number): { id: number; x: number; y: number } {
+  const s = world.arena.enemies[i];
+  let e = world.enemies.find(x => x.id === state.ids[i]);
+  if (e) {
+    e.x = s.x; e.y = s.y; e.hp = startHp(world, s);
+    e.knock = 0; e.knockVx = 0; e.knockVy = 0; e.brake = 0; e.headX = 0; e.headY = 0;
+    delete e.chill; delete e.brittle; delete e.burn;
+    pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);
+  } else {
+    const spawned = world.stats.spawned, from = world.events.length;
+    e = placeStartEnemy(world, s);
+    const id = e.id;
+    world.events.splice(from, world.events.length - from, ...world.events.slice(from).filter(ev => !(ev.type === 'spawn' && ev.enemyId === id)));
+    world.stats.spawned = spawned;
+    state.ids[i] = e.id;
+  }
+  return { id: e.id, x: e.x, y: e.y };
+}
+
+/**
+ * The prologue «Опушка» (`ArenaTemplate.restore`, design 12.10.2026; review 12.10.2026). While a dash (any move) runs the
+ * count is off: the `RESTORE_DELAY` game seconds start anew when the last one ends. While no chain is drawn and nothing runs, a
+ * needed return is due `RESTORE_DELAY` later; when it is due (still needed, still nothing drawn or run — a chain drawn then
+ * makes it wait for its end): with `restoreHero` the hero stands on his start again, then every start enemy stands at its post
+ * with full HP (`restoreStart`). A post on the hero's body waits (`RestoreState.wait`) until he steps off it; the others come at
+ * once. Event `restore` for each batch (the late ones in their own event).
  */
 function updateRestore(world: World, state: RestoreState): void {
-  if (world.chain.length || world.move) return;
+  if (state.wait) {
+    // Late posts: each comes once the hero is off it (while the goal is still not met).
+    if (world.stage !== 'goals') delete state.wait;
+    else {
+      const ready = state.wait.filter(i => !postOnHero(world, world.arena.enemies[i]));
+      if (ready.length) {
+        state.wait = state.wait.filter(i => !ready.includes(i));
+        if (!state.wait.length) delete state.wait;
+        world.events.push({ type: 'restore', enemies: ready.map(i => restoreStart(world, state, i)) });
+      }
+    }
+  }
+  if (world.move) { delete state.due; return; }
+  if (world.chain.length || state.wait) return;
   if (!restoreNeeded(world, state)) { delete state.due; return; }
   if (state.due === undefined) { state.due = world.time + RESTORE_DELAY; return; }
   if (world.time + 1e-9 < state.due) return;
   delete state.due;
-  const spawned = world.stats.spawned, out: { id: number; x: number; y: number }[] = [];
-  world.arena.enemies.forEach((s, i) => {
-    let e = world.enemies.find(x => x.id === state.ids[i]);
-    if (e) {
-      e.x = s.x; e.y = s.y; e.hp = startHp(world, s);
-      e.knock = 0; e.knockVx = 0; e.knockVy = 0; e.brake = 0; e.headX = 0; e.headY = 0;
-      delete e.chill; delete e.brittle; delete e.burn;
-      pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);
-    } else {
-      e = placeStartEnemy(world, s);
-      state.ids[i] = e.id;
-    }
-    out.push({ id: e.id, x: e.x, y: e.y });
-  });
-  world.stats.spawned = spawned;
-  // Design answer 12.10.2026 (rooms 2–4): the hero goes back to the start with the same return.
+  // Design answer 12.10.2026 (rooms 2–4): the hero goes back to the start with the same return (first: the posts are checked
+  // against where he stands then).
   const hero = world.hero, back = world.arena.restoreHero ? world.arena.heroStart : null;
   if (back) {
     hero.x = back.x; hero.y = back.y; hero.knock = 0; hero.knockVx = 0; hero.knockVy = 0;
     pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
   }
+  const out: { id: number; x: number; y: number }[] = [], wait: number[] = [];
+  world.arena.enemies.forEach((s, i) => { if (postOnHero(world, s)) wait.push(i); else out.push(restoreStart(world, state, i)); });
+  if (wait.length) state.wait = wait;
   world.events.push({ type: 'restore', enemies: out, ...back ? { hero: { x: hero.x, y: hero.y } } : {} });
 }
 
