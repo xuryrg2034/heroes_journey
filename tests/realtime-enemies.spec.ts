@@ -204,8 +204,11 @@ test('porcupine: arena 7 opens; with the quills up a porcupine link shows «−1
   expect((await snap(page)).arena).toBe('thorns');
   await expect(page.getByTestId('goal')).toHaveText('кнопки 0 / 3');
   await quiet(page);
-  // Iteration 2.1: the quills go up and down; a long «иглы подняты» keeps them up through the test once they rise.
-  await page.evaluate(() => (window as any).__realtime.setParam('porcupineUpTime', 10));
+  // Iteration 2.1: the quills go up and down, and they hurt only if up at the release. De-flake 12.10.2026: «Иглы опущены» 0
+  // (the panel: the quills always up) — with the old long «иглы подняты» 10 the porcupine was placed at a random point of its
+  // cycle, and when the up time left at the badge read was shorter than the way to the release (a loaded page), the quills
+  // went down in between: the release armed nothing (HP 15 instead of 14). The cycle itself — the next test and Node.
+  await page.evaluate(() => (window as any).__realtime.setParam('porcupineDownTime', 0));
   const id = await place(page, 9, 5, 'porcupine', 1, 1);
   await expect.poll(async () => (await snap(page)).signals.quillsRaised, { timeout: 10_000 }).toBe(1);
   const at = await screen(page, 9, 5);
@@ -217,10 +220,11 @@ test('porcupine: arena 7 opens; with the quills up a porcupine link shows «−1
   const before = await snap(page);
   expect(before.hero.hp).toBe(before.hero.maxHp);
   await page.mouse.up();
-  await expect.poll(async () => (await snap(page)).kills).toBe(1);
-  const after = await snap(page);
-  expect(after.hero.hp).toBe(after.hero.maxHp - 1);
-  expect(after.signals.quillBadges).toBe(0);
+  // The kill and the HP read in one frame (bounded by game time; the dash to a neighbour takes well under a game second).
+  const hit = await untilFrame(page, (s, _: null, late) => s.kills >= 1 || late ? { kills: s.kills, hp: s.hero.hp, maxHp: s.hero.maxHp } : undefined, null, 5);
+  expect(hit.kills).toBe(1);
+  expect(hit.hp).toBe(hit.maxHp - 1);
+  expect((await snap(page)).signals.quillBadges).toBe(0);
   expect(errors).toEqual([]);
 });
 
