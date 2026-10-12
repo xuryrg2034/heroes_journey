@@ -16,6 +16,8 @@
  * - Fallbacks: goals not met in 150 s — the debug command `goals`; the door not reached 25 s after deciding to leave — a
  *   teleport next to the door. Both are counted.
  * - Map policy: a rest when HP ≤ 50 %, a merchant with 6+ resources, otherwise a node by a hash of the seed and the step.
+ * - Oath policies: smart — «Цепи 3+», else «Цепь 6+ хотя бы раз», else none (`SMART_OATHS`; until 12.10.2026 «Без прыжков»
+ *   first); never; always — the first offered.
  */
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -58,8 +60,12 @@ const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 const PARAMS = rtRunParams(defaultParams());
 const BUFFER = 1000;
 const TICK = 1 / 60;
-/** Oaths the bot can follow cheaply (the «smart» policy takes the first of these it is offered). */
-const FOLLOWABLE: readonly OathId[] = ['no-jump', 'chains3'];
+/**
+ * The «smart» policy: the first of these the card offers, else no oath. Re-audit 12.10.2026 (after the calibration): «Цепи 3+»
+ * (the bot then releases no chain under 3 enemies after the first), else «Цепь 6+ хотя бы раз» (the bot plays as always: its
+ * greedy chains often reach 6). «Без прыжков» (taken first in the audit of 11fadfd) is no longer offered by the run.
+ */
+const SMART_OATHS: readonly OathId[] = ['chains3', 'chain6'];
 
 // ---------- Records ----------
 
@@ -302,7 +308,7 @@ function playFight(run: RtRunState): FightResult {
   const outcome: RtArenaOutcome = {
     nodeId: pending.nodeId, won: true, hp: Math.max(1, Math.min(run.maxHp, real)), kills: w.stats.kills, bestChain: w.stats.bestChain,
     damage: w.stats.damageTaken, time: w.endTime ?? w.time,
-    ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed } : {},
+    ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {},
     ...door ? { purse: door } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
   };
   return {
@@ -350,7 +356,7 @@ function walkRun(k: number, policy: OathPolicy): RunRecord {
       if (rec.rowStart[row] === undefined) rec.rowStart[row] = total(run);
       rec.lastRow = Math.max(rec.lastRow, row);
       const offer = rtOathPreview(run, node);
-      const oath = !offer || policy === 'never' ? null : policy === 'always' ? offer[0] : (FOLLOWABLE.find(id => offer.includes(id)) ?? null);
+      const oath = !offer || policy === 'never' ? null : policy === 'always' ? offer[0] : (SMART_OATHS.find(id => offer.includes(id)) ?? null);
       const before = materials(run);
       run = ok(rtEnterNode(run, node.id, oath, { goblinCircle: !!PARAMS.goblinCircle }), 'enter');
       account(before, run, 'other', 'other');
@@ -569,6 +575,9 @@ function report(runs: RunRecord[], title: string): void {
   }
   const lootRuns = runs.filter(r => (r.gain['elite-loot'] ?? 0) >= 10);
   console.log(`\nДобыча элит ресурсами: 10+ за поход в ${pct(lootRuns.length, runs.length)} походов (в них среднее ${f1(mean(lootRuns.map(r => r.gain['elite-loot'] ?? 0)))}); в остальных ${f1(mean(runs.filter(r => (r.gain['elite-loot'] ?? 0) < 10).map(r => r.gain['elite-loot'] ?? 0)))}.`);
+  // The calibration's acceptance criteria (design 12.10.2026; bot heuristics): the numbers each criterion reads.
+  const withCauldron = fights.filter(f => f.cauldron > 0), row10 = runs.flatMap(r => r.rowStart[10] !== undefined ? [r.rowStart[10]] : []);
+  console.log(`\n9. Критерии калибровки (эвристика бота): котёл за поход — среднее ${f1(mean(per(r => r.gain.cauldron ?? 0)))}, медиана ${f1(q(per(r => r.gain.cauldron ?? 0), 0.5))}; бои на потолке выплаты — ${pct(withCauldron.filter(f => f.capHit).length, withCauldron.length)} (с костью, как в разделе 4; на «Забрать» — ${pct(withCauldron.filter(f => f.capHitTake).length, withCauldron.length)}); добыча элит ресурсами за поход — p90 ${f1(q(per(r => r.gain['elite-loot'] ?? 0), 0.9))}; ресурсы в начале ряда 10 — медиана ${f1(q(row10, 0.5))} (${row10.length} походов).`);
   const outposts = fights.filter(f => f.arena === 'outpost' && f.battle === 'hard');
   console.log(`\n7. Сундук: боёв «Заставы» (трудный узел) ${outposts.length}; сундук взят ${pct(outposts.filter(f => f.chest).length, outposts.length)}, проклятие снято ${pct(outposts.filter(f => f.chestLifted).length, outposts.filter(f => f.chest).length)} взятых. Добыча элит предметом (не ресурсом): ${f1(mean(per(r => r.fights.reduce((s, f) => s + f.lootItems, 0))))} за поход.`);
 }
