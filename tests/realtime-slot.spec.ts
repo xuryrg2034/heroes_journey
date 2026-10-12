@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { gameWait, untilFrame } from './realtimeFrames';
 
 /**
  * Casino stage 1: the view and the input of «Однорукий гоблин» in the sandbox (docs/realtime-casino.md): the panel button
@@ -6,8 +7,8 @@ import { test, expect, type Page } from '@playwright/test';
  * the idol, the release pulls the lever — the reels spin and stop, the result shows, the lever goes dark. Runs through
  * playwright.realtime.config.ts only. The rules themselves are checked in Node (src/realtime/sim/slot.spec.ts).
  */
-interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string }
-interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number } }
+interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number }
+interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number }; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number } }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
 
@@ -89,11 +90,154 @@ test('the panel button «Гоблин», a mouse chain to the lever with the odd
   expect(s.slot.shown.pulls).toBe(1);
   expect(s.slot.shown.dark).toBe(1);
   expect(s.slot.goblin!.skulls.reduce((a, b) => a + b, 0)).toBe(7);
+  // «Перебор» off (the sandbox default): no dots, no caption — the old idol.
+  expect(s.slot.shown.caption).toBe('');
+  expect(s.slot.shown.dots).toEqual({ gold: 0, red: 0, dark: 0 });
   await page.screenshot({ path: 'artifacts/realtime-slot-result.png' });
   // The hint on the dark lever.
   await page.mouse.move(leverAt.x + 1, leverAt.y + 1);
   const hover = await screen(page, g.x, g.y);
   await page.mouse.move(hover.x, hover.y);
   await expect.poll(async () => page.evaluate(() => (window as any).__realtime.snapshot().hint)).toBe('lever');
+  expect(errors).toEqual([]);
+});
+
+/**
+ * «Перебор» (design 12.10.2026, playtest v34): the idol's charge dots, the caption «безопасно: N», the red odds line of the
+ * risky pull and the bust, all with real mouse chains in the sandbox. Seeds: the bust roll is the first draw of the stream
+ * `slot:bust`, which only the risky pulls (the 4th and later) draw — BUST_SEED (k=6) first draw is under 0.55 (busts), SAFE_SEED's
+ * is not (a triple); both checked in Node against `world.rng.stream('slot:bust')` and here against the real game's result.
+ */
+const BUST_SEED = Math.imul(6, 2654435761) >>> 0;
+const SAFE_SEED = Math.imul(1, 2654435761) >>> 0;
+
+async function openBustSandbox(page: Page, seed: number): Promise<string[]> {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.locator('#rt-app canvas')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.keyboard.press('1');
+  await expect(page.getByTestId('menu')).toBeHidden();
+  await page.evaluate(seed => {
+    const rt = (window as any).__realtime;
+    rt.restart(seed);
+    // A quiet field (as above); six pulls, a short cooldown, the rule on — all journalled commands.
+    for (const [k, v] of Object.entries({ enemySpeed: 0, speedSpread: 0, baseIntervalMin: 20, baseIntervalMax: 20, baseFloor: 0, contactDamage: 0, slot: true, slotBust: true, slotPulls: 6, slotCooldown: 0.5 })) rt.setParam(k, v);
+    rt.params.maxEnemies = 0;
+    rt.clear(false);
+    rt.teleport(8, 5);
+    rt.summonGoblin();
+  }, seed);
+  await expect.poll(async () => (await snap(page)).slot.goblin !== null).toBe(true);
+  // The marker first, then the lever is ready.
+  await untilFrame(page, snap => snap.slot.shown.idols === 1 && snap.slot.shown.markers === 0 && snap.slot.shown.dark === 0 ? true : undefined, null, 20);
+  return errors;
+}
+
+/** One pull by the mouse: a hero 2.4 from the idol, a weak enemy between, press on it, drag to the lever; `hold` runs with the chain drawn. */
+async function pullByMouse(page: Page, hold?: () => Promise<void>): Promise<void> {
+  const g = (await snap(page)).slot.goblin!;
+  const d = Math.hypot(g.x - 8, g.y - 5), ux = (8 - g.x) / d, uy = (5 - g.y) / d;
+  await page.evaluate(([e, h]) => {
+    const rt = (window as any).__realtime;
+    rt.teleport(h.x, h.y);
+    rt.place(e.x, e.y, 0, 0, 'basic');
+  }, [{ x: g.x + ux * 1.2, y: g.y + uy * 1.2 }, { x: g.x + ux * 2.4, y: g.y + uy * 2.4 }] as const);
+  await gameWait(page, 0.15);
+  const enemy = await screen(page, g.x + ux * 1.2, g.y + uy * 1.2);
+  await page.mouse.move(enemy.x, enemy.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(1);
+  const lever = await screen(page, g.x, g.y);
+  await page.mouse.move(lever.x, lever.y, { steps: 4 });
+  await expect.poll(async () => (await snap(page)).chainLinks.map(l => l.kind)).toEqual(['enemy', 'object']);
+  await untilFrame(page, snap => snap.slot.shown.odds === 1 ? true : undefined, null, 5);
+  if (hold) await hold();
+  await page.mouse.up();
+  // The release starts the dash; the pull lands when it touches the lever.
+  await untilFrame(page, (snap, was: number) => snap.slot.goblin && snap.slot.goblin.pulls > was ? true : undefined, g.pulls, 10);
+}
+
+/** The lever may be pulled again: the spin and the result are over, the cooldown ran out. */
+const untilReady = (page: Page): Promise<boolean> => untilFrame(page, snap => snap.slot.goblin && !snap.slot.goblin.spinning && snap.slot.shown.dark === 0 ? true : undefined, null, 20);
+
+test('«Перебор»: dots and the caption count down 3→2→1→0, the 4th pull shows the risky odds, the first risky roll busts', async ({ page }) => {
+  const errors = await openBustSandbox(page, BUST_SEED);
+  const hp0 = (await snap(page)).hero.hp;
+  let s = await snap(page);
+  // Before any pull: six dots (3 gold, 3 red), «безопасно: 3»; the idol is the old one otherwise.
+  await untilFrame(page, snap => snap.slot.shown.caption !== '' ? true : undefined, null, 5);
+  s = await snap(page);
+  expect(s.slot.shown.dots).toEqual({ gold: 3, red: 3, dark: 0 });
+  expect(s.slot.shown.caption).toBe('безопасно: 3');
+  expect(s.slot.shown.captionRisky).toBe(false);
+  for (const left of [2, 1, 0]) {
+    await pullByMouse(page);
+    await untilFrame(page, snap => snap.slot.shown.results >= 1 && snap.slot.goblin && !snap.slot.goblin.spinning ? true : undefined, null, 10);
+    await untilReady(page);
+    s = await snap(page);
+    const pulls = 3 - left;
+    expect(s.slot.goblin!.pulls).toBe(pulls);
+    // Spent dots go dark from the left; the gold ones are the safe pulls still to come.
+    expect(s.slot.shown.dots).toEqual({ gold: left, red: 3, dark: pulls });
+    if (left > 0) expect(s.slot.shown.caption).toBe(`безопасно: ${left}`);
+    else { expect(s.slot.shown.caption).toBe('взрыв 55 % · −4 HP'); expect(s.slot.shown.captionRisky).toBe(true); }
+    if (left === 2) {
+      // The hero steps off the lever so the idol and its dots show.
+      await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [8, 3] as const);
+      await gameWait(page, 0.3);
+      await page.screenshot({ path: 'artifacts/realtime-slot-charges.png' });
+    }
+    expect(s.hero.hp).toBeGreaterThanOrEqual(hp0 - 0); // the safe pulls never hurt
+    // The three safe pulls never bust.
+    expect(s.slot.shown.busts).toBe(0);
+  }
+  // The 4th pull: the odds line over the idol while the chain is drawn.
+  // Arrows of an earlier pull (a skull on a safe pull) must not land during the check: the HP change below is the bust's alone.
+  await untilFrame(page, snap => snap.slot.marks === 0 ? true : undefined, null, 30);
+  await gameWait(page, 3);
+  expect((await snap(page)).slot.marks).toBe(0);
+  const flashes0 = (await snap(page)).slot.flashes;
+  const hpBefore = (await snap(page)).hero.hp;
+  await pullByMouse(page, async () => {
+    expect((await snap(page)).slot.shown.oddsText).toBe('взрыв 55 % · −4 HP · иначе тройка');
+    await page.screenshot({ path: 'artifacts/realtime-slot-risky-odds.png' });
+  });
+  // The reels spin (the warning), then the idol blows up: -4 HP wherever the hero stands, the goblin is gone.
+  await untilFrame(page, snap => snap.slot.shown.spinning > 0 ? true : undefined, null, 5);
+  expect((await snap(page)).slot.goblin).not.toBeNull();
+  await untilFrame(page, snap => snap.slot.shown.busts >= 1 ? true : undefined, null, 10);
+  await page.screenshot({ path: 'artifacts/realtime-slot-bust.png' });
+  s = await snap(page);
+  expect(s.slot.goblin).toBeNull();
+  expect(s.slot.shown.lastResult).toBe('bust');
+  expect(s.slot.shown.busts).toBe(1);
+  expect(s.hero.hp).toBe(hpBefore - 4);
+  expect(s.slot.flashes).toBe(flashes0); // no arrow fell: the bust flash is not the arrow's
+  await gameWait(page, 1);
+  s = await snap(page);
+  expect(s.slot.shown.idols).toBe(0);
+  expect(s.slot.shown.caption).toBe('');
+  expect(errors).toEqual([]);
+});
+
+test('«Перебор»: a risky pull that does not bust gives a triple of a good symbol, no damage, the idol stays', async ({ page }) => {
+  const errors = await openBustSandbox(page, SAFE_SEED);
+  for (let i = 0; i < 3; i++) { await pullByMouse(page); await untilReady(page); }
+  await pullByMouse(page);
+  const hpBefore = (await snap(page)).hero.hp;
+  await untilFrame(page, snap => snap.slot.shown.results >= 4 ? true : undefined, null, 10);
+  const s = await snap(page);
+  expect(['heart3', 'bolt3', 'gem3', 'jackpot']).toContain(s.slot.shown.lastResult);
+  expect(s.slot.shown.busts).toBe(0);
+  expect(s.slot.goblin!.pulls).toBe(4);
+  expect(s.hero.hp).toBeGreaterThanOrEqual(hpBefore);
+  // The caption keeps warning: the 5th pull is risky too.
+  await untilReady(page);
+  expect((await snap(page)).slot.shown.caption).toBe('взрыв 55 % · −4 HP');
   expect(errors).toEqual([]);
 });

@@ -1715,6 +1715,14 @@ export class RealtimeRenderer {
           this.bursts.push({ g: flash, life: 0.25, total: 0.25 });
           this.slotFlashes++;
         } else {
+          // «Перебор»: the goblin blows up — a red-orange ring wider than the arrow's flash, at the event's point (the idol is gone), and a shake.
+          if (ev.action === 'effect' && ev.outcome === 'bust') {
+            const boom = new Graphics().circle(0, 0, 2.2 * UNIT).fill({ color: 0xe0562f, alpha: 0.55 }).stroke({ color: 0xffe08a, width: 8, alpha: 0.95 });
+            boom.position.set(ev.x * UNIT, ev.y * UNIT);
+            this.fxLayer.addChild(boom);
+            this.bursts.push({ g: boom, life: 0.55, total: 0.55 });
+            this.shakeLeft = this.shakeTotal = 0.3; this.shakeAmp = Math.max(this.shakeAmp, 9);
+          }
           const text = this.slotView.handle(ev);
           if (text) this.floatText(text, ev.x * UNIT, ev.y * UNIT - OBJECT_RADIUS * UNIT * 5.8, 0xffd36b);
         }

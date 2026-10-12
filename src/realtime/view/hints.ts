@@ -48,15 +48,15 @@ export const HINT_TITLES: Readonly<Record<HintId, string>> = {
 };
 export const isHintId = (value: unknown): value is HintId => typeof value === 'string' && (HINT_IDS as readonly string[]).includes(value);
 
-/** «Каждое звено снимает» / «Каждые 2 звена снимают» / «Каждые 5 звеньев снимают» (the number is `Params.slotLinksPerSkull`). */
-function skullLinks(n: number): string {
+/** «Первый рывок безопасен» / «Первые 3 рывка безопасны» / «Первые 5 рывков безопасны» (the number is `Params.slotSafePulls`, «Перебор»). */
+function safePullsText(n: number): string {
   const tens = n % 100, ones = n % 10;
-  if (ones === 1 && tens !== 11) return `Каждое звено снимает череп.`;
-  return `Каждые ${n} ${ones >= 2 && ones <= 4 && (tens < 12 || tens > 14) ? 'звена' : 'звеньев'} снимают череп.`;
+  if (n === 1) return 'Первый рывок безопасен';
+  return `Первые ${n} ${ones >= 2 && ones <= 4 && (tens < 12 || tens > 14) ? 'рывка' : 'рывков'} безопасны`;
 }
 
 /** The final text of a fight hint (design 12.10.2026); the numbers come from `params` and the modules' constants. */
-export function hintText(id: HintId, params: Pick<Params, 'slotLinksPerSkull'> = DEFAULT_PARAMS): string {
+export function hintText(id: HintId, params: Pick<Params, 'slotSafePulls'> = DEFAULT_PARAMS): string {
   switch (id) {
     case 'b1': return 'Пока рисуешь цепь — время замедлено. Полоса — фокус, каждый враг в цепи его пополняет.';
     case 'b2': return 'Каждый враг в цепи +1 к силе. Крепкий тратит силу на свои HP.';
@@ -66,7 +66,7 @@ export function hintText(id: HintId, params: Pick<Params, 'slotLinksPerSkull'> =
     case 'b6': return 'Броня: удар снимает пластину. Сняв все — добей в окне.';
     case 'b7': return 'Энергия — от ударов цепи. Пробел и клик — прыжок, Q — круговой удар.';
     case 'b8': return `Проклятый сундук: касания врагов +${CHEST_CURSE_TOUCH} урон до ${CHEST_CURSE_KILLS} убийств цепью. Награда за победу — талисман.`;
-    case 'b9': return `Однорукий гоблин: закончи цепь на рычаге. ${skullLinks(params.slotLinksPerSkull ?? DEFAULT_PARAMS.slotLinksPerSkull)}`;
+    case 'b9': return `Однорукий гоблин: закончи цепь на рычаге. ${safePullsText(params.slotSafePulls ?? DEFAULT_PARAMS.slotSafePulls)}, дальше — риск взрыва.`;
   }
 }
 

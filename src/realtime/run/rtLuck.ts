@@ -77,7 +77,8 @@ export function countLuck(tally: RtLuckTally, key: RtLuckKey, hit: boolean, chan
  */
 export function observeFightLuck(tally: RtLuckTally, events: readonly WorldEvent[]): void {
   events.forEach((ev, i) => {
-    if (ev.type === 'slot' && ev.action === 'pull') {
+    // «Перебор»: a risky pull draws no skulls (no rain or volley to be lucky or unlucky with).
+    if (ev.type === 'slot' && ev.action === 'pull' && !ev.risky) {
       countLuck(tally, 'slot-rain', ev.outcome === 'rain', ev.rain ?? 0);
       countLuck(tally, 'slot-volley', ev.outcome === 'volley', ev.volley ?? 0);
     } else if (ev.type === 'eliteDown' && ev.credited) {

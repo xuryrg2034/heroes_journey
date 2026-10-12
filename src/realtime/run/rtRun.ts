@@ -107,8 +107,10 @@ export const RT_RUN_VERSION_V6 = 6;
  * resource (`purseRate`; the sandbox default stays 60) — the cap of the payout became rare, the cauldron decides again.
  */
 export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purse: true, purseRate: 120, greedByDeeds: true, doorFinale: true, oathStake: true, doorDie: true, rosterMix: true,
-  // П11 (design 11.10.2026): the run always plays the slot by the rule — 3 pulls, 8 s apart, a 1.2 s spin; the sandbox panel is free.
-  slotPulls: 3, slotCooldown: 8, slotSpin: 1.2,
+  // П11 (design 11.10.2026): the run always plays the slot by the rule — a 1.2 s spin; the sandbox panel is free.
+  // «Перебор» (design 12.10.2026, playtest v34): 6 pulls (3 safe, then the bust roll), 5 s apart (6 × 8 s was too long after
+  // the goals), the goblin in half of the battles that may get it (was 35 %: 2 battles of 17).
+  slotPulls: 6, slotCooldown: 5, slotSpin: 1.2, slotChance: 0.5, slotBust: true, slotSafePulls: 3, slotBustChance: 0.55, slotBustDamage: 4,
   // B6 К7 «Проклятый сундук» (design 12.10.2026): the chest of «Застава».
   cursedChest: true,
   // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.

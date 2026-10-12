@@ -32,11 +32,11 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
 /**
  * The killing blow of an ability or of the field (its `hit.source`) — the line names it, not the kind: the enemies' abilities,
  * the thorns (`thorns`, no striker) and the goblin's arrows (`slot-rain` the rain, `slot-volley` the volley, no striker;
- * design 12.10.2026). A hit source not here and not a touch has no killer line.
+ * design 12.10.2026) and its bust («Перебор», `slot-bust`, no striker). A hit source not here and not a touch has no killer line.
  */
 export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   arrow: 'стрела лучника', blast: 'взрыв сапёра', quills: 'иглы дикобраза', lynx: 'прыжок рыси', boar: 'рывок кабана', 'fire-trail': 'огненный след',
-  thorns: 'шипы', 'slot-rain': 'стрелы гоблина', 'slot-volley': 'стрелы гоблина',
+  thorns: 'шипы', 'slot-rain': 'стрелы гоблина', 'slot-volley': 'стрелы гоблина', 'slot-bust': 'взрыв гоблина',
 };
 /** The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. */
 export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper'];

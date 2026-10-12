@@ -287,7 +287,7 @@ check('texts: the final strings of the design; numbers come from the code, not f
     b6: 'Броня: удар снимает пластину. Сняв все — добей в окне.',
     b7: 'Энергия — от ударов цепи. Пробел и клик — прыжок, Q — круговой удар.',
     b8: 'Проклятый сундук: касания врагов +1 урон до 12 убийств цепью. Награда за победу — талисман.',
-    b9: 'Однорукий гоблин: закончи цепь на рычаге. Каждые 2 звена снимают череп.',
+    b9: 'Однорукий гоблин: закончи цепь на рычаге. Первые 3 рывка безопасны, дальше — риск взрыва.',
   };
   const params = defaultParams();
   for (const id of HINT_IDS) {
@@ -295,10 +295,9 @@ check('texts: the final strings of the design; numbers come from the code, not f
     const words = hintText(id, params).split(/\s+/).filter(word => word !== '—');
     assert(words.length <= 14, `${id}: ${words.length} words`);
   }
-  assert(CHEST_CURSE_TOUCH === 1 && CHEST_CURSE_KILLS === 12 && GREED_LINKS === 3 && params.slotLinksPerSkull === 2, 'the numbers of the design are the code\'s today');
-  assert(hintText('b9', { slotLinksPerSkull: 3 }).endsWith('Каждые 3 звена снимают череп.'), 'Б9 follows the param (3)');
-  assert(hintText('b9', { slotLinksPerSkull: 5 }).endsWith('Каждые 5 звеньев снимают череп.'), 'Б9 follows the param (5)');
-  assert(hintText('b9', { slotLinksPerSkull: 1 }).endsWith('Каждое звено снимает череп.'), 'Б9 follows the param (1)');
+  assert(CHEST_CURSE_TOUCH === 1 && CHEST_CURSE_KILLS === 12 && GREED_LINKS === 3 && params.slotSafePulls === 3, 'the numbers of the design are the code\'s today');
+  assert(hintText('b9', { slotSafePulls: 5 }).includes('Первые 5 рывков безопасны, дальше'), 'Б9 follows the param (5)');
+  assert(hintText('b9', { slotSafePulls: 1 }).includes('Первый рывок безопасен, дальше'), 'Б9 follows the param (1)');
   assert(LINE_RESOURCES === 'Ресурсы — крафт на привале, покупки у торговца, переброс талисманов.', 'Э2');
   assert(stakeLine(OATH_KEPT_MULT, OATH_BROKEN_MULT) === 'Ставка на котёл этого боя: сдержишь ×2, нарушишь ×0,5.', 'Э3');
   assert(dieLine(DIE_LOW_FACES) === '1–3 — половина, 4–6 — вдвое, но не выше потолка. «Забрать» — без риска.', 'Э4');

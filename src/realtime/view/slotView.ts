@@ -3,13 +3,14 @@
  * of the arena (navy outline, flat colours): a stone goblin idol with a lever on its side; the 2 s marker with a gold rim; the
  * three reels over the idol — they spin 1.2 s and stop one by one, then the result glows; the lever dark during the cooldown
  * and after the last pull; the odds line «дождь N % · залп M %» over the idol while the drawn chain can end on the lever.
- * Nothing in the HUD. Drawing only: it reads the world and the plan, it never changes them. The arrow marks are drawn by the
+ * «Перебор» (`slotBust`): charge dots under the idol (gold safe, red risky, dark spent) and a caption over it — «безопасно: N»,
+ * then the bust odds; the odds line of a risky pull is red. Nothing in the HUD. Drawing only: it reads the world and the plan, it never changes them. The arrow marks are drawn by the
  * renderer with the archer's mark (render.ts `drawSignals`).
  */
 import { Container, Graphics, Text } from 'pixi.js';
 import { OBJECT_RADIUS } from '../sim/chain';
-import { goblinOf, leverReady, type SlotOutcome, type SlotSymbol } from '../sim/slot';
-import { slotOddsText, type SlotPlanOdds } from '../sim/slotPlan';
+import { bustOdds, goblinOf, leverReady, safePullsLeft, slotCharges, type SlotOutcome, type SlotSymbol } from '../sim/slot';
+import { bustText, slotOddsText, type SlotPlanOdds } from '../sim/slotPlan';
 import type { World, WorldEvent } from '../sim/world';
 
 const NAVY = 0x18232d;
@@ -21,6 +22,10 @@ const LEVER_KNOB = 0xc8423a;
 const DARK_KNOB = 0x4a4a48;
 const REEL_BG = 0xf2e6c8;
 const SKULL = 0xeadbb9;
+/** «Перебор»: the risky charge, the spent charge, the red of the risky text. */
+const RISK_RED = 0xd9453a;
+const SPENT = 0x3a3d3c;
+const RISK_TEXT = 0xff7a66;
 /** Real seconds the result of a pull glows over the idol after the 3rd reel. */
 const RESULT_LIFE = 1.6;
 /** The reels stand this many object radii over the idol: above the combo counter of a hero standing on the lever. */
@@ -47,28 +52,35 @@ export function reelStrip(skulls: number): SlotSymbol[] {
 /** The outcome as a short word for the floating text over the idol. */
 export const OUTCOME_TEXT: Readonly<Record<SlotOutcome, string>> = {
   rain: 'дождь стрел!', volley: 'залп!', heart3: '+3 HP', bolt3: 'энергия полна', gem3: '3 кристалла', jackpot: 'джекпот!',
-  heart: '+1 HP', bolt: '+1 энергия', gem: 'кристалл', pot: 'добыча', none: 'хе-хе',
+  heart: '+1 HP', bolt: '+1 энергия', gem: 'кристалл', pot: 'добыча', none: 'хе-хе', bust: 'Перебор!',
 };
 
 /** What the slot view drew (tests read it): last frame — idols, markers, spinning reels, dark levers, odds lines; totals — pulls, results. */
-export interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string }
+export interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string;
+  /** «Перебор»: the caption over the idol (empty — none), whether it is the risky one, the dots by colour, the busts seen. */
+  caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number }
 
 export class SlotView {
   /** The idol, the lever, the reels (over the crowd, under the chain). */
   readonly layer = new Graphics();
   readonly textLayer = new Container();
   private readonly oddsLabel: Text;
+  private readonly captionLabel: Text;
   /** The last pull's reels and outcome shown after the effect (real seconds left). */
   private result: { reels: SlotSymbol[]; outcome: SlotOutcome; life: number } | null = null;
   /** Skulls on each reel at the last pull (its `pull` event): the spinning strips are built from them. */
   private pullSkulls: number[] | null = null;
-  readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '' };
+  readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0 };
 
   constructor(private readonly unit: number) {
     this.oddsLabel = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 17, fontWeight: 'bold', fill: GOLD, stroke: { color: 0x200c08, width: 4 } } });
     this.oddsLabel.anchor.set(0.5, 1);
     this.oddsLabel.visible = false;
     this.textLayer.addChild(this.oddsLabel);
+    this.captionLabel = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 15, fontWeight: 'bold', fill: GOLD, stroke: { color: 0x200c08, width: 4 } } });
+    this.captionLabel.anchor.set(0.5, 1);
+    this.captionLabel.visible = false;
+    this.textLayer.addChild(this.captionLabel);
   }
 
   /** A slot event of the world (render.ts `handleEvents`): returns the text to float over the idol, if any. */
@@ -76,12 +88,13 @@ export class SlotView {
     if (ev.action === 'pull') { this.shown.pulls++; this.result = null; this.pullSkulls = ev.skulls ? [...ev.skulls] : null; return null; }
     if (ev.action === 'effect' && ev.outcome) {
       this.shown.results++; this.shown.lastResult = ev.outcome;
+      if (ev.outcome === 'bust') this.shown.busts++;
       return OUTCOME_TEXT[ev.outcome];
     }
     return null;
   }
 
-  reset(): void { this.result = null; this.pullSkulls = null; this.oddsLabel.visible = false; }
+  reset(): void { this.result = null; this.pullSkulls = null; this.oddsLabel.visible = false; this.captionLabel.visible = false; }
 
   /** Draws the goblin of the world; `odds` — the plan's odds line (null — none now). */
   draw(world: World, clock: number, dt: number, odds: SlotPlanOdds | null): void {
@@ -89,6 +102,8 @@ export class SlotView {
     const shown = this.shown;
     shown.idols = 0; shown.markers = 0; shown.spinning = 0; shown.stopped = 0; shown.dark = 0; shown.odds = 0;
     this.oddsLabel.visible = false;
+    this.captionLabel.visible = false;
+    shown.caption = ''; shown.captionRisky = false; shown.dots.gold = 0; shown.dots.red = 0; shown.dots.dark = 0;
     if (!goblin) { this.result = null; return; }
     const lever = world.objects.find(o => o.id === goblin.id);
     if (!lever) return;
@@ -108,11 +123,13 @@ export class SlotView {
         g.circle(X + Math.cos(a) * rr, Y + Math.sin(a) * rr, 4).fill(GOLD).stroke({ color: NAVY, width: 1.5 });
       }
       this.drawIdol(g, X, Y, R, 0.25 + 0.75 * k, false, clock);
+      this.drawCharges(world, goblin.pulls, g, X, Y, R, 0.25 + 0.75 * k);
       return;
     }
     const ready = leverReady(world, lever);
     if (!ready) shown.dark = 1;
     this.drawIdol(g, X, Y, R, 1, ready, clock);
+    const caption = this.drawCharges(world, goblin.pulls, g, X, Y, R, 1);
     // The reels: spinning (each stops at a third of the spin), or the last result glowing for a moment after the effect.
     const spin = goblin.spin;
     if (spin) {
@@ -126,9 +143,38 @@ export class SlotView {
     if (odds) {
       shown.odds = 1; shown.oddsText = slotOddsText(odds);
       this.oddsLabel.text = shown.oddsText;
-      this.oddsLabel.position.set(X, Y - R * (spin || this.result?.life ? REELS_UP + 1.1 : 2.3));
+      this.oddsLabel.style.fill = odds.bust ? RISK_TEXT : GOLD;
+      // The risky odds line already says what the red caption says: one of them on screen.
+      if (odds.bust) this.captionLabel.visible = false;
+      // Over the caption (when there is one) and under the reels.
+      this.oddsLabel.position.set(X, Y - R * (spin || this.result?.life ? REELS_UP + 1.1 : caption && !odds.bust ? 2.75 : 2.3));
       this.oddsLabel.visible = true;
     }
+  }
+
+  /**
+   * «Перебор»: the charge dots under the idol and the caption over its head; nothing with `slotBust` off. Returns whether a
+   * caption is shown. Numbers come from `slotCharges`, `safePullsLeft`, `bustOdds` (sim/slot.ts), never computed here.
+   */
+  private drawCharges(world: World, pulls: number, g: Graphics, X: number, Y: number, R: number, alpha: number): boolean {
+    if (!world.params.slotBust) return false;
+    const shown = this.shown, { total, safe } = slotCharges(world), r = R * 0.2, step = R * 0.5, y = Y + R * 1.5;
+    for (let i = 0; i < total; i++) {
+      const spent = i < pulls, color = spent ? SPENT : i < safe ? GOLD : RISK_RED;
+      g.circle(X + (i - (total - 1) / 2) * step, y, r).fill({ color, alpha }).stroke({ color: NAVY, width: 2, alpha });
+      if (spent) shown.dots.dark++; else if (i < safe) shown.dots.gold++; else shown.dots.red++;
+    }
+    const left = safePullsLeft(world), risk = bustOdds(world);
+    // No pulls left: no caption. A risky next pull: the bust odds; else the safe pulls left.
+    if (pulls >= total || left === null || alpha < 1) return false;
+    const text = left > 0 ? `безопасно: ${left}` : risk ? bustText(risk) : '';
+    if (!text) return false;
+    shown.caption = text; shown.captionRisky = left === 0;
+    this.captionLabel.text = text;
+    this.captionLabel.style.fill = left === 0 ? RISK_TEXT : GOLD;
+    this.captionLabel.position.set(X, Y - R * 1.7);
+    this.captionLabel.visible = true;
+    return true;
   }
 
   /** The stone goblin idol with the lever on its right; `alpha` — rising out of the marker; `ready` — the lever bright. */

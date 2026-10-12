@@ -32,11 +32,13 @@ import { Graphics } from 'pixi.js';
 import { oathLine, oathMark } from './oath';
 import { defaultParams, heroRadius, PARAM_DEFS, type Params, sanitizeParams } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
-import { GOOD_SYMBOLS, goblinOf, leverOf, outcomeOf, pullOdds, skullOdds, type Goblin, type SlotOutcome, type SlotSymbol } from './slot';
-import { slotOddsText, slotPlanOdds } from './slotPlan';
+import { bustOdds, GOOD_SYMBOLS, goblinOf, leverOf, outcomeOf, pullOdds, safePullsLeft, skullOdds, slotCharges, type Goblin, type SlotOutcome, type SlotSymbol } from './slot';
+import { bustText, slotOddsText, slotPlanOdds } from './slotPlan';
 import type { Enemy, World, WorldEvent } from './world';
 import { createRtRun, rtArenaLoadout, rtMapNodes, rtRunParams, RT_SLOT_ROW, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
+import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
+import { RT_DEATH_ABILITY } from '../run/rtRunEnd';
 import { createFightObserver } from '../telemetry/observe';
 import { drawSymbol, reelStrip, SlotView } from '../view/slotView';
 
@@ -110,7 +112,8 @@ function summon(sim: Simulation): Goblin {
 const lever = (sim: Simulation) => leverOf(sim.world)!;
 /** Waits until the lever is a target (its marker or cooldown over). */
 function waitReady(sim: Simulation, out: WorldEvent[] = []): WorldEvent[] {
-  for (let i = 0; i < tick(20) && objectRefusal(sim.world, lever(sim)) === 'lever'; i++) ticks(sim, 1, out);
+  // «Перебор»: a bust during the wait takes the lever away — the wait ends.
+  for (let i = 0; i < tick(20) && leverOf(sim.world) && objectRefusal(sim.world, lever(sim)) === 'lever'; i++) ticks(sim, 1, out);
   return out;
 }
 /** A unit direction from the lever towards the arena centre (room for a row of links). */
@@ -667,56 +670,18 @@ function replayLog(sim: Simulation): { tick: number; ev: WorldEvent }[] {
   return out;
 }
 
-check('П11: the defaults keep the rule (8 s, 1,2 s, 3 pulls); a run plays it whatever the saved panel says (RT_RUN_FORCED, design 11.10.2026)', () => {
-  for (const [where, p] of [['sandbox', defaultParams()], ['run', rtRunParams(defaultParams())]] as const) {
-    assert(p.slotCooldown >= 8 && p.slotSpin <= 1.2 && p.slotPulls <= 3, `${where}: cooldown ${p.slotCooldown}, spin ${p.slotSpin}, pulls ${p.slotPulls}`);
-  }
+check('П11: the sandbox defaults keep the rule (8 s, 1,2 s, 3 pulls); a run plays its own whatever the saved panel says — since «Перебор» (design 12.10.2026) 6 pulls 5 s apart, 3 safe', () => {
+  const d = defaultParams(), r = rtRunParams(defaultParams());
+  assert(d.slotCooldown === 8 && d.slotSpin === 1.2 && d.slotPulls === 3 && d.slotChance === 0.35 && !d.slotBust, `sandbox: cooldown ${d.slotCooldown}, spin ${d.slotSpin}, pulls ${d.slotPulls}`);
+  const runRule = (p: Params): boolean => p.slotCooldown === 5 && p.slotSpin === 1.2 && p.slotPulls === 6 && p.slotChance === 0.5 && p.slotBust === true
+    && p.slotSafePulls === 3 && p.slotBustChance === 0.55 && p.slotBustDamage === 4;
+  assert(runRule(r), `run: cooldown ${r.slotCooldown}, spin ${r.slotSpin}, pulls ${r.slotPulls}, chance ${r.slotChance}, bust ${r.slotBust}`);
   // The sandbox panel may debug anything (its ranges stay wide); the run's copy is forced back to the rule.
   const range = (key: string) => PARAM_DEFS.find(d => d.kind === 'number' && d.key === key) as { min: number; max: number } | undefined;
-  const pulls = range('slotPulls'), cooldown = range('slotCooldown'), spin = range('slotSpin');
-  assert(pulls && cooldown && spin, 'the panel has the three numbers');
-  const wild = rtRunParams(sanitizeParams({ slotPulls: pulls.max, slotCooldown: cooldown.min, slotSpin: spin.max }));
-  assert(wild.slotPulls === 3 && wild.slotCooldown === 8 && wild.slotSpin === 1.2, `a run with a wild panel: ${wild.slotPulls} / ${wild.slotCooldown} / ${wild.slotSpin}`);
-});
-
-check('П11: a run battle (default params) reveals chance at most 3 times, ≥ 8 s apart, each reveal ≤ 1,2 s — a greedy player pulls the moment the lever allows', () => {
-  const p = rtRunParams(quiet());
-  let fights = 0, tries = 0;
-  for (let k = 1; k <= 80 && fights < 5; k++) {
-    const sim = field(p, 3000 + k, k % 2 ? 'slot-field' : 'slot-walls', { slot: true }), w = sim.world;
-    sim.command({ t: 'teleport', x: 10, y: 6 });
-    sim.command({ t: 'goals' });
-    ticks(sim, tick(3.2));
-    if (!goblinOf(w)) continue;
-    // Greedy: wait for the lever and pull it at once, again and again, until it stays dark for 20 s.
-    for (let attempt = 0; attempt < 6; attempt++) {
-      waitReady(sim);
-      if (objectRefusal(w, lever(sim)) === 'lever') break;
-      bareTo(sim);
-      tries++;
-    }
-    const L = lever(sim);
-    sim.command({ t: 'teleport', x: L.x + 1, y: L.y });
-    assert(sim.command({ t: 'begin', x: L.x, y: L.y }) === false, `seed ${k}: no 4th pull`);
-    ticks(sim, tick(3));
-    const log = replayLog(sim);
-    const pulls = log.filter(e => e.ev.type === 'slot' && e.ev.action === 'pull').map(e => e.tick);
-    const effects = log.filter(e => e.ev.type === 'slot' && e.ev.action === 'effect').map(e => e.tick);
-    assert(pulls.length === 3 && effects.length === 3, `seed ${k}: 3 reveals (${pulls.length} pulls, ${effects.length} effects)`);
-    for (let i = 0; i < pulls.length; i++) {
-      const reveal = (effects[i] - pulls[i]) * SIM_DT;
-      assert(reveal > 0 && reveal <= 1.2 + 1e-9, `seed ${k}: reveal ${i + 1} lasts ${reveal.toFixed(3)} s`);
-      if (i) {
-        const gap = (pulls[i] - pulls[i - 1]) * SIM_DT;
-        assert(gap >= 8 - 1e-9, `seed ${k}: reveals ${i} and ${i + 1} are ${gap.toFixed(3)} s apart`);
-        assert(effects[i - 1] < pulls[i], `seed ${k}: the reveal ${i} is over before the next pull`);
-      }
-    }
-    // At most 7,5 reveals a minute of fight (the research's metric): 3 reveals need at least 16 s.
-    assert((pulls[2] - pulls[0]) * SIM_DT >= 16 - 1e-9, `seed ${k}: three reveals within ${((pulls[2] - pulls[0]) * SIM_DT).toFixed(2)} s`);
-    fights++;
-  }
-  assert(fights === 5 && tries === 15, `fights ${fights}, pulls ${tries}`);
+  const keys = ['slotPulls', 'slotCooldown', 'slotSpin', 'slotChance', 'slotSafePulls', 'slotBustChance', 'slotBustDamage'] as const;
+  assert(keys.every(k => range(k)) && PARAM_DEFS.some(d => d.key === 'slotBust' && d.group === 'Однорукий гоблин'), 'the panel has the numbers and the toggle');
+  const wild = rtRunParams(sanitizeParams({ ...Object.fromEntries(keys.map(k => [k, range(k)!.max])), slotBust: false, slotCooldown: range('slotCooldown')!.min }));
+  assert(runRule(wild), `a run with a wild panel: ${wild.slotPulls} / ${wild.slotCooldown} / ${wild.slotSpin} / ${wild.slotBust}`);
 });
 
 check('П11: the reel symbols the player sees are the outcome\'s own draw — a reel with s skulls shows ☠ with s ÷ (4 + s), each good symbol 1 ÷ (4 + s) (χ², 2 × 150 seeds, 3 pulls each)', () => {
@@ -851,6 +816,264 @@ check('П11: a broken oath is no win — the HUD line dims to «×0,5» without 
     assert(door && door.kept === false && door.mult === 0.5, `the door records ×0,5: ${JSON.stringify(door)}`);
     assert(oathLine(w) === 'Клятва: без прыжков ×0,5' && !oathLine(w)!.includes('✓'), `after the door: ${oathLine(w)}`);
     assert(replays(sim), 'replay');
+  }
+});
+
+// ---- «Перебор» (design 12.10.2026, playtest v34; docs/realtime-casino.md, «Перебор») ---------------------------------------
+// Pulls after `slotSafePulls` are risky: a bust roll (stream `slot:bust`) in the pull tick; the bust blows the goblin up when
+// the reels stop — `slotBustDamage` to the hero through every protection; else a sure triple of a good symbol.
+
+/** The slot with «Перебор» and 6 pulls, no cooldown (the tests pull at once). */
+const bustParams = (extra: Partial<Params> = {}): Params => quiet({ slotBust: true, slotPulls: 6, slotCooldown: 0, ...extra });
+/** `n` bare pulls in a row, each played out to its effect; the pull events. */
+function pullsInARow(sim: Simulation, n: number, out: WorldEvent[] = []): Ev<'slot'>[] {
+  const pulls: Ev<'slot'>[] = [];
+  for (let i = 0; i < n && goblinOf(sim.world); i++) {
+    waitReady(sim, out);
+    const { pull, events } = bareTo(sim);
+    out.push(...events);
+    pulls.push(pull);
+    ticks(sim, tick(1.2) + 2, out);
+  }
+  return pulls;
+}
+/** Seeds whose first risky roll busts / does not (searched in order). */
+function bustSeeds(bust: boolean, count: number, from = 7000): number[] {
+  const out: number[] = [];
+  for (let k = from; out.length < count && k < from + 400; k++) {
+    const sim = field(bustParams({ slotSafePulls: 0 }), k);
+    summon(sim); waitReady(sim);
+    if (bareTo(sim).pull.bust === bust) out.push(k);
+  }
+  assert(out.length === count, `seeds with bust ${bust}: ${out.length}`);
+  return out;
+}
+
+check('«Перебор» off by default; a journal without its keys plays the same world; with it on the first 3 pulls are the old pulls (no bust roll)', () => {
+  const d = defaultParams();
+  assert(d.slotBust === false && d.slotSafePulls === 3 && d.slotBustChance === 0.55 && d.slotBustDamage === 4, 'the defaults');
+  const without = (state: unknown): string => { const s = { ...(state as Record<string, unknown>) }; delete s.params; return JSON.stringify(s); };
+  for (let k = 1; k <= 3; k++) {
+    const off = quiet({ slotPulls: 6, slotCooldown: 0, slotSkulls: 1 }), old = { ...off } as Partial<Params>;
+    for (const key of ['slotBust', 'slotSafePulls', 'slotBustChance', 'slotBustDamage'] as const) delete old[key];
+    const a = field(off, 600 + k), b = field(old as Params, 600 + k);
+    const pa = (summon(a), pullsInARow(a, 6)), pb = (summon(b), pullsInARow(b, 6));
+    assert(pa.length === 6 && pb.length === 6 && pa.every(p => p.risky === undefined && p.bust === undefined), 'six old pulls, no «Перебор» fields');
+    assert(without(worldState(a.world)) === without(worldState(b.world)), `seed ${k}: the same world without the keys`);
+    assert(!a.world.rng.states().some(([name]) => name === 'slot:bust'), 'the bust stream untouched');
+    const journal = a.exportJournal()!;
+    for (const key of ['slotBust', 'slotSafePulls', 'slotBustChance', 'slotBustDamage'] as const) delete (journal.params as Partial<Params>)[key];
+    assert(without(worldState(replay(journal).world)) === without(worldState(a.world)), 'the journal without the keys replays the same world');
+    // On: pulls 1–3 draw the same reels as without the rule; the bust stream is first drawn by the 4th.
+    const c = field(bustParams({ slotSkulls: 1 }), 600 + k);
+    summon(c);
+    const pc = pullsInARow(c, 3);
+    assert(pc.every((p, i) => p.risky === false && p.bust === false && JSON.stringify(p.reels) === JSON.stringify(pa[i].reels) && p.outcome === pa[i].outcome), `seed ${k}: the safe pulls are the old pulls`);
+    assert(!c.world.rng.states().some(([name]) => name === 'slot:bust'), 'no bust roll in pulls 1–3');
+    const fourth = pullsInARow(c, 1)[0];
+    assert(fourth.risky === true && typeof fourth.bust === 'boolean' && c.world.rng.states().some(([name]) => name === 'slot:bust'), `the 4th pull rolls: ${JSON.stringify(fourth)}`);
+    assert(fourth.rain === 0 && fourth.volley === 0, 'a risky pull has no skull odds');
+    assert(replays(c) && replays(a), 'replays');
+  }
+});
+
+check('«Перебор»: the risky pull busts on ≈ 55 % of 1200 seeds; else a sure triple, each good symbol ≈ ¼; after 3 safe pulls the 4th rolls the same', () => {
+  let busts = 0, n = 0;
+  const triples: Record<string, number> = { heart3: 0, bolt3: 0, gem3: 0, jackpot: 0 };
+  for (let k = 1; k <= 1200; k++) {
+    const sim = field(bustParams({ slotSafePulls: 0 }), 8000 + k);
+    summon(sim); waitReady(sim);
+    const { pull } = bareTo(sim);
+    assert(pull.risky === true && pull.pull === 1, 'the first pull is risky with 0 safe');
+    n++;
+    if (pull.bust) { busts++; assert(pull.outcome === 'bust', 'the outcome bust'); continue; }
+    assert(pull.outcome! in triples && pull.reels!.every(r => r === pull.reels![0]) && pull.reels![0] !== 'skull', `a sure triple: ${JSON.stringify(pull.reels)} ${pull.outcome}`);
+    triples[pull.outcome!]++;
+  }
+  const share = busts / n, sd = Math.sqrt(0.55 * 0.45 / n);
+  assert(Math.abs(share - 0.55) < 4 * sd, `bust share ${share.toFixed(3)} (55 % ± ${(4 * sd).toFixed(3)})`);
+  const good = n - busts;
+  let chi = 0;
+  for (const v of Object.values(triples)) chi += (v - good / 4) ** 2 / (good / 4);
+  assert(chi < 16.27, `the triples are equally likely: ${JSON.stringify(triples)}, χ² ${chi.toFixed(2)}`);
+  console.log(`   busts ${busts} of ${n} (${(share * 100).toFixed(1)} %), triples ${JSON.stringify(triples)}`);
+  // The rule as the run plays it: 3 safe pulls, then the roll — the same draw as the first roll of the stream.
+  let fourthBusts = 0;
+  for (let k = 1; k <= 200; k++) {
+    const sim = field(bustParams(), 8000 + k);
+    summon(sim);
+    const pulls = pullsInARow(sim, 4);
+    assert(pulls.slice(0, 3).every(p => p.risky === false) && pulls[3].risky === true, 'pulls 1–3 safe, the 4th risky');
+    if (pulls[3].bust) fourthBusts++;
+  }
+  assert(fourthBusts > 200 * 0.45 && fourthBusts < 200 * 0.65, `4th pull busts ${fourthBusts} of 200`);
+});
+
+check('«Перебор»: the plan\'s line is the pull\'s numbers — «безопасно» 3 → 0, then «взрыв 55 % · −4 HP · иначе тройка»; the panel\'s chance is what rolls', () => {
+  const sim = field(bustParams({ slotSafePulls: 3 }), 5);
+  summon(sim);
+  for (let i = 0; i < 4; i++) {
+    waitReady(sim);
+    assert(safePullsLeft(sim.world) === Math.max(0, 3 - i), `safe left ${safePullsLeft(sim.world)} before pull ${i + 1}`);
+    const L = lever(sim), dir = inward(sim.world, L);
+    sim.command({ t: 'teleport', x: L.x + dir.x * 1.2, y: L.y + dir.y * 1.2 });
+    sim.command({ t: 'begin', x: L.x, y: L.y });
+    const odds = slotPlanOdds(sim.world)!;
+    if (i < 3) assert(!odds.bust && slotOddsText(odds).startsWith('дождь '), `a safe pull's line: ${slotOddsText(odds)}`);
+    else {
+      assert(odds.bust && odds.bust.chance === 0.55 && odds.bust.damage === 4 && JSON.stringify(odds.bust) === JSON.stringify(bustOdds(sim.world)), `the risky line's numbers: ${JSON.stringify(odds)}`);
+      assert(slotOddsText(odds) === 'взрыв 55 % · −4 HP · иначе тройка' && bustText(odds.bust) === 'взрыв 55 % · −4 HP', `the risky line: ${slotOddsText(odds)}`);
+    }
+    sim.command({ t: 'release' });
+    settle(sim); ticks(sim, tick(1.2) + 2);
+    if (!goblinOf(sim.world)) break;
+  }
+  // The panel's numbers are the roll's: chance 0 never busts, 1 always (and the line says so).
+  for (const [chance, word] of [[0, 'взрыв 0 %'], [1, 'взрыв 100 %']] as const) {
+    const s = field(bustParams({ slotSafePulls: 0, slotBustChance: chance, slotBustDamage: 2 }), 6);
+    summon(s); waitReady(s);
+    assert(bustText(bustOdds(s.world)!) === `${word} · −2 HP`, `the line ${bustText(bustOdds(s.world)!)}`);
+    const busted = [0, 1, 2].map(() => { const p = pullsInARow(s, 1)[0]; return p?.bust; }).filter(b => b !== undefined);
+    assert(chance === 0 ? busted.length === 3 && busted.every(b => !b) : busted.length === 1 && busted[0], `chance ${chance}: ${JSON.stringify(busted)}`);
+  }
+  assert(slotCharges(field(bustParams(), 1).world).safe === 3 && slotCharges(field(quiet({ slotPulls: 6 }), 1).world).safe === 6, 'without the rule every pull is safe');
+});
+
+check('«Перебор»: the bust hits the hero for 4 wherever he is — through the invulnerability, the chain shield, the dash and the jump; the goblin and its lever are gone', () => {
+  const [k] = bustSeeds(true, 1);
+  type Guard = 'none' | 'invulnerable' | 'shield' | 'dash' | 'jump';
+  const lead: Record<Guard, number> = { none: 0.05, invulnerable: 0.25, shield: 0.45, dash: 0.12, jump: 0.1 };
+  for (const guard of ['none', 'invulnerable', 'shield', 'dash', 'jump'] as const) {
+    const sim = field(bustParams({ slotSafePulls: 0 }), k), w = sim.world;
+    summon(sim); waitReady(sim);
+    const { pull } = bareTo(sim);
+    assert(pull.bust === true, `seed ${k} busts`);
+    const g = goblinOf(w)!, events: WorldEvent[] = [];
+    while (g.spin && g.spin.left > lead[guard] + 1e-9) ticks(sim, 1, events);
+    const h = w.hero, d = inward(w, h);
+    if (guard === 'invulnerable') { sim.command({ t: 'param', key: 'contactDamage', value: 1 }); place(sim, h.x + 0.3, h.y, 0, { color: 1 }); }
+    if (guard === 'shield') { const row = [1, 2, 3].map(i => place(sim, h.x + d.x * 0.9 * i, h.y + d.y * 0.9 * i)); draw(sim, row); sim.command({ t: 'release' }); }
+    if (guard === 'dash') { const row = [1, 2, 3, 4, 5, 6].map(i => place(sim, h.x + d.x * 1.0 * i, h.y + d.y * 1.0 * i)); draw(sim, row); sim.command({ t: 'release' }); }
+    if (guard === 'jump') { sim.command({ t: 'energy', value: 7 }); assert(sim.command({ t: 'jump', x: h.x + d.x * 2, y: h.y + d.y * 2 }) === true, 'the jump starts'); }
+    // Tick by tick to the effect: the guard stands in the tick before it.
+    let before = { hp: h.hp as number, inv: 0, shield: 0, move: null as string | null };
+    for (let i = 0; i < tick(2) && goblinOf(w); i++) {
+      before = { hp: h.hp as number, inv: h.invulnerable, shield: h.chainShield, move: w.move?.kind ?? null };
+      ticks(sim, 1, events);
+    }
+    const effect = slotEvents(events, 'effect'), hits = of(events, 'hit').filter(e => e.source === 'slot-bust');
+    assert(effect.length === 1 && effect[0].outcome === 'bust', `${guard}: the bust came`);
+    const guarded = { none: true, invulnerable: before.inv > 0, shield: before.shield > 0, dash: before.move === 'dash', jump: before.move === 'jump' }[guard];
+    assert(guarded, `${guard}: the guard stood in the tick before the bust (${JSON.stringify(before)})`);
+    assert(hits.length === 1 && hits[0].damage === 4 && h.hp === before.hp - 4, `${guard}: −4 HP (${before.hp} → ${h.hp}, ${JSON.stringify(hits)})`);
+    // Gone: no goblin, no lever object, the lever's spot starts no chain; nothing shows a charge.
+    assert(!goblinOf(w) && !leverOf(w) && !w.objects.some(o => o.kind === 'lever') && w.objects.every(o => o.id !== g.id), `${guard}: the goblin is gone`);
+    assert(safePullsLeft(w) === null && bustOdds(w) === null, 'no charges left to show');
+    if (!w.move) {
+      sim.command({ t: 'begin', x: g.x, y: g.y });
+      assert(!w.chain.some(l => l.kind === 'object' && l.id === g.id), 'the lever is no target');
+    }
+    playOut(sim);
+    assert(!w.objects.some(o => o.kind === 'lever'), 'it never comes back');
+    assert(replays(sim), `${guard}: replay`);
+  }
+});
+
+check('«Перебор»: the bust may kill (source `slot-bust`, the run-end line «взрыв гоблина»); the second wind works as usual; the door during the spin cancels it', () => {
+  const [k] = bustSeeds(true, 1), [safe] = bustSeeds(false, 1);
+  const lethal = (extra: Partial<Params>) => {
+    const sim = field(bustParams({ slotSafePulls: 0, ...extra }), k, 'slot-field', undefined, { hp: 3, maxHp: 40 });
+    summon(sim); waitReady(sim); bareTo(sim);
+    const events = playOut(sim);
+    return { sim, events };
+  };
+  const dead = lethal({});
+  assert(dead.sim.world.status === 'defeat' && of(dead.events, 'hit').at(-1)?.source === 'slot-bust', `lethal: ${dead.sim.world.status}`);
+  assert(RT_DEATH_ABILITY['slot-bust'] === 'взрыв гоблина', 'the run-end line names it');
+  const wind = lethal({ secondWind: true });
+  assert(wind.sim.world.status === 'playing' && wind.sim.world.hero.hp === 3 && of(wind.events, 'secondWind').length === 1, `the second wind: ${wind.sim.world.status}, hp ${wind.sim.world.hero.hp}`);
+  assert(replays(dead.sim) && replays(wind.sim), 'replays');
+  // The door during the spin: no bust, no hit; a safe seed the same (no triple either).
+  for (const seed of [k, safe]) {
+    const sim = field(bustParams({ slotSafePulls: 0 }), seed, 'slot-field', undefined, { hp: 10, maxHp: 40 }), w = sim.world;
+    summon(sim); waitReady(sim); bareTo(sim);
+    sim.command({ t: 'goals' });
+    const door = w.objects.find(o => o.kind === 'door')!;
+    sim.command({ t: 'teleport', x: door.x, y: door.y });
+    const after = ticks(sim, tick(2));
+    assert(w.status === 'victory' && !slotEvents(after, 'effect').length && !of(after, 'hit').length && w.hero.hp === 10, `seed ${seed}: the door cancels (${w.status}, hp ${w.hero.hp})`);
+    assert(replays(sim), 'replay');
+  }
+});
+
+check('«Перебор» in a run battle: the goblin in ≈ 50 % of battles; a greedy player gets 3 safe pulls, then risky ones ≥ 5 s apart, each reveal ≤ 1,2 s, until a bust or the 6th pull', () => {
+  const p = rtRunParams(quiet());
+  let rolled = 0, came = 0;
+  for (let k = 1; k <= 300; k++) {
+    const sim = field(p, 3500 + k, 'slot-field', { slot: true });
+    sim.command({ t: 'teleport', x: 10, y: 6 });
+    sim.command({ t: 'goals' });
+    ticks(sim, tick(3.2));
+    if (!sim.world.slot) continue;
+    rolled++;
+    if (goblinOf(sim.world)) came++;
+  }
+  assert(rolled === 300 && came / rolled > 0.42 && came / rolled < 0.58, `the goblin in ${came} of ${rolled} run battles (50 %)`);
+  let fights = 0, busted = 0;
+  for (let k = 1; k <= 80 && fights < 8; k++) {
+    const sim = field(p, 3000 + k, k % 2 ? 'slot-field' : 'slot-walls', { slot: true }), w = sim.world;
+    sim.command({ t: 'teleport', x: 10, y: 6 });
+    sim.command({ t: 'goals' });
+    ticks(sim, tick(3.2));
+    if (!goblinOf(w)) continue;
+    for (let attempt = 0; attempt < 8 && goblinOf(w); attempt++) {
+      waitReady(sim);
+      if (!goblinOf(w) || objectRefusal(w, lever(sim)) === 'lever') break;
+      bareTo(sim);
+    }
+    ticks(sim, tick(3));
+    const log = replayLog(sim);
+    const pulls = log.filter(e => e.ev.type === 'slot' && e.ev.action === 'pull') as { tick: number; ev: Ev<'slot'> }[];
+    const effects = log.filter(e => e.ev.type === 'slot' && e.ev.action === 'effect') as { tick: number; ev: Ev<'slot'> }[];
+    const bust = effects.findIndex(e => e.ev.outcome === 'bust');
+    assert(pulls.length === effects.length && pulls.length <= 6 && (bust < 0 ? pulls.length === 6 : bust === pulls.length - 1), `seed ${k}: ${pulls.length} pulls, bust at ${bust}`);
+    pulls.forEach((e, i) => {
+      assert(e.ev.risky === i >= 3, `seed ${k}: pull ${i + 1} risky ${e.ev.risky}`);
+      const reveal = (effects[i].tick - e.tick) * SIM_DT;
+      assert(reveal > 0 && reveal <= 1.2 + 1e-9, `seed ${k}: reveal ${i + 1} lasts ${reveal.toFixed(3)} s`);
+      if (i) assert((e.tick - pulls[i - 1].tick) * SIM_DT >= 5 - 1e-9, `seed ${k}: pulls ${i} and ${i + 1} ${((e.tick - pulls[i - 1].tick) * SIM_DT).toFixed(2)} s apart`);
+    });
+    if (bust >= 0) {
+      busted++;
+      const blows = of(log.map(e => e.ev), 'hit').filter(h => h.source === 'slot-bust');
+      assert(!goblinOf(w) && blows.length === 1 && blows[0].damage === 4, `seed ${k}: the bust took 4 (${JSON.stringify(blows)})`);
+    }
+    else assert(objectRefusal(w, lever(sim)) === 'lever', `seed ${k}: dark after the 6th pull`);
+    fights++;
+  }
+  assert(fights === 8 && busted >= 1, `fights ${fights}, busted ${busted}`);
+});
+
+check('«Перебор» in telemetry: the fight observer counts risky pulls, busts, their damage and a death by the bust; the luck meter skips risky pulls', () => {
+  const [k] = bustSeeds(true, 1);
+  // 40 HP: a safe pull, then the bust; 3 HP: the bust first (no heart before it), it kills.
+  for (const hp of [40, 3]) {
+    const sim = field(bustParams({ slotSafePulls: hp === 40 ? 1 : 0, slotSkulls: 0 }), k, 'slot-field', undefined, { hp, maxHp: 40 });
+    summon(sim);
+    pullsInARow(sim, 3);
+    playOut(sim);
+    let observer: ReturnType<typeof createFightObserver> | null = null;
+    const journal = JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal;
+    replay(journal, r => { observer ??= createFightObserver(r.world); observer.tick(r.world); });
+    const events = collectReplayEvents(journal);
+    const s = observer!.summary().slot;
+    const risky = of(events, 'slot').filter(e => e.action === 'pull' && e.risky).length, busts = of(events, 'slot').filter(e => e.action === 'effect' && e.outcome === 'bust').length;
+    assert(s.risky === risky && risky >= 1 && s.busts === busts && busts === 1, `risky ${s.risky}/${risky}, busts ${s.busts}/${busts}`);
+    assert(s.bustDamage === 4, `bust damage ${s.bustDamage}`);
+    assert(s.bustDeaths === (hp === 3 ? 1 : 0), `hp ${hp}: bust deaths ${s.bustDeaths} (${sim.world.status})`);
+    const luck: RtLuckTally = {};
+    observeFightLuck(luck, events);
+    assert((luck['slot-rain']?.tries ?? 0) === of(events, 'slot').filter(e => e.action === 'pull').length - risky, `luck counts safe pulls only: ${JSON.stringify(luck)}`);
   }
 });
 

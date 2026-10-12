@@ -620,6 +620,14 @@ export interface SlotSummary {
   damage: { volley: number; rain: number };
   /** Enemies the arrows killed (the player's; also in `kills.tools.slot`). */
   kills: number;
+  /**
+   * «Перебор» (`slotBust`, design 12.10.2026): risky pulls (after the safe ones), busts that came (the effect `bust`; a bust
+   * cut by the door does not count), HP the busts took (source `slot-bust`), 1 — the fight was lost to the bust's blow.
+   */
+  risky: number;
+  busts: number;
+  bustDamage: number;
+  bustDeaths: number;
 }
 
 /** A summary of nothing (a fight without an observer, the start of a fight). */
@@ -636,7 +644,7 @@ export function emptyFightSummary(): FightSummary {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,
       platesBySource: {}, loot: { dropped: 0, picked: 0 },
     },
-    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0 },
+    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0 },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },

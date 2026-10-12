@@ -380,9 +380,10 @@ export type WorldEvent =
    * Casino stage 1 («Однорукий гоблин», slot.ts): the idol appeared (`appear`); the lever was pulled (`pull`: the reels, the
    * outcome, the struck enemy links, skulls taken off and the skulls of this pull, the odds of the rain and the volley, the
    * pull's number); the 3rd reel stopped (`effect`); a rain wave dropped its marks (`wave`); an arrow fell (`land`, its circle).
+   * «Перебор» (`slotBust` on): a pull says whether it was risky and whether it busts (the effect `bust` blows the goblin up).
    */
   | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
-      links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number }
+      links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number; risky?: boolean; bust?: boolean }
   /**
    * Casino «Котёл» (purse.ts): a chain's cheque went into the cauldron (embers × heat × the crystal multiplier = total; the
    * cauldron after it; where the hero stands); a build kill put 1 ember (`purseKill`); the door recorded the cauldron

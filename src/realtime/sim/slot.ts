@@ -34,6 +34,15 @@
  * - **Drops** (◆, 🍲): free spots `SLOT_DROP_MIN`…`SLOT_DROP_MAX` from the hero (stream `slot:drop`; the loot kind too: a
  *   consumable open in the run, none open — a crafting resource).
  *
+ * - **«Перебор»** (`slotBust`, design 12.10.2026, playtest v34; off by default, a run turns it on): the first
+ *   `slotSafePulls` pulls are safe (all of the above). A later pull is risky: in the tick the dash touches the lever one roll
+ *   of the stream `slot:bust` (the stream `slot:reels` is not drawn) — with `slotBustChance` the goblin blows up when the
+ *   reels stop (`slotSpin` later, the warning): `slotBustDamage` to the hero wherever he is — invulnerability, the chain
+ *   shield, the dash and the jump do not protect (the price of the bet, not a dodge; it may kill; the second wind as usual),
+ *   source `slot-bust`; the goblin and its lever are gone. Else the outcome is a sure triple of a good symbol (❤ ⚡ ◆ 🍲,
+ *   equally likely, the same stream); skulls do not act on a risky pull. Leaving by the door during the spin cancels it.
+ *   The odds the plan and the idol show read `bustOdds` — the pull's own numbers.
+ *
  * State: `World.slot` — absent until the battle rolls (or the command), so worlds without the slot hash as before.
  */
 import { dcos, dsin } from './detMath';
@@ -52,8 +61,8 @@ export const GOOD_SYMBOLS: readonly SlotSymbol[] = ['heart', 'bolt', 'gem', 'pot
  * What a pull gave: `rain` (☠☠☠), `volley` (two ☠), a triple of a good symbol (`heart3`, `bolt3`, `gem3`, `jackpot` — 🍲🍲🍲),
  * a good pair (`heart`, `bolt`, `gem`, `pot`) or `none`.
  */
-export type SlotOutcome = 'rain' | 'volley' | 'heart3' | 'bolt3' | 'gem3' | 'jackpot' | 'heart' | 'bolt' | 'gem' | 'pot' | 'none';
-export const SLOT_OUTCOMES: readonly SlotOutcome[] = ['rain', 'volley', 'heart3', 'bolt3', 'gem3', 'jackpot', 'heart', 'bolt', 'gem', 'pot', 'none'];
+export type SlotOutcome = 'rain' | 'volley' | 'heart3' | 'bolt3' | 'gem3' | 'jackpot' | 'heart' | 'bolt' | 'gem' | 'pot' | 'none' | 'bust';
+export const SLOT_OUTCOMES: readonly SlotOutcome[] = ['rain', 'volley', 'heart3', 'bolt3', 'gem3', 'jackpot', 'heart', 'bolt', 'gem', 'pot', 'none', 'bust'];
 
 /** The pull being shown: the reels and the outcome (fixed at the pull), game seconds to the effect. */
 export interface SlotSpin { reels: SlotSymbol[]; outcome: SlotOutcome; left: number; total: number }
@@ -95,7 +104,8 @@ const ENERGY_CAP = 7;
 const EPS = 1e-9;
 
 type SlotKey = 'slotChance' | 'slotDelay' | 'slotMarker' | 'slotNear' | 'slotFar' | 'slotPulls' | 'slotCooldown' | 'slotSpin' | 'slotSkulls'
-  | 'slotLinksPerSkull' | 'slotRainWaves' | 'slotRainMin' | 'slotRainMax' | 'slotRainStep' | 'slotVolleyMarks' | 'slotVolleyRadius' | 'slotDamage';
+  | 'slotLinksPerSkull' | 'slotRainWaves' | 'slotRainMin' | 'slotRainMax' | 'slotRainStep' | 'slotVolleyMarks' | 'slotVolleyRadius' | 'slotDamage'
+  | 'slotSafePulls' | 'slotBustChance' | 'slotBustDamage';
 /** A number of the slot (a journal that turned the slot on by a `param` command may lack it: the default). */
 const num = (p: Params, key: SlotKey): number => { const v = p[key]; return typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_PARAMS[key]; };
 const markRadius = (p: Params): number => p.archerMarkRadius ?? DEFAULT_PARAMS.archerMarkRadius;
@@ -127,6 +137,25 @@ export function skullsFor(world: World, struck: number): number[] {
     reel = (reel + 1) % skulls.length;
   }
   return skulls;
+}
+
+/** «Перебор»: the goblin's pulls in all, how many of them are safe (all while `slotBust` is off). */
+export function slotCharges(world: World): { total: number; safe: number } {
+  const p = world.params, total = Math.max(0, Math.floor(num(p, 'slotPulls')));
+  return { total, safe: p.slotBust ? Math.min(total, Math.max(0, Math.floor(num(p, 'slotSafePulls')))) : total };
+}
+
+/** «Перебор»: safe pulls left before the risky ones (0 — the next pull is risky; null — no goblin). */
+export function safePullsLeft(world: World): number | null {
+  const g = goblinOf(world);
+  return g ? Math.max(0, slotCharges(world).safe - g.pulls) : null;
+}
+
+/** «Перебор»: the odds of the next pull's bust and its damage; null — the next pull is safe (or the rule is off, no goblin). */
+export function bustOdds(world: World): { chance: number; damage: number } | null {
+  const p = world.params;
+  if (!p.slotBust || safePullsLeft(world) !== 0) return null;
+  return { chance: Math.min(1, Math.max(0, num(p, 'slotBustChance'))), damage: Math.max(0, num(p, 'slotBustDamage')) };
 }
 
 /** Chances of the rain (☠☠☠) and the volley (exactly two ☠) with these skulls per reel (a skull on a reel: s ÷ (4 + s)). */
@@ -199,20 +228,32 @@ export function summonGoblin(world: World): boolean {
  */
 export function pullLever(world: World, lever: ArenaObject, struck: number): void {
   if (!leverReady(world, lever)) return;
-  const g = goblinOf(world)!, p = world.params, odds = pullOdds(world, struck);
-  const rng = world.rng.stream('slot:reels');
-  const reels = odds.skulls.map(s => {
-    const k = Math.floor(rng.next() * (GOOD_SYMBOLS.length + s));
-    return k < s ? 'skull' as const : GOOD_SYMBOLS[k - s];
-  });
-  const outcome = outcomeOf(reels), spin = Math.max(0, num(p, 'slotSpin'));
+  const g = goblinOf(world)!, p = world.params, odds = pullOdds(world, struck), risk = bustOdds(world);
+  let reels: SlotSymbol[], outcome: SlotOutcome, bust = false;
+  if (risk) {
+    // «Перебор»: the risky pull — one roll of its own stream; the skulls do not act (the reels stream is not drawn).
+    const rng = world.rng.stream('slot:bust');
+    bust = rng.next() < risk.chance;
+    const good = bust ? null : GOOD_SYMBOLS[Math.floor(rng.next() * GOOD_SYMBOLS.length)];
+    reels = good ? [good, good, good] : ['skull', 'skull', 'skull'];
+    outcome = good ? outcomeOf(reels) : 'bust';
+  } else {
+    const rng = world.rng.stream('slot:reels');
+    reels = odds.skulls.map(s => {
+      const k = Math.floor(rng.next() * (GOOD_SYMBOLS.length + s));
+      return k < s ? 'skull' as const : GOOD_SYMBOLS[k - s];
+    });
+    outcome = outcomeOf(reels);
+  }
+  const spin = Math.max(0, num(p, 'slotSpin'));
   const sum = (list: readonly number[]): number => list.reduce((a, b) => a + b, 0), removed = sum(g.skulls) - sum(odds.skulls);
   g.pulls++;
   g.ready = world.time + Math.max(0, num(p, 'slotCooldown'));
   g.skulls[g.next]++;
   g.next = (g.next + 1) % g.skulls.length;
   g.spin = { reels, outcome, left: spin, total: spin };
-  world.events.push({ type: 'slot', action: 'pull', x: g.x, y: g.y, objectId: g.id, reels: [...reels], outcome, links: struck, removed, skulls: [...odds.skulls], rain: odds.rain, volley: odds.volley, pull: g.pulls });
+  world.events.push({ type: 'slot', action: 'pull', x: g.x, y: g.y, objectId: g.id, reels: [...reels], outcome, links: struck, removed, skulls: [...odds.skulls],
+    rain: risk ? 0 : odds.rain, volley: risk ? 0 : odds.volley, pull: g.pulls, ...p.slotBust ? { risky: !!risk, bust } : {} });
 }
 
 /** A free spot near the hero for a drop (◆, 🍲); null — none found. */
@@ -277,6 +318,18 @@ function dropWave(world: World, wave: SlotWave): void {
   world.events.push({ type: 'slot', action: 'wave', x: world.hero.x, y: world.hero.y, firing });
 }
 
+/**
+ * «Перебор»: the goblin blows up — `slotBustDamage` to the hero wherever he is, past every protection (no `canBeHurt`); the
+ * idol and its lever leave the arena (a chain ending on the lever loses that link).
+ */
+function bustGoblin(world: World, g: Goblin): void {
+  hurtHero(world, { id: 0 }, Math.max(0, num(world.params, 'slotBustDamage')), 'slot-bust');
+  world.objects = world.objects.filter(o => o.id !== g.id);
+  const last = world.chain[world.chain.length - 1];
+  if (last?.kind === 'object' && last.id === g.id) world.chain.pop();
+  delete world.slot!.goblin;
+}
+
 /** The 3rd reel stopped: the outcome acts. */
 function applyEffect(world: World, g: Goblin, outcome: SlotOutcome): void {
   const p = world.params, hero = world.hero;
@@ -296,6 +349,7 @@ function applyEffect(world: World, g: Goblin, outcome: SlotOutcome): void {
     case 'gem': dropCrystals(world, 1); return;
     case 'pot': dropLoot(world); return;
     case 'none': return;
+    case 'bust': bustGoblin(world, g); return;
   }
 }
 

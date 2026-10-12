@@ -579,6 +579,16 @@ export interface Params {
   slotVolleyRadius: number;
   /** Damage of one arrow (to the hero and to an enemy). */
   slotDamage: number;
+  /**
+   * «Перебор» (design 12.10.2026, playtest v34): pulls after the first `slotSafePulls` are risky — in the tick of the pull a
+   * bust roll (stream `slot:bust`) with `slotBustChance`: the goblin blows up when the reels stop, `slotBustDamage` to the
+   * hero wherever he is (nothing protects); else a sure triple of a good symbol. Off by default; a journal without the key
+   * plays the old path (no roll, the stream untouched). A run turns it on (`RT_RUN_FORCED`).
+   */
+  slotBust: boolean;
+  slotSafePulls: number;
+  slotBustChance: number;
+  slotBustDamage: number;
   // ---- Casino stage 1, item 1 — «Котёл» (purse.ts, docs/realtime-casino.md). ----
   /**
    * The cauldron: every chain puts its cheque (embers × heat × crystals), the build's kills outside the chain 1 ember each; the
@@ -962,6 +972,11 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   slotVolleyMarks: 5,
   slotVolleyRadius: 2.5,
   slotDamage: 1,
+  // «Перебор» (design 12.10.2026): off by default; 3 safe pulls, then 55 % to blow up for 4 HP.
+  slotBust: false,
+  slotSafePulls: 3,
+  slotBustChance: 0.55,
+  slotBustDamage: 4,
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
   purseRate: 60,
@@ -1312,6 +1327,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('slotVolleyMarks', 'Однорукий гоблин', 'Залп: меток', 1, 12, 1, 5),
   n('slotVolleyRadius', 'Однорукий гоблин', 'Залп: радиус', 0.5, 6, 0.25, 5, 'ед.'),
   n('slotDamage', 'Однорукий гоблин', 'Урон стрелы', 0, 5, 1, 5),
+  { kind: 'bool', key: 'slotBust', group: 'Однорукий гоблин', label: '«Перебор»: рискованные рывки', stage: 5,
+    hint: 'После безопасных рывков каждый рывок может взорвать гоблина: урон герою где угодно, защиты нет. Не взорвался — тройка доброго символа. В походе включено.' },
+  n('slotSafePulls', 'Однорукий гоблин', '«Перебор»: безопасных рывков', 0, 10, 1, 5),
+  n('slotBustChance', 'Однорукий гоблин', '«Перебор»: шанс взрыва', 0, 1, 0.05, 5),
+  n('slotBustDamage', 'Однорукий гоблин', '«Перебор»: урон взрыва', 0, 15, 1, 5, 'HP'),
   // Casino «Котёл» (purse.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за «Углей за ресурс» (60), не больше 3 без ставок. В походе включено всегда.' },

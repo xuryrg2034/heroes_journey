@@ -151,6 +151,8 @@ export function createFightObserver(start: World): FightObserver {
   // К7: the curse is on now (a world that starts cursed — a test — counts from its own ticks).
   if (start.curse) { s.chest.taken = start.curse.tick; s.chest.liftedAt = start.curse.lifted ?? null; }
   let cursedNow = !!start.curse && start.curse.lifted === undefined;
+  /** «Перебор»: the source of the last hit on the hero (a lost fight names its killing blow). */
+  let lastHitSource: string | null = null;
 
   /** Elites not seen before (placed, spawned, a newcomer turned elite). */
   const noteElites = (w: World): void => {
@@ -168,6 +170,8 @@ export function createFightObserver(start: World): FightObserver {
           // Casino stage 1: the goblin's arrows.
           if (ev.source === 'slot-volley') s.slot.damage.volley += ev.damage;
           else if (ev.source === 'slot-rain') s.slot.damage.rain += ev.damage;
+          else if (ev.source === 'slot-bust') s.slot.bustDamage += ev.damage;
+          lastHitSource = ev.source;
           s.damage.total += ev.damage;
           bump(s.damage.bySource, source, ev.damage);
           bump(s.damage.hits, source);
@@ -251,8 +255,8 @@ export function createFightObserver(start: World): FightObserver {
         case 'slot':
           // Casino stage 1 («Однорукий гоблин»): appearances, pulls (links before the lever, outcomes), effects.
           if (ev.action === 'appear') { s.slot.appeared++; if (s.slot.appearAfterGoals === null && world.greedStart !== null) s.slot.appearAfterGoals = world.time - world.greedStart; }
-          else if (ev.action === 'pull') { s.slot.pulls++; s.slot.links.push(ev.links ?? 0); bump(s.slot.outcomes, ev.outcome ?? 'none'); }
-          else if (ev.action === 'effect') s.slot.effects++;
+          else if (ev.action === 'pull') { s.slot.pulls++; s.slot.links.push(ev.links ?? 0); bump(s.slot.outcomes, ev.outcome ?? 'none'); if (ev.risky) s.slot.risky++; }
+          else if (ev.action === 'effect') { s.slot.effects++; if (ev.outcome === 'bust') s.slot.busts++; }
           return;
         case 'jump': s.abilities.jumps++; return;
         case 'spin': s.abilities.spins++; return;
@@ -381,6 +385,8 @@ export function createFightObserver(start: World): FightObserver {
       out.elites.aliveAtEnd = w.enemies.filter(e => elites.has(e.id)).length;
       // Casino stage 1: a spin still shown when the fight ended (the door, a defeat) never acts.
       out.slot.cancelled = w.status !== 'playing' && w.slot?.goblin?.spin ? 1 : 0;
+      // «Перебор»: the bust's blow was the last hit of a lost fight (the second wind or the ward kept him up otherwise).
+      out.slot.bustDeaths = w.status === 'defeat' && lastHitSource === 'slot-bust' ? 1 : 0;
       // Casino «Котёл»: on, and the cauldron at the end.
       out.purse.on = !!w.params.purse;
       out.purse.cauldron = w.purse?.cauldron ?? 0;
