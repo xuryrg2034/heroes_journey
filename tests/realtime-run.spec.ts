@@ -551,9 +551,10 @@ test('run (playtest v34, design 12.10.2026): a mouse chain of 1 leaves no after-
   };
   /** A standing enemy of another colour put against the hero: game seconds until the first wound (−1 — none within 1.2 s). */
   const touch = async (): Promise<number> => {
-    const t0 = await page.evaluate(() => { const rt = (window as any).__realtime, s = rt.snapshot(); rt.place(s.hero.x + 0.35, s.hero.y, 1, 0, 'basic'); return s.time as number; });
-    const hp0 = await page.evaluate(() => (window as any).__realtime.snapshot().hero.hp as number);
-    return untilFrame(page, (s, a: { t0: number; hp0: number }, late) => s.hero.hp < a.hp0 ? s.time - a.t0 : late ? -1 : undefined, { t0, hp0 }, 1.2);
+    // The time and the HP in the same call as the placing: a touch may hurt before a second call reads them (seen under load
+    // 12.10.2026: the HP read after the wound, the next wound came 0.53 s later, after its invulnerability).
+    const a = await page.evaluate(() => { const rt = (window as any).__realtime, s = rt.snapshot(); rt.place(s.hero.x + 0.35, s.hero.y, 1, 0, 'basic'); return { t0: s.time as number, hp0: s.hero.hp as number }; });
+    return untilFrame(page, (s, a: { t0: number; hp0: number }, late) => s.hero.hp < a.hp0 ? s.time - a.t0 : late ? -1 : undefined, a, 1.2);
   };
   const one = await chain([[1, 0]]);
   expect(one).toBe(0);
