@@ -151,10 +151,13 @@ export function safePullsLeft(world: World): number | null {
   return g ? Math.max(0, slotCharges(world).safe - g.pulls) : null;
 }
 
-/** «Перебор»: the odds of the next pull's bust and its damage; null — the next pull is safe (or the rule is off, no goblin). */
+/**
+ * «Перебор»: the odds of the next pull's bust and its damage; null — the next pull is safe, no pull is left (review
+ * 12.10.2026), the rule is off or no goblin.
+ */
 export function bustOdds(world: World): { chance: number; damage: number } | null {
-  const p = world.params;
-  if (!p.slotBust || safePullsLeft(world) !== 0) return null;
+  const p = world.params, g = goblinOf(world);
+  if (!p.slotBust || !g || g.pulls >= slotCharges(world).total || safePullsLeft(world) !== 0) return null;
   return { chance: Math.min(1, Math.max(0, num(p, 'slotBustChance'))), damage: Math.max(0, num(p, 'slotBustDamage')) };
 }
 
@@ -320,13 +323,11 @@ function dropWave(world: World, wave: SlotWave): void {
 
 /**
  * «Перебор»: the goblin blows up — `slotBustDamage` to the hero wherever he is, past every protection (no `canBeHurt`); the
- * idol and its lever leave the arena (a chain ending on the lever loses that link).
+ * idol and its lever leave the arena. The lever is no link now: it is not a target while the reels spin (`leverReady`).
  */
 function bustGoblin(world: World, g: Goblin): void {
   hurtHero(world, { id: 0 }, Math.max(0, num(world.params, 'slotBustDamage')), 'slot-bust');
   world.objects = world.objects.filter(o => o.id !== g.id);
-  const last = world.chain[world.chain.length - 1];
-  if (last?.kind === 'object' && last.id === g.id) world.chain.pop();
   delete world.slot!.goblin;
 }
 

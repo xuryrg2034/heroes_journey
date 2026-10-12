@@ -40,7 +40,7 @@ import { runRow } from '../run/arenaPools';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RT_DEATH_ABILITY } from '../run/rtRunEnd';
 import { createFightObserver } from '../telemetry/observe';
-import { drawSymbol, reelStrip, SlotView } from '../view/slotView';
+import { drawSymbol, reelStrip, riskyStrip, SlotView } from '../view/slotView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -180,7 +180,7 @@ check('off by default: the toggle is off, a run turns it on; a journal without t
   }
 });
 
-check('appearance in a run battle: ≈ 35 % of seeds, not before 3 s after the goals, 3–7 from the hero and seen by him, varies by seed', () => {
+check('appearance in a battle that may get it (the sandbox default chance; the run\'s 50 % — the «Перебор» run check): ≈ 35 % of seeds, not before 3 s after the goals, 3–7 from the hero and seen by him, varies by seed', () => {
   let rolled = 0, came = 0;
   const spots = new Set<string>();
   for (let k = 1; k <= 300; k++) {
@@ -1077,6 +1077,35 @@ check('«Перебор» in telemetry: the fight observer counts risky pulls, b
     observeFightLuck(luck, events);
     assert((luck['slot-rain']?.tries ?? 0) === of(events, 'slot').filter(e => e.action === 'pull').length - risky, `luck counts safe pulls only: ${JSON.stringify(luck)}`);
   }
+});
+
+check('П11 + «Перебор» (view, review 12.10.2026): a risky pull\'s reels spin the bust strip — ☠ with the bust chance, each good symbol (1 − c) ÷ 4; the safe pulls keep the skulls\' strip', () => {
+  for (const c of [0, 0.25, 0.5, 0.55, 0.6, 0.9, 1]) {
+    const strip = riskyStrip(c), skulls = strip.filter(s => s === 'skull').length;
+    const goods = GOOD_SYMBOLS.map(g => strip.filter(s => s === g).length);
+    assert(Math.abs(skulls / strip.length - c) <= 0.01 && goods.every(n => n === goods[0]), `c ${c}: ☠ ${skulls}/${strip.length}, goods ${goods}`);
+  }
+  // The view: a risky pull's spinning blur over many frames shows ☠ at the bust chance (not the skulls' s ÷ (4 + s)).
+  const fills = (g: Graphics): number[] => ((g as unknown as { context: { instructions: { action: string; data: { style: { color: number } } }[] } }).context.instructions)
+    .filter(i => i.action === 'fill').map(i => i.data.style.color);
+  const skullSig = (() => { const g = new Graphics(); drawSymbol(g, 'skull', 0, 0, 10); const own = fills(g); return { color: own[0], per: own.filter(x => x === own[0]).length }; })();
+  const sim = field(bustParams({ slotSafePulls: 1, slotSkulls: 0 }), 11), w = sim.world, view = new SlotView(40);
+  summon(sim);
+  pullsInARow(sim, 1);
+  waitReady(sim);
+  const { pull } = bareTo(sim);
+  assert(pull.risky === true && goblinOf(w)?.spin, 'a risky pull spins');
+  view.handle(pull);
+  view.draw(w, 0, 0, null);
+  let skulls = 0, symbols = 0;
+  for (let j = 0; j < 900; j++) {
+    view.draw(w, j * 0.0123, 0, null);
+    // The idol has no skull colour; three reels spin, one symbol each.
+    skulls += fills(view.layer).filter(x => x === skullSig.color).length / skullSig.per;
+    symbols += 3;
+  }
+  // With 0 skulls on the reels the old strip would show no ☠ at all.
+  assert(Math.abs(skulls / symbols - 0.55) < 0.06, `the risky blur: ☠ ${(skulls / symbols).toFixed(3)} (0,55)`);
 });
 
 console.log(`${checks} checks passed`);

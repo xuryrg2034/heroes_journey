@@ -38,8 +38,8 @@ const GOOD: readonly SlotSymbol[] = ['heart', 'bolt', 'gem', 'pot'];
  * skulls at the pull, spread evenly — the skull share on the strip is s ÷ (4 + s), the outcome's own odds. 2 skulls give
  * heart, skull, bolt, gem, skull, pot.
  */
-export function reelStrip(skulls: number): SlotSymbol[] {
-  const s = Math.max(0, Math.floor(skulls)), n = GOOD.length + s, out: SlotSymbol[] = [];
+export function reelStrip(skulls: number, each = 1): SlotSymbol[] {
+  const s = Math.max(0, Math.floor(skulls)), n = GOOD.length * Math.max(1, Math.floor(each)) + s, out: SlotSymbol[] = [];
   let good = 0, placed = 0;
   for (let i = 0; i < n; i++) {
     // A skull where the even share of skulls so far falls behind (Bresenham-like spread).
@@ -47,6 +47,22 @@ export function reelStrip(skulls: number): SlotSymbol[] {
     if (placed < wantSkulls) { out.push('skull'); placed++; } else out.push(GOOD[good++ % GOOD.length]);
   }
   return out;
+}
+
+/**
+ * «Перебор» (review 12.10.2026, П11): the strip of a risky pull — ☠ with the bust chance `c`, each good symbol (1 − c) ÷ 4, the
+ * pull's own odds (a bust stops on ☠☠☠, else a triple). `each` good symbols of a kind and `s` skulls with s ÷ (s + 4·each)
+ * nearest to `c` (each 1…12); c = 1 — skulls only, c = 0 — the good symbols only.
+ */
+export function riskyStrip(chance: number): SlotSymbol[] {
+  const c = Math.min(1, Math.max(0, chance));
+  if (c >= 1) return ['skull'];
+  let best = { each: 1, skulls: 0, err: Infinity };
+  for (let each = 1; each <= 12; each++) {
+    const skulls = Math.round((GOOD.length * each * c) / (1 - c)), err = Math.abs(skulls / (skulls + GOOD.length * each) - c);
+    if (err < best.err - 1e-12) best = { each, skulls, err };
+  }
+  return reelStrip(best.skulls, best.each);
 }
 
 /** The outcome as a short word for the floating text over the idol. */
@@ -70,6 +86,10 @@ export class SlotView {
   private result: { reels: SlotSymbol[]; outcome: SlotOutcome; life: number } | null = null;
   /** Skulls on each reel at the last pull (its `pull` event): the spinning strips are built from them. */
   private pullSkulls: number[] | null = null;
+  /** «Перебор»: the last pull was risky — its reels run the bust strip (`riskyStrip`), not the skulls'. */
+  private pullRisky = false;
+  /** The bust chance the risky strip shows (the world's `slotBustChance`, set each frame of a spin). */
+  private bustChance = 0;
   readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0 };
 
   constructor(private readonly unit: number) {
@@ -85,7 +105,7 @@ export class SlotView {
 
   /** A slot event of the world (render.ts `handleEvents`): returns the text to float over the idol, if any. */
   handle(ev: Extract<WorldEvent, { type: 'slot' }>): string | null {
-    if (ev.action === 'pull') { this.shown.pulls++; this.result = null; this.pullSkulls = ev.skulls ? [...ev.skulls] : null; return null; }
+    if (ev.action === 'pull') { this.shown.pulls++; this.result = null; this.pullSkulls = ev.skulls ? [...ev.skulls] : null; this.pullRisky = !!ev.risky; return null; }
     if (ev.action === 'effect' && ev.outcome) {
       this.shown.results++; this.shown.lastResult = ev.outcome;
       if (ev.outcome === 'bust') this.shown.busts++;
@@ -94,7 +114,7 @@ export class SlotView {
     return null;
   }
 
-  reset(): void { this.result = null; this.pullSkulls = null; this.oddsLabel.visible = false; this.captionLabel.visible = false; }
+  reset(): void { this.result = null; this.pullSkulls = null; this.pullRisky = false; this.oddsLabel.visible = false; this.captionLabel.visible = false; }
 
   /** Draws the goblin of the world; `odds` — the plan's odds line (null — none now). */
   draw(world: World, clock: number, dt: number, odds: SlotPlanOdds | null): void {
@@ -134,6 +154,7 @@ export class SlotView {
     const spin = goblin.spin;
     if (spin) {
       const done = spin.total > 0 ? 1 - spin.left / spin.total : 1;
+      this.bustChance = world.params.slotBustChance ?? 0;
       this.drawReels(g, X, Y - R * REELS_UP, R, spin.reels.map((s, i) => (done >= (i + 1) / 3 ? s : null)), clock, false);
       this.result = { reels: [...spin.reels], outcome: spin.outcome, life: RESULT_LIFE };
     } else if (this.result && this.result.life > 0) {
@@ -212,7 +233,7 @@ export class SlotView {
       if (sym) { this.shown.stopped++; drawSymbol(g, sym, cx, Y, R * 0.36); return; }
       this.shown.spinning++;
       // Spinning: the next symbols scroll down, clipped to the window by drawing them small near its middle.
-      const strip = reelStrip(this.pullSkulls?.[i] ?? 2);
+      const strip = this.pullRisky ? riskyStrip(this.bustChance) : reelStrip(this.pullSkulls?.[i] ?? 2);
       const t = clock * 14 + i * 1.7, k = t - Math.floor(t), a = strip[Math.floor(t) % strip.length];
       drawSymbol(g, a, cx, Y + (k - 0.5) * h * 0.55, R * 0.3);
       g.rect(cx - w / 2 + 2, Y - h / 2 + 2, w - 4, h * 0.18).fill({ color: REEL_BG, alpha: 0.85 });

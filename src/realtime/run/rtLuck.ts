@@ -6,7 +6,8 @@
  *
  * One entry per source (`RtLuckKey`), each a count of the same shape (`RtLuckCount`): tries, hits (the outcome counted
  * came), expected hits (the sum of the chances the player saw for it). Sources:
- * - `slot-rain`, `slot-volley` — «Однорукий гоблин»: every pull (the sim's `slot` event `pull`, which carries the odds the
+ * - `slot-rain`, `slot-volley` — «Однорукий гоблин»: every safe pull («Перебор»'s risky pulls draw no skulls and are not
+ *   counted; their bust chance is not tallied — 12.10.2026) (the sim's `slot` event `pull`, which carries the odds the
  *   lever showed — the same `pullOdds`); a hit — the rain (☠☠☠) or the volley (two ☠). Written by the fight
  *   (`RtArenaOutcome.luck`, main.ts reads the events every frame).
  * - `elite-loot` — an armoured elite killed by the player (the sim's `eliteDown`, `credited`); a hit — its loot fell (the
