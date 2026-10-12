@@ -69,9 +69,10 @@ export const PROLOGUE_TWO_COLOURS: ArenaTemplate = registerArena({
 });
 
 /**
- * Room 3 «Крепкий»: three weak blue on the path, a tough blue (HP 3, marked) at its end; kill the tough one. Three links
- * before it carry power 3 (+1 of its own link: 4 ≥ 3). Calm; the return after a dash (a tough one struck first survives, weak
- * ones killed one by one — the room comes back).
+ * Room 3 «Крепкий»: three weak blue on the path, a tough blue (HP 4, marked) at its end; kill the tough one. Only the full
+ * chain kills it (design answer 12.10.2026): three weak links before it carry power 3, +1 of its own link — 4 ≥ 4; any shorter
+ * chain into it (wherever the hero stands: there are only three weak ones) hits it for at most 3 — it survives. Calm; the
+ * return after a dash (a tough one struck first survives, weak ones killed one by one — the room comes back).
  */
 export const PROLOGUE_TOUGH: ArenaTemplate = registerArena({
   id: 'prologue-3',
@@ -91,7 +92,7 @@ export const PROLOGUE_TOUGH: ArenaTemplate = registerArena({
     { x: 3.5, y: 4.4, color: BLUE },
     { x: 5.0, y: 3.6, color: BLUE },
     { x: 6.5, y: 4.4, color: BLUE },
-    { x: 8.0, y: 3.6, color: BLUE, hp: 3, marked: true },
+    { x: 8.0, y: 3.6, color: BLUE, hp: 4, marked: true },
   ],
 });
 

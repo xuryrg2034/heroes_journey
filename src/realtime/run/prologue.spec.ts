@@ -309,7 +309,7 @@ check('room 2: the reds alone (4 by one chain) never meet «5 by one chain»; th
   awaitReturn(sim, 'the reds are back');
 });
 
-check('room 3: the tough one struck first survives (3 → 2) and the return heals it; weak ones killed one by one come back; then weak, weak, weak, tough wins', () => {
+check('room 3: the tough one struck first survives (4 → 3) and the return heals it; weak ones killed one by one come back; then weak, weak, weak, tough wins', () => {
   for (const k of [1, 2, 3]) {
     const sim = room(3, k), w = sim.world, label = `seed ${k}`;
     const [w0, w1, w2, tough] = starts(w);
@@ -322,9 +322,9 @@ check('room 3: the tough one struck first survives (3 → 2) and the return heal
     const events = dash(sim);
     planIsDash(plan, events, label);
     const t = w.enemies.find(e => e.id === tough.id)!;
-    assert(t && t.hp === 2 && !doorOpen(w), `${label}: the tough one lives with 2 HP (${t?.hp})`);
+    assert(t && t.hp === 3 && !doorOpen(w), `${label}: the tough one lives with 3 HP (${t?.hp})`);
     awaitReturn(sim, `${label}: healed and back`);
-    assert(w.enemies.find(e => e.id === tough.id)!.hp === 3, `${label}: the same tough one, 3 HP`);
+    assert(w.enemies.find(e => e.id === tough.id)!.hp === 4, `${label}: the same tough one, 4 HP`);
     // Weak ones one by one (the one nearest the hero each time): each short chain brings the room back.
     for (let i = 0; i < 2; i++) {
       const weak = starts(w).slice(0, 3), at = (l: ChainLink): number => { const p = linkPoint(w, l)!; return Math.hypot(p.x - w.hero.x, p.y - w.hero.y); };
@@ -341,6 +341,45 @@ check('room 3: the tough one struck first survives (3 → 2) and the return heal
     assert(doorOpen(w) && w.stats.markedKills === 1 && w2, `${label}: the tough one dies last, the door opens`);
     replays(sim, `room 3 ${label}`);
   }
+});
+
+check('room 3: every chain the player can draw into the tough one — from the start, after a return, and after walking up to its first link — kills it only when it is the full one (three weak, then the tough); a shorter one leaves it alive; the highlight is the dash (seeds 1–3)', () => {
+  const weak = [0, 1, 2], orders: number[][] = [[]];
+  for (const a of weak) { orders.push([a]); for (const b of weak) if (b !== a) { orders.push([a, b]); for (const c of weak) if (c !== a && c !== b) orders.push([a, b, c]); } }
+  let drawable = 0, full = 0;
+  for (const k of [1, 2, 3]) for (const from of ['start', 'return', 'walk'] as const) for (const order of orders) {
+    const sim = room(3, k), w = sim.world, label = `seed ${k} ${from} ${order.join('-')}→T`;
+    if (from === 'return') {
+      // A weak one killed alone, the return (the hero back on his start).
+      draw(sim, [starts(w)[0]]);
+      dash(sim);
+      awaitReturn(sim, label);
+    }
+    const ids = starts(w), links = [...order.map(i => ids[i]), ids[3]];
+    // The hero walks up to the chain's first link (from its side away from the rest of the path).
+    if (from === 'walk') { const p = linkPoint(w, links[0])!; walkTo(sim, { x: p.x, y: p.y + 1.2 }, 0.05); }
+    // Drawn as the player would: the press on the first, the pointer from link to link; not this chain — not drawable here.
+    let at = linkPoint(w, links[0])!;
+    if (sim.command({ t: 'begin', x: at.x, y: at.y }) !== true) continue;
+    for (const link of links.slice(1)) {
+      sim.tick(); sim.tick();
+      const to = linkPoint(w, link)!;
+      sim.command({ t: 'sweep', fx: at.x, fy: at.y, x: to.x, y: to.y });
+      at = to;
+    }
+    if (!sameLinks(w.chain, links)) { sim.command({ t: 'cancel' }); continue; }
+    drawable++;
+    const plan = planChain(w), last = plan.links[plan.links.length - 1];
+    const kills = order.length === 3;
+    assert(last.outcome && last.outcome.killed === kills, `${label}: the highlight says the tough one ${kills ? 'dies' : 'survives'}`);
+    const events = dash(sim);
+    planIsDash(plan, events, label);
+    const tough = w.enemies.find(e => e.id === ids[3].id);
+    if (kills) { full++; assert(!tough && doorOpen(w), `${label}: the full chain kills it, the door opens`); }
+    else assert(tough && tough.hp === 4 - (order.length + 1) && !doorOpen(w), `${label}: it survives (${tough?.hp} HP)`);
+  }
+  assert(full >= 6 && drawable - full >= 9, `drawable chains into the tough one: ${drawable}, full ones: ${full}`);
+  console.log(`   ${drawable} chains into the tough one drawn by the commands, ${full} full ones killed it, the rest left it alive`);
 });
 
 check('room 1: no return — a kill stays a kill (3 s later the arena holds 2); three single chains win it too', () => {
