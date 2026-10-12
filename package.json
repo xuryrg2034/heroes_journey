@@ -60,6 +60,7 @@
     "test:realtime-casino": "tsx src/realtime/run/casino.spec.ts",
     "test:realtime-casino-slice": "tsx src/realtime/run/casinoSlice.spec.ts",
     "test:realtime-run-end": "tsx src/realtime/run/runEnd.spec.ts",
+    "test:realtime-prologue": "tsx src/realtime/run/prologue.spec.ts",
     "test:realtime-telemetry": "tsx src/realtime/telemetry/schema.spec.ts",
     "test:realtime-telemetry-recorder": "tsx src/realtime/telemetry/recorder.spec.ts",
     "test:realtime-report": "tsx src/realtime/telemetry/threats.spec.ts && tsx scripts/realtime-report.spec.ts"

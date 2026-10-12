@@ -13,8 +13,19 @@ import type { Phase } from './params';
 /**
  * Goal of an arena (prototype stage 3, docs/realtime-prototype.md section 3): kill N (`killGoal`), press every button,
  * or kill the marked enemies. After the goals the door opens and the greed stage runs.
+ * The prologue «Опушка» (sim/arenasPrologue.ts, docs/realtime-onboarding.md) adds two goals only its arenas set: `chain` —
+ * N kills by ONE dash (`killGoal`; `world.stats.bestChain` ≥ N, or the dash going now reached N), `pull` — the goblin's
+ * lever pulled N times (`killGoal`).
  */
-export type ArenaGoal = 'kills' | 'buttons' | 'marked';
+export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull';
+
+/**
+ * The prologue: when the start enemies come back to their posts with full HP (world.ts `updateRestore`). `afterDash` — the
+ * goal is not met and a start enemy is dead or wounded while no chain is drawn and no dash runs (a dash ended); `whenGone` —
+ * the goal is not met, no start enemy is left and the lever was never pulled. Either way 1 s of game time later
+ * (`RESTORE_DELAY`), and only while no chain is drawn and no dash runs (a chain then waits for its end).
+ */
+export type RestoreMode = 'afterDash' | 'whenGone';
 
 /** An enemy standing on the arena from the start; `marked` — a target of the `marked` goal (a gold reticle). */
 export interface StartEnemy {
@@ -76,6 +87,17 @@ export interface ArenaTemplate extends ArenaShape {
    * stands there while `Params.cursedChest` is on; omitted — no chest.
    */
   chest?: Vec;
+  /**
+   * The prologue «Опушка» (sim/arenasPrologue.ts; design 12.10.2026): its arenas only. `calm` — the enemies stand (no walk, no
+   * behaviour step; a knockback still slides them) and nothing hurts the hero (`hurtHero` does nothing).
+   */
+  calm?: boolean;
+  /** The prologue: the start enemies come back (see `RestoreMode`); omitted — never. */
+  restore?: RestoreMode;
+  /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
+  goblin?: Vec;
+  /** The prologue: energy at the start (over the loadout's), up to the cap. */
+  startEnergy?: number;
 }
 
 /** Old name of the template (prototype stages 1–3). */

@@ -1188,6 +1188,8 @@ function finishMove(world: World): void {
     const score = chainScore(world.params, move.kills) + move.crystalScore;
     world.stats.score += score;
     world.stats.bestChain = Math.max(world.stats.bestChain, move.kills);
+    // The prologue's goal «N by one chain» (only its arenas): the finished dash counts (a kill passed as a fallen link too).
+    if (world.arena.goal === 'chain') checkGoals(world);
     world.lastChain = { kills: move.kills, hits: move.hits, crystals: move.broken, score, time: world.time };
     world.events.push({ type: 'chainEnd', kills: move.kills, score });
     // Casino «Котёл»: the chain's cheque goes into the cauldron (purse.ts; nothing while it is off).

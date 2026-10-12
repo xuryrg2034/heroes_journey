@@ -19,6 +19,8 @@ import { arenaTemplate, type ArenaTemplate } from './arenas';
 import './arenasStage3';
 // Camera step: «Большая поляна» 24×15 registers on import too.
 import './arenasCamera';
+// Task 6: the six rooms of the prologue «Опушка» register on import too.
+import './arenasPrologue';
 import { withRoster, type RosterArena } from './rosters';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';

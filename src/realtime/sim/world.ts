@@ -8,7 +8,7 @@
  * `world.input`), enemies follow the flow field around obstacles.
  */
 import { dcos, dhypot, dsin } from './detMath';
-import { type ArenaTemplate, markedCount } from './arenas';
+import { type ArenaTemplate, type StartEnemy, markedCount } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
 // Phase B: the build modules (talismans Т1, hammers Т2, relics Т3) register on import; the core reads them through build.ts.
@@ -24,7 +24,7 @@ import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLo
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
-import { updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
+import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
@@ -415,7 +415,12 @@ export type WorldEvent =
    * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath broke (`broken`) or an «at least once» oath was met (`met`) in
    * `tick`; the exit into the door settled it (`door`: kept or not, the cauldron's multiplier).
    */
-  | { type: 'oath'; action: 'broken' | 'met' | 'door'; id: OathId; tick: number; kept?: boolean; mult?: number };
+  | { type: 'oath'; action: 'broken' | 'met' | 'door'; id: OathId; tick: number; kept?: boolean; mult?: number }
+  /**
+   * The prologue «Опушка» (`ArenaTemplate.restore`, `updateRestore`): the start enemies stand at their posts with full HP again
+   * (the view's smoke) — every start enemy now, its id (a new one for those that came back from death) and its post.
+   */
+  | { type: 'restore'; enemies: { id: number; x: number; y: number }[] };
 
 export interface World {
   arena: ArenaTemplate;
@@ -519,7 +524,19 @@ export interface World {
   secondWind?: { tick: number; time: number };
   /** К7 «Проклятый сундук» (chest.ts, `Params.cursedChest`): the curse of the fight, absent until the chest is taken. */
   curse?: CurseState;
+  /**
+   * The prologue «Опушка» (`ArenaTemplate.restore`): the ids of the start enemies now (index — the template's enemy; a new id
+   * after one came back from death) and the game time the return is due (absent — none waits). Present only on an arena with
+   * `restore` (other worlds hash as before).
+   */
+  restore?: RestoreState;
 }
+
+/** The prologue's return of the start enemies (`World.restore`). */
+export interface RestoreState { ids: number[]; due?: number }
+
+/** The prologue: game seconds from the moment a return is needed to the return (design 12.10.2026: 1 s). */
+export const RESTORE_DELAY = 1;
 
 /**
  * A delayed blast on the arena (stage 2 of the transition: the sapper's fuse): after `timeLeft` game seconds it hurts
@@ -617,22 +634,78 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     // Casino «Ставка клятвы»: the oath the run's node card took (only while `oathStake` is on).
     if (loadout.oath !== undefined) startOath(world, loadout.oath);
   }
+  // The prologue: the arena's own start energy (over the loadout's), up to the cap.
+  if (arena.startEnergy !== undefined) world.energy = Math.max(0, Math.min(ENERGY_CAP, arena.startEnergy));
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
-  for (const s of arena.enemies) {
-    const kind = s.kind ?? 'basic';
-    const e = spawnEnemy(world, s, s.color, s.hp ?? enemyKind(kind).hp(params) ?? 0, kind);
-    e.marked = !!s.marked;
-    // Stage 2, step 3: an elite from the start (arenas 9–10 of step 4).
-    if (s.elite) makeElite(world, e);
-    pushOutOfObstacles(e, bodyRadiusOf(params, e), arena);
-  }
+  const startIds = arena.enemies.map(s => placeStartEnemy(world, s).id);
+  // The prologue: the start enemies are watched for their return (only on an arena with `restore`).
+  if (arena.restore) world.restore = { ids: startIds };
   // К7 «Проклятый сундук»: the chest at the template's point (after the start enemies: they keep their ids).
   placeChest(world);
+  // The prologue: the goblin of the template stands from the start (after the start enemies: they keep their ids).
+  if (arena.goblin) placeArenaGoblin(world, arena.goblin);
   world.stats.spawned = 0;
   world.events.length = 0;
   // Phase B: the build modules see the arena start (the kit and the start enemies are there).
   runHook(world, 'onArenaStart', m => m.onArenaStart!(world));
   return world;
+}
+
+/** HP a start enemy of the template has at its post (its own, or its kind's from the panel). */
+function startHp(world: World, s: StartEnemy): number {
+  return s.hp ?? enemyKind(s.kind ?? 'basic').hp(world.params) ?? 0;
+}
+
+/** A start enemy of the template at its post (`createWorld`; the prologue's return brings a dead one back the same way). */
+function placeStartEnemy(world: World, s: StartEnemy): Enemy {
+  const kind = s.kind ?? 'basic';
+  const e = spawnEnemy(world, s, s.color, startHp(world, s), kind);
+  e.marked = !!s.marked;
+  // Stage 2, step 3: an elite from the start (arenas 9–10 of step 4).
+  if (s.elite) makeElite(world, e);
+  pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);
+  return e;
+}
+
+/**
+ * The prologue «Опушка»: a return is needed now — the goal is not met and, by the arena's mode, a start enemy is dead or
+ * wounded (`afterDash`), or none is left and the lever was never pulled (`whenGone`).
+ */
+function restoreNeeded(world: World, state: RestoreState): boolean {
+  if (world.stage !== 'goals') return false;
+  const starts = world.arena.enemies, alive = state.ids.map(id => world.enemies.find(e => e.id === id));
+  if (world.arena.restore === 'whenGone') return alive.every(e => !e) && (goblinOf(world)?.pulls ?? 0) === 0;
+  return alive.some((e, i) => !e || e.hp < startHp(world, starts[i]));
+}
+
+/**
+ * The prologue «Опушка» (`ArenaTemplate.restore`, design 12.10.2026): while no chain is drawn and no dash or jump runs, a
+ * needed return is due `RESTORE_DELAY` game seconds later; when it is due (and still needed, and still nothing is drawn or
+ * run — a chain drawn then makes it wait for its end) every start enemy stands at its post with full HP: a living one is put
+ * back (its knockback, cold and burning gone), a dead one comes back (a new id; not counted as spawned). Event `restore`.
+ */
+function updateRestore(world: World, state: RestoreState): void {
+  if (world.chain.length || world.move) return;
+  if (!restoreNeeded(world, state)) { delete state.due; return; }
+  if (state.due === undefined) { state.due = world.time + RESTORE_DELAY; return; }
+  if (world.time + 1e-9 < state.due) return;
+  delete state.due;
+  const spawned = world.stats.spawned, out: { id: number; x: number; y: number }[] = [];
+  world.arena.enemies.forEach((s, i) => {
+    let e = world.enemies.find(x => x.id === state.ids[i]);
+    if (e) {
+      e.x = s.x; e.y = s.y; e.hp = startHp(world, s);
+      e.knock = 0; e.knockVx = 0; e.knockVy = 0; e.brake = 0; e.headX = 0; e.headY = 0;
+      delete e.chill; delete e.brittle; delete e.burn;
+      pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);
+    } else {
+      e = placeStartEnemy(world, s);
+      state.ids[i] = e.id;
+    }
+    out.push({ id: e.id, x: e.x, y: e.y });
+  });
+  world.stats.spawned = spawned;
+  world.events.push({ type: 'restore', enemies: out });
 }
 
 export function findObject(world: World, id: number): ArenaObject | undefined {
@@ -654,8 +727,34 @@ export function goalProgress(world: World): { done: number; total: number; label
     return { done: buttons.filter(b => b.pressed).length, total: buttons.length, label: 'кнопки' };
   }
   if (goal === 'marked') return { done: world.stats.markedKills, total: markedCount(world.arena), label: 'отмеченные' };
+  // The prologue: N kills by one dash — the best finished one, or the dash going now (the goal is met at its N-th kill).
+  if (goal === 'chain') {
+    const total = world.arena.killGoal ?? 1, move = world.move, now = move?.kind === 'dash' ? move.kills : 0;
+    return { done: Math.min(total, Math.max(world.stats.bestChain, now)), total, label: 'одной цепью' };
+  }
+  // The prologue: the goblin's lever pulled N times.
+  if (goal === 'pull') {
+    const total = world.arena.killGoal ?? 1;
+    return { done: Math.min(total, goblinOf(world)?.pulls ?? 0), total, label: 'рычаг' };
+  }
   const total = world.arena.killGoal ?? world.params.killGoal;
   return { done: Math.min(world.stats.kills, total), total, label: 'убито' };
+}
+
+/** The prologue: game seconds the lamps of a dash that ended short still burn (its last kill and its end fall in one tick). */
+export const LAMPS_HOLD = 0.4;
+
+/**
+ * The prologue's lamps over the door (design 12.10.2026): how many burn and how many there are (the goal's number). For
+ * `chain` they burn by the kills of the dash going now; when it ends short they hold its count `LAMPS_HOLD` game seconds
+ * (`World.lastChain`) and go out; all burn once the goal is met. For every other goal — its progress (`goalProgress`).
+ */
+export function goalLamps(world: World): { lit: number; total: number } {
+  const { done, total } = goalProgress(world);
+  if (world.arena.goal !== 'chain' || world.stage === 'greed' || done >= total) return { lit: done, total };
+  const move = world.move, last = world.lastChain;
+  if (move?.kind === 'dash') return { lit: Math.min(total, move.kills), total };
+  return { lit: last && world.time - last.time < LAMPS_HOLD - 1e-9 ? Math.min(total, last.kills) : 0, total };
 }
 
 /** Called after a chain kill or a button press: the arena goals complete the stage. */
@@ -826,6 +925,8 @@ const HERO_KNOCK_TIME = 0.15;
 
 /** The hero can be hurt now: playing, no invulnerability or after-chain shield, not dashing or jumping, not spared by focus. */
 export function canBeHurt(world: World): boolean {
+  // The prologue: nothing hurts the hero in a calm arena.
+  if (world.arena.calm) return false;
   if (world.status !== 'playing' || world.hero.invulnerable > 0 || world.hero.chainShield > 0 || world.move) return false;
   if (focusGuarded(world)) return false;
   return !(world.params.focusNoDamage && world.focusing);
@@ -860,7 +961,8 @@ export function heroDamage(world: World, striker: { elite?: Enemy['elite'] }, da
  */
 export function hurtHero(world: World, striker: { id: number; elite?: Enemy['elite'] }, damage: number, source: HitSource): void {
   const { hero, params } = world;
-  if (damage <= 0) return;
+  // The prologue: a calm arena never hurts the hero (whatever the source).
+  if (damage <= 0 || world.arena.calm) return;
   damage = heroDamage(world, striker, damage);
   const hpBefore = hero.hp;
   hero.hp = Math.max(0, hero.hp - damage);
@@ -1030,8 +1132,10 @@ export function knockHero(world: World, dirX: number, dirY: number, distance: nu
 function moveEnemies(world: World, dt: number): Set<Enemy> | null {
   const { hero, params, arena, flow } = world;
   const knocked = hasZone(arena, 'cliff') ? new Set<Enemy>() : null;
+  // The prologue: in a calm arena the enemies stand — no group step, no own step, no walk (a knockback still slides them).
+  const calm = !!arena.calm;
   // Stage 3a, step 3: group steps of the behaviours that have one (the wolves' ring), once per tick before anyone moves.
-  for (const group of groupBehaviors()) {
+  if (!calm) for (const group of groupBehaviors()) {
     const members = world.enemies.filter(e => behaviorOf(e) === group);
     if (members.length) group.beforeStep!(world, members, dt);
   }
@@ -1043,7 +1147,7 @@ function moveEnemies(world: World, dt: number): Set<Enemy> | null {
     // A frozen enemy stands: no own step (its timers wait), no walk.
     if (enemyFrozen(e)) continue;
     // A behaviour with its own movement (the boar's windup, charge and rest) skips the common walk this step.
-    const own = behaviorOf(e).step;
+    const own = calm ? undefined : behaviorOf(e).step;
     if (own && own(world, e, dt)) continue;
     if (e.knock > 0) {
       const t = Math.min(dt, e.knock);
@@ -1053,6 +1157,7 @@ function moveEnemies(world: World, dt: number): Set<Enemy> | null {
       if (arena.terrain && overCliff(e, arena) && !kindOf(e).immune) killEnemy(world, e, { source: 'chain', credited: true, fall: true });
       continue;
     }
+    if (calm) continue;
     const r = bodyRadiusOf(params, e), stop = touchDistanceOf(params, e);
     const d = dist(e, hero);
     if (d <= stop + 0.01) continue;
@@ -1136,6 +1241,8 @@ function stepHeroWalk(world: World, dt: number): void {
  */
 function separate(world: World): Map<Enemy, Enemy> | null {
   const { enemies, hero, params, arena } = world;
+  // The prologue: in a calm arena the enemies hold their posts — the walking hero passes through them without parting them.
+  if (arena.calm) return null;
   // Stage 3a (М2): on an arena with a cliff the pushing does not stop at its edge; who was shoved by a heavier body (the
   // charging boar) is noted for the fall's cause (`dropIntoCliffs`).
   const cliffs = hasZone(arena, 'cliff'), shoved = cliffs ? new Map<Enemy, Enemy>() : null;
@@ -1367,4 +1474,6 @@ export function update(world: World, dt: number, realDt = dt): void {
   // Package «Урон имеет значение»: the armour's window and regrowth (elites with armour only), before the touches.
   updateArmor(world, dt);
   contactDamage(world, dt);
+  // The prologue: the start enemies' return (only on an arena with `restore`).
+  if (world.restore && world.status === 'playing') updateRestore(world, world.restore);
 }

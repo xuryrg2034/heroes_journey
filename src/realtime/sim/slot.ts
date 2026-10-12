@@ -59,7 +59,7 @@ import { blockedAt, dist, inThorns, inWater, lineOfSight, type Vec } from './geo
 import { RESOURCE_KINDS, type ItemKind, type ResourceKind } from './kit';
 import { DEFAULT_PARAMS, heroRadius, type Params } from './params';
 import { bodyRadiusOf } from './enemies/kinds';
-import { OBJECT_RADIUS, canBeHurt, damageEnemy, hurtHero, type ArenaObject, type HeroMove, type World } from './world';
+import { OBJECT_RADIUS, canBeHurt, checkGoals, damageEnemy, hurtHero, type ArenaObject, type HeroMove, type World } from './world';
 import { SLOT_KILL_SOURCE } from './purse';
 
 /** A reel symbol: the skull, or one of the four good ones (❤ ⚡ ◆ 🍲). */
@@ -275,11 +275,26 @@ function idolSpot(world: World): Vec | null {
 function placeGoblin(world: World): boolean {
   const at = idolSpot(world);
   if (!at) return false;
+  putGoblin(world, at, world.time + Math.max(0, num(world.params, 'slotMarker')));
+  return true;
+}
+
+/** The idol and its lever at `at`; the lever may be pulled from game time `ready`. Event `slot` `appear`. */
+function putGoblin(world: World, at: Vec, ready: number): void {
   const p = world.params, id = world.nextId++, s = Math.max(0, Math.floor(num(p, 'slotSkulls')));
   world.objects.push({ id, kind: 'lever', x: at.x, y: at.y, pressed: false });
-  (world.slot ??= {}).goblin = { id, x: at.x, y: at.y, born: world.time, pulls: 0, skulls: [s, s, s], next: 0, ready: world.time + Math.max(0, num(p, 'slotMarker')) };
+  (world.slot ??= {}).goblin = { id, x: at.x, y: at.y, born: world.time, pulls: 0, skulls: [s, s, s], next: 0, ready };
   world.events.push({ type: 'slot', action: 'appear', x: at.x, y: at.y, objectId: id });
-  return true;
+}
+
+/**
+ * The prologue «Опушка» (`ArenaTemplate.goblin`, world.ts `createWorld`): the goblin stands at the template's point from the
+ * start — no roll of `slot:appear`, no marker (the lever is a target at once). Only while the slot is on; the battle's roll
+ * never comes (`World.slot` is there).
+ */
+export function placeArenaGoblin(world: World, at: Vec): void {
+  if (!world.params.slot) return;
+  putGoblin(world, { x: at.x, y: at.y }, world.time);
 }
 
 /**
@@ -331,6 +346,8 @@ export function pullLever(world: World, lever: ArenaObject, struck: number): voi
   g.spin = { reels, outcome, left: spin, total: spin };
   world.events.push({ type: 'slot', action: 'pull', x: g.x, y: g.y, objectId: g.id, reels: [...reels], outcome, links: struck, removed, skulls: [...odds.skulls],
     rain: risk ? 0 : odds.rain, volley: risk ? 0 : odds.volley, pull: g.pulls, ...p.slotBust ? { risky: !!risk, bust } : {} });
+  // The prologue: the goal «pull the lever N times» (only its arenas have it).
+  if (world.arena.goal === 'pull') checkGoals(world);
 }
 
 /** A free spot near the hero for a drop (◆, 🍲); null — none found. */

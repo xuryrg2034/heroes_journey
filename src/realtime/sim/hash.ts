@@ -68,6 +68,8 @@ export function worldState(world: World): unknown {
     ...world.secondWind ? { secondWind: world.secondWind } : {},
     // К7 «Проклятый сундук» (chest.ts): the curse of the fight (absent until the chest is taken — worlds hash as before).
     ...world.curse ? { curse: world.curse } : {},
+    // The prologue «Опушка» (world.ts `updateRestore`): the start enemies' ids and the due return (absent on every other arena).
+    ...world.restore ? { restore: world.restore } : {},
   };
 }
 
