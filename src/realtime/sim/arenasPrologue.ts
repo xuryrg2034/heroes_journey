@@ -162,12 +162,13 @@ export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
 });
 
 /** Room 6 «Толпа»: the inflow (the limit is the room's `maxEnemies`, run/prologue.ts); the newcomers are basic enemies only. */
-const CROWD_PACE = { floor: 10, intervalMin: 2, intervalMax: 3.5, toughShare: 0.2, wolfShare: 0, boarShare: 0 };
+const CROWD_PACE = { floor: 8, intervalMin: 2, intervalMax: 3.5, toughShare: 0.2, wolfShare: 0, boarShare: 0 };
 
 /**
- * Room 6 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 12; kill 15. The
- * enemies hit as on run row 1; the goblin stands from the start to the right of the hero, off the door's lamps (design answers 12.10.2026 and 13.10.2026),
- * its pulls by the run's rules; the hero starts with the energy of one jump.
+ * Room 6 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 8 (design 13.10.2026,
+ * was 12: the start crowd is the limit, the newcomers come as the hero kills); kill 15. Every touch hits for 1
+ * (run/prologue.ts); the goblin stands from the start to the right of the hero, off the door's lamps (design answers
+ * 12.10.2026 and 13.10.2026), its pulls by the run's rules; the hero starts with the energy of one jump.
  */
 export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   id: 'prologue-6',
@@ -195,7 +196,7 @@ export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
     { x: 10.0, y: 8.4, color: 3 },
   ],
   pace: CROWD_PACE,
-  phases: [{ duration: 600, ...CROWD_PACE, floor: 12 }],
+  phases: [{ duration: 600, ...CROWD_PACE }],
 });
 
 /** The six rooms in order. */

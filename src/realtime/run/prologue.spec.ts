@@ -16,18 +16,20 @@
  *   meets the goal; three pulls, none risky, no bust (several seeds); standing still 10 s costs at most 3 HP; the skulls of one pull (rain ≤ 3,
  *   volley ≤ 1) cannot kill the hero from his 15 HP — by the numbers and on 60 seeds;
  * - rooms 1–4: the hero walking into the enemies loses no HP, the enemies stand; room 5 and 6: the enemies walk and hit;
- * - room 6: the inflow keeps at most 12, varies by seed, the start energy is one jump, the goblin stands from the start;
+ * - room 6 (softened by design 13.10.2026): the hero kills with real chains; enemies and markers never exceed 8, the inflow
+ *   comes as he kills and varies by seed, every hit on him costs 1 HP, the start energy is one jump, the goblin stands from the start;
  * - every fight replays from its journal to the same hash (checkpoints every 300 ticks), twice.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { canJump, canLink, canLinkObject, linkPoint, planChain, type ChainPlan } from '../sim/chain';
+import { canJump, canLink, canLinkObject, linkPoint, nextCandidates, planChain, type ChainPlan } from '../sim/chain';
 import { worldState } from '../sim/hash';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import { goblinOf, leverReady } from '../sim/slot';
 import { LAMPS_HOLD, RESTORE_DELAY, doorOpen, goalLamps, goalProgress, type ChainLink, type World, type WorldEvent } from '../sim/world';
 import { arenaTemplate } from '../sim/arenas';
+import { defaultParams } from '../sim/params';
 import { PROLOGUE_FORCED, PROLOGUE_ROOMS, prologueHandSpot, prologueLoadout, prologueParams, prologueRoom, prologueRoute, startEnemyIds } from './prologue';
-import { RT_RUN_FORCED } from './rtRun';
+import { RT_RUN_FORCED, rtRunParams } from './rtRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -148,7 +150,7 @@ const starts = (w: World): ChainLink[] => startEnemyIds(w).map(id => ({ kind: 'e
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-check('the rooms: six, in order, ids prologue-1 … prologue-6, titles; numbers — the run\'s RT_RUN_FORCED with existing keys over it; rooms 1–5 no inflow; room 5 three safe pulls; room 6 up to 12', () => {
+check('the rooms: six, in order, ids prologue-1 … prologue-6, titles; numbers — the run\'s RT_RUN_FORCED with existing keys over it; rooms 1–5 no inflow; room 5 three safe pulls; room 6 up to 8, touch 1', () => {
   assert(PROLOGUE_ROOMS.map(r => r.title).join(',') === 'Тропа,Два цвета,Крепкий,Радуга,Гоблин,Толпа', 'titles');
   assert(PROLOGUE_ROOMS.every((r, i) => r.number === i + 1 && r.id === `prologue-${i + 1}` && arenaTemplate(r.id) === r.arena), 'ids, registered');
   for (const r of PROLOGUE_ROOMS) {
@@ -157,7 +159,11 @@ check('the rooms: six, in order, ids prologue-1 … prologue-6, titles; numbers 
     for (const [key, value] of Object.entries(r.forced)) assert(p[key as keyof typeof p] === value, `${r.id}: ${key}`);
     assert(Object.keys(r.forced).every(key => key in p), `${r.id}: only existing keys`);
   }
-  assert(PROLOGUE_FORCED.slice(0, 5).every(f => f.maxEnemies === 0) && PROLOGUE_FORCED[5].maxEnemies === 12, 'inflow');
+  assert(PROLOGUE_FORCED.slice(0, 5).every(f => f.maxEnemies === 0) && PROLOGUE_FORCED[5].maxEnemies === 8, 'inflow');
+  // Room 6 (design 13.10.2026): every touch 1 (no raised touch of the tough ones); the invulnerability and the shields are the run's.
+  const p6 = prologueParams(6), run = rtRunParams(defaultParams());
+  assert(p6.contactDamage === 1 && !p6.toughTouch, 'room 6: touch 1');
+  assert(p6.invulnerability === run.invulnerability && p6.invulnerabilityMode === run.invulnerabilityMode && p6.chainShield === run.chainShield && p6.chainShieldMinKills === run.chainShieldMinKills && p6.focusGuardLinks === run.focusGuardLinks, 'room 6: invulnerability and shields of the run');
   const p5 = prologueParams(5);
   assert(p5.slot && p5.slotBust && p5.slotPulls === 3 && p5.slotSafePulls === 3 && p5.slotSafePerLongChain === 0 && p5.contactDamage === 1, 'room 5 numbers');
   assert(Math.abs(p5.enemySpeed - prologueParams(4).enemySpeed * 0.6) < 1e-9 && PROLOGUE_ROOMS[4].arena.enemies.length === 6 && PROLOGUE_ROOMS[4].arena.sleepUntilChain, 'room 5: six enemies, asleep until the first press, ×0.6 the run\'s pace');
@@ -617,27 +623,76 @@ check('room 5: a late post waits for the end of a dash too — the hero dashes o
   }
 });
 
-check('room 6: start energy = one jump; the goblin stands from the start (its lever a target at once); the enemies walk and hit; the inflow keeps at most 12 and varies by seed', () => {
-  const hashes = new Set<string>(), spawns = new Set<string>();
-  let hit = 0;
-  for (let k = 1; k <= 4; k++) {
-    const sim = room(6, k), w = sim.world;
-    assert(w.energy === w.params.jumpCost && canJump(w) && !w.arena.calm, `seed ${k}: energy ${w.energy}`);
-    const g = goblinOf(w);
-    assert(g && g.x === w.arena.goblin!.x && g.y === w.arena.goblin!.y && g.pulls === 0 && leverReady(w, w.objects.find(o => o.id === g.id)!), `seed ${k}: the goblin from the start`);
-    // The hero stands: the crowd walks in and hits (he may fall — the room then starts again in the view).
-    let max = 0;
-    for (let i = 0; i < 60 * 12 && w.status === 'playing'; i++) { sim.tick(); max = Math.max(max, w.enemies.length + w.markers.length); }
-    assert(max <= 12 && max > 8, `seed ${k}: the inflow, at most 12 (${max})`);
-    hashes.add(sim.hash());
-    spawns.add(JSON.stringify(w.events.filter(e => e.type === 'spawn').map(e => e.type === 'spawn' && e.enemyId)));
-    if (w.stats.hitsTaken > 0) hit++;
-    // No second goblin: the battle never rolls (its slot stands from the start).
-    assert(goblinOf(w)?.id === g.id && !w.events.some(e => e.type === 'slot' && e.action === 'appear'), `seed ${k}: the same goblin`);
-    replays(sim, `room 6 seed ${k}`);
+/**
+ * Room 6, played as a player plays it: the hero stands where he started; each chain is the press on the enemy nearest him,
+ * then the pointer sweeps to the nearest enemy the chain may take next (up to 6 enemy links; it stops on a planned survivor),
+ * with 2 ticks of focus between moves; its highlight is the dash. `tick` runs one tick with the test's watch.
+ */
+function crowdChain(sim: Simulation, tick: () => void, label: string): boolean {
+  const w = sim.world, hero = w.hero, near = (p: { x: number; y: number }) => (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y);
+  const first = w.enemies.filter(e => canLink(w, e)).sort(near(hero))[0];
+  if (!first || sim.command({ t: 'begin', x: first.x, y: first.y }) !== true || !w.chain.length) return false;
+  for (let n = 1; n < 6 && !planChain(w).endsOnSurvivor; n++) {
+    tick(); tick();
+    if (!w.chain.length || w.status !== 'playing') return false;
+    const from = linkPoint(w, w.chain[w.chain.length - 1])!;
+    const next = nextCandidates(w).sort(near(from))[0];
+    if (!next) break;
+    const before = w.chain.length;
+    sim.command({ t: 'sweep', fx: from.x, fy: from.y, x: next.x, y: next.y });
+    if (w.chain.length === before) break;
   }
-  assert(hashes.size === 4 && spawns.size >= 2, `the seeds differ (${hashes.size} worlds, ${spawns.size} inflows)`);
-  assert(hit > 0, 'the enemies hit the hero');
+  if (!w.chain.length) return false;
+  const plan = planChain(w), mark = w.events.length;
+  assert(sim.command({ t: 'release' }) === true, `${label}: the release starts a dash`);
+  for (let i = 0; i < 60 * 20 && w.move && w.status === 'playing'; i++) tick();
+  if (w.status === 'playing') planIsDash(plan, w.events.slice(mark), label);
+  return true;
+}
+
+check('room 6 (design 13.10.2026): start energy = one jump; the goblin stands from the start; the hero kills with real chains — enemies and markers never more than 8, the inflow comes and varies by seed, every hit on the hero costs 1 HP (seeds 1–6)', () => {
+  const hashes = new Set<string>(), inflows = new Set<string>();
+  let hits = 0;
+  for (let k = 1; k <= 6; k++) {
+    const sim = room(6, k), w = sim.world, label = `seed ${k}`;
+    assert(w.energy === w.params.jumpCost && canJump(w) && !w.arena.calm, `${label}: energy ${w.energy}`);
+    const g = goblinOf(w);
+    assert(g && g.x === w.arena.goblin!.x && g.y === w.arena.goblin!.y && g.pulls === 0 && leverReady(w, w.objects.find(o => o.id === g.id)!), `${label}: the goblin from the start`);
+    const hp0 = w.hero.hp, newcomers: string[] = [];
+    let max = w.enemies.length + w.markers.length, seen = w.events.length, hitsHere = 0;
+    // Every tick: the crowd and its markers within 8; each hit on the hero costs exactly 1 HP (the HP falls by the hits).
+    const tick = (): void => {
+      const hp = w.hero.hp;
+      sim.tick();
+      max = Math.max(max, w.enemies.length + w.markers.length);
+      const fresh = w.events.slice(seen), struck = fresh.flatMap(e => e.type === 'hit' ? [e] : []);
+      seen = w.events.length;
+      assert(struck.every(h => h.damage === 1), `${label}: hits ${JSON.stringify(struck.map(h => [h.source, h.damage]))}`);
+      if (w.status === 'playing') assert(hp - w.hero.hp === struck.length, `${label}: HP ${hp} → ${w.hero.hp} for ${struck.length} hits`);
+      hitsHere += struck.length;
+      for (const e of fresh) if (e.type === 'spawn') { const x = w.enemies.find(en => en.id === e.enemyId); newcomers.push(x ? `${x.color}@${x.x.toFixed(1)},${x.y.toFixed(1)}` : `#${e.enemyId}`); }
+    };
+    // Between chains the crowd walks in. The hero may fall (the view then starts the room again): the fight stops at 15
+    // kills, a defeat or 40 s of game time — the outcome is not checked.
+    while (w.status === 'playing' && w.stats.kills < 15 && w.time < 40) {
+      crowdChain(sim, tick, `${label} chain`);
+      for (let i = 0; i < 6 && w.status === 'playing'; i++) tick();
+    }
+    // Then he stands still 6 s among the crowd (newcomers, the tough ones among them, walk in and touch).
+    for (let i = 0; i < 60 * 6 && w.status === 'playing'; i++) tick();
+    assert(max <= 8, `${label}: at most 8 enemies and markers (${max})`);
+    assert(newcomers.length > 0, `${label}: the inflow comes as the hero kills`);
+    assert(w.stats.hitsTaken === hitsHere && w.stats.damageTaken === hitsHere && (w.status !== 'playing' || w.hero.hp === hp0 - hitsHere), `${label}: ${hitsHere} hits, ${w.stats.damageTaken} damage, HP ${w.hero.hp} of ${hp0}`);
+    hits += hitsHere;
+    hashes.add(sim.hash());
+    inflows.add(newcomers.join(' '));
+    // No second goblin: the battle never rolls (its slot stands from the start).
+    assert(goblinOf(w)?.id === g.id && !w.events.some(e => e.type === 'slot' && e.action === 'appear'), `${label}: the same goblin`);
+    replays(sim, `room 6 ${label}`);
+    console.log(`   ${label}: ${w.stats.kills} kills, ${newcomers.length} newcomers, ${hitsHere} hits, ${w.status} at ${w.time.toFixed(1)} s`);
+  }
+  assert(hashes.size === 6 && inflows.size >= 3, `the seeds differ (${hashes.size} worlds, ${inflows.size} inflows)`);
+  assert(hits > 0, 'the enemies hit the hero');
 });
 
 check('the spin (Q) starts the return too: energy earned by chains, the spin kills the enemies next to the hero, 1 s later the room is back (room 2)', () => {

@@ -42,7 +42,11 @@ const NO_INFLOW: Readonly<Partial<Params>> = Object.freeze({ maxEnemies: 0 });
  * Баланс (design 12.10.2026): the numbers of each room over the run's (`RT_RUN_FORCED`). Rooms 1–4 — no inflow (their calm is
  * the arena's `calm`). Room 5 — no inflow, the touch 1 (`contactDamage`, the run's base), 3 pulls and all of them safe
  * (`slotSafePulls` 3 and no «Длинная цепь кормит гоблина» — with it on the last pull is always risky): no bust is possible.
- * Room 6 — the inflow up to 12 (`maxEnemies`; its pace and phases are the arena's), the rest as on run row 1.
+ * Room 6 (softened by design 13.10.2026: the last room of the lesson must not be a wall, a death there is a bad first
+ * impression) — the inflow up to 8 (`maxEnemies`, was 12; its pace and phases are the arena's) and every touch 1: the base
+ * touch (`contactDamage` 1) and no raised touch of the tough ones (`toughTouch` off — the run's 2 of an enemy with HP ≥ 2;
+ * room 6 has no elites). The invulnerability (0.5 s) and the shields stay the run's: the threat stays, so the shields mean
+ * something. The rest as on run row 1.
  */
 export const PROLOGUE_FORCED: readonly Readonly<Partial<Params>>[] = Object.freeze([
   NO_INFLOW,
@@ -52,7 +56,7 @@ export const PROLOGUE_FORCED: readonly Readonly<Partial<Params>>[] = Object.free
   // `enemySpeed` 0.72 — the run's 1.2 × 0.6 (design answer 12.10.2026: the goal is the lever, the damage is secondary); the
   // enemies sleep until the first press (the arena's `sleepUntilChain`).
   Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, enemySpeed: 0.72, invulnerability: 3.4 }),
-  Object.freeze({ maxEnemies: 12 }),
+  Object.freeze({ maxEnemies: 8, contactDamage: 1, toughTouch: false }),
 ]);
 
 const TITLES = ['Тропа', 'Два цвета', 'Крепкий', 'Радуга', 'Гоблин', 'Толпа'] as const;
