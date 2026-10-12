@@ -265,7 +265,7 @@ test('task 5: the door opened in a run — neither Б4 nor Б5 (no cauldron); th
   expect(seen.log.map(h => h.id)).toEqual(['b9']);
   expect([...seen.pending, ...seen.log.map(h => h.id)]).not.toContain('b4');
   expect([...seen.pending, ...seen.log.map(h => h.id)]).not.toContain('b5');
-  expect(seen.text).toBe('Однорукий гоблин: закончи цепь на рычаге. Первые 3 рывка безопасны, дальше — риск взрыва.');
+  expect(seen.text).toBe('Однорукий гоблин: закончи цепь на рычаге. 3 рывка безопасны, каждая цепь 6+ — ещё один. Дальше — риск взрыва.');
   const box = await rect(page, 'onboarding-hint'), hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
   expect(box.width).toBeLessThanOrEqual(560);
   expect(overlaps(box, hud) || overlaps(box, bar)).toBe(false);

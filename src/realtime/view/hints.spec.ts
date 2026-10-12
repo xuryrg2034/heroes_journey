@@ -317,6 +317,13 @@ check('texts: the final strings of the design; numbers come from the code, not f
     const words = hintText(id, params).split(/\s+/).filter(word => word !== '—');
     assert(words.length <= 14, `${id}: ${words.length} words`);
   }
+  // Б9 as the run plays it since task 5 (design answer 12.10.2026: the long chains feed the goblin; the design's own text,
+  // 17 words — over the 14 of «Обучение v1», the design's choice).
+  const run = rtRunParams(defaultParams());
+  assert(hintText('b9', run) === 'Однорукий гоблин: закончи цепь на рычаге. 3 рывка безопасны, каждая цепь 6+ — ещё один. Дальше — риск взрыва.', `Б9 in the run: ${hintText('b9', run)}`);
+  assert(hintText('b9', { slotSafePulls: 1, slotSafePerLongChain: 2, slotLongChainLinks: 8 }).includes('1 рывок безопасен, каждая цепь 8+ — ещё 2.'), 'Б9 follows the params');
+  {
+  }
   assert(CHEST_CURSE_TOUCH === 1 && CHEST_CURSE_KILLS === 12 && GREED_LINKS === 3 && params.slotSafePulls === 3, 'the numbers of the design are the code\'s today');
   assert(hintText('b9', { slotSafePulls: 5 }).includes('Первые 5 рывков безопасны, дальше'), 'Б9 follows the param (5)');
   assert(hintText('b9', { slotSafePulls: 1 }).includes('Первый рывок безопасен, дальше'), 'Б9 follows the param (1)');

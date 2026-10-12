@@ -221,10 +221,10 @@ export interface HeroMove {
   /** Casino «Котёл» (purse.ts): the dash's cheque so far — embers, enemy links, the last one dead (absent while the cauldron is off). */
   purse?: PurseMove;
   /**
-   * «Длинная цепь кормит гоблина» (slot.ts `slotFeedRelease`): enemy links the dash reached so far (struck, a plate taken, passed
-   * fallen — as the cheque's `links`); absent while the rule does not act in this battle (dashes without it hash as before).
+   * «Длинная цепь кормит гоблина» (slot.ts `pullLever`): this dash already fed the goblin at the lever (its long chain counted
+   * before the pull, design answer 12.10.2026) — the dash's end does not count it again. Absent otherwise.
    */
-  slotLinks?: number;
+  slotFed?: true;
   /**
    * Loop research, step 3 («Прямая», sim/pierce.ts): the pierce fixed at the release — run after the last link died on the
    * ground (absent otherwise: dashes without it hash as before).

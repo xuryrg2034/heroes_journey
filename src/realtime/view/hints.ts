@@ -60,8 +60,18 @@ function safePullsText(n: number): string {
   return `Первые ${n} ${ones >= 2 && ones <= 4 && (tens < 12 || tens > 14) ? 'рывка' : 'рывков'} безопасны`;
 }
 
+/**
+ * Б9 with «Длинная цепь кормит гоблина» on (design answer 12.10.2026): «3 рывка безопасны, каждая цепь 6+ — ещё один. Дальше —
+ * риск взрыва.» — the numbers are `slotSafePulls`, `slotLongChainLinks`, `slotSafePerLongChain`.
+ */
+function feedText(safe: number, links: number, per: number): string {
+  const tens = safe % 100, ones = safe % 10;
+  const pulls = ones === 1 && tens !== 11 ? 'рывок безопасен' : ones >= 2 && ones <= 4 && (tens < 12 || tens > 14) ? 'рывка безопасны' : 'рывков безопасны';
+  return `${safe} ${pulls}, каждая цепь ${links}+ — ещё ${per === 1 ? 'один' : per}. Дальше — риск взрыва.`;
+}
+
 /** The final text of a fight hint (design 12.10.2026); the numbers come from `params` and the modules' constants. */
-export function hintText(id: HintId, params: Pick<Params, 'slotSafePulls'> = DEFAULT_PARAMS): string {
+export function hintText(id: HintId, params: Pick<Params, 'slotSafePulls'> & Partial<Pick<Params, 'slotSafePerLongChain' | 'slotLongChainLinks'>> = DEFAULT_PARAMS): string {
   switch (id) {
     case 'b1': return 'Пока рисуешь цепь — время замедлено. Полоса — фокус, каждый враг в цепи его пополняет.';
     case 'b2': return 'Каждый враг в цепи +1 к силе. Крепкий тратит силу на свои HP.';
@@ -71,7 +81,11 @@ export function hintText(id: HintId, params: Pick<Params, 'slotSafePulls'> = DEF
     case 'b6': return 'Броня: удар снимает пластину. Сняв все — добей в окне.';
     case 'b7': return 'Энергия — от ударов цепи. Пробел и клик — прыжок, Q — круговой удар.';
     case 'b8': return `Проклятый сундук: касания врагов +${CHEST_CURSE_TOUCH} урон до ${CHEST_CURSE_KILLS} убийств цепью. Награда за победу — талисман.`;
-    case 'b9': return `Однорукий гоблин: закончи цепь на рычаге. ${safePullsText(params.slotSafePulls ?? DEFAULT_PARAMS.slotSafePulls)}, дальше — риск взрыва.`;
+    case 'b9': {
+      const safe = params.slotSafePulls ?? DEFAULT_PARAMS.slotSafePulls, per = params.slotSafePerLongChain ?? 0;
+      if (per > 0) return `Однорукий гоблин: закончи цепь на рычаге. ${feedText(safe, params.slotLongChainLinks ?? DEFAULT_PARAMS.slotLongChainLinks, per)}`;
+      return `Однорукий гоблин: закончи цепь на рычаге. ${safePullsText(safe)}, дальше — риск взрыва.`;
+    }
   }
 }
 

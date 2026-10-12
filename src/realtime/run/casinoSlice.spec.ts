@@ -20,7 +20,7 @@
  */
 import { worldState } from '../sim/hash';
 import { Simulation, replay, type Journal } from '../sim/simulation';
-import { goblinOf, leverOf, safePullsLeft, slotCharges } from '../sim/slot';
+import { bustOdds, goblinOf, leverOf, safePullsLeft, slotCharges } from '../sim/slot';
 import { slotPlanOdds } from '../sim/slotPlan';
 import type { WorldEvent } from '../sim/world';
 import { runRow } from './arenaPools';
@@ -181,41 +181,64 @@ check('two chains of 6+ before the goblin: 3 + 2 = 5 safe; a chain of 5 gives no
   assert(fights === 6, `fights ${fights}`);
 });
 
-check('a long chain after the goblin appears counts; a chain of 6 ending on the lever pulls with the count before it (the plan line agrees), then feeds', () => {
-  let onLever = 0;
-  for (let k = 1; k <= 12 && onLever < 3; k++) {
-    const run = firstBattle(40 + k), sim = arena(run, 40 + k), w = sim.world;
-    goalsAndGoblin(sim);
-    if (!goblinOf(w)) continue;
-    assert(safePullsLeft(w) === 3, 'no long chain yet: 3 safe');
-    const after = chain(sim, 6);
-    assert(slotEvents(after, 'feed').length === 1 && safePullsLeft(w) === 4, `seed ${k}: a long chain with the goblin standing: 4 safe`);
-    for (let i = 0; i < 4; i++) assert(!pull(sim).pull.risky, `seed ${k}: safe pull ${i + 1}`);
-    assert(safePullsLeft(w) === 0, 'the next pull is risky');
-    // Six enemies in a row towards the lever, the lever the last link.
-    waitLever(sim);
-    const lever = leverOf(w)!, dx = w.arena.width / 2 - lever.x, dy = w.arena.height / 2 - lever.y, d = Math.hypot(dx, dy) || 1, step = 1.2;
-    const start = { x: lever.x + dx / d * step * 7, y: lever.y + dy / d * step * 7 };
-    if (start.x < 0.6 || start.x > w.arena.width - 0.6 || start.y < 0.6 || start.y > w.arena.height - 0.6) continue;
-    sim.command({ t: 'teleport', x: start.x, y: start.y });
-    const points = Array.from({ length: 6 }, (_, i) => ({ x: start.x - dx / d * step * (i + 1), y: start.y - dy / d * step * (i + 1) }));
-    for (const p of points) sim.command({ t: 'place', x: p.x, y: p.y, color: 0, hp: 0, kind: 'basic' });
-    sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
-    for (const p of [...points.slice(1), lever]) sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
-    if (w.chain.length !== 7) { sim.command({ t: 'cancel' }); continue; }
-    const plan = slotPlanOdds(w);
-    assert(plan && plan.onLever && plan.links === 6 && !!plan.bust, `seed ${k}: the plan line of a risky pull after 6 links`);
-    sim.command({ t: 'release' });
-    const events: WorldEvent[] = [...w.events];
-    w.events.length = 0;
-    ticks(sim, 900, x => events.push(...x.events), x => !x.move);
-    const p = slotEvents(events, 'pull')[0], feed = slotEvents(events, 'feed');
-    assert(p && p.risky === true && p.links === 6, `seed ${k}: the pull was risky, as the plan said`);
-    assert(feed.length === 1 && feed[0].links === 6 && events.indexOf(feed[0]) > events.indexOf(p), `seed ${k}: the chain fed the goblin after its pull`);
-    assert(slotCharges(w).safe === 5 && safePullsLeft(w) === 0, `seed ${k}: 5 safe, all spent (${slotCharges(w).safe}, ${safePullsLeft(w)})`);
-    onLever++;
+/** `n` weak enemies in a row towards the lever, the lever the last link; the plan line, then the dash: its pull, feed and events. Null — no room. */
+function chainIntoLever(sim: Simulation, n: number): { plan: ReturnType<typeof slotPlanOdds>; pull: Ev<'slot'>; feed: Ev<'slot'>[]; events: WorldEvent[] } | null {
+  const w = sim.world;
+  waitLever(sim);
+  const lever = leverOf(w)!, dx = w.arena.width / 2 - lever.x, dy = w.arena.height / 2 - lever.y, d = Math.hypot(dx, dy) || 1, step = 1.2;
+  const start = { x: lever.x + dx / d * step * (n + 1), y: lever.y + dy / d * step * (n + 1) };
+  if (start.x < 0.6 || start.x > w.arena.width - 0.6 || start.y < 0.6 || start.y > w.arena.height - 0.6) return null;
+  sim.command({ t: 'teleport', x: start.x, y: start.y });
+  const points = Array.from({ length: n }, (_, i) => ({ x: start.x - dx / d * step * (i + 1), y: start.y - dy / d * step * (i + 1) }));
+  for (const p of points) sim.command({ t: 'place', x: p.x, y: p.y, color: 0, hp: 0, kind: 'basic' });
+  sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
+  for (const p of [...points.slice(1), lever]) sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
+  if (w.chain.length !== n + 1) { sim.command({ t: 'cancel' }); return null; }
+  const plan = slotPlanOdds(w);
+  sim.command({ t: 'release' });
+  const events: WorldEvent[] = [...w.events];
+  w.events.length = 0;
+  ticks(sim, 900, x => events.push(...x.events), x => !x.move);
+  return { plan, pull: slotEvents(events, 'pull')[0], feed: slotEvents(events, 'feed'), events };
+}
+
+check('a long chain after the goblin appears counts; a chain of 6 into the lever counts before its pull (design answer 12.10.2026): the 4th pull is safe, no bust roll — a chain of 5 rolls; the plan line agrees', () => {
+  const after = (() => {
+    for (let k = 1; k <= 12; k++) {
+      const run = firstBattle(40 + k), sim = arena(run, 40 + k), w = sim.world;
+      goalsAndGoblin(sim);
+      if (!goblinOf(w)) continue;
+      const events = chain(sim, 6);
+      assert(slotEvents(events, 'feed').length === 1 && safePullsLeft(w) === 4, `seed ${k}: a long chain with the goblin standing: 4 safe`);
+      return true;
+    }
+    return false;
+  })();
+  assert(after, 'a long chain after the goblin appeared');
+  let checked = { six: 0, five: 0 };
+  for (let k = 1; k <= 30 && (checked.six < 3 || checked.five < 3); k++) {
+    for (const n of [6, 5] as const) {
+      const run = firstBattle(70 + k), sim = arena(run, 70 + k), w = sim.world;
+      goalsAndGoblin(sim);
+      if (!goblinOf(w)) continue;
+      for (let i = 0; i < 3; i++) assert(!pull(sim).pull.risky, `seed ${k}: safe pull ${i + 1}`);
+      assert(safePullsLeft(w) === 0 && bustOdds(w), 'the 4th pull would be risky without a long chain');
+      const r = chainIntoLever(sim, n);
+      if (!r) continue;
+      const rolled = w.rng.states().some(([name]) => name === 'slot:bust');
+      assert(r.pull && r.pull.links === n && r.plan?.links === n, `seed ${k}, ${n} links: the pull and the plan count ${n}`);
+      if (n === 6) {
+        assert(!r.plan!.bust && r.pull.risky === false && !rolled, `seed ${k}: 6 into the lever — the plan safe, the pull safe, no bust roll (${JSON.stringify(r.plan)}, risky ${r.pull.risky}, rolled ${rolled})`);
+        assert(r.feed.length === 1 && r.events.indexOf(r.feed[0]) < r.events.indexOf(r.pull), `seed ${k}: fed before the pull`);
+        assert(slotCharges(w).safe === 4 && w.slotChains === 1, `seed ${k}: counted once (${slotCharges(w).safe}, ${w.slotChains})`);
+        checked.six++;
+      } else {
+        assert(!!r.plan!.bust && r.pull.risky === true && rolled && !r.feed.length, `seed ${k}: 5 into the lever — risky, rolled`);
+        checked.five++;
+      }
+    }
   }
-  assert(onLever >= 3, `chains of 6 on the lever: ${onLever}`);
+  assert(checked.six >= 3 && checked.five >= 3, `checked: ${JSON.stringify(checked)}`);
 });
 
 check('the Jailer and a boss: no goblin, long chains feed nothing (no state, no event)', () => {
