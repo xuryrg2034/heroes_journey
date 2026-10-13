@@ -487,7 +487,7 @@
 Правило — `docs/realtime-slice.md`, раздел 3, «Котомка у двери». Симуляция (`sim/bag.ts`) пишет события `bag` (`appear`, `step`, `reset`); поле мира `bag` входит в хэш, события — нет.
 
 **Новое поле `FightSummary.bag`** (`schema.ts`, `BagSummary`; `observe.ts`). В записях до 13.10.2026 его нет — `withSummaryDefaults` читает `{appeared: false, steps: 0, killsAfterGoals: 0, resets: 0, payout: null, kinds: {}}`. Поля:
-- `appeared` — котомка появилась (цели выполнены с `doorBag`, не бой Тюремщика и не финал);
+- `appeared` — котомка появилась (цели выполнены с `doorBag`; в походе — бой с ряда 2, не бой Тюремщика и не финал);
 - `steps` — заполнено ступеней к концу боя (0–3, `world.bag.step`);
 - `killsAfterGoals` — убийства с зачётом игроку после события `appear` и до конца боя (все: сброс их не снимает);
 - `resets` — сбросы (события `reset`);
