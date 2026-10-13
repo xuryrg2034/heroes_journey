@@ -603,7 +603,7 @@ export interface Params {
   /**
    * «Перебор» (design 12.10.2026, playtest v34): pulls after the first `slotSafePulls` are risky — in the tick of the pull a
    * bust roll (stream `slot:bust`) with `slotBustChance`: the goblin blows up when the reels stop, `slotBustDamage` to the
-   * hero wherever he is (nothing protects); else a sure triple of a good symbol. Off by default; a journal without the key
+   * hero wherever he is (nothing protects; with `slotBustArea` — the area blast instead); else a sure triple of a good symbol. Off by default; a journal without the key
    * plays the old path (no roll, the stream untouched). A run turns it on (`RT_RUN_FORCED`).
    */
   slotBust: boolean;
@@ -619,6 +619,24 @@ export interface Params {
    */
   slotSafePerLongChain: number;
   slotLongChainLinks: number;
+  /**
+   * «Взрыв по площади» (design 13.10.2026, playtest v39, task 7): with «Перебор» on, a bust no longer hits the hero wherever
+   * he is. When the reels stop the idol lights: a circle of `slotBustRadius` around it, `slotBustFuse` game seconds later the
+   * blast (world.ts `detonate`, a blast of `world.blasts` with `bust`) hits everyone inside — the hero −`slotBustDamage`
+   * (invulnerability, the dash and the jump spare him; the chain shield and «Щит фокуса» do not), every enemy
+   * −`slotBustEnemyDamage` (the player's kills, source `slot-bust`; survivors thrown by `blastPush`). Off by default; a journal
+   * without the key plays the old bust. A run turns it on (`RT_RUN_FORCED`).
+   */
+  slotBustArea: boolean;
+  slotBustRadius: number;
+  slotBustFuse: number;
+  slotBustEnemyDamage: number;
+  /**
+   * «Гоблин раньше» (design 13.10.2026, В3, task 7): a battle that may get the goblin rolls at this fight time (game seconds)
+   * or `slotDelay` after the goals, whichever comes first — still once a battle. 0 (the default; a journal without the key
+   * too) — only after the goals. The run: 5.
+   */
+  slotAppearAt: number;
   // ---- Casino stage 1, item 1 — «Котёл» (purse.ts, docs/realtime-casino.md). ----
   /**
    * The cauldron: every chain puts its cheque (embers × heat × crystals), the build's kills outside the chain 1 ember each; the
@@ -1013,6 +1031,13 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // «Длинная цепь кормит гоблина» (slot.ts): off by default (0); a chain of 6+ enemy links counts.
   slotSafePerLongChain: 0,
   slotLongChainLinks: 6,
+  // «Взрыв по площади» (slot.ts): off by default (the old bust: the hero hit wherever he is).
+  slotBustArea: false,
+  slotBustRadius: 3.5,
+  slotBustFuse: 1.2,
+  slotBustEnemyDamage: 3,
+  // «Гоблин раньше» (slot.ts): off by default (0 — only after the goals).
+  slotAppearAt: 0,
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
   purseRate: 60,
@@ -1368,13 +1393,19 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('slotVolleyRadius', 'Однорукий гоблин', 'Залп: радиус', 0.5, 6, 0.25, 5, 'ед.'),
   n('slotDamage', 'Однорукий гоблин', 'Урон стрелы', 0, 5, 1, 5),
   { kind: 'bool', key: 'slotBust', group: 'Однорукий гоблин', label: '«Перебор»: рискованные рывки', stage: 5,
-    hint: 'После безопасных рывков каждый рывок может взорвать гоблина: урон герою где угодно, защиты нет. Не взорвался — тройка доброго символа. В походе включено.' },
+    hint: 'После безопасных рывков каждый рывок может взорвать гоблина: урон герою где угодно, защиты нет (с «взрывом по площади» — круг и фитиль). Не взорвался — тройка доброго символа. В походе включено.' },
   n('slotSafePulls', 'Однорукий гоблин', '«Перебор»: безопасных рывков', 0, 10, 1, 5),
   n('slotBustChance', 'Однорукий гоблин', '«Перебор»: шанс взрыва', 0, 1, 0.05, 5),
   n('slotBustDamage', 'Однорукий гоблин', '«Перебор»: урон взрыва', 0, 15, 1, 5, 'HP'),
   n('slotSafePerLongChain', 'Однорукий гоблин', 'Длинная цепь: +безопасных рывков', 0, 3, 1, 5, '',
     'Каждая цепь из N+ врагов за бой (до и после появления гоблина) даёт столько безопасных рывков; последний рывок всегда с риском. 0 — выкл. В походе — 1.'),
   n('slotLongChainLinks', 'Однорукий гоблин', 'Длинная цепь: врагов от', 2, 12, 1, 5, '', 'Вражеские звенья, до которых дошёл рывок (удар, снятая пластина, павший по пути).'),
+  { kind: 'bool', key: 'slotBustArea', group: 'Однорукий гоблин', label: '«Перебор»: взрыв по площади', stage: 5,
+    hint: 'Взрыв не бьёт героя где угодно: идол загорается, круг вокруг него, через фитиль взрыв бьёт всех в круге. Героя щадят неуязвимость, проход и прыжок; щит цепи и щит фокуса не щадят. В походе включено.' },
+  n('slotBustRadius', 'Однорукий гоблин', 'Взрыв по площади: радиус', 0.5, 8, 0.25, 5, 'ед.'),
+  n('slotBustFuse', 'Однорукий гоблин', 'Взрыв по площади: фитиль', 0, 5, 0.1, 5, 'с', 'От остановки барабанов до взрыва.'),
+  n('slotBustEnemyDamage', 'Однорукий гоблин', 'Взрыв по площади: урон врагам', 0, 10, 1, 5, '', 'Убитые — зачёт игроку.'),
+  n('slotAppearAt', 'Однорукий гоблин', 'Появляется не позже, с боя', 0, 60, 0.5, 5, 'с', 'Бросок на этой секунде боя или после целей — что раньше. 0 — только после целей. В походе — 5.'),
   // Casino «Котёл» (purse.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за «Углей за ресурс» (60), не больше 3 без ставок. Только песочница: в походе выключен с 12.10.2026.' },

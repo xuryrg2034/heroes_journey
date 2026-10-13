@@ -42,6 +42,17 @@
  *   source `slot-bust`; the goblin and its lever are gone. Else the outcome is a sure triple of a good symbol (❤ ⚡ ◆ 🍲,
  *   equally likely, the same stream); skulls do not act on a risky pull. Leaving by the door during the spin cancels it.
  *   The odds the plan and the idol show read `bustOdds` — the pull's own numbers.
+ * - **«Взрыв по площади»** (`slotBustArea`, design 13.10.2026, playtest v39, task 7; off by default, a run turns it on): the
+ *   bust above no longer hits the hero wherever he is. When the reels stop the idol lights (event `slot` `lit`): a blast of
+ *   `world.blasts` at its spot with `bust` — radius `slotBustRadius` (3.5), `slotBustFuse` (1.2 s) — and the goblin and its
+ *   lever leave at once. The blast (world.ts `detonate` → `bustHero`, event `slot` `blast`) hits the hero inside its circle
+ *   for `slotBustDamage` by `bustCanHurt`: invulnerability, the dash and the jump spare him, the chain shield and «Щит
+ *   фокуса» do not (design В1); a calm arena never hurts. Every enemy whose body touches it takes `slotBustEnemyDamage` (3) as
+ *   from a sapper's blast: the player's kills (`credited`, source `slot-bust`; an elite drops loot, one plate off an armoured
+ *   one), survivors thrown by `blastPush`. Off — the old blow (a journal without the key plays it).
+ * - **«Гоблин раньше»** (`slotAppearAt` > 0, design 13.10.2026, В3; a run: 5): the battle's one roll comes at that fight
+ *   second or `slotDelay` after the goals, whichever is earlier (`rollAt`). The place rule, the marker and `World.slot`'s
+ *   once-only roll stay: goals after the roll bring no second goblin. 0 or absent — after the goals only.
  * - **«Длинная цепь кормит гоблина»** (`slotSafePerLongChain` > 0, design 12.10.2026, task 5; a run: 1): every chain of
  *   `slotLongChainLinks` (6) or more enemy links the dash struck (`HeroMove.hits`: kills and plate hits, as the skulls count;
  *   a link that died before the dash reached it does not) gives +`slotSafePerLongChain` safe pulls. Counted when the dash
@@ -59,7 +70,7 @@ import { blockedAt, dist, inThorns, inWater, lineOfSight, type Vec } from './geo
 import { RESOURCE_KINDS, type ItemKind, type ResourceKind } from './kit';
 import { DEFAULT_PARAMS, heroRadius, type Params } from './params';
 import { bodyRadiusOf } from './enemies/kinds';
-import { OBJECT_RADIUS, canBeHurt, checkGoals, damageEnemy, hurtHero, type ArenaObject, type HeroMove, type World } from './world';
+import { OBJECT_RADIUS, addBlast, type Blast, canBeHurt, checkGoals, damageEnemy, hurtHero, type ArenaObject, type HeroMove, type World } from './world';
 import { SLOT_KILL_SOURCE } from './purse';
 
 /** A reel symbol: the skull, or one of the four good ones (❤ ⚡ ◆ 🍲). */
@@ -116,7 +127,7 @@ const EPS = 1e-9;
 
 type SlotKey = 'slotChance' | 'slotDelay' | 'slotMarker' | 'slotNear' | 'slotFar' | 'slotPulls' | 'slotCooldown' | 'slotSpin' | 'slotSkulls'
   | 'slotLinksPerSkull' | 'slotRainWaves' | 'slotRainMin' | 'slotRainMax' | 'slotRainStep' | 'slotVolleyMarks' | 'slotVolleyRadius' | 'slotDamage'
-  | 'slotSafePulls' | 'slotBustChance' | 'slotBustDamage' | 'slotSafePerLongChain' | 'slotLongChainLinks';
+  | 'slotSafePulls' | 'slotBustChance' | 'slotBustDamage' | 'slotSafePerLongChain' | 'slotLongChainLinks' | 'slotBustRadius' | 'slotBustFuse' | 'slotBustEnemyDamage';
 /** A number of the slot (a journal that turned the slot on by a `param` command may lack it: the default). */
 const num = (p: Params, key: SlotKey): number => { const v = p[key]; return typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_PARAMS[key]; };
 const markRadius = (p: Params): number => p.archerMarkRadius ?? DEFAULT_PARAMS.archerMarkRadius;
@@ -415,12 +426,27 @@ function dropWave(world: World, wave: SlotWave): void {
 /**
  * «Перебор»: the goblin blows up — `slotBustDamage` to the hero wherever he is, past every protection (no `canBeHurt`); the
  * idol and its lever leave the arena. The lever is no link now: it is not a target while the reels spin (`leverReady`).
+ * «Взрыв по площади» (`slotBustArea`): no blow now — the idol lights instead: a blast of `world.blasts` at its spot (`bust`:
+ * the hero's `slotBustDamage`), radius `slotBustRadius`, `slotBustFuse` game seconds (world.ts `detonate` → `bustHero`);
+ * enemies inside take `slotBustEnemyDamage` as from a sapper's blast, the player's kills (source `slot-bust`). The lever
+ * leaves at once (no pull during the fuse). Event `slot` `lit`.
  */
 function bustGoblin(world: World, g: Goblin): void {
-  hurtHero(world, { id: 0 }, Math.max(0, num(world.params, 'slotBustDamage')), 'slot-bust');
+  const p = world.params, hero = Math.max(0, num(p, 'slotBustDamage'));
+  if (p.slotBustArea) {
+    const r = Math.max(0, num(p, 'slotBustRadius')), fuse = Math.max(0, num(p, 'slotBustFuse'));
+    const b = addBlast(world, g, { radius: r, damage: Math.max(0, num(p, 'slotBustEnemyDamage')), delay: fuse, credited: true, source: SLOT_BUST_SOURCE, ownerId: 0, bust: { hero } });
+    world.events.push({ type: 'slot', action: 'lit', x: g.x, y: g.y, objectId: g.id, r, fuse, blastId: b.id });
+  } else hurtHero(world, { id: 0 }, hero, SLOT_BUST_SOURCE);
   world.objects = world.objects.filter(o => o.id !== g.id);
   delete world.slot!.goblin;
 }
+
+/** «Перебор»: the source of the bust's hit on the hero and (with «Взрыв по площади») of its blast's kills. */
+export const SLOT_BUST_SOURCE = 'slot-bust';
+
+/** «Взрыв по площади»: the goblin's lit bust blasts on the arena now (the view's circle and fuse; empty — none). */
+export const bustBlasts = (world: World): Blast[] => world.blasts.filter(b => !!b.bust);
 
 /** The 3rd reel stopped: the outcome acts. */
 function applyEffect(world: World, g: Goblin, outcome: SlotOutcome): void {
@@ -459,6 +485,16 @@ function landMarks(world: World, due: SlotMark[]): void {
 }
 
 /**
+ * The game time of the battle's one roll: `slotDelay` after the goals, or at fight time `slotAppearAt` (> 0, «Гоблин раньше»,
+ * design 13.10.2026) when that comes first. Infinity — not yet known (no goals, no early time).
+ */
+function rollAt(world: World): number {
+  const p = world.params, early = p.slotAppearAt;
+  const afterGoals = world.greedStart === null ? Infinity : world.greedStart + num(p, 'slotDelay');
+  return typeof early === 'number' && early > 0 ? Math.min(early, afterGoals) : afterGoals;
+}
+
+/**
  * The slot's step (game time; world.ts `update`, after the blasts): the battle's roll after the goals, the spin to its effect,
  * the rain waves, the arrows in the air. Nothing while the toggle is off or the world has no slot.
  */
@@ -466,7 +502,7 @@ export function updateSlot(world: World, dt: number): void {
   const p = world.params;
   if (!p.slot) return;
   if (!world.slot) {
-    if (!world.kit?.slot || world.greedStart === null || world.time + EPS < world.greedStart + num(p, 'slotDelay')) return;
+    if (!world.kit?.slot || world.time + EPS < rollAt(world)) return;
     // The battle's one roll (stream `slot:appear`, the spot too).
     world.slot = {};
     if (world.rng.stream('slot:appear').next() < num(p, 'slotChance')) placeGoblin(world);

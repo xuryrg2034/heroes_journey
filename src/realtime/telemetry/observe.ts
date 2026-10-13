@@ -54,7 +54,9 @@
  * - the slot (casino stage 1, «Однорукий гоблин»): `slot` events — `appear` (and the game seconds after the goals of the
  *   first), `pull` (enemy links struck before the lever, the outcome), `effect`; a spin left at the end of the fight is
  *   cancelled; `hit` of the source `slot-volley` / `slot-rain` — the arrows' damage; `kill` of the source `slot` — arrow kills;
- *   `feed` — the safe pulls the long chains added («Длинная цепь кормит гоблина»).
+ *   `feed` — the safe pulls the long chains added («Длинная цепь кормит гоблина»); the fight time of the first `appear`
+ *   («Гоблин раньше»); `blast` — the bust's blast with the hero inside or not, spared or hurt, `kill` of the source
+ *   `slot-bust` — its kills («Взрыв по площади»).
  * - the cauldron (casino «Котёл», sim/purse.ts): `cheque` events — embers, heat and total per cheque in order, crystals of
  *   the cheques; `purseKill` — the build's kill embers by source; `purseDoor` — the resources the door pays without the die
  *   and how the hero went in (`exitBy`: chain, jump, walk); with П4 «Раздув за дела» on, the greed step at the door
@@ -193,6 +195,7 @@ export function createFightObserver(start: World): FightObserver {
             if (!goalsDone) s.elites.beforeGoals++;
           }
           if (ev.source === 'slot') s.slot.kills++;
+          else if (ev.source === 'slot-bust') s.slot.bustKills++;
           if (ev.source === 'chain') s.kills.chain++;
           else if (ev.credited) bump(s.kills.tools, ev.source ?? 'other');
           else s.kills.enemies++;
@@ -258,11 +261,17 @@ export function createFightObserver(start: World): FightObserver {
           return;
         case 'slot':
           // Casino stage 1 («Однорукий гоблин»): appearances, pulls (links before the lever, outcomes), effects.
-          if (ev.action === 'appear') { s.slot.appeared++; if (s.slot.appearAfterGoals === null && world.greedStart !== null) s.slot.appearAfterGoals = world.time - world.greedStart; }
+          if (ev.action === 'appear') {
+            s.slot.appeared++;
+            if (s.slot.appearAfterGoals === null && world.greedStart !== null) s.slot.appearAfterGoals = world.time - world.greedStart;
+            s.slot.appearTime ??= world.time;
+          }
           else if (ev.action === 'pull') { s.slot.pulls++; s.slot.links.push(ev.links ?? 0); bump(s.slot.outcomes, ev.outcome ?? 'none'); if (ev.risky) s.slot.risky++; }
           else if (ev.action === 'effect') { s.slot.effects++; if (ev.outcome === 'bust') s.slot.busts++; }
           // «Длинная цепь кормит гоблина»: the safe pulls a long chain added.
           else if (ev.action === 'feed') s.slot.safeFromChains += ev.safe ?? 0;
+          // «Взрыв по площади»: the bust's blast — the hero inside its circle or not, spared or hurt.
+          else if (ev.action === 'blast') { s.slot.bustBlasts++; if (ev.inside) { s.slot.bustInside++; if (!ev.hurt) s.slot.bustSpared++; } }
           return;
         case 'jump': s.abilities.jumps++; return;
         case 'spin': s.abilities.spins++; return;

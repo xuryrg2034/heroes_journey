@@ -60,6 +60,9 @@ async function quiet(page: Page): Promise<void> {
     rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000; rt.params.baseFloor = 0; rt.params.maxEnemies = 0;
     for (const phase of rt.params.phases) phase.floor = 0;
     rt.params.boarMax = 0; rt.params.wolfRing = false; rt.params.dashSpeed = 5; rt.params.hitstop = false;
+    // Task 7 (13.10.2026): the run's goblin comes at 5 s of the fight (`slotAppearAt`) and brings its lever label; this scene
+    // keeps the old rule (after the goals only) — the label of the goblin has its own tests below.
+    rt.params.slotAppearAt = 0;
     rt.clear(false);
   });
 }
@@ -173,6 +176,8 @@ async function stillYard(page: Page): Promise<void> {
     rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000; rt.params.baseFloor = 0; rt.params.maxEnemies = 0;
     for (const phase of rt.params.phases) phase.floor = 0;
     rt.params.boarMax = 0; rt.params.wolfRing = false; rt.params.hitstop = false;
+    // Task 7: no goblin at 5 s of the fight (`slotAppearAt`, the run's 5) — this yard tests the elite's and the chest's labels.
+    rt.params.slotAppearAt = 0;
   });
 }
 interface Label { id: string; text: string; left: number; top: number; right: number; bottom: number }

@@ -118,6 +118,10 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   // Task 5: the goblin in every battle that may get it (was 0.5; from run row 1, `RT_SLOT_ROW`), and a chain of 6+ enemy links
   // gives +1 safe pull (the last pull stays risky).
   slotChance: 1, slotSafePerLongChain: 1, slotLongChainLinks: 6,
+  // Task 7 (design 13.10.2026, playtest v39): «Взрыв по площади» — the bust lights the idol, 3.5 around it, 1.2 s later the
+  // blast hits everyone inside (the hero −4 unless invulnerable or in the air; enemies −3); «Гоблин раньше» — the goblin rolls
+  // at 5 s of the fight or 3 s after the goals, whichever is earlier.
+  slotBustArea: true, slotBustRadius: 3.5, slotBustFuse: 1.2, slotBustEnemyDamage: 3, slotAppearAt: 5,
   // B6 К7 «Проклятый сундук» (design 12.10.2026): the chest of «Застава».
   cursedChest: true,
   // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.

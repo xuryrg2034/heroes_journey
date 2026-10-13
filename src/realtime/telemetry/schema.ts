@@ -701,6 +701,21 @@ export interface SlotSummary {
    * safe pulls the long chains of the fight added (the `slot` events `feed`, their `safe`).
    */
   safeFromChains: number;
+  /**
+   * «Гоблин раньше» (`slotAppearAt`, from 13.10.2026; absent in older records — null): game seconds of the fight at the first
+   * appearance (before the goals too, unlike `appearAfterGoals`).
+   */
+  appearTime: number | null;
+  /**
+   * «Взрыв по площади» (`slotBustArea`, from 13.10.2026; absent in older records — 0): bust blasts that went off (the `slot`
+   * event `blast`), of them with the hero's body inside the circle, of those spared (invulnerability, the dash, the jump), and
+   * enemies the blasts killed (source `slot-bust`; the player's — also in `kills.tools['slot-bust']`). The hero's damage from
+   * the blast is `bustDamage`.
+   */
+  bustBlasts: number;
+  bustInside: number;
+  bustSpared: number;
+  bustKills: number;
 }
 
 /** A summary of nothing (a fight without an observer, the start of a fight). */
@@ -717,7 +732,7 @@ export function emptyFightSummary(): FightSummary {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,
       platesBySource: {}, loot: { dropped: 0, picked: 0 },
     },
-    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0 },
+    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0, appearTime: null, bustBlasts: 0, bustInside: 0, bustSpared: 0, bustKills: 0 },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },

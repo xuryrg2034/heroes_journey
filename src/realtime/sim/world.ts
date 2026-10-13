@@ -395,10 +395,13 @@ export type WorldEvent =
    * «Перебор» (`slotBust` on): a pull says whether it was risky and whether it busts (the effect `bust` blows the goblin up).
    * «Длинная цепь кормит гоблина» (`slotSafePerLongChain` > 0): a long chain raised the safe pulls (`feed`: `safe` — by how
    * many, `links` — the chain's enemy links, `chains` — long chains of the fight; where the hero stands). Only when they grew.
+   * «Взрыв по площади» (`slotBustArea` on): the bust lit the idol (`lit`: its spot, the circle `r`, the `fuse`, the blast's id
+   * `blastId` in `world.blasts`); the blast went off (`blast`: the circle; `inside` — the hero's body touched it, `hurt` — he
+   * took the damage, else spared by invulnerability, the dash or the jump).
    */
-  | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land' | 'feed'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
+  | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land' | 'feed' | 'lit' | 'blast'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
       links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number; risky?: boolean; bust?: boolean;
-      safe?: number; chains?: number }
+      safe?: number; chains?: number; fuse?: number; blastId?: number; inside?: boolean; hurt?: boolean }
   /**
    * Casino «Котёл» (purse.ts): a chain's cheque went into the cauldron (embers × heat × the crystal multiplier = total; the
    * cauldron after it; where the hero stands); a build kill put 1 ember (`purseKill`); the door recorded the cauldron
@@ -565,6 +568,11 @@ export interface Blast {
   ownerId: number;
   /** Stage 2, step 3: the blast of an elite sapper (+1 to the hero). Absent otherwise. */
   elite?: true;
+  /**
+   * «Взрыв по площади» (slot.ts `bustGoblin`, `slotBustArea`): the goblin's bust — the lit idol at (`x`, `y`). The hero takes
+   * `hero` (not `damage`, the enemies' damage) by the bust's own rule (`bustCanHurt`). Absent on every other blast.
+   */
+  bust?: { hero: number };
 }
 
 /** Stage 2, step 3: «Песочные часы» — game seconds the phase table after the goals starts later in this arena. */
@@ -981,6 +989,16 @@ export function canBeHurt(world: World): boolean {
 }
 
 /**
+ * «Взрыв по площади» (design 13.10.2026, В1): the goblin's bust blast may hurt the hero now — playing, not a calm arena, no
+ * invulnerability, not dashing or jumping (`world.move`). The after-chain shield and the focus («Щит фокуса», «фокус без
+ * урона») do not spare him: «риск должен быть настоящим».
+ */
+export function bustCanHurt(world: World): boolean {
+  if (world.arena.calm) return false;
+  return world.status === 'playing' && !(world.hero.invulnerable > 0) && !world.move;
+}
+
+/**
  * «Щит фокуса» (`focusGuardLinks`, design 12.10.2026): the drawn chain has that many enemy links (an elite with plates is a
  * link) and the focus is not empty (`focusing`: the time slowed) — touches and hits spare the hero. The released dash plays
  * by the usual rules (the dash itself, then the after-chain shield). Off (0 or no key) — never. The view's rim reads it.
@@ -1127,9 +1145,9 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
 }
 
 /** A blast lit on the arena (`delay` game seconds; 0 — it goes off in this tick's blast step). */
-export function addBlast(world: World, at: Vec, blast: { radius: number; damage: number; delay: number; credited: boolean; source: string; ownerId: number; elite?: boolean }): Blast {
+export function addBlast(world: World, at: Vec, blast: { radius: number; damage: number; delay: number; credited: boolean; source: string; ownerId: number; elite?: boolean; bust?: { hero: number } }): Blast {
   const b: Blast = { id: world.nextId++, x: at.x, y: at.y, radius: blast.radius, damage: blast.damage, timeLeft: blast.delay, total: blast.delay, credited: blast.credited, source: blast.source, ownerId: blast.ownerId,
-    ...blast.elite ? { elite: true as const } : {} };
+    ...blast.elite ? { elite: true as const } : {}, ...blast.bust ? { bust: { hero: blast.bust.hero } } : {} };
   world.blasts.push(b);
   return b;
 }
@@ -1140,7 +1158,8 @@ function detonate(world: World, b: Blast): void {
   world.events.push({ type: 'blast', x: b.x, y: b.y, radius: b.radius, source: b.source });
   const owner = world.enemies.find(e => e.id === b.ownerId);
   if (owner) killEnemy(world, owner, cause);
-  if (canBeHurt(world) && dist(world.hero, b) <= b.radius + heroRadius(p)) hurtHero(world, { id: b.ownerId, ...b.elite ? { elite: true as const } : {} }, b.damage, b.source);
+  if (b.bust) bustHero(world, b, b.bust.hero);
+  else if (canBeHurt(world) && dist(world.hero, b) <= b.radius + heroRadius(p)) hurtHero(world, { id: b.ownerId, ...b.elite ? { elite: true as const } : {} }, b.damage, b.source);
   if (world.status !== 'playing') return;
   const struck = world.enemies.filter(e => dist(e, b) <= b.radius + bodyRadiusOf(p, e));
   for (const e of struck) damageEnemy(world, e, b.damage, cause);
@@ -1156,6 +1175,16 @@ function detonate(world: World, b: Blast): void {
     pushOutOfObstacles(e, bodyRadiusOf(p, e), world.arena, false);
   }
   dropIntoCliffs(world, null, { ...cause, fall: true });
+}
+
+/**
+ * «Взрыв по площади»: the goblin's bust blast and the hero — inside when his body circle touches it; hurt by `bustCanHurt`
+ * (no striker: the idol is not an enemy). Event `slot` `blast`: inside or not, hurt or spared (telemetry, the view).
+ */
+function bustHero(world: World, b: Blast, damage: number): void {
+  const inside = dist(world.hero, b) <= b.radius + heroRadius(world.params), hurt = inside && damage > 0 && bustCanHurt(world);
+  world.events.push({ type: 'slot', action: 'blast', x: b.x, y: b.y, r: b.radius, inside, hurt });
+  if (hurt) hurtHero(world, { id: 0 }, damage, b.source);
 }
 
 /** Fuses burn on game time; the blasts that are due go off in the order they were lit (a blast may light new ones). */

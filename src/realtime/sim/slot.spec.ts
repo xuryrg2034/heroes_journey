@@ -21,6 +21,12 @@
  *   1,2 s, even for a greedy player; the reel symbols the player sees are the outcome's own draw (χ² against s ÷ (4 + s));
  *   the view's stopped reels show the pull's reels only, its spinning blur does not depend on the outcome; a broken oath
  *   is no win. The two gaps found 11.10.2026 (the panel ranges in a run, the blur's fixed mix) are fixed (design answer).
+ * - «Взрыв по площади» (task 7, 13.10.2026): the bust lights the idol (3.5, 1.2 s), the hero who stays takes −4, one who walks
+ *   out at once (or 0.15 s late) takes nothing, 0.4 s late is caught; invulnerability, the dash and the jump spare him, the
+ *   chain shield and «Щит фокуса» do not; weak enemies inside die as the player's kills, a tough 4 survives thrown off, one
+ *   outside is untouched; the observer counts it; the plan of a chain into the lever is the dash; «Гоблин раньше»: a run
+ *   battle's goblin at 5 s before the goals, once, at goals + 3 s when that is earlier, the spot varies by seed; a journal
+ *   without the new keys plays the old world.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
@@ -40,6 +46,7 @@ import { runRow } from '../run/arenaPools';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RT_DEATH_ABILITY } from '../run/rtRunEnd';
 import { createFightObserver } from '../telemetry/observe';
+import { withSummaryDefaults } from '../telemetry/schema';
 import { drawSymbol, reelStrip, riskyStrip, SlotView } from '../view/slotView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -1108,6 +1115,211 @@ check('П11 + «Перебор» (view, review 12.10.2026): a risky pull\'s reel
   }
   // With 0 skulls on the reels the old strip would show no ☠ at all.
   assert(Math.abs(skulls / symbols - 0.55) < 0.06, `the risky blur: ☠ ${(skulls / symbols).toFixed(3)} (0,55)`);
+});
+
+// ---- Task 7 «Взрыв гоблина по площади» and «Гоблин раньше» (design 13.10.2026, playtest v39) -------------------------
+// With `slotBustArea` the bust no longer hits the hero wherever he is: the idol lights, 3.5 around it, 1.2 s later the blast
+// hits everyone inside — the hero −4 (invulnerability, the dash and the jump spare him; the chain shield and the focus shield
+// do not), every enemy −3 (the player's kills, source `slot-bust`). With `slotAppearAt` the battle's one roll comes at that
+// fight second or `slotDelay` after the goals, whichever is earlier.
+
+/** «Перебор» with the area blast as the run plays it (radius 3.5, fuse 1.2, enemies 3), every pull risky. */
+const areaParams = (extra: Partial<Params> = {}): Params => bustParams({ slotSafePulls: 0, slotBustArea: true, slotBustRadius: 3.5, slotBustFuse: 1.2, slotBustEnemyDamage: 3, ...extra });
+/** A busting bare pull played to the lit idol: the hero stands where the dash onto the lever ended (the idol's spot). */
+function litBust(k: number, extra: Partial<Params> = {}): { sim: Simulation; events: WorldEvent[]; lit: Ev<'slot'>; idol: { x: number; y: number } } {
+  const sim = field(areaParams(extra), k);
+  const g = summon(sim);
+  waitReady(sim);
+  const { pull, events } = bareTo(sim);
+  assert(pull.bust === true, `seed ${k} busts`);
+  for (let i = 0; i < tick(3) && !slotEvents(events, 'lit').length; i++) ticks(sim, 1, events);
+  const lit = slotEvents(events, 'lit')[0];
+  assert(lit, 'the idol lit');
+  return { sim, events, lit, idol: { x: g.x, y: g.y } };
+}
+type HeroBefore = { hp: number; inv: number; shield: number; move: string | null; focus: boolean };
+/** Ticks until the bust blast went off, collecting the events; the hero's state in the tick before it. */
+function toBlast(sim: Simulation, events: WorldEvent[]): { blast: Ev<'slot'>; before: HeroBefore } {
+  const w = sim.world, h = w.hero;
+  const look = (): HeroBefore => ({ hp: h.hp, inv: h.invulnerable, shield: h.chainShield, move: w.move?.kind ?? null, focus: focusGuarded(w) });
+  let before = look();
+  for (let i = 0; i < tick(16) && !slotEvents(events, 'blast').length && w.status === 'playing'; i++) { before = look(); ticks(sim, 1, events); }
+  const blast = slotEvents(events, 'blast')[0];
+  assert(blast, 'the blast went off');
+  return { blast, before };
+}
+const bustHits = (events: readonly WorldEvent[]) => of(events, 'hit').filter(e => e.source === 'slot-bust');
+
+check('«Взрыв по площади» off by default, the run turns it on; a journal without its keys (and without `slotAppearAt`) plays the same world', () => {
+  const d = defaultParams(), r = rtRunParams(defaultParams());
+  assert(d.slotBustArea === false && d.slotAppearAt === 0 && d.slotBustRadius === 3.5 && d.slotBustFuse === 1.2 && d.slotBustEnemyDamage === 3, 'the defaults');
+  assert(r.slotBustArea === true && r.slotAppearAt === 5 && r.slotBustRadius === 3.5 && r.slotBustFuse === 1.2 && r.slotBustEnemyDamage === 3, 'the run');
+  const keys = ['slotBustArea', 'slotBustRadius', 'slotBustFuse', 'slotBustEnemyDamage', 'slotAppearAt'] as const;
+  assert(keys.every(key => PARAM_DEFS.some(x => x.key === key && x.group === 'Однорукий гоблин')), 'the panel has them');
+  const without = (state: unknown): string => { const s = { ...(state as Record<string, unknown>) }; delete s.params; return JSON.stringify(s); };
+  const [k] = bustSeeds(true, 1);
+  // The old bust: the keys off or absent — the same world, the hero hit at the effect (no blast, no `lit`).
+  const off = areaParams({ slotBustArea: false, slotAppearAt: 0 }), old = { ...off } as Partial<Params>;
+  for (const key of keys) delete old[key];
+  const runs = [off, old as Params].map(p => {
+    const sim = field(p, k, 'slot-field', { slot: true });
+    sim.command({ t: 'goals' });
+    ticks(sim, tick(1));
+    summon(sim); waitReady(sim); bareTo(sim);
+    const events = playOut(sim);
+    return { sim, events };
+  });
+  for (const { events, sim } of runs) {
+    assert(!slotEvents(events, 'lit').length && !slotEvents(events, 'blast').length && bustHits(events).length === 1 && !sim.world.blasts.length, 'the old bust: one blow, no blast');
+  }
+  assert(without(worldState(runs[0].sim.world)) === without(worldState(runs[1].sim.world)), 'the same world without the keys');
+  const journal = runs[0].sim.exportJournal()!;
+  for (const key of keys) delete (journal.params as Partial<Params>)[key];
+  assert(without(worldState(replay(journal).world)) === without(worldState(runs[0].sim.world)), 'the journal without the keys replays the same world');
+  assert(replays(runs[0].sim) && replays(runs[1].sim), 'replays');
+});
+
+check('«Взрыв по площади»: the bust lights the idol (3.5, 1.2 s, no blow at the effect); the hero who stays takes −4 at the blast, the one who walks out at once takes nothing, a late walker is caught', () => {
+  for (const k of bustSeeds(true, 3)) {
+    // Stays where the dash onto the lever ended.
+    const stay = litBust(k), w = stay.sim.world, hp = w.hero.hp;
+    assert(Math.hypot(w.hero.x - stay.idol.x, w.hero.y - stay.idol.y) < 0.05, 'the dash onto the lever ends on the idol');
+    const effect = slotEvents(stay.events, 'effect');
+    assert(effect.length === 1 && effect[0].outcome === 'bust' && !bustHits(stay.events).length && hp === 40, 'no blow at the effect');
+    assert(near(stay.lit.x, stay.idol.x) && near(stay.lit.y, stay.idol.y) && stay.lit.r === 3.5 && stay.lit.fuse === 1.2, `the lit circle ${JSON.stringify(stay.lit)}`);
+    const pending = w.blasts.filter(b => b.bust);
+    assert(pending.length === 1 && pending[0].id === stay.lit.blastId && near(pending[0].x, stay.idol.x) && pending[0].radius === 3.5 && near(pending[0].total, 1.2) && pending[0].bust!.hero === 4, `the pending blast ${JSON.stringify(pending)}`);
+    assert(!goblinOf(w) && !leverOf(w), 'the goblin and its lever are gone at the light');
+    const litTick = w.tick, { blast } = toBlast(stay.sim, stay.events);
+    assert(Math.abs((w.tick - litTick) * SIM_DT - 1.2) <= SIM_DT + 1e-9, `the fuse ${((w.tick - litTick) * SIM_DT).toFixed(3)} s`);
+    assert(blast.inside === true && blast.hurt === true && bustHits(stay.events).length === 1 && bustHits(stay.events)[0].damage === 4 && w.hero.hp === hp - 4, `stays: −4 (${hp} → ${w.hero.hp})`);
+    assert(!w.blasts.length && of(stay.events, 'blast').some(b => b.source === 'slot-bust' && b.radius === 3.5), 'the blast event, nothing left lit');
+    assert(replays(stay.sim), 'replay');
+    // Walks out when the idol lights (at once, 0.15 s or 0.4 s late): the hero's speed 4, the circle's edge 3.5 + his body.
+    for (const [late, safe] of [[0, true], [0.15, true], [0.4, false]] as const) {
+      const run = litBust(k), rw = run.sim.world, dir = inward(rw, run.idol);
+      ticks(run.sim, tick(late), run.events);
+      run.sim.command({ t: 'walk', x: dir.x, y: dir.y });
+      const { blast: b } = toBlast(run.sim, run.events);
+      assert(b.inside === !safe && bustHits(run.events).length === (safe ? 0 : 1) && rw.hero.hp === (safe ? 40 : 36), `seed ${k}, late ${late}: inside ${b.inside}, hp ${rw.hero.hp}`);
+      assert(replays(run.sim), 'replay');
+    }
+  }
+});
+
+check('«Взрыв по площади»: invulnerability, the dash and the jump spare the hero inside the circle; the chain shield and «Щит фокуса» do not', () => {
+  const [k] = bustSeeds(true, 1);
+  type Guard = 'invulnerable' | 'jump' | 'dash' | 'shield' | 'focus';
+  const lead: Record<Guard, number> = { invulnerable: 0.25, jump: 0.1, dash: 0.12, shield: 0.45, focus: 0.3 };
+  const spares: Record<Guard, boolean> = { invulnerable: true, jump: true, dash: true, shield: false, focus: false };
+  for (const guard of ['invulnerable', 'jump', 'dash', 'shield', 'focus'] as const) {
+    const { sim, events } = litBust(k, { focusGuardLinks: 3 }), w = sim.world, h = w.hero;
+    const b = w.blasts.find(x => x.bust)!;
+    while (b.timeLeft > lead[guard] + 1e-9) ticks(sim, 1, events);
+    const d = inward(w, h);
+    if (guard === 'invulnerable') { sim.command({ t: 'param', key: 'contactDamage', value: 1 }); place(sim, h.x + 0.3, h.y, 0, { color: 1 }); }
+    if (guard === 'shield') { const row = [1, 2, 3].map(i => place(sim, h.x + d.x * 0.9 * i, h.y + d.y * 0.9 * i)); draw(sim, row); sim.command({ t: 'release' }); }
+    if (guard === 'dash') { const row = [1, 2, 3, 4, 5, 6].map(i => place(sim, h.x + d.x * 1.0 * i, h.y + d.y * 1.0 * i)); draw(sim, row); sim.command({ t: 'release' }); }
+    if (guard === 'focus') draw(sim, [1, 2, 3].map(i => place(sim, h.x + d.x * 0.9 * i, h.y + d.y * 0.9 * i)));
+    if (guard === 'jump') { sim.command({ t: 'energy', value: 7 }); assert(sim.command({ t: 'jump', x: h.x + d.x * 2, y: h.y + d.y * 2 }) === true, 'the jump starts'); }
+    const { blast, before } = toBlast(sim, events);
+    const stood = { invulnerable: before.inv > 0, jump: before.move === 'jump', dash: before.move === 'dash', shield: before.shield > 0 && !before.move, focus: before.focus }[guard];
+    assert(stood, `${guard}: the guard stood in the tick before the blast (${JSON.stringify(before)})`);
+    assert(blast.inside === true, `${guard}: the hero inside the circle`);
+    if (spares[guard]) assert(blast.hurt === false && !bustHits(events).length && h.hp === before.hp, `${guard}: spared (${before.hp} → ${h.hp})`);
+    else assert(blast.hurt === true && bustHits(events).length === 1 && h.hp === before.hp - 4, `${guard}: −4 through it (${before.hp} → ${h.hp})`);
+    assert(replays(sim), `${guard}: replay`);
+  }
+});
+
+check('«Взрыв по площади»: enemies in the circle take 3 — weak ones (HP ≤ 3) die as the player\'s kills, a tough 4 survives with 1 and is thrown off; one outside is untouched; the observer counts it', () => {
+  const [k] = bustSeeds(true, 1);
+  const { sim, events, idol } = litBust(k), w = sim.world, d = inward(w, idol), side = { x: -d.y, y: d.x };
+  const at = (r: number, s = 0) => ({ x: idol.x + d.x * r + side.x * s, y: idol.y + d.y * r + side.y * s });
+  const p1 = at(1.5), p2 = at(2.5, 0.6), p3 = at(3.2, -0.8), p4 = at(5.5);
+  const weak = place(sim, p1.x, p1.y, 0), three = place(sim, p2.x, p2.y, 3), tough = place(sim, p3.x, p3.y, 4), far = place(sim, p4.x, p4.y, 0);
+  const kills = w.stats.kills;
+  toBlast(sim, events);
+  const dead = of(events, 'kill').filter(e => e.source === 'slot-bust');
+  assert(dead.length === 2 && dead.every(e => e.credited === true) && [weak.id, three.id].every(id => dead.some(e => e.enemyId === id)), `the weak die: ${JSON.stringify(dead)}`);
+  assert(w.stats.kills === kills + 2, 'the player\'s kills');
+  assert(w.enemies.includes(tough) && tough.hp === 1, `the tough survives with 1 (hp ${tough.hp})`);
+  assert(Math.hypot(tough.x - idol.x, tough.y - idol.y) > Math.hypot(p3.x - idol.x, p3.y - idol.y) + 0.5, 'thrown off the blast');
+  assert(w.enemies.includes(far) && near(far.x, p4.x) && near(far.y, p4.y), 'outside: untouched');
+  assert(of(events, 'enemyHit').filter(e => e.source === 'slot-bust').length === 3, 'three hits of the blast');
+  ticks(sim, tick(0.5));
+  // The fight observer over the replay: the blast, the hero inside and hurt, its damage and kills.
+  let observer: ReturnType<typeof createFightObserver> | null = null;
+  const journal = JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal;
+  replay(journal, r => { observer ??= createFightObserver(r.world); observer.tick(r.world); });
+  const s = observer!.summary();
+  assert(s.slot.bustBlasts === 1 && s.slot.bustInside === 1 && s.slot.bustSpared === 0 && s.slot.bustDamage === 4 && s.slot.bustKills === 2 && s.kills.tools['slot-bust'] === 2, `the summary ${JSON.stringify(s.slot)}`);
+  assert(s.slot.busts === 1 && s.slot.appearTime !== null, 'the bust and the appearance');
+  // A record of an older build (no such fields) reads as «nothing happened».
+  const older = withSummaryDefaults({ slot: { appeared: 1, busts: 1, bustDamage: 4 } }).slot;
+  assert(older.appearTime === null && older.bustBlasts === 0 && older.bustInside === 0 && older.bustSpared === 0 && older.bustKills === 0 && older.bustDamage === 4, 'an old record');
+  assert(replays(sim), 'replay');
+});
+
+check('«Взрыв по площади»: a chain into the lever plans what the dash does (the plan untouched); off — nothing is lit', () => {
+  const sim = field(areaParams(), 21), w = sim.world;
+  summon(sim); waitReady(sim);
+  const row = rowTo(sim, 4, i => ({ hp: i === 2 ? 1 : 0 }));
+  draw(sim, [...row, lever(sim)]);
+  const plan = planChain(w);
+  assert(plan.endsOnObject && plan.links.length === 5, 'the plan ends on the lever');
+  sim.command({ t: 'release' });
+  const events = settle(sim), hits = of(events, 'chainHit');
+  const planned = plan.links.filter(l => l.outcome).map(l => ({ id: l.link.kind === 'enemy' ? l.link.id : -1, killed: l.outcome!.killed }));
+  assert(JSON.stringify(planned) === JSON.stringify(hits.map(h => ({ id: h.enemyId, killed: h.killed }))), `plan ${JSON.stringify(planned)} vs dash ${JSON.stringify(hits.map(h => [h.enemyId, h.killed]))}`);
+  assert(slotEvents(events, 'pull').length === 1, 'the dash pulled');
+  // Off: no blast, no `lit` — a world without the rule has no bust blast in `world.blasts`.
+  const old = field(bustParams({ slotSafePulls: 0 }), bustSeeds(true, 1)[0]);
+  summon(old); waitReady(old); bareTo(old);
+  const ev = playOut(old);
+  assert(!old.world.blasts.length && !slotEvents(ev, 'lit').length, 'off: nothing lit');
+});
+
+check('«Гоблин раньше» in a run battle: the goblin at 5 s of the fight before the goals, once; goals earlier — at goals + 3 s; the spot varies by seed; no roll without the kit or with the key at 0', () => {
+  const p = rtRunParams(quiet());
+  const appearAt = (sim: Simulation, limit: number, before?: (t: number) => void): number | null => {
+    for (let i = 0; i < tick(limit); i++) {
+      before?.(sim.world.time);
+      if (slotEvents(ticks(sim, 1), 'appear').length) return sim.world.time;
+    }
+    return null;
+  };
+  const spots = new Set<string>();
+  for (let k = 1; k <= 8; k++) {
+    const sim = field(p, 4100 + k, 'slot-field', { slot: true }), w = sim.world;
+    sim.command({ t: 'teleport', x: 10, y: 6 });
+    const t = appearAt(sim, 8);
+    assert(t !== null && Math.abs(t - 5) <= SIM_DT + 1e-9 && w.greedStart === null, `seed ${k}: at ${t} s, before the goals`);
+    const g = goblinOf(w)!;
+    const dh = Math.hypot(g.x - w.hero.x, g.y - w.hero.y);
+    assert(dh >= 3 - 1e-6 && dh <= 7 + 1e-6 && lineOfSight(w.hero, g, w.arena, -w.params.sightSlack), `seed ${k}: the spot ${dh.toFixed(2)} from the hero, seen`);
+    spots.add(`${g.x.toFixed(2)},${g.y.toFixed(2)}`);
+    // The goals later bring no second goblin.
+    sim.command({ t: 'goals' });
+    const after = ticks(sim, tick(6));
+    assert(!slotEvents(after, 'appear').length && w.objects.filter(o => o.kind === 'lever').length === 1 && goblinOf(w)?.id === g.id, `seed ${k}: one goblin a fight`);
+    assert(replays(sim), 'replay');
+  }
+  assert(spots.size >= 6, `spots vary: ${[...spots].join(' ')}`);
+  // Goals at 1 s: at 4 s (goals + 3 — earlier than 5); goals at 3 s: at 5 s.
+  for (const [goals, want] of [[1, 4], [3, 5]] as const) {
+    const sim = field(p, 4200 + goals, 'slot-field', { slot: true });
+    let done = false;
+    const t = appearAt(sim, 8, now => { if (!done && now + 1e-9 >= goals) { sim.command({ t: 'goals' }); done = true; } });
+    assert(t !== null && Math.abs(t - want) <= 2 * SIM_DT, `goals at ${goals}: appeared at ${t} (want ${want})`);
+    assert(!slotEvents(ticks(sim, tick(6)), 'appear').length, 'once');
+    assert(replays(sim), 'replay');
+  }
+  // No kit (the sandbox): nothing at 5 s. The key at 0 with the kit: nothing before the goals (the old rule).
+  const bare = field(p, 4301);
+  assert(appearAt(bare, 7) === null && bare.world.slot === undefined, 'no kit: no roll');
+  const zero = field({ ...p, slotAppearAt: 0 }, 4302, 'slot-field', { slot: true });
+  assert(appearAt(zero, 7) === null && zero.world.slot === undefined, 'the key at 0: no roll before the goals');
 });
 
 console.log(`${checks} checks passed`);
