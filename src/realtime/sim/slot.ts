@@ -64,7 +64,7 @@
  *   `bustOdds`. Event `slot` `feed` only when the safe pulls grew (the view's «+1 рывок без риска»). State `World.slotChains`.
  *   The run: 0 since task 11 (13.10.2026).
  * - **«Гоблин-сюрприз»** (`slotSafeRandom`, design 13.10.2026, playtest v40, task 11; off by default, a run turns it on, the
- *   prologue keeps it off): with «Перебор» on, a goblin rolls its own safe pulls when it appears (`putGoblin`: the battle's
+ *   prologue room 8 keeps it off, the last room «Толпа» plays the run's numbers — design 13.10.2026): with «Перебор» on, a goblin rolls its own safe pulls when it appears (`putGoblin`: the battle's
  *   roll, the sandbox button) — a whole number 0 … `slotSafePulls` (clamped to `slotPulls`), uniform, one draw of the stream
  *   `slot:safe` (no other stream moves) — kept on it (`Goblin.safe`) and read by `safeLeftOf` instead of `slotSafePulls`: the
  *   caption, the dots, the plan line and the pull all read it. With 0 the first pull is risky. The view does not show the

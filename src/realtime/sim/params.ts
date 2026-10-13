@@ -641,7 +641,7 @@ export interface Params {
    * «Гоблин-сюрприз» (design 13.10.2026, playtest v40, task 11): with «Перебор» on, a goblin rolls its own safe pulls when it
    * appears — a whole number 0 … `slotSafePulls`, uniform (stream `slot:safe`; the run: 0 … 3) — stored on it
    * (`Goblin.safe`) and read instead of `slotSafePulls`. The view does not show the number. Off by default; a journal without
-   * the key plays the old path (`slotSafePulls`, no roll). A run turns it on (`RT_RUN_FORCED`); the prologue keeps it off.
+   * the key plays the old path (`slotSafePulls`, no roll). A run turns it on (`RT_RUN_FORCED`); the prologue room 8 «Гоблин» keeps it off; the last room «Толпа» plays the run's numbers (design 13.10.2026).
    */
   slotSafeRandom: boolean;
   /**
