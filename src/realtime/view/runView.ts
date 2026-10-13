@@ -35,6 +35,7 @@ import { dieLine, LINE_RESOURCES, ScreenLines, stakeLine, type HintStore } from 
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { multText } from '../sim/purse';
 import { eventOption, forestEvent } from '../forest/forestEvents';
+import type { SoundSetting } from './paramStorage';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -89,6 +90,11 @@ export interface RunHost {
    * lines, no toggle, no button.
    */
   hints?: { store: HintStore; on(): boolean; set(on: boolean): void; startPrologue(): void };
+  /**
+   * The run's sound (design 14.10.2026; view/paramStorage.ts `loadSound`): the switch «Звук» and the slider «Громкость» on the
+   * gear; `preview` sounds one hit at the volume let go. Absent (the sandbox: its panel has the sound) — none.
+   */
+  sound?: { get(): SoundSetting; set(sound: SoundSetting): void; preview(): void };
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -216,6 +222,14 @@ export class RunView {
     this.el.className = 'rt-run';
     this.el.setAttribute('data-testid', 'run');
     this.el.addEventListener('click', event => this.onClick(event));
+    // The gear's «Громкость»: the value follows the slider as it moves (no redraw — it would drop the drag); let go, one hit sounds.
+    this.el.addEventListener('input', event => {
+      const target = event.target as HTMLInputElement, sound = this.host.sound;
+      if (target.dataset.action === 'sound-volume' && sound) sound.set({ ...sound.get(), volume: Number(target.value) });
+    });
+    this.el.addEventListener('change', event => {
+      if ((event.target as HTMLElement).dataset.action === 'sound-volume') this.host.sound?.preview();
+    });
     // Task 8c: Esc closes the node card (the map shows whole).
     window.addEventListener('keydown', event => {
       if (event.key !== 'Escape' || this.el.hidden || !this.selected || !this.el.querySelector('[data-testid="run-detail"]')) return;
@@ -352,6 +366,8 @@ export class RunView {
     if (action === 'logs') { this.host.openLogs?.(); return; }
     if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
     if (action === 'hints-toggle') { this.host.hints?.set((target as HTMLInputElement).checked); this.draw(); return; }
+    if (action === 'sound-toggle' && this.host.sound) { this.host.sound.set({ ...this.host.sound.get(), on: (target as HTMLInputElement).checked }); this.draw(); return; }
+    if (action === 'sound-volume') return;
     // «Обучение»: the labels' memory starts over and the prologue plays again; the run (map, save) stays as it is.
     if (action === 'prologue') { this.host.hints?.store.reset(); this.settingsOpen = false; this.host.hints?.startPrologue(); return; }
     // П5: the summary of «Удача похода» opens and closes the block (the redraw keeps it as it is).
@@ -579,16 +595,20 @@ export class RunView {
   }
 
   /**
-   * П1: the gear of the map header and, open, its view settings — one checkbox per `viewToggles` entry («Часы сессии» (П7) is the next one). Not in the fight HUD.
+   * П1: the gear of the map header and, open, its settings — the run's sound (switch and volume), «Подсказки» and «Обучение», then one
+   * checkbox per `viewToggles` entry. Not in the fight HUD.
    */
   private settingsHtml(): string {
-    const toggles = this.host.viewToggles ?? [], hints = this.host.hints;
-    if (!toggles.length && !hints) return '';
+    const toggles = this.host.viewToggles ?? [], hints = this.host.hints, sound = this.host.sound?.get();
+    if (!toggles.length && !hints && !sound) return '';
     // «Подсказки» and «Обучение» (the memory of what was shown starts over and the prologue plays again).
     const hintRows = hints ? `<label class="rt-run-setting" title="Подписи у предметов в бою (раз на зрителя, уходят после действия) и строки на экранах похода."><input type="checkbox" data-action="hints-toggle" data-testid="view-hints"${hints.on() ? ' checked' : ''}> Подсказки</label>`
       + `<button class="rt-run-hints-reset" data-action="prologue" data-testid="prologue-start" title="Пройти пролог «Опушка» ещё раз и заново показать подписи у предметов в походе. Поход не меняется.">Обучение</button>` : '';
-    const rows = hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
-    return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки вида" aria-expanded="${this.settingsOpen}">⚙</button>`
+    // The run's sound: the switch, and the volume under it (greyed while the sound is off).
+    const soundRows = sound ? `<label class="rt-run-setting" title="Звуки боя в походе и в прологе."><input type="checkbox" data-action="sound-toggle" data-testid="view-sound"${sound.on ? ' checked' : ''}> Звук</label>`
+      + `<label class="rt-run-setting rt-run-volume${sound.on ? '' : ' rt-off'}">Громкость <input type="range" min="0" max="1" step="0.05" value="${sound.volume}" data-action="sound-volume" data-testid="view-sound-volume"${sound.on ? '' : ' disabled'}></label>` : '';
+    const rows = soundRows + hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
+    return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки" aria-expanded="${this.settingsOpen}">⚙</button>`
       + (this.settingsOpen ? `<span class="rt-run-settings" data-testid="run-settings-panel">${rows}</span>` : '') + '</span>';
   }
 
