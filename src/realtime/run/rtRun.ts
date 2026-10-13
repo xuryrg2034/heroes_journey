@@ -134,7 +134,9 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   focusGuardLinks: 3,
   // «Смена цвета» (design 12.10.2026, task 4): no crystals fall in the run; after 6 enemy links of one colour the next link may
   // be of any colour (the goblin's ◆ crystals stay and still reset the colour).
-  crystals: false, colorShiftLinks: 6 });
+  crystals: false, colorShiftLinks: 6,
+  // «Свобода цвета держится» (design 13.10.2026, task 10): links of the same colour keep a free colour free.
+  colorShiftKeep: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 

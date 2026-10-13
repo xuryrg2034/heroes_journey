@@ -130,6 +130,14 @@ export interface Params {
    * (build.ts `colorShiftOf`). 0 — off; a journal without the key plays the old path. A run plays 6 (`RT_RUN_FORCED`).
    */
   colorShiftLinks: number;
+  /**
+   * «Свобода цвета держится» (design 13.10.2026, task 10): with «Смена цвета» on, a free colour stays free while the chain
+   * takes links of the same colour — they continue the segment (the count grows); only a link of another colour opens a new
+   * segment. Shifts (the `colorShift` event, «Призма», the oath) at every multiple of the step within a segment (6, 12, 18…):
+   * for a one-colour chain the same links as before. Off (no key) — the old path: the free link of the same colour restarts
+   * the count. A run plays it on (`RT_RUN_FORCED`).
+   */
+  colorShiftKeep: boolean;
   /** Game seconds a crystal lies on the arena; 0 — until a chain breaks it. */
   crystalLife: number;
   /** Score for breaking a crystal = this × kills of the chain that dropped it (main game: 20). */
@@ -733,6 +741,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   crystals: true,
   crystalEvery: 6,
   colorShiftLinks: 0,
+  colorShiftKeep: false,
   crystalLife: 0,
   crystalScorePerKill: 20,
   crystalDropRadius: 4,
@@ -1074,6 +1083,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'На каждом N-м убийстве одной цепью падает кристалл в случайной точке вне оставшегося пути цепи. Кристалл — звено любого цвета: меняет цвет цепи, силы не даёт, убийством не считается.' },
   n('crystalEvery', 'Кристаллы', 'Кристалл за каждые … убийств цепи', 2, 20, 1, 4),
   n('colorShiftLinks', 'Кристаллы', 'Смена цвета: после … звеньев', 0, 20, 1, 4, '', 'После стольких вражеских звеньев одного цвета следующее звено может быть любого цвета, с него цвет и счёт начинаются заново. Кристалл тоже сбрасывает цвет и счёт. «Осколок жернова» −1, «Жернов» −2 (не меньше 2). 0 — выкл. В походе — 6, кристаллы выключены.'),
+  { kind: 'bool', key: 'colorShiftKeep', group: 'Кристаллы', label: 'Смена цвета: свобода держится', stage: 4,
+    hint: 'Пока цепь берёт звенья того же цвета, цвет остаётся свободным (счёт растёт); новый отрезок начинает только звено другого цвета. Смены — на каждом 6-м, 12-м… звене отрезка. Выкл. — свободное звено того же цвета начинает счёт заново. В походе — вкл.' },
   n('crystalLife', 'Кристаллы', 'Срок жизни кристалла', 0, 120, 5, 4, 'с', '0 — лежит, пока цепь его не разобьёт.'),
   n('crystalScorePerKill', 'Кристаллы', 'Очки за кристалл, × убийств породившей цепи', 0, 100, 5, 4),
   n('crystalDropRadius', 'Кристаллы', 'Радиус падения от места убийства', 0, 16, 0.5, 4, 'ед.', '0 — вся арена. Кристалл рядом с кучей продолжает комбо.'),

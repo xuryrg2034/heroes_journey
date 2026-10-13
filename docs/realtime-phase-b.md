@@ -198,7 +198,7 @@
 | `itemHealOf` | `itemHeal` (не меньше 0) | лечение в `items.ts` | Кровавая клятва: 9 → 5 |
 | `jumpCostOf` | `jumpCost`, «Ловкие лапы» −1 | `canJump`, `jump`, HUD | Третья цепь → 0 на 5 с |
 | `crystalEveryOf` | `crystalEvery`, «Осколок жернова» −1 (не меньше 2); при `colorShiftLinks` > 0 — только `crystalEvery` | кристалл в проходе | Жернов (с Осколком суммируется; при смене цвета — нет) |
-| `colorShiftOf` (12.10.2026) | `colorShiftLinks` (0 — выкл.), «Осколок жернова» −1 (не меньше 2; 2 и меньше не меняет) | `chainColor`, проход (`colorShiftIds`), вид «до смены N» | Жернов −2 (`millstoneEvery`) |
+| `colorShiftOf` (12.10.2026) | `colorShiftLinks` (0 — выкл.), «Осколок жернова» −1 (не меньше 2; 2 и меньше не меняет) | `chainColor`, проход (`colorShiftIds`), вид «до смены N»; с `colorShiftKeep` (13.10.2026) — тот же шаг для кратных смен отрезка | Жернов −2 (`millstoneEvery`) |
 | `linkGainOf` | 1 | `strike(power, hp, factor, gain)`; пропущенное погибшее звено | Тяжёлый клинок → 2 |
 
 `chain.ts` реэкспортирует `jumpCostOf` и `crystalEveryOf`: прежние импорты работают.

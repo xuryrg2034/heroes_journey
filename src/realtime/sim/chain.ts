@@ -392,18 +392,23 @@ export const brazierPowerOf = (world: World): number => Math.max(0, world.params
  * link counts, whatever its outcome (an elite's plate hit too); objects that keep the colour (loot, a brazier, the chest)
  * do not count and do not reset. A link of another colour inside a segment (a link before it died while the chain was
  * drawn: the chain is counted again from the links left) just counts.
+ *
+ * «Свобода цвета держится» (`colorShiftKeep`, design 13.10.2026): after `every` links only a link of another colour opens a
+ * new segment; a link of the segment's colour continues it (the count grows past `every`, the colour stays free) and the
+ * shifts fall on every multiple of `every` within the segment (6, 12, 18…) — for a one-colour chain the links of the old
+ * path. Without the key the free link opens a new segment whatever its colour (the old path).
  */
 function colorSegments(world: World, links: readonly ChainLink[], every: number): { color: number | null; count: number; shifts: number[] } {
   let color: number | null = null, count = 0;
-  const shifts: number[] = [];
+  const shifts: number[] = [], keep = !!world.params.colorShiftKeep;
   for (const link of links) {
     if (isCrystal(world, link)) { color = null; count = 0; continue; }
     if (link.kind !== 'enemy') continue;
     const e = findEnemy(world, link.id);
     if (!e) continue;
-    if (color === null || (every > 0 && count >= every)) { color = e.color; count = 0; }
+    if (color === null || (every > 0 && count >= every && !(keep && e.color === color))) { color = e.color; count = 0; }
     count++;
-    if (every > 0 && count === every) shifts.push(e.id);
+    if (every > 0 && (keep ? count % every === 0 : count === every)) shifts.push(e.id);
   }
   return { color, count, shifts };
 }
@@ -412,7 +417,8 @@ function colorSegments(world: World, links: readonly ChainLink[], every: number)
  * Color of the drawn chain: the first enemy link after the last crystal (a crystal changes the color:
  * the next enemy sets the new one). Null — any color (no enemy yet, or a crystal is the last link). «Смена цвета»
  * (`colorShiftOf` > 0): also null once the last colour segment has that many enemy links — the next enemy link may be of
- * any colour. `canLink`, the refusals, the highlight and П1 (linkDepth.ts) read this one function.
+ * any colour (with `colorShiftKeep` it stays null while the segment goes on in its colour). `canLink`, the refusals, the
+ * highlight and П1 (linkDepth.ts) read this one function.
  */
 export function chainColor(world: World): number | null {
   const every = colorShiftOf(world), { color, count } = colorSegments(world, world.chain, every);
@@ -421,8 +427,9 @@ export function chainColor(world: World): number | null {
 
 /**
  * «Смена цвета»: enemy links the drawn chain's colour segment still needs before the colour is free (0 — free now: the last
- * enemy link freed it). Null — the rule is off or no colour is set yet (no enemy link since the start or the last crystal).
- * The view's «до смены N» and the rainbow ring read it.
+ * enemy link freed it; with `colorShiftKeep` it stays 0 while the segment goes on in its colour). Null — the rule is off or
+ * no colour is set yet (no enemy link since the start or the last crystal). The view's «до смены N» and the rainbow ring
+ * read it.
  */
 export function colorShiftLeft(world: World): number | null {
   const every = colorShiftOf(world);
@@ -432,8 +439,8 @@ export function colorShiftLeft(world: World): number | null {
 }
 
 /**
- * «Смена цвета»: the ids of the enemy links of `links` that free the colour (the last link of each full colour segment), in
- * order. Empty while the rule is off. The release fixes them for the dash (`HeroMove.shifts`).
+ * «Смена цвета»: the ids of the enemy links of `links` that free the colour (the last link of each full colour segment; with
+ * `colorShiftKeep` every `every`-th link of a segment), in order. The view's rainbow ring stands on the last of them. Empty while the rule is off. The release fixes them for the dash (`HeroMove.shifts`).
  */
 export function colorShiftIds(world: World, links: readonly ChainLink[] = world.chain): number[] {
   const every = colorShiftOf(world);

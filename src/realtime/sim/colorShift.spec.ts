@@ -29,6 +29,7 @@ import { goblinOf, leverOf } from './slot';
 import type { Enemy, World, WorldEvent } from './world';
 import { rtRunParams } from '../run/rtRun';
 import { rtTalisman } from '../run/rtTalismans';
+import { prologueParams } from '../run/prologue';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -361,6 +362,163 @@ check('key 0 and no key: the old path (the 7th of another colour refused), the s
     const journal = JSON.parse(JSON.stringify(a.sim.exportJournal()!)) as Journal;
     delete (journal.params as Partial<Params>).colorShiftLinks;
     assert(!('colorShiftLinks' in journal.params), 'the journal has no key');
+    const b = replay(journal);
+    const strip = (w: World): string => { const s = worldState(w) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
+    assert(strip(b.world) === strip(a.sim.world), `seed ${k}: no key — the same world`);
+  }
+});
+
+// ---- «Свобода цвета держится» (`colorShiftKeep`, design 13.10.2026, task 10) ----
+const keep = (extra: Partial<Params> = {}): Params => quiet({ colorShiftKeep: true, ...extra });
+
+check('keep: 8 blue then a red — the red joins with the key and is struck (plan = dash); without the key it is refused; several seeds', () => {
+  for (let k = 1; k <= 4; k++) {
+    const on = tryRow([...rep(0, 8), 1], keep(), undefined, k), w = on.sim.world;
+    assert(on.taken === 9 && on.refusal === null, `seed ${k}: with the key the red 9th joins (${on.taken}, ${on.refusal})`);
+    assert(chainColor(w) === 1 && colorShiftLeft(w) === 5, `seed ${k}: the red set the colour, the count restarted (${chainColor(w)}, ${colorShiftLeft(w)})`);
+    const plan = planChain(w), red = w.chain[8].id, events = dash(on.sim), hits = of(events, 'chainHit');
+    assert(hits.length === 9 && plan.links.every((l, i) => hits[i].enemyId === l.link.id && hits[i].damage === l.outcome!.damage && hits[i].killed === l.outcome!.killed), `seed ${k}: the dash is the plan`);
+    assert(hits[8].enemyId === red && hits[8].killed && !w.enemies.some(e => e.id === red), `seed ${k}: the red is struck`);
+    assert(of(events, 'colorShift').length === 1 && w.lastChain?.kills === 9, `seed ${k}: one shift, 9 kills`);
+    assert(replays(on.sim), `seed ${k}: replay`);
+    const off = tryRow([...rep(0, 8), 1], quiet(), undefined, k);
+    assert(off.taken === 8 && off.refusal === 'color', `seed ${k}: without the key the red is refused (${off.taken}, ${off.refusal})`);
+  }
+});
+
+check('keep: the colour stays free over same-colour links («до смены» 0, the rainbow link is the 6th, then the 12th)', () => {
+  const sim = field(keep()), w = sim.world, pts = lay(sim, rep(0, 13)), left: (number | null)[] = [], free: boolean[] = [], ring: number[] = [];
+  sim.command({ t: 'begin', x: pts[0].x, y: pts[0].y });
+  const look = (): void => { left.push(colorShiftLeft(w)); free.push(chainColor(w) === null); ring.push(colorShiftIds(w).at(-1) ?? 0); };
+  look();
+  for (const p of pts.slice(1)) { sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' }); look(); }
+  assert(w.chain.length === 13, `drawn ${w.chain.length}`);
+  assert(left.join(',') === '5,4,3,2,1,0,0,0,0,0,0,0,0', `left ${left}`);
+  assert(free.map(f => f ? 1 : 0).join('') === '0000011111111', `free ${free}`);
+  const ids = w.chain.map(l => l.id);
+  assert(ring.slice(5, 11).every(id => id === ids[5]) && ring.slice(11).every(id => id === ids[11]), `the freeing link: ${ring}`);
+  // Without the key the 7th starts a new segment: the colour is set again, «до смены» counts down anew.
+  const old = field(quiet()), ow = old.world, op = lay(old, rep(0, 8));
+  drawRow(old, op);
+  assert(colorShiftLeft(ow) === 4 && chainColor(ow) === 0, `old path after 8: ${colorShiftLeft(ow)}, ${chainColor(ow)}`);
+});
+
+check('keep: a one-colour chain of 13 and of 19 — the same colourShift ids, «Призма» energy and kills with the key on and off', () => {
+  const prism: Loadout = { talismans: [COUNTER_TALISMANS.prism] };
+  for (const n of [13, 19]) for (let k = 1; k <= 3; k++) {
+    const play = (params: Params): { shifts: string; events: string; energy: number; kills: number; sim: Simulation } => {
+      const sim = field(params, k, prism);
+      sim.command({ t: 'energy', value: 0 });
+      const { taken } = drawRow(sim, lay(sim, rep(2, n)));
+      assert(taken === n, `${n}: drawn ${taken}`);
+      const order = sim.world.chain.map(l => l.id), shifts = colorShiftIds(sim.world).map(id => order.indexOf(id) + 1).join();
+      const events = dash(sim);
+      return { shifts, events: of(events, 'colorShift').map(e => order.indexOf(e.enemyId) + 1).join(), energy: sim.world.energy, kills: sim.world.lastChain!.kills, sim };
+    };
+    const on = play(keep({ energyPerKill: 0 })), off = play(quiet({ energyPerKill: 0 }));
+    const want = n === 13 ? '6,12' : '6,12,18';
+    assert(on.shifts === want && off.shifts === want, `${n}, seed ${k}: the shift links ${on.shifts} / ${off.shifts}`);
+    assert(on.events === want && off.events === want, `${n}, seed ${k}: colourShift events ${on.events} / ${off.events}`);
+    assert(near(on.energy, off.energy) && near(on.energy, n === 13 ? 2 : 3) && on.kills === n && off.kills === n, `${n}, seed ${k}: energy ${on.energy} / ${off.energy}`);
+    assert(replays(on.sim), `${n}, seed ${k}: replay`);
+  }
+  // The oath «Кристалл в цепи» is met the same way by a long one-colour chain.
+  for (const params of [keep({ purse: true, oathStake: true }), quiet({ purse: true, oathStake: true })]) {
+    const sim = field(params, 1, { oath: 'crystal-chain' });
+    drawRow(sim, lay(sim, rep(0, 13)));
+    dash(sim);
+    assert(oathMark(sim.world)!.mark === 'holds', `oath: ${oathMark(sim.world)!.mark}`);
+  }
+});
+
+check('keep: after 8 blue a red segment frees again at its 6th; a crystal still resets the colour and the count', () => {
+  const { sim, taken } = tryRow([...rep(0, 8), ...rep(1, 6), 2], keep()), w = sim.world;
+  assert(taken === 15, `8 blue, 6 red, then green: ${taken}`);
+  const ids = w.chain.map(l => l.id), shifts = colorShiftIds(w);
+  assert(shifts.join() === [ids[5], ids[13]].join(), `shifts at the 6th blue and the 6th red: ${shifts.map(id => ids.indexOf(id) + 1)}`);
+  const events = dash(sim);
+  assert(of(events, 'colorShift').map(e => e.enemyId).join() === shifts.join() && of(events, 'chainHit').length === 15, 'the dash: the same shifts, all struck');
+  const short = tryRow([...rep(0, 8), ...rep(1, 5), 2], keep());
+  assert(short.taken === 13 && short.refusal === 'color', `5 red then green: refused (${short.taken}, ${short.refusal})`);
+  const crystal = tryRow([...rep(0, 8), 'crystal', ...rep(1, 5), 2], keep());
+  assert(crystal.taken === 14 && crystal.refusal === 'color' && colorShiftLeft(crystal.sim.world) === 1, `8 blue, crystal, 5 red, green: refused (${crystal.taken}, ${crystal.refusal})`);
+  const after = tryRow([...rep(0, 8), 'crystal', 1], keep());
+  assert(after.taken === 10 && chainColor(after.sim.world) === 1, `after a crystal any colour: ${after.taken}`);
+  assert(replays(sim) && replays(crystal.sim), 'replay');
+});
+
+check('keep: «Осколок жернова» 5, «Жернов» 4, both 3 — the freedom holds over same-colour links; shifts at multiples of the step', () => {
+  const cases: [Loadout, number][] = [[{ talismans: ['millstone-shard'] }, 5], [{ talismans: [RELICS.millstone] }, 4], [{ talismans: ['millstone-shard', RELICS.millstone] }, 3]];
+  for (const [loadout, n] of cases) {
+    const on = tryRow([...rep(0, n + 2), 1], keep(), loadout), off = tryRow([...rep(0, n + 2), 1], quiet(), loadout);
+    assert(on.taken === n + 3, `${n}: with the key the other colour after ${n + 2} joins (${on.taken})`);
+    assert(off.taken === n + 2 && off.refusal === 'color', `${n}: without the key it is refused (${off.taken}, ${off.refusal})`);
+    const before = tryRow([...rep(0, n - 1), 1], keep(), loadout);
+    assert(before.taken === n - 1 && before.refusal === 'color', `${n}: not sooner (${before.taken}, ${before.refusal})`);
+    const long = 3 * n + 1, a = tryRow(rep(0, long), keep(), loadout), b = tryRow(rep(0, long), quiet(), loadout);
+    const pos = (sim: Simulation): string => { const ids = sim.world.chain.map(l => l.id); return colorShiftIds(sim.world).map(id => ids.indexOf(id) + 1).join(); };
+    assert(pos(a.sim) === `${n},${2 * n},${3 * n}` && pos(b.sim) === pos(a.sim), `${n}: shifts ${pos(a.sim)} / ${pos(b.sim)}`);
+    const plan = planChain(on.sim.world), hits = of(dash(on.sim), 'chainHit');
+    assert(hits.length === n + 3 && plan.links.every((l, i) => hits[i].enemyId === l.link.id && hits[i].killed === l.outcome!.killed), `${n}: the dash is the plan`);
+  }
+});
+
+check('keep: П1 «Глубина звена» (the search, no cap) goes on through same-colour links past the step', () => {
+  const spec: Spec[] = [...rep(0, 8), 1, 1, 1];
+  const depthOf = (params: Params): { depth: number; ids: number[]; pathIds: number[]; sim: Simulation } => {
+    const sim = field(params), points = lay(sim, spec);
+    drawRow(sim, points.slice(0, 3));
+    const d = linkDepth(sim.world, points[3].enemy!, { max: 20 });
+    return { depth: d.depth, ids: points.map(p => p.enemy!.id), pathIds: d.path.map(l => l.id), sim };
+  };
+  const on = depthOf(keep()), off = depthOf(quiet());
+  assert(on.depth === 8 && on.pathIds.join() === on.ids.slice(3).join(), `with the key: ${on.depth}`);
+  assert(off.depth === 5, `without: ${off.depth}`);
+  const sim = on.sim, w = sim.world;
+  for (const id of on.pathIds) { const e = w.enemies.find(x => x.id === id)!; sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' }); }
+  assert(w.chain.length === 11 && of(dash(sim), 'chainHit').length === 11, `drawn ${w.chain.length}, struck`);
+});
+
+check('keep: the plan is the dash on several seeds — random rows that run on in a free colour (plates, survivors, crystals)', () => {
+  const seen = new Set<string>();
+  for (let k = 1; k <= 8; k++) {
+    const rng = new Rng(seedOf(k)), spec: Spec[] = [];
+    let color = Math.floor(rng.next() * 4), count = 0;
+    while (spec.length < 18) {
+      if (count >= 6 && rng.next() < 0.4) { color = Math.floor(rng.next() * 4); count = 0; }
+      const roll = rng.next();
+      if (roll < 0.05 && spec.length > 1) { spec.push('crystal'); color = Math.floor(rng.next() * 4); count = 0; continue; }
+      spec.push(spec.length < 2 ? color : roll < 0.14 ? { color, elite: true } : roll < 0.24 ? { color, hp: 1 + Math.floor(rng.next() * 6) } : color);
+      count++;
+    }
+    const sim = field(keep({ eliteArmor: true }), k), w = sim.world, points = lay(sim, spec), checkpoints = new Map<number, string>();
+    const { taken } = drawRow(sim, points);
+    assert(taken >= 2, `seed ${k}: drew ${taken}`);
+    const plan = planChain(w), shifts = colorShiftIds(w), enemyLinks = plan.links.filter(l => l.outcome);
+    const events = dash(sim), hits = of(events, 'chainHit');
+    for (let t = 0; t < 900; t++) { sim.tick(); if (w.tick % 300 === 0) checkpoints.set(w.tick, sim.hash()); }
+    assert(hits.length === enemyLinks.length, `seed ${k}: ${hits.length} hits for ${enemyLinks.length} links`);
+    enemyLinks.forEach((l, i) => {
+      const o = l.outcome as StrikeOutcome, h = hits[i];
+      assert(h.enemyId === l.link.id && h.damage === o.damage && h.killed === o.killed && h.plates === o.platesAfter, `seed ${k}, link ${i}`);
+    });
+    assert(w.lastChain!.kills === plan.kills && of(events, 'colorShift').map(e => e.enemyId).join() === shifts.join(), `seed ${k}: kills and shifts`);
+    seen.add(`${taken}/${shifts.length}/${plan.kills}`);
+    assert(replays(sim, checkpoints), `seed ${k}: replay`);
+  }
+  assert(seen.size >= 3, `the seeds give different chains: ${[...seen]}`);
+  console.log(`  links/shifts/kills by seed: ${[...seen].join(' ')}`);
+});
+
+check('keep: the run and the prologue play it on; the sandbox off; a journal without the key plays the old path, the same world', () => {
+  assert(rtRunParams(defaultParams()).colorShiftKeep === true && prologueParams(4).colorShiftKeep === true && defaultParams().colorShiftKeep === false, 'run on, prologue on, sandbox off');
+  for (let k = 1; k <= 3; k++) {
+    const a = tryRow([...rep(0, 8), 1], quiet(), undefined, k);
+    assert(a.taken === 8 && a.refusal === 'color', `seed ${k}: key off — refused`);
+    dash(a.sim);
+    ticks(a.sim, 200);
+    const journal = JSON.parse(JSON.stringify(a.sim.exportJournal()!)) as Journal;
+    delete (journal.params as Partial<Params>).colorShiftKeep;
     const b = replay(journal);
     const strip = (w: World): string => { const s = worldState(w) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
     assert(strip(b.world) === strip(a.sim.world), `seed ${k}: no key — the same world`);
