@@ -8,7 +8,7 @@
  */
 import { arenaTemplate, markedGoalArena } from '../sim/arenas';
 import type { TerrainKind } from '../sim/geometry';
-import { RT_GENTLE_ELITE_ROW, rtEliteAffixes, rtEliteKinds, rtElitePlates, rtGentle, rtGuaranteedElite, rtMetKinds, rtRandomElites, type RtBattleKind, type RtRunState } from '../run/rtRun';
+import { RT_GENTLE_ELITE_ROW, rtAsh, rtEliteAffixes, rtEliteKinds, rtElitePlates, rtGentle, rtGuaranteedElite, rtMetKinds, rtRandomElites, type RtAshLevel, type RtBattleKind, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 import type { ForestMapNode } from '../forest/forestMap';
 import { arenaKinds } from './newSeen';
@@ -20,13 +20,15 @@ export const cardBattle = (node: Pick<ForestMapNode, 'type'> | undefined): RtBat
 /**
  * The run's rules of a node's fight that the card reads — the same conditions as `rtArenaLoadout` (run/rtRun.ts) gives the fight:
  * the row, the gentle tables, the guaranteed elite, the event's start elite, the first elite row's kinds (Е2) and the gentle
- * final without the porcupine not met. A card that reads anything else promises what the fight does not play (review 14.10.2026).
+ * final without the porcupine not met; task 18 — the run's level of «Испытание» (IV: 2 traits from row 6). A card that reads anything
+ * else promises what the fight does not play (review 14.10.2026).
  */
-export function cardRules(run: RtRunState, node: Pick<ForestMapNode, 'type' | 'row'> | undefined): Pick<NodeDangerInput, 'row' | 'guaranteedElite' | 'startElite' | 'markedGoals' | 'gentle' | 'eliteKinds' | 'withoutKinds'> {
-  const row = node ? runRow(node.row) : 1, battle = cardBattle(node), gentle = rtGentle(run);
+export function cardRules(run: RtRunState, node: Pick<ForestMapNode, 'type' | 'row'> | undefined): Pick<NodeDangerInput, 'row' | 'guaranteedElite' | 'startElite' | 'markedGoals' | 'gentle' | 'eliteKinds' | 'withoutKinds' | 'ash'> {
+  const row = node ? runRow(node.row) : 1, battle = cardBattle(node), gentle = rtGentle(run), ash = rtAsh(run);
   return {
     row, guaranteedElite: !!node && rtGuaranteedElite(node, battle, gentle), startElite: !!run.modifiers?.includes('start-elite'), markedGoals: !!run.markedGoals,
     ...gentle ? { gentle: true } : {},
+    ...ash > 0 ? { ash } : {},
     ...gentle && node && row === RT_GENTLE_ELITE_ROW ? { eliteKinds: rtEliteKinds(run) } : {},
     ...gentle && battle === 'final' && !rtMetKinds(run).has('porcupine') ? { withoutKinds: ['porcupine'] } : {},
   };
@@ -66,6 +68,8 @@ export interface NodeDangerInput {
   eliteKinds?: readonly string[];
   /** Task 17: kinds taken out of this fight (`Loadout.withoutKinds`: a gentle run's final without the porcupine not met). */
   withoutKinds?: readonly string[];
+  /** Task 18: the run's level of «Испытание» (`rtAsh`; IV — 2 traits from row 6, `rtEliteAffixes`). Absent — 0. */
+  ash?: RtAshLevel;
 }
 
 export interface NodeDangerLine { id: 'goal' | 'enemies' | 'elites' | 'terrain'; label: string; text: string; newKinds?: string[] }
@@ -103,7 +107,7 @@ export function nodeDangers(input: NodeDangerInput): NodeDangerLine[] {
   // Task 17 Е2: the guaranteed, the start and the random elites come from a newcomer of an allowed kind (the template's own stay).
   const allowed = !input.eliteKinds || input.eliteKinds.some(kind => kinds.includes(kind));
   const sure = template.enemies.filter(e => e.elite).length + (allowed && input.guaranteedElite ? 1 : 0) + (allowed && input.startElite ? 1 : 0);
-  const elites = eliteText(sure, allowed && rtRandomElites(input.row, input.gentle), rtElitePlates(input.row, input.gentle), rtEliteAffixes(input.row, input.gentle));
+  const elites = eliteText(sure, allowed && rtRandomElites(input.row, input.gentle), rtElitePlates(input.row, input.gentle), rtEliteAffixes(input.row, input.gentle, input.ash ?? 0));
   if (elites) lines.push({ id: 'elites', label: 'Элиты', text: elites });
   const present = new Set<TerrainKind | 'pond'>([...(template.terrain ?? []).map(z => z.kind), ...template.obstacles.flatMap(o => o.kind === 'pond' ? ['pond' as const] : [])]);
   const terrain = TERRAIN_ORDER.filter(kind => present.has(kind)).map(kind => TERRAIN_WORD[kind]);

@@ -7,7 +7,7 @@ import { arenaTemplate } from '../sim/arenas';
 import { ARENA_POOLS, FINAL_ARENA, HARD_ARENA } from '../run/arenaPools';
 import { RT_RANDOM_ELITE_ROW, rtElitePlates } from '../run/rtRun';
 import { cardRules, eliteText, goalText, nodeDangers } from './nodeCard';
-import { arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtEliteAffixes as affixesOf, rtElitePlates as platesOf, rtEnterNode, rtNode, rtRandomElites, type RtRunState } from '../run/rtRun';
+import { arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtEliteAffixes as affixesOf, rtElitePlates as platesOf, rtEnterNode, rtGentle, rtNode, rtRandomElites, type RtAshLevel, type RtRunState } from '../run/rtRun';
 import { closeNode, ok, seedOf, takeGift } from '../run/runFight.testkit';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -86,20 +86,27 @@ function walk(run: RtRunState, seen: (run: RtRunState, nodeId: string) => void):
   }
 }
 
-check('task 17: every battle node card of a run equals its fight\'s loadout (gentle and old runs, 12 seeds)', () => {
-  let cards = 0, gentleRow3 = 0, gentleRow5 = 0, firstEliteRow = 0, finals = 0;
-  for (const gentleEntry of [true, false]) {
-    for (let k = 1; k <= 12; k++) {
-      walk(takeGift(createRtRun(seedOf(k), { gift: 'mini', gentleEntry })), (run, nodeId) => {
+check('task 17, task 18: every battle node card of a run equals its fight\'s loadout (gentle and old runs, 12 seeds; «Испытание» 0–V, 4 seeds each)', () => {
+  let cards = 0, gentleRow3 = 0, gentleRow5 = 0, firstEliteRow = 0, finals = 0, ashTwoTraits = 0;
+  const runs: { k: number; gentleEntry: boolean; ash: RtAshLevel }[] = [
+    ...[true, false].flatMap(gentleEntry => Array.from({ length: 12 }, (_, i) => ({ k: i + 1, gentleEntry, ash: 0 as RtAshLevel }))),
+    ...([1, 2, 3, 4, 5] as const).flatMap(ash => Array.from({ length: 4 }, (_, i) => ({ k: 20 + i, gentleEntry: true, ash }))),
+  ];
+  for (const { k, gentleEntry: asked, ash } of runs) {
+    {
+      // The level decides the gentle flags (III and above: none; II: the tables off).
+      const start = takeGift(createRtRun(seedOf(k), { gift: 'mini', gentleEntry: asked, ash })), gentleEntry = rtGentle(start);
+      walk(start, (run, nodeId) => {
         const node = rtNode(run, nodeId)!, pick = arenaPreview(run, node)!, rules = cardRules(run, node);
         const entered = ok(rtEnterNode(run, nodeId), 'enter for the loadout');
         if (entered.pending?.kind !== 'battle') return;
-        const fight = rtArenaLoadout(entered), where = `seed ${k} ${gentleEntry ? 'gentle' : 'old'} ${nodeId} row ${rules.row}`;
+        const fight = rtArenaLoadout(entered), where = `seed ${k} ${gentleEntry ? 'gentle' : 'old'} ash ${ash} ${nodeId} row ${rules.row}`;
         assert(entered.pending.arena === pick.arena, `${where}: the card's arena ${pick.arena}, the fight's ${entered.pending.arena}`);
         assert(!!rules.gentle === gentleEntry, `${where}: gentle`);
         assert(rtRandomElites(rules.row, rules.gentle) === fight.randomElites, `${where}: random elites`);
         assert(platesOf(rules.row, rules.gentle) === fight.elitePlates, `${where}: plates`);
-        assert(affixesOf(rules.row, rules.gentle) === (fight.eliteAffixes ?? 0), `${where}: traits`);
+        assert((rules.ash ?? 0) === ash, `${where}: the level ${rules.ash}`);
+        assert(affixesOf(rules.row, rules.gentle, rules.ash) === (fight.eliteAffixes ?? 0), `${where}: traits`);
         assert(rules.guaranteedElite === !!fight.guaranteedElite, `${where}: guaranteed elite`);
         assert(JSON.stringify(rules.eliteKinds ?? null) === JSON.stringify(fight.eliteKinds ?? null), `${where}: elite kinds ${rules.eliteKinds} / ${fight.eliteKinds}`);
         assert(JSON.stringify(rules.withoutKinds ?? null) === JSON.stringify(fight.withoutKinds ?? null), `${where}: without ${rules.withoutKinds} / ${fight.withoutKinds}`);
@@ -109,12 +116,15 @@ check('task 17: every battle node card of a run equals its fight\'s loadout (gen
         if (gentleEntry && rules.row === 3) { gentleRow3++; assert(!lines.elites || !rules.guaranteedElite, `${where}: no guaranteed elite on row 3`); }
         if (gentleEntry && rules.row === 5) { gentleRow5++; assert(!lines.elites || (lines.elites.includes('броня 2') && !lines.elites.includes('свойств')), `${where}: ${lines.elites}`); }
         if (gentleEntry && rules.eliteKinds) firstEliteRow++;
+        // Task 18 IV: the elites line says the fight's two traits on rows 6–8 (it said one before the level reached the card).
+        if (lines.elites && (fight.eliteAffixes ?? 0) === 2) { assert(lines.elites.includes('2 особых свойства'), `${where}: ${lines.elites}`); if (rules.row < 9) ashTwoTraits++; }
+        else if (lines.elites && (fight.eliteAffixes ?? 0) === 1) assert(lines.elites.includes('особое свойство'), `${where}: ${lines.elites}`);
         cards++;
       });
     }
   }
-  assert(cards > 100 && gentleRow3 > 0 && gentleRow5 > 0 && firstEliteRow > 0 && finals > 0, `cards ${cards}, row 3 ${gentleRow3}, row 5 ${gentleRow5}, row 4 kinds ${firstEliteRow}, finals without the porcupine ${finals}`);
-  console.log(`  ${cards} cards; gentle row 3: ${gentleRow3}, row 5: ${gentleRow5}, row-4 kinds: ${firstEliteRow}, finals without the porcupine: ${finals}`);
+  assert(cards > 100 && gentleRow3 > 0 && gentleRow5 > 0 && firstEliteRow > 0 && finals > 0 && ashTwoTraits > 0, `cards ${cards}, row 3 ${gentleRow3}, row 5 ${gentleRow5}, row 4 kinds ${firstEliteRow}, finals without the porcupine ${finals}, IV two traits on rows 6–8 ${ashTwoTraits}`);
+  console.log(`  ${cards} cards; gentle row 3: ${gentleRow3}, row 5: ${gentleRow5}, row-4 kinds: ${firstEliteRow}, finals without the porcupine: ${finals}, IV two traits on rows 6–8: ${ashTwoTraits}`);
 });
 
 check('task 17: the gentle tables on the card — row 3 no elites, row 4 they come, row 5 armour 2 without a trait, row 6 armour 3 and a trait; an old run keeps the old ones', () => {

@@ -9,7 +9,7 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 4620);
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /realtime(?:-prologue|-run-end|-run|-enemies|-kit|-arenas|-terrain|-behavior|-camera|-telemetry|-loop|-pierce|-elites|-slot|-purse|-oath|-die|-link-depth|-session|-second-wind|-record|-luck|-reroll|-chest|-casino|-new-seen|-onboarding|-actionbar|-color-keep|-marked|-sound|-bag|-gentle|-heal|-feats)?\.spec\.ts/,
+  testMatch: /realtime(?:-prologue|-run-end|-run|-enemies|-kit|-arenas|-terrain|-behavior|-camera|-telemetry|-loop|-pierce|-elites|-slot|-purse|-oath|-die|-link-depth|-session|-second-wind|-record|-luck|-reroll|-chest|-casino|-new-seen|-onboarding|-actionbar|-color-keep|-marked|-sound|-bag|-gentle|-heal|-feats|-ash)?\.spec\.ts/,
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

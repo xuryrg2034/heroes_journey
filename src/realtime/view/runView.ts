@@ -19,7 +19,7 @@ import {
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
-  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN,
+  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -309,7 +309,8 @@ export class RunView {
     const value = (seed ?? this.fixedSeed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     const previous = this.run;
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn() });
+    // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice() });
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
@@ -326,7 +327,7 @@ export class RunView {
     this.run = step.run;
     this.store.save(this.run);
     this.notice = this.describe(step.events);
-    if (this.run.result && !before?.result) this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded });
+    if (this.run.result && !before?.result) this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run) });
     // Task 16: the Jailer fought (won or lost) — the profile's sticky mark, also for a run abandoned later (not a seeded run).
     if (!this.run.seeded && rtFoughtJailer(before, this.run)) this.profile.markJailer();
     // Task 16 telemetry: the real seconds the screen of this step's choice was open (since it opened or the last step on it).
@@ -426,6 +427,8 @@ export class RunView {
       this.newRun(); return;
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
+    // Task 18: the level of «Испытание» for the next new run (remembered in the profile at once).
+    if (action === 'ash') { const level = Number(target.dataset.level); if (isRtAshLevel(level)) this.profile.chooseAsh(level); this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
     if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
     if (action === 'hints-toggle') { this.host.hints?.set((target as HTMLInputElement).checked); this.draw(); return; }
@@ -624,7 +627,19 @@ export class RunView {
 
   private startHtml(): string {
     return `<div class="rt-run-start rt-card"><h2>Поход</h2><p>Карта леса, арены в реальном времени, привалы, события и торговец. Поражение на арене заканчивает поход.</p>`
-      + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button></div>`;
+      + this.ashHtml() + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button></div>`;
+  }
+
+  /**
+   * Task 18 «Испытание I–V» (design 13–14.10.2026): the choice of the next run's level over «Новый поход» — «Испытание: 0 · I · II ·
+   * III · IV · V» and one short line of the chosen level (`rtAshOptions`). Only once the viewer won a run without a given seed
+   * (`ashOpen`); before that — nothing. The click remembers the level (`chooseAsh`); a new run takes it (`ashChoice`).
+   */
+  private ashHtml(): string {
+    if (!this.profile.ashOpen()) return '';
+    const chosen = this.profile.ashChoice(), options = rtAshOptions(), current = options.find(option => option.level === chosen)!;
+    const buttons = options.map(option => `<button class="rt-ash-level${option.level === chosen ? ' rt-on' : ''}" data-action="ash" data-level="${option.level}" data-testid="ash-${option.level}" aria-pressed="${option.level === chosen}" title="${escapeHtml(`${option.title}: ${option.text}`)}">${option.label}</button>`).join('');
+    return `<div class="rt-ash" data-testid="run-ash"><span class="rt-ash-head">Испытание:</span>${buttons}</div><p class="rt-run-note rt-ash-text" data-testid="run-ash-text">${escapeHtml(current.text)}</p>`;
   }
 
   private headerHtml(run: RtRunState): string {
@@ -651,7 +666,9 @@ export class RunView {
     // Task 15: the map heal by the HP — in the header on the map and over a node card; the window «Бой» covers the header, so
     // there the button stands in the window (design 14.10.2026: one place for the player on the card).
     const heal = run.pending?.kind === 'battle' ? '' : this.healHtml(run);
-    return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
+    // Task 18: the run's level, small, by the title («Испытание III»; nothing at 0).
+    const ash = rtAshTitle(rtAsh(run));
+    return `<header class="rt-run-head"><b>Поход</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `${resources}${reset}${this.logsButton()}${this.settingsHtml()}</header>`
@@ -816,7 +833,7 @@ export class RunView {
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
         + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
-        + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
+        + this.ashHtml() + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }
     const pending = run.pending;
     if (!pending) return '';
