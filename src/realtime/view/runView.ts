@@ -17,9 +17,9 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  rtOathPreview, rtOathStakeOn, rtGuaranteedElite, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
+  rtOathPreview, rtOathStakeOn, rtGuaranteedElite, rtArenaRules, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
-  type RtArenaOutcome, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
+  type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
@@ -41,10 +41,11 @@ import type { SoundSetting } from './paramStorage';
 export interface RunHost {
   /**
    * Start the arena of the entered battle node (the run's HP, the node's seed, the run's consumables and energy; phase A —
-   * its roster, absent for the template's own composition) and show it. Task 12: `markedGoals` — the run's flag
-   * (`RtRunState.markedGoals`): the arena plays with `rtArenaParams` (a run without the flag keeps the old layouts).
+   * its roster, absent for the template's own composition) and show it. `rules` (`rtArenaRules`): task 12 — the run's flag
+   * `markedGoals` (a run without it keeps the old layouts); task 17 — the row of a gentle run's battle (its invulnerability
+   * after a hit and tough touch); the arena plays with `rtArenaParams`.
    */
-  startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice, roster?: string, markedGoals?: boolean): void;
+  startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice, roster?: string, rules?: RtArenaRules): void;
   /** Loop research, step 1: what the arena's loadout takes from the panel (the palette by the row). Absent — nothing. */
   loadoutOptions?: RtLoadoutOptions;
   /**
@@ -327,7 +328,7 @@ export class RunView {
     this.el.hidden = true;
     this.host.onScreenChange(false);
     const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}`;
-    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) }, pending.roster, !!this.run.markedGoals);
+    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
   }
 
   private describe(events: RtRunEvent[]): string {

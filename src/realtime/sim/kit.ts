@@ -80,6 +80,28 @@ export interface Loadout {
    * while `Params.oathStake` is on (`World.oath`). Absent — no oath.
    */
   oath?: string;
+  /**
+   * Task 17 «Пологий вход» (run/rtRun.ts `rtArenaLoadout`): the run's second wind waits in this battle (a run with the flag `secondWind`,
+   * run rows 1–4, not spent yet) — the lethal hit stands the hero up as `Params.secondWind` does (world.ts `hurtHero`), once a
+   * fight. Absent — none (the sandbox has its own `Params.secondWind`).
+   */
+  secondWind?: boolean;
+  /**
+   * Task 17: while only the run's start healing is open, the first armoured elite loot of the fight opens a kind not open yet
+   * and drops it (elites.ts `armorLoot`; acts only with `Params.eliteLootOpens`). Absent — the loot as before.
+   */
+  lootOpens?: boolean;
+  /**
+   * Task 17 Е2: the kinds a newcomer may be to become an elite (acts only with `Params.eliteMetKinds`; elites.ts `eliteRoll`).
+   * The run gives it on the first elite row of a gentle run. Absent — every kind, as before.
+   */
+  eliteKinds?: string[];
+  /**
+   * Task 17 (design 13.10.2026): kinds taken out of this arena (sim/rosters.ts `withoutKinds`: their newcomers' share goes to
+   * the other kinds of the mix, a start enemy of such a kind stands as a basic one). The run gives `['porcupine']` to the final
+   * of a gentle run that has not met the porcupine. Absent — the arena as it is.
+   */
+  withoutKinds?: string[];
 }
 
 /**
@@ -134,6 +156,14 @@ export interface Kit {
   slot?: true;
   /** Task 14 «Котомка у двери»: no bag in this fight (absent — by `Params.doorBag`: kits before hash as before). */
   noBag?: true;
+  /** Task 17: the run's second wind waits in this battle (absent — none: kits before hash as before). */
+  secondWind?: true;
+  /** Task 17: the first armoured loot opens a kind not open yet (absent — none, or it opened one: kits before hash as before). */
+  lootOpens?: true;
+  /** Task 17 Е2: the kinds an elite may be here (absent — every kind: kits before hash as before). */
+  eliteKinds?: string[];
+  /** Task 17: the kinds taken out of this arena (absent — none: kits before hash as before). */
+  withoutKinds?: string[];
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -184,6 +214,11 @@ export function kitOf(loadout: Loadout): Kit {
     ...loadout.guaranteedElite ? { guaranteedElite: true as const } : {},
     ...loadout.slot ? { slot: true as const } : {},
     ...loadout.noBag ? { noBag: true as const } : {},
+    // Task 17 «Пологий вход»: absent unless the run gives them (kits before hash as before).
+    ...loadout.secondWind ? { secondWind: true as const } : {},
+    ...loadout.lootOpens ? { lootOpens: true as const } : {},
+    ...Array.isArray(loadout.eliteKinds) && loadout.eliteKinds.length ? { eliteKinds: [...new Set(loadout.eliteKinds.filter(kind => typeof kind === 'string'))] } : {},
+    ...Array.isArray(loadout.withoutKinds) && loadout.withoutKinds.length ? { withoutKinds: [...new Set(loadout.withoutKinds.filter(kind => typeof kind === 'string'))] } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

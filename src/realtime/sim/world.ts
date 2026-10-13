@@ -546,7 +546,7 @@ export interface World {
   /** Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight (absent without one — hashed only when present). */
   oath?: OathState;
   /**
-   * П9 «Второе дыхание» (`Params.secondWind`, sandbox only): the tick and the game time the hero stood up after a lethal hit —
+   * П9 «Второе дыхание» (`Params.secondWind` in the sandbox; `Kit.secondWind` in a gentle run, task 17): the tick and the game time the hero stood up after a lethal hit —
    * once per fight. `time` counts the recovery window (`secondWindRecovering`: game seconds, a hit-stop does not shorten it).
    * Absent until used (worlds without it hash as before).
    */
@@ -1192,8 +1192,9 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
   if (world.oath) oathHurt(world);
   // П4 «Раздув за дела» (purse.ts): a hit takes one greed step off and resets the count (nothing while the rule is off).
   if (world.purse?.greed) greedHurt(world);
-  // П9 «Второе дыхание» (sandbox; the ward above goes first): once per fight the lethal hit leaves the hero standing.
-  if (hero.hp <= 0 && world.params.secondWind && !world.secondWind) secondWind(world, { hp: hpBefore, enemyId: striker.id, source });
+  // П9 «Второе дыхание» (sandbox; the ward above goes first): once per fight the lethal hit leaves the hero standing. Task 17
+  // «Пологий вход»: the run's own second wind comes in the kit (`Kit.secondWind`: rows 1–4, once a run) — the same rule.
+  if (hero.hp <= 0 && (world.params.secondWind || kit?.secondWind) && !world.secondWind) secondWind(world, { hp: hpBefore, enemyId: striker.id, source });
   if (hero.hp <= 0) {
     world.status = 'defeat';
     world.endTime = world.time;

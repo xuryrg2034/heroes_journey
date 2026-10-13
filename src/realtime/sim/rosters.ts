@@ -169,6 +169,22 @@ function ofAllShares(newcomers: readonly NewcomerShare[]): { kind: string; ofAll
   });
 }
 
+/**
+ * Task 17 (design 13.10.2026; a gentle run's final with the porcupine not met): the template without the kinds `kinds` — the
+ * newcomers of those kinds leave the mix and their share of all single newcomers goes to the other kinds of the template's
+ * own mix in equal parts (the total share of the mix stays; none left — to basic enemies); a start enemy of such a kind stands
+ * as a basic enemy (its place, colour, elite and HP kept). The arena id stays (the journal names the kit's list,
+ * `Loadout.withoutKinds`, and a replay applies it again).
+ */
+export function withoutKinds<T extends ArenaTemplate>(template: T, kinds: readonly string[]): T {
+  if (!kinds.length) return template;
+  const all = ofAllShares(template.newcomers ?? []), gone = all.filter(entry => kinds.includes(entry.kind)), kept = all.filter(entry => !kinds.includes(entry.kind));
+  const extra = gone.reduce((sum, entry) => sum + entry.ofAll, 0) / Math.max(1, kept.length);
+  const newcomers = kept.length ? rollShares(kept.map(entry => ({ ...entry, ofAll: entry.ofAll + extra }))) : [];
+  const enemies = template.enemies.map(e => kinds.includes(e.kind ?? 'basic') ? { ...e, kind: 'basic' as const } : e);
+  return { ...template, newcomers, enemies };
+}
+
 /** A template with a roster applied: the layout as it is, `roster` names what was applied (the journal keeps it). */
 export type RosterArena = ArenaTemplate & { readonly roster?: string };
 

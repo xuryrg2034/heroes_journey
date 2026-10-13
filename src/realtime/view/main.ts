@@ -25,7 +25,7 @@ import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, co
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
-import { rtArenaParams, rtRunParams } from '../run/rtRun';
+import { rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { linkPoint } from '../sim/chain';
@@ -193,10 +193,9 @@ async function boot(): Promise<void> {
   /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. `#sandbox` too: a published
    * build passes a plain anchor to the page but not the query (design 08.10.2026). */
   const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
-  // Review finding B of step 3: a run plays the saved panel with the sandbox stand-ins of run rules off (the hero anchor
-  // only from its talisman, elites only from the template, events and run row 3); the run has no panel, nothing is saved.
-  // Iteration 2.1: and the run's own numbers (the healing consumable heals rtHp(3) = 9 whatever the panel says).
-  const params = sandbox ? loadParams() : rtRunParams(loadParams());
+  // Task 17 hygiene (design answer 1, 13.10.2026): the run plays the defaults with its own numbers (`rtRunParams`), never the
+  // saved sandbox panel — the panel changes only the sandbox; the run is tuned only by `RT_RUN_FORCED` (`rtPageParams`).
+  const params = rtPageParams(sandbox, loadParams);
   /**
    * Telemetry (track ТA): records of fights, the run and N notes into the browser buffer and the sinks. `?telemetry=0` —
    * off (nothing is recorded). The dev-server sink only on `vite` (`import.meta.env.DEV`); a browser driven by tests
@@ -606,9 +605,10 @@ async function boot(): Promise<void> {
   const newSeen = sandbox ? null : new NewSeenStore();
   let newOnMap = loadNewOnMap();
   const runView: RunView | null = sandbox ? null : new RunView({
-    startArena(arenaId, seed, hero, label, loadout, notice, roster, markedGoals) {
+    startArena(arenaId, seed, hero, label, loadout, notice, roster, rules) {
       runLabel = label;
-      runArenaParams = rtArenaParams({ ...markedGoals ? { markedGoals: true as const } : {} }, params);
+      // Task 12: the run's `markedGoals`; task 17: the row's invulnerability and tough touch of a gentle run (`rtArenaRules`).
+      runArenaParams = rtArenaParams(rules ?? {}, params);
       runArenaRecorded = false;
       fightChainLine = null;
       fightLuck = {};
@@ -666,7 +666,7 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, kinds: deathWatch.kinds(w), itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
@@ -839,7 +839,7 @@ async function boot(): Promise<void> {
     runScreenOpen = false;
     if (runView) runView.el.hidden = true;
     runLabel = null;
-    startArena(room.arena, prologueSeed(n, attempt, fixedSeed), { hp: RT_RUN_HP, maxHp: RT_RUN_HP }, prologueLoadout(n), undefined, prologueParams(n, loadParams()));
+    startArena(room.arena, prologueSeed(n, attempt, fixedSeed), { hp: RT_RUN_HP, maxHp: RT_RUN_HP }, prologueLoadout(n), undefined, prologueParams(n));
     prologueLayer.reset();
     // The hand: a chain room shows its chain (or the arrow to a spot with one); «Пропасть» (task 9) — the arrow to the cliff's edge,
     // then the click of the jump beyond it; «Щит» (task 13) — a chain of 3+ of one colour through the crowd from where the hero
