@@ -539,7 +539,7 @@ async function main(): Promise<void> {
     let run: RtRunState = createRtRun(7101, { gift: 'mini' });
     rec.runStarted(null, run);
     let r0 = await latest(7101);
-    assert(r0.gentle === true && JSON.stringify(r0.startItems) === JSON.stringify({ healing: 1 }) && r0.secondWind === undefined && checkRecord(r0) === null, `the start: ${JSON.stringify({ gentle: r0.gentle, startItems: r0.startItems })}`);
+    assert(r0.gentle === true && r0.startPotion === true && r0.secondWindOn === true && JSON.stringify(r0.startItems) === JSON.stringify({ healing: 1 }) && r0.secondWind === undefined && checkRecord(r0) === null, `the start: ${JSON.stringify({ gentle: r0.gentle, startItems: r0.startItems })}`);
     const feed = (step: RtRunStep): void => { assert(step.ok, step.ok ? '' : step.reason); rec.runStep(run, step); run = step.run; };
     feed({ ok: true, run: takeGift(run), events: [] });
     for (let i = 0; i < 40 && run.pending?.kind !== 'battle'; i++) feed(run.pending ? { ok: true, run: closeNode(run), events: [] } : rtEnterNode(run, rtAvailableNodes(run)[0].id));
@@ -566,7 +566,8 @@ async function main(): Promise<void> {
     // A run without the flag: none of the fields.
     rec.runStarted(run, createRtRun(7102, { gift: 'mini', gentleEntry: false }));
     const r2 = await latest(7102);
-    assert(r2.gentle === undefined && r2.startItems === undefined && r2.secondWind === undefined, 'the old run');
+    assert(r2.gentle === undefined && r2.startPotion === undefined && r2.secondWindOn === undefined && r2.startItems === undefined && r2.secondWind === undefined, 'the old run');
+    assert(checkRecord({ ...r1, startPotion: false }) === 'run startPotion' && checkRecord({ ...r1, secondWindOn: 1 }) === 'run secondWindOn', 'the flags are checked');
     rec.dispose();
   });
 

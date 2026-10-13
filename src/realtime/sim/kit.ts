@@ -75,7 +75,7 @@ export interface Loadout {
    */
   oath?: string;
   /**
-   * Task 17 «Пологий вход» (run/rtRun.ts `rtArenaLoadout`): the run's second wind waits in this battle (a run with `gentleEntry`,
+   * Task 17 «Пологий вход» (run/rtRun.ts `rtArenaLoadout`): the run's second wind waits in this battle (a run with the flag `secondWind`,
    * run rows 1–4, not spent yet) — the lethal hit stands the hero up as `Params.secondWind` does (world.ts `hurtHero`), once a
    * fight. Absent — none (the sandbox has its own `Params.secondWind`).
    */

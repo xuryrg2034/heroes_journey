@@ -56,15 +56,17 @@ export const ARENA_POOLS_BEFORE_MIX: readonly ArenaPoolEntry[] = [
 export const ARENA_POOLS: readonly ArenaPoolEntry[] = ARENA_POOLS_BEFORE_MIX.map(entry => entry.arena === 'marked' ? { arena: 'marked', rows: [6, 8] as const } : entry);
 /**
  * Баланс, task 17 «Пологий вход» (design 13.10.2026): a run with `RtRunState.gentleEntry` plays «Колючие заросли» on run rows
- * 6–8 (was 5–8) — row 5 brought the porcupine together with the affix, 3 plates and tough HP 3. In the same place of the list
+ * 7–8 (was 5–8) — row 5 brought the porcupine together with the affix, 3 plates and tough HP 3; final design decision
+ * 13.10.2026: one novelty per row (the armour step on 6, the porcupine on 7 — the rule of the unmet kind puts its own arena first
+ * there; the bot's decomposition: with the porcupine on 6 the step 5→6 was +6.2). In the same place of the list
  * (the order of the candidates stays); every other entry as in the pools it applies to.
  */
-export const GENTLE_THORNS_ROWS: readonly [number, number] = [6, 8];
+export const GENTLE_THORNS_ROWS: readonly [number, number] = [7, 8];
 export const gentlePools = (pools: readonly ArenaPoolEntry[]): readonly ArenaPoolEntry[] => pools.map(entry => entry.arena === 'thorns' ? { arena: 'thorns', rows: GENTLE_THORNS_ROWS } : entry);
 const GENTLE_POOLS = gentlePools(ARENA_POOLS), GENTLE_POOLS_BEFORE_MIX = gentlePools(ARENA_POOLS_BEFORE_MIX);
 /**
  * The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) —
- * `ARENA_POOLS_BEFORE_MIX`; with the gentle entry (`gentle`, task 17) «Колючие заросли» on rows 6–8 in either.
+ * `ARENA_POOLS_BEFORE_MIX`; with the gentle entry (`gentle`, task 17) «Колючие заросли» on rows 7–8 in either.
  */
 export const runArenaPools = (mix: boolean, gentle = false): readonly ArenaPoolEntry[] =>
   gentle ? (mix ? GENTLE_POOLS : GENTLE_POOLS_BEFORE_MIX) : mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;

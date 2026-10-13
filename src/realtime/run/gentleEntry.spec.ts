@@ -1,8 +1,8 @@
 /**
  * Task 17 «Пологий вход» (design 13.10.2026; docs/realtime-slice.md, section 7, «Пологий вход»): a run with the flag
  * `gentleEntry` and a run without it (a save before the task) — what the player meets, read from real fights played by
- * journal commands and from the run's own commands: elites from row 4, 3 plates and tough HP 3 from row 6, an affix from row 7
- * (design answer 13.10.2026), «Колючие заросли» on rows 6–8, the row's invulnerability after a hit and the raised tough touch from row 3, a healing potion
+ * journal commands and from the run's own commands: elites from row 4, an affix, 3 plates and tough HP 3 from row 6,
+ * «Колючие заросли» on rows 7–8 (final design decision 13.10.2026: one novelty per row — 4, 6, 7, 9), the row's invulnerability after a hit and the raised tough touch from row 3, a healing potion
  * at the start with the first elite loot opening another kind, the second wind once on rows 1–4; the saves; the run's params
  * do not depend on the sandbox panel.
  */
@@ -74,9 +74,9 @@ check('elites by the row: a gentle run meets none on rows 1–3 and the guarante
   }
 });
 
-check('the elite of a gentle run: row 4 — 2 plates, no affix; row 6 — 3 plates, no affix; rows 7–8 — 3 plates and 1 affix; row 9 — 4 plates and 2 affixes; a run without the flag — 3 plates and an affix on row 6 too (real fights)', () => {
+check('the elite of a gentle run: row 4 — 2 plates, no affix; rows 6–8 — 3 plates and 1 affix; row 9 — 4 plates and 2 affixes; a run without the flag — the same on row 6 (real fights)', () => {
   const plateOf = (e: Enemy): number => (e.armor?.max ?? 0) - (e.affixes?.includes('fat') ? 1 : 0) + (e.affixes?.includes('swift') ? 1 : 0);
-  for (const [gentle, row, plates, affixes] of [[true, 4, 2, 0], [true, 6, 3, 0], [true, 7, 3, 1], [true, 8, 3, 1], [true, 9, 4, 2], [false, 4, 2, 0], [false, 6, 3, 1]] as const) {
+  for (const [gentle, row, plates, affixes] of [[true, 4, 2, 0], [true, 6, 3, 1], [true, 7, 3, 1], [true, 8, 3, 1], [true, 9, 4, 2], [false, 4, 2, 0], [false, 6, 3, 1]] as const) {
     for (let k = 1; k <= 2; k++) {
       const run = rowRun(row, gentle, k, 'battle', 'gentle-open', ORDINARY);
       assert(run, `a node of row ${row}`);
@@ -127,7 +127,7 @@ function arenaRows(seed: number, k: number, gentle: boolean): [number, string][]
   return out;
 }
 
-check('«Колючие заросли» (300 runs each): a gentle run plays them on rows 6–8 by the pool — never before row 6; on row 9 only as the overdue own arena of an unmet porcupine (the rule of before); a run without the flag still meets them on row 5', () => {
+check('«Колючие заросли» (300 runs each): a gentle run plays them on rows 7–8 by the pool — never before row 7; on row 9 only as the overdue own arena of an unmet porcupine (the rule of before); a run without the flag still meets them on rows 5–6', () => {
   const rows = { gentle: new Map<number, number>(), old: new Map<number, number>() };
   let overdue = 0;
   for (let k = 1; k <= 300; k++) {
@@ -142,9 +142,9 @@ check('«Колючие заросли» (300 runs each): a gentle run plays the
   }
   const text = (m: Map<number, number>): string => [...m].sort((a, b) => a[0] - b[0]).map(([r, n]) => `${r}: ${n}`).join(', ');
   console.log(`   thorns by row (heuristic walk, 13.10.2026) — gentle ${text(rows.gentle)}; old ${text(rows.old)}`);
-  assert([...rows.gentle.keys()].every(row => row >= 6) && [6, 7, 8].every(row => (rows.gentle.get(row) ?? 0) > 0), `gentle: ${text(rows.gentle)}`);
+  assert([...rows.gentle.keys()].every(row => row >= 7) && [7, 8].every(row => (rows.gentle.get(row) ?? 0) > 0), `gentle: ${text(rows.gentle)}`);
   assert(overdue === (rows.gentle.get(9) ?? 0), 'row 9: overdue only');
-  assert((rows.old.get(5) ?? 0) > 0, `old: ${text(rows.old)}`);
+  assert((rows.old.get(5) ?? 0) > 0 && (rows.old.get(6) ?? 0) > 0, `old: ${text(rows.old)}`);
 });
 
 /** The hero touched once by an enemy of `hp` standing on him: the hit's damage and the invulnerability it left. */
@@ -291,7 +291,7 @@ check('the second wind of a gentle run: on row 1 the lethal touch stands the her
   assert(stood === 3, 'three seeds');
 });
 
-check('the second wind: not on row 5 or later of a gentle run, not in a run without the flag', () => {
+check('the second wind: not on row 5 or later of a new run, not in a run without its flag', () => {
   for (const [gentle, row] of [[true, 5], [true, 7], [false, 1], [false, 3]] as const) {
     const run = rowRun(row, gentle, 1, 'battle', 'run-fight-field')!;
     assert(!rtArenaLoadout(run).secondWind, `${gentle ? 'gentle' : 'old'} row ${row}: no wind in the loadout`);
@@ -305,27 +305,65 @@ check('the second wind: not on row 5 or later of a gentle run, not in a run with
   }
 });
 
-check('saves: a gentle run keeps its flag and `secondWindSpent`; a save without the flag (before task 17) loads and plays the old tables; malformed flags read as no run', () => {
+check('saves: a new run keeps its three flags and `secondWindSpent`; a save without them (before task 17) loads and plays the old rules; malformed flags read as no run', () => {
   let run = takeGift(createRtRun(seedOf(77), { gift: 'mini' }));
   const back = parseRtRun(serializeRtRun(run));
-  assert(back && back.gentleEntry === true && same(back, run), 'the flag loads back');
+  assert(back && back.gentleEntry === true && back.startPotion === true && back.secondWind === true && same(back, run), 'the flags load back');
   const old = JSON.parse(serializeRtRun(run)) as Record<string, unknown>;
-  delete old.gentleEntry;
+  delete old.gentleEntry; delete old.startPotion; delete old.secondWind;
   const oldRun = parseRtRun(JSON.stringify(old));
-  assert(oldRun && oldRun.gentleEntry === undefined, 'a save without the flag loads');
+  assert(oldRun && oldRun.gentleEntry === undefined && oldRun.startPotion === undefined && oldRun.secondWind === undefined, 'a save without the flags loads');
   const battle = rowRun(3, true, 1)!, oldBattle: RtRunState = { ...structuredClone(battle) };
   delete oldBattle.gentleEntry;
   assert(rtArenaLoadout(battle).randomElites === false && rtArenaLoadout(oldBattle).randomElites === true, 'the old save plays the old row 3');
   assert(same(rtArenaRules(oldBattle), {}) || same(rtArenaRules(oldBattle), { markedGoals: true }), 'no row params for the old save');
-  for (const bad of [{ gentleEntry: false }, { gentleEntry: 1 }, { secondWindSpent: true }, { secondWindSpent: false }]) {
+  for (const bad of [{ gentleEntry: false }, { gentleEntry: 1 }, { startPotion: false }, { secondWind: 1 }, { secondWindSpent: true }, { secondWindSpent: false }]) {
     const value = { ...JSON.parse(serializeRtRun(run)), ...bad };
     if ('secondWindSpent' in bad && bad.secondWindSpent === true) value.battles = [];
     assert(parseRtRun(JSON.stringify(value)) === null, `malformed ${JSON.stringify(bad)}`);
   }
   run = { ...run, battles: [{ nodeId: run.visited[0] ?? 'x', arena: 'glade', won: true, kills: 0, damage: 0, time: 1 }] };
   const noFlag = { ...JSON.parse(serializeRtRun(run)), secondWindSpent: true };
-  delete noFlag.gentleEntry;
-  assert(parseRtRun(JSON.stringify(noFlag)) === null, 'the second wind without the flag reads as no run');
+  delete noFlag.secondWind;
+  assert(parseRtRun(JSON.stringify(noFlag)) === null, 'a spent second wind without its flag reads as no run');
+});
+
+check('each of the three flags alone changes only its own system (design 13.10.2026): `gentleEntry` — the tables and the row numbers; `startPotion` — the potion and the first loot; `secondWind` — the run\'s second wind', () => {
+  // A seed whose map has ordinary battles on rows 1, 3 and 6.
+  const k = Array.from({ length: 40 }, (_, i) => 91 + i).find(n => [1, 3, 6].every(row => rtMapNodes(createRtRun(seedOf(n))).some(node => runRow(node.row) === row && ORDINARY.includes(node.type))))!;
+  const only = (flag: 'gentleEntry' | 'startPotion' | 'secondWind'): RtRunState => createRtRun(seedOf(k), { gift: 'mini', gentleEntry: flag === 'gentleEntry', startPotion: flag === 'startPotion', secondWind: flag === 'secondWind' });
+  const atRow = (run: RtRunState, row: number): RtRunState => {
+    const node = rtMapNodes(run).find(n => runRow(n.row) === row && ORDINARY.includes(n.type))!;
+    return { ...structuredClone(run), pending: { kind: 'battle', nodeId: node.id, arena: 'run-fight-field', seed: seedOf(row), battle: 'battle' } };
+  };
+  const look = (run: RtRunState) => {
+    const r1 = atRow(run, 1), r3 = atRow(run, 3), r6 = atRow(run, 6), l1 = rtArenaLoadout(r1), l3 = rtArenaLoadout(r3), l6 = rtArenaLoadout(r6), p1 = rtArenaParams(r1, rtRunParams(defaultParams()));
+    return { potion: run.items.healing === 1 && same(run.openItems, ['healing']), loot: !!l1.lootOpens, wind: !!l1.secondWind, gentleTables: l3.randomElites === false && (l6.eliteAffixes ?? 0) === 1 && l6.elitePlates === 3,
+      oldTables: l3.randomElites === true && (l6.eliteAffixes ?? 0) === 1, grace: p1.invulnerability === 1 && p1.toughTouch === false };
+  };
+  const g = look(only('gentleEntry')), p = look(only('startPotion')), w = look(only('secondWind')), none = look(createRtRun(seedOf(k), { gift: 'mini', gentleEntry: false }));
+  assert(g.gentleTables && g.grace && !g.potion && !g.loot && !g.wind, `gentleEntry alone: ${JSON.stringify(g)}`);
+  assert(p.potion && p.loot && p.oldTables && !p.grace && !p.wind, `startPotion alone: ${JSON.stringify(p)}`);
+  assert(w.wind && w.oldTables && !w.grace && !w.potion && !w.loot, `secondWind alone: ${JSON.stringify(w)}`);
+  assert(none.oldTables && !none.grace && !none.potion && !none.loot && !none.wind, `none: ${JSON.stringify(none)}`);
+  // The pools: only `gentleEntry` moves «Колючие заросли» off rows 5–6 (the walk of the thorns check, 60 runs).
+  const thornsEarly = (opts: { gentleEntry: boolean; startPotion: boolean; secondWind: boolean }): number => {
+    let n = 0;
+    for (let k = 1; k <= 60; k++) {
+      let run = createRtRun(seedOf(k), { gift: 'mini', ...opts });
+      for (let step = 0; step < 200 && !run.result; step++) {
+        const pending = run.pending;
+        if (pending?.kind === 'battle') { if (pending.arena === 'thorns' && runRow(rtNode(run, pending.nodeId)!.row) <= 6) n++; run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'resolve'); }
+        else if (pending) run = pending.kind === 'gift' ? takeGift(run) : closeNode(run);
+        else { const next = rtAvailableNodes(run); run = ok(rtEnterNode(run, next[(k + step) % next.length].id), 'enter'); }
+      }
+    }
+    return n;
+  };
+  assert(thornsEarly({ gentleEntry: true, startPotion: false, secondWind: false }) === 0 && thornsEarly({ gentleEntry: false, startPotion: true, secondWind: true }) > 0, 'the pools follow gentleEntry only');
+  // A real lethal fight on row 1: the wind with `secondWind` alone, none with `gentleEntry` alone.
+  const windFight = lethalFight(atRow(only('secondWind'), 1), 2, false), plain = lethalFight(atRow(only('gentleEntry'), 1), 2, false);
+  assert(windFight.events.filter(e => e.ev.type === 'secondWind').length === 1 && !plain.events.some(e => e.ev.type === 'secondWind'), 'the wind follows its own flag');
 });
 
 check('the run ignores the sandbox panel: its params are the defaults with the run\'s numbers, whatever the panel saved; the same fight plays the same world', () => {

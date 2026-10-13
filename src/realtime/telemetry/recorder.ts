@@ -280,6 +280,8 @@ interface RunMeta {
   items?: RunItems;
   /** Task 17: the run's gentle entry, its start consumables (seen at `runStarted`) and its second wind (absent — none). */
   gentle?: true;
+  startPotion?: true;
+  secondWindOn?: true;
   startItems?: Record<string, number>;
   secondWind?: RunSecondWind;
 }
@@ -634,7 +636,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -652,6 +654,8 @@ export class RtRecorder {
       // Task 17: the run's flag and what it starts with in hand (the gentle entry's potion).
       const start = Object.fromEntries(ITEM_KINDS.filter(kind => run.items[kind] > 0).map(kind => [kind, run.items[kind]]));
       if (run.gentleEntry) this.meta.gentle = true;
+      if (run.startPotion) this.meta.startPotion = true;
+      if (run.secondWind) this.meta.secondWindOn = true;
       if (Object.keys(start).length) this.meta.startItems = start;
       this.saveMeta();
       this.writeRun(run);

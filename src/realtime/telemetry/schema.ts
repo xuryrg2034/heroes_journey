@@ -253,6 +253,9 @@ export interface RunRecord extends RtHeader {
   items?: RunItems;
   /** Task 17 (from 13.10.2026): the run plays the gentle entry (`RtRunState.gentleEntry`); absent — no, or an older record. */
   gentle?: true;
+  /** Task 17: the run's own flags of the start potion (`RtRunState.startPotion`) and the second wind (`RtRunState.secondWind`). */
+  startPotion?: true;
+  secondWindOn?: true;
   /**
    * Task 17 (from 13.10.2026): consumables in hand when the run was created, by kind (only those above 0) — the start potion
    * of a gentle run (`healing: 1`); absent — none, a run started before the recorder, or an older record.
@@ -410,6 +413,8 @@ export function checkRecord(value: unknown): string | null {
       if (!['victory', 'defeat', 'abandoned', 'open'].includes(r.outcome as string)) return `run outcome ${String(r.outcome)}`;
       // Task 17 (13.10.2026): optional fields — the flag, the start consumables, the second wind.
       if (r.gentle !== undefined && r.gentle !== true) return 'run gentle';
+      if (r.startPotion !== undefined && r.startPotion !== true) return 'run startPotion';
+      if (r.secondWindOn !== undefined && r.secondWindOn !== true) return 'run secondWindOn';
       if (r.startItems !== undefined && !(r.startItems && typeof r.startItems === 'object' && !Array.isArray(r.startItems)
         && Object.values(r.startItems).every(n => Number.isInteger(n) && (n as number) > 0))) return 'run startItems';
       if (r.secondWind !== undefined) {
