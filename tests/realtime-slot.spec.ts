@@ -346,6 +346,13 @@ test('task 5 and 11, the run: no «Зарок» on the cards, the goblin after t
       // Design 13.10.2026: the line keeps off the power number and the combo over the hero (beside the idol when it would meet them).
       expect(shown.heroFrame).not.toBeNull();
       expect(meets(shown.oddsRect!, shown.heroFrame!)).toBe(false);
+      // Both beside the idol: one column on the same side — the lever's label over, the line under it (design 13.10.2026).
+      const label = ((await snap(page)).onboarding.labels as (Rect & { id: string })[]).find(l => l.id === 'b9');
+      if (label && shown.oddsSide) {
+        const idol = await screen(page, g.x, g.y);
+        expect(shown.oddsSide === 'left' ? label.right < idol.x : label.left > idol.x).toBe(true);
+        expect(label.bottom).toBeLessThanOrEqual(shown.oddsRect!.top + 1);
+      }
       if (i === 0) await page.screenshot({ path: 'artifacts/realtime-slot-run-line.png' });
     });
     expect((await snap(page)).slot.shown.caption).toBe('');

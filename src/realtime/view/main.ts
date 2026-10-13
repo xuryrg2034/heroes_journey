@@ -48,7 +48,7 @@ import { rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { detectLabels, labelActions, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { detectLabels, labelActions, LEVER_OVER_LINE, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HandGuide, PROLOGUE_ROOM_COUNT, PrologueStore, TITLE_SECONDS, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
@@ -1112,9 +1112,10 @@ async function boot(): Promise<void> {
       if (runLabelling) for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
       let specs: LabelSpec[] = [];
       if (runLabelling && w.status === 'playing') specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
-      // Task 11 (design 13.10.2026): the odds line beside the idol (off the hero's texts) and the lever's label stand on opposite sides.
+      // Task 11 (design 13.10.2026): the odds line beside the idol (off the hero's texts) and the lever's label stand in one column on
+      // the same side — the label over, the line under it (the label goes with the first pull, the line stays).
       const oddsSide = renderer.slotView.shown.oddsSide;
-      if (oddsSide) specs = specs.map(spec => spec.id === 'b9' ? { ...spec, away: { x: spec.at.x + (oddsSide === 'left' ? -1 : 1), y: spec.at.y } } : spec);
+      if (oddsSide) specs = specs.map(spec => spec.id === 'b9' ? { ...spec, at: { x: spec.at.x, y: spec.at.y - LEVER_OVER_LINE }, away: { x: spec.at.x + (oddsSide === 'left' ? 1 : -1), y: spec.at.y } } : spec);
       else if (prologue && !runScreenOpen) {
         // The prologue's labels (one at a time, until the action; docs/realtime-onboarding.md): not tied to the toggle «Подсказки».
         // While the arrow and the circle show (no chain from the hero's place) the label waits: it comes back with the hand.

@@ -19,6 +19,7 @@ import { OBJECT_RADIUS } from '../sim/chain';
 import { bustOdds, goblinOf, leverReady, safePullsLeft, slotCharges, slotMayBust, type SlotOutcome, type SlotSymbol } from '../sim/slot';
 import { bustText, slotOddsText, type SlotPlanOdds } from '../sim/slotPlan';
 import type { World, WorldEvent } from '../sim/world';
+import { BESIDE_UNITS } from './worldLabels';
 
 const NAVY = 0x18232d;
 const STONE = 0x7d8577;
@@ -266,14 +267,15 @@ export class SlotView {
       }
       this.oddsLabel.visible = true;
       // Task 11 (design 13.10.2026): the line never crosses the power number and the combo over the hero — the player reads them
-      // while drawing. When it meets their frame it stands beside the idol on the side away from the hero, centred on its height.
+      // while drawing. When it meets their frame it stands beside the idol on the side away from the hero, a little under its
+      // centre: the lever's label («Закончи цепь здесь», worldLabels.ts) stands over it on the same side (design 13.10.2026).
       shown.oddsSide = null;
       const frame = heroTextFrame(world.hero.x * U, world.hero.y * U);
       shown.heroFrame = this.toStage(frame.left, frame.top, frame.right, frame.bottom);
       if (triple && meetsBox(this.boxOf(this.oddsLabel), frame)) {
         const left = world.hero.x >= goblin.x;
         this.oddsLabel.anchor.set(left ? 1 : 0, 0.5);
-        this.oddsLabel.position.set(left ? X - R * 1.5 : X + R * 1.75, Y - R * 0.2);
+        this.oddsLabel.position.set(left ? X - U * BESIDE_UNITS : X + U * BESIDE_UNITS, Y + R * 0.45);
         shown.oddsSide = left ? 'left' : 'right';
       }
       if (triple) this.drawPlate(this.oddsLabel);

@@ -46,7 +46,11 @@ export const LABEL_TEXT = {
 export const chestText = (): string => `+${CHEST_CURSE_TOUCH} урон касания, ${CHEST_CURSE_KILLS} убийств`;
 
 /** Arena units: how high above an elite's centre the label hangs; above the chest; how far the goblin's label stands from the idol's centre. */
-const ELITE_LIFT = 1.0, CHEST_LIFT = 0.85, LEVER_SIDE = 1.15;
+/** Task 11: arena units from the idol's centre to the near edge of the lever's label — and of the odds line when it stands beside the idol (slotView.ts), so the two make one column. */
+export const BESIDE_UNITS = 1.15;
+const ELITE_LIFT = 1.0, CHEST_LIFT = 0.85, LEVER_SIDE = BESIDE_UNITS;
+/** Task 11: arena units the lever's label rises when it stands over the odds line beside the idol (one column, design 13.10.2026). */
+export const LEVER_OVER_LINE = 0.35;
 
 /**
  * The labels whose object stands now: an armoured enemy with plates left in view (the nearest to the hero — one label for all
