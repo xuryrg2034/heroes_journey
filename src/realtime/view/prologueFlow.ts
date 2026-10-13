@@ -10,12 +10,13 @@
 import type { Vec } from '../sim/geometry';
 import { OBJECT_RADIUS, goalProgress, type ChainLink, type World } from '../sim/world';
 import { goblinOf, leverOf } from '../sim/slot';
-import { prologueRoom, startEnemyIds } from '../run/prologue';
+import { PROLOGUE_ROOM_COUNT, prologueRoom, prologueTitle, startEnemyIds } from '../run/prologue';
 import type { LabelSpec } from './worldLabels';
 
-/** The viewer's key: set after room 6 or by «Пропустить обучение». The run saves, seeds and the forest do not know it. */
+/** The viewer's key: set after the last room or by «Пропустить обучение» (task 9 kept it: a viewer who passed the six rooms is not sent back). The run saves, seeds and the forest do not know it. */
 export const PROLOGUE_KEY = 'ashen-oath-realtime-prologue-done';
-export const PROLOGUE_ROOM_COUNT = 6;
+/** The rooms (task 9: nine) — the sim's count (run/prologue.ts). */
+export { PROLOGUE_ROOM_COUNT };
 
 /** The part of `Storage` the store uses. */
 export interface PrologueStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
@@ -30,8 +31,8 @@ export class PrologueStore {
 
 /** Real seconds the room's name shows big at its start. */
 export const TITLE_SECONDS = 1.5;
-/** The room's name: «1/6 · Тропа». */
-export function roomTitle(n: number): string { return `${n}/${PROLOGUE_ROOM_COUNT} · ${prologueRoom(n).title}`; }
+/** The room's name: «1/9 · Тропа» (run/prologue.ts `prologueTitle`). */
+export function roomTitle(n: number): string { return prologueTitle(n); }
 
 /**
  * The seed of a room's fight (the view's choice, not deterministic by the player's play: the sim is). `fixed` — the page's
@@ -49,6 +50,10 @@ export function prologueGoalLine(w: World): string {
   if (goal === 'chain') return `Одной цепью: ${done} / ${total}`;
   if (goal === 'marked') return `Крепкий: ${done} / ${total}`;
   if (goal === 'pull') return `Рычаг: ${done} / ${total}`;
+  // Task 9: «Вихрь» (N by one blow), «Пропасть» (the door), «Зелье» (the potion drunk).
+  if (goal === 'strike') return `Одним ударом: ${done} / ${total}`;
+  if (goal === 'door') return `Дверь: ${done} / ${total}`;
+  if (goal === 'item') return `Зелье: ${done} / ${total}`;
   return `Убей: ${done} / ${total}`;
 }
 
@@ -84,8 +89,12 @@ export const HAND_IDLE = 4;
 /** Game seconds between two questions to the sim (`prologueRoute`, `prologueHandSpot`) while nothing shows. */
 export const HAND_ASK = 0.25;
 
-/** What the guide asks: the hand's chain of this world and, when there is none, the spot to walk to (both from `run/prologue.ts`). */
-export interface HandProbe { route(): ChainLink[]; spot(): Vec | null }
+/**
+ * What the guide asks: the hand's chain of this world and, when there is none, the spot to walk to (both from `run/prologue.ts`).
+ * `aim` (task 9, room «Пропасть»): the point the hand clicks with the jump on, when the jump can start from where the hero stands
+ * (`prologueJumpAim` ready) — it counts as the hand's route; null — walk to `spot` first.
+ */
+export interface HandProbe { route(): ChainLink[]; spot(): Vec | null; aim?(): Vec | null }
 export type HandShow = 'none' | 'hand' | 'arrow';
 
 /**
@@ -102,6 +111,8 @@ export class HandGuide {
   show: HandShow = 'none';
   /** The hand's chain while it shows. */
   route: ChainLink[] = [];
+  /** Task 9: the hand's click point while it shows a jump (null — a chain or nothing). */
+  target: Vec | null = null;
   /** The blinking circle's place (null — none); the arrow shows with it. */
   circle: Vec | null = null;
   private idle = 0;
@@ -117,7 +128,7 @@ export class HandGuide {
   /** A press: the hand and the arrow go, the circle goes, the rest starts again. */
   press(): void {
     this.idle = 0; this.ask = 0; this.arrowOn = false; this.locked = false; this.circle = null;
-    this.route = [];
+    this.route = []; this.target = null;
     this.setShow('none');
   }
 
@@ -132,7 +143,7 @@ export class HandGuide {
       this.idle = 0;
       this.arrowOn = false;
       if (this.show === 'arrow') this.setShow('none');
-      if (this.show === 'hand' && !this.locked) { this.route = []; this.setShow('none'); }
+      if (this.show === 'hand' && !this.locked) { this.route = []; this.target = null; this.setShow('none'); }
     } else this.idle += dt;
     this.ask += dt;
     // Ask the sim every HAND_ASK, and at once when the rest reaches HAND_IDLE (the hand comes at 4 s, not up to a moment later).
@@ -142,19 +153,19 @@ export class HandGuide {
   }
 
   private refresh(): void {
-    const route = this.probe.route();
-    if (route.length) {
-      // A chain from here: after the rest, or at once when the circle was walked to (then it stays through walking until a press).
+    const route = this.probe.route(), target = this.probe.aim?.() ?? null;
+    if (route.length || target) {
+      // A chain (or the jump's click) from here: after the rest, or at once when the circle was walked to (then it stays through walking until a press).
       if (this.show === 'hand' || this.circle || this.idle >= HAND_IDLE) {
         if (this.circle) this.locked = true;
         this.circle = null; this.arrowOn = false;
-        this.route = route;
+        this.route = route; this.target = target;
         this.setShow('hand');
       }
       return;
     }
     // No chain from here: a hand that showed goes (the enemies moved or are gone) and the rest counts as done.
-    if (this.show === 'hand') { this.route = []; this.locked = false; this.setShow('none'); this.idle = Math.max(this.idle, HAND_IDLE); }
+    if (this.show === 'hand') { this.route = []; this.target = null; this.locked = false; this.setShow('none'); this.idle = Math.max(this.idle, HAND_IDLE); }
     if (this.idle < HAND_IDLE) return;
     // The circle stays where it was set (the arena stands still while the room waits); the arrow comes back after each rest.
     if (!this.circle) this.circle = this.probe.spot();
@@ -236,16 +247,17 @@ const SIXTH_BLUE = 5;
 export interface PrologueLabelMemo { done: boolean }
 
 /**
- * The prologue's label of room `n` now, or null (rooms 2, 3, 6 — none). One at a time, at the object, until the action:
+ * The prologue's label of room `n` now, or null (rooms 2, 3 and 5–7, 9 — none; task 9 numbers). One at a time, at the object,
+ * until the action (by the room's arena id, so the numbers may move):
  * - room 1 «Зажми и веди» at the nearest start enemy — gone with the first link;
  * - room 4 «Цвет свободен» at the 6th blue — comes when the drawn chain reaches the 5th link, gone with the shift (the 6th link);
- * - room 5 «Закончи цепь здесь» at the lever — gone with the first pull.
+ * - room 8 «Гоблин» (`prologue-5`) «Закончи цепь здесь» at the lever — gone with the first pull.
  * `memo` keeps the done actions of the room (a new room starts with `{done:false}`).
  */
 export function prologueLabel(w: World, n: number, memo: PrologueLabelMemo): LabelSpec | null {
   if (w.status !== 'playing' || memo.done) return null;
-  const ids = startEnemyIds(w);
-  if (n === 1) {
+  const ids = startEnemyIds(w), id = prologueRoom(n).id;
+  if (id === 'prologue-1') {
     if (w.chain.length || w.move || w.stats.kills) { memo.done = true; return null; }
     let near: { x: number; y: number } | null = null, best = Infinity;
     for (const id of ids) {
@@ -256,13 +268,13 @@ export function prologueLabel(w: World, n: number, memo: PrologueLabelMemo): Lab
     }
     return near ? { id: PROLOGUE_LABEL_IDS.hold, text: PROLOGUE_LABEL_TEXT.hold, at: { x: near.x, y: near.y }, place: 'above', lift: 0.9 } : null;
   }
-  if (n === 4) {
+  if (id === 'prologue-4') {
     if (w.chain.length >= 6 || (w.move?.kind === 'dash' && w.move.kills >= 6) || w.stats.bestChain >= 6) { memo.done = true; return null; }
     if (w.chain.length < 5) return null;
     const e = w.enemies.find(x => x.id === ids[SIXTH_BLUE]);
     return e ? { id: PROLOGUE_LABEL_IDS.free, text: PROLOGUE_LABEL_TEXT.free, at: { x: e.x, y: e.y }, place: 'above', lift: 0.9 } : null;
   }
-  if (n === 5) {
+  if (id === 'prologue-5') {
     const g = goblinOf(w), lever = leverOf(w);
     if (!g || !lever) return null;
     if (g.pulls > 0) { memo.done = true; return null; }
@@ -286,6 +298,6 @@ export interface PrologueHooks {
   /** The start enemies came back (one return; the late batch of posts under the hero — event `restore` with `late` — is not a new one). */
   restore?(room: number): void;
   skip?(room: number): void;
-  /** The whole prologue ends (room 6 won, or skipped). */
+  /** The whole prologue ends (the last room won, or skipped). */
   end?(how: 'done' | 'skip'): void;
 }

@@ -39,7 +39,7 @@ import { focusMaxOf } from '../sim/build';
 import { DOOR_HEAT, doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
 import { OATH_BROKEN_MULT, oathMark, OATHS, type OathId } from '../sim/oath';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
-import { ActionBar, SELF_ITEMS } from './actionBar';
+import { ActionBar, SELF_ITEMS, type TileId } from './actionBar';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
@@ -49,7 +49,7 @@ import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
 import { detectLabels, labelActions, WorldLabelLayer, type LabelSpec } from './worldLabels';
-import { prologueHandSpot, prologueLoadout, prologueParams, prologueRoom, prologueRoute } from '../run/prologue';
+import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HandGuide, PROLOGUE_ROOM_COUNT, PrologueStore, TITLE_SECONDS, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
 import { PrologueDom, PrologueLayer } from './prologueView';
@@ -239,8 +239,9 @@ async function boot(): Promise<void> {
   // Task 8a: the action bar — tiles of the abilities (Space, Q) and the consumables (1–4), view/actionBar.ts. A click on a tile
   // acts as its key; the jump and an aimed consumable wait for the next click on the field.
   const actionBar = new ActionBar(id => {
-    if (id === 'jump') { if (!(prologue && prologue.n < PROLOGUE_ROOM_COUNT) && !dragging) toggleJump(); return; }
-    if (id === 'spin') { if (!(prologue && prologue.n < PROLOGUE_ROOM_COUNT) && running()) { command({ t: 'spin' }); stopAim(); } return; }
+    if (!actionBar.allows(id)) return;
+    if (id === 'jump') { if (!dragging) toggleJump(); return; }
+    if (id === 'spin') { if (running()) { command({ t: 'spin' }); stopAim(); } return; }
     const slot = SLOT_ITEMS.indexOf(id);
     if (slot < 0 || !running()) return;
     if (SELF_ITEMS.has(id)) { useItemKey(slot); return; }
@@ -248,7 +249,7 @@ async function boot(): Promise<void> {
     stopAim();
     if (on) itemAim = slot;
   });
-  const jumpAbility = actionBar.jump, spinAbility = actionBar.spin, itemBar = actionBar.items, itemSlots = actionBar.slots;
+  const jumpAbility = actionBar.jump, spinAbility = actionBar.spin, itemSlots = actionBar.slots;
   // Casino stage 1, item 2 («Ставка клятвы», sim/oath.ts): one line under the goal — «Клятва: без прыжков ✓», dimmed «… ×0,5».
   const oathText = el('span', 'rt-oath');
   oathText.setAttribute('data-testid', 'oath-line');
@@ -775,11 +776,11 @@ async function boot(): Promise<void> {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
       if (runScreenOpen) return;
       if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
-      // Rooms 1–5 of the prologue hide the action bar: Space, Q and the item keys do nothing there (no jump aiming, no command, and
-      // no press for the hand) — design 13.10.2026. Room 6 has them.
-      else if (event.code === 'Space') { event.preventDefault(); if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (!dragging) toggleJump(); }
-      else if (event.code === 'KeyQ') { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (running()) { command({ t: 'spin' }); stopAim(); } }
-      else if (itemKey(event.code) >= 0) { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; useItemKey(itemKey(event.code)); }
+      // The prologue shows only the room's tiles (task 9, `PrologueRoom.tiles`): a key of a hidden tile does nothing (no jump aiming, no
+      // command, no press for the hand) — design 13.10.2026. The last room has them all.
+      else if (event.code === 'Space') { event.preventDefault(); if (!actionBar.allows('jump')) return; if (!dragging) toggleJump(); }
+      else if (event.code === 'KeyQ') { if (!actionBar.allows('spin')) return; if (running()) { command({ t: 'spin' }); stopAim(); } }
+      else if (itemKey(event.code) >= 0) { if (!actionBar.allows(SLOT_ITEMS[itemKey(event.code)])) return; useItemKey(itemKey(event.code)); }
       else if (event.code === 'KeyP') paused = !paused;
       else if (event.code === 'KeyN') { if (!prologue) markNote(); }
       else if (event.key === 'Enter' && ended && !result.hidden) finishRunArena();
@@ -824,7 +825,13 @@ async function boot(): Promise<void> {
     runLabel = null;
     startArena(room.arena, prologueSeed(n, attempt, fixedSeed), { hp: RT_RUN_HP, maxHp: RT_RUN_HP }, prologueLoadout(n), undefined, prologueParams(n, loadParams()));
     prologueLayer.reset();
-    const guide = n < PROLOGUE_ROOM_COUNT ? new HandGuide({ route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind)) : null;
+    // The hand: a chain room shows its chain (or the arrow to a spot with one); «Пропасть» (task 9) — the arrow to the cliff's edge,
+    // then the click of the jump beyond it; the other rooms have no hand.
+    const jumpRoom = room.id === 'prologue-jump';
+    const guide = room.route || jumpRoom ? new HandGuide(jumpRoom
+      ? { route: () => [], spot: () => prologueJumpAim(world(), n)?.spot ?? null, aim: () => { const a = prologueJumpAim(world(), n); return a?.ready ? a.target : null; } }
+      : { route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind)) : null;
+    actionBar.setAllowed(room.tiles);
     prologue = { n, attempt, guide, label: { done: false }, titleLeft: TITLE_SECONDS, lastTime: 0, seconds: 0, real: 0 };
     prologueDom.showTitle(roomTitle(n));
     prologueHooks.roomStart?.(n, attempt);
@@ -837,9 +844,10 @@ async function boot(): Promise<void> {
     prologueDom.setFade(0);
     startPrologueRoom(1, 1);
   }
-  /** The prologue is over (room 6 passed, or skipped): the run screen. */
+  /** The prologue is over (the last room passed, or skipped): the run screen. */
   const leavePrologue = (): void => {
     prologue = null;
+    actionBar.setAllowed('all');
     prologueDom.hideTitle();
     prologueLayer.reset();
     labelLayer.hideAll();
@@ -884,7 +892,8 @@ async function boot(): Promise<void> {
       pl.guide?.update(live ? gdt : 0, w.input.x !== 0 || w.input.y !== 0, dragging || !!w.move || w.chain.length > 0 || ui.jumpMode || itemAim !== null);
     }
     const door = w.objects.find(o => o.kind === 'door');
-    const handPoints = pl.guide?.show === 'hand' ? pl.guide.route.flatMap(l => { const p = linkPoint(w, l); return p ? [p] : []; }) : [];
+    // The hand's points: the jump's click (one point: press and let go), or the chain's links.
+    const handPoints = pl.guide?.show === 'hand' ? (pl.guide.target ? [pl.guide.target] : pl.guide.route.flatMap(l => { const p = linkPoint(w, l); return p ? [p] : []; })) : [];
     if (door) prologueLayer.draw(live ? realDt : 0, { lamps: goalLamps(w), door, arena: w.arena, hero: w.hero, guide: pl.guide, handPoints });
     if (!transition && w.status !== 'playing') {
       const won = w.status === 'victory', last = pl.n === PROLOGUE_ROOM_COUNT;
@@ -915,9 +924,10 @@ async function boot(): Promise<void> {
       title: prologueDom.title.hidden ? null : prologueDom.title.textContent,
       skipVisible: !prologueDom.skip.hidden, fade: Number(prologueDom.fade.style.opacity || 0), transition: transitionKind(),
       lamps: pl ? goalLamps(world()) : null,
-      guide: g ? { show: g.show, arrow: g.arrow, circle: g.circle ? { ...g.circle } : null, rest: g.rest, links: g.route.length } : null,
+      guide: g ? { show: g.show, arrow: g.arrow, circle: g.circle ? { ...g.circle } : null, rest: g.rest, links: g.route.length, target: g.target ? { ...g.target } : null } : null,
       shown: { ...prologueLayer.shown, circle: prologueLayer.shown.circle ? { ...prologueLayer.shown.circle } : null },
-      pulse: { space: jumpAbility.classList.contains('rt-pulse'), q: spinAbility.classList.contains('rt-pulse') },
+      pulse: { space: jumpAbility.classList.contains('rt-pulse'), q: spinAbility.classList.contains('rt-pulse'), items: SLOT_ITEMS.filter((_, i) => itemSlots[i].classList.contains('rt-pulse')) },
+      tiles: { jump: !jumpAbility.hidden, spin: !spinAbility.hidden, items: SLOT_ITEMS.filter((_, i) => !itemSlots[i].hidden) },
       hud: { energy: getComputedStyle(energyText).display !== 'none', actionBar: !actionBar.el.hidden, score: getComputedStyle(scoreText).display !== 'none', focus: getComputedStyle(focusBar).display !== 'none', info: getComputedStyle(infoText).display !== 'none' },
       log: prologueLog.map(e => ({ ...e })),
     };
@@ -1086,7 +1096,9 @@ async function boot(): Promise<void> {
       const early = !!prologue && prologue.n < PROLOGUE_ROOM_COUNT;
       host.classList.toggle('rt-pl', !!prologue);
       host.classList.toggle('rt-pl-early', early);
-      actionBar.el.hidden = early; help.hidden = !!prologue; itemBar.hidden = !!prologue;
+      // Task 9: the bar shows the room's tiles; a room without any hides it (rooms 1–4 and «Гоблин»).
+      const tiles = prologue ? prologueRoom(prologue.n).tiles : 'all';
+      actionBar.el.hidden = tiles !== 'all' && tiles.length === 0; help.hidden = !!prologue;
       prologueDom.skip.hidden = !prologue;
     }
     // World labels (view/worldLabels.ts): the run only. With the toggle on, an action done in this frame marks its label for this
@@ -1171,11 +1183,15 @@ async function boot(): Promise<void> {
       const pulsing = hintsOn && !sandbox && !!runView?.arenaOpen && !runScreenOpen && w.status === 'playing' && hints.store.count(ITEM_PULSE_ID) === 0;
       SLOT_ITEMS.forEach((kind, i) => setPulse(itemSlots[i], pulsing && (w.kit?.items[kind] ?? 0) >= 1));
     }
-    // The prologue's last room: «Пробел» and «Q» breathe until each was used once (view/pulse.ts; this prologue only).
-    {
-      const pulsing = prologue?.n === PROLOGUE_ROOM_COUNT && w.status === 'playing' && !transition;
-      setPulse(jumpAbility, pulsing && !spaceUsed);
-      setPulse(spinAbility, pulsing && !spinUsed);
+    // The prologue (view/pulse.ts): the last room — «Пробел» and «Q» breathe until each was used once; task 9 — the room's own tile
+    // breathes while it is the thing to do: «Пропасть» the jump until the hero is over the cliff, «Вихрь» Q while one spin would meet
+    // the goal, «Зелье» the potion while it is in hand.
+    if (prologue) {
+      const tiles = prologueRoom(prologue.n).tiles, on = w.status === 'playing' && !transition, n = prologue.n;
+      const own = (id: TileId): boolean => tiles !== 'all' && tiles.includes(id);
+      setPulse(jumpAbility, on && (tiles === 'all' ? !spaceUsed : own('jump') && prologueJumpAim(w, n) !== null));
+      setPulse(spinAbility, on && (tiles === 'all' ? !spinUsed : own('spin') && prologueSpinReady(w, n)));
+      SLOT_ITEMS.forEach((kind, i) => setPulse(itemSlots[i], on && own(kind) && (w.kit?.items[kind] ?? 0) >= 1));
     }
     // Task 8a: the hero near the bar (within a chain's first reach of it) or the drawing pointer at it — the bar steps aside:
     // faint and out of the pointer's way, so an enemy under it can be seen and taken.
@@ -1411,13 +1427,15 @@ async function boot(): Promise<void> {
     /**
      * The prologue's test hooks (null in the sandbox): `route()` — where the hand's chain stands NOW on the screen (stage px; from
      * `prologueRoute`, only to know where to drag with the real mouse — it sends nothing), `spot()` — the blinking circle on the
-     * screen (null — none), `spotWorld()` the same in arena units, `skip()` — the corner button's action.
+     * screen (null — none), `spotWorld()` the same in arena units, `skip()` — the corner button's action, `jumpAim()` — room 5's spot and click.
      */
     prologue: !sandbox ? {
       route: () => { const pl = prologue; if (!pl) return []; return prologueRoute(world(), pl.n).flatMap(l => { const p = linkPoint(world(), l); return p ? [{ ...renderer.toScreen(p.x, p.y), kind: l.kind, id: l.id }] : []; }); },
       spot: () => { const c = prologue?.guide?.circle; return c ? renderer.toScreen(c.x, c.y) : null; },
       spotWorld: () => { const c = prologue?.guide?.circle; return c ? { ...c } : null; },
       skip: () => skipPrologue(),
+      /** Task 9, «Пропасть»: where to stand and where to click the jump (`prologueJumpAim`, arena units; null — another room or over). */
+      jumpAim: () => { const pl = prologue; return pl ? prologueJumpAim(world(), pl.n) : null; },
     } : null,
     /** Telemetry: replay a journal up to a tick and show it paused (`ReplayTo`). */
     replayTo,

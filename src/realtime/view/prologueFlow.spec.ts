@@ -7,9 +7,9 @@
 import type { Vec } from '../sim/geometry';
 import { Simulation } from '../sim/simulation';
 import type { ChainLink } from '../sim/world';
-import { PROLOGUE_ROOMS, prologueLoadout, prologueParams, prologueRoute, startEnemyIds } from '../run/prologue';
+import { PROLOGUE_ROOMS, prologueJumpAim, prologueLoadout, prologueParams, prologueRoute, startEnemyIds } from '../run/prologue';
 import {
-  HAND_ASK, HAND_IDLE, HandGuide, PROLOGUE_KEY, PrologueStore, handCycle, handFrame, lampPoints, prologueGoalLine, prologueLabel, prologueSeed, roomTitle,
+  HAND_ASK, HAND_IDLE, HandGuide, PROLOGUE_KEY, PROLOGUE_ROOM_COUNT, PrologueStore, handCycle, handFrame, lampPoints, prologueGoalLine, prologueLabel, prologueSeed, roomTitle,
   type PrologueLabelMemo, type PrologueStorage,
 } from './prologueFlow';
 
@@ -138,7 +138,7 @@ check('the hand draws: it presses on the first link, passes each in order, holds
 
 check('the lamps: N on an arc on the arena side of the door, each inside the arena, one lamp on the axis, 15 spaced apart', () => {
   for (const room of PROLOGUE_ROOMS) {
-    const door = room.arena.door, total = room.arena.goal === 'kills' || room.arena.goal === 'chain' ? (room.arena.killGoal ?? 1) : 1;
+    const door = room.arena.door, total = room.arena.goal === 'kills' || room.arena.goal === 'chain' || room.arena.goal === 'strike' ? (room.arena.killGoal ?? 1) : 1;
     const pts = lampPoints(door, room.arena, total);
     assert(pts.length === total, `room ${room.number}: ${total} lamps`);
     for (const p of pts) assert(p.x > 0.2 && p.x < room.arena.width - 0.2 && p.y > 0.2 && p.y < room.arena.height - 0.2, `room ${room.number}: inside the arena (${p.x.toFixed(2)}, ${p.y.toFixed(2)})`);
@@ -149,8 +149,8 @@ check('the lamps: N on an arc on the arena side of the door, each inside the are
   assert(one.x < 10 && Math.abs(one.y - 4) < 1e-6, 'one lamp towards the middle');
 });
 
-check('room 6: the lamps keep off the goblin, its lever and its odds line («безопасно: 3» over the idol, the knob at its right, the reels over it)', () => {
-  const room6 = PROLOGUE_ROOMS[5].arena, g = room6.goblin!;
+check('room 9 «Толпа»: the lamps keep off the goblin, its lever and its odds line («безопасно: 3» over the idol, the knob at its right, the reels over it)', () => {
+  const room6 = PROLOGUE_ROOMS.find(r => r.id === 'prologue-6')!.arena, g = room6.goblin!;
   // The idol with its lever and the text over it: x ±1.5 units, from 1.8 up to 0.8 down (the knob 1.07 radii right, 1.15 up; the odds line and reels over the head).
   const box = { x0: g.x - 1.5, x1: g.x + 1.5, y0: g.y - 1.8, y1: g.y + 0.8 };
   const pts = lampPoints(room6.door, room6, 15), lampRadius = 14 / 72;
@@ -170,7 +170,7 @@ const draw = (sim: Simulation, links: ChainLink[]): void => {
   for (let i = 1; i < links.length; i++) sim.command({ t: 'drag', x: p(links[i]).x, y: p(links[i]).y, mode: 'full' });
 };
 
-check('labels: room 1 at the nearest enemy until the first link; room 4 from the 5th link at the 6th blue until the shift (and not again after it); room 5 at the lever until the first pull; none elsewhere', () => {
+check('labels: room 1 at the nearest enemy until the first link; room 4 from the 5th link at the 6th blue until the shift (and not again after it); room 8 «Гоблин» at the lever until the first pull; none elsewhere (task 9 rooms 5–7 too)', () => {
   const sim1 = room(1), w1 = sim1.world, memo1: PrologueLabelMemo = { done: false };
   const l1 = prologueLabel(w1, 1, memo1);
   assert(l1 && l1.text === 'Зажми и веди' && l1.id === 'pl1', 'room 1 label');
@@ -198,12 +198,12 @@ check('labels: room 1 at the nearest enemy until the first link; room 4 from the
   draw(sim4, route4.slice(0, 5));
   assert(prologueLabel(w4, 4, memo4) === null, 'room 4: not again');
 
-  const sim5 = room(5), w5 = sim5.world, memo5: PrologueLabelMemo = { done: false };
-  const l5 = prologueLabel(w5, 5, memo5);
-  assert(l5 && l5.text === 'Закончи цепь здесь' && l5.place === 'side', 'room 5: at the lever');
+  const sim5 = room(8), w5 = sim5.world, memo5: PrologueLabelMemo = { done: false };
+  const l5 = prologueLabel(w5, 8, memo5);
+  assert(l5 && l5.text === 'Закончи цепь здесь' && l5.place === 'side', 'room 8: at the lever');
   w5.slot!.goblin!.pulls = 1;
-  assert(prologueLabel(w5, 5, memo5) === null && memo5.done, 'room 5: gone with the first pull');
-  for (const n of [2, 3, 6]) assert(prologueLabel(room(n).world, n, { done: false }) === null, `room ${n}: no label`);
+  assert(prologueLabel(w5, 8, memo5) === null && memo5.done, 'room 8: gone with the first pull');
+  for (const n of [2, 3, 5, 6, 7, 9]) assert(prologueLabel(room(n).world, n, { done: false }) === null, `room ${n}: no label`);
   assert([...['Зажми и веди', 'Цвет свободен', 'Закончи цепь здесь']].every(t => t.split(' ').length <= 3), '≤ 3 words');
 });
 
@@ -211,11 +211,35 @@ check('goal lines, titles, seeds', () => {
   assert(prologueGoalLine(room(1).world) === 'Убей: 0 / 3', 'room 1');
   assert(prologueGoalLine(room(2).world) === 'Одной цепью: 0 / 5', 'room 2');
   assert(prologueGoalLine(room(3).world) === 'Крепкий: 0 / 1', 'room 3');
-  assert(prologueGoalLine(room(5).world) === 'Рычаг: 0 / 1', 'room 5');
-  assert(prologueGoalLine(room(6).world) === 'Убей: 0 / 15', 'room 6');
-  assert(roomTitle(1) === '1/6 · Тропа' && roomTitle(6) === '6/6 · Толпа' && roomTitle(4) === '4/6 · Радуга', 'titles');
+  assert(prologueGoalLine(room(5).world) === 'Дверь: 0 / 1', 'room 5 «Пропасть»');
+  assert(prologueGoalLine(room(6).world) === 'Одним ударом: 0 / 6', 'room 6 «Вихрь»');
+  assert(prologueGoalLine(room(7).world) === 'Зелье: 0 / 1', 'room 7 «Зелье»');
+  assert(prologueGoalLine(room(8).world) === 'Рычаг: 0 / 1', 'room 8');
+  assert(prologueGoalLine(room(9).world) === 'Убей: 0 / 15', 'room 9');
+  assert(PROLOGUE_ROOM_COUNT === 9, 'nine rooms');
+  assert(roomTitle(1) === '1/9 · Тропа' && roomTitle(5) === '5/9 · Пропасть' && roomTitle(9) === '9/9 · Толпа', 'titles');
   assert(prologueSeed(1, 1) === prologueSeed(1, 1) && prologueSeed(5, 1) !== prologueSeed(5, 2) && prologueSeed(5, 1) !== prologueSeed(6, 1), 'seeds differ by room and attempt');
   assert(prologueSeed(2, 1, 7) !== prologueSeed(2, 1), 'a fixed page seed shifts them');
+});
+
+check('room 5 «Пропасть»: the guide shows the arrow to the cliff edge, then (the hero at the edge) the hand clicks beyond the cliff', () => {
+  const sim = room(5), w = sim.world, n = 5;
+  const guide = new HandGuide({ route: () => [], spot: () => prologueJumpAim(w, n)?.spot ?? null, aim: () => { const a = prologueJumpAim(w, n); return a?.ready ? a.target : null; } });
+  const aim0 = prologueJumpAim(w, n)!;
+  assert(aim0 && !aim0.ready, 'from the start the jump does not reach the far bank');
+  guide.update(HAND_IDLE + 0.01, false, false);
+  assert(guide.show === 'arrow' && guide.circle && guide.circle.x === aim0.spot.x, `the arrow to the spot (${guide.show})`);
+  sim.command({ t: 'teleport', x: aim0.spot.x, y: aim0.spot.y });
+  guide.update(HAND_ASK + 0.01, false, false);
+  const aim1 = prologueJumpAim(w, n)!;
+  assert(aim1.ready, 'at the edge the jump is ready');
+  assert((guide.show as string) === 'hand' && guide.target && guide.target.x === aim1.target.x && guide.route.length === 0, `the hand clicks the target (${guide.show})`);
+  // The click is a press and a release on one point (handFrame of one point).
+  const f = handFrame([guide.target!], 0.1);
+  assert(f.pressed && f.pos.x === aim1.target.x && f.links === 1, 'the hand presses on the target');
+  // Space (the jump aim on) is a press: the hand goes.
+  guide.update(0.016, false, true);
+  assert((guide.show as string) === 'none' && guide.target === null, 'a press takes the hand away');
 });
 
 console.log('prologue view: all checks passed');

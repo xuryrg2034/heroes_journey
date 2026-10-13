@@ -68,6 +68,8 @@ export class ActionBar {
   readonly slots: HTMLButtonElement[];
   private readonly costs: Record<'jump' | 'spin', HTMLElement>;
   private readonly countEls: HTMLElement[];
+  /** Task 9: the tiles shown (the prologue's room says which; `'all'` — every tile, a consumable still only with one in hand). */
+  private allowed: 'all' | ReadonlySet<TileId> = 'all';
 
   constructor(onPress: (id: TileId) => void) {
     this.el = document.createElement('div');
@@ -106,13 +108,23 @@ export class ActionBar {
     });
   }
 
+  /** Task 9: the tiles this room shows (`'all'` — the run, the sandbox, the prologue's last room; a list — only these). */
+  setAllowed(tiles: 'all' | readonly TileId[]): void {
+    this.allowed = tiles === 'all' ? 'all' : new Set(tiles);
+  }
+
+  /** The tile `id` is shown by the room's rule (a consumable needs one in hand as well). */
+  allows(id: TileId): boolean { return this.allowed === 'all' || this.allowed.has(id); }
+
   update(s: ActionBarState): void {
+    this.jump.hidden = !this.allows('jump');
+    this.spin.hidden = !this.allows('spin');
     this.ability(this.jump, this.costs.jump, s.jumpCost, s.energy, s.jumpReady, s.aiming === 'jump');
     this.ability(this.spin, this.costs.spin, s.spinCost, s.energy, s.spinReady, false);
     SLOT_ITEMS.forEach((kind, i) => {
       const count = s.counts[kind] ?? 0, b = this.slots[i], n = this.countEls[i];
       if (n.textContent !== String(count)) n.textContent = String(count);
-      b.hidden = count < 1;
+      b.hidden = count < 1 || !this.allows(kind);
       b.classList.toggle('rt-empty', count < 1);
       b.classList.toggle('rt-has', count >= 1);
       b.classList.toggle('rt-ready', count >= 1);
