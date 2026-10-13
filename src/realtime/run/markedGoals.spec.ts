@@ -1,5 +1,5 @@
 /**
- * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026; docs/realtime-slice.md, section 5). Node only:
+ * Task 12 «Отмеченные — атаман или орда» (design 13.10.2026; docs/realtime-slice.md, section 5). Node only:
  * `npm run test:realtime-marked-goals`.
  *
  * The user's report (playtest v40): on the arenas where every marked enemy must die they must not be lone enemies — either one

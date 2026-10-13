@@ -20,7 +20,7 @@ import { CAMERA_ARENAS } from '../src/realtime/sim/arenasCamera';
 const LAYOUTS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS];
 // Task 12 (13.10.2026): the goal layouts of the `marked` arenas (a horde or a leader, `Params.markedGoals`) — their posts are
 // start spots too, as the marked posts of the old layouts.
-const ARENAS: readonly ArenaLayout[] = [...LAYOUTS, ...LAYOUTS.filter(a => a.markedGoal).map(a => ({ ...markedGoalArena(a, true), name: `${a.name} (вожак или орда)` }))];
+const ARENAS: readonly ArenaLayout[] = [...LAYOUTS, ...LAYOUTS.filter(a => a.markedGoal).map(a => ({ ...markedGoalArena(a, true), name: `${a.name} (атаман или орда)` }))];
 import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';

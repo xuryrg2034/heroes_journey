@@ -522,7 +522,7 @@ async function boot(): Promise<void> {
   };
   const showMenu = (): void => {
     menuOpen = true;
-    // Task 12: with «Отмеченные: вожак или орда» on, an arena with a goal layout says its own goal (`markedGoal.summary`).
+    // Task 12: with «Отмеченные: атаман или орда» on, an arena with a goal layout says its own goal (`markedGoal.summary`).
     SANDBOX_ARENAS.forEach((arena, i) => { const span = menu.querySelector(`[data-summary="${i}"]`); if (span) span.textContent = markedGoalArena(arena, params.markedGoals).summary; });
     menu.hidden = false;
     result.hidden = true;

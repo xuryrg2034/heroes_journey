@@ -3,8 +3,8 @@ import { test, expect } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 
 /**
- * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026; docs/realtime-slice.md): the view of the goal layouts at 1280×720 in the
- * sandbox with the toggle «Отмеченные: вожак или орда» (`markedGoals`) on. «Отмеченные и дверь» (the den) is a horde: one ring of
+ * Task 12 «Отмеченные — атаман или орда» (design 13.10.2026; docs/realtime-slice.md): the view of the goal layouts at 1280×720 in the
+ * sandbox with the toggle «Отмеченные: атаман или орда» (`markedGoals`) on. «Отмеченные и дверь» (the den) is a horde: one ring of
  * dashes round the crowd of marked enemies, no reticle on each. «Стрелковая гряда», «Круг шамана» and «Брод» have one leader: a
  * gold crown over its head and the HP plate on its chest, drawn larger (the sim's `enemyArtScale`). The menu says each arena's goal
  * from its layout. Off, the old arenas: no crown, no ring.

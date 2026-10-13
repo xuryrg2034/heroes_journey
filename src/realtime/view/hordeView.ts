@@ -1,5 +1,5 @@
 /**
- * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026): the horde of marked enemies reads as one group — one ring round the
+ * Task 12 «Отмеченные — атаман или орда» (design 13.10.2026): the horde of marked enemies reads as one group — one ring round the
  * living marked bodies that stand close together, not a reticle on each. Drawing only: the view finds the group from where the
  * marked enemies stand now (the horde moves as it chases the hero), never from the arena's template; nothing here is read by the sim.
  */

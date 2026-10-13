@@ -45,7 +45,7 @@ export interface StartEnemy {
   /** Stage 2, step 3: an elite from the start (the modifier over its HP; arenas 9–10 stand two, step 4). */
   elite?: boolean;
   /**
-   * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026; only in a `markedGoal` layout): a leader — HP max(`hp`, the
+   * Task 12 «Отмеченные — атаман или орда» (design 13.10.2026; only in a `markedGoal` layout): a leader — HP max(`hp`, the
    * row's tough HP + `LEADER_HP_OVER_TOUGH`) (world.ts `startHp`), reached and pressed like an elite (art radius × `eliteArtScale`
    * for the reach edge and the press circle; its body stays). `Enemy.leader` is set only for such an enemy — the seam for the
    * view (the ui session: the drawing ×1.25, the crown, the HP plate).
@@ -54,7 +54,7 @@ export interface StartEnemy {
 }
 
 /**
- * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026): the layout of a `marked` arena's goal played while
+ * Task 12 «Отмеченные — атаман или орда» (design 13.10.2026): the layout of a `marked` arena's goal played while
  * `Params.markedGoals` is on (a run with the flag `RtRunState.markedGoals`; the sandbox toggle). The goal is either one leader
  * (`StartEnemy.leader`, raised HP) or a horde — 8+ marked within `horde.r` of `horde` — never lone scattered marked enemies.
  * `enemies` replaces the template's start enemies, `summary` its line (the node card's goal). Off — the template as before.
@@ -391,7 +391,7 @@ export const ARCHER_ARENA: ArenaTemplate = registerArena({
   // Task 12 (design 13.10.2026): one leader archer (HP 5, at least the row's tough + 2) behind the far ridge; the other two
   // archers stand unmarked at their posts.
   markedGoal: {
-    summary: 'Убей вожака лучников за дальней грядой — у него много HP: длинная цепь, кончающаяся на нём, или несколько ударов. Лучники стреляют в точку: сойди с круга за 1 с. Дверь справа.',
+    summary: 'Убей атамана лучников за дальней грядой — у него много HP: длинная цепь, кончающаяся на нём, или несколько ударов. Лучники стреляют в точку: сойди с круга за 1 с. Дверь справа.',
     enemies: [
       { x: 7.8, y: 1.2, color: 0, kind: 'archer' },
       { x: 13, y: 2.4, color: 2, kind: 'archer', hp: 5, marked: true, leader: true },
@@ -533,7 +533,7 @@ export const FORD_ARENA: ArenaTemplate = registerArena({
   // Task 12 (design 13.10.2026): one leader archer (HP 6, at least the row's tough + 2) on the far bank; the other archers and
   // the two wolves stand unmarked at their posts.
   markedGoal: {
-    summary: 'Убей вожака лучников на том берегу — у него много HP: длинная цепь, кончающаяся на нём, или несколько ударов. Вброд — вдвое медленнее и под стрелами, цепью — быстро. Дверь справа.',
+    summary: 'Убей атамана лучников на том берегу — у него много HP: длинная цепь, кончающаяся на нём, или несколько ударов. Вброд — вдвое медленнее и под стрелами, цепью — быстро. Дверь справа.',
     enemies: [
       { x: 20.1, y: 3.1, color: 0, kind: 'archer' },
       { x: 20.7, y: 7.8, color: 2, kind: 'archer', hp: 6, marked: true, leader: true },
