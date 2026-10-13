@@ -6,7 +6,7 @@
  * Pure part (Node-testable, `npm run test:realtime-node-card`): it reads the arena template, the roster and the run row's
  * numbers (run/rtRun.ts); it changes nothing, it is not a Param, not in the journal, the hash or the save.
  */
-import { arenaTemplate } from '../sim/arenas';
+import { arenaTemplate, markedGoalArena } from '../sim/arenas';
 import type { TerrainKind } from '../sim/geometry';
 import { RT_RANDOM_ELITE_ROW, rtEliteAffixes, rtElitePlates } from '../run/rtRun';
 import { arenaKinds } from './newSeen';
@@ -31,6 +31,8 @@ export interface NodeDangerInput {
   startElite?: boolean;
   /** Kinds the viewer has not met yet (they get «✦»), from «Новое на карте»; empty — none or the toggle off. */
   newKinds?: readonly string[];
+  /** Task 12: the run's flag `RtRunState.markedGoals` — the goal line of a `marked` arena from its goal layout (`markedGoal`). */
+  markedGoals?: boolean;
 }
 
 export interface NodeDangerLine { id: 'goal' | 'enemies' | 'elites' | 'terrain'; label: string; text: string; newKinds?: string[] }
@@ -54,7 +56,7 @@ export function goalText(summary: string): string {
 /** The lines of a battle node's card in the design's order: goal, enemies, elites, terrain (a line without content is left out). */
 export function nodeDangers(input: NodeDangerInput): NodeDangerLine[] {
   let template;
-  try { template = arenaTemplate(input.arena); } catch { return []; }
+  try { template = markedGoalArena(arenaTemplate(input.arena), input.markedGoals); } catch { return []; }
   const lines: NodeDangerLine[] = [{ id: 'goal', label: 'Цель', text: goalText(template.summary) }];
   // The ordinary enemies come to every arena (the default newcomer; the template lists only its other kinds).
   const kinds = [...new Set(['basic', ...arenaKinds(input.arena, input.roster)])].filter(kind => KIND_PLURAL[kind]);

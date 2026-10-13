@@ -8,7 +8,7 @@
  * `world.input`), enemies follow the flow field around obstacles.
  */
 import { dcos, dhypot, dsin } from './detMath';
-import { type ArenaTemplate, type StartEnemy, markedCount } from './arenas';
+import { type ArenaTemplate, type StartEnemy, LEADER_HP_OVER_TOUGH, markedCount, markedGoalArena } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
 // Phase B: the build modules (talismans Т1, hammers Т2, relics Т3) register on import; the core reads them through build.ts.
@@ -28,7 +28,7 @@ import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotStat
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
-import { spawnEnemy, spawnReaper, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
+import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 // К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
 import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
 
@@ -51,6 +51,11 @@ export interface Enemy {
   hp: number;
   /** Target of the third arena: killing every marked enemy completes the goals. */
   marked: boolean;
+  /**
+   * Task 12 «Отмеченные — вожак или орда»: a leader of a goal layout (`StartEnemy.leader`) — raised HP, art like an elite
+   * (enemies/kinds.ts `enemyArtScale`). Absent on every other enemy (worlds without leaders hash as before).
+   */
+  leader?: true;
   /** Personal speed multiplier (spread around 1). */
   speedFactor: number;
   /** Game seconds left of the slowdown after striking the hero. */
@@ -597,7 +602,9 @@ export interface HeroStart { hp: number; maxHp: number }
  * the debug panel in the browser (its changes come as journalled `param` commands, simulation.ts). `start`: the hero's
  * HP and maximum (a run arena; the HP is kept within 1…maximum); absent — the panel's `heroHp`, full.
  */
-export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, start?: HeroStart, loadout?: Loadout): World {
+export function createWorld(template: ArenaTemplate, params: Params, seed = 1, start?: HeroStart, loadout?: Loadout): World {
+  // Task 12: with `markedGoals` on, a template's goal layout (its enemies, summary and horde) — the world plays it throughout.
+  const arena = markedGoalArena(template, params.markedGoals);
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -690,9 +697,13 @@ export function startEnergyOf(world: World): number {
   return Math.max(0, Math.min(ENERGY_CAP, e === 'jump' ? jumpCostOf(world) : e === 'spin' ? world.params.spinCost : e));
 }
 
-/** HP a start enemy of the template has at its post (its own, or its kind's from the panel). */
+/**
+ * HP a start enemy of the template has at its post (its own, or its kind's from the panel). Task 12: a leader has at least the
+ * row's tough HP (`toughHpMaxOf`: the run's table by the row through the kit, else the panel's) + `LEADER_HP_OVER_TOUGH`.
+ */
 function startHp(world: World, s: StartEnemy): number {
-  return s.hp ?? enemyKind(s.kind ?? 'basic').hp(world.params) ?? 0;
+  const hp = s.hp ?? enemyKind(s.kind ?? 'basic').hp(world.params) ?? 0;
+  return s.leader ? Math.max(hp, toughHpMaxOf(world) + LEADER_HP_OVER_TOUGH) : hp;
 }
 
 /** A start enemy of the template at its post (`createWorld`; the prologue's return brings a dead one back the same way). */
@@ -700,6 +711,8 @@ function placeStartEnemy(world: World, s: StartEnemy): Enemy {
   const kind = s.kind ?? 'basic';
   const e = spawnEnemy(world, s, s.color, startHp(world, s), kind);
   e.marked = !!s.marked;
+  // Task 12: a leader of a goal layout (the field only on it).
+  if (s.leader) e.leader = true;
   // Stage 2, step 3: an elite from the start (arenas 9–10 of step 4).
   if (s.elite) makeElite(world, e);
   pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);

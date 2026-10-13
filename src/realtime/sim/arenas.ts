@@ -42,7 +42,29 @@ export interface StartEnemy {
   marked?: boolean;
   /** Stage 2, step 3: an elite from the start (the modifier over its HP; arenas 9–10 stand two, step 4). */
   elite?: boolean;
+  /**
+   * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026; only in a `markedGoal` layout): a leader — HP max(`hp`, the
+   * row's tough HP + `LEADER_HP_OVER_TOUGH`) (world.ts `startHp`), drawn like an elite (art × `eliteArtScale`, the same reach
+   * edge and press circle; its body stays). `Enemy.leader` is set only for such an enemy.
+   */
+  leader?: boolean;
 }
+
+/**
+ * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026): the layout of a `marked` arena's goal played while
+ * `Params.markedGoals` is on (a run with the flag `RtRunState.markedGoals`; the sandbox toggle). The goal is either one leader
+ * (`StartEnemy.leader`, raised HP) or a horde — 8+ marked within `horde.r` of `horde` — never lone scattered marked enemies.
+ * `enemies` replaces the template's start enemies, `summary` its line (the node card's goal). Off — the template as before.
+ */
+export interface MarkedGoalLayout {
+  enemies: StartEnemy[];
+  summary: string;
+  /** The horde: its centre and radius (every marked enemy stands within `r` of it at the start); absent — a leader layout. */
+  horde?: { x: number; y: number; r: number };
+}
+
+/** Баланс (design answer 13.10.2026): a leader has at least the row's tough HP (`toughHpMaxOf`) + this. */
+export const LEADER_HP_OVER_TOUGH = 2;
 
 /** A share of single newcomers that comes as another registered kind (checked in order, one roll each). */
 export interface NewcomerShare {
@@ -118,6 +140,23 @@ export interface ArenaTemplate extends ArenaShape {
   startEnergy?: number | 'jump' | 'spin';
   /** The prologue (task 9, the potion room): the hero's HP at the start (not above his maximum, at least 1); omitted — full. */
   startHp?: number;
+  /** Task 12: the goal layout played while `Params.markedGoals` is on (`MarkedGoalLayout`); omitted — none. */
+  markedGoal?: MarkedGoalLayout;
+  /**
+   * Task 12: the horde of the goal layout in play (`markedGoalArena` copies `markedGoal.horde` here); absent on every template
+   * and whenever the layout is not in play. The view marks the horde as one group by it.
+   */
+  horde?: { x: number; y: number; r: number };
+}
+
+/**
+ * Task 12: the template a world plays — with `markedGoals` on and a `markedGoal` layout, its enemies, summary and horde
+ * (`horde`); otherwise the template itself (old journals and saves: the key absent).
+ */
+export function markedGoalArena<T extends ArenaTemplate>(template: T, markedGoals: boolean | undefined): T {
+  const layout = template.markedGoal;
+  if (!markedGoals || !layout || template.horde !== undefined || template.enemies === layout.enemies) return template;
+  return { ...template, enemies: layout.enemies, summary: layout.summary, ...layout.horde ? { horde: { ...layout.horde } } : {} };
 }
 
 /** Old name of the template (prototype stages 1–3). */
@@ -203,6 +242,26 @@ export const MARKED_ARENA: ArenaTemplate = {
     { x: 5.5, y: 8.5, color: 3, hp: 0, marked: true },
     { x: 9, y: 1.2, color: 2, hp: 2, marked: true },
   ],
+  // Task 12 (design 13.10.2026): a horde of 12 in the den's centre (8.8; 4.9), radius 1.64 — two colours (7 and 5), six tough
+  // (HP 3) on the outer ring. A chain from the weak inside through the colour shift takes about half of it, the tough ones last.
+  markedGoal: {
+    summary: 'Логово: орда из 12 отмеченных в центре логова — два цвета, шестеро крепкие. Длинная цепь со сменой цвета берёт большую часть. Затем дверь справа.',
+    horde: { x: 8.8, y: 4.9, r: 1.64 },
+    enemies: [
+      { x: 8.8, y: 4.9, color: 0, hp: 0, marked: true },
+      { x: 9.65, y: 4.9, color: 0, hp: 0, marked: true },
+      { x: 9.23, y: 5.64, color: 0, hp: 0, marked: true },
+      { x: 8.38, y: 5.64, color: 0, hp: 0, marked: true },
+      { x: 7.95, y: 4.9, color: 2, hp: 0, marked: true },
+      { x: 8.38, y: 4.16, color: 2, hp: 0, marked: true },
+      { x: 9.23, y: 4.16, color: 2, hp: 3, marked: true },
+      { x: 10.16, y: 5.69, color: 0, hp: 3, marked: true },
+      { x: 8.8, y: 6.47, color: 0, hp: 3, marked: true },
+      { x: 7.44, y: 5.69, color: 0, hp: 3, marked: true },
+      { x: 7.44, y: 4.11, color: 2, hp: 3, marked: true },
+      { x: 8.8, y: 3.33, color: 2, hp: 3, marked: true },
+    ],
+  },
 };
 
 const registry = new Map<string, ArenaTemplate>();
@@ -312,6 +371,16 @@ export const ARCHER_ARENA: ArenaTemplate = registerArena({
     { x: 13, y: 2.4, color: 2, kind: 'archer', marked: true },
     { x: 13.6, y: 7.4, color: 3, kind: 'archer', marked: true },
   ],
+  // Task 12 (design 13.10.2026): one leader archer (HP 5, at least the row's tough + 2) behind the far ridge; the other two
+  // archers stand unmarked at their posts.
+  markedGoal: {
+    summary: 'Убей вожака лучников за дальней грядой — у него много HP: длинная цепь, кончающаяся на нём, или несколько ударов. Лучники стреляют в точку: сойди с круга за 1 с. Дверь справа.',
+    enemies: [
+      { x: 7.8, y: 1.2, color: 0, kind: 'archer' },
+      { x: 13, y: 2.4, color: 2, kind: 'archer', hp: 5, marked: true, leader: true },
+      { x: 13.6, y: 7.4, color: 3, kind: 'archer' },
+    ],
+  },
   phaseOverride: ONE_KIND,
   // Баланс: section 5 — archers 15% of newcomers.
   newcomers: [{ kind: 'archer', share: 0.15 }],
@@ -444,6 +513,18 @@ export const FORD_ARENA: ArenaTemplate = registerArena({
     { x: 15.6, y: 6, color: 1, hp: 1, kind: 'wolf', marked: true },
     { x: 15.8, y: 8.4, color: 2, hp: 1, kind: 'wolf', marked: true },
   ],
+  // Task 12 (design 13.10.2026): one leader archer (HP 6, at least the row's tough + 2) on the far bank; the other archers and
+  // the two wolves stand unmarked at their posts.
+  markedGoal: {
+    summary: 'Убей вожака лучников на том берегу — у него много HP: длинная цепь, кончающаяся на нём, или несколько ударов. Вброд — вдвое медленнее и под стрелами, цепью — быстро. Дверь справа.',
+    enemies: [
+      { x: 20.1, y: 3.1, color: 0, kind: 'archer' },
+      { x: 20.7, y: 7.8, color: 2, kind: 'archer', hp: 6, marked: true, leader: true },
+      { x: 19.8, y: 12, color: 3, kind: 'archer' },
+      { x: 15.6, y: 6, color: 1, hp: 1, kind: 'wolf' },
+      { x: 15.8, y: 8.4, color: 2, hp: 1, kind: 'wolf' },
+    ],
+  },
   pace: { wolfShare: FORD_WOLF_SHARE },
   phaseOverride: { boarShare: 0 },
   newcomers: [{ kind: 'archer', share: FORD_ARCHER_SHARE }],

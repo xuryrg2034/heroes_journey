@@ -40,9 +40,10 @@ import { eventOption, forestEvent } from '../forest/forestEvents';
 export interface RunHost {
   /**
    * Start the arena of the entered battle node (the run's HP, the node's seed, the run's consumables and energy; phase A —
-   * its roster, absent for the template's own composition) and show it.
+   * its roster, absent for the template's own composition) and show it. Task 12: `markedGoals` — the run's flag
+   * (`RtRunState.markedGoals`): the arena plays with `rtArenaParams` (a run without the flag keeps the old layouts).
    */
-  startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice, roster?: string): void;
+  startArena(arena: string, seed: number, hero: HeroStart, label: string, loadout: Loadout, notice: ArenaItemNotice, roster?: string, markedGoals?: boolean): void;
   /** Loop research, step 1: what the arena's loadout takes from the panel (the palette by the row). Absent — nothing. */
   loadoutOptions?: RtLoadoutOptions;
   /**
@@ -312,7 +313,7 @@ export class RunView {
     this.el.hidden = true;
     this.host.onScreenChange(false);
     const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}`;
-    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) }, pending.roster);
+    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) }, pending.roster, !!this.run.markedGoals);
   }
 
   private describe(events: RtRunEvent[]): string {
@@ -629,7 +630,7 @@ export class RunView {
   private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = []): string {
     const row = node ? runRow(node.row) : 1;
     const battle = node?.type === 'boss' ? 'final' : node?.type === 'hard' ? 'hard' : node?.type === 'event' ? 'event' : 'battle';
-    const lines = nodeDangers({ arena, roster, row, guaranteedElite: !!node && rtGuaranteedElite(node, battle), startElite: !!run.modifiers?.includes('start-elite'), newKinds });
+    const lines = nodeDangers({ arena, roster, row, guaranteedElite: !!node && rtGuaranteedElite(node, battle), startElite: !!run.modifiers?.includes('start-elite'), newKinds, markedGoals: !!run.markedGoals });
     if (!lines.length) return '';
     const items = lines.map(line => {
       const sign = line.newKinds?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';

@@ -14,7 +14,7 @@
  * from its journal to the same hash; newcomers' markers never stand over a cliff or in water. Seeds are spread
  * (`Math.imul(k, 2654435761) >>> 0`).
  */
-import { SLICE_ARENAS, arenaTemplate, type ArenaTemplate } from './arenas';
+import { SLICE_ARENAS, arenaTemplate, registeredArenas, type ArenaTemplate } from './arenas';
 import { BEHAVIOR_ARENAS } from './arenasStage3';
 import { CAMERA_ARENAS } from './arenasCamera';
 import { chainAnchor, enemyRefusal, nextCandidates, nextObjectCandidates, planChain } from './chain';
@@ -280,6 +280,19 @@ check('start enemies and the hero\'s start of arenas 4–10 and the new enemies\
     const sim = new Simulation({ arena: id, params: quiet(), seed: seedOf(1) });
     for (const [i, s] of arena.enemies.entries()) assert(dist(sim.world.enemies[i], s) < 1e-9, `${arena.name}: start enemy ${i + 1} moved`);
   }
+});
+
+check('task 12: the goal layouts (a horde or a leader) of the marked arenas — every post on ground, none moved by the world (`markedGoals` on), the horde within its mark', () => {
+  const layouts = registeredArenas().filter(a => a.markedGoal);
+  assert(layouts.length >= 4, `goal layouts: ${layouts.map(a => a.id)}`);
+  for (const arena of layouts) {
+    const r = enemyBodyRadius(defaultParams()), goal = arena.markedGoal!;
+    for (const p of goal.enemies) assert(!cliffAt(p, r, arena) && !inThorns(p, arena) && !inWater(p, arena) && !blockedAt(p, r * 0.99, arena), `${arena.name}: post (${p.x}, ${p.y}) on terrain`);
+    const sim = new Simulation({ arena: arena.id, params: { ...quiet(), markedGoals: true }, seed: seedOf(1) });
+    for (const [i, s] of goal.enemies.entries()) assert(dist(sim.world.enemies[i], s) < 1e-9, `${arena.name}: post ${i + 1} moved`);
+    if (goal.horde) for (const e of goal.enemies.filter(x => x.marked)) assert(dist(e, goal.horde) <= goal.horde.r + 1e-9, `${arena.name}: (${e.x}, ${e.y}) outside the horde mark`);
+  }
+  console.log(`   ${layouts.map(a => `${a.name} ${a.markedGoal!.enemies.length}`).join(', ')}`);
 });
 
 // ---- 4 «Стена щитов»: М4 braziers ----

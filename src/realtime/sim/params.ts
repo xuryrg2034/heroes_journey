@@ -691,6 +691,15 @@ export interface Params {
    * sandbox has no run.
    */
   rosterMix: boolean;
+  // ---- Task 12 «Отмеченные — вожак или орда» (sim/arenas.ts `markedGoal`, docs/realtime-slice.md, section 5; design 13.10.2026). ----
+  /**
+   * The marked goals: a `marked` arena with a goal layout (`ArenaTemplate.markedGoal`: «Логово», «Стрелковая гряда», «Брод»,
+   * «Круг шамана») plays it — a horde of 12 or one leader (`StartEnemy.leader`: HP at least the row's tough HP + 2, art like an
+   * elite). Read once when the world is made (world.ts `createWorld`). Off by default; journals without the key: off (the old
+   * layouts). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`) for a run with the flag `RtRunState.markedGoals` (a save before
+   * 13.10.2026 keeps the old layouts); the sandbox has the panel toggle (a new fight of the arena).
+   */
+  markedGoals: boolean;
   // ---- П9 «Второе дыхание» (world.ts `hurtHero`, docs/realtime-prototype.md; design decision 11.10.2026: sandbox only). ----
   /**
    * The second wind: once per fight a lethal hit does not end it — the hero stands up with 3 HP, invulnerable 2 s; the
@@ -1053,6 +1062,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   goblinCircle: false,
   // Roster mix (run/arenaPools.ts): off by default.
   rosterMix: false,
+  markedGoals: false,
   // П9 «Второе дыхание» (world.ts `hurtHero`): off by default.
   secondWind: false,
   // К7 «Проклятый сундук» (chest.ts): off by default.
@@ -1426,6 +1436,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Roster mix (run/arenaPools.ts, docs/realtime-phase-a.md, section 4).
   { kind: 'bool', key: 'rosterMix', group: 'Составы', label: 'Составы Заставы и Брода (поход)', stage: 5,
     hint: 'Только поход: «Застава» и «Брод» примерно в половине боёв берут состав пула из встреченных видов («Шаманский щит» — не на «Броде»); «Логово» — на рядах 6–8. В походе включено всегда; в песочнице не действует.' },
+  // Task 12 «Отмеченные — вожак или орда» (sim/arenas.ts `markedGoal`, docs/realtime-slice.md, section 5).
+  { kind: 'bool', key: 'markedGoals', group: 'Составы', label: 'Отмеченные: вожак или орда', stage: 5,
+    hint: 'Логово — орда из 12 в центре; Стрелковая гряда, Брод, Круг шамана — один вожак с большим HP (не меньше HP крепкого ряда + 2), нарисован как элита. Действует с нового боя арены. В походе включено (поход до 13.10.2026 — прежние расстановки).' },
   // К7 «Проклятый сундук» (chest.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'cursedChest', group: 'Котёл', label: 'Проклятый сундук', stage: 5,
     hint: 'Только «Застава»: в её точке стоит сундук (новый бой арены). Взять — звеном цепи любого цвета или касанием. Проклятие: касание врага +1 (не Жнец; стрелы, иглы, взрывы, шипы — без +1), пока проход не убьёт 12 врагов, или до конца боя. В походе включено всегда; награда — экран талисманов после победы.' },

@@ -25,7 +25,7 @@ import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, co
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
-import { rtRunParams } from '../run/rtRun';
+import { rtArenaParams, rtRunParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
 import { linkPoint } from '../sim/chain';
@@ -387,6 +387,8 @@ async function boot(): Promise<void> {
   };
   /** П6 «Незакрытое дело»: the fight's killing blow (rtRunEnd.ts) — enemies seen before every tick, the events every frame. */
   const deathWatch = new RtDeathWatch();
+  /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
+  let runArenaParams: Params | null = null;
   /**
    * `simParams` — the prologue's room: its own `Params` (`prologueParams`), its loadout as given (rooms 1–5 have none: the same
    * world the Node tests play), no telemetry tap and no death watch (the prologue is not a run fight).
@@ -395,7 +397,7 @@ async function boot(): Promise<void> {
     motion.clear();
     deathWatch.reset();
     if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
-    return new Simulation({ arena, params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
+    return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
 
   /**
@@ -597,8 +599,9 @@ async function boot(): Promise<void> {
   const newSeen = sandbox ? null : new NewSeenStore();
   let newOnMap = loadNewOnMap();
   const runView: RunView | null = sandbox ? null : new RunView({
-    startArena(arenaId, seed, hero, label, loadout, notice, roster) {
+    startArena(arenaId, seed, hero, label, loadout, notice, roster, markedGoals) {
       runLabel = label;
+      runArenaParams = rtArenaParams({ ...markedGoals ? { markedGoals: true as const } : {} }, params);
       runArenaRecorded = false;
       fightChainLine = null;
       fightLuck = {};
