@@ -49,9 +49,9 @@ import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
 import { detectLabels, labelActions, LEVER_OVER_LINE, WorldLabelLayer, type LabelSpec } from './worldLabels';
-import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueSpinReady } from '../run/prologue';
+import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
-import { HandGuide, PROLOGUE_ROOM_COUNT, PrologueStore, TITLE_SECONDS, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
+import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
 import { PrologueDom, PrologueLayer } from './prologueView';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
@@ -522,7 +522,7 @@ async function boot(): Promise<void> {
   };
   const showMenu = (): void => {
     menuOpen = true;
-    // Task 12: with «Отмеченные: вожак или орда» on, an arena with a goal layout says its own goal (`markedGoal.summary`).
+    // Task 12: with «Отмеченные: атаман или орда» on, an arena with a goal layout says its own goal (`markedGoal.summary`).
     SANDBOX_ARENAS.forEach((arena, i) => { const span = menu.querySelector(`[data-summary="${i}"]`); if (span) span.textContent = markedGoalArena(arena, params.markedGoals).summary; });
     menu.hidden = false;
     result.hidden = true;
@@ -831,11 +831,14 @@ async function boot(): Promise<void> {
     startArena(room.arena, prologueSeed(n, attempt, fixedSeed), { hp: RT_RUN_HP, maxHp: RT_RUN_HP }, prologueLoadout(n), undefined, prologueParams(n, loadParams()));
     prologueLayer.reset();
     // The hand: a chain room shows its chain (or the arrow to a spot with one); «Пропасть» (task 9) — the arrow to the cliff's edge,
-    // then the click of the jump beyond it; the other rooms have no hand.
-    const jumpRoom = room.id === 'prologue-jump';
-    const guide = room.route || jumpRoom ? new HandGuide(jumpRoom
+    // then the click of the jump beyond it; «Щит» (task 13) — a chain of 3+ of one colour through the crowd from where the hero
+    // stands (`prologueShieldLinks`, asked again as the crowd moves; after 1.5 s of
+    // rest, not 4; no arrow: the crowd comes to the hero); the other rooms have no hand.
+    const jumpRoom = room.id === 'prologue-jump', shieldRoom = room.arena.goal === 'shield';
+    const guide = room.route || jumpRoom || shieldRoom ? new HandGuide(jumpRoom
       ? { route: () => [], spot: () => prologueJumpAim(world(), n)?.spot ?? null, aim: () => { const a = prologueJumpAim(world(), n); return a?.ready ? a.target : null; } }
-      : { route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind)) : null;
+      : shieldRoom ? { route: () => prologueShieldLinks(world()) ?? [], spot: () => null }
+      : { route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind), shieldRoom ? SHIELD_HAND_IDLE : HAND_IDLE) : null;
     actionBar.setAllowed(room.tiles);
     prologue = { n, attempt, guide, label: { done: false }, titleLeft: TITLE_SECONDS, lastTime: 0, seconds: 0, real: 0 };
     prologueDom.showTitle(roomTitle(n));
@@ -899,7 +902,7 @@ async function boot(): Promise<void> {
     const door = w.objects.find(o => o.kind === 'door');
     // The hand's points: the jump's click (one point: press and let go), or the chain's links.
     const handPoints = pl.guide?.show === 'hand' ? (pl.guide.target ? [pl.guide.target] : pl.guide.route.flatMap(l => { const p = linkPoint(w, l); return p ? [p] : []; })) : [];
-    if (door) prologueLayer.draw(live ? realDt : 0, { lamps: goalLamps(w), door, arena: w.arena, hero: w.hero, guide: pl.guide, handPoints });
+    if (door) prologueLayer.draw(live ? realDt : 0, { lamps: goalLamps(w), door, arena: w.arena, hero: w.hero, guide: pl.guide, handPoints, lampSpark: w.arena.goal === 'shield' });
     if (!transition && w.status !== 'playing') {
       const won = w.status === 'victory', last = pl.n === PROLOGUE_ROOM_COUNT;
       prologueHooks.roomEnd?.(pl.n, pl.attempt, won ? 'win' : 'death', pl.seconds, pl.real);
@@ -1295,7 +1298,12 @@ async function boot(): Promise<void> {
   // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
   // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.
   (window as unknown as { __realtime: unknown }).__realtime = {
-    params,
+    /**
+     * The values the fight plays with now, for the console and the tests' direct writes: in the sandbox the page's `params`; in a
+     * run fight its own object (`runArenaParams`: task 12's copy with the run's `markedGoals`) — the page's `params` never takes
+     * the run's flag, so nothing the sandbox saves inherits it. Before the first run fight — the page's (the fight copies it).
+     */
+    get params() { return runArenaParams ?? params; },
     get fps() { return fps; },
     get workMs() { return workMs; },
     snapshot: () => {
@@ -1418,6 +1426,8 @@ async function boot(): Promise<void> {
         curseView: { ...renderer.curseShown },
         /** «Щит фокуса»: the rim round the hero this frame, and the rule now (sim `focusGuarded`). */
         focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
+        /** Task 13: the after-chain shield — seconds left (sim), its glow this frame, the block sparks shown so far. */
+        chainShield: { left: w.hero.chainShield, glow: renderer.chainShieldShown, blocks: renderer.shieldBlocksShown },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
         /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */
@@ -1441,11 +1451,11 @@ async function boot(): Promise<void> {
     },
     /**
      * The prologue's test hooks (null in the sandbox): `route()` — where the hand's chain stands NOW on the screen (stage px; from
-     * `prologueRoute`, only to know where to drag with the real mouse — it sends nothing), `spot()` — the blinking circle on the
+     * `prologueRoute`, in «Щит» `prologueShieldLinks`, only to know where to drag with the real mouse — it sends nothing), `spot()` — the blinking circle on the
      * screen (null — none), `spotWorld()` the same in arena units, `skip()` — the corner button's action, `jumpAim()` — room 5's spot and click.
      */
     prologue: !sandbox ? {
-      route: () => { const pl = prologue; if (!pl) return []; return prologueRoute(world(), pl.n).flatMap(l => { const p = linkPoint(world(), l); return p ? [{ ...renderer.toScreen(p.x, p.y), kind: l.kind, id: l.id }] : []; }); },
+      route: () => { const pl = prologue; if (!pl) return []; const w = world(); return (w.arena.goal === 'shield' ? prologueShieldLinks(w) ?? [] : prologueRoute(w, pl.n)).flatMap(l => { const p = linkPoint(w, l); return p ? [{ ...renderer.toScreen(p.x, p.y), kind: l.kind, id: l.id }] : []; }); },
       spot: () => { const c = prologue?.guide?.circle; return c ? renderer.toScreen(c.x, c.y) : null; },
       spotWorld: () => { const c = prologue?.guide?.circle; return c ? { ...c } : null; },
       skip: () => skipPrologue(),

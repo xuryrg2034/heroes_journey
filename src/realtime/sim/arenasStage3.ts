@@ -76,7 +76,7 @@ export const SHAMAN_CIRCLE_ARENA: ArenaTemplate = registerArena({
   // Task 12 (design 13.10.2026): one leader shaman (HP 6, at least the row's tough + 2) at the top centre; three weak links and a
   // brazier (+2) kill it, as five weak links do. No other shaman from the start (the newcomers bring them).
   markedGoal: {
-    summary: 'Убей вожака-шамана — у него много HP, жаровни дают цепи +2. Шаман лучом делает слабого врага крепким: убей цель или шамана до конца луча. Дверь слева.',
+    summary: 'Убей атамана-шамана — у него много HP, жаровни дают цепи +2. Шаман лучом делает слабого врага крепким: убей цель или шамана до конца луча. Дверь слева.',
     enemies: [{ x: 8, y: 1.2, color: 2, kind: 'shaman', hp: 6, marked: true, leader: true }],
   },
   braziers: [{ x: 4.6, y: 4.4 }, { x: 11.4, y: 4.4 }, { x: 8, y: 3.4 }],

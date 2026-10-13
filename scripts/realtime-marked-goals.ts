@@ -1,5 +1,5 @@
 /**
- * Measure of task 12 «Отмеченные — вожак или орда» (design 13.10.2026; docs/realtime-slice.md, section 5): the four `marked`
+ * Measure of task 12 «Отмеченные — атаман или орда» (design 13.10.2026; docs/realtime-slice.md, section 5): the four `marked`
  * arenas of the run with their old layouts (`Params.markedGoals` off) and their goal layouts (on) — a horde on «Логово», one
  * leader on «Стрелковая гряда», «Круг шамана», «Брод». A heuristic for the design, not a test: `npm run realtime:marked-goals`
  * (`--seeds N`, default 20; `--limit S`, default 240; `--arenas a,b`).
@@ -186,8 +186,8 @@ const median = (xs: number[]): number => { const s = [...xs].sort((a, b) => a - 
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
 const f1 = (x: number): string => x.toFixed(1).replace('.', ',');
 
-console.log(`Задача 12 «Отмеченные — вожак или орда»: ${SEEDS} seed, предел ${LIMIT} с, HP героя 999 (эвристика).\n`);
-console.log('| Арена | Ряд | Расстановка | Бот | Цели | Время, с (мед. / ср.) | Урон (мед. / ср.) | Лучший проход, отмеченных | Проходов по вожаку | Вожак одной цепью |');
+console.log(`Задача 12 «Отмеченные — атаман или орда»: ${SEEDS} seed, предел ${LIMIT} с, HP героя 999 (эвристика).\n`);
+console.log('| Арена | Ряд | Расстановка | Бот | Цели | Время, с (мед. / ср.) | Урон (мед. / ср.) | Лучший проход, отмеченных | Проходов по атаману | Атаман одной цепью |');
 console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
 for (const arena of ARENAS) {
   for (const row of rowsOf(arena)) for (const markedGoals of [false, true]) for (const bot of ['aim', 'greedy'] as const) {

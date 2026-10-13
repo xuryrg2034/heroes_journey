@@ -3,8 +3,8 @@ import { test, expect } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 
 /**
- * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026; docs/realtime-slice.md): the view of the goal layouts at 1280×720 in the
- * sandbox with the toggle «Отмеченные: вожак или орда» (`markedGoals`) on. «Отмеченные и дверь» (the den) is a horde: one ring of
+ * Task 12 «Отмеченные — атаман или орда» (design 13.10.2026; docs/realtime-slice.md): the view of the goal layouts at 1280×720 in the
+ * sandbox with the toggle «Отмеченные: атаман или орда» (`markedGoals`) on. «Отмеченные и дверь» (the den) is a horde: one ring of
  * dashes round the crowd of marked enemies, no reticle on each. «Стрелковая гряда», «Круг шамана» and «Брод» have one leader: a
  * gold crown over its head and the HP plate on its chest, drawn larger (the sim's `enemyArtScale`). The menu says each arena's goal
  * from its layout. Off, the old arenas: no crown, no ring.
@@ -38,7 +38,13 @@ async function openSandbox(page: Page, markedGoals: boolean): Promise<string[]> 
   return errors;
 }
 
-/** Opens the arena by its menu button (the menu is reopened by M), a quiet field: nobody walks or comes, the start layout stays. */
+/**
+ * Opens the arena by its menu button (the menu is reopened by M), a quiet field: nobody walks or comes, the start layout stays.
+ * Returns the first frame the renderer drew for the new world: the snapshot reads the world at once but `markedView` from the
+ * last draw, so the frame right after the click can pair the new arena with the old one's view (the den's horde, no crown). The
+ * wait is for the view to agree with the sim (one crown per leader, the ring when the arena has a horde); a view that never draws
+ * them still returns its reading after 5 s of game time and fails the checks with it.
+ */
 async function openArena(page: Page, name: string, id: string): Promise<Snap> {
   if (!(await page.getByTestId('menu').isVisible())) await page.keyboard.press('KeyM');
   await expect(page.getByTestId('menu')).toBeVisible();
@@ -49,7 +55,10 @@ async function openArena(page: Page, name: string, id: string): Promise<Snap> {
     const rt = (window as any).__realtime;
     for (const [k, v] of Object.entries({ enemySpeed: 0, wolfSpeed: 0, speedSpread: 0, contactDamage: 0, baseIntervalMin: 1000, baseIntervalMax: 1000, baseFloor: 0 })) rt.setParam(k, v);
   });
-  return untilFrame(page, (s: Snap) => (s.enemies.some(e => e.marked) ? s : undefined), null, 5);
+  return untilFrame(page, (s: Snap, _a: null, late: boolean) => {
+    const drawn = s.markedView.crowns === s.enemies.filter(e => e.leader).length && s.markedView.hordeRing === !!s.markedView.horde;
+    return late || (s.enemies.some(e => e.marked) && drawn) ? s : undefined;
+  }, null, 5);
 }
 
 test('task 12: the den is a horde — one ring round the crowd, no reticle on each; the ridge, the shaman circle and the ford have one leader — a crown and its HP plate', async ({ page }) => {
@@ -94,5 +103,39 @@ test('task 12: with the toggle off the old arenas play — no crown, no horde ri
     expect(s.markedView.hordeRing).toBe(false);
     expect(s.markedView.crowns).toBe(0);
   }
+  expect(errors).toEqual([]);
+});
+
+test('task 12, the run: the fight plays the run\'s flag; `__realtime.params` tunes the fight itself; the sandbox\'s saved panel never takes the flag', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.evaluate(() => { for (const key of Object.keys(localStorage)) if (key.includes('realtime-params')) localStorage.removeItem(key); });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await page.getByTestId('gift-1').click();
+  await page.getByTestId('node-r5c0').click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  // The hook is the fight's own values: the run's flag is on there, and a write reaches the fight (nobody walks any more).
+  expect(await page.evaluate(() => (window as any).__realtime.params.markedGoals)).toBe(true);
+  await untilFrame(page, (s: Snap) => (s.enemies.length >= 3 ? true : undefined), null, 8);
+  await page.evaluate(() => { const p = (window as any).__realtime.params; p.enemySpeed = 0; p.wolfSpeed = 0; p.speedSpread = 0; });
+  const before = (await snap(page)).enemies;
+  const after = await untilFrame(page, (s: Snap, _a: null, late: boolean) => (late ? s : undefined), null, 1.5);
+  for (const e of after.enemies) {
+    const was = before.find(b => b.id === e.id);
+    if (was) expect(Math.hypot(e.x - was.x, e.y - was.y), `enemy ${e.id} stands`).toBeLessThan(0.1);
+  }
+  // Out of the fight, then the sandbox: its saved panel and its values have no run flag (the default — off).
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toBeVisible({ timeout: 15_000 });
+  const saved = await page.evaluate(() => Object.keys(localStorage).filter(k => k.includes('realtime-params')).map(k => localStorage.getItem(k) ?? ''));
+  for (const text of saved) expect(JSON.parse(text).markedGoals ?? false, 'the saved panel').toBe(false);
+  await page.goto('/?sandbox=1');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__realtime.params.markedGoals)).toBe(false);
   expect(errors).toEqual([]);
 });

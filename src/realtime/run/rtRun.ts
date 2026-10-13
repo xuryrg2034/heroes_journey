@@ -82,7 +82,7 @@ import { validDeath, type RtDeath } from './rtRunEnd';
  * stands; a save before it (or a run that never met one) has none and plays on as before.
  * П6 «Незакрытое дело» (the same version, 12.10.2026): the lost battle record may carry `death` (the killing blow); a save
  * before it has none (its end screen shows no killer line).
- * Task 12 «Отмеченные — вожак или орда» (the same version, design 13.10.2026): the run's flag `markedGoals`, set at its
+ * Task 12 «Отмеченные — атаман или орда» (the same version, design 13.10.2026): the run's flag `markedGoals`, set at its
  * creation; its arenas play the goal layouts (`Params.markedGoals`, `rtArenaParams`). A save without it keeps the old layouts
  * to its end; the choice of arenas and rosters is the same either way.
  */
@@ -114,7 +114,7 @@ export const RT_RUN_VERSION_V6 = 6;
  * 60) — kept for the cauldron's return; the run has no cauldron since task 5.
  */
 export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purseRate: 120, greedByDeeds: true, doorFinale: true, rosterMix: true,
-  // Task 12 «Отмеченные — вожак или орда» (design 13.10.2026): a new run takes the goal layouts and keeps the flag in its state
+  // Task 12 «Отмеченные — атаман или орда» (design 13.10.2026): a new run takes the goal layouts and keeps the flag in its state
   // (`RtRunState.markedGoals`); an arena of a run without it plays the old layouts (`rtArenaParams`).
   markedGoals: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — a 1.2 s spin; the sandbox panel is free.
@@ -277,7 +277,7 @@ export interface RtRunState {
    */
   rosterMix?: true;
   /**
-   * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026, `Params.markedGoals`): the run's `marked` arenas play their goal
+   * Task 12 «Отмеченные — атаман или орда» (design 13.10.2026, `Params.markedGoals`): the run's `marked` arenas play their goal
    * layouts (a horde or one leader, sim/arenas.ts `markedGoal`). Set when the run is created and kept for the whole run;
    * absent — a run saved before 13.10.2026 (or created without it): the old layouts, to its end (`rtArenaParams`).
    */

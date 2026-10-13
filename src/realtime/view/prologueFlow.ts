@@ -54,6 +54,8 @@ export function prologueGoalLine(w: World): string {
   if (goal === 'strike') return `Одним ударом: ${done} / ${total}`;
   if (goal === 'door') return `Дверь: ${done} / ${total}`;
   if (goal === 'item') return `Зелье: ${done} / ${total}`;
+  // Task 13: «Щит» — touches the after-chain shield took.
+  if (goal === 'shield') return `Щит: ${done} / ${total}`;
   return `Убей: ${done} / ${total}`;
 }
 
@@ -86,6 +88,8 @@ export function lampPoints(door: Vec, arena: { width: number; height: number }, 
 
 /** Game seconds without a press before the hand (or the arrow) comes. */
 export const HAND_IDLE = 4;
+/** Room 9 «Щит» (task 13, design 13.10.2026): the hand comes sooner — the crowd walks at the hero, the wait for a hint must not cost HP. */
+export const SHIELD_HAND_IDLE = 1.5;
 /** Game seconds between two questions to the sim (`prologueRoute`, `prologueHandSpot`) while nothing shows. */
 export const HAND_ASK = 0.25;
 
@@ -120,7 +124,11 @@ export class HandGuide {
   private arrowOn = false;
   private locked = false;
 
-  constructor(private readonly probe: HandProbe, private readonly onShow?: (show: 'hand' | 'arrow') => void) {}
+  /**
+   * `idleFor` — the seconds of rest before the hand: `HAND_IDLE`; room 9 «Щит» — `SHIELD_HAND_IDLE` (the crowd is on the hero, the
+   * wait must not cost HP; design 13.10.2026).
+   */
+  constructor(private readonly probe: HandProbe, private readonly onShow?: (show: 'hand' | 'arrow') => void, private readonly idleFor = HAND_IDLE) {}
 
   /** The seconds of rest so far (tests). */
   get rest(): number { return this.idle; }
@@ -146,8 +154,8 @@ export class HandGuide {
       if (this.show === 'hand' && !this.locked) { this.route = []; this.target = null; this.setShow('none'); }
     } else this.idle += dt;
     this.ask += dt;
-    // Ask the sim every HAND_ASK, and at once when the rest reaches HAND_IDLE (the hand comes at 4 s, not up to a moment later).
-    if (this.ask < HAND_ASK && !(before < HAND_IDLE && this.idle >= HAND_IDLE)) return;
+    // Ask the sim every HAND_ASK, and at once when the rest reaches `idleFor` (the hand comes at 4 s, not up to a moment later).
+    if (this.ask < HAND_ASK && !(before < this.idleFor && this.idle >= this.idleFor)) return;
     this.ask = 0;
     this.refresh();
   }
@@ -156,7 +164,7 @@ export class HandGuide {
     const route = this.probe.route(), target = this.probe.aim?.() ?? null;
     if (route.length || target) {
       // A chain (or the jump's click) from here: after the rest, or at once when the circle was walked to (then it stays through walking until a press).
-      if (this.show === 'hand' || this.circle || this.idle >= HAND_IDLE) {
+      if (this.show === 'hand' || this.circle || this.idle >= this.idleFor) {
         if (this.circle) this.locked = true;
         this.circle = null; this.arrowOn = false;
         this.route = route; this.target = target;
@@ -165,8 +173,8 @@ export class HandGuide {
       return;
     }
     // No chain from here: a hand that showed goes (the enemies moved or are gone) and the rest counts as done.
-    if (this.show === 'hand') { this.route = []; this.target = null; this.locked = false; this.setShow('none'); this.idle = Math.max(this.idle, HAND_IDLE); }
-    if (this.idle < HAND_IDLE) return;
+    if (this.show === 'hand') { this.route = []; this.target = null; this.locked = false; this.setShow('none'); this.idle = Math.max(this.idle, this.idleFor); }
+    if (this.idle < this.idleFor) return;
     // The circle stays where it was set (the arena stands still while the room waits); the arrow comes back after each rest.
     if (!this.circle) this.circle = this.probe.spot();
     if (this.circle) { this.arrowOn = true; this.setShow('arrow'); }

@@ -345,7 +345,7 @@ export interface PrologueRecord extends RtHeader {
   /**
    * How many rooms the prologue had when the record was written (task 13, 13.10.2026: 10; task 9: 9 — its room 9 «Толпа» is room
    * 10 now). Absent — a record of the six rooms of
-   * task 6, whose rooms 5 and 6 are «Гоблин» and «Толпа» (now 8 and 9; the report reads them so — report.ts `prologueRoomNow`).
+   * task 6, whose rooms 5 and 6 are «Гоблин» and «Толпа» (now 8 and 10; the report reads them so — report.ts `prologueRoomNow`).
    */
   roomCount?: number;
   /** When the playthrough ended (ISO; absent — open). */

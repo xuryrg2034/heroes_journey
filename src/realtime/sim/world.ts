@@ -54,7 +54,7 @@ export interface Enemy {
   /** Target of the third arena: killing every marked enemy completes the goals. */
   marked: boolean;
   /**
-   * Task 12 «Отмеченные — вожак или орда»: a leader of a goal layout (`StartEnemy.leader`) — raised HP, reached and pressed like an
+   * Task 12 «Отмеченные — атаман или орда»: a leader of a goal layout (`StartEnemy.leader`) — raised HP, reached and pressed like an
    * elite (enemies/kinds.ts `enemyArtScale`); the seam for the view's leader (the ui session). Absent on every other enemy
    * (worlds without leaders hash as before).
    */
