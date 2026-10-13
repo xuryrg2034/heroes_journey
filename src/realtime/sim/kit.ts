@@ -70,7 +70,8 @@ export interface Loadout {
    */
   slot?: boolean;
   /**
-   * Task 14 «Котомка у двери» (bag.ts): no bag in this fight whatever `Params.doorBag` says — the run's Jailer and final fight.
+   * Task 14 «Котомка у двери» (bag.ts): no bag in this fight whatever `Params.doorBag` says — the run's fights of row 1
+   * (run/rtRun.ts `RT_BAG_ROW`), the Jailer's and the final fight.
    * Absent — the bag by `Params.doorBag`.
    */
   noBag?: boolean;

@@ -26,7 +26,8 @@ import { goblinOf, leverOf } from './slot';
 import { focusGuarded, type World, type WorldEvent } from './world';
 import { RESOURCE_KINDS } from './kit';
 import { PROLOGUE_ROOM_COUNT, prologueLoadout, prologueParams, prologueRoom } from '../run/prologue';
-import { createRtRun, resolveArena, rtArenaLoadout, rtMapNodes, rtRunParams, RT_RUN_FORCED, type RtRunState } from '../run/rtRun';
+import { runRow } from '../run/arenaPools';
+import { createRtRun, resolveArena, rtArenaLoadout, rtMapNodes, rtNode, rtRunParams, RT_BAG_ROW, RT_RUN_FORCED, type RtRunState } from '../run/rtRun';
 import { ok, playFight, takeGift, toBattle } from '../run/runFight.testkit';
 import { createFightObserver } from '../telemetry/observe';
 import { withSummaryDefaults } from '../telemetry/schema';
@@ -401,7 +402,7 @@ check('defaults: off in the sandbox (no bag at the goals); the run turns it on; 
   assert(bagPayout(w) === null, 'nothing paid');
 });
 
-check('the run: the Jailer\'s and the final fight carry no bag; other battle nodes (an event fight and a breakthrough too) do', () => {
+check('the run: row 1, the Jailer\'s and the final fight carry no bag; other battle nodes from row 2 (an event fight and a breakthrough too) do', () => {
   let jail = 0, other = 0;
   const played = new Set<string>();
   for (let k = 1; k <= 3; k++) {
@@ -410,15 +411,15 @@ check('the run: the Jailer\'s and the final fight carry no bag; other battle nod
       if (!['battle', 'hard', 'checkpoint', 'breakthrough', 'boss', 'event'].includes(node.type)) continue;
       const battle = node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : node.type === 'event' ? 'event' : 'battle';
       const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'run-fight-field', seed: seedOf(1), battle } };
-      const no = node.type === 'checkpoint' || node.type === 'boss';
-      assert(!!rtArenaLoadout(run).noBag === no, `${node.type}: noBag ${rtArenaLoadout(run).noBag}`);
+      const no = node.type === 'checkpoint' || node.type === 'boss' || runRow(node.row) < RT_BAG_ROW;
+      assert(!!rtArenaLoadout(run).noBag === no, `${node.type} row ${runRow(node.row)}: noBag ${rtArenaLoadout(run).noBag}`);
       if (!no && !played.has(node.type)) {
         // The fight itself: the goals and 10 kills after them — the bag with its first step, the door pays 1.
         const { sim, outcome } = playFight(run, { chains: [5, 5], start: s => { s.command({ t: 'goals' }); } });
         assert(sim.world.bag?.step === 1 && paidCount(outcome.bag) === 1, `${node.type}: the bag in the fight (${JSON.stringify(sim.world.bag)})`);
         played.add(node.type);
       }
-      if (!no || k > 1) { other += no ? 0 : 1; continue; }
+      if (!no || k > 1 || runRow(node.row) < RT_BAG_ROW) { other += no ? 0 : 1; continue; }
       // The fight itself: the goals and 20 kills after them — no bag, nothing paid.
       const { sim, outcome } = playFight(run, { chains: [5, 5, 5, 5], start: s => { s.command({ t: 'goals' }); } });
       assert(!sim.world.bag && outcome.bag === undefined, `${node.type}: no bag in the fight`);
@@ -429,10 +430,47 @@ check('the run: the Jailer\'s and the final fight carry no bag; other battle nod
   assert(['battle', 'hard', 'breakthrough', 'event'].every(t => played.has(t)), `fights played with the bag: ${[...played]}`);
 });
 
+/** The row of the open battle of `run`. */
+const battleRow = (run: RtRunState): number => run.pending?.kind === 'battle' ? runRow(rtNode(run, run.pending.nodeId)!.row) : 0;
+/** The open battle of `run` is the Jailer's or the final one. */
+const bossBattle = (run: RtRunState): boolean => run.pending?.kind === 'battle' && ['checkpoint', 'boss'].includes(rtNode(run, run.pending.nodeId)!.type);
+/**
+ * The run walks by its own commands to its first open battle of run row `row` or later that is not the Jailer's or the final
+ * one: each battle before it is played on the quiet field (the goals, 10 kills after them, the door) and fed back; `seen`
+ * gets each of those fights.
+ */
+function toRow(run: RtRunState, row: number, k: number, seen?: (r: RtRunState, w: World) => void): RtRunState {
+  for (let i = 0; i < 40; i++) {
+    run = toBattle(run);
+    if (battleRow(run) >= row && !bossBattle(run)) return run;
+    const { sim, outcome } = playFight(run, { chains: [5, 5], k, start: s => { s.command({ t: 'goals' }); } });
+    seen?.(run, sim.world);
+    run = ok(resolveArena(run, outcome), 'resolve');
+  }
+  throw new Error(`no battle of row ${row}`);
+}
+
+check('the run, design 13.10.2026: the battles of row 1 have no bag (the door is empty), the first battle of row 2 has it — 12 seeds, the run API', () => {
+  let row1 = 0;
+  for (let k = 1; k <= 12; k++) {
+    const start = takeGift(createRtRun(seedOf(100 + k), { gift: 'mini' }));
+    // Every battle before row 2: the goals and 10 kills after them — no bag, no `bag` event, nothing paid.
+    const run = toRow(start, RT_BAG_ROW, k, (r, w) => {
+      assert(battleRow(r) === 1 || bossBattle(r), `seed ${k}: a battle of row ${battleRow(r)} before row 2`);
+      assert(w.stage === 'greed' && w.stats.kills >= 10 && !w.bag && bagPayout(w) === null, `seed ${k}: row ${battleRow(r)} — no bag (${JSON.stringify(w.bag)})`);
+      if (battleRow(r) === 1) row1++;
+    });
+    assert(battleRow(run) >= RT_BAG_ROW, `seed ${k}: reached row ${battleRow(run)}`);
+    const { sim, outcome } = playFight(run, { chains: [5, 5], k, start: s => { s.command({ t: 'goals' }); } });
+    assert(sim.world.bag?.step === 1 && paidCount(outcome.bag) === 1, `seed ${k}: row ${battleRow(run)} — the bag (${JSON.stringify(sim.world.bag)})`);
+  }
+  assert(row1 >= 12, `row 1 battles played: ${row1}`);
+});
+
 check('the run: a won battle adds the bag\'s payout to the materials; a lost one ends the run with nothing', () => {
   const kinds = new Set<string>();
   for (let k = 1; k <= 3; k++) {
-    const run = toBattle(takeGift(createRtRun(seedOf(60 + k), { gift: 'mini' })));
+    const run = toRow(takeGift(createRtRun(seedOf(60 + k), { gift: 'mini' })), RT_BAG_ROW, k);
     const { sim, outcome } = playFight(run, { chains: [5, 5, 5, 5, 5, 5, 5], k, start: s => { s.command({ t: 'goals' }); } });
     assert(sim.world.bag?.step === 3 && paidCount(outcome.bag) === 6, `seed ${k}: the outcome carries 6 (${JSON.stringify(outcome.bag)})`);
     const after = ok(resolveArena(run, outcome), 'resolve');

@@ -9,7 +9,7 @@
  * pays nothing.
  *
  * Off by default (`Params.doorBag`); journals without the key play as before: no `world.bag`, no `bag` events, the stream is
- * never touched. A run turns it on (run/rtRun.ts `RT_RUN_FORCED`); the Jailer's and the final fight carry `Loadout.noBag`; the
+ * never touched. A run turns it on (run/rtRun.ts `RT_RUN_FORCED`); its fights of row 1 (`RT_BAG_ROW` 2), the Jailer's and the final fight carry `Loadout.noBag`; the
  * prologue keeps it off (run/prologue.ts `prologueParams`).
  *
  * Counted kills: the same credit as the player's kill counter (`world.stats.kills`: the chain, the build, a sapper's blast set
@@ -35,7 +35,7 @@ export interface BagWorld {
 /** The number of steps. */
 export const BAG_STEPS = 3;
 
-/** The rule acts in this world: `doorBag` on and the fight not marked `noBag` (the run's Jailer and final fight). */
+/** The rule acts in this world: `doorBag` on and the fight not marked `noBag` (the run's row 1, the Jailer's and the final fight). */
 export function bagOn(world: World): boolean { return !!world.params.doorBag && !world.kit?.noBag; }
 
 const whole = (v: unknown, fallback: number): number => {

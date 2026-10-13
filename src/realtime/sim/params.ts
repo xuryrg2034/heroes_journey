@@ -736,7 +736,7 @@ export interface Params {
    * 6 in all); a real HP loss of the hero sends the unfilled step back to its start (filled steps stay); the door pays the
    * filled steps (kinds of the stream `bag`), a defeat pays nothing. Off by default; journals without the key: off (no
    * `world.bag`, the stream untouched). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`) except the Jailer and the final
-   * fight (`Loadout.noBag`); the prologue keeps it off (`prologueParams`); the sandbox — the panel toggle.
+   * fight and its fights of row 1 (`Loadout.noBag`, run/rtRun.ts `RT_BAG_ROW`); the prologue keeps it off (`prologueParams`); the sandbox — the panel toggle.
    */
   doorBag: boolean;
   /** «Котомка у двери»: kills after the goals that fill steps 1, 2, 3 (counted from the goals: 10, 20, 35). */
@@ -1490,7 +1490,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Только «Застава»: в её точке стоит сундук (новый бой арены). Взять — звеном цепи любого цвета или касанием. Проклятие: касание врага +1 (не Жнец; стрелы, иглы, взрывы, шипы — без +1), пока проход не убьёт 12 врагов, или до конца боя. В походе включено всегда; награда — экран талисманов после победы.' },
   // Task 14 «Котомка у двери» (bag.ts, docs/realtime-slice.md).
   { kind: 'bool', key: 'doorBag', group: 'Котомка у двери', label: 'Котомка у двери', stage: 5,
-    hint: 'С открытием двери появляется котомка: убийства игрока после целей наполняют три ступени (10, 20, 35 — 1, 2, 3 ресурса). Потеря HP откатывает незаполненную ступень к её началу, заполненные остаются. Платит дверь; смерть — ничего. В походе включено (кроме Тюремщика и финала), в прологе выключено.' },
+    hint: 'С открытием двери появляется котомка: убийства игрока после целей наполняют три ступени (10, 20, 35 — 1, 2, 3 ресурса). Потеря HP откатывает незаполненную ступень к её началу, заполненные остаются. Платит дверь; смерть — ничего. В походе включено с ряда 2 (кроме Тюремщика и финала), в прологе выключено.' },
   n('bagStep1', 'Котомка у двери', 'Ступень 1: убийств после целей', 1, 100, 1, 5),
   n('bagStep2', 'Котомка у двери', 'Ступень 2: убийств после целей', 1, 100, 1, 5),
   n('bagStep3', 'Котомка у двери', 'Ступень 3: убийств после целей', 1, 100, 1, 5),

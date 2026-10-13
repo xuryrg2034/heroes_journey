@@ -153,7 +153,8 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   crystals: false, colorShiftLinks: 6,
   // «Свобода цвета держится» (design 13.10.2026, task 10): links of the same colour keep a free colour free.
   colorShiftKeep: true,
-  // Task 14 «Котомка у двери» (user decision 13.10.2026): the bag after the goals; not the Jailer's, not the final fight (`Loadout.noBag`).
+  // Task 14 «Котомка у двери» (user decision 13.10.2026): the bag after the goals; from run row 2 (`RT_BAG_ROW`), not the Jailer's,
+  // not the final fight (`Loadout.noBag`).
   doorBag: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
@@ -527,6 +528,11 @@ export const RT_GUARANTEED_ELITE_ROW = 3;
  * 1–2 of an older save starts again with the goblin (its loadout is computed from the run); fight journals keep their own.
  */
 export const RT_SLOT_ROW = 1;
+/**
+ * Task 14 «Котомка у двери» (design decision 13.10.2026, complexity budget): the bag comes in fights from this run row — the
+ * door of row 1 is empty (the first fight teaches «цель → дверь»). Not the Jailer, not the final fight on any row.
+ */
+export const RT_BAG_ROW = 2;
 /** What the run's arena takes from the panel beside its params (the sandbox panel is saved and read by the run). */
 export interface RtLoadoutOptions {
   /** Loop research, step 1: the palette by the row (`Params.colorsByRow`). Off — 4 colours, the loadout as before. */
@@ -553,8 +559,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle) ? { guaranteedElite: true } : {},
     // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row `RT_SLOT_ROW` may get the goblin — not the Jailer's, not a boss's.
     ...node && pending?.kind === 'battle' && node.type !== 'checkpoint' && node.type !== 'boss' && runRow(node.row) >= RT_SLOT_ROW ? { slot: true } : {},
-    // Task 14 «Котомка у двери»: no bag in the Jailer's fight and the final one (the other fights by `Params.doorBag`).
-    ...node && (node.type === 'checkpoint' || node.type === 'boss') ? { noBag: true } : {},
+    // Task 14 «Котомка у двери»: no bag before run row `RT_BAG_ROW`, in the Jailer's fight and the final one (the other fights by `Params.doorBag`).
+    ...node && (node.type === 'checkpoint' || node.type === 'boss' || runRow(node.row) < RT_BAG_ROW) ? { noBag: true } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
