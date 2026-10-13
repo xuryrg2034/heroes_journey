@@ -9,7 +9,7 @@ import { Simulation } from '../sim/simulation';
 import type { ChainLink } from '../sim/world';
 import { PROLOGUE_ROOMS, prologueJumpAim, prologueLoadout, prologueParams, prologueRoute, startEnemyIds } from '../run/prologue';
 import {
-  HAND_ASK, HAND_IDLE, HandGuide, PROLOGUE_KEY, PROLOGUE_ROOM_COUNT, PrologueStore, handCycle, handFrame, lampPoints, prologueGoalLine, prologueLabel, prologueSeed, roomTitle,
+  HAND_ASK, HAND_IDLE, HandGuide, PROLOGUE_KEY, PROLOGUE_ROOM_COUNT, PrologueStore, SHIELD_HAND_IDLE, handCycle, handFrame, lampPoints, prologueGoalLine, prologueLabel, prologueSeed, roomTitle,
   type PrologueLabelMemo, type PrologueStorage,
 } from './prologueFlow';
 
@@ -47,6 +47,21 @@ const showOf = (g: HandGuide): string => g.show;
 const lenOf = (g: HandGuide): number => g.route.length;
 const circleX = (g: HandGuide): number | undefined => g.circle?.x;
 const run = (g: HandGuide, seconds: number, walking = false, busy = false, step = 1 / 60): void => { for (let t = 0; t < seconds - 1e-9; t += step) g.update(step, walking, busy); };
+
+check('room 9 «Щит» (task 13): the hand after SHIELD_HAND_IDLE (1.5 s) of rest, not 4 s; a press starts the 1.5 s again', () => {
+  const route = [LINK];
+  const g = new HandGuide({ route: () => route, spot: () => null }, undefined, SHIELD_HAND_IDLE);
+  assert(SHIELD_HAND_IDLE === 1.5, '1.5 s');
+  run(g, SHIELD_HAND_IDLE - 0.1);
+  assert(showOf(g) === 'none', 'not yet');
+  run(g, 0.2);
+  assert(showOf(g) === 'hand', 'the hand at 1.5 s');
+  g.press();
+  run(g, 1.3);
+  assert(showOf(g) === 'none', 'rest counts again from the press');
+  run(g, 0.3);
+  assert(showOf(g) === 'hand', 'back after 1.5 s of rest');
+});
 
 check('the hand: after 4 s of rest with a chain from here; not before; a press takes it away and the 4 s start again', () => {
   const f = fake();

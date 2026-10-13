@@ -265,7 +265,7 @@ test('room 8: the goblin — the label at the lever until the first pull; the re
   await inRoom(page, 9);
 });
 
-test('room 9 «Щит»: no action bar, the goal «Щит: 0 / 3»; the hand after 4 s draws a chain of 3+; a chain of two — the touch after it hurts, no lamp, no glow; a chain of 3+ — the hero glows, the touch is blocked (the «блок» spark), a spark flies to the lamp; three lamps open the door, the enemies sleep', async ({ page }) => {
+test('room 9 «Щит»: no action bar, the goal «Щит: 0 / 3»; the crowd sleeps until the first press — the hero keeps 15 HP; the hand after 1.5 s of rest draws a chain of 3+; a chain of two — the touch after it hurts, no lamp, no glow; a chain of 3+ — the hero glows, the touch is blocked (the «блок» spark), a spark flies to the lamp; three lamps open the door, the enemies sleep', async ({ page }) => {
   test.setTimeout(240_000);
   const errors: string[] = [];
   await newViewer(page, errors);
@@ -276,13 +276,21 @@ test('room 9 «Щит»: no action bar, the goal «Щит: 0 / 3»; the hand aft
   expect(p.hud.actionBar).toBe(false);
   expect(p.lamps).toEqual({ lit: 0, total: 3 });
   await expect(page.getByTestId('goal')).toHaveText('Щит: 0 / 3');
-  // The crowd is awake and comes.
-  expect((await snap(page)).sleepMarks).toBe(0);
+  // The crowd sleeps until the first press (design 13.10.2026): the «z» marks, nobody walks, no touch hurts while the viewer waits.
+  const start = await snap(page);
+  expect(start.sleepMarks).toBeGreaterThan(0);
+  // The hand: after 1.5 s without a press (not 4: room 9 only), a chain of 3+ through the crowd (no arrow, no text).
+  const hand = await untilFrame(page, sn => sn.prologue.guide?.show === 'hand' ? sn : undefined, 0, 4);
+  expect(hand.prologue.guide.links).toBeGreaterThanOrEqual(3);
+  expect(hand.prologue.guide.arrow).toBe(false);
+  expect(hand.prologue.guide.rest).toBeGreaterThanOrEqual(1.5);
+  expect(hand.prologue.guide.rest, 'the hand at 1.5 s of rest, not 4').toBeLessThan(2.5);
+  // Still asleep: full HP, the enemies where they stood.
+  expect(hand.hero.hp).toBe(hand.hero.maxHp);
+  expect(hand.hero.hp).toBe(15);
+  const stood = (id: number) => start.enemies.find((e: any) => e.id === id);
+  for (const e of hand.enemies) expect(Math.hypot(e.x - stood(e.id).x, e.y - stood(e.id).y), `enemy ${e.id} stands`).toBeLessThan(0.01);
   await titleGone(page);
-  // The hand: after 4 s without a press, a chain of 3+ through the crowd (no arrow, no text).
-  const hand = await untilFrame(page, sn => sn.prologue.guide?.show === 'hand' ? sn.prologue.guide : undefined, 0, 6);
-  expect(hand.links).toBeGreaterThanOrEqual(3);
-  expect(hand.arrow).toBe(false);
   expect((await snap(page)).onboarding.labels).toEqual([]);
   // The shot when the hand has pressed and drags (it fades in at the press).
   await untilFrame(page, (_s, _a: null, late: boolean) => (late ? true : undefined), null, 0.9);
