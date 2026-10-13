@@ -37,6 +37,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
 import { hordeGroup } from './hordeView';
+import { BagView } from './bagView';
 import { planPowerNumber } from './powerNumber';
 import { SLOT_BUST_SOURCE } from '../sim/slot';
 import { dashCheque } from '../sim/purse';
@@ -321,6 +322,8 @@ export class RealtimeRenderer {
   arrowFlashes = 0;
   /** Casino stage 1 («Однорукий гоблин»): the idol view; the arrow marks drawn in the last frame and the falls flashed so far. */
   readonly slotView = new SlotView(UNIT);
+  /** Task 14 «Котомка у двери»: the sack beside the open door, its marks and number (view/bagView.ts). */
+  readonly bagView = new BagView(UNIT);
   slotMarks = 0;
   slotFlashes = 0;
   /** Phase A (Т4): the fire trail of «Огненный» elites — ground under the crowd. */
@@ -497,7 +500,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -2091,6 +2094,13 @@ export class RealtimeRenderer {
         if (o) this.floatText('Кнопка!', o.x * UNIT, o.y * UNIT - 40, 0x8fd18a);
         continue;
       }
+      // Task 14 «Котомка у двери»: a filled step — the sack flashes and «+N» rises; a reset — the step's mark dims, a pale «сброс».
+      if (ev.type === 'bag') {
+        const at = this.bagView.onEvent(world, ev);
+        if (at && ev.action === 'step') this.floatText(`+${ev.reward ?? 0}`, at.x, at.y, 0xffd36b, at.dir);
+        else if (at && ev.action === 'reset') this.floatText('сброс', at.x, at.y, 0x9a9a8a, at.dir);
+        continue;
+      }
       if (ev.type === 'goals') {
         const door = world.objects.find(x => x.kind === 'door');
         if (door) this.floatText('Дверь открыта', door.x * UNIT, door.y * UNIT + (door.y < world.arena.height / 2 ? 60 : -60), 0xfff2c4);
@@ -2632,6 +2642,7 @@ export class RealtimeRenderer {
     this.slotView.draw(world, this.clock, realDt, world.chain.length && !world.move ? slotPlanOdds(world) : null);
     this.drawTargets(world);
     this.drawSleep(world);
+    this.bagView.draw(world, this.clock, realDt);
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
     this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
@@ -2694,6 +2705,7 @@ export class RealtimeRenderer {
     this.dashTrail = [];
     this.cutSeen = false;
     this.slotView.reset();
+    this.bagView.reset();
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });
     this.enemyViews.clear();
     for (const d of this.dying) d.root.destroy({ children: true });

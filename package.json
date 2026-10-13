@@ -46,6 +46,7 @@
     "test:realtime-node-card": "tsx src/realtime/view/nodeCard.spec.ts",
     "test:realtime-power-number": "tsx src/realtime/view/powerNumber.spec.ts",
     "test:realtime-horde-view": "tsx src/realtime/view/hordeView.spec.ts",
+    "test:realtime-bag-view": "tsx src/realtime/view/bagView.spec.ts",
     "test:realtime-prologue-view": "tsx src/realtime/view/prologueFlow.spec.ts",
     "test:realtime-link-depth": "tsx src/realtime/sim/linkDepth.spec.ts",
     "test:realtime-color-shift": "tsx src/realtime/sim/colorShift.spec.ts",

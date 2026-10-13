@@ -15,6 +15,8 @@ import './realtime.css';
 import { loadCharacterArt } from '../art/characterAssets';
 import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, markedGoalArena, type ArenaTemplate } from '../sim/arenas';
 import { withRoster } from '../sim/rosters';
+import { bagPayout, bagProgress, bagTotal } from '../sim/bag';
+import { bagResultLine } from './bagView';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
@@ -656,6 +658,8 @@ async function boot(): Promise<void> {
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
     runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+      // Task 14 «Котомка у двери»: what the door paid for the bag's filled steps (the run adds it to its materials).
+      ...bagPayout(w) ? { bag: bagPayout(w)! } : {},
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
@@ -962,6 +966,8 @@ async function boot(): Promise<void> {
       // pending («Кость у двери») the die comes next — the row says so.
       // «Обучение v1», Э1 (a run fight): the same row with the whole arithmetic of the payout (`purseResultLine`, the door's own rate).
       w.params.purse ? ['Котёл', w.purse?.door ? (runView ? purseResultLine(w.purse.door) : `${w.purse.door.cauldron}${(w.purse.door.greed ?? 1) > 1 ? ` ×${multText(w.purse.door.greed!)}` : ''} → ресурсов ${doorPayout(w.purse.door).length}`) + (runView?.diePending ? ' (до кости)' : '') : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
+      // Task 14 «Котомка у двери»: what the door paid for the bag, with its kinds (a fight whose door had the bag).
+      ...w.bag ? [['Котомка', bagResultLine(bagPayout(w), bagTotal(w), won)] as [string, string]] : [],
       // П10: a run fight says it in its own line under the table.
       ...fightChainLine ? [] : [['Лучшая цепь', `${w.stats.bestChain} убийств`] as [string, string]],
       ['Кристаллов выпало', String(w.stats.crystals)],
@@ -1430,6 +1436,9 @@ async function boot(): Promise<void> {
         chainShield: { left: w.hero.chainShield, glow: renderer.chainShieldShown, blocks: renderer.shieldBlocksShown },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
+        /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */
+        bag: w.bag ? { ...bagProgress(w)!, resets: w.bag.resets, paid: w.bag.paid ? { ...w.bag.paid } : null } : null,
+        bagView: { ...renderer.bagView.shown, marks: [...renderer.bagView.shown.marks] },
         /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */
         markedView: { ...renderer.markedShown, horde: w.arena.horde ? { ...w.arena.horde } : null },
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */
