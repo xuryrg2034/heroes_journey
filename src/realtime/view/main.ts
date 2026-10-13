@@ -1112,6 +1112,9 @@ async function boot(): Promise<void> {
       if (runLabelling) for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
       let specs: LabelSpec[] = [];
       if (runLabelling && w.status === 'playing') specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
+      // Task 11 (design 13.10.2026): the odds line beside the idol (off the hero's texts) and the lever's label stand on opposite sides.
+      const oddsSide = renderer.slotView.shown.oddsSide;
+      if (oddsSide) specs = specs.map(spec => spec.id === 'b9' ? { ...spec, away: { x: spec.at.x + (oddsSide === 'left' ? -1 : 1), y: spec.at.y } } : spec);
       else if (prologue && !runScreenOpen) {
         // The prologue's labels (one at a time, until the action; docs/realtime-onboarding.md): not tied to the toggle «Подсказки».
         // While the arrow and the circle show (no chain from the hero's place) the label waits: it comes back with the hand.

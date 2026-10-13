@@ -340,7 +340,14 @@ test('task 5 and 11, the run: no «Зарок» on the cards, the goblin after t
   // Two pulls by the mouse: the same line on each (the hidden count shows nowhere), no percent, the reels spin and stop.
   const lines: string[] = [];
   for (let i = 0; i < 2 && (await snap(page)).slot.goblin; i++) {
-    await pullByMouse(page, async () => { lines.push((await snap(page)).slot.shown.oddsText); if (i === 0) await page.screenshot({ path: 'artifacts/realtime-slot-run-line.png' }); });
+    await pullByMouse(page, async () => {
+      const shown = (await snap(page)).slot.shown as SlotShown & { oddsSide: string | null; heroFrame: Rect | null };
+      lines.push(shown.oddsText);
+      // Design 13.10.2026: the line keeps off the power number and the combo over the hero (beside the idol when it would meet them).
+      expect(shown.heroFrame).not.toBeNull();
+      expect(meets(shown.oddsRect!, shown.heroFrame!)).toBe(false);
+      if (i === 0) await page.screenshot({ path: 'artifacts/realtime-slot-run-line.png' });
+    });
     expect((await snap(page)).slot.shown.caption).toBe('');
     await untilReady(page);
   }

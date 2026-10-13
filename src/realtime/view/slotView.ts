@@ -88,6 +88,15 @@ export function surpriseText(damage: number, area: boolean): string {
   return `взрыв? −${damage} HP${area ? ' в круге' : ''} · иначе тройка`;
 }
 
+/**
+ * Task 11 (design 13.10.2026): the frame of the texts over the hero (arena drawing px, his centre at hx, hy) — the power number
+ * (render.ts `POWER_ABOVE` 40, 34 px), the combo «×N» over it and the purse caption over both. The odds line keeps out of it.
+ */
+export function heroTextFrame(hx: number, hy: number): ScreenRect { return { left: hx - 70, top: hy - 125, right: hx + 70, bottom: hy - 18 }; }
+
+/** Two boxes overlap. */
+export function meetsBox(a: ScreenRect, b: ScreenRect): boolean { return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; }
+
 /** «+1 рывок без риска» — the floating text of a long chain that fed the goblin (`n` — by how many the safe pulls grew). */
 export function feedText(n: number): string {
   const tens = n % 100, ones = n % 10;
@@ -113,7 +122,11 @@ export interface SlotShown { idols: number; markers: number; spinning: number; s
    * Task 5б: where the caption / odds line and the reels stood in the last frame — 'up' (over the idol) or 'down' (under its dots)
    * — and their rectangles in stage px (null — not shown); the spark of the last bust and the flashes at the hero so far.
    */
-  textPlace: 'up' | 'down'; reelsPlace: 'up' | 'down'; captionRect: ScreenRect | null; oddsRect: ScreenRect | null; reelsRect: ScreenRect | null;
+  textPlace: 'up' | 'down'; reelsPlace: 'up' | 'down';
+  /** Task 11: the odds line stood beside the idol (away from the hero, off his texts) — on which side; null — over or under it. */
+  oddsSide: 'left' | 'right' | null;
+  /** Task 11: the frame of the hero's texts in stage px this frame (the odds line keeps out of it). */
+  heroFrame: ScreenRect | null; captionRect: ScreenRect | null; oddsRect: ScreenRect | null; reelsRect: ScreenRect | null;
   sparks: number; sparkFrom: { x: number; y: number } | null; sparkTo: { x: number; y: number } | null; heroFlashes: number }
 
 export class SlotView {
@@ -135,7 +148,7 @@ export class SlotView {
   /** Task 11 (`slotSafeTriple`): every pull spins the same strip of the good symbols — the reels tell nothing before they stop. */
   private sameStrip = false;
   readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0, feeds: 0, feedText: '',
-    textPlace: 'up', reelsPlace: 'up', captionRect: null, oddsRect: null, reelsRect: null, sparks: 0, sparkFrom: null, sparkTo: null, heroFlashes: 0 };
+    textPlace: 'up', reelsPlace: 'up', oddsSide: null, heroFrame: null, captionRect: null, oddsRect: null, reelsRect: null, sparks: 0, sparkFrom: null, sparkTo: null, heroFlashes: 0 };
   /** The arena on the stage (render.ts, each frame): origin, scale and the y (stage px) under which the HUD plate ends. */
   private frame = { baseX: 0, baseY: 0, scale: 1, top: -Infinity };
   /** Where the texts and the reels stood at the last idol (kept after it is gone: the bust's word floats from the same spot). */
@@ -184,7 +197,7 @@ export class SlotView {
     this.oddsLabel.visible = false;
     this.oddsPlate.visible = false;
     this.captionLabel.visible = false;
-    shown.captionRect = null; shown.oddsRect = null; shown.reelsRect = null;
+    shown.captionRect = null; shown.oddsRect = null; shown.reelsRect = null; shown.oddsSide = null; shown.heroFrame = null;
     shown.caption = ''; shown.captionRisky = false; shown.dots.gold = 0; shown.dots.red = 0; shown.dots.dark = 0;
     if (!goblin) { this.result = null; return; }
     const lever = world.objects.find(o => o.id === goblin.id);
@@ -252,6 +265,17 @@ export class SlotView {
         this.oddsLabel.position.set(X, Y - R * (showsReels && !reelsDown ? REELS_UP + 1.1 : hasCaption ? 2.75 : 2.3));
       }
       this.oddsLabel.visible = true;
+      // Task 11 (design 13.10.2026): the line never crosses the power number and the combo over the hero — the player reads them
+      // while drawing. When it meets their frame it stands beside the idol on the side away from the hero, centred on its height.
+      shown.oddsSide = null;
+      const frame = heroTextFrame(world.hero.x * U, world.hero.y * U);
+      shown.heroFrame = this.toStage(frame.left, frame.top, frame.right, frame.bottom);
+      if (triple && meetsBox(this.boxOf(this.oddsLabel), frame)) {
+        const left = world.hero.x >= goblin.x;
+        this.oddsLabel.anchor.set(left ? 1 : 0, 0.5);
+        this.oddsLabel.position.set(left ? X - R * 1.5 : X + R * 1.75, Y - R * 0.2);
+        shown.oddsSide = left ? 'left' : 'right';
+      }
       if (triple) this.drawPlate(this.oddsLabel);
       shown.oddsRect = this.rectOf(this.oddsLabel);
     }
@@ -262,12 +286,18 @@ export class SlotView {
     if (shown.caption && this.captionLabel.visible) shown.captionRect = this.rectOf(this.captionLabel);
   }
 
-  /** The dark plate under a label (its anchor decides which side of `position` it hangs): the world labels' fill and gold rim. */
-  private drawPlate(label: Text): void {
+  /** The label's box in arena drawing px (its anchor decides where it hangs from `position`). */
+  private boxOf(label: Text): ScreenRect {
     let w: number, h: number;
     try { w = label.width; h = label.height; } catch { const size = Number(label.style.fontSize) || 16; w = label.text.length * size * 0.55; h = size + 6; }
-    const x = label.position.x - w / 2 - 7, top = (label.anchor.y >= 1 ? label.position.y - h : label.position.y) - 1;
-    this.oddsPlate.clear().roundRect(x, top, w + 14, h + 2, 3).fill({ color: 0x121710, alpha: 0.78 }).stroke({ color: GOLD, width: 1, alpha: 0.7 });
+    const left = label.position.x - label.anchor.x * w, top = label.position.y - label.anchor.y * h;
+    return { left, top, right: left + w, bottom: top + h };
+  }
+
+  /** The dark plate under a label: the world labels' fill and gold rim. */
+  private drawPlate(label: Text): void {
+    const b = this.boxOf(label);
+    this.oddsPlate.clear().roundRect(b.left - 7, b.top - 1, b.right - b.left + 14, b.bottom - b.top + 2, 3).fill({ color: 0x121710, alpha: 0.78 }).stroke({ color: GOLD, width: 1, alpha: 0.7 });
     this.oddsPlate.visible = true;
   }
 
@@ -279,11 +309,9 @@ export class SlotView {
 
   /** The label's rectangle in stage px (its anchor decides which side of `position` it hangs). */
   private rectOf(label: Text): ScreenRect {
-    // A measured size in the browser; the Node spec has no canvas to measure with — a coarse estimate there.
-    let w: number, h: number;
-    try { w = label.width; h = label.height; } catch { const size = Number(label.style.fontSize) || 16; w = label.text.length * size * 0.55; h = size + 6; }
-    const x = label.position.x, y = label.position.y, top = label.anchor.y >= 1 ? y - h : y;
-    return this.toStage(x - w / 2, top, x + w / 2, top + h);
+    // A measured size in the browser; the Node spec has no canvas to measure with — a coarse estimate there (`boxOf`).
+    const b = this.boxOf(label);
+    return this.toStage(b.left, b.top, b.right, b.bottom);
   }
 
   /**
