@@ -110,7 +110,7 @@ export interface Loadout {
   feat?: FeatGoal;
   /**
    * Task 18 «Испытание V» (run/rtRun.ts `rtAshPressure`): the density floor of this fight × this (spawn.ts `topUpToFloor`:
-   * `round(floor × s × floorScale)`, still capped by the arena limit). Absent (or 1) — the floor as before.
+   * `round(floor × s × floorScale)`, one rounding, the factor in whole percent — `floorWithScale`; still capped by the arena limit). Absent (or 1) — the floor as before.
    */
   floorScale?: number;
   /**

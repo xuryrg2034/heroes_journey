@@ -6,7 +6,8 @@
  * row 1); IV — 2 affixes from row 6; V — the density floor ×1.15 in every fight, the final's phases 15 % earlier. The profile
  * opens the choice after the first unseeded win and remembers the last level; old saves and profiles stay byte for byte.
  */
-import { registerArena } from '../sim/arenas';
+import { arenaTemplate, registerArena } from '../sim/arenas';
+import { floorWithScale, scaledFloor } from '../sim/spawn';
 import { worldState } from '../sim/hash';
 import { defaultParams, type Params } from '../sim/params';
 import { replay, Simulation, type Journal } from '../sim/simulation';
@@ -258,6 +259,14 @@ check('V (real fights): the density floor of an ordinary battle tops up to 23 at
     delete journal.loadout.floorScale; delete journal.loadout.phaseScale;
     assert(replay(journal).hash() === four.sim.hash(), `seed ${k}: the V journal without its fields = IV`);
   }
+});
+
+check('V: the floor is rounded once, `round(floor × s × 1,15)` with the factor in whole percent — 10 → 12, 30 → 35, 50 → 58, 70 → 81, 90 → 104 on 16×10 (50 × 1,15 in binary is 57,49…); on «Последний рубеж» (s 1,1) 28 → 35 and 58 → 73, not the double rounding round(round(floor × s) × 1,15) = 36 and 74; without the factor — the old floor', () => {
+  const small = arenaTemplate('ash-open'), big = arenaTemplate('last-stand');
+  assert(same([10, 30, 50, 70, 90].map(f => floorWithScale(f, small, RT_ASH_FLOOR_SCALE)), [12, 35, 58, 81, 104]), 'scale 1');
+  assert(same([28, 58].map(f => floorWithScale(f, big, RT_ASH_FLOOR_SCALE)), [35, 73]), 'last-stand: one rounding');
+  // The old path: no factor — exactly `scaledFloor` (16×10 untouched; the big arena round(floor × s)).
+  for (const f of [0, 1, 20, 28, 30, 48, 58]) assert(floorWithScale(f, small) === scaledFloor(f, small) && scaledFloor(f, small) === f && floorWithScale(f, big) === scaledFloor(f, big), `old ${f}`);
 });
 
 check('V (real final fights on «Последний рубеж»): after the goals its phases change at 21,25 / 42,5 / 59,5 / 85 s at level V and at 25 / 50 / 70 / 100 s at level IV; an ordinary battle of level V keeps 25 s', () => {
