@@ -30,7 +30,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, rowStats, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, ashStats, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, rowStats, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
@@ -361,6 +361,33 @@ async function main(): Promise<void> {
     assert(section.includes('| Вход | Ряд | Боёв |') && section.includes('| пологий | 1 | 0 | — | 12 (2) | 0 | 0 | 1 |') && section.includes('13.10.2026'), section);
     const fixtures = md.slice(md.indexOf('## По рядам'), md.indexOf('## Бои походов'));
     assert(fixtures.includes('| прежний |') && !fixtures.includes('| пологий |'), fixtures);
+  });
+
+  await check('task 18 «Испытание»: a level II+ run is not counted with the gentle tables in «По рядам» (its own group with the level); the section «Испытание» counts runs, wins and the final by level', () => {
+    const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+    const visit = (nodeId: string, row: number, hpOut: number) => ({ nodeId, row, type: 'battle', hpIn: 15, hpOut, maxHp: 15 });
+    const runs = [
+      runOf('s9', 'a0', 'victory', { gentle: true, farRow: 10, nodes: [visit('r6c0', 1, 12)] }),
+      runOf('s9', 'a1', 'defeat', { gentle: true, ash: 1, farRow: 6, nodes: [visit('r6c0', 1, 11)] }),
+      runOf('s9', 'a2', 'defeat', { gentle: true, ash: 2, farRow: 4, nodes: [visit('r6c0', 1, 7)] }),
+      runOf('s9', 'a5', 'victory', { ash: 5, farRow: 10, nodes: [visit('r6c0', 1, 5)] }),
+    ];
+    const entry = (run: RunRecord, row: number, arena: string, outcome: FightRecord['outcome'], damage: number) => {
+      const summary = emptyFightSummary();
+      summary.damage.total = damage;
+      return { record: { ...JSON.parse(JSON.stringify(base)), run: run.run, session: run.session, row, arena, outcome, summary } as FightRecord, run, notes: [], journal: null, error: null, analysis: null, hashOk: null, summaryDiff: [] };
+    };
+    const fightsOf = [entry(runs[0], 1, 'glade', 'victory', 2), entry(runs[0], 10, 'last-stand', 'victory', 9), entry(runs[1], 1, 'glade', 'victory', 3), entry(runs[2], 1, 'glade', 'victory', 6),
+      entry(runs[3], 1, 'glade', 'victory', 8), entry(runs[3], 10, 'last-stand', 'victory', 13)];
+    const st = rowStats(runs, fightsOf).filter(s => s.row === 1);
+    const group = (g: string, ash: number) => st.find(s => s.group === g && s.ash === ash);
+    assert(same(group('gentle', 0)?.damage, [2]) && same(group('gentle', 1)?.damage, [3]) && same(group('old', 2)?.damage, [6]) && same(group('old', 5)?.damage, [8]) && !group('gentle', 2), JSON.stringify(st));
+    const ash = ashStats(runs, fightsOf), level = (n: number) => ash.find(s => s.ash === n)!;
+    assert(same(ash.map(s => s.ash), [0, 1, 2, 5]) && level(5).won === 1 && same(level(5).finalDamage, [13]) && level(5).finalWon === 1 && level(2).lost === 1 && same(level(0).farRow, [10]), JSON.stringify(ash));
+    const text = reportMarkdown(collectRecords([{ name: 'ash.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-14T14:00:00Z'), source: 'ash' });
+    const rows = text.slice(text.indexOf('## По рядам'), text.indexOf('## Испытание')), section = text.slice(text.indexOf('## Испытание'), text.indexOf('## Бои походов'));
+    assert(rows.includes('| прежний · Исп. II | 1 |') && rows.includes('| пологий · Исп. I | 1 |') && rows.includes('| пологий | 1 |'), rows);
+    assert(section.includes('| Испытание | Походов |') && section.includes('| V | 1 | 1 | 0 | 10 |') && section.includes('| II | 1 | 0 | 1 | 4 |'), section);
   });
 
   await check('the prologue: per room median time, hand and arrow shares, attempts, deaths, returns, skips; completion by origin; the older copy dropped; no records — «нет данных»', () => {

@@ -893,6 +893,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
   out.push('', '## Походы', '', runsSection(runs, fights), '',
     // Task 17 «Пологий вход»: the run by its rows.
     '## По рядам', '', ROW_LEGEND, '', rowStats(runs, runFights).length ? table(ROW_HEAD, rowRows(runs, runFights)) : '_боёв походов нет_', '',
+    // Task 18 «Испытание I–V»: the runs by level.
+    '## Испытание', '', ASH_LEGEND, '', ashStats(runs, runFights).length ? table(ASH_HEAD, ashRows(runs, runFights)) : '_походов нет_', '',
     '## Бои походов', '', table(FIGHT_HEAD, fightRows(runFights)), '',
     '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
@@ -1007,8 +1009,13 @@ function noveltySection(runs: readonly RunRecord[], runFights: readonly FightEnt
 
 /** One run row of a group of runs (`rowStats`). */
 export interface RowStat {
-  /** `gentle` — runs with the gentle entry (`RunRecord.gentle`), `old` — without it (older runs too). */
+  /**
+   * `gentle` — runs that play the gentle entry's row tables (`RunRecord.gentle` below «Испытание II»), `old` — the tables before
+   * task 17 (no flag, older runs, or «Испытание» II–V).
+   */
   group: 'gentle' | 'old';
+  /** Task 18: the runs' level of «Испытание» (`RunRecord.ash`; absent — 0). */
+  ash: number;
   row: number;
   /** Run fights of the row that ended (a victory or a defeat). */
   fights: number;
@@ -1023,11 +1030,19 @@ export interface RowStat {
   winds: number;
 }
 
-/** Run fights and runs by run row (rows 1–10), in two groups: with the gentle entry and without. Empty rows are left out. */
+/** Task 18: the level of a run record (absent — 0). */
+export const recordAsh = (r: RunRecord | null | undefined): number => r?.ash ?? 0;
+/** The run plays the gentle row tables: the flag below «Испытание II» (task 18 turns the tables off from II). */
+export const gentleTables = (r: RunRecord | null | undefined): boolean => !!r?.gentle && recordAsh(r) < 2;
+/**
+ * Run fights and runs by run row (rows 1–10), in groups by the row tables (gentle or old) and the level of «Испытание» (task 18:
+ * a level II+ run plays the old tables — its own group, not the gentle one). Empty rows and groups are left out.
+ */
 export function rowStats(runs: readonly RunRecord[], runFights: readonly FightEntry[]): RowStat[] {
   const out: RowStat[] = [];
-  for (const group of ['gentle', 'old'] as const) {
-    const own = (r: RunRecord | null | undefined): boolean => (group === 'gentle') === !!r?.gentle;
+  const levels = [...new Set([0, ...runs.map(recordAsh), ...runFights.map(e => recordAsh(e.run))])].sort((a, b) => a - b);
+  for (const [group, ash] of (['gentle', 'old'] as const).flatMap(g => levels.map(level => [g, level] as const))) {
+    const own = (r: RunRecord | null | undefined): boolean => (group === 'gentle') === gentleTables(r) && recordAsh(r) === ash;
     const groupRuns = runs.filter(own), fights = runFights.filter(e => own(e.run) && (e.record.outcome === 'victory' || e.record.outcome === 'defeat'));
     for (let row = 1; row <= 10; row++) {
       const rowFights = fights.filter(e => e.record.row === row), summary = (e: FightEntry): FightSummary => e.analysis?.summary ?? e.record.summary;
@@ -1036,7 +1051,7 @@ export function rowStats(runs: readonly RunRecord[], runFights: readonly FightEn
         return visits.length ? [visits[visits.length - 1].hpOut] : [];
       });
       const stat: RowStat = {
-        group, row, fights: rowFights.length, damage: rowFights.map(e => summary(e).damage.total), hpOut,
+        group, ash, row, fights: rowFights.length, damage: rowFights.map(e => summary(e).damage.total), hpOut,
         deaths: rowFights.filter(e => e.record.outcome === 'defeat').length,
         potions: rowFights.reduce((sum, e) => sum + (summary(e).abilities?.items?.healing ?? 0), 0),
         winds: groupRuns.filter(r => r.secondWind?.row === row).length,
@@ -1047,11 +1062,50 @@ export function rowStats(runs: readonly RunRecord[], runFights: readonly FightEn
   return out;
 }
 const ROW_HEAD = ['Вход', 'Ряд', 'Боёв', 'Урон за бой мед. / сред.', 'HP на выходе из ряда мед. (походов)', 'Смертей', 'Лечений выпито', 'Второе дыхание'];
-const ROW_LEGEND = 'Задача 17 «Пологий вход» (с 13.10.2026): бои походов по рядам. «Пологий» — походы с флагом `gentleEntry` (`RunRecord.gentle`), «прежний» — без него (и записи до 13.10.2026). Бои — законченные победой или поражением. Урон — HP героя за бой (повтор журнала, иначе сводка браузера). HP на выходе — `hpOut` последнего узла ряда в каждом походе, медиана (в скобках — походов). Лечения — выпитые в боях ряда (`abilities.items.healing`). Второе дыхание — походы, где оно подняло героя на этом ряду (`RunRecord.secondWind`; только пологий вход, ряды 1–4). Эвристика для кривой сложности, не оценка баланса.';
+const ROW_LEGEND = 'Задача 17 «Пологий вход» (с 13.10.2026): бои походов по рядам. «Пологий» — походы с флагом `gentleEntry` (`RunRecord.gentle`), «прежний» — без него (и записи до 13.10.2026). Задача 18 (с 14.10.2026): к входу добавлена ступень «Испытание» (`RunRecord.ash`); с «Испытания II» поход играет прежние таблицы рядов — он в группе «прежний · Исп. N», не в пологой. Бои — законченные победой или поражением. Урон — HP героя за бой (повтор журнала, иначе сводка браузера). HP на выходе — `hpOut` последнего узла ряда в каждом походе, медиана (в скобках — походов). Лечения — выпитые в боях ряда (`abilities.items.healing`). Второе дыхание — походы, где оно подняло героя на этом ряду (`RunRecord.secondWind`; только пологий вход, ряды 1–4). Эвристика для кривой сложности, не оценка баланса.';
 function rowRows(runs: readonly RunRecord[], runFights: readonly FightEntry[]): (string | number)[][] {
   const mean = (xs: readonly number[]): number => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
-  return rowStats(runs, runFights).map(s => [s.group === 'gentle' ? 'пологий' : 'прежний', s.row, s.fights, s.damage.length ? `${n1(median(s.damage))} / ${n1(mean(s.damage))}` : '—',
+  return rowStats(runs, runFights).map(s => [`${s.group === 'gentle' ? 'пологий' : 'прежний'}${s.ash ? ` · Исп. ${ASH_MARKS[s.ash] ?? s.ash}` : ''}`, s.row, s.fights, s.damage.length ? `${n1(median(s.damage))} / ${n1(mean(s.damage))}` : '—',
     s.hpOut.length ? `${n1(median(s.hpOut))} (${s.hpOut.length})` : '—', s.deaths, s.potions, s.winds]);
+}
+
+// ---- Task 18 «Испытание I–V»: the runs by level ----
+
+const ASH_MARKS = ['0', 'I', 'II', 'III', 'IV', 'V'];
+/** Runs of one level of «Испытание» (`ashStats`). */
+export interface AshStat {
+  ash: number;
+  runs: number;
+  won: number;
+  lost: number;
+  /** The farthest run row of each run. */
+  farRow: number[];
+  /** Damage to the hero per ended fight of these runs. */
+  damage: number[];
+  /** Damage to the hero in the final fights (`last-stand`) of these runs, and how many of them were won. */
+  finalDamage: number[];
+  finalWon: number;
+}
+/** Runs and their fights by the level of «Испытание» (`RunRecord.ash`; absent — 0). Levels without runs are left out. */
+export function ashStats(runs: readonly RunRecord[], runFights: readonly FightEntry[]): AshStat[] {
+  const levels = [...new Set(runs.map(recordAsh))].sort((a, b) => a - b);
+  const summary = (e: FightEntry): FightSummary => e.analysis?.summary ?? e.record.summary;
+  return levels.map(ash => {
+    const own = runs.filter(r => recordAsh(r) === ash);
+    const fights = runFights.filter(e => e.run && recordAsh(e.run) === ash && (e.record.outcome === 'victory' || e.record.outcome === 'defeat'));
+    const finals = fights.filter(e => e.record.arena === 'last-stand');
+    return {
+      ash, runs: own.length, won: own.filter(r => r.outcome === 'victory').length, lost: own.filter(r => r.outcome === 'defeat').length,
+      farRow: own.map(r => r.farRow), damage: fights.map(e => summary(e).damage.total),
+      finalDamage: finals.map(e => summary(e).damage.total), finalWon: finals.filter(e => e.record.outcome === 'victory').length,
+    };
+  });
+}
+const ASH_HEAD = ['Испытание', 'Походов', 'Побед', 'Поражений', 'Дальний ряд мед.', 'Урон за бой мед.', 'Финалов (побед)', 'Урон в финале мед.'];
+const ASH_LEGEND = 'Задача 18 «Испытание I–V» (с 14.10.2026): походы по ступени (`RunRecord.ash`; нет поля — 0, и записи до 14.10.2026). Ступень выбирают на «Новом походе» после первой победы. Бои — законченные победой или поражением; финал — «Последний рубеж». Эвристика, не оценка баланса.';
+function ashRows(runs: readonly RunRecord[], runFights: readonly FightEntry[]): (string | number)[][] {
+  return ashStats(runs, runFights).map(s => [ASH_MARKS[s.ash] ?? String(s.ash), s.runs, s.won, s.lost, s.farRow.length ? n1(median(s.farRow)) : '—',
+    s.damage.length ? n1(median(s.damage)) : '—', `${s.finalDamage.length} (${s.finalWon})`, s.finalDamage.length ? n1(median(s.finalDamage)) : '—']);
 }
 
 /** Totals of the threats of a list of fights by kind (the test reads them). */

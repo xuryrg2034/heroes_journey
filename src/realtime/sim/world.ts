@@ -1670,7 +1670,8 @@ function updateFlow(world: World, dt: number): void {
 export function update(world: World, dt: number, realDt = dt): void {
   if (world.status !== 'playing') return;
   world.time += dt;
-  world.pressure = pressureAt(world.params, world.time, world.greedStart, world.arena, phaseDelayOf(world));
+  // Task 18 «Испытание V»: the run's pace of the phase table (`Kit.phaseScale`; absent — as before).
+  world.pressure = pressureAt(world.params, world.time, world.greedStart, world.arena, phaseDelayOf(world), world.kit?.phaseScale ?? 1);
   const hero = world.hero;
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
   hero.chainShield = Math.max(0, hero.chainShield - dt);

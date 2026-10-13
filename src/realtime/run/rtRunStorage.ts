@@ -6,7 +6,7 @@
 
 /** The part of the Web Storage API the stores use (tests pass a plain object). */
 export interface RunStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
-import { parseRtRun, serializeRtRun, type RtRunState } from './rtRun';
+import { isRtAshLevel, parseRtRun, serializeRtRun, type RtAshLevel, type RtRunState } from './rtRun';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -65,9 +65,13 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * - `runs` — runs this viewer started (telemetry `RunRecord.viewerRun`: 1, 2, 3…); absent — none counted yet. `runsApprox` — the
  *   count started on a profile that already showed play before it (a stored profile without `runs`: a run had ended): it began
  *   at 2, so it is a lower bound (`RunRecord.viewerRunApprox`).
+ * Task 18 «Испытание I–V» (design 13–14.10.2026; the same version 1, optional fields):
+ * - `won` — the viewer won a run without a given seed (`endRun` with `won`); it stays once set and opens the choice of
+ *   «Испытание» on «Новый поход» (`ashOpen`).
+ * - `ash` — the level chosen last (1–5; absent — 0), the choice's default (`ashChoice`, `chooseAsh`).
  * All are absent until set: a profile without them reads and saves as before.
  */
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0> }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -76,7 +80,8 @@ export function parseRtProfile(text: string | null): RtProfile {
     const value = JSON.parse(text) as Partial<RtProfile> | null;
     if (!value || typeof value !== 'object' || value.version !== RT_PROFILE_VERSION) return emptyRtProfile();
     const runs = typeof value.runs === 'number' && Number.isInteger(value.runs) && value.runs >= 1 ? value.runs : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {} };
+    const ash = isRtAshLevel(value.ash) && value.ash >= 1 ? value.ash as Exclude<RtAshLevel, 0> : undefined;
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {} };
   } catch { return emptyRtProfile(); }
 }
 
@@ -84,8 +89,17 @@ export interface RtProfileStore {
   load(): RtProfile;
   /** The gift a new run gets: a given seed — always the full one. */
   giftKind(seeded: boolean): 'full' | 'mini';
-  /** A run ended: remember whether it reached the Jailer's row (not for a seeded run). False when not stored. */
-  endRun(run: { reachedJailer: boolean; seeded: boolean }): boolean;
+  /**
+   * A run ended: remember whether it reached the Jailer's row and (task 18) whether it was won — `won` opens «Испытание» for good
+   * (not for a seeded run). False when not stored.
+   */
+  endRun(run: { reachedJailer: boolean; seeded: boolean; won?: boolean }): boolean;
+  /** Task 18: the choice of «Испытание» is open — the viewer won a run without a given seed (`won`). */
+  ashOpen(): boolean;
+  /** Task 18: the level a new run takes by default — the last chosen; 0 while the choice is closed. */
+  ashChoice(): RtAshLevel;
+  /** Task 18: remember the level chosen on «Новый поход» (0 removes the field). False when not stored or the choice is closed. */
+  chooseAsh(level: RtAshLevel): boolean;
   /**
    * Task 16 «Подвиги»: a new run carries feats — the player reached the Jailer in an earlier finished run (`jailer`). A seeded run
    * follows the profile too (core answer 14.10.2026). Pass it to `createRtRun(seed, { feats })`.
@@ -110,7 +124,16 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
     load: read,
     giftKind: seeded => seeded || read().giftFull ? 'full' : 'mini',
     // Task 16: `jailer` stays once a run reached the Jailer (`giftFull` is the last run's only).
-    endRun: ({ reachedJailer, seeded }) => !seeded && write({ ...read(), giftFull: reachedJailer, ...reachedJailer ? { jailer: true as const } : {} }),
+    // Task 18: `won` stays once an unseeded run was won.
+    endRun: ({ reachedJailer, seeded, won }) => !seeded && write({ ...read(), giftFull: reachedJailer, ...reachedJailer ? { jailer: true as const } : {}, ...won ? { won: true as const } : {} }),
+    ashOpen: () => read().won === true,
+    ashChoice: () => { const profile = read(); return profile.won === true ? profile.ash ?? 0 : 0; },
+    chooseAsh: level => {
+      const profile = read();
+      if (profile.won !== true || !isRtAshLevel(level)) return false;
+      const { ash: _old, ...rest } = profile;
+      return write(level > 0 ? { ...rest, ash: level as Exclude<RtAshLevel, 0> } : rest);
+    },
     featsOn: () => read().jailer === true,
     markJailer: () => { const profile = read(); return profile.jailer === true || write({ ...profile, jailer: true }); },
     startRun: () => {

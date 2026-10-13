@@ -380,7 +380,9 @@ function relocateMarker(world: World, m: SpawnMarker): void {
  * Т5: the floor and the limit grow with the arena's area (`scaledFloor`, `enemyLimit`; 16×10 — as before).
  */
 function topUpToFloor(world: World): void {
-  const floor = Math.min(scaledFloor(world.pressure.phase.floor, world.arena), enemyLimit(world.params, world.arena));
+  // Task 18 «Испытание V»: the run's factor of the floor (`Kit.floorScale`; absent — the floor as before), under the arena limit.
+  const own = scaledFloor(world.pressure.phase.floor, world.arena), k = world.kit?.floorScale;
+  const floor = Math.min(k === undefined ? own : Math.round(own * k), enemyLimit(world.params, world.arena));
   const present = (): number => world.enemies.filter(e => e.kind !== 'reaper').length + world.markers.length + world.queue.length;
   for (let guard = 0; guard < 200 && present() < floor; guard++) {
     const before = world.queue.length;
