@@ -334,19 +334,15 @@ export class RunView {
 
   private onClick(event: MouseEvent): void {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action], [data-node]');
-    if (!target) return;
+    // Task 8c: the card's backdrop lets the clicks through to the map — a node opens its card, the empty map closes the card.
+    if (!target) {
+      const at = event.target as HTMLElement;
+      if (this.selected && at.closest('.rt-run-body') && !at.closest('.rt-card')) { this.selected = null; this.draw(); }
+      return;
+    }
     const run = this.run;
     if (target.dataset.node) { this.selected = target.dataset.node; this.notice = ''; this.draw(); return; }
     const action = target.dataset.action!;
-    // Task 8c: a click beside the node card (on its backdrop, not inside the card) closes it.
-    // A click on another node seen through the backdrop opens that node's card.
-    if (action === 'close-node') {
-      if (event.target !== target) return;
-      const under = document.elementsFromPoint(event.clientX, event.clientY).find(el => el !== target && el.closest('[data-node]'))?.closest<HTMLElement>('[data-node]');
-      this.selected = under?.dataset.node ?? null;
-      this.draw();
-      return;
-    }
     if (action === 'new-run') {
       if (run && !run.result && !this.confirmReset) { this.confirmReset = true; this.draw(); return; }
       this.newRun(); return;
@@ -664,7 +660,7 @@ export class RunView {
         ? `<p class="rt-run-hint" data-testid="run-casino-hint">Может стать игорным кругом · ${RT_CASINO_CHANCE} %</p>`
           + '<p class="rt-run-note rt-run-fine" data-testid="run-casino-terms">Не больше одного за поход, нужен хотя бы 1 ресурс.</p>' : '')
       + (status === 'available' ? this.enterHtml(run, node) : '');
-    return `<div class="rt-overlay rt-run-modal rt-run-node" data-action="close-node" data-testid="run-node-card"><div class="rt-card rt-run-detail" data-testid="run-detail" data-card="${node.id}">${body}</div></div>`;
+    return `<div class="rt-overlay rt-run-node" data-testid="run-node-card"><div class="rt-card rt-run-detail" data-testid="run-detail" data-card="${node.id}">${body}</div></div>`;
   }
 
   /**

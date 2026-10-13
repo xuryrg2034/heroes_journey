@@ -254,10 +254,10 @@ test('«Перебор»: a risky pull that does not bust gives a triple of a go
 /**
  * Task 5 «Срез казино-слоя в походе + гоблин главный» (12.10.2026; docs/realtime-casino.md, «Срез казино-слоя в походе»): a run
  * with real clicks and a real mouse chain. Seed 10, the full gift button 1: `r5c0` is a battle of run row 1, `r6c1` a battle
- * of run row 2 (its card offered oaths before task 5). Row 1: the card says «Идти», no «Зарок»; after the goals the goblin
+ * of run row 2 (its card offered oaths before task 5). Row 1: the card says «В бой», no «Зарок»; after the goals the goblin
  * stands; a chain of 6 drawn with the mouse floats «+1 рывок без риска» over the hero and the caption over the idol grows
  * «безопасно: 3» → «безопасно: 4»; the hero goes through the door: the result has no «Котёл» row and leads to the map, no die
- * screen. Row 2: the card says «Идти», no «Зарок», no stake line.
+ * screen. Row 2: the card says «В бой», no «Зарок», no stake line.
  */
 test('task 5, the run: no «Зарок» on the cards, the goblin after the goals of a row-1 battle, a mouse chain of 6 — «+1 рывок без риска» and the caption grows; no «Котёл», no die', async ({ page }) => {
   const errors: string[] = [];
@@ -273,7 +273,7 @@ test('task 5, the run: no «Зарок» on the cards, the goblin after the goal
   await expect(page.getByTestId('run-detail')).toBeVisible();
   await expect(page.getByTestId('run-oaths')).toHaveCount(0);
   await expect(page.getByTestId('run-detail')).not.toContainText('Зарок');
-  await expect(page.getByTestId('run-enter')).toHaveText('Идти');
+  await expect(page.getByTestId('run-enter')).toHaveText('В бой');
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
   await expect(page.getByTestId('oath-line')).toBeHidden();
@@ -345,13 +345,13 @@ test('task 5, the run: no «Зарок» on the cards, the goblin after the goal
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('run-die')).toHaveCount(0);
 
-  // Run row 2 (its card offered oaths before task 5): «Идти», no «Зарок», no stake line.
+  // Run row 2 (its card offered oaths before task 5): «В бой», no «Зарок», no stake line.
   await page.getByTestId('node-r6c1').click();
   await expect(page.getByTestId('run-detail')).toBeVisible();
   await expect(page.getByTestId('run-oaths')).toHaveCount(0);
   await expect(page.getByTestId('run-stake-line')).toHaveCount(0);
   await expect(page.getByTestId('run-detail')).not.toContainText('Зарок');
-  await expect(page.getByTestId('run-enter')).toHaveText('Идти');
+  await expect(page.getByTestId('run-enter')).toHaveText('В бой');
   expect(errors).toEqual([]);
 });
 

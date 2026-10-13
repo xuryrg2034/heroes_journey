@@ -180,7 +180,7 @@ test('8c: the node card stands in the middle of the map — goal and enemies, «
   const nodes = page.locator('[data-node]');
   await node.click();
   const other = nodes.nth(3), otherId = await other.getAttribute('data-node');
-  await other.click({ force: true });
+  await other.click();
   await expect(card).toHaveAttribute('data-card', otherId!);
   await page.getByTestId('run-settings').click();
   await expect(page.getByTestId('run-settings-panel')).toBeVisible();

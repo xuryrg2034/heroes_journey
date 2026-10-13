@@ -440,7 +440,7 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   expect(errors).toEqual([]);
 });
 
-test('run (phase A, Т2): the node preview names its roster in one line, without a list of kinds; the arena plays it and its journal keeps it', async ({ page }) => {
+test('run (phase A, Т2): the node preview names its roster in one line; the card\'s enemies line (task 8c) lists the kinds the roster brings; the arena plays it and its journal keeps it', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -456,9 +456,11 @@ test('run (phase A, Т2): the node preview names its roster in one line, without
   await expect(page.getByTestId('run-gift')).toBeHidden();
   await page.getByTestId('node-r5c0').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Волки');
+  await expect(page.getByTestId('run-danger-enemies')).toContainText('Враги: обычные, волки');
   await page.getByTestId('node-r5c2').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Натиск');
-  await expect(page.getByTestId('run-detail')).not.toContainText('кабан');
+  // «Натиск» replaces the newcomers by boars: no wolves of the template's phases.
+  await expect(page.getByTestId('run-danger-enemies')).toContainText('Враги: обычные, кабаны');
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
   const state = await page.evaluate(() => (window as any).__realtime.run.state() as { pending: { arena: string; roster?: string } });

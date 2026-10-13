@@ -144,7 +144,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Task 8c (design 13.10.2026): the chosen node's card in the middle of the map (it was the right column); its backdrop covers
    the map only (the header — gear, «Логи», «Новый поход» — stays usable), is light, and a click on it closes the card. */
 /* Under the header (its gear's box drops over the map), over the map; the other run modals stay over everything (z 8). */
-.rt-run-modal.rt-run-node { z-index: 1; background: #0a0d0966; }
+.rt-overlay.rt-run-node { z-index: 1; background: #0a0d0966; pointer-events: none; }
+.rt-run-node .rt-card { pointer-events: auto; max-height: calc(100% - 24px); overflow-y: auto; }
+.rt-run-node .rt-again { width: 100%; margin-top: 10px; }
 .rt-run-head { position: relative; z-index: 2; }
 .rt-run-node .rt-card { width: min(440px, calc(100vw - 32px)); text-align: left; }
 .rt-run-node h2 { margin: 0 0 4px; font-size: 26px; text-align: left; }

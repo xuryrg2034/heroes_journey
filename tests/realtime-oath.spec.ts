@@ -3,7 +3,7 @@ import { test, expect } from './realtimeTest';
 
 /**
  * Casino stage 1, item 2 — «Ставка клятвы» (src/realtime/sim/oath.ts, src/realtime/run/rtRun.ts, docs/realtime-casino.md).
- * Task 5 (12.10.2026, «Срез казино-слоя в походе»): the run offers no oaths — the cards of row 1 and row 2 battles say «Идти»
+ * Task 5 (12.10.2026, «Срез казино-слоя в походе»): the run offers no oaths — the cards of row 1 and row 2 battles say «В бой» (task 8c; «Идти» before)
  * (a reload too), no stake line, no oath line in the battle. Seed 10 (a seeded run gets the full gift): the gift button 1
  * takes no second pick; `r5c0` is a battle of run row 1, `r6c1` a battle of run row 2 whose card offered «Не больше 2 урона»
  * and «Цепь 6+ хотя бы раз» before task 5. The run's oath card with its choices has no end-to-end test since task 5 (the run
@@ -31,7 +31,7 @@ async function winArena(page: Page): Promise<void> {
   await expect.poll(async () => (await snapshot(page)).status, { timeout: 10_000 }).toBe('victory');
 }
 
-test('task 5: the run offers no «Зарок» — row 1 and row 2 cards say «Идти» (a reload too), no stake line; the battle has no oath line', async ({ page }) => {
+test('task 5: the run offers no «Зарок» — row 1 and row 2 cards say «В бой» (a reload too), no stake line; the battle has no oath line', async ({ page }) => {
   const errors: string[] = [];
   await openRun(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
@@ -39,21 +39,21 @@ test('task 5: the run offers no «Зарок» — row 1 and row 2 cards say «�
   await page.getByTestId('node-r5c0').click();
   await expect(page.getByTestId('run-detail')).toBeVisible();
   await expect(page.getByTestId('run-oaths')).toHaveCount(0);
-  await expect(page.getByTestId('run-enter')).toHaveText('Идти');
+  await expect(page.getByTestId('run-enter')).toHaveText('В бой');
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
   await winArena(page);
   await page.getByTestId('result-map').click();
   await expect(page.getByTestId('run')).toBeVisible();
 
-  // Run row 2: the card offered two oaths before task 5; now «Идти» only.
+  // Run row 2: the card offered two oaths before task 5; now «В бой» only (task 8c; «Идти» before).
   await page.getByTestId('node-r6c1').click();
   await expect(page.getByTestId('run-detail')).toBeVisible();
   await expect(page.getByTestId('run-oaths')).toHaveCount(0);
   await expect(page.getByTestId('run-stake-line')).toHaveCount(0);
   await expect(page.locator('[data-action="enter-oath"]')).toHaveCount(0);
   await expect(page.getByTestId('run-detail')).not.toContainText('Зарок');
-  await expect(page.getByTestId('run-enter')).toHaveText('Идти');
+  await expect(page.getByTestId('run-enter')).toHaveText('В бой');
   await page.screenshot({ path: 'artifacts/realtime-oath-card.png' });
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
