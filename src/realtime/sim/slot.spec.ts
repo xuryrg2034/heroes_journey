@@ -1207,6 +1207,22 @@ check('«Взрыв по площади»: the bust lights the idol (3.5, 1.2 s,
   }
 });
 
+check('«Взрыв по площади»: the edge of the circle counts the hero\'s body — 0.01 inside radius + body radius: −4; 0.01 outside: spared', () => {
+  const [k] = bustSeeds(true, 1);
+  for (const [off, hurt] of [[-0.01, true], [0.01, false]] as const) {
+    const { sim, events, idol } = litBust(k), w = sim.world, b = w.blasts.find(x => x.bust)!;
+    const edge = b.radius + heroRadius(w.params), d = inward(w, idol);
+    // The tick before the blast: the hero put at the edge ± 0.01 (he stands still; nothing moves him).
+    while (b.timeLeft > SIM_DT + 1e-9) ticks(sim, 1, events);
+    sim.command({ t: 'teleport', x: idol.x + d.x * (edge + off), y: idol.y + d.y * (edge + off) });
+    const { blast } = toBlast(sim, events);
+    const at = Math.hypot(w.hero.x - idol.x, w.hero.y - idol.y);
+    assert(Math.abs(at - (edge + off)) < 1e-6, `the hero at ${at.toFixed(4)} (edge ${edge.toFixed(4)})`);
+    assert(blast.inside === hurt && blast.hurt === hurt && bustHits(events).length === (hurt ? 1 : 0) && w.hero.hp === (hurt ? 36 : 40), `edge ${off > 0 ? '+' : ''}${off}: inside ${blast.inside}, hp ${w.hero.hp}`);
+    assert(replays(sim), 'replay');
+  }
+});
+
 check('«Взрыв по площади»: invulnerability, the dash and the jump spare the hero inside the circle; the chain shield and «Щит фокуса» do not', () => {
   const [k] = bustSeeds(true, 1);
   type Guard = 'invulnerable' | 'jump' | 'dash' | 'shield' | 'focus';

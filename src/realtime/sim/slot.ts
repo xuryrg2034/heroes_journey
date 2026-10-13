@@ -430,7 +430,8 @@ function dropWave(world: World, wave: SlotWave): void {
  * «Взрыв по площади» (`slotBustArea`): no blow now — the idol lights instead: a blast of `world.blasts` at its spot (`bust`:
  * the hero's `slotBustDamage`), radius `slotBustRadius`, `slotBustFuse` game seconds (world.ts `detonate` → `bustHero`);
  * enemies inside take `slotBustEnemyDamage` as from a sapper's blast, the player's kills (source `slot-bust`). The lever
- * leaves at once (no pull during the fuse). Event `slot` `lit`.
+ * leaves at once (no pull during the fuse). Event `slot` `lit`. The slot's step runs after the blast step: a fuse of 0 goes
+ * off in the next tick.
  */
 function bustGoblin(world: World, g: Goblin): void {
   const p = world.params, hero = Math.max(0, num(p, 'slotBustDamage'));

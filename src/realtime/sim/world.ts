@@ -1195,7 +1195,10 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
   else e.hp -= damage;
 }
 
-/** A blast lit on the arena (`delay` game seconds; 0 — it goes off in this tick's blast step). */
+/**
+ * A blast lit on the arena (`delay` game seconds; 0 — it goes off in this tick's blast step when lit before it, as a sapper's;
+ * one lit after the blast step — the goblin's bust, slot.ts `updateSlot` — goes off in the next tick's).
+ */
 export function addBlast(world: World, at: Vec, blast: { radius: number; damage: number; delay: number; credited: boolean; source: string; ownerId: number; elite?: boolean; bust?: { hero: number } }): Blast {
   const b: Blast = { id: world.nextId++, x: at.x, y: at.y, radius: blast.radius, damage: blast.damage, timeLeft: blast.delay, total: blast.delay, credited: blast.credited, source: blast.source, ownerId: blast.ownerId,
     ...blast.elite ? { elite: true as const } : {}, ...blast.bust ? { bust: { hero: blast.bust.hero } } : {} };
