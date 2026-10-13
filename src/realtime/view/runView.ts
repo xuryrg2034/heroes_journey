@@ -149,6 +149,12 @@ export function arenaBlink(run: Pick<RtRunState, 'itemsNew' | 'startPotion' | 'b
   return blink;
 }
 
+/**
+ * Task 18 (design 14.10.2026): the levels are cumulative — the line under the choice says what the level ADDS, with «+»: «+ неуязвимость
+ * 0,5 с, касание 2» (so III reads as I + II + this); level 0 — «Обычный поход».
+ */
+export const ashLine = (level: number, text: string): string => (level > 0 ? `+ ${text.charAt(0).toLowerCase()}${text.slice(1)}` : text);
+
 /** Casino stage 1, item 4: the die's roll animation (research 8.5: 1.2 s, a click skips it). */
 export const DIE_ROLL_MS = 1200;
 /** The face changes this often while the die rolls (a picture only: the face was fixed when the screen showed). */
@@ -637,7 +643,8 @@ export class RunView {
    */
   private ashHtml(): string {
     if (!this.profile.ashOpen()) return '';
-    const chosen = this.profile.ashChoice(), options = rtAshOptions(), current = options.find(option => option.level === chosen)!;
+    const chosen = this.profile.ashChoice(), options = rtAshOptions().map(option => ({ ...option, text: ashLine(option.level, option.text) }));
+    const current = options.find(option => option.level === chosen)!;
     const buttons = options.map(option => `<button class="rt-ash-level${option.level === chosen ? ' rt-on' : ''}" data-action="ash" data-level="${option.level}" data-testid="ash-${option.level}" aria-pressed="${option.level === chosen}" title="${escapeHtml(`${option.title}: ${option.text}`)}">${option.label}</button>`).join('');
     return `<div class="rt-ash" data-testid="run-ash"><span class="rt-ash-head">Испытание:</span>${buttons}</div><p class="rt-run-note rt-ash-text" data-testid="run-ash-text">${escapeHtml(current.text)}</p>`;
   }

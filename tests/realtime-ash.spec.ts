@@ -80,8 +80,12 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   await end.getByTestId('ash-3').click();
   await expect(page.getByTestId('ash-3')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('ash-0')).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByTestId('run-ash-text')).toHaveText('Неуязвимость 0,5 с, касание 2');
-  await expect(page.getByTestId('ash-3')).toHaveAttribute('title', 'Испытание III: Неуязвимость 0,5 с, касание 2');
+  // Cumulative levels: the line says what III adds, with «+» (design 14.10.2026).
+  await expect(page.getByTestId('run-ash-text')).toHaveText('+ неуязвимость 0,5 с, касание 2');
+  await expect(page.getByTestId('ash-3')).toHaveAttribute('title', 'Испытание III: + неуязвимость 0,5 с, касание 2');
+  await page.getByTestId('ash-1').click();
+  await expect(page.getByTestId('run-ash-text')).toHaveText('+ без зелья и второго дыхания');
+  await page.getByTestId('ash-3').click();
   await page.mouse.move(0, 0);
   await page.screenshot({ path: 'artifacts/realtime-ash-choice.png' });
   // A reload keeps the choice (the profile).
