@@ -21,7 +21,9 @@ export const SCREEN_LINE_SHOWS = 2;
 export const HINT_IDS = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9'] as const;
 export type HintId = typeof HINT_IDS[number];
 /**
- * The screen lines: Э2 (the map's resources), Э4 (the die). Э1 is the fight result's row, Э3 is the node card's stake line.
+ * The screen lines: Э4 (the die). Э2 (the map's resources, «Ресурсы — крафт на привале…») was removed by task 15 (design
+ * 14.10.2026: the header shows one number; the kinds are on the screens that need them) — its id stays for the stored memory.
+ * Э1 is the fight result's row, Э3 is the node card's stake line.
  * Э1, Э3 and Э4 belong to their rules (the cauldron, the oath stake, the die): they show only where the rule is on — the
  * «Котёл» row with `purse`, the stake line with the node's oaths, the die line on the die screen (task 5, 12.10.2026: none
  * of the three in the run).
@@ -34,8 +36,6 @@ export const HINT_TITLES: Readonly<Record<HintId, string>> = {
 };
 export const isHintId = (value: unknown): value is HintId => typeof value === 'string' && (HINT_IDS as readonly string[]).includes(value);
 
-/** Э2, the run map (below the header). */
-export const LINE_RESOURCES = 'Ресурсы — крафт на привале, покупки у торговца, переброс талисманов.';
 /** Э3, the node card of an oath node: kept and broken multipliers of the stake (`sim/oath.ts`), always shown with the offer. */
 export function stakeLine(kept: number, broken: number): string { return `Ставка на котёл этого боя: сдержишь ×${multText(kept)}, нарушишь ×${multText(broken)}.`; }
 /** Э4, the die screen: the halves of the roll (`lowFaces` — the faces of the lower half, run/rtRun.ts `DIE_LOW_FACES`). */

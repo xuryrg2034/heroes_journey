@@ -14,7 +14,7 @@ import { gameWait, untilFrame } from './realtimeFrames';
  *   run's own «Гоблин раньше» (task 7, `slotAppearAt` 5) the goblin and its label come at 5 s of the fight, before the goals;
  * - the gear's toggle «Подсказки» hides the labels, «Обучение» (it was «Показать подсказки снова») clears the memory and plays the prologue;
  * - the sandbox shows no label, no pulse and no box, keeps no memory;
- * - the lines on the screens (Э2); a won run fight has no «Котёл» row (Э1) and no die screen (Э4).
+ * - no line Э2 under the map header (task 15, 14.10.2026: removed); a won run fight has no «Котёл» row (Э1) and no die screen (Э4).
  * The scenes are frozen with `maxEnemies` 0 and still enemies (docs/realtime-slice.md, section 13); waits are in game time.
  * The hard-battle save is made by the run code (seed `Math.imul(2, 2654435761) >>> 0`, the «Застава» node entered).
  */
@@ -575,31 +575,24 @@ test('the sandbox shows no label (the chest\'s price included), no box and no pu
   expect(errors).toEqual([]);
 });
 
-test('the lines on the screens: Э2 on the first two appearances of the map, then quiet, back after «Обучение»; the toggle off hides it', async ({ page }) => {
+test('task 15 (design 14.10.2026): no line Э2 under the map header — on the first appearances of the map, after a reload, after «Обучение»', async ({ page }) => {
   const errors: string[] = [];
   await freshViewer(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
-  await expect(page.getByTestId('line-resources')).toHaveCount(0);
   await page.getByTestId('gift-1').click();
-  await expect(page.getByTestId('line-resources')).toHaveText('Ресурсы — крафт на привале, покупки у торговца, переброс талисманов.');
-  await page.getByTestId('node-r5c0').click();
-  await expect(page.getByTestId('line-resources')).toBeVisible();
-  expect((await stored(page))?.shown.e2).toBe(1);
-  await page.reload();
-  await expect(page.getByTestId('line-resources')).toBeVisible();
-  expect((await stored(page))?.shown.e2).toBe(2);
+  await expect(page.getByTestId('run-map')).toBeVisible();
+  await expect(page.getByTestId('line-resources')).toHaveCount(0);
+  await expect(page.locator('.rt-run-line', { hasText: 'Ресурсы' })).toHaveCount(0);
   await page.reload();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('line-resources')).toHaveCount(0);
-  expect((await stored(page))?.shown.e2).toBe(2);
   await gearOpen(page);
   await page.getByTestId('prologue-start').click();
   await expect.poll(async () => (await snap(page)).prologue.active).toBe(true);
   await page.getByTestId('prologue-skip').click();
-  await expect(page.getByTestId('line-resources')).toBeVisible();
-  await gearOpen(page);
-  await page.getByTestId('view-hints').uncheck();
+  await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('line-resources')).toHaveCount(0);
+  expect((await stored(page))?.shown.e2 ?? 0).toBe(0);
   expect(errors).toEqual([]);
 });
 

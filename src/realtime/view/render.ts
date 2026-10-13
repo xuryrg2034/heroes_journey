@@ -38,6 +38,7 @@ import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
 import { hordeGroup } from './hordeView';
 import { BagView } from './bagView';
+import { FEAT_DOOR_GAP, FeatDoorView } from './featView';
 import { planPowerNumber } from './powerNumber';
 import { SLOT_BUST_SOURCE } from '../sim/slot';
 import { dashCheque } from '../sim/purse';
@@ -324,6 +325,8 @@ export class RealtimeRenderer {
   readonly slotView = new SlotView(UNIT);
   /** Task 14 «Котомка у двери»: the sack beside the open door, its marks and number (view/bagView.ts). */
   readonly bagView = new BagView(UNIT);
+  /** Task 16 «Подвиги»: the feat's small line by the open door while it is not done (view/featView.ts). */
+  readonly featDoor = new FeatDoorView(UNIT);
   slotMarks = 0;
   slotFlashes = 0;
   /** Phase A (Т4): the fire trail of «Огненный» elites — ground under the crowd. */
@@ -344,7 +347,7 @@ export class RealtimeRenderer {
    * layer, 1.5 s at the enemy. `newSeen` is set by main.ts for a run only (the sandbox has none: it neither reads nor writes
    * the memory); `live` — a run fight is on screen; `on` — the toggle «Новое на карте» (off: memory is still written, nothing drawn).
    */
-  newSeen: { store: NewSeenStore; live(): boolean; on(): boolean } | null = null;
+  newSeen: { store: NewSeenStore; live(): boolean; on(): boolean; meet?(id: string): void } | null = null;
   private readonly captionLayer = new Container();
   private readonly captions: { id: number; box: Container; until: number; slot: number }[] = [];
   /** What the captions drew (tests read it): the texts shown since the last reset, and the plates on screen now. */
@@ -502,7 +505,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -1367,8 +1370,9 @@ export class RealtimeRenderer {
           this.captions.push({ id: e.id, box, until: this.clock + PLAQUE_LIFE, slot: slot++ });
           shown.texts.push(label);
         };
-        if (kindDue && host.store.meetKind(e.kind)) add(KIND_CAPTIONS[e.kind]);
-        for (const a of e.affixes ?? []) if (!host.store.hasAffix(a) && host.store.meetAffix(a)) add(AFFIX_CAPTIONS[a]);
+        // Task 16 telemetry: the first meeting goes to the recorder (`meet`, main.ts) — the store decided «first».
+        if (kindDue && host.store.meetKind(e.kind)) { add(KIND_CAPTIONS[e.kind]); host.meet?.(`kind:${e.kind}`); }
+        for (const a of e.affixes ?? []) if (!host.store.hasAffix(a) && host.store.meetAffix(a)) { add(AFFIX_CAPTIONS[a]); host.meet?.(`affix:${a}`); }
       }
     }
     const byId = new Map(world.enemies.map(e => [e.id, e] as const));
@@ -2100,7 +2104,7 @@ export class RealtimeRenderer {
       }
       // Task 14 «Котомка у двери»: a filled step — the sack flashes and «+N» rises; a reset — the step's mark dims, a pale «сброс».
       if (ev.type === 'bag') {
-        const at = this.bagView.onEvent(world, ev);
+        const at = this.bagView.onEvent(world, ev, this.featDoor.shown.visible ? FEAT_DOOR_GAP : 0);
         if (at && ev.action === 'step') this.floatText(`+${ev.reward ?? 0}`, at.x, at.y, 0xffd36b, at.dir);
         else if (at && ev.action === 'reset') this.floatText('сброс', at.x, at.y, 0x9a9a8a, at.dir);
         continue;
@@ -2647,6 +2651,7 @@ export class RealtimeRenderer {
     this.drawTargets(world);
     this.drawSleep(world);
     this.bagView.draw(world, this.clock, realDt);
+    this.featDoor.draw(world, this.bagView.shown.visible);
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
     this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
@@ -2710,6 +2715,7 @@ export class RealtimeRenderer {
     this.cutSeen = false;
     this.slotView.reset();
     this.bagView.reset();
+    this.featDoor.reset();
     for (const view of this.enemyViews.values()) view.root.destroy({ children: true });
     this.enemyViews.clear();
     for (const d of this.dying) d.root.destroy({ children: true });

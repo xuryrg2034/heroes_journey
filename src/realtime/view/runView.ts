@@ -19,6 +19,7 @@ import {
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
+  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -31,12 +32,14 @@ import { RT_NODE_TYPES } from './nodeTypes';
 import { cardRules, nodeDangers } from './nodeCard';
 import type { SessionClock } from './session';
 import { NEW_SIGN, newKindsOfArena, type NewSeenStore } from './newSeen';
-import { dieLine, LINE_RESOURCES, ScreenLines, stakeLine, type HintStore } from './hints';
+import { dieLine, ScreenLines, stakeLine, type HintStore } from './hints';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { multText } from '../sim/purse';
 import { eventOption, forestEvent } from '../forest/forestEvents';
 import type { SoundSetting } from './paramStorage';
 import { SECOND_WIND_HP } from '../sim/world';
+import { featCardLine } from './featView';
+import type { FirstMeetId } from './firstMeet';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -65,7 +68,7 @@ export interface RunHost {
    * Telemetry (docs/realtime-telemetry.md, track ТA): every step of the run that went through, with the state before it
    * (choices, nodes, the end); called before an arena it readies starts.
    */
-  runStep?(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>): void;
+  runStep?(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>, info?: { realSeconds?: number }): void;
   /** Telemetry: a new run starts; `previous` without a result is abandoned; `viewerRun` — the viewer's run number (task 16, the profile's count). */
   runStarted?(previous: RtRunState | null, run: RtRunState, viewerRun?: number, viewerRunApprox?: boolean): void;
   /** Telemetry: the «Логи» panel (absent — no button). */
@@ -97,6 +100,11 @@ export interface RunHost {
    * gear; `preview` sounds one hit at the volume let go. Absent (the sandbox: its panel has the sound) — none.
    */
   sound?: { get(): SoundSetting; set(sound: SoundSetting): void; preview(): void };
+  /**
+   * Task 16 telemetry «Новизна»: the run screen showed a concept the viewer may meet for the first time (`heal-button` — the map
+   * heal's button, `circle` — the goblins' circle); the host decides «first» (view/firstMeet.ts) and reports it. Absent — nothing.
+   */
+  firstMeet?(id: FirstMeetId): void;
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -156,6 +164,17 @@ const CASINO_ICON = '⚃';
 export function resourcesWord(n: number): string {
   const tens = n % 100, ones = n % 10;
   return `${n} ${tens >= 11 && tens <= 14 ? 'ресурсов' : ones === 1 ? 'ресурс' : ones >= 2 && ones <= 4 ? 'ресурса' : 'ресурсов'}`;
+}
+/**
+ * Task 15 (design 14.10.2026, complexity budget): the map header's resources — ONE number with one icon (a bundle); the kinds
+ * only in its tooltip and on the screens that need them (the rest, the merchant, the fight result).
+ */
+const RESOURCE_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">'
+  + '<path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/>'
+  + '<path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+/** The kinds in hand, those above zero: «Роса 2, Смола 1» (empty — none). */
+export function resourceKindsText(materials: Readonly<Record<ResourceKind, number>>): string {
+  return RESOURCE_KINDS.filter(kind => materials[kind] > 0).map(kind => `${RESOURCES[kind].label} ${materials[kind]}`).join(', ');
 }
 /**
  * The roll's outcomes in resources, as the screen shows them (design 11.10.2026: resources, not multipliers — with a kept
@@ -246,6 +265,8 @@ export class RunView {
    * skipped by a click). The win flash only for `win`.
    */
   private chanceRoll: ChanceRoll | null = null;
+  /** Task 16 telemetry: when the screen of the next choice opened (or the last step on it went through), `performance.now()`. */
+  private screenSince = performance.now();
 
   constructor(private readonly host: RunHost, private readonly fixedSeed: number | null) {
     this.el = document.createElement('div');
@@ -275,6 +296,7 @@ export class RunView {
   /** Shows the run screen: the map of the saved run, or the start of a new one. */
   open(): void {
     this.inArena = false;
+    this.screenSince = performance.now();
     this.sessionNudge = null;
     this.el.hidden = false;
     this.host.onScreenChange(true);
@@ -307,7 +329,10 @@ export class RunView {
     if (this.run.result && !before?.result) this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded });
     // Task 16: the Jailer fought (won or lost) — the profile's sticky mark, also for a run abandoned later (not a seeded run).
     if (!this.run.seeded && rtFoughtJailer(before, this.run)) this.profile.markJailer();
-    this.host.runStep?.(before, step);
+    // Task 16 telemetry: the real seconds the screen of this step's choice was open (since it opened or the last step on it).
+    const now = performance.now(), realSeconds = Math.max(0, (now - this.screenSince) / 1000);
+    this.screenSince = now;
+    this.host.runStep?.(before, step, { realSeconds });
     if (step.events.some(event => event.type === 'battle-ready')) this.enterArena();
     else this.draw();
     return '';
@@ -375,6 +400,9 @@ export class RunView {
       if (event.type === 'hammer-taken') parts.push(`Молот «${rtHammer(event.id)?.name ?? event.id}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
       if (event.type === 'casino-played') parts.push(event.text);
+      // Task 15: the map heal; task 16: the feat's resources (at the door, or instead of a talisman choice when too few were left).
+      if (event.type === 'map-healed') parts.push(`Лечение +${event.hpAfter - event.hpBefore} HP — ${resourcesWord(event.price)}`);
+      if (event.type === 'feat-paid') parts.push(`Подвиг: ${event.fallback ? 'талисманов не осталось, ' : ''}+${resourcesWord(event.resources.length)}`);
       if (event.type === 'die-resolved') parts.push(event.rolled ? `Кость: ${event.face} — ${resourcesWord(event.resources.length)}` : `Котёл: ${resourcesWord(event.resources.length)}`);
       if (event.type === 'items-gained') parts.push(`+ ${event.items.map(itemWithKey).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
     }
@@ -417,6 +445,8 @@ export class RunView {
     // Casino stage 1, item 2: an oath button of the node card enters the battle under that oath.
     if (action === 'enter-oath' && this.selected && isOathId(target.dataset.oath)) { this.enter(this.selected, target.dataset.oath); return; }
     if (action === 'battle') { this.enterArena(); return; }
+    // Task 15: the map heal (the map, a node card, the window «Бой» before «В бой»; never in a started fight).
+    if (action === 'map-heal') { this.apply(healOnMap(run, { arenaOpen: this.inArena })); return; }
     // Casino stage 1, item 4: the die at the door; a click on the rolling die skips its animation, «Дальше» closes it.
     if (action === 'die-roll') { this.throwDie(run); return; }
     if (action === 'die-take') { this.apply(rtDieChoose(run, false)); return; }
@@ -597,7 +627,9 @@ export class RunView {
   }
 
   private headerHtml(run: RtRunState): string {
-    const resources = RESOURCE_KINDS.map(kind => `${RESOURCES[kind].label} ${run.materials[kind]}`).join(' · ');
+    // Task 15: one number with one icon; the kinds in the tooltip.
+    const kinds = resourceKindsText(run.materials);
+    const resources = `<span class="rt-run-res" data-testid="run-resources" title="Ресурсы крафта${kinds ? `: ${kinds}` : ''}">${RESOURCE_ICON}<b>${rtResourceTotal(run)}</b></span>`;
     // Step 3: consumables carried between arenas and the energy banked for the next one.
     const items = ITEM_KINDS.map(kind => `${ITEM_TITLES[kind]} ${run.items[kind]}`).join(' · ');
     // Phase B: the hammer first (⚒), then the talismans; a relic is marked ◆ — the rule and the price in the tooltip (the
@@ -615,22 +647,42 @@ export class RunView {
     const windHtml = wind ? `<span class="rt-run-wind${wind === 'spent' ? ' rt-spent' : ''}" data-testid="run-second-wind" data-state="${wind}" title="${wind === 'ready'
       ? `Второе дыхание: смертельный удар на рядах 1–${RT_SECOND_WIND_LAST_ROW} оставляет ${SECOND_WIND_HP} HP. Один раз за поход.`
       : 'Второе дыхание потрачено в этом походе.'}">${WIND_ICON}</span>` : '';
-    return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}`
+    // Task 15: the map heal by the HP — in the header on the map and over a node card; the window «Бой» covers the header, so
+    // there the button stands in the window (design 14.10.2026: one place for the player on the card).
+    const heal = run.pending?.kind === 'battle' ? '' : this.healHtml(run);
+    return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
-      + `<span class="rt-run-res">${resources}</span>${reset}${this.logsButton()}${this.settingsHtml()}</header>`
-      + this.mapLineHtml(run)
+      + `${resources}${reset}${this.logsButton()}${this.settingsHtml()}</header>`
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '')
       + (this.sessionNudge && this.host.session?.on() && !run.result ? `<p class="rt-run-session" data-testid="run-session-nudge">${escapeHtml(this.sessionNudge)}</p>` : '');
   }
 
   /**
-   * «Обучение v1», Э2: one quiet line under the header of the map — what the resources are for. The first two appearances of
-   * the map only (a redraw of the same map is not a new one); not under a modal screen and not at the end of the run.
+   * Task 15 «Лечение на карте» (design 14.10.2026): the heal button — shown with at least one resource on the map or a battle card
+   * (`healVisible`, the view's `arenaOpen` passed: never in a started fight); off with its reason as visible text: «HP полное»,
+   * «Нужно N, есть M». «Лечение +2 HP — 2 ресурса»; one HP short of the maximum — «+1 HP (до максимума)», the price full.
    */
-  private mapLineHtml(run: RtRunState): string {
-    if (run.pending || run.result || this.inArena) return '';
-    return this.lines?.show('e2', `map|${run.seed}|${run.visited.length}`) ? `<p class="rt-run-line" data-testid="line-resources">${escapeHtml(LINE_RESOURCES)}</p>` : '';
+  private healHtml(run: RtRunState): string {
+    const where = { arenaOpen: this.inArena };
+    if (!healVisible(run, where)) return '';
+    this.host.firstMeet?.('heal-button');
+    const offer = healOffer(run, where), gain = offer.gain > 0 ? offer.gain : RT_HEAL_MAP_GAIN;
+    const label = `Лечение +${gain} HP${offer.gain > 0 && offer.gain < RT_HEAL_MAP_GAIN ? ' (до максимума)' : ''} — ${resourcesWord(offer.price)}`;
+    const reason = offer.reason === 'full' ? 'HP полное' : offer.reason === 'poor' ? `Нужно ${offer.need ?? offer.price}, есть ${offer.have}` : '';
+    return `<span class="rt-run-heal"><button data-action="map-heal" data-testid="run-heal" data-price="${offer.price}"${offer.ok ? '' : ` disabled data-reason="${offer.reason}"`}>${label}</button>`
+      + (reason ? `<small class="rt-run-reason" data-testid="run-heal-reason">${reason}</small>` : '') + '</span>';
+  }
+
+  /**
+   * Task 16 «Подвиги»: the feat line of a node's card and of the window «Бой» (`rtNodeFeat`: what the fight will play) — «Подвиг:
+   * продержись 30 с после целей → 3 ресурса»; an event node «Подвиг, если будет бой: …». None in a run without feats.
+   */
+  private featHtml(run: RtRunState, node: ForestMapNode | undefined): string {
+    const feat = node ? rtNodeFeat(run, node) : null;
+    if (!node || !feat) return '';
+    const line = featCardLine(feat, node.type === 'event');
+    return `<p class="rt-run-feat" data-testid="run-feat" data-kind="${feat.kind}"><b>${escapeHtml(line.label)}:</b> ${escapeHtml(line.text)}</p>`;
   }
 
   /**
@@ -715,6 +767,7 @@ export class RunView {
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh)
         : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
+      + (status === 'available' ? this.featHtml(run, node) : '')
       + (nodeHint(node) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node)!)}</p>` : '')
       // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
       // print on a second line (design 12.10.2026).
@@ -770,7 +823,10 @@ export class RunView {
       // Task 5: an older save's chosen oath is not played with the stake off (sim/oath.ts `startOath`) — not shown either.
       const oath = pending.oath && rtOathStakeOn(this.host.oathStake) ? `<p data-testid="run-battle-oath">Зарок: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
       const pendingNode = rtNode(run, pending.nodeId);
-      return card(`<h2>Бой</h2>${this.arenaHead(pending.arena, pending.roster)}${this.dangersHtml(run, pendingNode, pending.arena, pending.roster)}${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
+      // Task 15: the window covers the map header — the heal button stands here, over «В бой» (design 14.10.2026).
+      const heal = this.healHtml(run);
+      return card(`<h2>Бой</h2>${this.arenaHead(pending.arena, pending.roster)}${this.dangersHtml(run, pendingNode, pending.arena, pending.roster)}${this.featHtml(run, pendingNode)}${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
+        + (heal ? `<p class="rt-run-heal-line">HP ${run.hp} / ${run.maxHp} ${heal}</p>` : '')
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
     if (pending.kind === 'die') {
@@ -790,6 +846,7 @@ export class RunView {
       // B7 К9: two tables and «Уйти»; at most RT_CASINO_GAMES games; the last game's result stays (a reload shows the same).
       const view = rtCasinoView(run);
       if (!view) return '';
+      this.host.firstMeet?.('circle');
       const tables = view.tables.map(table => `<button class="rt-run-choice" data-action="casino-play" data-table="${table.table}" data-testid="casino-${table.table}" ${table.available ? '' : 'disabled'}>`
         + `<b>${escapeHtml(table.label)} <em>(${escapeHtml(table.cost)})</em></b>${table.outcomes.map(outcome => `<small>${escapeHtml(outcome.odds)}: ${escapeHtml(outcome.text)}</small>`).join('')}`
         + (table.reason ? `<small class="rt-run-reason">${escapeHtml(table.reason)}</small>` : '') + `</button>`).join('');
@@ -829,18 +886,20 @@ export class RunView {
     }
     if (pending.kind === 'talisman') {
       // B6 К7 «Проклятый сундук»: the chest's own screen after the «Застава» talismans (its card `run-chest`).
-      const chest = pending.source === 'chest';
-      const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : 'Талисман на выбор';
+      const chest = pending.source === 'chest', feat = pending.source === 'feat';
+      // Task 16: the feat's talisman choice, the last screen of the won fight (its card `run-feat-talisman`).
+      const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : feat ? 'Подвиг: талисман на выбор' : 'Талисман на выбор';
       const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option))}</b>${talismanCardLines(option)}</button>`).join('');
       const note = pending.source === 'oath' ? 'У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.'
-        : chest ? 'Награда за сундук: талисман на выбор. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
+        : chest ? 'Награда за сундук: талисман на выбор. Не взятые уходят из пула до конца похода.'
+        : feat ? 'Награда за подвиг: талисман на выбор. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
       // B5 К10 «Переброс»: «Застава», an event's reward and the chest (not the Jailer); the price grows on the screen, off with its reason.
       const reroll = rtRerollView(run);
       const rerollHtml = reroll ? `<button class="rt-other" data-action="talisman-reroll" data-testid="talisman-reroll" ${reroll.available ? '' : 'disabled'}>Перебросить — ${resourcesWord(reroll.price)}</button>`
         + `<p class="rt-run-note rt-run-reroll-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="talisman-reroll-note">${reroll.available
           ? `Ресурсов: ${reroll.total}. Показанные вернутся в пул, но на этом экране не выпадут.` : escapeHtml(reroll.reason)}</p>` : '';
       return card(`<h2>${title}</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
-        + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : 'run-talisman');
+        + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : feat ? 'run-feat-talisman' : 'run-talisman');
     }
     if (pending.kind === 'find') {
       const options = pending.options.map(item => `<button class="rt-run-choice" data-action="find" data-item="${item}" data-testid="find-${item}"><b>${escapeHtml(ITEM_TITLES[item])}</b>`
@@ -851,7 +910,9 @@ export class RunView {
       const view = rtShopView(run)!;
       const goods = view.goods.map(good => `<button class="rt-run-choice" data-action="shop-buy" data-good="${good.id}" data-testid="shop-${good.id}" ${good.available ? '' : 'disabled'}>`
         + `<b>${good.label} — ${good.price === 0 ? 'даром' : `${good.price} рес.`}</b><small>${escapeHtml(good.text)}${good.reason ? ` · ${escapeHtml(good.reason)}` : ''}</small></button>`).join('');
-      return card(`<h2>Торговец</h2><p>Ресурсов: ${view.total}.</p><div class="rt-run-choices">${goods}</div>`
+      // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
+      const kinds = resourceKindsText(run.materials);
+      return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`
         + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
     }
     const view = rtEventView(run);

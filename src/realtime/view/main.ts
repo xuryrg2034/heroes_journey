@@ -17,6 +17,9 @@ import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, markedGoalArena, t
 import { withRoster } from '../sim/rosters';
 import { bagPayout, bagProgress, bagTotal } from '../sim/bag';
 import { bagResultLine } from './bagView';
+import { featOf, featOutcome, featProgress, featResult } from '../sim/feat';
+import { featHudText, featHudTitle, featResultRow } from './featView';
+import { FirstMeetStore, type FirstMeetId } from './firstMeet';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
@@ -46,7 +49,7 @@ import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
-import { rtNode, rtRunBestChain } from '../run/rtRun';
+import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
@@ -237,6 +240,10 @@ async function boot(): Promise<void> {
   eliteBadge.hidden = true;
   const scoreText = el('span', 'rt-score');
   scoreText.setAttribute('data-testid', 'score');
+  // Task 16 «Подвиги» (design 14.10.2026): a short line by the timer — «Подвиг 12/30 с», «Подвиг 240/800», done «Подвиг ✓».
+  const featText = el('span', 'rt-feat');
+  featText.setAttribute('data-testid', 'hud-feat');
+  featText.hidden = true;
   // Task 8a: the action bar — tiles of the abilities (Space, Q) and the consumables (1–4), view/actionBar.ts. A click on a tile
   // acts as its key; the jump and an aimed consumable wait for the next click on the field.
   const actionBar = new ActionBar(id => {
@@ -257,7 +264,7 @@ async function boot(): Promise<void> {
   oathText.hidden = true;
   const goalBox = el('span', 'rt-goal-box');
   goalBox.append(goalText, oathText);
-  hud.append(hpBar, hpText, focusBar, energyText, goalBox, eliteBadge, scoreText, timeText, infoText);
+  hud.append(hpBar, hpText, focusBar, energyText, goalBox, eliteBadge, scoreText, timeText, featText, infoText);
   // Task 8c: the run's HUD says the goal only — the arena's name, its enemies and its stage are on the node card of the map.
   infoText.hidden = !sandbox;
   // The line of keys (task 6, 12.10.2026): the run says only the keys — the rules are taught in the world (labels, the prologue, the
@@ -473,6 +480,8 @@ async function boot(): Promise<void> {
   const shiftHeard = new Set<number>();
   /** Tests read it: the shift sounds played (also with the sound off — the decision, not the audio). */
   let shiftSounds = 0;
+  /** Task 16: the feat chimes sounded so far (the snapshot's `feat.sounds`). */
+  let featSounds = 0;
 
   /**
    * Iteration 2.1 (interface): seconds left of each slot's blink and of the item hint (real time while the arena runs),
@@ -605,6 +614,9 @@ async function boot(): Promise<void> {
   }
   // П8 «Новое на карте»: the memory of kinds and affixes met (a run only: the sandbox neither reads nor writes it) and the toggle.
   const newSeen = sandbox ? null : new NewSeenStore();
+  // Task 16 telemetry «Новизна»: the viewer's first meetings (view/firstMeet.ts; a run only) go to the recorder once ever.
+  const firstMeets = sandbox ? null : new FirstMeetStore();
+  const meetFirst = (id: FirstMeetId): void => { if (firstMeets && !firstMeets.has(id) && firstMeets.meet(id)) recorder?.firstMeet(runView?.state ?? null, id); };
   let newOnMap = loadNewOnMap();
   const runView: RunView | null = sandbox ? null : new RunView({
     startArena(arenaId, seed, hero, label, loadout, notice, roster, rules) {
@@ -628,11 +640,13 @@ async function boot(): Promise<void> {
       if (open) { command({ t: 'cancel' }); dragging = false; stopAim(); result.hidden = true; }
     },
     ...recorder ? {
-      runStep: (before, step) => recorder?.runStep(before, step),
-      runStarted: (previous, run) => recorder?.runStarted(previous, run),
+      runStep: (before, step, info) => recorder?.runStep(before, step, info),
+      // Task 16: the viewer's run number (the profile's count) goes with the new run.
+      runStarted: (previous, run, viewerRun, viewerRunApprox) => recorder?.runStarted(previous, run, viewerRun, viewerRunApprox),
       mapChoice: (run, choice) => recorder?.mapChoice(run, choice),
     } : {},
     ...logsPanel ? { openLogs: () => logsPanel.show() } : {},
+    firstMeet: meetFirst,
     // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [
       { id: 'link-depth', label: 'Глубина звена', hint: 'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него.', get: () => renderer.showLinkDepth, set: setLinkDepth },
@@ -650,7 +664,7 @@ async function boot(): Promise<void> {
     // «Обучение»: the toggle «Подсказки» and the button «Обучение» (the prologue again) on the gear; the screen lines read the same memory.
     ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); }, startPrologue: () => startPrologue('gear') } },
   }, fixedSeed);
-  if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap };
+  if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap, meet: id => recorder?.firstMeet(runView.state, id) };
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
    * reload on the result screen keeps the victory or the end of the run. `runArenaRecorded` — the current arena is in.
@@ -671,6 +685,8 @@ async function boot(): Promise<void> {
     runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, kinds: deathWatch.kinds(w), itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
       // Task 14 «Котомка у двери»: what the door paid for the bag's filled steps (the run adds it to its materials).
       ...bagPayout(w) ? { bag: bagPayout(w)! } : {},
+      // Task 16 «Подвиги»: whether the fight did its feat (the run pays it on a victory; the record keeps it).
+      ...featOutcome(w),
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
@@ -969,7 +985,10 @@ async function boot(): Promise<void> {
     // Casino stage 1, item 4: a won door with a cauldron leads to the die first.
     toMap.textContent = won && runView?.diePending ? 'К кости у двери (Enter)' : won && !runView?.runOver ? 'К карте (Enter)' : 'Итог похода (Enter)';
     const goal = goalProgress(w);
-    const rows: [string, string][] = [
+    // Task 16: the feat's own row (design 14.10.2026: the bag and the feat — a row each): the run's record of this fight.
+    const record = runView && runArenaRecorded ? runView.state?.battles[runView.state.battles.length - 1] : undefined, runSeed = runView?.state?.seed ?? 0;
+    const featRow = record?.feat ? featResultRow(record.feat, featResult(w), won, record.feat.done && won && 'resources' in record.feat.reward ? rtFeatKinds(runSeed, record.nodeId, record.feat.reward.resources) : []) : null;
+    const rows: [string, string, string?][] = [
       ['Арена', runLabel && !sandbox ? runLabel : w.arena.name],
       ['Время', formatTime(end)],
       ['Убито', String(w.stats.kills)],
@@ -979,6 +998,7 @@ async function boot(): Promise<void> {
       w.params.purse ? ['Котёл', w.purse?.door ? (runView ? purseResultLine(w.purse.door) : `${w.purse.door.cauldron}${(w.purse.door.greed ?? 1) > 1 ? ` ×${multText(w.purse.door.greed!)}` : ''} → ресурсов ${doorPayout(w.purse.door).length}`) + (runView?.diePending ? ' (до кости)' : '') : String(w.purse?.cauldron ?? 0)] : ['Очки', String(w.stats.score)],
       // Task 14 «Котомка у двери»: what the door paid for the bag, with its kinds (a fight whose door had the bag).
       ...w.bag ? [['Котомка', bagResultLine(bagPayout(w), bagTotal(w), won)] as [string, string]] : [],
+      ...featRow ? [['Подвиг', featRow.text, ` data-testid="result-feat"${featRow.grey ? ' class="rt-result-grey"' : ''}`] as [string, string, string]] : [],
       // П10: a run fight says it in its own line under the table.
       ...fightChainLine ? [] : [['Лучшая цепь', `${w.stats.bestChain} убийств`] as [string, string]],
       ['Кристаллов выпало', String(w.stats.crystals)],
@@ -987,7 +1007,7 @@ async function boot(): Promise<void> {
       ['Получено урона', `${w.stats.damageTaken} (ударов ${w.stats.hitsTaken})`],
       ['Врагов пришло', String(w.stats.spawned)],
     ];
-    resultStats.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    resultStats.innerHTML = rows.map(([k, v, attrs]) => `<dt>${k}</dt><dd${attrs ?? ''}>${v}</dd>`).join('');
     resultChain.hidden = !fightChainLine;
     resultChain.textContent = fightChainLine?.text ?? '';
     resultChain.classList.remove('rt-record-flash');
@@ -1096,6 +1116,8 @@ async function boot(): Promise<void> {
           else if (ev.action === 'pull') audio.lever(soundVolume());
           else if (ev.action === 'effect') audio.slotResult(ev.outcome ?? 'none', soundVolume());
         }
+        // Task 16: the feat done — a short rising chime.
+        else if (ev.type === 'feat' && ev.action === 'done') { audio.feat(soundVolume()); featSounds++; }
       }
     }
     // Iteration 2.1: a used consumable counts for the run and ends the hint at once.
@@ -1116,6 +1138,16 @@ async function boot(): Promise<void> {
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
     if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); }
+    // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
+    if (firstMeets && runView?.arenaOpen && !prologue) {
+      if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');
+      if (!firstMeets.has('feat') && featOf(w)) meetFirst('feat');
+      for (const ev of w.events) {
+        if (ev.type === 'bag' && ev.action === 'appear') meetFirst('bag');
+        else if (ev.type === 'slot' && ev.action === 'effect' && ev.outcome === 'bust') meetFirst('goblin-bust');
+        else if (ev.type === 'secondWind') meetFirst('second-wind');
+      }
+    }
     // The prologue: the room's own step, the HUD that shows only what the room teaches, the fade back in after a switch.
     if (prologue && !runScreenOpen) stepPrologue(w, realDt, live);
     if (fadeIn > 0 && !transition) { fadeIn = Math.max(0, fadeIn - realDt); prologueDom.setFade(fadeIn / FADE_IN); }
@@ -1167,6 +1199,17 @@ async function boot(): Promise<void> {
     hpFill.style.width = `${hero.maxHp > 0 ? hero.hp / hero.maxHp * 100 : 0}%`;
     hpText.textContent = `${hero.hp} / ${hero.maxHp}`;
     timeText.textContent = formatTime(w.time);
+    // Task 16: the feat's line by the timer (none without a feat: the sandbox, the prologue, a first run).
+    {
+      const p = featProgress(w);
+      featText.hidden = !p;
+      if (p) {
+        const text = featHudText(p);
+        if (featText.textContent !== text) { featText.textContent = text; featText.title = featHudTitle(p); }
+        featText.classList.toggle('rt-feat-done', p.done);
+        featText.classList.toggle('rt-feat-waiting', !!p.waiting);
+      }
+    }
     const focusMax = focusMaxOf(w);
     focusFill.style.width = `${focusMax > 0 ? Math.min(1, w.focus / focusMax) * 100 : 0}%`;
     // Phase B (Д5, round 2): the bar is as long as the reserve — «Тяжёлый клинок» (reserve ½) halves it: the price is seen.
@@ -1450,6 +1493,8 @@ async function boot(): Promise<void> {
         /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */
         bag: w.bag ? { ...bagProgress(w)!, resets: w.bag.resets, paid: w.bag.paid ? { ...w.bag.paid } : null } : null,
         bagView: { ...renderer.bagView.shown, marks: [...renderer.bagView.shown.marks] },
+        /** Task 16 «Подвиги»: the sim's progress (null — no feat), the HUD line, the door line this frame, the chimes so far. */
+        feat: { progress: featProgress(w), hud: featText.hidden ? null : featText.textContent, door: { ...renderer.featDoor.shown }, sounds: featSounds },
         /** The sound now (the gear's setting outside the sandbox, the panel's in it) and the tones asked for so far (`ChainAudio.requested`). */
         sound: { on: soundOn(), volume: soundVolume(), tones: audio.requested },
         /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */

@@ -48,6 +48,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-result-stats { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; margin: 0 0 20px; font-size: 14px; }
 .rt-result-stats dt { color: var(--rt-muted); }
 .rt-result-stats dd { margin: 0; text-align: right; color: #e5dcc0; font-variant-numeric: tabular-nums; }
+.rt-result-stats dd.rt-result-grey { color: var(--rt-muted); }
 /* П6 «Незакрытое дело»: the facts of the ended run, a plain list above the numbers. */
 .rt-run-end-facts { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 4px; font-size: 14px; color: #e5dcc0; }
 .rt-result-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -100,6 +101,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-energy.rt-ready { color: #9ad1ff; }
 .rt-kills { font-family: Georgia, serif; font-size: 15px; color: #e5c8a8; }
 .rt-score { font-family: Georgia, serif; font-size: 15px; color: #fff2c4; }
+/* Task 16: the feat line by the timer; done — gold; an «after the goals» feat before the goals — dim. */
+.rt-feat { font-family: Georgia, serif; font-size: 14px; color: #d9cfa8; }
+.rt-feat.rt-feat-done { color: var(--rt-gold); }
+.rt-feat.rt-feat-waiting { opacity: .6; }
+.rt-pl .rt-feat { display: none; }
 
 /* Stage E: a link refreshed the focus. */
 .rt-focus.rt-focus-flash { animation: rt-focus-flash 0.25s ease-out; }
@@ -114,7 +120,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-head { display: flex; align-items: center; gap: 16px; padding: 10px 18px; border-bottom: 1px solid var(--rt-line); font-size: 13px; }
 .rt-run-head b { font: 600 20px Georgia, serif; color: #e8d7ad; }
 .rt-run-hp { font: 17px Georgia, serif; color: #e5c8a8; }
-.rt-run-res { color: var(--rt-muted); }
+.rt-run-res { display: inline-flex; align-items: center; gap: 4px; color: #e5dcc0; cursor: default; }
+.rt-run-res b { font-variant-numeric: tabular-nums; }
+/* Task 15: the map heal by the HP; its reason as visible text. */
+.rt-run-heal { display: inline-flex; align-items: center; gap: 6px; }
+.rt-run-heal button:disabled { opacity: .55; cursor: default; }
+.rt-run-heal .rt-run-reason { font-size: 12px; color: #e0a596; }
+.rt-run-heal-line { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0 0; }
+/* Task 16: the feat line of a node card. */
+.rt-run-feat { margin: 6px 0 0; color: #e3d39a; }
+.rt-run-feat b { color: #f0c96a; }
 .rt-run-head button, .rt-run-confirm button { padding: 5px 10px; background: #20241b; border: 1px solid #444837; color: #c9c5a8; }
 .rt-run-head button:hover { border-color: #a39364; }
 .rt-run-confirm { display: flex; align-items: center; gap: 6px; margin-left: auto; color: #f0c9a0; }

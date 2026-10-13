@@ -22,7 +22,7 @@ import { collectRecords, hintStats, latestRuns } from '../telemetry/report';
 import { checkRecord } from '../telemetry/schema';
 import type { Vec } from '../sim/geometry';
 import {
-  dieLine, HINT_IDS, HINTS_KEY, HintStore, LINE_RESOURCES, purseResultLine, ScreenLines, SCREEN_LINE_SHOWS, stakeLine, type HintStorage,
+  dieLine, HINT_IDS, HINTS_KEY, HintStore, purseResultLine, ScreenLines, SCREEN_LINE_SHOWS, stakeLine, type HintStorage,
 } from './hints';
 import { detectLabels, labelActions, placeLabel } from './worldLabels';
 
@@ -239,8 +239,7 @@ check("labels: a hammer's blast (a tool of the player's build) takes a plate off
   assert(enemy.armor!.plates < plates && sources.includes(BUILD_SOURCES.hammerBlast) && done.has('b6'), `the blast took a plate (${plates} → ${enemy.armor!.plates}); sources ${sources}; label actions ${[...done]}`);
 });
 
-check('screen texts (Э2, Э3, Э4) are unchanged; numbers come from the code', () => {
-  assert(LINE_RESOURCES === 'Ресурсы — крафт на привале, покупки у торговца, переброс талисманов.', 'Э2');
+check('screen texts (Э3, Э4) are unchanged; numbers come from the code (Э2 removed by task 15)', () => {
   assert(stakeLine(OATH_KEPT_MULT, OATH_BROKEN_MULT) === 'Ставка на котёл этого боя: сдержишь ×2, нарушишь ×0,5.', 'Э3');
   assert(dieLine(DIE_LOW_FACES) === '1–3 — половина, 4–6 — вдвое, но не выше потолка. «Забрать» — без риска.', 'Э4');
 });

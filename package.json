@@ -49,6 +49,7 @@
     "test:realtime-power-number": "tsx src/realtime/view/powerNumber.spec.ts",
     "test:realtime-horde-view": "tsx src/realtime/view/hordeView.spec.ts",
     "test:realtime-bag-view": "tsx src/realtime/view/bagView.spec.ts",
+    "test:realtime-feat-view": "tsx src/realtime/view/featView.spec.ts",
     "test:realtime-gentle-view": "tsx src/realtime/view/gentleView.spec.ts",
     "test:realtime-prologue-view": "tsx src/realtime/view/prologueFlow.spec.ts",
     "test:realtime-link-depth": "tsx src/realtime/sim/linkDepth.spec.ts",

@@ -71,6 +71,11 @@ export class ChainAudio {
     else if (kind === 'empower') this.tone(180, 'triangle', 0.25, volume * 0.6);
   }
 
+  /** Task 16 «Подвиги»: the feat done — a short rising chime of three notes (brighter than the coins, softer than the chord). */
+  feat(volume: number): void {
+    [784, 988, 1319].forEach((f, i) => this.tone(f, 'triangle', 0.16, volume * 0.45, i * 0.09));
+  }
+
   /** Casino stage 1 («Однорукий гоблин»): the idol appears — a jingle of coins. */
   coins(volume: number): void {
     for (let i = 0; i < 4; i++) this.tone(1320 + 220 * (i % 2), 'triangle', 0.09, volume * 0.45, i * 0.07);

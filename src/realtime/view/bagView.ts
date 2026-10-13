@@ -88,11 +88,12 @@ export class BagView {
 
   /**
    * A `bag` event of the sim: a step filled (flash) or a reset (the step's mark dims). Returns where its text («+N», «сброс») starts,
-   * in px, and its drift: beyond the number (over it, or under it by the top edge), so the two never overlap.
+   * in px, and its drift: beyond the number (over it, or under it by the top edge), so the two never overlap. `lift` — px more
+   * beyond it (task 16: the feat's line stands over the number while the door is open).
    */
-  onEvent(world: World, ev: { action: 'appear' | 'step' | 'reset'; step: number }): { x: number; y: number; dir: number } | null {
+  onEvent(world: World, ev: { action: 'appear' | 'step' | 'reset'; step: number }, lift = 0): { x: number; y: number; dir: number } | null {
     const spot = BagView.spot(world), s = this.unit * BAG_SIZE, under = BagView.under(world);
-    const at = spot ? { x: spot.x * this.unit, y: spot.y * this.unit + (under ? s * 1.8 + 52 : -s * 1.1 - 34), dir: under ? 45 : -45 } : null;
+    const at = spot ? { x: spot.x * this.unit, y: spot.y * this.unit + (under ? s * 1.8 + 52 + lift : -s * 1.1 - 34 - lift), dir: under ? 45 : -45 } : null;
     if (ev.action === 'step') { this.flash = BAG_FLASH; this.shown.steps++; }
     else if (ev.action === 'reset') { this.dim = BAG_DIM; this.dimMark = ev.step; this.shown.resets++; }
     return at;
