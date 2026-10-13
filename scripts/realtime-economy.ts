@@ -4,7 +4,7 @@
  * real fight of the Simulation with the run's params (`rtRunParams`: cauldron, oath stake, door die, П4, П3, slot, cursed chest)
  * played by a greedy bot through journal commands (chains through `planChain`, walking along a flow field, consumables).
  *
- * Usage: npm run realtime:economy -- [--runs N] [--from K] [--oath smart|never|always|all] [--max-links N] [--exit-at-goals] [--workers W] [--json FILE]
+ * Usage: npm run realtime:economy -- [--runs N] [--from K] [--oath smart|never|always|all] [--max-links N] [--exit-at-goals] [--gentle on|off] [--workers W] [--json FILE]
  *   seeds `Math.imul(k, 2654435761) >>> 0`, k = from … from + runs − 1 (default 1 … 300); `--oath all` walks the same seeds
  *   under the three oath policies. Deterministic for a given seed range and policy (workers only split the range).
  *
@@ -18,6 +18,10 @@
  * - Map policy: a rest when HP ≤ 50 %, a merchant with 6+ resources, otherwise a node by a hash of the seed and the step.
  * - Oath policies: smart — «Цепи 3+», else «Цепь 6+ хотя бы раз», else none (`SMART_OATHS`; until 12.10.2026 «Без прыжков»
  *   first); never; always — the first offered.
+ * - Task 17 «Пологий вход» (13.10.2026): `--gentle on` (default — a new run's own) walks runs with the flag `gentleEntry`,
+ *   `--gentle off` — runs without it (the tables before the task). Every fight plays the run's params of its row
+ *   (`rtArenaParams`). Section 10 — damage, «would die», HP at the fight and healing by run row. The hero cannot fall, so the
+ *   run's second wind never fires here.
  */
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
@@ -27,7 +31,7 @@ import { runRow } from '../src/realtime/run/arenaPools';
 import {
   createRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind,
   rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose, rtDieView, rtEnterNode, rtEventView, rtGiftView, rtNode,
-  rtOathPreview, rtRerollTalismans, rtRerollView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtRunParams, rtShopBuy, rtShopLeave, rtShopView,
+  rtOathPreview, rtRerollTalismans, rtRerollView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtArenaParams, rtRunParams, rtShopBuy, rtShopLeave, rtShopView,
   type RtArenaOutcome, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
 import { RESOURCE_KINDS } from '../src/realtime/forest/resources';
@@ -54,6 +58,8 @@ const JSON_OUT = option('--json');
 const MAX_LINKS = Number(option('--max-links') ?? 99);
 /** The «hasty» profile: the bot heads for the door as soon as the goals are met (no greed, no errands). */
 const EXIT_AT_GOALS = args.includes('--exit-at-goals');
+/** Task 17: walk runs with the gentle entry (default) or without it. */
+const GENTLE = (option('--gentle') ?? 'on') !== 'off';
 type OathPolicy = 'smart' | 'never' | 'always';
 
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
@@ -76,6 +82,8 @@ interface FightRecord {
   lootElite: number; lootSlot: number; lootItems: number; slotRight: boolean; slot: boolean; pulls: number; chest: boolean; chestLifted: boolean;
   chains: number; links: number; bestChain: number;
   damage: number; wouldDie: boolean; time: number; fbGoals: boolean; fbDoor: boolean; exitBy: string;
+  /** Task 17: the run's HP at the fight's start, healing potions drunk, healing loot picked up. */
+  hpIn: number; heals: number; healLoot: number;
 }
 interface RunRecord {
   k: number; seed: number; policy: OathPolicy; result: string; lastRow: number;
@@ -180,7 +188,7 @@ interface FightResult { outcome: RtArenaOutcome; record: Omit<FightRecord, 'row'
 function playFight(run: RtRunState): FightResult {
   const pending = run.pending;
   if (pending?.kind !== 'battle') throw new Error('no battle');
-  const sim = new Simulation({ arena: pending.arena, params: PARAMS, seed: pending.seed, hero: { hp: run.hp + BUFFER, maxHp: run.maxHp + BUFFER }, loadout: rtArenaLoadout(run), ...pending.roster !== undefined ? { roster: pending.roster } : {} });
+  const sim = new Simulation({ arena: pending.arena, params: rtArenaParams(run, PARAMS), seed: pending.seed, hero: { hp: run.hp + BUFFER, maxHp: run.maxHp + BUFFER }, loadout: rtArenaLoadout(run), ...pending.roster !== undefined ? { roster: pending.roster } : {} });
   const w = sim.world;
   const ctx: FightContext = { goal: w.arena.goal, leaving: false, chainsReleased: 0, lastChain: 0, allowChest: true };
   const hr = heroRadius(w.params);
@@ -188,6 +196,7 @@ function playFight(run: RtRunState): FightResult {
   const dir: Vec = { x: 0, y: 0 };
   const eliteLoot = new Set<number>();
   let lootElite = 0, lootSlot = 0, lootItems = 0, slot = false, pulls = 0, chest = false, chestLifted = false, finale = 0, chains = 0, links = 0;
+  let heals = 0, healLoot = 0;
   let minHp = realHp(w), lastItem = -10, leaveAt = 0, fbGoals = false, fbDoor = false, greedStart: number | null = null;
   const oathId = pending.oath ?? null;
   const slotRight = !!sim.world.kit && !!rtArenaLoadout(run).slot, chestPolicy = run.hp >= 8;
@@ -214,7 +223,7 @@ function playFight(run: RtRunState): FightResult {
   const decide = (): void => {
     const hero = w.hero, real = realHp(w), kit = w.kit;
     // Consumables: healing when low; a bomb, fire or frost into a crowd.
-    if (real <= 4 && (kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: hero.x, y: hero.y });
+    if (real <= 4 && (kit?.items.healing ?? 0) > 0 && sim.command({ t: 'item', kind: 'healing', x: hero.x, y: hero.y })) heals++;
     const crowd = w.enemies.filter(e => dist(e, hero) < 2.5);
     if (crowd.length >= 5 && w.time - lastItem > 3 && kit) {
       const kind = (['fire', 'frost', 'bomb'] as ItemKind[]).find(item => (kit.items[item] ?? 0) > 0);
@@ -292,7 +301,7 @@ function playFight(run: RtRunState): FightResult {
       if (ev.type === 'loot') {
         if (!ev.picked) eliteLoot.add(ev.objectId);
         else if (isResource(ev.loot)) { if (eliteLoot.has(ev.objectId)) lootElite++; else lootSlot++; }
-        else lootItems++;
+        else { lootItems++; if (ev.loot === 'healing') healLoot++; }
       } else if (ev.type === 'slot') { if (ev.action === 'appear') slot = true; if (ev.action === 'pull') pulls++; }
       else if (ev.type === 'chest') chest = true;
       else if (ev.type === 'curseLifted') chestLifted = true;
@@ -314,7 +323,7 @@ function playFight(run: RtRunState): FightResult {
   return {
     outcome, door,
     record: { arena: pending.arena, oathKept: oathId ? (door ? door.oath === 2 : null) : null, cauldron: door?.cauldron ?? 0, greed: door?.greed ?? 1, finale, oathMult: door?.oath ?? 1,
-      lootElite, lootSlot, lootItems, slotRight, slot, pulls, chains, links, bestChain: w.stats.bestChain, chest, chestLifted, damage: w.stats.damageTaken, wouldDie: minHp <= 0, time: w.endTime ?? w.time, fbGoals, fbDoor, exitBy },
+      lootElite, lootSlot, lootItems, slotRight, slot, pulls, chains, links, bestChain: w.stats.bestChain, chest, chestLifted, damage: w.stats.damageTaken, wouldDie: minHp <= 0, time: w.endTime ?? w.time, fbGoals, fbDoor, exitBy, hpIn: run.hp, heals, healLoot },
   };
 }
 
@@ -322,7 +331,7 @@ function playFight(run: RtRunState): FightResult {
 
 function walkRun(k: number, policy: OathPolicy): RunRecord {
   const seed = seedOf(k);
-  let run = createRtRun(seed, { gift: 'full' });
+  let run = createRtRun(seed, { gift: 'full', gentleEntry: GENTLE });
   const rec: RunRecord = { k, seed, policy, result: 'none', lastRow: 0, gain: {}, spend: {}, rowStart: {}, fights: [], circle: false, circleGames: 0, circleWins: 0, firstDeathRow: null, rerollBy: {}, shopBy: {}, endTotal: 0 };
   /** Signed per-kind change from `before` to `after`: gains to `gainKey`, losses to `spendKey`. */
   const account = (before: Record<ResourceKind, number>, after: RtRunState, gainKey: string, spendKey: string): void => {
@@ -473,7 +482,7 @@ async function collect(policy: OathPolicy): Promise<RunRecord[]> {
     const from = FROM + w * per, count = Math.min(per, FROM + RUNS - from);
     if (count <= 0) break;
     jobs.push(new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--oath', policy, '--max-links', String(MAX_LINKS), ...EXIT_AT_GOALS ? ['--exit-at-goals'] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--oath', policy, '--max-links', String(MAX_LINKS), '--gentle', GENTLE ? 'on' : 'off', ...EXIT_AT_GOALS ? ['--exit-at-goals'] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
       let out = '';
       child.stdout.on('data', chunk => { out += chunk; });
       child.on('close', code => code === 0 ? resolve(JSON.parse(out) as RunRecord[]) : reject(new Error(`worker ${w} exited ${code}`)));
@@ -580,13 +589,23 @@ function report(runs: RunRecord[], title: string): void {
   console.log(`\n9. Критерии калибровки (эвристика бота): котёл за поход — среднее ${f1(mean(per(r => r.gain.cauldron ?? 0)))}, медиана ${f1(q(per(r => r.gain.cauldron ?? 0), 0.5))}; бои на потолке выплаты — ${pct(withCauldron.filter(f => f.capHit).length, withCauldron.length)} (с костью, как в разделе 4; на «Забрать» — ${pct(withCauldron.filter(f => f.capHitTake).length, withCauldron.length)}); добыча элит ресурсами за поход — p90 ${f1(q(per(r => r.gain['elite-loot'] ?? 0), 0.9))}; ресурсы в начале ряда 10 — медиана ${f1(q(row10, 0.5))} (${row10.length} походов).`);
   const outposts = fights.filter(f => f.arena === 'outpost' && f.battle === 'hard');
   console.log(`\n7. Сундук: боёв «Заставы» (трудный узел) ${outposts.length}; сундук взят ${pct(outposts.filter(f => f.chest).length, outposts.length)}, проклятие снято ${pct(outposts.filter(f => f.chestLifted).length, outposts.filter(f => f.chest).length)} взятых. Добыча элит предметом (не ресурсом): ${f1(mean(per(r => r.fights.reduce((s, f) => s + f.lootItems, 0))))} за поход.`);
+  // Task 17 «Пологий вход» (13.10.2026): the curve by run row.
+  console.log(`\n10. По рядам (задача 17; вход ${GENTLE ? 'пологий' : 'прежний'}; урон — HP за бой, «погиб бы» — бой, где настоящее HP дошло до 0)\n`);
+  console.log('| Ряд | Боёв | Урон: среднее | медиана | p90 | «Погиб бы» | HP в начале боя, медиана | Лечений выпито за бой | Лечения из добычи за бой |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (let row = 1; row <= 10; row++) {
+    const fs = fights.filter(f => f.row === row);
+    if (!fs.length) continue;
+    const ds = fs.map(f => f.damage);
+    console.log(`| ${row} | ${fs.length} | ${f1(mean(ds))} | ${f1(q(ds, 0.5))} | ${f1(q(ds, 0.9))} | ${pct(fs.filter(f => f.wouldDie).length, fs.length)} | ${f1(q(fs.map(f => f.hpIn), 0.5))} | ${f1(mean(fs.map(f => f.heals)))} | ${f1(mean(fs.map(f => f.healLoot)))} |`);
+  }
 }
 
 async function main(): Promise<void> {
   if (CHILD) { process.stdout.write(JSON.stringify(Array.from({ length: RUNS }, (_, i) => walkRun(FROM + i, OATH_MODE as OathPolicy)))); return; }
   const policies: OathPolicy[] = OATH_MODE === 'all' ? ['smart', 'never', 'always'] : [OATH_MODE];
   const t0 = Date.now(), all: Record<string, RunRecord[]> = {};
-  console.log(`Аудит экономики похода (эвристика бота): seed k = ${FROM}…${FROM + RUNS - 1}, политики клятвы: ${policies.join(', ')}, звеньев в цепи не больше ${MAX_LINKS >= 99 ? '— (жадный)' : MAX_LINKS}${EXIT_AT_GOALS ? ', к двери сразу после целей' : ''}, воркеров ${WORKERS}`);
+  console.log(`Аудит экономики похода (эвристика бота): seed k = ${FROM}…${FROM + RUNS - 1}, политики клятвы: ${policies.join(', ')}, звеньев в цепи не больше ${MAX_LINKS >= 99 ? '— (жадный)' : MAX_LINKS}${EXIT_AT_GOALS ? ', к двери сразу после целей' : ''}, вход ${GENTLE ? 'пологий (задача 17)' : 'прежний'}, воркеров ${WORKERS}`);
   for (const policy of policies) {
     all[policy] = await collect(policy);
     report(all[policy], `Клятва: ${policy}`);

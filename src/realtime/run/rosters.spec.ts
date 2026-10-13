@@ -59,10 +59,11 @@ interface Played { row: number; type: string; arena: string; roster?: string; ru
  * The walk of the measure of c8df2d4 (rtRun.spec.ts, `arenaPath`): the mini gift, the first button of every screen, the
  * next node by `(k + step)`, every arena a victory without simulation. Each entered battle is checked against the map's
  * preview (equal, and the preview spends nothing) and the save (it loads back). `mix` — the run's roster mix (a new run:
- * on; off — a run before 11.10.2026).
+ * on; off — a run before 11.10.2026, and so without the gentle entry of task 17).
  */
 function walk(seed: number, k: number, mix = true): Played[] {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix });
+  // A run before the mix is also before the gentle entry (task 17, 13.10.2026): its pools are the old ones.
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...mix ? {} : { gentleEntry: false } });
   const played: Played[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;

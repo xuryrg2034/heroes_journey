@@ -412,7 +412,7 @@ check('tough newcomers by the table: 2 — 1 or 2 HP as before; 3 — 1–3; 4 �
   assert(list(seen(harmless({ baseToughShare: 1, toughHpMax: 3 }))) === '1,2,3', 'the slider 3');
   assert(list(seen(harmless({ baseToughShare: 1, toughHpMax: 4 }))) === '1,2,3,4', 'the slider 4');
   assert(list(seen(harmless({ baseToughShare: 1 }), { toughHp: 3 })) === '1,2,3', 'the run\'s kit 3');
-  assert([1, 4, 5, 8, 9].map(rtToughHp).join() === '2,2,3,3,4' && [1, 4, 5, 8, 9, 10].map(rtElitePlates).join() === '2,2,3,3,4,4', 'the row tables');
+  assert([1, 4, 5, 8, 9].map(row => rtToughHp(row)).join() === '2,2,3,3,4' && [1, 4, 5, 8, 9, 10].map(row => rtElitePlates(row)).join() === '2,2,3,3,4,4', 'the row tables');
 });
 
 check('the raised touch: HP ≥ 2 at the moment of the touch hurts 2, HP 0–1 — 1; an elite 2 without its bonus', () => {
@@ -516,9 +516,9 @@ check('caps with armour: random elites at most 1 before the goals and 2 after', 
   }
 });
 
-/** The run arena of a battle node of run row `row` (`battle` kind) on the open field. */
+/** The run arena of a battle node of run row `row` (`battle` kind) on the open field (a run without the gentle entry, task 17). */
 function runArena(row: number, battle: RtBattleKind, k: number): { run: RtRunState; sim: Simulation } | null {
-  const base = createRtRun(seedOf(70 + row));
+  const base = createRtRun(seedOf(70 + row), { gentleEntry: false });
   const node = rtMapNodes(base).find(n => runRow(n.row) === row);
   if (!node) return null;
   const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'armor-open', seed: seedOf(k), battle } };
@@ -557,7 +557,7 @@ check('the run turns the package on; from row 3 one guaranteed armoured elite in
 check('the guaranteed elite: not on the Jailer\'s node, on a breakthrough (design answer 11.10.2026)', () => {
   let jailer = 0, breakthrough = 0;
   for (let k = 1; k <= 6 && (!jailer || !breakthrough); k++) {
-    const base = createRtRun(seedOf(900 + k));
+    const base = createRtRun(seedOf(900 + k), { gentleEntry: false });
     for (const node of rtMapNodes(base)) {
       if (runRow(node.row) < 3 || (node.type !== 'checkpoint' && node.type !== 'breakthrough')) continue;
       const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'armor-open', seed: seedOf(k), battle: 'battle' } };

@@ -217,6 +217,12 @@ export interface RunMapSign { nodeId: string; signed: string[]; chosenSigned: bo
  */
 export interface RunItems { gained: Record<string, number>; used: Record<string, number>; left: Record<string, number> }
 
+/**
+ * Task 17 «Пологий вход» (from 13.10.2026): the run's second wind (`RtRunState.secondWindSpent`) — the node, its run row and
+ * the fight key where it stood the hero up (null — the fight was not recorded).
+ */
+export interface RunSecondWind { nodeId: string; row: number; fight: string | null }
+
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
   kind: 'run';
@@ -245,6 +251,15 @@ export interface RunRecord extends RtHeader {
   hints?: string[];
   /** Consumables gained / used / left (from 12.10.2026; absent in older records — the report reads «нет данных»). */
   items?: RunItems;
+  /** Task 17 (from 13.10.2026): the run plays the gentle entry (`RtRunState.gentleEntry`); absent — no, or an older record. */
+  gentle?: true;
+  /**
+   * Task 17 (from 13.10.2026): consumables in hand when the run was created, by kind (only those above 0) — the start potion
+   * of a gentle run (`healing: 1`); absent — none, a run started before the recorder, or an older record.
+   */
+  startItems?: Record<string, number>;
+  /** Task 17 (from 13.10.2026): the run's second wind (rows 1–4, once a run); absent — not spent (or an older record). */
+  secondWind?: RunSecondWind;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -393,6 +408,14 @@ export function checkRecord(value: unknown): string | null {
     case 'run':
       if (!num('seed') || !num('farRow') || !Array.isArray(r.nodes) || !Array.isArray(r.choices) || !Array.isArray(r.fights) || !r.runParams || !r.kit) return 'run fields';
       if (!['victory', 'defeat', 'abandoned', 'open'].includes(r.outcome as string)) return `run outcome ${String(r.outcome)}`;
+      // Task 17 (13.10.2026): optional fields — the flag, the start consumables, the second wind.
+      if (r.gentle !== undefined && r.gentle !== true) return 'run gentle';
+      if (r.startItems !== undefined && !(r.startItems && typeof r.startItems === 'object' && !Array.isArray(r.startItems)
+        && Object.values(r.startItems).every(n => Number.isInteger(n) && (n as number) > 0))) return 'run startItems';
+      if (r.secondWind !== undefined) {
+        const w = r.secondWind as Record<string, unknown> | null;
+        if (!w || typeof w !== 'object' || typeof w.nodeId !== 'string' || !Number.isInteger(w.row) || !(w.fight === null || typeof w.fight === 'string')) return 'run secondWind';
+      }
       return null;
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';

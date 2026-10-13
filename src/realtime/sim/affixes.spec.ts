@@ -190,8 +190,8 @@ check('T4: drawn affixes — as many as the count; «Стремительный�
   assert(JSON.stringify(plain.world.enemies) === JSON.stringify(before.world.enemies), 'the same elites as a journal without the value');
 });
 
-check('T4: the run row decides the count — rows 1–4: 0, 5–8: 1, 9: 2 (the loadout of the node\'s arena, and its start elites)', () => {
-  const base = createRtRun(seedOf(300)), nodes = rtMapNodes(base);
+check('T4: the run row decides the count — rows 1–4: 0, 5–8: 1, 9: 2 (the loadout of the node\'s arena, and its start elites; a run without the gentle entry of task 17)', () => {
+  const base = createRtRun(seedOf(300), { gentleEntry: false }), nodes = rtMapNodes(base);
   const rows = new Set<number>();
   for (const node of nodes) {
     const row = runRow(node.row);

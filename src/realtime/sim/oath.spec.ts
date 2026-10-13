@@ -511,7 +511,7 @@ check('since 12.10.2026 the run offers «Цепь 6+ хотя бы раз» wher
       offers++;
       assert(!s.offer.includes('no-jump'), `${s.nodeId}: «Без прыжков» offered ${s.offer}`);
       // The draw of the list of df42809 for the same node and draw, «Без прыжков» read as «Цепь 6+».
-      const before = rtOathOffer(run.seed, n++, rtNode(run, s.nodeId)!, RT_OATH_IDS_BEFORE).map(id => id === 'no-jump' ? 'chain6' : id);
+      const before = rtOathOffer(run.seed, n++, rtNode(run, s.nodeId)!, RT_OATH_IDS_BEFORE, !!run.gentleEntry).map(id => id === 'no-jump' ? 'chain6' : id);
       assert(same(before, s.offer), `${s.nodeId}: ${s.offer} — before ${before}`);
       if (s.offer.includes('chain6')) chain6++; else same6++;
     }

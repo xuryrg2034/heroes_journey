@@ -30,7 +30,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, rowStats, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
@@ -335,6 +335,32 @@ async function main(): Promise<void> {
     // The fixtures' runs were recorded before the field: «нет данных», no rows.
     const old = md.slice(md.indexOf('### Расходники по походам'), md.indexOf('## Отметки N'));
     assert(old.includes('_нет данных_') && old.includes('Нет данных (записи до 12.10.2026), походов: 1;'), old);
+  });
+
+  await check('task 17 «По рядам»: fights, damage, HP on leaving the row, deaths, potions and the second wind by run row, gentle runs apart from the old; the fixtures (old runs) are counted as «прежний»', () => {
+    const visit = (nodeId: string, row: number, hpOut: number) => ({ nodeId, row, type: 'battle', hpIn: 15, hpOut, maxHp: 15 });
+    const runs = [
+      runOf('s1', 'g1', 'defeat', { gentle: true, startItems: { healing: 1 }, secondWind: { nodeId: 'r6c0', row: 1, fight: 'f01-r6c0-a1' }, nodes: [visit('r6c0', 1, 10), visit('r7c0', 2, 8), visit('r8c0', 3, 0)] }),
+      runOf('s1', 'g2', 'open', { gentle: true, nodes: [visit('r6c1', 1, 14), visit('r7c1', 2, 12)] }),
+      runOf('s1', 'o1', 'open', { nodes: [visit('r6c0', 1, 9)] }),
+    ];
+    const entry = (run: RunRecord, row: number, outcome: FightRecord['outcome'], damage: number, healing: number) => {
+      const summary = emptyFightSummary();
+      summary.damage.total = damage; summary.abilities.items = healing ? { healing } : {};
+      return { record: { ...JSON.parse(JSON.stringify(base)), run: run.run, session: run.session, row, outcome, summary } as FightRecord, run, notes: [], journal: null, error: null, analysis: null, hashOk: null, summaryDiff: [] };
+    };
+    const fightsOf = [entry(runs[0], 1, 'victory', 5, 0), entry(runs[0], 2, 'victory', 2, 1), entry(runs[0], 3, 'defeat', 8, 1), entry(runs[0], 3, 'restart', 4, 0),
+      entry(runs[1], 1, 'victory', 1, 0), entry(runs[1], 2, 'victory', 3, 0), entry(runs[2], 1, 'victory', 6, 0)];
+    const st = rowStats(runs, fightsOf), at1 = (group: string, row: number) => st.find(s => s.group === group && s.row === row)!;
+    // By hand: gentle row 1 — fights 2 (5, 1), HP out 10 and 14, the wind of g1; row 2 — 2 fights (2, 3), one potion, HP 8 and 12; row 3 — one ended fight (the restart is not counted), a death, HP 0.
+    assert(at1('gentle', 1).fights === 2 && JSON.stringify(at1('gentle', 1).damage) === '[5,1]' && JSON.stringify(at1('gentle', 1).hpOut) === '[10,14]' && at1('gentle', 1).winds === 1, JSON.stringify(at1('gentle', 1)));
+    assert(at1('gentle', 2).potions === 1 && at1('gentle', 2).winds === 0 && at1('gentle', 3).fights === 1 && at1('gentle', 3).deaths === 1 && JSON.stringify(at1('gentle', 3).hpOut) === '[0]', JSON.stringify(st));
+    assert(at1('old', 1).fights === 1 && JSON.stringify(at1('old', 1).hpOut) === '[9]' && !st.some(s => s.group === 'old' && s.row === 2), 'the old run apart');
+    const text = reportMarkdown(collectRecords([{ name: 'rows.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-13T14:00:00Z'), source: 'rows' });
+    const section = text.slice(text.indexOf('## По рядам'), text.indexOf('## Бои походов'));
+    assert(section.includes('| Вход | Ряд | Боёв |') && section.includes('| пологий | 1 | 0 | — | 12 (2) | 0 | 0 | 1 |') && section.includes('13.10.2026'), section);
+    const fixtures = md.slice(md.indexOf('## По рядам'), md.indexOf('## Бои походов'));
+    assert(fixtures.includes('| прежний |') && !fixtures.includes('| пологий |'), fixtures);
   });
 
   await check('the prologue: per room median time, hand and arrow shares, attempts, deaths, returns, skips; completion by origin; the older copy dropped; no records — «нет данных»', () => {

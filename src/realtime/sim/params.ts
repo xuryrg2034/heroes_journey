@@ -717,7 +717,8 @@ export interface Params {
   /**
    * The second wind: once per fight a lethal hit does not end it — the hero stands up with 3 HP, invulnerable 2 s; the
    * cauldron of the fight goes to 0 and its oath counts as broken. «Пепельный оберег» saves first. Off by default; journals
-   * without the value: off (no `world.secondWind`). A sandbox rule: a run arena plays it off (`RUN_FORCED`).
+   * without the value: off (no `world.secondWind`). A sandbox rule: a run arena plays it off (`RUN_FORCED`); task 17 «Пологий
+   * вход» gives a gentle run the same rule through its kit instead (`Loadout.secondWind`: rows 1–4, once a run).
    */
   secondWind: boolean;
   // ---- К7 «Проклятый сундук» (chest.ts, docs/realtime-casino.md, «Проклятый сундук (К7)»; design 12.10.2026). ----

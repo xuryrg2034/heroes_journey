@@ -153,7 +153,7 @@ check('the 8 whole runs of the reroll fixture (real fights, code of 7ae55fc, re-
   const walkSaves = (k: number, circle: boolean): string[] => {
     // Task 12 (13.10.2026): the fixture's saves predate the run flag `markedGoals` (it adds one field to every save; the fights
     // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
-    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false }));
+    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, gentleEntry: false }));
     const saves = [serializeRtRun(run)];
     for (let step = 0; step < 160 && !run.result; step++) {
       const p = run.pending;

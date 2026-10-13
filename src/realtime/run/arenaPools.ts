@@ -54,8 +54,20 @@ export const ARENA_POOLS_BEFORE_MIX: readonly ArenaPoolEntry[] = [
  * so its pool rosters came only before any meeting; on rows 6–8 the kinds are usually met.
  */
 export const ARENA_POOLS: readonly ArenaPoolEntry[] = ARENA_POOLS_BEFORE_MIX.map(entry => entry.arena === 'marked' ? { arena: 'marked', rows: [6, 8] as const } : entry);
-/** The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) — `ARENA_POOLS_BEFORE_MIX`. */
-export const runArenaPools = (mix: boolean): readonly ArenaPoolEntry[] => mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;
+/**
+ * Баланс, task 17 «Пологий вход» (design 13.10.2026): a run with `RtRunState.gentleEntry` plays «Колючие заросли» on run rows
+ * 6–8 (was 5–8) — row 5 brought the porcupine together with the affix, 3 plates and tough HP 3. In the same place of the list
+ * (the order of the candidates stays); every other entry as in the pools it applies to.
+ */
+export const GENTLE_THORNS_ROWS: readonly [number, number] = [6, 8];
+export const gentlePools = (pools: readonly ArenaPoolEntry[]): readonly ArenaPoolEntry[] => pools.map(entry => entry.arena === 'thorns' ? { arena: 'thorns', rows: GENTLE_THORNS_ROWS } : entry);
+const GENTLE_POOLS = gentlePools(ARENA_POOLS), GENTLE_POOLS_BEFORE_MIX = gentlePools(ARENA_POOLS_BEFORE_MIX);
+/**
+ * The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) —
+ * `ARENA_POOLS_BEFORE_MIX`; with the gentle entry (`gentle`, task 17) «Колючие заросли» on rows 6–8 in either.
+ */
+export const runArenaPools = (mix: boolean, gentle = false): readonly ArenaPoolEntry[] =>
+  gentle ? (mix ? GENTLE_POOLS : GENTLE_POOLS_BEFORE_MIX) : mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */
 export const HARD_ARENA = 'outpost';
 /** Arena 10 «Последний рубеж»: the final of the run — every boss node (section 3: the boss nodes lead to the final arena). */

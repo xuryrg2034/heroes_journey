@@ -855,6 +855,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     ...partial.map(e => `- \`${fightPath(e.record)}\`: ${e.record.ticks} тактов, ${arenaTitle(e.record.arena)}`));
   if (diffs.length) out.push('', '### Сводка браузера расходится с повтором', '', ...diffs.map(e => `- \`${fightPath(e.record)}\`: ${e.summaryDiff.slice(0, 8).join('; ')}${e.summaryDiff.length > 8 ? ' …' : ''}`));
   out.push('', '## Походы', '', runsSection(runs, fights), '',
+    // Task 17 «Пологий вход»: the run by its rows.
+    '## По рядам', '', ROW_LEGEND, '', rowStats(runs, runFights).length ? table(ROW_HEAD, rowRows(runs, runFights)) : '_боёв походов нет_', '',
     '## Бои походов', '', table(FIGHT_HEAD, fightRows(runFights)), '',
     '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
@@ -880,6 +882,57 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Отметки N', '', notesSection(analysis, options.source), '',
     '## Песочница', '', sandbox.length ? [table(FIGHT_HEAD, fightRows(sandbox)), '', ...secondWindLine(sandbox) ? [secondWindLine(sandbox)!, ''] : [], '### Угрозы в песочнице', '', table(THREAT_HEAD, threatRows(sandbox))].join('\n') : '_боёв песочницы нет_', '');
   return out.join('\n');
+}
+
+// ---- Task 17 «Пологий вход»: the run by its rows ----
+
+/** One run row of a group of runs (`rowStats`). */
+export interface RowStat {
+  /** `gentle` — runs with the gentle entry (`RunRecord.gentle`), `old` — without it (older runs too). */
+  group: 'gentle' | 'old';
+  row: number;
+  /** Run fights of the row that ended (a victory or a defeat). */
+  fights: number;
+  /** Damage to the hero per fight (the replay's summary, else the browser's). */
+  damage: number[];
+  /** HP when the run left the row: the last node of the row each run went through (`hpOut`); a run that died there — 0. */
+  hpOut: number[];
+  deaths: number;
+  /** Healing potions used in the row's fights. */
+  potions: number;
+  /** Runs whose second wind stood the hero up on this row (`RunRecord.secondWind`). */
+  winds: number;
+}
+
+/** Run fights and runs by run row (rows 1–10), in two groups: with the gentle entry and without. Empty rows are left out. */
+export function rowStats(runs: readonly RunRecord[], runFights: readonly FightEntry[]): RowStat[] {
+  const out: RowStat[] = [];
+  for (const group of ['gentle', 'old'] as const) {
+    const own = (r: RunRecord | null | undefined): boolean => (group === 'gentle') === !!r?.gentle;
+    const groupRuns = runs.filter(own), fights = runFights.filter(e => own(e.run) && (e.record.outcome === 'victory' || e.record.outcome === 'defeat'));
+    for (let row = 1; row <= 10; row++) {
+      const rowFights = fights.filter(e => e.record.row === row), summary = (e: FightEntry): FightSummary => e.analysis?.summary ?? e.record.summary;
+      const hpOut = groupRuns.flatMap(r => {
+        const visits = r.nodes.filter(v => v.row === row);
+        return visits.length ? [visits[visits.length - 1].hpOut] : [];
+      });
+      const stat: RowStat = {
+        group, row, fights: rowFights.length, damage: rowFights.map(e => summary(e).damage.total), hpOut,
+        deaths: rowFights.filter(e => e.record.outcome === 'defeat').length,
+        potions: rowFights.reduce((sum, e) => sum + (summary(e).abilities?.items?.healing ?? 0), 0),
+        winds: groupRuns.filter(r => r.secondWind?.row === row).length,
+      };
+      if (stat.fights || stat.hpOut.length) out.push(stat);
+    }
+  }
+  return out;
+}
+const ROW_HEAD = ['Вход', 'Ряд', 'Боёв', 'Урон за бой мед. / сред.', 'HP на выходе из ряда мед. (походов)', 'Смертей', 'Лечений выпито', 'Второе дыхание'];
+const ROW_LEGEND = 'Задача 17 «Пологий вход» (с 13.10.2026): бои походов по рядам. «Пологий» — походы с флагом `gentleEntry` (`RunRecord.gentle`), «прежний» — без него (и записи до 13.10.2026). Бои — законченные победой или поражением. Урон — HP героя за бой (повтор журнала, иначе сводка браузера). HP на выходе — `hpOut` последнего узла ряда в каждом походе, медиана (в скобках — походов). Лечения — выпитые в боях ряда (`abilities.items.healing`). Второе дыхание — походы, где оно подняло героя на этом ряду (`RunRecord.secondWind`; только пологий вход, ряды 1–4). Эвристика для кривой сложности, не оценка баланса.';
+function rowRows(runs: readonly RunRecord[], runFights: readonly FightEntry[]): (string | number)[][] {
+  const mean = (xs: readonly number[]): number => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+  return rowStats(runs, runFights).map(s => [s.group === 'gentle' ? 'пологий' : 'прежний', s.row, s.fights, s.damage.length ? `${n1(median(s.damage))} / ${n1(mean(s.damage))}` : '—',
+    s.hpOut.length ? `${n1(median(s.hpOut))} (${s.hpOut.length})` : '—', s.deaths, s.potions, s.winds]);
 }
 
 /** Totals of the threats of a list of fights by kind (the test reads them). */

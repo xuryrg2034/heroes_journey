@@ -74,6 +74,17 @@ export interface Loadout {
    * while `Params.oathStake` is on (`World.oath`). Absent — no oath.
    */
   oath?: string;
+  /**
+   * Task 17 «Пологий вход» (run/rtRun.ts `rtArenaLoadout`): the run's second wind waits in this battle (a run with `gentleEntry`,
+   * run rows 1–4, not spent yet) — the lethal hit stands the hero up as `Params.secondWind` does (world.ts `hurtHero`), once a
+   * fight. Absent — none (the sandbox has its own `Params.secondWind`).
+   */
+  secondWind?: boolean;
+  /**
+   * Task 17: while only the run's start healing is open, the first armoured elite loot of the fight opens a kind not open yet
+   * and drops it (elites.ts `armorLoot`; acts only with `Params.eliteLootOpens`). Absent — the loot as before.
+   */
+  lootOpens?: boolean;
 }
 
 /**
@@ -126,6 +137,10 @@ export interface Kit {
   eliteDue?: number;
   /** Casino stage 1: the battle may get the goblin (absent — no: kits before hash as before). */
   slot?: true;
+  /** Task 17: the run's second wind waits in this battle (absent — none: kits before hash as before). */
+  secondWind?: true;
+  /** Task 17: the first armoured loot opens a kind not open yet (absent — none, or it opened one: kits before hash as before). */
+  lootOpens?: true;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -175,6 +190,9 @@ export function kitOf(loadout: Loadout): Kit {
     ...count(loadout.toughHp) > 2 ? { toughHp: Math.min(MAX_TOUGH_HP, count(loadout.toughHp)) } : {},
     ...loadout.guaranteedElite ? { guaranteedElite: true as const } : {},
     ...loadout.slot ? { slot: true as const } : {},
+    // Task 17 «Пологий вход»: absent unless the run gives them (kits before hash as before).
+    ...loadout.secondWind ? { secondWind: true as const } : {},
+    ...loadout.lootOpens ? { lootOpens: true as const } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

@@ -43,7 +43,7 @@ async function enterFirstNode(page: Page): Promise<string> {
   return id!;
 }
 
-test('run: a saved sandbox panel with the hero anchor and random elites on does not reach the run (no anchor, no elites on row 1)', async ({ page }) => {
+test('run: a saved sandbox panel does not reach the run — no anchor, no elites on row 1, the panel\'s elite chance neither (task 17: the run plays the defaults)', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
   await openRun(page, errors);
@@ -55,8 +55,9 @@ test('run: a saved sandbox panel with the hero anchor and random elites on does 
   await enterFirstNode(page);
   await expect(page.getByTestId('run')).toBeHidden();
   const params = await page.evaluate(() => { const p = (window as any).__realtime.params; return { heroAnchor: p.heroAnchor, eliteSandbox: p.eliteSandbox, eliteChance: p.eliteChance, shieldFollowsHero: p.shieldFollowsHero }; });
-  // Iteration 2.1: «Песочница: щит следит за героем» is a stand-in too — off in a run.
-  expect(params).toEqual({ heroAnchor: false, eliteSandbox: false, eliteChance: 0.5, shieldFollowsHero: false });
+  // Iteration 2.1: «Песочница: щит следит за героем» is a stand-in too — off in a run. Task 17 (design answer 1, 13.10.2026):
+  // the run takes the defaults, not the saved panel — the panel's elite chance 0.5 stays in the sandbox (the run's is 0.03).
+  expect(params).toEqual({ heroAnchor: false, eliteSandbox: false, eliteChance: 0.03, shieldFollowsHero: false });
   // Newcomers keep coming for a few seconds of game time: none is an elite; no second anchor is drawn in a chain.
   await page.evaluate(() => (window as any).__realtime.setParam('contactDamage', 0));
   // Game time, not wall time: the software renderer of the tests may run the crowd slowly.

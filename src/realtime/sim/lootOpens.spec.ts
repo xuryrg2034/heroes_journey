@@ -152,9 +152,9 @@ check('off by default: 2 resources a loot (4 for a clean break) as before; a jou
 
 // ---- The run ----
 
-/** A new run whose gift opened nothing (a gift option without consumables), at its first battle. */
+/** A new run whose gift opened nothing (a gift option without consumables), at its first battle (no gentle entry: task 17 opens healing). */
 function bareRun(k: number): RtRunState {
-  let run = createRtRun(seedOf(k), { gift: 'mini' });
+  let run = createRtRun(seedOf(k), { gift: 'mini', gentleEntry: false });
   const view = rtGiftView(run)!;
   const option = view.options.find(o => o.available && o.option.kind !== 'items') ?? view.options.find(o => o.available)!;
   run = ok(rtChooseGift(run, option.index), 'gift');
