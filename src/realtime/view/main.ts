@@ -13,7 +13,7 @@
  */
 import './realtime.css';
 import { loadCharacterArt } from '../art/characterAssets';
-import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, type ArenaTemplate } from '../sim/arenas';
+import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, markedGoalArena, type ArenaTemplate } from '../sim/arenas';
 import { withRoster } from '../sim/rosters';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
@@ -289,7 +289,7 @@ async function boot(): Promise<void> {
     if (i === DIGIT_ARENAS) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Местность этапа 3а — образцы (только песочница)'));
     if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Новые враги этапа 3а — рысь и шаман'));
     if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Камера — арена больше экрана (только песочница)'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span>${arena.summary}</span>`, i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
   });
@@ -522,6 +522,8 @@ async function boot(): Promise<void> {
   };
   const showMenu = (): void => {
     menuOpen = true;
+    // Task 12: with «Отмеченные: вожак или орда» on, an arena with a goal layout says its own goal (`markedGoal.summary`).
+    SANDBOX_ARENAS.forEach((arena, i) => { const span = menu.querySelector(`[data-summary="${i}"]`); if (span) span.textContent = markedGoalArena(arena, params.markedGoals).summary; });
     menu.hidden = false;
     result.hidden = true;
     command({ t: 'cancel' });
@@ -1303,7 +1305,7 @@ async function boot(): Promise<void> {
         seed: sim.seed,
         ticksPerFrame,
         hero: { ...w.hero },
-        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0, elite: !!e.elite, armor: e.armor ? { ...e.armor } : null })),
+        enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0, elite: !!e.elite, leader: !!e.leader, armor: e.armor ? { ...e.armor } : null })),
         objects: w.objects.map(o => ({ ...o })),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
@@ -1412,6 +1414,8 @@ async function boot(): Promise<void> {
         curseView: { ...renderer.curseShown },
         /** «Щит фокуса»: the rim round the hero this frame, and the rule now (sim `focusGuarded`). */
         focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
+        /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */
+        markedView: { ...renderer.markedShown, horde: w.arena.horde ? { ...w.arena.horde } : null },
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */
         colorShift: { every: colorShiftOf(w), left: shiftLeft, text: shiftHint.hidden ? null : shiftHint.textContent, rainbow: renderer.colorShiftShown, mark: renderer.colorShiftMarkShown, freedBy: renderer.colorShiftFreedBy, sounds: shiftSounds, dimmed: renderer.dimmedShown },
         /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */

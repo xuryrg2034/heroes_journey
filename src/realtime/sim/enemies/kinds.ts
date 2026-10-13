@@ -137,8 +137,7 @@ export function artRadiusOf(params: Params, kind: string): number { return enemy
 
 /**
  * The art scale of this enemy: `eliteArtScale` for an elite and (task 12, design 13.10.2026) for a leader of a goal layout
- * (`Enemy.leader`), else 1. The reach edge and the press circle go through `enemyArtRadius`; the seam for the view's drawing
- * (the ui session, 13.10.2026), which still scales by `elite` alone until it reads this.
+ * (`Enemy.leader`), else 1. The reach edge and the press circle go through `enemyArtRadius`; the view draws by it too (render.ts).
  */
 export function enemyArtScale(params: Params, enemy: Pick<Enemy, 'elite' | 'leader'>): number {
   return enemy.elite || enemy.leader ? params.eliteArtScale : 1;
