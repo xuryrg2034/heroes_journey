@@ -755,6 +755,14 @@ export interface Params {
   bagReward1: number;
   bagReward2: number;
   bagReward3: number;
+  // ---- Task 16 «Подвиги» (sim/feat.ts, docs/realtime-slice.md, «Подвиги»; user 13.10.2026, design 13.10.2026). ----
+  /**
+   * The feat of a run fight: the run gives the node's feat in the loadout (`Loadout.feat`: «Набери N очков», «Продержись N с после
+   * целей», «Продержись N с на арене»); the simulation latches it done (`world.feat`, event `feat` `done`). Off by default;
+   * journals without the key: off (no `world.feat`, no event). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`); which fights
+   * get a feat and the reward are the run's (a run with its flag `feats`). The sandbox has no node feat.
+   */
+  feats: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1118,6 +1126,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   bagReward1: 1,
   bagReward2: 2,
   bagReward3: 3,
+  // Task 16 «Подвиги» (feat.ts): off by default.
+  feats: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1508,6 +1518,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('bagReward1', 'Котомка у двери', 'Ступень 1: ресурсов', 0, 6, 1, 5),
   n('bagReward2', 'Котомка у двери', 'Ступень 2: ресурсов', 0, 6, 1, 5),
   n('bagReward3', 'Котомка у двери', 'Ступень 3: ресурсов', 0, 6, 1, 5),
+  // Task 16 «Подвиги» (feat.ts, docs/realtime-slice.md).
+  { kind: 'bool', key: 'feats', group: 'Подвиги', label: 'Подвиги (поход)', stage: 5,
+    hint: 'Только поход: бой узла может нести подвиг — «Набери N очков», «Продержись N с после целей», «Продержись N с на арене»; награда — у двери. Подвиги приходят со второго похода (после первого Тюремщика). В песочнице подвига узла нет — переключатель ничего не меняет.' },
 ];
 
 const MAX_PHASES = 8;

@@ -159,6 +159,9 @@ export const CHEST_SOURCE = 'chest';
 /** Casino «Кость у двери»: the source of the die screen's choice in `RunRecord.choices` (offered `roll` and `take`). */
 export const DIE_SOURCE = 'door-die';
 
+/** Task 16 «Подвиги»: the source of the feat's talisman choice in `RunRecord.choices` (not the «Застава» `talisman` or the chest's). */
+export const FEAT_SOURCE = 'feat';
+
 /** B7 К9 «Игорный круг гоблинов»: the source of the circle's choices in `RunRecord.choices` (offered `dice`, `wheel`, `leave`; one entry a visit). */
 export const CASINO_SOURCE = 'casino';
 
@@ -187,6 +190,11 @@ export interface RunChoice {
   offered: string[];
   taken: string[];
   refused: string[];
+  /**
+   * Task 16 telemetry (from 14.10.2026): real seconds the choice's screen was open (summed over the steps of one node and source:
+   * a rest, a shop); the view measures them (`RtRecorder.runStep`'s `realSeconds`). Absent — not measured (older records too).
+   */
+  realSeconds?: number;
 }
 
 /** The build of the hero at the end of the run. */
@@ -228,6 +236,27 @@ export interface RunSecondWind { nodeId: string; row: number; fight: string | nu
  * none yet), the price in resources, HP before and after.
  */
 export interface RunMapHeal { row: number; price: number; hpBefore: number; hpAfter: number }
+
+/**
+ * Task 16 «Подвиги» (from 14.10.2026): the feat of one run fight (`RunRecord.feats`). `reward` — as offered (`resources` with
+ * `resources` its count, or `talisman`); `done` — the fight did it; `won` — the fight was won (the reward is paid only then);
+ * `paid` — what the run gave: `resources` at the door, `talisman` — its choice opened, `fallback` — resources by the row instead
+ * of a talisman (the pool was short), null — nothing (not done, or lost). `at` — game seconds of the fight when it was done,
+ * `missing` — how much was missing at the end (points or seconds; 0 when done); both null when the fight's own summary was not
+ * seen. `fight` — the fight key (null — not recorded).
+ */
+export interface RunFeat {
+  nodeId: string; row: number; kind: string; n: number; reward: 'resources' | 'talisman'; resources?: number;
+  done: boolean; won: boolean; paid: 'resources' | 'talisman' | 'fallback' | null; at: number | null; missing: number | null; fight: string | null;
+}
+
+/**
+ * Task 16 telemetry (from 14.10.2026): the viewer's first meeting with a concept in this run (`RunRecord.firsts`), as the view
+ * reports it (`RtRecorder.firstMeet`): `id` — `kind:<enemy kind>`, `affix:<affix>`, `goblin-bust`, `elite`, `bag`, `feat`,
+ * `second-wind`, `heal-button`, `circle`; `fight` — the fight key when it came in a fight (null — on the map); `row` — the run
+ * row of the node then (0 — before the first node).
+ */
+export interface RunFirst { id: string; fight: string | null; row: number }
 
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
@@ -274,6 +303,19 @@ export interface RunRecord extends RtHeader {
   secondWind?: RunSecondWind;
   /** Task 15 (from 14.10.2026): the map heals bought, in order; absent — none (older records too). */
   mapHeals?: RunMapHeal[];
+  /** Task 16 (from 14.10.2026): the run had feats (`RtRunState.feats`); absent — no (a first run, older records). */
+  featsOn?: true;
+  /** Task 16: the feats of the run's fights, in order; absent — none (older records too). */
+  feats?: RunFeat[];
+  /** Task 16 telemetry: the viewer's run number (1, 2, 3…; the profile's count); absent — not known (older records too). */
+  viewerRun?: number;
+  /**
+   * Task 16 telemetry (review 14.10.2026): the viewer's run number is a lower bound — its count began on a profile that showed
+   * earlier play (it started at 2). The report counts such a run as a repeat. Absent — exact (or not known).
+   */
+  viewerRunApprox?: true;
+  /** Task 16 telemetry: the viewer's first meetings in this run, in order; absent — none reported (older records too). */
+  firsts?: RunFirst[];
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -437,6 +479,21 @@ export function checkRecord(value: unknown): string | null {
         const o = h as Record<string, unknown> | null;
         return !!o && typeof o === 'object' && ['row', 'price', 'hpBefore', 'hpAfter'].every(k => Number.isInteger(o[k])) && (o.price as number) >= 1 && (o.hpAfter as number) > (o.hpBefore as number);
       }))) return 'run mapHeals';
+      // Task 16 (14.10.2026): optional — the feats flag and list, the viewer's run number, the first meetings, the choice times.
+      if (r.featsOn !== undefined && r.featsOn !== true) return 'run featsOn';
+      if (r.feats !== undefined && !(Array.isArray(r.feats) && r.feats.every(f => {
+        const o = f as Record<string, unknown> | null;
+        return !!o && typeof o === 'object' && typeof o.nodeId === 'string' && typeof o.kind === 'string' && Number.isInteger(o.row) && Number.isInteger(o.n)
+          && ['resources', 'talisman'].includes(o.reward as string) && typeof o.done === 'boolean' && typeof o.won === 'boolean'
+          && (o.paid === null || ['resources', 'talisman', 'fallback'].includes(o.paid as string)) && (o.fight === null || typeof o.fight === 'string');
+      }))) return 'run feats';
+      if (r.viewerRun !== undefined && !(Number.isInteger(r.viewerRun) && (r.viewerRun as number) >= 1)) return 'run viewerRun';
+      if (r.viewerRunApprox !== undefined && !(r.viewerRunApprox === true && r.viewerRun !== undefined)) return 'run viewerRunApprox';
+      if (r.firsts !== undefined && !(Array.isArray(r.firsts) && r.firsts.every(f => {
+        const o = f as Record<string, unknown> | null;
+        return !!o && typeof o === 'object' && typeof o.id === 'string' && o.id.length > 0 && (o.fight === null || typeof o.fight === 'string') && Number.isInteger(o.row);
+      }))) return 'run firsts';
+      if (!(r.choices as unknown[]).every(c => { const t = (c as Record<string, unknown> | null)?.realSeconds; return t === undefined || (typeof t === 'number' && Number.isFinite(t) && t >= 0); })) return 'run choice realSeconds';
       return null;
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';
@@ -629,7 +686,21 @@ export interface FightSummary {
   chest: ChestSummary;
   /** Task 14 «Котомка у двери» (from 13.10.2026; absent in older records — `withSummaryDefaults`): the bag of the fight. */
   bag: BagSummary;
+  /** Task 16 «Подвиги» (from 14.10.2026; absent in older records — null): the feat of the fight; null — none. */
+  feat: FeatSummary | null;
+  /**
+   * Task 16 telemetry (from 14.10.2026): the viewer's first meetings during the fight (`RtRecorder.firstMeet`), counted by the view —
+   * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
+   */
+  novelty?: number;
 }
+
+/**
+ * Task 16 «Подвиги» of one fight (sim/feat.ts `featResult`, read from the world at the end): its kind and N, done, the game second
+ * it was done (null — not done), the progress at the end (`value`: points or seconds) and what was missing (`n − value`, 0 when
+ * done), how the fight ended for it (`victory` — through the door, else the fight's end).
+ */
+export interface FeatSummary { kind: string; n: number; done: boolean; at: number | null; value: number; missing: number; won: boolean }
 
 /**
  * Task 14 «Котомка у двери» of one fight (docs/realtime-telemetry.md, section 8, «Котомка у двери»; sim/bag.ts). Read from the
@@ -832,6 +903,7 @@ export function emptyFightSummary(): FightSummary {
     secondWind: null,
     chest: { taken: null, liftedAt: null, cursedDamage: {} },
     bag: { appeared: false, steps: 0, killsAfterGoals: 0, resets: 0, payout: null, kinds: {} },
+    feat: null,
   };
 }
 

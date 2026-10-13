@@ -28,6 +28,7 @@ import { hashWorld } from './hash';
 import { copyParams, type Params } from './params';
 import type { Loadout } from './kit';
 import { createWorld, update, type HeroStart, type World } from './world';
+import { featExit } from './feat';
 
 /** Game seconds per tick. */
 export const SIM_DT = 1 / 60;
@@ -134,7 +135,11 @@ export class Simulation {
       world.hitstop = Math.max(0, world.hitstop - SIM_DT);
     } else {
       const realDt = SIM_DT / tickScale(world);
+      const playing = world.status === 'playing';
       stepHero(world, realDt);
+      // Task 16 «Подвиги» (feat.ts `featExit`): a chain or a jump went through the door in this `stepHero` — its score is in (chain.ts
+      // `finishMove`), the tick's time counts (`update` adds it no more). Nothing without a feat.
+      if (playing && world.status === 'victory') featExit(world, SIM_DT);
       update(world, SIM_DT, realDt);
     }
     world.tick++;
