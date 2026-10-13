@@ -98,6 +98,10 @@ import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
  * Task 16 «Подвиги» (the same version, design 13.10.2026): the run's flag `feats`, set at its creation from the profile (the
  * player reached the Jailer in an earlier run); the open battle's `feat` and a battle record's `feat`; an open talisman offer
  * of source `feat`. A save without the flag has no feats to its end and saves byte for byte as before.
+ * Task 18 «Испытание I–V» (the same version, design 13–14.10.2026): the run's level `ash` (1–5), set at its creation from the
+ * choice on «Новый поход»; absent — level 0 (every save before it). The level decides the task-17 flags the run is created with
+ * (`createRtRun`) and acts through `rtGentle`, `rtEliteAffixes` and the loadout (`rtAshPressure`). A save without it plays and
+ * saves byte for byte as before.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -226,8 +230,13 @@ export const RT_TASK17_OFF = Object.freeze({ gentleEntry: false, startPotion: fa
  * run makes its elite of one of them the run met on the rows before it (`rtEliteKinds`); none met — basic.
  */
 export const RT_FIRST_ELITE_KINDS: readonly string[] = ['basic', 'wolf', 'boar'];
-/** The run plays the gentle entry's tables, pools and row numbers (its flag `gentleEntry`). */
-export const rtGentle = (run: Pick<RtRunState, 'gentleEntry'> | null | undefined): boolean => !!run?.gentleEntry;
+/**
+ * The run plays the gentle entry's tables, pools and row rules (its flag `gentleEntry`): random and guaranteed elites from row 4,
+ * the armour step from row 6, «Колючие заросли» on rows 7–8, Е1, Е2, Q1 and the final without the porcupine not met. Task 18:
+ * «Испытание II» and above turn them off (`ash` ≥ 2); the row's grace and tough touch stay with the flag (`rtArenaRules`) until
+ * «Испытание III», which creates the run without the flag.
+ */
+export const rtGentle = (run: Pick<RtRunState, 'gentleEntry' | 'ash'> | null | undefined): boolean => !!run?.gentleEntry && rtAsh(run) < RT_ASH_TABLES;
 /** Баланс (task 17, P2): seconds of invulnerability after a hit by the run row — 1.0 / 1.0 / 0.8 / 0.65 on rows 1–4, then 0.5. */
 export const RT_GENTLE_GRACE: readonly number[] = [1, 1, 0.8, 0.65];
 export const RT_GRACE_AFTER = 0.5;
@@ -238,6 +247,63 @@ export const RT_GENTLE_TOUGH_TOUCH_ROW = 3;
 export const RT_SECOND_WIND_LAST_ROW = 4;
 /** Баланс (task 17, P3): a new run starts with this many healing potions; the kind is open. */
 export const RT_START_POTIONS = 1;
+
+// ---------- Task 18 «Испытание I–V» (design 13–14.10.2026; docs/realtime-slice.md, «Испытание») ----------
+
+/**
+ * The run's level of «Испытание» (0 — the base run). Cumulative — each level keeps the ones below:
+ * I — no start potion and no second wind (`startPotion`, `secondWind` off);
+ * II — the row tables, pools and row rules before task 17 (`rtGentle` off: elites from row 3, the armour step from row 5,
+ *      «Колючие заросли» on rows 5–8, no Е1, Е2, Q1, the final as it is);
+ * III — invulnerability after a hit 0.5 s and the tough touch 2 from row 1 (`gentleEntry` off: the run of v40);
+ * IV — 2 affixes on elites from run row 6 (`RT_ASH_AFFIX_ROW`);
+ * V — the density floor ×1.15 in every fight and the final's phases 15 % earlier (`rtAshPressure`; the arena limit stays).
+ * Unlocked by the player's first won run without a given seed (run/rtRunStorage.ts `RtProfile.won`).
+ */
+export type RtAshLevel = 0 | 1 | 2 | 3 | 4 | 5;
+export const RT_ASH_MAX = 5;
+/** The levels from which each change acts. */
+export const RT_ASH_NO_START_HELP = 1;
+export const RT_ASH_TABLES = 2;
+export const RT_ASH_GRACE = 3;
+export const RT_ASH_AFFIXES = 4;
+export const RT_ASH_PRESSURE = 5;
+/** Баланс (IV): elites carry 2 affixes from this run row (row 9 keeps its 2). */
+export const RT_ASH_AFFIX_ROW = 6;
+/** Баланс (V): the density floor of every fight × this (spawn.ts `topUpToFloor`; the arena limit stays the cap). */
+export const RT_ASH_FLOOR_SCALE = 1.15;
+/** Баланс (V, design 14.10.2026): the final's phase table runs this much faster (each phase's duration × it: 15 % earlier). */
+export const RT_ASH_FINAL_PHASE_SCALE = 0.85;
+/** The run's level (absent — 0). */
+export const rtAsh = (run: Pick<RtRunState, 'ash'> | null | undefined): RtAshLevel => run?.ash ?? 0;
+export const isRtAshLevel = (value: unknown): value is RtAshLevel => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= RT_ASH_MAX;
+const ASH_ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'] as const;
+/** The level's mark on the choice: «0», «I» … «V». */
+export const rtAshLabel = (level: RtAshLevel): string => ASH_ROMAN[level];
+/** The run's title on the map header: «Испытание III»; level 0 — '' (nothing shown). */
+export const rtAshTitle = (level: RtAshLevel): string => (level > 0 ? `Испытание ${ASH_ROMAN[level]}` : '');
+/** The line under the choice (≤ 6 words): what the level adds to the one below. */
+export const RT_ASH_TEXTS: Readonly<Record<RtAshLevel, string>> = {
+  0: 'Обычный поход',
+  1: 'Без зелья и второго дыхания',
+  2: 'Элиты и броня раньше',
+  3: 'Неуязвимость 0,5 с, касание 2',
+  4: 'Два свойства элит с ряда 6',
+  5: 'Толпа плотнее, финал быстрее',
+};
+/** The choice on «Новый поход»: every level with its mark, title and line, 0 … V. */
+export interface RtAshOption { level: RtAshLevel; label: string; title: string; text: string }
+export const rtAshOptions = (): RtAshOption[] =>
+  ([0, 1, 2, 3, 4, 5] as const).map(level => ({ level, label: rtAshLabel(level), title: rtAshTitle(level) || 'Испытание 0', text: RT_ASH_TEXTS[level] }));
+/**
+ * Task 18, V: what the level adds to the loadout of a fight played as `battle` — the density floor of every fight
+ * (`Loadout.floorScale`) and, in the final, the phase table's pace (`Loadout.phaseScale`). Empty below V. The scope of V is here
+ * and only here.
+ */
+export function rtAshPressure(level: RtAshLevel, battle: RtBattleKind | undefined): Pick<Loadout, 'floorScale' | 'phaseScale'> {
+  if (level < RT_ASH_PRESSURE || !battle) return {};
+  return { floorScale: RT_ASH_FLOOR_SCALE, ...battle === 'final' ? { phaseScale: RT_ASH_FINAL_PHASE_SCALE } : {} };
+}
 
 /**
  * What kind of arena a battle node plays: an ordinary battle (the pool of its row), a hard battle («Застава»), the final
@@ -377,6 +443,11 @@ export interface RtRunState {
   startPotion?: true;
   /** Task 17 (its own flag): the run's second wind — once a run, on rows 1–4 (`Loadout.secondWind`). Absent — none. */
   secondWind?: true;
+  /**
+   * Task 18 «Испытание I–V»: the run's level, 1–5 (`RtAshLevel`), set when the run is created; absent — level 0 (a save before it
+   * too). The level decides the task-17 flags at creation and acts through `rtGentle`, `rtEliteAffixes`, `rtAshPressure`.
+   */
+  ash?: Exclude<RtAshLevel, 0>;
   /**
    * Task 15 «Лечение на карте» (design 14.10.2026; `healOffer`, `healOnMap`): on the run map and on a battle card before
    * «В бой» the run sells +2 HP for resources. Set when the run is created (`RT_HEAL_MAP_ON`); absent — a run saved before it (or created without it): no map
@@ -596,18 +667,21 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
   // Task 17 «Пологий вход» (13.10.2026): on unless the option says (false — the old tables, as a save before it plays).
-  const gentle = options.gentleEntry ?? RT_GENTLE_ENTRY;
+  // Task 18 «Испытание»: the level decides the task-17 flags (I — no potion, no second wind; III — no gentle entry).
+  const ash: RtAshLevel = isRtAshLevel(options.ash) ? options.ash : 0;
+  const gentle = ash >= RT_ASH_GRACE ? false : options.gentleEntry ?? RT_GENTLE_ENTRY;
   // Its own flags (design 13.10.2026): each defaults to its own constant, independent of the others.
-  const potion = options.startPotion ?? RT_START_POTION_ON, wind = options.secondWind ?? RT_SECOND_WIND_ON;
+  const help = ash < RT_ASH_NO_START_HELP;
+  const potion = help && (options.startPotion ?? RT_START_POTION_ON), wind = help && (options.secondWind ?? RT_SECOND_WIND_ON);
   // Task 15 «Лечение на карте» (14.10.2026): its own flag, on unless the option says (false — no map heal, as a save before it).
   const healMap = options.healMap ?? RT_HEAL_MAP_ON;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...options.feats ? { feats: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -666,9 +740,10 @@ export const RT_GENTLE_STEP_ROW = 6;
 export const rtRandomElites = (row: number, gentle = false): boolean => row >= (gentle ? RT_GENTLE_ELITE_ROW : RT_RANDOM_ELITE_ROW);
 /**
  * Баланс (phase A, T4, docs/realtime-phase-a.md, section 2): affixes of each elite by the run row — 1–4: 0, 5–8: 1, 9: 2.
- * Task 17 (`gentle`): 1–5: 0, 6–8: 1, 9: 2.
+ * Task 17 (`gentle`): 1–5: 0, 6–8: 1, 9: 2. Task 18, «Испытание IV» (`ash` ≥ 4): 2 from row 6 (`RT_ASH_AFFIX_ROW`).
  */
-export const rtEliteAffixes = (row: number, gentle = false): number => (row >= 9 ? 2 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 1 : 0);
+export const rtEliteAffixes = (row: number, gentle = false, ash: RtAshLevel = 0): number =>
+  (row >= 9 || (ash >= RT_ASH_AFFIXES && row >= RT_ASH_AFFIX_ROW) ? 2 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 1 : 0);
 /**
  * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2; the turn-based palette, decision 30.09.2026): colours
  * of the newcomers by the run row — 1–2: 2, 3–4: 3, from 5: 4. Acts only with the panel toggle `colorsByRow`.
@@ -713,12 +788,13 @@ export interface RtLoadoutOptions {
 export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}): Loadout {
   const pending = run.pending, node = pending && 'nodeId' in pending && pending.nodeId ? rtNode(run, pending.nodeId) : undefined;
   // Task 17 «Пологий вход»: the run's flag picks the row tables (absent — the old ones).
-  const gentle = rtGentle(run), row = node ? runRow(node.row) : 0;
+  const gentle = rtGentle(run), row = node ? runRow(node.row) : 0, ash = rtAsh(run);
+  const affixes = node ? rtEliteAffixes(row, gentle, ash) : 0;
   // Phase B, 5а (decision 10.10.2026): oaths add no energy at the start of an arena any more — the banked energy, up to 7.
   return {
     items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy), openItems: [...run.openItems],
     randomElites: !!node && rtRandomElites(row, gentle),
-    ...node && rtEliteAffixes(row, gentle) > 0 ? { eliteAffixes: rtEliteAffixes(row, gentle) } : {},
+    ...affixes > 0 ? { eliteAffixes: affixes } : {},
     // Loop research, step 1: fewer colours on run rows 1–4 (row 5 on — 4, the loadout as before).
     ...options.colorsByRow && node && rtColorsByRow(row) < 4 ? { colors: rtColorsByRow(row) } : {},
     // Package «Урон имеет значение»: the row's numbers (they act with the run's `eliteArmor`; the tough table always).
@@ -751,6 +827,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...pending?.kind === 'battle' && pending.oath ? { oath: pending.oath } : {},
     // Task 16 «Подвиги»: the feat the open battle fixed (the simulation watches its kind and N; the reward stays the run's).
     ...pending?.kind === 'battle' && pending.feat ? { feat: { kind: pending.feat.kind, n: pending.feat.n } } : {},
+    // Task 18, «Испытание V»: the denser floor of every fight, the final's faster phases (absent below V: loadouts as before).
+    ...node && pending?.kind === 'battle' ? rtAshPressure(ash, pending.battle) : {},
   };
 }
 
@@ -2147,6 +2225,8 @@ export function rtReachedRow(run: RtRunState): number {
   return Math.max(0, ...ids.map(id => rtNode(run, id)?.row ?? 0));
 }
 export const rtReachedJailer = (run: RtRunState): boolean => rtReachedRow(run) >= GIFT_FULL_ROW;
+/** Task 18: the run was won (its final victory) — the profile's `won` opens «Испытание» (`RtProfileStore.endRun`, not for a seeded run). */
+export const rtRunWon = (run: Pick<RtRunState, 'result'>): boolean => run.result?.outcome === 'victory';
 /**
  * Task 16 (review 14.10.2026): the step from `before` to `after` fed the Jailer's fight back (a `checkpoint` node's record, won or
  * lost) — the moment the profile marks «the viewer fought the Jailer» (`RtProfileStore.markJailer`; not for a seeded run).
@@ -2263,6 +2343,9 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.healBought !== undefined && !(value.healMap === true && isCount(value.healBought) && value.healBought >= 1)) return null;
   // Task 16 (14.10.2026): a flag; absent — a save before it (or a first run), which has no feats.
   if (value.feats !== undefined && value.feats !== true) return null;
+  // Task 18 (14.10.2026): the level 1–5; absent — 0. The task-17 flags must be those the level creates the run with.
+  if (value.ash !== undefined && !(isRtAshLevel(value.ash) && value.ash >= 1)) return null;
+  if (isRtAshLevel(value.ash) && ((value.ash >= RT_ASH_NO_START_HELP && (value.startPotion !== undefined || value.secondWind !== undefined)) || (value.ash >= RT_ASH_GRACE && value.gentleEntry !== undefined))) return null;
   if (value.secondWindSpent !== undefined && (value.secondWindSpent !== true || value.secondWind !== true || !Array.isArray(value.battles) || !value.battles.length)) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;

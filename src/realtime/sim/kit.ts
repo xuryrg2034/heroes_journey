@@ -108,6 +108,16 @@ export interface Loadout {
    * on. Absent — no feat.
    */
   feat?: FeatGoal;
+  /**
+   * Task 18 «Испытание V» (run/rtRun.ts `rtAshPressure`): the density floor of this fight × this (spawn.ts `topUpToFloor`:
+   * `round(floor × s × floorScale)`, one rounding, the factor in whole percent — `floorWithScale`; still capped by the arena limit). Absent (or 1) — the floor as before.
+   */
+  floorScale?: number;
+  /**
+   * Task 18 «Испытание V»: each phase of the table after the goals lasts this share of its duration (params.ts `pressureAt`;
+   * 0.85 — the phases come 15 % earlier). The run gives it to the final. Absent (or 1) — the durations as before.
+   */
+  phaseScale?: number;
 }
 
 /**
@@ -172,6 +182,10 @@ export interface Kit {
   withoutKinds?: string[];
   /** Task 16 «Подвиги»: the fight's feat (absent — none: kits before hash as before). */
   feat?: FeatGoal;
+  /** Task 18 «Испытание V»: the density floor's factor (absent — 1: kits before hash as before). */
+  floorScale?: number;
+  /** Task 18 «Испытание V»: the phase durations' factor (absent — 1: kits before hash as before). */
+  phaseScale?: number;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -183,6 +197,11 @@ export const MIN_COLORS = 2;
 /** Package «Урон имеет значение»: an armoured elite has at most this many plates; a tough newcomer at most this HP. */
 export const MAX_PLATES = 6;
 export const MAX_TOUGH_HP = 4;
+/** Task 18: the bounds of `Loadout.floorScale` and `Loadout.phaseScale` (outside them, or 1 — absent). */
+export const SCALE_MIN = 0.25;
+export const SCALE_MAX = 4;
+const scale = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) && value !== 1 ? Math.min(SCALE_MAX, Math.max(SCALE_MIN, value)) : undefined;
 /** Phase A, T4: an elite has at most this many affixes (four kinds, «Стремительный» and «Толстый» never together). */
 export const MAX_AFFIXES = 3;
 /** Баланс: «подкрепление раньше» — before the goals groups come this many times as often (the interval × 1 / it). */
@@ -229,6 +248,9 @@ export function kitOf(loadout: Loadout): Kit {
     ...Array.isArray(loadout.withoutKinds) && loadout.withoutKinds.length ? { withoutKinds: [...new Set(loadout.withoutKinds.filter(kind => typeof kind === 'string'))] } : {},
     // Task 16 «Подвиги»: absent unless the run gives a valid one (kits before hash as before).
     ...featGoalOf(loadout.feat) ? { feat: featGoalOf(loadout.feat)! } : {},
+    // Task 18 «Испытание V»: absent unless the run gives them (kits before hash as before).
+    ...scale(loadout.floorScale) !== undefined ? { floorScale: scale(loadout.floorScale)! } : {},
+    ...scale(loadout.phaseScale) !== undefined ? { phaseScale: scale(loadout.phaseScale)! } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

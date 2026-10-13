@@ -571,6 +571,21 @@ async function main(): Promise<void> {
     rec.dispose();
   });
 
+  await check('task 18: the run record carries the run\'s level of «Испытание» (`ash`, absent at 0); level II keeps the `gentle` flag, level III has none; a bad level is rejected', async () => {
+    const local = fake();
+    const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: rtRunParams(quiet()), observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+    const latest = async (seed: number): Promise<RunRecord> => { await new Promise(r => setTimeout(r, 10)); return (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === seed).pop()!; };
+    let previous: RtRunState | null = null;
+    for (const [seed, ash] of [[7201, 0], [7202, 2], [7203, 3], [7204, 5]] as const) {
+      const run = createRtRun(seed, { gift: 'mini', ash });
+      rec.runStarted(previous, run); previous = run;
+      const r = await latest(seed);
+      assert(r.ash === (ash || undefined) && !!r.gentle === ash < 3 && checkRecord(r) === null, `level ${ash}: ${JSON.stringify({ ash: r.ash, gentle: r.gentle })}`);
+      if (ash) assert(checkRecord({ ...r, ash: 6 }) === 'run ash' && checkRecord({ ...r, ash: 0 }) === 'run ash' && checkRecord({ ...r, ash: 'II' as unknown as number }) === 'run ash', 'a bad level');
+    }
+    rec.dispose();
+  });
+
   await check('the prologue: the hooks of two playthroughs (first launch, passed with a death and returns; the gear, skipped) give one record each, no fight or run record', async () => {
     const local = fake();
     const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: defaultParams(), local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });

@@ -1655,9 +1655,10 @@ export function basePhase(params: Params, arena?: ArenaTemplate): Phase {
 
 /**
  * Pressure at game time `time`. `greedStart` is the time the goals were completed
- * (null before): only then the phase table runs, counted from that moment.
+ * (null before): only then the phase table runs, counted from that moment. `pace` (task 18 «Испытание V», `Kit.phaseScale`):
+ * each phase lasts `duration × pace` (1 — as before).
  */
-export function pressureAt(params: Params, time: number, greedStart: number | null = null, arena?: ArenaTemplate, delay = 0): Pressure {
+export function pressureAt(params: Params, time: number, greedStart: number | null = null, arena?: ArenaTemplate, delay = 0, pace = 1): Pressure {
   const angerTier = Math.floor(time / params.angerTierSeconds);
   const enemySpeed = params.enemySpeed * dpowi(1 + params.angerSpeedStep, angerTier);
   // Stage 2, step 3 («Песочные часы»): the table starts `delay` game seconds after the goals; the base pace goes on until then.
@@ -1668,8 +1669,9 @@ export function pressureAt(params: Params, time: number, greedStart: number | nu
   const t = Math.max(0, time - greedStart);
   let start = 0, phaseIndex = phases.length - 1, phaseLeft = Infinity;
   for (let i = 0; i < phases.length - 1; i++) {
-    if (t < start + phases[i].duration) { phaseIndex = i; phaseLeft = start + phases[i].duration - t; break; }
-    start += phases[i].duration;
+    const duration = pace === 1 ? phases[i].duration : phases[i].duration * pace;
+    if (t < start + duration) { phaseIndex = i; phaseLeft = start + duration - t; break; }
+    start += duration;
   }
   const override = arena?.phaseOverride;
   return { phaseIndex, phase: override ? { ...phases[phaseIndex], ...override } : phases[phaseIndex], phaseLeft, angerTier, enemySpeed };

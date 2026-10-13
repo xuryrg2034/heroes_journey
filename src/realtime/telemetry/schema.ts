@@ -303,6 +303,8 @@ export interface RunRecord extends RtHeader {
   secondWind?: RunSecondWind;
   /** Task 15 (from 14.10.2026): the map heals bought, in order; absent — none (older records too). */
   mapHeals?: RunMapHeal[];
+  /** Task 18 «Испытание I–V» (from 14.10.2026): the run's level, 1–5 (`RtRunState.ash`); absent — 0 (older records too). */
+  ash?: number;
   /** Task 16 (from 14.10.2026): the run had feats (`RtRunState.feats`); absent — no (a first run, older records). */
   featsOn?: true;
   /** Task 16: the feats of the run's fights, in order; absent — none (older records too). */
@@ -474,6 +476,8 @@ export function checkRecord(value: unknown): string | null {
         const w = r.secondWind as Record<string, unknown> | null;
         if (!w || typeof w !== 'object' || typeof w.nodeId !== 'string' || !Number.isInteger(w.row) || !(w.fight === null || typeof w.fight === 'string')) return 'run secondWind';
       }
+      // Task 18 (14.10.2026): optional — the level of «Испытание», 1–5.
+      if (r.ash !== undefined && !(Number.isInteger(r.ash) && (r.ash as number) >= 1 && (r.ash as number) <= 5)) return 'run ash';
       // Task 15 (14.10.2026): optional — the map heals bought.
       if (r.mapHeals !== undefined && !(Array.isArray(r.mapHeals) && r.mapHeals.every(h => {
         const o = h as Record<string, unknown> | null;

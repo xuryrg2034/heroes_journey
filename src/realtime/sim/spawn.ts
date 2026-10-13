@@ -120,6 +120,16 @@ export function scaledFloor(floor: number, arena: ArenaShape): number {
 }
 
 /**
+ * Task 18 «Испытание V»: the density floor with the run's factor `k` (`Kit.floorScale`) — one rounding, `round(floor × s × k)`.
+ * `k` is taken in whole percent (1.15 → 115) so that the product is exact where it can be: 1.15 is not exact in binary, and
+ * `50 × 1.15` gives 57.49999… (57), while `50 × 115 / 100` is 57.5 (58, ties up as `Math.round`). Absent — `scaledFloor` as before.
+ */
+export function floorWithScale(floor: number, arena: ArenaShape, k?: number): number {
+  if (k === undefined) return scaledFloor(floor, arena);
+  return Math.round(floor * areaScale(arena) * Math.round(k * 100) / 100);
+}
+
+/**
  * The arena limit: `min(90; round(maxEnemies × s))`, never below the panel value (a slider above 90 stays as set);
  * s = 1 — the panel value, untouched.
  */
@@ -380,7 +390,8 @@ function relocateMarker(world: World, m: SpawnMarker): void {
  * Т5: the floor and the limit grow with the arena's area (`scaledFloor`, `enemyLimit`; 16×10 — as before).
  */
 function topUpToFloor(world: World): void {
-  const floor = Math.min(scaledFloor(world.pressure.phase.floor, world.arena), enemyLimit(world.params, world.arena));
+  // Task 18 «Испытание V»: the run's factor of the floor (`Kit.floorScale`; absent — the floor as before), under the arena limit.
+  const floor = Math.min(floorWithScale(world.pressure.phase.floor, world.arena, world.kit?.floorScale), enemyLimit(world.params, world.arena));
   const present = (): number => world.enemies.filter(e => e.kind !== 'reaper').length + world.markers.length + world.queue.length;
   for (let guard = 0; guard < 200 && present() < floor; guard++) {
     const before = world.queue.length;
