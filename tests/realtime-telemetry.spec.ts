@@ -354,8 +354,15 @@ async function playRunFight(page: Page): Promise<void> {
   await page.keyboard.down('KeyS'); await gameWait(page, 0.3); await page.keyboard.up('KeyS');
   const s = await page.evaluate(() => (window as any).__realtime.snapshot()) as { hero: { x: number; y: number }; enemies: { x: number; y: number; color: number }[] };
   const dist = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
-  const first = [...s.enemies].sort((a, b) => dist(a, s.hero) - dist(b, s.hero))[0];
-  expect(first, 'the run arena has enemies').toBeTruthy();
+  // The press lands on the field, not on the HUD: the action bar takes a click unless it is faded (task 8), and the run seed
+  // may put the enemy nearest the hero under it.
+  const open: typeof s.enemies = [];
+  for (const e of s.enemies) {
+    const p = await screen(page, e.x, e.y);
+    if (await page.evaluate(([x, y]) => document.elementFromPoint(x, y) instanceof HTMLCanvasElement, [p.x, p.y] as const)) open.push(e);
+  }
+  const first = open.sort((a, b) => dist(a, s.hero) - dist(b, s.hero))[0];
+  expect(first, 'the run arena has an enemy on the open field').toBeTruthy();
   const second = s.enemies.filter(e => e !== first && e.color === first.color).sort((a, b) => dist(a, first) - dist(b, first))[0] ?? s.hero;
   const a = await screen(page, first.x, first.y), b = await screen(page, second.x, second.y);
   await page.mouse.move(a.x, a.y);
