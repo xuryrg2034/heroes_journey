@@ -131,17 +131,17 @@ export const itemWithKey = (item: ItemKind): string => `${ITEM_TITLES[item]} (к
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
 const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', open: 'Открыт', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение' } as const;
-/** What the node card says about the node (the rules of this run). */
+/**
+ * What the node card says about the node (the rules of this run). An ordinary battle and the breakthrough say nothing here (design
+ * 13.10.2026): the card's head already says «Бой · ряд похода N» and its lines the arena.
+ */
 const nodeHint = (node: ForestMapNode): string | undefined => {
-  const row = runRow(node.row);
   switch (node.type) {
     case 'find': return 'Находка: один из трёх расходников.';
     case 'rest': return `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`;
     case 'shop': return `Расходники, лечение и «Закалка» за ресурсы крафта.`;
     case 'hard': return `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
     case 'checkpoint': return 'Тюремщик: обычная арена своего ряда. Победа: молот на выбор, затем клятва или реликвия.';
-    case 'breakthrough': return `Прорыв: арена ряда ${row}.`;
-    case 'battle': return `Обычный бой: арена ряда ${row}.`;
     case 'boss': return 'Последний рубеж: финальная арена. Победа завершает поход.';
     default: return undefined;
   }

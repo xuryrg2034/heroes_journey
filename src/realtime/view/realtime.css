@@ -218,7 +218,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-actionbar.rt-actionbar-under .rt-tile { pointer-events: none; }
 .rt-abilities, .rt-items { display: flex; gap: 8px; }
 .rt-items:not(:has(> .rt-tile:not([hidden]))) { display: none; }
-.rt-abilities + .rt-items { padding-left: 14px; border-left: 1px solid var(--rt-line); }
+/* One group only (a prologue room shows the potion alone, or Space alone): no empty group, no separator — the bar stays centred. */
+.rt-abilities:not(:has(> .rt-tile:not([hidden]))) { display: none; }
+.rt-abilities:has(> .rt-tile:not([hidden])) + .rt-items { padding-left: 14px; border-left: 1px solid var(--rt-line); }
 .rt-tile { position: relative; width: 56px; height: 56px; margin: 0 0 14px; padding: 0; display: grid; place-items: center; color: #7d836c; background: #151a12; border: 2px solid #3a3f30; border-radius: 6px; overflow: visible; cursor: pointer; pointer-events: auto; font: inherit; }
 .rt-tile-glyph { position: relative; width: 34px; height: 34px; opacity: .55; }
 .rt-tile-fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--fill, 0) * 100%); background: #4a637855; border-radius: 0 0 4px 4px; pointer-events: none; }

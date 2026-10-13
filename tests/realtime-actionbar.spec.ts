@@ -171,6 +171,8 @@ test('8c: the node card stands in the middle of the map — goal and enemies, «
   await expect(page.getByTestId('run-danger-goal')).toContainText('Цель:');
   await expect(page.getByTestId('run-danger-enemies')).toContainText('Враги: обычные');
   await expect(page.getByTestId('run-enter')).toHaveText('В бой');
+  // No line repeating the head («Бой · ряд похода 1»): design 13.10.2026.
+  await expect(card).not.toContainText('Обычный бой');
   await page.screenshot({ path: 'artifacts/realtime-node-card.png' });
   // A click inside the card keeps it; Esc closes it.
   await card.locator('h2').click();

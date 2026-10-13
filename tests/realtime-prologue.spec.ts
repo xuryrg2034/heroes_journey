@@ -739,6 +739,11 @@ test('room 7 «Зелье»: the hero at 5/15, only the potion tile, breathing; 
   expect(s.prologue.pulse).toEqual({ space: false, q: false, items: ['healing'] });
   await expect(page.getByTestId('goal')).toHaveText('Зелье: 0 / 1');
   await expect(page.getByTestId('item-healing').locator('.rt-tile-count')).toHaveText('1');
+  // One group only: no empty ability group, no separator — the bar stands in the middle (design 13.10.2026).
+  await expect(page.locator('.rt-abilities')).toBeHidden();
+  const bar = (await page.getByTestId('action-bar').boundingBox())!, tile = (await page.getByTestId('item-healing').boundingBox())!;
+  expect(Math.abs(tile.x + tile.width / 2 - (bar.x + bar.width / 2))).toBeLessThan(2);
+  expect(await page.locator('.rt-items').evaluate(el => getComputedStyle(el).borderLeftWidth)).toBe('0px');
   await titleGone(page);
   await page.getByTestId('item-healing').click();
   expect(await untilFrame(page, sn => sn.stage === 'greed' ? true : undefined, 0, 4)).toBe(true);
