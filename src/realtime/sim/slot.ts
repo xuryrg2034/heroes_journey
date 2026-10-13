@@ -233,13 +233,14 @@ export function safePullsLeft(world: World, extraChains = 0): number | null {
 }
 
 /**
- * «Перебор»: the odds of the next pull's bust and its damage; null — the next pull is safe, no pull is left (review
+ * «Перебор»: the odds of the next pull's bust and its damage (`area` — «Взрыв по площади»: the damage is in the circle); null — the next pull is safe, no pull is left (review
  * 12.10.2026), the rule is off or no goblin.
  */
-export function bustOdds(world: World, extraChains = 0): { chance: number; damage: number } | null {
+export function bustOdds(world: World, extraChains = 0): { chance: number; damage: number; area?: true } | null {
   const p = world.params, g = goblinOf(world);
   if (!p.slotBust || !g || g.pulls >= slotCharges(world).total || safePullsLeft(world, extraChains) !== 0) return null;
-  return { chance: Math.min(1, Math.max(0, num(p, 'slotBustChance'))), damage: Math.max(0, num(p, 'slotBustDamage')) };
+  // «Взрыв по площади» (`slotBustArea`): the damage is the circle's — the texts say «в круге» (`bustText`).
+  return { chance: Math.min(1, Math.max(0, num(p, 'slotBustChance'))), damage: Math.max(0, num(p, 'slotBustDamage')), ...p.slotBustArea ? { area: true as const } : {} };
 }
 
 /** Chances of the rain (☠☠☠) and the volley (exactly two ☠) with these skulls per reel (a skull on a reel: s ÷ (4 + s)). */

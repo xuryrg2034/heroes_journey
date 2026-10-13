@@ -10,7 +10,8 @@ import { gameWait, untilFrame } from './realtimeFrames';
  * - a new viewer's fight on a plain field: no box, no label; the memory stays empty;
  * - «Застава»: «Пластина — 1 удар» over the armoured elite and the chest's price at the chest, each until the action (a real
  *   click on the elite takes a plate, a real click on the chest takes it), then gone and not back in the next fight;
- * - the goblin: «Закончи цепь здесь» at the lever until the first pull, odds line and dots stay; gone for the next fight;
+ * - the goblin: «Закончи цепь здесь» at the lever until the first pull, odds line and dots stay; gone for the next fight; with the
+ *   run's own «Гоблин раньше» (task 7, `slotAppearAt` 5) the goblin and its label come at 5 s of the fight, before the goals;
  * - the gear's toggle «Подсказки» hides the labels, «Обучение» (it was «Показать подсказки снова») clears the memory and plays the prologue;
  * - the sandbox shows no label, no pulse and no box, keeps no memory;
  * - the lines on the screens (Э2); a won run fight has no «Котёл» row (Э1) and no die screen (Э4).
@@ -52,9 +53,12 @@ async function startFight(page: Page): Promise<void> {
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
 }
-/** The arena is quiet: nobody walks, touches or comes (the arena's start enemies removed). */
-async function quiet(page: Page): Promise<void> {
-  await page.evaluate(() => {
+/**
+ * The arena is quiet: nobody walks, touches or comes (the arena's start enemies removed). `earlyGoblin` keeps the run's
+ * «Гоблин раньше» (`slotAppearAt`, the goblin at 5 s of the fight); else the goblin comes only after the goals.
+ */
+async function quiet(page: Page, earlyGoblin = false): Promise<void> {
+  await page.evaluate(early => {
     const rt = (window as any).__realtime;
     rt.params.enemySpeed = 0; rt.params.wolfSpeed = 0; rt.params.speedSpread = 0; rt.params.contactDamage = 0;
     rt.params.baseIntervalMin = 1000; rt.params.baseIntervalMax = 1000; rt.params.baseFloor = 0; rt.params.maxEnemies = 0;
@@ -62,9 +66,9 @@ async function quiet(page: Page): Promise<void> {
     rt.params.boarMax = 0; rt.params.wolfRing = false; rt.params.dashSpeed = 5; rt.params.hitstop = false;
     // Task 7 (13.10.2026): the run's goblin comes at 5 s of the fight (`slotAppearAt`) and brings its lever label; this scene
     // keeps the old rule (after the goals only) — the label of the goblin has its own tests below.
-    rt.params.slotAppearAt = 0;
+    if (!early) rt.params.slotAppearAt = 0;
     rt.clear(false);
-  });
+  }, earlyGoblin);
 }
 const DIRECTIONS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const movingNull = (page: Page) => expect.poll(async () => (await snap(page)).moving, { timeout: 10_000 }).toBeNull();
@@ -155,6 +159,33 @@ async function pullLever(page: Page): Promise<void> {
   await page.mouse.up();
   await untilFrame(page, (snap, was: number) => snap.slot.goblin && snap.slot.goblin.pulls > was ? true : undefined, g.pulls, 10);
 }
+
+test('task 7, the run\'s own rule (`slotAppearAt` on): the goblin comes at 5 s of game time before the goals, «Закончи цепь здесь» at its lever, gone with the first real pull', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  await freshViewer(page, errors);
+  await startFight(page);
+  await quiet(page, true);
+  expect(await page.evaluate(() => (window as any).__realtime.params.slotAppearAt)).toBe(5);
+  // No goals: the goblin rolls at the 5th game second of the fight (the time read every frame).
+  const came = await untilFrame(page, snap => snap.slot.goblin ? { time: snap.time as number, greedStart: snap.greedStart as number | null } : undefined, null, 9);
+  expect(came, 'the goblin came').toBeDefined();
+  expect(came!.greedStart, 'before the goals').toBeNull();
+  expect(came!.time).toBeGreaterThanOrEqual(5 - 1e-6);
+  expect(came!.time).toBeLessThan(5.5);
+  // Its lever carries the label (the marker first, then the lever is a target).
+  const labels = await untilFrame(page, snap => snap.onboarding.labels.some((l: { id: string }) => l.id === 'b9') ? snap.onboarding.labels.map((l: { id: string }) => l.id) : undefined, null, 4);
+  expect(labels).toEqual(['b9']);
+  expect((await labelOf(page, 'b9'))!.text).toBe('Закончи цепь здесь');
+  expect(await shownHints(page)).toEqual({});
+  // A real chain to the lever (once its marker is over): the first pull takes the label away (memory b9).
+  await untilFrame(page, snap => snap.slot.shown.markers === 0 && snap.slot.shown.dark === 0 ? true : undefined, null, 4);
+  await pullLever(page);
+  await expect.poll(async () => (await onboarding(page)).labels, { timeout: 5_000 }).toEqual([]);
+  expect(await shownHints(page)).toEqual({ b9: 1 });
+  expect((await snap(page)).greedStart, 'still before the goals').toBeNull();
+  expect(errors).toEqual([]);
+});
 
 /** The save of «Застава» (armoured elites and the chest in the yard); the viewer's memory is NOT cleared when `keepMemory`. */
 async function enterHardBattle(page: Page, keepMemory: boolean): Promise<void> {

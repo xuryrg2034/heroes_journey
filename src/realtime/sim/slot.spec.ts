@@ -1280,6 +1280,21 @@ check('«Взрыв по площади»: a chain into the lever plans what the
   assert(!old.world.blasts.length && !slotEvents(ev, 'lit').length, 'off: nothing lit');
 });
 
+check('«Взрыв по площади»: the risky line and the idol\'s caption say «в круге» — «взрыв 55 % · −4 HP в круге · иначе тройка»; without the key the old words', () => {
+  for (const area of [true, false]) {
+    const sim = field(areaParams({ slotBustArea: area }), 6), w = sim.world;
+    summon(sim); waitReady(sim);
+    const L = lever(sim), dir = inward(w, L);
+    sim.command({ t: 'teleport', x: L.x + dir.x * 1.2, y: L.y + dir.y * 1.2 });
+    sim.command({ t: 'begin', x: L.x, y: L.y });
+    const odds = slotPlanOdds(w)!, risk = bustOdds(w)!;
+    const tail = area ? ' в круге' : '';
+    assert(odds.bust && JSON.stringify(odds.bust) === JSON.stringify(risk), `the plan reads the pull's numbers: ${JSON.stringify(odds.bust)}`);
+    assert(slotOddsText(odds) === `взрыв 55 % · −4 HP${tail} · иначе тройка`, `area ${area}: the line «${slotOddsText(odds)}»`);
+    assert(bustText(risk) === `взрыв 55 % · −4 HP${tail}`, `area ${area}: the caption «${bustText(risk)}»`);
+  }
+});
+
 check('«Гоблин раньше» in a run battle: the goblin at 5 s of the fight before the goals, once; goals earlier — at goals + 3 s; the spot varies by seed; no roll without the kit or with the key at 0', () => {
   const p = rtRunParams(quiet());
   const appearAt = (sim: Simulation, limit: number, before?: (t: number) => void): number | null => {

@@ -17,8 +17,8 @@ export interface SlotPlanOdds {
   volley: number;
   /** The lever is the chain's last link already (false — it can be taken next). */
   onLever: boolean;
-  /** «Перебор»: this pull is risky — its bust chance and damage (the skulls do not act); absent — a safe pull. */
-  bust?: { chance: number; damage: number };
+  /** «Перебор»: this pull is risky — its bust chance and damage (the skulls do not act; `area` — «Взрыв по площади»); absent — a safe pull. */
+  bust?: { chance: number; damage: number; area?: true };
 }
 
 /** The odds line of the drawn chain now; null — no chain, no goblin, or the chain can neither end on the lever nor take it. */
@@ -38,12 +38,18 @@ export function slotPlanOdds(world: World, plan: ChainPlan = planChain(world)): 
   return { links, skulls: odds.skulls, rain: odds.rain, volley: odds.volley, onLever };
 }
 
-/** «Перебор»: «взрыв 55 % · −4 HP» (the idol's caption; the odds line adds «· иначе тройка»). */
-export function bustText(bust: { chance: number; damage: number }): string {
-  return `взрыв ${Math.round(bust.chance * 100)} % · −${bust.damage} HP`;
+/**
+ * «Перебор»: «взрыв 55 % · −4 HP» (the idol's caption; the odds line adds «· иначе тройка»). «Взрыв по площади» (`area`,
+ * design 13.10.2026): «взрыв 55 % · −4 HP в круге» — the damage only in the blast's circle.
+ */
+export function bustText(bust: { chance: number; damage: number; area?: boolean }): string {
+  return `взрыв ${Math.round(bust.chance * 100)} % · −${bust.damage} HP${bust.area ? ' в круге' : ''}`;
 }
 
-/** The line as the player reads it: «дождь 3,7 % · залп 22,2 %»; a risky pull — «взрыв 55 % · −4 HP · иначе тройка». */
+/**
+ * The line as the player reads it: «дождь 3,7 % · залп 22,2 %»; a risky pull — «взрыв 55 % · −4 HP · иначе тройка» («… −4 HP в
+ * круге · иначе тройка» with «Взрыв по площади»).
+ */
 export function slotOddsText(odds: Pick<SlotPlanOdds, 'rain' | 'volley' | 'bust'>): string {
   if (odds.bust) return `${bustText(odds.bust)} · иначе тройка`;
   const pct = (v: number): string => `${(Math.round(v * 1000) / 10).toFixed(1).replace('.', ',')} %`;
