@@ -31,7 +31,7 @@ import { replay, Simulation } from '../sim/simulation';
 import { arenaCandidates, arenaNewKinds, ARENA_POOLS, ARENA_POOLS_BEFORE_MIX, ordinaryArenaChoices, runArenaPools, arenaTitle, FINAL_ARENA, HARD_ARENA, metKinds, NEW_KINDS, OWN_ARENAS, runRow, RUN_ARENAS } from './arenaPools';
 import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
-import {
+import { RT_TASK17_OFF,
   arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtHammerOptions, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
@@ -123,7 +123,7 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       else {
         // Design answer 1 to step 4: the pool of the row, or the own arena of a kind not met yet (even outside its rows).
         const before = walk.arenas;
-        assert(nodeArenas(node.type === 'event' ? { ...node, type: 'battle' } : node, before, !!run.rosterMix).includes(pending.arena), `${node.id}: arena ${pending.arena} not a choice of run row ${runRow(node.row)}`);
+        assert(nodeArenas(node.type === 'event' ? { ...node, type: 'battle' } : node, before, !!run.rosterMix, !!run.gentleEntry).includes(pending.arena), `${node.id}: arena ${pending.arena} not a choice of run row ${runRow(node.row)}`);
         if (arenaCandidates(runRow(node.row)).includes(pending.arena)) walk.rowArenas.push([runRow(node.row), pending.arena]);
         else {
           const kinds = arenaNewKinds(pending.arena), met = metKinds(before);
@@ -270,7 +270,7 @@ check('the map is the turn-based generator\'s map of the run seed; the run start
 });
 
 check('the start gift: its usual buttons (consumables, energy, resources, maximum HP, a talisman for a price, an oath); «тихий лес» off', () => {
-  const mini = createRtRun(SEEDS[1], { gift: 'mini' });
+  const mini = createRtRun(SEEDS[1], { gift: 'mini', ...RT_TASK17_OFF });
   const view = rtGiftView(mini)!;
   assert(view.options.map(entry => `${entry.option.kind}:${entry.available}`).join() === 'items:true,max-hp:true', `mini gift: ${view.options.map(entry => entry.option.kind)}`);
   assert(rtAvailableNodes(mini).length === 0, 'the gift waits before the row-5 nodes');
@@ -294,7 +294,7 @@ check('the start gift: its usual buttons (consumables, energy, resources, maximu
       const chosen = ok(rtChooseGift(run, pickEntry.index), 'pick button'), open = rtGiftView(chosen)!;
       assert(chosen.pending?.kind === 'gift' && open.picks.length === 3 && same(roundTrip(chosen), chosen), 'the own choice is open and loads back');
       const done = ok(rtChooseGiftPick(chosen, open.picks[2]), 'pick');
-      assert(done.pending === null && done.items[open.picks[2] as ItemKind] === 1, 'the picked consumable is in hand');
+      assert(done.pending === null && done.items[open.picks[2] as ItemKind] === chosen.items[open.picks[2] as ItemKind] + 1, 'the picked consumable is in hand');
     }
     const energy = full.options.find(entry => entry.option.kind === 'energy');
     if (energy) assert(ok(rtChooseGift(run, energy.index), 'energy').energy === 2, 'energy banked for the first arena');
@@ -393,9 +393,11 @@ check('different seeds give different arena sequences', () => {
   const sequences = new Set(walks.map(walk => walk.arenas.join(',')));
   console.log(`   ${[...sequences].slice(0, 4).join(' | ')}`);
   assert(sequences.size >= SEEDS.length / 2, `arena sequences: ${sequences.size} of ${SEEDS.length}`);
-  // The first battle of a run (row 5 → run row 1): Поляна or Двор кнопок, as the pools say.
+  // The first battle of a run (row 5 → run row 1): a new run (task 17 Е1) — Поляна only; a run before it — Поляна or Двор кнопок.
   const firsts = new Set(walks.map(walk => walk.arenas[0]));
-  assert([...firsts].every(arena => arenaCandidates(1).includes(arena)) && firsts.size === 2, `first arenas: ${[...firsts].join(', ')}`);
+  assert([...firsts].every(arena => arenaCandidates(1, runArenaPools(true, true)).includes(arena)) && firsts.size === 1, `first arenas: ${[...firsts].join(', ')}`);
+  const oldFirsts = new Set(SEEDS.map(seed => { const gifted = takeGift(createRtRun(seed, { gift: 'mini', ...RT_TASK17_OFF })), run = ok(rtEnterNode(gifted, rtAvailableNodes(gifted)[0].id), 'enter'); return (run.pending as { arena: string }).arena; }));
+  assert([...oldFirsts].every(arena => arenaCandidates(1).includes(arena)) && oldFirsts.size === 2, `first arenas of old runs: ${[...oldFirsts].join(', ')}`);
   const seeds = new Set(walks.map(walk => arenaSeed(walk.run, walk.run.visited.find(id => rtNode(walk.run, id)!.row === 5)!)));
   assert(seeds.size === walks.length, 'arena seeds differ between runs');
 });
@@ -432,10 +434,11 @@ interface PathArena { row: number; type: string; arena: string }
 /**
  * The arenas a run meets in order, its arena outcomes faked as victories (the run's commands only, no simulation): the
  * first button of every screen, the next node by `(k + step)`. For counting what a player meets first. `mix` — the run's
- * roster mix (11.10.2026; off — the choice of arenas before it, the measure of c8df2d4).
+ * roster mix (11.10.2026; off — the choice of arenas before it, the measure of c8df2d4); `gentle` — the gentle entry (task 17;
+ * off — the pools before it, the reference measures below).
  */
-function arenaPath(seed: number, k: number, mix: boolean): { path: PathArena[]; previews: number } {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix });
+function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { path: PathArena[]; previews: number } {
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF });
   const path: PathArena[] = [];
   let previews = 0;
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -848,7 +851,7 @@ check('merchant: consumables of the open kinds (one open — the other slot clos
   const view = rtShopView(visit)!, closed = view.goods.find(good => good.opens)!;
   assert(closed && closed.price === 3, 'the closed one is on sale for 3');
   const bought = ok(rtShopBuy(visit, closed.id), 'buy');
-  assert(bought.items[closed.item!] === 1 && bought.openItems.includes(closed.item!) && !rtShopView(bought)!.goods.find(good => good.id === closed.id)!.available, 'bought: in hand, open, sold');
+  assert(bought.items[closed.item!] === visit.items[closed.item!] + 1 && bought.openItems.includes(closed.item!) && !rtShopView(bought)!.goods.find(good => good.id === closed.id)!.available, 'bought: in hand, open, sold');
   assert(same(roundTrip(bought), bought), 'the visit with a purchase loads back');
   // None open: no consumables on sale.
   assert(shopStock(streamValue(one.seed, 'merchant', draw), [], GIFT_POOL).items.length === 0, 'none open — none sold');
@@ -903,11 +906,11 @@ check('events: a consumable outcome joins the run and opens; energy is banked fo
   }
 });
 
-check('elites in the run: random ones from run row 3; the loot of an elite picked up on the arena comes into the run', () => {
+check('elites in the run: random ones from run row 3 (a run without the gentle entry, task 17); the loot of an elite picked up on the arena comes into the run', () => {
   // Every battle of the walks: the arena of run rows 1–2 has no random elites, from row 3 it has.
   let low = 0, high = 0;
   for (const walk of walks.slice(0, 3)) {
-    let run = takeGift(createRtRun(walk.run.seed, { gift: 'mini' }));
+    let run = takeGift(createRtRun(walk.run.seed, { gift: 'mini', ...RT_TASK17_OFF }));
     for (let step = 0; step < 6; step++) {
       run = nextArena(run);
       const pending = run.pending as Extract<RtRunState['pending'], { kind: 'battle' }>, row = runRow(rtNode(run, pending.nodeId)!.row);

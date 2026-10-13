@@ -30,7 +30,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapSign, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -278,6 +278,12 @@ interface RunMeta {
   hints?: string[];
   /** Consumables gained / used / left (absent — no step seen yet). */
   items?: RunItems;
+  /** Task 17: the run's gentle entry, its start consumables (seen at `runStarted`) and its second wind (absent — none). */
+  gentle?: true;
+  startPotion?: true;
+  secondWindOn?: true;
+  startItems?: Record<string, number>;
+  secondWind?: RunSecondWind;
 }
 
 /** Where a fight is: a run node or the sandbox. */
@@ -630,7 +636,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -645,6 +651,12 @@ export class RtRecorder {
         this.writeRun(previous);
       }
       this.meta = this.freshMeta(run);
+      // Task 17: the run's flag and what it starts with in hand (the gentle entry's potion).
+      const start = Object.fromEntries(ITEM_KINDS.filter(kind => run.items[kind] > 0).map(kind => [kind, run.items[kind]]));
+      if (run.gentleEntry) this.meta.gentle = true;
+      if (run.startPotion) this.meta.startPotion = true;
+      if (run.secondWind) this.meta.secondWindOn = true;
+      if (Object.keys(start).length) this.meta.startItems = start;
       this.saveMeta();
       this.writeRun(run);
     });
@@ -692,6 +704,10 @@ export class RtRecorder {
         } else if (ev.type === 'die-resolved') {
           const die = [...meta.dice ?? []].reverse().find(d => d.nodeId === ev.nodeId && d.rolled === null);
           if (die) Object.assign(die, { rolled: ev.rolled, mult: ev.mult, resources: ev.resources.length, base: ev.base });
+        } else if (ev.type === 'second-wind') {
+          // Task 17: the run's second wind — the node's visit (its row) and the fight recorded there.
+          const visit = [...meta.nodes].reverse().find(v => v.nodeId === ev.nodeId), node = rtNode(after, ev.nodeId);
+          meta.secondWind = { nodeId: ev.nodeId, row: visit?.row ?? (node ? runRow(node.row) : 0), fight: visit?.fight ?? null };
         } else if (ev.type === 'run-won' || ev.type === 'run-lost') {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).

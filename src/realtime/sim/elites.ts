@@ -369,6 +369,9 @@ export function eliteRoll(world: World, kind: EnemyKind): boolean {
   const def = enemyKind(kind);
   if (!def.chainable || def.immune) return false;
   const kit = world.kit, p = world.params, guarantee = !!kit?.guaranteedElite && !!p.eliteArmor;
+  // Task 17 Е2 (`Params.eliteMetKinds`, `Kit.eliteKinds`): only these kinds become elites — no draw is spent, the guarantee and
+  // the event's start elite wait for the first newcomer of an allowed kind.
+  if (p.eliteMetKinds && kit?.eliteKinds && !kit.eliteKinds.includes(kind)) return false;
   // The event modifier «бой со случайной элитой» (design answer 3): the first newcomer of the arena is a random elite.
   if (kit?.startElite) {
     kit.startElite = false;
@@ -444,6 +447,19 @@ export function rollLoot(world: World, elite: Enemy['elite']): ItemKind | Resour
  */
 export function armorLoot(world: World, clean: boolean): (ItemKind | ResourceKind)[] {
   const rng = world.rng.stream('loot');
+  // Task 17 «Пологий вход» (`Kit.lootOpens`: a run whose only open kind is its start healing): the first loot opens a kind not
+  // open yet — by the `loot` stream among the closed ones — and drops it (×2 for a clean break), as the first loot of a run with
+  // none open does. Once a fight; the kit without it plays the rule below.
+  const kit0 = world.kit;
+  if (world.params.eliteLootOpens && kit0?.lootOpens) {
+    delete kit0.lootOpens;
+    const closed = SLOT_ITEMS.filter(kind => !kit0.openItems.includes(kind));
+    if (closed.length) {
+      const kind = closed[Math.floor(rng.next() * closed.length)];
+      kit0.openItems.push(kind);
+      return Array.from({ length: clean ? CLEAN_BREAK_LOOT : 1 }, () => kind);
+    }
+  }
   if (world.params.eliteLootOpens && !(world.kit?.openItems.length)) {
     const kit = world.kit ??= emptyKit();
     kit.openItems.push(SLOT_ITEMS[Math.floor(rng.next() * SLOT_ITEMS.length)]);

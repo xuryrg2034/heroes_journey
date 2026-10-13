@@ -89,13 +89,13 @@ export interface FightPlan {
  * The finished world read as main.ts `recordRunArena` reads it (П10: `bestChain`; П5: the fight's `luck`, none — absent;
  * П6: the killing blow of a lost fight, none — absent). Except `bag` (task 14): ahead of main.ts until the ui step lands.
  */
-export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}, death: RtDeath | null = null): RtArenaOutcome {
+export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}, death: RtDeath | null = null, kinds?: string[]): RtArenaOutcome {
   const pending = run.pending;
   assert(pending?.kind === 'battle', 'an open battle');
   return { nodeId: pending.nodeId, won: w.status === 'victory', hp: w.status === 'victory' ? Math.min(run.maxHp, w.hero.hp) : 0, kills: w.stats.kills, bestChain: w.stats.bestChain,
-    ...Object.keys(luck).length ? { luck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {},
+    ...Object.keys(luck).length ? { luck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {},
     ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...bagPayout(w) ? { bag: bagPayout(w)! } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
-    ...w.status === 'defeat' && death ? { death } : {} };
+    ...w.status === 'defeat' && death ? { death } : {}, ...kinds ? { kinds } : {} };
 }
 
 /** The open battle of `run` played on the quiet field by `plan`; it replays from its journal to the same hash. */
@@ -128,7 +128,7 @@ export function playFight(run: RtRunState, plan: FightPlan): { sim: Simulation; 
     assert(sim.world.status === 'victory', `the hero walked into the door (${sim.world.status})`);
   }
   assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), 'the fight replays from its journal');
-  return { sim, outcome: outcomeOf(run, sim.world, luck, watch.death), events };
+  return { sim, outcome: outcomeOf(run, sim.world, luck, watch.death, watch.kinds(sim.world)), events };
 }
 
 /** «Однорукий гоблин» by the debug command (journalled; the run's params have the slot on) near the hero. */

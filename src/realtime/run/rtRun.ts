@@ -33,10 +33,10 @@ import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
-import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
-import { runParams, type Params } from '../sim/params';
+import { defaultParams, runParams, type Params } from '../sim/params';
 import { doorPayout, GREED_MULTS, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
@@ -85,6 +85,11 @@ import { validDeath, type RtDeath } from './rtRunEnd';
  * Task 12 «Отмеченные — атаман или орда» (the same version, design 13.10.2026): the run's flag `markedGoals`, set at its
  * creation; its arenas play the goal layouts (`Params.markedGoals`, `rtArenaParams`). A save without it keeps the old layouts
  * to its end; the choice of arenas and rosters is the same either way.
+ * Task 17 «Пологий вход» (the same version, design 13.10.2026): three flags of the run, each set at its creation and each
+ * switching on its own system (design 13.10.2026: a later «difficulty budget» may unlock them at different times) —
+ * `gentleEntry` (the row tables, the pools, the row's grace and tough touch), `startPotion` (the start potion, the heal kind
+ * open, the first loot opening another kind), `secondWind` (the run's second wind; `secondWindSpent` once it stood the hero
+ * up). A save without them plays the old rules to its end; all are optional, so every version 7 save loads as before.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -138,6 +143,8 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   cursedChest: true,
   // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.
   eliteLootOpens: true,
+  // Task 17 Е2 (design 13.10.2026): the first elite row of a gentle run gives the kinds an elite may be (`Loadout.eliteKinds`).
+  eliteMetKinds: true,
   // B7 К9 «Игорный круг гоблинов» (design 12.10.2026): a run-layer key, read by `rtEnterNode` through the run view.
   goblinCircle: true,
   // Design 12.10.2026: a queued spawn group stays together (spawn.ts `placeQueued`).
@@ -160,11 +167,66 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 /**
  * The values an arena of `run` plays with: `params` (the run's, `rtRunParams`) with `markedGoals` of the run's own flag — a run
- * saved before 13.10.2026 (no flag) keeps the old layouts of its `marked` arenas to its end.
+ * saved before 13.10.2026 (no flag) keeps the old layouts of its `marked` arenas to its end. Task 17: a run with `gentleEntry`
+ * plays the row's invulnerability after a hit (`rtRowGrace`) and no raised tough touch before row 3. `run` — the run itself
+ * (its open battle decides the row) or its rules (`rtArenaRules`, as the run view passes them).
  */
-export function rtArenaParams(run: Pick<RtRunState, 'markedGoals'>, params: Params): Params {
-  return { ...params, markedGoals: !!run.markedGoals };
+export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): Params {
+  const rules: RtArenaRules = 'map' in run ? rtArenaRules(run) : run, out = { ...params, markedGoals: !!rules.markedGoals };
+  // Task 17 «Пологий вход»: the row's invulnerability after a hit and the tough touch from row 3 (`rtRowGrace`).
+  if (rules.gentleRow !== undefined) {
+    out.invulnerability = rtRowGrace(rules.gentleRow);
+    if (rules.gentleRow < RT_GENTLE_TOUGH_TOUCH_ROW) out.toughTouch = false;
+  }
+  return out;
 }
+/**
+ * Task 17: what of the run decides the params of its open battle (`rtArenaParams`): the flag `markedGoals` and, for a run
+ * with `gentleEntry`, the run row of the open battle node (`gentleRow`; absent — an older run, or no battle open).
+ */
+export interface RtArenaRules { markedGoals?: true; gentleRow?: number }
+export function rtArenaRules(run: RtRunState): RtArenaRules {
+  const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...run.gentleEntry && node ? { gentleRow: runRow(node.row) } : {} };
+}
+/**
+ * Hygiene of task 17 (design answer 1, 13.10.2026): the values the page plays with — the sandbox its saved panel (`panel`),
+ * the run (and its prologue) the defaults with the run's own numbers (`rtRunParams`). The sandbox panel changes only the
+ * sandbox; the run is tuned only by `RT_RUN_FORCED` (and by the row: `rtArenaLoadout`, `rtArenaParams`).
+ */
+export function rtPageParams(sandbox: boolean, panel: () => Params): Params { return sandbox ? panel() : rtRunParams(defaultParams()); }
+
+// ---------- Task 17 «Пологий вход» (design 13.10.2026; docs/realtime-slice.md, section 7) ----------
+
+/**
+ * A new run takes the gentle entry and keeps the flag in its state (`RtRunState.gentleEntry`); a save without the flag plays
+ * the old tables to its end. Not a `Params` key: the simulation never reads it — the run passes the row's numbers in the
+ * loadout and the params. The start potion (`RT_START_POTION_ON`, `RtRunState.startPotion`) and the run's second wind
+ * (`RT_SECOND_WIND_ON`, `RtRunState.secondWind`) are flags of their own (design 13.10.2026): each switches only its own system
+ * and defaults to its own constant (`createRtRun`).
+ */
+export const RT_GENTLE_ENTRY = true;
+export const RT_START_POTION_ON = true;
+export const RT_SECOND_WIND_ON = true;
+/** The `createRtRun` options of a run as before task 17 (none of the three flags) — tests, bots, the old reference measures. */
+export const RT_TASK17_OFF = Object.freeze({ gentleEntry: false, startPotion: false, secondWind: false } as const);
+/**
+ * Task 17 Е2 (design 13.10.2026): the kinds with an elite behaviour (sim/eliteBehaviors.ts) — the first elite row of a gentle
+ * run makes its elite of one of them the run met on the rows before it (`rtEliteKinds`); none met — basic.
+ */
+export const RT_FIRST_ELITE_KINDS: readonly string[] = ['basic', 'wolf', 'boar'];
+/** The run plays the gentle entry's tables, pools and row numbers (its flag `gentleEntry`). */
+export const rtGentle = (run: Pick<RtRunState, 'gentleEntry'> | null | undefined): boolean => !!run?.gentleEntry;
+/** Баланс (task 17, P2): seconds of invulnerability after a hit by the run row — 1.0 / 1.0 / 0.8 / 0.65 on rows 1–4, then 0.5. */
+export const RT_GENTLE_GRACE: readonly number[] = [1, 1, 0.8, 0.65];
+export const RT_GRACE_AFTER = 0.5;
+export const rtRowGrace = (row: number): number => (row >= 1 && row <= RT_GENTLE_GRACE.length ? RT_GENTLE_GRACE[row - 1] : RT_GRACE_AFTER);
+/** Баланс (task 17, P2): the raised touch of the tough and elites (`Params.toughTouch`) from this run row. */
+export const RT_GENTLE_TOUGH_TOUCH_ROW = 3;
+/** Баланс (task 17, P4): the run's second wind acts on run rows 1 … this (once a run). */
+export const RT_SECOND_WIND_LAST_ROW = 4;
+/** Баланс (task 17, P3): a new run starts with this many healing potions; the kind is open. */
+export const RT_START_POTIONS = 1;
 
 /**
  * What kind of arena a battle node plays: an ordinary battle (the pool of its row), a hard battle («Застава»), the final
@@ -283,6 +345,28 @@ export interface RtRunState {
    * absent — a run saved before 13.10.2026 (or created without it): the old layouts, to its end (`rtArenaParams`).
    */
   markedGoals?: true;
+  /**
+   * Task 17 «Пологий вход» (design 13.10.2026): random and guaranteed elites from run row 4, an affix, 3 plates and tough HP 3
+   * from row 6, «Колючие заросли» on rows 7–8, the row's invulnerability after a hit and the tough touch from row 3
+   * (`rtArenaParams`). Set when the run is created; absent — a run saved before it (or created without it): the old tables, to
+   * its end. The start potion and the second wind are flags of their own (`startPotion`, `secondWind`).
+   */
+  gentleEntry?: true;
+  /**
+   * Task 17 (its own flag, design 13.10.2026): the run started with a healing potion, the heal kind open; while only healing is
+   * open, the first armoured elite loot of a fight opens another kind (`Loadout.lootOpens`). Absent — the old start and loot.
+   */
+  startPotion?: true;
+  /** Task 17 (its own flag): the run's second wind — once a run, on rows 1–4 (`Loadout.secondWind`). Absent — none. */
+  secondWind?: true;
+  /** Task 17: the run's second wind stood the hero up (rows 1–4, once a run). Absent — not yet (or a run without `secondWind`). */
+  secondWindSpent?: true;
+  /**
+   * Task 17 (review 13.10.2026): the enemy kinds the hero actually fought — every kind that stood on the arena in a fight of
+   * this run (`RtArenaOutcome.kinds`, the view's `RtDeathWatch.kinds`), sorted. Kept only by a run with `gentleEntry` (Е2, the
+   * final); absent — none yet, or a run without the flag (its save stays byte for byte as before).
+   */
+  metKinds?: string[];
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -380,6 +464,8 @@ export type RtRunEvent =
   | { type: 'hammer-offered'; nodeId: string; options: HammerId[] }
   | { type: 'hammer-taken'; id: HammerId }
   | { type: 'ward-crumbled'; nodeId: string }
+  /** Task 17 «Пологий вход»: the run's second wind stood the hero up on the arena of this node (once a run). */
+  | { type: 'second-wind'; nodeId: string }
   | { type: 'event-offered'; nodeId: string }
   | { type: 'event-attempt'; nodeId: string; option: string; attempt: number; outcome: number; text: string }
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
@@ -436,6 +522,10 @@ export interface RtArenaOutcome {
   bag?: Partial<Record<ResourceKind, number>>;
   /** Step 3: «Пепельный оберег» saved the hero on this arena (it crumbles for the run). */
   wardUsed?: boolean;
+  /** Task 17: the run's second wind stood the hero up on this arena (`world.secondWind` is there) — spent for the run. */
+  secondWind?: boolean;
+  /** Task 17: the kinds of every enemy that stood on the arena in this fight (`RtDeathWatch.kinds`); absent — not read. */
+  kinds?: string[];
   /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
   itemsUsed?: number;
   itemHint?: boolean;
@@ -458,15 +548,21 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
+  // Task 17 «Пологий вход» (13.10.2026): on unless the option says (false — the old tables, as a save before it plays).
+  const gentle = options.gentleEntry ?? RT_GENTLE_ENTRY;
+  // Its own flags (design 13.10.2026): each defaults to its own constant, independent of the others.
+  const potion = options.startPotion ?? RT_START_POTION_ON, wind = options.secondWind ?? RT_SECOND_WIND_ON;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
+  // Task 17, P3: a healing potion in hand, its kind open (the prologue's «Зелье» taught it); no draw of any stream.
+  if (potion) { run.items.healing = RT_START_POTIONS; run.openItems.push('healing'); }
   if (options.gift) {
     // The gift of the turn-based run, rolled the same way (nothing is taken yet: the slice's starting talisman pool).
     run.gift = rollGift(run.seed, options.gift, GIFT_POOL);
@@ -509,18 +605,39 @@ export function rtFindOptions(run: Pick<RtRunState, 'seed'>, nodeId: string): It
 }
 /** Баланс: random elites come from this run row on (design answer 08.10.2026, docs/realtime-slice.md, section 7). */
 export const RT_RANDOM_ELITE_ROW = 3;
-/** Баланс (phase A, T4, docs/realtime-phase-a.md, section 2): affixes of each elite by the run row — 1–4: 0, 5–8: 1, 9: 2. */
-export const rtEliteAffixes = (row: number): number => (row >= 9 ? 2 : row >= 5 ? 1 : 0);
+/** Баланс (task 17 «Пологий вход», P1): random and guaranteed elites of a run with `gentleEntry` from this run row. */
+export const RT_GENTLE_ELITE_ROW = 4;
+/**
+ * Баланс (task 17, P1; final design decision 13.10.2026 — one novelty per row: elites 4, the armour step 6, the porcupine 7,
+ * two affixes 9): the row from which a run with `gentleEntry` plays 1 affix, 3 plates and tough HP 3 (was 5).
+ */
+export const RT_GENTLE_STEP_ROW = 6;
+/** Random elites come on run row `row` (`gentle` — a run with `gentleEntry`: from row 4, else from row 3). */
+export const rtRandomElites = (row: number, gentle = false): boolean => row >= (gentle ? RT_GENTLE_ELITE_ROW : RT_RANDOM_ELITE_ROW);
+/**
+ * Баланс (phase A, T4, docs/realtime-phase-a.md, section 2): affixes of each elite by the run row — 1–4: 0, 5–8: 1, 9: 2.
+ * Task 17 (`gentle`): 1–5: 0, 6–8: 1, 9: 2.
+ */
+export const rtEliteAffixes = (row: number, gentle = false): number => (row >= 9 ? 2 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 1 : 0);
 /**
  * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2; the turn-based palette, decision 30.09.2026): colours
  * of the newcomers by the run row — 1–2: 2, 3–4: 3, from 5: 4. Acts only with the panel toggle `colorsByRow`.
  */
 export const rtColorsByRow = (row: number): number => (row <= 2 ? 2 : row <= 4 ? 3 : 4);
-/** Баланс (package «Урон имеет значение», 4.3): plates of an armoured elite by the run row — 1–4: 2, 5–8: 3, 9–10: 4. */
-export const rtElitePlates = (row: number): number => (row >= 9 ? 4 : row >= 5 ? 3 : 2);
-/** Баланс (the package, item 2): the top of the tough HP table by the run row — 1–4: 2 (as before), 5–8: 3, 9+: 4. */
-export const rtToughHp = (row: number): number => (row >= 9 ? 4 : row >= 5 ? 3 : 2);
-/** Баланс (the package, 4.3 «Редкость»): one guaranteed elite in an ordinary battle (not «Застава», not the final) from this run row. */
+/**
+ * Баланс (package «Урон имеет значение», 4.3): plates of an armoured elite by the run row — 1–4: 2, 5–8: 3, 9–10: 4. Task 17
+ * (`gentle`): 1–5: 2, 6–8: 3, 9–10: 4.
+ */
+export const rtElitePlates = (row: number, gentle = false): number => (row >= 9 ? 4 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 3 : 2);
+/**
+ * Баланс (the package, item 2): the top of the tough HP table by the run row — 1–4: 2 (as before), 5–8: 3, 9+: 4. Task 17
+ * (`gentle`): 1–5: 2, 6–8: 3, 9+: 4.
+ */
+export const rtToughHp = (row: number, gentle = false): number => (row >= 9 ? 4 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 3 : 2);
+/**
+ * Баланс (the package, 4.3 «Редкость»): one guaranteed elite in an ordinary battle (not «Застава», not the final) from this run
+ * row; a run with `gentleEntry` — from `RT_GENTLE_ELITE_ROW` (task 17).
+ */
 export const RT_GUARANTEED_ELITE_ROW = 3;
 /**
  * Баланс (casino stage 1, «Однорукий гоблин», 8.3): the goblin may come in battles from this run row (not the Jailer, not
@@ -545,18 +662,28 @@ export interface RtLoadoutOptions {
  */
 export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}): Loadout {
   const pending = run.pending, node = pending && 'nodeId' in pending && pending.nodeId ? rtNode(run, pending.nodeId) : undefined;
+  // Task 17 «Пологий вход»: the run's flag picks the row tables (absent — the old ones).
+  const gentle = rtGentle(run), row = node ? runRow(node.row) : 0;
   // Phase B, 5а (decision 10.10.2026): oaths add no energy at the start of an arena any more — the banked energy, up to 7.
   return {
     items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy), openItems: [...run.openItems],
-    randomElites: !!node && runRow(node.row) >= RT_RANDOM_ELITE_ROW,
-    ...node && rtEliteAffixes(runRow(node.row)) > 0 ? { eliteAffixes: rtEliteAffixes(runRow(node.row)) } : {},
+    randomElites: !!node && rtRandomElites(row, gentle),
+    ...node && rtEliteAffixes(row, gentle) > 0 ? { eliteAffixes: rtEliteAffixes(row, gentle) } : {},
     // Loop research, step 1: fewer colours on run rows 1–4 (row 5 on — 4, the loadout as before).
-    ...options.colorsByRow && node && rtColorsByRow(runRow(node.row)) < 4 ? { colors: rtColorsByRow(runRow(node.row)) } : {},
+    ...options.colorsByRow && node && rtColorsByRow(row) < 4 ? { colors: rtColorsByRow(row) } : {},
     // Package «Урон имеет значение»: the row's numbers (they act with the run's `eliteArmor`; the tough table always).
-    ...node ? { elitePlates: rtElitePlates(runRow(node.row)) } : {},
-    ...node && rtToughHp(runRow(node.row)) > 2 ? { toughHp: rtToughHp(runRow(node.row)) } : {},
+    ...node ? { elitePlates: rtElitePlates(row, gentle) } : {},
+    ...node && rtToughHp(row, gentle) > 2 ? { toughHp: rtToughHp(row, gentle) } : {},
     // Design answer 11.10.2026: not on the Jailer's node (a boss fight; the focus is on him) — the breakthrough keeps it.
-    ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle) ? { guaranteedElite: true } : {},
+    ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle, gentle) ? { guaranteedElite: true } : {},
+    // Task 17, P4: the run's second wind waits on rows 1–4 until it is spent (once a run; sim/world.ts `hurtHero`).
+    ...run.secondWind && !run.secondWindSpent && node && pending?.kind === 'battle' && row <= RT_SECOND_WIND_LAST_ROW ? { secondWind: true } : {},
+    // Task 17 (design 13.10.2026): the final of a gentle run that has not met the porcupine plays without it.
+    ...gentle && pending?.kind === 'battle' && pending.battle === 'final' && !rtMetKinds(run).has('porcupine') ? { withoutKinds: ['porcupine'] } : {},
+    // Task 17 Е2: the first elite row of a gentle run — the elite only of a kind met before it (`Params.eliteMetKinds`).
+    ...gentle && node && pending?.kind === 'battle' && row === RT_GENTLE_ELITE_ROW ? { eliteKinds: rtEliteKinds(run) } : {},
+    // Task 17, P3: while only the start's healing is open, the first elite loot opens another kind (sim/elites.ts `armorLoot`).
+    ...run.startPotion && run.openItems.length && run.openItems.every(item => item === 'healing') ? { lootOpens: true } : {},
     // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row `RT_SLOT_ROW` may get the goblin — not the Jailer's, not a boss's.
     ...node && pending?.kind === 'battle' && node.type !== 'checkpoint' && node.type !== 'boss' && runRow(node.row) >= RT_SLOT_ROW ? { slot: true } : {},
     // Task 14 «Котомка у двери»: no bag before run row `RT_BAG_ROW`, in the Jailer's fight and the final one (the other fights by `Params.doorBag`).
@@ -576,11 +703,28 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
 }
 
 /**
- * The package (4.3 «Редкость»): the battle of `node` played as `battle` brings one guaranteed elite — an ordinary battle or
- * an event's reward battle from run row 3, not the Jailer's (design answer 11.10.2026; the breakthrough keeps it).
+ * Task 17 Е2: the kinds the elites of the first elite row may be — those of `RT_FIRST_ELITE_KINDS` the hero fought in the run
+ * so far (`rtMetKinds`: the fights before this one, i.e. rows 1–3); none — basic.
  */
-export function rtGuaranteedElite(node: Pick<ForestMapNode, 'type' | 'row'>, battle: RtBattleKind): boolean {
-  return (battle === 'battle' || battle === 'event') && node.type !== 'checkpoint' && runRow(node.row) >= RT_GUARANTEED_ELITE_ROW;
+export function rtEliteKinds(run: Pick<RtRunState, 'metKinds'>): string[] {
+  const met = rtMetKinds(run);
+  const kinds = RT_FIRST_ELITE_KINDS.filter(kind => met.has(kind));
+  return kinds.length ? kinds : ['basic'];
+}
+/**
+ * Task 17 (review 13.10.2026): the kinds the hero actually fought in this run — every kind that stood on an arena of a fight
+ * already fed back (`RtRunState.metKinds`); not what a template could bring (a post-goal phase never reached, a marker that
+ * never stepped out). Empty for a run without `gentleEntry`.
+ */
+export const rtMetKinds = (run: Pick<RtRunState, 'metKinds'>): Set<string> => new Set(run.metKinds ?? []);
+
+/**
+ * The package (4.3 «Редкость»): the battle of `node` played as `battle` brings one guaranteed elite — an ordinary battle or
+ * an event's reward battle from run row 3, not the Jailer's (design answer 11.10.2026; the breakthrough keeps it). Task 17:
+ * `gentle` (a run with `gentleEntry`) — from run row 4.
+ */
+export function rtGuaranteedElite(node: Pick<ForestMapNode, 'type' | 'row'>, battle: RtBattleKind, gentle = false): boolean {
+  return (battle === 'battle' || battle === 'event') && node.type !== 'checkpoint' && runRow(node.row) >= (gentle ? RT_GENTLE_ELITE_ROW : RT_GUARANTEED_ELITE_ROW);
 }
 
 // ---------- The oath stake (casino stage 1, item 2; docs/realtime-casino.md, «Ставка клятвы») ----------
@@ -609,13 +753,14 @@ export const RT_OATH_IDS_BEFORE: readonly OathId[] = ['chains3', 'no-jump', 'cle
 /**
  * The two oaths of the draw `n` of the run's oath stream for `node`: «Элита в окне» only where the battle brings its
  * guaranteed elite (`rtGuaranteedElite`). Pure: the seed, the draw and the node decide it. `ids` — the offer list
- * (`RT_OATH_IDS`; `RT_OATH_IDS_BEFORE` checks an older save).
+ * (`RT_OATH_IDS`; `RT_OATH_IDS_BEFORE` checks an older save); `gentle` — the run's gentle entry (task 17: the guaranteed elite
+ * from row 4).
  */
-export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, ids: readonly OathId[] = RT_OATH_IDS): OathId[] {
+export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, ids: readonly OathId[] = RT_OATH_IDS, gentle = false): OathId[] {
   // Design answer 11.10.2026: the node's id is mixed in — every node offers its own pair (the path decides the stake); the
   // run's counter `n` still moves on each entered node, so a reload never re-rolls.
   const base = mixSeed(mixSeed(forestNodeSeed(seed >>> 0, node.id), OATH_SALT), n);
-  const left = ids.filter(id => id !== 'elite-window' || rtGuaranteedElite(node, battleKindOf(node))), options: OathId[] = [];
+  const left = ids.filter(id => id !== 'elite-window' || rtGuaranteedElite(node, battleKindOf(node), gentle)), options: OathId[] = [];
   for (let k = 0; k < RT_OATH_OFFER_SIZE && left.length; k++) options.push(left.splice(mixSeed(base, k) % left.length, 1)[0]);
   return options;
 }
@@ -625,7 +770,7 @@ export function rtOathOffer(seed: number, n: number, node: Pick<ForestMapNode, '
  */
 export function rtOathPreview(run: RtRunState, node: ForestMapNode, stake?: boolean): OathId[] | null {
   if (!rtOathStakeOn(stake) || !rtOathNode(node) || run.picks.some(pick => pick.nodeId === node.id) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return null;
-  return rtOathOffer(run.seed, run.oathDraws, node);
+  return rtOathOffer(run.seed, run.oathDraws, node, RT_OATH_IDS, rtGentle(run));
 }
 /** The oath's card text: «Без прыжков — Ни одного прыжка.» */
 export const rtOathText = (id: OathId): string => `${oathDef(id).name} — ${oathDef(id).rule}`;
@@ -826,14 +971,17 @@ export function arenaPreview(run: RtRunState, node: ForestMapNode): RtArenaPick 
  * first on its own arena» (`ordinaryArenaChoices`, design answers 1 and 2 to step 4). `mix` — the run's roster mix
  * (`RtRunState.rosterMix`): the pools `ARENA_POOLS`, else those before 11.10.2026 (`ARENA_POOLS_BEFORE_MIX`).
  */
-export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = [], mix = false): string[] {
+export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = [], mix = false, gentle = false): string[] {
   if (node.type === 'hard') return [HARD_ARENA];
   if (node.type === 'boss') return [FINAL_ARENA];
-  return ordinaryArenaChoices(runRow(node.row), history, runArenaPools(mix));
+  return ordinaryArenaChoices(runRow(node.row), history, runArenaPools(mix, gentle), gentle ? GENTLE_FIRST_MEETING_LAST_ROW : Infinity);
 }
-/** The arena of a node by draw `roll` of the pool stream after `history` (a save is checked with it too); `mix` — the run's roster mix. */
-function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number, mix: boolean): string {
-  return pickArena(nodeArenas(node, history, mix), history, roll);
+/**
+ * The arena of a node by draw `roll` of the pool stream after `history` (a save is checked with it too); `mix` — the run's
+ * roster mix, `gentle` — its gentle entry (task 17: «Колючие заросли» on rows 7–8).
+ */
+function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number, mix: boolean, gentle = false): string {
+  return pickArena(nodeArenas(node, history, mix, gentle), history, roll);
 }
 /** The battle kind a node plays (an event node plays its reward battle). */
 const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : node.type === 'event' ? 'event' : 'battle';
@@ -844,7 +992,7 @@ const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.t
  */
 function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtArenaPick {
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
-  const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll, !!run.rosterMix);
+  const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll, !!run.rosterMix, rtGentle(run));
   const roster = chooseRoster(run, node, arena, history, run.picks.flatMap(pick => pick.roster !== undefined ? [pick.roster] : []));
   return { arena, ...roster !== undefined ? { roster } : {} };
 }
@@ -922,7 +1070,7 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
   if (isArenaNode(node)) {
     startArena(run, node, battleKindOf(node), events);
     if (rtOathNode(node) && run.pending?.kind === 'battle') {
-      const options = rtOathOffer(run.seed, run.oathDraws, node);
+      const options = rtOathOffer(run.seed, run.oathDraws, node, RT_OATH_IDS, rtGentle(run));
       run.oathDraws++;
       if (!stake) return { ok: true, run, events };
       run.pending.oathOffer = options;
@@ -1003,6 +1151,13 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   if ((Number(outcome.itemsUsed) || 0) > 0) run.itemUsed = true;
   // Step 3: «Пепельный оберег» saved the hero on this arena (also on an arena lost afterwards): it crumbles.
   if (outcome.wardUsed && run.talismans.includes('ash-ward') && !run.wardSpent) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: pending.nodeId }); }
+  // Task 17, P4: the run's second wind stood the hero up on this arena (also on one lost afterwards) — spent for the run.
+  // Task 17 (review 13.10.2026): a gentle run keeps the kinds the hero fought here (also on an arena lost afterwards).
+  if (rtGentle(run) && Array.isArray(outcome.kinds)) {
+    const kinds = new Set([...run.metKinds ?? [], ...outcome.kinds.filter((kind): kind is string => typeof kind === 'string' && kind.length > 0)]);
+    if (kinds.size) run.metKinds = [...kinds].sort();
+  }
+  if (outcome.secondWind && run.secondWind && !run.secondWindSpent) { run.secondWindSpent = true; events.push({ type: 'second-wind', nodeId: pending.nodeId }); }
   if (!outcome.won) {
     run.pending = null; run.result = { outcome: 'defeat', nodeId: pending.nodeId };
     events.push({ type: 'run-lost', nodeId: pending.nodeId }); return { ok: true, run, events };
@@ -1851,6 +2006,12 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.rosterMix !== undefined && value.rosterMix !== true) return null;
   // Task 12 (13.10.2026): a flag; absent — a save before it, whose `marked` arenas keep the old layouts.
   if (value.markedGoals !== undefined && value.markedGoals !== true) return null;
+  // Task 17 (13.10.2026): three flags; absent — a save before it, which plays the old rules. `secondWindSpent` needs `secondWind`.
+  if (value.gentleEntry !== undefined && value.gentleEntry !== true) return null;
+  if (value.startPotion !== undefined && value.startPotion !== true) return null;
+  if (value.secondWind !== undefined && value.secondWind !== true) return null;
+  if (value.metKinds !== undefined && !(value.gentleEntry === true && Array.isArray(value.metKinds) && value.metKinds.length && value.metKinds.every(kind => typeof kind === 'string' && kind.length > 0) && new Set(value.metKinds).size === value.metKinds.length)) return null;
+  if (value.secondWindSpent !== undefined && (value.secondWindSpent !== true || value.secondWind !== true || !Array.isArray(value.battles) || !value.battles.length)) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;
   const run = value as unknown as RtRunState;
@@ -1909,7 +2070,7 @@ function checkRun(value: unknown): RtRunState | null {
     if (pick.arena === undefined) continue;
     const node = map.node(pick.nodeId)!;
     if (!isArenaNode(node) && !(node.type === 'event' && pick.eventId && battleOption(forestEvent(pick.eventId)!))) return null;
-    if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length), !!run.rosterMix)) return null;
+    if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length), !!run.rosterMix, rtGentle(run))) return null;
     if (pick.roster !== chooseRoster(run, node, pick.arena, history, rosters)) return null;
     history.push(pick.arena);
     if (pick.roster !== undefined) rosters.push(pick.roster);
@@ -1962,7 +2123,7 @@ function checkRun(value: unknown): RtRunState | null {
       // or a battle entered before version 7); the oath taken is one of it.
       if (pending.oathOffer !== undefined) {
         // The draw of the current list, or of the list before 12.10.2026 (an older save's open battle with «Без прыжков»).
-        const offered = JSON.stringify(pending.oathOffer), draw = (ids: readonly OathId[]) => JSON.stringify(rtOathOffer(run.seed, run.oathDraws - 1, node, ids));
+        const offered = JSON.stringify(pending.oathOffer), draw = (ids: readonly OathId[]) => JSON.stringify(rtOathOffer(run.seed, run.oathDraws - 1, node, ids, rtGentle(run)));
         if (!rtOathNode(node) || !(run.oathDraws >= 1) || (offered !== draw(RT_OATH_IDS) && offered !== draw(RT_OATH_IDS_BEFORE))) return null;
       }
       if (pending.oath !== undefined && !(isOathId(pending.oath) && Array.isArray(pending.oathOffer) && pending.oathOffer.includes(pending.oath))) return null;
