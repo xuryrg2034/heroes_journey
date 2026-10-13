@@ -151,7 +151,9 @@ check('without the key, and with it where the circle never stands, a run saves b
 check('the 8 whole runs of the reroll fixture (real fights, code of 7ae55fc, re-recorded at the calibration and at task 5 of 12.10.2026): byte for byte without the key; with it, those the circle never meets too', () => {
   const fnv = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0; return h.toString(16).padStart(8, '0'); };
   const walkSaves = (k: number, circle: boolean): string[] => {
-    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
+    // Task 12 (13.10.2026): the fixture's saves predate the run flag `markedGoals` (it adds one field to every save; the fights
+    // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
+    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false }));
     const saves = [serializeRtRun(run)];
     for (let step = 0; step < 160 && !run.result; step++) {
       const p = run.pending;

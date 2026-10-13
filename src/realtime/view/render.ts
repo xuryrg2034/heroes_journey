@@ -14,6 +14,7 @@ import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, colorShiftIds, colorShiftLeft, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain, type ChainPlan } from '../sim/chain';
+import { enemyArtScale } from '../sim/enemies/kinds';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
@@ -35,6 +36,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
+import { hordeGroup } from './hordeView';
 import { planPowerNumber } from './powerNumber';
 import { SLOT_BUST_SOURCE } from '../sim/slot';
 import { dashCheque } from '../sim/purse';
@@ -850,7 +852,14 @@ export class RealtimeRenderer {
       body.addChild(plaque);
     }
     let hpLabel: Text | null = null;
-    if (e.hp > 0) {
+    if (e.hp > 0 && e.leader) {
+      // Task 12: the leader's HP — the number a chain must beat: the HP badge's place (top right, clear of the face), half as large
+      // again, a gold rim and a bright number.
+      const badge = new Graphics().circle(r * 0.85, -r * 0.8, r * 0.56).fill(0x233039).stroke({ color: NAVY, width: 5 }).circle(r * 0.85, -r * 0.8, r * 0.56).stroke({ color: TARGET, width: 3 });
+      hpLabel = new Text({ text: String(e.hp), style: { fontFamily: 'Georgia, serif', fontSize: 28, fontWeight: 'bold', fill: 0xfff2c4 } });
+      hpLabel.anchor.set(0.5); hpLabel.position.set(r * 0.85, -r * 0.8);
+      body.addChild(badge, hpLabel);
+    } else if (e.hp > 0) {
       const badge = new Graphics().circle(r * 0.72, -r * 0.72, r * 0.36).fill(0x233039).stroke({ color: PALE, width: 2 });
       hpLabel = new Text({ text: String(e.hp), style: { fontFamily: 'Georgia, serif', fontSize: 17, fontWeight: 'bold', fill: PALE } });
       hpLabel.anchor.set(0.5); hpLabel.position.set(r * 0.72, -r * 0.72);
@@ -893,8 +902,8 @@ export class RealtimeRenderer {
       }
       view.root.position.set((e.x + ox) * UNIT, (e.y + oy) * UNIT);
       const pop = Math.min(1, 0.35 + e.age / 0.2 * 0.65);
-      // Stage 2, step 3: an elite is drawn larger (its body stays).
-      view.root.scale.set(scale * pop * (e.elite ? world.params.eliteArtScale : 1));
+      // Stage 2, step 3: an elite is drawn larger (its body stays); task 12 — a leader too (`enemyArtScale`, the sim's own scale).
+      view.root.scale.set(scale * pop * enemyArtScale(world.params, e));
       view.root.zIndex = e.y;
       // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).
       view.root.visible = this.sees(e, 1.5);
@@ -1219,7 +1228,7 @@ export class RealtimeRenderer {
       if (!role && !affixes.length) continue;
       const alpha = color !== null && e.color !== color ? 1 - strength : 1;
       // Under an elite: below its larger drawing and its gold rim.
-      const y = e.y * UNIT + r * 1.25 * (e.elite ? p.eliteArtScale : 1) + (e.elite ? plate * 0.6 : 0);
+      const y = e.y * UNIT + r * 1.25 * enemyArtScale(p, e) + (e.elite ? plate * 0.6 : 0);
       const texts = affixes.map(id => { const t = this.affixText(labels++); t.text = AFFIX_SHORT[id]; t.style.fill = AFFIX_INK[id]; t.scale.set(px / 2); return t; });
       const widths = [...(role ? [plate * 2] : []), ...texts.map(t => t.width + plate * 0.9)];
       let x = e.x * UNIT - (widths.reduce((a, b) => a + b, 0) + gap * (widths.length - 1)) / 2;
@@ -1359,7 +1368,7 @@ export class RealtimeRenderer {
     for (let i = this.captions.length - 1; i >= 0; i--) {
       const c = this.captions[i], e = byId.get(c.id);
       if (!e || this.clock >= c.until) { c.box.destroy({ children: true }); this.captions.splice(i, 1); continue; }
-      const R = (e.elite ? enemyDrawRadius(world.params) * UNIT * world.params.eliteArtScale * 1.06 : enemyDrawRadius(world.params) * UNIT), lift = e.elite ? (e.armor ? 30 : 8) + 26 : 8;
+      const R = enemyDrawRadius(world.params) * UNIT * (e.elite || e.leader ? enemyArtScale(world.params, e) * 1.06 : 1), lift = e.elite ? (e.armor ? 30 : 8) + 26 : 8;
       c.box.visible = this.sees(e, 1.5);
       c.box.scale.set(px);
       // The same under the HUD rule as the elite's plaque: under the elite, the plaque first and the captions after it.
@@ -1441,20 +1450,48 @@ export class RealtimeRenderer {
     if (segments) this.playerEffects.cutFrames++;
   }
 
-  /** Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. */
+  /** Task 12: what the marked view drew in the last frame — the horde ring (its members), the reticles, the leaders' crowns (tests read it). */
+  readonly markedShown = { hordeRing: false, hordeMembers: 0, reticles: 0, crowns: 0 };
+
+  /**
+   * Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. Task 12 (design 13.10.2026): on an
+   * arena whose goal layout is a horde (`world.arena.horde`), the marked bodies that stand close together now (`hordeGroup`:
+   * HORDE_MIN+, found from where they stand — the horde moves as it chases) share one slowly turning ring of dashes and keep only
+   * their stars; a straggler keeps its reticle. A leader (`leader`) wears a gold crown over its head (its art scale, the sim's).
+   */
   private drawTargets(world: World): void {
-    const g = this.targetLayer.clear(), r = enemyDrawRadius(world.params) * UNIT;
+    const g = this.targetLayer.clear(), r = enemyDrawRadius(world.params) * UNIT, shown = this.markedShown;
+    shown.hordeRing = false; shown.hordeMembers = 0; shown.reticles = 0; shown.crowns = 0;
+    const horde = world.arena.horde ? hordeGroup(world.enemies.filter(e => e.marked).map(e => ({ id: e.id, x: e.x, y: e.y }))) : null;
+    if (horde) {
+      shown.hordeRing = true; shown.hordeMembers = horde.members.size;
+      const x = horde.x * UNIT, y = horde.y * UNIT, R = horde.radius * UNIT + r * 1.6, dashes = Math.max(12, Math.round(R / 14)), a0 = this.clock * 0.5;
+      g.circle(x, y, R).fill({ color: TARGET, alpha: 0.07 }).stroke({ color: THREAT_OUTLINE, width: 7, alpha: 0.5 });
+      for (let i = 0; i < dashes; i++) {
+        const a = a0 + i * 2 * Math.PI / dashes;
+        g.moveTo(x + Math.cos(a) * R, y + Math.sin(a) * R).arc(x, y, R, a, a + Math.PI / dashes).stroke({ color: TARGET, width: 4, cap: 'round' });
+      }
+    }
     for (const e of world.enemies) {
       if (!e.marked) continue;
-      const x = e.x * UNIT, y = e.y * UNIT, R = r * 1.35, a0 = this.clock * 1.6;
+      const x = e.x * UNIT, y = e.y * UNIT, R = r * 1.35 * enemyArtScale(world.params, e), a0 = this.clock * 1.6;
+      const sx = x + r * 0.78, sy = y + r * 0.82, pts: number[] = [];
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.16 : r * 0.36; pts.push(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr); }
+      if (e.leader) {
+        // The crown sits on top of the reticle (clear of the body and of the ring's ticks): three gold points, navy outline.
+        const w = r * 0.75, cy = y - R - w * 0.1;
+        g.poly([x - w, cy, x - w, cy - w * 0.9, x - w * 0.45, cy - w * 0.45, x, cy - w * 1.15, x + w * 0.45, cy - w * 0.45, x + w, cy - w * 0.9, x + w, cy])
+          .fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 3, join: 'round' });
+        shown.crowns++;
+      }
+      if (horde?.members.has(e.id)) { g.poly(pts).fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 2 }); continue; }
+      shown.reticles++;
       g.circle(x, y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.6 }).circle(x, y, R).stroke({ color: TARGET, width: 3 });
       for (let i = 0; i < 4; i++) {
         const a = a0 + i * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
         g.moveTo(x + c * R * 0.82, y + s * R * 0.82).lineTo(x + c * R * 1.25, y + s * R * 1.25);
       }
       g.stroke({ color: TARGET, width: 4, cap: 'round' });
-      const sx = x + r * 0.78, sy = y + r * 0.82, pts: number[] = [];
-      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.16 : r * 0.36; pts.push(sx + Math.cos(a) * rr, sy + Math.sin(a) * rr); }
       g.poly(pts).fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 2 });
     }
   }
@@ -2202,7 +2239,7 @@ export class RealtimeRenderer {
       const x = pt.x * UNIT, y = pt.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75;
       if (lp.outcome.plate) {
         // An armoured elite link: a plate hit, not a kill and not a survivor — a lemon ring and «−1 пластина»; the chain goes on.
-        const R = linked?.elite ? r * p.eliteArtScale * 1.06 : r, bx = x - R * 0.7, by = y - R * 0.75, s = r * 0.2;
+        const R = linked && (linked.elite || linked.leader) ? r * enemyArtScale(p, linked) * 1.06 : r, bx = x - R * 0.7, by = y - R * 0.75, s = r * 0.2;
         g.circle(x, y, R + 4).stroke({ color: ELITE_LEMON, width: 4 });
         g.circle(bx, by, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
         g.roundRect(bx - s * 0.8, by - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
@@ -2249,7 +2286,7 @@ export class RealtimeRenderer {
 
   /** Task 10: the small rainbow mark under the link that freed the colour (the ring has moved on to the chain's end). */
   private drawRainbowMark(g: Graphics, world: World, e: Enemy): void {
-    const p = world.params, R = enemyDrawRadius(p) * UNIT * (e.elite ? p.eliteArtScale * 1.06 : 1);
+    const p = world.params, R = enemyDrawRadius(p) * UNIT * (e.elite || e.leader ? enemyArtScale(p, e) * 1.06 : 1);
     const x = e.x * UNIT, y = e.y * UNIT + R + 11, r = 9;
     const colors = CHAIN_COLORS.slice(0, Math.max(2, Math.min(CHAIN_COLORS.length, p.colorCount))), part = (Math.PI * 2) / colors.length;
     g.circle(x, y, r).fill({ color: NAVY, alpha: 0.85 });
@@ -2263,7 +2300,7 @@ export class RealtimeRenderer {
   /** «Смена цвета»: a rainbow ring round `e` — arcs of the arena's chain colours over a navy rim, turning slowly. */
   private drawRainbow(g: Graphics, world: World, e: Enemy): void {
     const p = world.params, x = e.x * UNIT, y = e.y * UNIT;
-    const R = enemyDrawRadius(p) * UNIT * (e.elite ? p.eliteArtScale * 1.06 : 1) + 10;
+    const R = enemyDrawRadius(p) * UNIT * (e.elite || e.leader ? enemyArtScale(p, e) * 1.06 : 1) + 10;
     const colors = CHAIN_COLORS.slice(0, Math.max(2, Math.min(CHAIN_COLORS.length, p.colorCount)));
     g.circle(x, y, R).stroke({ color: NAVY, width: 12, alpha: 0.8 });
     const turn = this.clock * 1.6, part = (Math.PI * 2) / colors.length;
@@ -2303,7 +2340,7 @@ export class RealtimeRenderer {
       const x = e.x * UNIT, y = e.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75, o = body.outcome;
       shown.marks++;
       if (o.plate) {
-        const R = e.elite ? r * p.eliteArtScale * 1.06 : r, bx = x - R * 0.7, by = y - R * 0.75, s = r * 0.2;
+        const R = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, bx = x - R * 0.7, by = y - R * 0.75, s = r * 0.2;
         g.circle(x, y, R + 4).stroke({ color: ELITE_LEMON, width: 4 });
         g.circle(bx, by, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
         g.roundRect(bx - s * 0.8, by - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);

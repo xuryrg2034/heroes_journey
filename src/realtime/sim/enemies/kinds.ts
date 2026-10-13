@@ -135,9 +135,17 @@ export function bodyRadiusOf(params: Params, enemy: Enemy): number { return enem
 /** Drawn radius of an enemy of `kind` — the edge the link radius R reaches with «R до края тела» (prototype stage G). */
 export function artRadiusOf(params: Params, kind: string): number { return enemyDrawRadius(params) * enemyKind(kind).artScale; }
 
-/** Drawn radius of this enemy: its kind's, × `eliteArtScale` for an elite (stage 2, step 3: the body stays). */
+/**
+ * The art scale of this enemy: `eliteArtScale` for an elite and (task 12, design 13.10.2026) for a leader of a goal layout
+ * (`Enemy.leader`), else 1. The reach edge and the press circle go through `enemyArtRadius`; the view draws by it too (render.ts).
+ */
+export function enemyArtScale(params: Params, enemy: Pick<Enemy, 'elite' | 'leader'>): number {
+  return enemy.elite || enemy.leader ? params.eliteArtScale : 1;
+}
+
+/** Drawn radius of this enemy: its kind's, × `enemyArtScale` for an elite or a leader (stage 2, step 3: the body stays). */
 export function enemyArtRadius(params: Params, enemy: Enemy): number {
-  return artRadiusOf(params, enemy.kind) * (enemy.elite ? params.eliteArtScale : 1);
+  return artRadiusOf(params, enemy.kind) * enemyArtScale(params, enemy);
 }
 
 /** The common walk only: no own step. */

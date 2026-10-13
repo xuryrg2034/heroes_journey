@@ -183,7 +183,9 @@ check('saves: a save written before B6 at the «Застава» choice complete
  * with the chest without taking it.
  */
 function walkSaves(k: number, chestField = true, events = true): string[] {
-  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
+  // Task 12 (13.10.2026): the fixture's saves predate the run flag `markedGoals` (it adds one field to every save; the fights
+  // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
+  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false }));
   const saves = [serializeRtRun(run)];
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;

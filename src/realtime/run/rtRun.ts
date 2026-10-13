@@ -82,6 +82,9 @@ import { validDeath, type RtDeath } from './rtRunEnd';
  * stands; a save before it (or a run that never met one) has none and plays on as before.
  * П6 «Незакрытое дело» (the same version, 12.10.2026): the lost battle record may carry `death` (the killing blow); a save
  * before it has none (its end screen shows no killer line).
+ * Task 12 «Отмеченные — вожак или орда» (the same version, design 13.10.2026): the run's flag `markedGoals`, set at its
+ * creation; its arenas play the goal layouts (`Params.markedGoals`, `rtArenaParams`). A save without it keeps the old layouts
+ * to its end; the choice of arenas and rosters is the same either way.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -98,6 +101,8 @@ export const RT_RUN_VERSION_V6 = 6;
  * `purse`), the oath stake (`oathStake`: `rtEnterNode` offers no oaths, `rtOathPreview` shows none) and the die at the door
  * (`doorDie`) are off in the run; their code and the sandbox stay. Before it they were on (a save's open die screen or
  * chosen oath still loads: `parseRtRun`).
+ * Task 12 (design 13.10.2026, `markedGoals`) is on in the same way: a new run keeps it (`RtRunState.markedGoals`), an arena of a run
+ * without the flag plays it off (`rtArenaParams`).
  * The roster mix (design decision 11.10.2026, `rosterMix`) is on: a new run keeps it in its state (`RtRunState.rosterMix`,
  * `createRtRun`), the arena and roster choices read it there; the simulation never reads it. П4 «Раздув за дела»
  * (`greedByDeeds`, design 11.10.2026) and П3 «Финальная цепь» (`doorFinale`, design 12.10.2026) stay on but act only with the
@@ -109,6 +114,9 @@ export const RT_RUN_VERSION_V6 = 6;
  * 60) — kept for the cauldron's return; the run has no cauldron since task 5.
  */
 export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal: RT_ITEM_HEAL, eliteArmor: true, toughTouch: true, toughHpMax: 2, eliteBehaviors: true, slot: true, purseRate: 120, greedByDeeds: true, doorFinale: true, rosterMix: true,
+  // Task 12 «Отмеченные — вожак или орда» (design 13.10.2026): a new run takes the goal layouts and keeps the flag in its state
+  // (`RtRunState.markedGoals`); an arena of a run without it plays the old layouts (`rtArenaParams`).
+  markedGoals: true,
   // П11 (design 11.10.2026): the run always plays the slot by the rule — a 1.2 s spin; the sandbox panel is free.
   // «Перебор» (design 12.10.2026, playtest v34): 6 pulls (3 safe, then the bust roll), 5 s apart (6 × 8 s was too long after
   // the goals).
@@ -147,6 +155,13 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   colorShiftKeep: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
+/**
+ * The values an arena of `run` plays with: `params` (the run's, `rtRunParams`) with `markedGoals` of the run's own flag — a run
+ * saved before 13.10.2026 (no flag) keeps the old layouts of its `marked` arenas to its end.
+ */
+export function rtArenaParams(run: Pick<RtRunState, 'markedGoals'>, params: Params): Params {
+  return { ...params, markedGoals: !!run.markedGoals };
+}
 
 /**
  * What kind of arena a battle node plays: an ordinary battle (the pool of its row), a hard battle («Застава»), the final
@@ -259,6 +274,12 @@ export interface RtRunState {
    * with. Absent — a run saved before 11.10.2026 (or created without the mix): the pools and rosters as before, to its end.
    */
   rosterMix?: true;
+  /**
+   * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026, `Params.markedGoals`): the run's `marked` arenas play their goal
+   * layouts (a horde or one leader, sim/arenas.ts `markedGoal`). Set when the run is created and kept for the whole run;
+   * absent — a run saved before 13.10.2026 (or created without it): the old layouts, to its end (`rtArenaParams`).
+   */
+  markedGoals?: true;
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -429,10 +450,12 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
+  // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
+  const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1809,6 +1832,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.seeded !== undefined && value.seeded !== true) return null;
   // The roster mix (11.10.2026): a flag; absent — a save before it, whose arenas and rosters are chosen again by the old rule.
   if (value.rosterMix !== undefined && value.rosterMix !== true) return null;
+  // Task 12 (13.10.2026): a flag; absent — a save before it, whose `marked` arenas keep the old layouts.
+  if (value.markedGoals !== undefined && value.markedGoals !== true) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;
   const run = value as unknown as RtRunState;
