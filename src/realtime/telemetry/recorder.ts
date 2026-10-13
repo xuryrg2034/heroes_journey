@@ -713,6 +713,9 @@ export class RtRecorder {
         } else if (ev.type === 'map-healed') {
           // Task 15 «Лечение на карте»: the row, the price, HP before and after.
           (meta.mapHeals ??= []).push({ row: ev.row, price: ev.price, hpBefore: ev.hpBefore, hpAfter: ev.hpAfter });
+          // On a battle card (design correction 14.10.2026) the heal is before the node's fight: its HP in is what the fight starts with.
+          const visit = meta.nodes[meta.nodes.length - 1];
+          if (before?.pending?.kind === 'battle' && visit?.nodeId === ev.nodeId) visit.hpIn = ev.hpAfter;
         } else if (ev.type === 'run-won' || ev.type === 'run-lost') {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).

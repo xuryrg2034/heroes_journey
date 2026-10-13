@@ -363,8 +363,8 @@ export interface RtRunState {
   /** Task 17 (its own flag): the run's second wind — once a run, on rows 1–4 (`Loadout.secondWind`). Absent — none. */
   secondWind?: true;
   /**
-   * Task 15 «Лечение на карте» (design 14.10.2026; `healOffer`, `healOnMap`): between fights the run map sells +2 HP for
-   * resources. Set when the run is created (`RT_HEAL_MAP_ON`); absent — a run saved before it (or created without it): no map
+   * Task 15 «Лечение на карте» (design 14.10.2026; `healOffer`, `healOnMap`): on the run map and on a battle card before
+   * «В бой» the run sells +2 HP for resources. Set when the run is created (`RT_HEAL_MAP_ON`); absent — a run saved before it (or created without it): no map
    * heal, to its end.
    */
   healMap?: true;
@@ -482,8 +482,8 @@ export type RtRunEvent =
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
   | { type: 'shop-bought'; nodeId: string; purchase: RtShopPurchase }
   /**
-   * Task 15 «Лечение на карте»: a map heal bought for `price` resources (`paid` by kind), HP `hpBefore` → `hpAfter`; `row` — the
-   * run row of the last completed node (0 — none yet), `nodeId` — that node (null — none yet).
+   * Task 15 «Лечение на карте»: a heal bought for `price` resources (`paid` by kind), HP `hpBefore` → `hpAfter`; `nodeId` — the
+   * battle card's node when bought there, else the last completed node (null — none yet); `row` — its run row (0 — none).
    */
   | { type: 'map-healed'; nodeId: string | null; row: number; price: number; paid: Record<ResourceKind, number>; hpBefore: number; hpAfter: number }
   | { type: 'gift-chosen'; index: number | null }
@@ -1643,42 +1643,64 @@ export const RT_HEAL_MAP_PRICE = 2;
  * The map heal now. `gain` — HP it gives (`min(RT_HEAL_MAP_GAIN, maxHp − hp)`; the price stays full when it is less);
  * `price` — resources it costs; `have` — resources in hand. Not `ok`: `full` — HP is at the maximum; `poor` — fewer resources
  * than the price (`need` − `have` short; `need` is the price); `off` — the run has no map heal (a save before 14.10.2026, its
- * flag `healMap` absent); `closed` — not between fights (a node screen is open, or the run is over). Reasons are checked in
- * that order: `off`, `closed`, `full`, `poor`.
+ * flag `healMap` absent); `closed` — not on the map nor on a battle card (`rtHealOpen`), or the run is over. Reasons are
+ * checked in that order: `off`, `closed`, `full`, `poor`.
  */
 export interface RtHealOffer { gain: number; price: number; ok: boolean; reason?: 'full' | 'poor' | 'off' | 'closed'; need?: number; have: number }
+/**
+ * Where the run screen is, as the run alone cannot tell (design correction 14.10.2026): `arenaOpen` — the battle card's fight
+ * was started («В бой» pressed: the view's `RunView.arenaOpen`) and is not fed back yet. The run's state is the same on the
+ * card and in its fight (`pending` of kind `battle` until `resolveArena`); an arena in progress is not saved, a reload shows
+ * the card again (and the fight starts again from the run's HP).
+ */
+export interface RtHealWhere { arenaOpen?: boolean }
 
 /** Resources in hand in total (the map header's one number). */
 export const rtResourceTotal = (run: Pick<RtRunState, 'materials'>): number => stockTotal(run.materials);
 
-export function healOffer(run: RtRunState): RtHealOffer {
+/**
+ * The heal is open here (design 14.10.2026, corrected the same day): on the map with no screen open, and on the battle card
+ * before «В бой» — every fight's card (a battle, «Застава», a breakthrough, the Jailer, the final, an event's reward battle):
+ * the player sees the fight and decides. Closed in the fight once started (`where.arenaOpen`), on any other screen (an event,
+ * the merchant, a rest, a find, the gift, the screens after a fight) and when the run is over.
+ */
+export function rtHealOpen(run: RtRunState, where: RtHealWhere = {}): boolean {
+  if (run.result) return false;
+  return !run.pending || (run.pending.kind === 'battle' && !where.arenaOpen);
+}
+
+export function healOffer(run: RtRunState, where: RtHealWhere = {}): RtHealOffer {
   const gain = Math.max(0, Math.min(RT_HEAL_MAP_GAIN, run.maxHp - run.hp)), price = RT_HEAL_MAP_PRICE + (run.healBought ?? 0), have = rtResourceTotal(run);
-  const reason = !run.healMap ? 'off' : run.pending || run.result ? 'closed' : gain <= 0 ? 'full' : have < price ? 'poor' : undefined;
+  const reason = !run.healMap ? 'off' : !rtHealOpen(run, where) ? 'closed' : gain <= 0 ? 'full' : have < price ? 'poor' : undefined;
   return { gain, price, ok: !reason, ...reason ? { reason } : {}, ...reason === 'poor' ? { need: price } : {}, have };
 }
 
 /**
- * The map's heal button is shown (design 14.10.2026, complexity budget): a run with the map heal, between fights, with at least
- * one resource in hand. A shown button may still be off (`healOffer`: full HP, too few resources).
+ * The heal button is shown (design 14.10.2026, complexity budget): a run with the map heal, on the map or a battle card
+ * (`rtHealOpen`), with at least one resource in hand. A shown button may still be off (`healOffer`: full HP, too few resources).
  */
-export function healVisible(run: RtRunState): boolean {
-  const reason = healOffer(run).reason;
+export function healVisible(run: RtRunState, where: RtHealWhere = {}): boolean {
+  const reason = healOffer(run, where).reason;
   return reason !== 'off' && reason !== 'closed' && rtResourceTotal(run) >= 1;
 }
 
-/** Buy the map heal: pay the price from the most numerous resources (merchant.ts, `shopPayment`), +`gain` HP. */
-export function healOnMap(current: RtRunState): RtRunStep {
-  const offer = healOffer(current);
+/**
+ * Buy the heal: pay the price from the most numerous resources (merchant.ts, `shopPayment`), +`gain` HP. Nothing else of the
+ * run changes — on a battle card its fight (arena, seed, roster, loadout) stays the same; it starts with the new HP.
+ */
+export function healOnMap(current: RtRunState, where: RtHealWhere = {}): RtRunStep {
+  const offer = healOffer(current, where);
   if (!offer.ok) {
     return fail(offer.reason === 'full' ? 'Здоровье полное' : offer.reason === 'poor' ? `Нужно ресурсов: ${offer.price}, есть ${offer.have}`
-      : offer.reason === 'off' ? 'В этом походе нет лечения на карте.' : 'Лечение — между боями, на карте.');
+      : offer.reason === 'off' ? 'В этом походе нет лечения на карте.' : 'Лечение — на карте или перед боем.');
   }
   const run = structuredClone(current), paid = shopPayment(run.materials, offer.price), hpBefore = run.hp;
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
   run.hp = Math.min(run.maxHp, run.hp + offer.gain);
   run.healBought = (run.healBought ?? 0) + 1;
-  const node = run.currentNodeId ? rtNode(run, run.currentNodeId) : undefined;
-  return { ok: true, run, events: [{ type: 'map-healed', nodeId: run.currentNodeId, row: node ? runRow(node.row) : 0, price: offer.price, paid, hpBefore, hpAfter: run.hp }] };
+  // The node of the heal: the battle card's node (the heal before its fight), else the last completed one (none — null, row 0).
+  const nodeId = run.pending?.kind === 'battle' ? run.pending.nodeId : run.currentNodeId, node = nodeId ? rtNode(run, nodeId) : undefined;
+  return { ok: true, run, events: [{ type: 'map-healed', nodeId, row: node ? runRow(node.row) : 0, price: offer.price, paid, hpBefore, hpAfter: run.hp }] };
 }
 
 // ---------- Events: the choice ----------

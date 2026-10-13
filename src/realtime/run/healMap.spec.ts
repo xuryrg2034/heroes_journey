@@ -9,23 +9,29 @@
  *   as the merchant is paid (`shopPayment`: the most numerous kinds first); a reload in the middle keeps the price step;
  * - full HP — not ok (`full`), nothing changes; too few resources — not ok (`poor`, `need`, `have`), nothing changes;
  * - the heal stops at the maximum: one HP short gives +1 and costs the full price;
- * - not between fights (a node screen open, the run over) — not ok (`closed`); the button is shown only with ≥ 1 resource;
+ * - the heal is open on the map and on every battle card before «В бой» (a battle, «Застава», a breakthrough, the Jailer, the
+ *   final, an event's reward battle — whole runs walked by the run's commands on several seeds); a heal on the card leaves
+ *   its fight as it was (arena, seed, roster, loadout, rules): the real arena played by the same commands gives the same
+ *   journal and world but the hero's HP, and the unhealed journal with the healed HP replays to the healed hash;
+ * - closed (`closed`, no button): the fight once started (`arenaOpen`), an event, the merchant, a rest, a find, the gift, the
+ *   screens after a fight, the run over; the button is shown only with ≥ 1 resource;
  * - a save before the rule (no flag `healMap`; fixture of 12.10.2026) has no map heal (`off`) and saves byte for byte as
  *   before; malformed fields are no run;
  * - telemetry: the purchases are in the run record (`mapHeals`: row, price, HP before and after), the node's HP out is left
- *   as the node left it.
+ *   as the node left it; a heal on a battle card is that node's (its row; its HP in is what the fight starts with).
  * The test sets resources or HP by hand only where it says so (a case the real walk does not reach on its own).
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import {
-  createRtRun, healOffer, healOnMap, healVisible, parseRtRun, resolveArena, rtAvailableNodes, rtEnterNode, rtNode, rtResourceTotal,
-  rtRunParams, serializeRtRun, RT_BAG_ROW, RT_HEAL_MAP_GAIN, RT_HEAL_MAP_PRICE, type RtRunState, type RtRunStep,
+  createRtRun, healOffer, healOnMap, healVisible, parseRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtArenaRules, rtAvailableNodes,
+  rtChooseEventOption, rtEnterNode, rtEventView, rtNode, rtResourceTotal, rtRunParams, serializeRtRun, RT_BAG_ROW, RT_HEAL_MAP_GAIN, RT_HEAL_MAP_PRICE, type RtRunState, type RtRunStep,
 } from './rtRun';
 import { runRow } from './arenaPools';
 import { RESOURCE_KINDS } from '../forest/resources';
 import { shopPayment } from '../forest/merchant';
 import { defaultParams } from '../sim/params';
-import type { Simulation } from '../sim/simulation';
+import { Simulation, replay } from '../sim/simulation';
+import { worldState } from '../sim/hash';
 import { createFightObserver } from '../telemetry/observe';
 import { RtRecorder, type SessionStore } from '../telemetry/recorder';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
@@ -102,8 +108,8 @@ function buy(run: RtRunState, price: number): RtRunState {
   const most = RESOURCE_KINDS.reduce((best, next) => run.materials[next] > run.materials[best] ? next : best, RESOURCE_KINDS[0]);
   assert(paid[most] >= 1, `the most numerous kind (${most}) pays first`);
   assert(after.healBought === (run.healBought ?? 0) + 1, `the count ${after.healBought}`);
-  const node = run.currentNodeId ? rtNode(run, run.currentNodeId) : undefined;
-  assert(step.events.length === 1 && same(step.events[0], { type: 'map-healed', nodeId: run.currentNodeId, row: node ? runRow(node.row) : 0, price, paid, hpBefore: run.hp, hpAfter: after.hp }), `the event ${JSON.stringify(step.events)}`);
+  const nodeId = run.pending?.kind === 'battle' ? run.pending.nodeId : run.currentNodeId, node = nodeId ? rtNode(run, nodeId) : undefined;
+  assert(step.events.length === 1 && same(step.events[0], { type: 'map-healed', nodeId, row: node ? runRow(node.row) : 0, price, paid, hpBefore: run.hp, hpAfter: after.hp }), `the event ${JSON.stringify(step.events)}`);
   const rest = (r: RtRunState) => serializeRtRun({ ...r, hp: 0, materials: { ...r.materials, dew: 0, powder: 0, resin: 0, herbs: 0 }, healBought: 0 });
   assert(rest(after) === rest(run), 'nothing else changes');
   return after;
@@ -188,18 +194,102 @@ await check('the heal stops at the maximum: one HP short gives +1 and costs the 
   }
 });
 
-await check('not between fights (a screen open, the run over): not ok (`closed`), no button', () => {
+/** The run with HP 4 below the maximum and 9 resources more (by hand: the cards are met at any HP and purse). */
+const needy = (run: RtRunState): RtRunState => ({ ...run, hp: Math.max(1, run.maxHp - 4), materials: { ...run.materials, dew: run.materials.dew + 9 } });
+const CLOSED = 'Лечение — на карте или перед боем.';
+/** Closed here: no offer, no button, a refused purchase changes nothing — also with HP short and resources in hand. */
+function closedAt(run: RtRunState, where: { arenaOpen?: boolean } = {}): void {
+  const x = needy(run), offer = healOffer(x, where);
+  assert(!offer.ok && offer.reason === 'closed' && !healVisible(x, where), `closed: ${JSON.stringify(offer)} (${x.pending?.kind ?? 'map'}${x.result ? ', over' : ''})`);
+  refused(x, CLOSED, healOnMap(x, where));
+}
+
+/**
+ * The real arena of the open battle card (as the view starts it: the run's params by the card's rules, its seed, roster,
+ * loadout and HP) played 3 s by journalled commands (a walk, a stop).
+ */
+function cardFight(run: RtRunState): Simulation {
+  const p = run.pending;
+  assert(p?.kind === 'battle', 'a battle card');
+  const sim = new Simulation({ arena: p.arena, params: rtArenaParams(rtArenaRules(run), rtRunParams(defaultParams())), seed: p.seed, record: true, loadout: rtArenaLoadout(run),
+    hero: { hp: run.hp, maxHp: run.maxHp }, ...p.roster !== undefined ? { roster: p.roster } : {} });
+  sim.command({ t: 'walk', x: 1, y: 0 });
+  for (let i = 0; i < 90; i++) { sim.tick(); sim.world.events.length = 0; }
+  sim.command({ t: 'walk', x: 0, y: 0 });
+  for (let i = 0; i < 90; i++) { sim.tick(); sim.world.events.length = 0; }
+  return sim;
+}
+const withoutHp = (sim: Simulation): string => JSON.stringify({ ...worldState(sim.world) as Record<string, unknown>, hero: { ...sim.world.hero, hp: 0 } });
+
+/** On the card: open, the button shows; a heal leaves the card's fight as it was and plays it the same but the hero's HP. */
+function cardOpen(run: RtRunState, fight: boolean): void {
+  const x = needy(run), offer = healOffer(x);
+  assert(offer.ok && offer.gain === 2 && healVisible(x), `the card: ${JSON.stringify(offer)}`);
+  closedAt(run, { arenaOpen: true });
+  const healed = buy(x, offer.price);
+  assert(same(healed.pending, x.pending) && same(rtArenaLoadout(healed), rtArenaLoadout(x)) && same(rtArenaRules(healed), rtArenaRules(x)), 'the card\'s fight is the same');
+  if (!fight) return;
+  const a = cardFight(x), b = cardFight(healed), ja = a.exportJournal()!, jb = b.exportJournal()!;
+  assert(a.world.status === 'playing' && b.world.status === 'playing' && b.world.hero.hp === a.world.hero.hp + 2, `HP in the fight: ${a.world.hero.hp} / ${b.world.hero.hp}`);
+  assert(same({ ...ja, hero: null }, { ...jb, hero: null }) && jb.hero?.hp === healed.hp && ja.hero?.hp === x.hp, 'the same journal but the hero\'s HP');
+  assert(withoutHp(a) === withoutHp(b), 'the same world but the hero\'s HP');
+  assert(replay(JSON.parse(JSON.stringify({ ...ja, hero: jb.hero }))).hash() === b.hash(), 'the unhealed journal with the healed HP replays to the healed hash');
+}
+
+await check('open on the map and on every battle card before «В бой» (battle, «Застава», breakthrough, the Jailer, the final, an event\'s battle); a heal on the card keeps its fight; closed in the started fight and on every other screen — whole runs, several seeds', () => {
+  const open = new Set<string>(), closed = new Set<string>(), fought = new Set<string>();
+  for (let k = 1; k <= 12 && !(['battle', 'hard', 'breakthrough', 'checkpoint', 'boss', 'event-battle'].every(t => open.has(t)) && k > 4); k++) {
+    let run = createRtRun(seedOf(200 + k), { gift: 'mini' });
+    closedAt(run); closed.add('gift');
+    run = takeGift(run);
+    for (let step = 0; step < 200 && !run.result; step++) {
+      const p = run.pending;
+      if (!p) {
+        // The map: open (HP short, resources in hand). Each available node: its card or its screen.
+        assert(healOffer(needy(run)).ok && healVisible(needy(run)), 'the map');
+        const next = rtAvailableNodes(run);
+        for (const node of next) {
+          const entered = ok(rtEnterNode(run, node.id), 'enter');
+          if (entered.pending?.kind === 'battle') { cardOpen(entered, !fought.has(node.type)); fought.add(node.type); open.add(node.type); continue; }
+          closedAt(entered); closed.add(entered.pending?.kind ?? 'none');
+          // An event's reward battle: its card is a battle card.
+          const fight = entered.pending?.kind === 'event' ? rtEventView(entered)!.options.find(o => o.battle && o.available) : undefined;
+          if (fight) {
+            const card = ok(rtChooseEventOption(entered, fight.id), 'event battle');
+            if (card.pending?.kind === 'battle') { cardOpen(card, !fought.has('event-battle')); fought.add('event-battle'); open.add('event-battle'); }
+          }
+        }
+        // Walk on: «Застава» first (its talisman screen after the fight), else the first node.
+        const fresh = next.find(n => n.type === 'hard') ?? next[0];
+        run = ok(rtEnterNode(run, fresh.id), 'enter');
+        continue;
+      }
+      if (p.kind === 'battle') {
+        run = ok(resolveArena(run, playFight(run, { chains: [6, 6, 6, 6], k }).outcome), 'fight');
+        // The screens after a fight (talismans, the hammer, the chest…): closed.
+        if (run.pending && run.pending.kind !== 'battle' && !run.result) { closedAt(run); closed.add(`after:${run.pending.kind}`); }
+        continue;
+      }
+      if (p.kind !== 'event' || !closed.has('event')) { closedAt(run); closed.add(p.kind); }
+      run = closeNode(run);
+    }
+    // The run over (won or lost): closed.
+    if (run.result) { closedAt(run); closed.add(`over:${run.result.outcome}`); }
+  }
+  for (const t of ['battle', 'hard', 'breakthrough', 'checkpoint', 'boss', 'event-battle']) assert(open.has(t), `a ${t} card was met (${[...open]})`);
+  for (const t of ['gift', 'event', 'shop', 'rest', 'find', 'after:talisman', 'after:hammer', 'over:victory']) assert(closed.has(t), `${t} was met closed (${[...closed]})`);
+  console.log(`   cards open: ${[...open].join(', ')}; closed: ${[...closed].join(', ')}`);
+});
+
+await check('the fight once started is closed; a lost run is closed (a real lost fight)', () => {
   let run = takeGift(createRtRun(seedOf(5), { gift: 'mini' }));
   run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter');
-  assert(run.pending?.kind === 'battle', 'a battle is open');
-  const open: RtRunState = { ...run, hp: run.maxHp - 4, materials: { ...run.materials, dew: 9 } };
-  assert(healOffer(open).reason === 'closed' && !healOffer(open).ok && !healVisible(open), `open battle: ${JSON.stringify(healOffer(open))}`);
-  refused(open, 'Лечение — между боями, на карте.');
-  // The run lost (a real lost fight): over.
+  assert(run.pending?.kind === 'battle', 'a battle card');
+  assert(healOffer(needy(run)).ok && healOffer(needy(run), { arenaOpen: false }).ok, 'the card: open');
+  closedAt(run, { arenaOpen: true });
   const lost = ok(resolveArena(run, playFight(run, { chains: [3], k: 5, lose: true }).outcome), 'lose');
-  const over: RtRunState = { ...lost, hp: 1, materials: { ...lost.materials, dew: 9 } };
-  assert(over.result?.outcome === 'defeat' && healOffer(over).reason === 'closed' && !healVisible(over), 'the run is over');
-  refused(over, 'Лечение — между боями, на карте.');
+  assert(lost.result?.outcome === 'defeat', 'the run is over');
+  closedAt({ ...lost, hp: 1 });
 });
 
 await check('a save before the rule (no flag; fixture of 12.10.2026) has no map heal (`off`) and saves byte for byte as before', () => {
@@ -267,6 +357,19 @@ await check('telemetry: the purchases are in the run record (`mapHeals`), the re
   assert(same(r.mapHeals, [{ row, price: 2, hpBefore: hp0, hpAfter: hp0 + 2 }, { row, price: 3, hpBefore: hp0 + 2, hpAfter: hp0 + 4 }]), `mapHeals ${JSON.stringify(r.mapHeals)}`);
   assert(r.nodes[r.nodes.length - 1].hpOut === hpOut && r.kit.hp === hp0 + 4, `the node's HP out stays ${hpOut}; the kit has ${r.kit.hp}`);
   assert(checkRecord({ ...r, mapHeals: [{ row, price: 0, hpBefore: 3, hpAfter: 5 }] }) === 'run mapHeals' && checkRecord({ ...r, mapHeals: {} }) === 'run mapHeals', 'malformed mapHeals are refused');
+  // On the next battle card (design correction 14.10.2026): the heal is before that node's fight — its row, and the node's HP in
+  // is what the fight starts with. Resources by hand (the price is 4 now).
+  for (let i = 0; i < 50 && run.pending?.kind !== 'battle'; i++) {
+    if (run.pending) feed({ ok: true, run: close(run), events: [] });
+    else { const next = rtAvailableNodes(run); feed(rtEnterNode(run, (next.find(n => n.type === 'battle') ?? next[0]).id)); }
+  }
+  assert(run.pending?.kind === 'battle', 'a battle card');
+  run = { ...run, hp: Math.min(run.hp, run.maxHp - 2), materials: { ...run.materials, herbs: run.materials.herbs + 4 } };
+  const card = (run.pending as { nodeId: string }).nodeId, cardRow = runRow(rtNode(run, card)!.row), hp1 = run.hp;
+  feed(healOnMap(run));
+  const r2 = await latest(), visit = r2.nodes[r2.nodes.length - 1];
+  assert(checkRecord(r2) === null && same(r2.mapHeals![2], { row: cardRow, price: 4, hpBefore: hp1, hpAfter: hp1 + 2 }), `the card's heal ${JSON.stringify(r2.mapHeals![2])}`);
+  assert(visit.nodeId === card && visit.hpIn === hp1 + 2, `the card's node: HP in ${visit.hpIn} (the fight starts with ${hp1 + 2})`);
   rec.dispose();
 });
 
