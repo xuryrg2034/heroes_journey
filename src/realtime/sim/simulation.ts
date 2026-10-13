@@ -21,7 +21,7 @@ import './arenasStage3';
 import './arenasCamera';
 // Task 6: the six rooms of the prologue «Опушка» register on import too.
 import './arenasPrologue';
-import { withRoster, type RosterArena } from './rosters';
+import { withRoster, withoutKinds, type RosterArena } from './rosters';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';
 import { hashWorld } from './hash';
@@ -96,7 +96,10 @@ export class Simulation {
 
   constructor(options: SimulationOptions) {
     const base = typeof options.arena === 'string' ? arenaTemplate(options.arena) : options.arena;
-    const arena: RosterArena = options.roster !== undefined ? withRoster(base, options.roster) : base, roster = arena.roster;
+    const rostered: RosterArena = options.roster !== undefined ? withRoster(base, options.roster) : base, roster = rostered.roster;
+    // Task 17: kinds the run takes out of this arena (`Loadout.withoutKinds`, a gentle run's final); absent — the arena as it is.
+    const gone = Array.isArray(options.loadout?.withoutKinds) ? options.loadout.withoutKinds.filter(kind => typeof kind === 'string') : [];
+    const arena: RosterArena = gone.length ? withoutKinds(rostered, gone) : rostered;
     this.seed = options.seed >>> 0;
     this.world = createWorld(arena, options.params, this.seed, options.hero, options.loadout);
     this.beforeTick = options.beforeTick;

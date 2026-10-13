@@ -655,7 +655,7 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, kinds: deathWatch.kinds(w), itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */

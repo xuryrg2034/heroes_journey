@@ -33,7 +33,7 @@ import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
-import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, playedKinds, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { defaultParams, runParams, type Params } from '../sim/params';
@@ -358,6 +358,12 @@ export interface RtRunState {
   secondWind?: true;
   /** Task 17: the run's second wind stood the hero up (rows 1–4, once a run). Absent — not yet (or a run without `secondWind`). */
   secondWindSpent?: true;
+  /**
+   * Task 17 (review 13.10.2026): the enemy kinds the hero actually fought — every kind that stood on the arena in a fight of
+   * this run (`RtArenaOutcome.kinds`, the view's `RtDeathWatch.kinds`), sorted. Kept only by a run with `gentleEntry` (Е2, the
+   * final); absent — none yet, or a run without the flag (its save stays byte for byte as before).
+   */
+  metKinds?: string[];
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -510,6 +516,8 @@ export interface RtArenaOutcome {
   wardUsed?: boolean;
   /** Task 17: the run's second wind stood the hero up on this arena (`world.secondWind` is there) — spent for the run. */
   secondWind?: boolean;
+  /** Task 17: the kinds of every enemy that stood on the arena in this fight (`RtDeathWatch.kinds`); absent — not read. */
+  kinds?: string[];
   /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
   itemsUsed?: number;
   itemHint?: boolean;
@@ -657,8 +665,10 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle, gentle) ? { guaranteedElite: true } : {},
     // Task 17, P4: the run's second wind waits on rows 1–4 until it is spent (once a run; sim/world.ts `hurtHero`).
     ...run.secondWind && !run.secondWindSpent && node && pending?.kind === 'battle' && row <= RT_SECOND_WIND_LAST_ROW ? { secondWind: true } : {},
+    // Task 17 (design 13.10.2026): the final of a gentle run that has not met the porcupine plays without it.
+    ...gentle && pending?.kind === 'battle' && pending.battle === 'final' && !rtMetKinds(run).has('porcupine') ? { withoutKinds: ['porcupine'] } : {},
     // Task 17 Е2: the first elite row of a gentle run — the elite only of a kind met before it (`Params.eliteMetKinds`).
-    ...gentle && node && pending?.kind === 'battle' && row === RT_GENTLE_ELITE_ROW ? { eliteKinds: rtEliteKinds(run, row) } : {},
+    ...gentle && node && pending?.kind === 'battle' && row === RT_GENTLE_ELITE_ROW ? { eliteKinds: rtEliteKinds(run) } : {},
     // Task 17, P3: while only the start's healing is open, the first elite loot opens another kind (sim/elites.ts `armorLoot`).
     ...run.startPotion && run.openItems.length && run.openItems.every(item => item === 'healing') ? { lootOpens: true } : {},
     // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row `RT_SLOT_ROW` may get the goblin — not the Jailer's, not a boss's.
@@ -678,18 +688,20 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
 }
 
 /**
- * Task 17 Е2: the kinds the elites of a battle on run row `row` may be — those of `RT_FIRST_ELITE_KINDS` the run met in the
- * arenas it entered on the rows before (`playedKinds`: template, phases, roster); none — basic. Pure: the picks decide it.
+ * Task 17 Е2: the kinds the elites of the first elite row may be — those of `RT_FIRST_ELITE_KINDS` the hero fought in the run
+ * so far (`rtMetKinds`: the fights before this one, i.e. rows 1–3); none — basic.
  */
-export function rtEliteKinds(run: Pick<RtRunState, 'picks' | 'map'>, row: number): string[] {
-  const met = new Set<string>();
-  for (const pick of run.picks) {
-    const node = rtNode(run, pick.nodeId);
-    if (pick.arena && node && runRow(node.row) < row) for (const kind of playedKinds(pick.arena, pick.roster)) met.add(kind);
-  }
+export function rtEliteKinds(run: Pick<RtRunState, 'metKinds'>): string[] {
+  const met = rtMetKinds(run);
   const kinds = RT_FIRST_ELITE_KINDS.filter(kind => met.has(kind));
   return kinds.length ? kinds : ['basic'];
 }
+/**
+ * Task 17 (review 13.10.2026): the kinds the hero actually fought in this run — every kind that stood on an arena of a fight
+ * already fed back (`RtRunState.metKinds`); not what a template could bring (a post-goal phase never reached, a marker that
+ * never stepped out). Empty for a run without `gentleEntry`.
+ */
+export const rtMetKinds = (run: Pick<RtRunState, 'metKinds'>): Set<string> => new Set(run.metKinds ?? []);
 
 /**
  * The package (4.3 «Редкость»): the battle of `node` played as `battle` brings one guaranteed elite — an ordinary battle or
@@ -1125,6 +1137,11 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   // Step 3: «Пепельный оберег» saved the hero on this arena (also on an arena lost afterwards): it crumbles.
   if (outcome.wardUsed && run.talismans.includes('ash-ward') && !run.wardSpent) { run.wardSpent = true; events.push({ type: 'ward-crumbled', nodeId: pending.nodeId }); }
   // Task 17, P4: the run's second wind stood the hero up on this arena (also on one lost afterwards) — spent for the run.
+  // Task 17 (review 13.10.2026): a gentle run keeps the kinds the hero fought here (also on an arena lost afterwards).
+  if (rtGentle(run) && Array.isArray(outcome.kinds)) {
+    const kinds = new Set([...run.metKinds ?? [], ...outcome.kinds.filter((kind): kind is string => typeof kind === 'string' && kind.length > 0)]);
+    if (kinds.size) run.metKinds = [...kinds].sort();
+  }
   if (outcome.secondWind && run.secondWind && !run.secondWindSpent) { run.secondWindSpent = true; events.push({ type: 'second-wind', nodeId: pending.nodeId }); }
   if (!outcome.won) {
     run.pending = null; run.result = { outcome: 'defeat', nodeId: pending.nodeId };
@@ -1976,6 +1993,7 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.gentleEntry !== undefined && value.gentleEntry !== true) return null;
   if (value.startPotion !== undefined && value.startPotion !== true) return null;
   if (value.secondWind !== undefined && value.secondWind !== true) return null;
+  if (value.metKinds !== undefined && !(value.gentleEntry === true && Array.isArray(value.metKinds) && value.metKinds.length && value.metKinds.every(kind => typeof kind === 'string' && kind.length > 0) && new Set(value.metKinds).size === value.metKinds.length)) return null;
   if (value.secondWindSpent !== undefined && (value.secondWindSpent !== true || value.secondWind !== true || !Array.isArray(value.battles) || !value.battles.length)) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;

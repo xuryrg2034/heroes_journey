@@ -116,6 +116,16 @@ export class RtDeathWatch {
 
   seen(world: World): void { for (const e of world.enemies) if (!this.enemies.has(e.id)) this.enemies.set(e.id, e); }
 
+  /**
+   * Task 17 (review 13.10.2026): the kinds of every enemy that stood on the arena in this fight — seen before a tick, and those on
+   * it now (`world`) — sorted. A marker that never stepped out is not counted. The run keeps them as met (`RtArenaOutcome.kinds`).
+   */
+  kinds(world?: World): string[] {
+    const kinds = new Set<string>([...this.enemies.values()].map(e => e.kind));
+    for (const e of world?.enemies ?? []) kinds.add(e.kind);
+    return [...kinds].sort();
+  }
+
   read(world: World, events: readonly WorldEvent[]): void {
     let hit: Extract<WorldEvent, { type: 'hit' }> | null = null;
     for (const ev of events) {

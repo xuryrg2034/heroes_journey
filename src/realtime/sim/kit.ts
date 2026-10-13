@@ -90,6 +90,12 @@ export interface Loadout {
    * The run gives it on the first elite row of a gentle run. Absent — every kind, as before.
    */
   eliteKinds?: string[];
+  /**
+   * Task 17 (design 13.10.2026): kinds taken out of this arena (sim/rosters.ts `withoutKinds`: their newcomers' share goes to
+   * the other kinds of the mix, a start enemy of such a kind stands as a basic one). The run gives `['porcupine']` to the final
+   * of a gentle run that has not met the porcupine. Absent — the arena as it is.
+   */
+  withoutKinds?: string[];
 }
 
 /**
@@ -148,6 +154,8 @@ export interface Kit {
   lootOpens?: true;
   /** Task 17 Е2: the kinds an elite may be here (absent — every kind: kits before hash as before). */
   eliteKinds?: string[];
+  /** Task 17: the kinds taken out of this arena (absent — none: kits before hash as before). */
+  withoutKinds?: string[];
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -201,6 +209,7 @@ export function kitOf(loadout: Loadout): Kit {
     ...loadout.secondWind ? { secondWind: true as const } : {},
     ...loadout.lootOpens ? { lootOpens: true as const } : {},
     ...Array.isArray(loadout.eliteKinds) && loadout.eliteKinds.length ? { eliteKinds: [...new Set(loadout.eliteKinds.filter(kind => typeof kind === 'string'))] } : {},
+    ...Array.isArray(loadout.withoutKinds) && loadout.withoutKinds.length ? { withoutKinds: [...new Set(loadout.withoutKinds.filter(kind => typeof kind === 'string'))] } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

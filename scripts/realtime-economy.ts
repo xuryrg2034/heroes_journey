@@ -199,6 +199,8 @@ function playFight(run: RtRunState): FightResult {
   const eliteLoot = new Set<number>();
   let lootElite = 0, lootSlot = 0, lootItems = 0, slot = false, pulls = 0, chest = false, chestLifted = false, finale = 0, chains = 0, links = 0;
   let heals = 0, healLoot = 0;
+  // Task 17: the kinds that stood on the arena (the run keeps them as met, as the view's `RtDeathWatch.kinds`).
+  const kinds = new Set<string>(w.enemies.map(e => e.kind));
   let minHp = realHp(w), lastItem = -10, leaveAt = 0, fbGoals = false, fbDoor = false, greedStart: number | null = null;
   const oathId = pending.oath ?? null;
   const slotRight = !!sim.world.kit && !!rtArenaLoadout(run).slot, chestPolicy = run.hp >= 8;
@@ -311,6 +313,7 @@ function playFight(run: RtRunState): FightResult {
       else if (ev.type === 'purseDoor') exitBy = ev.by;
     }
     w.events.length = 0;
+    for (const e of w.enemies) kinds.add(e.kind);
     minHp = Math.min(minHp, realHp(w));
   }
   if (w.status !== 'victory') throw new Error(`fight ${pending.arena} seed ${pending.seed}: ${w.status} at ${w.time.toFixed(1)} s`);
@@ -321,6 +324,7 @@ function playFight(run: RtRunState): FightResult {
     damage: w.stats.damageTaken, time: w.endTime ?? w.time,
     ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {},
     ...door ? { purse: door } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+    kinds: [...kinds].sort(),
   };
   return {
     outcome, door,
@@ -391,7 +395,8 @@ function walkRun(k: number, policy: OathPolicy): RunRecord {
         const fight: FightRecord = { ...fought.record, row, battle: pending.battle, oath: pending.oath ?? null, die: 'none', face: 0, dieMult: 1, base: 0, dGreed: 0, dOath: 0, dDie: 0, dFinale: 0, paid: 0, cap: 0, capHit: false, overCap: false, capHitTake: false };
         if (fight.wouldDie && rec.firstDeathRow === null) rec.firstDeathRow = row;
         rec.fights.push(fight);
-        if (rec.porcupineRow === null && arenaNewKinds(pending.arena).includes('porcupine')) rec.porcupineRow = row;
+        // The porcupine is met where the arena brings it — not where the run takes it out (task 17: a gentle run's final, `withoutKinds`).
+        if (rec.porcupineRow === null && arenaNewKinds(pending.arena).includes('porcupine') && !(rtArenaLoadout(run).withoutKinds ?? []).includes('porcupine')) rec.porcupineRow = row;
         run = ok(resolveArena(run, fought.outcome), 'resolve');
         // Loot picked up on the arena: elite loot and the goblin's 🍲 (resources only), then the door's payout (no die screen).
         add(rec.gain, 'elite-loot', fight.lootElite); add(rec.gain, 'slot', fight.lootSlot);

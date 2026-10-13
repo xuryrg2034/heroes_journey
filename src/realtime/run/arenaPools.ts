@@ -22,8 +22,7 @@
  */
 import { FOREST_TRUNK_LAST_ROW } from '../forest/forestMap';
 import { arenaTemplate } from '../sim/arenas';
-import { poolRosterChoices, rosterChoices, rosterDef, rosterKinds } from '../sim/rosters';
-import { DEFAULT_PARAMS, DEFAULT_PHASES } from '../sim/params';
+import { poolRosterChoices, rosterChoices } from '../sim/rosters';
 // The behaviour arenas register themselves (the pools name them without going through the simulation).
 import '../sim/arenasStage3';
 
@@ -114,27 +113,6 @@ export function arenaNewKinds(arena: string): string[] {
 }
 /** The new kinds the run has met: those of the arenas it entered (`history`). */
 export const metKinds = (history: readonly string[]): Set<string> => new Set(history.flatMap(arenaNewKinds));
-
-/**
- * Task 17 Е2: the kinds an arena brings as a run plays it (`roster` — the node's roster over the template, rosters.ts
- * `withRoster`): basic enemies, the start enemies and newcomers, wolves and boars when a phase gives them a share; a pool roster replaces the
- * newcomers and both shares (the start enemies stay), a role adds its kinds. The view's «Новое на карте» (view/newSeen.ts
- * `arenaKinds`) reads the same, without basic (it has no caption).
- */
-export function playedKinds(arena: string, roster?: string): Set<string> {
-  // Basic enemies: the newcomers' rest share on every arena and roster (rosters.ts `ALWAYS_MET`), unnamed in the templates.
-  const template = arenaTemplate(arena), def = roster !== undefined ? rosterDef(roster) : undefined, kinds = new Set<string>(['basic']);
-  for (const e of template.enemies) kinds.add(e.kind ?? 'basic');
-  if (!def || def.mode !== 'replace') {
-    for (const n of template.newcomers ?? []) if (n.share > 0) kinds.add(n.kind);
-    const base = { wolfShare: template.pace?.wolfShare ?? DEFAULT_PARAMS.baseWolfShare, boarShare: template.pace?.boarShare ?? DEFAULT_PARAMS.baseBoarShare, ...template.phaseOverride };
-    const phases = [base, ...(template.phases?.length ? template.phases : DEFAULT_PHASES).map(p => ({ ...p, ...template.phaseOverride }))];
-    if (phases.some(p => (p.wolfShare ?? 0) > 0)) kinds.add('wolf');
-    if (phases.some(p => (p.boarShare ?? 0) > 0)) kinds.add('boar');
-  }
-  if (def) for (const kind of rosterKinds(def)) kinds.add(kind);
-  return kinds;
-}
 
 /** The last run row of an arena's pool (0 for an arena outside the pools). */
 const lastRow = (arena: string, pools: readonly ArenaPoolEntry[]): number => pools.find(entry => entry.arena === arena)?.rows[1] ?? 0;
