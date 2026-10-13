@@ -15,7 +15,7 @@
 import { bodyRadiusOf } from './enemies/kinds';
 import { dist } from './geometry';
 import { brittleNow } from './items';
-import { damageEnemy, type World, nextFiring } from './world';
+import { damageEnemy, noteSpin, type World, nextFiring } from './world';
 
 /** The spin can be used now: playing, no dash or jump, enough energy. */
 export function canSpin(world: World): boolean {
@@ -46,5 +46,7 @@ export function spin(world: World): boolean {
     if (e.brittle) delete e.brittle;
     damageEnemy(world, e, p.spinDamage * factor, { source: 'spin', credited: true, firing });
   }
+  // The prologue, task 9 (goal `strike`, the spin room): its kills — the struck ones gone — count as one action (nothing elsewhere).
+  if (world.strike) noteSpin(world, struck.filter(e => !world.enemies.includes(e)).length);
   return true;
 }

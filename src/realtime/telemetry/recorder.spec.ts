@@ -535,20 +535,21 @@ async function main(): Promise<void> {
     const local = fake();
     const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: defaultParams(), local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
     const prologues = async (): Promise<PrologueRecord[]> => { await rec.settle(); return (await rec.buffer.all()).filter((r): r is PrologueRecord => r.kind === 'prologue'); };
-    // The first launch: room 1 with the hand twice, won; room 2 with two returns and an arrow, won; room 5: a death, then won.
+    // The first launch: room 1 with the hand twice, won; room 2 with two returns and an arrow, won; room 8 «Гоблин»: a death, then won.
     const t = rec.beginPrologue('first')!;
     t.roomStart(1, 1); t.shown(1, 'hand'); t.shown(1, 'hand'); t.roomEnd(1, 'win', 12.345, 13.5);
     const mid = await prologues();
     assert(mid.length === 1 && mid[0].outcome === 'open' && mid[0].rooms.length === 1 && mid[0].rooms[0].outcome === 'win' && mid[0].rooms[0].hands === 2 && mid[0].rooms[0].gameSeconds === 12.35, `after room 1: ${JSON.stringify(mid)}`);
     t.roomStart(2, 1); t.restore(2); t.shown(2, 'arrow'); t.restore(2); t.roomEnd(2, 'win', 20, 22);
-    t.roomStart(5, 1); t.roomEnd(5, 'death', 8, 9); t.roomStart(5, 2); t.roomEnd(5, 'win', 10, 11);
+    t.roomStart(8, 1); t.roomEnd(8, 'death', 8, 9); t.roomStart(8, 2); t.roomEnd(8, 'win', 10, 11);
     t.end('done');
-    t.roomStart(6, 1);
+    t.roomStart(9, 1);
     const [done] = await prologues();
     assert(checkRecord(done) === null, `checkRecord: ${checkRecord(done)}`);
     assert(done.from === 'first' && done.outcome === 'done' && done.skipRoom === null && typeof done.endedAt === 'string' && done.id.endsWith(`/${done.run}/prologue`) && done.run.startsWith('p'), JSON.stringify(done));
+    assert(done.roomCount === 9, `the record names the nine rooms (task 9): ${done.roomCount}`);
     const [r1, r2, r5] = done.rooms;
-    assert(done.rooms.length === 3 && r1.room === 1 && r2.room === 2 && r5.room === 5, 'the rooms reached, in order; nothing after the end');
+    assert(done.rooms.length === 3 && r1.room === 1 && r2.room === 2 && r5.room === 8, 'the rooms reached, in order; nothing after the end');
     assert(r2.restores === 2 && r2.arrows === 1 && r2.hands === 0 && r2.attempts === 1 && r2.realSeconds === 22, JSON.stringify(r2));
     assert(r5.attempts === 2 && r5.deaths === 1 && r5.gameSeconds === 18 && r5.realSeconds === 20 && r5.outcome === 'win', JSON.stringify(r5));
     // The gear: room 1 won, skipped in room 2.

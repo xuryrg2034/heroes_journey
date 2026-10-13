@@ -643,6 +643,14 @@ export interface PrologueRoomStat {
 /** The prologue by where it was started. `players` — distinct testers (by name, else session). */
 export interface PrologueOriginStat { from: PrologueFrom; playthroughs: number; players: number; done: number; skipped: number; open: number; rooms: PrologueRoomStat[] }
 
+/**
+ * A room of a prologue record by today's numbers (task 9, 13.10.2026: nine rooms). A record without `roomCount` was written for
+ * the six rooms of task 6: its rooms 1–4 are the same, 5 «Гоблин» is room 8 now, 6 «Толпа» is room 9 (it never saw rooms 5–7).
+ */
+export function prologueRoomNow(record: Pick<PrologueRecord, 'roomCount'>, room: number): number {
+  return record.roomCount === undefined && (room === 5 || room === 6) ? room + 3 : room;
+}
+
 /** The prologue records of the set (the latest copy of each id is already chosen by `collectRecords`), grouped by origin. */
 export function prologueStats(records: readonly RtRecord[]): PrologueOriginStat[] {
   const all = records.filter((r): r is PrologueRecord => r.kind === 'prologue');
@@ -651,9 +659,10 @@ export function prologueStats(records: readonly RtRecord[]): PrologueOriginStat[
     const list = all.filter(r => r.from === from);
     if (!list.length) continue;
     const rooms = PROLOGUE_ROOMS.map((room): PrologueRoomStat => {
-      const here = list.flatMap(r => r.rooms.filter(x => x.room === room.number)), passed = here.filter(x => x.outcome === 'win');
+      const here = list.flatMap(r => r.rooms.filter(x => prologueRoomNow(r, x.room) === room.number)), passed = here.filter(x => x.outcome === 'win');
       return {
-        room: room.number, title: room.title, reached: here.length, passed: passed.length, skipped: list.filter(r => r.skipRoom === room.number).length,
+        room: room.number, title: room.title, reached: here.length, passed: passed.length,
+        skipped: list.filter(r => r.skipRoom !== null && prologueRoomNow(r, r.skipRoom) === room.number).length,
         gameMedian: passed.length ? median(passed.map(x => x.gameSeconds)) : null, realMedian: passed.length ? median(passed.map(x => x.realSeconds)) : null,
         withHand: here.filter(x => x.hands > 0).length, withArrow: here.filter(x => x.arrows > 0).length,
         attemptsMedian: median(here.map(x => x.attempts)), deaths: here.reduce((a, x) => a + x.deaths, 0), restoresMedian: median(here.map(x => x.restores)),
@@ -669,7 +678,7 @@ export function prologueStats(records: readonly RtRecord[]): PrologueOriginStat[
 const PROLOGUE_FROM_TITLES: Record<PrologueFrom, string> = { first: 'первый запуск', gear: 'шестерёнка «Обучение»' };
 const PROLOGUE_HEAD = ['Откуда', 'Прохождений', 'Игроков', 'Пройден', 'Пропущен', 'Не закончен'];
 const PROLOGUE_ROOM_HEAD = ['Комната', 'Дошли', 'Прошли', 'Время мед., игра / реально', 'Рука показана', 'Стрелка показана', 'Попыток мед.', 'Смертей', 'Возвратов мед.', 'Пропущено здесь'];
-const PROLOGUE_LEGEND = 'Пролог «Опушка» (`PrologueRecord`, с 13.10.2026; docs/realtime-onboarding.md): запись на каждое прохождение, без журналов боя. «Первый запуск» — новый зритель без отметки «пролог пройден», «шестерёнка» — кнопка «Обучение». Игроки — имя тестера, а без него — сессия. Доли — от прохождений, дошедших до комнаты. Время — медиана по прошедшим комнату, все попытки вместе: игровые секунды (`world.time`) и реальные (кадры без паузы); затемнение между комнатами не входит. Попытки — запуски комнаты (смерть в 5–6 запускает её снова); возвраты — враги вернулись на места (комнаты 2–5). «Рука показана» — призрачная рука пришла хоть раз; «стрелка» — стрелка с кругом. Записей до 13.10.2026 нет — «_нет данных_».';
+const PROLOGUE_LEGEND = 'Пролог «Опушка» (`PrologueRecord`, с 13.10.2026; docs/realtime-onboarding.md): запись на каждое прохождение, без журналов боя. «Первый запуск» — новый зритель без отметки «пролог пройден», «шестерёнка» — кнопка «Обучение». Игроки — имя тестера, а без него — сессия. Доли — от прохождений, дошедших до комнаты. Время — медиана по прошедшим комнату, все попытки вместе: игровые секунды (`world.time`) и реальные (кадры без паузы); затемнение между комнатами не входит. Попытки — запуски комнаты (смерть в 8–9 запускает её снова); возвраты — враги вернулись на места (комнаты 2–4, 6, 8). «Рука показана» — призрачная рука пришла хоть раз; «стрелка» — стрелка с кругом. Комнат девять с 13.10.2026 (задача 9: 5 «Пропасть», 6 «Вихрь», 7 «Зелье»); записи шести комнат (без `roomCount`) читаются по нынешним номерам: их 5 «Гоблин» — комната 8, 6 «Толпа» — 9, до комнат 5–7 они не доходили. Записей до 13.10.2026 нет — «_нет данных_».';
 function prologueSection(records: readonly RtRecord[]): string {
   const stats = prologueStats(records);
   if (!stats.length) return `${PROLOGUE_LEGEND}\n\n_нет данных_`;

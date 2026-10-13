@@ -23,7 +23,9 @@
  *   (a tough one not first, ended on a survivor) and the raised touches line.
  * - The prologue (13.10.2026): hand-written prologue records (first launches passed, skipped, left open; a gear replay; an older
  *   copy of one record) give per room the median times, the hand and arrow shares, the attempts, deaths, returns and the skips,
- *   and the completion shares by origin, counted by hand; the fixtures (before the record) read «нет данных».
+ *   and the completion shares by origin, counted by hand; the fixtures (before the record) read «нет данных». Task 9 (nine rooms):
+ *   records of the six rooms (no `roomCount`) count their rooms 5 and 6 as rooms 8 «Гоблин» and 9 «Толпа»; a nine-room record
+ *   counts its rooms as they are.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -342,6 +344,7 @@ async function main(): Promise<void> {
       from, outcome, skipRoom: null, rooms, ...extra,
     });
     const records: RtRecord[] = [
+      // Records of the six rooms of task 6 (no `roomCount`): their 5 «Гоблин» and 6 «Толпа» are rooms 8 and 9 now.
       // A (Аня): all six rooms; two returns and an arrow in room 2, a death in room 5. Its older copy (room 1 only, open) is dropped.
       pro('s1', 'pa', 'first', 'done', [room(1, 'win', 10, 11, { hands: 1 }), room(2, 'win', 30, 32, { restores: 2, arrows: 1 }), room(3, 'win', 20, 21), room(4, 'win', 25, 26), room(5, 'win', 40, 42, { attempts: 2, deaths: 1 }), room(6, 'win', 60, 61)], { tester: 'Аня', endedAt: '2026-10-13T10:05:00.000Z' }),
       pro('s1', 'pa', 'first', 'open', [room(1, 'open', 3, 3)], { tester: 'Аня', at: '2026-10-13T09:58:00.000Z' }),
@@ -358,7 +361,8 @@ async function main(): Promise<void> {
     assert(first.from === 'first' && first.playthroughs === 3 && first.players === 3 && first.done === 1 && first.skipped === 1 && first.open === 1, JSON.stringify({ ...first, rooms: undefined }));
     assert(gear.from === 'gear' && gear.playthroughs === 1 && gear.players === 1 && gear.skipped === 1, JSON.stringify({ ...gear, rooms: undefined }));
     // By hand. Room 1: three reached and passed, game 10, 20, 40 → 20, real 11, 22, 45 → 22; the hand in A and C (2 of 3).
-    const [r1, r2, , , r5, r6] = first.rooms;
+    const [r1, r2] = first.rooms, r5 = first.rooms[7], r6 = first.rooms[8];
+    assert(first.rooms.length === 9 && r5.title === 'Гоблин' && r6.title === 'Толпа' && first.rooms.slice(4, 7).every(r => r.reached === 0), 'the old rooms 5 and 6 are rooms 8 and 9; nobody reached 5–7');
     assert(r1.reached === 3 && r1.passed === 3 && r1.gameMedian === 20 && r1.realMedian === 22 && r1.withHand === 2 && r1.withArrow === 0 && r1.attemptsMedian === 1 && r1.skipped === 0, JSON.stringify(r1));
     // Room 2: A passed (30 / 32 s), B skipped, C open; the hand in B, the arrow in A; returns 2, 1, 0 → 1.
     assert(r2.reached === 3 && r2.passed === 1 && r2.gameMedian === 30 && r2.realMedian === 32 && r2.withHand === 1 && r2.withArrow === 1 && r2.restoresMedian === 1 && r2.skipped === 1, JSON.stringify(r2));
@@ -369,6 +373,12 @@ async function main(): Promise<void> {
     assert(section.includes('| Откуда | Прохождений | Игроков | Пройден | Пропущен | Не закончен |') && section.includes('| первый запуск | 3 | 3 | 1 (33%) | 1 (33%) | 1 |') && section.includes('| шестерёнка «Обучение» | 1 | 1 | 0 (0%) | 1 (100%) | 0 |'), section);
     assert(section.includes('| 1 · Тропа | 3 | 3 (100%) | 20 / 22 с | 2 (67%) | 0 (0%) | 1 | 0 | 0 | 0 |') && section.includes('| 2 · Два цвета | 3 | 1 (33%) | 30 / 32 с | 1 (33%) | 1 (33%) | 1 | 0 | 1 | 1 |'), section);
     assert(section.includes('### Комнаты: шестерёнка «Обучение»') && section.includes('| 1 · Тропа | 1 | 0 (0%) | — / — с | 0 (0%) | 0 (0%) | 1 | 0 | 0 | 1 |'), section);
+    assert(section.includes('| 8 · Гоблин | 1 | 1 (100%) | 40 / 42 с | 0 (0%) | 0 (0%) | 2 | 1 | 0 | 0 |') && section.includes('| 5 · Пропасть | 0 |'), section);
+    // A record of the nine rooms (task 9) counts its rooms as they are: room 5 «Пропасть», a skip in room 7 «Зелье».
+    const nine = pro('s4', 'pe', 'first', 'skip', [1, 2, 3, 4, 5, 6].map(n => room(n, 'win', n, n, n === 6 ? { restores: 3 } : {})).concat([room(7, 'skip', 4, 4)]), { roomCount: 9, skipRoom: 7 });
+    const [mixed] = prologueStats(collectRecords([{ name: 'p.json', text: JSON.stringify([...records, nine]) }]).records);
+    const [m5, m6, m7, m8] = mixed.rooms.slice(4, 8);
+    assert(m5.reached === 1 && m5.passed === 1 && m5.gameMedian === 5 && m6.restoresMedian === 3 && m7.skipped === 1 && m7.passed === 0 && m8.reached === 1 && m8.deaths === 1, JSON.stringify(mixed.rooms.slice(4, 8)));
     // The fixtures were recorded before the prologue record.
     const none = md.slice(md.indexOf('## Пролог'), md.indexOf('## Угрозы'));
     assert(none.includes('_нет данных_') && !none.includes('| Откуда'), none);

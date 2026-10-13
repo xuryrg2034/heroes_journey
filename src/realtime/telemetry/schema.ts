@@ -300,7 +300,7 @@ export interface NoteRecord extends RtHeader {
 
 /** Where a prologue playthrough was started: the first launch of a viewer without the key «пролог пройден», or the gear's «Обучение». */
 export type PrologueFrom = 'first' | 'gear';
-/** How a prologue playthrough ended: room 6 won (`done`), «Пропустить обучение» (`skip`), or not yet / the page closed (`open`). */
+/** How a prologue playthrough ended: the last room won (`done`), «Пропустить обучение» (`skip`), or not yet / the page closed (`open`). */
 export type PrologueOutcome = 'done' | 'skip' | 'open';
 
 /**
@@ -309,13 +309,16 @@ export type PrologueOutcome = 'done' | 'skip' | 'open';
  * are left out.
  */
 export interface PrologueRoomTally {
-  /** 1…6. */
+  /** 1 … the record's `roomCount` (9; a record without it — 1…6, the rooms of task 6). */
   room: number;
   /** Starts of the room (1 + the replays after a death). */
   attempts: number;
-  /** Deaths (rooms 5 and 6: a death plays the room again). */
+  /** Deaths (rooms 8 and 9 — «Гоблин», «Толпа»: a death plays the room again). */
   deaths: number;
-  /** Returns of the start enemies (event `restore`; rooms 2–5). A late batch under the hero in rooms 2–4 is the same return. */
+  /**
+   * Returns of the start enemies (event `restore`; rooms 2–4, 6 and 8). A late batch under the hero is the same return; the
+   * energy coming back alone in room 5 sends no event.
+   */
   restores: number;
   gameSeconds: number;
   realSeconds: number;
@@ -339,9 +342,17 @@ export interface PrologueRecord extends RtHeader {
   skipRoom: number | null;
   /** The rooms reached, in order. */
   rooms: PrologueRoomTally[];
+  /**
+   * How many rooms the prologue had when the record was written (task 9, 13.10.2026: 9). Absent — a record of the six rooms of
+   * task 6, whose rooms 5 and 6 are «Гоблин» and «Толпа» (now 8 and 9; the report reads them so — report.ts `prologueRoomNow`).
+   */
+  roomCount?: number;
   /** When the playthrough ended (ISO; absent — open). */
   endedAt?: string;
 }
+
+/** Rooms of a prologue record without `roomCount` (task 6, before 13.10.2026 task 9). */
+export const PROLOGUE_ROOMS_V1 = 6;
 
 export type RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord | PrologueRecord;
 
@@ -399,12 +410,16 @@ export function checkRecord(value: unknown): string | null {
     }
     case 'prologue': {
       if (!['first', 'gear'].includes(r.from as string) || !['done', 'skip', 'open'].includes(r.outcome as string)) return 'prologue from or outcome';
-      if (r.skipRoom !== null && !num('skipRoom')) return 'prologue skipRoom';
+      // The room numbers: 1 … `roomCount` (absent — the six rooms of task 6).
+      if (r.roomCount !== undefined && !(Number.isInteger(r.roomCount) && (r.roomCount as number) >= 1)) return 'prologue roomCount';
+      const rooms = (r.roomCount as number | undefined) ?? PROLOGUE_ROOMS_V1, roomNo = (x: unknown): boolean => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= rooms;
+      if (r.skipRoom !== null && !(num('skipRoom') && roomNo(r.skipRoom))) return 'prologue skipRoom';
       if (!Array.isArray(r.rooms)) return 'prologue rooms';
       for (const room of r.rooms as unknown[]) {
         const o = room as Record<string, unknown> | null;
         if (!o || typeof o !== 'object' || !['room', 'attempts', 'deaths', 'restores', 'gameSeconds', 'realSeconds', 'hands', 'arrows'].every(k => typeof o[k] === 'number' && Number.isFinite(o[k]))
           || !['win', 'skip', 'open'].includes(o.outcome as string)) return 'prologue room fields';
+        if (!roomNo(o.room)) return 'prologue room number';
       }
       return null;
     }

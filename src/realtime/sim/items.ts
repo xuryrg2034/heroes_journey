@@ -28,7 +28,7 @@
 import { itemHealOf } from './build';
 import { bodyRadiusOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
-import { damageEnemy, enemyFrozen, type Enemy, type World } from './world';
+import { completeGoals, damageEnemy, enemyFrozen, type Enemy, type World } from './world';
 import type { ItemKind } from './kit';
 
 /** Why the consumable cannot be used at `p` now (the view shows it); null — it can. */
@@ -91,11 +91,13 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
     // Phase B (build.ts `itemHealOf`): «Кровавая клятва» weakens it; without a build module — `itemHeal`.
     hero.hp = Math.min(hero.maxHp, hero.hp + itemHealOf(world));
     world.events.push({ type: 'item', kind, x: hero.x, y: hero.y, radius: 0, targets: 0 });
+    usedForGoal(world);
     return true;
   }
   if (kind === 'frost') {
     world.events.push({ type: 'item', kind, x: p.x, y: p.y, radius: params.frostRadius, targets: targets.length });
     for (const e of targets) { e.chill = Math.max(e.chill ?? 0, params.frostTime); e.brittle = true; }
+    usedForGoal(world);
     return true;
   }
   const at = targets[0];
@@ -103,12 +105,19 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
     world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: 0, targets: 1 });
     // The bombs left tell this use from another one in the same tick (elites.ts `stripPlates`: one firing, one strip).
     damageEnemy(world, at, params.bombDamage, { source: 'bomb', credited: true, firing: world.kit!.items.bomb });
+    usedForGoal(world);
     return true;
   }
   // Fire: a new burning replaces what is left of an old one (ticks from the start).
   world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: params.fireRadius, targets: targets.length });
   for (const e of targets) e.burn = { left: Math.max(1, Math.round(params.fireTicks)), timer: params.fireInterval };
+  usedForGoal(world);
   return true;
+}
+
+/** The prologue, task 9 (goal `item`, the potion room): a consumable used completes the goals (nothing on another arena). */
+function usedForGoal(world: World): void {
+  if (world.arena.goal === 'item' && world.status === 'playing') completeGoals(world);
 }
 
 /** Ticks reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */

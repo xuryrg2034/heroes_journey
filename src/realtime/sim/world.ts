@@ -537,7 +537,15 @@ export interface World {
   restore?: RestoreState;
   /** The prologue (`ArenaTemplate.sleepUntilChain`): the enemies sleep until the first press. Absent otherwise and once awake. */
   asleep?: true;
+  /**
+   * The prologue, task 9 (goal `strike`, the spin room): the most kills of one spin so far and the last spin's kills with its
+   * game time (the lamps hold them `LAMPS_HOLD`). Present only on an arena with that goal (other worlds hash as before).
+   */
+  strike?: StrikeState;
 }
+
+/** The spins of a `strike` arena (`World.strike`): the best one's kills; the last one's kills and game time (absent — none yet). */
+export interface StrikeState { best: number; last?: { kills: number; time: number } }
 
 /**
  * The prologue's start enemies and their return (`World.restore`): their ids now (by the template's index), the game time a
@@ -650,7 +658,11 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
     if (loadout.oath !== undefined) startOath(world, loadout.oath);
   }
   // The prologue: the arena's own start energy instead of the loadout's (`'jump'` — the price of one jump), up to the cap.
-  if (arena.startEnergy !== undefined) world.energy = Math.max(0, Math.min(ENERGY_CAP, arena.startEnergy === 'jump' ? jumpCostOf(world) : arena.startEnergy));
+  if (arena.startEnergy !== undefined) world.energy = startEnergyOf(world);
+  // The prologue, task 9 (the potion room): the hero starts wounded (not above his maximum, at least 1).
+  if (arena.startHp !== undefined) world.hero.hp = Math.max(1, Math.min(world.hero.maxHp, arena.startHp));
+  // The prologue, task 9 (goal `strike`): the spins are counted (only on such an arena).
+  if (arena.goal === 'strike') world.strike = { best: 0 };
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   const startIds = arena.enemies.map(s => placeStartEnemy(world, s).id);
   // The prologue: the start enemies are watched for their return (only on an arena with `restore`).
@@ -666,6 +678,16 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
   // Phase B: the build modules see the arena start (the kit and the start enemies are there).
   runHook(world, 'onArenaStart', m => m.onArenaStart!(world));
   return world;
+}
+
+/**
+ * The prologue: the arena's start energy (`ArenaTemplate.startEnergy`) in this world — `'jump'` the price of one jump, `'spin'`
+ * of one spin, a number as it is — up to the cap; 0 without it.
+ */
+export function startEnergyOf(world: World): number {
+  const e = world.arena.startEnergy;
+  if (e === undefined) return 0;
+  return Math.max(0, Math.min(ENERGY_CAP, e === 'jump' ? jumpCostOf(world) : e === 'spin' ? world.params.spinCost : e));
 }
 
 /** HP a start enemy of the template has at its post (its own, or its kind's from the panel). */
@@ -686,13 +708,16 @@ function placeStartEnemy(world: World, s: StartEnemy): Enemy {
 
 /**
  * The prologue «Опушка»: a return is needed now — the goal is not met and, by the arena's mode, a start enemy is dead or
- * wounded (`afterDash`), or none is left and the lever was never pulled (`whenGone`); never with `none`.
+ * wounded (`afterDash`), or none is left and the lever was never pulled (`whenGone`); never with `none`. Task 9: an
+ * `afterDash` arena with `startEnergy` (the jump and spin rooms) needs one too when the energy is below it (a jump or a spin
+ * spent it — the room gives it back).
  */
 function restoreNeeded(world: World, state: RestoreState): boolean {
   const mode = world.arena.restore;
   if (world.stage !== 'goals' || mode === 'none') return false;
   const starts = world.arena.enemies, alive = state.ids.map(id => world.enemies.find(e => e.id === id));
   if (mode === 'whenGone') return alive.every(e => !e) && (goblinOf(world)?.pulls ?? 0) === 0;
+  if (world.arena.startEnergy !== undefined && world.energy < startEnergyOf(world) - 1e-9) return true;
   return alive.some((e, i) => !e || e.hp < startHp(world, starts[i]));
 }
 
@@ -758,10 +783,13 @@ function updateRestore(world: World, state: RestoreState): void {
     hero.x = back.x; hero.y = back.y; hero.knock = 0; hero.knockVx = 0; hero.knockVy = 0;
     pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
   }
+  // Task 9 (the jump and spin rooms): the energy comes back up to the room's start energy (more earned by chains is kept).
+  if (world.arena.startEnergy !== undefined) world.energy = Math.max(world.energy, startEnergyOf(world));
   const out: { id: number; x: number; y: number }[] = [], wait: number[] = [];
   world.arena.enemies.forEach((s, i) => { if (postOnHero(world, s)) wait.push(i); else out.push(restoreStart(world, state, i)); });
   if (wait.length) state.wait = wait;
-  world.events.push({ type: 'restore', enemies: out, ...back ? { hero: { x: hero.x, y: hero.y } } : {} });
+  // A return of the energy alone (the jump room: no enemies, the hero stays) has no smoke to draw — no event.
+  if (out.length || wait.length || back) world.events.push({ type: 'restore', enemies: out, ...back ? { hero: { x: hero.x, y: hero.y } } : {} });
 }
 
 export function findObject(world: World, id: number): ArenaObject | undefined {
@@ -772,8 +800,8 @@ export function doorOf(world: World): ArenaObject {
   return world.objects.find(o => o.kind === 'door')!;
 }
 
-/** The door opens with the goals (greed stage). */
-export function doorOpen(world: World): boolean { return world.stage === 'greed'; }
+/** The door opens with the goals (greed stage); the prologue's goal `door` (task 9, the jump room) — open from the start. */
+export function doorOpen(world: World): boolean { return world.stage === 'greed' || world.arena.goal === 'door'; }
 
 /** Goal progress for the HUD and the goal check: done / total. */
 export function goalProgress(world: World): { done: number; total: number; label: string } {
@@ -788,6 +816,15 @@ export function goalProgress(world: World): { done: number; total: number; label
     const total = world.arena.killGoal ?? 1, move = world.move, now = move?.kind === 'dash' ? move.kills : 0;
     return { done: Math.min(total, Math.max(world.stats.bestChain, now)), total, label: 'одной цепью' };
   }
+  // The prologue, task 9: N kills by one action — the best dash (as `chain`) or the best spin (`World.strike`).
+  if (goal === 'strike') {
+    const total = world.arena.killGoal ?? 1, move = world.move, now = move?.kind === 'dash' ? move.kills : 0;
+    return { done: Math.min(total, Math.max(world.stats.bestChain, now, world.strike?.best ?? 0)), total, label: 'одним ударом' };
+  }
+  // The prologue, task 9: the door open from the start — entering it is the goal (the jump room).
+  if (goal === 'door') return { done: world.status === 'victory' ? 1 : 0, total: 1, label: 'дверь' };
+  // The prologue, task 9: a consumable used (the potion room) — its use completes the goals (items.ts `useItem`).
+  if (goal === 'item') return { done: world.stage === 'greed' ? 1 : 0, total: 1, label: 'зелье' };
   // The prologue: the goblin's lever pulled N times.
   if (goal === 'pull') {
     const total = world.arena.killGoal ?? 1;
@@ -803,14 +840,28 @@ export const LAMPS_HOLD = 0.4;
 /**
  * The prologue's lamps over the door (design 12.10.2026): how many burn and how many there are (the goal's number). For
  * `chain` they burn by the kills of the dash going now; when it ends short they hold its count `LAMPS_HOLD` game seconds
- * (`World.lastChain`) and go out; all burn once the goal is met. For every other goal — its progress (`goalProgress`).
+ * (`World.lastChain`) and go out; all burn once the goal is met. `strike` (task 9) — the same, and a spin's kills burn and
+ * hold the same way (`World.strike.last`). For every other goal — its progress (`goalProgress`).
  */
 export function goalLamps(world: World): { lit: number; total: number } {
-  const { done, total } = goalProgress(world);
-  if (world.arena.goal !== 'chain' || world.stage === 'greed' || done >= total) return { lit: done, total };
-  const move = world.move, last = world.lastChain;
+  const { done, total } = goalProgress(world), goal = world.arena.goal;
+  if ((goal !== 'chain' && goal !== 'strike') || world.stage === 'greed' || done >= total) return { lit: done, total };
+  const move = world.move, last = world.lastChain, spun = world.strike?.last;
   if (move?.kind === 'dash') return { lit: Math.min(total, move.kills), total };
-  return { lit: last && world.time - last.time < LAMPS_HOLD - 1e-9 ? Math.min(total, last.kills) : 0, total };
+  const held = (x: { kills: number; time: number } | null | undefined): number => x && world.time - x.time < LAMPS_HOLD - 1e-9 ? Math.min(total, x.kills) : 0;
+  return { lit: Math.max(held(last), held(spun)), total };
+}
+
+/**
+ * The prologue, task 9 (goal `strike`): a spin killed `kills` — the best and the last spin are noted, the goal is checked. Nothing
+ * on another arena (no `World.strike`).
+ */
+export function noteSpin(world: World, kills: number): void {
+  const strike = world.strike;
+  if (!strike) return;
+  strike.best = Math.max(strike.best, kills);
+  strike.last = { kills, time: world.time };
+  checkGoals(world);
 }
 
 /** Called after a chain kill or a button press: the arena goals complete the stage. */

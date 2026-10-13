@@ -293,6 +293,11 @@ async function main(): Promise<void> {
     assert(checkRecord({ ...rec, from: 'menu' }) !== null && checkRecord({ ...rec, outcome: 'won' }) !== null && checkRecord({ ...rec, skipRoom: 'x' }) !== null, 'from, outcome, skipRoom');
     assert(checkRecord({ ...rec, rooms: [{ ...rec.rooms[0], hands: undefined }] }) !== null && checkRecord({ ...rec, rooms: [{ ...rec.rooms[0], outcome: 'lost' }] }) !== null, 'room fields');
     assert(checkRecord({ ...rec, kind: 'run' }) !== null, 'kind against the id');
+    // Task 9 (13.10.2026): room numbers 1 … `roomCount` (9); a record without it — the six rooms of task 6.
+    const room9 = { ...rec.rooms[0], room: 9 };
+    assert(checkRecord({ ...rec, roomCount: 9, rooms: [room9], skipRoom: 9 }) === null && checkRecord({ ...rec, rooms: [room9] }) === 'prologue room number'
+      && checkRecord({ ...rec, skipRoom: 7 }) === 'prologue skipRoom' && checkRecord({ ...rec, roomCount: 9, rooms: [{ ...room9, room: 10 }] }) === 'prologue room number'
+      && checkRecord({ ...rec, roomCount: 0 }) === 'prologue roomCount' && checkRecord({ ...rec, rooms: [{ ...rec.rooms[0], room: 1.5 }] }) !== null, 'room numbers');
     assert(throws(() => prologueRecordId(s, 'a/b')), 'a bad key');
     // A file with the prologue record and one without (older logs) both read back.
     assert(parseExport(JSON.stringify(makeExport(s, [rec], '2026-10-13T10:00:00.000Z'))).records[0].kind === 'prologue', 'with');

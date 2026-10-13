@@ -7,10 +7,11 @@
  * `PrologueTally` takes the points of the view's `PrologueHooks` (view/prologueFlow.ts) and hands the record's body to `write`
  * (the recorder puts it into the buffer under one id; the last copy wins). Pure: no DOM, no clock but the `now` given.
  */
+import { PROLOGUE_ROOM_COUNT } from '../run/prologue';
 import type { PrologueFrom, PrologueOutcome, PrologueRecord, PrologueRoomTally } from './schema';
 
-/** The record without its header. */
-export type PrologueBody = Pick<PrologueRecord, 'from' | 'outcome' | 'skipRoom' | 'rooms'> & { endedAt?: string };
+/** The record without its header (`roomCount` — the rooms of the prologue now, task 9: 9). */
+export type PrologueBody = Pick<PrologueRecord, 'from' | 'outcome' | 'skipRoom' | 'rooms'> & { roomCount: number; endedAt?: string };
 
 /** How a room ended in the view's hooks (`RoomOutcome` of view/prologueFlow.ts). */
 export type PrologueRoomEnd = 'win' | 'death' | 'skip';
@@ -22,7 +23,7 @@ export class PrologueTally {
   private ended = false;
 
   constructor(from: PrologueFrom, private readonly write: (body: PrologueBody) => void, private readonly now: () => string = () => new Date().toISOString()) {
-    this.body = { from, outcome: 'open', skipRoom: null, rooms: [] };
+    this.body = { from, outcome: 'open', skipRoom: null, rooms: [], roomCount: PROLOGUE_ROOM_COUNT };
   }
 
   /** The record's body now (a copy; seconds rounded to 0.01). */
@@ -30,7 +31,7 @@ export class PrologueTally {
     const b = this.body;
     return {
       from: b.from, outcome: b.outcome, skipRoom: b.skipRoom,
-      rooms: b.rooms.map(r => ({ ...r, gameSeconds: round2(r.gameSeconds), realSeconds: round2(r.realSeconds) })),
+      rooms: b.rooms.map(r => ({ ...r, gameSeconds: round2(r.gameSeconds), realSeconds: round2(r.realSeconds) })), roomCount: b.roomCount,
       ...b.endedAt ? { endedAt: b.endedAt } : {},
     };
   }
@@ -75,7 +76,7 @@ export class PrologueTally {
   /** «Пропустить обучение» in room `n`. */
   skip(n: number): void { if (!this.ended) this.body.skipRoom = n; }
 
-  /** The playthrough ends: room 6 won (`done`) or skipped. Later calls change nothing. */
+  /** The playthrough ends: the last room won (`done`) or skipped. Later calls change nothing. */
   end(how: Exclude<PrologueOutcome, 'open'>): void {
     if (this.ended) return;
     this.body.outcome = how;

@@ -72,6 +72,8 @@ export function worldState(world: World): unknown {
     ...world.restore ? { restore: world.restore } : {},
     // The prologue: the enemies sleep until the first press (absent on every other arena and once they woke).
     ...world.asleep ? { asleep: true } : {},
+    // The prologue, task 9 (goal `strike`): the best and the last spin (absent on every other arena).
+    ...world.strike ? { strike: world.strike } : {},
   };
 }
 

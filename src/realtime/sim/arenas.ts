@@ -15,15 +15,17 @@ import type { Phase } from './params';
  * or kill the marked enemies. After the goals the door opens and the greed stage runs.
  * The prologue «Опушка» (sim/arenasPrologue.ts, docs/realtime-onboarding.md) adds two goals only its arenas set: `chain` —
  * N kills by ONE dash (`killGoal`; `world.stats.bestChain` ≥ N, or the dash going now reached N), `pull` — the goblin's
- * lever pulled N times (`killGoal`).
+ * lever pulled N times (`killGoal`). Task 9 (design 13.10.2026) adds three more, prologue only: `strike` — N kills by ONE action
+ * (`killGoal`: the best dash, as `chain`, or the kills of one spin, `World.strike`), `door` — the door is open from the start and
+ * entering it wins (the jump room), `item` — a consumable used (the potion room; one use opens the door).
  */
-export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull';
+export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull' | 'strike' | 'door' | 'item';
 
 /**
  * The prologue: when the start enemies come back to their posts with full HP (world.ts `updateRestore`). `afterDash` — the
  * goal is not met and a start enemy is dead or wounded while no chain is drawn and no dash runs (a dash ended, or the spin
- * hit); `whenGone` — the goal is not met, no start enemy is left and the lever was never pulled; `none` — never (the start
- * enemies' ids are kept for the hand's route). The return comes `RESTORE_DELAY` (1 s) of game time after the last dash ended,
+ * hit; task 9: or the energy is below the arena's `startEnergy`); `whenGone` — the goal is not met, no start enemy is left
+ * and the lever was never pulled; `none` — never (the start enemies' ids are kept for the hand's route). The return comes `RESTORE_DELAY` (1 s) of game time after the last dash ended,
  * and only while no chain is drawn and no dash runs (a chain then waits for its end).
  */
 export type RestoreMode = 'afterDash' | 'whenGone' | 'none';
@@ -108,8 +110,14 @@ export interface ArenaTemplate extends ArenaShape {
   sleepUntilChain?: boolean;
   /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
   goblin?: Vec;
-  /** The prologue: energy at the start instead of the loadout's — `'jump'`: the price of one jump in this world; up to the cap. */
-  startEnergy?: number | 'jump';
+  /**
+   * The prologue: energy at the start instead of the loadout's — `'jump'`: the price of one jump in this world, `'spin'`: the
+   * price of one spin (`spinCost`); up to the cap. With `restore` (task 9: the jump and spin rooms) the energy is part of the
+   * room: spent below it, it is a reason for a return, and every return refills it up to this (world.ts `updateRestore`).
+   */
+  startEnergy?: number | 'jump' | 'spin';
+  /** The prologue (task 9, the potion room): the hero's HP at the start (not above his maximum, at least 1); omitted — full. */
+  startHp?: number;
 }
 
 /** Old name of the template (prototype stages 1–3). */

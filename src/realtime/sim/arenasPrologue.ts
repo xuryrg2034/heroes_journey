@@ -1,16 +1,21 @@
 /**
  * Arenas of the prologue «Опушка» (task 6, design 12.10.2026; docs/realtime-onboarding.md, «Пролог «Опушка»: правила
- * комнат»): six rooms outside the run that teach the chain by doing. Only these arenas set the prologue's template fields
- * (sim/arenas.ts: goals `chain` and `pull`, `calm`, `restore`, `goblin`, `startEnergy`); the numbers of each room are the run's
+ * комнат»): nine rooms outside the run that teach by doing (task 9, design 13.10.2026: «Пропасть», «Вихрь» and «Зелье» stand
+ * between «Радуга» and «Гоблин»). Only these arenas set the prologue's template fields (sim/arenas.ts: goals `chain`, `pull`,
+ * `strike`, `door`, `item`, `calm`, `restore`, `goblin`, `startEnergy`, `startHp`); the numbers of each room are the run's
  * (`RT_RUN_FORCED`) with existing keys over them (run/prologue.ts `PROLOGUE_FORCED`). Kept in its own file, like
  * arenasStage3.ts: the templates register on import (a journal names them by id), `simulation.ts` imports it.
  *
- * Rooms 1–5 are small (12×8 and 14×8; the camera fits a 16×10 arena into 1280×720, a smaller one stands whole in the middle),
- * room 6 is 16×10. Colours: 0 red, 1 green, 2 blue (art.ts `COLORS`). Every link of a hand route is ≤ 2 units from the
+ * Ids: the rooms of task 6 keep theirs (`prologue-1` … `prologue-6` — «Гоблин» is `prologue-5` and «Толпа» `prologue-6`,
+ * now rooms 8 and 9); the new rooms are `prologue-jump`, `prologue-spin`, `prologue-potion`. The room's number is its place in
+ * `PROLOGUE_ARENAS` (run/prologue.ts), not its id.
+ *
+ * Rooms 1–8 are small (12×8 and 14×8; the camera fits a 16×10 arena into 1280×720, a smaller one stands whole in the middle),
+ * room 9 is 16×10. Colours: 0 red, 1 green, 2 blue (art.ts `COLORS`). Every link of a hand route is ≤ 2 units from the
  * previous one (R 1.875 to the body's edge reaches ≈ 2.2), the first one ≤ 2 units from the hero's start.
  */
 import { registerArena, type ArenaTemplate } from './arenas';
-import { tree } from './geometry';
+import { polygon, tree, zone } from './geometry';
 
 const RED = 0, GREEN = 1, BLUE = 2;
 
@@ -129,8 +134,93 @@ export const PROLOGUE_RAINBOW: ArenaTemplate = registerArena({
   ],
 });
 
+/** Room 5 «Пропасть»: the cliff band, its near and far edges (x); 1.6 wide, across the whole room (no way round). */
+export const PROLOGUE_CLIFF = { near: 5.2, far: 6.8 } as const;
+
 /**
- * Room 5 «Гоблин» (design answers 12.10.2026: the goal is the lever, the damage is secondary; variant Б): four blue in an arc
+ * Room 5 «Пропасть» (task 9, design 13.10.2026): a cliff band across the room between the hero and the door; the door is open
+ * from the start (`door`: entering it wins). Walking cannot cross the band (a cliff is a wall for walking); the jump (radius 3 —
+ * run/prologue.ts) from its near edge lands on the far bank; a jump aimed over the cliff does not start («обрыв», no energy
+ * spent). The hero starts with the energy of one jump; a spent jump comes back 1 s after it (`restore` with no enemies: the
+ * return is the energy alone — the hero stays where he is). No enemies; calm.
+ */
+export const PROLOGUE_JUMP: ArenaTemplate = registerArena({
+  id: 'prologue-jump',
+  name: 'Пропасть',
+  summary: 'Пролог, комната 5: перепрыгни пропасть и войди в дверь. Пробел — прыжок.',
+  goal: 'door',
+  calm: true,
+  restore: 'afterDash',
+  startEnergy: 'jump',
+  width: 12,
+  height: 8,
+  heroStart: { x: 2.5, y: 4 },
+  obstacles: [tree(1.4, 1.4), tree(3.4, 6.8), tree(9.4, 1.4), tree(10.2, 6.6)],
+  terrain: [zone('cliff', polygon(PROLOGUE_CLIFF.near, 0, PROLOGUE_CLIFF.far, 0, PROLOGUE_CLIFF.far, 8, PROLOGUE_CLIFF.near, 8))],
+  buttons: [],
+  door: { x: 11, y: 4 },
+  enemies: [],
+});
+
+/** Room 6 «Вихрь»: the ring's radius round the hero's start (inside the spin's 1.2 even without the enemy's body). */
+const RING = 1.15;
+const ringAt = (cx: number, cy: number, dx: number, dy: number, color: number): { x: number; y: number; color: number } =>
+  ({ x: Math.round((cx + dx * RING) * 1000) / 1000, y: Math.round((cy + dy * RING) * 1000) / 1000, color });
+
+/**
+ * Room 6 «Вихрь» (task 9, design 13.10.2026): six enemies of three colours in a ring right round the hero (each colour twice,
+ * opposite each other: a chain takes at most two); «Одним ударом: 6» (`strike`) — one spin (Q) kills all six. The hero starts
+ * with the energy of one spin. Calm; the return after a dash or a spin that left the goal unmet (and after a spin that killed
+ * nothing: its energy is gone) — the ring, the hero on his start and the energy of one spin come back.
+ */
+export const PROLOGUE_SPIN: ArenaTemplate = registerArena({
+  id: 'prologue-spin',
+  name: 'Вихрь',
+  summary: 'Пролог, комната 6: шесть врагов одним ударом. Q — круговой удар.',
+  goal: 'strike',
+  killGoal: 6,
+  calm: true,
+  restore: 'afterDash',
+  restoreHero: true,
+  startEnergy: 'spin',
+  width: 12,
+  height: 8,
+  heroStart: { x: 6, y: 4 },
+  obstacles: [tree(1.5, 1.4), tree(10.5, 6.6), tree(2.2, 6.8), tree(9.6, 1.2)],
+  buttons: [],
+  door: { x: 11.2, y: 4 },
+  enemies: [
+    ringAt(6, 4, 1, 0, RED),
+    ringAt(6, 4, 0.5, 0.866, GREEN),
+    ringAt(6, 4, -0.5, 0.866, BLUE),
+    ringAt(6, 4, -1, 0, RED),
+    ringAt(6, 4, -0.5, -0.866, GREEN),
+    ringAt(6, 4, 0.5, -0.866, BLUE),
+  ],
+});
+
+/**
+ * Room 7 «Зелье» (task 9, design 13.10.2026): the hero starts with 5 HP of 15 and one healing potion (run/prologue.ts
+ * `prologueLoadout`); drinking it is the goal (`item`), then the door opens. No enemies; calm.
+ */
+export const PROLOGUE_POTION: ArenaTemplate = registerArena({
+  id: 'prologue-potion',
+  name: 'Зелье',
+  summary: 'Пролог, комната 7: выпей зелье. Клавиша 3 — лечение.',
+  goal: 'item',
+  calm: true,
+  startHp: 5,
+  width: 12,
+  height: 8,
+  heroStart: { x: 3, y: 4 },
+  obstacles: [tree(1.5, 1.4), tree(10.4, 6.6), tree(6.2, 7.0), tree(8.6, 1.3)],
+  buttons: [],
+  door: { x: 11.2, y: 4 },
+  enemies: [],
+});
+
+/**
+ * Room 8 «Гоблин» (design answers 12.10.2026: the goal is the lever, the damage is secondary; variant Б): four blue in an arc
  * round the goblin and two red under it, all asleep until the first press (`sleepUntilChain`), then they walk at ×0.6 and
  * touch for 1. The chain «four blue → lever» is open from the start (the first blue 1.7 from the hero, the last 1.4 from the
  * lever); the reds are another colour (they take no part in it). The return only when no start enemy is left and the lever was
@@ -139,7 +229,7 @@ export const PROLOGUE_RAINBOW: ArenaTemplate = registerArena({
 export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   id: 'prologue-5',
   name: 'Гоблин',
-  summary: 'Пролог, комната 5: закончи цепь на рычаге гоблина.',
+  summary: 'Пролог, комната 8: закончи цепь на рычаге гоблина.',
   goal: 'pull',
   killGoal: 1,
   restore: 'whenGone',
@@ -161,11 +251,11 @@ export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   ],
 });
 
-/** Room 6 «Толпа»: the inflow (the limit is the room's `maxEnemies`, run/prologue.ts); the newcomers are basic enemies only. */
+/** Room 9 «Толпа»: the inflow (the limit is the room's `maxEnemies`, run/prologue.ts); the newcomers are basic enemies only. */
 const CROWD_PACE = { floor: 8, intervalMin: 2, intervalMax: 3.5, toughShare: 0.2, wolfShare: 0, boarShare: 0 };
 
 /**
- * Room 6 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 8 (design 13.10.2026,
+ * Room 9 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 8 (design 13.10.2026,
  * was 12: the start crowd is the limit, the newcomers come as the hero kills); kill 15. Every touch hits for 1
  * (run/prologue.ts); the goblin stands from the start to the right of the hero, off the door's lamps (design answers
  * 12.10.2026 and 13.10.2026), its pulls by the run's rules; the hero starts with the energy of one jump.
@@ -173,7 +263,7 @@ const CROWD_PACE = { floor: 8, intervalMin: 2, intervalMax: 3.5, toughShare: 0.2
 export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   id: 'prologue-6',
   name: 'Толпа',
-  summary: 'Пролог, комната 6: убей 15. Щит цепи, щит фокуса, прыжок, круговой удар.',
+  summary: 'Пролог, комната 9: убей 15. Щит цепи, щит фокуса, прыжок, круговой удар.',
   goal: 'kills',
   killGoal: 15,
   startEnergy: 'jump',
@@ -199,5 +289,7 @@ export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   phases: [{ duration: 600, ...CROWD_PACE }],
 });
 
-/** The six rooms in order. */
-export const PROLOGUE_ARENAS: readonly ArenaTemplate[] = [PROLOGUE_TRAIL, PROLOGUE_TWO_COLOURS, PROLOGUE_TOUGH, PROLOGUE_RAINBOW, PROLOGUE_GOBLIN, PROLOGUE_CROWD];
+/** The nine rooms in order (task 9, design 13.10.2026). */
+export const PROLOGUE_ARENAS: readonly ArenaTemplate[] = [
+  PROLOGUE_TRAIL, PROLOGUE_TWO_COLOURS, PROLOGUE_TOUGH, PROLOGUE_RAINBOW, PROLOGUE_JUMP, PROLOGUE_SPIN, PROLOGUE_POTION, PROLOGUE_GOBLIN, PROLOGUE_CROWD,
+];
