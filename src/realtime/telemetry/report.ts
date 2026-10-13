@@ -644,11 +644,15 @@ export interface PrologueRoomStat {
 export interface PrologueOriginStat { from: PrologueFrom; playthroughs: number; players: number; done: number; skipped: number; open: number; rooms: PrologueRoomStat[] }
 
 /**
- * A room of a prologue record by today's numbers (task 9, 13.10.2026: nine rooms). A record without `roomCount` was written for
- * the six rooms of task 6: its rooms 1–4 are the same, 5 «Гоблин» is room 8 now, 6 «Толпа» is room 9 (it never saw rooms 5–7).
+ * A room of a prologue record by today's numbers (task 13, 13.10.2026: ten rooms). A record without `roomCount` was written for
+ * the six rooms of task 6: its rooms 1–4 are the same, 5 «Гоблин» is room 8 now, 6 «Толпа» is room 10 (it never saw rooms 5–7
+ * and 9). A record of the nine rooms of task 9 (`roomCount` 9): rooms 1–8 the same, 9 «Толпа» is room 10 (it never saw room 9
+ * «Щит»). A record of ten rooms — as it is.
  */
 export function prologueRoomNow(record: Pick<PrologueRecord, 'roomCount'>, room: number): number {
-  return record.roomCount === undefined && (room === 5 || room === 6) ? room + 3 : room;
+  if (record.roomCount === undefined) return room === 5 ? 8 : room === 6 ? 10 : room;
+  if (record.roomCount === 9) return room === 9 ? 10 : room;
+  return room;
 }
 
 /** The prologue records of the set (the latest copy of each id is already chosen by `collectRecords`), grouped by origin. */
@@ -678,7 +682,7 @@ export function prologueStats(records: readonly RtRecord[]): PrologueOriginStat[
 const PROLOGUE_FROM_TITLES: Record<PrologueFrom, string> = { first: 'первый запуск', gear: 'шестерёнка «Обучение»' };
 const PROLOGUE_HEAD = ['Откуда', 'Прохождений', 'Игроков', 'Пройден', 'Пропущен', 'Не закончен'];
 const PROLOGUE_ROOM_HEAD = ['Комната', 'Дошли', 'Прошли', 'Время мед., игра / реально', 'Рука показана', 'Стрелка показана', 'Попыток мед.', 'Смертей', 'Возвратов мед.', 'Пропущено здесь'];
-const PROLOGUE_LEGEND = 'Пролог «Опушка» (`PrologueRecord`, с 13.10.2026; docs/realtime-onboarding.md): запись на каждое прохождение, без журналов боя. «Первый запуск» — новый зритель без отметки «пролог пройден», «шестерёнка» — кнопка «Обучение». Игроки — имя тестера, а без него — сессия. Доли — от прохождений, дошедших до комнаты. Время — медиана по прошедшим комнату, все попытки вместе: игровые секунды (`world.time`) и реальные (кадры без паузы); затемнение между комнатами не входит. Попытки — запуски комнаты (смерть в 8–9 запускает её снова); возвраты — враги вернулись на места (комнаты 2–4, 6, 8). «Рука показана» — призрачная рука пришла хоть раз; «стрелка» — стрелка с кругом. Комнат девять с 13.10.2026 (задача 9: 5 «Пропасть», 6 «Вихрь», 7 «Зелье»); записи шести комнат (без `roomCount`) читаются по нынешним номерам: их 5 «Гоблин» — комната 8, 6 «Толпа» — 9, до комнат 5–7 они не доходили. Записей до 13.10.2026 нет — «_нет данных_».';
+const PROLOGUE_LEGEND = 'Пролог «Опушка» (`PrologueRecord`, с 13.10.2026; docs/realtime-onboarding.md): запись на каждое прохождение, без журналов боя. «Первый запуск» — новый зритель без отметки «пролог пройден», «шестерёнка» — кнопка «Обучение». Игроки — имя тестера, а без него — сессия. Доли — от прохождений, дошедших до комнаты. Время — медиана по прошедшим комнату, все попытки вместе: игровые секунды (`world.time`) и реальные (кадры без паузы); затемнение между комнатами не входит. Попытки — запуски комнаты (смерть в 8–10 запускает её снова); возвраты — враги вернулись на места (комнаты 2–4, 6, 8, 9). «Рука показана» — призрачная рука пришла хоть раз; «стрелка» — стрелка с кругом. Комнат десять с 13.10.2026 (задача 9: 5 «Пропасть», 6 «Вихрь», 7 «Зелье»; задача 13: 9 «Щит»); старые записи читаются по нынешним номерам: у записей шести комнат (без `roomCount`) 5 «Гоблин» — комната 8, 6 «Толпа» — 10, до комнат 5–7 и 9 они не доходили; у записей девяти комнат (`roomCount` 9) 9 «Толпа» — комната 10, до комнаты 9 «Щит» они не доходили. Записей до 13.10.2026 нет — «_нет данных_».';
 function prologueSection(records: readonly RtRecord[]): string {
   const stats = prologueStats(records);
   if (!stats.length) return `${PROLOGUE_LEGEND}\n\n_нет данных_`;

@@ -425,7 +425,13 @@ export type WorldEvent =
    * where the hero was put back (`ArenaTemplate.restoreHero`; absent otherwise); `late` — the late batch of posts that waited
    * under the hero (`RestoreState.wait`): the same return, not a new one (telemetry review 13.10.2026; events are not hashed).
    */
-  | { type: 'restore'; enemies: { id: number; x: number; y: number }[]; hero?: { x: number; y: number }; late?: true };
+  | { type: 'restore'; enemies: { id: number; x: number; y: number }[]; hero?: { x: number; y: number }; late?: true }
+  /**
+   * The prologue, task 13 (goal `shield`, the room «Щит»; `noteShieldBlocks`): the after-chain shield (`Hero.chainShield` > 0)
+   * absorbed a touch of enemy `enemyId` that would have hurt the hero; (`x`, `y`) — the enemy at the touch. Once per enemy per
+   * shield window; never for the «Щит фокуса» or the invulnerability after a hit alone. Only on an arena with that goal.
+   */
+  | { type: 'shieldBlock'; enemyId: number; x: number; y: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -542,7 +548,19 @@ export interface World {
    * game time (the lamps hold them `LAMPS_HOLD`). Present only on an arena with that goal (other worlds hash as before).
    */
   strike?: StrikeState;
+  /**
+   * The prologue, task 13 (goal `shield`, the room «Щит»): the lamps lit by the after-chain shield and the shield window now.
+   * Present only on an arena with that goal (other worlds hash as before).
+   */
+  shieldGoal?: ShieldGoalState;
 }
+
+/**
+ * The lamps of a `shield` arena (`World.shieldGoal`): `lit` — shield windows that absorbed a touch which would have hurt (at
+ * most one lamp per window); `window` — the window of the after-chain shield now (absent — none, or it ran out): the enemies
+ * whose touch it absorbed (each sends `shieldBlock` once), `lit` — this window has lit its lamp.
+ */
+export interface ShieldGoalState { lit: number; window?: { enemies: number[]; lit?: true } }
 
 /** The spins of a `strike` arena (`World.strike`): the best one's kills; the last one's kills and game time (absent — none yet). */
 export interface StrikeState { best: number; last?: { kills: number; time: number } }
@@ -663,6 +681,8 @@ export function createWorld(arena: ArenaTemplate, params: Params, seed = 1, star
   if (arena.startHp !== undefined) world.hero.hp = Math.max(1, Math.min(world.hero.maxHp, arena.startHp));
   // The prologue, task 9 (goal `strike`): the spins are counted (only on such an arena).
   if (arena.goal === 'strike') world.strike = { best: 0 };
+  // The prologue, task 13 (goal `shield`): the shield's lamps are counted (only on such an arena).
+  if (arena.goal === 'shield') world.shieldGoal = { lit: 0 };
   // Start enemies of the template stand at their posts from the start (no markers): the marked ones of the third arena.
   const startIds = arena.enemies.map(s => placeStartEnemy(world, s).id);
   // The prologue: the start enemies are watched for their return (only on an arena with `restore`).
@@ -825,6 +845,11 @@ export function goalProgress(world: World): { done: number; total: number; label
   if (goal === 'door') return { done: world.status === 'victory' ? 1 : 0, total: 1, label: 'дверь' };
   // The prologue, task 9: a consumable used (the potion room) — its use completes the goals (items.ts `useItem`).
   if (goal === 'item') return { done: world.stage === 'greed' ? 1 : 0, total: 1, label: 'зелье' };
+  // The prologue, task 13: the after-chain shield absorbed a touch — one lamp per shield window (`World.shieldGoal`).
+  if (goal === 'shield') {
+    const total = world.arena.killGoal ?? 1;
+    return { done: Math.min(total, world.shieldGoal?.lit ?? 0), total, label: 'щит' };
+  }
   // The prologue: the goblin's lever pulled N times.
   if (goal === 'pull') {
     const total = world.arena.killGoal ?? 1;
@@ -862,6 +887,42 @@ export function noteSpin(world: World, kills: number): void {
   strike.best = Math.max(strike.best, kills);
   strike.last = { kills, time: world.time };
   checkGoals(world);
+}
+
+/**
+ * The prologue, task 13 (goal `shield`): a dash just gave the after-chain shield (chain.ts `finishMove`: a chain of
+ * `chainShieldMinKills`+ kills) — a new shield window starts (a new chain's shield replaces the rest of the old one, so its
+ * window is a new one too). Nothing on another arena (no `World.shieldGoal`).
+ */
+export function startShieldWindow(world: World): void {
+  if (world.shieldGoal) world.shieldGoal.window = { enemies: [] };
+}
+
+/**
+ * The prologue, task 13 (goal `shield`, design 13.10.2026): each tick before the touches. While the after-chain shield is up
+ * (`chainShield` > 0, whatever else protects the hero then — the invulnerability after a hit or «Щит фокуса» overlapping it
+ * count as the shield's), every enemy whose touch would hurt the hero now (as `contactDamage` reads it: in reach, not frozen,
+ * its behaviour touches, damage > 0; the hero playing on a non-calm arena, not dashing or jumping) is absorbed: `shieldBlock`
+ * once per enemy per window, and the window's first block lights one lamp while the goals run (then the goal is checked).
+ * When the shield is gone the window ends. Blocks of «Щит фокуса» or of the invulnerability after a hit alone light nothing.
+ */
+function noteShieldBlocks(world: World, state: ShieldGoalState): void {
+  const { hero, params } = world;
+  if (!(hero.chainShield > 0)) { if (state.window) delete state.window; return; }
+  const current = state.window;
+  if (!current || world.arena.calm || world.asleep || world.status !== 'playing' || world.move) return;
+  for (const e of world.enemies) {
+    if (current.enemies.includes(e.id) || dist(e, hero) > touchDistanceOf(params, e) + CONTACT_SLACK || enemyFrozen(e)) continue;
+    const touches = behaviorOf(e).touches;
+    if ((touches && !touches(world, e)) || touchDamage(world, e) <= 0) continue;
+    current.enemies.push(e.id);
+    world.events.push({ type: 'shieldBlock', enemyId: e.id, x: e.x, y: e.y });
+    if (!current.lit && world.stage === 'goals') {
+      current.lit = true;
+      state.lit++;
+      checkGoals(world);
+    }
+  }
 }
 
 /** Called after a chain kill or a button press: the arena goals complete the stage. */
@@ -1476,6 +1537,8 @@ function contactDamage(world: World, dt: number): void {
     // The cold thaws on game time; the brittleness of the cold consumable goes with it.
     if (e.chill !== undefined) { e.chill -= dt; if (e.chill <= 1e-9) { delete e.chill; delete e.brittle; } }
   }
+  // The prologue, task 13 (goal `shield`): touches the after-chain shield absorbs light its lamps (nothing on another arena).
+  if (world.shieldGoal) noteShieldBlocks(world, world.shieldGoal);
   // The prologue: sleeping enemies do not touch.
   if (world.asleep || !canBeHurt(world)) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.

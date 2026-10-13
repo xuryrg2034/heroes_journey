@@ -40,7 +40,7 @@ import { PIERCE_HITSTOP, PIERCE_SOURCE, pierceOn, pierceShape } from './pierce';
 import { leverReady, pullLever, slotFeedEnd } from './slot';
 import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease } from './oath';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
 // Phase B: these two moved to build.ts (the build may change them); the view and the tests import them from here as before.
@@ -1212,7 +1212,11 @@ function finishMove(world: World): void {
     const end: ChainEnd | null = b ? { chain: b.chain, kills: move.kills, hits: move.hits, links: b.links, elites: b.elites, last: b.last ? { ...b.last } : null,
       power: move.power, start: { ...b.start }, end: { x: hero.x, y: hero.y } } : null;
     const shield = chainShieldOf(world, end);
-    if (shield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) hero.chainShield = shield;
+    if (shield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) {
+      hero.chainShield = shield;
+      // The prologue, task 13 (goal `shield`): a new shield window for the room's lamps (nothing on another arena).
+      startShieldWindow(world);
+    }
     // Loop research, step 2: the seal strikes at the end of the dash — on those inside at the release still on the arena.
     if (move.seal) strikeSeal(world, move.seal);
     // Phase B: the dash is over — the build modules' end of chain (a wave, the end blast, the return run …).

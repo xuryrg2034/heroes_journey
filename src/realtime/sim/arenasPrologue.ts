@@ -1,17 +1,19 @@
 /**
  * Arenas of the prologue «Опушка» (task 6, design 12.10.2026; docs/realtime-onboarding.md, «Пролог «Опушка»: правила
- * комнат»): nine rooms outside the run that teach by doing (task 9, design 13.10.2026: «Пропасть», «Вихрь» and «Зелье» stand
- * between «Радуга» and «Гоблин»). Only these arenas set the prologue's template fields (sim/arenas.ts: goals `chain`, `pull`,
- * `strike`, `door`, `item`, `calm`, `restore`, `goblin`, `startEnergy`, `startHp`); the numbers of each room are the run's
+ * комнат»): ten rooms outside the run that teach by doing (task 9, design 13.10.2026: «Пропасть», «Вихрь» and «Зелье» stand
+ * between «Радуга» and «Гоблин»; task 13, design 13.10.2026: «Щит» between «Гоблин» and «Толпа»). Only these arenas set the
+ * prologue's template fields (sim/arenas.ts: goals `chain`, `pull`, `strike`, `door`, `item`, `shield`, `calm`, `restore`,
+ * `goblin`, `startEnergy`, `startHp`); the numbers of each room are the run's
  * (`RT_RUN_FORCED`) with existing keys over them (run/prologue.ts `PROLOGUE_FORCED`). Kept in its own file, like
  * arenasStage3.ts: the templates register on import (a journal names them by id), `simulation.ts` imports it.
  *
  * Ids: the rooms of task 6 keep theirs (`prologue-1` … `prologue-6` — «Гоблин» is `prologue-5` and «Толпа» `prologue-6`,
- * now rooms 8 and 9); the new rooms are `prologue-jump`, `prologue-spin`, `prologue-potion`. The room's number is its place in
+ * now rooms 8 and 10); the new rooms are `prologue-jump`, `prologue-spin`, `prologue-potion` (task 9) and `prologue-shield` (task 13,
+ * room 9). The room's number is its place in
  * `PROLOGUE_ARENAS` (run/prologue.ts), not its id.
  *
- * Rooms 1–8 are small (12×8 and 14×8; the camera fits a 16×10 arena into 1280×720, a smaller one stands whole in the middle),
- * room 9 is 16×10. Colours: 0 red, 1 green, 2 blue (art.ts `COLORS`). Every link of a hand route is ≤ 2 units from the
+ * Rooms 1–9 are small (12×8 and 14×8; the camera fits a 16×10 arena into 1280×720, a smaller one stands whole in the middle),
+ * room 10 is 16×10. Colours: 0 red, 1 green, 2 blue (art.ts `COLORS`). Every link of a hand route is ≤ 2 units from the
  * previous one (R 1.875 to the body's edge reaches ≈ 2.2), the first one ≤ 2 units from the hero's start.
  */
 import { registerArena, type ArenaTemplate } from './arenas';
@@ -251,11 +253,11 @@ export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   ],
 });
 
-/** Room 9 «Толпа»: the inflow (the limit is the room's `maxEnemies`, run/prologue.ts); the newcomers are basic enemies only. */
+/** Room 10 «Толпа»: the inflow (the limit is the room's `maxEnemies`, run/prologue.ts); the newcomers are basic enemies only. */
 const CROWD_PACE = { floor: 8, intervalMin: 2, intervalMax: 3.5, toughShare: 0.2, wolfShare: 0, boarShare: 0 };
 
 /**
- * Room 9 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 8 (design 13.10.2026,
+ * Room 10 «Толпа»: a 16×10 clearing, eight enemies of the four colours at the start and the inflow up to 8 (design 13.10.2026,
  * was 12: the start crowd is the limit, the newcomers come as the hero kills); kill 15. Every touch hits for 1
  * (run/prologue.ts); the goblin stands from the start to the right of the hero, off the door's lamps (design answers
  * 12.10.2026 and 13.10.2026), its pulls by the run's rules; the hero starts with the energy of one jump.
@@ -263,7 +265,7 @@ const CROWD_PACE = { floor: 8, intervalMin: 2, intervalMax: 3.5, toughShare: 0.2
 export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   id: 'prologue-6',
   name: 'Толпа',
-  summary: 'Пролог, комната 9: убей 15. Щит цепи, щит фокуса, прыжок, круговой удар.',
+  summary: 'Пролог, комната 10: убей 15. Щит цепи, щит фокуса, прыжок, круговой удар.',
   goal: 'kills',
   killGoal: 15,
   startEnergy: 'jump',
@@ -289,7 +291,44 @@ export const PROLOGUE_CROWD: ArenaTemplate = registerArena({
   phases: [{ duration: 600, ...CROWD_PACE }],
 });
 
-/** The nine rooms in order (task 9, design 13.10.2026). */
+/** Room 9 «Щит»: the crowd's ring round the hero's start (radius), nine posts 40° apart (unit vectors; no trigonometry). */
+const SHIELD_RING = 1.5;
+const SHIELD_DIRS: readonly { x: number; y: number }[] = [
+  { x: 1, y: 0 }, { x: 0.766, y: 0.643 }, { x: 0.174, y: 0.985 }, { x: -0.5, y: 0.866 }, { x: -0.94, y: 0.342 },
+  { x: -0.94, y: -0.342 }, { x: -0.5, y: -0.866 }, { x: 0.174, y: -0.985 }, { x: 0.766, y: -0.643 },
+];
+const shieldPost = (i: number, color: number): { x: number; y: number; color: number } =>
+  ({ x: Math.round((6 + SHIELD_DIRS[i].x * SHIELD_RING) * 1000) / 1000, y: Math.round((4 + SHIELD_DIRS[i].y * SHIELD_RING) * 1000) / 1000, color });
+
+/**
+ * Room 9 «Щит» (task 13, design 13.10.2026): a dense crowd of nine AWAKE enemies of three colours in a ring right round the hero
+ * (three arcs of three: a chain of one colour takes three), every touch 1 and the damage on (run/prologue.ts); «Щит: 3»
+ * (`shield`) — three windows of the after-chain shield (a chain of 3+ kills, 0.5 s) that each absorbed a touch which would have
+ * hurt. A chain of 1–2 gives no shield: the touch after it hurts. No inflow; the return after a dash (the ring and the hero on
+ * his start, 1 s later); a death plays the room again (the view).
+ */
+export const PROLOGUE_SHIELD: ArenaTemplate = registerArena({
+  id: 'prologue-shield',
+  name: 'Щит',
+  summary: 'Пролог, комната 9: цепь из трёх и больше — полсекунды щита. Пусть враг ударит в щит три раза.',
+  goal: 'shield',
+  killGoal: 3,
+  restore: 'afterDash',
+  restoreHero: true,
+  width: 12,
+  height: 8,
+  heroStart: { x: 6, y: 4 },
+  obstacles: [tree(1.5, 1.4), tree(10.5, 6.6), tree(2.2, 6.8), tree(9.6, 1.2)],
+  buttons: [],
+  door: { x: 11.2, y: 4 },
+  enemies: [
+    shieldPost(0, BLUE), shieldPost(1, BLUE), shieldPost(2, BLUE),
+    shieldPost(3, RED), shieldPost(4, RED), shieldPost(5, RED),
+    shieldPost(6, GREEN), shieldPost(7, GREEN), shieldPost(8, GREEN),
+  ],
+});
+
+/** The ten rooms in order (task 9, design 13.10.2026; task 13: «Щит» between «Гоблин» and «Толпа»). */
 export const PROLOGUE_ARENAS: readonly ArenaTemplate[] = [
-  PROLOGUE_TRAIL, PROLOGUE_TWO_COLOURS, PROLOGUE_TOUGH, PROLOGUE_RAINBOW, PROLOGUE_JUMP, PROLOGUE_SPIN, PROLOGUE_POTION, PROLOGUE_GOBLIN, PROLOGUE_CROWD,
+  PROLOGUE_TRAIL, PROLOGUE_TWO_COLOURS, PROLOGUE_TOUGH, PROLOGUE_RAINBOW, PROLOGUE_JUMP, PROLOGUE_SPIN, PROLOGUE_POTION, PROLOGUE_GOBLIN, PROLOGUE_SHIELD, PROLOGUE_CROWD,
 ];

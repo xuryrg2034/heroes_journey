@@ -17,9 +17,11 @@ import type { Phase } from './params';
  * N kills by ONE dash (`killGoal`; `world.stats.bestChain` ≥ N, or the dash going now reached N), `pull` — the goblin's
  * lever pulled N times (`killGoal`). Task 9 (design 13.10.2026) adds three more, prologue only: `strike` — N kills by ONE action
  * (`killGoal`: the best dash, as `chain`, or the kills of one spin, `World.strike`), `door` — the door is open from the start and
- * entering it wins (the jump room), `item` — a consumable used (the potion room; one use opens the door).
+ * entering it wins (the jump room), `item` — a consumable used (the potion room; one use opens the door). Task 13 (design
+ * 13.10.2026) adds `shield`, prologue only: N lamps (`killGoal`), one per window of the after-chain shield that absorbed an
+ * enemy's touch which would have hurt (`World.shieldGoal`, world.ts `noteShieldBlocks`; the room «Щит»).
  */
-export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull' | 'strike' | 'door' | 'item';
+export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull' | 'strike' | 'door' | 'item' | 'shield';
 
 /**
  * The prologue: when the start enemies come back to their posts with full HP (world.ts `updateRestore`). `afterDash` — the

@@ -10,7 +10,7 @@
 import { PROLOGUE_ROOM_COUNT } from '../run/prologue';
 import type { PrologueFrom, PrologueOutcome, PrologueRecord, PrologueRoomTally } from './schema';
 
-/** The record without its header (`roomCount` — the rooms of the prologue now, task 9: 9). */
+/** The record without its header (`roomCount` — the rooms of the prologue now, task 13: 10). */
 export type PrologueBody = Pick<PrologueRecord, 'from' | 'outcome' | 'skipRoom' | 'rooms'> & { roomCount: number; endedAt?: string };
 
 /** How a room ended in the view's hooks (`RoomOutcome` of view/prologueFlow.ts). */

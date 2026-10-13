@@ -298,6 +298,8 @@ async function main(): Promise<void> {
     assert(checkRecord({ ...rec, roomCount: 9, rooms: [room9], skipRoom: 9 }) === null && checkRecord({ ...rec, rooms: [room9] }) === 'prologue room number'
       && checkRecord({ ...rec, skipRoom: 7 }) === 'prologue skipRoom' && checkRecord({ ...rec, roomCount: 9, rooms: [{ ...room9, room: 10 }] }) === 'prologue room number'
       && checkRecord({ ...rec, roomCount: 0 }) === 'prologue roomCount' && checkRecord({ ...rec, rooms: [{ ...rec.rooms[0], room: 1.5 }] }) !== null, 'room numbers');
+    // Task 13 (13.10.2026): ten rooms — room 10 is valid in a ten-room record; a nine-room record (task 9) still reads.
+    assert(checkRecord({ ...rec, roomCount: 10, rooms: [{ ...room9, room: 10 }], skipRoom: 10 }) === null && checkRecord({ ...rec, roomCount: 10, rooms: [{ ...room9, room: 11 }] }) === 'prologue room number', 'ten rooms');
     assert(throws(() => prologueRecordId(s, 'a/b')), 'a bad key');
     // A file with the prologue record and one without (older logs) both read back.
     assert(parseExport(JSON.stringify(makeExport(s, [rec], '2026-10-13T10:00:00.000Z'))).records[0].kind === 'prologue', 'with');
