@@ -309,14 +309,14 @@ export type PrologueOutcome = 'done' | 'skip' | 'open';
  * are left out.
  */
 export interface PrologueRoomTally {
-  /** 1 … the record's `roomCount` (9; a record without it — 1…6, the rooms of task 6). */
+  /** 1 … the record's `roomCount` (10; 9 — the rooms of task 9; a record without it — 1…6, the rooms of task 6). */
   room: number;
   /** Starts of the room (1 + the replays after a death). */
   attempts: number;
-  /** Deaths (rooms 8 and 9 — «Гоблин», «Толпа»: a death plays the room again). */
+  /** Deaths (rooms 8–10 — «Гоблин», «Щит», «Толпа»: a death plays the room again). */
   deaths: number;
   /**
-   * Returns of the start enemies (event `restore`; rooms 2–4, 6 and 8). A late batch under the hero is the same return; the
+   * Returns of the start enemies (event `restore`; rooms 2–4, 6, 8 and 9). A late batch under the hero is the same return; the
    * energy coming back alone in room 5 sends no event.
    */
   restores: number;
@@ -343,7 +343,8 @@ export interface PrologueRecord extends RtHeader {
   /** The rooms reached, in order. */
   rooms: PrologueRoomTally[];
   /**
-   * How many rooms the prologue had when the record was written (task 9, 13.10.2026: 9). Absent — a record of the six rooms of
+   * How many rooms the prologue had when the record was written (task 13, 13.10.2026: 10; task 9: 9 — its room 9 «Толпа» is room
+   * 10 now). Absent — a record of the six rooms of
    * task 6, whose rooms 5 and 6 are «Гоблин» and «Толпа» (now 8 and 9; the report reads them so — report.ts `prologueRoomNow`).
    */
   roomCount?: number;

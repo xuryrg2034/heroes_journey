@@ -547,7 +547,7 @@ async function main(): Promise<void> {
     const [done] = await prologues();
     assert(checkRecord(done) === null, `checkRecord: ${checkRecord(done)}`);
     assert(done.from === 'first' && done.outcome === 'done' && done.skipRoom === null && typeof done.endedAt === 'string' && done.id.endsWith(`/${done.run}/prologue`) && done.run.startsWith('p'), JSON.stringify(done));
-    assert(done.roomCount === 9, `the record names the nine rooms (task 9): ${done.roomCount}`);
+    assert(done.roomCount === 10, `the record names the ten rooms (task 13): ${done.roomCount}`);
     const [r1, r2, r5] = done.rooms;
     assert(done.rooms.length === 3 && r1.room === 1 && r2.room === 2 && r5.room === 8, 'the rooms reached, in order; nothing after the end');
     assert(r2.restores === 2 && r2.arrows === 1 && r2.hands === 0 && r2.attempts === 1 && r2.realSeconds === 22, JSON.stringify(r2));

@@ -81,7 +81,8 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
   switch (cmd.t) {
     case 'walk': world.input.x = cmd.x; world.input.y = cmd.y; return;
     // The prologue (`sleepUntilChain`): the first press wakes the enemies, whatever it takes.
-    case 'begin': if (world.asleep && world.status === 'playing') delete world.asleep; return beginChain(world, { x: cmd.x, y: cmd.y });
+    // The press wakes the sleepers of `sleepUntilChain` (room 8); those of `sleepOnDoor` (room 9, after the goals) sleep on.
+    case 'begin': if (world.asleep && world.status === 'playing' && !world.arena.sleepOnDoor) delete world.asleep; return beginChain(world, { x: cmd.x, y: cmd.y });
     case 'drag': dragChain(world, { x: cmd.x, y: cmd.y }, cmd.mode); return;
     case 'sweep': dragChainAlong(world, { x: cmd.fx, y: cmd.fy }, { x: cmd.x, y: cmd.y }); return;
     case 'release': return releaseChain(world);

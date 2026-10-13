@@ -17,9 +17,11 @@ import type { Phase } from './params';
  * N kills by ONE dash (`killGoal`; `world.stats.bestChain` ≥ N, or the dash going now reached N), `pull` — the goblin's
  * lever pulled N times (`killGoal`). Task 9 (design 13.10.2026) adds three more, prologue only: `strike` — N kills by ONE action
  * (`killGoal`: the best dash, as `chain`, or the kills of one spin, `World.strike`), `door` — the door is open from the start and
- * entering it wins (the jump room), `item` — a consumable used (the potion room; one use opens the door).
+ * entering it wins (the jump room), `item` — a consumable used (the potion room; one use opens the door). Task 13 (design
+ * 13.10.2026) adds `shield`, prologue only: N lamps (`killGoal`), one per window of the after-chain shield that absorbed an
+ * enemy's touch which would have hurt (`World.shieldGoal`, world.ts `noteShieldBlocks`; the room «Щит»).
  */
-export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull' | 'strike' | 'door' | 'item';
+export type ArenaGoal = 'kills' | 'buttons' | 'marked' | 'chain' | 'pull' | 'strike' | 'door' | 'item' | 'shield';
 
 /**
  * The prologue: when the start enemies come back to their posts with full HP (world.ts `updateRestore`). `afterDash` — the
@@ -126,11 +128,24 @@ export interface ArenaTemplate extends ArenaShape {
    */
   restoreHero?: boolean;
   /**
+   * The prologue, task 13 (design answer 13.10.2026, room 9 «Щит» only): while the after-chain shield is up (`chainShield` > 0)
+   * a needed return waits for it and comes in the tick the shield ends, before that tick's touches (world.ts `update`), not
+   * `RESTORE_DELAY` after the dash; a new shield moves it to the new window's end. Without a shield (a chain of 1–2 kills) the
+   * return comes `RESTORE_DELAY` later as usual. Only with `restore`.
+   */
+  restoreAfterShield?: boolean;
+  /**
    * The prologue (design answer 12.10.2026, room 5, variant Б): the enemies sleep — stand, do not touch the hero, are not
    * parted by his walk — until the player's first press (`begin`, whatever it takes); then they wake for good (a return does
    * not put them to sleep again). No timer. `World.asleep` while they sleep.
    */
   sleepUntilChain?: boolean;
+  /**
+   * The prologue, task 13 (design answer 13.10.2026, room 9 «Щит» only): when the door opens (the goals met) the enemies fall
+   * asleep in that tick — the sleep of `sleepUntilChain` (`World.asleep`: they stand, do not touch the hero, are not parted by
+   * his walk) — and stay asleep: a press does not wake them here.
+   */
+  sleepOnDoor?: boolean;
   /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
   goblin?: Vec;
   /**

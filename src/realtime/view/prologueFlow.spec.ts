@@ -149,7 +149,7 @@ check('the lamps: N on an arc on the arena side of the door, each inside the are
   assert(one.x < 10 && Math.abs(one.y - 4) < 1e-6, 'one lamp towards the middle');
 });
 
-check('room 9 «Толпа»: the lamps keep off the goblin, its lever and its odds line («безопасно: 3» over the idol, the knob at its right, the reels over it)', () => {
+check('room 10 «Толпа»: the lamps keep off the goblin, its lever and its odds line («безопасно: 3» over the idol, the knob at its right, the reels over it)', () => {
   const room6 = PROLOGUE_ROOMS.find(r => r.id === 'prologue-6')!.arena, g = room6.goblin!;
   // The idol with its lever and the text over it: x ±1.5 units, from 1.8 up to 0.8 down (the knob 1.07 radii right, 1.15 up; the odds line and reels over the head).
   const box = { x0: g.x - 1.5, x1: g.x + 1.5, y0: g.y - 1.8, y1: g.y + 0.8 };
@@ -203,7 +203,7 @@ check('labels: room 1 at the nearest enemy until the first link; room 4 from the
   assert(l5 && l5.text === 'Закончи цепь здесь' && l5.place === 'side', 'room 8: at the lever');
   w5.slot!.goblin!.pulls = 1;
   assert(prologueLabel(w5, 8, memo5) === null && memo5.done, 'room 8: gone with the first pull');
-  for (const n of [2, 3, 5, 6, 7, 9]) assert(prologueLabel(room(n).world, n, { done: false }) === null, `room ${n}: no label`);
+  for (const n of [2, 3, 5, 6, 7, 9, 10]) assert(prologueLabel(room(n).world, n, { done: false }) === null, `room ${n}: no label`);
   assert([...['Зажми и веди', 'Цвет свободен', 'Закончи цепь здесь']].every(t => t.split(' ').length <= 3), '≤ 3 words');
 });
 
@@ -215,9 +215,9 @@ check('goal lines, titles, seeds', () => {
   assert(prologueGoalLine(room(6).world) === 'Одним ударом: 0 / 6', 'room 6 «Вихрь»');
   assert(prologueGoalLine(room(7).world) === 'Зелье: 0 / 1', 'room 7 «Зелье»');
   assert(prologueGoalLine(room(8).world) === 'Рычаг: 0 / 1', 'room 8');
-  assert(prologueGoalLine(room(9).world) === 'Убей: 0 / 15', 'room 9');
-  assert(PROLOGUE_ROOM_COUNT === 9, 'nine rooms');
-  assert(roomTitle(1) === '1/9 · Тропа' && roomTitle(5) === '5/9 · Пропасть' && roomTitle(9) === '9/9 · Толпа', 'titles');
+  assert(prologueGoalLine(room(10).world) === 'Убей: 0 / 15', 'room 10');
+  assert(PROLOGUE_ROOM_COUNT === 10, 'ten rooms (task 13)');
+  assert(roomTitle(1) === '1/10 · Тропа' && roomTitle(5) === '5/10 · Пропасть' && roomTitle(9) === '9/10 · Щит' && roomTitle(10) === '10/10 · Толпа', 'titles');
   assert(prologueSeed(1, 1) === prologueSeed(1, 1) && prologueSeed(5, 1) !== prologueSeed(5, 2) && prologueSeed(5, 1) !== prologueSeed(6, 1), 'seeds differ by room and attempt');
   assert(prologueSeed(2, 1, 7) !== prologueSeed(2, 1), 'a fixed page seed shifts them');
 });

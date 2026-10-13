@@ -74,6 +74,8 @@ export function worldState(world: World): unknown {
     ...world.asleep ? { asleep: true } : {},
     // The prologue, task 9 (goal `strike`): the best and the last spin (absent on every other arena).
     ...world.strike ? { strike: world.strike } : {},
+    // The prologue, task 13 (goal `shield`): the shield's lamps and window (absent on every other arena).
+    ...world.shieldGoal ? { shieldGoal: world.shieldGoal } : {},
   };
 }
 

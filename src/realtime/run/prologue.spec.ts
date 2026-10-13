@@ -16,8 +16,8 @@
  *   meets the goal; three pulls, none risky, no bust (several seeds); standing still 10 s costs at most 3 HP; task 11: each
  *   pull is a sure triple (no rain, volley or pair — so no slot hit), the goblin rolls no safe count whatever the panel, the
  *   room shows no bust (`slotMayBust`) — on 40 seeds;
- * - rooms 1–4: the hero walking into the enemies loses no HP, the enemies stand; rooms 8 and 9: the enemies walk and hit;
- * - room 9 (softened by design 13.10.2026): the hero kills with real chains; enemies and markers never exceed 8, the inflow
+ * - rooms 1–4: the hero walking into the enemies loses no HP, the enemies stand; rooms 8–10: the enemies walk and hit;
+ * - room 10 «Толпа» (softened by design 13.10.2026): the hero kills with real chains; enemies and markers never exceed 8, the inflow
  *   comes as he kills and varies by seed, every hit on him costs 1 HP, the start energy is one jump, the goblin stands from the start;
  * - task 9 (design 13.10.2026; the rooms are numbered anew: «Гоблин» 8, «Толпа» 9): room 5 «Пропасть» — the walk cannot cross
  *   the cliff, a jump onto it is refused with no energy spent, the jump hand's spot and click land the hero on the far bank, the
@@ -26,6 +26,11 @@
  *   spin's energy back 1 s later; two partial spins, or a chain and a spin in one return window, never add up to the goal;
  *   room 7 «Зелье» — 5 HP of 15 whatever the view gives, one potion, drinking it opens the door; rooms 5–7 stay solvable with
  *   hostile panel values (review 13.10.2026);
+ * - task 13 (design 13.10.2026; «Щит» is room 9, «Толпа» room 10): room 9 — the hand's chain of 3+ of one colour
+ *   (`prologueShieldChain`), drawn by the commands, is the dash; its shield absorbs the crowd's touches (`shieldBlock` once per
+ *   enemy, no hit) and lights exactly one lamp per chain, three chains open the door; a chain of 1–2 gives no shield and the
+ *   touch after it hurts (−1) with no lamp; the invulnerability after a hit and «Щит фокуса» spare the hero but light nothing;
+ *   the shield over the hit's invulnerability counts; `shieldGoal` only in room 9, a run arena's shield as before;
  * - every fight replays from its journal to the same hash (checkpoints every 300 ticks), twice.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
@@ -33,19 +38,19 @@ import { canJump, canLink, canLinkObject, jumpRefusal, linkPoint, nextCandidates
 import { worldState } from '../sim/hash';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import { goblinOf, leverReady, slotMayBust } from '../sim/slot';
-import { LAMPS_HOLD, RESTORE_DELAY, doorOpen, goalLamps, goalProgress, type ChainLink, type World, type WorldEvent } from '../sim/world';
+import { CONTACT_SLACK, LAMPS_HOLD, RESTORE_DELAY, doorOpen, focusGuarded, goalLamps, goalProgress, touchDistanceOf, type ChainLink, type World, type WorldEvent } from '../sim/world';
 import { PROLOGUE_CLIFF } from '../sim/arenasPrologue';
 import { arenaTemplate } from '../sim/arenas';
 import { defaultParams, heroRadius } from '../sim/params';
-import { PROLOGUE_FORCED, PROLOGUE_ROOM_COUNT, PROLOGUE_ROOMS, prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueSpinReady, prologueTitle, startEnemyIds } from './prologue';
+import { PROLOGUE_FORCED, PROLOGUE_ROOM_COUNT, PROLOGUE_ROOMS, prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldChain, prologueShieldLinks, prologueSpinReady, prologueTitle, startEnemyIds } from './prologue';
 import { RT_RUN_FORCED, rtRunParams } from './rtRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
-/** The rooms by their number (task 9, design 13.10.2026: «Гоблин» and «Толпа» are rooms 8 and 9 now). */
-const JUMP = 5, SPIN = 6, POTION = 7, GOBLIN = 8, CROWD = 9;
+/** The rooms by their number (task 9, design 13.10.2026: «Гоблин» is room 8; task 13: «Щит» room 9, «Толпа» room 10). */
+const JUMP = 5, SPIN = 6, POTION = 7, GOBLIN = 8, SHIELD = 9, CROWD = 10;
 /** Colour 0 (art.ts `COLORS`). */
 const RED_COLOUR = 0;
 /** The rooms with a hand route (1–4 and 8). */
@@ -165,35 +170,42 @@ const starts = (w: World): ChainLink[] => startEnemyIds(w).map(id => ({ kind: 'e
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-check('the rooms: nine, in order (task 9), ids — the six of task 6 kept, three new; titles «N/9 · …»; numbers — the run\'s RT_RUN_FORCED with existing keys over it; rooms 1–8 no inflow; room 5 jump radius 3; room 6 the spin\'s defaults; room 8 three safe pulls; room 9 up to 8, touch 1; the tiles', () => {
-  assert(PROLOGUE_ROOM_COUNT === 9 && PROLOGUE_ROOMS.length === 9, 'nine rooms');
-  assert(PROLOGUE_ROOMS.map(r => r.title).join(',') === 'Тропа,Два цвета,Крепкий,Радуга,Пропасть,Вихрь,Зелье,Гоблин,Толпа', 'titles');
-  assert(PROLOGUE_ROOMS.map(r => r.id).join(',') === 'prologue-1,prologue-2,prologue-3,prologue-4,prologue-jump,prologue-spin,prologue-potion,prologue-5,prologue-6', 'ids');
+check('the rooms: ten, in order (task 9; task 13: «Щит» between «Гоблин» and «Толпа»), ids — the six of task 6 kept, four new; titles «N/10 · …»; numbers — the run\'s RT_RUN_FORCED with existing keys over it; rooms 1–9 no inflow; room 5 jump radius 3; room 6 the spin\'s defaults; room 8 three safe pulls; room 9 the shield of the run, touch 1; room 10 up to 8, touch 1; the tiles', () => {
+  assert(PROLOGUE_ROOM_COUNT === 10 && PROLOGUE_ROOMS.length === 10, 'ten rooms');
+  assert(PROLOGUE_ROOMS.map(r => r.title).join(',') === 'Тропа,Два цвета,Крепкий,Радуга,Пропасть,Вихрь,Зелье,Гоблин,Щит,Толпа', 'titles');
+  assert(PROLOGUE_ROOMS.map(r => r.id).join(',') === 'prologue-1,prologue-2,prologue-3,prologue-4,prologue-jump,prologue-spin,prologue-potion,prologue-5,prologue-shield,prologue-6', 'ids');
   assert(PROLOGUE_ROOMS.every((r, i) => r.number === i + 1 && arenaTemplate(r.id) === r.arena), 'numbers, registered');
-  assert(prologueTitle(1) === '1/9 · Тропа' && prologueTitle(SPIN) === '6/9 · Вихрь' && prologueTitle(CROWD) === '9/9 · Толпа', 'titles on the screen');
+  assert(prologueTitle(1) === '1/10 · Тропа' && prologueTitle(SPIN) === '6/10 · Вихрь' && prologueTitle(SHIELD) === '9/10 · Щит' && prologueTitle(CROWD) === '10/10 · Толпа', 'titles on the screen');
   for (const r of PROLOGUE_ROOMS) {
     const p = prologueParams(r.number);
     for (const [key, value] of Object.entries(RT_RUN_FORCED)) if (!(key in r.forced)) assert(JSON.stringify(p[key as keyof typeof p]) === JSON.stringify(value), `${r.id}: ${key} is the run's`);
     for (const [key, value] of Object.entries(r.forced)) assert(p[key as keyof typeof p] === value, `${r.id}: ${key}`);
     assert(Object.keys(r.forced).every(key => key in p), `${r.id}: only existing keys`);
   }
-  assert(PROLOGUE_FORCED.slice(0, 8).every(f => f.maxEnemies === 0) && PROLOGUE_FORCED[CROWD - 1].maxEnemies === 8, 'inflow');
+  assert(PROLOGUE_FORCED.slice(0, 9).every(f => f.maxEnemies === 0) && PROLOGUE_FORCED[CROWD - 1].maxEnemies === 8, 'inflow');
   // Rooms 5 and 6 (task 9): their numbers do not follow the panel (a panel jump radius or spin circle would break the room).
   const panel = { ...defaultParams(), jumpRadius: 1, spinRadius: 0.5, spinDamage: 1, spinCost: 6 };
   const pj = prologueParams(JUMP, panel), ps = prologueParams(SPIN, panel);
   assert(pj.jumpRadius === 3 && pj.doorWalkIn && ps.spinRadius === 1.2 && ps.spinDamage === 4 && ps.spinCost === 3, 'rooms 5 and 6: their own numbers over the panel');
-  // Room 9 (design 13.10.2026): every touch 1 (no raised touch of the tough ones); the invulnerability and the shields are the run's.
-  const p9 = prologueParams(CROWD), run = rtRunParams(defaultParams());
-  assert(p9.contactDamage === 1 && !p9.toughTouch, 'room 9: touch 1');
-  assert(p9.invulnerability === run.invulnerability && p9.invulnerabilityMode === run.invulnerabilityMode && p9.chainShield === run.chainShield && p9.chainShieldMinKills === run.chainShieldMinKills && p9.focusGuardLinks === run.focusGuardLinks, 'room 9: invulnerability and shields of the run');
+  // Room 10 (design 13.10.2026): every touch 1 (no raised touch of the tough ones); the invulnerability and the shields are the run's.
+  const p10 = prologueParams(CROWD), run = rtRunParams(defaultParams());
+  assert(p10.contactDamage === 1 && !p10.toughTouch, 'room 10: touch 1');
+  assert(p10.invulnerability === run.invulnerability && p10.invulnerabilityMode === run.invulnerabilityMode && p10.chainShield === run.chainShield && p10.chainShieldMinKills === run.chainShieldMinKills && p10.focusGuardLinks === run.focusGuardLinks, 'room 10: invulnerability and shields of the run');
+  // Room 9 «Щит» (task 13): the run's shield (0.5 s after 3+ kills), «Щит фокуса» from the 3rd link, touch 1, HP 15 — even over a
+  // hostile panel (the view builds the prologue from the sandbox panel).
+  const hostile = { ...defaultParams(), chainShield: 0, chainShieldMinKills: 1, contactDamage: 3, heroHp: 2, enemySpeed: 0.1, invulnerability: 2, focusGuardLinks: 0, maxEnemies: 40 };
+  for (const p9 of [prologueParams(SHIELD), prologueParams(SHIELD, hostile)]) {
+    assert(p9.chainShield === 0.5 && p9.chainShieldMinKills === run.chainShieldMinKills && p9.chainShieldMinKills === 3 && p9.focusGuardLinks === run.focusGuardLinks, 'room 9: the shields of the run');
+    assert(p9.contactDamage === 1 && !p9.toughTouch && p9.heroHp === 15 && p9.maxEnemies === 0 && p9.enemySpeed === 1.2 && p9.invulnerability === 0.5 && p9.invulnerabilityMode === 'constant', 'room 9: touch 1, HP 15, no inflow, the run\'s pace, 0.5 s after a hit');
+  }
   const p8 = prologueParams(GOBLIN), goblinRoom = prologueRoom(GOBLIN).arena;
   assert(p8.slot && p8.slotBust && p8.slotPulls === 3 && p8.slotSafePulls === 3 && p8.slotSafePerLongChain === 0 && p8.contactDamage === 1, 'room 8 numbers');
   assert(Math.abs(p8.enemySpeed - prologueParams(4).enemySpeed * 0.6) < 1e-9 && goblinRoom.enemies.length === 6 && goblinRoom.sleepUntilChain, 'room 8: six enemies, asleep until the first press, ×0.6 the run\'s pace');
   assert(p8.invulnerability === 3.4 && p8.invulnerabilityMode === 'constant', 'room 8: 3.4 s after a hit');
-  assert(PROLOGUE_ROOMS.map(r => r.arena.calm ? 'calm' : '-').join(',') === 'calm,calm,calm,calm,calm,calm,calm,-,-', 'calm rooms 1–7');
-  assert(PROLOGUE_ROOMS.map(r => r.arena.restore ?? '-').join(',') === 'none,afterDash,afterDash,afterDash,afterDash,afterDash,-,whenGone,none', 'return by room');
-  assert(PROLOGUE_ROOMS.map(r => r.arena.goal).join(',') === 'kills,chain,marked,chain,door,strike,item,pull,kills', 'goals by room');
-  assert(JSON.stringify(PROLOGUE_ROOMS.map(r => r.tiles)) === JSON.stringify([[], [], [], [], ['jump'], ['spin'], ['healing'], [], 'all']), 'tiles by room');
+  assert(PROLOGUE_ROOMS.map(r => r.arena.calm ? 'calm' : '-').join(',') === 'calm,calm,calm,calm,calm,calm,calm,-,-,-', 'calm rooms 1–7');
+  assert(PROLOGUE_ROOMS.map(r => r.arena.restore ?? '-').join(',') === 'none,afterDash,afterDash,afterDash,afterDash,afterDash,-,whenGone,afterDash,none', 'return by room');
+  assert(PROLOGUE_ROOMS.map(r => r.arena.goal).join(',') === 'kills,chain,marked,chain,door,strike,item,pull,shield,kills', 'goals by room');
+  assert(JSON.stringify(PROLOGUE_ROOMS.map(r => r.tiles)) === JSON.stringify([[], [], [], [], ['jump'], ['spin'], ['healing'], [], [], 'all']), 'tiles by room');
   // The start enemies' ids are kept by every room with a return (`World.restore`), the same as the enemies standing on the posts.
   for (const r of PROLOGUE_ROOMS) {
     const w = room(r.number).world, ids = startEnemyIds(w);
@@ -202,7 +214,7 @@ check('the rooms: nine, in order (task 9), ids — the six of task 6 kept, three
   // Start energy: the price of one jump (or one spin) in that world, instead of the loadout's.
   const rich = new Simulation({ arena: 'prologue-6', params: { ...prologueParams(CROWD), jumpCost: 3 }, seed: seedOf(1), loadout: { ...prologueLoadout(CROWD), energy: 6 } });
   assert(rich.world.energy === 3, `start energy ${rich.world.energy}`);
-  assert(room(JUMP).world.energy === 2 && room(SPIN).world.energy === 3 && room(POTION).world.energy === 0, 'rooms 5–7: one jump, one spin, none');
+  assert(room(JUMP).world.energy === 2 && room(SPIN).world.energy === 3 && room(POTION).world.energy === 0 && room(SHIELD).world.energy === 0, 'rooms 5–7 and 9: one jump, one spin, none, none');
 });
 
 check('rooms 1–4 and 8: the ghost hand\'s chain, drawn by the commands, is the drawn chain; its highlight is the dash; the dash meets the goal and opens the door (seeds 1–3)', () => {
@@ -678,7 +690,7 @@ function crowdChain(sim: Simulation, tick: () => void, label: string): boolean {
   return true;
 }
 
-check('room 9 (design 13.10.2026): start energy = one jump; the goblin stands from the start; the hero kills with real chains — enemies and markers never more than 8, the inflow comes and varies by seed, every hit on the hero costs 1 HP (seeds 1–6)', () => {
+check('room 10 «Толпа» (design 13.10.2026): start energy = one jump; the goblin stands from the start; the hero kills with real chains — enemies and markers never more than 8, the inflow comes and varies by seed, every hit on the hero costs 1 HP (seeds 1–6)', () => {
   const hashes = new Set<string>(), inflows = new Set<string>();
   let hits = 0;
   for (let k = 1; k <= 6; k++) {
@@ -716,7 +728,7 @@ check('room 9 (design 13.10.2026): start energy = one jump; the goblin stands fr
     inflows.add(newcomers.join(' '));
     // No second goblin: the battle never rolls (its slot stands from the start).
     assert(goblinOf(w)?.id === g.id && !w.events.some(e => e.type === 'slot' && e.action === 'appear'), `${label}: the same goblin`);
-    replays(sim, `room 9 ${label}`);
+    replays(sim, `room 10 ${label}`);
     console.log(`   ${label}: ${w.stats.kills} kills, ${newcomers.length} newcomers, ${hitsHere} hits, ${w.status} at ${w.time.toFixed(1)} s`);
   }
   assert(hashes.size === 6 && inflows.size >= 3, `the seeds differ (${hashes.size} worlds, ${inflows.size} inflows)`);
@@ -1053,6 +1065,250 @@ check('old worlds are untouched: a run arena hashes without the prologue fields 
   // A room with the return hashes its state (the ids and the due return decide the future).
   const sim = room(2), state = worldState(sim.world) as Record<string, unknown>;
   assert(JSON.stringify(state.restore) === JSON.stringify({ ids: startEnemyIds(sim.world) }), 'the return state is hashed');
+});
+
+// --- Task 13: room 9 «Щит» -------------------------------------------------------------------------------------------
+
+const shieldBlocks = (events: readonly WorldEvent[]): Extract<WorldEvent, { type: 'shieldBlock' }>[] => events.flatMap(e => e.type === 'shieldBlock' ? [e] : []);
+const hits = (events: readonly WorldEvent[]): Extract<WorldEvent, { type: 'hit' }>[] => events.flatMap(e => e.type === 'hit' ? [e] : []);
+/** Some enemy is in touch reach of the hero now (a touch would land). */
+const touched = (w: World): boolean => w.enemies.some(e => dist(e, w.hero) <= touchDistanceOf(w.params, e) + CONTACT_SLACK);
+const dist = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
+
+/**
+ * The hand's chain of room 9 (`prologueShieldLinks`), checked against its points (`prologueShieldChain`) and the world left as it
+ * was (no random draw, the drawn chain put back); drawn by the commands with `pause` ticks between links.
+ */
+function drawShieldChain(sim: Simulation, pause = 2): { links: ChainLink[]; plan: ChainPlan } {
+  const w = sim.world, before = sim.hash();
+  const links = prologueShieldLinks(w), points = prologueShieldChain(w);
+  assert(links && points && links.length >= 3, `the hand has a chain of 3+ (${JSON.stringify(links)})`);
+  assert(points.length === links.length && points.every((p, i) => { const q = linkPoint(w, links[i])!; return p.x === q.x && p.y === q.y; }), 'the points are the links\'');
+  assert(sim.hash() === before && w.chain.length === 0, 'the helper changes nothing');
+  return { links, plan: draw(sim, links, pause) };
+}
+
+check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn by the commands, is the drawn chain, its highlight is the dash; the shield (0.5 s) follows and absorbs the crowd\'s touches — `shieldBlock` once per enemy, the HP kept, exactly ONE lamp per chain even when several touch; the ring and the hero come back in the tick the shield ends, before a touch can hurt (design answer 13.10.2026); three such chains open the door; the walk in wins; the journal replays (seeds 1–6)', () => {
+  let several = 0;
+  for (let k = 1; k <= 6; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    assert(w.hero.hp === 15 && w.hero.maxHp === 15 && w.enemies.length === 9 && !w.asleep && !w.arena.calm && JSON.stringify((worldState(w) as Record<string, unknown>).shieldGoal) === JSON.stringify({ lit: 0 }), `${label}: full HP, nine awake, no lamp`);
+    for (let chain = 1; chain <= 3; chain++) {
+      // The second chain waits for the crowd to close in (its dash ends among several); the others go at once.
+      if (chain === 2) until(sim, x => x.enemies.filter(e => dist(e, x.hero) <= touchDistanceOf(x.params, e) + 0.25).length >= 3, 60 * 3);
+      const { links, plan } = drawShieldChain(sim);
+      const colour = w.enemies.find(e => e.id === links[0].id)!.color;
+      assert(plan.kills >= 3 && links.every(l => w.enemies.find(e => e.id === l.id)?.color === colour), `${label}: 3+ kills of one colour`);
+      const events = dash(sim);
+      planIsDash(plan, events, `${label} chain ${chain}`);
+      assert(w.hero.chainShield > 0.5 - 1e-9 - 1 / 60 && goalProgress(w).done === chain - 1, `${label}: the shield is up, no lamp yet (${w.hero.chainShield})`);
+      // The window: every touch the shield takes is a block; the HP stays.
+      const mark = w.events.length, hp: number = w.hero.hp, t0 = w.time;
+      // Ticks while the shield is still up after them (on its last tick it is gone, and a touch then hurts as usual).
+      let hurt = 0, upTo = w.time, last: WorldEvent[] = [];
+      while (w.hero.chainShield > 0 && w.status === 'playing') {
+        const n = w.events.length;
+        sim.tick();
+        if (w.hero.chainShield > 0) { hurt += hits(w.events.slice(n)).length + (w.hero.hp !== hp ? 1 : 0); upTo = w.time; } else last = w.events.slice(n);
+      }
+      const blocks = shieldBlocks(w.events.slice(mark));
+      assert(blocks.length >= 1 && new Set(blocks.map(b => b.enemyId)).size === blocks.length, `${label} chain ${chain}: blocked ${JSON.stringify(blocks)}`);
+      assert(blocks.every(b => w.enemies.some(e => e.id === b.enemyId)) && hurt === 0, `${label}: no hit inside the shield`);
+      assert(goalProgress(w).done === chain && goalLamps(w).lit === chain && goalLamps(w).total === 3, `${label} chain ${chain}: one lamp for ${blocks.length} blocks (${goalProgress(w).done})`);
+      assert(upTo - t0 < 0.5 + 1e-9, `${label}: the window is 0.5 s`);
+      if (blocks.length > 1) several++;
+      // The return (design answer 13.10.2026: room 9 only): in the tick the shield ends — the ring at its posts with full HP, the
+      // hero on his start, no hit in that tick; the goal met by the third — no return.
+      if (chain < 3) {
+        const back = last.find(e => e.type === 'restore');
+        assert(back?.type === 'restore' && back.hero?.x === w.arena.heroStart.x && allAtPosts(w) && hits(last).length === 0 && w.hero.hp === hp, `${label} chain ${chain}: the return in the tick the shield ends (${JSON.stringify(last.map(e => e.type))})`);
+      } else assert(!last.some(e => e.type === 'restore'), `${label}: no return after the goal`);
+    }
+    assert(w.stage === 'greed' && doorOpen(w), `${label}: three shields open the door`);
+    assert(prologueShieldLinks(w) === null && prologueShieldChain(w) === null, `${label}: no hand after the goal`);
+    // The walk into the door (the enemies sleep since the door opened: `sleepOnDoor`).
+    until(sim, x => {
+      const dx = x.arena.door.x - x.hero.x, dy = x.arena.door.y - x.hero.y, d = Math.hypot(dx, dy) || 1;
+      sim.command({ t: 'walk', x: dx / d, y: dy / d });
+      return x.status !== 'playing';
+    }, 60 * 10);
+    assert(w.status === 'victory', `${label}: the walk into the door wins (${w.status})`);
+    replays(sim, `room 9 ${label}`);
+  }
+  assert(several >= 3, `several enemies blocked in one window, one lamp (${several} windows)`);
+});
+
+check('room 9: a chain of 1 or 2 gives no shield — the touch after it hurts (−1, no lamp, no block) inside the half second a shield would hold; the room comes back 1 s after the dash, as in the other rooms (seeds 1–6)', () => {
+  for (const length of [1, 2]) for (let k = 1; k <= 6; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `${length} link(s), seed ${k}`;
+    const { links } = drawShieldChain(sim, 0);
+    sim.command({ t: 'cancel' });
+    const plan = draw(sim, links.slice(0, length), 0);
+    assert(plan.kills === length, `${label}: kills ${plan.kills}`);
+    const events = dash(sim);
+    planIsDash(plan, events, label);
+    assert(w.hero.chainShield === 0, `${label}: no shield`);
+    const mark = w.events.length, hp = w.hero.hp, t0 = w.time, dashEnd = w.time;
+    until(sim, x => hits(x.events.slice(mark)).length > 0, 60);
+    const [hit] = hits(w.events.slice(mark));
+    assert(hit.damage === 1 && w.hero.hp === hp - 1 && w.time - t0 <= 0.5 + 1e-9, `${label}: −1 inside 0.5 s (${hit.damage}, ${w.time - t0})`);
+    wait(sim, 0.3);
+    assert(shieldBlocks(w.events.slice(mark)).length === 0 && goalProgress(w).done === 0 && goalLamps(w).lit === 0, `${label}: no block, no lamp`);
+    awaitReturn(sim, label);
+    const after = w.time - dashEnd;
+    assert(after >= RESTORE_DELAY - 1e-9 && after <= RESTORE_DELAY + 1 / 60 + 1e-9, `${label}: the return ${after.toFixed(3)} s after the dash`);
+    replays(sim, `room 9 ${label}`);
+  }
+});
+
+check('room 9 (design answer 13.10.2026): a hero standing in the crowd after a chain of 3+ takes no hit between the shield\'s end and the return — it comes in that very tick, and the crowd reaches him again only from the posts; a new chain of 3+ inside the window moves the return to the new window\'s end (seeds 1–8)', () => {
+  let refreshed = 0;
+  for (let k = 1; k <= 8; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    drawShieldChain(sim);
+    dash(sim);
+    const hp = w.hero.hp, mark = w.events.length;
+    // Inside the window: if the hand has another chain of 3+, it is drawn at once (one tick) and released — a new window.
+    let again = false;
+    while (w.hero.chainShield > 0.15 && !again) {
+      if (prologueShieldLinks(w)) {
+        drawShieldChain(sim, 0);
+        dash(sim);
+        again = w.hero.chainShield > 0.5 - 1e-9 - 1 / 60;
+        assert(again, `${label}: the second chain gives a new shield`);
+      } else sim.tick();
+    }
+    if (again) refreshed++;
+    // Stand: no return while the shield is up, then the return in the tick it ends; no hit from the dash to 0.3 s after it.
+    let shieldEnd = -1;
+    while (w.status === 'playing') {
+      const up = w.hero.chainShield > 0, n = w.events.length;
+      sim.tick();
+      const back = w.events.slice(n).some(e => e.type === 'restore');
+      if (w.hero.chainShield > 0) assert(!back, `${label}: no return while the shield is up`);
+      else if (up) { shieldEnd = w.time; assert(back || w.stage === 'greed', `${label}: the return in the tick the shield ends`); }
+      if (shieldEnd >= 0 && w.time - shieldEnd >= 0.3 - 1e-9) break;
+    }
+    assert(shieldEnd >= 0 && hits(w.events.slice(mark)).length === 0 && w.hero.hp === hp, `${label}: no hit from the dash to 0.3 s after the shield (${JSON.stringify(hits(w.events.slice(mark)))})`);
+    replays(sim, `room 9 ${label}`);
+  }
+  assert(refreshed >= 2, `a second chain inside the window on several seeds (${refreshed} of 8)`);
+});
+
+check('room 9 (design answer 13.10.2026): with the third lamp the door opens and the enemies fall asleep in that tick — a hero standing in the ring takes no hit for 2 s, the enemies do not move; a press does not wake them; the walk into the door wins (seeds 1–6)', () => {
+  for (let k = 1; k <= 6; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    for (let chain = 1; chain <= 3; chain++) {
+      assert(!w.asleep, `${label}: awake before the goal (chain ${chain})`);
+      drawShieldChain(sim);
+      dash(sim);
+      const mark = w.events.length;
+      until(sim, x => x.stage === 'greed' || (x.hero.chainShield <= 0 && x.events.slice(mark).some(e => e.type === 'restore')), 60 * 2);
+      if (chain < 3) assert(w.stage === 'goals', `${label}: not yet`);
+    }
+    assert(w.stage === 'greed' && w.asleep === true, `${label}: the door open, the enemies asleep`);
+    const goalsTick = w.events.findIndex(e => e.type === 'goals');
+    assert(goalsTick >= 0, `${label}: the goals event`);
+    // Stand 2 s among them: no hit, nobody moves.
+    const hp = w.hero.hp, mark = w.events.length, at = w.enemies.map(e => ({ id: e.id, x: e.x, y: e.y }));
+    assert(w.enemies.some(e => dist(e, w.hero) <= touchDistanceOf(w.params, e) + 0.6), `${label}: the ring is near the hero`);
+    wait(sim, 2);
+    assert(hits(w.events.slice(mark)).length === 0 && w.hero.hp === hp, `${label}: no hit for 2 s (${JSON.stringify(hits(w.events.slice(mark)))})`);
+    assert(w.enemies.every(e => { const a = at.find(p => p.id === e.id); return a && a.x === e.x && a.y === e.y; }), `${label}: the sleepers stand`);
+    // A press on a sleeper (a chain started, then cancelled) does not wake them in this room.
+    const e0 = w.enemies[0];
+    sim.command({ t: 'begin', x: e0.x, y: e0.y });
+    sim.command({ t: 'cancel' });
+    wait(sim, 0.5);
+    assert(w.asleep === true && hits(w.events.slice(mark)).length === 0, `${label}: still asleep after a press`);
+    until(sim, x => {
+      const dx = x.arena.door.x - x.hero.x, dy = x.arena.door.y - x.hero.y, d = Math.hypot(dx, dy) || 1;
+      sim.command({ t: 'walk', x: dx / d, y: dy / d });
+      return x.status !== 'playing';
+    }, 60 * 10);
+    assert(w.status === 'victory' && hits(w.events.slice(mark)).length === 0, `${label}: the walk into the door wins, untouched (${w.status})`);
+    replays(sim, `room 9 sleep ${label}`);
+  }
+});
+
+check('room 9: the invulnerability after a hit absorbs the touches that follow — no lamp, no block; «Щит фокуса» (3 links drawn, the focus on) spares the hero in the crowd — no lamp, no block; the chain released then gives the shield and its lamp (seeds 1–6)', () => {
+  for (let k = 1; k <= 6; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    // Standing: the crowd walks in and hits; inside the 0.5 s after the hit the touches go on, nothing lights (the ticks while the
+    // invulnerability outlasts them; on its last tick the next touch hurts as usual).
+    until(sim, x => x.stats.hitsTaken > 0, 60 * 3);
+    let pressed = 0;
+    const mark = w.events.length;
+    while (w.hero.invulnerable > 1 / 60 + 1e-9 && w.status === 'playing') { if (touched(w)) pressed++; sim.tick(); }
+    assert(pressed > 0, `${label}: the crowd touched him inside the invulnerability`);
+    assert(shieldBlocks(w.events.slice(mark)).length === 0 && goalProgress(w).done === 0 && hits(w.events.slice(mark)).length === 0, `${label}: absorbed by the invulnerability, no lamp`);
+    // The crowd presses: the hand's chain drawn at once (three links in one tick) — «Щит фокуса» while the focus lasts.
+    const mark2 = w.events.length;
+    drawShieldChain(sim, 0);
+    let guarded = 0, hurtGuarded = 0;
+    // The focus starts with the next tick (`stepHero` before the touches): tick, then look.
+    do {
+      const n = w.events.length;
+      if (touched(w) && w.hero.invulnerable <= 1 / 60 + 1e-9) guarded++;
+      sim.tick();
+      if (focusGuarded(w) && w.events.slice(n).some(e => e.type === 'hit')) hurtGuarded++;
+    } while (focusGuarded(w) && w.status === 'playing');
+    assert(guarded > 0, `${label}: the crowd touched him under «Щит фокуса» alone`);
+    assert(hurtGuarded === 0 && shieldBlocks(w.events.slice(mark2)).length === 0 && goalProgress(w).done === 0, `${label}: spared by the focus, no lamp`);
+    // The release: the shield after the dash lights the lamp.
+    const mark3 = w.events.length;
+    dash(sim);
+    until(sim, x => x.hero.chainShield <= 0, 60);
+    assert(goalProgress(w).done === 1 && shieldBlocks(w.events.slice(mark3)).length >= 1, `${label}: the shield after the dash lights one lamp`);
+    replays(sim, `room 9 ${label}`);
+  }
+});
+
+check('room 9: the shield over the invulnerability after a hit still counts (the chain shield up — deterministic); a block of a window never lights twice, a new chain is a new window', () => {
+  let overlapped = 0;
+  for (let k = 1; k <= 10; k++) {
+    const sim = room(SHIELD, k), w = sim.world;
+    // Hit first, then the hand's chain at once: the dash ends while the hit's invulnerability may still run.
+    until(sim, x => x.stats.hitsTaken > 0, 60 * 3);
+    drawShieldChain(sim, 0);
+    dash(sim);
+    const mark = w.events.length;
+    let both = false;
+    while (w.hero.chainShield > 0 && w.status === 'playing') {
+      const before = shieldBlocks(w.events.slice(mark)).length;
+      sim.tick();
+      if (shieldBlocks(w.events.slice(mark)).length > before && w.hero.invulnerable > 0) both = true;
+    }
+    if (shieldBlocks(w.events.slice(mark)).length) assert(goalProgress(w).done === 1, `seed ${k}: one lamp`);
+    if (both) overlapped++;
+  }
+  assert(overlapped > 0, `a block while both protect (${overlapped} of 10 seeds)`);
+});
+
+check('task 13 fields stay in their room: `shieldGoal` only in room 9 (hashed there), `restoreAfterShield` and `sleepOnDoor` only on its arena; on a run arena a chain of 3 kills gives the run\'s shield as before, the touch inside it is spared — with no shield state and no `shieldBlock` event', () => {
+  for (const r of PROLOGUE_ROOMS) {
+    const state = worldState(room(r.number).world) as Record<string, unknown>;
+    assert(('shieldGoal' in state) === (r.number === SHIELD), `${r.id}: shieldGoal`);
+    assert(!!r.arena.restoreAfterShield === (r.number === SHIELD) && !!r.arena.sleepOnDoor === (r.number === SHIELD), `${r.id}: room 9 fields`);
+  }
+  for (let k = 1; k <= 3; k++) {
+    const sim = new Simulation({ arena: 'glade', params: { ...rtRunParams(defaultParams()), maxEnemies: 0 }, seed: seedOf(k), record: true }), w = sim.world;
+    const h = { x: w.hero.x, y: w.hero.y };
+    // Three reds in a line from the hero, two greens next to where the dash ends (they walk in and touch inside the shield).
+    const ids = [1, 2, 3].map(i => sim.command({ t: 'place', x: h.x + i * 1.1, y: h.y, color: 0, hp: 1, kind: 'basic' }) as number);
+    sim.command({ t: 'place', x: h.x + 3.3 + 0.9, y: h.y + 0.5, color: 1, hp: 1, kind: 'basic' });
+    sim.command({ t: 'place', x: h.x + 3.3 + 0.9, y: h.y - 0.5, color: 1, hp: 1, kind: 'basic' });
+    const plan = draw(sim, ids.map(id => ({ kind: 'enemy' as const, id })), 0);
+    assert(plan.kills === 3, `seed ${k}: three kills planned`);
+    const mark = w.events.length;
+    dash(sim);
+    assert(w.hero.chainShield > 0, `seed ${k}: the run's shield after 3 kills`);
+    let touchedInShield = false;
+    while (w.hero.chainShield > 1 / 60 + 1e-9 && w.status === 'playing') { sim.tick(); if (touched(w)) touchedInShield = true; }
+    const state = worldState(w) as Record<string, unknown>;
+    assert(touchedInShield && hits(w.events.slice(mark)).length === 0, `seed ${k}: touched inside the shield, not hurt`);
+    assert(!('shieldGoal' in state) && shieldBlocks(w.events).length === 0, `seed ${k}: no shield state, no block events`);
+  }
 });
 
 console.log(`\n${checks} checks passed`);
