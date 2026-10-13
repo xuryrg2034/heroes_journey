@@ -30,7 +30,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -284,6 +284,8 @@ interface RunMeta {
   secondWindOn?: true;
   startItems?: Record<string, number>;
   secondWind?: RunSecondWind;
+  /** Task 15: the map heals bought (absent — none yet). */
+  mapHeals?: RunMapHeal[];
 }
 
 /** Where a fight is: a run node or the sandbox. */
@@ -636,7 +638,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -708,6 +710,9 @@ export class RtRecorder {
           // Task 17: the run's second wind — the node's visit (its row) and the fight recorded there.
           const visit = [...meta.nodes].reverse().find(v => v.nodeId === ev.nodeId), node = rtNode(after, ev.nodeId);
           meta.secondWind = { nodeId: ev.nodeId, row: visit?.row ?? (node ? runRow(node.row) : 0), fight: visit?.fight ?? null };
+        } else if (ev.type === 'map-healed') {
+          // Task 15 «Лечение на карте»: the row, the price, HP before and after.
+          (meta.mapHeals ??= []).push({ row: ev.row, price: ev.price, hpBefore: ev.hpBefore, hpAfter: ev.hpAfter });
         } else if (ev.type === 'run-won' || ev.type === 'run-lost') {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).
@@ -716,7 +721,8 @@ export class RtRecorder {
       }
       for (const c of stepChoices(before, step)) mergeChoice(meta.choices, c);
       if (before && before.seed === after.seed) this.trackItems(meta, before, step);
-      const last = meta.nodes[meta.nodes.length - 1];
+      // A map heal (task 15) is not the last node's: its HP out stays as the node left it (the heal is in `mapHeals`).
+      const last = step.events.length && step.events.every(e => e.type === 'map-healed') ? undefined : meta.nodes[meta.nodes.length - 1];
       if (last) { last.hpOut = after.hp; last.maxHp = after.maxHp; }
       this.saveMeta();
       this.writeRun(after);
