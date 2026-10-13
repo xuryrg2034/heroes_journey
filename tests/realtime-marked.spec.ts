@@ -96,3 +96,37 @@ test('task 12: with the toggle off the old arenas play — no crown, no horde ri
   }
   expect(errors).toEqual([]);
 });
+
+test('task 12, the run: the fight plays the run\'s flag; `__realtime.params` tunes the fight itself; the sandbox\'s saved panel never takes the flag', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.evaluate(() => { for (const key of Object.keys(localStorage)) if (key.includes('realtime-params')) localStorage.removeItem(key); });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await page.getByTestId('gift-1').click();
+  await page.getByTestId('node-r5c0').click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  // The hook is the fight's own values: the run's flag is on there, and a write reaches the fight (nobody walks any more).
+  expect(await page.evaluate(() => (window as any).__realtime.params.markedGoals)).toBe(true);
+  await untilFrame(page, (s: Snap) => (s.enemies.length >= 3 ? true : undefined), null, 8);
+  await page.evaluate(() => { const p = (window as any).__realtime.params; p.enemySpeed = 0; p.wolfSpeed = 0; p.speedSpread = 0; });
+  const before = (await snap(page)).enemies;
+  const after = await untilFrame(page, (s: Snap, _a: null, late: boolean) => (late ? s : undefined), null, 1.5);
+  for (const e of after.enemies) {
+    const was = before.find(b => b.id === e.id);
+    if (was) expect(Math.hypot(e.x - was.x, e.y - was.y), `enemy ${e.id} stands`).toBeLessThan(0.1);
+  }
+  // Out of the fight, then the sandbox: its saved panel and its values have no run flag (the default — off).
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toBeVisible({ timeout: 15_000 });
+  const saved = await page.evaluate(() => Object.keys(localStorage).filter(k => k.includes('realtime-params')).map(k => localStorage.getItem(k) ?? ''));
+  for (const text of saved) expect(JSON.parse(text).markedGoals ?? false, 'the saved panel').toBe(false);
+  await page.goto('/?sandbox=1');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__realtime.params.markedGoals)).toBe(false);
+  expect(errors).toEqual([]);
+});

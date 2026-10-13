@@ -1298,7 +1298,12 @@ async function boot(): Promise<void> {
   // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
   // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.
   (window as unknown as { __realtime: unknown }).__realtime = {
-    params,
+    /**
+     * The values the fight plays with now, for the console and the tests' direct writes: in the sandbox the page's `params`; in a
+     * run fight its own object (`runArenaParams`: task 12's copy with the run's `markedGoals`) — the page's `params` never takes
+     * the run's flag, so nothing the sandbox saves inherits it. Before the first run fight — the page's (the fight copies it).
+     */
+    get params() { return runArenaParams ?? params; },
     get fps() { return fps; },
     get workMs() { return workMs; },
     snapshot: () => {
