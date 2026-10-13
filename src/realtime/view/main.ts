@@ -459,7 +459,11 @@ async function boot(): Promise<void> {
   /** Stage 3a: why a jump would not start at the pointer (jump aiming only). */
   let jumpHint: JumpRefusal | null = null;
   /** «Смена цвета»: links left before a free colour this frame (sim `colorShiftLeft`; null — off or no colour) and the link whose free colour already sounded. */
-  let shiftLeft: number | null = null, shiftSounded = 0;
+  let shiftLeft: number | null = null;
+  /** The links whose shift already sounded while the colour stays free (task 10: a step back onto an earlier shift is no new one). */
+  const shiftHeard = new Set<number>();
+  /** Tests read it: the shift sounds played (also with the sound off — the decision, not the audio). */
+  let shiftSounds = 0;
 
   /**
    * Iteration 2.1 (interface): seconds left of each slot's blink and of the item hint (real time while the arena runs),
@@ -1031,10 +1035,12 @@ async function boot(): Promise<void> {
       shiftHint.style.top = `${pointerClient.y + 40}px`;
       shiftHint.hidden = false;
     } else if (!shiftHint.hidden) shiftHint.hidden = true;
-    // The sound of a free colour: once when the link that freed it joins the drawn chain.
-    const freedBy = shiftLeft === 0 ? renderer.colorShiftShown : 0;
-    if (freedBy && freedBy !== shiftSounded && params.sound) audio.colorShift(params.soundVolume);
-    shiftSounded = freedBy;
+    // The sound of a free colour: once when a link that frees it joins the drawn chain (task 10: with `colorShiftKeep` the 12th,
+    // the 18th… sound too; a step back from the 12th leaves the 6th freeing — heard already, silent). Not free — the memory clears,
+    // so a shift taken again after a step back below it sounds again (as before).
+    const freedBy = shiftLeft === 0 ? renderer.colorShiftFreedBy : 0;
+    if (!freedBy) shiftHeard.clear();
+    else if (!shiftHeard.has(freedBy)) { shiftHeard.add(freedBy); if (params.sound) audio.colorShift(params.soundVolume); shiftSounds++; }
     if (params.sound) {
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
       if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }
@@ -1386,7 +1392,7 @@ async function boot(): Promise<void> {
         /** «Щит фокуса»: the rim round the hero this frame, and the rule now (sim `focusGuarded`). */
         focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */
-        colorShift: { every: colorShiftOf(w), left: shiftLeft, text: shiftHint.hidden ? null : shiftHint.textContent, rainbow: renderer.colorShiftShown, dimmed: renderer.dimmedShown },
+        colorShift: { every: colorShiftOf(w), left: shiftLeft, text: shiftHint.hidden ? null : shiftHint.textContent, rainbow: renderer.colorShiftShown, mark: renderer.colorShiftMarkShown, freedBy: renderer.colorShiftFreedBy, sounds: shiftSounds, dimmed: renderer.dimmedShown },
         /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */
         playerEffects: { ...renderer.playerEffects },
         /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */

@@ -1567,6 +1567,12 @@ export class RealtimeRenderer {
   focusGuardShown = false;
   /** «Смена цвета»: the enemy id of the link with the rainbow ring this frame (0 — none; tests read it). */
   colorShiftShown = 0;
+  /**
+   * Task 10: the enemy id of the link that freed the colour while it is free (0 — not free) and the one with the small rainbow mark
+   * (`colorShiftKeep`: the ring rides the chain's end, the mark stays where the shift was earned; 0 — no mark).
+   */
+  colorShiftFreedBy = 0;
+  colorShiftMarkShown = 0;
   /** Bodies on screen dimmed as «another colour» of the drawn chain in the last frame (tests read it: a free colour dims none). */
   dimmedShown = 0;
 
@@ -2047,6 +2053,8 @@ export class RealtimeRenderer {
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
     this.colorShiftShown = 0;
+    this.colorShiftFreedBy = 0;
+    this.colorShiftMarkShown = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
     for (const e of world.enemies) {
       if (e.hurtFlash <= 0) continue;
@@ -2160,10 +2168,38 @@ export class RealtimeRenderer {
     // arena's colours (the bodies of every colour are lit: `chainColor` is null, nothing is dimmed). The dash's rule (design
     // answer 12.10.2026): the shift comes unless the chain ends on that link as a survivor — a button, the door or a loop after
     // it does not cancel it (the sim pays «Призма» there too).
+    // Task 10 (design 13.10.2026, `colorShiftKeep`): while the colour stays free the ring stands on the LAST enemy link and moves
+    // with the chain's end (it answers «may I take any colour now» where the eye is, at the pointer); the link that freed the colour
+    // keeps a small rainbow mark. Another colour taken — the sim's `colorShiftLeft` is no longer 0: the ring goes.
     if (!plan.endsOnSurvivor && colorShiftLeft(world) === 0) {
       const id = colorShiftIds(world).at(-1), e = id === undefined ? undefined : world.enemies.find(x => x.id === id);
-      if (e) { this.drawRainbow(g, world, e); this.colorShiftShown = e.id; }
+      if (e) {
+        this.colorShiftFreedBy = e.id;
+        let ringOn = e;
+        if (p.colorShiftKeep) {
+          for (let i = world.chain.length - 1; i >= 0; i--) {
+            const l = world.chain[i], last = l.kind === 'enemy' ? world.enemies.find(x => x.id === l.id) : undefined;
+            if (last) { ringOn = last; break; }
+          }
+          if (ringOn !== e) { this.drawRainbowMark(g, world, e); this.colorShiftMarkShown = e.id; }
+        }
+        this.drawRainbow(g, world, ringOn);
+        this.colorShiftShown = ringOn.id;
+      }
     }
+  }
+
+  /** Task 10: the small rainbow mark under the link that freed the colour (the ring has moved on to the chain's end). */
+  private drawRainbowMark(g: Graphics, world: World, e: Enemy): void {
+    const p = world.params, R = enemyDrawRadius(p) * UNIT * (e.elite ? p.eliteArtScale * 1.06 : 1);
+    const x = e.x * UNIT, y = e.y * UNIT + R + 11, r = 9;
+    const colors = CHAIN_COLORS.slice(0, Math.max(2, Math.min(CHAIN_COLORS.length, p.colorCount))), part = (Math.PI * 2) / colors.length;
+    g.circle(x, y, r).fill({ color: NAVY, alpha: 0.85 });
+    colors.forEach((c, i) => {
+      const a0 = -Math.PI / 2 + i * part, a1 = a0 + part;
+      g.moveTo(x, y).arc(x, y, r - 1.5, a0, a1).lineTo(x, y).fill({ color: c, alpha: 1 });
+    });
+    g.circle(x, y, r).stroke({ color: NAVY, width: 2, alpha: 1 });
   }
 
   /** «Смена цвета»: a rainbow ring round `e` — arcs of the arena's chain colours over a navy rim, turning slowly. */
