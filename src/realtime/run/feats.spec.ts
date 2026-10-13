@@ -22,7 +22,7 @@
  */
 import {
   createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseTalisman, rtEnterNode, rtFeatOf, rtFeatResources, rtFeatRoll,
-  rtMapNodes, rtNode, rtNodeFeat, rtRerollTalismans, rtRerollView, rtRunParams, serializeRtRun, RT_FEAT_TALISMANS,
+  rtFoughtJailer, rtMapNodes, rtNode, rtNodeFeat, rtRerollTalismans, rtRerollView, rtRunParams, serializeRtRun, RT_FEAT_TALISMANS,
   type RtArenaOutcome, type RtFeat, type RtRunState, type RtRunStep,
 } from './rtRun';
 import { runRow } from './arenaPools';
@@ -31,12 +31,14 @@ import { RT_TALISMANS } from './rtTalismans';
 import { createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { defaultParams } from '../sim/params';
 import { featProgress, FEAT_KINDS, type FeatKind } from '../sim/feat';
-import { replay, Simulation } from '../sim/simulation';
+import { replay, Simulation, SIM_DT } from '../sim/simulation';
+import { chainScore } from '../sim/chain';
 import type { World, WorldEvent } from '../sim/world';
 import { createFightObserver } from '../telemetry/observe';
 import { RtRecorder, type SessionStore } from '../telemetry/recorder';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
 import { checkRecord, FEAT_SOURCE, type FightRecord, type RunRecord } from '../telemetry/schema';
+import { analyzeRecords, featStats, reportMarkdown, viewerRunStats } from '../telemetry/report';
 import { chainOf, closeNode, ok, playFight, quiet, same, seedOf, takeGift, ticks, type FightPlan } from './runFight.testkit';
 import before from '../../../tests/fixtures/rt-run-save-before-reroll.json';
 
@@ -239,6 +241,78 @@ await check('the door before the feat: not done, nothing paid (the grey line), t
   assert(record.feat && record.feat.done === false && record.feat.kind === 'afterGoals', 'the record keeps the feat, not done');
 });
 
+// ---------- The exit tick (review 14.10.2026) ----------
+
+const DOOR = { x: 19.3, y: 6 };
+/** A chain of `n` weak enemies from near the door ending ON the open door (journalled); released. */
+function chainIntoDoor(s: Simulation, n: number): void {
+  const xs = Array.from({ length: n }, (_, i) => DOOR.x - 0.8 - 1.2 * (n - 1 - i));
+  s.command({ t: 'teleport', x: xs[0] - 1, y: DOOR.y });
+  for (const x of xs) s.command({ t: 'place', x, y: DOOR.y, color: 0, hp: 0, kind: 'basic' });
+  s.command({ t: 'begin', x: xs[0], y: DOOR.y });
+  for (const x of xs.slice(1)) s.command({ t: 'drag', x, y: DOOR.y, mode: 'full' });
+  s.command({ t: 'drag', x: DOOR.x, y: DOOR.y, mode: 'full' });
+  const last = s.world.chain[s.world.chain.length - 1];
+  assert(s.world.chain.length === n + 1 && last.kind === 'object' && s.world.objects.find(o => o.id === last.id)?.kind === 'door', `the chain ends on the door (${s.world.chain.length} links)`);
+  s.command({ t: 'release' });
+}
+
+await check('the score of a chain that ends in the door counts: crossing N on the way in — done and paid', () => {
+  const { run } = findBattle(ofKind('score', 'resources'));
+  const feat = pendingFeat(run)!, before = materials(run);
+  let pre = 0;
+  const { outcome, events, sim } = playFight(run, { chains: [], params: rtRunParams(quiet()), finish: (s, seen) => {
+    const into = chainScore(s.world.params, 6);
+    for (let i = 0; i < 400 && s.world.stats.score + into < feat.n; i++) chainOf(s, 1, seen);
+    pre = s.world.stats.score;
+    assert(pre < feat.n && !s.world.feat, `below N before the last chain: ${pre} < ${feat.n}`);
+    s.command({ t: 'goals' });
+    chainIntoDoor(s, 6);
+    ticks(s, 600, seen);
+    assert(s.world.status === 'victory', `the chain went through the door (${s.world.status})`);
+  } });
+  assert(sim.world.stats.score >= feat.n && latch(sim.world) && outcome.feat?.done === true && featEvents(events).length === 1, `done by the door chain: ${pre} → ${sim.world.stats.score} (N ${feat.n})`);
+  const step = resolveArena(run, outcome), next = ok(step, 'resolve');
+  assert(step.ok && step.events.some(ev => ev.type === 'feat-paid') && materials(next) > before + bagOf(outcome), 'paid');
+});
+
+/**
+ * An «на арене» feat; the hero goes through the door so that the exit tick ends at `N + shift` ticks: by a chain from beside the
+ * door (`chain`) or by walking onto it (`walk`). Returns the finished world and the exit tick's end time.
+ */
+function exitAround(run: RtRunState, by: 'chain' | 'walk', shift: number, dashTicks: number): { w: World; end: number } {
+  const n = pendingFeat(run)!.n;
+  const { sim } = playFight(run, { chains: [], params: rtRunParams(quiet()), finish: (s, seen) => {
+    s.command({ t: 'goals' });
+    // Ticks until the exit tick (the release or the step onto the door comes before it) ends at N + shift.
+    const lead = by === 'chain' ? dashTicks : 1;
+    ticks(s, 60 * 600, seen, w => w.time + (lead - shift) * SIM_DT >= n - 1e-9);
+    if (by === 'chain') chainIntoDoor(s, 1); else s.command({ t: 'teleport', x: DOOR.x, y: DOOR.y });
+    ticks(s, 600, seen);
+    assert(s.world.status === 'victory', `through the door (${s.world.status})`);
+  } });
+  return { w: sim.world, end: sim.world.endTime! + (by === 'chain' ? SIM_DT : 0) };
+}
+
+await check('the exit tick\'s time counts for «на арене»: a chain or a walk whose exit tick ends at N — done; a tick earlier — not', () => {
+  const { run } = findBattle(ofKind('arena'));
+  const n = pendingFeat(run)!.n;
+  // The dash's ticks from the release to the door (the same dash at any moment of a quiet fight): one probe.
+  let dashTicks = 1;
+  playFight(run, { chains: [], params: rtRunParams(quiet()), finish: (s, seen) => {
+    s.command({ t: 'goals' });
+    chainIntoDoor(s, 1);
+    const t0 = s.world.tick;
+    ticks(s, 600, seen);
+    dashTicks = s.world.tick - t0;
+  } });
+  for (const by of ['chain', 'walk'] as const) {
+    const at = exitAround(run, by, 0, dashTicks), early = exitAround(run, by, -1, dashTicks);
+    assert(Math.abs(at.end - n) < 1e-6 && latch(at.w) && Math.abs(latch(at.w)!.time - n) < 1e-6, `${by}: the exit tick ends at N ${n} (${at.end}) — done`);
+    assert(Math.abs(early.end - (n - SIM_DT)) < 1e-6 && !latch(early.w), `${by}: a tick earlier (${early.end}) — not done`);
+  }
+});
+
 // ---------- The talisman reward ----------
 
 /** Wins the open battle with its «на арене» / «после целей» / «очки» feat done (the shortest real play for its kind). */
@@ -333,6 +407,43 @@ await check('a save before the rule loads and saves byte for byte, without feats
   assert(bad(r => { (r as unknown as { feats: boolean }).feats = false; }), 'a flag not true');
 });
 
+await check('`jailer` is marked when the Jailer\'s fight is fed back (won or lost): an abandoned run counts; entering does not', () => {
+  // The run view's rule (view/runView.ts `apply`): an unseeded run's step that fed the Jailer's fight back marks the profile.
+  const apply = (profile: ReturnType<typeof createRtProfileStore>, before: RtRunState, after: RtRunState, seeded = false): void => {
+    if (!seeded && rtFoughtJailer(before, after)) profile.markJailer();
+  };
+  for (const lose of [false, true]) {
+    const storage = memory(), profile = createRtProfileStore(storage);
+    let run = takeGift(createRtRun(seedOf(5), { gift: 'mini', feats: profile.featsOn() }));
+    let entered = false;
+    for (let i = 0; i < 400 && !run.result; i++) {
+      run = toMap(run);
+      if (run.pending?.kind === 'battle') {
+        const jailer = openNode(run)!.type === 'checkpoint';
+        if (jailer && !entered) { entered = true; assert(!profile.featsOn(), 'entering the Jailer\'s node marks nothing'); }
+        const { outcome } = playFight(run, { chains: [3], lose: jailer && lose, params: rtRunParams(quiet()) });
+        const before = run;
+        run = ok(resolveArena(run, outcome), 'resolve');
+        apply(profile, before, run);
+        if (!jailer) { assert(!profile.featsOn(), 'an ordinary fight marks nothing'); continue; }
+        assert(profile.featsOn(), `the Jailer fought (${lose ? 'lost' : 'won'}): marked`);
+        break;
+      }
+      if (run.pending) continue;
+      const next = rtAvailableNodes(run);
+      run = ok(rtEnterNode(run, (next.find(n => n.type === 'checkpoint') ?? next.find(n => n.type === 'battle') ?? next[0]).id), 'enter');
+    }
+    assert(entered, 'the walk reached the Jailer');
+    // The run is abandoned (no `endRun`): the next run carries feats.
+    const next = createRtRun(seedOf(6), { gift: 'mini', feats: profile.featsOn() });
+    assert(next.feats === true, 'the next run after an abandoned one with the Jailer fought has feats');
+  }
+  // A seeded run's Jailer marks nothing (the view's rule).
+  const storage = memory(), profile = createRtProfileStore(storage);
+  const fought = { ...newRun(5, false) };
+  assert(!profile.featsOn() && (apply(profile, fought, fought, true), !profile.featsOn()), 'seeded: nothing');
+});
+
 function memory(): RunStorage & { map: Map<string, string> } {
   const map = new Map<string, string>();
   return { map, getItem: k => map.get(k) ?? null, setItem: (k, v) => { map.set(k, v); }, removeItem: k => { map.delete(k); } };
@@ -340,7 +451,7 @@ function memory(): RunStorage & { map: Map<string, string> } {
 
 await check('the profile: `jailer` once a run reached the Jailer, and it stays; an old giftFull reads as it; `startRun` counts', () => {
   const storage = memory(), profile = createRtProfileStore(storage);
-  assert(profile.startRun() === 1 && profile.startRun() === 2, 'runs 1, 2');
+  assert(same(profile.startRun(), { run: 1 }) && same(profile.startRun(), { run: 2 }), 'runs 1, 2 (exact: a new viewer)');
   profile.endRun({ reachedJailer: false, seeded: false });
   assert(!profile.featsOn(), 'no Jailer yet');
   profile.endRun({ reachedJailer: true, seeded: true });
@@ -349,10 +460,16 @@ await check('the profile: `jailer` once a run reached the Jailer, and it stays; 
   assert(profile.featsOn() && profile.giftKind(false) === 'full', 'the Jailer reached: feats and the full gift');
   profile.endRun({ reachedJailer: false, seeded: false });
   assert(profile.featsOn() && profile.giftKind(false) === 'mini', 'a later short run: still feats, the gift back to mini');
-  assert(profile.startRun() === 3, 'run 3');
+  assert(same(profile.startRun(), { run: 3 }), 'run 3');
   const old = memory();
   old.setItem(RT_PROFILE_STORAGE_KEY, '{"version":1,"giftFull":true}');
-  assert(createRtProfileStore(old).featsOn(), 'an old profile with giftFull: feats');
+  const oldProfile = createRtProfileStore(old);
+  assert(oldProfile.featsOn(), 'an old profile with giftFull: feats');
+  // Review 14.10.2026: a profile older than the count showed play — the count starts at 2 and stays approximate.
+  assert(same(oldProfile.startRun(), { run: 2, approx: true }) && same(oldProfile.startRun(), { run: 3, approx: true }), 'an old profile: 2, 3, approximate');
+  const oldPlain = memory();
+  oldPlain.setItem(RT_PROFILE_STORAGE_KEY, '{"version":1,"giftFull":false}');
+  assert(same(createRtProfileStore(oldPlain).startRun(), { run: 2, approx: true }), 'an old profile without the gift mark: a run had ended — 2, approximate');
   const plain = memory();
   plain.setItem(RT_PROFILE_STORAGE_KEY, '{"version":1,"giftFull":false}');
   createRtProfileStore(plain).endRun({ reachedJailer: false, seeded: false });
@@ -395,7 +512,7 @@ await check('telemetry: the run record\'s feats, viewerRun, firsts, the fight\'s
   const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: rtRunParams(defaultParams()), observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
   const { run: start, k } = findBattle(feat => !!feat && 'talisman' in feat.reward);
   let run = start;
-  rec.runStarted(null, run, 2);
+  rec.runStarted(null, run, 2, true);
   rec.firstMeet(run, 'feat');
   const feed = (step: RtRunStep, realSeconds?: number): void => { assert(step.ok, step.ok ? '' : step.reason); rec.runStep(run, step, realSeconds === undefined ? {} : { realSeconds }); run = step.run; };
   const node = openNode(run)!, feat = pendingFeat(run)!;
@@ -415,7 +532,15 @@ await check('telemetry: the run record\'s feats, viewerRun, firsts, the fight\'s
   const records = await rec.buffer.all();
   const r = records.filter((x): x is RunRecord => x.kind === 'run').pop()!, f = records.filter((x): x is FightRecord => x.kind === 'fight').pop()!;
   assert(checkRecord(r) === null && checkRecord(f) === null, `records pass: ${checkRecord(r)} ${checkRecord(f)}`);
-  assert(r.viewerRun === 2 && r.featsOn === true, 'viewerRun, featsOn');
+  assert(r.viewerRun === 2 && r.viewerRunApprox === true && r.featsOn === true, 'viewerRun (approximate), featsOn');
+  // The report: the feat by kind and by kind and row; the approximate run is a repeat.
+  const set = { records, duplicates: 0, problems: [] as string[] }, analysis = await analyzeRecords(set);
+  const runFights = analysis.fights.filter(e => e.record.run !== 'sandbox');
+  const byRow = featStats(runFights, true);
+  assert(byRow.length === 1 && byRow[0].kind === feat.kind && byRow[0].row === runRow(node.row) && byRow[0].done === 1 && byRow[0].doneWon === 1, `by kind and row ${JSON.stringify(byRow)}`);
+  assert(same(viewerRunStats([r], runFights).map(g => g.group), ['повторный']), 'an approximate number is a repeat');
+  const md = reportMarkdown(set, analysis, { now: new Date(0), source: 'test' });
+  assert(md.includes('## Подвиги') && md.includes('### Подвиги по рядам') && md.includes('## Новизна'), 'the report has its sections');
   assert(same(r.firsts?.map(x => x.id), ['feat', 'kind:wolf']) && r.firsts![0].fight === null && r.firsts![1].fight === f.fight, `firsts ${JSON.stringify(r.firsts)}`);
   assert(f.summary.novelty === 2 && f.summary.feat?.done === true && f.summary.feat.kind === feat.kind && f.summary.feat.missing === 0, `fight summary ${JSON.stringify(f.summary.feat)} novelty ${f.summary.novelty}`);
   const rf = r.feats?.[0];
@@ -446,6 +571,7 @@ await check('telemetry: a door before the feat — the run record says not done 
   const r = (await rec.buffer.all()).filter((x): x is RunRecord => x.kind === 'run').pop()!;
   const rf = r.feats?.[0];
   assert(rf && !rf.done && rf.won && rf.paid === null && rf.at === null && rf.missing === feat.n - sim.world.stats.score && r.viewerRun === undefined, `run feats ${JSON.stringify(r.feats)}`);
+  assert(checkRecord({ ...r, viewerRunApprox: true }) === 'run viewerRunApprox', 'approx needs the number');
   assert(checkRecord(r) === null, 'the record passes');
   rec.dispose();
 });

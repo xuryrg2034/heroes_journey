@@ -293,6 +293,7 @@ interface RunMeta {
   featsOn?: true;
   feats?: RunFeat[];
   viewerRun?: number;
+  viewerRunApprox?: true;
   firsts?: RunFirst[];
 }
 
@@ -654,16 +655,16 @@ export class RtRecorder {
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {},
-      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, runParams,
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
 
   /**
    * A new run; the one before it without a result is `abandoned`. `viewerRun` (task 16) — the viewer's run number (the profile's
-   * count, run/rtRunStorage.ts `startRun`); absent — not known.
+   * count, run/rtRunStorage.ts `startRun`); absent — not known. `viewerRunApprox` — the count is a lower bound (`startRun`'s `approx`).
    */
-  runStarted(previous: RtRunState | null, run: RtRunState, viewerRun?: number): void {
+  runStarted(previous: RtRunState | null, run: RtRunState, viewerRun?: number, viewerRunApprox?: boolean): void {
     safe(undefined, () => {
       if (previous && !previous.result) {
         const meta = this.metaFor(previous);
@@ -680,7 +681,7 @@ export class RtRecorder {
       if (Object.keys(start).length) this.meta.startItems = start;
       // Task 16: the run's feats flag and the viewer's run number.
       if (run.feats) this.meta.featsOn = true;
-      if (viewerRun !== undefined && Number.isInteger(viewerRun) && viewerRun >= 1) this.meta.viewerRun = viewerRun;
+      if (viewerRun !== undefined && Number.isInteger(viewerRun) && viewerRun >= 1) { this.meta.viewerRun = viewerRun; if (viewerRunApprox) this.meta.viewerRunApprox = true; }
       this.saveMeta();
       this.writeRun(run);
     });

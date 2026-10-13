@@ -2125,6 +2125,15 @@ export function rtReachedRow(run: RtRunState): number {
   return Math.max(0, ...ids.map(id => rtNode(run, id)?.row ?? 0));
 }
 export const rtReachedJailer = (run: RtRunState): boolean => rtReachedRow(run) >= GIFT_FULL_ROW;
+/**
+ * Task 16 (review 14.10.2026): the step from `before` to `after` fed the Jailer's fight back (a `checkpoint` node's record, won or
+ * lost) — the moment the profile marks «the viewer fought the Jailer» (`RtProfileStore.markJailer`; not for a seeded run).
+ */
+export function rtFoughtJailer(before: Pick<RtRunState, 'battles'> | null, after: RtRunState): boolean {
+  if (after.battles.length <= (before?.battles.length ?? 0)) return false;
+  const record = after.battles[after.battles.length - 1];
+  return rtNode(after, record.nodeId)?.type === 'checkpoint';
+}
 
 export type RtNodeStatus = 'visited' | 'current' | 'open' | 'available' | 'locked' | 'lost';
 export function rtNodeStatus(run: RtRunState, node: ForestMapNode, available: readonly ForestMapNode[] = rtAvailableNodes(run)): RtNodeStatus {

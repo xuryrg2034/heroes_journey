@@ -309,6 +309,11 @@ export interface RunRecord extends RtHeader {
   feats?: RunFeat[];
   /** Task 16 telemetry: the viewer's run number (1, 2, 3…; the profile's count); absent — not known (older records too). */
   viewerRun?: number;
+  /**
+   * Task 16 telemetry (review 14.10.2026): the viewer's run number is a lower bound — its count began on a profile that showed
+   * earlier play (it started at 2). The report counts such a run as a repeat. Absent — exact (or not known).
+   */
+  viewerRunApprox?: true;
   /** Task 16 telemetry: the viewer's first meetings in this run, in order; absent — none reported (older records too). */
   firsts?: RunFirst[];
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
@@ -483,6 +488,7 @@ export function checkRecord(value: unknown): string | null {
           && (o.paid === null || ['resources', 'talisman', 'fallback'].includes(o.paid as string)) && (o.fight === null || typeof o.fight === 'string');
       }))) return 'run feats';
       if (r.viewerRun !== undefined && !(Number.isInteger(r.viewerRun) && (r.viewerRun as number) >= 1)) return 'run viewerRun';
+      if (r.viewerRunApprox !== undefined && !(r.viewerRunApprox === true && r.viewerRun !== undefined)) return 'run viewerRunApprox';
       if (r.firsts !== undefined && !(Array.isArray(r.firsts) && r.firsts.every(f => {
         const o = f as Record<string, unknown> | null;
         return !!o && typeof o === 'object' && typeof o.id === 'string' && o.id.length > 0 && (o.fight === null || typeof o.fight === 'string') && Number.isInteger(o.row);

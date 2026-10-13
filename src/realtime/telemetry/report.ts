@@ -908,6 +908,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Котомка у двери', '', BAG_LEGEND, '', table(BAG_HEAD, bagRows(runFights, sandbox)), '',
     // Task 16 «Подвиги», the package telemetry: the first meetings and the viewer's run number.
     '## Подвиги', '', FEAT_LEGEND, '', featStats(runFights).length ? table(FEAT_HEAD, featRows(runFights)) : '_боёв с подвигом нет_', '', featRewardLine(runs), '',
+    '### Подвиги по рядам', '', featStats(runFights).length ? table([FEAT_HEAD[0], 'Ряд', ...FEAT_HEAD.slice(1)], featRows(runFights, true)) : '_боёв с подвигом нет_', '',
     '## Новизна', '', noveltySection(runs, runFights), '',
     // Casino «Кость у двери».
     '## Кость у двери', '', DIE_LEGEND, '', table(DIE_HEAD, [dieRow(runs)].filter((r): r is (string | number)[] => !!r)), '',
@@ -929,24 +930,26 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
 
 const FEAT_TITLES: Record<string, string> = { score: 'Набери N очков', afterGoals: 'Продержись N с после целей', arena: 'Продержись N с на арене' };
 /** One kind of feat over the run fights (`summary.feat`, the replay's, else the browser's). */
-export interface FeatStat { kind: string; fights: number; done: number; won: number; doneWon: number; at: number[]; exitsUndone: number; missing: number[] }
-export function featStats(runFights: readonly FightEntry[]): FeatStat[] {
+export interface FeatStat { kind: string; row?: number; fights: number; done: number; won: number; doneWon: number; at: number[]; exitsUndone: number; missing: number[] }
+/** By kind; `byRow` — by kind and run row (review 14.10.2026: the done share by kind and row decides the N of design). */
+export function featStats(runFights: readonly FightEntry[], byRow = false): FeatStat[] {
   const out = new Map<string, FeatStat>();
   for (const e of runFights) {
     const f = (e.analysis?.summary ?? withSummaryDefaults(e.record.summary)).feat;
     if (!f || (e.record.outcome !== 'victory' && e.record.outcome !== 'defeat')) continue;
-    const st = out.get(f.kind) ?? { kind: f.kind, fights: 0, done: 0, won: 0, doneWon: 0, at: [], exitsUndone: 0, missing: [] };
+    const row = byRow ? e.record.row ?? 0 : undefined, key = byRow ? `${f.kind}/${String(row).padStart(2, '0')}` : f.kind;
+    const st = out.get(key) ?? { kind: f.kind, ...row !== undefined ? { row } : {}, fights: 0, done: 0, won: 0, doneWon: 0, at: [], exitsUndone: 0, missing: [] };
     st.fights++;
     if (f.done) { st.done++; if (f.at !== null) st.at.push(f.at); }
     if (e.record.outcome === 'victory') { st.won++; if (f.done) st.doneWon++; else { st.exitsUndone++; st.missing.push(f.missing); } }
-    out.set(f.kind, st);
+    out.set(key, st);
   }
-  return [...out.values()].sort((a, b) => a.kind.localeCompare(b.kind));
+  return [...out.values()].sort((a, b) => a.kind.localeCompare(b.kind) || (a.row ?? 0) - (b.row ?? 0));
 }
 const FEAT_HEAD = ['Подвиг', 'Боёв с ним', 'Выполнен', 'Выполнен и дверь', 'Секунда выполнения мед.', 'Дверь без подвига', 'Не хватило мед.'];
-const FEAT_LEGEND = 'Задача 16 «Подвиги» (с 14.10.2026; со второго похода — после первого Тюремщика): бои походов с подвигом (`summary.feat`), законченные победой или поражением. «Выполнен» — доля боёв, где условие выполнено (смерть потом всё равно ничего не платит); «Выполнен и дверь» — выполнен и бой выигран, награда выдана. Секунда — игровая секунда боя, когда подвиг выполнен. «Дверь без подвига» — выход в дверь с невыполненным подвигом; «не хватило» — очков или секунд до N в конце боя (медиана). Награды — по `RunRecord.feats`: ресурсы у двери, выбор талисмана, ресурсы вместо талисмана (пул мал). Эвристика, не оценка баланса.';
-function featRows(runFights: readonly FightEntry[]): (string | number)[][] {
-  return featStats(runFights).map(s => [FEAT_TITLES[s.kind] ?? s.kind, s.fights, `${s.done} (${pct(s.done, s.fights)})`, `${s.doneWon} (${pct(s.doneWon, s.fights)})`,
+const FEAT_LEGEND = 'Задача 16 «Подвиги» (с 14.10.2026; со второго похода — после первого Тюремщика): бои походов с подвигом (`summary.feat`), законченные победой или поражением. «Выполнен» — доля боёв, где условие выполнено (смерть потом всё равно ничего не платит); «Выполнен и дверь» — выполнен и бой выигран, награда выдана. Секунда — игровая секунда боя, когда подвиг выполнен. «Дверь без подвига» — выход в дверь с невыполненным подвигом; «не хватило» — очков или секунд до N в конце боя (медиана). Награды — по `RunRecord.feats`: ресурсы у двери, выбор талисмана, ресурсы вместо талисмана (пул мал). «По рядам» — те же числа по виду и ряду похода (решение дизайна 14.10.2026: N поднять, если у людей «очки» выполнены в ≥ 85 % боёв, а «после целей» — в ≤ 50 %; docs/realtime-loop-research.md, раздел 8). Эвристика, не оценка баланса.';
+function featRows(runFights: readonly FightEntry[], byRow = false): (string | number)[][] {
+  return featStats(runFights, byRow).map(s => [FEAT_TITLES[s.kind] ?? s.kind, ...byRow ? [s.row || '—'] : [], s.fights, `${s.done} (${pct(s.done, s.fights)})`, `${s.doneWon} (${pct(s.doneWon, s.fights)})`,
     s.at.length ? n1(median(s.at)) : '—', `${s.exitsUndone} (${pct(s.exitsUndone, s.won)} побед)`, s.missing.length ? n1(median(s.missing)) : '—']);
 }
 function featRewardLine(runs: readonly RunRecord[]): string {
@@ -976,7 +979,8 @@ export interface ViewerRunStat { group: string; runs: number; farRow: number[]; 
 export function viewerRunStats(runs: readonly RunRecord[], runFights: readonly FightEntry[]): ViewerRunStat[] {
   const groups: ViewerRunStat[] = ['первый', 'повторный', 'нет данных'].map(group => ({ group, runs: 0, farRow: [], won: 0, lost: 0, damage: [] }));
   for (const r of runs) {
-    const g = groups[r.viewerRun === undefined ? 2 : r.viewerRun === 1 ? 0 : 1];
+    // Review 14.10.2026: an approximate number (a profile older than the count) is a repeat.
+    const g = groups[r.viewerRun === undefined ? 2 : r.viewerRun === 1 && !r.viewerRunApprox ? 0 : 1];
     g.runs++; g.farRow.push(r.farRow);
     if (r.outcome === 'victory') g.won++; else if (r.outcome === 'defeat') g.lost++;
     for (const e of runFights) if (e.run?.id === r.id && (e.record.outcome === 'victory' || e.record.outcome === 'defeat')) g.damage.push((e.analysis?.summary ?? e.record.summary).damage.total);
@@ -984,7 +988,7 @@ export function viewerRunStats(runs: readonly RunRecord[], runFights: readonly F
   return groups.filter(g => g.runs);
 }
 const VIEWER_RUN_HEAD = ['Поход зрителя', 'Походов', 'Дальний ряд мед.', 'Побед', 'Поражений', 'Урон за бой мед.'];
-const NOVELTY_LEGEND = 'Новизна (с 14.10.2026): «первые встречи» — понятия, которые зритель увидел впервые (виды и аффиксы врагов, взрыв гоблина, элита, котомка, подвиг, второе дыхание, кнопка лечения, игорный круг; `RunRecord.firsts`), их отмечает вид; в бою — `summary.novelty` (повтор журнала их не видит). Бои походов, законченные победой или поражением; «нет данных» — записи без счёта. Поход зрителя — его номер у зрителя (`RunRecord.viewerRun`, счёт профиля браузера): первый и повторные. Эвристика, не оценка баланса.';
+const NOVELTY_LEGEND = 'Новизна (с 14.10.2026): «первые встречи» — понятия, которые зритель увидел впервые (виды и аффиксы врагов, взрыв гоблина, элита, котомка, подвиг, второе дыхание, кнопка лечения, игорный круг; `RunRecord.firsts`), их отмечает вид; в бою — `summary.novelty` (повтор журнала их не видит). Бои походов, законченные победой или поражением; «нет данных» — записи без счёта. Поход зрителя — его номер у зрителя (`RunRecord.viewerRun`, счёт профиля браузера): первый и повторные; номер с `viewerRunApprox` (профиль старше счёта, счёт начат с 2) — повторный. Эвристика, не оценка баланса.';
 function firstsLine(runs: readonly RunRecord[]): string {
   const counts: Record<string, number> = {};
   for (const r of runs) for (const f of r.firsts ?? []) counts[f.id] = (counts[f.id] ?? 0) + 1;

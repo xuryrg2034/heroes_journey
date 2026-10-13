@@ -16,7 +16,7 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtGuaranteedElite, rtArenaRules, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
@@ -66,7 +66,7 @@ export interface RunHost {
    */
   runStep?(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>): void;
   /** Telemetry: a new run starts; `previous` without a result is abandoned; `viewerRun` — the viewer's run number (task 16, the profile's count). */
-  runStarted?(previous: RtRunState | null, run: RtRunState, viewerRun?: number): void;
+  runStarted?(previous: RtRunState | null, run: RtRunState, viewerRun?: number, viewerRunApprox?: boolean): void;
   /** Telemetry: the «Логи» panel (absent — no button). */
   openLogs?(): void;
   /**
@@ -262,7 +262,7 @@ export class RunView {
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
-    this.host.runStarted?.(previous, this.run, viewerRun);
+    this.host.runStarted?.(previous, this.run, viewerRun.run, viewerRun.approx);
     this.selected = null; this.notice = ''; this.confirmReset = false; this.luckOpen = false;
     this.open();
     return this.run;
@@ -276,6 +276,8 @@ export class RunView {
     this.store.save(this.run);
     this.notice = this.describe(step.events);
     if (this.run.result && !before?.result) this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded });
+    // Task 16: the Jailer fought (won or lost) — the profile's sticky mark, also for a run abandoned later (not a seeded run).
+    if (!this.run.seeded && rtFoughtJailer(before, this.run)) this.profile.markJailer();
     this.host.runStep?.(before, step);
     if (step.events.some(event => event.type === 'battle-ready')) this.enterArena();
     else this.draw();

@@ -58,13 +58,16 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * always gets the full gift and does not change the mark. The trunk, the ladder and the bar of openings are not in the slice.
  *
  * Task 16 «Подвиги» (design 13.10.2026, complexity budget; the same version 1, optional fields):
- * - `jailer` — some finished run without a given seed reached the Jailer's row; unlike `giftFull` it stays once set (a later
- *   run that falls early does not take it back). A run created after it carries feats (`featsOn`). A profile saved before it
- *   with `giftFull` reads as `jailer` (that run reached the Jailer).
- * - `runs` — runs this viewer started (telemetry `RunRecord.viewerRun`: 1, 2, 3…); absent — none counted yet (a profile before it).
- * Both are absent until set: a profile without them reads and saves as before.
+ * - `jailer` — the viewer ever fought the Jailer in a run without a given seed (review 14.10.2026: set when the Jailer's fight is
+ *   fed back, won or lost — `markJailer`, rtRun.ts `rtFoughtJailer` — so a run abandoned after it counts too; a finished run
+ *   that reached the Jailer's row sets it as well, `endRun`). Unlike `giftFull` it stays once set. A run created after it
+ *   carries feats (`featsOn`). A profile saved before it with `giftFull` reads as `jailer` (that run reached the Jailer).
+ * - `runs` — runs this viewer started (telemetry `RunRecord.viewerRun`: 1, 2, 3…); absent — none counted yet. `runsApprox` — the
+ *   count started on a profile that already showed play before it (a stored profile without `runs`: a run had ended): it began
+ *   at 2, so it is a lower bound (`RunRecord.viewerRunApprox`).
+ * All are absent until set: a profile without them reads and saves as before.
  */
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -73,7 +76,7 @@ export function parseRtProfile(text: string | null): RtProfile {
     const value = JSON.parse(text) as Partial<RtProfile> | null;
     if (!value || typeof value !== 'object' || value.version !== RT_PROFILE_VERSION) return emptyRtProfile();
     const runs = typeof value.runs === 'number' && Number.isInteger(value.runs) && value.runs >= 1 ? value.runs : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {} };
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {} };
   } catch { return emptyRtProfile(); }
 }
 
@@ -88,8 +91,16 @@ export interface RtProfileStore {
    * follows the profile too (core answer 14.10.2026). Pass it to `createRtRun(seed, { feats })`.
    */
   featsOn(): boolean;
-  /** Task 16 telemetry: a run starts — the viewer's run number (1, 2, 3…; `RunRecord.viewerRun`), counted in the profile. */
-  startRun(): number;
+  /**
+   * Task 16: the viewer fought the Jailer (a run without a given seed fed the Jailer's fight back, rtRun.ts `rtFoughtJailer`) —
+   * `jailer` is set and stays. False when not stored.
+   */
+  markJailer(): boolean;
+  /**
+   * Task 16 telemetry: a run starts — the viewer's run number (1, 2, 3…; `RunRecord.viewerRun`), counted in the profile.
+   * `approx` — the count began on a profile that showed earlier play (it starts at 2; `RunRecord.viewerRunApprox`).
+   */
+  startRun(): { run: number; approx?: true };
 }
 
 export function createRtProfileStore(storage: RunStorage | null = browserStorage()): RtProfileStore {
@@ -101,6 +112,14 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
     // Task 16: `jailer` stays once a run reached the Jailer (`giftFull` is the last run's only).
     endRun: ({ reachedJailer, seeded }) => !seeded && write({ ...read(), giftFull: reachedJailer, ...reachedJailer ? { jailer: true as const } : {} }),
     featsOn: () => read().jailer === true,
-    startRun: () => { const profile = read(), runs = (profile.runs ?? 0) + 1; write({ ...profile, runs }); return runs; },
+    markJailer: () => { const profile = read(); return profile.jailer === true || write({ ...profile, jailer: true }); },
+    startRun: () => {
+      // A stored profile without the count: a run had ended before (only `endRun` wrote profiles then) — the count starts at 2.
+      const stored = (() => { try { return storage?.getItem(RT_PROFILE_STORAGE_KEY) != null; } catch { return false; } })();
+      const profile = read(), first = profile.runs === undefined, approx = first ? stored : profile.runsApprox === true;
+      const runs = first ? (stored ? 2 : 1) : profile.runs! + 1;
+      write({ ...profile, runs, ...approx ? { runsApprox: true as const } : {} });
+      return { run: runs, ...approx ? { approx: true as const } : {} };
+    },
   };
 }

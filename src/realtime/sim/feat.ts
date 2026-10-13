@@ -5,9 +5,9 @@
  * - `score` — «Набери N очков»: the fight's score (`stats.score`) reaches N;
  * - `afterGoals` — «Продержись N с после целей»: N game seconds have passed since the goals (`greedStart`) and the hero is alive;
  * - `arena` — «Продержись N с на арене»: the fight's game time reaches N.
- * Done is checked at the end of every playing tick (world.ts `update`) and at the door (`win`, before the fight ends): the
- * first moment the condition holds while the hero plays latches `world.feat` (`{ tick, time }`) and sends the event
- * `feat` `done`. A defeat latches nothing more; a done feat stays done. The reward is the run's: paid only for a won fight
+ * Done is checked at the end of every playing tick (world.ts `update`, `featCheck`) and once in the tick the hero goes through
+ * the door (`featExit`, after the door: the score of a chain that ended in it and the exit tick's game time count): the first
+ * moment the condition holds while the hero is alive latches `world.feat` (`{ tick, time }`) and sends the event `feat` `done`. A defeat latches nothing more; a done feat stays done. The reward is the run's: paid only for a won fight
  * (the door), after the run reads `featResult`.
  *
  * Off by default (`Params.feats`); journals without the key, kits without `feat`: no `world.feat`, no event, no draw — worlds
@@ -54,24 +54,40 @@ export function featProgress(world: World): FeatProgress | null {
   return { kind: feat.kind, value: done ? target : Math.min(target, Math.max(0, world.time - world.greedStart)), target, done };
 }
 
-/** The condition holds now (not latched yet). Tiny slack for the sum of 1/60 s ticks. */
-function featMet(world: World, feat: FeatGoal): boolean {
+/** The condition holds at game time `time` (not latched yet). Tiny slack for the sum of 1/60 s ticks. */
+function featMet(world: World, feat: FeatGoal, time: number): boolean {
   if (feat.kind === 'score') return world.stats.score >= feat.n;
-  if (feat.kind === 'arena') return world.time + 1e-9 >= feat.n;
-  return world.greedStart !== null && world.time - world.greedStart + 1e-9 >= feat.n;
+  if (feat.kind === 'arena') return time + 1e-9 >= feat.n;
+  return world.greedStart !== null && time - world.greedStart + 1e-9 >= feat.n;
+}
+
+function latch(world: World, feat: FeatGoal, time: number): void {
+  world.feat = { tick: world.tick, time };
+  world.events.push({ type: 'feat', action: 'done', kind: feat.kind, n: feat.n });
 }
 
 /**
- * The end of a playing tick (world.ts `update`) and the door (`win`, before the status changes): the first moment the feat's
- * condition holds while the hero plays latches it (`world.feat`) and sends `feat` `done`. Nothing without a feat, once done,
- * or after the fight ended.
+ * The end of a playing tick (world.ts `update`): the first moment the feat's condition holds while the hero plays latches it
+ * (`world.feat`) and sends `feat` `done`. Nothing without a feat, once done, or after the fight ended (the exit tick —
+ * `featExit`).
  */
 export function featCheck(world: World): void {
   if (world.feat || world.status !== 'playing') return;
   const feat = featOf(world);
-  if (!feat || !featMet(world, feat)) return;
-  world.feat = { tick: world.tick, time: world.time };
-  world.events.push({ type: 'feat', action: 'done', kind: feat.kind, n: feat.n });
+  if (feat && featMet(world, feat, world.time)) latch(world, feat, world.time);
+}
+
+/**
+ * The tick the hero went through the door (review of task 16, 14.10.2026): the exit tick counts whole — the score of the chain
+ * that ended in the door (added by chain.ts `finishMove` after `win`) and the tick's game time. `ahead` — game seconds of the
+ * exit tick not yet on `world.time`: a chain or a jump enters the door in `stepHero`, before `update` adds the tick's `SIM_DT`
+ * (simulation.ts `tick` calls it with `SIM_DT` right after a `stepHero` that won); walking in comes after it (world.ts `update`,
+ * 0). Only a victory; nothing without a feat or once done. Called once, in the exit tick.
+ */
+export function featExit(world: World, ahead: number): void {
+  if (world.feat || world.status !== 'victory') return;
+  const feat = featOf(world), time = world.time + ahead;
+  if (feat && featMet(world, feat, time)) latch(world, feat, time);
 }
 
 /**
