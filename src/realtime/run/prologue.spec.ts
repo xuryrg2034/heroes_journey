@@ -1094,11 +1094,45 @@ function drawShieldChain(sim: Simulation, pause = 2): { links: ChainLink[]; plan
   return { links, plan: draw(sim, links, pause) };
 }
 
+/** Room 9: an empty press (no link taken) wakes the sleepers of the start, as the first press of a player would. */
+function wake(sim: Simulation): void {
+  const w = sim.world;
+  assert(sim.command({ t: 'begin', x: w.arena.width - 0.5, y: 0.5 }) === false && w.chain.length === 0 && !w.asleep, 'the empty press woke them');
+}
+
+check('room 9 (design 13.10.2026): the enemies sleep until the first press, as in room 8 — 4 s standing: HP 15, nobody moves, no lamp; walking among them changes nothing; the first press wakes them for good (the room then plays as before: a return does not put them to sleep), the hand\'s chain from the start meets a shield; replay (seeds 1–6)', () => {
+  for (let k = 1; k <= 6; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    assert(w.asleep === true, `${label}: asleep at the start`);
+    wait(sim, 4);
+    assert(w.hero.hp === 15 && w.stats.hitsTaken === 0 && allAtPosts(w) && goalProgress(w).done === 0 && w.asleep === true, `${label}: 4 s standing — HP ${w.hero.hp}, at posts ${allAtPosts(w)}`);
+    // A walk (not a press) does not wake them.
+    walkTo(sim, { x: w.arena.heroStart.x + 0.6, y: w.arena.heroStart.y }, 0.05);
+    wait(sim, 1);
+    assert(w.asleep === true && w.hero.hp === 15 && allAtPosts(w), `${label}: a walk wakes nobody`);
+    walkTo(sim, w.arena.heroStart, 0.05);
+    // The first press: the hand's chain of 3+ (from the start ring) — it wakes them, the dash gives the shield, a touch lights lamp 1.
+    drawShieldChain(sim);
+    assert(!w.asleep, `${label}: the first press woke them`);
+    const dashMark = w.events.length;
+    dash(sim);
+    until(sim, x => x.hero.chainShield <= 0, 60);
+    assert(!w.asleep && goalProgress(w).done <= 1, `${label}: awake after the first chain`);
+    // After the return they stay awake and walk.
+    if (w.stage === 'goals') {
+      until(sim, x => x.events.slice(dashMark).some(e => e.type === 'restore') || x.stage === 'greed', 60 * 2);
+      wait(sim, 0.5);
+      assert(!w.asleep && !allAtPosts(w), `${label}: a return does not put them to sleep, they walk`);
+    }
+    replays(sim, `room 9 asleep ${label}`);
+  }
+});
+
 check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn by the commands, is the drawn chain, its highlight is the dash; the shield (0.5 s) follows and absorbs the crowd\'s touches — `shieldBlock` once per enemy, the HP kept, exactly ONE lamp per chain even when several touch; the ring and the hero come back in the tick the shield ends, before a touch can hurt (design answer 13.10.2026); three such chains open the door; the walk in wins; the journal replays (seeds 1–6)', () => {
   let several = 0;
   for (let k = 1; k <= 6; k++) {
     const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
-    assert(w.hero.hp === 15 && w.hero.maxHp === 15 && w.enemies.length === 9 && !w.asleep && !w.arena.calm && JSON.stringify((worldState(w) as Record<string, unknown>).shieldGoal) === JSON.stringify({ lit: 0 }), `${label}: full HP, nine awake, no lamp`);
+    assert(w.hero.hp === 15 && w.hero.maxHp === 15 && w.enemies.length === 9 && w.asleep === true && !w.arena.calm && JSON.stringify((worldState(w) as Record<string, unknown>).shieldGoal) === JSON.stringify({ lit: 0 }), `${label}: full HP, nine asleep until the first press, no lamp`);
     for (let chain = 1; chain <= 3; chain++) {
       // The second chain waits for the crowd to close in (its dash ends among several); the others go at once.
       if (chain === 2) until(sim, x => x.enemies.filter(e => dist(e, x.hero) <= touchDistanceOf(x.params, e) + 0.25).length >= 3, 60 * 3);
@@ -1205,7 +1239,7 @@ check('room 9 (design answer 13.10.2026): with the third lamp the door opens and
   for (let k = 1; k <= 6; k++) {
     const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
     for (let chain = 1; chain <= 3; chain++) {
-      assert(!w.asleep, `${label}: awake before the goal (chain ${chain})`);
+      assert(chain === 1 ? w.asleep === true : !w.asleep, `${label}: asleep until the first press, then awake until the goal (chain ${chain})`);
       drawShieldChain(sim);
       dash(sim);
       const mark = w.events.length;
@@ -1242,6 +1276,7 @@ check('room 9: the invulnerability after a hit absorbs the touches that follow �
     const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
     // Standing: the crowd walks in and hits; inside the 0.5 s after the hit the touches go on, nothing lights (the ticks while the
     // invulnerability outlasts them; on its last tick the next touch hurts as usual).
+    wake(sim);
     until(sim, x => x.stats.hitsTaken > 0, 60 * 3);
     let pressed = 0;
     const mark = w.events.length;
@@ -1275,6 +1310,7 @@ check('room 9: the shield over the invulnerability after a hit still counts (the
   for (let k = 1; k <= 10; k++) {
     const sim = room(SHIELD, k), w = sim.world;
     // Hit first, then the hand's chain at once: the dash ends while the hit's invulnerability may still run.
+    wake(sim);
     until(sim, x => x.stats.hitsTaken > 0, 60 * 3);
     drawShieldChain(sim, 0);
     dash(sim);
