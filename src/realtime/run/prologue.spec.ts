@@ -1291,6 +1291,34 @@ check('room 9: the shield over the invulnerability after a hit still counts (the
   assert(overlapped > 0, `a block while both protect (${overlapped} of 10 seeds)`);
 });
 
+check('room 9 (review 13.10.2026): a second chain of 3+ started while the first shield window is still open (its lamp already lit) opens a NEW window — a touch in it is blocked again and lights the second lamp (seeds 1–20)', () => {
+  let checked = 0;
+  for (let k = 1; k <= 20; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    drawShieldChain(sim);
+    dash(sim);
+    // Wait inside the first window for its block (lamp 1), then draw the hand's next chain of 3+ at once while the shield holds.
+    until(sim, x => goalProgress(x).done === 1 || x.hero.chainShield <= 0, 60);
+    if (goalProgress(w).done !== 1 || w.hero.chainShield <= 0.1) continue;
+    while (w.hero.chainShield > 0.1 && !prologueShieldLinks(w)) sim.tick();
+    if (!(w.hero.chainShield > 0.1) || !prologueShieldLinks(w)) continue;
+    assert(w.shieldGoal?.window?.lit === true, `${label}: the first window lit its lamp`);
+    drawShieldChain(sim, 0);
+    dash(sim);
+    assert(w.hero.chainShield > 0.5 - 1e-9 - 1 / 60, `${label}: the second chain gives a new shield`);
+    // The new window: a touch in reach (read from the bodies, not from the events) must be blocked and light lamp 2.
+    const mark = w.events.length;
+    let touch = false;
+    while (w.hero.chainShield > 0 && w.status === 'playing') { if (touched(w)) touch = true; sim.tick(); }
+    if (!touch) continue;
+    checked++;
+    assert(shieldBlocks(w.events.slice(mark)).length >= 1, `${label}: the new window blocks a touch`);
+    assert(goalProgress(w).done === 2 && goalLamps(w).lit === 2, `${label}: the new window lights the second lamp (${goalProgress(w).done})`);
+    replays(sim, `room 9 new window ${label}`);
+  }
+  assert(checked >= 3, `a second window with a touch on several seeds (${checked} of 20)`);
+});
+
 check('task 13 fields stay in their room: `shieldGoal` only in room 9 (hashed there), `restoreAfterShield` and `sleepOnDoor` only on its arena; on a run arena a chain of 3 kills gives the run\'s shield as before, the touch inside it is spared — with no shield state and no `shieldBlock` event', () => {
   for (const r of PROLOGUE_ROOMS) {
     const state = worldState(room(r.number).world) as Record<string, unknown>;
