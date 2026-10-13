@@ -306,7 +306,8 @@ const shieldPost = (i: number, color: number): { x: number; y: number; color: nu
  * (`shield`) — three windows of the after-chain shield (a chain of 3+ kills, 0.5 s) that each absorbed a touch which would have
  * hurt. A chain of 1–2 gives no shield: the touch after it hurts. No inflow; the return after a dash (the ring and the hero on
  * his start): after a chain that gave the shield in the tick the shield ends (`restoreAfterShield`, design answer 13.10.2026 —
- * no hit right after the shield), after a chain of 1–2 kills 1 s later; a death plays the room again (the view).
+ * no hit right after the shield), after a chain of 1–2 kills 1 s later; a death plays the room again (the view). With the third
+ * lamp the door opens and the enemies fall asleep (`sleepOnDoor`, design answer 13.10.2026): the walk to the door is safe.
  */
 export const PROLOGUE_SHIELD: ArenaTemplate = registerArena({
   id: 'prologue-shield',
@@ -317,6 +318,7 @@ export const PROLOGUE_SHIELD: ArenaTemplate = registerArena({
   restore: 'afterDash',
   restoreHero: true,
   restoreAfterShield: true,
+  sleepOnDoor: true,
   width: 12,
   height: 8,
   heroStart: { x: 6, y: 4 },

@@ -1132,7 +1132,7 @@ check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn
     }
     assert(w.stage === 'greed' && doorOpen(w), `${label}: three shields open the door`);
     assert(prologueShieldLinks(w) === null && prologueShieldChain(w) === null, `${label}: no hand after the goal`);
-    // The walk into the door (the crowd follows; it may still touch on the way).
+    // The walk into the door (the enemies sleep since the door opened: `sleepOnDoor`).
     until(sim, x => {
       const dx = x.arena.door.x - x.hero.x, dy = x.arena.door.y - x.hero.y, d = Math.hypot(dx, dy) || 1;
       sim.command({ t: 'walk', x: dx / d, y: dy / d });
@@ -1201,6 +1201,42 @@ check('room 9 (design answer 13.10.2026): a hero standing in the crowd after a c
   assert(refreshed >= 2, `a second chain inside the window on several seeds (${refreshed} of 8)`);
 });
 
+check('room 9 (design answer 13.10.2026): with the third lamp the door opens and the enemies fall asleep in that tick — a hero standing in the ring takes no hit for 2 s, the enemies do not move; a press does not wake them; the walk into the door wins (seeds 1–6)', () => {
+  for (let k = 1; k <= 6; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    for (let chain = 1; chain <= 3; chain++) {
+      assert(!w.asleep, `${label}: awake before the goal (chain ${chain})`);
+      drawShieldChain(sim);
+      dash(sim);
+      const mark = w.events.length;
+      until(sim, x => x.stage === 'greed' || (x.hero.chainShield <= 0 && x.events.slice(mark).some(e => e.type === 'restore')), 60 * 2);
+      if (chain < 3) assert(w.stage === 'goals', `${label}: not yet`);
+    }
+    assert(w.stage === 'greed' && w.asleep === true, `${label}: the door open, the enemies asleep`);
+    const goalsTick = w.events.findIndex(e => e.type === 'goals');
+    assert(goalsTick >= 0, `${label}: the goals event`);
+    // Stand 2 s among them: no hit, nobody moves.
+    const hp = w.hero.hp, mark = w.events.length, at = w.enemies.map(e => ({ id: e.id, x: e.x, y: e.y }));
+    assert(w.enemies.some(e => dist(e, w.hero) <= touchDistanceOf(w.params, e) + 0.6), `${label}: the ring is near the hero`);
+    wait(sim, 2);
+    assert(hits(w.events.slice(mark)).length === 0 && w.hero.hp === hp, `${label}: no hit for 2 s (${JSON.stringify(hits(w.events.slice(mark)))})`);
+    assert(w.enemies.every(e => { const a = at.find(p => p.id === e.id); return a && a.x === e.x && a.y === e.y; }), `${label}: the sleepers stand`);
+    // A press on a sleeper (a chain started, then cancelled) does not wake them in this room.
+    const e0 = w.enemies[0];
+    sim.command({ t: 'begin', x: e0.x, y: e0.y });
+    sim.command({ t: 'cancel' });
+    wait(sim, 0.5);
+    assert(w.asleep === true && hits(w.events.slice(mark)).length === 0, `${label}: still asleep after a press`);
+    until(sim, x => {
+      const dx = x.arena.door.x - x.hero.x, dy = x.arena.door.y - x.hero.y, d = Math.hypot(dx, dy) || 1;
+      sim.command({ t: 'walk', x: dx / d, y: dy / d });
+      return x.status !== 'playing';
+    }, 60 * 10);
+    assert(w.status === 'victory' && hits(w.events.slice(mark)).length === 0, `${label}: the walk into the door wins, untouched (${w.status})`);
+    replays(sim, `room 9 sleep ${label}`);
+  }
+});
+
 check('room 9: the invulnerability after a hit absorbs the touches that follow — no lamp, no block; «Щит фокуса» (3 links drawn, the focus on) spares the hero in the crowd — no lamp, no block; the chain released then gives the shield and its lamp (seeds 1–6)', () => {
   for (let k = 1; k <= 6; k++) {
     const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
@@ -1255,10 +1291,11 @@ check('room 9: the shield over the invulnerability after a hit still counts (the
   assert(overlapped > 0, `a block while both protect (${overlapped} of 10 seeds)`);
 });
 
-check('task 13 field stays in its room: `shieldGoal` only in room 9 (hashed there); on a run arena a chain of 3 kills gives the run\'s shield as before, the touch inside it is spared — with no shield state and no `shieldBlock` event', () => {
+check('task 13 fields stay in their room: `shieldGoal` only in room 9 (hashed there), `restoreAfterShield` and `sleepOnDoor` only on its arena; on a run arena a chain of 3 kills gives the run\'s shield as before, the touch inside it is spared — with no shield state and no `shieldBlock` event', () => {
   for (const r of PROLOGUE_ROOMS) {
     const state = worldState(room(r.number).world) as Record<string, unknown>;
     assert(('shieldGoal' in state) === (r.number === SHIELD), `${r.id}: shieldGoal`);
+    assert(!!r.arena.restoreAfterShield === (r.number === SHIELD) && !!r.arena.sleepOnDoor === (r.number === SHIELD), `${r.id}: room 9 fields`);
   }
   for (let k = 1; k <= 3; k++) {
     const sim = new Simulation({ arena: 'glade', params: { ...rtRunParams(defaultParams()), maxEnemies: 0 }, seed: seedOf(k), record: true }), w = sim.world;

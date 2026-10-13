@@ -1589,6 +1589,8 @@ export function completeGoals(world: World): void {
   world.greedStart = world.time;
   world.groupTimer = 0;
   world.events.push({ type: 'goals' });
+  // The prologue, task 13 (room 9 «Щит», `sleepOnDoor`): the enemies fall asleep with the door's opening (nothing elsewhere).
+  if (world.arena.sleepOnDoor) world.asleep = true;
 }
 
 /**
