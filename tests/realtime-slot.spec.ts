@@ -257,11 +257,12 @@ test('«Перебор»: a risky pull that does not bust gives a triple of a go
  * Task 5 «Срез казино-слоя в походе + гоблин главный» (12.10.2026; docs/realtime-casino.md, «Срез казино-слоя в походе»): a run
  * with real clicks and a real mouse chain. Seed 10, the full gift button 1: `r5c0` is a battle of run row 1, `r6c1` a battle
  * of run row 2 (its card offered oaths before task 5). Row 1: the card says «В бой», no «Зарок»; after the goals the goblin
- * stands; a chain of 6 drawn with the mouse floats «+1 рывок без риска» over the hero and the caption over the idol grows
- * «безопасно: 3» → «безопасно: 4»; the hero goes through the door: the result has no «Котёл» row and leads to the map, no die
+ * stands. Task 11 «Гоблин-сюрприз» (13.10.2026): the idol has no caption «безопасно: N» and no dots; a chain of 6 drawn with the
+ * mouse feeds nothing (no «+1 рывок без риска»); two pulls by the mouse show the same odds line, no percent: «может взорваться ·
+ * −4 HP в круге · иначе тройка». The hero goes through the door: the result has no «Котёл» row and leads to the map, no die
  * screen. Row 2: the card says «В бой», no «Зарок», no stake line.
  */
-test('task 5, the run: no «Зарок» on the cards, the goblin after the goals of a row-1 battle, a mouse chain of 6 — «+1 рывок без риска» and the caption grows; no «Котёл», no die', async ({ page }) => {
+test('task 5 and 11, the run: no «Зарок» on the cards, the goblin after the goals of a row-1 battle — no caption, no dots, a mouse chain of 6 feeds nothing, every pull shows one odds line without %; no «Котёл», no die', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -288,13 +289,13 @@ test('task 5, the run: no «Зарок» on the cards, the goblin after the goal
     rt.clear(false);
     rt.completeGoals();
   });
-  // The goblin after the goals (the run's chance 1), its marker, then the caption «безопасно: 3».
+  // The goblin after the goals (the run's chance 1), its marker, then the idol: no caption, no dots (task 11).
   await untilFrame(page, (snap, _a, late) => snap.slot.goblin || late ? true : undefined, null, 6);
-  await untilFrame(page, (snap, _a, late) => (snap.slot.shown.idols === 1 && snap.slot.shown.markers === 0 && snap.slot.shown.caption !== '') || late ? true : undefined, null, 6);
+  await untilFrame(page, (snap, _a, late) => (snap.slot.shown.idols === 1 && snap.slot.shown.markers === 0 && snap.slot.shown.dark === 0) || late ? true : undefined, null, 6);
   let s = await snap(page);
   expect(s.slot.goblin).not.toBeNull();
-  expect(s.slot.shown.caption).toBe('безопасно: 3');
-  expect(s.slot.shown.dots).toEqual({ gold: 3, red: 3, dark: 0 });
+  expect(s.slot.shown.caption).toBe('');
+  expect(s.slot.shown.dots).toEqual({ gold: 0, red: 0, dark: 0 });
   const g = s.slot.goblin!;
 
   // A chain of 6 weak enemies drawn with the mouse on a free line away from the idol (other lines when one is blocked).
@@ -327,15 +328,24 @@ test('task 5, the run: no «Зарок» on the cards, the goblin after the goal
     await page.evaluate(() => (window as any).__realtime.clear(false));
   }
   expect(drawn).toBe(true);
-  // The dash ends: «+1 рывок без риска» floats over the hero, the caption grows.
-  const fed = await untilFrame(page, (snap, _a, late) => snap.slot.shown.feeds >= 1 || late ? { feeds: snap.slot.shown.feeds, text: snap.slot.shown.feedText } : undefined, null, 8);
-  await page.screenshot({ path: 'artifacts/realtime-slot-long-chain.png' });
-  expect(fed).toEqual({ feeds: 1, text: '+1 рывок без риска' });
-  await untilFrame(page, (snap, _a, late) => snap.moving === null || late ? true : undefined, null, 5);
+  // The dash ends: nothing fed (task 11: no long-chain feeding in the run), still no caption and no dots.
+  await untilFrame(page, (snap, _a, late) => snap.moving === null || late ? true : undefined, null, 8);
+  await gameWait(page, 0.3);
   s = await snap(page);
-  expect(s.slot.shown.dots).toEqual({ gold: 4, red: 2, dark: 0 });
-  expect(s.slot.shown.caption).toBe('безопасно: 4');
+  expect(s.slot.shown.feeds).toBe(0);
+  expect(s.slot.shown.caption).toBe('');
+  expect(s.slot.shown.dots).toEqual({ gold: 0, red: 0, dark: 0 });
   expect(await page.evaluate(() => (window as any).__realtime.snapshot().purse.on)).toBe(false);
+
+  // Two pulls by the mouse: the same line on each (the hidden count shows nowhere), no percent, the reels spin and stop.
+  const lines: string[] = [];
+  for (let i = 0; i < 2 && (await snap(page)).slot.goblin; i++) {
+    await pullByMouse(page, async () => { lines.push((await snap(page)).slot.shown.oddsText); if (i === 0) await page.screenshot({ path: 'artifacts/realtime-slot-run-line.png' }); });
+    expect((await snap(page)).slot.shown.caption).toBe('');
+    await untilReady(page);
+  }
+  expect(lines.length).toBeGreaterThanOrEqual(1);
+  for (const line of lines) expect(line).toBe('может взорваться · −4 HP в круге · иначе тройка');
 
   // Out by the door: no «Котёл» row, the result leads to the map, no die.
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);

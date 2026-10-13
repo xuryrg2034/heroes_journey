@@ -9,10 +9,14 @@
  * Task 5б (12.10.2026): the texts and the reels stand OVER the idol while the room above it (below the HUD plate and the screen
  * edge, `setFrame`) allows, else UNDER the dots (`place`); the bust's spark to the hero is drawn by render.ts. Drawing only: it reads the world and the plan, it never changes them. The arrow marks are drawn by the
  * renderer with the archer's mark (render.ts `drawSignals`).
+ * Task 11 «Гоблин-сюрприз» (design 13.10.2026): with `slotSafeRandom` (the run: 0…3 safe pulls, hidden) or in a prologue room
+ * the idol has no dots and no caption (`hidesCharges`); with `slotSafeTriple` (a safe pull is a sure triple) every reel runs the
+ * same strip of the 4 good symbols (a bust still stops on ☠☠☠), and the odds line is the same on every pull — «может взорваться ·
+ * −N HP в круге · иначе тройка» (`surpriseText`) — while a pull of the fight may bust (`slotMayBust`), none otherwise (room 8).
  */
 import { Container, Graphics, Text } from 'pixi.js';
 import { OBJECT_RADIUS } from '../sim/chain';
-import { bustOdds, goblinOf, leverReady, safePullsLeft, slotCharges, type SlotOutcome, type SlotSymbol } from '../sim/slot';
+import { bustOdds, goblinOf, leverReady, safePullsLeft, slotCharges, slotMayBust, type SlotOutcome, type SlotSymbol } from '../sim/slot';
 import { bustText, slotOddsText, type SlotPlanOdds } from '../sim/slotPlan';
 import type { World, WorldEvent } from '../sim/world';
 
@@ -74,6 +78,16 @@ export const OUTCOME_TEXT: Readonly<Record<SlotOutcome, string>> = {
   heart: '+1 HP', bolt: '+1 энергия', gem: 'кристалл', pot: 'добыча', none: 'хе-хе', bust: 'Перебор!',
 };
 
+/** Task 11: the idol hides how many pulls are safe — no dots, no caption (the run's hidden count, the prologue). */
+export function hidesCharges(world: World): boolean {
+  return !!world.params.slotSafeRandom || world.arena.id.startsWith('prologue');
+}
+
+/** Task 11: the one odds line of every pull with «безопасный = тройка» — no percent, no count; −N is `slotBustDamage`. */
+export function surpriseText(damage: number, area: boolean): string {
+  return `может взорваться · −${damage} HP${area ? ' в круге' : ''} · иначе тройка`;
+}
+
 /** «+1 рывок без риска» — the floating text of a long chain that fed the goblin (`n` — by how many the safe pulls grew). */
 export function feedText(n: number): string {
   const tens = n % 100, ones = n % 10;
@@ -116,6 +130,8 @@ export class SlotView {
   private pullRisky = false;
   /** The bust chance the risky strip shows (the world's `slotBustChance`, set each frame of a spin). */
   private bustChance = 0;
+  /** Task 11 (`slotSafeTriple`): every pull spins the same strip of the good symbols — the reels tell nothing before they stop. */
+  private sameStrip = false;
   readonly shown: SlotShown = { idols: 0, markers: 0, spinning: 0, stopped: 0, dark: 0, odds: 0, oddsText: '', pulls: 0, results: 0, lastResult: '', caption: '', captionRisky: false, dots: { gold: 0, red: 0, dark: 0 }, busts: 0, feeds: 0, feedText: '',
     textPlace: 'up', reelsPlace: 'up', captionRect: null, oddsRect: null, reelsRect: null, sparks: 0, sparkFrom: null, sparkTo: null, heroFlashes: 0 };
   /** The arena on the stage (render.ts, each frame): origin, scale and the y (stage px) under which the HUD plate ends. */
@@ -205,16 +221,20 @@ export class SlotView {
     if (spin) {
       const done = spin.total > 0 ? 1 - spin.left / spin.total : 1;
       this.bustChance = world.params.slotBustChance ?? 0;
+      this.sameStrip = !!world.params.slotSafeTriple;
       this.drawReels(g, X, Y + reelsDy, R, spin.reels.map((s, i) => (done >= (i + 1) / 3 ? s : null)), clock, false);
       this.result = { reels: [...spin.reels], outcome: spin.outcome, life: RESULT_LIFE };
     } else if (this.result && this.result.life > 0) {
       this.result.life -= dt;
       this.drawReels(g, X, Y + reelsDy, R, this.result.reels, clock, true);
     }
+    // Task 11: with «безопасный = тройка» one line on every pull while the fight may bust; none in a fight that cannot (room 8).
+    const triple = !!world.params.slotSafeTriple;
+    if (triple && !slotMayBust(world)) odds = null;
     if (odds) {
-      shown.odds = 1; shown.oddsText = slotOddsText(odds);
+      shown.odds = 1; shown.oddsText = triple ? surpriseText(world.params.slotBustDamage, !!world.params.slotBustArea) : slotOddsText(odds);
       this.oddsLabel.text = shown.oddsText;
-      this.oddsLabel.style.fill = odds.bust ? RISK_TEXT : GOLD;
+      this.oddsLabel.style.fill = triple || odds.bust ? RISK_TEXT : GOLD;
       // The risky odds line already says what the red caption says: one of them on screen.
       if (odds.bust) this.captionLabel.visible = false;
       const hasCaption = caption && !odds.bust, showsReels = !!(spin || this.result?.life);
@@ -257,7 +277,7 @@ export class SlotView {
    * caption is shown (over the idol, or `below` px under its centre). Numbers come from `slotCharges`, `safePullsLeft`, `bustOdds` (sim/slot.ts), never computed here.
    */
   private drawCharges(world: World, pulls: number, g: Graphics, X: number, Y: number, R: number, alpha: number, below: number | null): boolean {
-    if (!world.params.slotBust) return false;
+    if (!world.params.slotBust || hidesCharges(world)) return false;
     const shown = this.shown, { total } = slotCharges(world), r = R * 0.2, step = R * 0.5, y = Y + R * 1.5;
     // The pulls ahead: the first `safePullsLeft` gold, the rest red (a long chain after a risky pull turns the next one gold).
     const left = safePullsLeft(world), risk = bustOdds(world), safeAhead = left ?? 0;
@@ -315,7 +335,7 @@ export class SlotView {
       if (sym) { this.shown.stopped++; drawSymbol(g, sym, cx, Y, R * 0.36); return; }
       this.shown.spinning++;
       // Spinning: the next symbols scroll down, clipped to the window by drawing them small near its middle.
-      const strip = this.pullRisky ? riskyStrip(this.bustChance) : reelStrip(this.pullSkulls?.[i] ?? 2);
+      const strip = this.sameStrip ? reelStrip(0) : this.pullRisky ? riskyStrip(this.bustChance) : reelStrip(this.pullSkulls?.[i] ?? 2);
       const t = clock * 14 + i * 1.7, k = t - Math.floor(t), a = strip[Math.floor(t) % strip.length];
       drawSymbol(g, a, cx, Y + (k - 0.5) * h * 0.55, R * 0.3);
       g.rect(cx - w / 2 + 2, Y - h / 2 + 2, w - 4, h * 0.18).fill({ color: REEL_BG, alpha: 0.85 });

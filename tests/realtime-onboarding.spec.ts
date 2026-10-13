@@ -413,8 +413,11 @@ test('the goblin: «Закончи цепь здесь» stands at the lever unt
   await pullLever(page);
   await expect.poll(async () => (await onboarding(page)).labels, { timeout: 5_000 }).toEqual([]);
   expect(await shownHints(page)).toEqual({ b9: 1 });
-  const dots = (await snap(page)).slot.shown.dots as { gold: number; red: number; dark: number };
-  expect(dots.gold + dots.red + dots.dark).toBeGreaterThan(0);
+  // The pull ran (task 11: the run's idol shows no dots and no caption — the safe count is a surprise).
+  const shown = (await snap(page)).slot.shown as { pulls: number; caption: string; dots: { gold: number; red: number; dark: number } };
+  expect(shown.pulls).toBeGreaterThan(0);
+  expect(shown.caption).toBe('');
+  expect(shown.dots).toEqual({ gold: 0, red: 0, dark: 0 });
   await expect(page.getByTestId('world-label')).toBeHidden();
 
   // The next fight of the same viewer: the goblin comes again, no label.

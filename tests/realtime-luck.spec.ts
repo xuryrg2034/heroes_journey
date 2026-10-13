@@ -8,7 +8,9 @@ import { test, expect } from './realtimeTest';
  * next fight is lost. The run-end screen has the block «Удача похода», collapsed; opened, it says the goblin's pull with the
  * odds the lever showed and what came, and no die line; a reload keeps it (collapsed again). The die's line is checked in
  * Node (src/realtime/run/luck.spec.ts, the run layer with the die turned on). The goblin is put by the
- * journalled debug command (`summonGoblin`); the arena is won by the run hook `winArena`.
+ * journalled debug command (`summonGoblin`); the arena is won by the run hook `winArena`. Task 11 (13.10.2026): a run's own
+ * pull is a sure triple or a bust, it has no odds of the rain and the volley and the block skips it (Node checks that); this
+ * fight turns `slotSafeTriple` and `slotSafeRandom` off before the goblin comes, so its pull runs the skull reels the block counts.
  */
 
 const SEED = 10;
@@ -103,9 +105,9 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
   await quiet(page);
-  await page.evaluate(() => (window as any).__realtime.teleport(8, 5));
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.slotSafeTriple = false; rt.params.slotSafeRandom = false; rt.teleport(8, 5); });
 
-  // The goblin: 2 links take one skull off reel 1 — the lever showed «дождь 2,2 % · залп 17,8 %».
+  // The goblin (the reels with skulls, as before task 11): 2 links take one skull off reel 1 — the lever showed «дождь 2,2 % · залп 17,8 %».
   const odds = await pullLever(page);
   expect(odds).toBe('дождь 2,2 % · залп 17,8 %');
   await page.evaluate(() => (window as any).__realtime.clear(false));
