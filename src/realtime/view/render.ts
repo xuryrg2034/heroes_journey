@@ -27,7 +27,7 @@ import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } 
 import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
-import { NO_COLOR, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
+import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
 import { HAMMERS } from '../sim/buildIds';
@@ -470,6 +470,8 @@ export class RealtimeRenderer {
   talismanTexts = 0;
   /** П9 «Второе дыхание»: flashes with the text «второе дыхание» shown at the hero so far (tests read it). */
   secondWindShown = 0;
+  /** The text of the last second wind shown (tests read it). */
+  secondWindText = '';
   /**
    * П2 «Тихая мелочь, громкая цепь» (view/chainFeel.ts): enemy links of the dash as released — the shake, the sound (main.ts)
    * and the sandbox «+N» follow them.
@@ -1954,10 +1956,12 @@ export class RealtimeRenderer {
         }
         continue;
       }
-      // П9 «Второе дыхание» (sandbox): the hero stood up after a lethal hit — a flash and a short text at him.
+      // П9 «Второе дыхание» (the sandbox; task 17 — a gentle run's rows 1–4): the hero stood up after a lethal hit — a flash and a
+      // short text at him with the HP he stands with (design 13.10.2026: «второе дыхание: 3 HP», not like the ward's «1 HP»).
       if (ev.type === 'secondWind') {
         this.playerBurst(ev.x, ev.y, 1.6, 0xffffff, 0.45, 0.5, true);
-        this.floatText('второе дыхание', ev.x * UNIT, ev.y * UNIT - 150, PLAYER_FX);
+        this.secondWindText = `второе дыхание: ${Math.min(SECOND_WIND_HP, world.hero.maxHp)} HP`;
+        this.floatText(this.secondWindText, ev.x * UNIT, ev.y * UNIT - 150, PLAYER_FX);
         this.secondWindShown++;
         continue;
       }

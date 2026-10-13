@@ -1437,7 +1437,7 @@ async function boot(): Promise<void> {
         talismanFlashes: buildColumn.flashes,
         talismanTexts: renderer.talismanTexts,
         /** П9 «Второе дыхание»: the tick it was used (null — not yet) and the flashes with its text shown so far. */
-        secondWind: { used: w.secondWind?.tick ?? null, shown: renderer.secondWindShown },
+        secondWind: { used: w.secondWind?.tick ?? null, shown: renderer.secondWindShown, text: renderer.secondWindText },
         /** К7 «Проклятый сундук»: the curse of the fight (null — the chest not taken) and what the view drew in the last frame. */
         curse: w.curse ? { ...w.curse } : null,
         curseView: { ...renderer.curseShown },

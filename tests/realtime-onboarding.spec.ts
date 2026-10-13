@@ -497,11 +497,11 @@ test('the slot pulse follows the toggle «Подсказки»: off — no pulse
   test.setTimeout(180_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
-  /** A quiet fight with one bomb in hand. */
+  /** A quiet fight with one bomb in hand — only the bomb (task 17: a gentle run starts with a healing potion, which pulses too). */
   const bombFight = async (): Promise<void> => {
     await startFight(page);
     await quiet(page);
-    await page.evaluate(() => (window as any).__realtime.setItems('bomb', 1));
+    await page.evaluate(() => { const rt = (window as any).__realtime; rt.setItems('bomb', 1); rt.setItems('healing', 0); });
     await gameWait(page, 0.5);
   };
   const useBomb = async (): Promise<void> => {

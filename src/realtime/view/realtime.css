@@ -348,3 +348,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* The run's sound on the gear: the volume slider under «Звук», greyed while the sound is off. */
 .rt-run-volume input[type="range"] { width: 96px; accent-color: #a39364; }
 .rt-run-volume.rt-off { opacity: 0.45; cursor: default; }
+/* Task 17: the winged heart by the run map's HP — the second wind waits (lit) or is spent (dim). */
+.rt-run-wind { display: inline-flex; align-items: center; margin-left: -4px; cursor: help; filter: drop-shadow(0 0 4px #ffd36b66); }
+.rt-run-wind.rt-spent { opacity: 0.35; filter: grayscale(1); }

@@ -4,7 +4,7 @@ import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import {
-  canonicalJson, checkRecord, orderedParts, parseExport, unpackJournal,
+  canonicalJson, checkRecord, orderedParts, paramsHash, parseExport, unpackJournal,
   type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 import { FightTap } from '../src/realtime/telemetry/recorder';
@@ -412,7 +412,7 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   const unload = fights.find(f => f.outcome === 'unload')!, won = fights.find(f => f.outcome === 'victory')!;
   expect(unload.fight).toBe(fightKey(1, nodeId, 1));
   expect(won.fight).toBe(fightKey(2, nodeId, 2));
-  // Both journals name the run's Params by hash and replay with the run record's Params to their hashes.
+  // Both journals replay to their hashes (with the run record's Params at hand, as the report reads them).
   for (const f of [unload, won]) expect(replay(await journalOf(all, f)).hash()).toBe(f.endHash);
   // The won fight carries the real input (walking keys, the mouse chain).
   const played = new Set((await journalOf(all, won)).commands.map(c => c.cmd.t));
@@ -428,7 +428,9 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   expect(run.runParams).toBeTruthy();
   // The «Экспорт» of the map's «Логи» panel, replayed by the report in Node: every run fight to its endHash. Then the same
   // export with every object key sorted, as the claude.ai artifact database hands records back (playtest v32, 12.10.2026):
-  // the run record's Params come back in another key order, the journals name them by hash, the hashes still agree.
+  // the run record's Params come back in another key order, the hashes still agree. Task 17 (14.10.2026): a gentle run's fight of
+  // rows 1–4 plays its row's rules (`rtArenaRules`: invulnerability after a hit, the tough touch), so its Params are not the run's
+  // and its journal carries them whole — it unpacks alone, not by hash (the by-hash path: schema.spec.ts, rows 5+ of the run).
   await page.evaluate(() => (window as any).__realtime.telemetry.settle());
   await page.getByTestId('logs-open').click();
   await page.getByTestId('logs-export').click();
@@ -439,7 +441,8 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   const exportedRun = exported.records.find((r): r is RunRecord => r.kind === 'run')!;
   for (const f of [unload, won]) {
     const parts = exported.records.filter((r): r is JournalPart => r.kind === 'journal' && r.fight === f.fight);
-    await expect(unpackJournal(orderedParts(parts, f.fight, f.journal.digest), f.journal), 'the journal names its Params by hash').rejects.toThrow(/by hash/);
+    const journal = await unpackJournal(orderedParts(parts, f.fight, f.journal.digest), f.journal);
+    expect(paramsHash(journal.params), 'the row-1 fight plays its own Params, not the run\'s').not.toBe(paramsHash(exportedRun.runParams));
   }
   const sortedText = JSON.stringify(JSON.parse(canonicalJson(JSON.parse(text))));
   const sortedRun = (JSON.parse(sortedText) as { records: RtRecord[] }).records.find((r): r is RunRecord => r.kind === 'run')!;

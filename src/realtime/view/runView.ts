@@ -17,7 +17,7 @@ import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  rtOathPreview, rtOathStakeOn, rtGuaranteedElite, rtArenaRules, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
+  rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
@@ -28,7 +28,7 @@ import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
-import { nodeDangers } from './nodeCard';
+import { cardRules, nodeDangers } from './nodeCard';
 import type { SessionClock } from './session';
 import { NEW_SIGN, newKindsOfArena, type NewSeenStore } from './newSeen';
 import { dieLine, LINE_RESOURCES, ScreenLines, stakeLine, type HintStore } from './hints';
@@ -36,6 +36,7 @@ import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from
 import { multText } from '../sim/purse';
 import { eventOption, forestEvent } from '../forest/forestEvents';
 import type { SoundSetting } from './paramStorage';
+import { SECOND_WIND_HP } from '../sim/world';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -111,6 +112,34 @@ export interface RunViewToggle { id: string; label: string; hint?: string; get()
  * of consumables gained since the last arena blink 1 s; the hint «Предметы: клавиши 1–4…» for 4 s (`rtItemHintDue`).
  */
 export interface ArenaItemNotice { blink: ItemKind[]; hint: boolean }
+
+/**
+ * Task 17 (design 13.10.2026): the winged heart by the HP of the run map — `ready` while the run's second wind waits (a run with
+ * `secondWind`, not spent, its fights still on rows 1–`RT_SECOND_WIND_LAST_ROW`), `spent` (dim) once it stood the hero up, null
+ * (gone) for a run without it and once the run is past row 4 (the map offers row 5; a row-4 battle still open keeps it).
+ */
+export function secondWindMark(run: RtRunState): 'ready' | 'spent' | null {
+  if (!run.secondWind) return null;
+  const node = run.currentNodeId ? rtNode(run, run.currentNodeId) : undefined, row = node ? runRow(node.row) : 0;
+  if (row > RT_SECOND_WIND_LAST_ROW || (row === RT_SECOND_WIND_LAST_ROW && run.pending?.kind !== 'battle')) return null;
+  return run.secondWindSpent ? 'spent' : 'ready';
+}
+/** The winged heart (a heart between two wings; navy outline, as the map's other signs). */
+const WIND_ICON = '<svg viewBox="0 0 36 22" width="30" height="18" aria-hidden="true">'
+  + '<path d="M11 9 C7 3 2 4 1 7 C4 7 5 9 3 11 C6 11 7 13 6 15 C9 14 11 14 13 12 Z" fill="#f3ead2" stroke="#1a2330" stroke-width="1.4" stroke-linejoin="round"/>'
+  + '<path d="M25 9 C29 3 34 4 35 7 C32 7 31 9 33 11 C30 11 29 13 30 15 C27 14 25 14 23 12 Z" fill="#f3ead2" stroke="#1a2330" stroke-width="1.4" stroke-linejoin="round"/>'
+  + '<path d="M18 20 C11 15 9 12 9 9 C9 6 11 4.5 13.5 4.5 C15.5 4.5 17 5.8 18 7.4 C19 5.8 20.5 4.5 22.5 4.5 C25 4.5 27 6 27 9 C27 12 25 15 18 20 Z" fill="#e8746a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/>'
+  + '</svg>';
+
+/**
+ * The slots that blink at an arena's start: the kinds gained since the last arena (`itemsNew`) and — task 17 (design 14.10.2026) —
+ * the start potion in the run's first fight: it is new in hand like a gained one (the run keeps it out of `itemsNew`; view only).
+ */
+export function arenaBlink(run: Pick<RtRunState, 'itemsNew' | 'startPotion' | 'battles' | 'items'>): ItemKind[] {
+  const blink = [...run.itemsNew ?? []];
+  if (run.startPotion && !run.battles.length && run.items.healing > 0 && !blink.includes('healing')) blink.push('healing');
+  return blink;
+}
 
 /** Casino stage 1, item 4: the die's roll animation (research 8.5: 1.2 s, a click skips it). */
 export const DIE_ROLL_MS = 1200;
@@ -328,7 +357,7 @@ export class RunView {
     this.el.hidden = true;
     this.host.onScreenChange(false);
     const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}`;
-    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: [...this.run.itemsNew ?? []], hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
+    this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: arenaBlink(this.run), hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
   }
 
   private describe(events: RtRunEvent[]): string {
@@ -577,7 +606,12 @@ export class RunView {
     const reset = this.confirmReset
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
       : `<button data-action="new-run" data-testid="run-reset">Новый поход</button>`;
-    return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>`
+    // Task 17: the winged heart by the HP — the run's second wind waits (lit) or is spent (dim); gone from row 5.
+    const wind = secondWindMark(run);
+    const windHtml = wind ? `<span class="rt-run-wind${wind === 'spent' ? ' rt-spent' : ''}" data-testid="run-second-wind" data-state="${wind}" title="${wind === 'ready'
+      ? `Второе дыхание: ${SECOND_WIND_HP} HP. Удар, который убил бы кота в бою рядов 1–${RT_SECOND_WIND_LAST_ROW}, поднимает его с ${SECOND_WIND_HP} HP. Один раз за поход.`
+      : 'Второе дыхание потрачено в этом походе.'}">${WIND_ICON}</span>` : '';
+    return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `<span class="rt-run-res">${resources}</span>${reset}${this.logsButton()}${this.settingsHtml()}</header>`
@@ -649,9 +683,8 @@ export class RunView {
    * chosen node and the window «Бой» after a reload.
    */
   private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = []): string {
-    const row = node ? runRow(node.row) : 1;
-    const battle = node?.type === 'boss' ? 'final' : node?.type === 'hard' ? 'hard' : node?.type === 'event' ? 'event' : 'battle';
-    const lines = nodeDangers({ arena, roster, row, guaranteedElite: !!node && rtGuaranteedElite(node, battle), startElite: !!run.modifiers?.includes('start-elite'), newKinds, markedGoals: !!run.markedGoals });
+    // Task 17: the rules the fight of this node will play (`cardRules` — the conditions of `rtArenaLoadout`): the card equals the fight.
+    const lines = nodeDangers({ arena, roster, newKinds, ...cardRules(run, node) });
     if (!lines.length) return '';
     const items = lines.map(line => {
       const sign = line.newKinds?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';

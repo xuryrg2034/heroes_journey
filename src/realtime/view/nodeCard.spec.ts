@@ -6,7 +6,9 @@
 import { arenaTemplate } from '../sim/arenas';
 import { ARENA_POOLS, FINAL_ARENA, HARD_ARENA } from '../run/arenaPools';
 import { RT_RANDOM_ELITE_ROW, rtElitePlates } from '../run/rtRun';
-import { eliteText, goalText, nodeDangers } from './nodeCard';
+import { cardRules, eliteText, goalText, nodeDangers } from './nodeCard';
+import { arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtEliteAffixes as affixesOf, rtElitePlates as platesOf, rtEnterNode, rtNode, rtRandomElites, type RtRunState } from '../run/rtRun';
+import { closeNode, ok, seedOf, takeGift } from '../run/runFight.testkit';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
@@ -61,4 +63,69 @@ check('the new kinds of the viewer are marked on the enemies line', () => {
   assert(line.newKinds?.join() === 'archer', `${line.newKinds}`);
   const none = nodeDangers({ arena: 'archers', row: 4, guaranteedElite: false }).find(l => l.id === 'enemies')!;
   assert(none.newKinds === undefined, 'nothing new — no mark');
+});
+
+/**
+ * Task 17 (core review 14.10.2026, «подсказка ≠ исполнение»): a gentle run's node card said the old tables — row 3 «1 элита ·
+ * броня 2», row 5 «броня 3 · особое свойство» — while the fight played none and 2 plates. Every available battle node of a run,
+ * walked by its own commands on 12 seeds: the card's rules (`cardRules`) are the rules `rtArenaLoadout` gives the fight once the
+ * node is entered (random and guaranteed elites, plates, traits, the first elite row's kinds, the final without the porcupine),
+ * and the card's elites line says those numbers. A run without the flag keeps the old card.
+ */
+function walk(run: RtRunState, seen: (run: RtRunState, nodeId: string) => void): void {
+  for (let step = 0; step < 400 && !run.result; step++) {
+    if (run.pending?.kind === 'battle') {
+      const kinds = run.pending.battle === 'final' ? ['basic'] : ['basic', 'wolf'];
+      run = ok(resolveArena(run, { nodeId: run.pending.nodeId, won: true, hp: run.hp, kills: 20, damage: 0, time: 40, kinds }), 'win');
+      continue;
+    }
+    if (run.pending) { run = closeNode(run); continue; }
+    const nodes = rtAvailableNodes(run);
+    for (const node of nodes) if (isArenaNode(node)) seen(run, node.id);
+    run = ok(rtEnterNode(run, nodes[0].id), 'enter');
+  }
+}
+
+check('task 17: every battle node card of a run equals its fight\'s loadout (gentle and old runs, 12 seeds)', () => {
+  let cards = 0, gentleRow3 = 0, gentleRow5 = 0, firstEliteRow = 0, finals = 0;
+  for (const gentleEntry of [true, false]) {
+    for (let k = 1; k <= 12; k++) {
+      walk(takeGift(createRtRun(seedOf(k), { gift: 'mini', gentleEntry })), (run, nodeId) => {
+        const node = rtNode(run, nodeId)!, pick = arenaPreview(run, node)!, rules = cardRules(run, node);
+        const entered = ok(rtEnterNode(run, nodeId), 'enter for the loadout');
+        if (entered.pending?.kind !== 'battle') return;
+        const fight = rtArenaLoadout(entered), where = `seed ${k} ${gentleEntry ? 'gentle' : 'old'} ${nodeId} row ${rules.row}`;
+        assert(entered.pending.arena === pick.arena, `${where}: the card's arena ${pick.arena}, the fight's ${entered.pending.arena}`);
+        assert(!!rules.gentle === gentleEntry, `${where}: gentle`);
+        assert(rtRandomElites(rules.row, rules.gentle) === fight.randomElites, `${where}: random elites`);
+        assert(platesOf(rules.row, rules.gentle) === fight.elitePlates, `${where}: plates`);
+        assert(affixesOf(rules.row, rules.gentle) === (fight.eliteAffixes ?? 0), `${where}: traits`);
+        assert(rules.guaranteedElite === !!fight.guaranteedElite, `${where}: guaranteed elite`);
+        assert(JSON.stringify(rules.eliteKinds ?? null) === JSON.stringify(fight.eliteKinds ?? null), `${where}: elite kinds ${rules.eliteKinds} / ${fight.eliteKinds}`);
+        assert(JSON.stringify(rules.withoutKinds ?? null) === JSON.stringify(fight.withoutKinds ?? null), `${where}: without ${rules.withoutKinds} / ${fight.withoutKinds}`);
+        const lines = Object.fromEntries(nodeDangers({ arena: pick.arena, roster: pick.roster, ...rules }).map(line => [line.id, line.text]));
+        if (lines.elites) assert(lines.elites.includes(`броня ${fight.elitePlates}`), `${where}: ${lines.elites}`);
+        if (fight.withoutKinds?.length) { finals++; assert(!lines.enemies.includes('дикобраз'), `${where}: ${lines.enemies}`); }
+        if (gentleEntry && rules.row === 3) { gentleRow3++; assert(!lines.elites || !rules.guaranteedElite, `${where}: no guaranteed elite on row 3`); }
+        if (gentleEntry && rules.row === 5) { gentleRow5++; assert(!lines.elites || (lines.elites.includes('броня 2') && !lines.elites.includes('свойств')), `${where}: ${lines.elites}`); }
+        if (gentleEntry && rules.eliteKinds) firstEliteRow++;
+        cards++;
+      });
+    }
+  }
+  assert(cards > 100 && gentleRow3 > 0 && gentleRow5 > 0 && firstEliteRow > 0 && finals > 0, `cards ${cards}, row 3 ${gentleRow3}, row 5 ${gentleRow5}, row 4 kinds ${firstEliteRow}, finals without the porcupine ${finals}`);
+  console.log(`  ${cards} cards; gentle row 3: ${gentleRow3}, row 5: ${gentleRow5}, row-4 kinds: ${firstEliteRow}, finals without the porcupine: ${finals}`);
+});
+
+check('task 17: the gentle tables on the card — row 3 no elites, row 4 they come, row 5 armour 2 without a trait, row 6 armour 3 and a trait; an old run keeps the old ones', () => {
+  assert(text('shields', 3, { gentle: true, guaranteedElite: false }).elites === undefined, `gentle row 3: ${text('shields', 3, { gentle: true }).elites}`);
+  assert(text('shields', 3).elites === 'могут прийти · броня 2', `old row 3: ${text('shields', 3).elites}`);
+  assert(text('shields', 4, { gentle: true, guaranteedElite: true }).elites === '1, могут прийти ещё · броня 2', `${text('shields', 4, { gentle: true, guaranteedElite: true }).elites}`);
+  assert(text('shields', 5, { gentle: true }).elites === 'могут прийти · броня 2', `${text('shields', 5, { gentle: true }).elites}`);
+  assert(text('shields', 5).elites === 'могут прийти · броня 3 · особое свойство', `old row 5: ${text('shields', 5).elites}`);
+  assert(text('shields', 6, { gentle: true }).elites === 'могут прийти · броня 3 · особое свойство', `${text('shields', 6, { gentle: true }).elites}`);
+  // Е2: an elite only of the kinds allowed; none of them in the arena — no elite but the template's own.
+  assert(text('shields', 4, { gentle: true, guaranteedElite: true, eliteKinds: ['lynx'] }).elites === undefined, 'no allowed kind here');
+  // The final without the porcupine: the enemies line leaves it out.
+  assert(!text(FINAL_ARENA, 10, { gentle: true, withoutKinds: ['porcupine'] }).enemies.includes('дикобраз'), text(FINAL_ARENA, 10, { withoutKinds: ['porcupine'] }).enemies);
 });
