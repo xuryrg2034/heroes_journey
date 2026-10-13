@@ -317,7 +317,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
     await page.getByTestId('run-enter').click();
   }
   await expect(page.getByTestId('run')).toBeHidden();
-  await expect(page.getByTestId('item-bomb')).toHaveText(new RegExp(`×${bombs}`));
+  await expect(page.getByTestId('item-bomb').locator('.rt-tile-count')).toHaveText(String(bombs));
   const target = await page.evaluate(() => {
     const rt = (window as any).__realtime, hero = rt.snapshot().hero;
     rt.setParam('contactDamage', 0);
@@ -326,7 +326,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
   const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [target.x, target.y]);
   await page.mouse.move(at.x, at.y);
   await page.keyboard.press('2');
-  await expect(page.getByTestId('item-bomb')).toHaveText(new RegExp(`×${bombs - 1}`));
+  await expect(page.getByTestId('item-bomb').locator('.rt-tile-count')).toHaveText(String(bombs - 1));
   expect((await page.evaluate(() => (window as any).__realtime.snapshot())).enemies.some((e: { id: number }) => e.id === target.id)).toBe(false);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');

@@ -340,7 +340,7 @@ test('a fight played with a moving camera replays in Node to the same hash: comm
 /** The page rectangles the pointers must keep clear of (DOM over the canvas). */
 const hudRects = (page: Page): Promise<{ name: string; left: number; top: number; right: number; bottom: number }[]> => page.evaluate(() => {
   const out: { name: string; left: number; top: number; right: number; bottom: number }[] = [];
-  for (const [name, sel] of [['hud', '.rt-hud'], ['action bar', '.rt-actionbar'], ['jump button', '.rt-jump'], ['help line', '.rt-help'], ['arenas button', '.rt-menu-open'], ['panel button', '.rt-open']] as const) {
+  for (const [name, sel] of [['hud', '.rt-hud'], ['action bar', '.rt-actionbar'], ['help line', '.rt-help'], ['arenas button', '.rt-menu-open'], ['panel button', '.rt-open']] as const) {
     const node = document.querySelector(sel) as HTMLElement | null;
     if (!node || node.hidden) continue;
     const r = node.getBoundingClientRect();
@@ -349,7 +349,7 @@ const hudRects = (page: Page): Promise<{ name: string; left: number; top: number
   return out;
 });
 
-test('off-screen pointers keep clear of the HUD: no arrow overlaps the action bar, the jump button, the top HUD or the help line', async ({ page }) => {
+test('off-screen pointers keep clear of the HUD: no arrow overlaps the action bar, the top HUD or the help line', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 18);
   await still(page);
@@ -367,7 +367,7 @@ test('off-screen pointers keep clear of the HUD: no arrow overlaps the action ba
   await settled(page);
   await expect.poll(async () => (await camera(page)).edge.threat, { timeout: 8_000 }).toBeGreaterThanOrEqual(2);
   const rects = await hudRects(page);
-  expect(rects.map(r => r.name)).toEqual(expect.arrayContaining(['hud', 'action bar', 'jump button', 'help line']));
+  expect(rects.map(r => r.name)).toEqual(expect.arrayContaining(['hud', 'action bar', 'help line']));
   const arrows = (await camera(page)).arrows;
   expect(arrows.length).toBeGreaterThanOrEqual(3);
   const half = 15;
@@ -483,32 +483,44 @@ const box = (page: Page, sel: string): Promise<Box | null> => page.evaluate(sel 
 }, sel);
 const hit = (a: Box, b: Box): boolean => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-test('sandbox: the chain text of the HUD does not overlap the «Арены» and «Отладка» buttons while a chain is drawn', async ({ page }) => {
+test('sandbox: while a chain is drawn the power number stands over the hero (red on a surviving tail), the HUD has no chain line and keeps off the buttons', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 1);
   await still(page);
   const hero = (await snap(page)).hero as { x: number; y: number };
-  // A short chain that ends on a survivor: the longest tail of the text («последний выживет (a→b HP)»).
-  const at = [0, 1, 2].map(i => ({ x: hero.x + 1.4 + i * 1.2, y: hero.y }));
-  for (let i = 0; i < 3; i++) await place(page, at[i].x, at[i].y, 0, i === 2 ? 6 : 0);
+  // Three weak links, then a tough one (HP 6) that survives the chain's power.
+  const at = [0, 1, 2, 3].map(i => ({ x: hero.x + 1.4 + i * 1.2, y: hero.y }));
+  for (let i = 0; i < 4; i++) await place(page, at[i].x, at[i].y, 0, i === 3 ? 6 : 0);
   const pts = [];
   for (const p of at) pts.push(await screen(page, p.x, p.y));
   await page.mouse.move(pts[0].x, pts[0].y);
   await page.mouse.down();
-  for (const p of pts.slice(1)) await page.mouse.move(p.x, p.y);
+  for (const p of pts.slice(1, 3)) await page.mouse.move(p.x, p.y);
   await expect.poll(async () => (await snap(page)).chain.length).toBe(3);
-  await expect(page.locator('.rt-chain')).toContainText('цепь 3');
-  await page.screenshot({ path: 'artifacts/realtime-layout-chain-text.png' });
-  const chain = await box(page, '.rt-chain');
+  // Task 8b: the number over the head grows with the links (three weak — power 3), warm while the tail dies.
+  await expect.poll(async () => (await snap(page)).powerView.now).toMatchObject({ value: 3, red: false, drawing: true });
+  const heroAt = await screen(page, hero.x, hero.y);
+  const power = (await snap(page)).floatRects.power as Box;
+  expect(power, 'the number is shown').not.toBeNull();
+  expect(power.bottom, 'over the hero').toBeLessThan(heroAt.y);
+  expect(Math.abs((power.left + power.right) / 2 - heroAt.x), 'centred on the hero').toBeLessThan(8);
+  await page.mouse.move(pts[3].x, pts[3].y);
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(4);
+  await expect.poll(async () => (await snap(page)).powerView.now).toMatchObject({ value: 4, red: true, drawing: true });
+  await page.screenshot({ path: 'artifacts/realtime-layout-power-number.png' });
+  expect(await page.locator('.rt-chain').count(), 'no chain line in the HUD').toBe(0);
   const hud = await box(page, '.rt-hud');
-  expect(chain).not.toBeNull();
   for (const sel of ['.rt-menu-open', '.rt-open']) {
     const b = await box(page, sel);
     expect(b, sel).not.toBeNull();
-    expect(hit(chain!, b!), `chain text ${JSON.stringify(chain)} overlaps ${sel} ${JSON.stringify(b)}`).toBe(false);
     expect(hit(hud!, b!), `HUD ${JSON.stringify(hud)} overlaps ${sel} ${JSON.stringify(b)}`).toBe(false);
   }
+  // Back to three links (the tail dies again) and release: the dash carries the number on, then it fades.
+  await page.mouse.move(pts[2].x, pts[2].y);
+  await expect.poll(async () => (await snap(page)).powerView.now).toMatchObject({ red: false });
   await page.mouse.up();
+  await expect.poll(async () => (await snap(page)).powerView.shown).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => (await snap(page)).powerView.visible, { timeout: 5_000 }).toBe(false);
   expect(errors).toEqual([]);
 });
 

@@ -92,18 +92,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-phase-tools { margin-top: 4px; }
 .rt-phase-tools button { padding: 3px 8px; background: #262b20; border: 1px solid #4a4d39; font-size: 11px; }
 
-/* Stage 2: focus, energy, kills, chain readout, jump button. */
+/* Stage 2: focus, energy, kills. */
 .rt-focus { width: 90px; height: 8px; background: #22282c; border: 1px solid #0b0d0a; }
 .rt-focus-fill { display: block; height: 100%; width: 100%; background: #7fb2d6; }
 .rt-focus.rt-focus-on .rt-focus-fill { background: #bfe3ff; box-shadow: 0 0 8px #9ad1ff; }
 .rt-energy { font-family: Georgia, serif; font-size: 15px; color: #8e947b; }
 .rt-energy.rt-ready { color: #9ad1ff; }
 .rt-kills { font-family: Georgia, serif; font-size: 15px; color: #e5c8a8; }
-.rt-chain { color: #f2dfb4; }
 .rt-score { font-family: Georgia, serif; font-size: 15px; color: #fff2c4; }
-.rt-jump { position: absolute; bottom: 34px; right: 18px; padding: 8px 14px; background: #1c2630; border: 1px solid #4a6378; color: #bfe3ff; }
-.rt-jump.rt-on { background: #2c4a63; border-color: #9ad1ff; }
-.rt-jump:disabled { opacity: .45; cursor: default; }
 
 /* Stage E: a link refreshed the focus. */
 .rt-focus.rt-focus-flash { animation: rt-focus-flash 0.25s ease-out; }
@@ -131,7 +127,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-notice { margin: 0; padding: 6px 18px; color: #fff2c4; background: #2a2a1acc; border-bottom: 1px solid var(--rt-line); font-size: 13px; }
 .rt-run-session { margin: 0; padding: 4px 18px; color: var(--rt-muted); font-size: 12px; font-style: italic; }
 .rt-run-modal .rt-run-session { padding: 0; margin: 10px 0 0; text-align: center; }
-.rt-run-body { flex: 1; display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
+.rt-run-body { position: relative; flex: 1; display: grid; grid-template-columns: 1fr; min-height: 0; }
 .rt-run-map { width: 100%; height: 100%; }
 .rt-edge { stroke: #3c4231; stroke-width: 2; }
 .rt-edge.rt-walked { stroke: #c8a56b; stroke-width: 3; }
@@ -145,8 +141,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-node.rt-open circle { fill: #2c4a63; stroke: #9ad1ff; stroke-width: 3; }
 .rt-node.rt-lost circle { fill: #5a2a24; stroke: #e0a596; }
 .rt-node.rt-selected circle { stroke: #ffffff; stroke-width: 4; }
-.rt-run-detail { padding: 18px; border-left: 1px solid var(--rt-line); background: #121710cc; font-size: 13px; overflow-y: auto; }
-.rt-run-detail h3 { margin: 0 0 6px; font: 600 20px Georgia, serif; color: #f2dfb4; }
+/* Task 8c (design 13.10.2026): the chosen node's card in the middle of the map (it was the right column); its backdrop covers
+   the map only (the header — gear, «Логи», «Новый поход» — stays usable), is light, and a click on it closes the card. */
+/* Under the header (its gear's box drops over the map), over the map; the other run modals stay over everything (z 8). */
+.rt-run-modal.rt-run-node { z-index: 1; background: #0a0d0966; }
+.rt-run-head { position: relative; z-index: 2; }
+.rt-run-node .rt-card { width: min(440px, calc(100vw - 32px)); text-align: left; }
+.rt-run-node h2 { margin: 0 0 4px; font-size: 26px; text-align: left; }
+.rt-run-detail { font-size: 14px; }
+.rt-run-arena { margin: 10px 0 4px; }
+.rt-run-dangers { list-style: none; margin: 6px 0 4px; padding: 0; display: grid; gap: 4px; }
+.rt-run-dangers li { padding: 4px 8px; background: #1a2016; border-left: 3px solid #4a4d39; }
+.rt-run-dangers li b { color: #e0d4ad; font-weight: 600; }
+.rt-run-dangers li[data-testid="run-danger-goal"] { border-left-color: #c8a56b; }
+.rt-run-dangers li[data-testid="run-danger-elites"] { border-left-color: #c46a4a; }
 .rt-run-meta, .rt-run-hint, .rt-run-note { color: var(--rt-muted); }
 /* П8: the sign «✦ новое» on the arena line of an available node card. */
 .rt-new-sign { color: #c8b0ff; font-size: 0.85em; font-weight: 600; white-space: nowrap; }
@@ -200,27 +208,36 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-wheel-hit { fill: #6e5a26; }
 .rt-result-buttons:has(> :only-child) { grid-template-columns: 1fr; }
 
-/* Stage 2, step 3: abilities (Space, Q) with their price; ready when there is energy for them now. */
-.rt-abilities { display: inline-flex; gap: 6px; }
-.rt-ability { padding: 1px 6px; font-size: 12px; color: #8e947b; border: 1px solid #3a3f30; background: #151a12cc; white-space: nowrap; }
-.rt-ability.rt-ready { color: #bfe3ff; border-color: #4a6378; }
-/* Stage 2, step 3: the consumables on keys 1–4 with their count; an empty slot is dim. */
-.rt-items { display: inline-flex; gap: 4px; }
-.rt-item { padding: 1px 6px; font-size: 12px; color: #e5dcc0; border: 1px solid #4a4d39; background: #151a12cc; white-space: nowrap; }
-.rt-item kbd { font-size: 10px; color: #c8a56b; }
-.rt-item.rt-empty { opacity: .45; }
-/* Iteration 2.1 (docs/realtime-slice.md, section 12): a slot with one in hand is bright (icon, key, count); a slot whose
-   consumable was just gained blinks 1 s; a short hint over the bar at the start of a run arena. */
-.rt-item { display: inline-flex; align-items: center; gap: 4px; }
-.rt-item-icon { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid #0d1420; background: #6b6a5c; }
-.rt-item-frost .rt-item-icon { background: #9fd8ff; }
-.rt-item-bomb .rt-item-icon { background: #3a3f48; box-shadow: inset 0 0 0 2px #e0a050; }
-.rt-item-healing .rt-item-icon { background: #8fd18a; }
-.rt-item-fire .rt-item-icon { background: #ff9a4a; }
-.rt-item.rt-has { color: #fff6d8; border-color: #c8a56b; background: #2a2a1acc; }
-.rt-item.rt-has kbd { color: #ffd36b; font-weight: bold; }
-.rt-item.rt-has b { color: #ffffff; }
-.rt-item.rt-empty .rt-item-icon { filter: grayscale(1); }
+/* Task 8a (design 13.10.2026): the action bar of tiles (view/actionBar.ts) — «Пробел», «Q», then the consumables 1–4. A tile is
+   56 px: the glyph, the key in its corner, an ability's price under it, a consumable's count in the other corner. Ready —
+   bright; an ability short of energy — dim, filled from the bottom to the share of its price there is (`--fill`). */
+.rt-actionbar { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; align-items: flex-start; padding: 6px 10px 4px; background: #121710d9; border: 1px solid var(--rt-line); border-radius: 6px; pointer-events: none; transition: opacity .15s; }
+.rt-actionbar.rt-actionbar-under { opacity: .3; }
+.rt-actionbar.rt-actionbar-under .rt-tile { pointer-events: none; }
+.rt-abilities, .rt-items { display: flex; gap: 8px; }
+.rt-items:not(:has(> .rt-tile:not([hidden]))) { display: none; }
+.rt-abilities + .rt-items { padding-left: 14px; border-left: 1px solid var(--rt-line); }
+.rt-tile { position: relative; width: 56px; height: 56px; margin: 0 0 14px; padding: 0; display: grid; place-items: center; color: #7d836c; background: #151a12; border: 2px solid #3a3f30; border-radius: 6px; overflow: visible; cursor: pointer; pointer-events: auto; font: inherit; }
+.rt-tile-glyph { position: relative; width: 34px; height: 34px; opacity: .55; }
+.rt-tile-fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--fill, 0) * 100%); background: #4a637855; border-radius: 0 0 4px 4px; pointer-events: none; }
+.rt-tile kbd { position: absolute; top: 2px; left: 4px; font: 600 10px/1 system-ui, sans-serif; color: #8e947b; }
+.rt-tile-cost { position: absolute; left: 0; right: 0; bottom: -15px; font: 600 11px/1 Georgia, serif; text-align: center; color: #8e947b; white-space: nowrap; }
+.rt-tile-count { position: absolute; right: 4px; bottom: 2px; font: bold 15px/1 Georgia, serif; color: #fff6d8; text-shadow: 0 1px 2px #000; }
+.rt-tile.rt-ready { color: #bfe3ff; border-color: #6f93b3; background: #1c2630; }
+.rt-tile.rt-ready .rt-tile-glyph { opacity: 1; }
+.rt-tile.rt-ready kbd, .rt-tile.rt-ready .rt-tile-cost { color: #bfe3ff; }
+.rt-tile.rt-on { border-color: #ffffff; box-shadow: 0 0 0 2px #9ad1ff, 0 0 12px #9ad1ff; }
+.rt-tile:hover { border-color: #a39364; }
+/* The consumables: a tile in the colour of its kind (only shown with one in hand); the count in the corner. */
+.rt-item.rt-ready { background: #2a2a1a; border-color: #c8a56b; }
+.rt-item.rt-ready kbd { color: #ffd36b; }
+.rt-item-frost { color: #9fd8ff; }
+.rt-item-bomb { color: #c9c2b0; }
+.rt-item-healing { color: #8fd18a; }
+.rt-item-fire { color: #ff9a4a; }
+.rt-item.rt-ready.rt-item-bomb { color: #d8d0bc; }
+/* Aiming (the jump or a consumable): the field shows a cross. */
+.rt-aiming .rt-stage { cursor: crosshair; }
 .rt-item.rt-blink { animation: rt-item-blink .25s ease-in-out 4 alternate; }
 @keyframes rt-item-blink { from { box-shadow: 0 0 0 0 #ffd36b00; } to { box-shadow: 0 0 0 3px #ffd36bcc; background: #5a4a1ecc; } }
 /* The pulse (view/pulse.ts): a control breathes until the player does what it is for. After `rt-blink` in the file; on a blinking slot the blink wins (the rule below). */
@@ -230,8 +247,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes rt-pulse { from { box-shadow: 0 0 0 0 #ffd36b00; } to { box-shadow: 0 0 0 4px #ffd36bd9, 0 0 14px 2px #ffd36b80; background: #5a4a1ecc; } }
 .rt-run-items { color: #cfe3c0; }
 .rt-run-energy { color: #9ad1ff; }
-/* Stage 2, step 3: the action bar above the help line — abilities and consumables. */
-.rt-actionbar { position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 5px 10px; background: #121710d9; border: 1px solid var(--rt-line); pointer-events: none; }
 .rt-run-talismans { color: #ffd36b; }
 
 /* Phase B, track Д5 (design answer 23, variant A): the build column on the left, x 8–70 from y ≈ 72 — talismans, then the

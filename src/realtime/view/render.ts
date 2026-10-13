@@ -13,7 +13,7 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, colorShiftIds, colorShiftLeft, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, colorShiftIds, colorShiftLeft, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain, type ChainPlan } from '../sim/chain';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
@@ -106,6 +106,10 @@ export const FINAL_FLASH = 0.8;
 const OUTLINE_LIFE = 0.4;
 /** Casino «Котёл»: the cheque stands this many pixels over the hero (where the score popup «+N» starts: above the combo counter). */
 const CHEQUE_ABOVE = 122;
+/** Task 8b: the power number's foot over the hero's centre (px of the arena) — over the head; the HP bar is under the hero. */
+const POWER_ABOVE = 40;
+const POWER_WARM = 0xffb86b;
+const POWER_RED = 0xff5a4a;
 /** Threat color outside the chain palette (design answer 18): white with a dark outline — spawn markers, stage 3 boar lanes. */
 export const THREAT = 0xffffff;
 const THREAT_OUTLINE = 0x0b0f14;
@@ -510,7 +514,9 @@ export class RealtimeRenderer {
         this.comboShown = Math.max(this.comboShown, kills);
         const s = Math.max(1, text.scale.x - dt * 3);
         text.scale.set(s);
-        text.position.set(world.hero.x * UNIT, world.hero.y * UNIT - 52);
+        // Task 8b: the power number holds the place over the head — the combo stands over it (beside it «2 ×2» read as a product).
+        const power = this.powerText?.visible ? this.powerText : null;
+        text.position.set(world.hero.x * UNIT, power ? world.hero.y * UNIT - POWER_ABOVE - power.height + 4 : world.hero.y * UNIT - 52);
         text.alpha = dashing ? 1 : Math.min(1, this.comboLife / 0.4);
         text.style.fill = kills >= world.params.finisherLinks ? 0xffd36b : 0xfff2c4;
       } else this.comboValue = 0;
@@ -1605,44 +1611,65 @@ export class RealtimeRenderer {
     this.bursts.push({ g, life, total: life, grow });
   }
 
-  // ---- «Сила видна при рывке» (package «Урон имеет значение», item 4): view-only, reads `move.power` and the chainHit events ----
-  /** The chain's power as a small number beside the hero while the dash runs; it fades after the dash. */
+  // ---- The power number (package «Урон имеет значение», item 4; task 8b, design 13.10.2026): view-only ----
+  /**
+   * One number over the hero's head: while the chain is drawn — the power it brings (the plan: `power` after the last link, or
+   * what the last link gets when it survives — then red); while the dash runs — `move.power` link by link; it fades 0.8 s after.
+   * It replaced the HUD line «цепь N · сила P · …» and the small «сила N» beside the hero.
+   */
   private powerText: Text | null = null;
   private powerLife = 0;
   private powerValue = -1;
-  /** Tests read these: the largest power shown, how many times the number grew, strike flashes and the closing flashes drawn. */
+  private powerRed = false;
+  /** The plan of the drawn chain this frame (drawChain), null — no chain drawn. */
+  private drawnPlan: ChainPlan | null = null;
+  /** Tests read these: the largest power shown in a dash, how many times the number grew, strike flashes and the closing flashes drawn. */
   powerShown = 0;
   powerGrowths = 0;
   strikeFlashes = 0;
   finisherFlashes = 0;
+  /** Tests read it: the number now (null — hidden), whether it is red and where it stood. */
+  powerNow: { value: number; red: boolean; drawing: boolean } | null = null;
   get powerVisible(): boolean { return !!this.powerText?.visible; }
 
-  /** The power number: beside the hero (right and up, away from the combo counter and from the enemies ahead), grows link by link. */
+  /** The power number: centred over the hero's head (clear of the HP bar under him), grows link by link. */
   private drawPowerNumber(world: World, dt: number): void {
     if (!this.powerText) {
-      this.powerText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 'bold', fill: 0xffb86b, stroke: { color: 0x200c08, width: 5 } } });
-      this.powerText.anchor.set(0, 1);
+      this.powerText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 34, fontWeight: 'bold', fill: POWER_WARM, stroke: { color: 0x200c08, width: 6 } } });
+      this.powerText.anchor.set(0.5, 1);
       this.powerText.visible = false;
       this.root.addChild(this.powerText);
     }
-    const text = this.powerText, move = world.move;
-    if (move?.kind === 'dash' && move.hits > 0) {
+    const text = this.powerText, move = world.move, plan = this.drawnPlan;
+    let value: number | null = null, red = false, drawing = false;
+    if (plan && !move && world.status === 'playing') {
+      const last = plan.links[plan.links.length - 1]?.outcome;
+      red = plan.endsOnSurvivor && !!last;
+      value = red ? last!.available : plan.power;
+      drawing = true;
+    } else if (move?.kind === 'dash' && move.hits > 0) {
+      value = move.power;
+      this.powerShown = Math.max(this.powerShown, move.power);
+    }
+    if (value !== null) {
       this.powerLife = 0.8;
-      if (move.power !== this.powerValue) {
-        if (move.power > this.powerValue) this.powerGrowths++;
-        this.powerValue = move.power;
-        text.text = `сила ${move.power}`;
+      if (value !== this.powerValue || red !== this.powerRed) {
+        if (this.powerValue >= 0 && value > this.powerValue) this.powerGrowths++;
+        this.powerValue = value;
+        this.powerRed = red;
+        text.text = String(value);
         text.scale.set(1.3);
       }
-      this.powerShown = Math.max(this.powerShown, move.power);
-    } else this.powerLife = Math.max(0, this.powerLife - dt);
-    text.visible = this.powerLife > 0;
-    if (!text.visible) { this.powerValue = -1; return; }
+    } else if (!(move?.kind === 'dash')) this.powerLife = Math.max(0, this.powerLife - dt);
+    // Between the release and the first hit the drawn number stays as it was (the dash has not struck yet).
+    text.visible = this.powerLife > 0 && this.powerValue >= 0;
+    if (!text.visible) { this.powerValue = -1; this.powerRed = false; this.powerNow = null; return; }
     text.scale.set(Math.max(1, text.scale.x - dt * 2.5));
-    text.position.set(world.hero.x * UNIT + 34, world.hero.y * UNIT - 34);
-    text.alpha = move?.kind === 'dash' ? 1 : Math.min(1, this.powerLife / 0.4);
-    // Warmer as the power grows.
-    text.style.fill = this.powerValue >= 6 ? 0xffe08a : this.powerValue >= 3 ? 0xffc46b : 0xffb86b;
+    text.position.set(world.hero.x * UNIT, world.hero.y * UNIT - POWER_ABOVE);
+    text.alpha = move?.kind === 'dash' || value !== null ? 1 : Math.min(1, this.powerLife / 0.4);
+    // Red when the tail survives; else warmer as the power grows.
+    text.style.fill = this.powerRed ? POWER_RED : this.powerValue >= 6 ? 0xffe08a : this.powerValue >= 3 ? 0xffc46b : POWER_WARM;
+    this.powerNow = { value: this.powerValue, red: this.powerRed, drawing };
   }
 
   // ---- Casino «Котёл» (sim/purse.ts, docs/realtime-casino.md): view-only — the caption under the power number, the cheque ----
@@ -1652,11 +1679,11 @@ export class RealtimeRenderer {
   /** Tests read these: caption changes drawn, the caption now (empty — hidden), the cheques shown in order. */
   purseShown = { captions: 0, caption: '', cheques: [] as string[] };
 
-  /** Under the power number while it shows: «угли N · ×жар» (· ◆×) — the dash's cheque if it ended now (`dashCheque`). */
+  /** Over the power number while it shows: «угли N · ×жар» (· ◆×) — the dash's cheque if it ended now (`dashCheque`). */
   private drawPurseCaption(world: World): void {
     if (!this.purseCaption) {
       this.purseCaption = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 14, fontWeight: 'bold', fill: 0xffd88a, stroke: { color: 0x200c08, width: 4 } } });
-      this.purseCaption.anchor.set(0, 0);
+      this.purseCaption.anchor.set(0.5, 1);
       this.purseCaption.visible = false;
       this.root.addChild(this.purseCaption);
     }
@@ -1669,7 +1696,9 @@ export class RealtimeRenderer {
     caption.visible = !!world.params.purse && !!power?.visible && caption.text !== '';
     if (!caption.visible) { caption.text = ''; this.purseShown.caption = ''; return; }
     this.purseShown.caption = caption.text;
-    caption.position.set(world.hero.x * UNIT + 36, world.hero.y * UNIT - 32);
+    // Task 8b: over the power number (it stands over the head now) and over the combo counter when that shows too.
+    const combo = this.comboText?.visible ? this.comboText : null;
+    caption.position.set(world.hero.x * UNIT, (combo ? combo.y - combo.height : world.hero.y * UNIT - POWER_ABOVE - power!.height) - 2);
     caption.alpha = power!.alpha;
   }
 
@@ -2009,6 +2038,7 @@ export class RealtimeRenderer {
 
   private drawChain(world: World, ui: RenderUi): void {
     const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
+    this.drawnPlan = null;
     for (const label of this.quillLabels) label.visible = false;
     for (const label of this.plateLabels) label.visible = false;
     for (const label of this.depthLabels) label.visible = false;
@@ -2055,6 +2085,7 @@ export class RealtimeRenderer {
       return;
     }
     const plan = planChain(world), color = chainColor(world), ink = color === null ? 0xffffff : chainInk(color);
+    this.drawnPlan = plan;
     this.loopShown.hint = 0;
     // Line hero → links, navy under the chain color.
     const pts: Vec[] = [{ x: hero.x, y: hero.y }];
@@ -2437,8 +2468,9 @@ export class RealtimeRenderer {
     this.drawHero(world);
     this.drawCurseCounter(world);
     this.drawOverlay(world);
-    this.drawJuice(world, realDt);
+    // The power number first: the combo counter stands beside it while both show (task 8b).
     this.drawPowerNumber(world, realDt);
+    this.drawJuice(world, realDt);
     // Casino «Котёл»: the caption under the power number and the cheque.
     this.drawPurseCaption(world);
     this.drawCheque(world, realDt);

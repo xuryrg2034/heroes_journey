@@ -49,7 +49,10 @@ test('spin: Q with 3 energy kills the enemies around the hero (a ring flashes); 
   await openArena(page, errors, 1);
   await quiet(page);
   const near = await place(page, 8.9, 5, 'basic', 0, 0), tough = await place(page, 7.2, 5.3, 'basic', 2, 2), far = await place(page, 11, 5, 'basic', 1, 0);
-  await expect(page.getByTestId('ability-spin')).toHaveText(/Q круговой · 3/);
+  // Task 8a: a tile — «Q» in its corner, the price under it, the name in its title.
+  await expect(page.getByTestId('ability-spin').locator('kbd')).toHaveText('Q');
+  await expect(page.getByTestId('ability-spin').locator('.rt-tile-cost')).toHaveText('3 ⚡');
+  await expect(page.getByTestId('ability-spin')).toHaveAttribute('title', /Круговой удар/);
   await expect(page.getByTestId('ability-spin')).not.toHaveClass(/rt-ready/);
   // Without energy Q does nothing.
   await page.keyboard.press('q');
@@ -87,8 +90,12 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   await openArena(page, errors, 1);
   await quiet(page);
   // The sandbox gives the panel's number of each (3).
-  await expect(page.getByTestId('item-frost')).toHaveText(/1.*Холод.*×3/);
-  await expect(page.getByTestId('item-fire')).toHaveText(/4.*Огонь.*×3/);
+  // Task 8a: a tile per consumable — the key in its corner, the count in the other, the name in its title.
+  await expect(page.getByTestId('item-frost').locator('kbd')).toHaveText('1');
+  await expect(page.getByTestId('item-frost').locator('.rt-tile-count')).toHaveText('3');
+  await expect(page.getByTestId('item-frost')).toHaveAttribute('title', /Холод/);
+  await expect(page.getByTestId('item-fire').locator('kbd')).toHaveText('4');
+  await expect(page.getByTestId('item-fire').locator('.rt-tile-count')).toHaveText('3');
   const frozen = await place(page, 10, 5, 'basic', 0, 2), bombed = await place(page, 6, 6.5, 'basic', 1, 6), burnt = await place(page, 8, 2.5, 'basic', 2, 1);
   // 1 — cold at the pointer.
   await pointAt(page, 10, 5);
@@ -96,12 +103,12 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   await expect.poll(async () => (await kitSnap(page)).enemies.find(e => e.id === frozen)?.chill ?? 0).toBeGreaterThan(2);
   expect((await kitSnap(page)).enemies.find(e => e.id === frozen)!.brittle).toBe(true);
   await expect.poll(async () => (await kitSnap(page)).signals.frozen).toBe(1);
-  await expect(page.getByTestId('item-frost')).toHaveText(/×2/);
+  await expect(page.getByTestId('item-frost').locator('.rt-tile-count')).toHaveText('2');
   // 2 — the bomb on the enemy under the pointer.
   await pointAt(page, 6, 6.5);
   await page.keyboard.press('2');
   await expect.poll(async () => (await kitSnap(page)).enemies.some(e => e.id === bombed)).toBe(false);
-  await expect(page.getByTestId('item-bomb')).toHaveText(/×2/);
+  await expect(page.getByTestId('item-bomb').locator('.rt-tile-count')).toHaveText('2');
   // 4 — fire: the enemy under the pointer burns (flames on screen) and dies at the first tick (1.5 s).
   await pointAt(page, 8, 2.5);
   await page.keyboard.press('4');
@@ -109,7 +116,7 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   await expect.poll(async () => (await kitSnap(page)).enemies.some(e => e.id === burnt), { timeout: 5_000 }).toBe(false);
   // 3 — healing: refused at full HP (nothing spent), +9 after damage (iteration 2.1: the elixir +3 × 3; +8 before).
   await page.keyboard.press('3');
-  await expect(page.getByTestId('item-healing')).toHaveText(/×3/);
+  await expect(page.getByTestId('item-healing').locator('.rt-tile-count')).toHaveText('3');
   // One touch is enough (a hurt hero takes the elixir). The old wait for HP < 11 (two or three touches in 5 s of real time)
   // failed under load: the game clock runs slower than the wall clock there (clean run 11.10.2026: HP stayed 11).
   const full = (await kitSnap(page)).hero.hp;
@@ -119,7 +126,7 @@ test('consumables 1–4 from the keyboard at the mouse: cold freezes (×2 ring),
   const hurt = (await kitSnap(page)).hero.hp;
   await page.keyboard.press('3');
   await expect.poll(async () => (await kitSnap(page)).hero.hp).toBe(Math.min(15, hurt + 9));
-  await expect(page.getByTestId('item-healing')).toHaveText(/×2/);
+  await expect(page.getByTestId('item-healing').locator('.rt-tile-count')).toHaveText('2');
   const s = await kitSnap(page);
   expect(s.itemsShown).toEqual({ frost: 1, bomb: 1, healing: 1, fire: 1 });
   expect(s.items).toEqual({ frost: 2, bomb: 2, healing: 2, fire: 2 });

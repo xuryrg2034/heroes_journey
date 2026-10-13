@@ -20,7 +20,7 @@ import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
-import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
+import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
@@ -39,6 +39,7 @@ import { focusMaxOf } from '../sim/build';
 import { DOOR_HEAT, doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
 import { OATH_BROKEN_MULT, oathMark, OATHS, type OathId } from '../sim/oath';
 import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
+import { ActionBar, SELF_ITEMS } from './actionBar';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
@@ -110,6 +111,8 @@ function arenaOfKey(code: string, shift: boolean): number {
 const MAX_FRAME = 0.05;
 /** Iteration 2.1 (interface): a slot blinks this long (s) for a consumable gained; the item hint stays this long (s). */
 const ITEM_BLINK = 1;
+/** Task 8a: the hero this near the action bar (arena units, about the reach of a chain's first link) fades it out of the way. */
+const BAR_HERO_REACH = 2.2;
 /** Length of the focus bar (px) at the panel's reserve `focusMax`; the build's reserve (`focusMaxOf`) scales it. */
 const FOCUS_BAR_PX = 90;
 /** Hero walking keys (physical codes): WASD and arrows. */
@@ -231,37 +234,30 @@ async function boot(): Promise<void> {
   const eliteBadge = el('span', 'rt-elite-badge');
   eliteBadge.setAttribute('data-testid', 'elite-badge');
   eliteBadge.hidden = true;
-  const chainText = el('span', 'rt-chain');
   const scoreText = el('span', 'rt-score');
   scoreText.setAttribute('data-testid', 'score');
-  // Stage 2, step 3: the abilities with their key, price and whether there is energy for them now.
-  const abilities = el('span', 'rt-abilities');
-  const jumpAbility = el('span', 'rt-ability');
-  jumpAbility.setAttribute('data-testid', 'ability-jump');
-  const spinAbility = el('span', 'rt-ability');
-  spinAbility.setAttribute('data-testid', 'ability-spin');
-  abilities.append(jumpAbility, spinAbility);
-  // Stage 2, step 3: the consumables on keys 1–4 with how many are in hand.
-  const itemBar = el('span', 'rt-items');
-  itemBar.setAttribute('data-testid', 'items');
-  const itemSlots = SLOT_ITEMS.map((kind, i) => {
-    // Iteration 2.1: an icon of the kind before the key; the slot is bright with one in hand, dim with none.
-    const slot = el('span', `rt-item rt-empty rt-item-${kind}`, `<i class="rt-item-icon"></i><kbd>${i + 1}</kbd> ${ITEM_TITLES[kind]} <b>×0</b>`);
-    slot.setAttribute('data-testid', `item-${kind}`);
-    itemBar.appendChild(slot);
-    return slot;
+  // Task 8a: the action bar — tiles of the abilities (Space, Q) and the consumables (1–4), view/actionBar.ts. A click on a tile
+  // acts as its key; the jump and an aimed consumable wait for the next click on the field.
+  const actionBar = new ActionBar(id => {
+    if (id === 'jump') { if (!(prologue && prologue.n < PROLOGUE_ROOM_COUNT) && !dragging) toggleJump(); return; }
+    if (id === 'spin') { if (!(prologue && prologue.n < PROLOGUE_ROOM_COUNT) && running()) { command({ t: 'spin' }); stopAim(); } return; }
+    const slot = SLOT_ITEMS.indexOf(id);
+    if (slot < 0 || !running()) return;
+    if (SELF_ITEMS.has(id)) { useItemKey(slot); return; }
+    const on = itemAim !== slot;
+    stopAim();
+    if (on) itemAim = slot;
   });
+  const jumpAbility = actionBar.jump, spinAbility = actionBar.spin, itemBar = actionBar.items, itemSlots = actionBar.slots;
   // Casino stage 1, item 2 («Ставка клятвы», sim/oath.ts): one line under the goal — «Клятва: без прыжков ✓», dimmed «… ×0,5».
   const oathText = el('span', 'rt-oath');
   oathText.setAttribute('data-testid', 'oath-line');
   oathText.hidden = true;
   const goalBox = el('span', 'rt-goal-box');
   goalBox.append(goalText, oathText);
-  hud.append(hpBar, hpText, focusBar, energyText, goalBox, eliteBadge, scoreText, timeText, infoText, chainText);
-  // The action bar at the bottom: abilities (Space, Q) and consumables (1–4) — the top HUD keeps its width.
-  const actionBar = el('div', 'rt-actionbar');
-  actionBar.setAttribute('data-testid', 'action-bar');
-  actionBar.append(abilities, itemBar);
+  hud.append(hpBar, hpText, focusBar, energyText, goalBox, eliteBadge, scoreText, timeText, infoText);
+  // Task 8c: the run's HUD says the goal only — the arena's name, its enemies and its stage are on the node card of the map.
+  infoText.hidden = !sandbox;
   // The line of keys (task 6, 12.10.2026): the run says only the keys — the rules are taught in the world (labels, the prologue, the
   // rings). The sandbox keeps its long line (its testers need the panel keys).
   const help = el('div', 'rt-help', sandbox
@@ -276,7 +272,6 @@ async function boot(): Promise<void> {
     const few = every % 10 >= 2 && every % 10 <= 4 && (every % 100 < 12 || every % 100 > 14), links = `каждые ${every} ${few ? 'звена' : 'звеньев'}`;
     return w.params.crystals ? `кристалл или ${links} — смена цвета` : `${links} — смена цвета`;
   };
-  const jumpButton = button('rt-jump', 'Прыжок (Пробел)', 'jump');
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
 
@@ -352,7 +347,7 @@ async function boot(): Promise<void> {
   const noteFlash = el('div', 'rt-note-flash', 'отмечено');
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar, help, pausedBadge, jumpButton, hint, purseHint, shiftHint, result, noteFlash);
+  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar.el, help, pausedBadge, hint, purseHint, shiftHint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, menu);
   if (logsPanel) host.append(logsPanel.el);
 
@@ -451,6 +446,12 @@ async function boot(): Promise<void> {
   let menuOpen = sandbox;
   /** Pointer and the jump aim (render-only); `dragging` — the button is held after a press on the arena. */
   const ui: RenderUi = { pointer: null, jumpMode: false };
+  /** Task 8a: the consumable slot (0–3) whose tile was clicked — the next click on the field uses it there; null — none. */
+  let itemAim: number | null = null;
+  /** Ends the jump aim and the consumable aim (Esc, the right button, a new arena, an action done). */
+  const stopAim = (): void => { ui.jumpMode = false; itemAim = null; };
+  /** «Пробел» or its tile: the jump aim on (when the jump can start) or off; a consumable aim gives way. */
+  const toggleJump = (): void => { const on = !ui.jumpMode && canJump(world()); stopAim(); ui.jumpMode = on; };
   let dragging = false;
   /** Pointer in page pixels (the hint follows it) and the reason shown last frame (snapshot). */
   let pointerClient: { x: number; y: number } | null = null;
@@ -488,7 +489,7 @@ async function boot(): Promise<void> {
     result.hidden = true;
     delete result.dataset.outcome;
     dragging = false;
-    ui.jumpMode = false;
+    stopAim();
     relayout();
     renderer.snapCamera(world().hero);
   };
@@ -518,7 +519,7 @@ async function boot(): Promise<void> {
     result.hidden = true;
     command({ t: 'cancel' });
     dragging = false;
-    ui.jumpMode = false;
+    stopAim();
   };
 
   const panel = new DebugPanel(params, {
@@ -574,7 +575,6 @@ async function boot(): Promise<void> {
   menuButton.addEventListener('click', () => { showMenu(); menuButton.blur(); });
   again.addEventListener('click', () => restart());
   other.addEventListener('click', showMenu);
-  jumpButton.addEventListener('click', () => { ui.jumpMode = !ui.jumpMode && canJump(world()); jumpButton.blur(); });
 
   const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && world().status === 'playing';
 
@@ -608,7 +608,7 @@ async function boot(): Promise<void> {
     oathStake: params.oathStake,
     onScreenChange(open) {
       runScreenOpen = open;
-      if (open) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; result.hidden = true; }
+      if (open) { command({ t: 'cancel' }); dragging = false; stopAim(); result.hidden = true; }
     },
     ...recorder ? {
       runStep: (before, step) => recorder?.runStep(before, step),
@@ -677,9 +677,11 @@ async function boot(): Promise<void> {
     pointerClient = { x: event.clientX, y: event.clientY };
     if (!running()) return;
     prologue?.guide?.press();
-    if (event.button === 2) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; return; }
+    if (event.button === 2) { command({ t: 'cancel' }); dragging = false; stopAim(); return; }
     if (event.button !== 0) return;
     if (ui.jumpMode) { if (command({ t: 'jump', x: ui.pointer.x, y: ui.pointer.y })) ui.jumpMode = false; return; }
+    // Task 8a: a consumable tile was clicked — this click uses it here (a refusal says why and keeps nothing aimed).
+    if (itemAim !== null) { const slot = itemAim; itemAim = null; useItemKey(slot); return; }
     dragging = true;
     command({ t: 'begin', x: ui.pointer.x, y: ui.pointer.y });
   });
@@ -689,7 +691,7 @@ async function boot(): Promise<void> {
     pointerClient = { x: event.clientX, y: event.clientY };
     // Stage H: the right button pressed while the left one draws a chain comes as a chorded pointermove (button 2), not a
     // pointerdown: it cancels the chain too.
-    if (event.button === 2 && running()) { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; return; }
+    if (event.button === 2 && running()) { command({ t: 'cancel' }); dragging = false; stopAim(); return; }
     // Stage G: a fast swipe takes the links along its whole path (toggle «Протяжка по всему пути мыши»).
     if (dragging && running()) {
       const p = ui.pointer;
@@ -712,10 +714,10 @@ async function boot(): Promise<void> {
     const topOf = (node: HTMLElement): number => (node.hidden ? window.innerHeight : node.getBoundingClientRect().top);
     const gap = 8;
     const top = Math.max(bottomOf(hud), sandbox ? Math.max(bottomOf(openButton), bottomOf(menuButton)) : 0) + gap;
-    const bottom = window.innerHeight - Math.min(topOf(actionBar), topOf(jumpButton), topOf(help)) + gap;
+    const bottom = window.innerHeight - Math.min(topOf(actionBar.el), topOf(help)) + gap;
     // Phase B (Д5): the build column on the left — the pointers keep clear of it (its right edge + 8).
     // Round 2: the column never reaches the action bar (compact rows, then «+N»).
-    buildColumn.setBottom(topOf(actionBar) - gap);
+    buildColumn.setBottom(topOf(actionBar.el) - gap);
     const left = buildColumn.el.hidden ? 0 : buildColumn.el.getBoundingClientRect().right + gap;
     renderer.setEdgeInset({ left, top, right: 0, bottom });
   };
@@ -748,7 +750,7 @@ async function boot(): Promise<void> {
     const why = itemRefusal(w, kind, p);
     if (why) { renderer.notice(ITEM_REFUSAL_TEXT[why], p.x, p.y); return; }
     command({ t: 'item', kind, x: p.x, y: p.y });
-    ui.jumpMode = false;
+    stopAim();
   };
 
   window.addEventListener('keydown', event => {
@@ -768,11 +770,11 @@ async function boot(): Promise<void> {
     if (!sandbox) {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
       if (runScreenOpen) return;
-      if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
+      if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
       // Rooms 1–5 of the prologue hide the action bar: Space, Q and the item keys do nothing there (no jump aiming, no command, and
       // no press for the hand) — design 13.10.2026. Room 6 has them.
-      else if (event.code === 'Space') { event.preventDefault(); if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
-      else if (event.code === 'KeyQ') { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
+      else if (event.code === 'Space') { event.preventDefault(); if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (!dragging) toggleJump(); }
+      else if (event.code === 'KeyQ') { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; if (running()) { command({ t: 'spin' }); stopAim(); } }
       else if (itemKey(event.code) >= 0) { if (prologue && prologue.n < PROLOGUE_ROOM_COUNT) return; useItemKey(itemKey(event.code)); }
       else if (event.code === 'KeyP') paused = !paused;
       else if (event.code === 'KeyN') { if (!prologue) markNote(); }
@@ -783,9 +785,9 @@ async function boot(): Promise<void> {
     if (digit >= 0 && (menuOpen || ended)) { start(digit); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
-    if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; ui.jumpMode = false; }
-    else if (event.code === 'Space') { event.preventDefault(); if (!dragging) ui.jumpMode = !ui.jumpMode && canJump(world()); }
-    else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); ui.jumpMode = false; } }
+    if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
+    else if (event.code === 'Space') { event.preventDefault(); if (!dragging) toggleJump(); }
+    else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); stopAim(); } }
     else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
     else if (event.code === 'KeyR') restart();
     else if (event.code === 'KeyP') paused = !paused;
@@ -837,7 +839,7 @@ async function boot(): Promise<void> {
     prologueDom.hideTitle();
     prologueLayer.reset();
     labelLayer.hideAll();
-    dragging = false; ui.jumpMode = false;
+    dragging = false; stopAim();
     runView?.open();
   };
   function skipPrologue(): void {
@@ -853,7 +855,7 @@ async function boot(): Promise<void> {
     prologueHooks.skip?.(at);
     prologueHooks.end?.('skip');
     command({ t: 'cancel' });
-    dragging = false; ui.jumpMode = false;
+    dragging = false; stopAim();
     transition = { kind: 'finish', t: 0, switched: false };
     prologueDom.hideTitle();
   }
@@ -875,7 +877,7 @@ async function boot(): Promise<void> {
     if (w.status === 'playing' && !transition) {
       pl.seconds += gdt;
       if (live) pl.real += realDt;
-      pl.guide?.update(live ? gdt : 0, w.input.x !== 0 || w.input.y !== 0, dragging || !!w.move || w.chain.length > 0 || ui.jumpMode);
+      pl.guide?.update(live ? gdt : 0, w.input.x !== 0 || w.input.y !== 0, dragging || !!w.move || w.chain.length > 0 || ui.jumpMode || itemAim !== null);
     }
     const door = w.objects.find(o => o.kind === 'door');
     const handPoints = pl.guide?.show === 'hand' ? pl.guide.route.flatMap(l => { const p = linkPoint(w, l); return p ? [p] : []; }) : [];
@@ -912,7 +914,7 @@ async function boot(): Promise<void> {
       guide: g ? { show: g.show, arrow: g.arrow, circle: g.circle ? { ...g.circle } : null, rest: g.rest, links: g.route.length } : null,
       shown: { ...prologueLayer.shown, circle: prologueLayer.shown.circle ? { ...prologueLayer.shown.circle } : null },
       pulse: { space: jumpAbility.classList.contains('rt-pulse'), q: spinAbility.classList.contains('rt-pulse') },
-      hud: { energy: getComputedStyle(energyText).display !== 'none', actionBar: !actionBar.hidden, score: getComputedStyle(scoreText).display !== 'none', focus: getComputedStyle(focusBar).display !== 'none', info: getComputedStyle(infoText).display !== 'none' },
+      hud: { energy: getComputedStyle(energyText).display !== 'none', actionBar: !actionBar.el.hidden, score: getComputedStyle(scoreText).display !== 'none', focus: getComputedStyle(focusBar).display !== 'none', info: getComputedStyle(infoText).display !== 'none' },
       log: prologueLog.map(e => ({ ...e })),
     };
   };
@@ -978,6 +980,7 @@ async function boot(): Promise<void> {
     ui.cameraStill = w.status !== 'playing';
     if (ui.pointerScreen) ui.pointer = renderer.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
     if (ui.jumpMode && !canJump(w)) ui.jumpMode = false;
+    if (itemAim !== null && (w.status !== 'playing' || (w.kit?.items[SLOT_ITEMS[itemAim]] ?? 0) < 1)) itemAim = null;
     // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle). Journalled
     // only when it took a link: an append that found nothing changes nothing.
     if (live && dragging && params.holdPicks && ui.pointer && w.status === 'playing') {
@@ -1077,7 +1080,7 @@ async function boot(): Promise<void> {
       const early = !!prologue && prologue.n < PROLOGUE_ROOM_COUNT;
       host.classList.toggle('rt-pl', !!prologue);
       host.classList.toggle('rt-pl-early', early);
-      actionBar.hidden = early; jumpButton.hidden = early; help.hidden = !!prologue; itemBar.hidden = !!prologue;
+      actionBar.el.hidden = early; help.hidden = !!prologue; itemBar.hidden = !!prologue;
       prologueDom.skip.hidden = !prologue;
     }
     // World labels (view/worldLabels.ts): the run only. With the toggle on, an action done in this frame marks its label for this
@@ -1097,7 +1100,7 @@ async function boot(): Promise<void> {
       }
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
-        const barTop = actionBar.hidden ? stageBox.bottom : actionBar.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
+        const barTop = actionBar.el.hidden ? stageBox.bottom : actionBar.el.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
         const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
         // The bodies of the enemies in view (the label's own object excepted): a label keeps off them (`placeLabel`, `bodies`).
         const half = 0.42 * k, bodies = w.enemies.filter(e => renderer.sees(e) && !specs.some(sp => Math.hypot(sp.at.x - e.x, sp.at.y - e.y) < 0.3)).map(e => { const c = renderer.toScreen(e.x, e.y); return { left: c.x - half, top: c.y - half, right: c.x + half, bottom: c.y + half }; });
@@ -1142,14 +1145,15 @@ async function boot(): Promise<void> {
     const eliteCount = w.enemies.reduce((n, e) => n + (e.elite ? 1 : 0), 0);
     eliteBadge.hidden = eliteCount === 0;
     if (eliteCount) eliteBadge.textContent = `Элита ×${eliteCount}`;
-    jumpAbility.textContent = `Пробел прыжок · ${jumpCostOf(w)} ⚡`;
-    jumpAbility.classList.toggle('rt-ready', w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w));
-    spinAbility.textContent = `Q круговой · ${params.spinCost} ⚡`;
+    actionBar.update({
+      energy: w.energy, jumpCost: jumpCostOf(w), spinCost: params.spinCost,
+      jumpReady: w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w), spinReady: canSpin(w),
+      counts: w.kit?.items ?? { frost: 0, bomb: 0, healing: 0, fire: 0 },
+      aiming: ui.jumpMode ? 'jump' : itemAim !== null ? SLOT_ITEMS[itemAim] : null,
+    });
+    host.classList.toggle('rt-aiming', ui.jumpMode || itemAim !== null);
     SLOT_ITEMS.forEach((kind, i) => {
-      const count = w.kit?.items[kind] ?? 0, b = itemSlots[i].querySelector('b');
-      if (b && b.textContent !== `×${count}`) b.textContent = `×${count}`;
-      itemSlots[i].classList.toggle('rt-empty', count < 1);
-      itemSlots[i].classList.toggle('rt-has', count >= 1);
+      const count = w.kit?.items[kind] ?? 0;
       // Iteration 2.1: a consumable gained in the fight (loot) blinks its slot at once; the blink runs while the arena does.
       if (lastSlotCounts && count > lastSlotCounts[i]) slotBlink[i] = ITEM_BLINK;
       if (live) slotBlink[i] = Math.max(0, slotBlink[i] - realDt);
@@ -1161,23 +1165,24 @@ async function boot(): Promise<void> {
       const pulsing = hintsOn && !sandbox && !!runView?.arenaOpen && !runScreenOpen && w.status === 'playing' && hints.store.count(ITEM_PULSE_ID) === 0;
       SLOT_ITEMS.forEach((kind, i) => setPulse(itemSlots[i], pulsing && (w.kit?.items[kind] ?? 0) >= 1));
     }
-    spinAbility.classList.toggle('rt-ready', canSpin(w));
     // The prologue's last room: «Пробел» and «Q» breathe until each was used once (view/pulse.ts; this prologue only).
     {
       const pulsing = prologue?.n === PROLOGUE_ROOM_COUNT && w.status === 'playing' && !transition;
       setPulse(jumpAbility, pulsing && !spaceUsed);
       setPulse(spinAbility, pulsing && !spinUsed);
     }
-    jumpButton.classList.toggle('rt-on', ui.jumpMode);
-    jumpButton.disabled = !canJump(w) && !ui.jumpMode;
-    if (w.chain.length) {
-      const plan = planChain(w);
-      const lastLink = plan.links[plan.links.length - 1];
-      const lastOutcome = lastLink?.outcome;
-      const tail = plan.endsOnSurvivor && lastOutcome ? ` · последний выживет (${lastOutcome.hpBefore}→${lastOutcome.hpAfter} HP)`
-        : plan.endsOnObject ? ({ door: ' · в дверь', lever: ' · на рычаг' } as Record<string, string>)[w.objects.find(o => o.id === lastLink.link.id)?.kind ?? ''] ?? ' · на кнопку' : '';
-      chainText.textContent = `цепь ${w.chain.length} · сила ${plan.power}${tail}`;
-    } else chainText.textContent = '';
+    // Task 8a: the hero near the bar (within a chain's first reach of it) or the drawing pointer at it — the bar steps aside:
+    // faint and out of the pointer's way, so an enemy under it can be seen and taken.
+    {
+      const barBox = actionBar.el.hidden ? null : actionBar.el.getBoundingClientRect();
+      let under = false;
+      if (barBox && barBox.width > 0) {
+        const stageBox = stage.getBoundingClientRect(), k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
+        const near = (x: number, y: number, pad: number): boolean => { const c = renderer.toScreen(x, y), sx = stageBox.left + c.x, sy = stageBox.top + c.y; return sx > barBox.left - pad && sx < barBox.right + pad && sy > barBox.top - pad && sy < barBox.bottom + pad; };
+        under = near(w.hero.x, w.hero.y, BAR_HERO_REACH * k) || (!!ui.pointer && (dragging || w.chain.length > 0) && near(ui.pointer.x, ui.pointer.y, 0.6 * k));
+      }
+      actionBar.el.classList.toggle('rt-actionbar-under', under);
+    }
     infoText.textContent = `${runLabel && !sandbox ? runLabel : w.arena.name} · врагов ${w.enemies.length} · ${w.stage === 'greed' ? `жадность ${formatTime(w.time - (w.greedStart ?? 0))}, фаза ${w.pressure.phaseIndex + 1}` : 'до целей'}`;
     pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen || runScreenOpen;
     if (w.status !== 'playing' && !runScreenOpen) {
@@ -1242,7 +1247,7 @@ async function boot(): Promise<void> {
     menuOpen = false; menu.hidden = true;
     result.hidden = true; delete result.dataset.outcome;
     if (runView) { runView.el.hidden = true; runScreenOpen = false; }
-    dragging = false; ui.jumpMode = false;
+    dragging = false; stopAim();
     relayout();
     renderer.snapCamera(world().hero);
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -1353,7 +1358,7 @@ async function boot(): Promise<void> {
         /** «Сила видна при рывке»: the power number (largest shown, growths, visible now), strike flashes and closing flashes drawn so far. */
         /** П2 «Тихая мелочь, громкая цепь» (chainFeel.ts): pop-ups over the hero, quiet dash ends, outline flashes; П3 final flashes. */
         feel: { ...renderer.feelShown },
-        powerView: { shown: renderer.powerShown, growths: renderer.powerGrowths, visible: renderer.powerVisible, strikeFlashes: renderer.strikeFlashes, finisherFlashes: renderer.finisherFlashes },
+        powerView: { shown: renderer.powerShown, growths: renderer.powerGrowths, visible: renderer.powerVisible, now: renderer.powerNow, strikeFlashes: renderer.strikeFlashes, finisherFlashes: renderer.finisherFlashes },
         heroInCrowd: heroInCrowd(w),
         reachCircles: renderer.visibleReachCircles,
         heroReachShown: renderer.heroReachShown,

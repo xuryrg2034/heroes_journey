@@ -11,14 +11,13 @@ import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS, RESOURCES } from '../forest/resources';
 import type { ResourceKind } from '../forest/types';
 import type { GiftOption } from '../forest/runGift';
-import { arenaTemplate } from '../sim/arenas';
 import { arenaTitle, runRow } from '../run/arenaPools';
 import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
-  rtOathPreview, rtOathStakeOn, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
+  rtOathPreview, rtOathStakeOn, rtGuaranteedElite, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   type RtArenaOutcome, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
@@ -29,6 +28,7 @@ import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
+import { nodeDangers } from './nodeCard';
 import type { SessionClock } from './session';
 import { NEW_SIGN, newKindsOfArena, type NewSeenStore } from './newSeen';
 import { dieLine, LINE_RESOURCES, ScreenLines, stakeLine, type HintStore } from './hints';
@@ -147,17 +147,6 @@ const nodeHint = (node: ForestMapNode): string | undefined => {
   }
 };
 
-/**
- * Arena line of a battle node: its name and goal; phase A (Т2, design answer 13) — the roster in one line with its name
- * («Состав: Стая»), no list of kinds; none for an arena of its own composition.
- */
-function arenaLine(arena: string, roster?: string, newSign = false): string {
-  let summary = '';
-  try { summary = arenaTemplate(arena).summary; } catch { /* unknown arena: name only */ }
-  const line = roster !== undefined ? `<br><span class="rt-run-roster" data-testid="run-roster">Состав: ${escapeHtml(rosterTitle(arena, roster))}</span>` : '';
-  const sign = newSign ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';
-  return `<b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${sign}${line}<br><small>${escapeHtml(summary)}</small>`;
-}
 const talismanName = (id: string): string => rtTalisman(id)?.name ?? id;
 /**
  * Phase B: the lines of a talisman's card — a relic its plus and its price, each on a line of its own and as plain
@@ -226,6 +215,11 @@ export class RunView {
     this.el.className = 'rt-run';
     this.el.setAttribute('data-testid', 'run');
     this.el.addEventListener('click', event => this.onClick(event));
+    // Task 8c: Esc closes the node card (the map shows whole).
+    window.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || this.el.hidden || !this.selected || !this.el.querySelector('[data-testid="run-detail"]')) return;
+      this.selected = null; this.draw();
+    });
     this.run = this.store.load();
     this.lines = host.hints ? new ScreenLines(host.hints.store, host.hints.on) : null;
   }
@@ -282,6 +276,8 @@ export class RunView {
   enter(nodeId: string, oath: OathId | null = null): string {
     if (!this.run) return 'Нет похода.';
     const step = rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle, oathStake: rtOathStakeOn(this.host.oathStake) });
+    // Task 8c: the card closes with the step (back on the map nothing is chosen).
+    if (step.ok) this.selected = null;
     // П8: a choice made with the sign shown is recorded (only then): which nodes wore it, which was chosen.
     if (step.ok && this.host.mapChoice) {
       const signed = rtAvailableNodes(this.run).filter(node => this.hasNewSign(this.run!, node)).map(node => node.id);
@@ -342,6 +338,15 @@ export class RunView {
     const run = this.run;
     if (target.dataset.node) { this.selected = target.dataset.node; this.notice = ''; this.draw(); return; }
     const action = target.dataset.action!;
+    // Task 8c: a click beside the node card (on its backdrop, not inside the card) closes it.
+    // A click on another node seen through the backdrop opens that node's card.
+    if (action === 'close-node') {
+      if (event.target !== target) return;
+      const under = document.elementsFromPoint(event.clientX, event.clientY).find(el => el !== target && el.closest('[data-node]'))?.closest<HTMLElement>('[data-node]');
+      this.selected = under?.dataset.node ?? null;
+      this.draw();
+      return;
+    }
     if (action === 'new-run') {
       if (run && !run.result && !this.confirmReset) { this.confirmReset = true; this.draw(); return; }
       this.newRun(); return;
@@ -536,7 +541,7 @@ export class RunView {
     // П7: on the map (not in a fight, not at the end) a due nudge is taken once and stays until the map is left.
     const session = this.host.session;
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
-    this.el.innerHTML = `${this.headerHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
+    this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
   }
 
   private startHtml(): string {
@@ -612,24 +617,54 @@ export class RunView {
     return `<svg class="rt-run-map" viewBox="0 0 ${W} ${H}" data-testid="run-map">${edges}${circles}</svg>`;
   }
 
+  /** Task 8c: the quiet line under the header while no node is chosen (it stood in the right column before). */
+  private pickLineHtml(run: RtRunState): string {
+    if (this.selected || run.result || run.pending || !rtAvailableNodes(run).length) return '';
+    return '<p class="rt-run-line" data-testid="run-pick-line">Выбери узел на карте (подсвечены доступные).</p>';
+  }
+
+  /**
+   * Task 8c: the dangers of a battle node, one line each (goal, enemies, elites, terrain; view/nodeCard.ts) — the card of the
+   * chosen node and the window «Бой» after a reload.
+   */
+  private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = []): string {
+    const row = node ? runRow(node.row) : 1;
+    const battle = node?.type === 'boss' ? 'final' : node?.type === 'hard' ? 'hard' : node?.type === 'event' ? 'event' : 'battle';
+    const lines = nodeDangers({ arena, roster, row, guaranteedElite: !!node && rtGuaranteedElite(node, battle), startElite: !!run.modifiers?.includes('start-elite'), newKinds });
+    if (!lines.length) return '';
+    const items = lines.map(line => {
+      const sign = line.newKinds?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';
+      return `<li data-testid="run-danger-${line.id}"><b>${line.label}:</b> ${escapeHtml(line.text)}${sign}</li>`;
+    }).join('');
+    return `<ul class="rt-run-dangers" data-testid="run-dangers">${items}</ul>`;
+  }
+
+  /** The arena's name and roster (the card's subtitle). */
+  private arenaHead(arena: string, roster?: string): string {
+    const line = roster !== undefined ? ` · <span class="rt-run-roster" data-testid="run-roster">Состав: ${escapeHtml(rosterTitle(arena, roster))}</span>` : '';
+    return `<p class="rt-run-arena"><b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${line}</p>`;
+  }
+
+  /** Task 8c: the chosen node's card in the middle of the map (all node types; the header stays usable); a click beside it or Esc closes it. */
   private detailHtml(run: RtRunState): string {
     const node = this.selected ? rtNode(run, this.selected) : undefined;
+    if (!node) return '';
     const available = rtAvailableNodes(run);
-    const hint = run.result ? '' : available.length ? 'Выбери узел на карте (подсвечены доступные).' : '';
-    if (!node) return `<aside class="rt-run-detail"><p>${hint}</p></aside>`;
     const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type];
     const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
-    return `<aside class="rt-run-detail" data-testid="run-detail"><h3>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h3>`
+    const fresh = arena && status === 'available' && this.hasNewSign(run, node) && this.host.newSeen ? newKindsOfArena(arena.arena, arena.roster, this.host.newSeen.store) : [];
+    const body = `<h2>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h2>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
-      + (arena ? `<p>${arenaLine(arena.arena, arena.roster, status === 'available' && this.hasNewSign(run, node))}</p>` : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
+      + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh)
+        : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (nodeHint(node) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node)!)}</p>` : '')
       // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
       // print on a second line (design 12.10.2026).
       + (this.host.goblinCircle && !run.casino && rtCasinoNode(node) && (status === 'available' || status === 'locked')
         ? `<p class="rt-run-hint" data-testid="run-casino-hint">Может стать игорным кругом · ${RT_CASINO_CHANCE} %</p>`
           + '<p class="rt-run-note rt-run-fine" data-testid="run-casino-terms">Не больше одного за поход, нужен хотя бы 1 ресурс.</p>' : '')
-      + (status === 'available' ? this.enterHtml(run, node) : '')
-      + `</aside>`;
+      + (status === 'available' ? this.enterHtml(run, node) : '');
+    return `<div class="rt-overlay rt-run-modal rt-run-node" data-action="close-node" data-testid="run-node-card"><div class="rt-card rt-run-detail" data-testid="run-detail" data-card="${node.id}">${body}</div></div>`;
   }
 
   /**
@@ -638,7 +673,7 @@ export class RunView {
    */
   private enterHtml(run: RtRunState, node: ForestMapNode): string {
     const oaths = rtOathPreview(run, node, rtOathStakeOn(this.host.oathStake));
-    if (!oaths) return `<button class="rt-again" data-action="enter" data-testid="run-enter">Идти</button>`;
+    if (!oaths) return `<button class="rt-again" data-action="enter" data-testid="run-enter">${isArenaNode(node) ? 'В бой' : 'Идти'}</button>`;
     const buttons = oaths.map(id => `<button class="rt-run-choice" data-action="enter-oath" data-oath="${id}" data-testid="oath-${id}"><b>Зарок: ${escapeHtml(oathDef(id).name)}</b>`
       + `<small>${escapeHtml(oathDef(id).rule)}</small></button>`).join('');
     return `<div class="rt-run-oaths" data-testid="run-oaths"><p class="rt-run-hint" data-testid="run-stake-line">${stakeLine(OATH_KEPT_MULT, OATH_BROKEN_MULT)} HP и поход не на кону.</p>`
@@ -676,7 +711,8 @@ export class RunView {
       if (this.inArena) return '';
       // Task 5: an older save's chosen oath is not played with the stake off (sim/oath.ts `startOath`) — not shown either.
       const oath = pending.oath && rtOathStakeOn(this.host.oathStake) ? `<p data-testid="run-battle-oath">Зарок: ${escapeHtml(oathDef(pending.oath).name)}</p>` : '';
-      return card(`<h2>Бой</h2><p>${arenaLine(pending.arena, pending.roster)}</p>${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
+      const pendingNode = rtNode(run, pending.nodeId);
+      return card(`<h2>Бой</h2>${this.arenaHead(pending.arena, pending.roster)}${this.dangersHtml(run, pendingNode, pending.arena, pending.roster)}${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
     if (pending.kind === 'die') {
