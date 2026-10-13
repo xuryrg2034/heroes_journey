@@ -156,13 +156,15 @@ test('8c: the node card stands in the middle of the map — goal and enemies, «
   const map = (await page.getByTestId('run-map').boundingBox())!;
   expect(map.width).toBeGreaterThan(1200);
   const node = page.locator('[data-status="available"]').first();
-  const before = (await node.boundingBox())!;
+  // The node's centre (the chosen ring is drawn thicker, so the box grows; the place must not move).
+  const centre = async (): Promise<{ x: number; y: number }> => { const b = (await node.boundingBox())!; return { x: Math.round((b.x + b.width / 2) * 10) / 10, y: Math.round((b.y + b.height / 2) * 10) / 10 }; };
+  const before = await centre();
   await node.click();
   const card = page.getByTestId('run-detail');
   await expect(card).toBeVisible();
   // The map stands still under the card (the quiet line keeps its place, unseen; review 13.10.2026).
   await expect(page.getByTestId('run-pick-line')).toBeHidden();
-  expect(await node.boundingBox()).toEqual(before);
+  expect(await centre()).toEqual(before);
   const box = (await card.boundingBox())!;
   expect(Math.abs(box.x + box.width / 2 - 640)).toBeLessThan(4);
   expect(Math.abs(box.y + box.height / 2 - 360)).toBeLessThan(60);
@@ -175,7 +177,7 @@ test('8c: the node card stands in the middle of the map — goal and enemies, «
   await expect(card).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(card).toHaveCount(0);
-  expect(await node.boundingBox()).toEqual(before);
+  expect(await centre()).toEqual(before);
   // A click beside the card (on the dimmed map) closes it too.
   await node.click();
   await expect(card).toBeVisible();

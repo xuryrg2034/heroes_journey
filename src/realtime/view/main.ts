@@ -21,7 +21,7 @@ import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
-import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
+import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
@@ -1050,7 +1050,8 @@ async function boot(): Promise<void> {
     // from a 7th of another colour back to the 6th, is silent; a step back below it forgets it, so taking it again sounds again.
     if (!w.chain.length) shiftHeard.clear();
     else for (const id of shiftHeard) if (!w.chain.some(l => l.kind === 'enemy' && l.id === id)) shiftHeard.delete(id);
-    const freedBy = shiftLeft === 0 ? renderer.colorShiftFreedBy : 0;
+    // From the sim this frame (the renderer's value is the last frame's: a step back would see the link just dropped and sound).
+    const freedBy = shiftLeft === 0 && !planChain(w).endsOnSurvivor ? colorShiftIds(w).at(-1) ?? 0 : 0;
     if (freedBy && !shiftHeard.has(freedBy)) { shiftHeard.add(freedBy); if (params.sound) audio.colorShift(params.soundVolume); shiftSounds++; }
     if (params.sound) {
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).

@@ -56,8 +56,8 @@ test('task 10 view: with the colour kept free the ring rides the chain end, the 
   expect(await to(page, at, 11, 12)).toMatchObject({ left: 0, rainbow: ids[11], mark: 0, freedBy: ids[11], sounds: 2 });
   // A step back to 11 links (the pointer on the 11th): the 6th frees again — heard already, silent; the ring on the 11th, the mark on the 6th.
   expect(await to(page, at, 10, 11)).toMatchObject({ left: 0, rainbow: ids[10], mark: ids[5], freedBy: ids[5], sounds: 2 });
-  // The 12th again: heard in this free stretch — silent.
-  expect(await to(page, at, 11, 12)).toMatchObject({ freedBy: ids[11], sounds: 2 });
+  // The 12th taken again: it left the chain, so it is a new shift — it sounds (as the 6th after a step back below it).
+  expect(await to(page, at, 11, 12)).toMatchObject({ freedBy: ids[11], sounds: 3 });
   await page.mouse.up();
   expect(errors).toEqual([]);
 });

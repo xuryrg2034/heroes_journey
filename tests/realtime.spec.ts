@@ -1015,7 +1015,7 @@ test('the 6th kill of one chain drops a crystal off the rest of the path; a long
   expect(errors).toEqual([]);
 });
 
-test('the chain power shows as a number beside the hero during the dash and grows link by link; the last link flashes bigger', async ({ page }) => {
+test('the chain power shows as a number over the hero while the chain is drawn (task 8b) and during the dash, growing link by link; the last link flashes bigger', async ({ page }) => {
   const errors: string[] = [];
   await open(page, errors, 1);
   await freeze(page);
@@ -1025,7 +1025,8 @@ test('the chain power shows as a number beside the hero during the dash and grow
   for (let i = 0; i < 6; i++) ids.push(await place(page, 2 + i, 9.2, 0));
   await chainAt(page, ids.map((_, i) => ({ x: 2 + i, y: 9.2 })));
   await expect.poll(async () => (await juiceSnapshot(page)).chain.length).toBe(6);
-  expect((await juiceSnapshot(page) as any).powerView).toMatchObject({ shown: 0, visible: false });
+  // Task 8b: while drawn, the number over the head says the chain's power (six weak links — 6); no dash yet.
+  await expect.poll(async () => (await juiceSnapshot(page) as any).powerView).toMatchObject({ shown: 0, visible: true, now: { value: 6, red: false, drawing: true } });
   await page.mouse.up();
   // Mid-dash: the number is on screen and has grown more than once.
   await expect.poll(async () => (await juiceSnapshot(page) as any).powerView, { timeout: 8_000, intervals: [30] }).toMatchObject({ visible: true, growths: expect.any(Number) });
