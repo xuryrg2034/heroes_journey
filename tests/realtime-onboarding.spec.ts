@@ -211,7 +211,7 @@ async function stillYard(page: Page): Promise<void> {
     rt.params.slotAppearAt = 0;
   });
 }
-interface Label { id: string; text: string; left: number; top: number; right: number; bottom: number }
+interface Label { id: string; text: string; left: number; top: number; right: number; bottom: number; tail?: 'left' | 'right' | 'up' | 'down' }
 const labelOf = async (page: Page, id: string): Promise<Label | undefined> => (await onboarding(page)).labels.find(l => l.id === id);
 const centreX = (l: Label): number => (l.left + l.right) / 2;
 
@@ -381,7 +381,7 @@ test('«Застава»: the plaques of the elites (tag «Элита», the beh
   expect(errors).toEqual([]);
 });
 
-test('the goblin: «Закончи цепь здесь» stands at the lever until the first pull, then goes and does not come back; the odds line and the dots stay', async ({ page }) => {
+test('the goblin: «Закончи цепь здесь» stands at the lever, away from the door, its tail at the knob, until the first pull, then goes and does not come back', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
   await freshViewer(page, errors);
@@ -398,6 +398,14 @@ test('the goblin: «Закончи цепь здесь» stands at the lever unt
   expect(Math.abs((label.top + label.bottom) / 2 - lever.y)).toBeLessThan(60);
   expect(label.left > lever.x || label.right < lever.x).toBe(true);
   expect(Math.min(Math.abs(label.left - lever.x), Math.abs(label.right - lever.x))).toBeLessThan(110);
+  // Design 13.10.2026: on the idol's side away from the door when that side has room (by the door it read as the door's), the
+  // tail on the side that faces the lever's knob (right of the idol).
+  const door = ((await snap(page)).objects as { kind: string; x: number; y: number }[]).find(o => o.kind === 'door')!;
+  const doorAt = await screen(page, door.x, door.y), unit = (await screen(page, g.x + 1, g.y)).x - lever.x;
+  const roomLeft = lever.x - 1.15 * unit - (label.right - label.left) >= 6;
+  if (doorAt.x > lever.x && roomLeft) expect(label.right).toBeLessThan(lever.x);
+  if (doorAt.x < lever.x) expect(label.left).toBeGreaterThan(lever.x);
+  expect(label.tail).toBe(label.right < lever.x ? 'right' : 'left');
   const hud = await rect(page, 'hud'), bar = await rect(page, 'action-bar');
   expect(overlaps(label, hud) || overlaps(label, bar)).toBe(false);
   await expect(page.getByTestId('onboarding-hint')).toHaveCount(0);

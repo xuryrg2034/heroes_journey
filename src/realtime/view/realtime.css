@@ -327,6 +327,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* World labels (view/worldLabels.ts, docs/realtime-onboarding.md): a short verb or price at an object of the arena. Over the
    stage, never takes the pointer; the text has a dark outline to read on the floor tiles at 1280x720. */
 .rt-world-label { position: absolute; z-index: 3; box-sizing: border-box; width: max-content; max-width: 260px; padding: 2px 7px; font: bold 15px/1.25 Georgia, serif; text-align: center; white-space: nowrap; color: #fff1c4; background: rgba(18, 23, 16, 0.72); border: 1px solid rgba(255, 211, 107, 0.7); border-radius: 3px; text-shadow: 0 1px 2px #000; pointer-events: none; }
+.rt-world-label[data-tail]::after { content: ''; position: absolute; width: 0; height: 0; border: 7px solid transparent; }
+.rt-world-label[data-tail="left"]::after { right: 100%; top: 50%; margin-top: -7px; border-right-color: rgba(255, 211, 107, 0.9); }
+.rt-world-label[data-tail="right"]::after { left: 100%; top: 50%; margin-top: -7px; border-left-color: rgba(255, 211, 107, 0.9); }
+.rt-world-label[data-tail="up"]::after { bottom: 100%; left: 50%; margin-left: -7px; border-bottom-color: rgba(255, 211, 107, 0.9); }
+.rt-world-label[data-tail="down"]::after { top: 100%; left: 50%; margin-left: -7px; border-top-color: rgba(255, 211, 107, 0.9); }
 /* The quiet lines on the run screens (Э2 under the map header, Э4 at the die). */
 .rt-run-line { margin: 0; padding: 4px 18px; color: var(--rt-muted); font-size: 12px; }
 .rt-run-modal .rt-run-line { padding: 0; margin: 10px 0 0; text-align: center; }

@@ -8,10 +8,10 @@
  * save. The hand SHOWS a chain; the player draws it.
  */
 import type { Vec } from '../sim/geometry';
-import { OBJECT_RADIUS, goalProgress, type ChainLink, type World } from '../sim/world';
+import { goalProgress, type ChainLink, type World } from '../sim/world';
 import { goblinOf, leverOf } from '../sim/slot';
 import { PROLOGUE_ROOM_COUNT, prologueRoom, prologueTitle, startEnemyIds } from '../run/prologue';
-import type { LabelSpec } from './worldLabels';
+import { leverKnob, type LabelSpec } from './worldLabels';
 
 /** The viewer's key: set after the last room or by «Пропустить обучение» (task 9 kept it: a viewer who passed the six rooms is not sent back). The run saves, seeds and the forest do not know it. */
 export const PROLOGUE_KEY = 'ashen-oath-realtime-prologue-done';
@@ -279,7 +279,8 @@ export function prologueLabel(w: World, n: number, memo: PrologueLabelMemo): Lab
     if (!g || !lever) return null;
     if (g.pulls > 0) { memo.done = true; return null; }
     // At the red knob of the lever (slotView.ts `drawIdol`: the knob stands 1.07 object radii right of the idol's point), to its right and at the idol's height (a row higher meets the odds line and the blue ones round the idol).
-    return { id: PROLOGUE_LABEL_IDS.lever, text: PROLOGUE_LABEL_TEXT.lever, at: { x: lever.x + OBJECT_RADIUS * 1.07, y: lever.y - 0.1 }, place: 'side', lift: 0.25 };
+    const knob = leverKnob(lever);
+    return { id: PROLOGUE_LABEL_IDS.lever, text: PROLOGUE_LABEL_TEXT.lever, at: knob, place: 'side', lift: 0.25, tail: knob };
   }
   return null;
 }

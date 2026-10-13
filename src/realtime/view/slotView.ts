@@ -11,8 +11,8 @@
  * renderer with the archer's mark (render.ts `drawSignals`).
  * Task 11 «Гоблин-сюрприз» (design 13.10.2026): with `slotSafeRandom` (the run: 0…3 safe pulls, hidden) or in a prologue room
  * the idol has no dots and no caption (`hidesCharges`); with `slotSafeTriple` (a safe pull is a sure triple) every reel runs the
- * same strip of the 4 good symbols (a bust still stops on ☠☠☠), and the odds line is the same on every pull — «может взорваться ·
- * −N HP в круге · иначе тройка» (`surpriseText`) — while a pull of the fight may bust (`slotMayBust`), none otherwise (room 8).
+ * same strip of the 4 good symbols (a bust still stops on ☠☠☠), and the odds line is the same on every pull — «взрыв? −N HP
+ * в круге · иначе тройка» (`surpriseText`) — while a pull of the fight may bust (`slotMayBust`), none otherwise (room 8).
  */
 import { Container, Graphics, Text } from 'pixi.js';
 import { OBJECT_RADIUS } from '../sim/chain';
@@ -83,9 +83,9 @@ export function hidesCharges(world: World): boolean {
   return !!world.params.slotSafeRandom || world.arena.id.startsWith('prologue');
 }
 
-/** Task 11: the one odds line of every pull with «безопасный = тройка» — no percent, no count; −N is `slotBustDamage`. */
+/** Task 11: the one odds line of every pull with «безопасный = тройка» — no percent, no count; −N is `slotBustDamage` (the short form, design 13.10.2026). */
 export function surpriseText(damage: number, area: boolean): string {
-  return `может взорваться · −${damage} HP${area ? ' в круге' : ''} · иначе тройка`;
+  return `взрыв? −${damage} HP${area ? ' в круге' : ''} · иначе тройка`;
 }
 
 /** «+1 рывок без риска» — the floating text of a long chain that fed the goblin (`n` — by how many the safe pulls grew). */
@@ -122,6 +122,8 @@ export class SlotView {
   readonly textLayer = new Container();
   private readonly oddsLabel: Text;
   private readonly captionLabel: Text;
+  /** Task 11 (design 13.10.2026): the dark plate under the one odds line, as under the world labels — it reads over the chain and the crowd. */
+  private readonly oddsPlate = new Graphics();
   /** The last pull's reels and outcome shown after the effect (real seconds left). */
   private result: { reels: SlotSymbol[]; outcome: SlotOutcome; life: number } | null = null;
   /** Skulls on each reel at the last pull (its `pull` event): the spinning strips are built from them. */
@@ -143,7 +145,8 @@ export class SlotView {
     this.oddsLabel = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 17, fontWeight: 'bold', fill: GOLD, stroke: { color: 0x200c08, width: 4 } } });
     this.oddsLabel.anchor.set(0.5, 1);
     this.oddsLabel.visible = false;
-    this.textLayer.addChild(this.oddsLabel);
+    this.oddsPlate.visible = false;
+    this.textLayer.addChild(this.oddsPlate, this.oddsLabel);
     this.captionLabel = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 15, fontWeight: 'bold', fill: GOLD, stroke: { color: 0x200c08, width: 4 } } });
     this.captionLabel.anchor.set(0.5, 1);
     this.captionLabel.visible = false;
@@ -171,7 +174,7 @@ export class SlotView {
    */
   outcomeAnchor(): { dy: number; dir: 1 | -1 } { return { dy: this.place.floatY, dir: this.place.floatDir < 0 ? -1 : 1 }; }
 
-  reset(): void { this.place = { textsDown: false, reelsDown: false, floatY: 0, floatDir: -1 }; this.result = null; this.pullSkulls = null; this.pullRisky = false; this.oddsLabel.visible = false; this.captionLabel.visible = false; }
+  reset(): void { this.place = { textsDown: false, reelsDown: false, floatY: 0, floatDir: -1 }; this.result = null; this.pullSkulls = null; this.pullRisky = false; this.oddsLabel.visible = false; this.oddsPlate.visible = false; this.captionLabel.visible = false; }
 
   /** Draws the goblin of the world; `odds` — the plan's odds line (null — none now). */
   draw(world: World, clock: number, dt: number, odds: SlotPlanOdds | null): void {
@@ -179,6 +182,7 @@ export class SlotView {
     const shown = this.shown;
     shown.idols = 0; shown.markers = 0; shown.spinning = 0; shown.stopped = 0; shown.dark = 0; shown.odds = 0;
     this.oddsLabel.visible = false;
+    this.oddsPlate.visible = false;
     this.captionLabel.visible = false;
     shown.captionRect = null; shown.oddsRect = null; shown.reelsRect = null;
     shown.caption = ''; shown.captionRisky = false; shown.dots.gold = 0; shown.dots.red = 0; shown.dots.dark = 0;
@@ -248,6 +252,7 @@ export class SlotView {
         this.oddsLabel.position.set(X, Y - R * (showsReels && !reelsDown ? REELS_UP + 1.1 : hasCaption ? 2.75 : 2.3));
       }
       this.oddsLabel.visible = true;
+      if (triple) this.drawPlate(this.oddsLabel);
       shown.oddsRect = this.rectOf(this.oddsLabel);
     }
     if (spin || this.result?.life) {
@@ -255,6 +260,15 @@ export class SlotView {
       shown.reelsRect = this.toStage(X - w / 2, Y + reelsDy - h / 2, X + w / 2, Y + reelsDy + h / 2);
     }
     if (shown.caption && this.captionLabel.visible) shown.captionRect = this.rectOf(this.captionLabel);
+  }
+
+  /** The dark plate under a label (its anchor decides which side of `position` it hangs): the world labels' fill and gold rim. */
+  private drawPlate(label: Text): void {
+    let w: number, h: number;
+    try { w = label.width; h = label.height; } catch { const size = Number(label.style.fontSize) || 16; w = label.text.length * size * 0.55; h = size + 6; }
+    const x = label.position.x - w / 2 - 7, top = (label.anchor.y >= 1 ? label.position.y - h : label.position.y) - 1;
+    this.oddsPlate.clear().roundRect(x, top, w + 14, h + 2, 3).fill({ color: 0x121710, alpha: 0.78 }).stroke({ color: GOLD, width: 1, alpha: 0.7 });
+    this.oddsPlate.visible = true;
   }
 
   /** A rectangle of arena drawing space as stage px. */

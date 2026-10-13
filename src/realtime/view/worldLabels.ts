@@ -15,6 +15,7 @@
 import type { Vec } from '../sim/geometry';
 import type { World } from '../sim/world';
 import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
+import { OBJECT_RADIUS } from '../sim/chain';
 import { leverOf } from '../sim/slot';
 import { BUILD_SOURCES } from '../sim/buildIds';
 
@@ -29,6 +30,10 @@ export interface LabelSpec {
   /** 'above' — centred over the point, `lift` arena units up; 'below' — centred under it, `lift` units down (over it when there is no room under: the elite's tags and chips hang over it and under it, so the label stands clear of both); 'side' — to the right of it (to the left when the right edge is near), `lift` units away. */
   place: 'above' | 'below' | 'side';
   lift: number;
+  /** 'side' only: a point (arena units) the label keeps away from — it stands on the other side of `at` when there is room (the door by the goblin, design 13.10.2026). */
+  away?: Vec;
+  /** A point (arena units) the label's tail points at (the lever's knob); none — no tail. */
+  tail?: Vec;
 }
 
 export const LABEL_TEXT = {
@@ -60,8 +65,25 @@ export function detectLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec
   const chest = w.objects.find(o => o.kind === 'chest' && onScreen(o));
   if (chest) out.push({ id: 'b8', text: chestText(), at: { x: chest.x, y: chest.y }, place: 'above', lift: CHEST_LIFT });
   const lever = leverOf(w);
-  if (lever && onScreen(lever)) out.push({ id: 'b9', text: LABEL_TEXT.lever, at: { x: lever.x, y: lever.y }, place: 'side', lift: LEVER_SIDE });
+  if (lever && onScreen(lever)) {
+    // Design 13.10.2026 (task 11 shots): the label read as the door's when the door stood beside it — it stands on the idol's side
+    // away from the door, and its tail points at the lever's red knob (slotView.ts `drawIdol`: 1.07 object radii right of the idol).
+    const door = w.objects.find(o => o.kind === 'door');
+    out.push({ id: 'b9', text: LABEL_TEXT.lever, at: { x: lever.x, y: lever.y }, place: 'side', lift: LEVER_SIDE, ...door ? { away: { x: door.x, y: door.y } } : {}, tail: leverKnob(lever) });
+  }
   return out;
+}
+
+/** The lever's red knob (arena units): slotView.ts `drawIdol` draws it 1.07 object radii right of the idol's point, a little up. */
+export function leverKnob(lever: Vec): Vec { return { x: lever.x + OBJECT_RADIUS * 1.07, y: lever.y - 0.1 }; }
+
+/** Which side of the label the tail sits on to point at `p` (stage px), or none when `p` is inside it. */
+export function tailSide(rect: Rect, p: Vec): 'left' | 'right' | 'up' | 'down' | null {
+  if (p.x < rect.left) return 'left';
+  if (p.x > rect.right) return 'right';
+  if (p.y < rect.top) return 'up';
+  if (p.y > rect.bottom) return 'down';
+  return null;
 }
 
 /** Sources whose strip of a plate is the PLAYER's (`elitePlates` `source`): the chain, the spin (Q), the items, the goblin's effects, the tools of the player's build (a hammer's fire, blast, cut and return, the wave: `BUILD_SOURCES`). The archer's arrow, a sapper's blast, a push and the elite's own fire trail (`fire-trail`, an enemy's property) are not. */
@@ -89,7 +111,7 @@ export interface Rect { left: number; top: number; right: number; bottom: number
  * inside `bounds` (the stage minus the HUD plate and the action bar). A 'side' label flips to the left of the object when the
  * right does not fit.
  */
-export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: number, size: { w: number; h: number }, bounds: Rect, gap = 6, avoid: readonly Rect[] = [], bodies: readonly Rect[] = []): Rect {
+export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'> & { /** In the same space as `at` (stage px). */ away?: Vec }, at: Vec, k: number, size: { w: number; h: number }, bounds: Rect, gap = 6, avoid: readonly Rect[] = [], bodies: readonly Rect[] = []): Rect {
   const clampTo = (left: number, top: number): Rect => {
     left = Math.max(bounds.left + gap, Math.min(bounds.right - gap - size.w, left));
     top = Math.max(bounds.top + gap, Math.min(bounds.bottom - gap - size.h, top));
@@ -104,9 +126,11 @@ export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: 
       return clampTo(at.x - size.w / 2, top);
     }
     if (kind === 'left') return clampTo(at.x - spec.lift * k - size.w, at.y - size.h / 2);
-    let left = at.x + spec.lift * k;
-    if (left + size.w > bounds.right - gap) left = at.x - spec.lift * k - size.w;
-    return clampTo(left, at.y - size.h / 2);
+    const right = at.x + spec.lift * k, left = at.x - spec.lift * k - size.w;
+    const rightFits = right + size.w <= bounds.right - gap, leftFits = left >= bounds.left + gap;
+    // Away from `away` (it stands right of the point: the left side first) while that side has room; else as before — right, left at the edge.
+    const goLeft = spec.away && spec.away.x >= at.x ? leftFits || !rightFits : !rightFits;
+    return clampTo(goLeft ? left : right, at.y - size.h / 2);
   };
   const hits = (r: Rect, list: readonly Rect[]): Rect | undefined => list.find(a => r.left < a.right && r.right > a.left && r.top < a.bottom && r.bottom > a.top);
   let rect = spot(spec.place);
@@ -128,7 +152,7 @@ export function placeLabel(spec: Pick<LabelSpec, 'place' | 'lift'>, at: Vec, k: 
 }
 
 /** What the layer shows now (the tests read it through `snapshot().onboarding.labels`). */
-export interface ShownLabel extends Rect { id: string; text: string }
+export interface ShownLabel extends Rect { id: string; text: string; tail?: 'left' | 'right' | 'up' | 'down' }
 
 /** The DOM layer of the labels: an element per id, made when the label first shows, hidden when it goes. */
 export class WorldLabelLayer {
@@ -154,11 +178,14 @@ export class WorldLabelLayer {
       if (el.hidden) appeared.push(spec.id);
       if (el.textContent !== spec.text) el.textContent = spec.text;
       el.hidden = false;
-      const rect = placeLabel(spec, project(spec.at.x, spec.at.y), k, { w: el.offsetWidth, h: el.offsetHeight }, bounds, 6, avoid, bodies);
+      // `placeLabel` works in stage px: the point to keep away from is projected as the label's own point.
+      const rect = placeLabel({ place: spec.place, lift: spec.lift, ...spec.away ? { away: project(spec.away.x, spec.away.y) } : {} }, project(spec.at.x, spec.at.y), k, { w: el.offsetWidth, h: el.offsetHeight }, bounds, 6, avoid, bodies);
       el.style.left = `${Math.round(rect.left)}px`;
       el.style.top = `${Math.round(rect.top)}px`;
+      const side = spec.tail ? tailSide(rect, project(spec.tail.x, spec.tail.y)) : null;
+      if (side) el.dataset.tail = side; else delete el.dataset.tail;
       keep.add(spec.id);
-      this.shownNow.push({ id: spec.id, text: spec.text, ...rect });
+      this.shownNow.push({ id: spec.id, text: spec.text, ...rect, ...side ? { tail: side } : {} });
     }
     for (const [id, el] of this.els) if (!keep.has(id) && !el.hidden) el.hidden = true;
     return appeared;

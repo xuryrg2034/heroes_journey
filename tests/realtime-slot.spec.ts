@@ -258,8 +258,8 @@ test('«Перебор»: a risky pull that does not bust gives a triple of a go
  * with real clicks and a real mouse chain. Seed 10, the full gift button 1: `r5c0` is a battle of run row 1, `r6c1` a battle
  * of run row 2 (its card offered oaths before task 5). Row 1: the card says «В бой», no «Зарок»; after the goals the goblin
  * stands. Task 11 «Гоблин-сюрприз» (13.10.2026): the idol has no caption «безопасно: N» and no dots; a chain of 6 drawn with the
- * mouse feeds nothing (no «+1 рывок без риска»); two pulls by the mouse show the same odds line, no percent: «может взорваться ·
- * −4 HP в круге · иначе тройка». The hero goes through the door: the result has no «Котёл» row and leads to the map, no die
+ * mouse feeds nothing (no «+1 рывок без риска»); two pulls by the mouse show the same odds line, no percent: «взрыв? −4 HP в
+ * круге · иначе тройка». The hero goes through the door: the result has no «Котёл» row and leads to the map, no die
  * screen. Row 2: the card says «В бой», no «Зарок», no stake line.
  */
 test('task 5 and 11, the run: no «Зарок» on the cards, the goblin after the goals of a row-1 battle — no caption, no dots, a mouse chain of 6 feeds nothing, every pull shows one odds line without %; no «Котёл», no die', async ({ page }) => {
@@ -345,7 +345,7 @@ test('task 5 and 11, the run: no «Зарок» on the cards, the goblin after t
     await untilReady(page);
   }
   expect(lines.length).toBeGreaterThanOrEqual(1);
-  for (const line of lines) expect(line).toBe('может взорваться · −4 HP в круге · иначе тройка');
+  for (const line of lines) expect(line).toBe('взрыв? −4 HP в круге · иначе тройка');
 
   // Out by the door: no «Котёл» row, the result leads to the map, no die.
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
