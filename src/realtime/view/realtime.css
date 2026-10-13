@@ -121,11 +121,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-head b { font: 600 20px Georgia, serif; color: #e8d7ad; }
 .rt-run-hp { font: 17px Georgia, serif; color: #e5c8a8; }
 .rt-run-res { display: inline-flex; align-items: center; gap: 4px; color: #e5dcc0; cursor: default; }
-.rt-run-res b { font-variant-numeric: lining-nums tabular-nums; }
+.rt-run-res b { font-family: system-ui, sans-serif; font-size: 15px; font-variant-numeric: tabular-nums; }
 /* Task 18: the choice of «Испытание» over «Новый поход»; the run's level by the map title. */
 .rt-ash { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 12px 0 0; }
 .rt-ash-head { color: var(--rt-muted); margin-right: 4px; }
-.rt-ash-level { min-width: 38px; padding: 4px 8px; font-family: Georgia, serif; font-variant-numeric: lining-nums; background: #1a2117; color: #d9cfa8; border: 1px solid #4a5038; cursor: pointer; }
+.rt-ash-level { min-width: 38px; padding: 4px 8px; font-family: 'Times New Roman', Times, serif; font-size: 16px; background: #1a2117; color: #d9cfa8; border: 1px solid #4a5038; cursor: pointer; }
 .rt-ash-level.rt-on { background: #3d3423; color: var(--rt-gold); border-color: var(--rt-gold); }
 .rt-ash-text { text-align: center; margin: 6px 0 0; }
 .rt-run-ash { font-size: 12px; color: var(--rt-muted); letter-spacing: .02em; }
