@@ -42,7 +42,7 @@ function runToRow(k: number, row: number): RtRunState {
 test('task 17: a gentle run\'s node card on rows 3 and 5 says what its fight plays (the gentle tables, not the old ones)', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
-  let cards = 0;
+  let cards = 0, shot = false;
   for (const [k, row] of [[1, 3], [2, 3], [1, 5], [2, 5]] as const) {
     const run = runToRow(k, row);
     expect(run.gentleEntry).toBe(true);
@@ -62,7 +62,7 @@ test('task 17: a gentle run\'s node card on rows 3 and 5 says what its fight pla
       const elites = shown.find(line => line.startsWith('Элиты'));
       if (row === 3) expect(elites, `seed ${k} ${node.id}: row 3 of a gentle run`).toBeUndefined();
       if (row === 5 && elites) expect(elites, `seed ${k} ${node.id}: row 5`).not.toMatch(/броня 3|свойств/);
-      if (cards === 0 && row === 5) await page.screenshot({ path: 'artifacts/realtime-gentle-card-row5.png' });
+      if (!shot && row === 5) { shot = true; await page.screenshot({ path: 'artifacts/realtime-gentle-card-row5.png' }); }
       cards++;
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('run-dangers')).toBeHidden();
