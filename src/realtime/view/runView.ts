@@ -609,7 +609,7 @@ export class RunView {
     // Task 17: the winged heart by the HP — the run's second wind waits (lit) or is spent (dim); gone from row 5.
     const wind = secondWindMark(run);
     const windHtml = wind ? `<span class="rt-run-wind${wind === 'spent' ? ' rt-spent' : ''}" data-testid="run-second-wind" data-state="${wind}" title="${wind === 'ready'
-      ? `Второе дыхание: ${SECOND_WIND_HP} HP. Удар, который убил бы кота в бою рядов 1–${RT_SECOND_WIND_LAST_ROW}, поднимает его с ${SECOND_WIND_HP} HP. Один раз за поход.`
+      ? `Второе дыхание: смертельный удар на рядах 1–${RT_SECOND_WIND_LAST_ROW} оставляет ${SECOND_WIND_HP} HP. Один раз за поход.`
       : 'Второе дыхание потрачено в этом походе.'}">${WIND_ICON}</span>` : '';
     return `<header class="rt-run-head"><b>Поход</b><span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`

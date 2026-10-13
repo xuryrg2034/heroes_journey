@@ -84,7 +84,7 @@ test('task 17: the winged heart by the map\'s HP — lit at the start; a lethal 
   const heart = page.getByTestId('run-second-wind');
   await expect(heart).toHaveAttribute('data-state', 'ready');
   await expect(heart).not.toHaveClass(/rt-spent/);
-  await expect(heart).toHaveAttribute('title', /^Второе дыхание: 3 HP\./);
+  await expect(heart).toHaveAttribute('title', 'Второе дыхание: смертельный удар на рядах 1–4 оставляет 3 HP. Один раз за поход.');
   // Beside the HP, in the header's first line.
   const hp = (await page.getByTestId('run-hp').boundingBox())!, at = (await heart.boundingBox())!;
   expect(at.x).toBeGreaterThan(hp.x + hp.width - 8);
