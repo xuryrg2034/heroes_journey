@@ -48,7 +48,8 @@ const fnv = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < 
 function walkSaves(k: number): string[] {
   // Task 12 (13.10.2026): the fixture's saves predate the run flag `markedGoals` (it adds one field to every save; the fights
   // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
-  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF }));
+  // Task 15 (14.10.2026): the same for the flag `healMap` (one more field; the walk buys no map heal).
+  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false }));
   const saves = [serializeRtRun(run)];
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;

@@ -90,6 +90,9 @@ import { validDeath, type RtDeath } from './rtRunEnd';
  * `gentleEntry` (the row tables, the pools, the row's grace and tough touch), `startPotion` (the start potion, the heal kind
  * open, the first loot opening another kind), `secondWind` (the run's second wind; `secondWindSpent` once it stood the hero
  * up). A save without them plays the old rules to its end; all are optional, so every version 7 save loads as before.
+ * Task 15 «Лечение на карте» (the same version, design 14.10.2026): the run's flag `healMap`, set at its creation, and the
+ * count of map heals bought `healBought` (absent until the first). A save without the flag has no map heal to its end and
+ * saves byte for byte as before.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -359,6 +362,14 @@ export interface RtRunState {
   startPotion?: true;
   /** Task 17 (its own flag): the run's second wind — once a run, on rows 1–4 (`Loadout.secondWind`). Absent — none. */
   secondWind?: true;
+  /**
+   * Task 15 «Лечение на карте» (design 14.10.2026; `healOffer`, `healOnMap`): on the run map and on a battle card before
+   * «В бой» the run sells +2 HP for resources. Set when the run is created (`RT_HEAL_MAP_ON`); absent — a run saved before it (or created without it): no map
+   * heal, to its end.
+   */
+  healMap?: true;
+  /** Task 15: map heals bought in this run (the next costs RT_HEAL_MAP_PRICE + this). Absent until the first (needs `healMap`). */
+  healBought?: number;
   /** Task 17: the run's second wind stood the hero up (rows 1–4, once a run). Absent — not yet (or a run without `secondWind`). */
   secondWindSpent?: true;
   /**
@@ -470,6 +481,11 @@ export type RtRunEvent =
   | { type: 'event-attempt'; nodeId: string; option: string; attempt: number; outcome: number; text: string }
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
   | { type: 'shop-bought'; nodeId: string; purchase: RtShopPurchase }
+  /**
+   * Task 15 «Лечение на карте»: a heal bought for `price` resources (`paid` by kind), HP `hpBefore` → `hpAfter`; `nodeId` — the
+   * battle card's node when bought there, else the last completed node (null — none yet); `row` — its run row (0 — none).
+   */
+  | { type: 'map-healed'; nodeId: string | null; row: number; price: number; paid: Record<ResourceKind, number>; hpBefore: number; hpAfter: number }
   | { type: 'gift-chosen'; index: number | null }
   /** Casino stage 1, item 2: the node card offered these oaths; the battle is entered under `id` (null — «Без клятвы»). */
   | { type: 'oath-offered'; nodeId: string; options: OathId[] }
@@ -548,7 +564,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -556,8 +572,10 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const gentle = options.gentleEntry ?? RT_GENTLE_ENTRY;
   // Its own flags (design 13.10.2026): each defaults to its own constant, independent of the others.
   const potion = options.startPotion ?? RT_START_POTION_ON, wind = options.secondWind ?? RT_SECOND_WIND_ON;
+  // Task 15 «Лечение на карте» (14.10.2026): its own flag, on unless the option says (false — no map heal, as a save before it).
+  const healMap = options.healMap ?? RT_HEAL_MAP_ON;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1612,6 +1630,79 @@ export function rtShopLeave(current: RtRunState): RtRunStep {
   completeNode(run, rtNode(run, pending.nodeId)!, events); return { ok: true, run, events };
 }
 
+// ---------- Task 15 «Лечение на карте» (design 14.10.2026; docs/realtime-slice.md, section 3) ----------
+
+/** A new run sells the map heal (`RtRunState.healMap`); a save without the flag has none. Not a `Params` key: no fight reads it. */
+export const RT_HEAL_MAP_ON = true;
+/** Баланс (design 14.10.2026): one map heal gives this many HP (not above the maximum). */
+export const RT_HEAL_MAP_GAIN = 2;
+/** Баланс (design 14.10.2026): the first map heal of a run costs this many resources; each next one in the run 1 more (2, 3, 4…). */
+export const RT_HEAL_MAP_PRICE = 2;
+
+/**
+ * The map heal now. `gain` — HP it gives (`min(RT_HEAL_MAP_GAIN, maxHp − hp)`; the price stays full when it is less);
+ * `price` — resources it costs; `have` — resources in hand. Not `ok`: `full` — HP is at the maximum; `poor` — fewer resources
+ * than the price (`need` − `have` short; `need` is the price); `off` — the run has no map heal (a save before 14.10.2026, its
+ * flag `healMap` absent); `closed` — not on the map nor on a battle card (`rtHealOpen`), or the run is over. Reasons are
+ * checked in that order: `off`, `closed`, `full`, `poor`.
+ */
+export interface RtHealOffer { gain: number; price: number; ok: boolean; reason?: 'full' | 'poor' | 'off' | 'closed'; need?: number; have: number }
+/**
+ * Where the run screen is, as the run alone cannot tell (design correction 14.10.2026): `arenaOpen` — the battle card's fight
+ * was started («В бой» pressed: the view's `RunView.arenaOpen`) and is not fed back yet. The run's state is the same on the
+ * card and in its fight (`pending` of kind `battle` until `resolveArena`); an arena in progress is not saved, a reload shows
+ * the card again (and the fight starts again from the run's HP).
+ */
+export interface RtHealWhere { arenaOpen?: boolean }
+
+/** Resources in hand in total (the map header's one number). */
+export const rtResourceTotal = (run: Pick<RtRunState, 'materials'>): number => stockTotal(run.materials);
+
+/**
+ * The heal is open here (design 14.10.2026, corrected the same day): on the map with no screen open, and on the battle card
+ * before «В бой» — every fight's card (a battle, «Застава», a breakthrough, the Jailer, the final, an event's reward battle):
+ * the player sees the fight and decides. Closed in the fight once started (`where.arenaOpen`), on any other screen (an event,
+ * the merchant, a rest, a find, the gift, the screens after a fight) and when the run is over.
+ */
+export function rtHealOpen(run: RtRunState, where: RtHealWhere = {}): boolean {
+  if (run.result) return false;
+  return !run.pending || (run.pending.kind === 'battle' && !where.arenaOpen);
+}
+
+export function healOffer(run: RtRunState, where: RtHealWhere = {}): RtHealOffer {
+  const gain = Math.max(0, Math.min(RT_HEAL_MAP_GAIN, run.maxHp - run.hp)), price = RT_HEAL_MAP_PRICE + (run.healBought ?? 0), have = rtResourceTotal(run);
+  const reason = !run.healMap ? 'off' : !rtHealOpen(run, where) ? 'closed' : gain <= 0 ? 'full' : have < price ? 'poor' : undefined;
+  return { gain, price, ok: !reason, ...reason ? { reason } : {}, ...reason === 'poor' ? { need: price } : {}, have };
+}
+
+/**
+ * The heal button is shown (design 14.10.2026, complexity budget): a run with the map heal, on the map or a battle card
+ * (`rtHealOpen`), with at least one resource in hand. A shown button may still be off (`healOffer`: full HP, too few resources).
+ */
+export function healVisible(run: RtRunState, where: RtHealWhere = {}): boolean {
+  const reason = healOffer(run, where).reason;
+  return reason !== 'off' && reason !== 'closed' && rtResourceTotal(run) >= 1;
+}
+
+/**
+ * Buy the heal: pay the price from the most numerous resources (merchant.ts, `shopPayment`), +`gain` HP. Nothing else of the
+ * run changes — on a battle card its fight (arena, seed, roster, loadout) stays the same; it starts with the new HP.
+ */
+export function healOnMap(current: RtRunState, where: RtHealWhere = {}): RtRunStep {
+  const offer = healOffer(current, where);
+  if (!offer.ok) {
+    return fail(offer.reason === 'full' ? 'Здоровье полное' : offer.reason === 'poor' ? `Нужно ресурсов: ${offer.price}, есть ${offer.have}`
+      : offer.reason === 'off' ? 'В этом походе нет лечения на карте.' : 'Лечение — на карте или перед боем.');
+  }
+  const run = structuredClone(current), paid = shopPayment(run.materials, offer.price), hpBefore = run.hp;
+  for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+  run.hp = Math.min(run.maxHp, run.hp + offer.gain);
+  run.healBought = (run.healBought ?? 0) + 1;
+  // The node of the heal: the battle card's node (the heal before its fight), else the last completed one (none — null, row 0).
+  const nodeId = run.pending?.kind === 'battle' ? run.pending.nodeId : run.currentNodeId, node = nodeId ? rtNode(run, nodeId) : undefined;
+  return { ok: true, run, events: [{ type: 'map-healed', nodeId, row: node ? runRow(node.row) : 0, price: offer.price, paid, hpBefore, hpAfter: run.hp }] };
+}
+
 // ---------- Events: the choice ----------
 
 const hpShort = (need: number, hp: number) => `Нужно HP ≥ ${need} (сейчас ${hp})`;
@@ -2011,6 +2102,9 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.startPotion !== undefined && value.startPotion !== true) return null;
   if (value.secondWind !== undefined && value.secondWind !== true) return null;
   if (value.metKinds !== undefined && !(value.gentleEntry === true && Array.isArray(value.metKinds) && value.metKinds.length && value.metKinds.every(kind => typeof kind === 'string' && kind.length > 0) && new Set(value.metKinds).size === value.metKinds.length)) return null;
+  // Task 15 (14.10.2026): a flag; absent — a save before it, which has no map heal. `healBought` (1 or more) needs the flag.
+  if (value.healMap !== undefined && value.healMap !== true) return null;
+  if (value.healBought !== undefined && !(value.healMap === true && isCount(value.healBought) && value.healBought >= 1)) return null;
   if (value.secondWindSpent !== undefined && (value.secondWindSpent !== true || value.secondWind !== true || !Array.isArray(value.battles) || !value.battles.length)) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;

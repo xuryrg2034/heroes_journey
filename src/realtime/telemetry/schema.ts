@@ -223,6 +223,12 @@ export interface RunItems { gained: Record<string, number>; used: Record<string,
  */
 export interface RunSecondWind { nodeId: string; row: number; fight: string | null }
 
+/**
+ * Task 15 «Лечение на карте» (from 14.10.2026): one map heal bought (`healOnMap`) — the run row of the last completed node (0 —
+ * none yet), the price in resources, HP before and after.
+ */
+export interface RunMapHeal { row: number; price: number; hpBefore: number; hpAfter: number }
+
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
   kind: 'run';
@@ -266,6 +272,8 @@ export interface RunRecord extends RtHeader {
    * record). Not the flag: the flag is `secondWindOn` (names kept for the record format).
    */
   secondWind?: RunSecondWind;
+  /** Task 15 (from 14.10.2026): the map heals bought, in order; absent — none (older records too). */
+  mapHeals?: RunMapHeal[];
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -424,6 +432,11 @@ export function checkRecord(value: unknown): string | null {
         const w = r.secondWind as Record<string, unknown> | null;
         if (!w || typeof w !== 'object' || typeof w.nodeId !== 'string' || !Number.isInteger(w.row) || !(w.fight === null || typeof w.fight === 'string')) return 'run secondWind';
       }
+      // Task 15 (14.10.2026): optional — the map heals bought.
+      if (r.mapHeals !== undefined && !(Array.isArray(r.mapHeals) && r.mapHeals.every(h => {
+        const o = h as Record<string, unknown> | null;
+        return !!o && typeof o === 'object' && ['row', 'price', 'hpBefore', 'hpAfter'].every(k => Number.isInteger(o[k])) && (o.price as number) >= 1 && (o.hpAfter as number) > (o.hpBefore as number);
+      }))) return 'run mapHeals';
       return null;
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';

@@ -825,8 +825,19 @@ function runsSection(runs: readonly RunRecord[], entries: readonly FightEntry[])
   return [
     table(['Поход', 'Сессия', 'Тестер', 'Seed', 'Итог', 'Дальний ряд', 'Причина смерти', 'Боёв в логах', 'HP по узлам'], rows), '',
     '### Выборы', '', table(['Поход', 'Узел', 'Что', 'Предложено', 'Взято', 'Отказ'], choices), '',
-    '### Сборка в конце', '', kits.join('\n'),
+    '### Сборка в конце', '', kits.join('\n'), '',
+    '### Лечение на карте', '', mapHealLines(runs),
   ].join('\n');
+}
+
+/** Task 15 «Лечение на карте» (from 14.10.2026): the map heals bought (`RunRecord.mapHeals`) — the total line and one line a run. */
+function mapHealLines(runs: readonly RunRecord[]): string {
+  const own = runs.filter(r => r.mapHeals?.length), heals = own.flatMap(r => r.mapHeals!);
+  const legend = 'Задача 15 (с 14.10.2026): +2 HP на карте между боями за ресурсы (2, 3, 4…). Ряд — последнего пройденного узла (0 — до первого).';
+  if (!heals.length) return `${legend}\n\n_покупок нет_`;
+  const head = `Покупок ${heals.length} в ${own.length} из ${runs.length} походов; цена мед. ${n1(median(heals.map(h => h.price)))}; HP до мед. ${n1(median(heals.map(h => h.hpBefore)))}.`;
+  const lines = own.map(r => `- \`${r.run}\`: ${r.mapHeals!.map(h => `ряд ${h.row}, ${h.price} рес., HP ${h.hpBefore}→${h.hpAfter}`).join('; ')}`);
+  return [legend, '', head, '', ...lines].join('\n');
 }
 
 function arenasSection(entries: readonly FightEntry[]): string {
