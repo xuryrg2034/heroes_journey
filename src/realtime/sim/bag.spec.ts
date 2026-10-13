@@ -23,7 +23,7 @@ import type { Loadout } from './kit';
 import { defaultParams, PARAM_DEFS, type Params } from './params';
 import { Simulation, replay, type Journal } from './simulation';
 import { goblinOf, leverOf } from './slot';
-import type { World, WorldEvent } from './world';
+import { focusGuarded, type World, type WorldEvent } from './world';
 import { RESOURCE_KINDS } from './kit';
 import { PROLOGUE_ROOM_COUNT, prologueLoadout, prologueParams, prologueRoom } from '../run/prologue';
 import { createRtRun, resolveArena, rtArenaLoadout, rtMapNodes, rtRunParams, RT_RUN_FORCED, type RtRunState } from '../run/rtRun';
@@ -237,6 +237,38 @@ check('absorbed hits reset nothing: the invulnerability after a hit and the afte
   assert(bagOf(gw)!.kills === 0 && bagOf(gw)!.resets === 1, 'after the shield: reset');
   g.sim.command({ t: 'clear', keepMarked: false });
   assert(replays(g), 'replay');
+});
+
+check('absorbed hits reset nothing: «Щит фокуса» — a touch while a chain of 3+ enemy links is drawn with focus left; when the focus runs out the touch resets', () => {
+  for (let k = 1; k <= 3; k++) {
+    // The run's 3 links; no after-chain shield, the invulnerability short (only the focus shield guards the hero).
+    const f = fight(quiet({ focusGuardLinks: 3, chainShield: 0, invulnerability: 0.1 }), 25 + k), w = f.sim.world;
+    goals(f);
+    chain(f, 5);
+    for (let i = 0; i < 120 && w.hero.invulnerable > 0; i++) tick(f);
+    assert(bagOf(w)!.kills === 5 && w.hero.invulnerable <= 0 && w.hero.chainShield <= 0, `seed ${k}: 5 kills, no other guard`);
+    // A chain of 3 enemy links drawn (not released) away from the hero; an enemy of another colour on the hero.
+    const points = [1, 2, 3].map(i => ({ x: 3 + 1.4 * i, y: 6 }));
+    for (const p of points) f.sim.command({ t: 'place', x: p.x, y: p.y, color: 0, hp: 0, kind: 'basic' });
+    f.sim.command({ t: 'teleport', x: 3, y: 6 });
+    f.sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
+    for (const p of points.slice(1)) f.sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
+    assert(w.chain.length === 3, `seed ${k}: the chain of 3 drawn`);
+    const hp = w.hero.hp, at = f.events.length;
+    f.sim.command({ t: 'place', x: w.hero.x, y: w.hero.y, color: 1, hp: 0, kind: 'basic' });
+    let guarded = 0;
+    for (let i = 0; i < 2000 && w.focus > 0 && w.status === 'playing'; i++) { tick(f); if (focusGuarded(w)) guarded++; }
+    const spared = f.events.slice(at);
+    assert(guarded >= 30, `seed ${k}: the focus shield stood ${guarded} ticks`);
+    assert(!of(spared, 'hit').length && w.hero.hp === hp, `seed ${k}: the touch absorbed (hp ${hp} → ${w.hero.hp})`);
+    assert(bagOf(w)!.kills === 5 && bagOf(w)!.resets === 0 && !bagEvents(spared, 'reset').length, `seed ${k}: no reset under the focus shield (${JSON.stringify(w.bag)})`);
+    // The focus is empty: the same touch hurts and the progress goes (the enemy did touch all along).
+    for (let i = 0; i < 120 && !of(f.events.slice(at), 'hit').length; i++) tick(f);
+    assert(of(f.events.slice(at), 'hit').length === 1 && bagOf(w)!.kills === 0 && bagOf(w)!.resets === 1, `seed ${k}: after the focus — reset (${JSON.stringify(w.bag)})`);
+    f.sim.command({ t: 'cancel' });
+    f.sim.command({ t: 'clear', keepMarked: false });
+    assert(replays(f), `seed ${k}: replay`);
+  }
 });
 
 check('a defeat pays nothing (filled steps included); the fight replays', () => {
