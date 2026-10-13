@@ -22,7 +22,9 @@
  *   the cliff, a jump onto it is refused with no energy spent, the jump hand's spot and click land the hero on the far bank, the
  *   walk into the open door wins, a spent jump comes back 1 s later; room 6 «Вихрь» — one spin kills the six and opens the door,
  *   a chain takes at most two, chains one by one and a spin off the middle (or into nothing) bring the ring, the hero and the
- *   spin's energy back 1 s later; room 7 «Зелье» — 5 HP of 15 whatever the view gives, one potion, drinking it opens the door;
+ *   spin's energy back 1 s later; two partial spins, or a chain and a spin in one return window, never add up to the goal;
+ *   room 7 «Зелье» — 5 HP of 15 whatever the view gives, one potion, drinking it opens the door; rooms 5–7 stay solvable with
+ *   hostile panel values (review 13.10.2026);
  * - every fight replays from its journal to the same hash (checkpoints every 300 ticks), twice.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
@@ -43,6 +45,8 @@ function check(name: string, run: () => void): void { run(); checks++; console.l
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 /** The rooms by their number (task 9, design 13.10.2026: «Гоблин» and «Толпа» are rooms 8 and 9 now). */
 const JUMP = 5, SPIN = 6, POTION = 7, GOBLIN = 8, CROWD = 9;
+/** Colour 0 (art.ts `COLORS`). */
+const RED_COLOUR = 0;
 /** The rooms with a hand route (1–4 and 8). */
 const HAND_ROOMS = PROLOGUE_ROOMS.filter(r => r.route);
 
@@ -919,6 +923,90 @@ check('room 6: a spin off the middle kills fewer — the lamps hold its kills, t
     assert(took <= RESTORE_DELAY + 0.05 && w.energy === w.params.spinCost && w.hero.x === start.x && w.hero.y === start.y, `${label}: the energy and the hero back`);
     assert(sim.command({ t: 'spin' }) === true && doorOpen(w), `${label}: the spin from the middle wins`);
     replays(sim, `room 6 spins ${label}`);
+  }
+});
+
+/** Room 6: the hero `d` units off the middle towards `deg` (0 — the red on the right, 30 — between it and the green below it). */
+function offMiddle(w: World, deg: 30 | 210, d = 0.8): { x: number; y: number } {
+  const s = w.arena.heroStart, k = deg === 30 ? 1 : -1;
+  return { x: s.x + k * d * 0.866, y: s.y + k * d * 0.5 };
+}
+
+check('room 6: the goal is ONE action — two partial spins (4 + 4 by two spins with a return between) and a chain then a spin inside one return window (1 + 5: a chain takes one here — the two of a colour stand opposite, out of a link\'s reach) never add up: the door stays shut, the lamps never above one action\'s kills (seeds 1–3)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = room(SPIN, k), w = sim.world, label = `seed ${k}`;
+    let maxLit = 0;
+    const watch = (seconds: number): void => { const end = w.time + seconds - 1e-9; until(sim, x => { maxLit = Math.max(maxLit, goalLamps(x).lit); return x.time >= end; }, Math.ceil(seconds * 60 * 8) + 60); };
+    // Two spins of four, each off the middle on another side (the two opposite never struck), the return between.
+    for (const deg of [30, 210] as const) {
+      walkTo(sim, offMiddle(w, deg), 0.03);
+      const mark = w.events.length;
+      assert(sim.command({ t: 'spin' }) === true, `${label}: the spin at ${deg}°`);
+      const kills = w.events.slice(mark).filter(e => e.type === 'kill').length;
+      maxLit = Math.max(maxLit, goalLamps(w).lit);
+      assert(kills === 4 && !doorOpen(w) && goalProgress(w).done === 4, `${label}: four by the spin at ${deg}° (${kills}), the door shut (${JSON.stringify(goalProgress(w))})`);
+      awaitReturn(sim, `${label} after the spin at ${deg}°`);
+      watch(0.2);
+    }
+    assert(!doorOpen(w) && w.strike?.best === 4 && maxLit <= 4, `${label}: two spins of four — shut, lamps at most ${maxLit}`);
+    // A chain, then — before its return is due — a walk back to the middle and a spin of the rest.
+    const reds = starts(w).filter((_, i) => w.arena.enemies[i].color === RED_COLOUR);
+    // Two of a colour, if the commands can draw them (they stand opposite: in this ring they cannot) — else one.
+    let chain: ChainLink[] = reds;
+    const a = linkPoint(w, reds[0])!, b = linkPoint(w, reds[1])!;
+    sim.command({ t: 'begin', x: a.x, y: a.y });
+    sim.command({ t: 'sweep', fx: a.x, fy: a.y, x: b.x, y: b.y });
+    if (w.chain.length !== 2) { sim.command({ t: 'cancel' }); chain = [reds[0]]; } else sim.command({ t: 'cancel' });
+    const plan = draw(sim, chain), events = dash(sim);
+    planIsDash(plan, events, `${label} chain`);
+    assert(plan.kills === chain.length && !doorOpen(w), `${label}: a chain of ${chain.length}`);
+    const dashed = w.events.length;
+    walkTo(sim, w.arena.heroStart, 0.03);
+    assert(restores(w, dashed) === 0 && w.enemies.length === 6 - chain.length && w.energy >= w.params.spinCost, `${label}: back in the middle before the return`);
+    const mark = w.events.length;
+    assert(sim.command({ t: 'spin' }) === true, `${label}: the spin after the chain`);
+    const kills = w.events.slice(mark).filter(e => e.type === 'kill').length;
+    maxLit = Math.max(maxLit, goalLamps(w).lit);
+    assert(kills === 6 - chain.length && w.enemies.length === 0 && !doorOpen(w) && goalProgress(w).done === 6 - chain.length, `${label}: ${chain.length} + ${kills} by two actions — the door shut (${JSON.stringify(goalProgress(w))})`);
+    watch(0.5);
+    assert(maxLit <= 6 - chain.length && !doorOpen(w), `${label}: the lamps at most ${maxLit}`);
+    awaitReturn(sim, `${label} after the chain and the spin`);
+    assert(sim.command({ t: 'spin' }) === true && doorOpen(w), `${label}: then one spin from the middle wins`);
+    replays(sim, `room 6 one action ${label}`);
+    console.log(`   ${label}: spins 4 + 4, then a chain of ${chain.length} + a spin of ${6 - chain.length} — shut each time`);
+  }
+});
+
+check('rooms 5–7 do not follow a hostile panel (the view builds them from the sandbox panel): with jump price 8, jump radius 1, body 0.5, hero circle ×1.6, enemies ×1.5, touch ×1.2, hero speed 0.5, spin 6 / 1 / 0.5, hero HP 3, no walk into the door — the helpers still solve them by the commands', () => {
+  const hostile = { ...defaultParams(), jumpCost: 8, jumpRadius: 1, bodyRadius: 0.5, heroHitFactor: 1.6, enemyScale: 1.5, touchFactor: 1.2, heroSpeed: 0.5, spinCost: 6, spinDamage: 1, spinRadius: 0.5, heroHp: 3, doorWalkIn: false };
+  const hostileRoom = (n: number, k: number): Simulation => {
+    const loadout = prologueLoadout(n);
+    return new Simulation({ arena: prologueRoom(n).id, params: prologueParams(n, hostile), seed: seedOf(k), record: true, ...loadout ? { loadout } : {} });
+  };
+  for (const k of [1, 2]) {
+    const label = `seed ${k}`;
+    // Room 5: the jump hand's spot and click, then the walk into the door.
+    const s5 = hostileRoom(JUMP, k), w5 = s5.world;
+    assert(canJump(w5) && w5.energy === 2, `${label} room 5: one jump of energy (${w5.energy})`);
+    const aim = prologueJumpAim(w5, JUMP)!;
+    walkTo(s5, aim.spot, 0.03);
+    assert(prologueJumpAim(w5, JUMP)!.ready && s5.command({ t: 'jump', x: aim.target.x, y: aim.target.y }) === true, `${label} room 5: the hand's jump`);
+    land(s5);
+    assert(farBank(w5), `${label} room 5: the far bank`);
+    walkTo(s5, { x: w5.arena.door.x - 1.2, y: w5.arena.door.y }, 0.1);
+    walkFor(s5, 1, 0, 1.5);
+    assert(w5.status === 'victory', `${label} room 5: won (${w5.status})`);
+    // Room 6: ready from the start; a chain of one, the return (no post waits on the hero), then the spin wins.
+    const s6 = hostileRoom(SPIN, k), w6 = s6.world;
+    assert(prologueSpinReady(w6, SPIN), `${label} room 6: ready`);
+    draw(s6, [starts(w6)[0]]);
+    dash(s6);
+    awaitReturn(s6, `${label} room 6`);
+    assert(!w6.restore?.wait && s6.command({ t: 'spin' }) === true && doorOpen(w6), `${label} room 6: the spin wins`);
+    // Room 7 (without the view's hero: the panel's HP would be 3): 5 of 15, the drink heals and opens the door.
+    const s7 = hostileRoom(POTION, k), w7 = s7.world;
+    assert(w7.hero.hp === 5 && w7.hero.maxHp === 15, `${label} room 7: HP ${w7.hero.hp}/${w7.hero.maxHp}`);
+    assert(s7.command({ t: 'item', kind: 'healing', x: 0, y: 0 }) === true && (w7.hero.hp as number) === 14 && doorOpen(w7), `${label} room 7: healed to ${w7.hero.hp}`);
   }
 });
 

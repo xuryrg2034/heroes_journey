@@ -46,16 +46,23 @@ export interface PrologueRoom {
   tiles: 'all' | readonly PrologueTile[];
 }
 
+/** Rooms 5–7 (task 9): the body sizes and the hero's walk at their defaults, whatever the panel says (`PROLOGUE_FORCED`). */
+const LESSON_BODIES: Readonly<Partial<Params>> = Object.freeze({ bodyRadius: 0.4, heroHitFactor: 0.7, enemyScale: 0.8, touchFactor: 0.8, heroSpeed: 4 });
+
 /** No inflow: rooms 1–8 hold only their start enemies (`maxEnemies` 0 — no newcomer is queued, before or after the goals). */
 const NO_INFLOW: Readonly<Partial<Params>> = Object.freeze({ maxEnemies: 0 });
 
 /**
  * Баланс (design 12.10.2026; task 9, 13.10.2026): the numbers of each room over the run's (`RT_RUN_FORCED`). Rooms 1–4 — no
- * inflow (their calm is the arena's `calm`). Room 5 «Пропасть» — no inflow, the jump's radius 3 (`jumpRadius`, the default: the
- * cliff band is 1.6 wide, the panel's value must not leak into it — the run does not force it) and the door entered on foot
- * (`doorWalkIn`, the default). Room 6 «Вихрь» — no inflow, the spin's numbers at their defaults (`spinCost` 3, `spinDamage` 4,
- * `spinRadius` 1.2: the ring stands inside it, every enemy dies of one hit). Room 7 «Зелье» — no inflow (the heal is the
- * run's `itemHeal`). Room 8 «Гоблин» — no inflow, the touch 1 (`contactDamage`, the run's base), 3 pulls and all of them safe
+ * inflow (their calm is the arena's `calm`). Rooms 5–7 (task 9; review 13.10.2026: the view builds the prologue from the
+ * sandbox panel, `loadParams()`, and the run does not force these keys — a panel value must not make a room impossible) play
+ * the defaults of what their lesson rests on: the body sizes (`bodyRadius` 0.4, `heroHitFactor` 0.7 — the hero's circle,
+ * `heroRadius`; `enemyScale` 0.8, `touchFactor` 0.8 — the enemies' bodies and the touch) and the hero's walk (`heroSpeed` 4).
+ * Room 5 «Пропасть» — no inflow, the jump's price 2 and radius 3 (`jumpCost`, `jumpRadius`: the cliff band is 1.6 wide; a
+ * price above the energy cap 7 would leave no jump) and the door entered on foot (`doorWalkIn`). Room 6 «Вихрь» — no inflow,
+ * the spin's numbers (`spinCost` 3, `spinDamage` 4, `spinRadius` 1.2: the ring stands inside it, every enemy dies of one hit;
+ * the body sizes keep the posts off the hero's body, else a return would wait for him to step off). Room 7 «Зелье» — no inflow,
+ * the hero's maximum 15 (`heroHp`; the view gives 15/15 anyway; the heal is the run's `itemHeal`). Room 8 «Гоблин» — no inflow, the touch 1 (`contactDamage`, the run's base), 3 pulls and all of them safe
  * (`slotSafePulls` 3 and no «Длинная цепь кормит гоблина» — with it on the last pull is always risky): no bust is possible.
  * Room 9 (softened by design 13.10.2026: the last room of the lesson must not be a wall, a death there is a bad first
  * impression) — the inflow up to 8 (`maxEnemies`, was 12; its pace and phases are the arena's) and every touch 1: the base
@@ -68,9 +75,9 @@ export const PROLOGUE_FORCED: readonly Readonly<Partial<Params>>[] = Object.free
   NO_INFLOW,
   NO_INFLOW,
   NO_INFLOW,
-  Object.freeze({ maxEnemies: 0, jumpRadius: 3, doorWalkIn: true }),
-  Object.freeze({ maxEnemies: 0, spinCost: 3, spinDamage: 4, spinRadius: 1.2 }),
-  NO_INFLOW,
+  Object.freeze({ maxEnemies: 0, ...LESSON_BODIES, jumpCost: 2, jumpRadius: 3, doorWalkIn: true }),
+  Object.freeze({ maxEnemies: 0, ...LESSON_BODIES, spinCost: 3, spinDamage: 4, spinRadius: 1.2 }),
+  Object.freeze({ maxEnemies: 0, ...LESSON_BODIES, heroHp: 15 }),
   // `enemySpeed` 0.72 — the run's 1.2 × 0.6 (design answer 12.10.2026: the goal is the lever, the damage is secondary); the
   // enemies sleep until the first press (the arena's `sleepUntilChain`).
   Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, enemySpeed: 0.72, invulnerability: 3.4 }),
