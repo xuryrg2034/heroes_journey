@@ -1094,7 +1094,7 @@ function drawShieldChain(sim: Simulation, pause = 2): { links: ChainLink[]; plan
   return { links, plan: draw(sim, links, pause) };
 }
 
-check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn by the commands, is the drawn chain, its highlight is the dash; the shield (0.5 s) follows and absorbs the crowd\'s touches — `shieldBlock` once per enemy, the HP kept, exactly ONE lamp per chain even when several touch; 1 s later the ring and the hero come back; three such chains open the door; the walk in wins; the journal replays (seeds 1–6)', () => {
+check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn by the commands, is the drawn chain, its highlight is the dash; the shield (0.5 s) follows and absorbs the crowd\'s touches — `shieldBlock` once per enemy, the HP kept, exactly ONE lamp per chain even when several touch; the ring and the hero come back in the tick the shield ends, before a touch can hurt (design answer 13.10.2026); three such chains open the door; the walk in wins; the journal replays (seeds 1–6)', () => {
   let several = 0;
   for (let k = 1; k <= 6; k++) {
     const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
@@ -1111,11 +1111,11 @@ check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn
       // The window: every touch the shield takes is a block; the HP stays.
       const mark = w.events.length, hp: number = w.hero.hp, t0 = w.time;
       // Ticks while the shield is still up after them (on its last tick it is gone, and a touch then hurts as usual).
-      let hurt = 0, upTo = w.time;
+      let hurt = 0, upTo = w.time, last: WorldEvent[] = [];
       while (w.hero.chainShield > 0 && w.status === 'playing') {
         const n = w.events.length;
         sim.tick();
-        if (w.hero.chainShield > 0) { hurt += hits(w.events.slice(n)).length + (w.hero.hp !== hp ? 1 : 0); upTo = w.time; }
+        if (w.hero.chainShield > 0) { hurt += hits(w.events.slice(n)).length + (w.hero.hp !== hp ? 1 : 0); upTo = w.time; } else last = w.events.slice(n);
       }
       const blocks = shieldBlocks(w.events.slice(mark));
       assert(blocks.length >= 1 && new Set(blocks.map(b => b.enemyId)).size === blocks.length, `${label} chain ${chain}: blocked ${JSON.stringify(blocks)}`);
@@ -1123,7 +1123,12 @@ check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn
       assert(goalProgress(w).done === chain && goalLamps(w).lit === chain && goalLamps(w).total === 3, `${label} chain ${chain}: one lamp for ${blocks.length} blocks (${goalProgress(w).done})`);
       assert(upTo - t0 < 0.5 + 1e-9, `${label}: the window is 0.5 s`);
       if (blocks.length > 1) several++;
-      if (chain < 3) awaitReturn(sim, `${label} chain ${chain}`);
+      // The return (design answer 13.10.2026: room 9 only): in the tick the shield ends — the ring at its posts with full HP, the
+      // hero on his start, no hit in that tick; the goal met by the third — no return.
+      if (chain < 3) {
+        const back = last.find(e => e.type === 'restore');
+        assert(back?.type === 'restore' && back.hero?.x === w.arena.heroStart.x && allAtPosts(w) && hits(last).length === 0 && w.hero.hp === hp, `${label} chain ${chain}: the return in the tick the shield ends (${JSON.stringify(last.map(e => e.type))})`);
+      } else assert(!last.some(e => e.type === 'restore'), `${label}: no return after the goal`);
     }
     assert(w.stage === 'greed' && doorOpen(w), `${label}: three shields open the door`);
     assert(prologueShieldLinks(w) === null && prologueShieldChain(w) === null, `${label}: no hand after the goal`);
@@ -1139,7 +1144,7 @@ check('room 9 «Щит»: the hand\'s chain of 3+ (`prologueShieldChain`), drawn
   assert(several >= 3, `several enemies blocked in one window, one lamp (${several} windows)`);
 });
 
-check('room 9: a chain of 1 or 2 gives no shield — the touch after it hurts (−1, no lamp, no block) inside the half second a shield would hold; the room comes back 1 s later (seeds 1–6)', () => {
+check('room 9: a chain of 1 or 2 gives no shield — the touch after it hurts (−1, no lamp, no block) inside the half second a shield would hold; the room comes back 1 s after the dash, as in the other rooms (seeds 1–6)', () => {
   for (const length of [1, 2]) for (let k = 1; k <= 6; k++) {
     const sim = room(SHIELD, k), w = sim.world, label = `${length} link(s), seed ${k}`;
     const { links } = drawShieldChain(sim, 0);
@@ -1149,15 +1154,51 @@ check('room 9: a chain of 1 or 2 gives no shield — the touch after it hurts (�
     const events = dash(sim);
     planIsDash(plan, events, label);
     assert(w.hero.chainShield === 0, `${label}: no shield`);
-    const mark = w.events.length, hp = w.hero.hp, t0 = w.time;
+    const mark = w.events.length, hp = w.hero.hp, t0 = w.time, dashEnd = w.time;
     until(sim, x => hits(x.events.slice(mark)).length > 0, 60);
     const [hit] = hits(w.events.slice(mark));
     assert(hit.damage === 1 && w.hero.hp === hp - 1 && w.time - t0 <= 0.5 + 1e-9, `${label}: −1 inside 0.5 s (${hit.damage}, ${w.time - t0})`);
     wait(sim, 0.3);
     assert(shieldBlocks(w.events.slice(mark)).length === 0 && goalProgress(w).done === 0 && goalLamps(w).lit === 0, `${label}: no block, no lamp`);
     awaitReturn(sim, label);
+    const after = w.time - dashEnd;
+    assert(after >= RESTORE_DELAY - 1e-9 && after <= RESTORE_DELAY + 1 / 60 + 1e-9, `${label}: the return ${after.toFixed(3)} s after the dash`);
     replays(sim, `room 9 ${label}`);
   }
+});
+
+check('room 9 (design answer 13.10.2026): a hero standing in the crowd after a chain of 3+ takes no hit between the shield\'s end and the return — it comes in that very tick, and the crowd reaches him again only from the posts; a new chain of 3+ inside the window moves the return to the new window\'s end (seeds 1–8)', () => {
+  let refreshed = 0;
+  for (let k = 1; k <= 8; k++) {
+    const sim = room(SHIELD, k), w = sim.world, label = `seed ${k}`;
+    drawShieldChain(sim);
+    dash(sim);
+    const hp = w.hero.hp, mark = w.events.length;
+    // Inside the window: if the hand has another chain of 3+, it is drawn at once (one tick) and released — a new window.
+    let again = false;
+    while (w.hero.chainShield > 0.15 && !again) {
+      if (prologueShieldLinks(w)) {
+        drawShieldChain(sim, 0);
+        dash(sim);
+        again = w.hero.chainShield > 0.5 - 1e-9 - 1 / 60;
+        assert(again, `${label}: the second chain gives a new shield`);
+      } else sim.tick();
+    }
+    if (again) refreshed++;
+    // Stand: no return while the shield is up, then the return in the tick it ends; no hit from the dash to 0.3 s after it.
+    let shieldEnd = -1;
+    while (w.status === 'playing') {
+      const up = w.hero.chainShield > 0, n = w.events.length;
+      sim.tick();
+      const back = w.events.slice(n).some(e => e.type === 'restore');
+      if (w.hero.chainShield > 0) assert(!back, `${label}: no return while the shield is up`);
+      else if (up) { shieldEnd = w.time; assert(back || w.stage === 'greed', `${label}: the return in the tick the shield ends`); }
+      if (shieldEnd >= 0 && w.time - shieldEnd >= 0.3 - 1e-9) break;
+    }
+    assert(shieldEnd >= 0 && hits(w.events.slice(mark)).length === 0 && w.hero.hp === hp, `${label}: no hit from the dash to 0.3 s after the shield (${JSON.stringify(hits(w.events.slice(mark)))})`);
+    replays(sim, `room 9 ${label}`);
+  }
+  assert(refreshed >= 2, `a second chain inside the window on several seeds (${refreshed} of 8)`);
 });
 
 check('room 9: the invulnerability after a hit absorbs the touches that follow — no lamp, no block; «Щит фокуса» (3 links drawn, the focus on) spares the hero in the crowd — no lamp, no block; the chain released then gives the shield and its lamp (seeds 1–6)', () => {

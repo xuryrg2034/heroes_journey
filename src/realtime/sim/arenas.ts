@@ -105,6 +105,13 @@ export interface ArenaTemplate extends ArenaShape {
    */
   restoreHero?: boolean;
   /**
+   * The prologue, task 13 (design answer 13.10.2026, room 9 «Щит» only): while the after-chain shield is up (`chainShield` > 0)
+   * a needed return waits for it and comes in the tick the shield ends, before that tick's touches (world.ts `update`), not
+   * `RESTORE_DELAY` after the dash; a new shield moves it to the new window's end. Without a shield (a chain of 1–2 kills) the
+   * return comes `RESTORE_DELAY` later as usual. Only with `restore`.
+   */
+  restoreAfterShield?: boolean;
+  /**
    * The prologue (design answer 12.10.2026, room 5, variant Б): the enemies sleep — stand, do not touch the hero, are not
    * parted by his walk — until the player's first press (`begin`, whatever it takes); then they wake for good (a return does
    * not put them to sleep again). No timer. `World.asleep` while they sleep.

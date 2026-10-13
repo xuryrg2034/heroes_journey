@@ -792,6 +792,12 @@ function updateRestore(world: World, state: RestoreState): void {
     }
     return;
   }
+  // Task 13 (room 9 «Щит», `restoreAfterShield`): while the after-chain shield is up a needed return is held due now — it comes
+  // in the tick the shield ends (the touches of that tick run after it, `update`).
+  if (world.arena.restoreAfterShield && world.hero.chainShield > 0) {
+    if (restoreNeeded(world, state)) state.due = world.time; else delete state.due;
+    return;
+  }
   if (!restoreNeeded(world, state)) { delete state.due; return; }
   if (state.due === undefined) { state.due = world.time + RESTORE_DELAY; return; }
   if (world.time + 1e-9 < state.due) return;
@@ -1669,7 +1675,11 @@ export function update(world: World, dt: number, realDt = dt): void {
   updateBraziers(world, dt);
   // Package «Урон имеет значение»: the armour's window and regrowth (elites with armour only), before the touches.
   updateArmor(world, dt);
+  // The prologue, task 13 (room 9 «Щит», `restoreAfterShield`): the return runs before the touches, so the ring and the hero are
+  // back in the tick the shield ends, before a touch could hurt (every other arena: after the touches, as before).
+  const restoreFirst = !!world.arena.restoreAfterShield;
+  if (restoreFirst && world.restore) updateRestore(world, world.restore);
   contactDamage(world, dt);
   // The prologue: the start enemies' return (only on an arena with `restore`).
-  if (world.restore && world.status === 'playing') updateRestore(world, world.restore);
+  if (!restoreFirst && world.restore && world.status === 'playing') updateRestore(world, world.restore);
 }
