@@ -4,7 +4,7 @@ import { test, expect } from './realtimeTest';
 /**
  * П9 «Второе дыхание» (src/realtime/sim/world.ts `hurtHero`, docs/realtime-prototype.md, «Второе дыхание»): the sandbox
  * only. The debug panel's checkbox turns it on; an enemy placed on the hero (a journalled `place`) hits him to death; the
- * hero stands up with 3 HP, the view flashes and writes «второе дыхание» at him; the next lethal hit ends the fight.
+ * hero stands up with 3 HP, the view flashes and writes «второе дыхание: 3 HP» at him; the next lethal hit ends the fight.
  */
 
 async function open(page: Page, errors: string[]): Promise<void> {
@@ -33,7 +33,7 @@ async function freeze(page: Page): Promise<void> {
   });
 }
 
-type Wind = { used: number | null; shown: number };
+type Wind = { used: number | null; shown: number; text: string };
 const state = (page: Page): Promise<{ status: string; hp: number; invulnerable: number; wind: Wind }> =>
   page.evaluate(() => { const s = (window as any).__realtime.snapshot(); return { status: s.status, hp: s.hero.hp, invulnerable: s.hero.invulnerable, wind: s.secondWind }; });
 /** An enemy on the hero (journalled `place`): it touches him at once. */
@@ -52,7 +52,7 @@ test('П9 «Второе дыхание» (sandbox): the panel toggle; a lethal 
   await page.keyboard.press('Backquote');
   await expect(page.getByTestId('debug-panel')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__realtime.params.secondWind)).toBe(true);
-  expect((await state(page)).wind).toEqual({ used: null, shown: 0 });
+  expect((await state(page)).wind).toEqual({ used: null, shown: 0, text: '' });
 
   await touch(page);
   await expect.poll(async () => (await state(page)).wind.shown, { timeout: 8_000 }).toBe(1);
@@ -60,6 +60,8 @@ test('П9 «Второе дыхание» (sandbox): the panel toggle; a lethal 
   expect(after.status).toBe('playing');
   expect(after.hp).toBe(3);
   expect(after.wind.used).not.toBeNull();
+  // The text says the HP he stands with (design 13.10.2026: not like the ward's «1 HP»).
+  expect(after.wind.text).toBe('второе дыхание: 3 HP');
   expect(after.invulnerable).toBeGreaterThan(1);
   await page.screenshot({ path: 'artifacts/realtime-second-wind.png' });
 

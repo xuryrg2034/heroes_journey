@@ -442,23 +442,38 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
 });
 
 test('run (phase A, Т2): the node preview names its roster in one line; the card\'s enemies line (task 8c) lists the kinds the roster brings; the arena plays it and its journal keeps it', async ({ page }) => {
+  test.setTimeout(90_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  // Seed 11: on run row 1 two nodes play «Двор кнопок», one with «Волки», the other with «Натиск» (rtRun.ts, chooseRoster).
-  await page.goto('/?seed=11');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
-  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
-  await page.getByTestId('run-new').click();
-  await page.getByTestId('gift-0').click();
-  const pick = page.locator('[data-action="gift-pick"]').first();
-  if (await pick.count()) await pick.click();
-  await expect(page.getByTestId('run-gift')).toBeHidden();
-  await page.getByTestId('node-r5c0').click();
+  // Task 17 (Е1): a gentle run's row 1 is «Поляна» alone (no roster); «Двор кнопок» and its rosters come from row 2. The first
+  // battle (r5c0) is won by the run hook; then row 2 of seed 11 offers «Двор кнопок» with «Волки» (r6c0), of seed 1 with «Натиск»
+  // (r6c0) (rtRun.ts, chooseRoster).
+  const toRowTwo = async (seed: number): Promise<void> => {
+    await page.goto(`/?seed=${seed}`);
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+    await page.getByTestId('run-new').click();
+    await page.getByTestId('gift-0').click();
+    const pick = page.locator('[data-action="gift-pick"]').first();
+    if (await pick.count()) await pick.click();
+    await expect(page.getByTestId('run-gift')).toBeHidden();
+    await page.getByTestId('node-r5c0').click();
+    await expect(page.getByTestId('run-roster')).toHaveCount(0);
+    await page.getByTestId('run-enter').click();
+    await expect(page.getByTestId('run')).toBeHidden();
+    expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+    await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
+    await page.getByTestId('result-map').click();
+    await expect(page.getByTestId('node-r6c0')).toHaveAttribute('data-status', 'available');
+  };
+  await toRowTwo(11);
+  await page.getByTestId('node-r6c0').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Волки');
   await expect(page.getByTestId('run-danger-enemies')).toContainText('Враги: обычные, волки');
-  await page.getByTestId('node-r5c2').click();
+  await toRowTwo(1);
+  await page.getByTestId('node-r6c0').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Натиск');
   // «Натиск» replaces the newcomers by boars: no wolves of the template's phases.
   await expect(page.getByTestId('run-danger-enemies')).toContainText('Враги: обычные, кабаны');

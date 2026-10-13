@@ -20,15 +20,28 @@ function collectErrors(page: Page): string[] {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   return errors;
 }
-/** A new run of seed 3 (`?seed=`): its first row is three «Двор кнопок» battles with a wolf roster, so the sign stands on the first card. */
+/**
+ * A new run of seed 11 (`?seed=`) on the map of run row 2. Task 17 (Е1): a gentle run's row 1 is «Поляна» alone — ordinary
+ * enemies only, no sign can stand there — so its first battle (r5c0) is won by the run hook; row 2 then offers «Двор кнопок»
+ * with the wolf roster (r6c0), whose card carries the sign. The kinds of the hooked fight are seen in view only for its frames.
+ */
 async function freshRun(page: Page): Promise<void> {
-  await page.goto('/?seed=3');
+  await page.goto('/?seed=11');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
-  await page.getByTestId('gift-1').click();
+  await page.getByTestId('gift-0').click();
+  const pick = page.locator('[data-action="gift-pick"]').first();
+  if (await pick.count()) await pick.click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
+  await page.getByTestId('node-r5c0').click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
+  await page.getByTestId('result-map').click();
+  await expect(page.getByTestId('node-r6c0')).toHaveAttribute('data-status', 'available');
 }
 /** Selects the first available node whose card carries the sign (an arena with an unmet kind); the card stays open. */
 const selectArena = async (page: Page): Promise<void> => {
