@@ -271,6 +271,64 @@ check('absorbed hits reset nothing: «Щит фокуса» — a touch while a 
   }
 });
 
+check('kills nobody credits to the player do not count: a sapper lit by the touch blows up itself and a weak enemy beside it', () => {
+  for (let k = 1; k <= 3; k++) {
+    const f = fight(quiet(), 40 + k), w = f.sim.world;
+    goals(f);
+    chain(f, 5);
+    const kills = w.stats.kills;
+    // The hero at (10, 6); a sapper touching him lights its own fuse (its touch does not hurt); a weak enemy inside its circle.
+    f.sim.command({ t: 'teleport', x: 10, y: 6 });
+    const sapper = f.sim.command({ t: 'place', x: 10.3, y: 6, color: 2, hp: 0, kind: 'sapper' }) as number;
+    f.sim.command({ t: 'place', x: 11.3, y: 6.4, color: 3, hp: 0, kind: 'basic' });
+    for (let i = 0; i < 60 && w.enemies.find(e => e.id === sapper)?.vars.lit !== 1; i++) tick(f);
+    assert(w.enemies.find(e => e.id === sapper)?.vars.lit === 1, `seed ${k}: the touch lit the sapper`);
+    // The hero walks out of the circle; the blast goes off alone.
+    f.sim.command({ t: 'teleport', x: 3, y: 6 });
+    const at = f.events.length;
+    for (let i = 0; i < 180 && w.enemies.length; i++) tick(f);
+    const dead = of(f.events.slice(at), 'kill');
+    assert(dead.length === 2 && dead.every(e => e.credited === false && e.source === 'blast'), `seed ${k}: the blast killed two, nobody's (${JSON.stringify(dead)})`);
+    assert(!of(f.events.slice(at), 'hit').length && w.stats.kills === kills, `seed ${k}: no hit, no player kill`);
+    assert(bagOf(w)!.kills === 5 && bagOf(w)!.resets === 0, `seed ${k}: the bag did not count them (${JSON.stringify(w.bag)})`);
+    assert(replays(f), `seed ${k}: replay`);
+  }
+});
+
+check('«Пепельный оберег»: a lethal touch at 1 HP leaves the hero at 1 — no HP lost, no reset, no event', () => {
+  for (let k = 1; k <= 3; k++) {
+    const f = fight(quiet(), 45 + k, { talismans: ['ash-ward'], ward: true }, { hp: 1, maxHp: 40 }), w = f.sim.world;
+    goals(f);
+    chain(f, 5);
+    assert(w.hero.hp === 1 && w.kit?.ward === true && bagOf(w)!.kills === 5, `seed ${k}: 1 HP, the ward ready, 5 kills`);
+    const at = f.events.length;
+    touch(f);
+    assert(of(f.events.slice(at), 'ward').length === 1 && w.hero.hp === 1 && w.status === 'playing', `seed ${k}: the ward kept 1 HP`);
+    assert(bagOf(w)!.kills === 5 && bagOf(w)!.resets === 0 && !bagEvents(f.events.slice(at), 'reset').length, `seed ${k}: no reset (${JSON.stringify(w.bag)})`);
+    assert(replays(f), `seed ${k}: replay`);
+  }
+});
+
+check('the sandbox toggle mid-fight: switched on after the goals — no bag; switched off with a bag — it counts on and the door pays', () => {
+  const f = fight(quiet({ doorBag: false }), 50), w = f.sim.world;
+  goals(f);
+  f.sim.command({ t: 'param', key: 'doorBag', value: true });
+  chains(f, 5, 5);
+  assert(!w.bag && !bagEvents(f.events).length, 'on after the goals: no bag');
+  exit(f);
+  assert(bagPayout(w) === null, 'nothing paid');
+  assert(replays(f), 'replay');
+  const g = fight(quiet(), 51), gw = g.sim.world;
+  goals(g);
+  chain(g, 5);
+  g.sim.command({ t: 'param', key: 'doorBag', value: false });
+  chains(g, 5, 5);
+  assert(bagOf(gw)!.kills === 15 && bagOf(gw)!.step === 1, `off with a bag: it counts on (${JSON.stringify(gw.bag)})`);
+  exit(g);
+  assert(paidCount(bagPayout(gw)) === 1, `the door pays its step (${JSON.stringify(gw.bag!.paid)})`);
+  assert(replays(g), 'replay');
+});
+
 check('a defeat pays nothing (filled steps included); the fight replays', () => {
   const f = fight(quiet(), 30, undefined, { hp: 3, maxHp: 40 }), w = f.sim.world;
   goals(f);
@@ -343,15 +401,23 @@ check('defaults: off in the sandbox (no bag at the goals); the run turns it on; 
   assert(bagPayout(w) === null, 'nothing paid');
 });
 
-check('the run: the Jailer\'s and the final fight carry no bag; other battle nodes do', () => {
+check('the run: the Jailer\'s and the final fight carry no bag; other battle nodes (an event fight and a breakthrough too) do', () => {
   let jail = 0, other = 0;
+  const played = new Set<string>();
   for (let k = 1; k <= 3; k++) {
     const base = takeGift(createRtRun(seedOf(50 + k), { gift: 'mini' }));
     for (const node of rtMapNodes(base)) {
-      if (!['battle', 'hard', 'checkpoint', 'breakthrough', 'boss'].includes(node.type)) continue;
-      const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'run-fight-field', seed: seedOf(1), battle: node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : 'battle' } };
+      if (!['battle', 'hard', 'checkpoint', 'breakthrough', 'boss', 'event'].includes(node.type)) continue;
+      const battle = node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : node.type === 'event' ? 'event' : 'battle';
+      const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'run-fight-field', seed: seedOf(1), battle } };
       const no = node.type === 'checkpoint' || node.type === 'boss';
       assert(!!rtArenaLoadout(run).noBag === no, `${node.type}: noBag ${rtArenaLoadout(run).noBag}`);
+      if (!no && !played.has(node.type)) {
+        // The fight itself: the goals and 10 kills after them — the bag with its first step, the door pays 1.
+        const { sim, outcome } = playFight(run, { chains: [5, 5], start: s => { s.command({ t: 'goals' }); } });
+        assert(sim.world.bag?.step === 1 && paidCount(outcome.bag) === 1, `${node.type}: the bag in the fight (${JSON.stringify(sim.world.bag)})`);
+        played.add(node.type);
+      }
       if (!no || k > 1) { other += no ? 0 : 1; continue; }
       // The fight itself: the goals and 20 kills after them — no bag, nothing paid.
       const { sim, outcome } = playFight(run, { chains: [5, 5, 5, 5], start: s => { s.command({ t: 'goals' }); } });
@@ -360,6 +426,7 @@ check('the run: the Jailer\'s and the final fight carry no bag; other battle nod
     }
   }
   assert(jail >= 2 && other >= 10, `checked: Jailer/final ${jail}, others ${other}`);
+  assert(['battle', 'hard', 'breakthrough', 'event'].every(t => played.has(t)), `fights played with the bag: ${[...played]}`);
 });
 
 check('the run: a won battle adds the bag\'s payout to the materials; a lost one ends the run with nothing', () => {
@@ -390,6 +457,10 @@ check('the prologue: no bag in any room (the goals by the command)', () => {
     sim.command({ t: 'goals' });
     for (let i = 0; i < 60; i++) { sim.tick(); sim.world.events.length = 0; }
     assert(sim.world.stage === 'greed' && !sim.world.bag, `room ${n}: the door open, no bag`);
+    // The same room with the key turned on: the bag appears (the room's goals do open the door it needs).
+    const on = new Simulation({ arena: prologueRoom(n).id, params: { ...params, doorBag: true }, seed: seedOf(n), record: true, ...loadout ? { loadout } : {} });
+    on.command({ t: 'goals' });
+    assert(on.world.bag, `room ${n}: with the key on — a bag`);
   }
 });
 

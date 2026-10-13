@@ -3,7 +3,8 @@
  * (luck.spec.ts), П6 «Незакрытое дело» (runEnd.spec.ts: the killing blow, read as main.ts reads it — `RtDeathWatch`). A run node's arena is played as a real fight — journalled commands on a quiet test field with the run's
  * params and loadout — and the outcome is read from the finished world as main.ts `recordRunArena` reads it; the fight's
  * chance is read from every tick's events as main.ts reads them every frame (`observeFightLuck`). The run goes on by its
- * own commands.
+ * own commands. Task 14 «Котомка у двери» (13.10.2026): the outcome's `bag` (`bagPayout`) is ahead of main.ts — main.ts
+ * `recordRunArena` does not pass it yet (the ui step of task 14); until it lands a run in the browser gets no bag payout.
  */
 import { registerArena } from '../sim/arenas';
 import { defaultParams, type Params } from '../sim/params';
@@ -86,7 +87,7 @@ export interface FightPlan {
 
 /**
  * The finished world read as main.ts `recordRunArena` reads it (П10: `bestChain`; П5: the fight's `luck`, none — absent;
- * П6: the killing blow of a lost fight, none — absent).
+ * П6: the killing blow of a lost fight, none — absent). Except `bag` (task 14): ahead of main.ts until the ui step lands.
  */
 export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}, death: RtDeath | null = null): RtArenaOutcome {
   const pending = run.pending;
