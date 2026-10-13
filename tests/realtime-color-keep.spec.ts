@@ -76,3 +76,34 @@ test('task 10 view: without the key the ring stays on the 6th (no mark); a 7th o
   await page.mouse.up();
   expect(errors).toEqual([]);
 });
+
+test('task 10 view (review): 6 blue (the shift sounds), a red 7th, a step back to the 6th — silent; back below the 6th and the 6th again — it sounds again', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.goto('/?sandbox=1&arena=1&seed=77');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  const { at, ids } = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['crystals', false], ['colorShiftLinks', 6], ['colorShiftKeep', true], ['hitstop', false]] as const) rt.setParam(k, v);
+    rt.clear(false);
+    rt.teleport(4.2, 3.6);
+    const at = [];
+    for (let i = 0; i < 7; i++) { const x = 5 + 0.8 * i; rt.place(x, 3.6, i < 6 ? 0 : 1, 0, 'basic'); at.push(rt.toScreen(x, 3.6)); }
+    return { at, ids: rt.snapshot().enemies.map((e: { id: number }) => e.id) as number[] };
+  });
+  await page.mouse.move(at[0].x, at[0].y);
+  await page.mouse.down();
+  for (let i = 1; i < 5; i++) await to(page, at, i, i + 1);
+  expect(await to(page, at, 5, 6)).toMatchObject({ left: 0, freedBy: ids[5], sounds: 1 });
+  // The red 7th: the colour is taken, the count starts again — no ring.
+  expect(await to(page, at, 6, 7)).toMatchObject({ rainbow: 0, sounds: 1 });
+  // Back to the 6th (the pointer on it): the colour is free again — the 6th was heard, silent.
+  expect(await to(page, at, 5, 6)).toMatchObject({ left: 0, rainbow: ids[5], sounds: 1 });
+  // Back to the 5th, then the 6th again: a new shift, it sounds.
+  await to(page, at, 4, 5);
+  expect(await to(page, at, 5, 6)).toMatchObject({ freedBy: ids[5], sounds: 2 });
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});

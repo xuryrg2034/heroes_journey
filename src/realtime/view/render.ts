@@ -35,6 +35,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
+import { planPowerNumber } from './powerNumber';
 import { SLOT_BUST_SOURCE } from '../sim/slot';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
@@ -1645,8 +1646,8 @@ export class RealtimeRenderer {
 
   // ---- The power number (package «Урон имеет значение», item 4; task 8b, design 13.10.2026): view-only ----
   /**
-   * One number over the hero's head: while the chain is drawn — the power it brings (the plan: `power` after the last link, or
-   * what the last link gets when it survives — then red); while the dash runs — `move.power` link by link; it fades 0.8 s after.
+   * One number over the hero's head: while the chain is drawn — the power it brings (`planPowerNumber`: `power` after the last link,
+   * or what the first surviving link gets — then red; none without an enemy link); while the dash runs — `move.power` link by link; it fades 0.8 s after.
    * It replaced the HUD line «цепь N · сила P · …» and the small «сила N» beside the hero.
    */
   private powerText: Text | null = null;
@@ -1674,10 +1675,9 @@ export class RealtimeRenderer {
     }
     const text = this.powerText, move = world.move, plan = this.drawnPlan;
     let value: number | null = null, red = false, drawing = false;
-    if (plan && !move && world.status === 'playing') {
-      const last = plan.links[plan.links.length - 1]?.outcome;
-      red = plan.endsOnSurvivor && !!last;
-      value = red ? last!.available : plan.power;
+    const shown = plan && !move && world.status === 'playing' ? planPowerNumber(plan) : null;
+    if (shown) {
+      value = shown.value; red = shown.red;
       drawing = true;
     } else if (move?.kind === 'dash' && move.hits > 0) {
       value = move.power;

@@ -1046,11 +1046,12 @@ async function boot(): Promise<void> {
       shiftHint.hidden = false;
     } else if (!shiftHint.hidden) shiftHint.hidden = true;
     // The sound of a free colour: once when a link that frees it joins the drawn chain (task 10: with `colorShiftKeep` the 12th,
-    // the 18th… sound too; a step back from the 12th leaves the 6th freeing — heard already, silent). Not free — the memory clears,
-    // so a shift taken again after a step back below it sounds again (as before).
+    // the 18th… sound too). A freeing link stays heard while it is in the drawn chain: a step back from the 12th to the 11th, or
+    // from a 7th of another colour back to the 6th, is silent; a step back below it forgets it, so taking it again sounds again.
+    if (!w.chain.length) shiftHeard.clear();
+    else for (const id of shiftHeard) if (!w.chain.some(l => l.kind === 'enemy' && l.id === id)) shiftHeard.delete(id);
     const freedBy = shiftLeft === 0 ? renderer.colorShiftFreedBy : 0;
-    if (!freedBy) shiftHeard.clear();
-    else if (!shiftHeard.has(freedBy)) { shiftHeard.add(freedBy); if (params.sound) audio.colorShift(params.soundVolume); shiftSounds++; }
+    if (freedBy && !shiftHeard.has(freedBy)) { shiftHeard.add(freedBy); if (params.sound) audio.colorShift(params.soundVolume); shiftSounds++; }
     if (params.sound) {
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
       if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }

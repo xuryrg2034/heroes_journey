@@ -613,10 +613,13 @@ export class RunView {
     return `<svg class="rt-run-map" viewBox="0 0 ${W} ${H}" data-testid="run-map">${edges}${circles}</svg>`;
   }
 
-  /** Task 8c: the quiet line under the header while no node is chosen (it stood in the right column before). */
+  /**
+   * Task 8c: the quiet line under the header while no node is chosen (it stood in the right column before). With a node chosen it
+   * keeps its place, unseen: the map under it must not rescale and move when the card opens or closes (review 13.10.2026).
+   */
   private pickLineHtml(run: RtRunState): string {
-    if (this.selected || run.result || run.pending || !rtAvailableNodes(run).length) return '';
-    return '<p class="rt-run-line" data-testid="run-pick-line">Выбери узел на карте (подсвечены доступные).</p>';
+    if (run.result || run.pending || !rtAvailableNodes(run).length) return '';
+    return `<p class="rt-run-line" data-testid="run-pick-line"${this.selected ? ' style="visibility: hidden"' : ''}>Выбери узел на карте (подсвечены доступные).</p>`;
   }
 
   /**

@@ -178,7 +178,11 @@ check('edge markers: the sapper — only a lit fuse whose blast circle reaches t
   assert(markers(world).length === 0, 'lit but its circle does not reach the view: none');
   sapper.vars.exploded = 1; sapper.x = 12 + VIEW.viewW / 2 + R * 0.5;
   assert(markers(world).length === 0, 'already exploded: none');
-  world.blasts.push({ x: 12 + VIEW.viewW / 2 + R * 0.5, y: 7.5, timeLeft: 0.5, total: 1 } as unknown as World['blasts'][number]);
+  world.blasts.push({ x: 12 + VIEW.viewW / 2 + R * 0.5, y: 7.5, radius: R, timeLeft: 0.5, total: 1 } as unknown as World['blasts'][number]);
+  assert(markers(world).length === 1, 'a bomb on the ground whose circle reaches the view');
+  // Task 7: each blast by its own radius — the goblin's bust (3.5) reaches the view from farther than a sapper's.
+  world.blasts.length = 0;
+  world.blasts.push({ x: 12 + VIEW.viewW / 2 + 3, y: 7.5, radius: 3.5, timeLeft: 0.5, total: 1.2, bust: { hero: 4 } } as unknown as World['blasts'][number]);
   assert(markers(world).length === 1, 'a bomb on the ground whose circle reaches the view');
 });
 

@@ -132,7 +132,7 @@ test('room 1: one real chain of two links, then a second — three kills open th
   await walkIn(page, 1);
   expect((await pro(page)).transition === 'next' || (await pro(page)).room === 2).toBe(true);
   await inRoom(page, 2);
-  expect((await pro(page)).title).toBe('2/6 · Два цвета');
+  expect((await pro(page)).title).toBe('2/9 · Два цвета');
 });
 
 test('room 2: a chain of three blue lights the lamps while it runs, then they go out and the door stays closed; the enemies come back; the full chain of five opens it', async ({ page }) => {
@@ -263,7 +263,7 @@ test('room 8: the goblin — the label at the lever until the first pull; the re
   await inRoom(page, 9);
 });
 
-test('room 9: energy and the action bar appear, Space and Q pulse until used once, 15 kills by real chains (jump by Space and a click, Q by its key) and the door end the prologue: the key is set, the run map follows', async ({ page }) => {
+test('room 9: energy and the action bar appear; Space and Q do not breathe (the player used them in rooms 5–6), 15 kills by real chains (jump by Space and a click, Q by its key) and the door end the prologue: the key is set, the run map follows', async ({ page }) => {
   test.setTimeout(540_000);
   const errors: string[] = [];
   await newViewer(page, errors);
@@ -273,11 +273,12 @@ test('room 9: energy and the action bar appear, Space and Q pulse until used onc
   expect(p.hud.energy).toBe(true);
   expect(p.hud.focus).toBe(true);
   expect(p.hud.actionBar).toBe(true);
-  expect(p.pulse).toMatchObject({ space: true, q: true });
+  // Design 13.10.2026: rooms 5 and 6 taught Space and Q (the prologue's memory of the use is not reset) — no pulse here.
+  expect(p.pulse).toMatchObject({ space: false, q: false });
   expect(p.lamps.total).toBe(15);
   await expect(page.getByTestId('ability-jump')).toBeVisible();
   await titleGone(page);
-  // The start energy is one jump: Space, then a click on free ground — the jump; Space stops breathing, Q still does.
+  // The start energy is one jump: Space, then a click on free ground — the jump.
   const hero = (await snap(page)).hero;
   const landing = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [hero.x + 2.5, hero.y + 1] as const);
   await page.keyboard.press('Space');
@@ -285,7 +286,7 @@ test('room 9: energy and the action bar appear, Space and Q pulse until used onc
   await page.mouse.down(); await page.mouse.up();
   expect(await untilFrame(page, s => s.prologue.pulse.space === false ? true : undefined, 0, 4)).toBe(true);
   p = await pro(page);
-  expect(p.pulse).toMatchObject({ space: false, q: true });
+  expect(p.pulse).toMatchObject({ space: false, q: false });
   // Real chains on what comes (the longest chain from the enemies in reach — 3 links and more bring the chain shield and the focus shield);
   // Q by its key when the chains have earned the energy and a crowd stands round the hero. A death plays the room again: the loop goes on
   // (up to 60 attempts; the waits end with the attempt, the world's clock starts anew).
