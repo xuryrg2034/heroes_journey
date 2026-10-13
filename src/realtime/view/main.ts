@@ -32,7 +32,7 @@ import { linkPoint } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, PARAMS_STORAGE_KEY, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock } from './paramStorage';
+import { loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
 import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
@@ -355,6 +355,11 @@ async function boot(): Promise<void> {
   await loadCharacterArt();
   const renderer = new RealtimeRenderer();
   const audio = new ChainAudio();
+  // The run's sound (design 14.10.2026): outside the sandbox (the run and the prologue) the gear's setting, kept in its own key —
+  // the run plays the default Params, so the panel's «Звук удара» would never mute it; the sandbox keeps its panel.
+  let runSound: SoundSetting | null = sandbox ? null : loadSound();
+  const soundOn = (): boolean => (runSound ? runSound.on : params.sound);
+  const soundVolume = (): number => (runSound ? runSound.volume : params.soundVolume);
   /** Markers of elites already announced by sound, for the world they belong to (each arena counts ids anew). */
   const eliteMarkersHeard = new Set<number>();
   let eliteMarkersWorld: unknown = null;
@@ -634,6 +639,12 @@ async function boot(): Promise<void> {
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
+    // The run's sound on the gear (outside the sandbox): the switch, the volume, one hit when the slider is let go.
+    ...runSound ? { sound: {
+      get: () => ({ ...runSound! }),
+      set(sound: SoundSetting) { runSound = { ...sound }; saveSound(runSound); },
+      preview() { audio.unlock(); if (runSound?.on) audio.hit(1, true, runSound.volume); },
+    } } : {},
     // «Обучение»: the toggle «Подсказки» and the button «Обучение» (the prologue again) on the gear; the screen lines read the same memory.
     ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); }, startPrologue: () => startPrologue('gear') } },
   }, fixedSeed);
@@ -1060,24 +1071,24 @@ async function boot(): Promise<void> {
     else for (const id of shiftHeard) if (!w.chain.some(l => l.kind === 'enemy' && l.id === id)) shiftHeard.delete(id);
     // From the sim this frame (the renderer's value is the last frame's: a step back would see the link just dropped and sound).
     const freedBy = shiftLeft === 0 && !planChain(w).endsOnSurvivor ? colorShiftIds(w).at(-1) ?? 0 : 0;
-    if (freedBy && !shiftHeard.has(freedBy)) { shiftHeard.add(freedBy); if (params.sound) audio.colorShift(params.soundVolume); shiftSounds++; }
-    if (params.sound) {
+    if (freedBy && !shiftHeard.has(freedBy)) { shiftHeard.add(freedBy); if (soundOn()) audio.colorShift(soundVolume()); shiftSounds++; }
+    if (soundOn()) {
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
       if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }
-      for (const m of w.markers) if (m.elite && !eliteMarkersHeard.has(m.id)) { eliteMarkersHeard.add(m.id); audio.eliteMarker(params.soundVolume); }
+      for (const m of w.markers) if (m.elite && !eliteMarkersHeard.has(m.id)) { eliteMarkersHeard.add(m.id); audio.eliteMarker(soundVolume()); }
       // П2 «Тихая мелочь, громкая цепь»: 1–2 enemy links at the release sound −6 dB; 6+ end with a chord.
-      const feel = chainFeel(renderer.dashLinks.of(w)), hitVolume = params.soundVolume * (feel === 'quiet' ? QUIET_GAIN : 1);
+      const feel = chainFeel(renderer.dashLinks.of(w)), hitVolume = soundVolume() * (feel === 'quiet' ? QUIET_GAIN : 1);
       for (const ev of w.events) {
         if (ev.type === 'chainHit') { if (ev.plates !== undefined) audio.plate(hitVolume); else audio.hit(ev.combo, ev.killed, hitVolume, ev.damage); }
-        else if (ev.type === 'chainEnd') { if (feel === 'chord' || feel === 'finale') audio.chord(params.soundVolume); }
-        else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, params.soundVolume);
-        else if (ev.type === 'finisher') audio.finisher(params.soundVolume);
-        else if (ev.type === 'enemySignal') audio.signal(ev.signal, params.soundVolume);
+        else if (ev.type === 'chainEnd') { if (feel === 'chord' || feel === 'finale') audio.chord(soundVolume()); }
+        else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, soundVolume());
+        else if (ev.type === 'finisher') audio.finisher(soundVolume());
+        else if (ev.type === 'enemySignal') audio.signal(ev.signal, soundVolume());
         // Casino stage 1 («Однорукий гоблин»): coins as it appears, the lever, the result.
         else if (ev.type === 'slot') {
-          if (ev.action === 'appear') audio.coins(params.soundVolume);
-          else if (ev.action === 'pull') audio.lever(params.soundVolume);
-          else if (ev.action === 'effect') audio.slotResult(ev.outcome ?? 'none', params.soundVolume);
+          if (ev.action === 'appear') audio.coins(soundVolume());
+          else if (ev.action === 'pull') audio.lever(soundVolume());
+          else if (ev.action === 'effect') audio.slotResult(ev.outcome ?? 'none', soundVolume());
         }
       }
     }
@@ -1430,6 +1441,8 @@ async function boot(): Promise<void> {
         chainShield: { left: w.hero.chainShield, glow: renderer.chainShieldShown, blocks: renderer.shieldBlocksShown },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
+        /** The sound now (the gear's setting outside the sandbox, the panel's in it) and the tones asked for so far (`ChainAudio.requested`). */
+        sound: { on: soundOn(), volume: soundVolume(), tones: audio.requested },
         /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */
         markedView: { ...renderer.markedShown, horde: w.arena.horde ? { ...w.arena.horde } : null },
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */

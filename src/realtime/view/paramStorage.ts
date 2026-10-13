@@ -60,6 +60,29 @@ export function saveLinkDepth(on: boolean): void {
 }
 
 /**
+ * The run's sound (design 14.10.2026): the switch «Звук» and the slider «Громкость» on the gear of the run map — a local setting
+ * of the view, not a Param (Params are hashed; the run plays the default ones, so the sandbox panel's «Звук удара» no longer
+ * reaches it). Everything outside the sandbox (the run and the prologue) plays by it; the sandbox keeps its panel. Its own key;
+ * storage may be unavailable or hold junk (then on, 0.3 — the Params' defaults).
+ */
+export interface SoundSetting { on: boolean; volume: number }
+const SOUND_KEY = 'ashen-oath-realtime-sound';
+export const SOUND_DEFAULT: SoundSetting = { on: true, volume: 0.3 };
+
+export function loadSound(): SoundSetting {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SOUND_KEY) ?? 'null') as Partial<SoundSetting> | null;
+    if (!raw || typeof raw !== 'object') return { ...SOUND_DEFAULT };
+    const volume = typeof raw.volume === 'number' && raw.volume >= 0 && raw.volume <= 1 ? raw.volume : SOUND_DEFAULT.volume;
+    return { on: typeof raw.on === 'boolean' ? raw.on : SOUND_DEFAULT.on, volume };
+  } catch { return { ...SOUND_DEFAULT }; }
+}
+
+export function saveSound(sound: SoundSetting): void {
+  try { localStorage.setItem(SOUND_KEY, JSON.stringify({ on: sound.on, volume: sound.volume })); } catch { /* storage may be unavailable */ }
+}
+
+/**
  * Phase B, track Д5: the sandbox build — a counter talisman (Т1), a relic or the new oath (Т3, 5а) and a hammer (Т2) put into
  * the sandbox loadout from the next arena. Not a Param (Params are hashed: a new key would change the hash of old journals);
  * the loadout goes into the journal as it is. Its own key; storage may be unavailable (then nothing taken).

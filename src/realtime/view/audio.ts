@@ -8,6 +8,8 @@ export const HIT_STEPS = 8;
 
 export class ChainAudio {
   private ctx: AudioContext | null = null;
+  /** Tones asked for with a volume above 0, played or not (no context yet): the decision to sound, which tests read. */
+  requested = 0;
 
   /** Call from a user gesture (pointerdown / keydown): creates or resumes the context. */
   unlock(): void {
@@ -91,6 +93,7 @@ export class ChainAudio {
   }
 
   private tone(freq: number, type: OscillatorType, length: number, volume: number, delay = 0): void {
+    if (volume > 0) this.requested++;
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running' || volume <= 0) return;
     const t = ctx.currentTime + Math.max(0, delay), osc = ctx.createOscillator(), gain = ctx.createGain();

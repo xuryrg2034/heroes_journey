@@ -41,6 +41,7 @@
     "test:realtime-pierce": "tsx src/realtime/sim/pierce.spec.ts",
     "test:realtime-spawn-hold": "tsx src/realtime/sim/spawnHold.spec.ts",
     "test:realtime-session": "tsx src/realtime/view/session.spec.ts",
+    "test:realtime-sound": "tsx src/realtime/view/sound.spec.ts",
     "test:realtime-new-seen": "tsx src/realtime/view/newSeen.spec.ts",
     "test:realtime-hints": "tsx src/realtime/view/hints.spec.ts",
     "test:realtime-node-card": "tsx src/realtime/view/nodeCard.spec.ts",
