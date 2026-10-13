@@ -30,7 +30,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -186,7 +186,8 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       if (events.some(e => e.type === 'talisman-rerolled')) break;
       const taken = events.flatMap(e => (e.type === 'talisman-taken' ? [e.id as string] : []));
       // B6 К7: the chest's screen is a choice of its own on the same node (not merged with the «Застава» talismans).
-      choice(pending.nodeId, pending.source === 'oath' ? 'oath' : pending.source === 'chest' ? CHEST_SOURCE : 'talisman', pending.options.map(String), taken);
+      // Task 16: the feat's screen too (`feat`).
+      choice(pending.nodeId, pending.source === 'oath' ? 'oath' : pending.source === 'chest' ? CHEST_SOURCE : pending.source === 'feat' ? FEAT_SOURCE : 'talisman', pending.options.map(String), taken);
       break;
     }
     case 'die': {
@@ -240,6 +241,8 @@ export function mergeChoice(list: RunChoice[], c: RunChoice): void {
   for (const o of c.offered) if (!old.offered.includes(o)) old.offered.push(o);
   old.taken.push(...c.taken);
   old.refused = old.offered.filter(o => !old.taken.includes(o));
+  // Task 16 telemetry: the screen's real seconds add up over its steps.
+  if (c.realSeconds !== undefined) old.realSeconds = (old.realSeconds ?? 0) + c.realSeconds;
 }
 
 /** The build at the end of the run (or now). */
@@ -286,6 +289,11 @@ interface RunMeta {
   secondWind?: RunSecondWind;
   /** Task 15: the map heals bought (absent — none yet). */
   mapHeals?: RunMapHeal[];
+  /** Task 16: the run's feats flag, its fights' feats, the viewer's run number, the first meetings (absent — none). */
+  featsOn?: true;
+  feats?: RunFeat[];
+  viewerRun?: number;
+  firsts?: RunFirst[];
 }
 
 /** Where a fight is: a run node or the sandbox. */
@@ -305,6 +313,10 @@ interface OpenFight {
   done: boolean;
   /** `pagehide` cut the fight (its stash key): a page restored from the back-forward cache records it on. */
   hidden?: string;
+  /** Task 16 telemetry: first meetings reported during the fight (`firstMeet`); absent — none. */
+  novelty?: number;
+  /** Task 16: the fight's feat summary at its end (the next run step takes it for `RunRecord.feats`). */
+  feat?: FeatSummary | null;
 }
 
 /** The fight record without the header and journal meta (the stash of `pagehide` keeps this). */
@@ -505,6 +517,9 @@ export class RtRecorder {
       ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
       ...view ? { view } : {}, summary: f.tap.summary(world),
     };
+    // Task 16 telemetry: the view's count of first meetings in the fight; the feat's summary for the run step that feeds it back.
+    if (f.novelty) body.summary.novelty = f.novelty;
+    f.feat = body.summary.feat ?? null;
     if (f.itemsIn && world.kit && (outcome === 'victory' || outcome === 'defeat')) f.itemsOut = { end: { ...world.kit.items }, used: { ...body.summary.abilities.items } };
     if (f.run !== SANDBOX_RUN && this.meta?.key === f.run) {
       const meta = this.meta;
@@ -638,13 +653,17 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, runParams,
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {},
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
 
-  /** A new run; the one before it without a result is `abandoned`. */
-  runStarted(previous: RtRunState | null, run: RtRunState): void {
+  /**
+   * A new run; the one before it without a result is `abandoned`. `viewerRun` (task 16) — the viewer's run number (the profile's
+   * count, run/rtRunStorage.ts `startRun`); absent — not known.
+   */
+  runStarted(previous: RtRunState | null, run: RtRunState, viewerRun?: number): void {
     safe(undefined, () => {
       if (previous && !previous.result) {
         const meta = this.metaFor(previous);
@@ -659,6 +678,30 @@ export class RtRecorder {
       if (run.startPotion) this.meta.startPotion = true;
       if (run.secondWind) this.meta.secondWindOn = true;
       if (Object.keys(start).length) this.meta.startItems = start;
+      // Task 16: the run's feats flag and the viewer's run number.
+      if (run.feats) this.meta.featsOn = true;
+      if (viewerRun !== undefined && Number.isInteger(viewerRun) && viewerRun >= 1) this.meta.viewerRun = viewerRun;
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
+  /**
+   * Task 16 telemetry: the viewer meets a concept for the first time (the view decides «first»: its own memory, e.g. NewSeenStore).
+   * `id` — `kind:<enemy kind>`, `affix:<affix>`, `goblin-bust`, `elite`, `bag`, `feat`, `second-wind`, `heal-button`, `circle`.
+   * Goes into the run record once a run (`RunRecord.firsts`: the fight key when a run fight is recorded now, the run row) and
+   * counts toward the recorded fight's `summary.novelty` (a sandbox fight too). No run (`run` null) — only the fight's count.
+   */
+  firstMeet(run: RtRunState | null, id: string): void {
+    if (typeof id !== 'string' || !id) return;
+    safe(undefined, () => {
+      const f = this.fight && !this.fight.done ? this.fight : null;
+      if (f) f.novelty = (f.novelty ?? 0) + 1;
+      if (!run) return;
+      const meta = this.metaFor(run);
+      if (meta.firsts?.some(entry => entry.id === id)) return;
+      const fight = f && f.run === meta.key ? f.key : null, last = meta.nodes[meta.nodes.length - 1];
+      (meta.firsts ??= []).push({ id, fight, row: fight && f!.ctx.row !== undefined ? f!.ctx.row : last?.row ?? 0 });
       this.saveMeta();
       this.writeRun(run);
     });
@@ -686,10 +729,33 @@ export class RtRecorder {
     });
   }
 
-  /** A run step went through (`RunView.apply`): nodes, choices, the end; the run record is written again (same id). */
-  runStep(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>): void {
+  /**
+   * A run step went through (`RunView.apply`): nodes, choices, the end; the run record is written again (same id). `realSeconds`
+   * (task 16) — real seconds the screen of the choice this step made was open (the view measures; absent — not measured): it goes
+   * into the choices of this step (`RunChoice.realSeconds`).
+   */
+  runStep(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>, info: { realSeconds?: number } = {}): void {
     safe(undefined, () => {
       const after = step.run, meta = this.metaFor(before && before.seed === after.seed ? before : after);
+      // Task 16 «Подвиги»: a fed-back fight with a feat (the fight's own summary gives when and how much was missing).
+      if (before && after.battles.length > before.battles.length) {
+        const record = after.battles[after.battles.length - 1], node = rtNode(after, record.nodeId);
+        if (record.feat) {
+          const f = this.fight, own = f && f.done && f.run === meta.key && f.ctx.nodeId === record.nodeId ? f : null, summary = own?.feat ?? null;
+          const visit = [...meta.nodes].reverse().find(v => v.nodeId === record.nodeId);
+          (meta.feats ??= []).push({
+            nodeId: record.nodeId, row: visit?.row ?? (node ? runRow(node.row) : 0), kind: record.feat.kind, n: record.feat.n,
+            reward: 'talisman' in record.feat.reward ? 'talisman' : 'resources', ...'resources' in record.feat.reward ? { resources: record.feat.reward.resources } : {},
+            done: record.feat.done, won: record.won, paid: null, at: summary ? summary.at : null, missing: summary ? summary.missing : null, fight: own?.key ?? visit?.fight ?? null,
+          });
+        }
+      }
+      for (const ev of step.events) {
+        const feat = [...meta.feats ?? []].reverse().find(entry => entry.nodeId === (ev.type === 'feat-paid' || ev.type === 'talisman-offered' ? ev.nodeId : null));
+        if (!feat) continue;
+        if (ev.type === 'feat-paid') feat.paid = ev.fallback ? 'fallback' : 'resources';
+        else if (after.pending?.kind === 'talisman' && after.pending.source === 'feat' && after.pending.nodeId === feat.nodeId) feat.paid = 'talisman';
+      }
       for (const ev of step.events) {
         if (ev.type === 'node-entered') {
           const node = rtNode(after, ev.nodeId), row = node ? runRow(node.row) : ev.row;
@@ -719,7 +785,8 @@ export class RtRecorder {
           meta.endedAt ??= new Date().toISOString();
         }
       }
-      for (const c of stepChoices(before, step)) mergeChoice(meta.choices, c);
+      const seconds = typeof info.realSeconds === 'number' && Number.isFinite(info.realSeconds) && info.realSeconds >= 0 ? info.realSeconds : undefined;
+      for (const c of stepChoices(before, step)) mergeChoice(meta.choices, seconds !== undefined ? { ...c, realSeconds: seconds } : c);
       if (before && before.seed === after.seed) this.trackItems(meta, before, step);
       // A map heal (task 15) is not the last node's: its HP out stays as the node left it (the heal is in `mapHeals`).
       const last = step.events.length && step.events.every(e => e.type === 'map-healed') ? undefined : meta.nodes[meta.nodes.length - 1];

@@ -65,8 +65,8 @@ export interface RunHost {
    * (choices, nodes, the end); called before an arena it readies starts.
    */
   runStep?(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>): void;
-  /** Telemetry: a new run starts; `previous` without a result is abandoned. */
-  runStarted?(previous: RtRunState | null, run: RtRunState): void;
+  /** Telemetry: a new run starts; `previous` without a result is abandoned; `viewerRun` — the viewer's run number (task 16, the profile's count). */
+  runStarted?(previous: RtRunState | null, run: RtRunState, viewerRun?: number): void;
   /** Telemetry: the «Логи» panel (absent — no button). */
   openLogs?(): void;
   /**
@@ -257,10 +257,12 @@ export class RunView {
     const seeded = seed !== undefined || this.fixedSeed !== null;
     const value = (seed ?? this.fixedSeed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     const previous = this.run;
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded });
+    // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn() });
+    const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
-    this.host.runStarted?.(previous, this.run);
+    this.host.runStarted?.(previous, this.run, viewerRun);
     this.selected = null; this.notice = ''; this.confirmReset = false; this.luckOpen = false;
     this.open();
     return this.run;

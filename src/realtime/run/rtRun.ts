@@ -48,6 +48,8 @@ import { addLuck, countLuck, rtLuckLines, validLuckTally, RT_FIGHT_LUCK_KEYS, ty
 import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalismanDraw, rtTalismanLeft, type HammerId } from './rtTalismans';
 // П6 «Незакрытое дело»: the lost fight's killing blow (rtRunEnd.ts).
 import { validDeath, type RtDeath } from './rtRunEnd';
+// Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
+import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
@@ -93,6 +95,9 @@ import { validDeath, type RtDeath } from './rtRunEnd';
  * Task 15 «Лечение на карте» (the same version, design 14.10.2026): the run's flag `healMap`, set at its creation, and the
  * count of map heals bought `healBought` (absent until the first). A save without the flag has no map heal to its end and
  * saves byte for byte as before.
+ * Task 16 «Подвиги» (the same version, design 13.10.2026): the run's flag `feats`, set at its creation from the profile (the
+ * player reached the Jailer in an earlier run); the open battle's `feat` and a battle record's `feat`; an open talisman offer
+ * of source `feat`. A save without the flag has no feats to its end and saves byte for byte as before.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -165,7 +170,10 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   colorShiftKeep: true,
   // Task 14 «Котомка у двери» (user decision 13.10.2026): the bag after the goals; from run row 2 (`RT_BAG_ROW`), not the Jailer's,
   // not the final fight (`Loadout.noBag`).
-  doorBag: true });
+  doorBag: true,
+  // Task 16 «Подвиги» (user 13.10.2026): the simulation watches the node's feat (`Loadout.feat`); which fights get one is the
+  // run's (its flag `feats`, `rtFeatOf`).
+  feats: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 /**
@@ -250,6 +258,8 @@ export type RtRunPending =
      * absent — the node offers none, or a version 6 save) and the one taken (absent — «Без клятвы»).
      */
     oathOffer?: OathId[]; oath?: OathId;
+    /** Task 16 «Подвиги»: the node's feat, fixed when the battle opened (`rtFeatOf`; absent — none, or a run without `feats`). */
+    feat?: RtFeat;
   }
   /** A rest: heal, or craft (`crafted` — the consumables made here so far; non-empty — the heal is gone). */
   | { kind: 'rest'; nodeId: string; crafted: ItemKind[] }
@@ -320,6 +330,11 @@ export interface RtBattleRecord {
    * lost record. Absent — a won fight, a death not read (no lethal hit seen), or a record saved before it.
    */
   death?: RtDeath;
+  /**
+   * Task 16 «Подвиги» (the same version 7, 14.10.2026): the fight's feat and whether it was done in the fight (a lost fight's
+   * too: the result screen's grey line). Absent — the fight had no feat (a run without `feats`, a node without one).
+   */
+  feat?: RtFeatRecord;
 }
 /**
  * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
@@ -370,6 +385,12 @@ export interface RtRunState {
   healMap?: true;
   /** Task 15: map heals bought in this run (the next costs RT_HEAL_MAP_PRICE + this). Absent until the first (needs `healMap`). */
   healBought?: number;
+  /**
+   * Task 16 «Подвиги» (design 13.10.2026, complexity budget): the run's battles carry feats (`rtFeatOf`). Set when the run is
+   * created from the profile — the player reached the Jailer in an earlier run (run/rtRunStorage.ts `featsOn`); absent — a first
+   * run, or a run saved before 14.10.2026: no feats, to its end.
+   */
+  feats?: true;
   /** Task 17: the run's second wind stood the hero up (rows 1–4, once a run). Absent — not yet (or a run without `secondWind`). */
   secondWindSpent?: true;
   /**
@@ -486,6 +507,12 @@ export type RtRunEvent =
    * run row of the last completed node (0 — none yet), `nodeId` — that node (null — none yet).
    */
   | { type: 'map-healed'; nodeId: string | null; row: number; price: number; paid: Record<ResourceKind, number>; hpBefore: number; hpAfter: number }
+  /**
+   * Task 16 «Подвиги»: the feat of the won fight at `nodeId` paid `resources` (its kinds) — its resources reward at the door, or
+   * (`fallback`) the resources by the row instead of a talisman choice when fewer than RT_FEAT_TALISMANS talismans were left.
+   * A talisman reward opens the talisman screen of source `feat` (`talisman-offered`) instead.
+   */
+  | { type: 'feat-paid'; nodeId: string; kind: FeatKind; n: number; resources: ResourceKind[]; fallback?: true }
   | { type: 'gift-chosen'; index: number | null }
   /** Casino stage 1, item 2: the node card offered these oaths; the battle is entered under `id` (null — «Без клятвы»). */
   | { type: 'oath-offered'; nodeId: string; options: OathId[] }
@@ -536,6 +563,11 @@ export interface RtArenaOutcome {
    * them to its materials on a victory. Absent — nothing paid (no bag, no step filled, a defeat).
    */
   bag?: Partial<Record<ResourceKind, number>>;
+  /**
+   * Task 16 «Подвиги» (sim/feat.ts `featResult`): the fight's feat was done (`done`) — the run pays its reward on a victory; `value`
+   * and `at` are for telemetry. Absent — no feat read (the record then keeps it not done).
+   */
+  feat?: { done: boolean; value?: number; at?: number };
   /** Step 3: «Пепельный оберег» saved the hero on this arena (it crumbles for the run). */
   wardUsed?: boolean;
   /** Task 17: the run's second wind stood the hero up on this arena (`world.secondWind` is there) — spent for the run. */
@@ -564,7 +596,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -575,7 +607,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 15 «Лечение на карте» (14.10.2026): its own flag, on unless the option says (false — no map heal, as a save before it).
   const healMap = options.healMap ?? RT_HEAL_MAP_ON;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...options.feats ? { feats: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -717,6 +749,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...run.hammer ? { hammer: run.hammer } : {},
     // Casino stage 1, item 2: the oath the node card took (the sim checks it, `Params.oathStake`).
     ...pending?.kind === 'battle' && pending.oath ? { oath: pending.oath } : {},
+    // Task 16 «Подвиги»: the feat the open battle fixed (the simulation watches its kind and N; the reward stays the run's).
+    ...pending?.kind === 'battle' && pending.feat ? { feat: { kind: pending.feat.kind, n: pending.feat.n } } : {},
   };
 }
 
@@ -743,6 +777,109 @@ export const rtMetKinds = (run: Pick<RtRunState, 'metKinds'>): Set<string> => ne
  */
 export function rtGuaranteedElite(node: Pick<ForestMapNode, 'type' | 'row'>, battle: RtBattleKind, gentle = false): boolean {
   return (battle === 'battle' || battle === 'event') && node.type !== 'checkpoint' && runRow(node.row) >= (gentle ? RT_GENTLE_ELITE_ROW : RT_GUARANTEED_ELITE_ROW);
+}
+
+// ---------- Task 16 «Подвиги» (user 13.10.2026, design 13.10.2026; docs/realtime-slice.md, «Подвиги») ----------
+
+/** The reward of a feat, shown in advance: resources (paid at the door) or a talisman choice of RT_FEAT_TALISMANS. */
+export type RtFeatReward = { resources: number } | { talisman: true };
+/** The feat of a node: what it asks (sim/feat.ts `FeatGoal`) and its reward. */
+export interface RtFeat { kind: FeatKind; n: number; reward: RtFeatReward }
+/** A fight's feat in its battle record: the feat and whether the fight did it. */
+export interface RtFeatRecord extends RtFeat { done: boolean }
+/** The salt of the run's feat draw (`mixSeed(mixSeed(forestNodeSeed(seed, node), «rt-feats»), k)`): no forest stream moves. */
+export const FEATS_SALT = [...'rt-feats'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+/** Баланс (design 13.10.2026): a feat's reward is a talisman choice in this many of 100 (else resources). */
+export const RT_FEAT_TALISMAN_CHANCE = 25;
+/** Баланс: the talisman choice of a feat offers this many (fewer left in the pool — resources by the row instead). */
+export const RT_FEAT_TALISMANS = 2;
+/** Баланс (design 13.10.2026): «Набери N очков» by the run row — rows 1–3: 800, 4–6: 1000, 7+: 1200. */
+export const rtFeatScore = (row: number): number => (row <= 3 ? 800 : row <= 6 ? 1000 : 1200);
+/** Баланс: «Продержись N с после целей» — rows 1–3: 20, 4–6: 30, 7+: 40 game seconds. */
+export const rtFeatAfterGoals = (row: number): number => (row <= 3 ? 20 : row <= 6 ? 30 : 40);
+/** Баланс: «Продержись N с на арене» — rows 1–3: 60, 4–6: 80, 7+: 100 game seconds of the fight. */
+export const rtFeatArena = (row: number): number => (row <= 3 ? 60 : row <= 6 ? 80 : 100);
+/** Баланс: a feat's resources by the run row — rows 1–4: 3, 5+: 4 (also instead of a talisman choice when the pool is short). */
+export const rtFeatResources = (row: number): number => (row <= 4 ? 3 : 4);
+/** N of a feat kind on a run row. */
+export const rtFeatN = (kind: FeatKind, row: number): number => (kind === 'score' ? rtFeatScore(row) : kind === 'afterGoals' ? rtFeatAfterGoals(row) : rtFeatArena(row));
+/**
+ * A node whose fight may carry a feat (design 13.10.2026): an ordinary battle, «Застава», the breakthrough, an event (its reward
+ * battle, if the player fights it); not the Jailer (checkpoint), not the final (boss).
+ */
+export const rtFeatNode = (node: Pick<ForestMapNode, 'type'>): boolean => ['battle', 'hard', 'breakthrough', 'event'].includes(node.type);
+/** The node's own feat draw `k` (0 — the kind, 1 — the reward, 2 — the talisman offer, 3… — the resource kinds). */
+const featDraw = (seed: number, nodeId: string, k: number): number => mixSeed(mixSeed(forestNodeSeed(seed >>> 0, nodeId), FEATS_SALT), k);
+/**
+ * The feat the node's own draw gives (pure: the run seed and the node decide it; the pool is not looked at): a kind of the three
+ * (⅓ each), N by the run row, the reward — a talisman choice in RT_FEAT_TALISMAN_CHANCE of 100, else resources by the row.
+ */
+export function rtFeatRoll(seed: number, node: Pick<ForestMapNode, 'id' | 'row'>): RtFeat {
+  const row = runRow(node.row), kind = FEAT_KINDS[featDraw(seed, node.id, 0) % FEAT_KINDS.length];
+  const talisman = featDraw(seed, node.id, 1) % 100 < RT_FEAT_TALISMAN_CHANCE;
+  return { kind, n: rtFeatN(kind, row), reward: talisman ? { talisman: true } : { resources: rtFeatResources(row) } };
+}
+/** The base of the feat's talisman offer at `nodeId` (the first offer of its screen; a reroll draws the `talismans` stream). */
+const featOfferBase = (seed: number, nodeId: string): number => featDraw(seed, nodeId, 2);
+/** The resource kinds a feat at `nodeId` pays (`count` of them; uniform over the four kinds, by the node's own draw). */
+export function rtFeatKinds(seed: number, nodeId: string, count: number): ResourceKind[] {
+  return Array.from({ length: Math.max(0, count) }, (_, i) => RESOURCE_KINDS[featDraw(seed, nodeId, 3 + i) % RESOURCE_KINDS.length]);
+}
+/**
+ * The feat of `node` in this run now: null — the run has no feats (its flag `feats`) or the node gets none. A talisman reward
+ * becomes resources by the row when the feat's offer would hold fewer than RT_FEAT_TALISMANS (the pool as it is now).
+ */
+export function rtFeatOf(run: RtRunState, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>): RtFeat | null {
+  if (!run.feats || !rtFeatNode(node)) return null;
+  const feat = rtFeatRoll(run.seed, node);
+  if ('talisman' in feat.reward && rtEventTalismanOffer(featOfferBase(run.seed, node.id), RT_FEAT_TALISMANS, talismanPool(run)).length < RT_FEAT_TALISMANS) {
+    return { ...feat, reward: { resources: rtFeatResources(runRow(node.row)) } };
+  }
+  return feat;
+}
+/**
+ * The feat the map shows on a node (the card, design 13.10.2026: the reward is shown in advance): the open battle's fixed one,
+ * the recorded fight's, or — a node not entered yet — `rtFeatOf` now. Null — none (also an entered event node that played no
+ * fight, a run without feats).
+ */
+export function rtNodeFeat(run: RtRunState, node: ForestMapNode): RtFeat | null {
+  const pending = run.pending;
+  if (pending?.kind === 'battle' && pending.nodeId === node.id) return pending.feat ? structuredClone(pending.feat) : null;
+  const record = [...run.battles].reverse().find(entry => entry.nodeId === node.id);
+  if (record) return record.feat ? { kind: record.feat.kind, n: record.feat.n, reward: structuredClone(record.feat.reward) } : null;
+  if (run.picks.some(pick => pick.nodeId === node.id) || run.visited.includes(node.id) || (pending && 'nodeId' in pending && pending.nodeId === node.id)) return null;
+  return rtFeatOf(run, node);
+}
+/** The won fight of `nodeId` did its feat and its reward is a talisman choice (its screen comes last, `finishBattleNode`). */
+export function rtFeatTalismanOwed(run: Pick<RtRunState, 'battles'>, nodeId: string): boolean {
+  const record = [...run.battles].reverse().find(entry => entry.nodeId === nodeId);
+  return !!record?.won && !!record.feat?.done && 'talisman' in record.feat.reward;
+}
+/** The feat's resources paid into the run's materials (kinds by the node's draw), with the event `feat-paid`. */
+function payFeat(run: RtRunState, nodeId: string, feat: RtFeat, count: number, fallback: boolean, events: RtRunEvent[]): void {
+  const resources = rtFeatKinds(run.seed, nodeId, count);
+  for (const kind of resources) run.materials[kind]++;
+  events.push({ type: 'feat-paid', nodeId, kind: feat.kind, n: feat.n, resources, ...fallback ? { fallback: true as const } : {} });
+}
+/**
+ * The last step of a won battle node (after its own screens): a done feat with a talisman reward opens its choice of
+ * RT_FEAT_TALISMANS (source `feat`; fewer left in the pool now — resources by the row instead); otherwise the node completes.
+ */
+function finishBattleNode(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]): RtRunStep {
+  const record = rtFeatTalismanOwed(run, node.id) ? [...run.battles].reverse().find(entry => entry.nodeId === node.id) : undefined;
+  if (record?.feat) {
+    const offer = talismanOfferOf(run, node.id, 'feat', featOfferBase(run.seed, node.id))!;
+    if (offer.length >= RT_FEAT_TALISMANS) { offerTalismans(run, node.id, 'feat', offer, events); return { ok: true, run, events }; }
+    payFeat(run, node.id, record.feat, rtFeatResources(runRow(node.row)), true, events);
+  }
+  completeNode(run, node, events); return { ok: true, run, events };
+}
+/** A feat of a save: the node's draw (kind, N), its reward or the resources by the row in place of a talisman. */
+function validFeat(value: unknown, seed: number, node: ForestMapNode, done: boolean): boolean {
+  if (!isRecord(value) || !isFeatKind(value.kind) || Object.keys(value).some(key => !['kind', 'n', 'reward', ...done ? ['done'] : []].includes(key))) return false;
+  if (done && typeof value.done !== 'boolean') return false;
+  const roll = rtFeatRoll(seed, node), same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  return rtFeatNode(node) && value.kind === roll.kind && value.n === roll.n && (same(value.reward, roll.reward) || same(value.reward, { resources: rtFeatResources(runRow(node.row)) }));
 }
 
 // ---------- The oath stake (casino stage 1, item 2; docs/realtime-casino.md, «Ставка клятвы») ----------
@@ -820,7 +957,7 @@ function offerTalismans(run: RtRunState, nodeId: string, source: RtTalismanSourc
  * Where a talisman offer comes from: a won hard battle, the Jailer's row (oaths and relics), an event's reward battle, the
  * cursed chest of a won hard battle (B6 К7, after the hard battle's own offer).
  */
-export type RtTalismanSource = 'hard' | 'oath' | 'event' | 'chest';
+export type RtTalismanSource = 'hard' | 'oath' | 'event' | 'chest' | 'feat';
 /** Баланс (research К7, design 12.10.2026): the chest offers this many common talismans (an empty rarity gives way to uncommon). */
 export const RT_CHEST_TALISMANS = 2;
 /** B6 К7: the won fight of `nodeId` took the cursed chest — its talisman screen follows the hard battle's. */
@@ -838,6 +975,8 @@ function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSour
   const pool = exclude.length ? { taken: run.talismans, gone: [...run.talismansGone, ...exclude] } : talismanPool(run);
   // B6 К7: the chest's commons — the real-time draw of the gift and events (no rare ones).
   if (source === 'chest') return rtEventTalismanOffer(base, RT_CHEST_TALISMANS, pool);
+  // Task 16 «Подвиги»: the feat's choice of two — drawn as the chest's.
+  if (source === 'feat') return rtEventTalismanOffer(base, RT_FEAT_TALISMANS, pool);
   if (source !== 'event') return rtTalismanOffer(base, source, pool);
   const pick = run.picks.find(entry => entry.nodeId === nodeId), battle = pick?.eventId ? battleOption(forestEvent(pick.eventId)!)?.battle : undefined;
   return battle ? rtEventTalismanOffer(base, battle.talismanChoice, pool) : null;
@@ -852,7 +991,7 @@ export const RT_REROLL_PRICE = 1;
  * (`chest`, B6); not the Jailer's oaths and relics (`oath`). The reroll works on the open offer by its source
  * (`talismanOfferOf`), not on the screen.
  */
-export const RT_REROLL_SOURCES: readonly RtTalismanSource[] = ['hard', 'event', 'chest'];
+export const RT_REROLL_SOURCES: readonly RtTalismanSource[] = ['hard', 'event', 'chest', 'feat'];
 /** The reroll of the open offer: its price now, the resources in hand, the rerolls made on this screen, why it is off. */
 export interface RtRerollView { price: number; total: number; rerolls: number; available: boolean; reason: string }
 /**
@@ -913,6 +1052,8 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
     offerTalismans(run, node.id, 'chest', talismanOfferOf(run, node.id, 'chest', draw(run, 'talismans', true))!, events);
     return { ok: true, run, events };
   }
+  // Task 16 «Подвиги»: the feat's talisman screen comes last (after the fight's talismans and the chest's).
+  if (pending.source !== 'feat') return finishBattleNode(run, node, events);
   completeNode(run, node, events); return { ok: true, run, events };
 }
 
@@ -1031,7 +1172,9 @@ function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, 
   const pick = arenaPick(run, node, true), roster = pick.roster !== undefined ? { roster: pick.roster } : {};
   const entry = run.picks.find(p => p.nodeId === node.id);
   if (entry) Object.assign(entry, { arena: pick.arena }, roster); else run.picks.push({ nodeId: node.id, arena: pick.arena, ...roster });
-  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle, ...roster };
+  // Task 16 «Подвиги»: the node's feat is fixed now (its talisman reward checked against the pool as it is).
+  const feat = rtFeatOf(run, node);
+  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle, ...roster, ...feat ? { feat } : {} };
   events.push({ type: 'battle-ready', nodeId: node.id, arena: pick.arena });
 }
 
@@ -1157,7 +1300,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     // B6 К7: the chest of «Застава» was taken (no other arena has one).
     ...outcome.chest === true && pending.arena === HARD_ARENA ? { chest: true as const } : {},
     // П6: the killing blow of a lost fight (a malformed one is not kept).
-    ...!outcome.won && validDeath(outcome.death) ? { death: structuredClone(outcome.death) } : {} });
+    ...!outcome.won && validDeath(outcome.death) ? { death: structuredClone(outcome.death) } : {},
+    // Task 16 «Подвиги»: the open battle's feat and whether the fight did it (a lost fight's too).
+    ...pending.feat ? { feat: { ...structuredClone(pending.feat), done: outcome.feat?.done === true } } : {} });
   // П5: the fight's chance joins the run's tally (a lost fight's too).
   const luck = addLuck(run.luck, outcome.luck, RT_FIGHT_LUCK_KEYS);
   if (luck) run.luck = luck;
@@ -1188,6 +1333,8 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.materials?.[kind]) || 0));
   // Task 14 «Котомка у двери»: the door's payout of the bag (a defeat returned above: it pays nothing).
   for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.bag?.[kind]) || 0));
+  // Task 16 «Подвиги»: a done feat's resources are paid at the door with the bag (a talisman reward waits for its screen).
+  if (pending.feat && outcome.feat?.done === true && 'resources' in pending.feat.reward) payFeat(run, pending.nodeId, pending.feat, pending.feat.reward.resources, false, events);
   run.energy = 0;
   const node = rtNode(run, pending.nodeId)!;
   if (pending.battle === 'hard') {
@@ -1237,7 +1384,7 @@ function afterVictory(run: RtRunState, node: ForestMapNode, battle: RtBattleKind
       return { ok: true, run, events };
     }
   }
-  completeNode(run, node, events); return { ok: true, run, events };
+  return finishBattleNode(run, node, events);
 }
 
 /**
@@ -2083,6 +2230,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 15 (14.10.2026): a flag; absent — a save before it, which has no map heal. `healBought` (1 or more) needs the flag.
   if (value.healMap !== undefined && value.healMap !== true) return null;
   if (value.healBought !== undefined && !(value.healMap === true && isCount(value.healBought) && value.healBought >= 1)) return null;
+  // Task 16 (14.10.2026): a flag; absent — a save before it (or a first run), which has no feats.
+  if (value.feats !== undefined && value.feats !== true) return null;
   if (value.secondWindSpent !== undefined && (value.secondWindSpent !== true || value.secondWind !== true || !Array.isArray(value.battles) || !value.battles.length)) return null;
   const streams = parseStreams(value.streams);
   if (!streams) return null;
@@ -2161,6 +2310,8 @@ function checkRun(value: unknown): RtRunState | null {
     if (record.chest !== undefined && (record.chest !== true || record.arena !== HARD_ARENA)) return null;
     // П6: the killing blow only on the run's lost record.
     if (record.death !== undefined && (record.won || !validDeath(record.death) || !isRecord(run.result) || run.result.outcome !== 'defeat' || run.result.nodeId !== record.nodeId)) return null;
+    // Task 16: a fight's feat only in a run with feats, the node's own draw.
+    if (record.feat !== undefined && !(run.feats === true && validFeat(record.feat, run.seed, map.node(record.nodeId)!, true))) return null;
   }
   // B7 К9: the circle and the casino stream's counter — both or neither (absent: no circle stood in the run).
   if ((run.casinoDraws === undefined) !== (run.casino === undefined) || (run.casino !== undefined && !validCasino(run, map))) return null;
@@ -2199,6 +2350,8 @@ function checkRun(value: unknown): RtRunState | null {
         if (!rtOathNode(node) || !(run.oathDraws >= 1) || (offered !== draw(RT_OATH_IDS) && offered !== draw(RT_OATH_IDS_BEFORE))) return null;
       }
       if (pending.oath !== undefined && !(isOathId(pending.oath) && Array.isArray(pending.oathOffer) && pending.oathOffer.includes(pending.oath))) return null;
+      // Task 16: the open battle's feat — only in a run with feats, the node's own draw.
+      if (pending.feat !== undefined && !(run.feats === true && validFeat(pending.feat, run.seed, node, false))) return null;
       break;
     }
     case 'die': {
@@ -2216,7 +2369,9 @@ function checkRun(value: unknown): RtRunState | null {
       const source = pending.source, options = pending.options;
       if (!(source === 'hard' && node.type === 'hard' || source === 'oath' && node.type === 'checkpoint' || source === 'event' && node.type === 'event'
         // B6 К7: the chest's offer — a hard node whose won fight took the chest (its own offer was chosen before).
-        || source === 'chest' && node.type === 'hard' && rtChestOwed(run, node.id))) return null;
+        || source === 'chest' && node.type === 'hard' && rtChestOwed(run, node.id)
+        // Task 16: the feat's choice — a won fight of the node that did its feat with a talisman reward.
+        || source === 'feat' && run.feats === true && rtFeatNode(node) && rtFeatTalismanOwed(run, node.id))) return null;
       if (!Array.isArray(options) || options.length > 3 || !options.every(option => isRtTalisman(option)) || new Set(options).size !== options.length) return null;
       // B5 К10 (the same version 7): the rerolls of this screen and the talismans they took away — both or neither; only an
       // offer that is rerolled; each reroll took at least one shown talisman and one `talismans` draw; the shown ones are
@@ -2225,12 +2380,16 @@ function checkRun(value: unknown): RtRunState | null {
       if ((rerolls === undefined) !== (rerolled === undefined)) return null;
       if (rerolls !== undefined) {
         if (!RT_REROLL_SOURCES.includes(source as RtTalismanSource) || !isCount(rerolls) || rerolls < 1 || !isTalismanList(rerolled) || rerolled.length < rerolls) return null;
-        if (rerolled.some(id => options.includes(id) || run.talismans.includes(id) || run.talismansGone.includes(id)) || !(streams.talismans >= 1 + rerolls)) return null;
+        // Task 16: the feat's first offer is its own draw — its rerolls alone take `talismans` draws.
+        if (rerolled.some(id => options.includes(id) || run.talismans.includes(id) || run.talismansGone.includes(id)) || !(streams.talismans >= (source === 'feat' ? 0 : 1) + rerolls)) return null;
       }
       // Phase B (track Д4): the offer is drawn again — the last `talismans` draw over the pool as it is (nothing changes the
       // pool while the choice is open); an event's reward by the real-time draw of its battle. B5: without the shown ones.
-      if (!(streams.talismans >= 1)) return null;
-      const again = talismanOfferOf(run, node.id, source as RtTalismanSource, streamValue(run.seed, 'talismans', streams.talismans - 1), (rerolled as RtTalismanId[] | undefined) ?? []);
+      // Task 16: the feat's offer not rerolled yet — by the node's own feat draw.
+      const ownFeat = source === 'feat' && rerolls === undefined;
+      if (!ownFeat && !(streams.talismans >= 1)) return null;
+      const base = ownFeat ? featOfferBase(run.seed, node.id) : streamValue(run.seed, 'talismans', streams.talismans - 1);
+      const again = talismanOfferOf(run, node.id, source as RtTalismanSource, base, (rerolled as RtTalismanId[] | undefined) ?? []);
       if (!again || JSON.stringify(again) !== JSON.stringify(options)) return null;
       // The oath choice of the first Jailer's row comes after its hammer screen: the hammer, if any, is that node's (checked above).
       break;

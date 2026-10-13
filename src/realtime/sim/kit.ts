@@ -10,6 +10,7 @@ import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
 import type { ItemKind, ResourceKind } from '../forest/types';
 import { isHammerId, type HammerId } from './buildIds';
+import { featGoalOf, type FeatGoal } from './feat';
 
 export type { ItemKind, ResourceKind };
 /** The consumables on keys 1–4, in this order: cold, bomb, healing, fire. */
@@ -102,6 +103,11 @@ export interface Loadout {
    * of a gentle run that has not met the porcupine. Absent — the arena as it is.
    */
   withoutKinds?: string[];
+  /**
+   * Task 16 «Подвиги» (feat.ts): the node's feat — its kind and N (run/rtRun.ts `rtFeatOf`). Acts only while `Params.feats` is
+   * on. Absent — no feat.
+   */
+  feat?: FeatGoal;
 }
 
 /**
@@ -164,6 +170,8 @@ export interface Kit {
   eliteKinds?: string[];
   /** Task 17: the kinds taken out of this arena (absent — none: kits before hash as before). */
   withoutKinds?: string[];
+  /** Task 16 «Подвиги»: the fight's feat (absent — none: kits before hash as before). */
+  feat?: FeatGoal;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -219,6 +227,8 @@ export function kitOf(loadout: Loadout): Kit {
     ...loadout.lootOpens ? { lootOpens: true as const } : {},
     ...Array.isArray(loadout.eliteKinds) && loadout.eliteKinds.length ? { eliteKinds: [...new Set(loadout.eliteKinds.filter(kind => typeof kind === 'string'))] } : {},
     ...Array.isArray(loadout.withoutKinds) && loadout.withoutKinds.length ? { withoutKinds: [...new Set(loadout.withoutKinds.filter(kind => typeof kind === 'string'))] } : {},
+    // Task 16 «Подвиги»: absent unless the run gives a valid one (kits before hash as before).
+    ...featGoalOf(loadout.feat) ? { feat: featGoalOf(loadout.feat)! } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

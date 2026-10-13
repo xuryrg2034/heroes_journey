@@ -28,6 +28,8 @@ import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotStat
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
 // Task 14 «Котомка у двери» (bag.ts): the bag of the fight after the goals.
 import { bagAppear, bagDoor, bagHurt, bagKill, type BagWorld } from './bag';
+// Task 16 «Подвиги» (feat.ts): the feat of a run fight, latched when done.
+import { featCheck, type FeatKind, type FeatWorld } from './feat';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
 import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
@@ -430,6 +432,8 @@ export type WorldEvent =
    * steps, unchanged).
    */
   | { type: 'bag'; action: 'appear' | 'step' | 'reset'; step: number; reward?: number }
+  /** Task 16 «Подвиги» (feat.ts): the fight's feat was done (its kind and N); once a fight. */
+  | { type: 'feat'; action: 'done'; kind: FeatKind; n: number }
   /**
    * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath broke (`broken`) or an «at least once» oath was met (`met`) in
    * `tick`; the exit into the door settled it (`door`: kept or not, the cauldron's multiplier).
@@ -543,6 +547,8 @@ export interface World {
   purse?: PurseWorld;
   /** Task 14 «Котомка у двери» (bag.ts): the bag of the fight — absent until the goals of a fight with the rule on (hashed only when present). */
   bag?: BagWorld;
+  /** Task 16 «Подвиги» (feat.ts): the fight's feat was done — the tick and game time (absent until then; hashed only when present). */
+  feat?: FeatWorld;
   /** Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight (absent without one — hashed only when present). */
   oath?: OathState;
   /**
@@ -990,6 +996,8 @@ export function nextFiring(world: World): number {
 /** The hero goes through the open door — `by` the chain ending on it, a jump landing in it or walking in. */
 export function win(world: World, by: DoorExit): void {
   if (world.status !== 'playing') return;
+  // Task 16 «Подвиги»: the door is the feat's last moment (nothing without a feat).
+  featCheck(world);
   world.status = 'victory';
   world.endTime = world.time;
   world.chain = [];
@@ -1719,4 +1727,6 @@ export function update(world: World, dt: number, realDt = dt): void {
   contactDamage(world, dt);
   // The prologue: the start enemies' return (only on an arena with `restore`).
   if (!restoreFirst && world.restore && world.status === 'playing') updateRestore(world, world.restore);
+  // Task 16 «Подвиги» (feat.ts): the feat is latched at the end of a tick the hero lived through (nothing without a feat).
+  featCheck(world);
 }

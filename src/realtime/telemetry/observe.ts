@@ -67,12 +67,14 @@
  *   `hit` events between the two (the events stand in the order they happened) — `chest.cursedDamage`, by source as `damage.bySource`.
  * - the second wind (П9, sandbox; sim/world.ts): the `secondWind` event — the tick of the lethal hit, the HP before it, its
  *   source (named as in `damage.bySource`) and the striker's kind if it stood on the arena at the hit (the event names it).
+ * - the feat (task 16 «Подвиги», sim/feat.ts): read from the world at the end (`featResult`) — `feat` (null without one);
  * - the bag (task 14 «Котомка у двери», sim/bag.ts): `bag` events — `appear` (`bag.appeared`), `reset` (`bag.resets`); credited
  *   `kill` events after `appear` and before the end of the fight — `bag.killsAfterGoals`; the steps filled and the door's
  *   payout — `world.bag` at the end.
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
+import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { kindOf } from '../sim/enemies/kinds';
@@ -426,6 +428,9 @@ export function createFightObserver(start: World): FightObserver {
         out.bag.payout = paid ? Object.values(paid).reduce((a, b) => a + (b ?? 0), 0) : null;
         out.bag.kinds = paid ? { ...paid } as Record<string, number> : {};
       }
+      // Task 16 «Подвиги»: the feat of the fight at its end (done, when, how far it got).
+      const feat = featResult(w);
+      if (feat) out.feat = { kind: feat.kind, n: feat.n, done: feat.done, at: feat.at ?? null, value: feat.value, missing: feat.done ? 0 : Math.max(0, feat.n - feat.value), won: w.status === 'victory' };
       // Casino «Ставка клятвы»: the oath of the fight (the rule on), its met and broken ticks.
       if (w.oath && w.params.oathStake) Object.assign(out.oath, { id: w.oath.id, brokenTick: w.oath.broken ?? null, metTick: w.oath.met ?? null });
       return out;
