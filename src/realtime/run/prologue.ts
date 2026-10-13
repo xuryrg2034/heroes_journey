@@ -116,9 +116,12 @@ const ROUTES: readonly (readonly PrologueTarget[] | null)[] = [
 ];
 const TILES: readonly ('all' | readonly PrologueTile[])[] = [[], [], [], [], ['jump'], ['spin'], ['healing'], [], [], 'all'];
 
-/** The ten rooms in order. */
+/** Task 14 «Котомка у двери» (user decision 13.10.2026): every room plays no bag — the run's `doorBag` is off in the prologue. */
+const PROLOGUE_EVERY_ROOM: Readonly<Partial<Params>> = Object.freeze({ doorBag: false });
+
+/** The ten rooms in order; a room's numbers — its `PROLOGUE_FORCED` entry with `PROLOGUE_EVERY_ROOM`. */
 export const PROLOGUE_ROOMS: readonly PrologueRoom[] = Object.freeze(PROLOGUE_ARENAS.map((arena, i) => Object.freeze({
-  number: i + 1, id: arena.id, title: TITLES[i], arena, forced: PROLOGUE_FORCED[i], route: ROUTES[i], tiles: TILES[i],
+  number: i + 1, id: arena.id, title: TITLES[i], arena, forced: Object.freeze({ ...PROLOGUE_FORCED[i], ...PROLOGUE_EVERY_ROOM }), route: ROUTES[i], tiles: TILES[i],
 })));
 
 /** How many rooms the prologue has (the last one is «Толпа»). */

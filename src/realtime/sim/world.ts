@@ -26,6 +26,8 @@ import { RngStreams } from './rng';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
+// Task 14 «Котомка у двери» (bag.ts): the bag of the fight after the goals.
+import { bagAppear, bagDoor, bagHurt, bagKill, type BagWorld } from './bag';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
 import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
@@ -423,6 +425,12 @@ export type WorldEvent =
   | { type: 'purseDoor'; cauldron: number; oath: number; by: DoorExit; resources: number; greed?: number; step?: number }
   | { type: 'greed'; cause: 'chain' | 'hit'; step: number; chains: number; mult: number }
   /**
+   * Task 14 «Котомка у двери» (bag.ts): the bag appeared with the goals (`appear`, step 0); a step filled (`step`: the filled
+   * steps now, `reward` — that step's resources); a real HP loss sent the unfilled step back to its start (`reset`: the filled
+   * steps, unchanged).
+   */
+  | { type: 'bag'; action: 'appear' | 'step' | 'reset'; step: number; reward?: number }
+  /**
    * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath broke (`broken`) or an «at least once» oath was met (`met`) in
    * `tick`; the exit into the door settled it (`door`: kept or not, the cauldron's multiplier).
    */
@@ -533,6 +541,8 @@ export interface World {
   slotChains?: number;
   /** Casino «Котёл» (purse.ts): the cauldron of the fight and the door's record (absent until used — hashed only when present). */
   purse?: PurseWorld;
+  /** Task 14 «Котомка у двери» (bag.ts): the bag of the fight — absent until the goals of a fight with the rule on (hashed only when present). */
+  bag?: BagWorld;
   /** Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight (absent without one — hashed only when present). */
   oath?: OathState;
   /**
@@ -988,6 +998,8 @@ export function win(world: World, by: DoorExit): void {
   if (world.oath) oathDoor(world);
   // Casino «Котёл»: the chain entering the door puts its cheque first, then the door records the cauldron (purse.ts).
   purseDoor(world, by);
+  // Task 14 «Котомка у двери»: the door pays the filled steps (kinds of the stream `bag`; nothing without a bag).
+  if (world.bag) bagDoor(world);
   world.events.push({ type: 'victory' });
 }
 
@@ -1169,6 +1181,8 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
   // Stage 2, step 3 («Пепельный оберег», once a run): a hit that would kill leaves the hero with 1 HP; the ward crumbles.
   const kit = world.kit;
   if (hero.hp <= 0 && kit?.ward) { hero.hp = 1; kit.ward = false; kit.wardUsed = true; world.events.push({ type: 'ward' }); }
+  // Task 14 «Котомка у двери» (bag.ts): HP actually lost sends the unfilled step back to its start (nothing without a bag).
+  if (world.bag) bagHurt(world, hpBefore - hero.hp);
   hero.invulnerable = invulnerabilityFor(params, params.invulnerabilityMode, damage, hero.maxHp);
   hero.hurtFlash = Math.max(params.hitFlash, 0.01);
   world.stats.hitsTaken++;
@@ -1253,6 +1267,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   // Casino «Котёл»: a link the player's tool killed keeps its embers for the chain's cheque (only while the cauldron is on).
   if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {} });
   if (cause.credited) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
+  // Task 14 «Котомка у двери» (bag.ts): a credited kill after the goals fills the bag (nothing without one).
+  if (cause.credited && world.bag) bagKill(world);
   // Casino «Котёл»: a kill of the player's build outside the chain — 1 ember, no heat (the source decides, purse.ts). A link of
   // the dash ahead is the chain's: its embers come in the cheque (`fallenEmbers`, as its score comes with the chain's).
   if (!link) purseKill(world, cause);
@@ -1605,6 +1621,8 @@ export function completeGoals(world: World): void {
   world.greedStart = world.time;
   world.groupTimer = 0;
   world.events.push({ type: 'goals' });
+  // Task 14 «Котомка у двери» (bag.ts): the bag appears with the open door (nothing while the rule is off).
+  bagAppear(world);
   // The prologue, task 13 (room 9 «Щит», `sleepOnDoor`): the enemies fall asleep with the door's opening (nothing elsewhere).
   if (world.arena.sleepOnDoor) world.asleep = true;
 }

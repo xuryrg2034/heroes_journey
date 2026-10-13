@@ -537,6 +537,29 @@ const CHEST_HEAD = ['Бои', 'Боёв с сундуком на арене', '�
 const CHEST_LEGEND = 'Проклятый сундук (`cursedChest`; в походе включён с 12.10.2026; стоит только на «Заставе»): учтены бои, где правило было включено и на арене есть сундук. «Сундук взят» — доля таких боёв, где герой его взял (цепью или касанием); цель исследования К7 — 40–70 % боёв «Заставы». «Проклятие снято» — доля взятых, где рывок убил 12 врагов. Урон под проклятием — HP, потерянные от взятия сундука до снятия проклятия или конца боя (`chest.cursedDamage`), по источникам как в «Врагах». Победы — бои, закончившиеся победой, среди взятых и не взятых (эвристика, не оценка баланса).';
 // ---- end «Проклятый сундук» ----
 
+// ---- Task 14 «Котомка у двери» (sim/bag.ts, docs/realtime-slice.md): the bag after the goals ----
+/** The bag of some fights as one row (`label` — the group); null — no fight had a bag. */
+function bagRow(label: string, entries: readonly FightEntry[]): (string | number)[] | null {
+  const list = entries.filter(e => e.analysis?.summary.bag?.appeared);
+  if (!list.length) return null;
+  const bags = list.map(e => e.analysis!.summary.bag), steps = [0, 0, 0, 0];
+  for (const b of bags) steps[Math.max(0, Math.min(3, b.steps))]++;
+  const paid = bags.filter(b => b.payout !== null), resources = paid.reduce((a, b) => a + (b.payout ?? 0), 0);
+  const resets = bags.reduce((a, b) => a + b.resets, 0);
+  return [
+    label, list.length, steps.join(' / '), n1(median(bags.map(b => b.killsAfterGoals))), `${resets} (ср. ${n1(resets / list.length)})`,
+    `${paid.length} (${pct(paid.length, list.length)})`, `${resources} (ср. ${n1(resources / list.length)})`,
+  ];
+}
+/** Rows of the bag table: the runs, the sandbox and, when both had it, all together. */
+function bagRows(runFights: readonly FightEntry[], sandbox: readonly FightEntry[]): (string | number)[][] {
+  const runs = bagRow('походы', runFights), box = bagRow('песочница', sandbox);
+  return [runs, box, runs && box ? bagRow('всего', [...runFights, ...sandbox]) : null].filter((r): r is (string | number)[] => !!r);
+}
+const BAG_HEAD = ['Бои', 'Боёв с котомкой', 'Ступеней 0 / 1 / 2 / 3', 'Убийств после целей (мед.)', 'Сбросов', 'Выплат', 'Ресурсов'];
+const BAG_LEGEND = 'Котомка у двери (`doorBag`; в походе включена с 13.10.2026, кроме Тюремщика и финала): учтены бои, где котомка появилась (цели выполнены). Ступени — заполненные к концу боя (10 / 20 / 35 убийств после целей — 1 / 2 / 3 ресурса). Убийства после целей — зачтённые игроку (`bag.killsAfterGoals`), сброс их не снимает. Сбросы — удары с потерей HP, откатившие незаполненную ступень (`bag.resets`). Выплаты — бои, где дверь заплатила за котомку; поражение не платит. Эвристика, не оценка баланса.';
+// ---- end «Котомка у двери» ----
+
 // ---- Casino «Кость у двери» (run/rtRun.ts, docs/realtime-casino.md): the die screens of the runs ----
 /**
  * One row of the runs' die screens (`RunRecord.dice`): shown, rolled, taken, open; of the rolls — 1–3 and 4–6; resources
@@ -866,6 +889,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Ставка клятвы', '', OATH_LEGEND, '', table(OATH_HEAD, oathRows(runs, fights)), '',
     // К7 «Проклятый сундук».
     '## Проклятый сундук', '', CHEST_LEGEND, '', table(CHEST_HEAD, chestRows(runFights, sandbox)), '',
+    // Task 14 «Котомка у двери».
+    '## Котомка у двери', '', BAG_LEGEND, '', table(BAG_HEAD, bagRows(runFights, sandbox)), '',
     // Casino «Кость у двери».
     '## Кость у двери', '', DIE_LEGEND, '', table(DIE_HEAD, [dieRow(runs)].filter((r): r is (string | number)[] => !!r)), '',
     // П6 «Незакрытое дело»: a new run after the end. П8 «Новое на карте»: the sign on the map.

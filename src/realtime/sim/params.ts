@@ -729,6 +729,24 @@ export interface Params {
    * (run/rtRun.ts `RT_RUN_FORCED`; the reward screen after the victory is the run's).
    */
   cursedChest: boolean;
+  // ---- Task 14 «Котомка у двери» (sim/bag.ts, docs/realtime-slice.md, «Котомка у двери»; user decision 13.10.2026). ----
+  /**
+   * The bag at the door: when the goals open the door the bag appears (`world.bag`); the player's credited kills after it
+   * fill three steps (`bagStep1`–`bagStep3` kills in all: 10, 20, 35) worth `bagReward1`–`bagReward3` resources (1, 2, 3 —
+   * 6 in all); a real HP loss of the hero sends the unfilled step back to its start (filled steps stay); the door pays the
+   * filled steps (kinds of the stream `bag`), a defeat pays nothing. Off by default; journals without the key: off (no
+   * `world.bag`, the stream untouched). A run turns it on (run/rtRun.ts `RT_RUN_FORCED`) except the Jailer and the final
+   * fight (`Loadout.noBag`); the prologue keeps it off (`prologueParams`); the sandbox — the panel toggle.
+   */
+  doorBag: boolean;
+  /** «Котомка у двери»: kills after the goals that fill steps 1, 2, 3 (counted from the goals: 10, 20, 35). */
+  bagStep1: number;
+  bagStep2: number;
+  bagStep3: number;
+  /** «Котомка у двери»: resources of steps 1, 2, 3 (1, 2, 3). */
+  bagReward1: number;
+  bagReward2: number;
+  bagReward3: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1083,6 +1101,14 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   secondWind: false,
   // К7 «Проклятый сундук» (chest.ts): off by default.
   cursedChest: false,
+  // Task 14 «Котомка у двери» (bag.ts): off by default; 10 / 20 / 35 kills after the goals pay 1 / 2 / 3.
+  doorBag: false,
+  bagStep1: 10,
+  bagStep2: 20,
+  bagStep3: 35,
+  bagReward1: 1,
+  bagReward2: 2,
+  bagReward3: 3,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1462,6 +1488,15 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // К7 «Проклятый сундук» (chest.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'cursedChest', group: 'Котёл', label: 'Проклятый сундук', stage: 5,
     hint: 'Только «Застава»: в её точке стоит сундук (новый бой арены). Взять — звеном цепи любого цвета или касанием. Проклятие: касание врага +1 (не Жнец; стрелы, иглы, взрывы, шипы — без +1), пока проход не убьёт 12 врагов, или до конца боя. В походе включено всегда; награда — экран талисманов после победы.' },
+  // Task 14 «Котомка у двери» (bag.ts, docs/realtime-slice.md).
+  { kind: 'bool', key: 'doorBag', group: 'Котомка у двери', label: 'Котомка у двери', stage: 5,
+    hint: 'С открытием двери появляется котомка: убийства игрока после целей наполняют три ступени (10, 20, 35 — 1, 2, 3 ресурса). Потеря HP откатывает незаполненную ступень к её началу, заполненные остаются. Платит дверь; смерть — ничего. В походе включено (кроме Тюремщика и финала), в прологе выключено.' },
+  n('bagStep1', 'Котомка у двери', 'Ступень 1: убийств после целей', 1, 100, 1, 5),
+  n('bagStep2', 'Котомка у двери', 'Ступень 2: убийств после целей', 1, 100, 1, 5),
+  n('bagStep3', 'Котомка у двери', 'Ступень 3: убийств после целей', 1, 100, 1, 5),
+  n('bagReward1', 'Котомка у двери', 'Ступень 1: ресурсов', 0, 6, 1, 5),
+  n('bagReward2', 'Котомка у двери', 'Ступень 2: ресурсов', 0, 6, 1, 5),
+  n('bagReward3', 'Котомка у двери', 'Ступень 3: ресурсов', 0, 6, 1, 5),
 ];
 
 const MAX_PHASES = 8;

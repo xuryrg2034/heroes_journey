@@ -70,6 +70,11 @@ export interface Loadout {
    */
   slot?: boolean;
   /**
+   * Task 14 «Котомка у двери» (bag.ts): no bag in this fight whatever `Params.doorBag` says — the run's Jailer and final fight.
+   * Absent — the bag by `Params.doorBag`.
+   */
+  noBag?: boolean;
+  /**
    * Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath the node card took for this battle (an id of `OATHS`). Acts only
    * while `Params.oathStake` is on (`World.oath`). Absent — no oath.
    */
@@ -126,6 +131,8 @@ export interface Kit {
   eliteDue?: number;
   /** Casino stage 1: the battle may get the goblin (absent — no: kits before hash as before). */
   slot?: true;
+  /** Task 14 «Котомка у двери»: no bag in this fight (absent — by `Params.doorBag`: kits before hash as before). */
+  noBag?: true;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -175,6 +182,7 @@ export function kitOf(loadout: Loadout): Kit {
     ...count(loadout.toughHp) > 2 ? { toughHp: Math.min(MAX_TOUGH_HP, count(loadout.toughHp)) } : {},
     ...loadout.guaranteedElite ? { guaranteedElite: true as const } : {},
     ...loadout.slot ? { slot: true as const } : {},
+    ...loadout.noBag ? { noBag: true as const } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

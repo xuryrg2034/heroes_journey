@@ -62,6 +62,8 @@ export function worldState(world: World): unknown {
     ...world.slotChains ? { slotChains: world.slotChains } : {},
     // Casino «Котёл» (purse.ts): the cauldron and the door's record (absent until used — worlds without it hash as before).
     ...world.purse ? { purse: world.purse } : {},
+    // Task 14 «Котомка у двери» (bag.ts): the bag of the fight (absent until the goals with the rule on — worlds hash as before).
+    ...world.bag ? { bag: world.bag } : {},
     // Casino «Ставка клятвы» (oath.ts): the oath of the fight, its met and broken ticks (absent without one — worlds hash as before).
     ...world.oath ? { oath: world.oath } : {},
     // П9 «Второе дыхание» (world.ts): the tick and game time the second wind was used (absent until then — worlds hash as before).

@@ -583,6 +583,27 @@ export interface FightSummary {
   secondWind: SecondWindSummary | null;
   /** К7 «Проклятый сундук» (from 12.10.2026; absent in older records — `withSummaryDefaults`): the chest and the curse of the fight. */
   chest: ChestSummary;
+  /** Task 14 «Котомка у двери» (from 13.10.2026; absent in older records — `withSummaryDefaults`): the bag of the fight. */
+  bag: BagSummary;
+}
+
+/**
+ * Task 14 «Котомка у двери» of one fight (docs/realtime-telemetry.md, section 8, «Котомка у двери»; sim/bag.ts). Read from the
+ * `bag` events, the credited `kill` events after its `appear` and `world.bag` at the end.
+ */
+export interface BagSummary {
+  /** The bag appeared (the goals with `doorBag` on, not the Jailer's or the final fight). */
+  appeared: boolean;
+  /** Steps filled by the end of the fight (0–3). */
+  steps: number;
+  /** The player's credited kills after the bag appeared (all of them: a reset does not take them off). */
+  killsAfterGoals: number;
+  /** Hits that sent the unfilled step back to its start (`bag` `reset`). */
+  resets: number;
+  /** Resources the door paid for the bag (`world.bag.paid`); null — no payout (no door, no step filled, a defeat). */
+  payout: number | null;
+  /** The paid resources by kind (empty without a payout). */
+  kinds: Record<string, number>;
 }
 
 /**
@@ -766,6 +787,7 @@ export function emptyFightSummary(): FightSummary {
     oath: { id: null, kept: null, brokenTick: null, metTick: null, mult: null },
     secondWind: null,
     chest: { taken: null, liftedAt: null, cursedDamage: {} },
+    bag: { appeared: false, steps: 0, killsAfterGoals: 0, resets: 0, payout: null, kinds: {} },
   };
 }
 

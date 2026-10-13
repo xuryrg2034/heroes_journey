@@ -152,7 +152,9 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   // be of any colour (the goblin's ◆ crystals stay and still reset the colour).
   crystals: false, colorShiftLinks: 6,
   // «Свобода цвета держится» (design 13.10.2026, task 10): links of the same colour keep a free colour free.
-  colorShiftKeep: true });
+  colorShiftKeep: true,
+  // Task 14 «Котомка у двери» (user decision 13.10.2026): the bag after the goals; not the Jailer's, not the final fight (`Loadout.noBag`).
+  doorBag: true });
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 /**
@@ -426,6 +428,11 @@ export interface RtArenaOutcome {
   openItems?: ItemKind[];
   /** Step 3: crafting resources picked up on the arena (the loot of elites). */
   materials?: Partial<Record<ResourceKind, number>>;
+  /**
+   * Task 14 «Котомка у двери» (sim/bag.ts `bagPayout`): the resources the door paid for the bag's filled steps; the run adds
+   * them to its materials on a victory. Absent — nothing paid (no bag, no step filled, a defeat).
+   */
+  bag?: Partial<Record<ResourceKind, number>>;
   /** Step 3: «Пепельный оберег» saved the hero on this arena (it crumbles for the run). */
   wardUsed?: boolean;
   /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
@@ -546,6 +553,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle) ? { guaranteedElite: true } : {},
     // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row `RT_SLOT_ROW` may get the goblin — not the Jailer's, not a boss's.
     ...node && pending?.kind === 'battle' && node.type !== 'checkpoint' && node.type !== 'boss' && runRow(node.row) >= RT_SLOT_ROW ? { slot: true } : {},
+    // Task 14 «Котомка у двери»: no bag in the Jailer's fight and the final one (the other fights by `Params.doorBag`).
+    ...node && (node.type === 'checkpoint' || node.type === 'boss') ? { noBag: true } : {},
     talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
@@ -998,6 +1007,8 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
   // Calibration 12.10.2026: a kind the fight opened (the first elite loot with none open) is open in the run from now on.
   if (Array.isArray(outcome.openItems)) for (const item of ITEM_KINDS) if (outcome.openItems.includes(item) && !run.openItems.includes(item)) run.openItems.push(item);
   for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.materials?.[kind]) || 0));
+  // Task 14 «Котомка у двери»: the door's payout of the bag (a defeat returned above: it pays nothing).
+  for (const kind of RESOURCE_KINDS) run.materials[kind] += Math.max(0, Math.floor(Number(outcome.bag?.[kind]) || 0));
   run.energy = 0;
   const node = rtNode(run, pending.nodeId)!;
   if (pending.battle === 'hard') {

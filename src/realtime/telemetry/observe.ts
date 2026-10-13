@@ -67,6 +67,9 @@
  *   `hit` events between the two (the events stand in the order they happened) — `chest.cursedDamage`, by source as `damage.bySource`.
  * - the second wind (П9, sandbox; sim/world.ts): the `secondWind` event — the tick of the lethal hit, the HP before it, its
  *   source (named as in `damage.bySource`) and the striker's kind if it stood on the arena at the hit (the event names it).
+ * - the bag (task 14 «Котомка у двери», sim/bag.ts): `bag` events — `appear` (`bag.appeared`), `reset` (`bag.resets`); credited
+ *   `kill` events after `appear` and before the end of the fight — `bag.killsAfterGoals`; the steps filled and the door's
+ *   payout — `world.bag` at the end.
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
@@ -155,6 +158,9 @@ export function createFightObserver(start: World): FightObserver {
   // К7: the curse is on now (a world that starts cursed — a test — counts from its own ticks).
   if (start.curse) { s.chest.taken = start.curse.tick; s.chest.liftedAt = start.curse.lifted ?? null; }
   let cursedNow = !!start.curse && start.curse.lifted === undefined;
+  /** Task 14: the bag is out and the fight goes on (credited kills count toward `bag.killsAfterGoals`). */
+  let bagOpen = !!start.bag && start.status === 'playing';
+  if (start.bag) s.bag.appeared = true;
   /** «Перебор»: the source of the last hit on the hero (a lost fight names its killing blow). */
   let lastHitSource: string | null = null;
 
@@ -196,6 +202,8 @@ export function createFightObserver(start: World): FightObserver {
           }
           if (ev.source === 'slot') s.slot.kills++;
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
+          // Task 14 «Котомка у двери»: the player's kills after the bag appeared.
+          if (bagOpen && ev.credited) s.bag.killsAfterGoals++;
           if (ev.source === 'chain') s.kills.chain++;
           else if (ev.credited) bump(s.kills.tools, ev.source ?? 'other');
           else s.kills.enemies++;
@@ -283,6 +291,9 @@ export function createFightObserver(start: World): FightObserver {
         case 'cheque': s.purse.embers.push(ev.embers); s.purse.heat.push(ev.heat); s.purse.totals.push(ev.total); s.purse.crystals += ev.crystals; return;
         case 'purseKill': bump(s.purse.killEmbers, ev.source); return;
         case 'purseDoor': s.purse.resources = ev.resources; s.purse.exitBy = ev.by; if (ev.step !== undefined) s.purse.exitStep = ev.step; return;
+        // Task 14 «Котомка у двери» (sim/bag.ts): the bag appeared, a hit sent its unfilled step back; the fight's end stops the count.
+        case 'bag': if (ev.action === 'appear') { s.bag.appeared = true; bagOpen = true; } else if (ev.action === 'reset') s.bag.resets++; return;
+        case 'victory': case 'defeat': bagOpen = false; return;
         // Casino «Ставка клятвы» (sim/oath.ts): the door settled the oath.
         case 'oath': if (ev.action === 'door') { s.oath.kept = ev.kept ?? null; s.oath.mult = ev.mult ?? null; } return;
         default: return;
@@ -408,6 +419,13 @@ export function createFightObserver(start: World): FightObserver {
       // Casino «Котёл»: on, and the cauldron at the end.
       out.purse.on = !!w.params.purse;
       out.purse.cauldron = w.purse?.cauldron ?? 0;
+      // Task 14 «Котомка у двери»: the steps filled and what the door paid.
+      if (w.bag) {
+        out.bag.steps = w.bag.step;
+        const paid = w.status === 'victory' ? w.bag.paid : undefined;
+        out.bag.payout = paid ? Object.values(paid).reduce((a, b) => a + (b ?? 0), 0) : null;
+        out.bag.kinds = paid ? { ...paid } as Record<string, number> : {};
+      }
       // Casino «Ставка клятвы»: the oath of the fight (the rule on), its met and broken ticks.
       if (w.oath && w.params.oathStake) Object.assign(out.oath, { id: w.oath.id, brokenTick: w.oath.broken ?? null, metTick: w.oath.met ?? null });
       return out;

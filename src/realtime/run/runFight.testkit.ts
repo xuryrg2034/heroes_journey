@@ -10,6 +10,7 @@ import { defaultParams, type Params } from '../sim/params';
 import { Simulation, replay } from '../sim/simulation';
 import type { World, WorldEvent } from '../sim/world';
 import { goblinOf, leverOf } from '../sim/slot';
+import { bagPayout } from '../sim/bag';
 import { observeFightLuck, type RtLuckTally } from './rtLuck';
 import { RtDeathWatch, type RtDeath } from './rtRunEnd';
 import {
@@ -92,7 +93,7 @@ export function outcomeOf(run: RtRunState, w: World, luck: RtLuckTally = {}, dea
   assert(pending?.kind === 'battle', 'an open battle');
   return { nodeId: pending.nodeId, won: w.status === 'victory', hp: w.status === 'victory' ? Math.min(run.maxHp, w.hero.hp) : 0, kills: w.stats.kills, bestChain: w.stats.bestChain,
     ...Object.keys(luck).length ? { luck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {},
-    ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+    ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...bagPayout(w) ? { bag: bagPayout(w)! } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
     ...w.status === 'defeat' && death ? { death } : {} };
 }
 

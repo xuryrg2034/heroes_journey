@@ -40,6 +40,7 @@ import { PIERCE_HITSTOP, PIERCE_SOURCE, pierceOn, pierceShape } from './pierce';
 import { leverReady, pullLever, slotFeedEnd } from './slot';
 import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease } from './oath';
+import { bagKill } from './bag';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -1030,6 +1031,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
     world.enemies.splice(world.enemies.indexOf(enemy), 1);
     world.stats.kills++;
     move.kills++;
+    // Task 14 «Котомка у двери» (bag.ts): a chain kill after the goals fills the bag (nothing without one).
+    if (world.bag) bagKill(world);
     // К7 «Проклятый сундук»: a kill of the dash counts toward lifting the curse (nothing without it).
     if (world.curse) curseKill(world);
     if (enemy.marked) world.stats.markedKills++;
