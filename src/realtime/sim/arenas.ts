@@ -143,7 +143,8 @@ export interface ArenaTemplate extends ArenaShape {
   /**
    * The prologue, task 13 (design answer 13.10.2026, room 9 «Щит» only): when the door opens (the goals met) the enemies fall
    * asleep in that tick — the sleep of `sleepUntilChain` (`World.asleep`: they stand, do not touch the hero, are not parted by
-   * his walk) — and stay asleep: a press does not wake them here.
+   * his walk) — and stay asleep: a press after the goals does not wake them (one before the goals wakes the sleepers of
+   * `sleepUntilChain`, as in room 8).
    */
   sleepOnDoor?: boolean;
   /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
