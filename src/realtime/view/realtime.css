@@ -125,7 +125,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Task 15: the map heal by the HP; its reason as visible text. */
 .rt-run-heal { display: inline-flex; align-items: center; gap: 6px; }
 .rt-run-heal button:disabled { opacity: .55; cursor: default; }
-.rt-run-heal .rt-run-reason { font-size: 12px; color: #e0a596; }
+.rt-run-heal .rt-run-heal-why { font-size: 12px; color: var(--rt-muted); }
+.rt-run-heal .rt-run-heal-why.rt-poor { color: #e0a596; }
 .rt-run-heal-line { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0 0; }
 /* Task 16: the feat line of a node card. */
 .rt-run-feat { margin: 6px 0 0; color: #e3d39a; }

@@ -81,13 +81,15 @@ test('task 15: one resource number in the header, no Э2 line; the heal button h
   await expect(page.getByTestId('run-hp')).toHaveText(`HP ${max - 4} / ${max}`);
   await expect(res).toHaveText('4');
   await expect(heal).toHaveText('Лечение +2 HP — 3 ресурса');
-  await expect(page.getByTestId('run-notice')).toHaveText('Лечение +2 HP — 2 ресурса');
+  // The notice says what happened (design 14.10.2026), not a second button-like price.
+  await expect(page.getByTestId('run-notice')).toHaveText('+2 HP за 2 ресурса');
   await heal.click();
   await expect(page.getByTestId('run-hp')).toHaveText(`HP ${max - 2} / ${max}`);
   await expect(res).toHaveText('1');
   await expect(heal).toHaveText('Лечение +2 HP — 4 ресурса');
   await expect(heal).toBeDisabled();
   await expect(reason).toHaveText('Нужно 4, есть 1');
+  await expect(reason).toHaveClass(/rt-poor/);
   await page.mouse.move(0, 0);
   await page.screenshot({ path: 'artifacts/realtime-heal-off-poor.png' });
   let state = await runState(page);
@@ -112,6 +114,9 @@ test('task 15: full HP — the button off with «HP полное»; one HP short
   await expect(heal).toHaveText('Лечение +2 HP — 2 ресурса');
   await expect(heal).toBeDisabled();
   await expect(page.getByTestId('run-heal-reason')).toHaveText('HP полное');
+  // Grey, not red: full HP is not the player's mistake (design 14.10.2026).
+  await expect(page.getByTestId('run-heal-reason')).not.toHaveClass(/rt-poor/);
+  expect(await page.getByTestId('run-heal-reason').evaluate(el => getComputedStyle(el).color)).not.toBe('rgb(224, 165, 150)');
   await page.screenshot({ path: 'artifacts/realtime-heal-off-full.png' });
 
   const short = mapRun(3, 1, { dew: 0, powder: 0, resin: 3, herbs: 0 });

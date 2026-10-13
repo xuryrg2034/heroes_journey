@@ -401,7 +401,8 @@ export class RunView {
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
       if (event.type === 'casino-played') parts.push(event.text);
       // Task 15: the map heal; task 16: the feat's resources (at the door, or instead of a talisman choice when too few were left).
-      if (event.type === 'map-healed') parts.push(`Лечение +${event.hpAfter - event.hpBefore} HP — ${resourcesWord(event.price)}`);
+      // Design 14.10.2026: what happened, not a second price tag — «+2 HP за 3 ресурса».
+      if (event.type === 'map-healed') parts.push(`+${event.hpAfter - event.hpBefore} HP за ${resourcesWord(event.price)}`);
       if (event.type === 'feat-paid') parts.push(`Подвиг: ${event.fallback ? 'талисманов не осталось, ' : ''}+${resourcesWord(event.resources.length)}`);
       if (event.type === 'die-resolved') parts.push(event.rolled ? `Кость: ${event.face} — ${resourcesWord(event.resources.length)}` : `Котёл: ${resourcesWord(event.resources.length)}`);
       if (event.type === 'items-gained') parts.push(`+ ${event.items.map(itemWithKey).join(', ')}${event.opened.length ? ` (открыт: ${event.opened.map(item => ITEM_TITLES[item]).join(', ')})` : ''}`);
@@ -671,7 +672,8 @@ export class RunView {
     const label = `Лечение +${gain} HP${offer.gain > 0 && offer.gain < RT_HEAL_MAP_GAIN ? ' (до максимума)' : ''} — ${resourcesWord(offer.price)}`;
     const reason = offer.reason === 'full' ? 'HP полное' : offer.reason === 'poor' ? `Нужно ${offer.need ?? offer.price}, есть ${offer.have}` : '';
     return `<span class="rt-run-heal"><button data-action="map-heal" data-testid="run-heal" data-price="${offer.price}"${offer.ok ? '' : ` disabled data-reason="${offer.reason}"`}>${label}</button>`
-      + (reason ? `<small class="rt-run-reason" data-testid="run-heal-reason">${reason}</small>` : '') + '</span>';
+      // Design 14.10.2026: «HP полное» grey (not the player's mistake), «Нужно N, есть M» red.
+      + (reason ? `<small class="rt-run-heal-why${offer.reason === 'poor' ? ' rt-poor' : ''}" data-testid="run-heal-reason">${reason}</small>` : '') + '</span>';
   }
 
   /**
