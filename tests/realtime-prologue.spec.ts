@@ -97,6 +97,8 @@ test('a new viewer plays the prologue: room 1 «1/9 · Тропа» for 1.5 s, o
   // The label at the place, the name on the screen.
   const labels = (await snap(page)).onboarding.labels;
   expect(labels.map((l: any) => l.text)).toEqual(['Зажми и веди']);
+  // The calm room's enemies stand: a small «z» over each one in view (design 13.10.2026).
+  expect((await snap(page)).sleepMarks).toBeGreaterThan(0);
   await expect(page.getByTestId('prologue-title')).toBeVisible();
   await shot(page, '1');
   // The name goes after 1.5 s of play; the label stays until the first link.
@@ -277,6 +279,8 @@ test('room 9: energy and the action bar appear; Space and Q do not breathe (the 
   expect(p.pulse).toMatchObject({ space: false, q: false });
   expect(p.lamps.total).toBe(15);
   await expect(page.getByTestId('ability-jump')).toBeVisible();
+  // The crowd is awake: no «z».
+  expect((await snap(page)).sleepMarks).toBe(0);
   await titleGone(page);
   // The start energy is one jump: Space, then a click on free ground — the jump.
   const hero = (await snap(page)).hero;
@@ -707,6 +711,8 @@ test('room 6 «Вихрь»: only the Q tile, breathing while one spin meets the
   expect(p.pulse).toEqual({ space: false, q: true, items: [] });
   expect(p.lamps.total).toBe(6);
   await expect(page.getByTestId('goal')).toHaveText('Одним ударом: 0 / 6');
+  // Asleep until the first press: the «z» over the ring.
+  expect((await snap(page)).sleepMarks).toBeGreaterThan(0);
   await titleGone(page);
   // One by one does not do: a chain of one enemy — the ring comes back (smoke, a return).
   const s0 = await snap(page), near = s0.enemies[0];

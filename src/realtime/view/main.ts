@@ -1409,6 +1409,8 @@ async function boot(): Promise<void> {
         curseView: { ...renderer.curseShown },
         /** «Щит фокуса»: the rim round the hero this frame, and the rule now (sim `focusGuarded`). */
         focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
+        /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
+        sleepMarks: renderer.sleepShown,
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */
         colorShift: { every: colorShiftOf(w), left: shiftLeft, text: shiftHint.hidden ? null : shiftHint.textContent, rainbow: renderer.colorShiftShown, mark: renderer.colorShiftMarkShown, freedBy: renderer.colorShiftFreedBy, sounds: shiftSounds, dimmed: renderer.dimmedShown },
         /** Phase B (Д5): effects of the player's build (render.ts `PlayerEffectCounts`). */

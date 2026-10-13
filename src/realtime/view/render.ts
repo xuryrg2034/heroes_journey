@@ -1459,6 +1459,27 @@ export class RealtimeRenderer {
     }
   }
 
+  /** Sleep marks drawn in the last frame (tests read it). */
+  sleepShown = 0;
+
+  /**
+   * The prologue's sleep (design 13.10.2026): while the enemies stand by the sim's rule — a calm arena (rooms 1–4) or `world.asleep`
+   * (until the first press; «Щит» after the door opens) — a small pale «z» over each body (left of the head, clear of the HP badge), drifting up and fading, quieter than the
+   * HP number. The condition is the sim's own (world.ts: the enemies take no step while `arena.calm || world.asleep`).
+   */
+  private drawSleep(world: World): void {
+    this.sleepShown = 0;
+    if (!world.arena.calm && !world.asleep) return;
+    const g = this.targetLayer, r = enemyDrawRadius(world.params) * UNIT;
+    for (const e of world.enemies) {
+      if (!this.sees(e, 0.5)) continue;
+      const t = (this.clock * 0.6 + e.id * 0.37) % 1, s = r * 0.22, x = e.x * UNIT - r * 0.55 - t * r * 0.15, y = e.y * UNIT - r * 0.95 - t * r * 0.45;
+      const alpha = 0.55 * Math.sin(Math.PI * t);
+      g.moveTo(x - s, y - s).lineTo(x + s, y - s).lineTo(x - s, y + s).lineTo(x + s, y + s).stroke({ color: 0xe9f3ff, width: 3, alpha, cap: 'round', join: 'round' });
+      this.sleepShown++;
+    }
+  }
+
   /** Buttons (stone plates, sunk and green when pressed) and the door (barred, glowing when open). */
   private drawObjects(world: World): void {
     const g = this.objectLayer.clear(), R = OBJECT_RADIUS * UNIT, pulse = 0.5 + 0.5 * Math.sin(this.clock * 4);
@@ -2535,6 +2556,7 @@ export class RealtimeRenderer {
     this.slotView.setFrame(this.base.x, this.base.y, this.scale, this.edgeInset.top);
     this.slotView.draw(world, this.clock, realDt, world.chain.length && !world.move ? slotPlanOdds(world) : null);
     this.drawTargets(world);
+    this.drawSleep(world);
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
     this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
