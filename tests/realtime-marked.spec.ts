@@ -38,7 +38,13 @@ async function openSandbox(page: Page, markedGoals: boolean): Promise<string[]> 
   return errors;
 }
 
-/** Opens the arena by its menu button (the menu is reopened by M), a quiet field: nobody walks or comes, the start layout stays. */
+/**
+ * Opens the arena by its menu button (the menu is reopened by M), a quiet field: nobody walks or comes, the start layout stays.
+ * Returns the first frame the renderer drew for the new world: the snapshot reads the world at once but `markedView` from the
+ * last draw, so the frame right after the click can pair the new arena with the old one's view (the den's horde, no crown). The
+ * wait is for the view to agree with the sim (one crown per leader, the ring when the arena has a horde); a view that never draws
+ * them still returns its reading after 5 s of game time and fails the checks with it.
+ */
 async function openArena(page: Page, name: string, id: string): Promise<Snap> {
   if (!(await page.getByTestId('menu').isVisible())) await page.keyboard.press('KeyM');
   await expect(page.getByTestId('menu')).toBeVisible();
@@ -49,7 +55,10 @@ async function openArena(page: Page, name: string, id: string): Promise<Snap> {
     const rt = (window as any).__realtime;
     for (const [k, v] of Object.entries({ enemySpeed: 0, wolfSpeed: 0, speedSpread: 0, contactDamage: 0, baseIntervalMin: 1000, baseIntervalMax: 1000, baseFloor: 0 })) rt.setParam(k, v);
   });
-  return untilFrame(page, (s: Snap) => (s.enemies.some(e => e.marked) ? s : undefined), null, 5);
+  return untilFrame(page, (s: Snap, _a: null, late: boolean) => {
+    const drawn = s.markedView.crowns === s.enemies.filter(e => e.leader).length && s.markedView.hordeRing === !!s.markedView.horde;
+    return late || (s.enemies.some(e => e.marked) && drawn) ? s : undefined;
+  }, null, 5);
 }
 
 test('task 12: the den is a horde — one ring round the crowd, no reticle on each; the ridge, the shaman circle and the ford have one leader — a crown and its HP plate', async ({ page }) => {
