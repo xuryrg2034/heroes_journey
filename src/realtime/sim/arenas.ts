@@ -44,8 +44,9 @@ export interface StartEnemy {
   elite?: boolean;
   /**
    * Task 12 «Отмеченные — вожак или орда» (design 13.10.2026; only in a `markedGoal` layout): a leader — HP max(`hp`, the
-   * row's tough HP + `LEADER_HP_OVER_TOUGH`) (world.ts `startHp`), drawn like an elite (art × `eliteArtScale`, the same reach
-   * edge and press circle; its body stays). `Enemy.leader` is set only for such an enemy.
+   * row's tough HP + `LEADER_HP_OVER_TOUGH`) (world.ts `startHp`), reached and pressed like an elite (art radius × `eliteArtScale`
+   * for the reach edge and the press circle; its body stays). `Enemy.leader` is set only for such an enemy — the seam for the
+   * view (the ui session: the drawing ×1.25, the crown, the HP plate).
    */
   leader?: boolean;
 }
@@ -144,7 +145,7 @@ export interface ArenaTemplate extends ArenaShape {
   markedGoal?: MarkedGoalLayout;
   /**
    * Task 12: the horde of the goal layout in play (`markedGoalArena` copies `markedGoal.horde` here); absent on every template
-   * and whenever the layout is not in play. The view marks the horde as one group by it.
+   * and whenever the layout is not in play. The seam for the view's mark of the horde as one group (the ui session).
    */
   horde?: { x: number; y: number; r: number };
 }

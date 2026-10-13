@@ -60,7 +60,8 @@ function goalShape(w: World, row: number): { horde: boolean; marked: number; lea
   const marked = markedOf(w), leaders = marked.filter(e => e.leader);
   const colours = new Set(marked.map(e => e.color)).size;
   if (leaders.length) {
-    assert(leaders.length === marked.length && leaders.length <= 2, `${w.arena.id}: leaders ${leaders.length}, marked ${marked.length} (no other marked beside the leaders)`);
+    // The design (13.10.2026): exactly one leader on a leader arena, and no other marked enemy beside it.
+    assert(leaders.length === 1 && marked.length === 1, `${w.arena.id}: leaders ${leaders.length}, marked ${marked.length}`);
     // Above the row's tough HP: a tough newcomer of the row never has as much.
     for (const e of leaders) assert(e.hp > rtToughHp(row) && e.hp >= toughHpMaxOf(w) + LEADER_HP_OVER_TOUGH, `${w.arena.id} row ${row}: leader HP ${e.hp}, tough ${rtToughHp(row)}`);
     return { horde: false, marked: marked.length, leaders, colours };
@@ -160,7 +161,7 @@ check('the leader\'s HP by the row: max(its own, the row\'s tough HP + 2) — re
   console.log(`   ${rows.join('; ')}; the ridge with tough 4 → 6`);
 });
 
-check('the leader is drawn and reached like an elite: art × `eliteArtScale` (the reach edge and the press circle), its body as before; no other enemy has the field', () => {
+check('the leader is reached and pressed like an elite: its art radius (the reach edge of a link and the press circle) is × `eliteArtScale`, its body as before; no other enemy has the field', () => {
   const w = quietFight('archers', true).world, leader = markedOf(w)[0], other = w.enemies.find(e => !e.marked)!;
   assert(Math.abs(enemyArtRadius(w.params, leader) - artRadiusOf(w.params, 'archer') * w.params.eliteArtScale) < 1e-9, 'the leader\'s art');
   assert(enemyArtRadius(w.params, other) === artRadiusOf(w.params, 'archer') && other.leader === undefined && !('leader' in other), 'the others');
@@ -226,32 +227,55 @@ check('«Логово»: one chain through the horde with the colour shift kills
   console.log(`   ${results.join('; ')}`);
 });
 
-/** «Круг шамана»: weak links of the leader's colour placed by commands, then the chain through `path` (points; a brazier by its point). */
-function leaderChain(path: readonly { x: number; y: number; weak?: boolean }[]): { sim: Simulation; leader: Enemy; plannedKill: boolean; hpBefore: number } {
-  const sim = quietFight('shaman-circle', true), w = sim.world, leader = markedOf(w)[0];
+/**
+ * A chain to the leader of `arena` on run row `row` (the run's loadout of that row): weak links of the leader's colour placed
+ * by commands at the points of `path` marked `weak` (a brazier — by its point), the hero 1.1 behind the first link, then the
+ * leader as the last link; drawn and released by commands. Checks that the dash does what the highlight said (the leader's HP
+ * after it, the kills) and that the fight replays from its journal.
+ */
+function leaderChain(arena: string, row: number, path: readonly { x: number; y: number; weak?: boolean }[]): { sim: Simulation; leader: Enemy; plannedKill: boolean; hpBefore: number } {
+  const sim = new Simulation({ arena, params: { ...rtRunParams(quiet()), markedGoals: true }, seed: seedOf(row), record: true, loadout: rtToughHp(row) > 2 ? { toughHp: rtToughHp(row) } : {} });
+  const w = sim.world, leader = markedOf(w)[0];
   for (const p of path) if (p.weak) sim.command({ t: 'place', x: p.x, y: p.y, color: leader.color, hp: 0, kind: 'basic' });
-  // The hero stands 1.1 below the first link (in reach), off the trees.
-  sim.command({ t: 'teleport', x: path[0].x - 0.1, y: path[0].y + 1.1 });
-  assert(sim.command({ t: 'begin', x: path[0].x, y: path[0].y }) === true, 'the chain begins');
+  const [a, b] = path, d = Math.hypot(a.x - b.x, a.y - b.y);
+  sim.command({ t: 'teleport', x: a.x + (a.x - b.x) / d * 1.1, y: a.y + (a.y - b.y) / d * 1.1 });
+  assert(sim.command({ t: 'begin', x: a.x, y: a.y }) === true, `${arena}: the chain begins`);
   for (const p of [...path.slice(1), leader]) sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
-  assert(w.chain.length === path.length + 1, `the chain took ${w.chain.length} of ${path.length + 1} links`);
-  const plan = planChain(w), plannedKill = !!plan.links[plan.links.length - 1].outcome?.killed, hpBefore = leader.hp;
+  assert(w.chain.length === path.length + 1, `${arena}: the chain took ${w.chain.length} of ${path.length + 1} links`);
+  const plan = planChain(w), last = plan.links[plan.links.length - 1].outcome!, plannedKill = last.killed, hpBefore = leader.hp, kills = w.stats.kills;
   sim.command({ t: 'release' });
   ticks(sim, 900, world => !world.move);
+  const hpAfter = w.enemies.includes(leader) ? leader.hp : 0;
+  assert(hpAfter === last.hpAfter && w.stats.kills - kills === plan.kills, `${arena}: the dash — HP ${hpAfter}, kills ${w.stats.kills - kills}; the highlight — HP ${last.hpAfter}, kills ${plan.kills}`);
+  assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).hash() === sim.hash(), `${arena}: replays`);
   return { sim, leader, plannedKill, hpBefore };
 }
 
+check('the leader archers: «Стрелковая гряда» on row 4 (HP 5) — four weak links and the leader kill it and the goal, three only wound it; «Брод» (HP 6) — five kill it, four wound it', () => {
+  const lines: string[] = [];
+  for (const [arena, row, hp, path] of [
+    ['archers', 4, 5, [{ x: 14.6, y: 6.4 }, { x: 14.3, y: 5.4 }, { x: 13.9, y: 4.4 }, { x: 13.5, y: 3.4 }]],
+    ['ford', 6, 6, [{ x: 23.2, y: 12.2 }, { x: 22.8, y: 11.2 }, { x: 22.4, y: 10.2 }, { x: 21.9, y: 9.3 }, { x: 21.3, y: 8.5 }]],
+  ] as const) {
+    const weak = path.map(p => ({ ...p, weak: true })), full = leaderChain(arena, row, weak);
+    assert(full.hpBefore === hp && full.plannedKill && !full.sim.world.enemies.includes(full.leader) && full.sim.world.stage === 'greed', `${arena}: ${weak.length} weak — HP ${full.hpBefore}, planned ${full.plannedKill}, stage ${full.sim.world.stage}`);
+    const short = leaderChain(arena, row, weak.slice(1));
+    assert(!short.plannedKill && short.sim.world.enemies.includes(short.leader) && short.leader.hp === 1 && short.sim.world.stage === 'goals', `${arena}: ${weak.length - 1} weak — planned ${short.plannedKill}, HP ${short.leader.hp}`);
+    lines.push(`${arena} row ${row}: ${weak.length} weak — killed (HP ${hp}); ${weak.length - 1} weak — HP ${hp} → 1`);
+  }
+  console.log(`   ${lines.join('; ')}`);
+});
+
 check('«Круг шамана»: five weak links before the leader (HP 6) kill it and the goal; four only wound it (a reserve: a next chain chips it on); three and a brazier (+2) kill it', () => {
   const line = [{ x: 6.3, y: 6.7 }, { x: 6.5, y: 5.6 }, { x: 6.8, y: 4.5 }, { x: 7.2, y: 3.4 }, { x: 7.6, y: 2.3 }].map(p => ({ ...p, weak: true }));
-  const five = leaderChain(line);
+  const five = leaderChain('shaman-circle', 7, line);
   assert(five.hpBefore === 6 && five.plannedKill && !five.sim.world.enemies.includes(five.leader) && five.sim.world.stage === 'greed', `five: HP ${five.hpBefore}, planned ${five.plannedKill}, stage ${five.sim.world.stage}`);
-  const four = leaderChain(line.slice(1));
+  const four = leaderChain('shaman-circle', 7, line.slice(1));
   assert(!four.plannedKill && four.sim.world.enemies.includes(four.leader) && four.leader.hp === 1 && four.sim.world.stage === 'goals', `four: planned ${four.plannedKill}, HP ${four.leader.hp}`);
   const brazier = arenaTemplate('shaman-circle').braziers!.find(b => b.x === 8)!;
-  const lit = leaderChain([{ x: 6.7, y: 5.6, weak: true }, { x: 7.3, y: 4.5, weak: true }, brazier, { x: 8.1, y: 2.3, weak: true }]);
+  const lit = leaderChain('shaman-circle', 7, [{ x: 6.7, y: 5.6, weak: true }, { x: 7.3, y: 4.5, weak: true }, brazier, { x: 8.1, y: 2.3, weak: true }]);
   assert(lit.plannedKill && !lit.sim.world.enemies.includes(lit.leader) && lit.sim.world.stage === 'greed', `three and a brazier: planned ${lit.plannedKill}`);
   assert((lit.sim.world.objects.find(o => o.kind === 'brazier' && o.x === brazier.x && o.y === brazier.y)?.out ?? 0) > 0, 'the brazier went out');
-  for (const fight of [five, four, lit]) assert(replay(JSON.parse(JSON.stringify(fight.sim.exportJournal()!)) as Journal).hash() === fight.sim.hash(), 'replays');
   console.log('   five weak: killed; four weak: HP 6 → 1; two weak, the brazier, one weak: killed');
 });
 
