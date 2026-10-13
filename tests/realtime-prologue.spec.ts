@@ -4,19 +4,19 @@ import { gameWait, untilFrame } from './realtimeFrames';
 
 /**
  * The prologue «Опушка» (src/realtime/view/prologueFlow.ts, prologueView.ts, run/prologue.ts; docs/realtime-onboarding.md, «Пролог:
- * вид и поток»): real input at 1280×720 — the mouse draws the chains, the keys walk. A new viewer (empty storage) plays nine rooms (task 9);
+ * вид и поток»): real input at 1280×720 — the mouse draws the chains, the keys walk. A new viewer (empty storage) plays ten rooms (task 9, task 13);
  * the test hook `__realtime.prologue.route()` only tells WHERE to drag (the stage pixels of the hand's chain), it sends nothing.
  * Uses plain `@playwright/test`: the other specs start with the key «пролог пройден» set (tests/realtimeTest.ts).
  *
- * - a new viewer lands in room 1 with the name «1/9 · Тропа» for 1.5 s, the lean HUD (HP and goal), the skip button;
- * - each room is passed by real input: chains (room 8 ends on the lever, room 9 is a fight), room 5 «Пропасть» by Space and a click
+ * - a new viewer lands in room 1 with the name «1/10 · Тропа» for 1.5 s, the lean HUD (HP and goal), the skip button;
+ * - each room is passed by real input: chains (room 8 ends on the lever, room 9 «Щит» — chains of 3+ into the crowd, room 10 is a fight), room 5 «Пропасть» by Space and a click
  *   beyond the cliff, room 6 «Вихрь» by Q, room 7 «Зелье» by the potion's tile; each of 5–7 shows only its own tile, breathing;
  * - rooms 2 and 4: a shorter chain lights the lamps while it runs, they go out, the door stays closed;
  * - room 3: the tough one first survives; weak ones one by one — the enemies come back (smoke);
  * - the hand comes after 4 s without a press and goes on a press; with no chain from the hero's place: the arrow and the circle,
  *   the hand at once when the circle is reached;
- * - «Пропустить» → the run, the second launch has no prologue; the gear's «Обучение» plays it again; a death in room 9 → room 9 again.
- * Waits are in game time (tests/realtimeFrames.ts). Snapshots: artifacts/realtime-prologue-1.png … -9.png, -hand.png, -arrow.png, -lamps.png, -jump-hand.png.
+ * - «Пропустить» → the run, the second launch has no prologue; the gear's «Обучение» plays it again; a death in room 10 → room 10 again.
+ * Waits are in game time (tests/realtimeFrames.ts). Snapshots: artifacts/realtime-prologue-1.png … -10.png, -shield.png, -shield-hand.png, -hand.png, -arrow.png, -lamps.png, -jump-hand.png.
  */
 
 const KEY = 'ashen-oath-realtime-prologue-done';
@@ -82,12 +82,12 @@ async function titleShot(page: Page, name: string): Promise<void> {
 }
 async function shot(page: Page, name: string): Promise<void> { await page.screenshot({ path: `artifacts/realtime-prologue-${name}.png` }); }
 
-test('a new viewer plays the prologue: room 1 «1/9 · Тропа» for 1.5 s, only HP and the goal, the skip button, three lamps, the label at the nearest enemy', async ({ page }) => {
+test('a new viewer plays the prologue: room 1 «1/10 · Тропа» for 1.5 s, only HP and the goal, the skip button, three lamps, the label at the nearest enemy', async ({ page }) => {
   const errors: string[] = [];
   await newViewer(page, errors);
   await inRoom(page, 1);
   const p = await pro(page);
-  expect(p.title).toBe('1/9 · Тропа');
+  expect(p.title).toBe('1/10 · Тропа');
   expect(p.skipVisible).toBe(true);
   expect(p.lamps).toEqual({ lit: 0, total: 3 });
   expect(p.hud).toEqual({ energy: false, actionBar: false, score: false, focus: false, info: false });
@@ -134,7 +134,7 @@ test('room 1: one real chain of two links, then a second — three kills open th
   await walkIn(page, 1);
   expect((await pro(page)).transition === 'next' || (await pro(page)).room === 2).toBe(true);
   await inRoom(page, 2);
-  expect((await pro(page)).title).toBe('2/9 · Два цвета');
+  expect((await pro(page)).title).toBe('2/10 · Два цвета');
 });
 
 test('room 2: a chain of three blue lights the lamps while it runs, then they go out and the door stays closed; the enemies come back; the full chain of five opens it', async ({ page }) => {
@@ -265,12 +265,77 @@ test('room 8: the goblin — the label at the lever until the first pull; the re
   await inRoom(page, 9);
 });
 
-test('room 9: energy and the action bar appear; Space and Q do not breathe (the player used them in rooms 5–6), 15 kills by real chains (jump by Space and a click, Q by its key) and the door end the prologue: the key is set, the run map follows', async ({ page }) => {
-  test.setTimeout(540_000);
+test('room 9 «Щит»: no action bar, the goal «Щит: 0 / 3»; the hand after 4 s draws a chain of 3+; a chain of two — the touch after it hurts, no lamp, no glow; a chain of 3+ — the hero glows, the touch is blocked (the «блок» spark), a spark flies to the lamp; three lamps open the door, the enemies sleep', async ({ page }) => {
+  test.setTimeout(240_000);
   const errors: string[] = [];
   await newViewer(page, errors);
   await goToRoom(page, 9);
   await titleShot(page, '9');
+  let p = await pro(page);
+  expect(p.title).toBe('9/10 · Щит');
+  expect(p.hud.actionBar).toBe(false);
+  expect(p.lamps).toEqual({ lit: 0, total: 3 });
+  await expect(page.getByTestId('goal')).toHaveText('Щит: 0 / 3');
+  // The crowd is awake and comes.
+  expect((await snap(page)).sleepMarks).toBe(0);
+  await titleGone(page);
+  // The hand: after 4 s without a press, a chain of 3+ through the crowd (no arrow, no text).
+  const hand = await untilFrame(page, sn => sn.prologue.guide?.show === 'hand' ? sn.prologue.guide : undefined, 0, 6);
+  expect(hand.links).toBeGreaterThanOrEqual(3);
+  expect(hand.arrow).toBe(false);
+  expect((await snap(page)).onboarding.labels).toEqual([]);
+  // The shot when the hand has pressed and drags (it fades in at the press).
+  await untilFrame(page, (_s, _a: null, late: boolean) => (late ? true : undefined), null, 0.9);
+  await shot(page, 'shield-hand');
+  // A chain of two (the first two links of the hand's chain): no shield — the touch after the dash hurts, no lamp lights.
+  let pts = await route(page);
+  expect(pts.length).toBeGreaterThanOrEqual(3);
+  await drag(page, pts, 2);
+  const after2 = await untilFrame(page, sn => !sn.moving && sn.kills >= 2 ? sn : undefined, 0, 3);
+  expect(after2.hero.chainShield).toBe(0);
+  const hurt = await untilFrame(page, (sn, hp: number) => sn.hero.hp < hp ? sn : (sn.prologue.lamps.lit > 0 || sn.chainShield.glow || sn.chainShield.blocks > 0 ? 'bad' : undefined), after2.hero.hp, 3);
+  expect(hurt, 'a touch after a chain of two hurts').not.toBe('bad');
+  expect(hurt.hero.hp).toBeLessThan(after2.hero.hp);
+  expect(hurt.prologue.lamps.lit).toBe(0);
+  await expect(page.getByTestId('goal')).toHaveText('Щит: 0 / 3');
+  // The ring comes back (1 s after the dash); then a chain of 3+: the glow, the block, the lamp and the spark to it.
+  await untilFrame(page, sn => sn.enemies.length === 9 && !sn.moving ? true : undefined, 0, 4);
+  for (let tries = 0; tries < 6; tries++) {
+    pts = await route(page);
+    if (pts.length >= 3) break;
+    await gameWait(page, 0.2);
+  }
+  expect(pts.length).toBeGreaterThanOrEqual(3);
+  const hp = (await snap(page)).hero.hp;
+  await drag(page, pts);
+  const glow = await untilFrame(page, sn => sn.chainShield.glow ? sn : undefined, 0, 4);
+  expect(glow.chainShield.left).toBeGreaterThan(0);
+  const block = await untilFrame(page, sn => sn.chainShield.blocks > 0 ? sn : undefined, 0, 2);
+  await shot(page, 'shield');
+  expect(block.prologue.lamps.lit).toBe(1);
+  expect(block.prologue.shown.lampSparks).toBe(1);
+  expect(block.hero.hp, 'the blocked touch does not hurt').toBe(hp);
+  await expect(page.getByTestId('goal')).toHaveText('Щит: 1 / 3');
+  // The window ends: the glow goes, the ring and the hero come back.
+  expect(await untilFrame(page, sn => !sn.chainShield.glow && sn.enemies.length === 9 ? true : undefined, 0, 3)).toBe(true);
+  // Two more windows: the door opens, the enemies fall asleep — the «z» marks.
+  await passShield(page);
+  const open = await snap(page);
+  expect(open.prologue.lamps).toEqual({ lit: 3, total: 3 });
+  expect(open.prologue.shown.lampSparks).toBeGreaterThanOrEqual(3);
+  await expect(page.getByTestId('goal')).toHaveText('Дверь открыта');
+  expect(await untilFrame(page, sn => sn.sleepMarks > 0 ? true : undefined, 0, 2)).toBe(true);
+  await walkIn(page, 9);
+  await inRoom(page, 10);
+  expect(errors).toEqual([]);
+});
+
+test('room 10: energy and the action bar appear; Space and Q do not breathe (the player used them in rooms 5–6), 15 kills by real chains (jump by Space and a click, Q by its key) and the door end the prologue: the key is set, the run map follows', async ({ page }) => {
+  test.setTimeout(540_000);
+  const errors: string[] = [];
+  await newViewer(page, errors);
+  await goToRoom(page, 10);
+  await titleShot(page, '10');
   let p = await pro(page);
   expect(p.hud.energy).toBe(true);
   expect(p.hud.focus).toBe(true);
@@ -299,10 +364,10 @@ test('room 9: energy and the action bar appear; Space and Q do not breathe (the 
     await untilFrame(page, (sn, a: number) => sn.prologue.attempt !== a || sn.stage === 'greed' ? true : undefined, attempt, seconds);
   };
   let spun = false;
-  while ((await pro(page)).room === 9 && (await pro(page)).attempt <= 60) {
+  while ((await pro(page)).room === 10 && (await pro(page)).attempt <= 60) {
     const s = await snap(page);
     if (s.status !== 'playing') { await page.waitForTimeout(100); continue; }
-    if (s.stage === 'greed') { expect(s.kills, 'the 15 kills are the real chains\'').toBeGreaterThanOrEqual(15); await walkIn(page, 9); await page.waitForTimeout(300); continue; } // a hit on the way may end the attempt: the loop plays the room again; no game-time wait here — after the win the map is open and the world stands
+    if (s.stage === 'greed') { expect(s.kills, 'the 15 kills are the real chains\'').toBeGreaterThanOrEqual(15); await walkIn(page, 10); await page.waitForTimeout(300); continue; } // a hit on the way may end the attempt: the loop plays the room again; no game-time wait here — after the win the map is open and the world stands
     const dist = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
     const reach = s.enemies.filter((e: any) => dist(e, s.hero) < 1.9);
     if (s.energy >= 3 && reach.length >= (spun ? 3 : 2)) {
@@ -440,23 +505,42 @@ test('the sandbox has no prologue: no key needed, the arena menu opens', async (
   await expect(page.getByTestId('prologue-skip')).toBeHidden();
 });
 
-test('a death in room 9 plays room 9 again at once with full HP and no defeat screen', async ({ page }) => {
-  test.setTimeout(180_000);
+test('a death in room 10 plays room 10 again at once with full HP and no defeat screen', async ({ page }) => {
+  test.setTimeout(240_000);
   await newViewer(page);
-  await goToRoom(page, 9);
+  await goToRoom(page, 10);
   await titleGone(page);
   // Why a debug command: a real death needs the hero to stand through many hits (15 HP, a long wait, a different fight on each seed). The journalled `setParam` commands make the touch deadly in THIS room's world only; the death, the retry and the HUD after it are the real flow.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); rt.setParam('chainShield', 0); });
   const died = await untilFrame(page, s => s.prologue.log.some((e: any) => e.type === 'roomEnd' && e.outcome === 'death') ? true : undefined, 0, 90);
   expect(died).toBe(true);
   await expect(page.getByTestId('result')).toBeHidden();
-  const again = await untilFrame(page, s => s.prologue.room === 9 && s.prologue.attempt === 2 && !s.prologue.transition && s.status === 'playing' ? true : undefined, 0, 6);
+  const again = await untilFrame(page, s => s.prologue.room === 10 && s.prologue.attempt === 2 && !s.prologue.transition && s.status === 'playing' ? true : undefined, 0, 6);
   expect(again).toBe(true);
   const s = await snap(page);
   expect(s.hero.hp).toBe(s.hero.maxHp);
-  expect(s.prologue.title).toBe('9/9 · Толпа');
+  expect(s.prologue.title).toBe('10/10 · Толпа');
   await expect(page.getByTestId('result')).toBeHidden();
 });
+
+/**
+ * Room 9 «Щит» (task 13): the hand's chain of 3+ of one colour (`route()` — `prologueShieldLinks`, where to drag) by the real mouse,
+ * then a wait for the shield's window to end (the ring comes back), until the three lamps are lit; a death plays the room again (the
+ * loop goes on). Ends with the door open.
+ */
+async function passShield(page: Page): Promise<void> {
+  for (let k = 0; k < 40 && (await snap(page)).stage !== 'greed'; k++) {
+    const s = await snap(page);
+    if (s.status !== 'playing' || s.moving || s.hero.chainShield > 0 || s.prologue.transition) { await gameWait(page, 0.1); continue; }
+    const pts = await route(page);
+    if (pts.length < 3) { await gameWait(page, 0.1); continue; }
+    await drag(page, pts);
+    // The dash, the shield's window, the ring back at its end.
+    await untilFrame(page, sn => sn.stage === 'greed' || (!sn.moving && sn.hero.chainShield === 0 && sn.enemies.length === 9) ? true : undefined, 0, 4);
+  }
+  expect((await snap(page)).stage, 'the three lamps of «Щит»').toBe('greed');
+  await gameWait(page, 0.3);
+}
 
 /** Plays the earlier rooms by the hand's chain (real mouse) to reach room `n`. */
 async function goToRoom(page: Page, n: number): Promise<void> {
@@ -478,10 +562,11 @@ async function jumpTheCliff(page: Page): Promise<void> {
   expect(await untilFrame(page, (s, past: number) => !s.moving && s.hero.x > past ? true : undefined, aim.spot.x + 1, 4)).toBe(true);
 }
 
-/** Room `room` (1–8) passed by real input (the hand's chain; 5 the jump, 6 Q, 7 the potion's tile) and a walk into the door; ends when the fade after it begins. */
+/** Room `room` (1–9) passed by real input (the hand's chain; 5 the jump, 6 Q, 7 the potion's tile, 9 chains of 3+ into the crowd) and a walk into the door; ends when the fade after it begins. */
 async function passRoom(page: Page, room: number): Promise<void> {
   await inRoom(page, room);
   await titleGone(page);
+  if (room === 9) { await passShield(page); await walkIn(page, room); return; }
   if (room === 5) { await jumpTheCliff(page); await walkIn(page, room); return; }
   if (room === 6) { await page.keyboard.press('KeyQ'); await untilFrame(page, s => s.stage === 'greed' ? true : undefined, 0, 6); await gameWait(page, 0.3); await walkIn(page, room); return; }
   if (room === 7) { await page.getByTestId('item-healing').click(); await untilFrame(page, s => s.stage === 'greed' ? true : undefined, 0, 6); await gameWait(page, 0.3); await walkIn(page, room); return; }
@@ -533,7 +618,7 @@ test('a death in room 8 plays room 8 again (attempt 2) with full HP, the enemies
   await newViewer(page);
   await goToRoom(page, 8);
   await titleGone(page);
-  // Why a debug command: see the room 9 death test. The first press (an empty one) wakes the room.
+  // Why a debug command: see the room 10 death test. The first press (an empty one) wakes the room.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); });
   await page.mouse.move(40, 600);
   await page.mouse.down(); await page.mouse.up();
@@ -544,7 +629,7 @@ test('a death in room 8 plays room 8 again (attempt 2) with full HP, the enemies
   expect(again).toBe(true);
   const s = await snap(page);
   expect(s.hero.hp).toBe(s.hero.maxHp);
-  expect(s.prologue.title).toBe('8/9 · Гоблин');
+  expect(s.prologue.title).toBe('8/10 · Гоблин');
   expect(s.enemies.length).toBe(6);
 });
 
@@ -655,7 +740,7 @@ test('telemetry: «Пропустить» in the fade after a death in room 8 �
   await newViewer(page);
   await goToRoom(page, 8);
   await titleGone(page);
-  // Why a debug command: see the room 9 death test. The first press (an empty one) wakes the room.
+  // Why a debug command: see the room 10 death test. The first press (an empty one) wakes the room.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); });
   const skipped = await skipInFade(page, 'retry');
   await page.mouse.move(40, 600);

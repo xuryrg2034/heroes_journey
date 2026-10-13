@@ -215,6 +215,7 @@ check('goal lines, titles, seeds', () => {
   assert(prologueGoalLine(room(6).world) === 'Одним ударом: 0 / 6', 'room 6 «Вихрь»');
   assert(prologueGoalLine(room(7).world) === 'Зелье: 0 / 1', 'room 7 «Зелье»');
   assert(prologueGoalLine(room(8).world) === 'Рычаг: 0 / 1', 'room 8');
+  assert(prologueGoalLine(room(9).world) === 'Щит: 0 / 3', 'room 9 «Щит» (task 13)');
   assert(prologueGoalLine(room(10).world) === 'Убей: 0 / 15', 'room 10');
   assert(PROLOGUE_ROOM_COUNT === 10, 'ten rooms (task 13)');
   assert(roomTitle(1) === '1/10 · Тропа' && roomTitle(5) === '5/10 · Пропасть' && roomTitle(9) === '9/10 · Щит' && roomTitle(10) === '10/10 · Толпа', 'titles');

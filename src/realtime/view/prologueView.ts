@@ -16,6 +16,8 @@ const GOLD = 0xffd36b;
 const SMOKE_LIFE = 0.75;
 /** Puffs of one return. */
 const SMOKE_PUFFS = 6;
+/** Task 13: real seconds a spark flies from the hero to a lamp it lit. */
+const LAMP_SPARK_LIFE = 0.45;
 
 /** What the layer drew in the last frame (the tests read it through `snapshot().prologue`). */
 export interface PrologueShown {
@@ -29,6 +31,9 @@ export interface PrologueShown {
   /** Puffs of smoke started so far / alive now. */
   smokesStarted: number;
   smokesAlive: number;
+  /** Task 13: sparks flown from the hero to a lamp so far / in flight now. */
+  lampSparks: number;
+  lampSparksAlive: number;
 }
 
 /** What `draw` takes from the page each frame. */
@@ -40,6 +45,8 @@ export interface PrologueScene {
   guide: HandGuide | null;
   /** The positions of the hand's links (arena units), in order; empty — no hand. */
   handPoints: readonly Vec[];
+  /** Task 13 «Щит»: a lamp that lights sends a spark from the hero to it (the rooms whose lamps light and go out with each chain do not). */
+  lampSpark?: boolean;
 }
 
 export class PrologueLayer {
@@ -54,18 +61,22 @@ export class PrologueLayer {
   private handKey = '';
   private smokes: { x: number; y: number; life: number; seed: number }[] = [];
   private started = 0;
-  readonly shown: PrologueShown = { lampsLit: 0, lampsTotal: 0, hand: false, handLinks: 0, arrow: false, circle: null, smokesStarted: 0, smokesAlive: 0 };
+  /** Task 13: lamps lit last frame (−1 — none seen yet in this room), the sparks in flight (from — arena units, lamp — its index). */
+  private litBefore = -1;
+  private lampSparks: { from: Vec; lamp: number; life: number }[] = [];
+  private readonly sparkLayer = new Graphics();
+  readonly shown: PrologueShown = { lampsLit: 0, lampsTotal: 0, hand: false, handLinks: 0, arrow: false, circle: null, smokesStarted: 0, smokesAlive: 0, lampSparks: 0, lampSparksAlive: 0 };
 
   constructor() {
-    this.layer.addChild(this.lamps, this.guide, this.hand, this.smoke);
+    this.layer.addChild(this.lamps, this.guide, this.hand, this.smoke, this.sparkLayer);
     this.drawHandShape();
   }
 
   /** A new room: nothing is left of the last one. */
   reset(): void {
-    this.smokes = []; this.started = 0; this.handTime = 0; this.handKey = '';
-    this.lamps.clear(); this.guide.clear(); this.smoke.clear(); this.hand.visible = false;
-    Object.assign(this.shown, { lampsLit: 0, lampsTotal: 0, hand: false, handLinks: 0, arrow: false, circle: null, smokesStarted: 0, smokesAlive: 0 });
+    this.smokes = []; this.started = 0; this.handTime = 0; this.handKey = ''; this.litBefore = -1; this.lampSparks = [];
+    this.lamps.clear(); this.guide.clear(); this.smoke.clear(); this.sparkLayer.clear(); this.hand.visible = false;
+    Object.assign(this.shown, { lampsLit: 0, lampsTotal: 0, hand: false, handLinks: 0, arrow: false, circle: null, smokesStarted: 0, smokesAlive: 0, lampSparks: 0, lampSparksAlive: 0 });
   }
 
   /** Smoke at an arena point (an enemy that came back, the hero put back). */
@@ -91,8 +102,37 @@ export class PrologueLayer {
   draw(dt: number, s: PrologueScene): void {
     this.clock += dt;
     this.drawLamps(s);
+    this.drawLampSparks(dt, s);
     this.drawGuide(dt, s);
     this.drawSmoke(dt);
+  }
+
+  /**
+   * Task 13 «Щит» (design 13.10.2026): each lamp the room lights sends a spark from where the hero stands to it — a bright head with
+   * a short tail along a low arc; the lamp is drawn lit at once (the spark points the eye at it).
+   */
+  private drawLampSparks(dt: number, s: PrologueScene): void {
+    const g = this.sparkLayer, lit = s.lamps?.lit ?? 0, total = s.lamps?.total ?? 0;
+    if (s.lampSpark && this.litBefore >= 0) for (let i = this.litBefore; i < Math.min(lit, total); i++) {
+      this.lampSparks.push({ from: { x: s.hero.x, y: s.hero.y }, lamp: i, life: LAMP_SPARK_LIFE });
+      this.shown.lampSparks++;
+    }
+    this.litBefore = lit;
+    g.clear();
+    const points = total > 0 ? lampPoints(s.door, s.arena, total) : [];
+    this.lampSparks = this.lampSparks.filter(sp => (sp.life -= dt) > 0 && !!points[sp.lamp]);
+    this.shown.lampSparksAlive = this.lampSparks.length;
+    for (const sp of this.lampSparks) {
+      const to = points[sp.lamp], k = 1 - sp.life / LAMP_SPARK_LIFE;
+      const at = (t: number): Vec => {
+        // A low arc: the straight line lifted by a parabola (arena units).
+        const lift = Math.min(1.5, 0.25 * Math.hypot(to.x - sp.from.x, to.y - sp.from.y)) * 4 * t * (1 - t);
+        return { x: sp.from.x + (to.x - sp.from.x) * t, y: sp.from.y + (to.y - sp.from.y) * t - lift };
+      };
+      const head = at(k), tail = at(Math.max(0, k - 0.18));
+      g.moveTo(tail.x * UNIT, tail.y * UNIT).lineTo(head.x * UNIT, head.y * UNIT).stroke({ color: GOLD, width: 5, alpha: 0.8, cap: 'round' });
+      g.circle(head.x * UNIT, head.y * UNIT, 7).fill(0xfff2c4).stroke({ color: NAVY, width: 2 });
+    }
   }
 
   private drawLamps(s: PrologueScene): void {

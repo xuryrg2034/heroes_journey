@@ -187,6 +187,8 @@ const CAPTION_COLOR = 0xc8b0ff;
 const CURSE = 0xb57cff, CURSE_DARK = 0x2a1440;
 /** «Щит фокуса»: the hero's rim while the drawn chain guards him (the focus bar's blue) and its dark outline. */
 const FOCUS_GUARD = 0x8fd3ff, NAVY_RIM = 0x18232d;
+/** Task 13: the glow of the after-chain shield and its block spark (warm gold, unlike the focus guard's pale blue). */
+const SHIELD_GLOW = 0xffd36b;
 
 /** Path of a zone outline (a band is a stroke along its spine, drawn by the caller). */
 function areaPath(g: Graphics, area: Area): Graphics {
@@ -1625,9 +1627,17 @@ export class RealtimeRenderer {
       const k = this.outlineLeft / OUTLINE_LIFE;
       ring.circle(0, 0, UNIT * (0.66 + 0.3 * (1 - k))).stroke({ color: 0xfff2c4, width: 6 * k + 2, alpha: 0.95 * k });
     }
-    // Stage F: the after-chain invulnerability — a blinking gold rim, unlike the hurt blink, while it lasts.
-    if (hero.chainShield > 0 && world.status === 'playing' && Math.floor(this.clock * 12) % 2 === 0)
-      ring.circle(0, 0, UNIT * 0.6).stroke({ color: 0xffd36b, width: 3, alpha: 0.9 });
+    // Stage F: the after-chain invulnerability. Task 13 (design 13.10.2026): a steady glow the whole shield — a gold halo behind
+    // the hero and a thick rim, both thinning as the shield runs out (`shieldFull` — its length when it was given), unlike the hurt blink.
+    if (hero.chainShield > this.shieldLast) this.shieldFull = hero.chainShield;
+    this.shieldLast = hero.chainShield;
+    this.chainShieldShown = hero.chainShield > 0 && world.status === 'playing';
+    if (this.chainShieldShown) {
+      const k = Math.min(1, hero.chainShield / Math.max(this.shieldFull, 0.01)), pulse = 0.5 + 0.5 * Math.sin(this.clock * 18);
+      ring.circle(0, 0, UNIT * 0.86).fill({ color: SHIELD_GLOW, alpha: 0.18 + 0.2 * k });
+      ring.circle(0, 0, UNIT * 0.68).stroke({ color: NAVY_RIM, width: 8, alpha: 0.55 * k + 0.2 })
+        .circle(0, 0, UNIT * 0.68).stroke({ color: SHIELD_GLOW, width: 3 + 2.5 * k, alpha: 0.75 + 0.25 * pulse });
+    }
     // «Щит фокуса»: while the drawn chain guards the hero — a steady pale-blue rim (the focus colour), unlike the gold blink.
     this.focusGuardShown = focusGuarded(world);
     if (this.focusGuardShown) ring.circle(0, 0, UNIT * 0.64).stroke({ color: NAVY_RIM, width: 6, alpha: 0.6 }).circle(0, 0, UNIT * 0.64).stroke({ color: FOCUS_GUARD, width: 3.5, alpha: 0.95 });
@@ -1650,6 +1660,11 @@ export class RealtimeRenderer {
   curseShown = { chests: 0, border: false, label: '' };
   /** «Щит фокуса»: the rim was drawn this frame (tests read it). */
   focusGuardShown = false;
+  /** Task 13: the after-chain shield's glow was drawn this frame (tests read it). */
+  chainShieldShown = false;
+  /** The shield's length when it was last given and its value last frame (the glow thins with what is left). */
+  private shieldFull = 0;
+  private shieldLast = 0;
   /** «Смена цвета»: the enemy id of the link with the rainbow ring this frame (0 — none; tests read it). */
   colorShiftShown = 0;
   /**
@@ -1700,6 +1715,28 @@ export class RealtimeRenderer {
     g.position.set(x * UNIT, y * UNIT);
     this.fxLayer.addChild(g);
     this.bursts.push({ g, life, total: life, grow });
+  }
+
+  /** Task 13: block sparks shown so far (one per `shieldBlock` event; tests read it). */
+  shieldBlocksShown = 0;
+
+  /**
+   * Task 13 «Щит» (design 13.10.2026): the after-chain shield took a touch (`shieldBlock`, the enemy at x, y). On the hero's rim
+   * facing the enemy: a bright arc of the shield and short rays thrown back at the enemy — the touch bounced off, no hurt flash.
+   */
+  private shieldBlockSpark(world: World, ex: number, ey: number): void {
+    const hx = world.hero.x, hy = world.hero.y, d = Math.hypot(ex - hx, ey - hy), ux = d > 1e-6 ? (ex - hx) / d : 0, uy = d > 1e-6 ? (ey - hy) / d : -1;
+    const a = Math.atan2(uy, ux), R = UNIT * 0.68, g = new Graphics();
+    g.arc(0, 0, R, a - 0.7, a + 0.7).stroke({ color: NAVY_RIM, width: 10, alpha: 0.7, cap: 'round' });
+    g.arc(0, 0, R, a - 0.7, a + 0.7).stroke({ color: 0xfff2c4, width: 6, cap: 'round' });
+    for (const da of [-0.45, 0, 0.45]) {
+      const ra = a + da, x0 = Math.cos(ra) * (R + 8), y0 = Math.sin(ra) * (R + 8), len = da === 0 ? 22 : 15;
+      g.moveTo(x0, y0).lineTo(x0 + Math.cos(ra) * len, y0 + Math.sin(ra) * len).stroke({ color: SHIELD_GLOW, width: 4, cap: 'round' });
+    }
+    g.position.set(hx * UNIT, hy * UNIT);
+    this.fxLayer.addChild(g);
+    this.bursts.push({ g, life: 0.4, total: 0.4 });
+    this.shieldBlocksShown++;
   }
 
   // ---- The power number (package «Урон имеет значение», item 4; task 8b, design 13.10.2026): view-only ----
@@ -2008,6 +2045,7 @@ export class RealtimeRenderer {
         else if (ev.phase === 'end') this.pierceShown.ends++;
         continue;
       }
+      if (ev.type === 'shieldBlock') { this.shieldBlockSpark(world, ev.x, ev.y); continue; }
       if (ev.type === 'enemyHit') {
         // Stage 2, step 2: an arrow or a blast wounds an enemy (a kill comes as its own `kill` event).
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xff8a73);
@@ -2642,6 +2680,7 @@ export class RealtimeRenderer {
     this.shakeLeft = 0;
     this.flashLeft = 0;
     this.outlineLeft = 0;
+    this.shieldFull = 0; this.shieldLast = 0;
     this.comboLife = 0;
     this.comboValue = 0;
     this.powerLife = 0;
