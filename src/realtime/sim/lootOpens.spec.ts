@@ -22,7 +22,7 @@ import { SLOT_ITEMS, type ItemKind, type Loadout } from './kit';
 import { defaultParams, type Params } from './params';
 import { Simulation, replay } from './simulation';
 import type { Enemy, WorldEvent } from './world';
-import { createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtChooseGift, rtChooseGiftPick, rtGiftView, rtRunParams, serializeRtRun, RT_RUN_FORCED, type RtRunState } from '../run/rtRun';
+import { RT_TASK17_OFF, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtChooseGift, rtChooseGiftPick, rtGiftView, rtRunParams, serializeRtRun, RT_RUN_FORCED, type RtRunState } from '../run/rtRun';
 import { closeNode, ok, playFight, toBattle } from '../run/runFight.testkit';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -154,7 +154,7 @@ check('off by default: 2 resources a loot (4 for a clean break) as before; a jou
 
 /** A new run whose gift opened nothing (a gift option without consumables), at its first battle (no gentle entry: task 17 opens healing). */
 function bareRun(k: number): RtRunState {
-  let run = createRtRun(seedOf(k), { gift: 'mini', gentleEntry: false });
+  let run = createRtRun(seedOf(k), { gift: 'mini', ...RT_TASK17_OFF });
   const view = rtGiftView(run)!;
   const option = view.options.find(o => o.available && o.option.kind !== 'items') ?? view.options.find(o => o.available)!;
   run = ok(rtChooseGift(run, option.index), 'gift');

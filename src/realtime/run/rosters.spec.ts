@@ -21,7 +21,7 @@ import {
   ALWAYS_MET, ANCHOR_ARENAS, ANCHOR_ROLE_ROW, ANCHOR_ROLES, FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTER_ARENAS, POOL_ROSTERS, rosterChoices, rosterDef, rosterKinds, rosterTitle, withRoster,
 } from '../sim/rosters';
 import { MIXED_ROSTER_ARENAS, rosterMet, RUN_ARENAS, runRow } from './arenaPools';
-import {
+import { RT_TASK17_OFF,
   arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode,
   rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
 } from './rtRun';
@@ -63,7 +63,7 @@ interface Played { row: number; type: string; arena: string; roster?: string; ru
  */
 function walk(seed: number, k: number, mix = true): Played[] {
   // A run before the mix is also before the gentle entry (task 17, 13.10.2026): its pools are the old ones.
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...mix ? {} : { gentleEntry: false } });
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...mix ? {} : RT_TASK17_OFF });
   const played: Played[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;

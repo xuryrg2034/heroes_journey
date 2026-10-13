@@ -28,7 +28,7 @@ import { defaultParams, sanitizeParams, type Params } from './params';
 import { Simulation, SIM_DT, replay } from './simulation';
 import type { Loadout } from './kit';
 import { focusGuarded, touchDistanceOf, type Enemy, type World, type WorldEvent } from './world';
-import { createRtRun, rtArenaLoadout, rtElitePlates, rtMapNodes, rtRunParams, rtToughHp, type RtBattleKind, type RtRunState } from '../run/rtRun';
+import { RT_TASK17_OFF, createRtRun, rtArenaLoadout, rtElitePlates, rtMapNodes, rtRunParams, rtToughHp, type RtBattleKind, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -518,7 +518,7 @@ check('caps with armour: random elites at most 1 before the goals and 2 after', 
 
 /** The run arena of a battle node of run row `row` (`battle` kind) on the open field (a run without the gentle entry, task 17). */
 function runArena(row: number, battle: RtBattleKind, k: number): { run: RtRunState; sim: Simulation } | null {
-  const base = createRtRun(seedOf(70 + row), { gentleEntry: false });
+  const base = createRtRun(seedOf(70 + row), { ...RT_TASK17_OFF });
   const node = rtMapNodes(base).find(n => runRow(n.row) === row);
   if (!node) return null;
   const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'armor-open', seed: seedOf(k), battle } };
@@ -557,7 +557,7 @@ check('the run turns the package on; from row 3 one guaranteed armoured elite in
 check('the guaranteed elite: not on the Jailer\'s node, on a breakthrough (design answer 11.10.2026)', () => {
   let jailer = 0, breakthrough = 0;
   for (let k = 1; k <= 6 && (!jailer || !breakthrough); k++) {
-    const base = createRtRun(seedOf(900 + k), { gentleEntry: false });
+    const base = createRtRun(seedOf(900 + k), { ...RT_TASK17_OFF });
     for (const node of rtMapNodes(base)) {
       if (runRow(node.row) < 3 || (node.type !== 'checkpoint' && node.type !== 'breakthrough')) continue;
       const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'armor-open', seed: seedOf(k), battle: 'battle' } };

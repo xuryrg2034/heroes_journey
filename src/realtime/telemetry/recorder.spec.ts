@@ -27,7 +27,7 @@ import type { Command } from '../sim/commands';
 import { copyParams, defaultParams } from '../sim/params';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import type { World } from '../sim/world';
-import { createRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseGift, rtEnterNode, rtRunParams, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { RT_TASK17_OFF, createRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseGift, rtEnterNode, rtRunParams, type RtRunState, type RtRunStep } from '../run/rtRun';
 import { ITEM_KINDS } from '../forest/items';
 import type { ItemKind } from '../forest/types';
 import type { PrologueRecord, RunRecord } from './schema';
@@ -462,7 +462,7 @@ async function main(): Promise<void> {
     const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params, observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
     const latest = async (): Promise<RunRecord> => { await new Promise(r => setTimeout(r, 10)); return (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === 7001).pop()!; };
     // A run without the gentle entry (task 17: its start potion is in the record's `startItems`, checked on its own).
-    let run: RtRunState = createRtRun(7001, { gift: 'mini', gentleEntry: false });
+    let run: RtRunState = createRtRun(7001, { gift: 'mini', ...RT_TASK17_OFF });
     rec.runStarted(null, run);
     const feed = (step: RtRunStep): void => { assert(step.ok, step.ok ? '' : step.reason); rec.runStep(run, step); run = step.run; };
     // The gift's first option: two random consumables (one of each kind).
@@ -564,7 +564,7 @@ async function main(): Promise<void> {
     assert(run.secondWindSpent === true && r1.secondWind?.nodeId === nodeId && r1.secondWind.row === 1 && typeof r1.secondWind.fight === 'string' && r1.fights.includes(r1.secondWind.fight), `the record: ${JSON.stringify(r1.secondWind)}`);
     assert(checkRecord(r1) === null && checkRecord({ ...r1, secondWind: { nodeId, row: 'one', fight: null } }) === 'run secondWind' && checkRecord({ ...r1, startItems: { healing: 0 } }) === 'run startItems' && checkRecord({ ...r1, gentle: false }) === 'run gentle', 'checkRecord');
     // A run without the flag: none of the fields.
-    rec.runStarted(run, createRtRun(7102, { gift: 'mini', gentleEntry: false }));
+    rec.runStarted(run, createRtRun(7102, { gift: 'mini', ...RT_TASK17_OFF }));
     const r2 = await latest(7102);
     assert(r2.gentle === undefined && r2.startPotion === undefined && r2.secondWindOn === undefined && r2.startItems === undefined && r2.secondWind === undefined, 'the old run');
     assert(checkRecord({ ...r1, startPotion: false }) === 'run startPotion' && checkRecord({ ...r1, secondWindOn: 1 }) === 'run secondWindOn', 'the flags are checked');

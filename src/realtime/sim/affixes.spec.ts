@@ -15,7 +15,7 @@ import { hashWorld, worldState } from './hash';
 import { defaultParams, runParams, type Params } from './params';
 import { Simulation, replay } from './simulation';
 import type { Enemy, WorldEvent } from './world';
-import { createRtRun, rtArenaLoadout, rtEliteAffixes, rtMapNodes, type RtRunState } from '../run/rtRun';
+import { RT_TASK17_OFF, createRtRun, rtArenaLoadout, rtEliteAffixes, rtMapNodes, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -191,7 +191,7 @@ check('T4: drawn affixes — as many as the count; «Стремительный�
 });
 
 check('T4: the run row decides the count — rows 1–4: 0, 5–8: 1, 9: 2 (the loadout of the node\'s arena, and its start elites; a run without the gentle entry of task 17)', () => {
-  const base = createRtRun(seedOf(300), { gentleEntry: false }), nodes = rtMapNodes(base);
+  const base = createRtRun(seedOf(300), { ...RT_TASK17_OFF }), nodes = rtMapNodes(base);
   const rows = new Set<number>();
   for (const node of nodes) {
     const row = runRow(node.row);

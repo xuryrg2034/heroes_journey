@@ -261,7 +261,10 @@ export interface RunRecord extends RtHeader {
    * of a gentle run (`healing: 1`); absent — none, a run started before the recorder, or an older record.
    */
   startItems?: Record<string, number>;
-  /** Task 17 (from 13.10.2026): the run's second wind (rows 1–4, once a run); absent — not spent (or an older record). */
+  /**
+   * Task 17 (from 13.10.2026): the run's second wind stood the hero up (rows 1–4, once a run); absent — not spent (or an older
+   * record). Not the flag: the flag is `secondWindOn` (names kept for the record format).
+   */
   secondWind?: RunSecondWind;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;

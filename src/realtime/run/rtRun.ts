@@ -33,7 +33,7 @@ import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
-import { arenaTitle, FINAL_ARENA, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, playedKinds, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { defaultParams, runParams, type Params } from '../sim/params';
@@ -143,6 +143,8 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   cursedChest: true,
   // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.
   eliteLootOpens: true,
+  // Task 17 Е2 (design 13.10.2026): the first elite row of a gentle run gives the kinds an elite may be (`Loadout.eliteKinds`).
+  eliteMetKinds: true,
   // B7 К9 «Игорный круг гоблинов» (design 12.10.2026): a run-layer key, read by `rtEnterNode` through the run view.
   goblinCircle: true,
   // Design 12.10.2026: a queued spawn group stays together (spawn.ts `placeQueued`).
@@ -196,12 +198,20 @@ export function rtPageParams(sandbox: boolean, panel: () => Params): Params { re
 /**
  * A new run takes the gentle entry and keeps the flag in its state (`RtRunState.gentleEntry`); a save without the flag plays
  * the old tables to its end. Not a `Params` key: the simulation never reads it — the run passes the row's numbers in the
- * loadout and the params. The start potion (`RT_START_POTION`, `RtRunState.startPotion`) and the run's second wind
- * (`RT_SECOND_WIND`, `RtRunState.secondWind`) are flags of their own (design 13.10.2026): each switches only its own system.
+ * loadout and the params. The start potion (`RT_START_POTION_ON`, `RtRunState.startPotion`) and the run's second wind
+ * (`RT_SECOND_WIND_ON`, `RtRunState.secondWind`) are flags of their own (design 13.10.2026): each switches only its own system
+ * and defaults to its own constant (`createRtRun`).
  */
 export const RT_GENTLE_ENTRY = true;
-export const RT_START_POTION = true;
-export const RT_SECOND_WIND = true;
+export const RT_START_POTION_ON = true;
+export const RT_SECOND_WIND_ON = true;
+/** The `createRtRun` options of a run as before task 17 (none of the three flags) — tests, bots, the old reference measures. */
+export const RT_TASK17_OFF = Object.freeze({ gentleEntry: false, startPotion: false, secondWind: false } as const);
+/**
+ * Task 17 Е2 (design 13.10.2026): the kinds with an elite behaviour (sim/eliteBehaviors.ts) — the first elite row of a gentle
+ * run makes its elite of one of them the run met on the rows before it (`rtEliteKinds`); none met — basic.
+ */
+export const RT_FIRST_ELITE_KINDS: readonly string[] = ['basic', 'wolf', 'boar'];
 /** The run plays the gentle entry's tables, pools and row numbers (its flag `gentleEntry`). */
 export const rtGentle = (run: Pick<RtRunState, 'gentleEntry'> | null | undefined): boolean => !!run?.gentleEntry;
 /** Баланс (task 17, P2): seconds of invulnerability after a hit by the run row — 1.0 / 1.0 / 0.8 / 0.65 on rows 1–4, then 0.5. */
@@ -528,9 +538,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
   // Task 17 «Пологий вход» (13.10.2026): on unless the option says (false — the old tables, as a save before it plays).
   const gentle = options.gentleEntry ?? RT_GENTLE_ENTRY;
-  // Its own flags (design 13.10.2026): absent options follow `options.gentleEntry` when it is given (false — a run as before
-  // task 17), else they are on as the run's defaults say.
-  const potion = options.startPotion ?? options.gentleEntry ?? RT_START_POTION, wind = options.secondWind ?? options.gentleEntry ?? RT_SECOND_WIND;
+  // Its own flags (design 13.10.2026): each defaults to its own constant, independent of the others.
+  const potion = options.startPotion ?? RT_START_POTION_ON, wind = options.secondWind ?? RT_SECOND_WIND_ON;
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
@@ -648,6 +657,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && pending?.kind === 'battle' && rtGuaranteedElite(node, pending.battle, gentle) ? { guaranteedElite: true } : {},
     // Task 17, P4: the run's second wind waits on rows 1–4 until it is spent (once a run; sim/world.ts `hurtHero`).
     ...run.secondWind && !run.secondWindSpent && node && pending?.kind === 'battle' && row <= RT_SECOND_WIND_LAST_ROW ? { secondWind: true } : {},
+    // Task 17 Е2: the first elite row of a gentle run — the elite only of a kind met before it (`Params.eliteMetKinds`).
+    ...gentle && node && pending?.kind === 'battle' && row === RT_GENTLE_ELITE_ROW ? { eliteKinds: rtEliteKinds(run, row) } : {},
     // Task 17, P3: while only the start's healing is open, the first elite loot opens another kind (sim/elites.ts `armorLoot`).
     ...run.startPotion && run.openItems.length && run.openItems.every(item => item === 'healing') ? { lootOpens: true } : {},
     // Casino stage 1 («Однорукий гоблин», 8.3): a battle from run row `RT_SLOT_ROW` may get the goblin — not the Jailer's, not a boss's.
@@ -664,6 +675,20 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     // Casino stage 1, item 2: the oath the node card took (the sim checks it, `Params.oathStake`).
     ...pending?.kind === 'battle' && pending.oath ? { oath: pending.oath } : {},
   };
+}
+
+/**
+ * Task 17 Е2: the kinds the elites of a battle on run row `row` may be — those of `RT_FIRST_ELITE_KINDS` the run met in the
+ * arenas it entered on the rows before (`playedKinds`: template, phases, roster); none — basic. Pure: the picks decide it.
+ */
+export function rtEliteKinds(run: Pick<RtRunState, 'picks' | 'map'>, row: number): string[] {
+  const met = new Set<string>();
+  for (const pick of run.picks) {
+    const node = rtNode(run, pick.nodeId);
+    if (pick.arena && node && runRow(node.row) < row) for (const kind of playedKinds(pick.arena, pick.roster)) met.add(kind);
+  }
+  const kinds = RT_FIRST_ELITE_KINDS.filter(kind => met.has(kind));
+  return kinds.length ? kinds : ['basic'];
 }
 
 /**
@@ -922,7 +947,7 @@ export function arenaPreview(run: RtRunState, node: ForestMapNode): RtArenaPick 
 export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = [], mix = false, gentle = false): string[] {
   if (node.type === 'hard') return [HARD_ARENA];
   if (node.type === 'boss') return [FINAL_ARENA];
-  return ordinaryArenaChoices(runRow(node.row), history, runArenaPools(mix, gentle));
+  return ordinaryArenaChoices(runRow(node.row), history, runArenaPools(mix, gentle), gentle ? GENTLE_FIRST_MEETING_LAST_ROW : Infinity);
 }
 /**
  * The arena of a node by draw `roll` of the pool stream after `history` (a save is checked with it too); `mix` — the run's

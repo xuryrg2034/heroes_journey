@@ -6,15 +6,16 @@
  * at the start with the first elite loot opening another kind, the second wind once on rows 1–4; the saves; the run's params
  * do not depend on the sandbox panel.
  */
-import { registerArena } from '../sim/arenas';
+import { arenaTemplate, registerArena } from '../sim/arenas';
 import { worldState } from '../sim/hash';
 import { defaultParams, type Params } from '../sim/params';
 import { replay, Simulation } from '../sim/simulation';
-import { SLOT_ITEMS } from '../sim/kit';
+import { SLOT_ITEMS, type Loadout } from '../sim/kit';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { SECOND_WIND_HP, SECOND_WIND_INVULNERABLE } from '../sim/world';
-import { arenaNewKinds, runRow } from './arenaPools';
-import {
+import { arenaCandidates, arenaNewKinds, playedKinds, runArenaPools, runRow } from './arenaPools';
+import { PROLOGUE_ROOMS } from './prologue';
+import { RT_TASK17_OFF,
   createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtChooseGift, rtChooseGiftPick, rtGiftView, rtArenaParams, rtArenaRules, rtAvailableNodes, rtEnterNode, rtMapNodes, rtNode, rtPageParams,
   rtRunParams, serializeRtRun, type RtBattleKind, type RtRunState,
 } from './rtRun';
@@ -43,7 +44,7 @@ function harmless(extra: Partial<Params> = {}): Params {
 const ORDINARY = ['battle', 'event', 'breakthrough'];
 function rowRun(row: number, gentle: boolean, k: number, battle: RtBattleKind = 'battle', arena = 'gentle-open', types: readonly string[] = ['battle', 'event', 'breakthrough', 'checkpoint', 'hard']): RtRunState | null {
   for (let s = 0; s < 20; s++) {
-    const base = createRtRun(seedOf(400 + 37 * k + s), { gentleEntry: gentle });
+    const base = createRtRun(seedOf(400 + 37 * k + s), gentle ? {} : RT_TASK17_OFF);
     const node = rtMapNodes(base).find(n => runRow(n.row) === row && types.includes(n.type));
     if (node) return { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena, seed: seedOf(k), battle } };
   }
@@ -114,7 +115,7 @@ check('tough newcomers: a gentle run keeps 1–2 HP on row 5 and gets 3 HP from 
 
 /** The run row and arena of every arena a run meets, its outcomes faked as victories (the run's own commands, no simulation). */
 function arenaRows(seed: number, k: number, gentle: boolean): [number, string][] {
-  let run = createRtRun(seed, { gift: 'mini', gentleEntry: gentle });
+  let run = createRtRun(seed, { gift: 'mini', ...gentle ? {} : RT_TASK17_OFF });
   const out: [number, string][] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
@@ -127,24 +128,114 @@ function arenaRows(seed: number, k: number, gentle: boolean): [number, string][]
   return out;
 }
 
-check('«Колючие заросли» (300 runs each): a gentle run plays them on rows 7–8 by the pool — never before row 7; on row 9 only as the overdue own arena of an unmet porcupine (the rule of before); a run without the flag still meets them on rows 5–6', () => {
+check('arenas by row (300 runs each, the run\'s own commands): a gentle run plays «Колючие заросли» on rows 7–8 only, row 1 never «Двор кнопок» (Е1), no kind met for the first time on row 9 (Q1 = b); a run without the flags still meets thorns on rows 5–6, buttons on row 1 and a first kind on row 9', () => {
   const rows = { gentle: new Map<number, number>(), old: new Map<number, number>() };
-  let overdue = 0;
+  const firstOn9 = { gentle: 0, old: 0 }, buttons1 = { gentle: 0, old: 0 };
   for (let k = 1; k <= 300; k++) {
     for (const gentle of [true, false]) {
-      const map = gentle ? rows.gentle : rows.old, path = arenaRows(seedOf(k), k, gentle);
+      const map = gentle ? rows.gentle : rows.old, path = arenaRows(seedOf(k), k, gentle), key = gentle ? 'gentle' : 'old';
       path.forEach(([row, arena], i) => {
-        if (arena !== 'thorns') return;
-        map.set(row, (map.get(row) ?? 0) + 1);
-        if (gentle && row === 9) { assert(!path.slice(0, i).some(([, a]) => arenaNewKinds(a).includes('porcupine')), `seed ${k}: row 9 thorns with the porcupine met`); overdue++; }
+        if (arena === 'thorns') map.set(row, (map.get(row) ?? 0) + 1);
+        if (row === 1 && arena === 'buttons') buttons1[key]++;
+        // A first meeting: the arena brings one of the four new kinds no arena before it brought (arenaPools.ts `metKinds`).
+        const met = new Set(path.slice(0, i).flatMap(([, a]) => arenaNewKinds(a)));
+        if (row === 9 && arenaNewKinds(arena).some(kind => !met.has(kind))) firstOn9[key]++;
       });
     }
   }
   const text = (m: Map<number, number>): string => [...m].sort((a, b) => a[0] - b[0]).map(([r, n]) => `${r}: ${n}`).join(', ');
-  console.log(`   thorns by row (heuristic walk, 13.10.2026) — gentle ${text(rows.gentle)}; old ${text(rows.old)}`);
-  assert([...rows.gentle.keys()].every(row => row >= 7) && [7, 8].every(row => (rows.gentle.get(row) ?? 0) > 0), `gentle: ${text(rows.gentle)}`);
-  assert(overdue === (rows.gentle.get(9) ?? 0), 'row 9: overdue only');
+  console.log(`   thorns by row (heuristic walk, 13.10.2026) — gentle ${text(rows.gentle)}; old ${text(rows.old)}; a first kind on row 9 — gentle ${firstOn9.gentle}, old ${firstOn9.old}; «Двор кнопок» on row 1 — gentle ${buttons1.gentle}, old ${buttons1.old}`);
+  assert([...rows.gentle.keys()].every(row => row === 7 || row === 8) && [7, 8].every(row => (rows.gentle.get(row) ?? 0) > 0), `gentle: ${text(rows.gentle)}`);
+  assert(firstOn9.gentle === 0 && firstOn9.old > 0, `a first kind on row 9: gentle ${firstOn9.gentle}, old ${firstOn9.old}`);
+  assert(buttons1.gentle === 0 && buttons1.old > 0, `«Двор кнопок» on row 1: gentle ${buttons1.gentle}, old ${buttons1.old}`);
   assert((rows.old.get(5) ?? 0) > 0 && (rows.old.get(6) ?? 0) > 0, `old: ${text(rows.old)}`);
+});
+
+check('Е1: every arena row 1 of a gentle run may play has a goal the prologue teaches; «Двор кнопок» (buttons) is not one of them', () => {
+  const taught = new Set(PROLOGUE_ROOMS.map(room => room.arena.goal));
+  const row1 = arenaCandidates(1, runArenaPools(true, true)), row1old = arenaCandidates(1, runArenaPools(true, false));
+  assert(row1.length > 0 && row1.every(arena => taught.has(arenaTemplate(arena).goal)), `gentle row 1: ${row1.map(a => `${a}/${arenaTemplate(a).goal}`)} (taught ${[...taught]})`);
+  assert(!taught.has(arenaTemplate('buttons').goal) && row1old.includes('buttons') && !row1.includes('buttons'), 'buttons out of row 1');
+  console.log(`   prologue goals: ${[...taught].join(', ')}; gentle row 1: ${row1.join(', ')}; old row 1: ${row1old.join(', ')}`);
+});
+
+/** A run (`opts` of createRtRun) walked by its own commands, fake victories, to its first battle of run row `row`; null — none. */
+function firstBattleOnRow(seed: number, k: number, row: number, opts: Parameters<typeof createRtRun>[1]): RtRunState | null {
+  let run = createRtRun(seed, { gift: 'mini', ...opts });
+  for (let step = 0; step < 200 && !run.result; step++) {
+    const pending = run.pending;
+    if (pending?.kind === 'battle') {
+      const r = runRow(rtNode(run, pending.nodeId)!.row);
+      if (r === row && pending.battle === 'battle') return run;
+      if (r > row) return null;
+      run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'resolve');
+    } else if (pending) run = pending.kind === 'gift' ? takeGift(run) : closeNode(run);
+    else {
+      // On the row asked for, a battle when the map offers one.
+      const next = rtAvailableNodes(run), battle = next.find(node => node.type === 'battle' && runRow(node.row) === row);
+      run = ok(rtEnterNode(run, (battle ?? next[(k + step) % next.length]).id), 'enter');
+    }
+  }
+  return null;
+}
+/** The elites that come in the first `seconds` of the open battle of `run`, on its own arena and roster (harmless numbers). */
+function runElites(run: RtRunState, seconds: number): Enemy[] {
+  const pending = run.pending as Extract<RtRunState['pending'], { kind: 'battle' }>;
+  const sim = new Simulation({ arena: pending.arena, params: rtArenaParams(run, rtRunParams(harmless())), seed: pending.seed, record: true, loadout: rtArenaLoadout(run), ...pending.roster !== undefined ? { roster: pending.roster } : {} });
+  const out = elitesIn(sim, seconds);
+  assert(replays(sim), 'replay');
+  return out;
+}
+
+check('Е2: the elites of row 4 of a gentle run are only of a kind the run met on rows 1–3 that has an elite behaviour (basic, wolf, boar); a run without the flag — any kind; real fights on the node\'s own arena (120 seeds each)', () => {
+  const behaviour = ['basic', 'wolf', 'boar'], seen = { gentle: new Set<string>(), old: new Set<string>() };
+  let fights = 0;
+  const lists = new Set<string>();
+  for (let k = 1; k <= 120; k++) {
+    const run = firstBattleOnRow(seedOf(k + 600), k, 4, {});
+    if (run) {
+      const allowed = rtArenaLoadout(run).eliteKinds ?? [];
+      lists.add(allowed.join('+'));
+      // Met: what the arenas entered on rows 1–3 bring (template, phases, roster) — the reading of `playedKinds`.
+      const met = new Set(run.picks.flatMap(pick => pick.arena && runRow(rtNode(run, pick.nodeId)!.row) < 4 ? [...playedKinds(pick.arena, pick.roster)] : []));
+      assert(allowed.length && allowed.every(kind => behaviour.includes(kind) && (met.has(kind) || (kind === 'basic' && allowed.length === 1))), `seed ${k}: allowed ${allowed}, met ${[...met]}`);
+      for (const e of runElites(run, 15)) { assert(allowed.includes(e.kind), `seed ${k}: an elite ${e.kind} (allowed ${allowed}) on ${(run.pending as { arena: string }).arena}`); seen.gentle.add(e.kind); }
+      fights++;
+    }
+    const old = firstBattleOnRow(seedOf(k + 600), k, 4, RT_TASK17_OFF);
+    if (old) { assert(rtArenaLoadout(old).eliteKinds === undefined, 'no list in an old run'); for (const e of runElites(old, 15)) seen.old.add(e.kind); }
+  }
+  console.log(`   row-4 elite kinds (heuristic, 13.10.2026) — gentle ${[...seen.gentle].join(', ')} (allowed lists: ${[...lists].join(' | ')}); old ${[...seen.old].join(', ')} (${fights} gentle fights)`);
+  // Variety is in the lists (what the run met differs by seed); the elite that comes is mostly basic — the first allowed
+  // newcomer after the guarantee's moment, and most newcomers are basic (heuristic, reported, not asserted).
+  assert(fights >= 40 && lists.size >= 2 && seen.gentle.size >= 1, `fights ${fights}, lists ${[...lists]}, kinds ${[...seen.gentle]}`);
+  assert([...seen.old].some(kind => !behaviour.includes(kind)), `the old run makes elites of other kinds too: ${[...seen.old]}`);
+  // Only the first elite row: rows 5+ give no list.
+  const later = firstBattleOnRow(seedOf(601), 1, 6, {});
+  assert(later && rtArenaLoadout(later).eliteKinds === undefined, 'no list on row 6');
+});
+
+check('Е2 in the simulation: with `eliteMetKinds` and a kit list only those kinds become elites (the guarantee and random elites wait for one); without the key — the old path, every kind', () => {
+  const kindsOf = (params: Params, loadout: Loadout, k: number): Set<string> => {
+    const sim = new Simulation({ arena: 'gentle-open', params, seed: seedOf(k), record: true, loadout });
+    const out = new Set(elitesIn(sim, 30).map(e => e.kind));
+    assert(replays(sim), 'replay');
+    return out;
+  };
+  const many = (extra: Partial<Params> = {}): Params => harmless({ eliteArmor: true, eliteSandbox: true, eliteChance: 1, eliteChanceAfter: 1, eliteArmorCap: 99, eliteArmorCapAfter: 99, baseWolfShare: 0.4, ...extra });
+  const on = new Set<string>(), off = new Set<string>();
+  for (let k = 1; k <= 3; k++) {
+    for (const kind of kindsOf(many({ eliteMetKinds: true }), { eliteKinds: ['wolf'], guaranteedElite: true }, k)) on.add(kind);
+    for (const kind of kindsOf(many(), { eliteKinds: ['wolf'], guaranteedElite: true }, k)) off.add(kind);
+  }
+  assert(same([...on], ['wolf']), `with the key: ${[...on]}`);
+  assert(off.has('basic') && off.has('wolf'), `without the key: ${[...off]}`);
+  // A journal without the key plays the world of before (the kit list is there, the rule is off).
+  const params = many(); delete (params as Partial<Params>).eliteMetKinds;
+  const a = new Simulation({ arena: 'gentle-open', params, seed: seedOf(9), record: true, loadout: { eliteKinds: ['wolf'] } }), b = new Simulation({ arena: 'gentle-open', params: many(), seed: seedOf(9), record: true, loadout: { eliteKinds: ['wolf'] } });
+  for (let t = 0; t < TICKS(20); t++) { a.tick(); b.tick(); a.world.events.length = 0; b.world.events.length = 0; }
+  const strip = (sim: Simulation): string => { const st = worldState(sim.world) as Record<string, unknown>; delete st.params; return JSON.stringify(st); };
+  assert(strip(a) === strip(b) && replay(JSON.parse(JSON.stringify(a.exportJournal()!))).hash() === a.hash(), 'the old path');
 });
 
 /** The hero touched once by an enemy of `hp` standing on him: the hit's damage and the invulnerability it left. */
@@ -174,7 +265,7 @@ check('a touch: a gentle run leaves 1 / 1 / 0,8 / 0,65 s of invulnerability on r
 
 check('a new gentle run starts with 1 healing potion, the kind open; a run without the flag — none', () => {
   for (let k = 1; k <= 5; k++) {
-    const run = createRtRun(seedOf(k), { gift: 'mini' }), old = createRtRun(seedOf(k), { gift: 'mini', gentleEntry: false });
+    const run = createRtRun(seedOf(k), { gift: 'mini' }), old = createRtRun(seedOf(k), { gift: 'mini', ...RT_TASK17_OFF });
     assert(run.gentleEntry === true && run.items.healing === 1 && same(run.openItems, ['healing']), `seed ${k}: ${JSON.stringify(run.items)} ${run.openItems}`);
     assert(old.gentleEntry === undefined && Object.values(old.items).every(n => n === 0) && !old.openItems.length, 'the old start');
     // The same map, gift and streams: the potion draws nothing.
@@ -305,6 +396,25 @@ check('the second wind: not on row 5 or later of a new run, not in a run without
   }
 });
 
+check('a run with ONLY the flag `secondWind` (no gentle entry, no potion): the wind stands the hero up once in a row-1 fight, the run spends it, and a lethal hit in its next fight of rows 1–4 ends that fight', () => {
+  let checked = 0;
+  for (let k = 1; k <= 6 && checked < 3; k++) {
+    const run = toBattle(takeGift(createRtRun(seedOf(k + 700), { gift: 'mini', gentleEntry: false, startPotion: false, secondWind: true })));
+    assert(run.secondWind === true && !run.gentleEntry && !run.startPotion && rtArenaLoadout(run).secondWind === true, 'only the wind');
+    const first = lethalFight(run, k, true);
+    assert(first.sim.world.status === 'victory' && first.events.filter(e => e.ev.type === 'secondWind').length === 1, `seed ${k}: the wind in the first fight`);
+    const after = ok(resolveArena(run, outcomeOf(run, first.sim.world)), 'resolve');
+    assert(after.secondWindSpent === true, `seed ${k}: spent`);
+    const next = toBattle(closeNode(after));
+    if (runRow(rtNode(next, (next.pending as { nodeId: string }).nodeId)!.row) > 4) continue;
+    assert(!rtArenaLoadout(next).secondWind, `seed ${k}: no wind in the next loadout`);
+    const second = lethalFight(next, k + 1, false);
+    assert(second.sim.world.status === 'defeat' && !second.events.some(e => e.ev.type === 'secondWind'), `seed ${k}: the next lethal hit ends the fight`);
+    checked++;
+  }
+  assert(checked >= 2, `runs checked ${checked}`);
+});
+
 check('saves: a new run keeps its three flags and `secondWindSpent`; a save without them (before task 17) loads and plays the old rules; malformed flags read as no run', () => {
   let run = takeGift(createRtRun(seedOf(77), { gift: 'mini' }));
   const back = parseRtRun(serializeRtRun(run));
@@ -341,11 +451,16 @@ check('each of the three flags alone changes only its own system (design 13.10.2
     return { potion: run.items.healing === 1 && same(run.openItems, ['healing']), loot: !!l1.lootOpens, wind: !!l1.secondWind, gentleTables: l3.randomElites === false && (l6.eliteAffixes ?? 0) === 1 && l6.elitePlates === 3,
       oldTables: l3.randomElites === true && (l6.eliteAffixes ?? 0) === 1, grace: p1.invulnerability === 1 && p1.toughTouch === false };
   };
-  const g = look(only('gentleEntry')), p = look(only('startPotion')), w = look(only('secondWind')), none = look(createRtRun(seedOf(k), { gift: 'mini', gentleEntry: false }));
+  const g = look(only('gentleEntry')), p = look(only('startPotion')), w = look(only('secondWind')), none = look(createRtRun(seedOf(k), { gift: 'mini', ...RT_TASK17_OFF }));
   assert(g.gentleTables && g.grace && !g.potion && !g.loot && !g.wind, `gentleEntry alone: ${JSON.stringify(g)}`);
   assert(p.potion && p.loot && p.oldTables && !p.grace && !p.wind, `startPotion alone: ${JSON.stringify(p)}`);
   assert(w.wind && w.oldTables && !w.grace && !w.potion && !w.loot, `secondWind alone: ${JSON.stringify(w)}`);
   assert(none.oldTables && !none.grace && !none.potion && !none.loot && !none.wind, `none: ${JSON.stringify(none)}`);
+  // Each flag defaults to its own constant: switching one off leaves the others on (review 13.10.2026).
+  const noGentle = createRtRun(seedOf(k), { gentleEntry: false }), noPotion = createRtRun(seedOf(k), { startPotion: false }), noWind = createRtRun(seedOf(k), { secondWind: false });
+  assert(!noGentle.gentleEntry && noGentle.startPotion === true && noGentle.secondWind === true, 'gentleEntry off alone');
+  assert(noPotion.gentleEntry === true && !noPotion.startPotion && noPotion.secondWind === true && noPotion.items.healing === 0, 'startPotion off alone');
+  assert(noWind.gentleEntry === true && noWind.startPotion === true && !noWind.secondWind, 'secondWind off alone');
   // The pools: only `gentleEntry` moves «Колючие заросли» off rows 5–6 (the walk of the thorns check, 60 runs).
   const thornsEarly = (opts: { gentleEntry: boolean; startPotion: boolean; secondWind: boolean }): number => {
     let n = 0;

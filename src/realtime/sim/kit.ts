@@ -85,6 +85,11 @@ export interface Loadout {
    * and drops it (elites.ts `armorLoot`; acts only with `Params.eliteLootOpens`). Absent — the loot as before.
    */
   lootOpens?: boolean;
+  /**
+   * Task 17 Е2: the kinds a newcomer may be to become an elite (acts only with `Params.eliteMetKinds`; elites.ts `eliteRoll`).
+   * The run gives it on the first elite row of a gentle run. Absent — every kind, as before.
+   */
+  eliteKinds?: string[];
 }
 
 /**
@@ -141,6 +146,8 @@ export interface Kit {
   secondWind?: true;
   /** Task 17: the first armoured loot opens a kind not open yet (absent — none, or it opened one: kits before hash as before). */
   lootOpens?: true;
+  /** Task 17 Е2: the kinds an elite may be here (absent — every kind: kits before hash as before). */
+  eliteKinds?: string[];
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -193,6 +200,7 @@ export function kitOf(loadout: Loadout): Kit {
     // Task 17 «Пологий вход»: absent unless the run gives them (kits before hash as before).
     ...loadout.secondWind ? { secondWind: true as const } : {},
     ...loadout.lootOpens ? { lootOpens: true as const } : {},
+    ...Array.isArray(loadout.eliteKinds) && loadout.eliteKinds.length ? { eliteKinds: [...new Set(loadout.eliteKinds.filter(kind => typeof kind === 'string'))] } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

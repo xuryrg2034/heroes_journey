@@ -369,6 +369,9 @@ export function eliteRoll(world: World, kind: EnemyKind): boolean {
   const def = enemyKind(kind);
   if (!def.chainable || def.immune) return false;
   const kit = world.kit, p = world.params, guarantee = !!kit?.guaranteedElite && !!p.eliteArmor;
+  // Task 17 Е2 (`Params.eliteMetKinds`, `Kit.eliteKinds`): only these kinds become elites — no draw is spent, the guarantee and
+  // the event's start elite wait for the first newcomer of an allowed kind.
+  if (p.eliteMetKinds && kit?.eliteKinds && !kit.eliteKinds.includes(kind)) return false;
   // The event modifier «бой со случайной элитой» (design answer 3): the first newcomer of the arena is a random elite.
   if (kit?.startElite) {
     kit.startElite = false;

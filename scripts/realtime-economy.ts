@@ -27,9 +27,9 @@ import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { runRow } from '../src/realtime/run/arenaPools';
+import { arenaNewKinds, runRow } from '../src/realtime/run/arenaPools';
 import {
-  createRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind,
+  createRtRun, RT_TASK17_OFF, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind,
   rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose, rtDieView, rtEnterNode, rtEventView, rtGiftView, rtNode,
   rtOathPreview, rtRerollTalismans, rtRerollView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtArenaParams, rtRunParams, rtShopBuy, rtShopLeave, rtShopView,
   type RtArenaOutcome, type RtRunState, type RtRunStep,
@@ -89,6 +89,8 @@ interface RunRecord {
   k: number; seed: number; policy: OathPolicy; result: string; lastRow: number;
   gain: Record<string, number>; spend: Record<string, number>; rowStart: Record<number, number>;
   fights: FightRecord[]; circle: boolean; circleGames: number; circleWins: number; firstDeathRow: number | null;
+  /** Task 17: the run row of the first fight whose arena brings the porcupine (null — never met). */
+  porcupineRow: number | null;
   rerollBy: Record<string, number>; shopBy: Record<string, number>; endTotal: number;
 }
 
@@ -331,8 +333,8 @@ function playFight(run: RtRunState): FightResult {
 
 function walkRun(k: number, policy: OathPolicy): RunRecord {
   const seed = seedOf(k);
-  let run = createRtRun(seed, { gift: 'full', gentleEntry: GENTLE });
-  const rec: RunRecord = { k, seed, policy, result: 'none', lastRow: 0, gain: {}, spend: {}, rowStart: {}, fights: [], circle: false, circleGames: 0, circleWins: 0, firstDeathRow: null, rerollBy: {}, shopBy: {}, endTotal: 0 };
+  let run = createRtRun(seed, { gift: 'full', ...GENTLE ? {} : RT_TASK17_OFF });
+  const rec: RunRecord = { k, seed, policy, result: 'none', lastRow: 0, gain: {}, spend: {}, rowStart: {}, fights: [], circle: false, circleGames: 0, circleWins: 0, firstDeathRow: null, porcupineRow: null, rerollBy: {}, shopBy: {}, endTotal: 0 };
   /** Signed per-kind change from `before` to `after`: gains to `gainKey`, losses to `spendKey`. */
   const account = (before: Record<ResourceKind, number>, after: RtRunState, gainKey: string, spendKey: string): void => {
     for (const kind of RESOURCE_KINDS) { const d = after.materials[kind] - before[kind]; if (d > 0) add(rec.gain, gainKey, d); else if (d < 0) add(rec.spend, spendKey, -d); }
@@ -389,6 +391,7 @@ function walkRun(k: number, policy: OathPolicy): RunRecord {
         const fight: FightRecord = { ...fought.record, row, battle: pending.battle, oath: pending.oath ?? null, die: 'none', face: 0, dieMult: 1, base: 0, dGreed: 0, dOath: 0, dDie: 0, dFinale: 0, paid: 0, cap: 0, capHit: false, overCap: false, capHitTake: false };
         if (fight.wouldDie && rec.firstDeathRow === null) rec.firstDeathRow = row;
         rec.fights.push(fight);
+        if (rec.porcupineRow === null && arenaNewKinds(pending.arena).includes('porcupine')) rec.porcupineRow = row;
         run = ok(resolveArena(run, fought.outcome), 'resolve');
         // Loot picked up on the arena: elite loot and the goblin's 🍲 (resources only), then the door's payout (no die screen).
         add(rec.gain, 'elite-loot', fight.lootElite); add(rec.gain, 'slot', fight.lootSlot);
@@ -589,6 +592,10 @@ function report(runs: RunRecord[], title: string): void {
   console.log(`\n9. Критерии калибровки (эвристика бота): котёл за поход — среднее ${f1(mean(per(r => r.gain.cauldron ?? 0)))}, медиана ${f1(q(per(r => r.gain.cauldron ?? 0), 0.5))}; бои на потолке выплаты — ${pct(withCauldron.filter(f => f.capHit).length, withCauldron.length)} (с костью, как в разделе 4; на «Забрать» — ${pct(withCauldron.filter(f => f.capHitTake).length, withCauldron.length)}); добыча элит ресурсами за поход — p90 ${f1(q(per(r => r.gain['elite-loot'] ?? 0), 0.9))}; ресурсы в начале ряда 10 — медиана ${f1(q(row10, 0.5))} (${row10.length} походов).`);
   const outposts = fights.filter(f => f.arena === 'outpost' && f.battle === 'hard');
   console.log(`\n7. Сундук: боёв «Заставы» (трудный узел) ${outposts.length}; сундук взят ${pct(outposts.filter(f => f.chest).length, outposts.length)}, проклятие снято ${pct(outposts.filter(f => f.chestLifted).length, outposts.filter(f => f.chest).length)} взятых. Добыча элит предметом (не ресурсом): ${f1(mean(per(r => r.fights.reduce((s, f) => s + f.lootItems, 0))))} за поход.`);
+  // Task 17: the row of the first fight with the porcupine (its own arena or a mixed one).
+  const porc = new Map<string, number>();
+  for (const r of runs) porc.set(String(r.porcupineRow ?? '—'), (porc.get(String(r.porcupineRow ?? '—')) ?? 0) + 1);
+  console.log(`\nДикобраз впервые (ряд первого боя на арене с ним; «—» — не встречен): ${[...porc].sort().map(([row, n]) => `${row}: ${n}`).join(', ')} из ${runs.length}.`);
   // Task 17 «Пологий вход» (13.10.2026): the curve by run row.
   console.log(`\n10. По рядам (задача 17; вход ${GENTLE ? 'пологий' : 'прежний'}; урон — HP за бой, «погиб бы» — бой, где настоящее HP дошло до 0)\n`);
   console.log('| Ряд | Боёв | Урон: среднее | медиана | p90 | «Погиб бы» | HP в начале боя, медиана | Лечений выпито за бой | Лечения из добычи за бой |');

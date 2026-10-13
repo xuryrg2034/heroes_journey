@@ -20,7 +20,7 @@
  * - «Журнал удачи»: «Кости» against 15/36, the wheel's spins with their odds; telemetry: the circle's choices.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import {
+import { RT_TASK17_OFF,
   createRtRun, parseRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoNode, rtCasinoPlay, rtCasinoRoll, rtCasinoView, rtChooseEventOption, rtChooseTalisman,
   rtEnterNode, rtEventView, rtLuckReport, rtNode, rtNodeTitle, serializeRtRun, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE, RT_DICE_WIN_CHANCE,
   type RtCasinoGame, type RtRunState, type RtRunStep,
@@ -153,7 +153,7 @@ check('the 8 whole runs of the reroll fixture (real fights, code of 7ae55fc, re-
   const walkSaves = (k: number, circle: boolean): string[] => {
     // Task 12 (13.10.2026): the fixture's saves predate the run flag `markedGoals` (it adds one field to every save; the fights
     // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
-    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, gentleEntry: false }));
+    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF }));
     const saves = [serializeRtRun(run)];
     for (let step = 0; step < 160 && !run.result; step++) {
       const p = run.pending;

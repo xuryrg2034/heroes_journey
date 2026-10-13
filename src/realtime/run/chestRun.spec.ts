@@ -18,7 +18,7 @@
  * - telemetry: the chest's choice is its own (`chest`), not merged with the «Застава» talismans; no luck line.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import {
+import { RT_TASK17_OFF,
   createRtRun, parseRtRun, resolveArena, rtAvailableNodes, rtChestOwed, rtChooseEventOption, rtChooseTalisman, rtEnterNode, rtEventView, rtLuckReport, rtNode,
   rtRerollTalismans, rtRerollView, serializeRtRun, RT_CHEST_TALISMANS, type RtRunState,
 } from './rtRun';
@@ -185,7 +185,7 @@ check('saves: a save written before B6 at the «Застава» choice complete
 function walkSaves(k: number, chestField = true, events = true): string[] {
   // Task 12 (13.10.2026): the fixture's saves predate the run flag `markedGoals` (it adds one field to every save; the fights
   // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
-  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, gentleEntry: false }));
+  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF }));
   const saves = [serializeRtRun(run)];
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;
