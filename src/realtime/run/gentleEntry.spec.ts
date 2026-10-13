@@ -1,8 +1,8 @@
 /**
  * Task 17 «Пологий вход» (design 13.10.2026; docs/realtime-slice.md, section 7, «Пологий вход»): a run with the flag
  * `gentleEntry` and a run without it (a save before the task) — what the player meets, read from real fights played by
- * journal commands and from the run's own commands: elites from row 4, an affix, 3 plates and tough HP 3 from row 6,
- * «Колючие заросли» on rows 6–8, the row's invulnerability after a hit and the raised tough touch from row 3, a healing potion
+ * journal commands and from the run's own commands: elites from row 4, 3 plates and tough HP 3 from row 6, an affix from row 7
+ * (design answer 13.10.2026), «Колючие заросли» on rows 6–8, the row's invulnerability after a hit and the raised tough touch from row 3, a healing potion
  * at the start with the first elite loot opening another kind, the second wind once on rows 1–4; the saves; the run's params
  * do not depend on the sandbox panel.
  */
@@ -74,9 +74,9 @@ check('elites by the row: a gentle run meets none on rows 1–3 and the guarante
   }
 });
 
-check('the elite of a gentle run: rows 4 and 6 — 2 plates, no affix on 4, 3 plates and 1 affix on 6–8, 4 plates and 2 affixes on 9; a run without the flag — 3 plates and an affix on row 6 too (real fights)', () => {
+check('the elite of a gentle run: row 4 — 2 plates, no affix; row 6 — 3 plates, no affix; rows 7–8 — 3 plates and 1 affix; row 9 — 4 plates and 2 affixes; a run without the flag — 3 plates and an affix on row 6 too (real fights)', () => {
   const plateOf = (e: Enemy): number => (e.armor?.max ?? 0) - (e.affixes?.includes('fat') ? 1 : 0) + (e.affixes?.includes('swift') ? 1 : 0);
-  for (const [gentle, row, plates, affixes] of [[true, 4, 2, 0], [true, 6, 3, 1], [true, 8, 3, 1], [true, 9, 4, 2], [false, 4, 2, 0], [false, 6, 3, 1]] as const) {
+  for (const [gentle, row, plates, affixes] of [[true, 4, 2, 0], [true, 6, 3, 0], [true, 7, 3, 1], [true, 8, 3, 1], [true, 9, 4, 2], [false, 4, 2, 0], [false, 6, 3, 1]] as const) {
     for (let k = 1; k <= 2; k++) {
       const run = rowRun(row, gentle, k, 'battle', 'gentle-open', ORDINARY);
       assert(run, `a node of row ${row}`);

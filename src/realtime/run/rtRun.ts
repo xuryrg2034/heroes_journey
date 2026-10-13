@@ -328,8 +328,8 @@ export interface RtRunState {
    */
   markedGoals?: true;
   /**
-   * Task 17 «Пологий вход» (design 13.10.2026): random and guaranteed elites from run row 4, an affix, 3 plates and tough HP 3
-   * from row 6, «Колючие заросли» on rows 6–8, the row's invulnerability after a hit and the tough touch from row 3
+   * Task 17 «Пологий вход» (design 13.10.2026): random and guaranteed elites from run row 4, 3 plates and tough HP 3 from row 6,
+   * an affix from row 7, «Колючие заросли» on rows 6–8, the row's invulnerability after a hit and the tough touch from row 3
    * (`rtArenaParams`), a healing potion at the start, the second wind once on rows 1–4. Set when the run is created; absent —
    * a run saved before it (or created without it): the old tables, to its end.
    */
@@ -567,15 +567,20 @@ export function rtFindOptions(run: Pick<RtRunState, 'seed'>, nodeId: string): It
 export const RT_RANDOM_ELITE_ROW = 3;
 /** Баланс (task 17 «Пологий вход», P1): random and guaranteed elites of a run with `gentleEntry` from this run row. */
 export const RT_GENTLE_ELITE_ROW = 4;
-/** Баланс (task 17, P1): the row from which a run with `gentleEntry` plays 1 affix, 3 plates and tough HP 3 (was 5). */
+/** Баланс (task 17, P1): the row from which a run with `gentleEntry` plays 3 plates and tough HP 3 (was 5). */
 export const RT_GENTLE_STEP_ROW = 6;
+/**
+ * Баланс (task 17, design answer 13.10.2026 on the row 6 cliff): the row from which a run with `gentleEntry` gives its elites
+ * 1 affix (was 5) — a row after the plates and the tough HP, so row 6 does not bring every novelty at once.
+ */
+export const RT_GENTLE_AFFIX_ROW = 7;
 /** Random elites come on run row `row` (`gentle` — a run with `gentleEntry`: from row 4, else from row 3). */
 export const rtRandomElites = (row: number, gentle = false): boolean => row >= (gentle ? RT_GENTLE_ELITE_ROW : RT_RANDOM_ELITE_ROW);
 /**
  * Баланс (phase A, T4, docs/realtime-phase-a.md, section 2): affixes of each elite by the run row — 1–4: 0, 5–8: 1, 9: 2.
- * Task 17 (`gentle`): 1–5: 0, 6–8: 1, 9: 2.
+ * Task 17 (`gentle`): 1–6: 0, 7–8: 1, 9: 2.
  */
-export const rtEliteAffixes = (row: number, gentle = false): number => (row >= 9 ? 2 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 1 : 0);
+export const rtEliteAffixes = (row: number, gentle = false): number => (row >= 9 ? 2 : row >= (gentle ? RT_GENTLE_AFFIX_ROW : 5) ? 1 : 0);
 /**
  * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2; the turn-based palette, decision 30.09.2026): colours
  * of the newcomers by the run row — 1–2: 2, 3–4: 3, from 5: 4. Acts only with the panel toggle `colorsByRow`.
