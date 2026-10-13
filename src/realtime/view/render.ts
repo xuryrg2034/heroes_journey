@@ -35,6 +35,7 @@ import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
+import { SLOT_BUST_SOURCE } from '../sim/slot';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
@@ -127,6 +128,8 @@ export const TARGET = 0xffff66;
 /** Shield of the shieldbearer: cold steel with a pale rim (outside the chain palette). */
 const STEEL = 0xa9b8c6;
 /** Fuse sparks of the sapper and flames: hot orange (outside the chain palette; phase A: the blast circle is THREAT). */
+/** Task 7: the red of the goblin's lit bust circle. */
+const BUST_RED = 0xe0402f;
 const SPARK = 0xffb04a;
 /** Stage 3a (П4): the shaman's beam — violet magic, outside the chain palette. */
 const MAGIC = 0xc58cff;
@@ -164,7 +167,7 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 /** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
 /** Stage 3a: `howls` — the wolves' howl circle round the hero (П1); `leapLines`, `stunned` — the lynx's leap line and its stun (П2); `beams` — the shaman's beam (П4). */
 /** Phase A (Д3): `rushLanes` — the rush lanes of howling and rushing wolves; `roleBadges` — role badges under bodies. */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number; affixLabels: number; trailPoints: number; chameleonWarns: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number; affixLabels: number; trailPoints: number; chameleonWarns: number; bustCircles: number }
 
 /** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
 export interface TerrainCounts { river: number; cliff: number; thorns: number }
@@ -358,6 +361,8 @@ export class RealtimeRenderer {
   private quillCounts = { quillsRaised: 0, quillsTrembling: 0 };
   private readonly bodyTextures = new Map<string, { texture: Texture; ax: number; ay: number }>();
   private readonly floating: FloatingText[] = [];
+  /** Task 7: the goblin's area busts that went off on screen (tests read it). */
+  bustBlastsShown = 0;
   /** Task 5б: the sparks from a bursting idol to the hero (see `bustSpark`). */
   private readonly sparks: { g: Graphics; fx: number; fy: number; tx: number; ty: number; life: number; seed: number }[] = [];
   /** Stage 2, step 2: blast flashes fading out. */
@@ -440,7 +445,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: 0, chameleonWarns: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: 0, chameleonWarns: 0, bustCircles: 0 };
   /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
   readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
   /** Stage 3a (М2): enemies seen falling into a cliff so far. */
@@ -1021,7 +1026,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0, bustCircles: 0 };
     // Stage 3a (П1): the wolves howl — a thin threat circle on the ring round the hero, no fill (phase A: the rush lanes of
     // the wolves carry the timing).
     const howl = wolfHowl(world);
@@ -1048,7 +1053,28 @@ export class RealtimeRenderer {
       }
       g.stroke({ color: SPARK, width: 3, cap: 'round' });
     };
-    for (const b of world.blasts) fuse(b.x, b.y, b.timeLeft, b.total);
+    // Task 7 (design 13.10.2026, «Взрыв по площади»): the lit idol — a red circle of the blast's radius that blinks the whole
+    // fuse (faster as it burns), hatched, with the ring growing to its edge; nobody is hit until it goes off.
+    const bustCircle = (x: number, y: number, R0: number, left: number, total: number): void => {
+      counts.bustCircles++;
+      const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = R0 * UNIT, X = x * UNIT, Y = y * UNIT;
+      const blink = 0.5 + 0.5 * Math.sin(this.clock * (10 + 16 * k));
+      g.circle(X, Y, R).fill({ color: BUST_RED, alpha: 0.1 + 0.18 * blink });
+      hatchCircle(g, X, Y, R, 0.4 * UNIT);
+      g.stroke({ color: BUST_RED, width: 2, alpha: 0.35 + 0.25 * blink });
+      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.7 });
+      g.circle(X, Y, R).stroke({ color: BUST_RED, width: 3.5, alpha: 0.6 + 0.4 * blink });
+      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: 0xffe08a, width: 3, alpha: 0.95 });
+      for (let i = 0; i < 6; i++) {
+        const a = this.clock * 9 + i * Math.PI / 3, l = r * (0.45 + 0.3 * Math.abs(Math.sin(this.clock * 23 + i)));
+        g.moveTo(X, Y).lineTo(X + Math.cos(a) * l, Y + Math.sin(a) * l);
+      }
+      g.stroke({ color: SPARK, width: 3, cap: 'round' });
+    };
+    for (const b of world.blasts) {
+      if (b.bust) bustCircle(b.x, b.y, b.radius, b.timeLeft, b.total);
+      else fuse(b.x, b.y, b.timeLeft, b.total);
+    }
     const marks = new Map<number, { x: number; y: number; r: number; progress: number }>();
     for (const e of world.enemies) {
       const lit = sapperFuse(world, e);
@@ -1808,7 +1834,9 @@ export class RealtimeRenderer {
           this.slotFlashes++;
         } else {
           // «Перебор»: the goblin blows up — a red-orange ring wider than the arrow's flash, at the event's point (the idol is gone), and a shake.
-          if (ev.action === 'effect' && ev.outcome === 'bust') {
+          // Task 7: with «Взрыв по площади» the reels only light the idol (the red circle of `drawSignals`); the boom, the shake and
+          // the blow come with the blast after the fuse (event `blast`, source `slot-bust`) — no spark to the hero, no flash on him.
+          if (ev.action === 'effect' && ev.outcome === 'bust' && !world.params.slotBustArea) {
             const boom = new Graphics().circle(0, 0, 2.2 * UNIT).fill({ color: 0xe0562f, alpha: 0.55 }).stroke({ color: 0xffe08a, width: 8, alpha: 0.95 });
             boom.position.set(ev.x * UNIT, ev.y * UNIT);
             this.fxLayer.addChild(boom);
@@ -1871,6 +1899,15 @@ export class RealtimeRenderer {
         this.fxLayer.addChild(flash);
         this.bursts.push({ g: flash, life: 0.35, total: 0.35 });
         if (world.params.shakeOnDamage) { this.shakeLeft = this.shakeTotal = 0.15; this.shakeAmp = Math.max(this.shakeAmp, 6); }
+        // Task 7: the goblin's bust goes off — the sapper's flash over its wider circle, a red-orange ring and the old bust's shake.
+        if (ev.source === SLOT_BUST_SOURCE) {
+          const boom = new Graphics().circle(0, 0, ev.radius * UNIT).fill({ color: 0xe0562f, alpha: 0.4 }).stroke({ color: 0xffe08a, width: 8, alpha: 0.95 });
+          boom.position.set(ev.x * UNIT, ev.y * UNIT);
+          this.fxLayer.addChild(boom);
+          this.bursts.push({ g: boom, life: 0.55, total: 0.55 });
+          this.shakeLeft = this.shakeTotal = 0.3; this.shakeAmp = Math.max(this.shakeAmp, 9);
+          this.bustBlastsShown++;
+        }
         continue;
       }
       if (ev.type === 'spin') {

@@ -11,7 +11,7 @@ import { gameWait, untilFrame } from './realtimeFrames';
 interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number; feeds: number; feedText: string;
   textPlace: 'up' | 'down'; reelsPlace: 'up' | 'down'; captionRect: Rect | null; oddsRect: Rect | null; reelsRect: Rect | null; sparks: number; sparkFrom: { x: number; y: number } | null; sparkTo: { x: number; y: number } | null; heroFlashes: number }
 interface Rect { left: number; top: number; right: number; bottom: number }
-interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number }; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number } }
+interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number; x: number; y: number }; enemies: { id: number }[]; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number; bustCircles: number; bustBlasts: number } }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
 
@@ -114,7 +114,7 @@ test('the panel button «Гоблин», a mouse chain to the lever with the odd
 const BUST_SEED = Math.imul(6, 2654435761) >>> 0;
 const SAFE_SEED = Math.imul(1, 2654435761) >>> 0;
 
-async function openBustSandbox(page: Page, seed: number, topEdge = false): Promise<string[]> {
+async function openBustSandbox(page: Page, seed: number, topEdge = false, area = false): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -125,16 +125,18 @@ async function openBustSandbox(page: Page, seed: number, topEdge = false): Promi
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await page.keyboard.press('1');
   await expect(page.getByTestId('menu')).toBeHidden();
-  await page.evaluate(([seed, topEdge]) => {
+  await page.evaluate(([seed, topEdge, area]) => {
     const rt = (window as any).__realtime;
     rt.restart(seed);
+    // Task 7: «Взрыв по площади» (the run's rule; the sandbox's default is off).
+    if (area) rt.setParam('slotBustArea', true);
     // A quiet field (as above); six pulls, a short cooldown, the rule on — all journalled commands.
     for (const [k, v] of Object.entries({ enemySpeed: 0, speedSpread: 0, baseIntervalMin: 20, baseIntervalMax: 20, baseFloor: 0, contactDamage: 0, slot: true, slotBust: true, slotPulls: 6, slotCooldown: 0.5 })) rt.setParam(k, v);
     rt.params.maxEnemies = 0;
     rt.clear(false);
     rt.teleport(8, topEdge ? 1 : 5);
     rt.summonGoblin();
-  }, [seed, topEdge] as const);
+  }, [seed, topEdge, area] as const);
   await expect.poll(async () => (await snap(page)).slot.goblin !== null).toBe(true);
   // Task 5б: the idol at the top edge — summon again (a standing idol is replaced, another spot by the rules) until it stands in the top 1.3 units.
   for (let i = 0; topEdge && i < 60 && (await snap(page)).slot.goblin!.y > 1.3; i++) {
@@ -432,5 +434,56 @@ test('task 5б: a bust with the hero far from the idol — the spark from the id
   expect(v.heroFlashes).toBe(1);
   expect(v.sparkFrom!.x).toBeCloseTo(g.x, 3); expect(v.sparkFrom!.y).toBeCloseTo(g.y, 3);
   expect(v.sparkTo!.x).toBeCloseTo(hero.x, 3); expect(v.sparkTo!.y).toBeCloseTo(hero.y, 3);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 7 «Взрыв по площади» (design 13.10.2026), the view with real input: the risky pull's odds line names the circle; the bust lights
+ * a red circle round the idol (no blow, no spark to the hero); a hero who walks out of it by the keys takes nothing; one who stays
+ * takes 4; an enemy in the circle dies of the blast.
+ */
+test('task 7: the bust lights a red circle; walking out of it by the keys spares the hero, no spark; an enemy inside dies', async ({ page }) => {
+  const errors = await openBustSandbox(page, BUST_SEED, false, true);
+  for (let i = 0; i < 3; i++) { await pullByMouse(page); await untilReady(page); }
+  await untilFrame(page, snap => snap.slot.marks === 0 ? true : undefined, null, 30);
+  const hpBefore = (await snap(page)).hero.hp;
+  const g = (await snap(page)).slot.goblin!;
+  await pullByMouse(page, async () => {
+    expect((await snap(page)).slot.shown.oddsText).toBe('взрыв 55 % · −4 HP в круге · иначе тройка');
+  });
+  // The reels stop: the idol lights — the red circle, nobody hurt yet; the player walks away at once (towards the arena's middle).
+  await untilFrame(page, snap => snap.slot.bustCircles > 0 ? true : undefined, null, 10);
+  const key = g.x < 8 ? 'KeyD' : 'KeyA';
+  await page.keyboard.down(key);
+  const enemy = await page.evaluate(([x, y]) => (window as any).__realtime.place(x, y, 1, 2, 'basic') as number, [g.x + (g.x < 8 ? -1.2 : 1.2), g.y] as const);
+  expect((await snap(page)).hero.hp).toBe(hpBefore);
+  await page.screenshot({ path: 'artifacts/realtime-slot-bust-circle.png' });
+  await untilFrame(page, snap => snap.slot.bustBlasts >= 1 ? true : undefined, null, 10);
+  await page.keyboard.up(key);
+  const s = await snap(page);
+  // Out of the circle: the body (radius 0.28) clear of the 3.5.
+  expect(Math.hypot(s.hero.x - g.x, s.hero.y - g.y)).toBeGreaterThan(3.78);
+  expect(s.hero.hp).toBe(hpBefore);
+  expect(s.slot.shown.sparks).toBe(0);
+  expect(s.slot.shown.heroFlashes).toBe(0);
+  expect(s.enemies.some(e => e.id === enemy)).toBe(false);
+  await gameWait(page, 0.3);
+  expect((await snap(page)).slot.bustCircles).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('task 7: a hero who stays in the lit circle takes the bust\'s 4 HP when it goes off', async ({ page }) => {
+  const errors = await openBustSandbox(page, BUST_SEED, false, true);
+  for (let i = 0; i < 3; i++) { await pullByMouse(page); await untilReady(page); }
+  await untilFrame(page, snap => snap.slot.marks === 0 ? true : undefined, null, 30);
+  const hpBefore = (await snap(page)).hero.hp;
+  await pullByMouse(page);
+  await untilFrame(page, snap => snap.slot.bustCircles > 0 ? true : undefined, null, 10);
+  expect((await snap(page)).hero.hp).toBe(hpBefore);
+  await untilFrame(page, snap => snap.slot.bustBlasts >= 1 ? true : undefined, null, 10);
+  await gameWait(page, 0.1);
+  const s = await snap(page);
+  expect(s.hero.hp).toBe(hpBefore - 4);
+  expect(s.slot.shown.sparks).toBe(0);
   expect(errors).toEqual([]);
 });

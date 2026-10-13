@@ -42,7 +42,8 @@ export function collectEdgeMarkers(world: World, sees: (p: { x: number; y: numbe
     // A marked enemy is a goal; an elite off screen gets the same gold pointer (its rim is gold; package «Урон имеет значение»).
     if ((e.marked || e.elite) && !sees(e, SEEN_MARGIN)) out.push({ x: e.x, y: e.y, kind: 'goal' });
   }
-  for (const b of world.blasts) if (sees(b, world.params.sapperRadius) && !sees(b, SEEN_MARGIN)) threat(b);
+  // Each blast by its own radius (the goblin's bust is 3.5, a sapper's `sapperRadius`; task 7).
+  for (const b of world.blasts) if (sees(b, b.radius) && !sees(b, SEEN_MARGIN)) threat(b);
   const open = doorOpen(world);
   for (const o of world.objects) {
     if (o.kind === 'button' && !o.pressed && !sees(o, SEEN_MARGIN)) out.push({ x: o.x, y: o.y, kind: 'goal' });
