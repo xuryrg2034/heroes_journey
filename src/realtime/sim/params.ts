@@ -637,6 +637,19 @@ export interface Params {
    * too) — only after the goals. The run: 5.
    */
   slotAppearAt: number;
+  /**
+   * «Гоблин-сюрприз» (design 13.10.2026, playtest v40, task 11): with «Перебор» on, a goblin rolls its own safe pulls when it
+   * appears — a whole number 0 … `slotSafePulls`, uniform (stream `slot:safe`; the run: 0 … 3) — stored on it
+   * (`Goblin.safe`) and read instead of `slotSafePulls`. The view does not show the number. Off by default; a journal without
+   * the key plays the old path (`slotSafePulls`, no roll). A run turns it on (`RT_RUN_FORCED`); the prologue keeps it off.
+   */
+  slotSafeRandom: boolean;
+  /**
+   * «Безопасный рывок — тройка» (design 13.10.2026, task 11): a safe pull is a sure triple of a good symbol (❤ ⚡ ◆ 🍲, equally
+   * likely, the stream `slot:bust` as the risky pull's triple) — no skulls, no rain, no volley, no pair. Off by default; a
+   * journal without the key plays the old reels. The run and the prologue turn it on.
+   */
+  slotSafeTriple: boolean;
   // ---- Casino stage 1, item 1 — «Котёл» (purse.ts, docs/realtime-casino.md). ----
   /**
    * The cauldron: every chain puts its cheque (embers × heat × crystals), the build's kills outside the chain 1 ember each; the
@@ -1038,6 +1051,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   slotBustEnemyDamage: 3,
   // «Гоблин раньше» (slot.ts): off by default (0 — only after the goals).
   slotAppearAt: 0,
+  // «Гоблин-сюрприз», «Безопасный рывок — тройка» (slot.ts): off by default.
+  slotSafeRandom: false,
+  slotSafeTriple: false,
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
   purseRate: 60,
@@ -1406,6 +1422,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('slotBustFuse', 'Однорукий гоблин', 'Взрыв по площади: фитиль', 0, 5, 0.1, 5, 'с', 'От остановки барабанов до взрыва.'),
   n('slotBustEnemyDamage', 'Однорукий гоблин', 'Взрыв по площади: урон врагам', 0, 10, 1, 5, '', 'Убитые — зачёт игроку.'),
   n('slotAppearAt', 'Однорукий гоблин', 'Появляется не позже, с боя', 0, 60, 0.5, 5, 'с', 'Бросок на этой секунде боя или после целей — что раньше. 0 — только после целей. В походе — 5.'),
+  { kind: 'bool', key: 'slotSafeRandom', group: 'Однорукий гоблин', label: '«Перебор»: безопасных рывков — случайно', stage: 5,
+    hint: 'Гоблин при появлении бросает число безопасных рывков от 0 до «безопасных рывков» (равновероятно). Игроку число не показано. В походе включено (0–3).' },
+  { kind: 'bool', key: 'slotSafeTriple', group: 'Однорукий гоблин', label: 'Безопасный рывок — тройка', stage: 5,
+    hint: 'Безопасный рывок всегда даёт тройку доброго символа: без черепов, дождя, залпа и пар. В походе и прологе включено.' },
   // Casino «Котёл» (purse.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за «Углей за ресурс» (60), не больше 3 без ставок. Только песочница: в походе выключен с 12.10.2026.' },

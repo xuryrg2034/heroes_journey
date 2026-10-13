@@ -62,6 +62,17 @@
  *   roll or a bust). With the rule on the safe pulls never exceed `slotPulls` − 1: the last pull is always risky
  *   (`slotCharges`). The idol's caption, its dots, the plan line and the pull read `slotCharges` / `safePullsLeft` /
  *   `bustOdds`. Event `slot` `feed` only when the safe pulls grew (the view's «+1 рывок без риска»). State `World.slotChains`.
+ *   The run: 0 since task 11 (13.10.2026).
+ * - **«Гоблин-сюрприз»** (`slotSafeRandom`, design 13.10.2026, playtest v40, task 11; off by default, a run turns it on, the
+ *   prologue keeps it off): with «Перебор» on, a goblin rolls its own safe pulls when it appears (`putGoblin`: the battle's
+ *   roll, the sandbox button) — a whole number 0 … `slotSafePulls` (clamped to `slotPulls`), uniform, one draw of the stream
+ *   `slot:safe` (no other stream moves) — kept on it (`Goblin.safe`) and read by `safeLeftOf` instead of `slotSafePulls`: the
+ *   caption, the dots, the plan line and the pull all read it. With 0 the first pull is risky. The view does not show the
+ *   number (the player's surprise); `slotMayBust` tells it whether the fight's goblin can bust at all from `Params` only.
+ * - **«Безопасный рывок — тройка»** (`slotSafeTriple`, design 13.10.2026, task 11; off by default, the run and the prologue
+ *   turn it on): a safe pull is a sure triple of a good symbol (❤ ⚡ ◆ 🍲, equally likely) — one draw of the stream
+ *   `slot:bust`, as the risky pull's triple; the stream `slot:reels` is not drawn, the skulls do not act (no rain, volley,
+ *   pair or nothing). The plan line (`slotPlanOdds`: `triple`) and the pull event (`triple`) say so.
  *
  * State: `World.slot` — absent until the battle rolls (or the command), so worlds without the slot hash as before.
  */
@@ -100,6 +111,11 @@ export interface Goblin {
   spin?: SlotSpin;
   /** «Перебор»: risky pulls made so far (absent while none — goblins without them hash as before). */
   risky?: number;
+  /**
+   * «Гоблин-сюрприз» (`slotSafeRandom`): the safe pulls this goblin rolled when it appeared (0 … `slotSafePulls`); read instead
+   * of `slotSafePulls`. Absent without the rule — goblins hash as before. The view must not show it.
+   */
+  safe?: number;
 }
 
 /** An arrow mark: where, its circle, game seconds to the fall and the whole wait, whom it hits, the firing (a wave) it is of. */
@@ -164,18 +180,48 @@ export function skullsFor(world: World, struck: number): number[] {
 /** «Длинная цепь кормит гоблина»: safe pulls one long chain gives (0 — the rule is off). */
 const feedPer = (p: Params): number => Math.max(0, Math.floor(num(p, 'slotSafePerLongChain')));
 
+/** The pulls a goblin has in all (`slotPulls`). */
+const totalPulls = (p: Params): number => Math.max(0, Math.floor(num(p, 'slotPulls')));
+
+/** `slotSafePulls`, a whole number within 0 … the pulls in all. */
+const paramSafe = (p: Params): number => Math.min(totalPulls(p), Math.max(0, Math.floor(num(p, 'slotSafePulls'))));
+
 /**
- * «Перебор»: safe pulls left now — the safe credit (`slotSafePulls`, + `slotSafePerLongChain` per long chain of the fight with
+ * «Перебор»: the safe pulls the goblin starts with — its own roll (`Goblin.safe`, «Гоблин-сюрприз») or `slotSafePulls`
+ * (the old path; also before a goblin stands).
+ */
+function safeBase(world: World): number {
+  const g = goblinOf(world), p = world.params;
+  return g && typeof g.safe === 'number' ? Math.min(totalPulls(p), Math.max(0, g.safe)) : paramSafe(p);
+}
+
+/**
+ * «Гоблин-сюрприз»: whether the goblin of this fight can have a risky pull at all — read from `Params` only, never from the
+ * goblin's rolled count (`Goblin.safe`), so the view cannot leak the hidden number through it. True when the slot and
+ * «Перебор» are on and the pulls exceed the safe pulls sure to come: 0 with `slotSafeRandom` (a roll may give 0),
+ * `slotSafePulls` without it; with «Длинная цепь кормит гоблина» on the last pull is always risky. The run — true; the
+ * prologue's room 8 (3 pulls, 3 safe) — false.
+ */
+export function slotMayBust(world: World): boolean {
+  const p = world.params, total = totalPulls(p);
+  if (!p.slot || !p.slotBust || total <= 0) return false;
+  if (feedPer(p) > 0) return true;
+  return total > (p.slotSafeRandom ? 0 : paramSafe(p));
+}
+
+/**
+ * «Перебор»: safe pulls left now — the safe credit (`slotSafePulls` or the goblin's roll `Goblin.safe`, + `slotSafePerLongChain` per long chain of the fight with
  * «Длинная цепь кормит гоблина» on, `extraChains` more for a chain not counted yet) less the safe pulls made (pulls − risky
  * ones). With the long chains on, never more than the pulls left − 1: the last pull is always risky (review 12.10.2026: a long
  * chain after a risky pull makes the NEXT pull safe, it does not land in the past). All pulls are safe while «Перебор» is
  * off. Before the goblin stands: as for a goblin with no pulls.
  */
 function safeLeftOf(world: World, extraChains = 0): number {
-  const p = world.params, g = goblinOf(world), total = Math.max(0, Math.floor(num(p, 'slotPulls')));
+  const p = world.params, g = goblinOf(world), total = totalPulls(p);
   const pulls = g?.pulls ?? 0, risky = g?.risky ?? 0, left = Math.max(0, total - pulls);
   if (!p.slotBust) return left;
-  const base = Math.min(total, Math.max(0, Math.floor(num(p, 'slotSafePulls')))), per = feedPer(p);
+  // «Гоблин-сюрприз»: the goblin's own roll instead of `slotSafePulls`.
+  const base = safeBase(world), per = feedPer(p);
   const credit = Math.max(0, base + per * ((world.slotChains ?? 0) + extraChains) - (pulls - risky));
   return per > 0 ? Math.min(credit, Math.max(0, left - 1)) : Math.min(credit, left);
 }
@@ -185,7 +231,7 @@ function safeLeftOf(world: World, extraChains = 0): number {
  * «Перебор» is off). The idol's dots read `safePullsLeft` for the pulls ahead.
  */
 export function slotCharges(world: World, extraChains = 0): { total: number; safe: number } {
-  const g = goblinOf(world), total = Math.max(0, Math.floor(num(world.params, 'slotPulls')));
+  const g = goblinOf(world), total = totalPulls(world.params);
   return { total, safe: (g ? g.pulls - (g.risky ?? 0) : 0) + safeLeftOf(world, extraChains) };
 }
 
@@ -291,11 +337,15 @@ function placeGoblin(world: World): boolean {
   return true;
 }
 
-/** The idol and its lever at `at`; the lever may be pulled from game time `ready`. Event `slot` `appear`. */
+/**
+ * The idol and its lever at `at`; the lever may be pulled from game time `ready`. Event `slot` `appear`. «Гоблин-сюрприз»
+ * (`slotSafeRandom` with «Перебор»): the goblin rolls its safe pulls 0 … `slotSafePulls` (stream `slot:safe`, one draw).
+ */
 function putGoblin(world: World, at: Vec, ready: number): void {
   const p = world.params, id = world.nextId++, s = Math.max(0, Math.floor(num(p, 'slotSkulls')));
   world.objects.push({ id, kind: 'lever', x: at.x, y: at.y, pressed: false });
-  (world.slot ??= {}).goblin = { id, x: at.x, y: at.y, born: world.time, pulls: 0, skulls: [s, s, s], next: 0, ready };
+  const safe = p.slotBust && p.slotSafeRandom ? world.rng.stream('slot:safe').int(0, paramSafe(p)) : null;
+  (world.slot ??= {}).goblin = { id, x: at.x, y: at.y, born: world.time, pulls: 0, skulls: [s, s, s], next: 0, ready, ...safe !== null ? { safe } : {} };
   world.events.push({ type: 'slot', action: 'appear', x: at.x, y: at.y, objectId: id });
 }
 
@@ -333,6 +383,8 @@ export function pullLever(world: World, lever: ArenaObject, struck: number): voi
   if (feedFor(world, struck) && world.move) { feedChain(world, struck); world.move.slotFed = true; }
   const g = goblinOf(world)!, p = world.params, odds = pullOdds(world, struck), risk = bustOdds(world);
   let reels: SlotSymbol[], outcome: SlotOutcome, bust = false;
+  // «Безопасный рывок — тройка» (`slotSafeTriple`): a safe pull is a sure triple — the risky pull's triple without its bust roll.
+  const triple = !risk && !!p.slotSafeTriple;
   if (risk) {
     // «Перебор»: the risky pull — one roll of its own stream; the skulls do not act (the reels stream is not drawn).
     const rng = world.rng.stream('slot:bust');
@@ -340,6 +392,10 @@ export function pullLever(world: World, lever: ArenaObject, struck: number): voi
     const good = bust ? null : GOOD_SYMBOLS[Math.floor(rng.next() * GOOD_SYMBOLS.length)];
     reels = good ? [good, good, good] : ['skull', 'skull', 'skull'];
     outcome = good ? outcomeOf(reels) : 'bust';
+  } else if (triple) {
+    const good = GOOD_SYMBOLS[Math.floor(world.rng.stream('slot:bust').next() * GOOD_SYMBOLS.length)];
+    reels = [good, good, good];
+    outcome = outcomeOf(reels);
   } else {
     const rng = world.rng.stream('slot:reels');
     reels = odds.skulls.map(s => {
@@ -357,7 +413,7 @@ export function pullLever(world: World, lever: ArenaObject, struck: number): voi
   g.next = (g.next + 1) % g.skulls.length;
   g.spin = { reels, outcome, left: spin, total: spin };
   world.events.push({ type: 'slot', action: 'pull', x: g.x, y: g.y, objectId: g.id, reels: [...reels], outcome, links: struck, removed, skulls: [...odds.skulls],
-    rain: risk ? 0 : odds.rain, volley: risk ? 0 : odds.volley, pull: g.pulls, ...p.slotBust ? { risky: !!risk, bust } : {} });
+    rain: risk || triple ? 0 : odds.rain, volley: risk || triple ? 0 : odds.volley, pull: g.pulls, ...p.slotBust ? { risky: !!risk, bust } : {}, ...triple ? { triple: true } : {} });
   // The prologue: the goal «pull the lever N times» (only its arenas have it).
   if (world.arena.goal === 'pull') checkGoals(world);
 }

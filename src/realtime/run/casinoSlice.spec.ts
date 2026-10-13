@@ -7,6 +7,9 @@
  * - a row-1 battle: no cauldron (no `world.purse`, no cheque), the door records nothing, the outcome carries no die and the
  *   node completes at once; the goblin stands after the goals on every seed (the open field always has a spot), its spot
  *   varies by seed;
+ * - task 11 (design 13.10.2026): the run feeds the goblin no more — chains of 6+ give nothing (no event, no state); the
+ *   feeding checks below play the rule on the run's other numbers (`fedParams`: the task 5 run — the key 1, 3 safe pulls, the old
+ *   reels of a safe pull);
  * - «Длинная цепь кормит гоблина»: two chains of 6+ enemy links (before the goblin) — 3 + 2 = 5 safe pulls; a third does
  *   not make it 6 (the last pull stays risky); a chain of 5 gives nothing; a long chain after the goblin appears counts
  *   too; the floating text's event `feed` comes only when the safe pulls grew; the plan line of every pull says safe or
@@ -50,6 +53,12 @@ function firstBattle(k: number): RtRunState {
   assert(pending?.kind === 'battle' && runRow(rtNode(run, pending.nodeId)!.row) === 1, 'a battle of run row 1');
   return run;
 }
+/**
+ * The run of task 5 (12.10.2026): a chain of 6+ fed the goblin +1 safe pull, 3 safe pulls, a safe pull spun the old reels.
+ * Task 11 (13.10.2026) turned the feeding off in the run (and made the safe pulls 0–3 by seed, a safe pull a sure triple);
+ * the rule stays a panel key — the feeding checks play it with the run's other numbers.
+ */
+const fedParams = (): ReturnType<typeof rtRunParams> => ({ ...rtRunParams(quiet()), slotSafePerLongChain: 1, slotSafeRandom: false, slotSafeTriple: false });
 /** The arena of the run's open battle on the quiet field: the run's params and the node's loadout. */
 function arena(run: RtRunState, k: number, params = rtRunParams(quiet())): Simulation {
   const sim = new Simulation({ arena: 'run-fight-field', params, seed: seedOf(k), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp } });
@@ -121,10 +130,11 @@ function withCheckpoints(sim: Simulation, play: () => void): Map<number, string>
 
 // ---------------------------------------------------------------------------------------------------------------------
 
-check('the run\'s values: no cauldron, no die, no oath stake; the goblin in every battle from row 1 (chance 1), a chain of 6+ gives +1 safe pull', () => {
-  const p = rtRunParams(quiet({ purse: true, doorDie: true, oathStake: true, slotChance: 0.2, slotSafePerLongChain: 0 }));
+check('the run\'s values: no cauldron, no die, no oath stake; the goblin in every battle from row 1 (chance 1); task 11 — no long-chain feeding, 0–3 safe pulls by seed, a safe pull a sure triple', () => {
+  const p = rtRunParams(quiet({ purse: true, doorDie: true, oathStake: true, slotChance: 0.2, slotSafePerLongChain: 1, slotSafeRandom: false, slotSafeTriple: false }));
   assert(!p.purse && !p.doorDie && !p.oathStake, 'the cauldron, the die and the oath stake are off in the run whatever the panel says');
-  assert(p.slot && p.slotBust && p.slotChance === 1 && p.slotSafePerLongChain === 1 && p.slotLongChainLinks === 6 && p.slotPulls === 6 && p.slotSafePulls === 3, 'the goblin\'s numbers');
+  assert(p.slot && p.slotBust && p.slotChance === 1 && p.slotSafePerLongChain === 0 && p.slotLongChainLinks === 6 && p.slotPulls === 6 && p.slotSafePulls === 3
+    && p.slotSafeRandom === true && p.slotSafeTriple === true, 'the goblin\'s numbers');
   assert(RT_SLOT_ROW === 1 && RT_RUN_FORCED.goblinCircle === true, 'from row 1; the goblins\' circle stays');
 });
 
@@ -158,7 +168,7 @@ check('a row-1 battle: no cauldron, the door records nothing and the node comple
 check('two chains of 6+ before the goblin: 3 + 2 = 5 safe; a chain of 5 gives nothing; a third long chain does not make 6; pulls 1–5 safe, the 6th risky — the plan line says the same each time', () => {
   let fights = 0;
   for (let k = 1; k <= 6; k++) {
-    const run = firstBattle(20 + k), sim = arena(run, 20 + k), w = sim.world;
+    const run = firstBattle(20 + k), sim = arena(run, 20 + k, fedParams()), w = sim.world;
     const marks = withCheckpoints(sim, () => {
       const first = chain(sim, 6), second = chain(sim, 7), five = chain(sim, 5);
       assert(slotEvents(first, 'feed').length === 1 && slotEvents(first, 'feed')[0].safe === 1, `seed ${k}: the 1st long chain: «+1»`);
@@ -205,7 +215,7 @@ function chainIntoLever(sim: Simulation, n: number): { plan: ReturnType<typeof s
 check('a long chain after the goblin appears counts; a chain of 6 into the lever counts before its pull (design answer 12.10.2026): the 4th pull is safe, no bust roll — a chain of 5 rolls; the plan line agrees', () => {
   const after = (() => {
     for (let k = 1; k <= 12; k++) {
-      const run = firstBattle(40 + k), sim = arena(run, 40 + k), w = sim.world;
+      const run = firstBattle(40 + k), sim = arena(run, 40 + k, fedParams()), w = sim.world;
       goalsAndGoblin(sim);
       if (!goblinOf(w)) continue;
       const events = chain(sim, 6);
@@ -218,7 +228,7 @@ check('a long chain after the goblin appears counts; a chain of 6 into the lever
   let checked = { six: 0, five: 0 };
   for (let k = 1; k <= 30 && (checked.six < 3 || checked.five < 3); k++) {
     for (const n of [6, 5] as const) {
-      const run = firstBattle(70 + k), sim = arena(run, 70 + k), w = sim.world;
+      const run = firstBattle(70 + k), sim = arena(run, 70 + k, fedParams()), w = sim.world;
       goalsAndGoblin(sim);
       if (!goblinOf(w)) continue;
       for (let i = 0; i < 3; i++) assert(!pull(sim).pull.risky, `seed ${k}: safe pull ${i + 1}`);
@@ -244,7 +254,7 @@ check('a long chain after the goblin appears counts; a chain of 6 into the lever
 check('review 12.10.2026: a long chain after a risky pull makes the NEXT pull safe (the caption and the dots say so); after the last pull a long chain feeds nothing', () => {
   let checked = 0;
   for (let k = 1; k <= 40 && checked < 3; k++) {
-    const run = firstBattle(120 + k), sim = arena(run, 120 + k), w = sim.world;
+    const run = firstBattle(120 + k), sim = arena(run, 120 + k, fedParams()), w = sim.world;
     goalsAndGoblin(sim);
     if (!goblinOf(w)) continue;
     for (let i = 0; i < 3; i++) assert(!pull(sim).pull.risky, `seed ${k}: safe pull ${i + 1}`);
@@ -266,6 +276,25 @@ check('review 12.10.2026: a long chain after a risky pull makes the NEXT pull sa
   assert(checked === 3, `fights checked: ${checked}`);
 });
 
+check('task 11: the run of today feeds the goblin no more — chains of 6+ before and after it appear give no event, no state; the plan line of a chain of 6 into the lever is what the pull does', () => {
+  let into = 0;
+  for (let k = 1; k <= 8; k++) {
+    const run = firstBattle(200 + k), sim = arena(run, 200 + k), w = sim.world;
+    const before = [...chain(sim, 6), ...chain(sim, 8)];
+    goalsAndGoblin(sim);
+    const g = goblinOf(w);
+    assert(g && typeof g.safe === 'number', `seed ${k}: the goblin rolled its safe pulls`);
+    const left = safePullsLeft(w);
+    const after = chain(sim, 7);
+    assert(!slotEvents([...before, ...after], 'feed').length && w.slotChains === undefined && safePullsLeft(w) === left && left === g.safe, `seed ${k}: nothing fed (${left} → ${safePullsLeft(w)})`);
+    const r = chainIntoLever(sim, 6);
+    if (!r) continue;
+    assert(r.pull && !r.feed.length && !!r.plan?.bust === !!r.pull.risky && !!r.plan?.triple === !!r.pull.triple, `seed ${k}: the plan of 6 into the lever is the pull (${JSON.stringify(r.plan)}, risky ${r.pull.risky})`);
+    into++;
+  }
+  assert(into >= 3, `chains into the lever checked: ${into}`);
+});
+
 check('the Jailer and a boss: no goblin, long chains feed nothing (no state, no event)', () => {
   let seen = 0;
   const base = takeGift(createRtRun(seedOf(77), { gift: 'mini' }));
@@ -273,7 +302,7 @@ check('the Jailer and a boss: no goblin, long chains feed nothing (no state, no 
     if (node.type !== 'checkpoint' && node.type !== 'boss') continue;
     const run: RtRunState = { ...structuredClone(base), pending: { kind: 'battle', nodeId: node.id, arena: 'run-fight-field', seed: seedOf(1), battle: node.type === 'boss' ? 'final' : 'battle' } };
     assert(!rtArenaLoadout(run).slot, `${node.type}: no goblin`);
-    const sim = arena(run, 3), w = sim.world, events = [...chain(sim, 6), ...chain(sim, 8), ...goalsAndGoblin(sim), ...chain(sim, 6)];
+    const sim = arena(run, 3, fedParams()), w = sim.world, events = [...chain(sim, 6), ...chain(sim, 8), ...goalsAndGoblin(sim), ...chain(sim, 6)];
     assert(!w.slot && w.slotChains === undefined && !slotEvents(events, 'feed').length, `${node.type}: nothing fed`);
     seen++;
   }
@@ -283,7 +312,7 @@ check('the Jailer and a boss: no goblin, long chains feed nothing (no state, no 
 check('the key 0 or absent plays the old path: the same world (the params aside), no `slotChains`, 3 safe pulls after long chains; every fight replays', () => {
   for (let k = 1; k <= 3; k++) {
     const run = firstBattle(60 + k);
-    const zero = { ...rtRunParams(quiet()), slotSafePerLongChain: 0 }, none = { ...zero } as Partial<typeof zero>;
+    const zero = { ...fedParams(), slotSafePerLongChain: 0 }, none = { ...zero } as Partial<typeof zero>;
     delete none.slotSafePerLongChain; delete none.slotLongChainLinks;
     const a = arena(run, 60 + k, zero), b = arena(run, 60 + k, none as typeof zero);
     for (const sim of [a, b]) {

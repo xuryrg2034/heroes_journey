@@ -7,7 +7,8 @@
  * One entry per source (`RtLuckKey`), each a count of the same shape (`RtLuckCount`): tries, hits (the outcome counted
  * came), expected hits (the sum of the chances the player saw for it). Sources:
  * - `slot-rain`, `slot-volley` — «Однорукий гоблин»: every safe pull («Перебор»'s risky pulls draw no skulls and are not
- *   counted; their bust chance is not tallied — 12.10.2026) (the sim's `slot` event `pull`, which carries the odds the
+ *   counted; their bust chance is not tallied — 12.10.2026; nor the safe pulls of a sure triple, `slotSafeTriple`, the run's
+ *   since 13.10.2026 — so a run of today tallies no goblin) (the sim's `slot` event `pull`, which carries the odds the
  *   lever showed — the same `pullOdds`); a hit — the rain (☠☠☠) or the volley (two ☠). Written by the fight
  *   (`RtArenaOutcome.luck`, main.ts reads the events every frame).
  * - `elite-loot` — an armoured elite killed by the player (the sim's `eliteDown`, `credited`); a hit — its loot fell (the
@@ -79,7 +80,8 @@ export function countLuck(tally: RtLuckTally, key: RtLuckKey, hit: boolean, chan
 export function observeFightLuck(tally: RtLuckTally, events: readonly WorldEvent[]): void {
   events.forEach((ev, i) => {
     // «Перебор»: a risky pull draws no skulls (no rain or volley to be lucky or unlucky with).
-    if (ev.type === 'slot' && ev.action === 'pull' && !ev.risky) {
+    // «Безопасный рывок — тройка» (task 11): a safe pull of a sure triple draws no skulls either.
+    if (ev.type === 'slot' && ev.action === 'pull' && !ev.risky && !ev.triple) {
       countLuck(tally, 'slot-rain', ev.outcome === 'rain', ev.rain ?? 0);
       countLuck(tally, 'slot-volley', ev.outcome === 'volley', ev.volley ?? 0);
     } else if (ev.type === 'eliteDown' && ev.credited) {

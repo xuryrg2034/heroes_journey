@@ -13,8 +13,9 @@
  *   starts a return as a dash does;
  * - room 1 has no return; room 8 returns only when no start enemy is left and the lever was never pulled;
  * - room 8: the hand's chain is the lever alone until the far ring walks in, then the enemies and the lever; the lever pulled
- *   meets the goal; three pulls, none risky, no bust (several seeds); standing still 10 s costs at most 3 HP; the skulls of one pull (rain ≤ 3,
- *   volley ≤ 1) cannot kill the hero from his 15 HP — by the numbers and on 60 seeds;
+ *   meets the goal; three pulls, none risky, no bust (several seeds); standing still 10 s costs at most 3 HP; task 11: each
+ *   pull is a sure triple (no rain, volley or pair — so no slot hit), the goblin rolls no safe count whatever the panel, the
+ *   room shows no bust (`slotMayBust`) — on 40 seeds;
  * - rooms 1–4: the hero walking into the enemies loses no HP, the enemies stand; rooms 8 and 9: the enemies walk and hit;
  * - room 9 (softened by design 13.10.2026): the hero kills with real chains; enemies and markers never exceed 8, the inflow
  *   comes as he kills and varies by seed, every hit on him costs 1 HP, the start energy is one jump, the goblin stands from the start;
@@ -31,7 +32,7 @@
 import { canJump, canLink, canLinkObject, jumpRefusal, linkPoint, nextCandidates, planChain, type ChainPlan } from '../sim/chain';
 import { worldState } from '../sim/hash';
 import { Simulation, replay, type Journal } from '../sim/simulation';
-import { goblinOf, leverReady } from '../sim/slot';
+import { goblinOf, leverReady, slotMayBust } from '../sim/slot';
 import { LAMPS_HOLD, RESTORE_DELAY, doorOpen, goalLamps, goalProgress, type ChainLink, type World, type WorldEvent } from '../sim/world';
 import { PROLOGUE_CLIFF } from '../sim/arenasPrologue';
 import { arenaTemplate } from '../sim/arenas';
@@ -743,36 +744,29 @@ check('the spin (Q) starts the return too: energy earned by chains, the spin kil
   replays(sim, 'room 2 spin');
 });
 
-check('room 8: the skulls (rain, volley) of one pull cannot kill the hero from full HP — numbers (HP 15; the rain ≤ 1 with 3.4 s after a hit, the volley ≤ 1) and real pulls on many seeds', () => {
-  const p = prologueParams(GOBLIN);
-  // One wave's marks land in one tick: the first hit's invulnerability spares the rest; the waves come `slotRainStep` apart — a
-  // wave hits only when the invulnerability of the last hit is over (room 8: 3.4 s, so one of the 3 waves 0.8 s apart). The volley
-  // is one tick of marks — once.
-  assert(p.invulnerabilityMode === 'constant', 'constant invulnerability');
-  let rainHits = 0, free = -Infinity;
-  for (let i = 0; i < p.slotRainWaves; i++) { const t = i * p.slotRainStep; if (t >= free) { rainHits++; free = t + p.invulnerability; } }
-  const rainMax = rainHits * p.slotDamage, volleyMax = p.slotDamage;
-  assert(p.heroHp === 15 && rainMax === 1 && volleyMax === 1 && Math.max(rainMax, volleyMax) < p.heroHp, `HP ${p.heroHp}, rain ${rainMax}, volley ${volleyMax}`);
-  // Real pulls: the hand's chain into the lever, then the lever alone twice; the skulls' hits of each pull summed.
-  const seen = { rain: 0, volley: 0 };
-  let worst = 0;
-  for (let k = 1; k <= 60; k++) {
+check('room 8 (task 11, design 13.10.2026): three fixed safe pulls, each a sure triple — no skull (rain, volley, pair, nothing), no bust, no hit of the goblin; the goblin rolls no safe count, the panel cannot turn the run\'s random count on; the room shows no bust (`slotMayBust` false) — real pulls on 40 seeds', () => {
+  const p = prologueParams(GOBLIN), wild = prologueParams(GOBLIN, { ...defaultParams(), slotSafeRandom: true, slotSafeTriple: false, slotSafePulls: 0, slotSafePerLongChain: 2 });
+  for (const q of [p, wild]) assert(q.slotSafeTriple && !q.slotSafeRandom && q.slotSafePulls === 3 && q.slotPulls === 3 && q.slotSafePerLongChain === 0, `room 8 numbers over any panel: ${JSON.stringify([q.slotSafeTriple, q.slotSafeRandom, q.slotSafePulls])}`);
+  const outcomes: Record<string, number> = {};
+  for (let k = 1; k <= 40; k++) {
     const sim = room(GOBLIN, k), w = sim.world;
+    assert(!slotMayBust(w) && goblinOf(w) && goblinOf(w)!.safe === undefined, `seed ${k}: no bust shown, no rolled count`);
     draw(sim, prologueRoute(w, GOBLIN));
     for (let pull = 1; pull <= 3; pull++) {
       if (pull > 1) pullAgain(sim);
       const mark = w.events.length;
       dash(sim);
-      wait(sim, 5);
+      wait(sim, 2);
       const events = w.events.slice(mark), out = events.find(e => e.type === 'slot' && e.action === 'pull');
-      const damage = events.reduce((sum, e) => sum + (e.type === 'hit' && (e.source === 'slot-rain' || e.source === 'slot-volley') ? e.damage : 0), 0);
-      if (out?.type === 'slot' && (out.outcome === 'rain' || out.outcome === 'volley')) seen[out.outcome]++;
-      assert(damage <= (out?.type === 'slot' && out.outcome === 'rain' ? rainMax : volleyMax) && w.status === 'playing', `seed ${k} pull ${pull}: ${damage} from ${out?.type === 'slot' && out.outcome}`);
-      worst = Math.max(worst, damage);
+      assert(out?.type === 'slot' && out.triple === true && out.risky === false && /^(heart3|bolt3|gem3|jackpot)$/.test(out.outcome!) && out.reels!.every(r => r === out.reels![0]), `seed ${k} pull ${pull}: ${JSON.stringify(out)}`);
+      assert(!events.some(e => e.type === 'hit' && (e.source === 'slot-rain' || e.source === 'slot-volley' || e.source === 'slot-bust')), `seed ${k} pull ${pull}: no slot hit`);
+      outcomes[out.outcome!] = (outcomes[out.outcome!] ?? 0) + 1;
     }
+    assert(goblinOf(w) && !w.rng.states().some(([name]) => name === 'slot:reels' || name === 'slot:safe'), `seed ${k}: no reels drawn, no safe roll`);
+    if (k <= 3) replays(sim, `room 8 triples ${k}`);
   }
-  assert(seen.rain > 0 && seen.volley > 0, `the skulls came: ${JSON.stringify(seen)}`);
-  console.log(`   60 seeds × 3 pulls: rain ${seen.rain}, volley ${seen.volley}, the worst pull took ${worst} HP of 15`);
+  assert(Object.keys(outcomes).length === 4, `the four triples came: ${JSON.stringify(outcomes)}`);
+  console.log(`   40 seeds × 3 pulls: ${JSON.stringify(outcomes)}`);
 });
 
 // ---- Task 9 (design 13.10.2026): rooms 5 «Пропасть», 6 «Вихрь», 7 «Зелье» --------------------------------------------------

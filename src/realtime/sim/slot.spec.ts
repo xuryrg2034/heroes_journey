@@ -27,6 +27,11 @@
  *   outside is untouched; the observer counts it; the plan of a chain into the lever is the dash; «Гоблин раньше»: a run
  *   battle's goblin at 5 s before the goals, once, at goals + 3 s when that is earlier, the spot varies by seed; a journal
  *   without the new keys plays the old world.
+ * - Task 11 (design 13.10.2026, playtest v40): «Гоблин-сюрприз» — a run goblin rolls 0–3 safe pulls (all four values over 24
+ *   seeds, the same seed the same count, no count in the appear event); greedy pulls are safe that many times, then risky,
+ *   and the plan line of each is the pull; with 0 a real chain into the lever busts on pull 1; «Безопасный рывок — тройка» —
+ *   every safe pull a sure triple (24 seeds), without the key the old reels; journals without the keys play the old world;
+ *   `slotMayBust` — the run true, the prologue's room 8 false; the observer records the roll and the triples.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
@@ -38,13 +43,14 @@ import { Graphics } from 'pixi.js';
 import { oathLine, oathMark } from './oath';
 import { defaultParams, heroRadius, PARAM_DEFS, type Params, sanitizeParams } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
-import { bustOdds, GOOD_SYMBOLS, goblinOf, leverOf, outcomeOf, pullOdds, safePullsLeft, skullOdds, slotCharges, type Goblin, type SlotOutcome, type SlotSymbol } from './slot';
+import { bustOdds, GOOD_SYMBOLS, goblinOf, leverOf, outcomeOf, pullOdds, safePullsLeft, skullOdds, slotCharges, slotMayBust, type Goblin, type SlotOutcome, type SlotSymbol } from './slot';
 import { bustText, slotOddsText, slotPlanOdds } from './slotPlan';
 import { focusGuarded, type Enemy, type World, type WorldEvent } from './world';
 import { createRtRun, rtArenaLoadout, rtMapNodes, rtRunParams, RT_SLOT_ROW, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RT_DEATH_ABILITY } from '../run/rtRunEnd';
+import { prologueParams, prologueRoom } from '../run/prologue';
 import { createFightObserver } from '../telemetry/observe';
 import { withSummaryDefaults } from '../telemetry/schema';
 import { drawSymbol, reelStrip, riskyStrip, SlotView } from '../view/slotView';
@@ -678,18 +684,20 @@ function replayLog(sim: Simulation): { tick: number; ev: WorldEvent }[] {
   return out;
 }
 
-check('П11: the sandbox defaults keep the rule (8 s, 1,2 s, 3 pulls); a run plays its own whatever the saved panel says — since «Перебор» (design 12.10.2026) 6 pulls 5 s apart, 3 safe; since task 5 the goblin in every battle, +1 safe pull a chain of 6+', () => {
+check('П11: the sandbox defaults keep the rule (8 s, 1,2 s, 3 pulls); a run plays its own whatever the saved panel says — since «Перебор» (design 12.10.2026) 6 pulls 5 s apart, 3 safe; since task 5 the goblin in every battle; since task 11 (13.10.2026) no long-chain feeding, 0–3 safe pulls by seed, a safe pull a sure triple', () => {
   const d = defaultParams(), r = rtRunParams(defaultParams());
   assert(d.slotCooldown === 8 && d.slotSpin === 1.2 && d.slotPulls === 3 && d.slotChance === 0.35 && !d.slotBust, `sandbox: cooldown ${d.slotCooldown}, spin ${d.slotSpin}, pulls ${d.slotPulls}`);
   const runRule = (p: Params): boolean => p.slotCooldown === 5 && p.slotSpin === 1.2 && p.slotPulls === 6 && p.slotChance === 1 && p.slotBust === true
-    && p.slotSafePulls === 3 && p.slotBustChance === 0.55 && p.slotBustDamage === 4 && p.slotSafePerLongChain === 1 && p.slotLongChainLinks === 6;
-  assert(d.slotSafePerLongChain === 0 && d.slotLongChainLinks === 6, `sandbox: the long chain off (${d.slotSafePerLongChain})`);
+    && p.slotSafePulls === 3 && p.slotBustChance === 0.55 && p.slotBustDamage === 4 && p.slotSafePerLongChain === 0 && p.slotLongChainLinks === 6
+    && p.slotSafeRandom === true && p.slotSafeTriple === true;
+  assert(d.slotSafePerLongChain === 0 && d.slotLongChainLinks === 6 && !d.slotSafeRandom && !d.slotSafeTriple, `sandbox: the long chain, the random safe count and the safe triple off (${d.slotSafePerLongChain})`);
   assert(runRule(r), `run: cooldown ${r.slotCooldown}, spin ${r.slotSpin}, pulls ${r.slotPulls}, chance ${r.slotChance}, bust ${r.slotBust}`);
   // The sandbox panel may debug anything (its ranges stay wide); the run's copy is forced back to the rule.
   const range = (key: string) => PARAM_DEFS.find(d => d.kind === 'number' && d.key === key) as { min: number; max: number } | undefined;
   const keys = ['slotPulls', 'slotCooldown', 'slotSpin', 'slotChance', 'slotSafePulls', 'slotBustChance', 'slotBustDamage', 'slotSafePerLongChain', 'slotLongChainLinks'] as const;
   assert(keys.every(k => range(k)) && PARAM_DEFS.some(d => d.key === 'slotBust' && d.group === 'Однорукий гоблин'), 'the panel has the numbers and the toggle');
-  const wild = rtRunParams(sanitizeParams({ ...Object.fromEntries(keys.map(k => [k, range(k)!.max])), slotBust: false, slotCooldown: range('slotCooldown')!.min }));
+  assert(PARAM_DEFS.some(d => d.key === 'slotSafeRandom' && d.kind === 'bool') && PARAM_DEFS.some(d => d.key === 'slotSafeTriple' && d.kind === 'bool'), 'the panel has the task 11 toggles');
+  const wild = rtRunParams(sanitizeParams({ ...Object.fromEntries(keys.map(k => [k, range(k)!.max])), slotBust: false, slotSafeRandom: false, slotSafeTriple: false, slotCooldown: range('slotCooldown')!.min }));
   assert(runRule(wild), `a run with a wild panel: ${wild.slotPulls} / ${wild.slotCooldown} / ${wild.slotSpin} / ${wild.slotBust}`);
 });
 
@@ -1017,7 +1025,7 @@ check('«Перебор»: the bust may kill (source `slot-bust`, the run-end li
   }
 });
 
-check('«Перебор» in a run battle: the goblin in every battle (task 5: chance 1, was 50 %); a greedy player of bare pulls gets 3 safe pulls, then risky ones ≥ 5 s apart, each reveal ≤ 1,2 s, until a bust or the 6th pull', () => {
+check('«Перебор» in a run battle: the goblin in every battle (task 5: chance 1, was 50 %); a greedy player of bare pulls gets its goblin\'s safe pulls (task 11: 0–3 by seed; 3 before), each a sure triple, then risky ones ≥ 5 s apart, each reveal ≤ 1,2 s, until a bust or the 6th pull', () => {
   const p = rtRunParams(quiet());
   let rolled = 0, came = 0;
   for (let k = 1; k <= 300; k++) {
@@ -1037,6 +1045,8 @@ check('«Перебор» in a run battle: the goblin in every battle (task 5: c
     sim.command({ t: 'goals' });
     ticks(sim, tick(3.2));
     if (!goblinOf(w)) continue;
+    const safe = goblinOf(w)!.safe;
+    assert(typeof safe === 'number' && safe >= 0 && safe <= 3, `seed ${k}: the goblin rolled ${safe} safe pulls`);
     for (let attempt = 0; attempt < 8 && goblinOf(w); attempt++) {
       waitReady(sim);
       if (!goblinOf(w) || objectRefusal(w, lever(sim)) === 'lever') break;
@@ -1049,7 +1059,8 @@ check('«Перебор» in a run battle: the goblin in every battle (task 5: c
     const bust = effects.findIndex(e => e.ev.outcome === 'bust');
     assert(pulls.length === effects.length && pulls.length <= 6 && (bust < 0 ? pulls.length === 6 : bust === pulls.length - 1), `seed ${k}: ${pulls.length} pulls, bust at ${bust}`);
     pulls.forEach((e, i) => {
-      assert(e.ev.risky === i >= 3, `seed ${k}: pull ${i + 1} risky ${e.ev.risky}`);
+      assert(e.ev.risky === i >= safe, `seed ${k}: pull ${i + 1} risky ${e.ev.risky} (safe ${safe})`);
+      if (i < safe) assert(e.ev.triple === true && /^(heart3|bolt3|gem3|jackpot)$/.test(e.ev.outcome!), `seed ${k}: safe pull ${i + 1} a sure triple (${e.ev.outcome})`);
       const reveal = (effects[i].tick - e.tick) * SIM_DT;
       assert(reveal > 0 && reveal <= 1.2 + 1e-9, `seed ${k}: reveal ${i + 1} lasts ${reveal.toFixed(3)} s`);
       if (i) assert((e.tick - pulls[i - 1].tick) * SIM_DT >= 5 - 1e-9, `seed ${k}: pulls ${i} and ${i + 1} ${((e.tick - pulls[i - 1].tick) * SIM_DT).toFixed(2)} s apart`);
@@ -1351,6 +1362,173 @@ check('«Гоблин раньше» in a run battle: the goblin at 5 s of the f
   assert(appearAt(bare, 7) === null && bare.world.slot === undefined, 'no kit: no roll');
   const zero = field({ ...p, slotAppearAt: 0 }, 4302, 'slot-field', { slot: true });
   assert(appearAt(zero, 7) === null && zero.world.slot === undefined, 'the key at 0: no roll before the goals');
+});
+
+
+// ---- Task 11 «Гоблин-сюрприз» (design 13.10.2026, playtest v40): the safe pulls 0–3 by seed, hidden; a safe pull a sure triple ----
+
+/** A run battle on the open field: the goals, then the goblin (3 s later). */
+function runGoblin(k: number, params: Params = rtRunParams(quiet())): Simulation {
+  const sim = field(params, k, 'slot-field', { slot: true });
+  sim.command({ t: 'teleport', x: 10, y: 6 });
+  sim.command({ t: 'goals' });
+  ticks(sim, tick(3.2));
+  assert(goblinOf(sim.world), `seed ${k}: the run goblin stands`);
+  return sim;
+}
+/** A bare pull with its plan line read while the chain is drawn: what the line said and what the pull did. */
+function plannedPull(sim: Simulation, out: WorldEvent[] = []): { odds: ReturnType<typeof slotPlanOdds>; pull: Ev<'slot'> } {
+  waitReady(sim, out);
+  const L = lever(sim), dir = inward(sim.world, L);
+  sim.command({ t: 'teleport', x: L.x + dir.x * 1.2, y: L.y + dir.y * 1.2 });
+  assert(sim.command({ t: 'begin', x: L.x, y: L.y }) === true, 'a chain of just the lever');
+  const odds = slotPlanOdds(sim.world);
+  sim.command({ t: 'release' });
+  const events = settle(sim);
+  out.push(...events);
+  const pull = slotEvents(events, 'pull')[0];
+  assert(pull, 'the dash pulled');
+  ticks(sim, tick(1.2) + 2, out);
+  return { odds, pull };
+}
+const TRIPLES = /^(heart3|bolt3|gem3|jackpot)$/;
+
+check('«Гоблин-сюрприз»: a run goblin rolls 0–3 safe pulls by seed — 24 seeds hit every value and none outside; the same seed rolls the same; the appear event carries no count', () => {
+  const seen: Record<number, number> = {};
+  for (let k = 1; k <= 24; k++) {
+    const events: WorldEvent[] = [];
+    const sim = field(rtRunParams(quiet()), 2000 + k, 'slot-field', { slot: true });
+    sim.command({ t: 'teleport', x: 10, y: 6 }); sim.command({ t: 'goals' });
+    ticks(sim, tick(3.2), events);
+    const g = goblinOf(sim.world)!, safe = g.safe!;
+    assert(Number.isInteger(safe) && safe >= 0 && safe <= 3, `seed ${k}: ${safe}`);
+    assert(safePullsLeft(sim.world) === safe && slotCharges(sim.world).safe === safe, `seed ${k}: the count read is the roll (${safePullsLeft(sim.world)} vs ${safe})`);
+    const appear = slotEvents(events, 'appear');
+    assert(appear.length === 1 && !('safe' in appear[0]), `seed ${k}: the appear event has no count`);
+    seen[safe] = (seen[safe] ?? 0) + 1;
+    const again = field(rtRunParams(quiet()), 2000 + k, 'slot-field', { slot: true });
+    again.command({ t: 'teleport', x: 10, y: 6 }); again.command({ t: 'goals' });
+    ticks(again, tick(3.2));
+    assert(goblinOf(again.world)!.safe === safe && again.hash() === sim.hash(), `seed ${k}: the same seed, the same roll`);
+  }
+  assert([0, 1, 2, 3].every(v => seen[v] > 0), `every value came: ${JSON.stringify(seen)}`);
+  console.log(`   safe pulls rolled over 24 seeds: ${JSON.stringify(seen)}`);
+});
+
+check('«Гоблин-сюрприз» in a run battle: greedy bare pulls — the rolled count of safe pulls (each a sure triple), then risky ones; the plan line of every pull is the pull (`bust` ⇔ risky, `triple` ⇔ a sure triple); the fights replay with checkpoints', () => {
+  const counts = new Set<number>();
+  for (let k = 1; k <= 10; k++) {
+    const sim = runGoblin(500 + k), w = sim.world, safe = goblinOf(w)!.safe!;
+    counts.add(safe);
+    const marks = new Map<number, string>(), step = sim.tick.bind(sim);
+    sim.tick = () => { step(); if (sim.world.tick % 300 === 0) marks.set(sim.world.tick, sim.hash()); };
+    for (let i = 0; i < 6 && goblinOf(w); i++) {
+      const { odds, pull } = plannedPull(sim);
+      assert(odds, `seed ${k}: the plan line over the idol`);
+      assert(pull.pull === i + 1 && pull.risky === (i >= safe), `seed ${k}: pull ${i + 1} risky ${pull.risky} (safe ${safe})`);
+      assert(!!odds.bust === pull.risky && !!odds.triple === !!pull.triple && (odds.bust ? !odds.triple : odds.triple === true), `seed ${k}: pull ${i + 1} — the line ${JSON.stringify(odds)} vs the pull ${JSON.stringify([pull.risky, pull.triple])}`);
+      if (!pull.risky) assert(pull.triple === true && TRIPLES.test(pull.outcome!) && slotOddsText(odds) === 'тройка', `seed ${k}: a safe pull is a sure triple (${pull.outcome})`);
+      else assert(pull.outcome === 'bust' || TRIPLES.test(pull.outcome!), `seed ${k}: a risky pull busts or gives a triple`);
+    }
+    sim.tick = step;
+    assert(replays(sim, marks), `seed ${k}: replay`);
+  }
+  assert(counts.size >= 3, `the counts vary over 10 seeds: ${[...counts]}`);
+});
+
+check('«Гоблин-сюрприз»: with 0 safe the first pull may bust — a real chain of two enemies into the lever, the plan line says «взрыв», the pull is risky and busts, the idol lights (the run\'s area blast); replays', () => {
+  let found = 0;
+  for (let k = 1; k <= 200 && found < 2; k++) {
+    const sim = runGoblin(900 + k), w = sim.world;
+    if (goblinOf(w)!.safe !== 0) continue;
+    assert(slotMayBust(w) && safePullsLeft(w) === 0 && bustOdds(w), `seed ${k}: 0 safe — the next pull is risky`);
+    waitReady(sim);
+    const row = rowTo(sim, 2);
+    draw(sim, [...row, lever(sim)]);
+    const odds = slotPlanOdds(w), plan = planChain(w);
+    assert(odds?.bust && odds.links === 2 && plan.endsOnObject, `seed ${k}: the line says the bust (${JSON.stringify(odds)})`);
+    sim.command({ t: 'release' });
+    const events = settle(sim), pull = slotEvents(events, 'pull')[0];
+    assert(pull && pull.pull === 1 && pull.risky === true && pull.links === 2 && of(events, 'chainHit').length === 2, `seed ${k}: the first pull, risky`);
+    if (!pull.bust) continue;
+    const after = ticks(sim, tick(1.2) + 2);
+    assert(slotEvents(after, 'effect')[0]?.outcome === 'bust' && slotEvents(after, 'lit').length === 1 && !goblinOf(w), `seed ${k}: the bust on pull 1 lit the idol`);
+    assert(replays(sim), `seed ${k}: replay`);
+    found++;
+  }
+  assert(found === 2, `seeds with 0 safe busting on pull 1: ${found}`);
+});
+
+check('«Гоблин-сюрприз», «Безопасный рывок — тройка»: a journal without the keys plays the old path — the run goblin rolls nothing (no `slot:safe`), 3 safe pulls of the old reels, the 4th risky; the same world as the keys off', () => {
+  const without = (state: unknown): string => { const st = { ...(state as Record<string, unknown>) }; delete st.params; return JSON.stringify(st); };
+  for (let k = 1; k <= 3; k++) {
+    const off = { ...rtRunParams(quiet()), slotSafeRandom: false, slotSafeTriple: false }, old = { ...off } as Partial<Params>;
+    delete old.slotSafeRandom; delete old.slotSafeTriple;
+    const a = runGoblin(700 + k, off), b = runGoblin(700 + k, old as Params);
+    for (const sim of [a, b]) {
+      const w = sim.world;
+      assert(goblinOf(w)!.safe === undefined && safePullsLeft(w) === 3 && !w.rng.states().some(([name]) => name === 'slot:safe'), `seed ${k}: 3 safe, no roll`);
+      const pulls = [0, 1, 2, 3].map(() => goblinOf(w) ? plannedPull(sim) : null).filter(x => !!x);
+      assert(pulls.length === 4 && pulls.every((x, i) => x.pull.risky === (i === 3) && x.pull.triple === undefined && !x.odds!.triple), `seed ${k}: pulls 1–3 safe, the 4th risky, no triple`);
+      assert(w.rng.states().some(([name]) => name === 'slot:reels'), `seed ${k}: the safe pulls drew the old reels`);
+    }
+    assert(without(worldState(a.world)) === without(worldState(b.world)), `seed ${k}: the same world without the keys`);
+    const journal = JSON.parse(JSON.stringify(a.exportJournal()!)) as Journal;
+    delete (journal.params as Partial<Params>).slotSafeRandom; delete (journal.params as Partial<Params>).slotSafeTriple;
+    assert(without(worldState(replay(journal).world)) === without(worldState(a.world)), `seed ${k}: the journal without the keys replays the same world`);
+  }
+});
+
+check('«Безопасный рывок — тройка»: on 24 seeds every safe pull is a sure triple (the four come, no skull, no pair, no nothing; the reels stream untouched) — with «Перебор» off too; without the key the same seeds spin the old reels', () => {
+  const withKey: Record<string, number> = {}, without: Record<string, number> = {};
+  for (let k = 1; k <= 24; k++) {
+    for (const [params, into] of [[bustParams({ slotSafeTriple: true }), withKey], [bustParams(), without]] as const) {
+      const sim = field(params, 2100 + k);
+      summon(sim);
+      const pulls = [0, 1, 2].map(() => plannedPull(sim));
+      for (const { odds, pull } of pulls) {
+        assert(pull.risky === false, 'pulls 1–3 safe');
+        into[pull.outcome!] = (into[pull.outcome!] ?? 0) + 1;
+        if (into === withKey) assert(pull.triple === true && TRIPLES.test(pull.outcome!) && pull.reels!.every(r => r === pull.reels![0]) && pull.rain === 0 && pull.volley === 0 && odds?.triple && odds.rain === 0 && odds.volley === 0, `seed ${k}: a sure triple ${JSON.stringify(pull)}`);
+        else assert(pull.triple === undefined && !odds?.triple, `seed ${k}: the old pull`);
+      }
+      if (into === withKey) assert(!sim.world.rng.states().some(([name]) => name === 'slot:reels'), `seed ${k}: no reels drawn`);
+    }
+  }
+  assert(['heart3', 'bolt3', 'gem3', 'jackpot'].every(o => withKey[o] > 0) && Object.keys(withKey).every(o => TRIPLES.test(o)), `with the key: ${JSON.stringify(withKey)}`);
+  assert(['rain', 'volley', 'none'].some(o => without[o] > 0), `without the key the skulls act: ${JSON.stringify(without)}`);
+  // «Перебор» off: every pull is safe — all six sure triples.
+  const sim = field(quiet({ slotPulls: 6, slotCooldown: 0, slotSafeTriple: true }), 31);
+  summon(sim);
+  const six = [0, 1, 2, 3, 4, 5].map(() => plannedPull(sim).pull);
+  assert(six.every(p => p.triple === true && TRIPLES.test(p.outcome!) && p.risky === undefined), `without «Перебор»: ${six.map(p => p.outcome)}`);
+  assert(replays(sim), 'replay');
+});
+
+check('`slotMayBust` (the view\'s seam): from the params only — the run true whatever the goblin rolled, the prologue\'s room 8 false; the sandbox as its params say', () => {
+  const runWorlds = [1, 2, 3, 4, 5, 6, 7, 8].map(k => runGoblin(1300 + k).world);
+  assert(runWorlds.every(w => slotMayBust(w)) && new Set(runWorlds.map(w => goblinOf(w)!.safe)).size >= 2, 'the run: true for every roll');
+  const room8 = new Simulation({ arena: prologueRoom(8).id, params: prologueParams(8), seed: seedOf(1) });
+  assert(goblinOf(room8.world) && !slotMayBust(room8.world), 'the prologue\'s room 8: false');
+  const may = (extra: Partial<Params>): boolean => slotMayBust(field(quiet(extra), 1).world);
+  assert(!may({}) && !may({ slotBust: true }) && may({ slotBust: true, slotPulls: 6 }), 'the sandbox: «Перебор» off — false; 3 pulls of 3 safe — false; 6 of 3 — true');
+  assert(may({ slotBust: true, slotSafeRandom: true }) && may({ slotBust: true, slotSafePerLongChain: 1 }) && !may({ slot: false, slotBust: true, slotPulls: 6 }), 'a random count or the long chain — true; no slot — false');
+});
+
+check('«Гоблин-сюрприз» in telemetry: the observer records the goblin\'s rolled count and the sure triples; an older record reads as none', () => {
+  const sim = runGoblin(1401), safe = goblinOf(sim.world)!.safe!;
+  const pulls = [0, 1, 2, 3, 4, 5].map(() => goblinOf(sim.world) ? plannedPull(sim).pull : null).filter(x => !!x);
+  let observer: ReturnType<typeof createFightObserver> | null = null;
+  replay(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal, r => { observer ??= createFightObserver(r.world); observer.tick(r.world); });
+  const s = observer!.summary().slot;
+  assert(JSON.stringify(s.safe) === JSON.stringify([safe]) && s.triples === pulls.filter(p => p.triple).length && s.pulls === pulls.length && s.risky === pulls.filter(p => p.risky).length, `the summary ${JSON.stringify(s)}`);
+  const sandbox = field(bustParams(), 3);
+  summon(sandbox); plannedPull(sandbox);
+  observer = null;
+  replay(JSON.parse(JSON.stringify(sandbox.exportJournal()!)) as Journal, r => { observer ??= createFightObserver(r.world); observer.tick(r.world); });
+  assert(observer!.summary().slot.safe.length === 0 && observer!.summary().slot.triples === 0, 'without the keys: none');
+  const older = withSummaryDefaults({ slot: { appeared: 1, pulls: 2 } }).slot;
+  assert(Array.isArray(older.safe) && older.safe.length === 0 && older.triples === 0, 'an old record');
 });
 
 console.log(`${checks} checks passed`);

@@ -4,7 +4,8 @@
  *
  * Run fights are real fights (journalled commands on a quiet field with the run's params and loadout); their chance is read
  * from every tick's events as main.ts reads them every frame, the outcome goes into the run by its commands:
- * - the goblin: bare pulls show skulls [2,2,2] then [3,2,2] — rain 1/27 and 1/21, volley 2/9 and 16/63 (hand-counted); the
+ * - the goblin (the reels before task 11: today's run spins sure triples and risky pulls — no skulls, nothing tallied, checked
+ *   too): bare pulls show skulls [2,2,2] then [3,2,2] — rain 1/27 and 1/21, volley 2/9 and 16/63 (hand-counted); the
  *   tally keeps the pulls, what came and the sum of the shown odds, over fights and seeds; a lost fight's pulls count;
  * - the elites' loot: armoured elites killed by the player (a bomb opens the plates, a chain kills) — every loot fell, 1 each;
  * - the die: only «Бросить» counts, faces 4–6 against ½ a roll;
@@ -20,6 +21,7 @@ import { createRtRun, parseRtRun, resolveArena, rtAvailableNodes, rtChooseEventO
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { luckNumber, rtLuckLines, type RtLuckTally } from './rtLuck';
 import { assert, closeNode, ok, playFight, pullBare, quiet, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
+import type { Params } from '../sim/params';
 import type { Simulation } from '../sim/simulation';
 import type { World, WorldEvent } from '../sim/world';
 import saveBefore from '../../../tests/fixtures/rt-run-save-before-record.json';
@@ -31,6 +33,12 @@ const newRun = (k: number): RtRunState => toBattle(takeGift(createRtRun(seedOf(k
 const next = (run: RtRunState): RtRunState => toBattle(closeNode(run));
 const strip = (run: RtRunState): RtRunState => { const copy = { ...run }; delete copy.luck; return copy; };
 
+/**
+ * The goblin's reels as the run spun them before task 11 (13.10.2026): 3 safe pulls of the skull reels. Today's run rolls
+ * 0–3 safe pulls and a safe pull is a sure triple (`slotSafeRandom`, `slotSafeTriple`) — no skulls, nothing for the tally
+ * (checked below); the tally's goblin source is checked on the old reels.
+ */
+const reels = (): Params => ({ ...rtRunParams(quiet()), slotSafeRandom: false, slotSafeTriple: false });
 /** Hand-counted odds of a bare pull: a skull on a reel with s skulls — s ÷ (4 + s). */
 const RAIN_1 = 1 / 27, VOLLEY_1 = 2 / 9;        // skulls [2,2,2]: q = 1/3
 const RAIN_2 = 1 / 21, VOLLEY_2 = 16 / 63;      // skulls [3,2,2]: q = 3/7, 1/3, 1/3
@@ -44,7 +52,7 @@ check('the goblin: two bare pulls — the odds shown 1/27 · 2/9, then 1/21 · 1
   const outcomes = new Set<string>();
   for (let k = 1; k <= 6; k++) {
     const run = newRun(k), pulls: Extract<WorldEvent, { type: 'slot' }>[] = [];
-    const { outcome } = playFight(run, { chains: [], play: twoPulls(pulls), k });
+    const { outcome } = playFight(run, { chains: [], params: reels(), play: twoPulls(pulls), k });
     assert(near(pulls[0].rain!, RAIN_1) && near(pulls[0].volley!, VOLLEY_1) && near(pulls[1].rain!, RAIN_2) && near(pulls[1].volley!, VOLLEY_2), `seed ${k}: the shown odds ${pulls.map(p => `${p.rain} ${p.volley}`).join(' / ')}`);
     const rain = pulls.filter(p => p.outcome === 'rain').length, volley = pulls.filter(p => p.outcome === 'volley').length;
     for (const p of pulls) outcomes.add(p.outcome!);
@@ -57,13 +65,25 @@ check('the goblin: two bare pulls — the odds shown 1/27 · 2/9, then 1/21 · 1
   assert(outcomes.size >= 3, `the pulls vary over seeds: ${[...outcomes].join(', ')}`);
 });
 
+check('task 11: today\'s run goblin spins no skulls — its pulls (sure triples, risky pulls) add nothing to the tally; the fight has no luck field', () => {
+  let pulled = 0;
+  for (let k = 1; k <= 6; k++) {
+    const run = newRun(30 + k), pulls: Extract<WorldEvent, { type: 'slot' }>[] = [];
+    const { outcome } = playFight(run, { chains: [], play: (sim, seen) => { summonGoblin(sim); for (let i = 0; i < 3 && sim.world.slot?.goblin; i++) pulls.push(pullBare(sim, seen)); }, k });
+    assert(pulls.length >= 1 && pulls.every(p => p.triple === true || p.risky === true), `seed ${k}: ${JSON.stringify(pulls.map(p => [p.outcome, p.risky, p.triple]))}`);
+    assert(outcome.luck === undefined, `seed ${k}: no tally (${JSON.stringify(outcome.luck)})`);
+    pulled += pulls.length;
+  }
+  assert(pulled >= 6, `pulls ${pulled}`);
+});
+
 check('the tally adds up over the run\'s fights; a lost fight\'s pulls count; the save keeps it', () => {
   let run = newRun(7);
   const first: Extract<WorldEvent, { type: 'slot' }>[] = [], second: Extract<WorldEvent, { type: 'slot' }>[] = [];
-  run = ok(resolveArena(run, playFight(run, { chains: [3], play: twoPulls(first) }).outcome), 'fight 1');
+  run = ok(resolveArena(run, playFight(run, { chains: [3], params: reels(), play: twoPulls(first) }).outcome), 'fight 1');
   run = next(run);
   // The second fight is lost after its pulls.
-  run = ok(resolveArena(run, playFight(run, { chains: [], play: twoPulls(second), lose: true, k: 2 }).outcome), 'fight 2');
+  run = ok(resolveArena(run, playFight(run, { chains: [], params: reels(), play: twoPulls(second), lose: true, k: 2 }).outcome), 'fight 2');
   assert(run.result?.outcome === 'defeat', 'lost');
   const all = [...first, ...second];
   assert(run.luck?.['slot-rain']?.tries === 4 && near(run.luck['slot-rain'].expected, 2 * (RAIN_1 + RAIN_2)) && near(run.luck['slot-volley']!.expected, 2 * (VOLLEY_1 + VOLLEY_2))
@@ -184,7 +204,7 @@ check('the block\'s lines in order (hand-counted texts); numbers; an empty run h
 check('the save: version 7, the optional field; malformed tallies are no run', () => {
   let run = newRun(40);
   const pulls: Extract<WorldEvent, { type: 'slot' }>[] = [];
-  run = ok(resolveArena(run, playFight(run, { chains: [], play: twoPulls(pulls) }).outcome), 'fight');
+  run = ok(resolveArena(run, playFight(run, { chains: [], params: reels(), play: twoPulls(pulls) }).outcome), 'fight');
   const storage: RunStorage & { data: Record<string, string> } = (() => { const data: Record<string, string> = {}; return { data, getItem: (key: string) => data[key] ?? null, setItem: (key: string, value: string) => { data[key] = value; }, removeItem: (key: string) => { delete data[key]; } }; })();
   const store = createRtRunStore(storage);
   assert(store.save(run) && same(store.load(), run) && JSON.parse(storage.data[RT_RUN_STORAGE_KEY]).luck['slot-rain'].tries === 2, 'stored under -v7 and loaded the same');
@@ -214,7 +234,7 @@ check('a save written before П5 (fixture, code of 223f54f) loads unchanged; its
   // Its die rolled before the tally is not counted; its event outcome with odds is read from its choices.
   assert(same(rtLuckReport(old), [{ id: 'event-0', label: '«Кости у логова»', text: 'Обыскать: разбудил, ничего не меняется; Следующая арена: одна случайная элита в первой волне — шанс 50%' }]), JSON.stringify(rtLuckReport(old)));
   const pulls: Extract<WorldEvent, { type: 'slot' }>[] = [];
-  const after = ok(resolveArena(old, playFight(old, { chains: [3], play: twoPulls(pulls) }).outcome), 'plays on');
+  const after = ok(resolveArena(old, playFight(old, { chains: [3], params: reels(), play: twoPulls(pulls) }).outcome), 'plays on');
   assert(after.luck?.['slot-rain']?.tries === 2 && rtLuckReport(after).map(line => line.id).join() === 'slot,event-0', JSON.stringify(rtLuckReport(after)));
   assert(same(strip(after).battles.slice(0, 3), old.battles) && parseRtRun(serializeRtRun(after)) !== null, 'the save after it loads');
 });
@@ -224,7 +244,7 @@ check('the run\'s outputs do not depend on the tally: the same walk without it d
     let a = newRun(50 + k), b = a;
     for (let fight = 0; fight < 3 && !a.result; fight++) {
       const pulls: Extract<WorldEvent, { type: 'slot' }>[] = [];
-      const { outcome } = playFight(a, { chains: [5, 5, 5], play: twoPulls(pulls), k: fight + 1 });
+      const { outcome } = playFight(a, { chains: [5, 5, 5], params: reels(), play: twoPulls(pulls), k: fight + 1 });
       const plain = { ...outcome };
       delete plain.luck;
       a = ok(resolveArena(a, outcome), 'with'); b = ok(resolveArena(b, plain), 'without');

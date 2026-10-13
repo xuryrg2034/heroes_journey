@@ -93,7 +93,8 @@ export const RT_RUN_VERSION_V6 = 6;
  * the raised touch, the elite behaviours of the three kinds (docs/realtime-elite-behaviors.md); the tough HP table of the
  * panel is the old 1–2 (the run's own comes by the row, `Loadout.toughHp`). Casino stage 1 (docs/realtime-casino.md):
  * «Однорукий гоблин» is on (which battles may get it — `Loadout.slot`, `rtArenaLoadout`; task 5, 12.10.2026: every battle
- * from run row 1, a long chain feeds it). Task 5 «Срез казино-слоя в походе» (design 12.10.2026): the cauldron («Котёл»,
+ * from run row 1; a long chain fed it until task 11, 13.10.2026: each goblin rolls 0–3 safe pulls, hidden, and a safe pull is a
+ * sure triple). Task 5 «Срез казино-слоя в походе» (design 12.10.2026): the cauldron («Котёл»,
  * `purse`), the oath stake (`oathStake`: `rtEnterNode` offers no oaths, `rtOathPreview` shows none) and the die at the door
  * (`doorDie`) are off in the run; their code and the sandbox stay. Before it they were on (a save's open die screen or
  * chosen oath still loads: `parseRtRun`).
@@ -115,9 +116,12 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   // Task 5 «Срез казино-слоя в походе» (design 12.10.2026): the run plays no cauldron, no die at the door, no oath stake — the
   // code and the sandbox keep them (П4 `greedByDeeds`, П3 `doorFinale` and `purseRate` act only with the cauldron: nothing now).
   purse: false, doorDie: false, oathStake: false,
-  // Task 5: the goblin in every battle that may get it (was 0.5; from run row 1, `RT_SLOT_ROW`), and a chain of 6+ enemy links
-  // gives +1 safe pull (the last pull stays risky).
-  slotChance: 1, slotSafePerLongChain: 1, slotLongChainLinks: 6,
+  // Task 5: the goblin in every battle that may get it (was 0.5; from run row 1, `RT_SLOT_ROW`). Its «Длинная цепь кормит
+  // гоблина» (a chain of 6+ enemy links gave +1 safe pull; 1 from 12.10.2026) is off since task 11 (design 13.10.2026).
+  slotChance: 1, slotSafePerLongChain: 0, slotLongChainLinks: 6,
+  // Task 11 «Гоблин-сюрприз» (design 13.10.2026, playtest v40): each goblin rolls its safe pulls 0 … 3 (`slotSafePulls`) when
+  // it appears — the view does not show the number; a safe pull is a sure triple (no skulls).
+  slotSafeRandom: true, slotSafeTriple: true,
   // Task 7 (design 13.10.2026, playtest v39): «Взрыв по площади» — the bust lights the idol, 3.5 around it, 1.2 s later the
   // blast hits everyone inside (the hero −4 unless invulnerable or in the air; enemies −3); «Гоблин раньше» — the goblin rolls
   // at 5 s of the fight or 3 s after the goals, whichever is earlier.

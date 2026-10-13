@@ -63,7 +63,9 @@ const NO_INFLOW: Readonly<Partial<Params>> = Object.freeze({ maxEnemies: 0 });
  * the spin's numbers (`spinCost` 3, `spinDamage` 4, `spinRadius` 1.2: the ring stands inside it, every enemy dies of one hit;
  * the body sizes keep the posts off the hero's body, else a return would wait for him to step off). Room 7 «Зелье» — no inflow,
  * the hero's maximum 15 (`heroHp`; the view gives 15/15 anyway; the heal is the run's `itemHeal`). Room 8 «Гоблин» — no inflow, the touch 1 (`contactDamage`, the run's base), 3 pulls and all of them safe
- * (`slotSafePulls` 3 and no «Длинная цепь кормит гоблина» — with it on the last pull is always risky): no bust is possible.
+ * (`slotSafePulls` 3 and no «Длинная цепь кормит гоблина» — with it on the last pull is always risky; no «Гоблин-сюрприз»,
+ * `slotSafeRandom` off — the run's random 0–3 would let the lesson bust): no bust is possible; each safe pull is a sure triple
+ * (`slotSafeTriple`, task 11).
  * Room 9 (softened by design 13.10.2026: the last room of the lesson must not be a wall, a death there is a bad first
  * impression) — the inflow up to 8 (`maxEnemies`, was 12; its pace and phases are the arena's) and every touch 1: the base
  * touch (`contactDamage` 1) and no raised touch of the tough ones (`toughTouch` off — the run's 2 of an enemy with HP ≥ 2;
@@ -80,7 +82,7 @@ export const PROLOGUE_FORCED: readonly Readonly<Partial<Params>>[] = Object.free
   Object.freeze({ maxEnemies: 0, ...LESSON_BODIES, heroHp: 15 }),
   // `enemySpeed` 0.72 — the run's 1.2 × 0.6 (design answer 12.10.2026: the goal is the lever, the damage is secondary); the
   // enemies sleep until the first press (the arena's `sleepUntilChain`).
-  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, enemySpeed: 0.72, invulnerability: 3.4 }),
+  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, slotSafeRandom: false, slotSafeTriple: true, enemySpeed: 0.72, invulnerability: 3.4 }),
   Object.freeze({ maxEnemies: 8, contactDamage: 1, toughTouch: false }),
 ]);
 

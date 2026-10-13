@@ -265,8 +265,11 @@ export function createFightObserver(start: World): FightObserver {
             s.slot.appeared++;
             if (s.slot.appearAfterGoals === null && world.greedStart !== null) s.slot.appearAfterGoals = world.time - world.greedStart;
             s.slot.appearTime ??= world.time;
+            // «Гоблин-сюрприз»: the safe pulls the goblin rolled (read off the world, not the event: the view must not see it).
+            const g = world.slot?.goblin;
+            if (g && g.id === ev.objectId && typeof g.safe === 'number') s.slot.safe.push(g.safe);
           }
-          else if (ev.action === 'pull') { s.slot.pulls++; s.slot.links.push(ev.links ?? 0); bump(s.slot.outcomes, ev.outcome ?? 'none'); if (ev.risky) s.slot.risky++; }
+          else if (ev.action === 'pull') { s.slot.pulls++; s.slot.links.push(ev.links ?? 0); bump(s.slot.outcomes, ev.outcome ?? 'none'); if (ev.risky) s.slot.risky++; if (ev.triple) s.slot.triples++; }
           else if (ev.action === 'effect') { s.slot.effects++; if (ev.outcome === 'bust') s.slot.busts++; }
           // «Длинная цепь кормит гоблина»: the safe pulls a long chain added.
           else if (ev.action === 'feed') s.slot.safeFromChains += ev.safe ?? 0;

@@ -13,11 +13,11 @@
  *   loads unchanged and, lost, shows no killer line; malformed deaths are no run; a won fight keeps no death.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { createRtRun, parseRtRun, resolveArena, rtNode, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, resolveArena, rtNode, rtRunParams, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { rtDeathLine, rtRunEndLines } from './rtRunEnd';
 import { runRow } from './arenaPools';
-import { assert, closeNode, ok, playFight, pullBare, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
+import { assert, closeNode, ok, playFight, pullBare, quiet, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
 import { inThorns } from '../sim/geometry';
 import { defaultParams } from '../sim/params';
 import type { Simulation } from '../sim/simulation';
@@ -146,7 +146,9 @@ check('the killer of the field and of the goblin: thorns — «шипы»; the g
     for (let k = 1; k <= 120 && !found; k++) {
       const run = newRun(k);
       let fight: ReturnType<typeof playFight>;
-      try { fight = playFight(run, { chains: [], k, finish: killedByArrows(outcomeName) }); } catch (error) { if (error instanceof Error && error.message === MISS) continue; throw error; }
+      // The arrows come only from the skull reels — the run's before task 11 (13.10.2026); today's run goblin gives sure
+      // triples and busts, the line stays for the reels.
+      try { fight = playFight(run, { chains: [], k, params: { ...rtRunParams(quiet()), slotSafeRandom: false, slotSafeTriple: false }, finish: killedByArrows(outcomeName) }); } catch (error) { if (error instanceof Error && error.message === MISS) continue; throw error; }
       found = true;
       const source = outcomeName === 'rain' ? 'slot-rain' : 'slot-volley';
       // An earlier pull of the other arrows may have been the lethal one (the damage is 5, the HP 3): then the seed does not serve.

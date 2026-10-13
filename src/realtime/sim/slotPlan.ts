@@ -19,6 +19,8 @@ export interface SlotPlanOdds {
   onLever: boolean;
   /** «Перебор»: this pull is risky — its bust chance and damage (the skulls do not act; `area` — «Взрыв по площади»); absent — a safe pull. */
   bust?: { chance: number; damage: number; area?: true };
+  /** «Безопасный рывок — тройка» (`slotSafeTriple`): this safe pull is a sure triple (no skulls: `rain` and `volley` 0); absent otherwise. */
+  triple?: true;
 }
 
 /** The odds line of the drawn chain now; null — no chain, no goblin, or the chain can neither end on the lever nor take it. */
@@ -35,6 +37,8 @@ export function slotPlanOdds(world: World, plan: ChainPlan = planChain(world)): 
   const odds = pullOdds(world, links), bust = bustOdds(world, feedFor(world, links));
   // «Перебор»: a risky pull draws no reels — the line shows the bust instead of the skulls' odds.
   if (bust) return { links, skulls: odds.skulls, rain: 0, volley: 0, onLever, bust };
+  // «Безопасный рывок — тройка»: a safe pull draws no reels either — a sure triple (slot.ts `pullLever`).
+  if (world.params.slotSafeTriple) return { links, skulls: odds.skulls, rain: 0, volley: 0, onLever, triple: true };
   return { links, skulls: odds.skulls, rain: odds.rain, volley: odds.volley, onLever };
 }
 
@@ -48,10 +52,11 @@ export function bustText(bust: { chance: number; damage: number; area?: boolean 
 
 /**
  * The line as the player reads it: «дождь 3,7 % · залп 22,2 %»; a risky pull — «взрыв 55 % · −4 HP · иначе тройка» («… −4 HP в
- * круге · иначе тройка» with «Взрыв по площади»).
+ * круге · иначе тройка» with «Взрыв по площади»); a sure triple (`slotSafeTriple`) — «тройка».
  */
-export function slotOddsText(odds: Pick<SlotPlanOdds, 'rain' | 'volley' | 'bust'>): string {
+export function slotOddsText(odds: Pick<SlotPlanOdds, 'rain' | 'volley' | 'bust' | 'triple'>): string {
   if (odds.bust) return `${bustText(odds.bust)} · иначе тройка`;
+  if (odds.triple) return 'тройка';
   const pct = (v: number): string => `${(Math.round(v * 1000) / 10).toFixed(1).replace('.', ',')} %`;
   return `дождь ${pct(odds.rain)} · залп ${pct(odds.volley)}`;
 }

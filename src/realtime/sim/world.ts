@@ -398,10 +398,12 @@ export type WorldEvent =
    * «Взрыв по площади» (`slotBustArea` on): the bust lit the idol (`lit`: its spot, the circle `r`, the `fuse`, the blast's id
    * `blastId` in `world.blasts`); the blast went off (`blast`: the circle; `inside` — the hero's body touched it, `hurt` — he
    * took the damage, else spared by invulnerability, the dash or the jump).
+   * «Безопасный рывок — тройка» (`slotSafeTriple` on): a safe pull's `pull` has `triple` (a sure triple, no skulls: `rain` and
+   * `volley` 0). «Гоблин-сюрприз» (`slotSafeRandom`) adds no event: the goblin's roll is `Goblin.safe`, hidden from the view.
    */
   | { type: 'slot'; action: 'appear' | 'pull' | 'effect' | 'wave' | 'land' | 'feed' | 'lit' | 'blast'; x: number; y: number; objectId?: number; reels?: SlotSymbol[]; outcome?: SlotOutcome;
       links?: number; removed?: number; skulls?: number[]; rain?: number; volley?: number; pull?: number; r?: number; firing?: number; risky?: boolean; bust?: boolean;
-      safe?: number; chains?: number; fuse?: number; blastId?: number; inside?: boolean; hurt?: boolean }
+      safe?: number; chains?: number; fuse?: number; blastId?: number; inside?: boolean; hurt?: boolean; triple?: boolean }
   /**
    * Casino «Котёл» (purse.ts): a chain's cheque went into the cauldron (embers × heat × the crystal multiplier = total; the
    * cauldron after it; where the hero stands); a build kill put 1 ember (`purseKill`); the door recorded the cauldron

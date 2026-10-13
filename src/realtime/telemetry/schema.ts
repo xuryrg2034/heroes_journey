@@ -731,6 +731,14 @@ export interface SlotSummary {
   bustInside: number;
   bustSpared: number;
   bustKills: number;
+  /**
+   * «Гоблин-сюрприз» (`slotSafeRandom`, from 13.10.2026; absent in older records — empty): the safe pulls each goblin of the
+   * fight rolled when it appeared (sim/slot.ts `Goblin.safe`, 0 … `slotSafePulls`), in the order they appeared. Empty
+   * without the rule. The goblin's pulls and busts are `pulls`, `risky`, `busts` (a run fight has one goblin).
+   */
+  safe: number[];
+  /** «Безопасный рывок — тройка» (`slotSafeTriple`, from 13.10.2026; absent in older records — 0): safe pulls that were a sure triple (`pull` with `triple`). */
+  triples: number;
 }
 
 /** A summary of nothing (a fight without an observer, the start of a fight). */
@@ -747,7 +755,7 @@ export function emptyFightSummary(): FightSummary {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,
       platesBySource: {}, loot: { dropped: 0, picked: 0 },
     },
-    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0, appearTime: null, bustBlasts: 0, bustInside: 0, bustSpared: 0, bustKills: 0 },
+    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0, appearTime: null, bustBlasts: 0, bustInside: 0, bustSpared: 0, bustKills: 0, safe: [], triples: 0 },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
