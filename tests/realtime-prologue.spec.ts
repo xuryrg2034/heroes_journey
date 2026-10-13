@@ -452,30 +452,33 @@ test('a death in room 6 plays room 6 again at once with full HP and no defeat sc
 
 /** Plays the earlier rooms by the hand's chain (real mouse) to reach room `n`. */
 async function goToRoom(page: Page, n: number): Promise<void> {
-  for (let room = 1; room < n; room++) {
-    await inRoom(page, room);
-    await titleGone(page);
-    if (room === 3) {
-      // The tough one is the chain's last link: the hand's chain from the start kills it.
-    }
-    const pts = await route(page);
-    expect(pts.length, `the hand's chain in room ${room}`).toBeGreaterThan(0);
-    await drag(page, pts);
-    if (room === 1 && (await snap(page)).prologue.lamps.total === 3) {
-      // Room 1 wants three kills: the chain may be shorter than the room (the hand draws all it can).
-      await gameWait(page, 1.5);
-      for (let k = 0; k < 3 && (await snap(page)).stage === 'goals'; k++) {
-        const more = await route(page);
-        if (!more.length) break;
-        await drag(page, more);
-        await gameWait(page, 1.5);
-      }
-    }
-    await untilFrame(page, s => s.stage === 'greed' ? true : undefined, 0, 6);
-    await gameWait(page, 0.3);
-    await walkIn(page, room);
-  }
+  for (let room = 1; room < n; room++) await passRoom(page, room);
   await inRoom(page, n);
+}
+
+/** Room `room` (1–5) passed by the hand's chain and a walk into the door; ends when the fade after it begins. */
+async function passRoom(page: Page, room: number): Promise<void> {
+  await inRoom(page, room);
+  await titleGone(page);
+  if (room === 3) {
+    // The tough one is the chain's last link: the hand's chain from the start kills it.
+  }
+  const pts = await route(page);
+  expect(pts.length, `the hand's chain in room ${room}`).toBeGreaterThan(0);
+  await drag(page, pts);
+  if (room === 1 && (await snap(page)).prologue.lamps.total === 3) {
+    // Room 1 wants three kills: the chain may be shorter than the room (the hand draws all it can).
+    await gameWait(page, 1.5);
+    for (let k = 0; k < 3 && (await snap(page)).stage === 'goals'; k++) {
+      const more = await route(page);
+      if (!more.length) break;
+      await drag(page, more);
+      await gameWait(page, 1.5);
+    }
+  }
+  await untilFrame(page, s => s.stage === 'greed' ? true : undefined, 0, 6);
+  await gameWait(page, 0.3);
+  await walkIn(page, room);
 }
 
 test('rooms 1–5: Space, Q and the item keys 1–4 do nothing — no command, no jump aiming — and the hand still comes after 4 s of rest', async ({ page }) => {
@@ -586,4 +589,56 @@ test('telemetry: one prologue record per playthrough — room 1 passed with the 
   expect([gear[0].outcome, gear[0].skipRoom, gear[0].rooms.map((r: any) => r.outcome)]).toEqual(['skip', 1, ['skip']]);
   expect(all.filter(r => r.kind === 'prologue').length).toBe(2);
   expect(all.filter(r => r.kind === 'fight' || r.kind === 'journal' || r.kind === 'note')).toEqual([]);
+});
+
+/**
+ * «Пропустить» pressed in the fade (the button stays on the screen in it): the first frame the fade darkens, if it is the fade
+ * of `kind`. Install it when no fade-in runs. The page's own frame loop watches (an evaluate left pending would hold the test's
+ * other page calls); it reads only the fade's opacity. Returns the fade's kind seen then (`null` — none yet).
+ */
+async function skipInFade(page: Page, kind: 'next' | 'retry'): Promise<() => Promise<string | null>> {
+  await page.evaluate(k => {
+    const w = window as any, fade = document.querySelector('[data-testid="prologue-fade"]') as HTMLElement;
+    w.__skipInFade = null;
+    const loop = (): void => {
+      if (Number(fade.style.opacity || 0) > 0) {
+        const now = w.__realtime.snapshot().prologue.transition;
+        if (now === k) (document.querySelector('[data-testid="prologue-skip"]') as HTMLElement).click();
+        w.__skipInFade = now ?? 'none';
+      } else requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }, kind);
+  return async () => { await expect.poll(() => page.evaluate(() => (window as any).__skipInFade), { timeout: 15_000 }).not.toBeNull(); return page.evaluate(() => (window as any).__skipInFade); };
+}
+
+test('telemetry: «Пропустить» in the fade after room 1 is won — the skip is in room 2, which was not reached; room 1 stays won', async ({ page }) => {
+  const errors: string[] = [];
+  await newViewer(page, errors);
+  const skipped = await skipInFade(page, 'next');
+  await passRoom(page, 1);
+  expect(await skipped()).toBe('next');
+  await expect(page.getByTestId('run')).toBeVisible({ timeout: 10_000 });
+  const rec = (await page.evaluate(() => (window as any).__realtime.telemetry.records())).filter((r: any) => r.kind === 'prologue');
+  expect(rec.length).toBe(1);
+  expect([rec[0].outcome, rec[0].skipRoom, rec[0].rooms.map((r: any) => [r.room, r.outcome, r.attempts])]).toEqual(['skip', 2, [[1, 'win', 1]]]);
+  expect(errors).toEqual([]);
+});
+
+test('telemetry: «Пропустить» in the fade after a death in room 5 — room 5 skipped with no new attempt (attempts 1, deaths 1)', async ({ page }) => {
+  test.setTimeout(120_000);
+  await newViewer(page);
+  await goToRoom(page, 5);
+  await titleGone(page);
+  // Why a debug command: see the room 6 death test. The first press (an empty one) wakes the room.
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); });
+  const skipped = await skipInFade(page, 'retry');
+  await page.mouse.move(40, 600);
+  await page.mouse.down(); await page.mouse.up();
+  expect(await skipped()).toBe('retry');
+  await expect(page.getByTestId('run')).toBeVisible({ timeout: 10_000 });
+  const rec = (await page.evaluate(() => (window as any).__realtime.telemetry.records())).filter((r: any) => r.kind === 'prologue');
+  expect(rec.length).toBe(1);
+  const r5 = rec[0].rooms.find((r: any) => r.room === 5);
+  expect([rec[0].outcome, rec[0].skipRoom, rec[0].rooms.length, r5.outcome, r5.attempts, r5.deaths]).toEqual(['skip', 5, 5, 'skip', 1, 1]);
 });

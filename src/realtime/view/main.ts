@@ -844,8 +844,13 @@ async function boot(): Promise<void> {
     const pl = prologue;
     if (!pl || transition?.kind === 'finish') return;
     prologueStore.markDone();
+    // A skip in the fade before the next attempt (telemetry review 13.10.2026): after a death the room is skipped with no new
+    // attempt; after a won room the next room is the skipped one, before its first attempt (not reached: no room entry).
+    let at = pl.n;
     if (!transition) prologueHooks.roomEnd?.(pl.n, pl.attempt, 'skip', pl.seconds, pl.real);
-    prologueHooks.skip?.(pl.n);
+    else if (transition.kind === 'retry') prologueHooks.roomEnd?.(pl.n, pl.attempt, 'skip', 0, 0);
+    else at = pl.n + 1;
+    prologueHooks.skip?.(at);
     prologueHooks.end?.('skip');
     command({ t: 'cancel' });
     dragging = false; ui.jumpMode = false;
@@ -857,7 +862,7 @@ async function boot(): Promise<void> {
     const pl = prologue;
     if (!pl) return;
     for (const ev of w.events) {
-      if (ev.type === 'restore') { for (const e of ev.enemies) prologueLayer.puff(e); if (ev.hero) prologueLayer.puff(ev.hero); if (ev.hero || !w.arena.restoreHero) prologueHooks.restore?.(pl.n); }
+      if (ev.type === 'restore') { for (const e of ev.enemies) prologueLayer.puff(e); if (ev.hero) prologueLayer.puff(ev.hero); if (!ev.late) prologueHooks.restore?.(pl.n); }
       else if (ev.type === 'jump') spaceUsed = true;
       else if (ev.type === 'spin') spinUsed = true;
     }

@@ -419,9 +419,10 @@ export type WorldEvent =
   /**
    * The prologue «Опушка» (`ArenaTemplate.restore`, `updateRestore`): the start enemies stand at their posts with full HP again
    * (the view's smoke) — every start enemy now, its id (a new one for those that came back from death) and its post; `hero` —
-   * where the hero was put back (`ArenaTemplate.restoreHero`; absent otherwise).
+   * where the hero was put back (`ArenaTemplate.restoreHero`; absent otherwise); `late` — the late batch of posts that waited
+   * under the hero (`RestoreState.wait`): the same return, not a new one (telemetry review 13.10.2026; events are not hashed).
    */
-  | { type: 'restore'; enemies: { id: number; x: number; y: number }[]; hero?: { x: number; y: number } };
+  | { type: 'restore'; enemies: { id: number; x: number; y: number }[]; hero?: { x: number; y: number }; late?: true };
 
 export interface World {
   arena: ArenaTemplate;
@@ -721,7 +722,7 @@ function restoreStart(world: World, state: RestoreState, i: number): { id: numbe
  * needed return is due `RESTORE_DELAY` later; when it is due (still needed, still nothing drawn or run — a chain drawn then
  * makes it wait for its end): with `restoreHero` the hero stands on his start again, then every start enemy stands at its post
  * with full HP (`restoreStart`). A post on the hero's body waits (`RestoreState.wait`) until he steps off it; the others come at
- * once. Event `restore` for each batch (the late ones in their own event).
+ * once. Event `restore` for each batch (the late ones in their own event, marked `late`).
  */
 function updateRestore(world: World, state: RestoreState): void {
   if (world.move) { delete state.due; return; }
@@ -734,7 +735,7 @@ function updateRestore(world: World, state: RestoreState): void {
     if (ready.length) {
       state.wait = state.wait.filter(i => !ready.includes(i));
       if (!state.wait.length) delete state.wait;
-      world.events.push({ type: 'restore', enemies: ready.map(i => restoreStart(world, state, i)) });
+      world.events.push({ type: 'restore', enemies: ready.map(i => restoreStart(world, state, i)), late: true });
     }
     return;
   }

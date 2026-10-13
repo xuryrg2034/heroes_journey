@@ -587,13 +587,16 @@ check('room 5: a post under the hero waits until he steps off it; the others com
     assert(restores(w, mark) === 0, `${label}: on the post before the return`);
     until(sim, x => restores(x, mark) > 0, 60 * 3);
     const first = w.events.slice(mark).find(e => e.type === 'restore');
-    assert(first?.type === 'restore' && first.enemies.length === posts.length - 1 && w.restore?.wait?.length === 1, `${label}: five come, one waits`);
+    assert(first?.type === 'restore' && first.enemies.length === posts.length - 1 && !first.late && w.restore?.wait?.length === 1, `${label}: five come, one waits`);
     assert(!w.enemies.some(e => Math.hypot(e.x - w.hero.x, e.y - w.hero.y) < 0.6), `${label}: nobody on the hero`);
     wait(sim, 1);
     assert(restores(w, mark) === 1, `${label}: still waits while he stands there`);
     walkTo(sim, { x: w.hero.x, y: w.hero.y - 1.5 }, 0.05);
     until(sim, x => restores(x, mark) > 1, 60);
     assert(!w.restore?.wait && w.enemies.length === posts.length && !w.events.slice(mark).some(e => e.type === 'spawn'), `${label}: the last one comes when he steps off; no spawn events`);
+    // The late batch is the same return (the view's telemetry counts one): only it is marked `late`.
+    const batches = w.events.slice(mark).filter(e => e.type === 'restore');
+    assert(batches.length === 2 && batches.map(e => e.type === 'restore' && !!e.late).join() === 'false,true', `${label}: one return, its late batch marked`);
     replays(sim, `room 5 waiting post ${label}`);
   }
 });

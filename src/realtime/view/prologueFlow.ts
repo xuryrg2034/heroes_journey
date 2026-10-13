@@ -283,7 +283,7 @@ export interface PrologueHooks {
   roomStart?(room: number, attempt: number): void;
   roomEnd?(room: number, attempt: number, outcome: RoomOutcome, seconds: number, realSeconds: number): void;
   handShown?(room: number, kind: 'hand' | 'arrow'): void;
-  /** The start enemies came back (one return; the late batch under the hero in rooms 2–4 is not a new one). */
+  /** The start enemies came back (one return; the late batch of posts under the hero — event `restore` with `late` — is not a new one). */
   restore?(room: number): void;
   skip?(room: number): void;
   /** The whole prologue ends (room 6 won, or skipped). */
