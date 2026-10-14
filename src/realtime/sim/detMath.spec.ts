@@ -111,7 +111,8 @@ const RULES: [string, RegExp][] = [
 /** A source file and every module it imports at run time (`import type` brings no code), transitively: the simulation and
  *  the modules of the forest run layer it reads (src/realtime/forest/items.ts, resources.ts …). */
 function simulationSources(): string[] {
-  const dir = fileURLToPath(new URL('.', import.meta.url)).replace(/\/$/, ''), files = new Set<string>(), queue: string[] = [];
+  // Forward slashes on every OS: the walk and the import resolver below split on «/» (Windows gives «\»).
+  const dir = fileURLToPath(new URL('.', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, ''), files = new Set<string>(), queue: string[] = [];
   const walk = (path: string): void => {
     for (const name of fs.readdirSync(path)) {
       const file = `${path}/${name}`;

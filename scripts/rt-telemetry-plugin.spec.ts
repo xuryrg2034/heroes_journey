@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createServer } from 'vite';
 import { allowedAddress, allowedHost, parseRecordId, RECORD_ID_RE as PLUGIN_ID_RE, recordFile, rtTelemetryPlugin } from '../vite/rtTelemetryPlugin';
 import { isRecordId, RECORD_ID_RE } from '../src/realtime/telemetry/schema';
@@ -52,9 +52,10 @@ assert(!allowedHost('8.8.8.8', true) && !allowedHost('172.32.0.1', true), 'a pub
 assert(allowedHost('dev.example.test:5173', false, ['dev.example.test']) && !allowedHost('x.dev.example.test', false, ['dev.example.test']), 'allowedHosts: an exact name');
 assert(allowedHost('a.example.test', false, ['.example.test']) && allowedHost('example.test', false, ['.example.test']) && !allowedHost('badexample.test', false, ['.example.test']), 'allowedHosts: a leading dot takes subdomains');
 assert(allowedHost('anything.example', false, true), 'allowedHosts: true takes any host (as Vite)');
-assert(recordFile('/x/logs', ['s', 'r', 'run']) === '/x/logs/s/r/run.json', 'file of a 3-segment id');
-assert(parseRecordId('s/p1-a/prologue') !== null && recordFile('/x/logs', parseRecordId('s/p1-a/prologue')!) === '/x/logs/s/p1-a/prologue.json', 'file of a prologue record (from 13.10.2026)');
-assert(recordFile('/x/logs', ['s', 'r', 'f03', 'fight']) === '/x/logs/s/r/f03-fight.json', 'file of a 4-segment id');
+// Expected files through path.resolve: on Windows «/x/logs» is «C:\x\logs» with «\» separators.
+assert(recordFile('/x/logs', ['s', 'r', 'run']) === resolve('/x/logs/s/r/run.json'), 'file of a 3-segment id');
+assert(parseRecordId('s/p1-a/prologue') !== null && recordFile('/x/logs', parseRecordId('s/p1-a/prologue')!) === resolve('/x/logs/s/p1-a/prologue.json'), 'file of a prologue record (from 13.10.2026)');
+assert(recordFile('/x/logs', ['s', 'r', 'f03', 'fight']) === resolve('/x/logs/s/r/f03-fight.json'), 'file of a 4-segment id');
 assert(recordFile('/x/logs', ['..', 'r', 'run']) === null, 'a ".." segment leaves the base');
 
 // --- server ---

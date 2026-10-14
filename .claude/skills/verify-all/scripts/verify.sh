@@ -11,6 +11,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# Node 20 has no global `navigator`: pixi.js throws while Playwright loads the specs (0 tests run) and the view's Node sets fail.
+node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+if [ "$node_major" -lt 22 ]; then echo "FAIL node: $(node -v 2>/dev/null || echo none) — Node >= 22 is needed (nvm use 22)"; exit 2; fi
 LOG_DIR="${LOG_DIR:-${TMPDIR:-/tmp}/ashen-verify}"; mkdir -p "$LOG_DIR"
 pass=0; fail=0; failed=()
 step() {
