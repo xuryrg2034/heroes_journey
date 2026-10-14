@@ -14,3 +14,5 @@ artifacts/palette-campaign-recheck/
 .scratch/
 # Real-time playtest logs (docs/realtime-telemetry.md)
 playtest-logs/
+# Playtest artifact build output (tools/artifact/README.md)
+tools/artifact/out/

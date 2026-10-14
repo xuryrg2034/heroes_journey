@@ -1,0 +1,12 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 720 } }); await p.addInitScript(() => localStorage.setItem('ashen-oath-realtime-prologue-done', '1'));
+const errs = []; p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); }); p.on('pageerror', e => errs.push(String(e)));
+await p.goto('http://127.0.0.1:8799/local-test.html#sandbox'); await p.waitForTimeout(2000);
+await p.keyboard.press('Shift+Digit8'); await p.waitForTimeout(800);
+await p.screenshot({ path: process.argv[2] + '/cam-a.png' });
+await p.keyboard.down('KeyD'); await p.keyboard.down('KeyS'); await p.waitForTimeout(1500); await p.keyboard.up('KeyD'); await p.keyboard.up('KeyS');
+await p.waitForTimeout(500);
+await p.screenshot({ path: process.argv[2] + '/cam-b.png' });
+const s = await p.evaluate(() => { const w = window.__realtime?.snapshot?.(); return w && { status: w.status, enemies: w.enemies?.length, hero: [w.hero?.x, w.hero?.y] }; });
+console.log(JSON.stringify({ s, errs }));
+await b.close();

@@ -1,0 +1,24 @@
+import { chromium } from '@playwright/test';
+const out = process.argv[2];
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
+const errs = []; p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); }); p.on('pageerror', e => errs.push(String(e)));
+await p.goto('http://127.0.0.1:8799/local-test.html'); await p.waitForTimeout(2500);
+const title = await p.getByTestId('prologue-title').textContent().catch(() => null);
+const skipVisible = await p.getByTestId('prologue-skip').isVisible().catch(() => false);
+await p.screenshot({ path: out + '/p39-room1.png' });
+const snap = () => p.evaluate(() => { const s = window.__realtime?.snapshot?.(); return s && { status: s.status, enemies: s.enemies?.length, kills: s.kills, hp: s.hero?.hp, hero: s.hero && [Math.round(s.hero.x*100)/100, Math.round(s.hero.y*100)/100] }; });
+const before = await snap();
+// real chain over the three blue enemies of room 1 (positions from the core's 1280×720 shot)
+await p.mouse.move(558, 327); await p.mouse.down();
+await p.mouse.move(590, 403, { steps: 10 }); await p.mouse.move(558, 480, { steps: 10 });
+await p.mouse.up(); await p.waitForTimeout(2500);
+const after = await snap();
+await p.screenshot({ path: out + '/p39-room1-done.png' });
+await p.getByTestId('prologue-skip').click(); await p.waitForTimeout(1500);
+const runNew = await p.getByTestId('run-new').isVisible().catch(() => false);
+const key = await p.evaluate(() => localStorage.getItem('ashen-oath-realtime-prologue-done'));
+await p.reload(); await p.waitForTimeout(2000);
+const titleAfterReload = await p.getByTestId('prologue-title').isVisible().catch(() => false);
+const runNew2 = await p.getByTestId('run-new').isVisible().catch(() => false);
+console.log(JSON.stringify({ title, skipVisible, before, after, runNew, key, titleAfterReload, runNew2, errs }));
+await b.close();

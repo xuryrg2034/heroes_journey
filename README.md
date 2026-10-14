@@ -185,6 +185,7 @@ npx playwright test tests/realtime-run.spec.ts
 | [realtime-telemetry.md](docs/realtime-telemetry.md), [realtime-playtest.md](docs/realtime-playtest.md) | Логи и метрики; протокол плейтеста |
 | [realtime-transition.md](docs/realtime-transition.md) | План перехода на реальное время |
 | [realtime-design-research.md](docs/realtime-design-research.md), [realtime-loop-research.md](docs/realtime-loop-research.md), [realtime-casino-research.md](docs/realtime-casino-research.md), [realtime-growth-research.md](docs/realtime-growth-research.md) | Исследования и очередь работ |
+| [design-notes/](docs/design-notes/README.md) | Спеки задач, исследования и решения дизайна 12–14.10.2026 (исходники; правила — в документах выше) |
 | [biomes/garrison-roster.md](docs/biomes/garrison-roster.md) | Черновик уровня 2: гарнизон |
 | [character-art-style.md](docs/character-art-style.md) | Стиль арта персонажей |
 | [design-references.md](docs/design-references.md), [game-teardowns.md](docs/game-teardowns.md), [realtime-references.md](docs/realtime-references.md), [research-meta-progression.md](docs/research-meta-progression.md), [research-run-depth.md](docs/research-run-depth.md) | Источники и разборы других игр |
@@ -192,6 +193,8 @@ npx playwright test tests/realtime-run.spec.ts
 Память проекта и правила для агентов — [AGENTS.md](AGENTS.md). Перенос на другую машину — [TRANSFER-RU.md](TRANSFER-RU.md).
 
 ## Инструменты разработки
+
+Сборка страницы артефакта для плейтеста и её дымовые тесты — [tools/artifact/](tools/artifact/README.md).
 
 Помощники Claude Code лежат в `.claude/agents/`, повторяемые процедуры — в `.claude/skills/`:
 
