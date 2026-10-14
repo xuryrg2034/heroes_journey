@@ -9,7 +9,7 @@ import { Simulation } from '../sim/simulation';
 import type { ChainLink } from '../sim/world';
 import { PROLOGUE_ROOMS, prologueJumpAim, prologueLoadout, prologueParams, prologueRoute, startEnemyIds } from '../run/prologue';
 import {
-  HAND_ASK, HAND_IDLE, HandGuide, PROLOGUE_KEY, PROLOGUE_ROOM_COUNT, PrologueStore, SHIELD_HAND_IDLE, handCycle, handFrame, lampPoints, prologueGoalLine, prologueLabel, prologueSeed, roomTitle,
+  HAND_ASK, HAND_IDLE, HandGuide, PROLOGUE_KEY, PROLOGUE_ROOM_COUNT, PrologueStore, SHIELD_HAND_IDLE, handCycle, handFrame, lampPoints, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle,
   type PrologueLabelMemo, type PrologueStorage,
 } from './prologueFlow';
 
@@ -256,6 +256,20 @@ check('room 5 «Пропасть»: the guide shows the arrow to the cliff edge,
   // Space (the jump aim on) is a press: the hand goes.
   guide.update(0.016, false, true);
   assert((guide.show as string) === 'none' && guide.target === null, 'a press takes the hand away');
+});
+
+check('the test entry `?prologueRoom=N`: the dev server only, a whole room number 1…10, anything else — null (room 1)', () => {
+  assert(prologueEntryRoom('?prologueRoom=8', true) === 8 && prologueEntryRoom('?seed=3&prologueRoom=10', true) === 10 && prologueEntryRoom('?prologueRoom=1', true) === 1, 'rooms 8, 10, 1');
+  assert(prologueEntryRoom('?prologueRoom=8', false) === null, 'not on a published build');
+  for (const bad of ['', '?prologueRoom=', '?prologueRoom=0', '?prologueRoom=11', '?prologueRoom=8.5', '?prologueRoom=-3', '?prologueRoom=x', '?prologueroom=8']) assert(prologueEntryRoom(bad, true) === null, `null for «${bad}»`);
+});
+
+check('what the rooms before N leave: Space after «Пропасть» (room 5), Q after «Вихрь» (6), the memory of the item pulse after «Зелье» (7)', () => {
+  const got = Array.from({ length: PROLOGUE_ROOM_COUNT }, (_, i) => prologueCarry(i + 1));
+  const rooms = (key: 'spaceUsed' | 'spinUsed' | 'itemUsed') => got.flatMap((c, i) => c[key] ? [i + 1] : []);
+  assert(JSON.stringify(rooms('spaceUsed')) === '[6,7,8,9,10]', `Space: ${rooms('spaceUsed')}`);
+  assert(JSON.stringify(rooms('spinUsed')) === '[7,8,9,10]', `Q: ${rooms('spinUsed')}`);
+  assert(JSON.stringify(rooms('itemUsed')) === '[8,9,10]', `item: ${rooms('itemUsed')}`);
 });
 
 console.log('prologue view: all checks passed');

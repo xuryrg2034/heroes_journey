@@ -56,7 +56,7 @@ import { ITEM_PULSE_ID, setPulse } from './pulse';
 import { detectLabels, labelActions, LEVER_OVER_LINE, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
-import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
+import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
 import { PrologueDom, PrologueLayer } from './prologueView';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
@@ -429,6 +429,8 @@ async function boot(): Promise<void> {
    */
   const prologueStore = new PrologueStore(sandbox ? null : undefined);
   const prologueDue = !sandbox && !prologueStore.done();
+  /** The test entry `?prologueRoom=N` (dev server only, `prologueEntryRoom`): the prologue that starts by itself opens room N. */
+  const prologueEntry = prologueDue ? prologueEntryRoom(location.search, import.meta.env.DEV) : null;
   /** The room being played (null — not in the prologue). */
   let prologue: { n: number; attempt: number; guide: HandGuide | null; label: PrologueLabelMemo; titleLeft: number; lastTime: number; seconds: number; real: number } | null = null;
   /** The telemetry of this playthrough (telemetry/prologue.ts; null — no recorder). */
@@ -875,13 +877,20 @@ async function boot(): Promise<void> {
     prologueDom.showTitle(roomTitle(n));
     prologueHooks.roomStart?.(n, attempt);
   };
-  /** From the first start (`first`) and from the gear's «Обучение» (`gear`). */
-  function startPrologue(from: 'first' | 'gear' = 'first'): void {
+  /**
+   * From the first start (`first`) and from the gear's «Обучение» (`gear`). `room` > 1 — the test entry (`?prologueRoom=N`): the
+   * page as a pass of rooms 1…N−1 leaves it (`prologueCarry`: Space and Q used, the item pulse's memory; the fade in after the
+   * switch), and no telemetry record — it is not a real playthrough.
+   */
+  function startPrologue(from: 'first' | 'gear' = 'first', room = 1): void {
     if (sandbox) return;
-    prologueTally = recorder?.beginPrologue(from) ?? null;
-    spaceUsed = false; spinUsed = false; transition = null; fadeIn = 0;
-    prologueDom.setFade(0);
-    startPrologueRoom(1, 1);
+    prologueTally = room === 1 ? recorder?.beginPrologue(from) ?? null : null;
+    const carry = prologueCarry(room);
+    spaceUsed = carry.spaceUsed; spinUsed = carry.spinUsed; transition = null;
+    if (carry.itemUsed && hintsOn && hints.store.count(ITEM_PULSE_ID) === 0) hints.store.bump(ITEM_PULSE_ID);
+    fadeIn = room > 1 ? FADE_IN : 0;
+    prologueDom.setFade(room > 1 ? 1 : 0);
+    startPrologueRoom(room, 1);
   }
   /** The prologue is over (the last room passed, or skipped): the run screen. */
   const leavePrologue = (): void => {
@@ -1353,7 +1362,7 @@ async function boot(): Promise<void> {
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
   // A viewer without the key «пролог пройден» starts in the prologue (the run map stays hidden until it ends).
-  if (prologueDue) startPrologue('first');
+  if (prologueDue) startPrologue('first', prologueEntry ?? 1);
 
   // Hook for the Playwright tests and manual tuning from the console. Test setup goes through journalled commands too,
   // so a session recorded here replays in Node (`journal()`); only direct writes to `params` bypass the journal.

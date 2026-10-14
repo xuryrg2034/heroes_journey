@@ -43,6 +43,44 @@ export function prologueSeed(n: number, attempt: number, fixed: number | null = 
   return fixed === null ? k : (fixed + k) >>> 0;
 }
 
+/** The page's test entry: `?prologueRoom=N` opens room N (`prologueEntryRoom`). */
+export const PROLOGUE_ROOM_PARAM = 'prologueRoom';
+
+/**
+ * The test entry (14.10.2026, for the Playwright suite): the room `?prologueRoom=N` asks for (1…`PROLOGUE_ROOM_COUNT`), or null.
+ * Only on the dev server (`dev` — `import.meta.env.DEV`; the published build never reads it); the page applies it only when the
+ * prologue starts by itself (no key «пролог пройден»). Anything but a whole number in range — null (the prologue starts at room 1).
+ */
+export function prologueEntryRoom(search: string, dev: boolean): number | null {
+  if (!dev) return null;
+  const text = new URLSearchParams(search).get(PROLOGUE_ROOM_PARAM);
+  if (text === null || !/^\d+$/.test(text)) return null;
+  const n = Number(text);
+  return n >= 1 && n <= PROLOGUE_ROOM_COUNT ? n : null;
+}
+
+/** What the page keeps from the rooms before room `n` (`prologueCarry`). */
+export interface PrologueCarry {
+  /** Space was used (a jump): room 10's Space tile does not breathe. */
+  spaceUsed: boolean;
+  /** Q was used (a spin): room 10's Q tile does not breathe. */
+  spinUsed: boolean;
+  /** A consumable was drunk: the viewer's memory of the item pulse (`ITEM_PULSE_ID`) is marked, as the use marks it. */
+  itemUsed: boolean;
+}
+
+/**
+ * What a pass of rooms 1…n−1 leaves on the page besides the next room's world (the world of a room is its own: arena, numbers,
+ * loadout, HP, seed by room and attempt). A room with its own tile (`PrologueRoom.tiles`: «Пропасть» the jump, «Вихрь» the spin,
+ * «Зелье» the potion) is passed only by using it — its goal is that use (the door beyond the cliff, six by one blow, the potion
+ * drunk; run/prologue.spec.ts) — and the rooms with no such tile hide those keys. So: a room before `n` with the tile — used.
+ */
+export function prologueCarry(n: number): PrologueCarry {
+  const before = Array.from({ length: Math.max(0, Math.min(n, PROLOGUE_ROOM_COUNT + 1) - 1) }, (_, i) => prologueRoom(i + 1).tiles);
+  const used = (tile: string): boolean => before.some(tiles => tiles !== 'all' && (tiles as readonly string[]).includes(tile));
+  return { spaceUsed: used('jump'), spinUsed: used('spin'), itemUsed: before.some(tiles => tiles !== 'all' && tiles.some(t => t !== 'jump' && t !== 'spin')) };
+}
+
 /** The goal line of the HUD in the prologue (short, no score). */
 export function prologueGoalLine(w: World): string {
   if (w.stage === 'greed') return 'Дверь открыта';

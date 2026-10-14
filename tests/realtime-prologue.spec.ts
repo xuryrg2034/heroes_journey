@@ -7,6 +7,9 @@ import { gameWait, untilFrame } from './realtimeFrames';
  * вид и поток»): real input at 1280×720 — the mouse draws the chains, the keys walk. A new viewer (empty storage) plays ten rooms (task 9, task 13);
  * the test hook `__realtime.prologue.route()` only tells WHERE to drag (the stage pixels of the hand's chain), it sends nothing.
  * Uses plain `@playwright/test`: the other specs start with the key «пролог пройден» set (tests/realtimeTest.ts).
+ * The tests of rooms 2–9 and of the deaths in rooms 8 and 10 open their room by the test entry `?prologueRoom=N` (`enterRoom`, dev
+ * server only); one end-to-end test passes rooms 1–10 for real and checks that the entry starts each room as that pass did. The
+ * telemetry tests pass the rooms they record for real.
  *
  * - a new viewer lands in room 1 with the name «1/10 · Тропа» for 1.5 s, the lean HUD (HP and goal), the skip button;
  * - each room is passed by real input: chains (room 8 ends on the lever, room 9 «Щит» — chains of 3+ into the crowd, room 10 is a fight), room 5 «Пропасть» by Space and a click
@@ -24,14 +27,24 @@ const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any)._
 const pro = async (page: Page): Promise<any> => (await snap(page)).prologue;
 const frame = (page: Page): Promise<unknown> => page.evaluate(() => new Promise(r => requestAnimationFrame(r)));
 
-/** A new viewer: empty storage, the page loaded; the prologue starts by itself. */
-async function newViewer(page: Page, errors: string[] = []): Promise<void> {
+/** A new viewer: empty storage, the page `path` loaded; the prologue starts by itself. */
+async function newViewer(page: Page, errors: string[] = [], path = '/'): Promise<void> {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/');
+  await page.goto(path);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.snapshot().prologue.active)).toBe(true);
+}
+
+/**
+ * A new viewer opened at room `n` by the test entry `?prologueRoom=N` (dev server only; view/prologueFlow.ts `prologueEntryRoom`):
+ * the page as a pass of rooms 1…n−1 leaves it (`prologueCarry`), no telemetry record. The end-to-end test of room 10 checks that
+ * the entry gives the same room start as the real pass.
+ */
+async function enterRoom(page: Page, n: number, errors: string[] = []): Promise<void> {
+  await newViewer(page, errors, `/?prologueRoom=${n}`);
+  await inRoom(page, n);
 }
 
 /** Waits (game time) until the prologue plays room `n` with no fade going. */
@@ -138,8 +151,7 @@ test('room 1: one real chain of two links, then a second — three kills open th
 });
 
 test('room 2: a chain of three blue lights the lamps while it runs, then they go out and the door stays closed; the enemies come back; the full chain of five opens it', async ({ page }) => {
-  await newViewer(page);
-  await goToRoom(page, 2);
+  await enterRoom(page, 2);
   await titleShot(page, '2');
   await titleGone(page);
   const pts = await route(page);
@@ -168,8 +180,7 @@ test('room 2: a chain of three blue lights the lamps while it runs, then they go
 });
 
 test('room 3: the tough one struck first survives (its HP drops), the enemies come back; the weak ones killed one by one come back too; the full chain with the tough one last kills it', async ({ page }) => {
-  await newViewer(page);
-  await goToRoom(page, 3);
+  await enterRoom(page, 3);
   await titleShot(page, '3');
   await titleGone(page);
   // Weak ones one by one: a chain of one weak link.
@@ -210,8 +221,7 @@ test('room 3: the tough one struck first survives (its HP drops), the enemies co
 });
 
 test('room 4: a chain of five lights five lamps and goes out; «Цвет свободен» stands at the 6th blue from the 5th link until the shift; nine through the colour shift open the door', async ({ page }) => {
-  await newViewer(page);
-  await goToRoom(page, 4);
+  await enterRoom(page, 4);
   await titleGone(page);
   const pts = await route(page);
   expect(pts.length).toBe(10);
@@ -248,8 +258,7 @@ test('room 4: a chain of five lights five lamps and goes out; «Цвет сво�
 
 test('room 8: the goblin — the label at the lever until the first pull; the real chain of enemies ends on the lever; the pull opens the door', async ({ page }) => {
   test.setTimeout(180_000);
-  await newViewer(page);
-  await goToRoom(page, 8);
+  await enterRoom(page, 8);
   await titleShot(page, '8');
   await titleGone(page);
   expect((await snap(page)).onboarding.labels.map((l: any) => l.text)).toEqual(['Закончи цепь здесь']);
@@ -268,8 +277,7 @@ test('room 8: the goblin — the label at the lever until the first pull; the re
 test('room 9 «Щит»: no action bar, the goal «Щит: 0 / 3»; the crowd sleeps until the first press — the hero keeps 15 HP; the hand after 1.5 s of rest draws a chain of 3+; a chain of two — the touch after it hurts, no lamp, no glow; a chain of 3+ — the hero glows, the touch is blocked (the «блок» spark), a spark flies to the lamp; three lamps open the door, the enemies sleep', async ({ page }) => {
   test.setTimeout(240_000);
   const errors: string[] = [];
-  await newViewer(page, errors);
-  await goToRoom(page, 9);
+  await enterRoom(page, 9, errors);
   await titleShot(page, '9');
   let p = await pro(page);
   expect(p.title).toBe('9/10 · Щит');
@@ -338,11 +346,13 @@ test('room 9 «Щит»: no action bar, the goal «Щит: 0 / 3»; the crowd sl
   expect(errors).toEqual([]);
 });
 
-test('room 10: energy and the action bar appear; Space and Q do not breathe (the player used them in rooms 5–6), 15 kills by real chains (jump by Space and a click, Q by its key) and the door end the prologue: the key is set, the run map follows', async ({ page }) => {
+test('the whole prologue, end to end: rooms 1–9 by real input, then room 10 — energy and the action bar appear; Space and Q do not breathe (the player used them in rooms 5–6), 15 kills by real chains (jump by Space and a click, Q by its key) and the door end the prologue: the key is set, the run map follows, one telemetry record of ten won rooms; the test entry `?prologueRoom=N` starts rooms 2–10 as this pass did, with no record', async ({ page }) => {
   test.setTimeout(540_000);
   const errors: string[] = [];
   await newViewer(page, errors);
-  await goToRoom(page, 10);
+  // The only test that passes rooms 1–9 for real; the start of each next room is kept for the check of the test entry at the end.
+  const starts = new Map<number, unknown>();
+  for (let room = 1; room < 10; room++) { await passRoom(page, room); await inRoom(page, room + 1); starts.set(room + 1, await roomStart(page)); }
   await titleShot(page, '10');
   let p = await pro(page);
   expect(p.hud.energy).toBe(true);
@@ -407,7 +417,39 @@ test('room 10: energy and the action bar appear; Space and Q do not breathe (the
   expect((await pro(page)).active).toBe(false);
   const log = (await pro(page)).log;
   expect(log.some((e: any) => e.type === 'end' && e.kind === 'done')).toBe(true);
+  // The telemetry of the real pass: one record, the ten rooms in order, each won, the prologue done.
+  const real = (await records(page)).filter(r => r.kind === 'prologue');
+  expect(real.length).toBe(1);
+  expect([real[0].from, real[0].outcome, real[0].skipRoom, real[0].rooms.map((r: any) => [r.room, r.outcome])])
+    .toEqual(['first', 'done', null, Array.from({ length: 10 }, (_, i) => [i + 1, 'win'])]);
+  // The test entry: room N starts as the pass left it (the world's journal start, the page's tiles, HUD, lamps, pulse, the item
+  // pulse's memory) and writes no prologue record (a real start writes one with room 1).
+  for (let n = 2; n <= 10; n++) {
+    await enterRoom(page, n);
+    expect(await roomStart(page), `room ${n} by ?prologueRoom=${n}`).toEqual(starts.get(n));
+    expect((await records(page)).filter(r => r.kind === 'prologue'), `no prologue record when entering room ${n}`).toEqual([]);
+  }
 });
+
+/** The telemetry buffer of the page (settled). */
+const records = (page: Page): Promise<any[]> => page.evaluate(() => (window as any).__realtime.telemetry.records());
+
+/**
+ * What a room starts with, for the check «the test entry = the real pass»: the world's start from the journal (seed, arena, numbers,
+ * hero, loadout), the room and attempt, the tiles and the HUD the room shows, the lamps, the pulse of the tiles (room 10: Space and Q
+ * used before), the hero's maximum and the viewer's hint memory (the potion of room 7 marks the item pulse). Read one frame in.
+ */
+async function roomStart(page: Page): Promise<unknown> {
+  await frame(page);
+  return page.evaluate(() => {
+    const rt = (window as any).__realtime, j = rt.journal(), s = rt.snapshot(), p = s.prologue;
+    return {
+      journal: { seed: j.seed, arena: j.arena, params: j.params, hero: j.hero ?? null, loadout: j.loadout ?? null, roster: j.roster ?? null },
+      room: p.room, attempt: p.attempt, tiles: p.tiles, hud: p.hud, lamps: p.lamps, pulse: p.pulse, maxHp: s.hero.maxHp,
+      hints: localStorage.getItem('ashen-oath-realtime-hints'),
+    };
+  });
+}
 
 test('the hand: after 4 s without a press it draws the chain over the enemies; a press takes it away; 4 s of rest bring it back', async ({ page }) => {
   await newViewer(page);
@@ -515,8 +557,7 @@ test('the sandbox has no prologue: no key needed, the arena menu opens', async (
 
 test('a death in room 10 plays room 10 again at once with full HP and no defeat screen', async ({ page }) => {
   test.setTimeout(240_000);
-  await newViewer(page);
-  await goToRoom(page, 10);
+  await enterRoom(page, 10);
   await titleGone(page);
   // Why a debug command: a real death needs the hero to stand through many hits (15 HP, a long wait, a different fight on each seed). The journalled `setParam` commands make the touch deadly in THIS room's world only; the death, the retry and the HUD after it are the real flow.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); rt.setParam('chainShield', 0); });
@@ -623,8 +664,7 @@ test('rooms without tiles (1–4, 8): Space, Q and the item keys 1–4 do nothin
 
 test('a death in room 8 plays room 8 again (attempt 2) with full HP, the enemies asleep again, no defeat screen', async ({ page }) => {
   test.setTimeout(180_000);
-  await newViewer(page);
-  await goToRoom(page, 8);
+  await enterRoom(page, 8);
   await titleGone(page);
   // Why a debug command: see the room 10 death test. The first press (an empty one) wakes the room.
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('contactDamage', 15); rt.setParam('invulnerability', 0); });
@@ -764,8 +804,7 @@ test('telemetry: «Пропустить» in the fade after a death in room 8 �
 test('room 5 «Пропасть»: only the Space tile, breathing; after 4 s the arrow to the cliff edge, at the edge the hand clicks beyond it; Space and the click jump the cliff; the door', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
-  await newViewer(page, errors);
-  await goToRoom(page, 5);
+  await enterRoom(page, 5, errors);
   await titleShot(page, '5');
   let p = await pro(page);
   expect(p.hud).toMatchObject({ actionBar: true, energy: false, focus: false });
@@ -796,8 +835,7 @@ test('room 5 «Пропасть»: only the Space tile, breathing; after 4 s the
 test('room 6 «Вихрь»: only the Q tile, breathing while one spin meets the goal; a chain of one brings the ring back; Q by its tile kills six at once', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
-  await newViewer(page, errors);
-  await goToRoom(page, 6);
+  await enterRoom(page, 6, errors);
   await titleShot(page, '6');
   let p = await pro(page);
   expect(p.tiles).toEqual({ jump: false, spin: true, items: [] });
@@ -829,8 +867,7 @@ test('room 6 «Вихрь»: only the Q tile, breathing while one spin meets the
 test('room 7 «Зелье»: the hero at 5/15, only the potion tile, breathing; a click on the tile drinks it — the HP up, the lamp lit, the door', async ({ page }) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
-  await newViewer(page, errors);
-  await goToRoom(page, 7);
+  await enterRoom(page, 7, errors);
   await titleShot(page, '7');
   let s = await snap(page);
   expect([s.hero.hp, s.hero.maxHp]).toEqual([5, 15]);
