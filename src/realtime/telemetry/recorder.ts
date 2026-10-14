@@ -23,6 +23,8 @@ import { runRow } from '../run/arenaPools';
 import { rtEventView, rtGiftView, rtNode, rtRestView, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
+import { RESOURCE_KINDS } from '../forest/resources';
+import { bagPayout } from '../sim/bag';
 import { TelemetryBuffer, telemetryKeys, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type BufferOptions, type BufferStats, type KeyValueStore } from './buffer';
 import { EventCursor } from './observe';
 import { artifactSource, DeliveryQueue, type SinkSource } from './sinks';
@@ -30,7 +32,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -295,7 +297,18 @@ interface RunMeta {
   viewerRun?: number;
   viewerRunApprox?: true;
   firsts?: RunFirst[];
+  /** Task 20: the run's resources (absent — a run whose start the recorder did not see, until its first step). */
+  resources?: RunResources;
 }
+
+/**
+ * Task 20 «Ресурсы похода»: the source and the sink of what a step changed beyond its explicit events, by the screen it acted on
+ * (`before.pending.kind`; none — the map). A battle (the fight fed back) gives its bag and loot explicitly; the rest of it — a
+ * cauldron's door or die (off in the run since task 5) — is `other`.
+ */
+export const RESOURCE_CONTEXT: Readonly<Record<string, readonly [RunResourceSource, RunResourceSink]>> = {
+  gift: ['gift', 'other'], event: ['event', 'event'], casino: ['casino', 'casino'], shop: ['merchant', 'merchant'], rest: ['other', 'craft'],
+};
 
 /** Where a fight is: a run node or the sandbox. */
 export interface FightContext { nodeId?: string; row?: number; roster?: string; /** The run of a node's fight (its telemetry key and fight numbering). */ runState?: RtRunState }
@@ -318,6 +331,8 @@ interface OpenFight {
   novelty?: number;
   /** Task 16: the fight's feat summary at its end (the next run step takes it for `RunRecord.feats`). */
   feat?: FeatSummary | null;
+  /** Task 20: a won run fight's resources for the run — the elite loot picked up and the bag's payout; the next run step takes it once. */
+  resourcesOut?: { loot: Record<string, number>; bag: Record<string, number> };
 }
 
 /** The fight record without the header and journal meta (the stash of `pagehide` keeps this). */
@@ -522,6 +537,8 @@ export class RtRecorder {
     if (f.novelty) body.summary.novelty = f.novelty;
     f.feat = body.summary.feat ?? null;
     if (f.itemsIn && world.kit && (outcome === 'victory' || outcome === 'defeat')) f.itemsOut = { end: { ...world.kit.items }, used: { ...body.summary.abilities.items } };
+    // Task 20: what a won run fight gives the run's resources (main.ts `recordRunArena` passes the same: the kit's materials, the bag).
+    if (f.ctx.runState && outcome === 'victory') f.resourcesOut = { loot: { ...world.kit?.materials ?? {} }, bag: { ...bagPayout(world) ?? {} } as Record<string, number> };
     if (f.run !== SANDBOX_RUN && this.meta?.key === f.run) {
       const meta = this.meta;
       if (!meta.fights.includes(f.key)) meta.fights.push(f.key);
@@ -655,7 +672,7 @@ export class RtRecorder {
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {},
-      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, runParams,
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -682,6 +699,8 @@ export class RtRecorder {
       // Task 16: the run's feats flag and the viewer's run number.
       if (run.feats) this.meta.featsOn = true;
       if (viewerRun !== undefined && Number.isInteger(viewerRun) && viewerRun >= 1) { this.meta.viewerRun = viewerRun; if (viewerRunApprox) this.meta.viewerRunApprox = true; }
+      // Task 20: the run's resources at its start.
+      this.meta.resources = { start: { ...run.materials }, gained: {}, spent: {}, end: { ...run.materials } };
       this.saveMeta();
       this.writeRun(run);
     });
@@ -791,13 +810,55 @@ export class RtRecorder {
       }
       const seconds = typeof info.realSeconds === 'number' && Number.isFinite(info.realSeconds) && info.realSeconds >= 0 ? info.realSeconds : undefined;
       for (const c of stepChoices(before, step)) mergeChoice(meta.choices, seconds !== undefined ? { ...c, realSeconds: seconds } : c);
-      if (before && before.seed === after.seed) this.trackItems(meta, before, step);
+      if (before && before.seed === after.seed) { this.trackResources(meta, before, step); this.trackItems(meta, before, step); }
       // A map heal (task 15) is not the last node's: its HP out stays as the node left it (the heal is in `mapHeals`).
       const last = step.events.length && step.events.every(e => e.type === 'map-healed') ? undefined : meta.nodes[meta.nodes.length - 1];
       if (last) { last.hpOut = after.hp; last.maxHp = after.maxHp; }
       this.saveMeta();
       this.writeRun(after);
     });
+  }
+
+  /**
+   * Task 20: the run's resources (`RunRecord.resources`) from a step. The change of `materials` by kind is split: first what the
+   * step's events name (`feat-paid` — feat, `map-healed` — healMap, `talisman-rerolled` — reroll, `casino-played` — casino's win)
+   * and, for a won run fight fed back, its elite loot and the bag's payout; what is left goes to the source or sink of the screen
+   * the step acted on (`RESOURCE_CONTEXT`), else `other`. A change between steps (the record's end differs from the run before
+   * this step) is `other` too. So start + gained − spent = end for every kind, whatever the step was.
+   */
+  private trackResources(meta: RunMeta, before: RtRunState, step: Extract<RtRunStep, { ok: true }>): void {
+    const after = step.run;
+    const res = meta.resources ??= { start: { ...before.materials }, gained: {}, spent: {}, end: { ...before.materials }, late: true };
+    const add = <K extends string>(book: Partial<Record<K, Record<string, number>>>, key: K, kind: string, n: number): void => {
+      if (n <= 0) return;
+      const kinds = book[key] ??= {};
+      kinds[kind] = (kinds[kind] ?? 0) + n;
+    };
+    // A change outside the steps (none known): `other`.
+    for (const kind of RESOURCE_KINDS) { const gap = before.materials[kind] - (res.end[kind] ?? 0); add(res.gained, 'other', kind, gap); add(res.spent, 'other', kind, -gap); }
+    const gained: Partial<Record<RunResourceSource, Record<string, number>>> = {}, spent: Partial<Record<RunResourceSink, Record<string, number>>> = {};
+    for (const ev of step.events) {
+      if (ev.type === 'feat-paid') for (const kind of ev.resources) add(gained, 'feat', kind, 1);
+      else if (ev.type === 'map-healed') for (const kind of RESOURCE_KINDS) add(spent, 'healMap', kind, ev.paid[kind] ?? 0);
+      else if (ev.type === 'talisman-rerolled') for (const kind of RESOURCE_KINDS) add(spent, 'reroll', kind, ev.paid[kind] ?? 0);
+      else if (ev.type === 'casino-played') for (const kind of ev.game.gain) add(gained, 'casino', kind, 1);
+    }
+    // A won run fight fed back: its loot and the bag (the fight recorded here; a lost one pays nothing).
+    const f = this.fight, nodeId = before.pending?.kind === 'battle' ? before.pending.nodeId : null;
+    const fightStep = after.battles.length > before.battles.length, lost = step.events.some(e => e.type === 'run-lost');
+    const own = fightStep && f && f.done && f.run === meta.key && f.ctx.nodeId === nodeId && f.resourcesOut ? f : null;
+    if (own && !lost) for (const kind of RESOURCE_KINDS) { add(gained, 'loot', kind, own.resourcesOut!.loot[kind] ?? 0); add(gained, 'bag', kind, own.resourcesOut!.bag[kind] ?? 0); }
+    if (own) own.resourcesOut = undefined;
+    // The rest by the screen the step acted on.
+    const [source, sink] = RESOURCE_CONTEXT[before.pending?.kind ?? ''] ?? ['other', 'other'];
+    const sum = <K extends string>(book: Partial<Record<K, Record<string, number>>>, kind: string): number => Object.values<Record<string, number> | undefined>(book).reduce((a, kinds) => a + (kinds?.[kind] ?? 0), 0);
+    for (const kind of RESOURCE_KINDS) {
+      const rest = after.materials[kind] - before.materials[kind] - sum(gained, kind) + sum(spent, kind);
+      add(gained, source, kind, rest); add(spent, sink, kind, -rest);
+    }
+    for (const [key, kinds] of Object.entries(gained)) for (const [kind, n] of Object.entries(kinds ?? {})) add(res.gained, key as RunResourceSource, kind, n);
+    for (const [key, kinds] of Object.entries(spent)) for (const [kind, n] of Object.entries(kinds ?? {})) add(res.spent, key as RunResourceSink, kind, n);
+    res.end = { ...after.materials };
   }
 
   /**

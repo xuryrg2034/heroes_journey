@@ -56,7 +56,11 @@
  *   cancelled; `hit` of the source `slot-volley` / `slot-rain` — the arrows' damage; `kill` of the source `slot` — arrow kills;
  *   `feed` — the safe pulls the long chains added («Длинная цепь кормит гоблина»); the fight time of the first `appear`
  *   («Гоблин раньше»); `blast` — the bust's blast with the hero inside or not, spared or hurt, `kill` of the source
- *   `slot-bust` — its kills («Взрыв по площади»).
+ *   `slot-bust` — its kills («Взрыв по площади»). Task 20 «Выход из круга» (`bustExits`, one per `lit`): the hero's distance to
+ *   the idol at the light and his body in the circle (world.ts `bustHero`'s rule: radius + `heroRadius`); every tick and command
+ *   after it his body is checked against the circle — the last exit before the blast counts (game seconds after the light;
+ *   how: the tick's `world.move`, or the move the tick ended — none `walk`, `jump`, else `dash`); the `blast` event settles it
+ *   (in the circle then — `stayed-hurt` / `stayed-safe` by its `hurt`), its `slot-bust` hit is the damage.
  * - the cauldron (casino «Котёл», sim/purse.ts): `cheque` events — embers, heat and total per cheque in order, crystals of
  *   the cheques; `purseKill` — the build's kill embers by source; `purseDoor` — the resources the door pays without the die
  *   and how the hero went in (`exitBy`: chain, jump, walk); with П4 «Раздув за дела» on, the greed step at the door
@@ -78,10 +82,11 @@ import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { kindOf } from '../sim/enemies/kinds';
-import { inThorns, inWater } from '../sim/geometry';
+import { dist, inThorns, inWater } from '../sim/geometry';
+import { heroRadius } from '../sim/params';
 import { SIM_DT } from '../sim/simulation';
-import { touchRaised, type ChainLink, type World, type WorldEvent } from '../sim/world';
-import { emptyFightSummary, type FightObserver, type FightObserverFactory, type FightSummary } from './schema';
+import { touchRaised, type ChainLink, type HeroMove, type World, type WorldEvent } from '../sim/world';
+import { emptyFightSummary, type FightObserver, type FightObserverFactory, type FightSummary, type SlotBustExit, type SlotBustExitBy } from './schema';
 
 /** HP at or below this is a «low HP» moment (section 3: «Моменты HP ≤ 3»). */
 export const LOW_HP = 3;
@@ -134,6 +139,22 @@ export function median(values: readonly number[]): number {
 }
 
 const bump = (map: Record<string, number>, key: string, by = 1): void => { map[key] = (map[key] ?? 0) + by; };
+const round2 = (x: number): number => Math.round(x * 100) / 100;
+
+/** Task 20: how the hero moved in the tick he left the lit circle (the move of that tick, or the one it ended). */
+const exitBy = (m: HeroMove | null): SlotBustExitBy => (!m ? 'walk' : m.kind === 'jump' ? 'jump' : 'dash');
+
+/** Task 20: a lit bust watched until its blast — its circle (centre, radius plus the hero's body), the light's game second. */
+interface BustWatch {
+  x: number; y: number; edge: number; at: number; entry: SlotBustExit;
+  /** The blast is still due. */
+  open: boolean;
+  /** The hero's body in the circle at the last look. */
+  inNow: boolean;
+  /** The last exit (game seconds after the light, how) — cleared when he came back in. */
+  exitAt: number | null;
+  exitHow: SlotBustExitBy | null;
+}
 
 /** The observer of one fight. Created with the world at the start (before the first command or tick). */
 export function createFightObserver(start: World): FightObserver {
@@ -165,6 +186,21 @@ export function createFightObserver(start: World): FightObserver {
   if (start.bag) s.bag.appeared = true;
   /** «Перебор»: the source of the last hit on the hero (a lost fight names its killing blow). */
   let lastHitSource: string | null = null;
+  /** Task 20: the lit busts in order (one per `slot.bustExits` entry), the move before this look, the entry the blast's hit counts for. */
+  const busts: BustWatch[] = [];
+  let prevMove: HeroMove | null = start.move, bustHurt: SlotBustExit | null = null;
+  /** Task 20: the hero's body in a lit circle now (world.ts `bustHero`'s rule). */
+  const inCircle = (b: Pick<BustWatch, 'x' | 'y' | 'edge'>): boolean => dist(world.hero, b) <= b.edge;
+  /** Task 20: the hero's body against the open circles after a tick or a command — an exit (the last one counts) or a return. */
+  const watchBusts = (): void => {
+    for (const b of busts) {
+      if (!b.open || !b.entry.inside) continue;
+      const now = inCircle(b);
+      if (b.inNow && !now) { b.exitAt = round2(world.time - b.at); b.exitHow = exitBy(world.move ?? prevMove); }
+      else if (!b.inNow && now) { b.exitAt = null; b.exitHow = null; }
+      b.inNow = now;
+    }
+  };
 
   /** Elites not seen before (placed, spawned, a newcomer turned elite). */
   const noteElites = (w: World): void => {
@@ -182,7 +218,11 @@ export function createFightObserver(start: World): FightObserver {
           // Casino stage 1: the goblin's arrows.
           if (ev.source === 'slot-volley') s.slot.damage.volley += ev.damage;
           else if (ev.source === 'slot-rain') s.slot.damage.rain += ev.damage;
-          else if (ev.source === 'slot-bust') s.slot.bustDamage += ev.damage;
+          else if (ev.source === 'slot-bust') {
+            s.slot.bustDamage += ev.damage;
+            // Task 20: the blast's hit on the hero follows its `blast` event.
+            if (bustHurt) { bustHurt.damage = (bustHurt.damage ?? 0) + ev.damage; bustHurt = null; }
+          }
           lastHitSource = ev.source;
           s.damage.total += ev.damage;
           bump(s.damage.bySource, source, ev.damage);
@@ -284,7 +324,31 @@ export function createFightObserver(start: World): FightObserver {
           // «Длинная цепь кормит гоблина»: the safe pulls a long chain added.
           else if (ev.action === 'feed') s.slot.safeFromChains += ev.safe ?? 0;
           // «Взрыв по площади»: the bust's blast — the hero inside its circle or not, spared or hurt.
-          else if (ev.action === 'blast') { s.slot.bustBlasts++; if (ev.inside) { s.slot.bustInside++; if (!ev.hurt) s.slot.bustSpared++; } }
+          else if (ev.action === 'blast') {
+            s.slot.bustBlasts++; if (ev.inside) { s.slot.bustInside++; if (!ev.hurt) s.slot.bustSpared++; }
+            // Task 20: the blast settles its lit circle (the first open one at its spot): stayed, or the last exit before it.
+            const b = busts.find(x => x.open && x.x === ev.x && x.y === ev.y) ?? busts.find(x => x.open);
+            if (b) {
+              b.open = false;
+              const e = b.entry;
+              e.damage = 0; bustHurt = ev.hurt ? e : null;
+              if (e.inside) {
+                if (ev.inside) { e.outAfter = null; e.by = ev.hurt ? 'stayed-hurt' : 'stayed-safe'; }
+                else {
+                  // Out at the blast while the last look had him in: he left in this very tick.
+                  if (b.inNow) { b.exitAt = round2(world.time - b.at); b.exitHow = exitBy(world.move ?? prevMove); }
+                  e.outAfter = b.exitAt; e.by = b.exitHow;
+                }
+              }
+            }
+          }
+          // Task 20 «Выход из круга»: the idol lit — the hero's distance to it and whether his body is in its circle.
+          else if (ev.action === 'lit') {
+            const at = { x: ev.x, y: ev.y }, d = dist(world.hero, at), edge = (ev.r ?? 0) + heroRadius(world.params), inside = d <= edge;
+            const entry: SlotBustExit = { dist: round2(d), inside, outAfter: null, by: inside ? null : 'outside', damage: null };
+            s.slot.bustExits.push(entry);
+            busts.push({ ...at, edge, at: world.time, entry, open: true, inNow: inside, exitAt: null, exitHow: null });
+          }
           return;
         case 'jump': s.abilities.jumps++; return;
         case 'spin': s.abilities.spins++; return;
@@ -353,8 +417,10 @@ export function createFightObserver(start: World): FightObserver {
   return {
     command(cmd: Command, w: World): void {
       world = w;
+      prevMove = move;
       noteElites(w);
       readEvents();
+      watchBusts();
       const before = chainLen, started = w.move !== move && w.move?.kind === 'dash';
       noteMove();
       const now = w.chain.length;
@@ -375,8 +441,10 @@ export function createFightObserver(start: World): FightObserver {
       world = w;
       // The tick that ran cost what the world before it said.
       clock += nextCost;
+      prevMove = move;
       noteElites(w);
       readEvents();
+      watchBusts();
       noteMove();
       chainLen = w.chain.length;
       noteChain(w, false);
@@ -418,6 +486,8 @@ export function createFightObserver(start: World): FightObserver {
       out.slot.cancelled = w.status !== 'playing' && w.slot?.goblin?.spin ? 1 : 0;
       // «Перебор»: the bust's blow was the last hit of a lost fight (the second wind or the ward kept him up otherwise).
       out.slot.bustDeaths = w.status === 'defeat' && lastHitSource === 'slot-bust' ? 1 : 0;
+      // Task 20: a circle whose blast never came (the fight ended in the fuse) — the exit he made before the end, if he was out.
+      busts.forEach((b, i) => { if (b.open && b.entry.inside && !b.inNow && b.exitAt !== null) Object.assign(out.slot.bustExits[i], { outAfter: b.exitAt, by: b.exitHow }); });
       // Casino «Котёл»: on, and the cauldron at the end.
       out.purse.on = !!w.params.purse;
       out.purse.cauldron = w.purse?.cauldron ?? 0;

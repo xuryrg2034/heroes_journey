@@ -27,7 +27,7 @@ import type { Command } from '../sim/commands';
 import { copyParams, defaultParams } from '../sim/params';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import type { World } from '../sim/world';
-import { RT_TASK17_OFF, createRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseGift, rtEnterNode, rtRunParams, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { RT_TASK17_OFF, createRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseGift, rtChooseGiftPick, rtEnterNode, rtGiftView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtRunParams, type RtRunState, type RtRunStep } from '../run/rtRun';
 import { ITEM_KINDS } from '../forest/items';
 import type { ItemKind } from '../forest/types';
 import type { PrologueRecord, RunRecord } from './schema';
@@ -584,6 +584,71 @@ async function main(): Promise<void> {
       if (ash) assert(checkRecord({ ...r, ash: 6 }) === 'run ash' && checkRecord({ ...r, ash: 0 }) === 'run ash' && checkRecord({ ...r, ash: 'II' as unknown as number }) === 'run ash', 'a bad level');
     }
     rec.dispose();
+  });
+
+  await check('task 20: the run record\'s resources — a run walked by its own steps with real fights (the bag paid after the goals) and a craft at a rest: start + gained − spent = end for every kind; the bag and the craft by their names', async () => {
+    let bagRuns = 0, craftRuns = 0;
+    for (let k = 1; k <= 4; k++) {
+      const local = fake(), seed = seedOf(7300 + k);
+      const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: rtRunParams(quiet()), observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+      const latest = async (): Promise<RunRecord> => { await new Promise(r => setTimeout(r, 10)); return (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === seed).pop()!; };
+      let run: RtRunState = createRtRun(seed, { gift: 'mini', ...RT_TASK17_OFF });
+      rec.runStarted(null, run);
+      const start = { ...run.materials };
+      const feed = (step: RtRunStep): void => { assert(step.ok, step.ok ? '' : step.reason); rec.runStep(run, step); run = step.run; };
+      let bagPaid = 0, crafted = 0;
+      /** The open battle played through the recorder's hooks: the goals, chains of five (every 10 kills after the goals fill a bag step), the door. */
+      const fight = (): void => {
+        const nodeId = (run.pending as { nodeId: string }).nodeId;
+        const sim = new Simulation({ arena: 'run-fight-field', params: rtRunParams(quiet()), seed: seedOf(k), record: true, loadout: rtArenaLoadout(run), hero: { hp: run.hp, maxHp: run.maxHp }, beforeTick: w => rec.beforeTick(w) });
+        rec.beginFight(sim, { nodeId, runState: run });
+        const cmd = (c: Command): void => { rec.beforeCommand(sim.world); sim.command(c); rec.afterCommand(c, sim.world); };
+        const tick = (n: number, until: (w: World) => boolean = () => false): void => { for (let i = 0; i < n && sim.world.status === 'playing' && !until(sim.world); i++) { sim.tick(); rec.frameEnd(sim.world, null, 1); sim.world.events.length = 0; } };
+        cmd({ t: 'clear', keepMarked: false }); cmd({ t: 'goals' });
+        for (let c = 0; c < 7; c++) {
+          cmd({ t: 'teleport', x: 4.5, y: 6 });
+          const points = Array.from({ length: 5 }, (_, i) => ({ x: 4.5 + 1.4 * (i + 1), y: 6 }));
+          for (const p of points) cmd({ t: 'place', x: p.x, y: p.y, color: 0, hp: 0, kind: 'basic' });
+          cmd({ t: 'begin', x: points[0].x, y: points[0].y });
+          for (const p of points.slice(1)) cmd({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
+          cmd({ t: 'release' });
+          tick(900, w => !w.move);
+        }
+        cmd({ t: 'teleport', x: 16.5, y: 6 }); cmd({ t: 'walk', x: 1, y: 0 });
+        tick(600);
+        assert(sim.world.status === 'victory', `the hero walked into the door (${sim.world.status})`);
+        rec.endFight('victory');
+        const outcome = outcomeOf(run, sim.world);
+        bagPaid += Object.values(outcome.bag ?? {}).reduce((a, b) => a + (b ?? 0), 0);
+        feed(resolveArena(run, outcome));
+      };
+      // The gift by its own step; then the map: a rest when one is open (craft when a recipe is ready), else the first node.
+      feed(rtChooseGift(run, 0));
+      if (run.pending?.kind === 'gift') feed(rtChooseGiftPick(run, rtGiftView(run)!.picks[0]));
+      for (let i = 0; i < 200 && !run.result && (crafted === 0 || bagPaid === 0); i++) {
+        const pending = run.pending;
+        if (pending?.kind === 'battle') fight();
+        else if (pending?.kind === 'rest') {
+          const recipe = rtRestView(run)!.recipes.find(r => r.available);
+          if (recipe) { feed(rtRestCraft(run, recipe.resource)); crafted++; feed(rtRestFinish(run)); } else feed(rtRestHeal(run));
+        } else if (pending) feed({ ok: true, run: closeNode(run), events: [] });
+        else { const nodes = rtAvailableNodes(run); feed(rtEnterNode(run, (nodes.find(n => n.type === 'rest' && Object.values(run.materials).some(m => m >= 2)) ?? nodes[0]).id)); }
+      }
+      const r = await latest(), res = r.resources!;
+      assert(checkRecord(r) === null && res && !res.late, `the record: ${checkRecord(r)} ${JSON.stringify(res)}`);
+      assert(JSON.stringify(res.start) === JSON.stringify(start) && JSON.stringify(res.end) === JSON.stringify(run.materials), `start ${JSON.stringify(res.start)} end ${JSON.stringify(res.end)} run ${JSON.stringify(run.materials)}`);
+      const total = (book: Record<string, Record<string, number> | undefined>, kind?: string): number => Object.values(book).reduce((a, m) => a + (kind ? m?.[kind] ?? 0 : Object.values(m ?? {}).reduce((x, y) => x + y, 0)), 0);
+      for (const kind of Object.keys(start)) assert(res.start[kind] + total(res.gained, kind) - total(res.spent, kind) === res.end[kind], `seed ${k}, ${kind}: ${JSON.stringify(res)}`);
+      assert(total({ bag: res.gained.bag }) === bagPaid, `the bag: ${JSON.stringify(res.gained.bag)} vs paid ${bagPaid}`);
+      assert(total({ craft: res.spent.craft }) === 2 * crafted, `the craft: ${JSON.stringify(res.spent.craft)} vs ${crafted} recipes`);
+      if (bagPaid) bagRuns++;
+      if (crafted) craftRuns++;
+      // A record before task 20 (no field) still reads.
+      const old = { ...r } as Partial<RunRecord>; delete old.resources;
+      assert(checkRecord(old) === null && checkRecord({ ...r, resources: { ...res, start: { dew: -1 } } }) === 'run resources' && checkRecord({ ...r, resources: { ...res, gained: { bag: { dew: 0 } } } }) === 'run resources', 'checkRecord');
+      rec.dispose();
+    }
+    assert(bagRuns >= 2 && craftRuns >= 2, `runs with a bag payout ${bagRuns}, with a craft ${craftRuns}`);
   });
 
   await check('the prologue: the hooks of two playthroughs (first launch, passed with a death and returns; the gear, skipped) give one record each, no fight or run record', async () => {
