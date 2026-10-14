@@ -30,14 +30,14 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, ashStats, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, rowStats, runItemStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, ashStats, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, rowStats, runItemStats, runResourceStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
 import type { Simulation } from '../src/realtime/sim/simulation';
 import { defaultParams } from '../src/realtime/sim/params';
 import {
-  canonicalJson, emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, prologueRecordId, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
+  canonicalJson, checkRecord, emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, prologueRecordId, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
   type FightRecord, type FightSummary, type JournalPart, type PrologueRecord, type PrologueRoomTally, type RtRecord, type RunRecord,
 } from '../src/realtime/telemetry/schema';
 
@@ -335,6 +335,32 @@ async function main(): Promise<void> {
     // The fixtures' runs were recorded before the field: «нет данных», no rows.
     const old = md.slice(md.indexOf('### Расходники по походам'), md.indexOf('## Отметки N'));
     assert(old.includes('_нет данных_') && old.includes('Нет данных (записи до 12.10.2026), походов: 1;'), old);
+  });
+
+  await check('task 20 «Ресурсы похода»: start, gained by source, spent by sink, end and the balance per run and in all; a run without the field (an older record) is «—»; the fixtures have no lit bust — «Выход из круга» «—»', () => {
+    const z = { dew: 0, powder: 0, resin: 0, herbs: 0 };
+    const runs = [
+      runOf('s1', 'a', 'victory', { resources: { start: { ...z }, gained: { bag: { dew: 3, powder: 1 }, feat: { herbs: 2 } }, spent: { craft: { dew: 2 } }, end: { ...z, dew: 1, powder: 1, herbs: 2 } } }),
+      runOf('s1', 'b', 'defeat', { resources: { start: { ...z, resin: 1 }, gained: { event: { resin: 2 } }, spent: { healMap: { resin: 2 }, merchant: { resin: 1 } }, end: { ...z } } }),
+      // A record that does not add up (dew 0 + 1 ≠ 2) is read and shown as such.
+      runOf('s1', 'c', 'open', { resources: { start: { ...z }, gained: { other: { dew: 1 } }, spent: {}, end: { ...z, dew: 2 }, late: true } }),
+      runOf('s1', 'd', 'victory'),
+    ];
+    assert(runs.every(r => checkRecord(r) === null), 'the records are valid');
+    const st = runResourceStats(runs);
+    assert(st.rows.length === 3 && st.noData.length === 1 && st.rows[0].balanced && st.rows[1].balanced && !st.rows[2].balanced && !st.total.balanced, JSON.stringify(st.rows.map(r => r.balanced)));
+    assert(st.total.all.start === 1 && st.total.all.gained === 9 && st.total.all.spent === 5 && st.total.all.end === 6 && st.total.bySource.bag === 4 && st.total.bySink.craft === 2, JSON.stringify(st.total));
+    const text = reportMarkdown(collectRecords([{ name: 'res.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-14T14:00:00Z'), source: 'res' });
+    const section = text.slice(text.indexOf('## Ресурсы похода'), text.indexOf('## По рядам'));
+    assert(section.includes('| Поход | Итог | Старт | Получено | Потрачено | Остаток | Сходится |'), section);
+    assert(section.includes('| `a` | победа | 0 | 6: котомка 4, подвиги 2 | 2: крафт 2 | 4 | да |') && section.includes('| `b` | поражение | 1 | 2: события 2 | 3: лечение на карте 2, торговец 1 | 0 | да |'), section);
+    assert(section.includes('| `c` | не закончен | 0 (с середины) | 1: прочее 1 | 0 | 2 | НЕТ |') && section.includes('| `d` | победа | — | — | — | — | — |'), section);
+    assert(section.includes('| **всего** | походов: 3 | 1 | 9: события 2, котомка 4, подвиги 2, прочее 1 | 5: крафт 2, лечение на карте 2, торговец 1 | 6 | НЕТ |') && section.includes('| Роса | 0 | 4 | 2 | 3 |'), section);
+    // The fixtures' runs were recorded before the field; their fights lit no bust.
+    const old = md.slice(md.indexOf('## Ресурсы похода'), md.indexOf('## По рядам'));
+    assert(old.includes('| — | — | — | — | — |') && !old.includes('**всего**'), old);
+    const exits = md.slice(md.indexOf('### Выход из круга'), md.indexOf('## Котёл'));
+    assert(exits.trimEnd().endsWith('—'), exits);
   });
 
   await check('task 17 «По рядам»: fights, damage, HP on leaving the row, deaths, potions and the second wind by run row, gentle runs apart from the old; the fixtures (old runs) are counted as «прежний»', () => {

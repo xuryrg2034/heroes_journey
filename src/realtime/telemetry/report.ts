@@ -12,6 +12,7 @@ import { worldState } from '../sim/hash';
 import { copyParams, type Params } from '../sim/params';
 import { Simulation, type Journal } from '../sim/simulation';
 import { ITEM_TITLES, SLOT_ITEMS, type Loadout } from '../sim/kit';
+import { RESOURCE_KINDS, RESOURCES } from '../forest/resources';
 import type { World } from '../sim/world';
 import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
 import {
@@ -410,6 +411,37 @@ function slotRow(label: string, entries: readonly FightEntry[]): (string | numbe
     safeRolls(slots.flatMap(x => x.safe ?? [])), sum(x => x.triples ?? 0),
   ];
 }
+/** Task 20 «Выход из круга»: the lit busts of some fights (`slot.bustExits`) — one row; null — none lit. */
+export interface BustExitStat { lit: number; inside: number; left: number; outAfter: number[]; by: Record<string, number>; damage: number; blasts: number }
+export function bustExitStats(entries: readonly FightEntry[]): BustExitStat | null {
+  const exits = entries.flatMap(e => e.analysis?.summary.slot.bustExits ?? []);
+  if (!exits.length) return null;
+  const by: Record<string, number> = {};
+  for (const x of exits) bump(by, x.by ?? 'open');
+  const left = exits.filter(x => x.inside && x.outAfter !== null);
+  return {
+    lit: exits.length, inside: exits.filter(x => x.inside).length, left: left.length, outAfter: left.map(x => x.outAfter!), by,
+    damage: exits.reduce((a, x) => a + (x.damage ?? 0), 0), blasts: exits.filter(x => x.damage !== null).length,
+  };
+}
+const BUST_EXIT_TITLES: Record<string, string> = { walk: 'ходьба', dash: 'проход цепи', jump: 'прыжок', 'stayed-safe': 'остался, цел', 'stayed-hurt': 'остался, ранен', outside: 'вне круга', open: 'бой кончился' };
+function bustExitRow(label: string, entries: readonly FightEntry[]): (string | number)[] | null {
+  const st = bustExitStats(entries);
+  if (!st) return null;
+  const order = ['walk', 'dash', 'jump', 'stayed-safe', 'stayed-hurt', 'outside', 'open'];
+  return [
+    label, st.lit, `${st.inside} (${pct(st.inside, st.lit)})`, `${st.left} (${pct(st.left, st.inside)})`, st.outAfter.length ? n2(median(st.outAfter)) : '—',
+    order.filter(k => st.by[k]).map(k => `${BUST_EXIT_TITLES[k]} ${st.by[k]}`).join(', '), `${st.damage} (взрывов ${st.blasts})`,
+  ];
+}
+/** The runs and the sandbox; no lit bust anywhere — «—». */
+function bustExitTable(runFights: readonly FightEntry[], sandbox: readonly FightEntry[]): string {
+  const rows = [bustExitRow('походы', runFights), bustExitRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r);
+  return rows.length ? table(BUST_EXIT_HEAD, rows) : '—';
+}
+const BUST_EXIT_HEAD = ['Бои', 'Переборов с кругом', 'В круге при поджоге', 'Вышли до взрыва', 'Выход мед., с', 'Способы', 'Урон герою'];
+const BUST_EXIT_LEGEND = 'Выход из круга (задача 20, с 14.10.2026; `slot.bustExits` повтора): на каждый перебор с «Взрывом по площади» — поджог идола (`lit`). «В круге» — тело героя касалось круга (радиус + тело героя, как считает взрыв). «Вышли» — были в круге при поджоге и вне его при взрыве; время — игровые секунды от поджога до последнего выхода. Способ — как вышел (ходьба или стоял — ходьба; проход цепи; прыжок), «остался, цел» — в круге при взрыве, но неуязвим, в прыжке или на проходе, «остался, ранен» — в круге и получил урон, «вне круга» — вне его уже при поджоге, «бой кончился» — дверь или поражение до взрыва. Урон — HP героя от взрывов. Нет поджогов — «—» (записи до задачи 7 и до задачи 20 повтор считает заново).';
+
 /** «Гоблин-сюрприз»: the rolled safe pulls as «0: a · 1: b …» (values that came, in order); «—» — none. */
 function safeRolls(values: readonly number[]): string {
   if (!values.length) return '—';
@@ -805,6 +837,56 @@ function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]
   ].join('\n');
 }
 
+// ---- Task 20 «Ресурсы похода» (RunRecord.resources, from 14.10.2026) ----
+const RESOURCE_SOURCE_TITLES: Record<string, string> = { gift: 'дар', event: 'события', casino: 'игорный круг', loot: 'добыча элит', bag: 'котомка', feat: 'подвиги', merchant: 'торговец', other: 'прочее' };
+const RESOURCE_SINK_TITLES: Record<string, string> = { craft: 'крафт', healMap: 'лечение на карте', merchant: 'торговец', event: 'события', casino: 'игорный круг', reroll: 'переброс', other: 'прочее' };
+/** Start, gained, spent, end of one kind (or of all kinds together). */
+export interface ResourceTally { start: number; gained: number; spent: number; end: number }
+/** One run with `resources`: by source and sink (all kinds together), by kind, and whether every kind adds up. */
+export interface RunResourceRow { run: RunRecord; all: ResourceTally; bySource: Record<string, number>; bySink: Record<string, number>; byKind: Record<string, ResourceTally>; balanced: boolean; late: boolean }
+export interface RunResourceStats { rows: RunResourceRow[]; noData: RunRecord[]; total: Omit<RunResourceRow, 'run' | 'late'> }
+const sumValues = (m: Record<string, number> | undefined): number => Object.values(m ?? {}).reduce((a, b) => a + b, 0);
+export function runResourceStats(runs: readonly RunRecord[]): RunResourceStats {
+  const kinds = [...RESOURCE_KINDS] as string[];
+  const rows = runs.filter(r => r.resources).map((run): RunResourceRow => {
+    const res = run.resources!, bySource: Record<string, number> = {}, bySink: Record<string, number> = {}, byKind: Record<string, ResourceTally> = {};
+    for (const [k, m] of Object.entries(res.gained)) bySource[k] = sumValues(m);
+    for (const [k, m] of Object.entries(res.spent)) bySink[k] = sumValues(m);
+    for (const kind of new Set([...kinds, ...Object.keys(res.start), ...Object.keys(res.end)])) {
+      byKind[kind] = { start: res.start[kind] ?? 0, end: res.end[kind] ?? 0, gained: Object.values(res.gained).reduce((a, m) => a + (m?.[kind] ?? 0), 0), spent: Object.values(res.spent).reduce((a, m) => a + (m?.[kind] ?? 0), 0) };
+    }
+    const all = Object.values(byKind).reduce<ResourceTally>((a, t) => ({ start: a.start + t.start, gained: a.gained + t.gained, spent: a.spent + t.spent, end: a.end + t.end }), { start: 0, gained: 0, spent: 0, end: 0 });
+    return { run, all, bySource, bySink, byKind, balanced: Object.values(byKind).every(t => t.start + t.gained - t.spent === t.end), late: !!res.late };
+  });
+  const add = (a: Record<string, number>, b: Record<string, number>): void => { for (const [k, n] of Object.entries(b)) bump(a, k, n); };
+  const total: RunResourceStats['total'] = { all: { start: 0, gained: 0, spent: 0, end: 0 }, bySource: {}, bySink: {}, byKind: {}, balanced: rows.every(r => r.balanced) };
+  for (const r of rows) {
+    for (const key of ['start', 'gained', 'spent', 'end'] as const) total.all[key] += r.all[key];
+    add(total.bySource, r.bySource); add(total.bySink, r.bySink);
+    for (const [kind, t] of Object.entries(r.byKind)) { const o = total.byKind[kind] ??= { start: 0, gained: 0, spent: 0, end: 0 }; for (const key of ['start', 'gained', 'spent', 'end'] as const) o[key] += t[key]; }
+  }
+  return { rows, noData: runs.filter(r => !r.resources), total };
+}
+const flowCell = (total: number, by: Record<string, number>, titles: Record<string, string>): string => {
+  const parts = [...Object.keys(titles).filter(k => by[k]), ...Object.keys(by).filter(k => by[k] && !(k in titles))].map(k => `${titles[k] ?? k} ${by[k]}`);
+  return parts.length ? `${total}: ${parts.join(', ')}` : String(total);
+};
+const RESOURCE_LEGEND = 'Ресурсы крафта похода (задача 20, с 14.10.2026; `RunRecord.resources`): на старте, получено по источникам, потрачено по стокам, осталось. Источники: дар на старте, события, игорный круг, добыча элит (подобрано в бою), котомка у двери, подвиги, торговец, прочее; стоки: крафт на привале, лечение на карте, торговец, события, игорный круг, переброс талисманов, прочее. Каждый шаг похода разносит изменение ресурсов по видам: что называют события шага и выигранный бой (подвиг, лечение, переброс, выигрыш круга, добыча, котомка), а остаток — на экран шага (событие, круг, торговец, привал, дар); остальное — «прочее». У событий и торговца это разница за шаг (цена и награда одного шага взаимно гасятся). «Сходится» — старт + получено − потрачено = остаток по каждому виду. «С середины» — счёт начат не со старта (поход начат до записи поля). Записи до 14.10.2026 — «—». Сундук «Заставы» платит талисманами, а не ресурсами: отдельного источника нет.';
+function resourcesSection(runs: readonly RunRecord[]): string {
+  if (!runs.length) return '_походов нет_';
+  const st = runResourceStats(runs), dash = '—';
+  const row = (label: string, outcome: string, r: Omit<RunResourceRow, 'run' | 'late'>, late = false) => [
+    label, outcome, `${r.all.start}${late ? ' (с середины)' : ''}`, flowCell(r.all.gained, r.bySource, RESOURCE_SOURCE_TITLES), flowCell(r.all.spent, r.bySink, RESOURCE_SINK_TITLES), r.all.end, r.balanced ? 'да' : 'НЕТ',
+  ];
+  const rows = [
+    ...runs.map(run => { const r = st.rows.find(x => x.run === run); return r ? row(`\`${run.run}\``, OUTCOME_TITLES[run.outcome] ?? run.outcome, r, r.late) : [`\`${run.run}\``, OUTCOME_TITLES[run.outcome] ?? run.outcome, dash, dash, dash, dash, dash]; }),
+    ...st.rows.length ? [row('**всего**', `походов: ${st.rows.length}`, st.total)] : [],
+  ];
+  const kinds = st.rows.length ? table(['Вид', 'Старт', 'Получено', 'Потрачено', 'Остаток'], Object.entries(st.total.byKind).map(([kind, t]) => [RESOURCES[kind as keyof typeof RESOURCES]?.label ?? kind, t.start, t.gained, t.spent, t.end])) : dash;
+  return [RESOURCE_LEGEND, '', table(['Поход', 'Итог', 'Старт', 'Получено', 'Потрачено', 'Остаток', 'Сходится'], rows), '', '### Ресурсы по видам (все походы с данными)', '', kinds].join('\n');
+}
+// ---- end «Ресурсы похода» ----
+
 function notesSection(analysis: Analysis, source: string): string {
   const notes = [...analysis.fights.flatMap(e => e.notes.map(n => ({ n, fight: true }))), ...analysis.orphanNotes.map(n => ({ n, fight: false }))];
   if (!notes.length) return '_отметок нет_';
@@ -891,6 +973,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     ...partial.map(e => `- \`${fightPath(e.record)}\`: ${e.record.ticks} тактов, ${arenaTitle(e.record.arena)}`));
   if (diffs.length) out.push('', '### Сводка браузера расходится с повтором', '', ...diffs.map(e => `- \`${fightPath(e.record)}\`: ${e.summaryDiff.slice(0, 8).join('; ')}${e.summaryDiff.length > 8 ? ' …' : ''}`));
   out.push('', '## Походы', '', runsSection(runs, fights), '',
+    // Task 20: the run's resources.
+    '## Ресурсы похода', '', resourcesSection(runs), '',
     // Task 17 «Пологий вход»: the run by its rows.
     '## По рядам', '', ROW_LEGEND, '', rowStats(runs, runFights).length ? table(ROW_HEAD, rowRows(runs, runFights)) : '_боёв походов нет_', '',
     // Task 18 «Испытание I–V»: the runs by level.
@@ -900,6 +984,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Враги', '', damageSections(fights), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
+    // Task 20: how the hero left the lit idol's circle.
+    '### Выход из круга', '', BUST_EXIT_LEGEND, '', bustExitTable(runFights, sandbox), '',
     // Casino «Котёл».
     '## Котёл', '', PURSE_LEGEND, '', table(PURSE_HEAD, purseRows(runFights, sandbox)), '',
     // Casino «Ставка клятвы».

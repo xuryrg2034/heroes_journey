@@ -54,7 +54,9 @@ import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RT_DEATH_ABILITY } from '../run/rtRunEnd';
 import { prologueParams, prologueRoom } from '../run/prologue';
 import { createFightObserver } from '../telemetry/observe';
-import { withSummaryDefaults } from '../telemetry/schema';
+import { FightTap } from '../telemetry/recorder';
+import { analyzeJournal, summaryDiff } from '../telemetry/report';
+import { withSummaryDefaults, type SlotBustExit } from '../telemetry/schema';
 import { drawSymbol, reelStrip, riskyStrip, SlotView } from '../view/slotView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -1288,6 +1290,104 @@ check('«Взрыв по площади»: enemies in the circle take 3 — weak
   const older = withSummaryDefaults({ slot: { appeared: 1, busts: 1, bustDamage: 4 } }).slot;
   assert(older.appearTime === null && older.bustBlasts === 0 && older.bustInside === 0 && older.bustSpared === 0 && older.bustKills === 0 && older.bustDamage === 4, 'an old record');
   assert(replays(sim), 'replay');
+});
+
+// ---- Task 20 «Выход из круга» (telemetry, 14.10.2026): how the hero left the lit idol's circle ----
+
+/**
+ * A busting bare pull played to the lit idol with the fight observer fed the browser's way (recorder.ts `FightTap`: after every
+ * tick before its events go, around every command). `before` — journalled play between the pull and the light.
+ */
+function tappedBust(k: number, before?: (sim: Simulation) => void): { sim: Simulation; tap: FightTap; events: WorldEvent[]; idol: { x: number; y: number } } {
+  const sim = field(areaParams(), k);
+  const tap = new FightTap(createFightObserver(sim.world), sim.world);
+  const rawTick = sim.tick.bind(sim), rawCommand = sim.command.bind(sim);
+  sim.tick = () => { rawTick(); tap.flush(sim.world); };
+  sim.command = ((cmd, options) => { tap.beforeCommand(sim.world); const out = rawCommand(cmd, options); tap.afterCommand(cmd, sim.world); return out; }) as Simulation['command'];
+  const g = summon(sim);
+  waitReady(sim);
+  const { pull, events } = bareTo(sim);
+  assert(pull.bust === true && !slotEvents(events, 'lit').length, `seed ${k} busts; the reels still spin`);
+  before?.(sim);
+  for (let i = 0; i < tick(3) && !slotEvents(events, 'lit').length; i++) ticks(sim, 1, events);
+  assert(slotEvents(events, 'lit').length === 1, 'the idol lit');
+  return { sim, tap, events, idol: { x: g.x, y: g.y } };
+}
+/** The fight played on past the blast (the fuse 1.2 s); the browser's summary against the replay of its journal (the report's way). */
+function bustExitsAgree(sim: Simulation, tap: FightTap): SlotBustExit[] {
+  ticks(sim, tick(1.6));
+  assert(!sim.world.blasts.length, 'the blast went off');
+  const journal = JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal, again = analyzeJournal(journal), browser = tap.summary(sim.world);
+  assert(again.hash === sim.hash(), 'the replay hash');
+  const diff = summaryDiff(browser, again.summary);
+  assert(!diff.length && JSON.stringify(browser.slot.bustExits) === JSON.stringify(again.summary.slot.bustExits), `the browser and the replay: ${diff.join('; ')} ${JSON.stringify(browser.slot.bustExits)} vs ${JSON.stringify(again.summary.slot.bustExits)}`);
+  return browser.slot.bustExits;
+}
+
+check('task 20 «Выход из круга»: each lit bust records the distance, in the circle or not, the exit time and how (walk, dash, jump, stayed safe or hurt, outside), the blast\'s damage — the browser\'s count equals the replay of the journal', () => {
+  const seen = new Set<string>();
+  for (const k of bustSeeds(true, 2)) {
+    const edgeOf = (sim: Simulation): number => 3.5 + heroRadius(sim.world.params);
+    const one = (exits: SlotBustExit[]): SlotBustExit => { assert(exits.length === 1, `one lit bust: ${JSON.stringify(exits)}`); seen.add(exits[0].by ?? 'null'); return exits[0]; };
+    // Stays on the idol: in the circle at the light (0 away), hurt by the blast.
+    {
+      const { sim, tap } = tappedBust(k);
+      const e = one(bustExitsAgree(sim, tap));
+      assert(e.inside && e.dist < 0.05 && e.by === 'stayed-hurt' && e.outAfter === null && e.damage === 4, `stays: ${JSON.stringify(e)}`);
+    }
+    // Walks out at once: out before the blast, after about (edge ÷ speed) game seconds; no damage.
+    {
+      const { sim, tap, idol } = tappedBust(k), d = inward(sim.world, idol);
+      sim.command({ t: 'walk', x: d.x, y: d.y });
+      const e = one(bustExitsAgree(sim, tap)), want = edgeOf(sim) / sim.world.params.heroSpeed;
+      assert(e.inside && e.by === 'walk' && e.outAfter !== null && Math.abs(e.outAfter - want) <= 2 * SIM_DT + 0.01 && e.outAfter < 1.2 && e.damage === 0, `walks out: ${JSON.stringify(e)} (≈ ${want.toFixed(2)} s)`);
+    }
+    // Walks out 0.4 s late: still in the circle at the blast — stayed, hurt.
+    {
+      const { sim, tap, idol, events } = tappedBust(k), d = inward(sim.world, idol);
+      ticks(sim, tick(0.4), events);
+      sim.command({ t: 'walk', x: d.x, y: d.y });
+      const e = one(bustExitsAgree(sim, tap));
+      assert(e.inside && e.by === 'stayed-hurt' && e.outAfter === null && e.damage === 4, `walks out late: ${JSON.stringify(e)}`);
+    }
+    // Walks a little, then jumps out (jump radius 3 < the circle): the exit is the jump's.
+    {
+      const { sim, tap, idol, events } = tappedBust(k), w = sim.world, d = inward(w, idol);
+      sim.command({ t: 'walk', x: d.x, y: d.y });
+      for (let i = 0; i < tick(1) && Math.hypot(w.hero.x - idol.x, w.hero.y - idol.y) < edgeOf(sim) - 2.5; i++) ticks(sim, 1, events);
+      sim.command({ t: 'walk', x: 0, y: 0 });
+      sim.command({ t: 'energy', value: 7 });
+      assert(sim.command({ t: 'jump', x: w.hero.x + d.x * 3, y: w.hero.y + d.y * 3 }) === true, 'the jump starts');
+      const e = one(bustExitsAgree(sim, tap));
+      assert(e.inside && e.by === 'jump' && e.outAfter !== null && e.outAfter < 1.2 && e.damage === 0, `jumps out: ${JSON.stringify(e)}`);
+    }
+    // A chain of six enemies leading out: the dash carries him out.
+    {
+      const { sim, tap, idol } = tappedBust(k), w = sim.world, d = inward(w, idol), h = w.hero;
+      draw(sim, [1, 2, 3, 4, 5, 6].map(i => place(sim, h.x + d.x * i, h.y + d.y * i)));
+      sim.command({ t: 'release' });
+      const e = one(bustExitsAgree(sim, tap));
+      assert(e.inside && e.by === 'dash' && e.outAfter !== null && e.damage === 0, `dashes out: ${JSON.stringify(e)}`);
+    }
+    // Jumps inside the circle just before the blast: in the air at it — stayed, spared.
+    {
+      const { sim, tap, events } = tappedBust(k), w = sim.world, h = w.hero, b = w.blasts.find(x => x.bust)!, d = inward(w, h);
+      while (b.timeLeft > 0.1 + 1e-9) ticks(sim, 1, events);
+      sim.command({ t: 'energy', value: 7 });
+      assert(sim.command({ t: 'jump', x: h.x + d.x * 2, y: h.y + d.y * 2 }) === true, 'the jump starts');
+      const e = one(bustExitsAgree(sim, tap));
+      assert(e.inside && e.by === 'stayed-safe' && e.outAfter === null && e.damage === 0, `in the air at the blast: ${JSON.stringify(e)}`);
+    }
+    // Out of the circle before the reels stop (a teleport while they spin): outside at the light.
+    {
+      const { sim, tap } = tappedBust(k, s => { const w = s.world, d = inward(w, w.hero); s.command({ t: 'teleport', x: w.hero.x + d.x * 5, y: w.hero.y + d.y * 5 }); });
+      const e = one(bustExitsAgree(sim, tap));
+      assert(!e.inside && e.dist > edgeOf(sim) && e.by === 'outside' && e.outAfter === null && e.damage === 0, `outside at the light: ${JSON.stringify(e)}`);
+    }
+  }
+  assert(['stayed-hurt', 'walk', 'jump', 'dash', 'stayed-safe', 'outside'].every(by => seen.has(by)), `every way seen: ${[...seen]}`);
+  // A summary of an older build has no exits: «nothing lit».
+  assert(JSON.stringify(withSummaryDefaults({ slot: { appeared: 1, bustBlasts: 1 } }).slot.bustExits) === '[]', 'an old record');
 });
 
 check('«Взрыв по площади»: a chain into the lever plans what the dash does (the plan untouched); off — nothing is lit', () => {

@@ -258,6 +258,30 @@ export interface RunFeat {
  */
 export interface RunFirst { id: string; fight: string | null; row: number }
 
+/**
+ * Task 20 «Телеметрия: ресурсы» (from 14.10.2026): where the run's crafting resources came from and where they went
+ * (`RunRecord.resources`). The recorder reads every run step: the change of `materials` by kind is attributed to the step's
+ * own source or sink — explicitly from the step's events and the fight it feeds back (`feat-paid`, `map-healed`,
+ * `talisman-rerolled`, `casino-played`, the bag's payout and the elite loot of a won fight), the rest by the screen the step
+ * acted on (recorder.ts `RESOURCE_CONTEXT`); what fits none is `other`. So for every kind start + Σ gained − Σ spent = end.
+ */
+export const RUN_RESOURCE_SOURCES = ['gift', 'event', 'casino', 'loot', 'bag', 'feat', 'merchant', 'other'] as const;
+export const RUN_RESOURCE_SINKS = ['craft', 'healMap', 'merchant', 'event', 'casino', 'reroll', 'other'] as const;
+export type RunResourceSource = typeof RUN_RESOURCE_SOURCES[number];
+export type RunResourceSink = typeof RUN_RESOURCE_SINKS[number];
+export interface RunResources {
+  /** Resources by kind when the run was created (all four kinds). */
+  start: Record<string, number>;
+  /** Gained by source, then by kind (only above 0; a source without any is absent). */
+  gained: Partial<Record<RunResourceSource, Record<string, number>>>;
+  /** Spent by sink, then by kind (only above 0). */
+  spent: Partial<Record<RunResourceSink, Record<string, number>>>;
+  /** Resources by kind now (the run's `materials` after the last step; all four kinds). */
+  end: Record<string, number>;
+  /** The count began after the start (a run created before the recorder knew the field): `start` is the hand then. */
+  late?: true;
+}
+
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
   kind: 'run';
@@ -318,6 +342,8 @@ export interface RunRecord extends RtHeader {
   viewerRunApprox?: true;
   /** Task 16 telemetry: the viewer's first meetings in this run, in order; absent — none reported (older records too). */
   firsts?: RunFirst[];
+  /** Task 20 (from 14.10.2026): the run's resources — start, gained by source, spent by sink, end; absent — older records. */
+  resources?: RunResources;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -446,6 +472,18 @@ export interface RtTelemetryWindow {
 }
 
 /**
+ * Task 20: `RunRecord.resources` is well formed — `start` and `end` map kinds to whole numbers ≥ 0, `gained` and `spent` map a
+ * source (sink) to kinds with whole numbers ≥ 1; `late` is `true` or absent. The balance itself is not checked here (the
+ * report shows it): a record that does not add up is still read.
+ */
+function runResourcesOk(value: unknown): boolean {
+  const plain = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
+  const counts = (x: unknown, min: number): boolean => plain(x) && Object.values(x).every(n => Number.isInteger(n) && (n as number) >= min);
+  const book = (x: unknown): boolean => plain(x) && Object.values(x).every(kinds => counts(kinds, 1));
+  return plain(value) && counts(value.start, 0) && counts(value.end, 0) && book(value.gained) && book(value.spent) && (value.late === undefined || value.late === true);
+}
+
+/**
  * A shallow check of a record before it is stored or written to a file: the header, the id agreeing with the kind, the
  * fields each kind needs. Returns the first problem or null.
  */
@@ -498,6 +536,8 @@ export function checkRecord(value: unknown): string | null {
         return !!o && typeof o === 'object' && typeof o.id === 'string' && o.id.length > 0 && (o.fight === null || typeof o.fight === 'string') && Number.isInteger(o.row);
       }))) return 'run firsts';
       if (!(r.choices as unknown[]).every(c => { const t = (c as Record<string, unknown> | null)?.realSeconds; return t === undefined || (typeof t === 'number' && Number.isFinite(t) && t >= 0); })) return 'run choice realSeconds';
+      // Task 20 (14.10.2026): optional — the run's resources.
+      if (r.resources !== undefined && !runResourcesOk(r.resources)) return 'run resources';
       return null;
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';
@@ -880,6 +920,38 @@ export interface SlotSummary {
   safe: number[];
   /** «Безопасный рывок — тройка» (`slotSafeTriple`, from 13.10.2026; absent in older records — 0): safe pulls that were a sure triple (`pull` with `triple`). */
   triples: number;
+  /**
+   * Task 20 «Выход из круга» (from 14.10.2026; absent in older records — empty): one entry per lit bust of «Взрыв по площади»
+   * (the `slot` event `lit`), in order — how the hero left the idol's circle before its blast.
+   */
+  bustExits: SlotBustExit[];
+}
+
+/**
+ * How the hero left the lit idol's circle (task 20). `walk` — he left it walking or standing (no `world.move`; a knockback too),
+ * `dash` — on a chain's dash (or the hammer's return run), `jump` — in a jump; `stayed-safe` — in the circle at the blast but
+ * spared (invulnerability, the dash, the jump), `stayed-hurt` — in it and hurt; `outside` — out of it already when it lit.
+ */
+export type SlotBustExitBy = 'walk' | 'dash' | 'jump' | 'stayed-safe' | 'stayed-hurt' | 'outside';
+
+/**
+ * One lit bust (task 20). In the circle means as world.ts `bustHero` counts it: the hero's centre within the radius plus his
+ * body (`heroRadius`).
+ */
+export interface SlotBustExit {
+  /** The hero's centre to the idol's centre when it lit (arena units, 0.01). */
+  dist: number;
+  /** His body touched the circle when it lit. */
+  inside: boolean;
+  /**
+   * Game seconds from the light to the tick his body left the circle for good (0.01); null — out of it at the light, in it at
+   * the blast, or the fight ended in the fuse with him in it.
+   */
+  outAfter: number | null;
+  /** How he left (see `SlotBustExitBy`); null — the fight ended in the fuse with him in the circle. */
+  by: SlotBustExitBy | null;
+  /** HP the blast took from him (0 — none); null — the blast never went off (the fight ended in the fuse). */
+  damage: number | null;
 }
 
 /** A summary of nothing (a fight without an observer, the start of a fight). */
@@ -896,7 +968,7 @@ export function emptyFightSummary(): FightSummary {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,
       platesBySource: {}, loot: { dropped: 0, picked: 0 },
     },
-    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0, appearTime: null, bustBlasts: 0, bustInside: 0, bustSpared: 0, bustKills: 0, safe: [], triples: 0 },
+    slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0, appearTime: null, bustBlasts: 0, bustInside: 0, bustSpared: 0, bustKills: 0, safe: [], triples: 0, bustExits: [] },
     kills: { chain: 0, tools: {}, enemies: 0 },
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
