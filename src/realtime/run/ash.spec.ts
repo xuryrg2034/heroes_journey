@@ -16,7 +16,7 @@ import type { Enemy, World, WorldEvent } from '../sim/world';
 import { runRow } from './arenaPools';
 import {
   RT_ASH_FINAL_PHASE_SCALE, RT_ASH_FLOOR_SCALE, RT_ASH_MAX, RT_TASK17_OFF, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAsh,
-  rtAshOptions, rtAshTitle, rtAvailableNodes, rtEnterNode, rtGentle, rtMapNodes, rtNode, rtRunParams, rtRunWon, serializeRtRun,
+  rtAshOptions, rtAshPressure, rtAshTitle, rtAvailableNodes, rtElitePlates, rtRandomElites, rtEnterNode, rtGentle, rtMapNodes, rtNode, rtRunParams, rtRunWon, serializeRtRun,
   type RtAshLevel, type RtBattleKind, type RtRunState,
 } from './rtRun';
 import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RunStorage } from './rtRunStorage';
@@ -74,6 +74,17 @@ check('the choice\'s data: levels 0 … V with marks, titles «Испытани�
     const words = o.text.split(/\s+/).filter(Boolean).length;
     assert(words >= 1 && words <= 6 && !/пеп[её]л/i.test(o.text + o.title), `level ${o.level}: «${o.text}» (${words} words)`);
   }
+});
+
+check('task 25 (3): the lines of II and V name their knob with the numbers the level plays (design 15.10.2026)', () => {
+  const [, , two, , , five] = rtAshOptions().map(o => o.text);
+  assert(two === 'Элиты: ряд 3, броня: ряд 5', two);
+  // II plays the tables before task 17 (no gentle tables): random elites from row 3, the armour step (3 plates) from row 5.
+  assert(!rtRandomElites(2) && rtRandomElites(3) && rtElitePlates(4) === 2 && rtElitePlates(5) === 3, 'II: the rows the line names');
+  assert(five === 'Толпа ×1,15, фазы финала короче', five);
+  // V: the floor of every fight ×1.15; the final's phases last less (×0.85).
+  const battle = rtAshPressure(5, 'battle'), final = rtAshPressure(5, 'final');
+  assert(battle.floorScale === 1.15 && battle.phaseScale === undefined && final.floorScale === 1.15 && final.phaseScale! < 1, JSON.stringify({ battle, final }));
 });
 
 check('a new run by level (cumulative): I drops the start potion and the second wind, III the gentle entry; the level is kept (absent at 0); III is the run of v40', () => {

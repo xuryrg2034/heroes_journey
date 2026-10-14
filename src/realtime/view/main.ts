@@ -60,7 +60,10 @@ import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueSt
 import { PrologueDom, PrologueLayer } from './prologueView';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
-import { RtDeathWatch } from '../run/rtRunEnd';
+import { RtDeathWatch, rtDeathLine } from '../run/rtRunEnd';
+import { DeathSeries } from './deathSeries';
+import { bustBlasts, goblinOf } from '../sim/slot';
+import { SoundGate, ThreatWatch } from './soundGate';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
@@ -332,7 +335,11 @@ async function boot(): Promise<void> {
   const resultChain = el('p', 'rt-result-chain');
   resultChain.setAttribute('data-testid', 'result-chain');
   resultChain.hidden = true;
-  resultCard.append(resultTitle, resultStats, resultChain, resultButtons);
+  // Task 21 «Почему погиб» (run fight, defeat): «Сразил: …» and the series before it, two lines under the title.
+  const resultDeath = el('div', 'rt-result-death');
+  resultDeath.setAttribute('data-testid', 'result-death');
+  resultDeath.hidden = true;
+  resultCard.append(resultTitle, resultDeath, resultStats, resultChain, resultButtons);
   result.appendChild(resultCard);
 
   const pausedBadge = el('div', 'rt-paused', 'Пауза');
@@ -400,6 +407,10 @@ async function boot(): Promise<void> {
   };
   /** П6 «Незакрытое дело»: the fight's killing blow (rtRunEnd.ts) — enemies seen before every tick, the events every frame. */
   const deathWatch = new RtDeathWatch();
+  /** Task 21 «Почему погиб»: the fight's hits on the hero for the series line of «Поражение» (view/deathSeries.ts). */
+  const deathSeries = new DeathSeries();
+  /** Task 22 «Удар слышен»: one sound of a kind per 0.3 real seconds; the threats' starts read frame by frame (view/soundGate.ts). */
+  const soundGate = new SoundGate(), threatWatch = new ThreatWatch();
   /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
   let runArenaParams: Params | null = null;
   /**
@@ -409,8 +420,9 @@ async function boot(): Promise<void> {
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, simParams?: Params): Simulation => {
     motion.clear();
     deathWatch.reset();
+    deathSeries.reset();
     if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
-    return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
+    return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
 
   /**
@@ -871,7 +883,8 @@ async function boot(): Promise<void> {
     const guide = room.route || jumpRoom || shieldRoom ? new HandGuide(jumpRoom
       ? { route: () => [], spot: () => prologueJumpAim(world(), n)?.spot ?? null, aim: () => { const a = prologueJumpAim(world(), n); return a?.ready ? a.target : null; } }
       : shieldRoom ? { route: () => prologueShieldLinks(world()) ?? [], spot: () => null }
-      : { route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind), shieldRoom ? SHIELD_HAND_IDLE : HAND_IDLE) : null;
+      // Task 24 (room 8): while the reels spin or the bust burns, the arrow out of the circle comes at once (`HandProbe.urgent`).
+      : { route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n), urgent: () => { const w = world(); return !!w.params.slotBustArea && (!!goblinOf(w)?.spin || bustBlasts(w).length > 0); } }, kind => prologueHooks.handShown?.(n, kind), shieldRoom ? SHIELD_HAND_IDLE : HAND_IDLE) : null;
     actionBar.setAllowed(room.tiles);
     prologue = { n, attempt, guide, label: { done: false }, titleLeft: TITLE_SECONDS, lastTime: 0, seconds: 0, real: 0 };
     prologueDom.showTitle(roomTitle(n));
@@ -990,6 +1003,11 @@ async function boot(): Promise<void> {
     result.dataset.outcome = won ? 'victory' : 'defeat';
     resultCard.classList.toggle('rt-won', won);
     resultTitle.textContent = won ? 'Победа' : 'Поражение';
+    // Task 21: a run fight's defeat says who killed the hero (the run-end screen's words) and the series of hits before it.
+    const runDefeat = !won && !!runView && !sandbox;
+    const deathLines = runDefeat ? ([['result-killer', rtDeathLine(deathWatch.death ?? undefined)], ['result-series', deathSeries.line()]] as const).filter(([, line]) => !!line) : [];
+    resultDeath.replaceChildren(...deathLines.map(([id, line]) => { const p = el('p', ''); p.textContent = line; p.setAttribute('data-testid', id); return p; }));
+    resultDeath.hidden = !deathLines.length;
     // The won final arena ends the run too (step 4): its button leads to the end of the run, as after a defeat.
     // Casino stage 1, item 4: a won door with a cauldron leads to the die first.
     toMap.textContent = won && runView?.diePending ? 'К кости у двери (Enter)' : won && !runView?.runOver ? 'К карте (Enter)' : 'Итог похода (Enter)';
@@ -1107,7 +1125,10 @@ async function boot(): Promise<void> {
     // From the sim this frame (the renderer's value is the last frame's: a step back would see the link just dropped and sound).
     const freedBy = shiftLeft === 0 && !planChain(w).endsOnSurvivor ? colorShiftIds(w).at(-1) ?? 0 : 0;
     if (freedBy && !shiftHeard.has(freedBy)) { shiftHeard.add(freedBy); if (soundOn()) audio.colorShift(soundVolume()); shiftSounds++; }
+    // Task 22: the threats that start this frame — read with the sound off too (turned on later, it does not catch up).
+    const threats = threatWatch.read(w);
     if (soundOn()) {
+      for (const kind of threats) if (soundGate.pass(kind, now / 1000)) audio.threat(kind, soundVolume());
       // The package: a marker announcing an elite sounds once, as it appears (markers send no event).
       if (eliteMarkersWorld !== w) { eliteMarkersWorld = w; eliteMarkersHeard.clear(); }
       for (const m of w.markers) if (m.elite && !eliteMarkersHeard.has(m.id)) { eliteMarkersHeard.add(m.id); audio.eliteMarker(soundVolume()); }
@@ -1118,6 +1139,8 @@ async function boot(): Promise<void> {
         else if (ev.type === 'chainEnd') { if (feel === 'chord' || feel === 'finale') audio.chord(soundVolume()); }
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, soundVolume());
         else if (ev.type === 'finisher') audio.finisher(soundVolume());
+        // Task 22: every hit on the hero (one in 0.3 s at most).
+        else if (ev.type === 'hit') { if (soundGate.pass('hurt', now / 1000)) audio.hurt(soundVolume()); }
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, soundVolume());
         // Casino stage 1 («Однорукий гоблин»): coins as it appears, the lever, the result.
         else if (ev.type === 'slot') {
@@ -1146,7 +1169,7 @@ async function boot(): Promise<void> {
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
-    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); }
+    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); }
     // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
     if (firstMeets && runView?.arenaOpen && !prologue) {
       if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');
@@ -1436,7 +1459,7 @@ async function boot(): Promise<void> {
          */
         slot: (() => {
           const g = w.slot?.goblin;
-          return { goblin: g ? { id: g.id, x: g.x, y: g.y, pulls: g.pulls, skulls: [...g.skulls], spinning: !!g.spin } : null, shown: { ...renderer.slotView.shown }, marks: renderer.slotMarks, flashes: renderer.slotFlashes, bustCircles: renderer.signals.bustCircles, bustBlasts: renderer.bustBlastsShown };
+          return { goblin: g ? { id: g.id, x: g.x, y: g.y, pulls: g.pulls, skulls: [...g.skulls], spinning: !!g.spin } : null, shown: { ...renderer.slotView.shown }, marks: renderer.slotMarks, flashes: renderer.slotFlashes, bustCircles: renderer.signals.bustCircles, riskCircles: renderer.signals.riskCircles, bustBlasts: renderer.bustBlastsShown };
         })(),
         /** Phase A (Т6): archers' mark circles drawn in the last frame, arrow-fall flashes shown so far. */
         archerMarks: renderer.signals.archerMarks,
@@ -1497,6 +1520,8 @@ async function boot(): Promise<void> {
         focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
         /** Task 13: the after-chain shield — seconds left (sim), its glow this frame, the block sparks shown so far. */
         chainShield: { left: w.hero.chainShield, glow: renderer.chainShieldShown, blocks: renderer.shieldBlocksShown },
+        // Task 23 «Щит виден»: block sparks shown (after the 0.3 s limit), «Пепельный оберег» sparks, the cracked shield now.
+        guard: { sparks: renderer.blocksShown, wards: renderer.wardsShown, fails: renderer.shieldFailShown },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
         /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */
@@ -1505,7 +1530,7 @@ async function boot(): Promise<void> {
         /** Task 16 «Подвиги»: the sim's progress (null — no feat), the HUD line, the door line this frame, the chimes so far. */
         feat: { progress: featProgress(w), hud: featText.hidden ? null : featText.textContent, door: { ...renderer.featDoor.shown }, sounds: featSounds },
         /** The sound now (the gear's setting outside the sandbox, the panel's in it) and the tones asked for so far (`ChainAudio.requested`). */
-        sound: { on: soundOn(), volume: soundVolume(), tones: audio.requested },
+        sound: { on: soundOn(), volume: soundVolume(), tones: audio.requested, asked: { ...soundGate.asked }, played: { ...soundGate.played } },
         /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */
         markedView: { ...renderer.markedShown, horde: w.arena.horde ? { ...w.arena.horde } : null },
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */

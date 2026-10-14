@@ -26,7 +26,8 @@ import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '..
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } from './camera';
 import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
-import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
+import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
+import { shieldFails } from '../sim/guard';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
@@ -40,7 +41,7 @@ import { hordeGroup } from './hordeView';
 import { BagView } from './bagView';
 import { FEAT_DOOR_GAP, FeatDoorView } from './featView';
 import { planPowerNumber } from './powerNumber';
-import { SLOT_BUST_SOURCE } from '../sim/slot';
+import { SLOT_BUST_SOURCE, goblinOf } from '../sim/slot';
 import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
@@ -107,6 +108,8 @@ function greyOf(color: number): number {
 export const UNIT = 72;
 /** Task 5б: real seconds the bust's spark to the hero lasts. */
 const BUST_SPARK_LIFE = 0.4;
+/** Task 23: real seconds between two block sparks of one striker (a touch blocks every tick; design 15.10.2026). */
+const BLOCK_SPARK_GAP = 0.3;
 /** П3 «Финальная цепь»: real seconds of the final flash of a chain into the door (the result screen waits as long, main.ts). */
 export const FINAL_FLASH = 0.8;
 /** П2: real seconds of the hero's outline flash at the end of a 6–9 link dash. */
@@ -173,7 +176,7 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 /** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
 /** Stage 3a: `howls` — the wolves' howl circle round the hero (П1); `leapLines`, `stunned` — the lynx's leap line and its stun (П2); `beams` — the shaman's beam (П4). */
 /** Phase A (Д3): `rushLanes` — the rush lanes of howling and rushing wolves; `roleBadges` — role badges under bodies. */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number; affixLabels: number; trailPoints: number; chameleonWarns: number; bustCircles: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number; affixLabels: number; trailPoints: number; chameleonWarns: number; bustCircles: number; riskCircles: number }
 
 /** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
 export interface TerrainCounts { river: number; cliff: number; thorns: number }
@@ -192,6 +195,8 @@ const CURSE = 0xb57cff, CURSE_DARK = 0x2a1440;
 const FOCUS_GUARD = 0x8fd3ff, NAVY_RIM = 0x18232d;
 /** Task 13: the glow of the after-chain shield and its block spark (warm gold, unlike the focus guard's pale blue). */
 const SHIELD_GLOW = 0xffd36b;
+/** Task 22: the hero's hit flash (scarlet; white is the threats' «it strikes now»). */
+const HURT_FLASH = 0xff3b2f;
 
 /** Path of a zone outline (a band is a stroke along its spine, drawn by the caller). */
 function areaPath(g: Graphics, area: Area): Graphics {
@@ -315,6 +320,9 @@ export class RealtimeRenderer {
   private readonly bustLayer = new Graphics();
   /** The arena's field rectangle (redrawn in `buildArena`), the mask of `bustLayer`. */
   private readonly bustMask = new Graphics();
+  /** Task 23в (design 15.10.2026): the hero's reach ring, clipped to the arena's field like the bust circle (`reachMask`, the same rectangle). */
+  private readonly reachLayer = new Graphics();
+  private readonly reachMask = new Graphics();
   /** Phase A (Т3): the badge strip under bodies — the role on the left, room for elite affixes on the right (over the signals). */
   private readonly badgeLayer = new Graphics();
   /** Phase A (Т3): role badges on or off — a local setting of the view (main.ts keeps it in its own storage key), not a Param. */
@@ -461,7 +469,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: 0, chameleonWarns: 0, bustCircles: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: 0, chameleonWarns: 0, bustCircles: 0, riskCircles: 0 };
   /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
   readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
   /** Stage 3a (М2): enemies seen falling into a cliff so far. */
@@ -510,7 +518,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -671,6 +679,7 @@ export class RealtimeRenderer {
   get edgePositions(): readonly { x: number; y: number; kind: 'threat' | 'goal' | 'spawn' }[] { return this.edgeArrows; }
 
   buildArena(arena: ArenaLayout): void {
+    this.blockSeen.clear();
     this.arena = arena;
     this.fitScale();
     const f = this.floor.clear(), w = arena.width * UNIT, h = arena.height * UNIT;
@@ -683,6 +692,8 @@ export class RealtimeRenderer {
     f.rect(-4, -4, w + 8, h + 8).stroke({ color: 0x5a5a40, width: 6 });
     this.bustMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.bustLayer.mask = this.bustMask;
+    this.reachMask.clear().rect(0, 0, w, h).fill(0xffffff);
+    this.reachLayer.mask = this.reachMask;
     const t = this.terrain.clear();
     for (const o of arena.obstacles) {
       if (o.shape === 'rect') {
@@ -1053,7 +1064,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), bg = this.bustLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0, bustCircles: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0, bustCircles: 0, riskCircles: 0 };
     // Stage 3a (П1): the wolves howl — a thin threat circle on the ring round the hero, no fill (phase A: the rush lanes of
     // the wolves carry the timing).
     const howl = wolfHowl(world);
@@ -1101,6 +1112,17 @@ export class RealtimeRenderer {
       }
       bg.stroke({ color: SPARK, width: 3, cap: 'round' });
     };
+    // Task 24 (а) «Урок перебора» (design 15.10.2026): while the reels spin — on EVERY pull, safe or risky, so it tells nothing of the
+    // roll — a pale ring of the bust's radius round the idol: «pulled — walk out». Only where the bust blasts by area
+    // (`slotBust` and `slotBustArea`: the run, the prologue's room 8, the sandbox with the flags). At «lit» the burning circle takes over.
+    const idol = goblinOf(world);
+    if (idol?.spin && p.slotBust && p.slotBustArea && world.status === 'playing') {
+      const R = Math.max(0, p.slotBustRadius ?? DEFAULT_PARAMS.slotBustRadius) * UNIT, X = idol.x * UNIT, Y = idol.y * UNIT;
+      counts.riskCircles++;
+      bg.circle(X, Y, R).fill({ color: BUST_RED, alpha: 0.06 });
+      bg.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.35 });
+      bg.circle(X, Y, R).stroke({ color: BUST_RED, width: 2.5, alpha: 0.45 });
+    }
     for (const b of world.blasts) {
       if (b.bust) bustCircle(b.x, b.y, b.radius, b.timeLeft, b.total);
       else fuse(b.x, b.y, b.timeLeft, b.total);
@@ -1640,7 +1662,8 @@ export class RealtimeRenderer {
     const flash = Math.max(world.params.hitFlash, 0.01), hurt = Math.min(1, hero.hurtFlash / flash);
     const ring = this.heroRing.clear();
     ring.ellipse(0, 26, 30, 9).fill({ color: 0x050a07, alpha: 0.4 });
-    if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: 0xffffff, alpha: 0.55 * hurt });
+    // Task 22 (design 15.10.2026): the hit's flash is scarlet — white means «it strikes now» (the threats' telegraphs).
+    if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: HURT_FLASH, alpha: 0.55 * hurt });
     // П2: the end of a 6–9 link dash — a bright outline round the hero, widening and fading.
     if (this.outlineLeft > 0) {
       const k = this.outlineLeft / OUTLINE_LIFE;
@@ -1651,7 +1674,11 @@ export class RealtimeRenderer {
     if (hero.chainShield > this.shieldLast) this.shieldFull = hero.chainShield;
     this.shieldLast = hero.chainShield;
     this.chainShieldShown = hero.chainShield > 0 && world.status === 'playing';
-    if (this.chainShieldShown) {
+    // Task 23 (б) «Щит не держит» (design 15.10.2026): the shield is up but the lit bust circle or armed quills will hurt through it
+    // (sim/guard.ts `shieldFails`, called, not copied) — its glow cracks: broken rim, flickering, no warm fill.
+    this.shieldFailShown = shieldFails(world);
+    if (this.shieldFailShown) this.crackedRim(ring, this.chainShieldShown ? SHIELD_GLOW : FOCUS_GUARD);
+    else if (this.chainShieldShown) {
       const k = Math.min(1, hero.chainShield / Math.max(this.shieldFull, 0.01)), pulse = 0.5 + 0.5 * Math.sin(this.clock * 18);
       ring.circle(0, 0, UNIT * 0.86).fill({ color: SHIELD_GLOW, alpha: 0.18 + 0.2 * k });
       ring.circle(0, 0, UNIT * 0.68).stroke({ color: NAVY_RIM, width: 8, alpha: 0.55 * k + 0.2 })
@@ -1659,7 +1686,7 @@ export class RealtimeRenderer {
     }
     // «Щит фокуса»: while the drawn chain guards the hero — a steady pale-blue rim (the focus colour), unlike the gold blink.
     this.focusGuardShown = focusGuarded(world);
-    if (this.focusGuardShown) ring.circle(0, 0, UNIT * 0.64).stroke({ color: NAVY_RIM, width: 6, alpha: 0.6 }).circle(0, 0, UNIT * 0.64).stroke({ color: FOCUS_GUARD, width: 3.5, alpha: 0.95 });
+    if (this.focusGuardShown && !this.shieldFailShown) ring.circle(0, 0, UNIT * 0.64).stroke({ color: NAVY_RIM, width: 6, alpha: 0.6 }).circle(0, 0, UNIT * 0.64).stroke({ color: FOCUS_GUARD, width: 3.5, alpha: 0.95 });
     // К7 «Проклятый сундук»: while the curse lasts — a violet border round the hero, breathing.
     const curse = cursed(world) && world.status === 'playing';
     if (curse) {
@@ -1736,8 +1763,40 @@ export class RealtimeRenderer {
     this.bursts.push({ g, life, total: life, grow });
   }
 
+  /**
+   * Task 23 (б): the cracked shield — the rim in five pieces with wide gaps, flickering, and three jagged cracks across it (navy
+   * under a pale line; design 15.10.2026: 1.5× the first draft's, read from afar), in the shield's own colour (gold — the after-chain shield, pale blue — «Щит фокуса»).
+   */
+  private crackedRim(ring: Graphics, color: number): void {
+    const R = UNIT * 0.68, on = Math.sin(this.clock * 26) > -0.2, alpha = on ? 0.85 : 0.3;
+    for (let i = 0; i < 5; i++) {
+      const a0 = i * (Math.PI * 2 / 5) + 0.18, a1 = a0 + 0.72;
+      ring.arc(0, 0, R, a0, a1).stroke({ color: NAVY_RIM, width: 8, alpha: 0.5 * alpha + 0.2, cap: 'round' });
+      ring.arc(0, 0, R, a0, a1).stroke({ color, width: 3.5, alpha, cap: 'round' });
+    }
+    for (const a of [0.55, 2.7, 4.5]) {
+      const pts = [-15, 9, -6, 18].map((off, j) => {
+        const r = R - 21 + j * 13.5, t = a + off / R;
+        return { x: Math.cos(t) * r, y: Math.sin(t) * r };
+      });
+      ring.moveTo(pts[0].x, pts[0].y);
+      for (const q of pts.slice(1)) ring.lineTo(q.x, q.y);
+      ring.stroke({ color: NAVY_RIM, width: 7.5, alpha: 0.8, cap: 'round', join: 'round' });
+      ring.moveTo(pts[0].x, pts[0].y);
+      for (const q of pts.slice(1)) ring.lineTo(q.x, q.y);
+      ring.stroke({ color: 0xfff2c4, width: 3, alpha, cap: 'round', join: 'round' });
+    }
+  }
+
   /** Task 13: block sparks shown so far (one per `shieldBlock` event; tests read it). */
   shieldBlocksShown = 0;
+  /** Task 23: sparks of `block` events shown (after the 0.3 s limit per striker) and of «Пепельный оберег» (`ward`); tests read them. */
+  blocksShown = 0;
+  wardsShown = 0;
+  /** Task 23: the view clock of the last block spark by striker id (or source without one). */
+  private readonly blockSeen = new Map<number | string, number>();
+  /** Task 23 (б): the shield's glow is cracked this frame (`shieldFails`); tests read it. */
+  shieldFailShown = false;
 
   /**
    * Task 13 «Щит» (design 13.10.2026): the after-chain shield took a touch (`shieldBlock`, the enemy at x, y). On the hero's rim
@@ -2066,7 +2125,25 @@ export class RealtimeRenderer {
         else if (ev.phase === 'end') this.pierceShown.ends++;
         continue;
       }
-      if (ev.type === 'shieldBlock') { this.shieldBlockSpark(world, ev.x, ev.y); continue; }
+      if (ev.type === 'shieldBlock') { this.blockSeen.set(ev.enemyId, this.clock); this.shieldBlockSpark(world, ev.x, ev.y); continue; }
+      // Task 23 «Щит виден» (design 15.10.2026): a hit a shield absorbed — the same spark for the after-chain shield, «Щит фокуса»
+      // and the invulnerability; a touch sends it every tick, so one spark per striker (or per source without one) in 0.3 s.
+      if (ev.type === 'block') {
+        const key = ev.enemyId ?? ev.source, last = this.blockSeen.get(key);
+        if (last !== undefined && this.clock - last < BLOCK_SPARK_GAP) continue;
+        this.blockSeen.set(key, this.clock);
+        this.shieldBlockSpark(world, ev.x, ev.y);
+        this.blocksShown++;
+        continue;
+      }
+      // Task 23 (в): «Пепельный оберег» took the lethal hit — the same spark, facing the striker of that hit (above the hero without one).
+      if (ev.type === 'ward') {
+        const hit = world.events.find((h): h is Extract<WorldEvent, { type: 'hit' }> => h.type === 'hit');
+        const striker = hit && hit.enemyId > 0 ? world.enemies.find(e => e.id === hit.enemyId) : undefined;
+        this.shieldBlockSpark(world, striker ? striker.x : world.hero.x, striker ? striker.y : world.hero.y - 1);
+        this.wardsShown++;
+        continue;
+      }
       if (ev.type === 'enemyHit') {
         // Stage 2, step 2: an arrow or a blast wounds an enemy (a kill comes as its own `kill` event).
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xff8a73);
@@ -2221,13 +2298,15 @@ export class RealtimeRenderer {
       if (e.hurtFlash <= 0) continue;
       g.circle(e.x * UNIT, e.y * UNIT, flashR).fill({ color: 0xffffff, alpha: Math.min(1, e.hurtFlash / Math.max(p.hitFlash, 0.01)) * 0.8 });
     }
-    // Stage D (user 07.10.2026): the reach R of the first link around the hero, always — thin and faint over the crowd.
+    // Stage D (user 07.10.2026): the reach R of the first link around the hero, always — thin and faint over the crowd. Task 23в:
+    // in its own layer, clipped to the arena's field (at the top edge it ran out of the frame onto the HUD).
     let reach = 0;
+    const rg = this.reachLayer.clear();
     this.heroReachShown = world.status === 'playing';
     // Phase B (Д5): the radius drawn (units) — «Длинная рука» and «Широкий круг» widen it (tests read it).
     this.heroReachRadius = linkRadiusOf(world);
     if (this.heroReachShown) {
-      g.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+      rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
       reach++;
     }
     this.visibleReachCircles = reach;
