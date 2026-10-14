@@ -4,6 +4,8 @@
  * `npm run test:realtime-gentle-view`. The map and the fight by real input: tests/realtime-run.spec.ts (the blink),
  * tests/realtime-gentle.spec.ts (the heart lit, the second wind's text, the heart dim, the card of a gentle run).
  */
+// Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
+import './nodeNavigator.testkit';
 import { createRtRun, resolveArena, rtAvailableNodes, rtEnterNode, rtNode, RT_SECOND_WIND_LAST_ROW, RT_TASK17_OFF, type RtRunState } from '../run/rtRun';
 import { runRow } from '../run/arenaPools';
 import { closeNode, ok, seedOf, takeGift } from '../run/runFight.testkit';

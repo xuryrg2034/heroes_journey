@@ -4,6 +4,8 @@
  * and a real touch. Node only: `npm run test:realtime-bag-view`. The drawing at 1280×720 by real input is
  * tests/realtime-bag.spec.ts.
  */
+// Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
+import './nodeNavigator.testkit';
 import { registerArena } from '../sim/arenas';
 import { bagProgress } from '../sim/bag';
 import { defaultParams } from '../sim/params';

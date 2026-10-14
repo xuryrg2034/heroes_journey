@@ -5,6 +5,8 @@
  * (names of forest/resources.ts), and the memory of first meetings (once ever, kept, a broken storage). Node only:
  * `npm run test:realtime-feat-view`. The drawing at 1280×720 by real input is tests/realtime-feats.spec.ts.
  */
+// Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
+import './nodeNavigator.testkit';
 import { registerArena } from '../sim/arenas';
 import { featProgress, featResult } from '../sim/feat';
 import { defaultParams } from '../sim/params';

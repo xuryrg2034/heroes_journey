@@ -34,6 +34,8 @@
  *   `slotMayBust` — the run true, the prologue's room 8 false; the observer records the roll and the triples.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
+// Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
+import '../view/nodeNavigator.testkit';
 import { registerArena } from './arenas';
 import { objectRefusal, planChain, type StrikeOutcome } from './chain';
 import { lineOfSight } from './geometry';

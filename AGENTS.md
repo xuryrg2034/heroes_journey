@@ -68,4 +68,4 @@
 - Проверки (решение пользователя 14.10.2026: полное тестирование — целенаправленно, не на каждую фичу).
   - В разработке — быстрые проверки затронутого: `npx tsc --noEmit`, Node-наборы своей области (`verify.sh --only <подстрока>`) и файлы Playwright своей фичи один раз (`npx playwright test tests/<файл>`).
   - Полное тестирование — только по просьбе пользователя: `npx tsc --noEmit`, все `npm run test:*` (Node), `npm run build` и Playwright реального времени ×3 в чистой копии. Скрипт: `.claude/skills/verify-all/scripts/verify.sh --browser`, затем `npx playwright test --repeat-each 3`.
-  - Нужен Node ≥ 22: на Node 20 Playwright находит 0 тестов (`navigator is not defined`), `verify.sh` останавливается с ошибкой.
+  - Node 20 и 22. В Node 20 нет глобального `navigator`, а pixi.js читает его при загрузке. Поэтому Node-тест, который импортирует код вида, первым импортом подключает `src/realtime/view/nodeNavigator.testkit.ts`; конфиг Playwright делает это сам.

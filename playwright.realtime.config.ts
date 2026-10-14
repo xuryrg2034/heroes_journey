@@ -1,3 +1,5 @@
+// Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
+import './src/realtime/view/nodeNavigator.testkit';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@playwright/test';
