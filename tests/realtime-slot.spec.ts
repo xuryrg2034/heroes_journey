@@ -149,10 +149,13 @@ async function openBustSandbox(page: Page, seed: number, topEdge = false, area =
   return errors;
 }
 
-/** One pull by the mouse: a hero 2.4 from the idol, a weak enemy between, press on it, drag to the lever; `hold` runs with the chain drawn. */
-async function pullByMouse(page: Page, hold?: () => Promise<void>): Promise<void> {
+/**
+ * One pull by the mouse: a hero 2.4 from the idol (towards `toward`, by default the field's middle 8, 5), a weak enemy between,
+ * press on it, drag to the lever; `hold` runs with the chain drawn.
+ */
+async function pullByMouse(page: Page, hold?: () => Promise<void>, toward = { x: 8, y: 5 }): Promise<void> {
   const g = (await snap(page)).slot.goblin!;
-  const d = Math.hypot(g.x - 8, g.y - 5), ux = (8 - g.x) / d, uy = (5 - g.y) / d;
+  const d = Math.hypot(g.x - toward.x, g.y - toward.y), ux = (toward.x - g.x) / d, uy = (toward.y - g.y) / d;
   await page.evaluate(([e, h]) => {
     const rt = (window as any).__realtime;
     rt.teleport(h.x, h.y);
@@ -509,5 +512,42 @@ test('task 7: a hero who stays in the lit circle takes the bust\'s 4 HP when it 
   const s = await snap(page);
   expect(s.hero.hp).toBe(hpBefore - 4);
   expect(s.slot.shown.sparks).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 19а (design 14.10.2026): the lit bust circle is clipped to the arena's field. An idol at the top edge: before, the circle
+ * ran out of the frame onto the dark margin and under the HUD plate. The shot's pixels: red in the field round the idol, none
+ * above the frame (the HUD plate's own pixels left out).
+ */
+test('task 19а: an idol at the top edge — the lit bust circle stays inside the arena frame', async ({ page }) => {
+  const errors = await openBustSandbox(page, BUST_SEED, true, true);
+  const g = (await snap(page)).slot.goblin!;
+  // Straight down from the idol: the way to the field's middle may run through a tree or a wall at this top-edge spot.
+  const down = { x: g.x, y: g.y + 5 };
+  for (let i = 0; i < 3; i++) { await pullByMouse(page, undefined, down); await untilReady(page); }
+  await untilFrame(page, snap => snap.slot.marks === 0 ? true : undefined, null, 30);
+  await pullByMouse(page, undefined, down);
+  await untilFrame(page, snap => snap.slot.bustCircles > 0 ? true : undefined, null, 10);
+  const shot = await page.screenshot({ path: 'artifacts/realtime-slot-bust-top-edge.png' });
+  const idol = await screen(page, g.x, g.y), top = await screen(page, g.x, 0), edge = await screen(page, g.x + 3.5, g.y);
+  const R = edge.x - idol.x, hud = await hudBox(page);
+  expect(idol.y - R).toBeLessThan(top.y - 20); // the circle would reach well above the frame
+  const reds = await page.evaluate(async ([b64, box]) => {
+    const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const c = new OffscreenCanvas(img.width, img.height), cx = c.getContext('2d')!;
+    cx.drawImage(img, 0, 0);
+    const d = cx.getImageData(0, 0, img.width, img.height).data;
+    const red = (x: number, y: number): boolean => { const i = (y * img.width + x) * 4; return d[i] >= 50 && d[i] > 1.6 * d[i + 1] && d[i] > 1.6 * d[i + 2]; };
+    let above = 0, inside = 0;
+    for (let y = 0; y < img.height; y++) for (let x = Math.max(0, Math.floor(box.left)); x < Math.min(img.width, Math.ceil(box.right)); x++) {
+      if (x >= box.hud.left && x < box.hud.right && y >= box.hud.top && y < box.hud.bottom) continue;
+      if (y < box.frameTop && red(x, y)) above++;
+      if (y > box.frameTop + 10 && y < box.bottom && red(x, y)) inside++;
+    }
+    return { above, inside };
+  }, [shot.toString('base64'), { left: idol.x - R, right: idol.x + R, bottom: idol.y + R, frameTop: top.y - 10, hud }] as const);
+  expect(reds.inside).toBeGreaterThan(500); // the circle is drawn in the field
+  expect(reds.above).toBe(0); // and nothing of it above the frame
   expect(errors).toEqual([]);
 });
