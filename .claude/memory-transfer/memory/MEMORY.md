@@ -1,0 +1,16 @@
+- [No stash with parallel agents](no-stash-with-parallel-agents.md) — never stash/checkout/reset the shared tree while helpers edit it; use `git show rev:path`
+- [Verify in a clean worktree](verify-in-clean-worktree.md) — with parallel sessions run verify in a scratch worktree outside the repo; don't chain commit after piped tests
+- [Chat style ASD-STE100](chat-style-ste100.md) — ответы в чат: ~80% по правилам упрощённого технического языка (короткие фразы, одна мысль)
+- [Speed-up: parallel tracks, questions first](speedup-parallel-and-early-questions.md) — user's chosen speed-ups (09.10.2026); full verify and Playwright x3 unchanged
+- [Realtime Playwright flakes fixed](open-flaky-porcupine-test.md) — nine flaky tests fixed 12.10.2026 (7ca65ab): waits in game time via tests/realtimeFrames.ts; a new failure is a regression
+- [No npm through symlinked node_modules](no-npm-through-symlinked-node-modules.md) — npm ci in a tree linking the repo's node_modules wipes the shared install
+- [Research via Opus](research-via-opus.md) — design research helpers run on model opus, not fable (user, 11.10.2026)
+- [Turn-based removed](turn-based-dropped.md) — 11.10.2026: turn-based game deleted (tag turn-based-final); realtime only; forest/ seed outputs frozen
+- [No push of others' commits](no-push-of-others-commits.md) — shared tree: check git log origin..HEAD before push; commit own docs from a separate worktree
+- [Playwright needs NO_PROXY](playwright-needs-no-proxy.md) — direct playwright runs: export NO_PROXY=127.0.0.1,localhost and -c playwright.realtime.config.ts, else 0 tests run
+- [Text-plate onboarding rejected](onboarding-text-plates-rejected.md) — 12.10.2026: teach inside gameplay, not bottom text; resources/cauldron dull, goblin slot liked
+- [Git without asking](git-without-asking.md) — user lets git run unprompted (13.10.2026); use `git -C`, not `cd && git`; shared-tree rules still hold
+- [Session roles: design / core / ui](session-roles-core-ui.md) — 13.10.2026 user added a ui session: view tasks → ui, sim/integration/push → core
+- [Playtest in artifact, no LAN server](playtest-in-artifact-no-lan.md) — 13.10.2026: after a build only republish the artifact; start the LAN server only on request
+- [One name, one meaning](one-name-one-meaning.md) — grep a new player-facing name in KIND_CAPTIONS, AFFIX_TITLES, eliteBehaviors, rtTalismans, prologue titles first and forest map names (вожак→атаман, Пепел→Испытание)
+- [Handoff 14.10.2026](handoff-2026-10-14.md) — move to Windows 11: pushed cd77915, open follow-ups after playtest, what did not move (transcripts, settings.json, scratchpads)
