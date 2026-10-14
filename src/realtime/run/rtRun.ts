@@ -295,19 +295,22 @@ const ASH_ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'] as const;
 export const rtAshLabel = (level: RtAshLevel): string => ASH_ROMAN[level];
 /** The run's title on the map header: «Испытание III»; level 0 — '' (nothing shown). */
 export const rtAshTitle = (level: RtAshLevel): string => (level > 0 ? `Испытание ${ASH_ROMAN[level]}` : '');
-/** The line under the choice (≤ 6 words): what the level adds to the one below. */
-export const RT_ASH_TEXTS: Readonly<Record<RtAshLevel, string>> = {
-  0: 'Обычный поход',
-  1: 'Без зелья и второго дыхания',
-  2: 'Элиты и броня раньше',
-  3: 'Неуязвимость 0,5 с, касание 2',
-  4: 'Два свойства элит с ряда 6',
-  5: 'Толпа плотнее, финал быстрее',
-};
+/**
+ * The line under the choice (≤ 6 words): what the level adds to the one below. Task 25 (3) (design 15.10.2026): each names its
+ * knob concretely, the numbers taken from the levels' own constants (II — the rows of the tables before task 17, V — the floor).
+ */
+export const rtAshText = (level: RtAshLevel): string => [
+  'Обычный поход',
+  'Без зелья и второго дыхания',
+  `Элиты: ряд ${RT_RANDOM_ELITE_ROW}, броня: ряд ${RT_STEP_ROW}`,
+  'Неуязвимость 0,5 с, касание 2',
+  `Два свойства элит с ряда ${RT_ASH_AFFIX_ROW}`,
+  `Толпа ×${String(RT_ASH_FLOOR_SCALE).replace('.', ',')}, фазы финала короче`,
+][level];
 /** The choice on «Новый поход»: every level with its mark, title and line, 0 … V. */
 export interface RtAshOption { level: RtAshLevel; label: string; title: string; text: string }
 export const rtAshOptions = (): RtAshOption[] =>
-  ([0, 1, 2, 3, 4, 5] as const).map(level => ({ level, label: rtAshLabel(level), title: rtAshTitle(level) || 'Испытание 0', text: RT_ASH_TEXTS[level] }));
+  ([0, 1, 2, 3, 4, 5] as const).map(level => ({ level, label: rtAshLabel(level), title: rtAshTitle(level) || 'Испытание 0', text: rtAshText(level) }));
 /**
  * Task 18, V: what the level adds to the loadout of a fight played as `battle` — the density floor of every fight
  * (`Loadout.floorScale`) and, in the final, the phase table's pace (`Loadout.phaseScale`). Empty below V. The scope of V is here
@@ -757,6 +760,8 @@ export const RT_GENTLE_ELITE_ROW = 4;
  * two affixes 9): the row from which a run with `gentleEntry` plays 1 affix, 3 plates and tough HP 3 (was 5).
  */
 export const RT_GENTLE_STEP_ROW = 6;
+/** Баланс (package «Урон имеет значение», phase A): the row of the same step (1 affix, 3 plates, tough HP 3) without `gentleEntry`. */
+export const RT_STEP_ROW = 5;
 /** Random elites come on run row `row` (`gentle` — a run with `gentleEntry`: from row 4, else from row 3). */
 export const rtRandomElites = (row: number, gentle = false): boolean => row >= (gentle ? RT_GENTLE_ELITE_ROW : RT_RANDOM_ELITE_ROW);
 /**
@@ -764,7 +769,7 @@ export const rtRandomElites = (row: number, gentle = false): boolean => row >= (
  * Task 17 (`gentle`): 1–5: 0, 6–8: 1, 9: 2. Task 18, «Испытание IV» (`ash` ≥ 4): 2 from row 6 (`RT_ASH_AFFIX_ROW`).
  */
 export const rtEliteAffixes = (row: number, gentle = false, ash: RtAshLevel = 0): number =>
-  (row >= 9 || (ash >= RT_ASH_AFFIXES && row >= RT_ASH_AFFIX_ROW) ? 2 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 1 : 0);
+  (row >= 9 || (ash >= RT_ASH_AFFIXES && row >= RT_ASH_AFFIX_ROW) ? 2 : row >= (gentle ? RT_GENTLE_STEP_ROW : RT_STEP_ROW) ? 1 : 0);
 /**
  * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2; the turn-based palette, decision 30.09.2026): colours
  * of the newcomers by the run row — 1–2: 2, 3–4: 3, from 5: 4. Acts only with the panel toggle `colorsByRow`.
@@ -774,12 +779,12 @@ export const rtColorsByRow = (row: number): number => (row <= 2 ? 2 : row <= 4 ?
  * Баланс (package «Урон имеет значение», 4.3): plates of an armoured elite by the run row — 1–4: 2, 5–8: 3, 9–10: 4. Task 17
  * (`gentle`): 1–5: 2, 6–8: 3, 9–10: 4.
  */
-export const rtElitePlates = (row: number, gentle = false): number => (row >= 9 ? 4 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 3 : 2);
+export const rtElitePlates = (row: number, gentle = false): number => (row >= 9 ? 4 : row >= (gentle ? RT_GENTLE_STEP_ROW : RT_STEP_ROW) ? 3 : 2);
 /**
  * Баланс (the package, item 2): the top of the tough HP table by the run row — 1–4: 2 (as before), 5–8: 3, 9+: 4. Task 17
  * (`gentle`): 1–5: 2, 6–8: 3, 9+: 4.
  */
-export const rtToughHp = (row: number, gentle = false): number => (row >= 9 ? 4 : row >= (gentle ? RT_GENTLE_STEP_ROW : 5) ? 3 : 2);
+export const rtToughHp = (row: number, gentle = false): number => (row >= 9 ? 4 : row >= (gentle ? RT_GENTLE_STEP_ROW : RT_STEP_ROW) ? 3 : 2);
 /**
  * Баланс (the package, 4.3 «Редкость»): one guaranteed elite in an ordinary battle (not «Застава», not the final) from this run
  * row; a run with `gentleEntry` — from `RT_GENTLE_ELITE_ROW` (task 17).
