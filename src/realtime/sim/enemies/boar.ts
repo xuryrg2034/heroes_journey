@@ -13,7 +13,7 @@
  * otherwise — worlds without it hash as before); `boarLane` gives the view the lane with the right windup progress.
  */
 import { blockedAt, dist, lineOfSight } from '../geometry';
-import { CONTACT_SLACK, canBeHurt, hurtHero, knockHero, touchDistanceOf, type Enemy, type World } from '../world';
+import { CONTACT_SLACK, canBeHurt, hurtHero, knockHero, noteBlock, touchDistanceOf, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
 /** Boar cycle: walk -> windup (lane, «!») -> charge -> rest -> walk (with a cooldown). */
@@ -31,6 +31,7 @@ function boarHitsHero(world: World, boar: Enemy): void {
   world.stats.boarHits++;
   if (params.boarKnockback > 0) knockHero(world, boar.dirX, boar.dirY, params.boarKnockback);
   if (canBeHurt(world)) { hurtHero(world, boar, params.boarDamage, 'boar'); boar.strikeFlash = 0.18; }
+  else noteBlock(world, boar.x, boar.y, 'boar', boar.id);
   endCharge(world, boar);
 }
 

@@ -52,7 +52,7 @@ import { blockedAt, dist, inWater, overCliff, pushOutOfCliffs, type Vec } from '
 import { heroRadius } from './params';
 import { MAX_AFFIXES, MAX_PLATES, RESOURCE_KINDS, SLOT_ITEMS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { nextPaletteColor } from './spawn';
-import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, type ArenaObject, type Enemy, type KillCause, type World, type EnemyKind } from './world';
+import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, noteBlock, type ArenaObject, type Enemy, type KillCause, type World, type EnemyKind } from './world';
 import { oathEliteDown } from './oath';
 
 /** A weak elite (0 HP) gets this HP. */
@@ -339,6 +339,7 @@ function burnHero(world: World, dt: number): void {
   if (hero.flames > 1e-9) return;
   hero.flames += Math.max(0.05, p.trailInterval);
   if (canBeHurt(world)) hurtHero(world, { id: point.ownerId }, p.trailHeroDamage, 'fire-trail');
+  else noteBlock(world, point.x, point.y, 'fire-trail', point.ownerId);
 }
 
 /** Living elites on the arena (start ones counted). */

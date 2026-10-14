@@ -13,7 +13,7 @@
  */
 import { dhypot } from '../detMath';
 import { blockedAt, dist, lineOfSight, type Vec } from '../geometry';
-import { CONTACT_SLACK, canBeHurt, hurtHero, touchDistanceOf, type Enemy, type World } from '../world';
+import { CONTACT_SLACK, canBeHurt, hurtHero, noteBlock, touchDistanceOf, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
 export const LYNX_WALK = 0, LYNX_WINDUP = 1, LYNX_LEAP = 2, LYNX_STUN = 3;
@@ -69,6 +69,7 @@ function stepLynx(world: World, e: Enemy, dt: number): boolean {
       // It lands at the hero's side (in touch): stunned there, it is the hero's to punish.
       if (d > touch) { const k = (d - touch) / d; e.x += (h.x - e.x) * k; e.y += (h.y - e.y) * k; }
       if (canBeHurt(world)) { hurtHero(world, e, p.lynxDamage, 'lynx'); e.strikeFlash = 0.18; }
+      else noteBlock(world, e.x, e.y, 'lynx', e.id);
       return stun(world, e);
     }
     if (e.vars.ran >= e.vars.len - 1e-6) return stun(world, e);
