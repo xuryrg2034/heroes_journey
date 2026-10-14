@@ -128,7 +128,14 @@ export interface SlotWave { left: number; hero: boolean }
  * The slot of the arena (`World.slot`, hashed). `{}` — the battle rolled and no goblin came. `goblin` — the idol; `marks` —
  * arrows in the air; `waves` — rain waves still to drop; `firing` — the last wave id (one firing for the plate rule).
  */
-export interface SlotState { goblin?: Goblin; marks?: SlotMark[]; waves?: SlotWave[]; firing?: number }
+export interface SlotState {
+  goblin?: Goblin; marks?: SlotMark[]; waves?: SlotWave[]; firing?: number;
+  /**
+   * Task 24 (`slotPullGoalSettled`): the pulls of the goblin that busted (it is gone, its blast burns) — the goal «pull» counts
+   * them once the blast went off. Absent otherwise (worlds without the key hash as before).
+   */
+  bustPulls?: number;
+}
 
 /** Баланс: ◆ and 🍲 drop on a free spot this far from the hero (units). */
 export const SLOT_DROP_MIN = 0.9;
@@ -407,6 +414,8 @@ export function pullLever(world: World, lever: ArenaObject, struck: number): voi
   const spin = Math.max(0, num(p, 'slotSpin'));
   const sum = (list: readonly number[]): number => list.reduce((a, b) => a + b, 0), removed = sum(g.skulls) - sum(odds.skulls);
   g.pulls++;
+  // The prologue, task 24 (room 8, `sleepAfterPull`): the room's enemies sleep from the first pull on.
+  if (world.arena.sleepAfterPull) world.asleep = true;
   if (risk) g.risky = (g.risky ?? 0) + 1;
   g.ready = world.time + Math.max(0, num(p, 'slotCooldown'));
   g.skulls[g.next]++;
@@ -497,6 +506,7 @@ function bustGoblin(world: World, g: Goblin): void {
     world.events.push({ type: 'slot', action: 'lit', x: g.x, y: g.y, objectId: g.id, r, fuse, blastId: b.id });
   } else hurtHero(world, { id: 0 }, hero, SLOT_BUST_SOURCE);
   world.objects = world.objects.filter(o => o.id !== g.id);
+  if (p.slotPullGoalSettled) world.slot!.bustPulls = g.pulls;
   delete world.slot!.goblin;
 }
 
@@ -580,7 +590,13 @@ export function updateSlot(world: World, dt: number): void {
   }
   if (g?.spin) {
     g.spin.left -= dt;
-    if (g.spin.left <= EPS) { const outcome = g.spin.outcome; delete g.spin; applyEffect(world, g, outcome); }
+    if (g.spin.left <= EPS) {
+      const outcome = g.spin.outcome;
+      delete g.spin;
+      applyEffect(world, g, outcome);
+      // Task 24 (`slotPullGoalSettled`): the goal «pull» counts this pull now (a bust — once its blast went off, world.ts).
+      if (p.slotPullGoalSettled && world.arena.goal === 'pull' && world.status === 'playing') checkGoals(world);
+    }
   }
   if (slot.waves) {
     const due = slot.waves.filter(w => (w.left -= dt) <= EPS);

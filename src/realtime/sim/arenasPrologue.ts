@@ -223,19 +223,21 @@ export const PROLOGUE_POTION: ArenaTemplate = registerArena({
 
 /**
  * Room 8 «Гоблин» (design answers 12.10.2026: the goal is the lever, the damage is secondary; variant Б): four blue in an arc
- * round the goblin and two red under it, all asleep until the first press (`sleepUntilChain`), then they walk at ×0.6 and
- * touch for 1. The chain «four blue → lever» is open from the start (the first blue 1.7 from the hero, the last 1.4 from the
- * lever); the reds are another colour (they take no part in it). The return only when no start enemy is left and the lever was
- * never pulled (they come back awake).
+ * round the goblin, asleep until the first press (`sleepUntilChain`), then they walk at ×0.6 and touch for 1. The chain «four
+ * blue → lever» is open from the start (the first blue 1.7 from the hero, the last 1.4 from the lever). The return only when no
+ * start enemy is left and the lever was never pulled (they come back awake). Task 24 «Урок перебора» (design 15.10.2026): the
+ * lever twice (`killGoal` 2) — the first pull a sure triple, the second the show bust (run/prologue.ts); the two reds are gone
+ * (their lesson «another colour» is room 2's); the enemies sleep from the first pull on (`sleepAfterPull`).
  */
 export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   id: 'prologue-5',
   name: 'Гоблин',
   summary: 'Пролог, комната 8: закончи цепь на рычаге гоблина.',
   goal: 'pull',
-  killGoal: 1,
+  killGoal: 2,
   restore: 'whenGone',
   sleepUntilChain: true,
+  sleepAfterPull: true,
   goblin: { x: 4.6, y: 4.0 },
   width: 12,
   height: 8,
@@ -248,8 +250,6 @@ export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
     { x: 4.6, y: 2.4, color: BLUE },
     { x: 5.9, y: 3.1, color: BLUE },
     { x: 5.9, y: 4.6, color: BLUE },
-    { x: 3.2, y: 5.4, color: RED },
-    { x: 4.5, y: 5.7, color: RED },
   ],
 });
 

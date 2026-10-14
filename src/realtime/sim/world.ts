@@ -897,8 +897,12 @@ export function goalProgress(world: World): { done: number; total: number; label
   }
   // The prologue: the goblin's lever pulled N times.
   if (goal === 'pull') {
-    const total = world.arena.killGoal ?? 1;
-    return { done: Math.min(total, goblinOf(world)?.pulls ?? 0), total, label: 'рычаг' };
+    const total = world.arena.killGoal ?? 1, g = goblinOf(world);
+    // Task 24 (`slotPullGoalSettled`): a pull counts once settled — its reels stopped and no bust of it burns.
+    // The goblin that busted is gone: its pulls are kept on the slot (`bustPulls`).
+    const settled = world.params.slotPullGoalSettled, pulls = g?.pulls ?? (settled ? world.slot?.bustPulls ?? 0 : 0);
+    const unsettled = settled && (g?.spin || world.blasts.some(b => b.bust)) ? 1 : 0;
+    return { done: Math.min(total, Math.max(0, pulls - unsettled)), total, label: 'рычаг' };
   }
   const total = world.arena.killGoal ?? world.params.killGoal;
   return { done: Math.min(world.stats.kills, total), total, label: 'убито' };
@@ -1356,7 +1360,11 @@ function detonate(world: World, b: Blast): void {
   world.events.push({ type: 'blast', x: b.x, y: b.y, radius: b.radius, source: b.source });
   const owner = world.enemies.find(e => e.id === b.ownerId);
   if (owner) killEnemy(world, owner, cause);
-  if (b.bust) bustHero(world, b, b.bust.hero);
+  if (b.bust) {
+    bustHero(world, b, b.bust.hero);
+    // Task 24 (`slotPullGoalSettled`): the bust's pull counts for the goal «pull» once it went off.
+    if (world.params.slotPullGoalSettled && world.arena.goal === 'pull' && world.status === 'playing') checkGoals(world);
+  }
   else if (dist(world.hero, b) <= b.radius + heroRadius(p)) {
     if (canBeHurt(world)) hurtHero(world, { id: b.ownerId, ...b.elite ? { elite: true as const } : {} }, b.damage, b.source);
     else noteBlock(world, b.x, b.y, b.source, b.ownerId);

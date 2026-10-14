@@ -657,6 +657,12 @@ export interface Params {
    * journal without the key plays the old reels. The run and the prologue turn it on.
    */
   slotSafeTriple: boolean;
+  /**
+   * Task 24 «Урок перебора» (design 15.10.2026): the arena goal `pull` (the prologue's room 8) counts a pull once it settled — its
+   * reels stopped, and a bust's blast went off — not in the tick of the pull: the door opens after the show bust, not before it.
+   * Off by default; a journal without the key counts the pull at once (the old path). Only the prologue's room 8 turns it on.
+   */
+  slotPullGoalSettled: boolean;
   // ---- Casino stage 1, item 1 — «Котёл» (purse.ts, docs/realtime-casino.md). ----
   /**
    * The cauldron: every chain puts its cheque (embers × heat × crystals), the build's kills outside the chain 1 ember each; the
@@ -1098,6 +1104,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // «Гоблин-сюрприз», «Безопасный рывок — тройка» (slot.ts): off by default.
   slotSafeRandom: false,
   slotSafeTriple: false,
+  slotPullGoalSettled: false,
   // Casino «Котёл» (purse.ts): off by default.
   purse: false,
   purseRate: 60,
@@ -1483,6 +1490,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Гоблин при появлении бросает число безопасных рывков от 0 до «безопасных рывков» (равновероятно). Игроку число не показано. В походе включено (0–3).' },
   { kind: 'bool', key: 'slotSafeTriple', group: 'Однорукий гоблин', label: 'Безопасный рывок — тройка', stage: 5,
     hint: 'Безопасный рывок всегда даёт тройку доброго символа: без черепов, дождя, залпа и пар. В походе и прологе включено.' },
+  { kind: 'bool', key: 'slotPullGoalSettled', group: 'Однорукий гоблин', label: 'Цель «рычаг» — после барабанов', stage: 5,
+    hint: 'Цель арены «рычаг» засчитывает рывок, когда встали барабаны, а перебор — когда прогремел взрыв. Только комната 8 пролога.' },
   // Casino «Котёл» (purse.ts, docs/realtime-casino.md).
   { kind: 'bool', key: 'purse', group: 'Котёл', label: 'Котёл (угли × жар)', stage: 5,
     hint: 'Цепь кладёт в котёл чек: угли × жар × кристаллы. Угли: слабый 1, крепкий — его HP, пластина 2, элита +5. Жар: +1 за каждое 3-е звено, +1 добивание (4+ звеньев). В двери — 1 ресурс за «Углей за ресурс» (60), не больше 3 без ставок. Только песочница: в походе выключен с 12.10.2026.' },

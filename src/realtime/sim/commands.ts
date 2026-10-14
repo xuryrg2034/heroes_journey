@@ -13,7 +13,7 @@ import { makeElite } from './elites';
 import { beginChain, cancelChain, dragChain, dragChainAlong, jump, releaseChain, type DragMode } from './chain';
 import { setParam, setPhases, type ParamKey, type Phase } from './params';
 import { spawnBurst, spawnEnemy } from './spawn';
-import { summonGoblin } from './slot';
+import { goblinOf, summonGoblin } from './slot';
 import { chooseOath, isOathId } from './oath';
 import { completeGoals, type EnemyKind, type World } from './world';
 
@@ -81,8 +81,9 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
   switch (cmd.t) {
     case 'walk': world.input.x = cmd.x; world.input.y = cmd.y; return;
     // The prologue (`sleepUntilChain`): the first press wakes the enemies, whatever it takes.
-    // The press wakes the sleepers of `sleepUntilChain` (rooms 8 and 9); those of `sleepOnDoor` (room 9, after the goals) sleep on.
-    case 'begin': if (world.asleep && world.status === 'playing' && !(world.arena.sleepOnDoor && world.stage === 'greed')) delete world.asleep; return beginChain(world, { x: cmd.x, y: cmd.y });
+    // The press wakes the sleepers of `sleepUntilChain` (rooms 8 and 9); those of `sleepOnDoor` (room 9, after the goals) and of
+    // `sleepAfterPull` (room 8, after the first pull; task 24) sleep on.
+    case 'begin': if (world.asleep && world.status === 'playing' && !(world.arena.sleepOnDoor && world.stage === 'greed') && !(world.arena.sleepAfterPull && (goblinOf(world)?.pulls ?? 0) > 0)) delete world.asleep; return beginChain(world, { x: cmd.x, y: cmd.y });
     case 'drag': dragChain(world, { x: cmd.x, y: cmd.y }, cmd.mode); return;
     case 'sweep': dragChainAlong(world, { x: cmd.fx, y: cmd.fy }, { x: cmd.x, y: cmd.y }); return;
     case 'release': return releaseChain(world);

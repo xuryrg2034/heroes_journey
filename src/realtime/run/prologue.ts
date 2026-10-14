@@ -15,7 +15,7 @@ import { canSpin, spinTargets } from '../sim/abilities';
 import { HERO_CANCEL_RADIUS, NO_PIERCE, canJump, canLink, canLinkObject, jumpLanding, linkPoint, planChain, type ChainPlan } from '../sim/chain';
 import { enemyArtRadius } from '../sim/enemies/kinds';
 import { blockedAt, dist, inWater, type Vec } from '../sim/geometry';
-import { goblinOf } from '../sim/slot';
+import { goblinOf, leverOf } from '../sim/slot';
 import type { ItemKind, Loadout } from '../sim/kit';
 import { defaultParams, heroRadius, runParams, type Params } from '../sim/params';
 import { OBJECT_RADIUS, type ChainLink, type World } from '../sim/world';
@@ -80,10 +80,12 @@ const SHIELD_FORCED: Readonly<Partial<Params>> = Object.freeze({
  * price above the energy cap 7 would leave no jump) and the door entered on foot (`doorWalkIn`). Room 6 «Вихрь» — no inflow,
  * the spin's numbers (`spinCost` 3, `spinDamage` 4, `spinRadius` 1.2: the ring stands inside it, every enemy dies of one hit;
  * the body sizes keep the posts off the hero's body, else a return would wait for him to step off). Room 7 «Зелье» — no inflow,
- * the hero's maximum 15 (`heroHp`; the view gives 15/15 anyway; the heal is the run's `itemHeal`). Room 8 «Гоблин» — no inflow, the touch 1 (`contactDamage`, the run's base), 3 pulls and all of them safe
- * (`slotSafePulls` 3 and no «Длинная цепь кормит гоблина» — with it on the last pull is always risky; no «Гоблин-сюрприз»,
- * `slotSafeRandom` off — the run's random 0–3 would let the lesson bust): no bust is possible; each safe pull is a sure triple
- * (`slotSafeTriple`, task 11).
+ * the hero's maximum 15 (`heroHp`; the view gives 15/15 anyway; the heal is the run's `itemHeal`). Room 8 «Гоблин» — no inflow, the touch 1 (`contactDamage`, the run's base). Task 24 «Урок перебора» (design 15.10.2026): two
+ * pulls (`slotPulls` 2, the goal «рычаг: 2»), the first safe — a sure triple (`slotSafePulls` 1, `slotSafeTriple`, task 11; no
+ * «Длинная цепь кормит гоблина», no «Гоблин-сюрприз» `slotSafeRandom`), the second the show bust (`slotBustChance` 1) with the
+ * run's circle — radius 3.5, −4 (`RT_RUN_FORCED`) — and the prologue's fuse 1.2 s (the run's short fuse is a run battle's,
+ * task 19); 3 s between the pulls (`slotCooldown`); a pull counts for the goal once settled (`slotPullGoalSettled`: the door
+ * opens after the blast, not before it).
  * Room 9 «Щит» (task 13) — `SHIELD_FORCED` above.
  * Room 10 «Толпа» (softened by design 13.10.2026: the last room of the lesson must not be a wall, a death there is a bad first
  * impression) — the inflow up to 8 (`maxEnemies`, was 12; its pace and phases are the arena's) and every touch 1: the base
@@ -101,7 +103,8 @@ export const PROLOGUE_FORCED: readonly Readonly<Partial<Params>>[] = Object.free
   Object.freeze({ maxEnemies: 0, ...LESSON_BODIES, heroHp: 15 }),
   // `enemySpeed` 0.72 — the run's 1.2 × 0.6 (design answer 12.10.2026: the goal is the lever, the damage is secondary); the
   // enemies sleep until the first press (the arena's `sleepUntilChain`).
-  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 3, slotSafePulls: 3, slotSafePerLongChain: 0, slotSafeRandom: false, slotSafeTriple: true, enemySpeed: 0.72, invulnerability: 3.4 }),
+  // Task 24: two pulls — a sure triple, then the show bust; the enemies sleep from the first pull on (the arena's `sleepAfterPull`).
+  Object.freeze({ maxEnemies: 0, contactDamage: 1, slotPulls: 2, slotSafePulls: 1, slotBustChance: 1, slotCooldown: 3, slotPullGoalSettled: true, slotSafePerLongChain: 0, slotSafeRandom: false, slotSafeTriple: true, enemySpeed: 0.72, invulnerability: 3.4 }),
   SHIELD_FORCED,
   Object.freeze({ maxEnemies: 8, contactDamage: 1, toughTouch: false }),
 ]);
@@ -110,9 +113,9 @@ const TITLES = ['Тропа', 'Два цвета', 'Крепкий', 'Радуг
 const enemies = (n: number): PrologueTarget[] => Array.from({ length: n }, (_, i) => ({ enemy: i }));
 const ROUTES: readonly (readonly PrologueTarget[] | null)[] = [
   // 1: the arc; 2: the five blue (the reds are left); 3: the weak ones, the tough one last; 4: six blue, the shift, four green;
-  // 5–7: no chain to show; 8: the four blue round the goblin (the reds are another colour), the lever last; 9 «Щит»: no fixed
+  // 5–7: no chain to show; 8: the four blue round the goblin, the lever last (task 24: then the lever alone); 9 «Щит»: no fixed
   // route — its hand's chain is `prologueShieldChain` (any 3+ of one colour from where the hero stands).
-  enemies(3), enemies(5), enemies(4), enemies(10), null, null, null, [...enemies(6), { object: 'lever' }], null, null,
+  enemies(3), enemies(5), enemies(4), enemies(10), null, null, null, [...enemies(4), { object: 'lever' }], null, null,
 ];
 const TILES: readonly ('all' | readonly PrologueTile[])[] = [[], [], [], [], ['jump'], ['spin'], ['healing'], [], [], 'all'];
 
@@ -189,7 +192,9 @@ function segmentDistance(a: Vec, b: Vec, p: Vec): number {
  * - room 1 (`kills`): any chain — the most kills found;
  * - rooms 2–4 (`chain`, `marked`): a chain that meets the goal (N kills; the marked one killed) — the most kills found;
  * - room 8 (`pull`): enemies, then the lever — the most enemy links found (never the lever alone: that chain works, the hand
- *   does not show it).
+ *   does not show it); task 24: after the first pull — the lever alone (the second pull, the show bust), when it may be the
+ *   chain's link now (`canLinkObject`: the cooldown is over, in reach); while the reels spin or the bust burns — none (the hand
+ *   leads out of the circle: `prologueHandSpot`).
  * None — empty (the view shows no hand). Rooms 5–7, 9 and 10 (no route) — always empty (room 9's hand: `prologueShieldChain`). Reads the world only (no random draw); the drawn chain is put
  * back as it was.
  */
@@ -197,6 +202,10 @@ export function prologueRoute(world: World, n: number): ChainLink[] {
   const room = prologueRoom(n), goal = room.arena.goal;
   if (!room.route || world.status !== 'playing' || world.move) return [];
   const ids = startEnemyIds(world), g = goblinOf(world), targets: ChainLink[] = [];
+  if (goal === 'pull' && g) {
+    if (goblinBusy(world) || g.pulls >= (room.arena.killGoal ?? 1)) return [];
+    if (g.pulls > 0) return leverAlone(world);
+  }
   let lever: ChainLink | null = null;
   for (const target of room.route) {
     if ('enemy' in target) {
@@ -212,6 +221,24 @@ export function prologueRoute(world: World, n: number): ChainLink[] {
     return plan.kills >= need ? plan.kills : -1;
   };
   return searchHandChain(world, targets, goal === 'pull' ? { lever } : { score: value });
+}
+
+/** Task 24 (room 8): the goblin is busy — its reels spin or its bust burns (the hand leads the hero out of the circle). */
+function goblinBusy(world: World): boolean {
+  return !!goblinOf(world)?.spin || world.blasts.some(b => !!b.bust);
+}
+
+/** Task 24 (room 8, the second pull): the chain of the lever alone, if the lever may be its link now; else none. */
+function leverAlone(world: World): ChainLink[] {
+  const lever = leverOf(world);
+  if (!lever) return [];
+  const saved = world.chain, savedClosed = world.chainClosed;
+  world.chain = [];
+  delete world.chainClosed;
+  try { return canLinkObject(world, lever, planChain(world, [], NO_PIERCE)) ? [{ kind: 'object', id: lever.id }] : []; } finally {
+    world.chain = saved;
+    if (savedClosed) world.chainClosed = savedClosed; else delete world.chainClosed;
+  }
 }
 
 /**
@@ -300,7 +327,10 @@ const SPOT_TRIES = 20;
  */
 export function prologueHandSpot(world: World, n: number): Vec | null {
   const room = prologueRoom(n);
-  if (!room.route || world.status !== 'playing' || world.move || prologueRoute(world, n).length) return null;
+  if (!room.route || world.status !== 'playing' || world.move) return null;
+  // Task 24 (room 8): the reels spin or the bust burns — out of the circle.
+  if (room.arena.goal === 'pull' && goblinBusy(world)) return bustEscapeSpot(world);
+  if (prologueRoute(world, n).length) return null;
   const arena = world.arena, r = heroRadius(world.params), hero = world.hero, home = { x: hero.x, y: hero.y };
   const ids = startEnemyIds(world), g = goblinOf(world), points: Vec[] = [{ x: arena.heroStart.x, y: arena.heroStart.y }];
   for (const target of room.route) {
@@ -317,6 +347,35 @@ export function prologueHandSpot(world: World, n: number): Vec | null {
     }
   } finally { hero.x = home.x; hero.y = home.y; }
   return null;
+}
+
+/** Task 24: how far past the bust circle's edge (its radius + the hero's body) the hand's way out stands. */
+const ESCAPE_GAP = 0.5;
+/** Steps of the walk check along the way out. */
+const ESCAPE_STEP = 0.1;
+
+/**
+ * Task 24 (room 8, design 15.10.2026: «дёрнул — уходи»): where the hand leads while the goblin's reels spin or its bust burns —
+ * a point `ESCAPE_GAP` past the bust circle (`slotBustRadius` + the hero's body; the burning blast's own radius once lit) round
+ * the idol, on free ground inside the arena, and the hero's straight walk there crosses no obstacle, water or the door. The
+ * nearest to the hero; of equals, the nearest to the door. Null — none. Reads the world only.
+ */
+function bustEscapeSpot(world: World): Vec | null {
+  const g = goblinOf(world), blast = world.blasts.find(b => !!b.bust), at = blast ?? g;
+  if (!at) return null;
+  const arena = world.arena, r = heroRadius(world.params), hero = world.hero, door = arena.door;
+  const reach = (blast ? blast.radius : world.params.slotBustRadius) + r + ESCAPE_GAP;
+  const clear = (p: Vec): boolean => !blockedAt(p, r, arena) && !inWater(p, arena) && dist(p, door) > OBJECT_RADIUS + r;
+  const walkable = (p: Vec): boolean => {
+    const d = dist(hero, p), steps = Math.max(1, Math.ceil(d / ESCAPE_STEP));
+    for (let i = 1; i <= steps; i++) if (!clear({ x: hero.x + (p.x - hero.x) * i / steps, y: hero.y + (p.y - hero.y) * i / steps })) return false;
+    return true;
+  };
+  const spots = SPOT_DIRS.map(d => ({ x: at.x + d.x * reach, y: at.y + d.y * reach }))
+    .filter(p => p.x >= r && p.y >= r && p.x <= arena.width - r && p.y <= arena.height - r && walkable(p));
+  const key = (p: Vec): [number, number] => [Math.round(dist(p, hero) * 100), dist(p, door)];
+  spots.sort((a, b) => { const ka = key(a), kb = key(b); return ka[0] - kb[0] || ka[1] - kb[1]; });
+  return spots[0] ?? null;
 }
 
 /** Units between the body and the cliff's edge at the jump's spot, and between the aim and the jump's reach. */

@@ -14,13 +14,13 @@ import { Simulation, type Journal } from '../sim/simulation';
 import { ITEM_TITLES, SLOT_ITEMS, type Loadout } from '../sim/kit';
 import { RESOURCE_KINDS, RESOURCES } from '../forest/resources';
 import type { World } from '../sim/world';
-import { createFightObserver, median, WOLF_RUSH_SOURCE } from './observe';
+import { createFightObserver, median, DEATH_SERIES_WINDOW, WOLF_RUSH_SOURCE } from './observe';
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
-  type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type RunRecord, type ThreatTally,
+  type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type RunRecord, type ThreatTally,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
-import { RT_KIND_TITLES } from '../run/rtRunEnd';
+import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
 import { HINT_IDS, HINT_TITLES } from '../view/hints';
 import { PROLOGUE_ROOMS } from '../run/prologue';
 
@@ -245,6 +245,9 @@ const OUTCOME_TITLES: Record<string, string> = { victory: 'победа', defeat
 
 const kindTitle = (k: string): string => { const elite = k.endsWith('*'), base = elite ? k.slice(0, -1) : k; return `${KIND_TITLES[base] ?? SOURCE_TITLES[base] ?? base}${elite ? ' (элита)' : ''}`; };
 const sourceTitle = (s: string): string => SOURCE_TITLES[s] ?? s;
+/** The killing blow as the runs table names it: the striker's kind (— without one), the source, the elite, the affixes. */
+const killerTitle = (d: { enemy?: string; source: string; elite?: boolean; affixes?: readonly string[] }): string =>
+  `${d.enemy ? kindTitle(d.enemy) : '—'}, ${sourceTitle(d.source)}${d.elite ? ', элита' : ''}${d.affixes?.length ? ` (${d.affixes.join(', ')})` : ''}`;
 const arenaTitle = (id: string): string => { try { return `${arenaTemplate(id).name} (${id})`; } catch { return id; } };
 const n1 = (x: number): string => (Math.round(x * 10) / 10).toLocaleString('ru-RU');
 const n2 = (x: number): string => (Math.round(x * 100) / 100).toLocaleString('ru-RU');
@@ -900,7 +903,7 @@ function runsSection(runs: readonly RunRecord[], entries: readonly FightEntry[])
   if (!runs.length) return '_походов нет_';
   const rows = runs.map(r => {
     const d = r.death;
-    const death = d ? `${d.enemy ? kindTitle(d.enemy) : '—'}, ${sourceTitle(d.source)}${d.elite ? ', элита' : ''}${d.affixes?.length ? ` (${d.affixes.join(', ')})` : ''}${d.fight ? ` — \`${d.fight}\`${d.tick !== undefined ? `, такт ${d.tick}` : ''}` : ''}` : '—';
+    const death = d ? `${killerTitle(d)}${d.fight ? ` — \`${d.fight}\`${d.tick !== undefined ? `, такт ${d.tick}` : ''}` : ''}` : '—';
     const fights = entries.filter(e => e.record.run === r.run).length;
     return [`\`${r.run}\``, r.session, r.tester ?? '—', r.seed, OUTCOME_TITLES[r.outcome] ?? r.outcome, r.farRow, death, fights, r.nodes.map(n => `${n.nodeId} ${n.hpIn}→${n.hpOut}`).join(', ') || '—'];
   });
@@ -982,6 +985,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Бои походов', '', table(FIGHT_HEAD, fightRows(runFights)), '',
     '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
+    // Task 25 «От чего умирают».
+    '## От чего умирают', '', deathSection(fights), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.
@@ -1013,6 +1018,77 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Песочница', '', sandbox.length ? [table(FIGHT_HEAD, fightRows(sandbox)), '', ...secondWindLine(sandbox) ? [secondWindLine(sandbox)!, ''] : [], '### Угрозы в песочнице', '', table(THREAT_HEAD, threatRows(sandbox))].join('\n') : '_боёв песочницы нет_', '');
   return out.join('\n');
 }
+
+// ---- Task 25 «От чего умирают» (observe.ts `death`; docs/realtime-telemetry.md, section 8) ----
+
+/** One death of the report: its fight, the run row (null — the sandbox), the death (null — no data: an older record without a replay). */
+export interface DeathEntry { entry: FightEntry; row: number | null; death: FightDeath | null }
+
+/**
+ * The fights the hero died in: lost (`outcome` defeat) or with a death in the summary — the replay's, else (no replay) the
+ * browser's field; an older browser record without the field has no data (null).
+ */
+export function deathEntries(fights: readonly FightEntry[]): DeathEntry[] {
+  return fights.flatMap(e => {
+    const death = e.analysis ? e.analysis.summary.death ?? null : (e.record.summary as Partial<FightSummary>).death ?? null;
+    if (!death && e.record.outcome !== 'defeat') return [];
+    return [{ entry: e, row: e.record.run === SANDBOX_RUN ? null : e.record.row ?? null, death }];
+  });
+}
+
+const GUARD_TITLES: Record<DeathGuard, string> = { chain: 'щит цепи', focus: 'Щит фокуса', invuln: 'неуязвимость' };
+const MOVE_TITLES: Record<string, string> = { dash: 'на проходе', jump: 'в прыжке', return: 'на возврате молота' };
+/** A hit source in this section: the report's name, else the run's (the goblin's arrows and blast), else the id. */
+const deathSourceTitle = (s: string): string => SOURCE_TITLES[s] ?? RT_DEATH_ABILITY[s] ?? s;
+/** The killing blow in one short key: the source and the striker (the summaries group by it). */
+const killerKey = (d: FightDeath | null): string => (d ? `${deathSourceTitle(d.source)}${d.enemy ? ` — ${kindTitle(d.elite ? `${d.enemy}*` : d.enemy)}` : ''}` : 'нет данных');
+/** «касание ×6 за 4 с»: hits of a source and the game seconds from its first hit in the window to the death. */
+const seriesPart = (x: FightDeath['series'][number]): string => `${deathSourceTitle(x.source)} ×${x.hits}${x.span >= 0.05 ? ` за ${n1(x.span)} с` : ''}`;
+const counts = (keys: readonly string[]): string => {
+  const by: Record<string, number> = {};
+  for (const k of keys) bump(by, k);
+  return Object.entries(by).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, v]) => `${k}: ${v}`).join(', ') || '—';
+};
+
+function deathRow(d: DeathEntry): (string | number)[] {
+  const r = d.entry.record, x = d.death;
+  const head = [`\`${r.fight}\`${x ? `, такт ${x.tick}` : ''}`, r.run === SANDBOX_RUN ? 'песочница' : `\`${r.run}\``, d.row ?? '—', arenaTitle(r.arena)];
+  if (!x) return [...head, '—', '—', '—', '—', '—', '—', '—'];
+  const total = x.series.reduce((a, s) => a + s.damage, 0), main = x.series[0];
+  const window = (Object.keys(GUARD_TITLES) as DeathGuard[]).filter(g => x.guardInWindow[g] > 0).map(g => `${GUARD_TITLES[g]} ${n2(x.guardInWindow[g])}`);
+  return [
+    ...head, `${killerTitle(x)}${x.armor ? ', броня' : ''}`, x.damage, x.series.map(seriesPart).join(', ') || '—',
+    main ? `${deathSourceTitle(main.source)} (${main.damage} из ${total} HP)` : '—',
+    x.guardAtHit.length ? x.guardAtHit.map(g => GUARD_TITLES[g]).join(', ') : 'нет', window.join('; ') || 'нет',
+    x.moving ? MOVE_TITLES[x.moving] ?? x.moving : x.landing === null ? '—' : `${x.landing} (${n2(x.landing / 60)} с)`,
+  ];
+}
+const DEATH_HEAD = ['Бой', 'Поход', 'Ряд', 'Арена', 'Сразил', 'Удар, HP', `Серия за ${DEATH_SERIES_WINDOW} с`, 'Главный источник', 'Защита при ударе', 'Защита в окне, с', 'Посадка, тактов'];
+const DEATH_LEGEND = `Задача 25 (с 15.10.2026; поле сводки \`death\`, повтор журнала считает его заново): каждая смерть героя в бою — бои походов и песочницы. Ряд — ряд похода (в песочнице «—»). «Сразил» — смертельный удар (последний \`hit\` перед \`defeat\`): вид врага, источник, элита, аффиксы, как в «Причине смерти» похода (\`RtDeath\`). Серия — удары по герою за последние ${DEATH_SERIES_WINDOW} с игрового времени до смерти, включая смертельный, по источнику: «касание ×6 за 4 с» — шесть касаний, первое за 4 с до смерти; главный источник — снявший больше HP в серии. Защита при ударе — щит цепи (\`chainShield\` после такта), «Щит фокуса» и неуязвимость (на взгляде перед тактом; неуязвимость — за вычетом такта): сквозь них бьют только иглы дикобраза и взрыв гоблина. Защита в окне — игровые секунды каждой защиты в окне серии (на конец каждого такта); неуязвимость даёт и каждый удар серии. Посадка — тактов (1/60 с игрового времени) от конца последнего прохода, прыжка или возврата молота (\`world.move\` кончился) до смертельного удара; «—» — движения в бою до удара не было; «на проходе» — удар пришёл в проходе (иглы). Старые записи без поля и без повтора — «—». Наблюдение на малом числе смертей, не оценка баланса.`;
+
+/** The section «От чего умирают»: each death, then the deaths by run row and by arena with the killing blow. */
+function deathSection(fights: readonly FightEntry[]): string {
+  const deaths = deathEntries(fights);
+  if (!deaths.length) return `${DEATH_LEGEND}\n\nСмертей нет: боёв ${fights.length}, поражений 0.`;
+  const main = (d: DeathEntry): string => (d.death?.series[0] ? deathSourceTitle(d.death.series[0].source) : 'нет данных');
+  const rowKey = (d: DeathEntry): string => (d.row === null ? '—' : String(d.row));
+  const rowKeys = [...new Set(deaths.map(rowKey))].sort((a, b) => (a === '—' ? 1 : b === '—' ? -1 : Number(a) - Number(b)));
+  const byRow = rowKeys.map(k => {
+    const list = deaths.filter(d => rowKey(d) === k);
+    return [k, list.length, counts(list.map(d => killerKey(d.death))), counts(list.map(main))];
+  });
+  const arenas = [...new Set(deaths.map(d => d.entry.record.arena))].sort();
+  const byArena = arenas.map(a => {
+    const list = deaths.filter(d => d.entry.record.arena === a);
+    return [arenaTitle(a), list.length, counts(list.map(rowKey)), counts(list.map(d => killerKey(d.death))), counts(list.map(main))];
+  });
+  return [
+    DEATH_LEGEND, '', table(DEATH_HEAD, deaths.map(deathRow)), '',
+    '### Смерти по рядам', '', table(['Ряд', 'Смертей', 'Сразил', 'Главный источник серии'], byRow), '',
+    '### Смерти по аренам', '', table(['Арена', 'Смертей', 'Ряды', 'Сразил', 'Главный источник серии'], byArena),
+  ].join('\n');
+}
+// ---- end «От чего умирают» ----
 
 // ---- Task 16 «Подвиги» (sim/feat.ts, run/rtRun.ts; docs/realtime-slice.md, «Подвиги») ----
 

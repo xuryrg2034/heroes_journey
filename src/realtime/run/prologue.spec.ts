@@ -12,10 +12,13 @@
  * - rooms 2–4: the return puts the hero back on his start too, and the hand's chain drawn from there wins; the spin (Q)
  *   starts a return as a dash does;
  * - room 1 has no return; room 8 returns only when no start enemy is left and the lever was never pulled;
- * - room 8: the hand's chain is the lever alone until the far ring walks in, then the enemies and the lever; the lever pulled
- *   meets the goal; three pulls, none risky, no bust (several seeds); standing still 10 s costs at most 3 HP; task 11: each
- *   pull is a sure triple (no rain, volley or pair — so no slot hit), the goblin rolls no safe count whatever the panel, the
- *   room shows no bust (`slotMayBust`) — on 40 seeds;
+ * - room 8: the hand's chain is the four blue and the lever; standing still 10 s from the waking press costs at most 3 HP;
+ *   task 11: the first pull is a sure triple (no rain, volley or pair — so no slot hit), the goblin rolls no safe count whatever
+ *   the panel — on 40 seeds; task 24 «Урок перебора» (design 15.10.2026): two pulls, the second the show bust (fuse 1.2 s,
+ *   radius 3.5, −4); a pull counts for the goal once its reels stopped (the bust — once it went off), so the door opens only
+ *   after the blast; the enemies sleep from the first pull on; while the reels spin or the bust burns the hand leads out of the
+ *   circle (`prologueHandSpot`), after the cooldown it shows the lever alone; leaving during the reels — 0 damage, standing until
+ *   «lit» — −4, with a touch in the first pull's tick and with sleeping blues chained into the second pull;
  * - rooms 1–4: the hero walking into the enemies loses no HP, the enemies stand; rooms 8–10: the enemies walk and hit;
  * - room 10 «Толпа» (softened by design 13.10.2026): the hero kills with real chains; enemies and markers never exceed 8, the inflow
  *   comes as he kills and varies by seed, every hit on him costs 1 HP, the start energy is one jump, the goblin stands from the start;
@@ -199,8 +202,10 @@ check('the rooms: ten, in order (task 9; task 13: «Щит» between «Гобл�
     assert(p9.contactDamage === 1 && !p9.toughTouch && p9.heroHp === 15 && p9.maxEnemies === 0 && p9.enemySpeed === 1.2 && p9.invulnerability === 0.5 && p9.invulnerabilityMode === 'constant', 'room 9: touch 1, HP 15, no inflow, the run\'s pace, 0.5 s after a hit');
   }
   const p8 = prologueParams(GOBLIN), goblinRoom = prologueRoom(GOBLIN).arena;
-  assert(p8.slot && p8.slotBust && p8.slotPulls === 3 && p8.slotSafePulls === 3 && p8.slotSafePerLongChain === 0 && p8.contactDamage === 1, 'room 8 numbers');
-  assert(Math.abs(p8.enemySpeed - prologueParams(4).enemySpeed * 0.6) < 1e-9 && goblinRoom.enemies.length === 6 && goblinRoom.sleepUntilChain, 'room 8: six enemies, asleep until the first press, ×0.6 the run\'s pace');
+  assert(p8.slot && p8.slotBust && p8.slotPulls === 2 && p8.slotSafePulls === 1 && p8.slotBustChance === 1 && p8.slotCooldown === 3 && p8.slotPullGoalSettled && p8.slotSafePerLongChain === 0 && p8.contactDamage === 1, 'room 8 numbers');
+  assert(p8.slotBustArea && p8.slotBustRadius === 3.5 && p8.slotBustDamage === 4 && p8.slotBustFuse === 1.2, 'room 8: the run\'s bust circle, the prologue\'s fuse 1.2 s');
+  assert(Math.abs(p8.enemySpeed - prologueParams(4).enemySpeed * 0.6) < 1e-9 && goblinRoom.enemies.length === 4 && goblinRoom.sleepUntilChain && goblinRoom.sleepAfterPull && goblinRoom.killGoal === 2, 'room 8: four blue, asleep until the first press and from the first pull on, ×0.6 the run\'s pace, the lever twice');
+  assert(PROLOGUE_ROOMS.every(r => !!r.arena.sleepAfterPull === (r.number === GOBLIN)) && PROLOGUE_ROOMS.every(r => !!prologueParams(r.number).slotPullGoalSettled === (r.number === GOBLIN)), 'task 24: only room 8');
   assert(p8.invulnerability === 3.4 && p8.invulnerabilityMode === 'constant', 'room 8: 3.4 s after a hit');
   assert(PROLOGUE_ROOMS.map(r => r.arena.calm ? 'calm' : '-').join(',') === 'calm,calm,calm,calm,calm,calm,calm,-,-,-', 'calm rooms 1–7');
   assert(PROLOGUE_ROOMS.map(r => r.arena.restore ?? '-').join(',') === 'none,afterDash,afterDash,afterDash,afterDash,afterDash,-,whenGone,afterDash,none', 'return by room');
@@ -221,7 +226,7 @@ check('rooms 1–4 and 8: the ghost hand\'s chain, drawn by the commands, is the
   for (const r of HAND_ROOMS) for (const k of [1, 2, 3]) {
     const sim = room(r.number, k), w = sim.world, label = `${r.id} seed ${k}`;
     const route = prologueRoute(w, r.number);
-    // Room 8: the four blue round the goblin, then the lever (the reds are another colour).
+    // Room 8: the four blue round the goblin, then the lever.
     assert(r.number === GOBLIN ? route.length === 5 && route[4].kind === 'object' : route.length === r.route!.length, `${label}: the route on the arena`);
     const hand = planChain(w, route);
     const plan = draw(sim, route);
@@ -229,11 +234,18 @@ check('rooms 1–4 and 8: the ghost hand\'s chain, drawn by the commands, is the
     assert(!doorOpen(w) && goalLamps(w).lit === 0, `${label}: the door shut before`);
     const events = dash(sim);
     planIsDash(plan, events, label);
-    assert(doorOpen(w) && events.some(e => e.type === 'goals'), `${label}: the goal is met, the door opens (${JSON.stringify(goalProgress(w))})`);
-    const lamps = goalLamps(w);
-    assert(lamps.lit === lamps.total && lamps.total === (r.arena.goal === 'marked' ? 1 : r.arena.killGoal), `${label}: all lamps (${JSON.stringify(lamps)})`);
+    if (r.number === GOBLIN) {
+      // Task 24: the first pull counts once its reels stop — one lamp of two; the door waits for the show bust.
+      assert(events.some(e => e.type === 'slot' && e.action === 'pull') && !doorOpen(w) && goalLamps(w).lit === 0, `${label}: ends on the lever, no lamp while the reels spin`);
+      wait(sim, 1.3);
+      const lamps = goalLamps(w);
+      assert(!doorOpen(w) && lamps.lit === 1 && lamps.total === 2, `${label}: one lamp of two after the reels (${JSON.stringify(lamps)})`);
+    } else {
+      assert(doorOpen(w) && events.some(e => e.type === 'goals'), `${label}: the goal is met, the door opens (${JSON.stringify(goalProgress(w))})`);
+      const lamps = goalLamps(w);
+      assert(lamps.lit === lamps.total && lamps.total === (r.arena.goal === 'marked' ? 1 : r.arena.killGoal), `${label}: all lamps (${JSON.stringify(lamps)})`);
+    }
     if (r.number === 4) assert(events.some(e => e.type === 'colorShift'), `${label}: through the colour shift`);
-    if (r.number === GOBLIN) assert(events.some(e => e.type === 'slot' && e.action === 'pull'), `${label}: ends on the lever`);
     wait(sim, 2);
     assert(restores(w) === 0, `${label}: no return after the goal`);
     replays(sim, label);
@@ -255,7 +267,7 @@ check('the hand when it shows (4 s without a press; from the start, or after a s
     assert(JSON.stringify(plan.links) === JSON.stringify(hand.links), `${label}: the hand's highlight is the drawn one`);
     const events = dash(sim);
     planIsDash(plan, events, label);
-    if (r.number >= 2) assert(doorOpen(w), `${label}: the goal is met (${JSON.stringify(goalProgress(w))})`);
+    if (r.number >= 2 && r.number !== GOBLIN) assert(doorOpen(w), `${label}: the goal is met (${JSON.stringify(goalProgress(w))})`);
     if (r.number === GOBLIN) assert(route[route.length - 1].kind === 'object' && events.some(e => e.type === 'slot' && e.action === 'pull'), `${label}: ends on the lever`);
     replays(sim, label);
   }
@@ -290,7 +302,8 @@ check('no hand from where the hero walked: the spot the view points to (`prologu
     assert(route.length > 0 && prologueHandSpot(w, r.number) === null, `${label}: from the spot the hand has a chain`);
     const plan = draw(sim, route), events = dash(sim);
     planIsDash(plan, events, label);
-    if (r.number >= 2) assert(doorOpen(w), `${label}: the goal is met from the spot`);
+    if (r.number === GOBLIN) assert(events.some(e => e.type === 'slot' && e.action === 'pull'), `${label}: the lever pulled from the spot`);
+    else if (r.number >= 2) assert(doorOpen(w), `${label}: the goal is met from the spot`);
     else assert(plan.kills === route.length, `${label}: the chain kills what it takes`);
     replays(sim, `${label} spot`);
   }
@@ -476,19 +489,7 @@ function killDownTo(sim: Simulation, left: number): void {
   }, 60 * 40);
 }
 
-/**
- * Room 8: the lever alone once more, as a player would: the enemies left are killed by chains first (they walk in), the hero
- * walks back next to the lever, its cooldown and spin over — the press on it, the release.
- */
-function pullAgain(sim: Simulation): void {
-  const w = sim.world;
-  killDownTo(sim, 0);
-  walkTo(sim, goblinOf(w)!, 1.2);
-  until(sim, x => !goblinOf(x)!.spin && x.time >= goblinOf(x)!.ready && !x.move, 60 * 10);
-  draw(sim, [{ kind: 'object', id: goblinOf(w)!.id }]);
-}
-
-check('room 8: the enemies sleep until the first press — 10 s without one: HP 15, everybody on the posts; the hand at that moment is 4 blue → the lever, drawn by the commands (the press wakes them), it meets the goal; three pulls, none risky, no bust (seeds 1–5)', () => {
+check('room 8: the enemies sleep until the first press — 10 s without one: HP 15, everybody on the posts; the hand at that moment is 4 blue → the lever, drawn by the commands (the press wakes them); the pull is a sure triple, the enemies sleep from it on (seeds 1–5)', () => {
   for (let k = 1; k <= 5; k++) {
     const sim = room(GOBLIN, k), w = sim.world, label = `seed ${k}`;
     assert(goblinOf(w) && w.slot?.goblin?.pulls === 0 && w.asleep, `${label}: the goblin stands, the enemies sleep`);
@@ -503,20 +504,143 @@ check('room 8: the enemies sleep until the first press — 10 s without one: HP 
     assert(!w.asleep, `${label}: the press woke them`);
     const events = dash(sim);
     planIsDash(plan, events, label);
-    assert(doorOpen(w) && goblinOf(w)!.pulls === 1 && plan.kills === 4, `${label}: the pull meets the goal`);
-    // Two more pulls: the lever alone (the reds killed first, back to the lever, its cooldown and spin over).
-    for (const pull of [2, 3]) {
-      pullAgain(sim);
-      dash(sim);
-      assert(goblinOf(w)!.pulls === pull, `${label}: pull ${pull}`);
-    }
-    wait(sim, 3);
-    const pulls = w.events.filter(e => e.type === 'slot' && e.action === 'pull');
-    assert(pulls.length === 3 && pulls.every(e => e.type === 'slot' && e.risky === false && e.bust === false && e.outcome !== 'bust'), `${label}: ${JSON.stringify(pulls.map(e => e.type === 'slot' && [e.risky, e.outcome]))}`);
-    assert(goblinOf(w) && !w.events.some(e => e.type === 'hit' && e.source === 'slot-bust'), `${label}: the goblin is whole`);
+    const pull = events.find(e => e.type === 'slot' && e.action === 'pull');
+    assert(pull?.type === 'slot' && pull.risky === false && pull.triple === true && goblinOf(w)!.pulls === 1 && plan.kills === 4 && w.asleep, `${label}: a safe triple, the room asleep`);
     replays(sim, `room 8 ${label}`);
   }
 });
+
+/** Room 8 (task 24): ticks until the show bust's blast (or the fight's end); the events of those ticks. */
+function untilBlast(sim: Simulation): WorldEvent[] {
+  const w = sim.world, from = w.events.length;
+  until(sim, x => x.status !== 'playing' || x.events.slice(from).some(e => e.type === 'slot' && e.action === 'blast'), 60 * 8);
+  return w.events.slice(from);
+}
+/** The lever alone once its cooldown and reels are over, as the hand shows it — from the hand's spot when the lever is out of reach. */
+function leverAgain(sim: Simulation, label: string): WorldEvent[] {
+  const w = sim.world;
+  until(sim, x => !goblinOf(x)!.spin && x.time + 1e-9 >= goblinOf(x)!.ready && !x.move, 60 * 10);
+  let route = prologueRoute(w, GOBLIN);
+  if (!route.length) {
+    const spot = prologueHandSpot(w, GOBLIN);
+    assert(spot, `${label}: a spot by the lever`);
+    walkTo(sim, spot, 0.05);
+    route = prologueRoute(w, GOBLIN);
+  }
+  assert(route.length === 1 && route[0].kind === 'object' && route[0].id === goblinOf(w)!.id, `${label}: the hand shows the lever alone (${JSON.stringify(route)})`);
+  draw(sim, route);
+  return dash(sim);
+}
+const bustHits = (events: readonly WorldEvent[]): number => events.filter(e => e.type === 'hit' && e.source === 'slot-bust').reduce((n, e) => n + (e.type === 'hit' ? e.damage : 0), 0);
+
+check('room 8, task 24 «Урок перебора»: the first pull — the hand leads out of the circle while the reels spin (a spot past it, walked to by the commands); then the lever alone; the second pull is the show bust (fuse 1.2 s, radius 3.5). (1) Out during the reels: 0 damage; (2) standing until «lit»: −4. The door opens in the blast\'s tick, not before; the walk into it wins (seeds 1–5)', () => {
+  for (let k = 1; k <= 5; k++) for (const plan of ['leave', 'stand'] as const) {
+    const sim = room(GOBLIN, k), w = sim.world, label = `seed ${k} ${plan}`;
+    draw(sim, prologueRoute(w, GOBLIN));
+    dash(sim);
+    // The reels of the first pull: no hand chain, the spot out of the circle.
+    const g = goblinOf(w)!, R = w.params.slotBustRadius + heroRadius(w.params);
+    assert(g.spin && prologueRoute(w, GOBLIN).length === 0, `${label}: the reels spin, no chain`);
+    const out = prologueHandSpot(w, GOBLIN);
+    assert(out && Math.hypot(out.x - g.x, out.y - g.y) >= R + 0.5 - 1e-6, `${label}: the spot past the circle ${JSON.stringify(out)}`);
+    walkTo(sim, out, 0.05);
+    assert(!doorOpen(w), `${label}: the door shut after one pull`);
+    const second = leverAgain(sim, label);
+    const pull = second.find(e => e.type === 'slot' && e.action === 'pull');
+    assert(pull?.type === 'slot' && pull.risky === true && pull.bust === true && goblinOf(w)!.pulls === 2, `${label}: the second pull busts`);
+    // While the reels spin and the fuse burns the door stays shut; the hand leads out.
+    if (plan === 'leave') {
+      const spot = prologueHandSpot(w, GOBLIN);
+      assert(spot && prologueRoute(w, GOBLIN).length === 0, `${label}: the hand leads out during the reels`);
+      walkTo(sim, spot, 0.05);
+      assert(goblinOf(w)!.spin || w.blasts.some(b => b.bust), `${label}: out before the blast`);
+    }
+    let shutUntilBlast = true;
+    const from = w.events.length;
+    until(sim, x => {
+      const blasted = x.events.slice(from).some(e => e.type === 'slot' && e.action === 'blast');
+      if (!blasted && doorOpen(x)) shutUntilBlast = false;
+      return blasted || x.status !== 'playing';
+    }, 60 * 8);
+    const events = w.events.slice(from), lit = events.find(e => e.type === 'slot' && e.action === 'lit'), blast = events.find(e => e.type === 'slot' && e.action === 'blast');
+    assert(lit?.type === 'slot' && lit.fuse === 1.2 && blast?.type === 'slot' && blast.r === 3.5, `${label}: lit ${JSON.stringify(lit)}, blast ${JSON.stringify(blast)}`);
+    assert(shutUntilBlast && doorOpen(w) && events.some(e => e.type === 'goals'), `${label}: the door opens with the blast, not before`);
+    if (plan === 'leave') assert(blast.inside === false && bustHits(events) === 0 && w.hero.hp === 15, `${label}: out — no damage (HP ${w.hero.hp})`);
+    else assert(blast.inside === true && blast.hurt === true && bustHits(events) === 4, `${label}: stood — −4 (${bustHits(events)})`);
+    // The walk into the open door wins.
+    walkTo(sim, { x: w.arena.door.x - 0.3, y: w.arena.door.y }, 0.4);
+    until(sim, x => x.status !== 'playing', 60 * 3);
+    assert(w.status === 'victory', `${label}: the walk in wins`);
+    replays(sim, `room 8 task 24 ${label}`);
+  }
+});
+
+check('room 8, task 24: the invulnerability after a touch cannot spare the show bust — a touch in the first pull\'s tick (the lever alone, the enemies awake), the second pull at once after the cooldown, the hero stands: −4; and sleeping blues chained into the second pull (the after-chain shield up) — −4 too (seeds 1–5)', () => {
+  for (let k = 1; k <= 5; k++) for (const into of ['lever', 'blues'] as const) {
+    const sim = room(GOBLIN, k), w = sim.world, label = `seed ${k} ${into}`;
+    // Next to the lever (the walk does not wake them), an empty press wakes them; the hero waits for the first touch.
+    const g = goblinOf(w)!;
+    walkTo(sim, { x: g.x - 1.2, y: g.y }, 0.05);
+    sim.command({ t: 'begin', x: w.arena.width - 0.5, y: 0.5 });
+    assert(!w.asleep, `${label}: awake`);
+    const mark = w.events.length;
+    until(sim, x => x.events.slice(mark).some(e => e.type === 'hit'), 60 * 15);
+    // In the very next command: the lever alone (the hero within its reach), released — the first pull.
+    draw(sim, [{ kind: 'object', id: g.id }]);
+    dash(sim);
+    assert(goblinOf(w)!.pulls === 1 && w.asleep && w.hero.invulnerable > 0, `${label}: pulled, asleep, the touch's grace on (${w.hero.invulnerable.toFixed(2)})`);
+    until(sim, x => !goblinOf(x)!.spin && x.time + 1e-9 >= goblinOf(x)!.ready && !x.move, 60 * 10);
+    walkTo(sim, { x: g.x - 1.2, y: g.y }, 0.05);
+    const hp = w.hero.hp;
+    if (into === 'lever') draw(sim, [{ kind: 'object', id: g.id }]);
+    else {
+      const links = sleepersIntoLever(w);
+      assert(links.length >= 2, `${label}: a chain of sleeping blues into the lever (${links.length - 1} blues)`);
+      drawByPoints(sim, links);
+    }
+    const pulled = dash(sim);
+    assert(pulled.some(e => e.type === 'slot' && e.action === 'pull' && e.bust === true), `${label}: the second pull busts`);
+    if (into === 'blues') assert(pulled.some(e => e.type === 'chainHit'), `${label}: the chain struck the sleepers`);
+    const events = untilBlast(sim), blast = events.find(e => e.type === 'slot' && e.action === 'blast');
+    assert(blast?.type === 'slot' && blast.inside && blast.hurt && bustHits(events) === 4 && w.hero.hp === hp - 4, `${label}: −4 at the idol (hurt ${blast?.type === 'slot' && blast.hurt}, HP ${hp} → ${w.hero.hp})`);
+    replays(sim, `room 8 guard ${label}`);
+  }
+});
+
+/**
+ * Room 8: the longest chain of sleeping enemies then the lever the drawn chain may take now (each next link one `canLink` takes,
+ * the lever last by `canLinkObject`) — a search over the orders; the drawn chain is put back.
+ */
+function sleepersIntoLever(w: World): ChainLink[] {
+  const saved = w.chain, lever = goblinOf(w)!, ids = w.enemies.map(e => e.id);
+  let best: ChainLink[] = [];
+  const path: ChainLink[] = [];
+  const fits = (next: ChainLink): boolean => {
+    w.chain = [...path];
+    const plan = planChain(w, path), e = next.kind === 'enemy' ? w.enemies.find(x => x.id === next.id) : undefined;
+    return e ? canLink(w, e, plan) : canLinkObject(w, w.objects.find(o => o.id === next.id)!, plan);
+  };
+  const visit = (): void => {
+    if (path.length && fits({ kind: 'object', id: lever.id }) && path.length + 1 > best.length) best = [...path, { kind: 'object', id: lever.id }];
+    for (const id of ids) {
+      if (path.some(l => l.id === id) || !fits({ kind: 'enemy', id })) continue;
+      path.push({ kind: 'enemy', id }); visit(); path.pop();
+    }
+  };
+  try { visit(); } finally { w.chain = saved; }
+  return best;
+}
+/** Draws `links` by a press on the first and a drag to each next point (a fast pointer); the drawn chain must be `links`. */
+function drawByPoints(sim: Simulation, links: readonly ChainLink[]): void {
+  const w = sim.world, first = linkPoint(w, links[0])!;
+  assert(sim.command({ t: 'begin', x: first.x, y: first.y }) === true, 'the press on the first link');
+  for (const link of links.slice(1)) {
+    sim.tick();
+    const to = linkPoint(w, link)!;
+    sim.command({ t: 'drag', x: to.x, y: to.y, mode: 'full' });
+  }
+  assert(sameLinks(w.chain, links), `drawn ${JSON.stringify(w.chain)}, wanted ${JSON.stringify(links)}`);
+}
 
 check('room 8: the hand never shows the lever alone (that chain still pulls it) — with no enemy chain into the lever, no hand', () => {
   const sim = room(GOBLIN, 2), w = sim.world;
@@ -529,7 +653,7 @@ check('room 8: the hand never shows the lever alone (that chain still pulls it) 
   assert(canLinkObject(w, w.objects.find(o => o.id === lever.id)!), 'the lever alone is a chain');
   draw(sim, [lever]);
   dash(sim);
-  assert(goblinOf(w)!.pulls === 1 && doorOpen(w), 'the lever alone pulls it, as in the run');
+  assert(goblinOf(w)!.pulls === 1 && !doorOpen(w), 'the lever alone pulls it, as in the run; the door waits for the second pull (task 24)');
 });
 
 check('room 8 (design answer 12.10.2026): from the waking press 10 s without actions cost at most 3 HP of 15 — the enemies walk at ×0.6, touch for 1, 3.4 s after each hit (seeds 1–10)', () => {
@@ -756,29 +880,28 @@ check('the spin (Q) starts the return too: energy earned by chains, the spin kil
   replays(sim, 'room 2 spin');
 });
 
-check('room 8 (task 11, design 13.10.2026): three fixed safe pulls, each a sure triple — no skull (rain, volley, pair, nothing), no bust, no hit of the goblin; the goblin rolls no safe count, the panel cannot turn the run\'s random count on; the room shows no bust (`slotMayBust` false) — real pulls on 40 seeds', () => {
-  const p = prologueParams(GOBLIN), wild = prologueParams(GOBLIN, { ...defaultParams(), slotSafeRandom: true, slotSafeTriple: false, slotSafePulls: 0, slotSafePerLongChain: 2 });
-  for (const q of [p, wild]) assert(q.slotSafeTriple && !q.slotSafeRandom && q.slotSafePulls === 3 && q.slotPulls === 3 && q.slotSafePerLongChain === 0, `room 8 numbers over any panel: ${JSON.stringify([q.slotSafeTriple, q.slotSafeRandom, q.slotSafePulls])}`);
+check('room 8 (task 11; task 24, design 15.10.2026): the first pull a sure triple — no skull (rain, volley, pair, nothing), no slot hit; the second the show bust; the goblin rolls no safe count, the panel cannot change the room\'s numbers; the room may bust (`slotMayBust`) — real pulls on 40 seeds', () => {
+  const p = prologueParams(GOBLIN), wild = prologueParams(GOBLIN, { ...defaultParams(), slotSafeRandom: true, slotSafeTriple: false, slotSafePulls: 0, slotSafePerLongChain: 2, slotBustChance: 0, slotPulls: 6, slotCooldown: 20, slotPullGoalSettled: false });
+  for (const q of [p, wild]) assert(q.slotSafeTriple && !q.slotSafeRandom && q.slotSafePulls === 1 && q.slotPulls === 2 && q.slotSafePerLongChain === 0 && q.slotBustChance === 1 && q.slotCooldown === 3 && q.slotPullGoalSettled, `room 8 numbers over any panel: ${JSON.stringify([q.slotSafeTriple, q.slotSafeRandom, q.slotSafePulls, q.slotBustChance])}`);
   const outcomes: Record<string, number> = {};
   for (let k = 1; k <= 40; k++) {
     const sim = room(GOBLIN, k), w = sim.world;
-    assert(!slotMayBust(w) && goblinOf(w) && goblinOf(w)!.safe === undefined, `seed ${k}: no bust shown, no rolled count`);
+    assert(slotMayBust(w) && goblinOf(w) && goblinOf(w)!.safe === undefined, `seed ${k}: the room may bust, no rolled count`);
     draw(sim, prologueRoute(w, GOBLIN));
-    for (let pull = 1; pull <= 3; pull++) {
-      if (pull > 1) pullAgain(sim);
-      const mark = w.events.length;
-      dash(sim);
-      wait(sim, 2);
-      const events = w.events.slice(mark), out = events.find(e => e.type === 'slot' && e.action === 'pull');
-      assert(out?.type === 'slot' && out.triple === true && out.risky === false && /^(heart3|bolt3|gem3|jackpot)$/.test(out.outcome!) && out.reels!.every(r => r === out.reels![0]), `seed ${k} pull ${pull}: ${JSON.stringify(out)}`);
-      assert(!events.some(e => e.type === 'hit' && (e.source === 'slot-rain' || e.source === 'slot-volley' || e.source === 'slot-bust')), `seed ${k} pull ${pull}: no slot hit`);
-      outcomes[out.outcome!] = (outcomes[out.outcome!] ?? 0) + 1;
-    }
+    const mark = w.events.length;
+    dash(sim);
+    wait(sim, 2);
+    const events = w.events.slice(mark), out = events.find(e => e.type === 'slot' && e.action === 'pull');
+    assert(out?.type === 'slot' && out.triple === true && out.risky === false && /^(heart3|bolt3|gem3|jackpot)$/.test(out.outcome!) && out.reels!.every(r => r === out.reels![0]), `seed ${k} pull 1: ${JSON.stringify(out)}`);
+    assert(!events.some(e => e.type === 'hit' && (e.source === 'slot-rain' || e.source === 'slot-volley' || e.source === 'slot-bust')), `seed ${k} pull 1: no slot hit`);
+    outcomes[out.outcome!] = (outcomes[out.outcome!] ?? 0) + 1;
+    const second = leverAgain(sim, `seed ${k}`).find(e => e.type === 'slot' && e.action === 'pull');
+    assert(second?.type === 'slot' && second.risky === true && second.bust === true && second.outcome === 'bust', `seed ${k} pull 2: ${JSON.stringify(second)}`);
     assert(goblinOf(w) && !w.rng.states().some(([name]) => name === 'slot:reels' || name === 'slot:safe'), `seed ${k}: no reels drawn, no safe roll`);
     if (k <= 3) replays(sim, `room 8 triples ${k}`);
   }
   assert(Object.keys(outcomes).length === 4, `the four triples came: ${JSON.stringify(outcomes)}`);
-  console.log(`   40 seeds × 3 pulls: ${JSON.stringify(outcomes)}`);
+  console.log(`   40 seeds: the first pull ${JSON.stringify(outcomes)}, the second a bust every time`);
 });
 
 // ---- Task 9 (design 13.10.2026): rooms 5 «Пропасть», 6 «Вихрь», 7 «Зелье» --------------------------------------------------
