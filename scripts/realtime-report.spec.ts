@@ -27,6 +27,11 @@
  *   records of the six rooms (no `roomCount`) count their rooms 5 and 6 as rooms 8 «Гоблин» and 10 «Толпа» (task 13: ten rooms);
  *   a nine-room record (`roomCount` 9) counts its room 9 «Толпа» as room 10, the rest as they are; a ten-room record
  *   counts its rooms as they are.
+ * - Task 25 «От чего умирают» (15.10.2026): two sandbox fights where the hero dies by real commands (deathFight.testkit.ts: a crowd
+ *   after an arrow and a dash; quills through the after-chain shield in a dash) agree with the replay; the section names the
+ *   killer, the series by source, the protections at the hit and in the window, the landing — checked against the kit's own
+ *   clock; the fixtures (before the field) get the run's death from the replay; an older record without the field and without a
+ *   replay is «—»; no deaths — «Смертей нет».
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -34,6 +39,7 @@ import { analyzeRecords, collectRecords, findFight, ashStats, hintStats, latestR
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
+import { DEATH_TEST_ARENA, playDeathFight } from '../src/realtime/telemetry/deathFight.testkit';
 import type { Simulation } from '../src/realtime/sim/simulation';
 import { defaultParams } from '../src/realtime/sim/params';
 import {
@@ -54,12 +60,12 @@ function readAll(dir: string): ReportInput[] {
 }
 
 /** The records the browser would write for a recorded sandbox fight: the fight with the live observer's summary, its journal parts. */
-async function sandboxRecords(sim: Simulation, summary: FightSummary, arena: string, session: string): Promise<RtRecord[]> {
+async function sandboxRecords(sim: Simulation, summary: FightSummary, arena: string, session: string, outcome: FightRecord['outcome'] = 'menu'): Promise<RtRecord[]> {
   const journal = sim.exportJournal()!, w = sim.world, packed = await packJournal(journal);
   const fight = fightKey(1, null, 1), at = '2026-10-11T10:00:00.000Z';
   const head = <K extends RtRecord['kind']>(id: string, kind: K) => ({ schema: RT_TELEMETRY_SCHEMA, id, kind, build: 'test', params: { storage: 's', hash: paramsHash(journal.params) }, session, run: SANDBOX_RUN, at });
   const record: FightRecord = {
-    ...head(fightRecordId(session, SANDBOX_RUN, fight), 'fight'), fight, arena, seed: journal.seed, outcome: 'menu',
+    ...head(fightRecordId(session, SANDBOX_RUN, fight), 'fight'), fight, arena, seed: journal.seed, outcome,
     ticks: w.tick, time: w.time, hpIn: 40, hpOut: w.hero.hp, endHash: sim.hash(), journal: packed.meta, summary,
   };
   const parts: JournalPart[] = packed.parts.map((data, i) => ({ ...head(journalPartId(session, SANDBOX_RUN, fight, i, packed.parts.length), 'journal'), fight, index: i, count: packed.parts.length, digest: packed.meta.digest, encoding: packed.meta.encoding, data }));
@@ -233,6 +239,62 @@ async function main(): Promise<void> {
     // The fixtures have no chest fights: the section is there, empty.
     const empty = md.slice(md.indexOf('## Проклятый сундук'), md.indexOf('## Кость у двери'));
     assert(empty.includes('_нет данных_'), 'no chest fights, no rows');
+  });
+
+  await check('task 25 «От чего умирают»: deaths by real commands (a crowd; quills through the after-chain shield in a dash) — the browser summary agrees with the replay; the section names the killer, the series, the protections, the landing; an older record without the field — «—»; no deaths — «Смертей нет»', async () => {
+    const crowd = playDeathFight('crowd'), quills = playDeathFight('quills');
+    const deathSet = collectRecords([
+      { name: 'death-a.json', text: JSON.stringify(await sandboxRecords(crowd.sim, crowd.summary, DEATH_TEST_ARENA, 'sdeath-a', 'defeat')) },
+      { name: 'death-b.json', text: JSON.stringify(await sandboxRecords(quills.sim, quills.summary, DEATH_TEST_ARENA, 'sdeath-b', 'defeat')) },
+    ]);
+    assert(!deathSet.problems.length, deathSet.problems.join('; '));
+    const dead = await analyzeRecords(deathSet);
+    assert(dead.fights.length === 2 && dead.fights.every(e => e.hashOk && !e.summaryDiff.length), `replayed with the same hash and summary (${dead.fights.map(e => e.error ?? e.summaryDiff.join('; ')).join(' | ')})`);
+    const byRun = (session: string) => dead.fights.find(e => e.record.session === session)!.analysis!.summary.death;
+    // The crowd, by the kit's own clock: an arrow, then five touches; the last touch is the lethal hit.
+    const a = byRun('sdeath-a'), deathTime = crowd.hits[crowd.hits.length - 1].time;
+    const touches = crowd.hits.filter(h => h.source === 'touch' && deathTime - h.time <= 5);
+    assert(a && a.tick === crowd.deathTick && a.source === 'touch' && a.enemy === 'basic' && !a.elite && a.damage === 1, `the crowd's killer ${JSON.stringify(a)}`);
+    assert(touches.length === 5 && a.series.length === 2 && a.series[0].source === 'touch' && a.series[0].hits === 5 && a.series[0].damage === 5
+      && Math.abs(a.series[0].span - (deathTime - touches[0].time)) < 0.006, `the series: touches first ${JSON.stringify(a.series)}`);
+    assert(a.series[1].source === 'arrow' && a.series[1].hits === 1 && Math.abs(a.series[1].span - (deathTime - crowd.hits[0].time)) < 0.006, `then the arrow ${JSON.stringify(a.series)}`);
+    assert(!a.guardAtHit.length && Math.abs(a.guardInWindow.chain - 0.5) < 0.02 && a.guardInWindow.focus === 0 && a.guardInWindow.invuln > 2, `no protection at the hit; the after-chain shield 0.5 s in the window ${JSON.stringify(a.guardInWindow)}`);
+    assert(crowd.landTick !== null && a.landing === crowd.deathTick - crowd.landTick && a.landing > 30 && a.moving === undefined, `the landing ${a.landing} = ${crowd.deathTick} − ${crowd.landTick}`);
+    // The quills: in the dash, through the after-chain shield that was still up (the kit's look before the lethal tick).
+    const b = byRun('sdeath-b');
+    assert(b && b.source === 'quills' && b.enemy === 'porcupine' && b.series.length === 1 && b.series[0].hits === 1, `the quills' killer ${JSON.stringify(b)}`);
+    assert(quills.shieldBefore - 1 / 60 > 0 && b.guardAtHit.join() === 'chain' && b.guardInWindow.chain > 0, `the shield at the hit ${JSON.stringify(b)}`);
+    assert(b.moving === 'dash' && b.landing === null && quills.landTick !== null, `in the dash: no landing ${JSON.stringify(b)}`);
+    const md5 = reportMarkdown(deathSet, dead, { now: new Date('2026-10-15T12:00:00Z'), source: 'death' });
+    const section = md5.slice(md5.indexOf('## От чего умирают'), md5.indexOf('## Элиты'));
+    const rowOf = (text: string): string => section.split('\n').find(l => l.startsWith('| `f01-x-a1`') && l.includes(text)) ?? '';
+    const crowdRow = rowOf(`такт ${crowd.deathTick} `), quillsRow = rowOf(`такт ${quills.deathTick} `);
+    assert(crowdRow.includes('| песочница | — | Поле смерти (телеметрия) (tlm-death-field) | обычный, касание | 1 | касание ×5 за ') && crowdRow.includes(', стрела ×1 за ')
+      && crowdRow.includes('| касание (5 из 6 HP) | нет | щит цепи 0,5; неуязвимость ') && crowdRow.endsWith(`| ${a.landing} (${(Math.round(a.landing! / 60 * 100) / 100).toLocaleString('ru-RU')} с) |`), `the crowd's row: ${crowdRow}`);
+    assert(quillsRow.includes('| дикобраз, иглы | 1 | иглы ×1 | иглы (1 из 1 HP) | щит цепи | щит цепи ') && quillsRow.endsWith('| на проходе |'), `the quills' row: ${quillsRow}`);
+    assert(section.includes('| — | 2 | иглы — дикобраз: 1, касание — обычный: 1 | иглы: 1, касание: 1 |'), `deaths by row: ${section}`);
+    assert(section.includes('| Поле смерти (телеметрия) (tlm-death-field) | 2 | —: 2 |'), 'deaths by arena');
+    // An older record (no field) whose journal is lost (no replay): the death is listed with «—», not an error.
+    const old = deathSet.records.filter(r => r.kind === 'fight' && r.session === 'sdeath-a').map(r => JSON.parse(JSON.stringify(r)) as FightRecord);
+    delete (old[0].summary as Partial<FightSummary>).death;
+    const oldSet = collectRecords([{ name: 'old.json', text: JSON.stringify(old) }]);
+    const oldAnalysis = await analyzeRecords(oldSet), md6 = reportMarkdown(oldSet, oldAnalysis, { now: new Date('2026-10-15T12:00:00Z'), source: 'old' });
+    assert(oldAnalysis.fights[0].analysis === null && withSummaryDefaults(old[0].summary).death === null, 'no replay; the defaults read null');
+    const oldSection = md6.slice(md6.indexOf('## От чего умирают'), md6.indexOf('## Элиты'));
+    assert(oldSection.includes('| `f01-x-a1` | песочница | — | Поле смерти (телеметрия) (tlm-death-field) | — | — | — | — | — | — | — |') && oldSection.includes('| — | 1 | нет данных: 1 | нет данных: 1 |'), `the older record: ${oldSection}`);
+    // A browser summary of an older build (no field) is not compared on it; a disagreeing one is caught.
+    const replayed = dead.fights[0].analysis!.summary;
+    assert(!summaryDiff(old[0].summary, replayed).length, `no diff on the absent field: ${summaryDiff(old[0].summary, replayed).join('; ')}`);
+    const wrong = JSON.parse(JSON.stringify(replayed)) as FightSummary;
+    wrong.death!.landing = 0;
+    assert(summaryDiff(wrong, replayed).join() === `death.landing: 0 ≠ ${replayed.death!.landing}`, `the diff names the death field: ${summaryDiff(wrong, replayed).join('; ')}`);
+    // The fixtures (written before the field): the replay counts the run's death again — the same blow and tick as the run record.
+    const fixtureRun = latestRuns(set.records)[0], fixtureDeath = md.slice(md.indexOf('## От чего умирают'), md.indexOf('## Элиты'));
+    assert(fixtureRun.death && fixtureDeath.includes(`| \`${fixtureRun.death.fight}\`, такт ${fixtureRun.death.tick} | \`${fixtureRun.run}\` |`) && fixtureDeath.includes('| обычный, касание |'), `the fixture death: ${fixtureDeath}`);
+    // No deaths: the section says so.
+    const calm = playChestFight(false), calmSet = collectRecords([{ name: 'calm.json', text: JSON.stringify(await sandboxRecords(calm.sim, calm.summary, CHEST_TEST_ARENA, 'scalm')) }]);
+    const calmMd = reportMarkdown(calmSet, await analyzeRecords(calmSet), { now: new Date('2026-10-15T12:00:00Z'), source: 'calm' });
+    assert(calmMd.slice(calmMd.indexOf('## От чего умирают'), calmMd.indexOf('## Элиты')).includes('Смертей нет: боёв 1, поражений 0.'), 'no deaths');
   });
 
   // Run and fight records written by hand: only what the П6 / П8 metrics read (the fights have no journals: no replay here).

@@ -733,6 +733,11 @@ export interface FightSummary {
   /** Task 16 «Подвиги» (from 14.10.2026; absent in older records — null): the feat of the fight; null — none. */
   feat: FeatSummary | null;
   /**
+   * Task 25 «От чего умирают» (from 15.10.2026; absent in older records — `withSummaryDefaults` reads null, the report shows «—»;
+   * a replay of the journal counts it again): the hero's death in this fight; null — he did not die.
+   */
+  death: FightDeath | null;
+  /**
    * Task 16 telemetry (from 14.10.2026): the viewer's first meetings during the fight (`RtRecorder.firstMeet`), counted by the view —
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
@@ -745,6 +750,48 @@ export interface FightSummary {
  * done), how the fight ended for it (`victory` — through the door, else the fight's end).
  */
 export interface FeatSummary { kind: string; n: number; done: boolean; at: number | null; value: number; missing: number; won: boolean }
+
+/** Task 25: a protection of the hero — the after-chain shield (`chainShield`), «Щит фокуса» (`focusGuarded`), invulnerability. */
+export type DeathGuard = 'chain' | 'focus' | 'invuln';
+
+/** Task 25: hits of one source in the series before the death (the lethal hit included). */
+export interface DeathSeriesSource {
+  /** Named as `damage.bySource` (a wolf's rush — `wolf-rush`). */
+  source: string;
+  hits: number;
+  damage: number;
+  /** Game seconds from the first hit of this source in the window to the lethal hit (0.01). */
+  span: number;
+}
+
+/**
+ * Task 25 «От чего умирают» (observe.ts; docs/realtime-telemetry.md, section 8): the hero's death in a fight — the lethal hit
+ * (the last `hit` before `defeat`), the series of hits before it, his protections and the landing after the last move.
+ */
+export interface FightDeath {
+  /** The tick of the lethal hit (`world.tick` after it). */
+  tick: number;
+  /** The lethal hit: its source (named as `damage.bySource`), HP it took; the striker as `RtDeath` (run/rtRunEnd.ts `rtDeathOf`). */
+  source: string;
+  damage: number;
+  enemy?: string;
+  elite?: true;
+  armor?: true;
+  affixes?: string[];
+  /** Hits in the last `DEATH_SERIES_WINDOW` game seconds up to the lethal one, by source: the most HP first (the main source). */
+  series: DeathSeriesSource[];
+  /** Protections up when the lethal hit came (only a piercing hit gets through them: the quills, the goblin's blast). */
+  guardAtHit: DeathGuard[];
+  /** Game seconds each protection was up in the series window (at the end of each tick; the lethal tick as `guardAtHit`, 0.01). */
+  guardInWindow: Record<DeathGuard, number>;
+  /**
+   * Ticks from the end of the last dash or jump (`world.move` became null) to the lethal hit; null — none ended before it, or
+   * the hero was in a move at the hit (`moving`).
+   */
+  landing: number | null;
+  /** The hero was in a move at the lethal hit (the quills strike in the dash): its kind. */
+  moving?: 'dash' | 'jump' | 'return';
+}
 
 /**
  * Task 14 «Котомка у двери» of one fight (docs/realtime-telemetry.md, section 8, «Котомка у двери»; sim/bag.ts). Read from the
@@ -980,6 +1027,7 @@ export function emptyFightSummary(): FightSummary {
     chest: { taken: null, liftedAt: null, cursedDamage: {} },
     bag: { appeared: false, steps: 0, killsAfterGoals: 0, resets: 0, payout: null, kinds: {} },
     feat: null,
+    death: null,
   };
 }
 
