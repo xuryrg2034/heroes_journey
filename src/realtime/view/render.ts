@@ -311,6 +311,10 @@ export class RealtimeRenderer {
   private readonly targetLayer = new Graphics();
   /** Stage 2, step 2: signals of the new enemies over the crowd (shield arcs). */
   private readonly signalLayer = new Graphics();
+  /** Task 19а: the goblin's lit bust circles, clipped to the arena's field by `bustMask` (the circle at the top edge stayed out of the frame, under the HUD). */
+  private readonly bustLayer = new Graphics();
+  /** The arena's field rectangle (redrawn in `buildArena`), the mask of `bustLayer`. */
+  private readonly bustMask = new Graphics();
   /** Phase A (Т3): the badge strip under bodies — the role on the left, room for elite affixes on the right (over the signals). */
   private readonly badgeLayer = new Graphics();
   /** Phase A (Т3): role badges on or off — a local setting of the view (main.ts keeps it in its own storage key), not a Param. */
@@ -506,7 +510,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -677,6 +681,8 @@ export class RealtimeRenderer {
     for (let y = 1; y < arena.height; y++) f.moveTo(0, y * UNIT).lineTo(w, y * UNIT);
     f.stroke({ color: 0x2e3d29, width: 1, alpha: 0.6 });
     f.rect(-4, -4, w + 8, h + 8).stroke({ color: 0x5a5a40, width: 6 });
+    this.bustMask.clear().rect(0, 0, w, h).fill(0xffffff);
+    this.bustLayer.mask = this.bustMask;
     const t = this.terrain.clear();
     for (const o of arena.obstacles) {
       if (o.shape === 'rect') {
@@ -1046,7 +1052,7 @@ export class RealtimeRenderer {
    * shaman's beam is a thin wavy thread; the shield keeps its arc without the wedge.
    */
   private drawSignals(world: World): void {
-    const g = this.signalLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
+    const g = this.signalLayer.clear(), bg = this.bustLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
     const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0, bustCircles: 0 };
     // Stage 3a (П1): the wolves howl — a thin threat circle on the ring round the hero, no fill (phase A: the rush lanes of
     // the wolves carry the timing).
@@ -1076,24 +1082,24 @@ export class RealtimeRenderer {
     };
     // Task 7 (design 13.10.2026, «Взрыв по площади»): the lit idol — a red circle of the blast's radius that blinks the whole
     // fuse (faster as it burns), hatched, with the ring growing to its edge; nobody is hit until it goes off. Task 19: the blink runs
-    // on the fuse's own time (`bustBlink`), bright at «lit».
+    // on the fuse's own time (`bustBlink`), bright at «lit». Task 19а: drawn in `bustLayer`, clipped to the arena's field.
     const bustCircle = (x: number, y: number, R0: number, left: number, total: number): void => {
       counts.bustCircles++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = R0 * UNIT, X = x * UNIT, Y = y * UNIT;
       const blink = bustBlink(left, total);
-      g.circle(X, Y, R).fill({ color: BUST_RED, alpha: 0.1 + 0.18 * blink });
-      hatchCircle(g, X, Y, R, 0.4 * UNIT);
-      g.stroke({ color: BUST_RED, width: 2, alpha: 0.35 + 0.25 * blink });
-      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.7 });
-      g.circle(X, Y, R).stroke({ color: BUST_RED, width: 3.5, alpha: 0.6 + 0.4 * blink });
+      bg.circle(X, Y, R).fill({ color: BUST_RED, alpha: 0.1 + 0.18 * blink });
+      hatchCircle(bg, X, Y, R, 0.4 * UNIT);
+      bg.stroke({ color: BUST_RED, width: 2, alpha: 0.35 + 0.25 * blink });
+      bg.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.7 });
+      bg.circle(X, Y, R).stroke({ color: BUST_RED, width: 3.5, alpha: 0.6 + 0.4 * blink });
       // Task 19: the countdown ring on a dark under-stroke — it reads over the hatching and the crowd in the run's 0.6 s.
-      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: THREAT_OUTLINE, width: 8, alpha: 0.55 });
-      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: 0xffe08a, width: 5, alpha: 0.95 });
+      bg.circle(X, Y, Math.max(2, R * k)).stroke({ color: THREAT_OUTLINE, width: 8, alpha: 0.55 });
+      bg.circle(X, Y, Math.max(2, R * k)).stroke({ color: 0xffe08a, width: 5, alpha: 0.95 });
       for (let i = 0; i < 6; i++) {
         const a = this.clock * 9 + i * Math.PI / 3, l = r * (0.45 + 0.3 * Math.abs(Math.sin(this.clock * 23 + i)));
-        g.moveTo(X, Y).lineTo(X + Math.cos(a) * l, Y + Math.sin(a) * l);
+        bg.moveTo(X, Y).lineTo(X + Math.cos(a) * l, Y + Math.sin(a) * l);
       }
-      g.stroke({ color: SPARK, width: 3, cap: 'round' });
+      bg.stroke({ color: SPARK, width: 3, cap: 'round' });
     };
     for (const b of world.blasts) {
       if (b.bust) bustCircle(b.x, b.y, b.radius, b.timeLeft, b.total);
