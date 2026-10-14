@@ -72,6 +72,7 @@
     "test:realtime-reroll": "tsx src/realtime/run/reroll.spec.ts",
     "test:realtime-heal-map": "tsx src/realtime/run/healMap.spec.ts",
     "test:realtime-short-fuse": "tsx src/realtime/run/shortFuse.spec.ts",
+    "test:realtime-guard": "tsx src/realtime/sim/guard.spec.ts",
     "test:realtime-feats": "tsx src/realtime/run/feats.spec.ts",
     "test:realtime-bag": "tsx src/realtime/sim/bag.spec.ts",
     "test:realtime-chest": "tsx src/realtime/sim/chest.spec.ts && tsx src/realtime/run/chestRun.spec.ts",

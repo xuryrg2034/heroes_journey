@@ -451,7 +451,14 @@ export type WorldEvent =
    * absorbed a touch of enemy `enemyId` that would have hurt the hero; (`x`, `y`) — the enemy at the touch. Once per enemy per
    * shield window; never for the «Щит фокуса» or the invulnerability after a hit alone. Only on an arena with that goal.
    */
-  | { type: 'shieldBlock'; enemyId: number; x: number; y: number };
+  | { type: 'shieldBlock'; enemyId: number; x: number; y: number }
+  /**
+   * Task 23 «Щит виден» (design 15.10.2026; `noteBlock`): a hit that reached the hero was absorbed by the after-chain shield,
+   * «Щит фокуса» or the invulnerability (`heroGuarded`); (`x`, `y`) — where it came from (the striker, the blow's centre),
+   * `source` — the hit it would have been, `enemyId` — the striker if any. A touch gives one per touching enemy per tick (the view
+   * limits the sparks). Never for a dash or a jump. Not hashed (events are not), and nothing else changes.
+   */
+  | { type: 'block'; x: number; y: number; source: HitSource; enemyId?: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -1150,6 +1157,37 @@ export function bustCanHurt(world: World): boolean {
   return world.status === 'playing' && !(world.hero.invulnerable > 0) && !world.move;
 }
 
+/** «Взрыв по площади»: the hero's body touches the bust circle `b` (as the blast tests it: radius + the hero's body). */
+export function bustInside(world: World, b: Blast): boolean {
+  return dist(world.hero, b) <= b.radius + heroRadius(world.params);
+}
+
+/**
+ * The bust blast `b` takes HP from the hero if it goes off now: a bust with damage, his body in it, `bustCanHurt`. `bustHero` hurts
+ * by it; task 23 (`guard.ts` `bustThreat`, the view's «щит не держит») reads the same.
+ */
+export function bustHurts(world: World, b: Blast): boolean {
+  return !!b.bust && b.bust.hero > 0 && bustInside(world, b) && bustCanHurt(world);
+}
+
+/**
+ * Task 23 «Щит виден» (design 15.10.2026): what spares the hero now is a shield — the after-chain shield, «Щит фокуса» or the
+ * invulnerability after a hit — and not a dash or a jump (`world.move`), a calm arena, the fight's end or the sandbox's «фокус без
+ * урона». True only while `canBeHurt` is false.
+ */
+export function heroGuarded(world: World): boolean {
+  if (world.arena.calm || world.status !== 'playing' || world.move) return false;
+  return world.hero.invulnerable > 0 || world.hero.chainShield > 0 || focusGuarded(world);
+}
+
+/**
+ * Task 23: a hit reached the hero where `canBeHurt` is false — event `block` when a shield spared him (`heroGuarded`). Reads the
+ * world only (no state, no random draw): the world hashes as before.
+ */
+export function noteBlock(world: World, x: number, y: number, source: HitSource, enemyId?: number): void {
+  if (heroGuarded(world)) world.events.push({ type: 'block', x, y, source, ...enemyId ? { enemyId } : {} });
+}
+
 /**
  * «Щит фокуса» (`focusGuardLinks`, design 12.10.2026): the drawn chain has that many enemy links (an elite with plates is a
  * link) and the focus is not empty (`focusing`: the time slowed) — touches and hits spare the hero. The released dash plays
@@ -1319,7 +1357,10 @@ function detonate(world: World, b: Blast): void {
   const owner = world.enemies.find(e => e.id === b.ownerId);
   if (owner) killEnemy(world, owner, cause);
   if (b.bust) bustHero(world, b, b.bust.hero);
-  else if (canBeHurt(world) && dist(world.hero, b) <= b.radius + heroRadius(p)) hurtHero(world, { id: b.ownerId, ...b.elite ? { elite: true as const } : {} }, b.damage, b.source);
+  else if (dist(world.hero, b) <= b.radius + heroRadius(p)) {
+    if (canBeHurt(world)) hurtHero(world, { id: b.ownerId, ...b.elite ? { elite: true as const } : {} }, b.damage, b.source);
+    else noteBlock(world, b.x, b.y, b.source, b.ownerId);
+  }
   if (world.status !== 'playing') return;
   const struck = world.enemies.filter(e => dist(e, b) <= b.radius + bodyRadiusOf(p, e));
   for (const e of struck) damageEnemy(world, e, b.damage, cause);
@@ -1342,7 +1383,7 @@ function detonate(world: World, b: Blast): void {
  * (no striker: the idol is not an enemy). Event `slot` `blast`: inside or not, hurt or spared (telemetry, the view).
  */
 function bustHero(world: World, b: Blast, damage: number): void {
-  const inside = dist(world.hero, b) <= b.radius + heroRadius(world.params), hurt = inside && damage > 0 && bustCanHurt(world);
+  const inside = bustInside(world, b), hurt = damage > 0 && bustHurts(world, b);
   world.events.push({ type: 'slot', action: 'blast', x: b.x, y: b.y, r: b.radius, inside, hurt });
   if (hurt) hurtHero(world, { id: 0 }, damage, b.source);
 }
@@ -1562,6 +1603,7 @@ function updateThorns(world: World, dt: number): void {
   if (hero.thorns > 1e-9) return;
   hero.thorns += Math.max(0.05, p.thornInterval);
   if (canBeHurt(world)) hurtHero(world, { id: 0 }, p.thornDamage, 'thorns');
+  else noteBlock(world, hero.x, hero.y, 'thorns');
 }
 
 /** Stage 3a (М4): a brazier put out by a dash burns again after its cooldown (game time). */
@@ -1585,7 +1627,10 @@ function contactDamage(world: World, dt: number): void {
   // The prologue, task 13 (goal `shield`): touches the after-chain shield absorbs light its lamps (nothing on another arena).
   if (world.shieldGoal) noteShieldBlocks(world, world.shieldGoal);
   // The prologue: sleeping enemies do not touch.
-  if (world.asleep || !canBeHurt(world)) return;
+  if (world.asleep) return;
+  // Task 23: a shield (`heroGuarded`) absorbs every touch that would hurt — event `block` per touching enemy, nothing else.
+  const hurtable = canBeHurt(world);
+  if (!hurtable && !heroGuarded(world)) return;
   // Invulnerability alone limits the damage rate: one hit, then a grace window for the whole crowd.
   // The strongest touching enemy counts: the reaper (design answer 30) or a wolf with its pack.
   // A behaviour may say its touch does not hurt now: the charging boar's hit is the charge (enemies/boar.ts).
@@ -1595,6 +1640,7 @@ function contactDamage(world: World, dt: number): void {
     const touches = behaviorOf(e).touches;
     if (touches && !touches(world, e)) continue;
     const dmg = touchDamage(world, e);
+    if (!hurtable) { if (dmg > 0) noteBlock(world, e.x, e.y, kindOf(e).hitSource, e.id); continue; }
     if (!striker || dmg > damage) { striker = e; damage = dmg; }
   }
   if (!striker || damage <= 0) return;

@@ -81,7 +81,7 @@ import { blockedAt, dist, inThorns, inWater, lineOfSight, type Vec } from './geo
 import { RESOURCE_KINDS, type ItemKind, type ResourceKind } from './kit';
 import { DEFAULT_PARAMS, heroRadius, type Params } from './params';
 import { bodyRadiusOf } from './enemies/kinds';
-import { OBJECT_RADIUS, addBlast, type Blast, canBeHurt, checkGoals, damageEnemy, hurtHero, type ArenaObject, type HeroMove, type World } from './world';
+import { OBJECT_RADIUS, addBlast, type Blast, canBeHurt, checkGoals, damageEnemy, hurtHero, noteBlock, type ArenaObject, type HeroMove, type World } from './world';
 import { SLOT_KILL_SOURCE } from './purse';
 
 /** A reel symbol: the skull, or one of the four good ones (❤ ⚡ ◆ 🍲). */
@@ -535,7 +535,11 @@ function landMarks(world: World, due: SlotMark[]): void {
   for (const m of due) {
     if (world.status !== 'playing') return;
     world.events.push({ type: 'slot', action: 'land', x: m.x, y: m.y, r: m.r, firing: m.firing });
-    if (m.hero && canBeHurt(world) && dist(world.hero, m) <= m.r + hr) hurtHero(world, { id: 0 }, damage, m.kind === 'rain' ? 'slot-rain' : 'slot-volley');
+    if (m.hero && dist(world.hero, m) <= m.r + hr) {
+      const source = m.kind === 'rain' ? 'slot-rain' : 'slot-volley';
+      if (canBeHurt(world)) hurtHero(world, { id: 0 }, damage, source);
+      else noteBlock(world, m.x, m.y, source);
+    }
     if (world.status !== 'playing' || !m.enemies) continue;
     const struck = world.enemies.filter(e => dist(e, m) <= m.r + bodyRadiusOf(p, e));
     for (const e of struck) damageEnemy(world, e, damage, { source: SLOT_KILL_SOURCE, credited: true, firing: m.firing });

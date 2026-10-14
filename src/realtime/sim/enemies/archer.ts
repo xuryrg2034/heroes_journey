@@ -22,7 +22,7 @@
 import { dhypot } from '../detMath';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
 import { DEFAULT_PARAMS, heroRadius, type Params } from '../params';
-import { canBeHurt, damageEnemy, enemyGroundFactor, enemySpeed, hurtHero, type Enemy, type World } from '../world';
+import { canBeHurt, damageEnemy, enemyGroundFactor, enemySpeed, hurtHero, noteBlock, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
 /** Step of the march that finds where a wall or a tree cuts the line (units). */
@@ -76,8 +76,9 @@ function lineLength(world: World, e: Enemy, dx: number, dy: number, range: numbe
 /** The arrow of the point falls: the hero is hurt if his body touches the circle; nobody else. */
 function shootPoint(world: World, e: Enemy): void {
   const p = world.params, at = { x: e.vars.ax, y: e.vars.ay };
-  if (world.status !== 'playing' || !canBeHurt(world)) return;
-  if (dist(world.hero, at) <= markRadius(p) + heroRadius(p)) hurtHero(world, e, p.archerDamage, 'arrow');
+  if (world.status !== 'playing' || dist(world.hero, at) > markRadius(p) + heroRadius(p)) return;
+  if (canBeHurt(world)) hurtHero(world, e, p.archerDamage, 'arrow');
+  else noteBlock(world, at.x, at.y, 'arrow', e.id);
 }
 
 /** The arrow of the line flies: everyone whose body touches the line is hit — the hero for `archerDamage`, enemies for `archerHit`. */
@@ -85,7 +86,10 @@ function shootLine(world: World, e: Enemy): void {
   const p = world.params, line = archerLine(world, e);
   if (!line) return;
   const hero = world.hero;
-  if (canBeHurt(world) && segmentDistance(line.from, line.to, hero) <= line.half + heroRadius(p)) hurtHero(world, e, p.archerDamage, 'arrow');
+  if (segmentDistance(line.from, line.to, hero) <= line.half + heroRadius(p)) {
+    if (canBeHurt(world)) hurtHero(world, e, p.archerDamage, 'arrow');
+    else noteBlock(world, e.x, e.y, 'arrow', e.id);
+  }
   // Every enemy on the line (not the archer itself), in the order of the list; collected first — a kill changes the list.
   const struck = world.enemies.filter(t => t !== e && segmentDistance(line.from, line.to, t) <= line.half + bodyRadiusOf(p, t));
   // The archer's id tells its arrow from another archer's in the same tick (one firing takes one plate, elites.ts).
