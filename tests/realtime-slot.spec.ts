@@ -11,7 +11,7 @@ import { gameWait, untilFrame } from './realtimeFrames';
 interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number; feeds: number; feedText: string;
   textPlace: 'up' | 'down'; reelsPlace: 'up' | 'down'; captionRect: Rect | null; oddsRect: Rect | null; reelsRect: Rect | null; sparks: number; sparkFrom: { x: number; y: number } | null; sparkTo: { x: number; y: number } | null; heroFlashes: number }
 interface Rect { left: number; top: number; right: number; bottom: number }
-interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number; x: number; y: number }; enemies: { id: number }[]; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number; bustCircles: number; bustBlasts: number }; guard: { sparks: number; wards: number; fails: boolean } }
+interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number; x: number; y: number }; enemies: { id: number }[]; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number; bustCircles: number; riskCircles: number; bustBlasts: number }; guard: { sparks: number; wards: number; fails: boolean } }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
 
@@ -577,5 +577,50 @@ test('task 23 (б): the after-chain shield in the lit bust circle cracks, and th
   await untilFrame(page, q => (q.slot.bustBlasts >= 1 ? true : undefined), null, 3);
   await gameWait(page, 0.1);
   expect((await snap(page)).hero.hp, 'the bust hurts through the shield').toBe(hpBefore - 4);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 24 (а) «Урок перебора» (design 15.10.2026): in a run fight every pull — the safe ones too — shows a pale ring of the bust's
+ * radius round the idol while the reels spin («pulled — walk out»; it tells nothing of the roll). A run (seed 10) entered by
+ * clicks, the goblin after the goals, pulls by the mouse: during each spin the ring is drawn (`slot.riskCircles`); a pull that
+ * ends in a triple leaves no circle at all; a bust lights the burning circle instead.
+ */
+test('task 24 (а): in a run fight the pale risk ring shows while the reels spin, on a safe pull too', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await page.getByTestId('gift-1').click();
+  await page.getByTestId('node-r5c0').click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of Object.entries({ enemySpeed: 0, speedSpread: 0, baseIntervalMin: 20, baseIntervalMax: 20, baseFloor: 0, contactDamage: 0 })) rt.setParam(k, v);
+    rt.params.maxEnemies = 0;
+    rt.clear(false);
+    rt.completeGoals();
+  });
+  await untilFrame(page, (q, _a, late) => (q.slot.shown.idols === 1 && q.slot.shown.markers === 0 && q.slot.shown.dark === 0) || late ? true : undefined, null, 8);
+  expect((await snap(page)).slot.riskCircles, 'no ring before a pull').toBe(0);
+  const outcomes: string[] = [];
+  for (let i = 0; i < 3 && (await snap(page)).slot.goblin; i++) {
+    await pullByMouse(page);
+    const spin = await untilFrame(page, (q, _a, late) => (q.slot.riskCircles > 0 ? q : late ? q : undefined), null, 2);
+    expect(spin.slot.goblin?.spinning, 'the reels spin').toBe(true);
+    expect(spin.slot.riskCircles, `pull ${i + 1}: the ring while the reels spin`).toBe(1);
+    if (i === 0) await page.screenshot({ path: 'artifacts/realtime-slot-risk-ring.png' });
+    const stopped = await untilFrame(page, (q, _a, late) => (!q.slot.goblin?.spinning || late ? q : undefined), null, 5);
+    outcomes.push(stopped.slot.bustCircles > 0 ? 'bust' : 'safe');
+    expect(stopped.slot.riskCircles, 'the ring goes when the reels stop').toBe(0);
+    if (stopped.slot.bustCircles > 0) break;
+    await untilReady(page);
+  }
+  expect(outcomes[0], 'the first pull of this run is a safe one (a triple)').toBe('safe');
   expect(errors).toEqual([]);
 });

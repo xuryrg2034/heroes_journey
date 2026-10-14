@@ -1457,7 +1457,7 @@ async function boot(): Promise<void> {
          */
         slot: (() => {
           const g = w.slot?.goblin;
-          return { goblin: g ? { id: g.id, x: g.x, y: g.y, pulls: g.pulls, skulls: [...g.skulls], spinning: !!g.spin } : null, shown: { ...renderer.slotView.shown }, marks: renderer.slotMarks, flashes: renderer.slotFlashes, bustCircles: renderer.signals.bustCircles, bustBlasts: renderer.bustBlastsShown };
+          return { goblin: g ? { id: g.id, x: g.x, y: g.y, pulls: g.pulls, skulls: [...g.skulls], spinning: !!g.spin } : null, shown: { ...renderer.slotView.shown }, marks: renderer.slotMarks, flashes: renderer.slotFlashes, bustCircles: renderer.signals.bustCircles, riskCircles: renderer.signals.riskCircles, bustBlasts: renderer.bustBlastsShown };
         })(),
         /** Phase A (Т6): archers' mark circles drawn in the last frame, arrow-fall flashes shown so far. */
         archerMarks: renderer.signals.archerMarks,

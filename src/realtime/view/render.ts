@@ -26,7 +26,7 @@ import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '..
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } from './camera';
 import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
-import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
+import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { shieldFails } from '../sim/guard';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
@@ -41,7 +41,7 @@ import { hordeGroup } from './hordeView';
 import { BagView } from './bagView';
 import { FEAT_DOOR_GAP, FeatDoorView } from './featView';
 import { planPowerNumber } from './powerNumber';
-import { SLOT_BUST_SOURCE } from '../sim/slot';
+import { SLOT_BUST_SOURCE, goblinOf } from '../sim/slot';
 import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
@@ -176,7 +176,7 @@ const LOOT_COLOR: Readonly<Record<string, number>> = { frost: ICE, bomb: 0x3a3f4
 /** `braziersLit` / `braziersOut` (stage 3a, М4): braziers drawn burning / put out. */
 /** Stage 3a: `howls` — the wolves' howl circle round the hero (П1); `leapLines`, `stunned` — the lynx's leap line and its stun (П2); `beams` — the shaman's beam (П4). */
 /** Phase A (Д3): `rushLanes` — the rush lanes of howling and rushing wolves; `roleBadges` — role badges under bodies. */
-export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number; affixLabels: number; trailPoints: number; chameleonWarns: number; bustCircles: number }
+export interface SignalCounts { shields: number; arrowLanes: number; fuses: number; quillBadges: number; frozen: number; burning: number; elites: number; loot: number; quillsRaised: number; quillsTrembling: number; braziersLit: number; braziersOut: number; howls: number; leapLines: number; stunned: number; beams: number; rushLanes: number; roleBadges: number; archerMarks: number; affixLabels: number; trailPoints: number; chameleonWarns: number; bustCircles: number; riskCircles: number }
 
 /** Stage 3a: terrain zones drawn by `buildArena` (tests read it: the river, the cliff, the thorns are on screen). */
 export interface TerrainCounts { river: number; cliff: number; thorns: number }
@@ -466,7 +466,7 @@ export class RealtimeRenderer {
   /** Stage G: in a chain the hero's R circle is drawn as a second anchor (chain color) in the last frame. */
   heroAnchorShown = false;
   /** Stage 2, step 2: signals of the new enemies in the last frame. */
-  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: 0, chameleonWarns: 0, bustCircles: 0 };
+  readonly signals: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: 0, frozen: 0, burning: 0, elites: 0, loot: 0, quillsRaised: 0, quillsTrembling: 0, braziersLit: 0, braziersOut: 0, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: 0, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: 0, chameleonWarns: 0, bustCircles: 0, riskCircles: 0 };
   /** Stage 3a: terrain zones of the current arena drawn by `buildArena`. */
   readonly terrainShown: TerrainCounts = { river: 0, cliff: 0, thorns: 0 };
   /** Stage 3a (М2): enemies seen falling into a cliff so far. */
@@ -1059,7 +1059,7 @@ export class RealtimeRenderer {
    */
   private drawSignals(world: World): void {
     const g = this.signalLayer.clear(), bg = this.bustLayer.clear(), p = world.params, r = enemyDrawRadius(p) * UNIT;
-    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0, bustCircles: 0 };
+    const counts: SignalCounts = { shields: 0, arrowLanes: 0, fuses: 0, quillBadges: this.signals.quillBadges, frozen: 0, burning: 0, elites: 0, loot: world.objects.filter(o => o.kind === 'loot').length, ...this.quillCounts, braziersLit: this.signals.braziersLit, braziersOut: this.signals.braziersOut, howls: 0, leapLines: 0, stunned: 0, beams: 0, rushLanes: this.rushLaneCount, roleBadges: 0, archerMarks: 0, affixLabels: 0, trailPoints: this.trailCount, chameleonWarns: 0, bustCircles: 0, riskCircles: 0 };
     // Stage 3a (П1): the wolves howl — a thin threat circle on the ring round the hero, no fill (phase A: the rush lanes of
     // the wolves carry the timing).
     const howl = wolfHowl(world);
@@ -1107,6 +1107,17 @@ export class RealtimeRenderer {
       }
       bg.stroke({ color: SPARK, width: 3, cap: 'round' });
     };
+    // Task 24 (а) «Урок перебора» (design 15.10.2026): while the reels spin — on EVERY pull, safe or risky, so it tells nothing of the
+    // roll — a pale ring of the bust's radius round the idol: «pulled — walk out». Only where the bust blasts by area
+    // (`slotBust` and `slotBustArea`: the run, the prologue's room 8, the sandbox with the flags). At «lit» the burning circle takes over.
+    const idol = goblinOf(world);
+    if (idol?.spin && p.slotBust && p.slotBustArea && world.status === 'playing') {
+      const R = Math.max(0, p.slotBustRadius ?? DEFAULT_PARAMS.slotBustRadius) * UNIT, X = idol.x * UNIT, Y = idol.y * UNIT;
+      counts.riskCircles++;
+      bg.circle(X, Y, R).fill({ color: BUST_RED, alpha: 0.06 });
+      bg.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.35 });
+      bg.circle(X, Y, R).stroke({ color: BUST_RED, width: 2.5, alpha: 0.45 });
+    }
     for (const b of world.blasts) {
       if (b.bust) bustCircle(b.x, b.y, b.radius, b.timeLeft, b.total);
       else fuse(b.x, b.y, b.timeLeft, b.total);
@@ -1748,27 +1759,27 @@ export class RealtimeRenderer {
   }
 
   /**
-   * Task 23 (б): the cracked shield — the rim in five pieces with gaps, flickering, and three jagged cracks across it (navy under a
-   * pale line), in the shield's own colour (gold — the after-chain shield, pale blue — «Щит фокуса»).
+   * Task 23 (б): the cracked shield — the rim in five pieces with wide gaps, flickering, and three jagged cracks across it (navy
+   * under a pale line; design 15.10.2026: 1.5× the first draft's, read from afar), in the shield's own colour (gold — the after-chain shield, pale blue — «Щит фокуса»).
    */
   private crackedRim(ring: Graphics, color: number): void {
     const R = UNIT * 0.68, on = Math.sin(this.clock * 26) > -0.2, alpha = on ? 0.85 : 0.3;
     for (let i = 0; i < 5; i++) {
-      const a0 = i * (Math.PI * 2 / 5) + 0.18, a1 = a0 + 0.9;
+      const a0 = i * (Math.PI * 2 / 5) + 0.18, a1 = a0 + 0.72;
       ring.arc(0, 0, R, a0, a1).stroke({ color: NAVY_RIM, width: 8, alpha: 0.5 * alpha + 0.2, cap: 'round' });
       ring.arc(0, 0, R, a0, a1).stroke({ color, width: 3.5, alpha, cap: 'round' });
     }
     for (const a of [0.55, 2.7, 4.5]) {
-      const pts = [-10, 6, -4, 12].map((off, j) => {
-        const r = R - 14 + j * 9, t = a + off / R;
+      const pts = [-15, 9, -6, 18].map((off, j) => {
+        const r = R - 21 + j * 13.5, t = a + off / R;
         return { x: Math.cos(t) * r, y: Math.sin(t) * r };
       });
       ring.moveTo(pts[0].x, pts[0].y);
       for (const q of pts.slice(1)) ring.lineTo(q.x, q.y);
-      ring.stroke({ color: NAVY_RIM, width: 5, alpha: 0.8, cap: 'round', join: 'round' });
+      ring.stroke({ color: NAVY_RIM, width: 7.5, alpha: 0.8, cap: 'round', join: 'round' });
       ring.moveTo(pts[0].x, pts[0].y);
       for (const q of pts.slice(1)) ring.lineTo(q.x, q.y);
-      ring.stroke({ color: 0xfff2c4, width: 2, alpha, cap: 'round', join: 'round' });
+      ring.stroke({ color: 0xfff2c4, width: 3, alpha, cap: 'round', join: 'round' });
     }
   }
 
