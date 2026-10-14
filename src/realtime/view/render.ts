@@ -41,6 +41,7 @@ import { BagView } from './bagView';
 import { FEAT_DOOR_GAP, FeatDoorView } from './featView';
 import { planPowerNumber } from './powerNumber';
 import { SLOT_BUST_SOURCE } from '../sim/slot';
+import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
@@ -1074,17 +1075,20 @@ export class RealtimeRenderer {
       g.stroke({ color: SPARK, width: 3, cap: 'round' });
     };
     // Task 7 (design 13.10.2026, «Взрыв по площади»): the lit idol — a red circle of the blast's radius that blinks the whole
-    // fuse (faster as it burns), hatched, with the ring growing to its edge; nobody is hit until it goes off.
+    // fuse (faster as it burns), hatched, with the ring growing to its edge; nobody is hit until it goes off. Task 19: the blink runs
+    // on the fuse's own time (`bustBlink`), bright at «lit».
     const bustCircle = (x: number, y: number, R0: number, left: number, total: number): void => {
       counts.bustCircles++;
       const k = total > 0 ? Math.max(0, Math.min(1, 1 - left / total)) : 1, R = R0 * UNIT, X = x * UNIT, Y = y * UNIT;
-      const blink = 0.5 + 0.5 * Math.sin(this.clock * (10 + 16 * k));
+      const blink = bustBlink(left, total);
       g.circle(X, Y, R).fill({ color: BUST_RED, alpha: 0.1 + 0.18 * blink });
       hatchCircle(g, X, Y, R, 0.4 * UNIT);
       g.stroke({ color: BUST_RED, width: 2, alpha: 0.35 + 0.25 * blink });
       g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.7 });
       g.circle(X, Y, R).stroke({ color: BUST_RED, width: 3.5, alpha: 0.6 + 0.4 * blink });
-      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: 0xffe08a, width: 3, alpha: 0.95 });
+      // Task 19: the countdown ring on a dark under-stroke — it reads over the hatching and the crowd in the run's 0.6 s.
+      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: THREAT_OUTLINE, width: 8, alpha: 0.55 });
+      g.circle(X, Y, Math.max(2, R * k)).stroke({ color: 0xffe08a, width: 5, alpha: 0.95 });
       for (let i = 0; i < 6; i++) {
         const a = this.clock * 9 + i * Math.PI / 3, l = r * (0.45 + 0.3 * Math.abs(Math.sin(this.clock * 23 + i)));
         g.moveTo(X, Y).lineTo(X + Math.cos(a) * l, Y + Math.sin(a) * l);
