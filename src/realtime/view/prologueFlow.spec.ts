@@ -63,6 +63,24 @@ check('room 9 «Щит» (task 13): the hand after SHIELD_HAND_IDLE (1.5 s) of r
   assert(showOf(g) === 'hand', 'back after 1.5 s of rest');
 });
 
+check('task 24 (room 8): while `urgent` holds (the reels spin, the bust burns) the arrow out of the circle comes at once, no 4 s of rest, and stays while walking; then the usual rest again', () => {
+  let urgent = false, route: ChainLink[] = [LINK];
+  const spot = { x: 3, y: 4 }, shown: string[] = [];
+  const g = new HandGuide({ route: () => route, spot: () => spot, urgent: () => urgent }, kind => shown.push(kind));
+  // The pull's dash (busy), then it ends: the reels spin — no chain from here, the arrow to the spot in the same step.
+  run(g, 0.5, false, true);
+  urgent = true; route = [];
+  run(g, 1 / 60);
+  assert(showOf(g) === 'arrow' && g.arrow && circleX(g) === 3 && shown.join() === 'arrow', `the arrow at once (${showOf(g)})`);
+  // While urgent the arrow stays as the hero walks out (the usual rule hides it on walking): the way out is shown all the way.
+  run(g, 0.3, true);
+  assert(showOf(g) === 'arrow' && circleX(g) === 3, `the arrow stays while walking (${showOf(g)})`);
+  // Not urgent: the usual 4 s of rest after a press.
+  urgent = false; g.press();
+  run(g, HAND_IDLE - 0.2);
+  assert(showOf(g) === 'none', 'the usual rest again');
+});
+
 check('the hand: after 4 s of rest with a chain from here; not before; a press takes it away and the 4 s start again', () => {
   const f = fake();
   f.route = [LINK];

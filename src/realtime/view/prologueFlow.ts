@@ -135,8 +135,10 @@ export const HAND_ASK = 0.25;
  * What the guide asks: the hand's chain of this world and, when there is none, the spot to walk to (both from `run/prologue.ts`).
  * `aim` (task 9, room «Пропасть»): the point the hand clicks with the jump on, when the jump can start from where the hero stands
  * (`prologueJumpAim` ready) — it counts as the hand's route; null — walk to `spot` first.
+ * `urgent` (task 24, room 8 «Гоблин»): while it holds — the reels spin or the bust burns — nothing waits for rest: the hand or the
+ * arrow to `spot` (out of the circle) comes at once and stays while the hero walks there; the sim is asked every step.
  */
-export interface HandProbe { route(): ChainLink[]; spot(): Vec | null; aim?(): Vec | null }
+export interface HandProbe { route(): ChainLink[]; spot(): Vec | null; aim?(): Vec | null; urgent?(): boolean }
 export type HandShow = 'none' | 'hand' | 'arrow';
 
 /**
@@ -184,7 +186,7 @@ export class HandGuide {
    */
   update(dt: number, walking: boolean, busy: boolean): void {
     if (busy) { this.press(); return; }
-    const before = this.idle;
+    const before = this.idle, urgent = this.probe.urgent?.() ?? false;
     if (walking) {
       this.idle = 0;
       this.arrowOn = false;
@@ -193,16 +195,16 @@ export class HandGuide {
     } else this.idle += dt;
     this.ask += dt;
     // Ask the sim every HAND_ASK, and at once when the rest reaches `idleFor` (the hand comes at 4 s, not up to a moment later).
-    if (this.ask < HAND_ASK && !(before < this.idleFor && this.idle >= this.idleFor)) return;
+    if (!urgent && this.ask < HAND_ASK && !(before < this.idleFor && this.idle >= this.idleFor)) return;
     this.ask = 0;
-    this.refresh();
+    this.refresh(urgent ? 0 : this.idleFor);
   }
 
-  private refresh(): void {
+  private refresh(idleFor: number): void {
     const route = this.probe.route(), target = this.probe.aim?.() ?? null;
     if (route.length || target) {
       // A chain (or the jump's click) from here: after the rest, or at once when the circle was walked to (then it stays through walking until a press).
-      if (this.show === 'hand' || this.circle || this.idle >= this.idleFor) {
+      if (this.show === 'hand' || this.circle || this.idle >= idleFor) {
         if (this.circle) this.locked = true;
         this.circle = null; this.arrowOn = false;
         this.route = route; this.target = target;
@@ -211,8 +213,8 @@ export class HandGuide {
       return;
     }
     // No chain from here: a hand that showed goes (the enemies moved or are gone) and the rest counts as done.
-    if (this.show === 'hand') { this.route = []; this.target = null; this.locked = false; this.setShow('none'); this.idle = Math.max(this.idle, this.idleFor); }
-    if (this.idle < this.idleFor) return;
+    if (this.show === 'hand') { this.route = []; this.target = null; this.locked = false; this.setShow('none'); this.idle = Math.max(this.idle, idleFor); }
+    if (this.idle < idleFor) return;
     // The circle stays where it was set (the arena stands still while the room waits); the arrow comes back after each rest.
     if (!this.circle) this.circle = this.probe.spot();
     if (this.circle) { this.arrowOn = true; this.setShow('arrow'); }

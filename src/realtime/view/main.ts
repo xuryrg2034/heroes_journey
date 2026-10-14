@@ -62,6 +62,7 @@ import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
 import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
 import { RtDeathWatch, rtDeathLine } from '../run/rtRunEnd';
 import { DeathSeries } from './deathSeries';
+import { bustBlasts, goblinOf } from '../sim/slot';
 import { SoundGate, ThreatWatch } from './soundGate';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver } from '../telemetry/observe';
@@ -882,7 +883,8 @@ async function boot(): Promise<void> {
     const guide = room.route || jumpRoom || shieldRoom ? new HandGuide(jumpRoom
       ? { route: () => [], spot: () => prologueJumpAim(world(), n)?.spot ?? null, aim: () => { const a = prologueJumpAim(world(), n); return a?.ready ? a.target : null; } }
       : shieldRoom ? { route: () => prologueShieldLinks(world()) ?? [], spot: () => null }
-      : { route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n) }, kind => prologueHooks.handShown?.(n, kind), shieldRoom ? SHIELD_HAND_IDLE : HAND_IDLE) : null;
+      // Task 24 (room 8): while the reels spin or the bust burns, the arrow out of the circle comes at once (`HandProbe.urgent`).
+      : { route: () => prologueRoute(world(), n), spot: () => prologueHandSpot(world(), n), urgent: () => { const w = world(); return !!w.params.slotBustArea && (!!goblinOf(w)?.spin || bustBlasts(w).length > 0); } }, kind => prologueHooks.handShown?.(n, kind), shieldRoom ? SHIELD_HAND_IDLE : HAND_IDLE) : null;
     actionBar.setAllowed(room.tiles);
     prologue = { n, attempt, guide, label: { done: false }, titleLeft: TITLE_SECONDS, lastTime: 0, seconds: 0, real: 0 };
     prologueDom.showTitle(roomTitle(n));
