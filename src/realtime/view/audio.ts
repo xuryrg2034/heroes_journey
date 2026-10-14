@@ -71,6 +71,21 @@ export class ChainAudio {
     else if (kind === 'empower') this.tone(180, 'triangle', 0.25, volume * 0.6);
   }
 
+  /**
+   * Task 22 «Удар слышен» (view/soundGate.ts): a hit on the hero — a low dull thud with a short crack, unlike the chain's ticks;
+   * the starts of threats — the archer's aim (a bowstring's twang), the boar's windup (a low snort), a sapper's fuse (a hiss).
+   */
+  hurt(volume: number): void {
+    this.tone(92, 'sawtooth', 0.18, volume * 0.75);
+    this.tone(1250, 'square', 0.035, volume * 0.18);
+  }
+
+  threat(kind: 'aim' | 'charge' | 'fuse', volume: number): void {
+    if (kind === 'aim') { this.tone(740, 'triangle', 0.12, volume * 0.35); this.tone(1110, 'sine', 0.07, volume * 0.2, 0.015); }
+    else if (kind === 'charge') this.tone(68, 'sawtooth', 0.28, volume * 0.5);
+    else this.tone(2600, 'sawtooth', 0.2, volume * 0.12);
+  }
+
   /** Task 16 «Подвиги»: the feat done — a short rising chime of three notes (brighter than the coins, softer than the chord). */
   feat(volume: number): void {
     [784, 988, 1319].forEach((f, i) => this.tone(f, 'triangle', 0.16, volume * 0.45, i * 0.09));

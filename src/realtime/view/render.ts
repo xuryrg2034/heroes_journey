@@ -192,6 +192,8 @@ const CURSE = 0xb57cff, CURSE_DARK = 0x2a1440;
 const FOCUS_GUARD = 0x8fd3ff, NAVY_RIM = 0x18232d;
 /** Task 13: the glow of the after-chain shield and its block spark (warm gold, unlike the focus guard's pale blue). */
 const SHIELD_GLOW = 0xffd36b;
+/** Task 22: the hero's hit flash (scarlet; white is the threats' «it strikes now»). */
+const HURT_FLASH = 0xff3b2f;
 
 /** Path of a zone outline (a band is a stroke along its spine, drawn by the caller). */
 function areaPath(g: Graphics, area: Area): Graphics {
@@ -1640,7 +1642,8 @@ export class RealtimeRenderer {
     const flash = Math.max(world.params.hitFlash, 0.01), hurt = Math.min(1, hero.hurtFlash / flash);
     const ring = this.heroRing.clear();
     ring.ellipse(0, 26, 30, 9).fill({ color: 0x050a07, alpha: 0.4 });
-    if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: 0xffffff, alpha: 0.55 * hurt });
+    // Task 22 (design 15.10.2026): the hit's flash is scarlet — white means «it strikes now» (the threats' telegraphs).
+    if (hurt > 0) ring.circle(0, 0, UNIT * 0.62).fill({ color: HURT_FLASH, alpha: 0.55 * hurt });
     // П2: the end of a 6–9 link dash — a bright outline round the hero, widening and fading.
     if (this.outlineLeft > 0) {
       const k = this.outlineLeft / OUTLINE_LIFE;

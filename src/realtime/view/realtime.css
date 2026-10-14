@@ -45,6 +45,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-result-card { min-width: 360px; }
 .rt-result-card h2 { color: #e0a596; }
 .rt-result-card.rt-won h2 { color: #bfe3a8; }
+/* Task 21 «Почему погиб»: the killer and the series under «Поражение» (two lines at most). */
+.rt-result-death { margin: -6px 0 14px; text-align: center; }
+.rt-result-death p { margin: 0 0 2px; font-size: 15px; color: #f0d2c6; }
+.rt-result-death p + p { font-size: 13px; color: #c9b9a8; font-variant-numeric: tabular-nums; }
 .rt-result-stats { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; margin: 0 0 20px; font-size: 14px; }
 .rt-result-stats dt { color: var(--rt-muted); }
 .rt-result-stats dd { margin: 0; text-align: right; color: #e5dcc0; font-variant-numeric: tabular-nums; }

@@ -108,3 +108,34 @@ test('run sound: the slider and the switch are kept — off on the gear, a reloa
   expect((await snap(page)).sound).toMatchObject({ on: true, volume: 0.3 });
   expect(errors).toEqual([]);
 });
+
+/**
+ * Task 22 «Удар слышен» (view/soundGate.ts; design 15.10.2026): a run fight entered by clicks, enemies walk into the standing hero
+ * and hit him — every hit asks for the hit's sound (`sound.asked.hurt` = the sim's `hitsTaken`), and every one sounds: the hits
+ * of one hero are at least his invulnerability apart (0.5 s and more), past the gate's 0.3 s.
+ */
+test('task 22: in a run fight every hit on the hero asks for its sound, and each sounds (one in 0.3 s at most)', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await runMap(page);
+  await page.getByTestId('node-r5c0').click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  await untilFrame(page, (s: any) => (s.enemies.length >= 1 ? true : undefined), null, 8);
+  // Nobody comes; three plain enemies at the hero's side walk into him.
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime, p = rt.params;
+    p.baseIntervalMin = 1000; p.baseIntervalMax = 1000; p.baseFloor = 0;
+    for (const phase of p.phases) phase.floor = 0;
+    p.boarMax = 0; p.wolfRing = false; p.contactDamage = 1; p.speedSpread = 0;
+    rt.clear(false);
+    const hero = rt.snapshot().hero;
+    for (let k = 0; k < 3; k++) rt.place(hero.x + Math.cos(k * 2.1) * 0.9, hero.y + Math.sin(k * 2.1) * 0.9, k, 2);
+  });
+  const hit = await untilFrame(page, (s: any) => (s.stats.hitsTaken >= 3 || s.status !== 'playing' ? s : undefined), null, 30);
+  expect(hit.stats.hitsTaken, 'the enemies hit the hero').toBeGreaterThanOrEqual(3);
+  const s = await snap(page);
+  expect(s.sound.asked.hurt, 'a sound asked for on every hit').toBe(s.stats.hitsTaken);
+  expect(s.sound.played.hurt, 'each one sounded').toBe(s.sound.asked.hurt);
+  expect(errors).toEqual([]);
+});

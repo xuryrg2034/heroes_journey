@@ -90,6 +90,13 @@ test('П6 defeat: the end screen says the killer, the row and rows left, the Jai
     rt.place(hero.x + 0.6, hero.y, 0, 2, 'shield', true, ['swift']);
   }, speed);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 60_000 });
+  // Task 21 «Почему погиб»: under «Поражение» — the killer in the run-end screen's words, then the series of hits before it
+  // (the shield-bearer's touches only); two lines, no more.
+  await expect(page.getByTestId('result-killer')).toHaveText('Сразил: щитоносец-элита (броня, стремительный)');
+  await expect(page.getByTestId('result-series')).toHaveText(/^касание ×\d+ за [1-5] с$/);
+  await expect(page.getByTestId('result-death').locator('p')).toHaveCount(2);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: 'artifacts/realtime-defeat-why.png' });
   await page.getByTestId('result-map').click();
   await expect(page.getByTestId('run-result-defeat')).toBeVisible();
   const expected = ['Сразил: щитоносец-элита (броня, стремительный)', 'Ряд 1 · до «Последнего рубежа» 9', 'Тюремщик не пройден', 'Лучшая цепь похода: 4 убийства · ряд 1'];
