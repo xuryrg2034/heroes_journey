@@ -27,6 +27,7 @@ import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } 
 import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
+import { shieldFails } from '../sim/guard';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
@@ -107,6 +108,8 @@ function greyOf(color: number): number {
 export const UNIT = 72;
 /** Task 5б: real seconds the bust's spark to the hero lasts. */
 const BUST_SPARK_LIFE = 0.4;
+/** Task 23: real seconds between two block sparks of one striker (a touch blocks every tick; design 15.10.2026). */
+const BLOCK_SPARK_GAP = 0.3;
 /** П3 «Финальная цепь»: real seconds of the final flash of a chain into the door (the result screen waits as long, main.ts). */
 export const FINAL_FLASH = 0.8;
 /** П2: real seconds of the hero's outline flash at the end of a 6–9 link dash. */
@@ -673,6 +676,7 @@ export class RealtimeRenderer {
   get edgePositions(): readonly { x: number; y: number; kind: 'threat' | 'goal' | 'spawn' }[] { return this.edgeArrows; }
 
   buildArena(arena: ArenaLayout): void {
+    this.blockSeen.clear();
     this.arena = arena;
     this.fitScale();
     const f = this.floor.clear(), w = arena.width * UNIT, h = arena.height * UNIT;
@@ -1654,7 +1658,11 @@ export class RealtimeRenderer {
     if (hero.chainShield > this.shieldLast) this.shieldFull = hero.chainShield;
     this.shieldLast = hero.chainShield;
     this.chainShieldShown = hero.chainShield > 0 && world.status === 'playing';
-    if (this.chainShieldShown) {
+    // Task 23 (б) «Щит не держит» (design 15.10.2026): the shield is up but the lit bust circle or armed quills will hurt through it
+    // (sim/guard.ts `shieldFails`, called, not copied) — its glow cracks: broken rim, flickering, no warm fill.
+    this.shieldFailShown = shieldFails(world);
+    if (this.shieldFailShown) this.crackedRim(ring, this.chainShieldShown ? SHIELD_GLOW : FOCUS_GUARD);
+    else if (this.chainShieldShown) {
       const k = Math.min(1, hero.chainShield / Math.max(this.shieldFull, 0.01)), pulse = 0.5 + 0.5 * Math.sin(this.clock * 18);
       ring.circle(0, 0, UNIT * 0.86).fill({ color: SHIELD_GLOW, alpha: 0.18 + 0.2 * k });
       ring.circle(0, 0, UNIT * 0.68).stroke({ color: NAVY_RIM, width: 8, alpha: 0.55 * k + 0.2 })
@@ -1662,7 +1670,7 @@ export class RealtimeRenderer {
     }
     // «Щит фокуса»: while the drawn chain guards the hero — a steady pale-blue rim (the focus colour), unlike the gold blink.
     this.focusGuardShown = focusGuarded(world);
-    if (this.focusGuardShown) ring.circle(0, 0, UNIT * 0.64).stroke({ color: NAVY_RIM, width: 6, alpha: 0.6 }).circle(0, 0, UNIT * 0.64).stroke({ color: FOCUS_GUARD, width: 3.5, alpha: 0.95 });
+    if (this.focusGuardShown && !this.shieldFailShown) ring.circle(0, 0, UNIT * 0.64).stroke({ color: NAVY_RIM, width: 6, alpha: 0.6 }).circle(0, 0, UNIT * 0.64).stroke({ color: FOCUS_GUARD, width: 3.5, alpha: 0.95 });
     // К7 «Проклятый сундук»: while the curse lasts — a violet border round the hero, breathing.
     const curse = cursed(world) && world.status === 'playing';
     if (curse) {
@@ -1739,8 +1747,40 @@ export class RealtimeRenderer {
     this.bursts.push({ g, life, total: life, grow });
   }
 
+  /**
+   * Task 23 (б): the cracked shield — the rim in five pieces with gaps, flickering, and three jagged cracks across it (navy under a
+   * pale line), in the shield's own colour (gold — the after-chain shield, pale blue — «Щит фокуса»).
+   */
+  private crackedRim(ring: Graphics, color: number): void {
+    const R = UNIT * 0.68, on = Math.sin(this.clock * 26) > -0.2, alpha = on ? 0.85 : 0.3;
+    for (let i = 0; i < 5; i++) {
+      const a0 = i * (Math.PI * 2 / 5) + 0.18, a1 = a0 + 0.9;
+      ring.arc(0, 0, R, a0, a1).stroke({ color: NAVY_RIM, width: 8, alpha: 0.5 * alpha + 0.2, cap: 'round' });
+      ring.arc(0, 0, R, a0, a1).stroke({ color, width: 3.5, alpha, cap: 'round' });
+    }
+    for (const a of [0.55, 2.7, 4.5]) {
+      const pts = [-10, 6, -4, 12].map((off, j) => {
+        const r = R - 14 + j * 9, t = a + off / R;
+        return { x: Math.cos(t) * r, y: Math.sin(t) * r };
+      });
+      ring.moveTo(pts[0].x, pts[0].y);
+      for (const q of pts.slice(1)) ring.lineTo(q.x, q.y);
+      ring.stroke({ color: NAVY_RIM, width: 5, alpha: 0.8, cap: 'round', join: 'round' });
+      ring.moveTo(pts[0].x, pts[0].y);
+      for (const q of pts.slice(1)) ring.lineTo(q.x, q.y);
+      ring.stroke({ color: 0xfff2c4, width: 2, alpha, cap: 'round', join: 'round' });
+    }
+  }
+
   /** Task 13: block sparks shown so far (one per `shieldBlock` event; tests read it). */
   shieldBlocksShown = 0;
+  /** Task 23: sparks of `block` events shown (after the 0.3 s limit per striker) and of «Пепельный оберег» (`ward`); tests read them. */
+  blocksShown = 0;
+  wardsShown = 0;
+  /** Task 23: the view clock of the last block spark by striker id (or source without one). */
+  private readonly blockSeen = new Map<number | string, number>();
+  /** Task 23 (б): the shield's glow is cracked this frame (`shieldFails`); tests read it. */
+  shieldFailShown = false;
 
   /**
    * Task 13 «Щит» (design 13.10.2026): the after-chain shield took a touch (`shieldBlock`, the enemy at x, y). On the hero's rim
@@ -2069,7 +2109,25 @@ export class RealtimeRenderer {
         else if (ev.phase === 'end') this.pierceShown.ends++;
         continue;
       }
-      if (ev.type === 'shieldBlock') { this.shieldBlockSpark(world, ev.x, ev.y); continue; }
+      if (ev.type === 'shieldBlock') { this.blockSeen.set(ev.enemyId, this.clock); this.shieldBlockSpark(world, ev.x, ev.y); continue; }
+      // Task 23 «Щит виден» (design 15.10.2026): a hit a shield absorbed — the same spark for the after-chain shield, «Щит фокуса»
+      // and the invulnerability; a touch sends it every tick, so one spark per striker (or per source without one) in 0.3 s.
+      if (ev.type === 'block') {
+        const key = ev.enemyId ?? ev.source, last = this.blockSeen.get(key);
+        if (last !== undefined && this.clock - last < BLOCK_SPARK_GAP) continue;
+        this.blockSeen.set(key, this.clock);
+        this.shieldBlockSpark(world, ev.x, ev.y);
+        this.blocksShown++;
+        continue;
+      }
+      // Task 23 (в): «Пепельный оберег» took the lethal hit — the same spark, facing the striker of that hit (above the hero without one).
+      if (ev.type === 'ward') {
+        const hit = world.events.find((h): h is Extract<WorldEvent, { type: 'hit' }> => h.type === 'hit');
+        const striker = hit && hit.enemyId > 0 ? world.enemies.find(e => e.id === hit.enemyId) : undefined;
+        this.shieldBlockSpark(world, striker ? striker.x : world.hero.x, striker ? striker.y : world.hero.y - 1);
+        this.wardsShown++;
+        continue;
+      }
       if (ev.type === 'enemyHit') {
         // Stage 2, step 2: an arrow or a blast wounds an enemy (a kill comes as its own `kill` event).
         if (!ev.killed) this.floatText(`−${ev.damage}`, ev.x * UNIT, ev.y * UNIT - 30, 0xff8a73);

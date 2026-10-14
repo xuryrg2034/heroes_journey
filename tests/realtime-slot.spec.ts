@@ -11,7 +11,7 @@ import { gameWait, untilFrame } from './realtimeFrames';
 interface SlotShown { idols: number; markers: number; spinning: number; stopped: number; dark: number; odds: number; oddsText: string; pulls: number; results: number; lastResult: string; caption: string; captionRisky: boolean; dots: { gold: number; red: number; dark: number }; busts: number; feeds: number; feedText: string;
   textPlace: 'up' | 'down'; reelsPlace: 'up' | 'down'; captionRect: Rect | null; oddsRect: Rect | null; reelsRect: Rect | null; sparks: number; sparkFrom: { x: number; y: number } | null; sparkTo: { x: number; y: number } | null; heroFlashes: number }
 interface Rect { left: number; top: number; right: number; bottom: number }
-interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number; x: number; y: number }; enemies: { id: number }[]; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number; bustCircles: number; bustBlasts: number } }
+interface Snap { chain: number[]; chainLinks: { kind: string; id: number }[]; moving: string | null; hero: { hp: number; x: number; y: number }; enemies: { id: number }[]; slot: { goblin: { id: number; x: number; y: number; pulls: number; skulls: number[]; spinning: boolean } | null; shown: SlotShown; marks: number; flashes: number; bustCircles: number; bustBlasts: number }; guard: { sparks: number; wards: number; fails: boolean } }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
 
@@ -549,5 +549,33 @@ test('task 19а: an idol at the top edge — the lit bust circle stays inside th
   }, [shot.toString('base64'), { left: idol.x - R, right: idol.x + R, bottom: idol.y + R, frameTop: top.y - 10, hud }] as const);
   expect(reds.inside).toBeGreaterThan(500); // the circle is drawn in the field
   expect(reds.above).toBe(0); // and nothing of it above the frame
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 23 (б) «Щит не держит» (design 15.10.2026; sim/guard.ts `shieldFails`): the pull's own chain (a weak enemy, then the lever,
+ * by the mouse) gives the after-chain shield (1.5 s, a journalled param); the reels stop on the bust while it is up and the hero
+ * stands in the lit circle — the shield's glow cracks (`snapshot().guard.fails`), and the blast (fuse 0.3 s) takes its 4 HP
+ * through the shield. Before the lit circle the same shield holds: no crack.
+ */
+test('task 23 (б): the after-chain shield in the lit bust circle cracks, and the blast hurts through it', async ({ page }) => {
+  const errors = await openBustSandbox(page, BUST_SEED, false, true);
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('slotBustFuse', 0.3); rt.setParam('chainShield', 1.5); });
+  for (let i = 0; i < 3; i++) { await pullByMouse(page); await untilReady(page); }
+  await untilFrame(page, snap => snap.slot.marks === 0 ? true : undefined, null, 30);
+  const g = (await snap(page)).slot.goblin!, hpBefore = (await snap(page)).hero.hp;
+  await pullByMouse(page);
+  // The dash killed its enemy: the shield is up, the reels spin — nothing it cannot stop yet.
+  const spinning = await untilFrame(page, (q: any) => (q.hero.chainShield > 0 && !q.moving ? q : undefined), null, 3);
+  expect(spinning.slot.bustCircles, 'the reels still spin').toBe(0);
+  expect(spinning.guard.fails, 'the shield holds while nothing threatens through it').toBe(false);
+  const cracked = await untilFrame(page, (q: any) => (q.slot.bustCircles > 0 ? q : undefined), null, 5);
+  expect(cracked.hero.chainShield, 'the shield is still up at the lit').toBeGreaterThan(0);
+  expect(Math.hypot(cracked.hero.x - g.x, cracked.hero.y - g.y), 'the hero stands in the circle').toBeLessThan(3.5);
+  expect(cracked.guard.fails, 'the shield cracks in the lit circle').toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-guard-cracked.png' });
+  await untilFrame(page, q => (q.slot.bustBlasts >= 1 ? true : undefined), null, 3);
+  await gameWait(page, 0.1);
+  expect((await snap(page)).hero.hp, 'the bust hurts through the shield').toBe(hpBefore - 4);
   expect(errors).toEqual([]);
 });

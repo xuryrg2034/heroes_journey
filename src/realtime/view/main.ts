@@ -1518,6 +1518,8 @@ async function boot(): Promise<void> {
         focusGuard: { rim: renderer.focusGuardShown, on: focusGuarded(w) },
         /** Task 13: the after-chain shield — seconds left (sim), its glow this frame, the block sparks shown so far. */
         chainShield: { left: w.hero.chainShield, glow: renderer.chainShieldShown, blocks: renderer.shieldBlocksShown },
+        // Task 23 «Щит виден»: block sparks shown (after the 0.3 s limit), «Пепельный оберег» sparks, the cracked shield now.
+        guard: { sparks: renderer.blocksShown, wards: renderer.wardsShown, fails: renderer.shieldFailShown },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
         /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */

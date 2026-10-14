@@ -403,6 +403,50 @@ test('after a chain a touching enemy does not hurt the hero for 0.5 s, and does 
   expect(errors).toEqual([]);
 });
 
+/**
+ * Task 23 (а) «Щит виден» (design 15.10.2026): a chain of 3 drawn with the mouse into a crowd — the after-chain shield takes the
+ * crowd's touches, each a spark on the hero's rim (`snapshot().guard.sparks`), no HP lost; a touch blocks every tick, the sparks
+ * come one per enemy in 0.3 s at most.
+ */
+test('task 23 (а): a mouse chain of 3 into a crowd — the after-chain shield takes the touches with sparks, one per enemy in 0.3 s', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await stillArena(page);
+  await page.evaluate(() => (window as any).__realtime.setParam('chainShield', 1.5));
+  const { x: hx, y: hy } = (await chainSnapshot(page)).hero;
+  const links = [1.1, 2.2, 3.3].map(dx => ({ x: hx + dx, y: hy }));
+  for (const p of links) await place(page, p.x, p.y, 0);
+  // The crowd round the chain's end, another colour, a body away: it walks in once the chain ends.
+  const end = links[2], crowd = 4;
+  for (let k = 0; k < crowd; k++) await place(page, end.x + Math.cos(k * Math.PI / 2 + 0.4) * 0.9, end.y + Math.sin(k * Math.PI / 2 + 0.4) * 0.9, 1, 2);
+  const screens: { x: number; y: number }[] = [];
+  for (const p of links) screens.push(await screen(page, p.x, p.y));
+  await page.mouse.move(screens[0].x, screens[0].y);
+  await page.mouse.down();
+  for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y, { steps: 3 });
+  await expect.poll(async () => (await chainSnapshot(page)).chain.length).toBe(3);
+  await page.mouse.up();
+  await untilFrame(page, (s: any) => (s.lastChain ? true : undefined), null, 5);
+  const hp0 = (await page.evaluate(() => (window as any).__realtime.snapshot())).hero.hp;
+  await page.evaluate(() => { (window as any).__realtime.params.enemySpeed = 1.2; });
+  // The first spark: shot for design, then the shield's whole window.
+  await untilFrame(page, (s: any) => (s.guard.sparks > 0 ? true : undefined), null, 1.5);
+  await page.screenshot({ path: 'artifacts/realtime-guard-block-spark.png' });
+  // Every frame while the shield lasts (a touch may land on the tick it ends: that one is not the shield's).
+  const during = await page.evaluate(async () => {
+    const rt = (window as any).__realtime, frame = () => new Promise(r => requestAnimationFrame(r));
+    let s = rt.snapshot(), hp = s.hero.hp, sparks = s.guard.sparks;
+    while (s.hero.chainShield > 0) { hp = Math.min(hp, s.hero.hp); sparks = s.guard.sparks; await frame(); s = rt.snapshot(); }
+    return { hp, sparks };
+  });
+  const after = { hero: { hp: during.hp }, guard: { sparks: during.sparks } };
+  expect(after.hero.hp, 'the shield spared the hero').toBe(hp0);
+  expect(after.guard.sparks).toBeGreaterThan(0);
+  // 1.5 s of touches by at most 4 enemies: at most 4 × (1.5 / 0.3 + 1) sparks, not one a tick (90 ticks × 4).
+  expect(after.guard.sparks).toBeLessThanOrEqual(crowd * 6);
+  expect(errors).toEqual([]);
+});
+
 // ---- Stage 3: arenas, buttons, the door, the boar, wolves ----
 
 interface ArenaSnapshot extends ChainSnapshot {
