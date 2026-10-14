@@ -227,7 +227,8 @@ export const PROLOGUE_POTION: ArenaTemplate = registerArena({
  * blue → lever» is open from the start (the first blue 1.7 from the hero, the last 1.4 from the lever). The return only when no
  * start enemy is left and the lever was never pulled (they come back awake). Task 24 «Урок перебора» (design 15.10.2026): the
  * lever twice (`killGoal` 2) — the first pull a sure triple, the second the show bust (run/prologue.ts); the two reds are gone
- * (their lesson «another colour» is room 2's); the enemies sleep from the first pull on (`sleepAfterPull`).
+ * (their lesson «another colour» is room 2's); the enemies sleep from the first pull on (`sleepAfterPull`). The template changed
+ * on 15.10.2026: a journal of room 8 recorded before it does not replay (the prologue keeps no journals; design accepted it).
  */
 export const PROLOGUE_GOBLIN: ArenaTemplate = registerArena({
   id: 'prologue-5',
