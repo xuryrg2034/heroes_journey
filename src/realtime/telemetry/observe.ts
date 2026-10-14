@@ -75,6 +75,13 @@
  * - the bag (task 14 «Котомка у двери», sim/bag.ts): `bag` events — `appear` (`bag.appeared`), `reset` (`bag.resets`); credited
  *   `kill` events after `appear` and before the end of the fight — `bag.killsAfterGoals`; the steps filled and the door's
  *   payout — `world.bag` at the end.
+ * - the death (task 25 «От чего умирают»): the lethal hit — the last `hit` before `defeat`, its striker named as the run names it
+ *   (run/rtRunEnd.ts `rtDeathOf`; a dead striker — the sapper's blast — from the enemies seen at earlier looks); the series —
+ *   hits in the last `DEATH_SERIES_WINDOW` game seconds up to it, by source; the protections at the hit — the after-chain
+ *   shield after the tick (it only runs down before the hits of a tick), «Щит фокуса» and invulnerability at the look before
+ *   the tick (invulnerability run down by the tick's `SIM_DT`, as `update` does before the hits); the protections in the
+ *   window — game seconds at the end of each tick (the lethal tick — as at the hit); the landing — ticks from the look where
+ *   `world.move` ended (became null or another move) to the lethal hit.
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
@@ -85,14 +92,22 @@ import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
 import { SIM_DT } from '../sim/simulation';
-import { touchRaised, type ChainLink, type HeroMove, type World, type WorldEvent } from '../sim/world';
-import { emptyFightSummary, type FightObserver, type FightObserverFactory, type FightSummary, type SlotBustExit, type SlotBustExitBy } from './schema';
+import { focusGuarded, touchRaised, type ChainLink, type Enemy, type HeroMove, type World, type WorldEvent } from '../sim/world';
+import { rtDeathOf } from '../run/rtRunEnd';
+import {
+  emptyFightSummary, type DeathGuard, type DeathSeriesSource, type FightObserver, type FightObserverFactory, type FightSummary, type SlotBustExit, type SlotBustExitBy,
+} from './schema';
 
 /** HP at or below this is a «low HP» moment (section 3: «Моменты HP ≤ 3»). */
 export const LOW_HP = 3;
 
 /** The source of a wolf's throw (a `wolf` hit from a wolf that was rushing). */
 export const WOLF_RUSH_SOURCE = 'wolf-rush';
+
+/** Task 25 «От чего умирают»: game seconds before the lethal hit whose hits and protections make the series. */
+export const DEATH_SERIES_WINDOW = 5;
+/** Slack of the window against sums of 1/60 s. */
+const WINDOW_EPS = 1e-9;
 
 /** A link taken off by a step back and taken again within this many real seconds is a step-back re-add (research 3.3). */
 export const BACKSTEP_READD_WINDOW = 0.3;
@@ -189,6 +204,15 @@ export function createFightObserver(start: World): FightObserver {
   /** Task 20: the lit busts in order (one per `slot.bustExits` entry), the move before this look, the entry the blast's hit counts for. */
   const busts: BustWatch[] = [];
   let prevMove: HeroMove | null = start.move, bustHurt: SlotBustExit | null = null;
+  // Task 25 «От чего умирают»: every enemy seen (a dead striker is named), the hits of the last window, the protections at the
+  // end of each tick of it (only ticks with one), the protections at the last look, the end of the last move, the lethal hit.
+  const seen = new Map<number, Enemy>();
+  let seenId = -Infinity;
+  const recentHits: { time: number; source: string; damage: number; enemyId: number }[] = [];
+  const guards: { time: number; dt: number; chain: boolean; focus: boolean; invuln: boolean }[] = [];
+  let guardFocus = focusGuarded(start), guardInvuln = start.hero.invulnerable, guardTime = start.time;
+  let moveRef: HeroMove | null = start.move, moveEnd: number | null = null;
+  let lethal: { source: string; damage: number; enemyId: number } | null = null;
   /** Task 20: the hero's body in a lit circle now (world.ts `bustHero`'s rule). */
   const inCircle = (b: Pick<BustWatch, 'x' | 'y' | 'edge'>): boolean => dist(world.hero, b) <= b.edge;
   /** Task 20: the hero's body against the open circles after a tick or a command — an exit (the last one counts) or a return. */
@@ -204,7 +228,13 @@ export function createFightObserver(start: World): FightObserver {
 
   /** Elites not seen before (placed, spawned, a newcomer turned elite). */
   const noteElites = (w: World): void => {
-    for (const e of w.enemies) if (e.elite && !elites.has(e.id)) { elites.set(e.id, { born: w.time, chains: 0, lastDash: -1 }); s.elites.count++; }
+    // Task 25: enemies new since the last look (ids only grow in a world) are remembered for the cause of death.
+    let top = seenId;
+    for (const e of w.enemies) {
+      if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; }
+      if (e.elite && !elites.has(e.id)) { elites.set(e.id, { born: w.time, chains: 0, lastDash: -1 }); s.elites.count++; }
+    }
+    seenId = top;
   };
   noteElites(start);
 
@@ -224,6 +254,9 @@ export function createFightObserver(start: World): FightObserver {
             if (bustHurt) { bustHurt.damage = (bustHurt.damage ?? 0) + ev.damage; bustHurt = null; }
           }
           lastHitSource = ev.source;
+          // Task 25: the hits of the last window (the series before a death).
+          recentHits.push({ time: world.time, source, damage: ev.damage, enemyId: ev.enemyId });
+          while (recentHits.length && world.time - recentHits[0].time > DEATH_SERIES_WINDOW + WINDOW_EPS) recentHits.shift();
           s.damage.total += ev.damage;
           bump(s.damage.bySource, source, ev.damage);
           bump(s.damage.hits, source);
@@ -359,7 +392,14 @@ export function createFightObserver(start: World): FightObserver {
         case 'purseDoor': s.purse.resources = ev.resources; s.purse.exitBy = ev.by; if (ev.step !== undefined) s.purse.exitStep = ev.step; return;
         // Task 14 «Котомка у двери» (sim/bag.ts): the bag appeared, a hit sent its unfilled step back; the fight's end stops the count.
         case 'bag': if (ev.action === 'appear') { s.bag.appeared = true; bagOpen = true; } else if (ev.action === 'reset') s.bag.resets++; return;
-        case 'victory': case 'defeat': bagOpen = false; return;
+        case 'victory': bagOpen = false; return;
+        // Task 25: `hurtHero` pushes the lethal hit, then `defeat` — the last hit read is the killing blow.
+        case 'defeat': {
+          bagOpen = false;
+          const last = recentHits[recentHits.length - 1];
+          if (last && !s.death && !lethal) lethal = { source: last.source, damage: last.damage, enemyId: last.enemyId };
+          return;
+        }
         // Casino «Ставка клятвы» (sim/oath.ts): the door settled the oath.
         case 'oath': if (ev.action === 'door') { s.oath.kept = ev.kept ?? null; s.oath.mult = ev.mult ?? null; } return;
         default: return;
@@ -414,6 +454,66 @@ export function createFightObserver(start: World): FightObserver {
     keys = chain.map(linkKey);
   };
 
+  /** Task 25: a move ended since the last look (`world.move` became null or another move) — the landing counts from here. */
+  const noteMoveEnd = (): void => {
+    if (world.move === moveRef) return;
+    if (moveRef) moveEnd = world.tick;
+    moveRef = world.move;
+  };
+
+  /**
+   * Task 25: the death of this look (its `defeat` was read) — the lethal hit, the series, the protections, the landing; then the
+   * protections at the end of a tick the hero lived through and those of this look (the next tick's «before»).
+   */
+  const noteDeath = (tick: boolean): void => {
+    const w = world, dt = w.time - guardTime;
+    if (lethal && !s.death) {
+      const hit = lethal, t = w.time;
+      lethal = null;
+      const at: DeathGuard[] = [];
+      if (w.hero.chainShield > 0) at.push('chain');
+      if (guardFocus) at.push('focus');
+      if ((tick ? Math.max(0, guardInvuln - SIM_DT) : guardInvuln) > 0) at.push('invuln');
+      const inWindow: Record<DeathGuard, number> = { chain: 0, focus: 0, invuln: 0 };
+      const add = (g: { chain: boolean; focus: boolean; invuln: boolean }, d: number): void => {
+        if (g.chain) inWindow.chain += d;
+        if (g.focus) inWindow.focus += d;
+        if (g.invuln) inWindow.invuln += d;
+      };
+      for (const g of guards) if (t - g.time < DEATH_SERIES_WINDOW - WINDOW_EPS) add(g, g.dt);
+      add({ chain: at.includes('chain'), focus: at.includes('focus'), invuln: at.includes('invuln') }, dt);
+      const by = new Map<string, DeathSeriesSource & { last: number }>();
+      for (const h of recentHits) {
+        if (t - h.time > DEATH_SERIES_WINDOW + WINDOW_EPS) continue;
+        const x = by.get(h.source);
+        if (x) { x.hits++; x.damage += h.damage; x.last = h.time; }
+        else by.set(h.source, { source: h.source, hits: 1, damage: h.damage, span: round2(t - h.time), last: h.time });
+      }
+      const series = [...by.values()]
+        .sort((a, b) => b.damage - a.damage || b.hits - a.hits || b.last - a.last || (a.source < b.source ? -1 : a.source > b.source ? 1 : 0))
+        .map(({ source, hits, damage, span }) => ({ source, hits, damage, span }));
+      const striker = hit.enemyId > 0 ? w.enemies.find(e => e.id === hit.enemyId) ?? seen.get(hit.enemyId) : undefined;
+      const killer = rtDeathOf(hit.source, striker);
+      s.death = {
+        tick: w.tick, source: hit.source, damage: hit.damage,
+        ...killer.enemy ? { enemy: killer.enemy } : {}, ...killer.elite ? { elite: true as const } : {}, ...killer.armor ? { armor: true as const } : {},
+        ...killer.affixes?.length ? { affixes: [...killer.affixes] } : {},
+        series, guardAtHit: at,
+        guardInWindow: { chain: round2(inWindow.chain), focus: round2(inWindow.focus), invuln: round2(inWindow.invuln) },
+        landing: w.move ? null : moveEnd !== null ? w.tick - moveEnd : null,
+        ...w.move ? { moving: w.move.kind } : {},
+      };
+    }
+    if (s.death) return;
+    if (tick) {
+      const g = { time: w.time, dt, chain: w.hero.chainShield > 0, focus: focusGuarded(w), invuln: w.hero.invulnerable > 0 };
+      if (g.chain || g.focus || g.invuln) guards.push(g);
+      while (guards.length && w.time - guards[0].time >= DEATH_SERIES_WINDOW) guards.shift();
+      guardTime = w.time;
+      guardFocus = g.focus; guardInvuln = w.hero.invulnerable;
+    } else { guardFocus = focusGuarded(w); guardInvuln = w.hero.invulnerable; }
+  };
+
   return {
     command(cmd: Command, w: World): void {
       world = w;
@@ -430,6 +530,8 @@ export function createFightObserver(start: World): FightObserver {
       if (before > 0 && now === 0 && !started) s.chain.cancels++;
       else if (stepBack) s.chain.backsteps++;
       chainLen = now;
+      noteMoveEnd();
+      noteDeath(false);
       noteChain(w, stepBack);
       nextCost = tickRealCost(w);
       focus = w.focus;
@@ -446,6 +548,8 @@ export function createFightObserver(start: World): FightObserver {
       readEvents();
       watchBusts();
       noteMove();
+      noteMoveEnd();
+      noteDeath(true);
       chainLen = w.chain.length;
       noteChain(w, false);
       nextCost = tickRealCost(w);
