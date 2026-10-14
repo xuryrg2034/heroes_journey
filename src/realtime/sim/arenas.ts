@@ -147,6 +147,13 @@ export interface ArenaTemplate extends ArenaShape {
    * `sleepUntilChain`, as in room 8).
    */
   sleepOnDoor?: boolean;
+  /**
+   * The prologue, task 24 (design 15.10.2026, room 8 «Гоблин» only): the enemies fall asleep in the tick of the goblin's first
+   * pull — the sleep of `sleepUntilChain` (`World.asleep`) — and stay asleep: a press after it does not wake them. No touch after
+   * the first pull, so the invulnerability after a touch (room 8: 3.4 s) is over before the second pull's bust blast (the
+   * cooldown 3 s + the reels 1.2 s + the fuse 1.2 s after the first pull) whatever the player's pace.
+   */
+  sleepAfterPull?: boolean;
   /** The prologue: the goblin stands here from the start (no roll of `slot:appear`, no marker); needs `Params.slot`. */
   goblin?: Vec;
   /**

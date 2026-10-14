@@ -31,7 +31,7 @@
  *   seeds, the same seed the same count, no count in the appear event); greedy pulls are safe that many times, then risky,
  *   and the plan line of each is the pull; with 0 a real chain into the lever busts on pull 1; «Безопасный рывок — тройка» —
  *   every safe pull a sure triple (24 seeds), without the key the old reels; journals without the keys play the old world;
- *   `slotMayBust` — the run true, the prologue's room 8 false; the observer records the roll and the triples.
+ *   `slotMayBust` — the run true, the prologue's room 8 true too (task 24: its second pull is the show bust); the observer records the roll and the triples.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
@@ -1607,11 +1607,11 @@ check('«Безопасный рывок — тройка»: on 24 seeds every s
   assert(replays(sim), 'replay');
 });
 
-check('`slotMayBust` (the view\'s seam): from the params only — the run true whatever the goblin rolled, the prologue\'s room 8 false; the sandbox as its params say', () => {
+check('`slotMayBust` (the view\'s seam): from the params only — the run true whatever the goblin rolled, the prologue\'s room 8 true (task 24, the show bust); the sandbox as its params say', () => {
   const runWorlds = [1, 2, 3, 4, 5, 6, 7, 8].map(k => runGoblin(1300 + k).world);
   assert(runWorlds.every(w => slotMayBust(w)) && new Set(runWorlds.map(w => goblinOf(w)!.safe)).size >= 2, 'the run: true for every roll');
   const room8 = new Simulation({ arena: prologueRoom(8).id, params: prologueParams(8), seed: seedOf(1) });
-  assert(goblinOf(room8.world) && !slotMayBust(room8.world), 'the prologue\'s room 8: false');
+  assert(goblinOf(room8.world) && slotMayBust(room8.world), 'the prologue\'s room 8: true (task 24)');
   const may = (extra: Partial<Params>): boolean => slotMayBust(field(quiet(extra), 1).world);
   assert(!may({}) && !may({ slotBust: true }) && may({ slotBust: true, slotPulls: 6 }), 'the sandbox: «Перебор» off — false; 3 pulls of 3 safe — false; 6 of 3 — true');
   assert(may({ slotBust: true, slotSafeRandom: true }) && may({ slotBust: true, slotSafePerLongChain: 1 }) && !may({ slot: false, slotBust: true, slotPulls: 6 }), 'a random count or the long chain — true; no slot — false');
