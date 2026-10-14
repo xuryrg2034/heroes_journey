@@ -762,7 +762,35 @@ function prologueSection(records: readonly RtRecord[]): string {
     `${r.room} · ${r.title}`, r.reached, `${r.passed} (${pct(r.passed, r.reached)})`, `${sec(r.gameMedian)} / ${sec(r.realMedian)} с`,
     `${r.withHand} (${pct(r.withHand, r.reached)})`, `${r.withArrow} (${pct(r.withArrow, r.reached)})`, n1(r.attemptsMedian), r.deaths, n1(r.restoresMedian), r.skipped,
   ]));
-  return [PROLOGUE_LEGEND, '', head, ...stats.flatMap(s => ['', `### Комнаты: ${PROLOGUE_FROM_TITLES[s.from]}`, '', rooms(s)])].join('\n');
+  return [PROLOGUE_LEGEND, '', head, ...stats.flatMap(s => ['', `### Комнаты: ${PROLOGUE_FROM_TITLES[s.from]}`, '', rooms(s)]), '', '### Урок перебора (комната 8)', '', prologueBustSection(records)].join('\n');
+}
+
+/** Task 24: the show busts of room 8 by origin (`PrologueRoomTally.busts`). */
+export interface PrologueBustStat { from: PrologueFrom; busts: number; insideAtLit: number; left: number; outMedian: number | null; hurt: number; outside: number; unfinished: number }
+export function prologueBustStats(records: readonly RtRecord[]): PrologueBustStat[] {
+  const all = records.filter((r): r is PrologueRecord => r.kind === 'prologue');
+  const out: PrologueBustStat[] = [];
+  for (const from of ['first', 'gear'] as const) {
+    const busts = all.filter(r => r.from === from).flatMap(r => r.rooms.filter(x => prologueRoomNow(r, x.room) === 8).flatMap(x => x.busts ?? []));
+    if (!busts.length) continue;
+    const left = busts.filter(b => b.inside && b.outAfter !== null && b.damage === 0);
+    out.push({
+      from, busts: busts.length, insideAtLit: busts.filter(b => b.inside).length, left: left.length,
+      outMedian: left.length ? median(left.map(b => b.outAfter!)) : null, hurt: busts.filter(b => (b.damage ?? 0) > 0).length,
+      outside: busts.filter(b => !b.inside).length, unfinished: busts.filter(b => b.damage === null).length,
+    });
+  }
+  return out;
+}
+const PROLOGUE_BUST_HEAD = ['Откуда', 'Переборов', 'В круге при «lit»', 'Вышли до взрыва', 'Выход, мед.', 'Ранены', 'Вне круга при «lit»', 'Комната кончилась в фитиле'];
+const PROLOGUE_BUST_LEGEND = 'Урок перебора (задача 24, с 15.10.2026; `PrologueRoomTally.busts` комнаты 8): каждый показательный перебор — горящий идол второго рывка, все попытки. «В круге при «lit»» — тело героя касалось круга, когда идол загорелся; «вышли до взрыва» — были в круге при «lit», вне его при взрыве и без урона; «выход» — игровые секунды от «lit» до кадра последнего выхода (точность — кадр вида); «ранены» — взрыв снял HP. Записи до 15.10.2026 — «—».';
+function prologueBustSection(records: readonly RtRecord[]): string {
+  const stats = prologueBustStats(records);
+  if (!stats.length) return `${PROLOGUE_BUST_LEGEND}\n\n—`;
+  return [PROLOGUE_BUST_LEGEND, '', table(PROLOGUE_BUST_HEAD, stats.map(s => [
+    PROLOGUE_FROM_TITLES[s.from], s.busts, `${s.insideAtLit} (${pct(s.insideAtLit, s.busts)})`, `${s.left} (${pct(s.left, s.insideAtLit)})`,
+    s.outMedian === null ? '—' : `${n1(s.outMedian)} с`, `${s.hurt} (${pct(s.hurt, s.busts)})`, s.outside, s.unfinished,
+  ]))].join('\n');
 }
 // ---- end the prologue ----
 

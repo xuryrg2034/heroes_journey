@@ -426,6 +426,24 @@ export interface PrologueRoomTally {
   arrows: number;
   /** `win` — passed; `skip` — skipped in it; `open` — left unfinished (the page closed, or the room plays now). */
   outcome: 'win' | 'skip' | 'open';
+  /**
+   * Task 24 «Урок перебора» (15.10.2026; room 8 «Гоблин»): the show busts of the room, one per lit idol in the order they came (all
+   * attempts). Absent — none seen (other rooms, records before it).
+   */
+  busts?: PrologueBust[];
+}
+
+/** Task 24: one show bust of prologue room 8 (`PrologueBustWatch`, telemetry/prologue.ts; the view reads it every frame). */
+export interface PrologueBust {
+  /** The hero's body touched the circle when the idol lit. */
+  inside: boolean;
+  /**
+   * Game seconds from the light to the frame his body was out of the circle for good (0.01; frame-precise); null — out of it at
+   * the light, in it at the blast, or the room ended in the fuse.
+   */
+  outAfter: number | null;
+  /** HP the blast took from him (0 — none); null — the room ended before it went off. */
+  damage: number | null;
 }
 
 /**
@@ -566,6 +584,11 @@ export function checkRecord(value: unknown): string | null {
         if (!o || typeof o !== 'object' || !['room', 'attempts', 'deaths', 'restores', 'gameSeconds', 'realSeconds', 'hands', 'arrows'].every(k => typeof o[k] === 'number' && Number.isFinite(o[k]))
           || !['win', 'skip', 'open'].includes(o.outcome as string)) return 'prologue room fields';
         if (!roomNo(o.room)) return 'prologue room number';
+        const nullNum = (x: unknown): boolean => x === null || (typeof x === 'number' && Number.isFinite(x) && x >= 0);
+        if (o.busts !== undefined && !(Array.isArray(o.busts) && (o.busts as unknown[]).every(b => {
+          const x = b as Record<string, unknown> | null;
+          return !!x && typeof x === 'object' && typeof x.inside === 'boolean' && nullNum(x.outAfter) && nullNum(x.damage);
+        }))) return 'prologue room busts';
       }
       return null;
     }
