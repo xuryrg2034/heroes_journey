@@ -102,6 +102,9 @@ import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
  * choice on «Новый поход»; absent — level 0 (every save before it). The level decides the task-17 flags the run is created with
  * (`createRtRun`) and acts through `rtGentle`, `rtEliteAffixes` and the loadout (`rtAshPressure`). A save without it plays and
  * saves byte for byte as before.
+ * Task 19 «Короткий запал» (the same version, user decision 14.10.2026 after playtest v44): the run's flag `shortFuse`, set at
+ * its creation (`RT_SHORT_FUSE_ON`); its battles play the goblin's bust fuse `RT_RUN_BUST_FUSE` (0.6 s, `rtArenaParams`). A save
+ * without it keeps the fuse of `RT_RUN_FORCED` (1.2 s) to its end and saves byte for byte as before.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -178,6 +181,14 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   // Task 16 «Подвиги» (user 13.10.2026): the simulation watches the node's feat (`Loadout.feat`); which fights get one is the
   // run's (its flag `feats`, `rtFeatOf`).
   feats: true });
+/**
+ * Task 19 «Короткий запал» (user decision 14.10.2026, playtest v44: the hero left the 1.2 s circle with time to spare each time):
+ * a new run keeps the flag `shortFuse` (`RtRunState.shortFuse`) and its battles play this fuse (`rtArenaParams`). The prologue
+ * and the sandbox keep theirs; the radius, the hero's damage and the enemies' damage are unchanged.
+ */
+export const RT_SHORT_FUSE_ON = true;
+/** Task 19: the bust fuse of a run battle (game seconds; `Params.slotBustFuse`, `RT_RUN_FORCED` keeps 1.2). */
+export const RT_RUN_BUST_FUSE = 0.6;
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
 export function rtRunParams(params: Params): Params { return runParams(params, RT_RUN_FORCED); }
 /**
@@ -188,6 +199,8 @@ export function rtRunParams(params: Params): Params { return runParams(params, R
  */
 export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): Params {
   const rules: RtArenaRules = 'map' in run ? rtArenaRules(run) : run, out = { ...params, markedGoals: !!rules.markedGoals };
+  // Task 19 «Короткий запал»: a run with the flag plays the short fuse; without it — the fuse of the params as they come.
+  if (rules.shortFuse) out.slotBustFuse = RT_RUN_BUST_FUSE;
   // Task 17 «Пологий вход»: the row's invulnerability after a hit and the tough touch from row 3 (`rtRowGrace`).
   if (rules.gentleRow !== undefined) {
     out.invulnerability = rtRowGrace(rules.gentleRow);
@@ -199,10 +212,10 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
  * Task 17: what of the run decides the params of its open battle (`rtArenaParams`): the flag `markedGoals` and, for a run
  * with `gentleEntry`, the run row of the open battle node (`gentleRow`; absent — an older run, or no battle open).
  */
-export interface RtArenaRules { markedGoals?: true; gentleRow?: number }
+export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...run.gentleEntry && node ? { gentleRow: runRow(node.row) } : {} };
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...run.gentleEntry && node ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {} };
 }
 /**
  * Hygiene of task 17 (design answer 1, 13.10.2026): the values the page plays with — the sandbox its saved panel (`panel`),
@@ -457,6 +470,12 @@ export interface RtRunState {
   /** Task 15: map heals bought in this run (the next costs RT_HEAL_MAP_PRICE + this). Absent until the first (needs `healMap`). */
   healBought?: number;
   /**
+   * Task 19 «Короткий запал» (user decision 14.10.2026, playtest v44): the run's battles play the bust fuse `RT_RUN_BUST_FUSE`
+   * (`rtArenaParams`). Set when the run is created (`RT_SHORT_FUSE_ON`); absent — a run saved before it: the fuse of
+   * `RT_RUN_FORCED`, to its end.
+   */
+  shortFuse?: true;
+  /**
    * Task 16 «Подвиги» (design 13.10.2026, complexity budget): the run's battles carry feats (`rtFeatOf`). Set when the run is
    * created from the profile — the player reached the Jailer in an earlier run (run/rtRunStorage.ts `featsOn`); absent — a first
    * run, or a run saved before 14.10.2026: no feats, to its end.
@@ -667,7 +686,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -680,8 +699,10 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const potion = help && (options.startPotion ?? RT_START_POTION_ON), wind = help && (options.secondWind ?? RT_SECOND_WIND_ON);
   // Task 15 «Лечение на карте» (14.10.2026): its own flag, on unless the option says (false — no map heal, as a save before it).
   const healMap = options.healMap ?? RT_HEAL_MAP_ON;
+  // Task 19 «Короткий запал» (14.10.2026): its own flag, on unless the option says (false — the fuse of a save before it).
+  const shortFuse = options.shortFuse ?? RT_SHORT_FUSE_ON;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -2341,6 +2362,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 15 (14.10.2026): a flag; absent — a save before it, which has no map heal. `healBought` (1 or more) needs the flag.
   if (value.healMap !== undefined && value.healMap !== true) return null;
   if (value.healBought !== undefined && !(value.healMap === true && isCount(value.healBought) && value.healBought >= 1)) return null;
+  // Task 19 (14.10.2026): a flag; absent — a save before it, which plays the fuse of `RT_RUN_FORCED`.
+  if (value.shortFuse !== undefined && value.shortFuse !== true) return null;
   // Task 16 (14.10.2026): a flag; absent — a save before it (or a first run), which has no feats.
   if (value.feats !== undefined && value.feats !== true) return null;
   // Task 18 (14.10.2026): the level 1–5; absent — 0. The task-17 flags must be those the level creates the run with.
