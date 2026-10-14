@@ -1788,7 +1788,7 @@ export class RealtimeRenderer {
     }
   }
 
-  /** Task 13: block sparks shown so far (one per `shieldBlock` event; tests read it). */
+  /** Task 13: block sparks of the lesson «Щит» shown so far (one per `shieldBlock` event only; task 23's `block` sparks count in `blocksShown`). */
   shieldBlocksShown = 0;
   /** Task 23: sparks of `block` events shown (after the 0.3 s limit per striker) and of «Пепельный оберег» (`ward`); tests read them. */
   blocksShown = 0;
@@ -1814,7 +1814,6 @@ export class RealtimeRenderer {
     g.position.set(hx * UNIT, hy * UNIT);
     this.fxLayer.addChild(g);
     this.bursts.push({ g, life: 0.4, total: 0.4 });
-    this.shieldBlocksShown++;
   }
 
   // ---- The power number (package «Урон имеет значение», item 4; task 8b, design 13.10.2026): view-only ----
@@ -2125,7 +2124,7 @@ export class RealtimeRenderer {
         else if (ev.phase === 'end') this.pierceShown.ends++;
         continue;
       }
-      if (ev.type === 'shieldBlock') { this.blockSeen.set(ev.enemyId, this.clock); this.shieldBlockSpark(world, ev.x, ev.y); continue; }
+      if (ev.type === 'shieldBlock') { this.blockSeen.set(ev.enemyId, this.clock); this.shieldBlockSpark(world, ev.x, ev.y); this.shieldBlocksShown++; continue; }
       // Task 23 «Щит виден» (design 15.10.2026): a hit a shield absorbed — the same spark for the after-chain shield, «Щит фокуса»
       // and the invulnerability; a touch sends it every tick, so one spark per striker (or per source without one) in 0.3 s.
       if (ev.type === 'block') {

@@ -256,22 +256,73 @@ test('room 4: a chain of five lights five lamps and goes out; «Цвет сво�
   expect(done.prologue.lamps).toEqual({ lit: 9, total: 9 });
 });
 
-test('room 8: the goblin — the label at the lever until the first pull; the real chain of enemies ends on the lever; the pull opens the door', async ({ page }) => {
+/**
+ * Room 8 «Гоблин», task 24 «Урок перебора» (design 15.10.2026; run/prologue.ts — core, the view — ui): two pulls, «Рычаг: 0 / 2».
+ * Pull 1 — the real chain of the blue ones ends on the lever: a safe triple; while its reels spin the pale risk ring stands round
+ * the idol (task 24 (а): on every pull) and the arrow out of the circle comes at once (the hand's urgent mode). Pull 2 — the hand
+ * shows a chain of just the lever after the cooldown; pressed by the mouse, it is the shown bust: the ring while the reels spin,
+ * the arrow out at once, the hero walks out by the keys following it — the lit circle goes off without the 4 HP, the door opens.
+ */
+test('room 8: the goblin — two pulls; the risk ring and the arrow out on each spin; the second pull of just the lever busts, the hero walks out unhurt, the door opens', async ({ page }) => {
   test.setTimeout(180_000);
-  await enterRoom(page, 8);
+  const errors: string[] = [];
+  await enterRoom(page, 8, errors);
   await titleShot(page, '8');
   await titleGone(page);
   expect((await snap(page)).onboarding.labels.map((l: any) => l.text)).toEqual(['Закончи цепь здесь']);
+  expect((await snap(page)).goal.total).toBe(2);
+  const hp = (await snap(page)).hero.hp;
+  // Pull 1: the hand's chain of the blue ones to the lever.
   const pts = await route(page);
   expect(pts.length).toBeGreaterThanOrEqual(2);
   expect(pts[pts.length - 1].kind).toBe('object');
   await drag(page, pts);
-  const pulled = await untilFrame(page, s => s.prologue.lamps.lit === 1 ? true : undefined, 0, 6);
-  expect(pulled).toBe(true);
-  expect((await snap(page)).onboarding.labels).toEqual([]);
-  await gameWait(page, 0.5);
+  const spin1 = await untilFrame(page, s => (s.slot.goblin?.spinning && !s.moving ? s : undefined), 0, 6);
+  expect(spin1.slot.riskCircles, 'pull 1: the risk ring while the reels spin').toBe(1);
+  const arrow1 = await untilFrame(page, s => (s.prologue.guide?.arrow ? s : undefined), 0, 1);
+  expect(arrow1.prologue.guide.circle, 'pull 1: the arrow out of the circle at once').not.toBeNull();
+  await shot(page, '8-ring');
+  const safe = await untilFrame(page, s => (!s.slot.goblin?.spinning ? s : undefined), 0, 6);
+  expect(safe.slot.bustCircles, 'pull 1 is a triple').toBe(0);
+  expect(safe.slot.riskCircles).toBe(0);
+  expect(safe.prologue.lamps.lit).toBe(1);
+  expect(safe.onboarding.labels).toEqual([]);
+  expect(safe.stage, 'one pull: the door stays shut').not.toBe('greed');
+  // Pull 2: the cooldown (3 s), the hero back by the idol (he may have walked out after the arrow); then the hand shows a chain of
+  // just the lever.
+  await gameWait(page, 3.2);
+  const idol = safe.slot.goblin as { x: number; y: number };
+  await walkTo(page, async () => idol, 1.2);
+  let lever: Pt[] = [];
+  for (let i = 0; i < 10 && lever.length !== 1; i++) { lever = await route(page); if (lever.length !== 1) await gameWait(page, 0.3); }
+  expect(lever.map(p => p.kind), 'the hand: a chain of just the lever').toEqual(['object']);
+  // The odds line of the run (design 15.10.2026: «как в походе») while the chain of just the lever is drawn.
+  await page.mouse.move(lever[0].x, lever[0].y);
+  await page.mouse.down();
+  expect(await untilFrame(page, s => (s.slot.shown.odds === 1 ? s.slot.shown.oddsText : undefined), 0, 2)).toBe('взрыв? −4 HP в круге · иначе тройка');
+  await page.mouse.up();
+  const spin2 = await untilFrame(page, s => (s.slot.goblin?.spinning && !s.moving ? s : undefined), 0, 6);
+  expect(spin2.slot.riskCircles, 'pull 2: the risk ring while the reels spin').toBe(1);
+  const arrow2 = await untilFrame(page, s => (s.prologue.guide?.arrow ? s : undefined), 0, 1);
+  const out = arrow2.prologue.guide.circle as { x: number; y: number };
+  const R = (await page.evaluate(() => (window as any).__realtime.params.slotBustRadius)) as number;
+  expect(Math.hypot(out.x - idol.x, out.y - idol.y), 'the arrow spot is out of the circle').toBeGreaterThan(R);
+  await shot(page, '8-spin2');
+  // Walk out by the keys, following the arrow, until the bust has gone off; the moment of «lit» shot on the way.
+  let litShot = false;
+  await walkTo(page, async () => out, 0.25, s => {
+    if (!litShot && s.slot.bustCircles > 0) { litShot = true; void page.screenshot({ path: 'artifacts/realtime-prologue-8-lit.png' }); }
+    return s.slot.bustBlasts >= 1;
+  });
+  const lit = await untilFrame(page, s => (s.slot.bustBlasts >= 1 ? s : undefined), 0, 6);
+  expect(lit.slot.bustBlasts).toBe(1);
+  await gameWait(page, 0.2);
+  const after = await snap(page);
+  expect(after.hero.hp, 'out of the circle: no damage').toBe(hp);
+  expect(after.prologue.lamps.lit).toBe(2);
   await walkIn(page, 8);
   await inRoom(page, 9);
+  expect(errors).toEqual([]);
 });
 
 test('room 9 «Щит»: no action bar, the goal «Щит: 0 / 3»; the crowd sleeps until the first press — the hero keeps 15 HP; the hand after 1.5 s of rest draws a chain of 3+; a chain of two — the touch after it hurts, no lamp, no glow; a chain of 3+ — the hero glows, the touch is blocked (the «блок» spark), a spark flies to the lamp; three lamps open the door, the enemies sleep', async ({ page }) => {
@@ -422,6 +473,12 @@ test('the whole prologue, end to end: rooms 1–9 by real input, then room 10 �
   expect(real.length).toBe(1);
   expect([real[0].from, real[0].outcome, real[0].skipRoom, real[0].rooms.map((r: any) => [r.room, r.outcome])])
     .toEqual(['first', 'done', null, Array.from({ length: 10 }, (_, i) => [i + 1, 'win'])]);
+  // Task 24 telemetry (the view's `prologueTally.frame` every frame): room 8 keeps its one show bust — the hero walked out after the
+  // arrow, unhurt; no other room has one.
+  const busts = real[0].rooms.map((r: any) => r.busts ?? null);
+  expect(busts.filter((b: unknown) => b !== null).length).toBe(1);
+  expect(busts[7]).toHaveLength(1);
+  expect(busts[7][0]).toMatchObject({ damage: 0 });
   // The test entry: room N starts as the pass left it (the world's journal start, the page's tiles, HUD, lamps, pulse, the item
   // pulse's memory) and writes no prologue record (a real start writes one with room 1).
   for (let n = 2; n <= 10; n++) {
@@ -612,10 +669,31 @@ async function jumpTheCliff(page: Page): Promise<void> {
 }
 
 /** Room `room` (1–9) passed by real input (the hand's chain; 5 the jump, 6 Q, 7 the potion's tile, 9 chains of 3+ into the crowd) and a walk into the door; ends when the fade after it begins. */
+/**
+ * Room 8 by real input (task 24): pull 1 by the hand's chain to the lever; after the cooldown, by the idol, pull 2 — a chain of just
+ * the lever; then out of the circle by the keys after the arrow until the bust goes off; the door opens.
+ */
+async function passGoblin(page: Page): Promise<void> {
+  await drag(page, await route(page));
+  const safe = await untilFrame(page, s => (s.slot.goblin && !s.slot.goblin.spinning && !s.moving && s.prologue.lamps.lit === 1 ? s : undefined), 0, 8);
+  const idol = safe.slot.goblin as { x: number; y: number };
+  await gameWait(page, 3.2);
+  await walkTo(page, async () => idol, 1.2);
+  let lever: Pt[] = [];
+  for (let i = 0; i < 10 && lever.length !== 1; i++) { lever = await route(page); if (lever.length !== 1) await gameWait(page, 0.3); }
+  expect(lever.map(p => p.kind)).toEqual(['object']);
+  await drag(page, lever);
+  const arrow = await untilFrame(page, s => (s.slot.goblin?.spinning && s.prologue.guide?.arrow ? s : undefined), 0, 6);
+  const out = arrow.prologue.guide.circle as { x: number; y: number };
+  await walkTo(page, async () => out, 0.25, s => s.slot.bustBlasts >= 1);
+  expect(await untilFrame(page, s => (s.stage === 'greed' ? true : undefined), 0, 6)).toBe(true);
+}
+
 async function passRoom(page: Page, room: number): Promise<void> {
   await inRoom(page, room);
   await titleGone(page);
   if (room === 9) { await passShield(page); await walkIn(page, room); return; }
+  if (room === 8) { await passGoblin(page); await walkIn(page, room); return; }
   if (room === 5) { await jumpTheCliff(page); await walkIn(page, room); return; }
   if (room === 6) { await page.keyboard.press('KeyQ'); await untilFrame(page, s => s.stage === 'greed' ? true : undefined, 0, 6); await gameWait(page, 0.3); await walkIn(page, room); return; }
   if (room === 7) { await page.getByTestId('item-healing').click(); await untilFrame(page, s => s.stage === 'greed' ? true : undefined, 0, 6); await gameWait(page, 0.3); await walkIn(page, room); return; }
@@ -678,7 +756,8 @@ test('a death in room 8 plays room 8 again (attempt 2) with full HP, the enemies
   const s = await snap(page);
   expect(s.hero.hp).toBe(s.hero.maxHp);
   expect(s.prologue.title).toBe('8/10 · Гоблин');
-  expect(s.enemies.length).toBe(6);
+  // Four blue ones (task 24, 15.10.2026: the room has no red ones any more).
+  expect(s.enemies.length).toBe(4);
 });
 
 test('an old run save and no key: the prologue plays, «Пропустить» leads to the SAME run (state and save unchanged)', async ({ page }) => {

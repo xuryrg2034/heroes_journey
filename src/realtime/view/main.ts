@@ -941,6 +941,8 @@ async function boot(): Promise<void> {
       else if (ev.type === 'jump') spaceUsed = true;
       else if (ev.type === 'spin') spinUsed = true;
     }
+    // Task 24 telemetry (telemetry/prologue.ts): the frame's events, all its ticks, before the room may end below.
+    prologueTally?.frame(pl.n, w, w.events);
     if (!transition && pl.titleLeft > 0 && live) {
       pl.titleLeft -= realDt;
       if (pl.titleLeft <= 0) prologueDom.hideTitle(); else prologueDom.title.style.opacity = String(Math.min(1, pl.titleLeft / 0.35));
