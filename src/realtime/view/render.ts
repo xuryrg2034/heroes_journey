@@ -320,6 +320,9 @@ export class RealtimeRenderer {
   private readonly bustLayer = new Graphics();
   /** The arena's field rectangle (redrawn in `buildArena`), the mask of `bustLayer`. */
   private readonly bustMask = new Graphics();
+  /** Task 23в (design 15.10.2026): the hero's reach ring, clipped to the arena's field like the bust circle (`reachMask`, the same rectangle). */
+  private readonly reachLayer = new Graphics();
+  private readonly reachMask = new Graphics();
   /** Phase A (Т3): the badge strip under bodies — the role on the left, room for elite affixes on the right (over the signals). */
   private readonly badgeLayer = new Graphics();
   /** Phase A (Т3): role badges on or off — a local setting of the view (main.ts keeps it in its own storage key), not a Param. */
@@ -515,7 +518,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -689,6 +692,8 @@ export class RealtimeRenderer {
     f.rect(-4, -4, w + 8, h + 8).stroke({ color: 0x5a5a40, width: 6 });
     this.bustMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.bustLayer.mask = this.bustMask;
+    this.reachMask.clear().rect(0, 0, w, h).fill(0xffffff);
+    this.reachLayer.mask = this.reachMask;
     const t = this.terrain.clear();
     for (const o of arena.obstacles) {
       if (o.shape === 'rect') {
@@ -2293,13 +2298,15 @@ export class RealtimeRenderer {
       if (e.hurtFlash <= 0) continue;
       g.circle(e.x * UNIT, e.y * UNIT, flashR).fill({ color: 0xffffff, alpha: Math.min(1, e.hurtFlash / Math.max(p.hitFlash, 0.01)) * 0.8 });
     }
-    // Stage D (user 07.10.2026): the reach R of the first link around the hero, always — thin and faint over the crowd.
+    // Stage D (user 07.10.2026): the reach R of the first link around the hero, always — thin and faint over the crowd. Task 23в:
+    // in its own layer, clipped to the arena's field (at the top edge it ran out of the frame onto the HUD).
     let reach = 0;
+    const rg = this.reachLayer.clear();
     this.heroReachShown = world.status === 'playing';
     // Phase B (Д5): the radius drawn (units) — «Длинная рука» and «Широкий круг» widen it (tests read it).
     this.heroReachRadius = linkRadiusOf(world);
     if (this.heroReachShown) {
-      g.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+      rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
       reach++;
     }
     this.visibleReachCircles = reach;

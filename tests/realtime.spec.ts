@@ -447,6 +447,40 @@ test('task 23 (а): a mouse chain of 3 into a crowd — the after-chain shield t
   expect(errors).toEqual([]);
 });
 
+/**
+ * Task 23в (design 15.10.2026): the hero's reach ring is clipped to the arena's field, as the bust circle of task 19а. The hero
+ * at the top edge: the ring would cross the dark strip between the HUD plate and the frame; the shot's pixels there stay dark.
+ */
+test('task 23в: the hero at the top edge — the reach ring stays inside the arena frame', async ({ page }) => {
+  const errors: string[] = [];
+  await open(page, errors);
+  await stillArena(page);
+  await page.evaluate(() => (window as any).__realtime.teleport(8, 0.45));
+  await gameWait(page, 0.2);
+  const s = await page.evaluate(() => (window as any).__realtime.snapshot());
+  expect(s.heroReachShown).toBe(true);
+  const hero = await screen(page, s.hero.x, s.hero.y), top = await screen(page, s.hero.x, 0), edge = await screen(page, s.hero.x + s.reachRadius, s.hero.y);
+  const R = edge.x - hero.x, plate = (await page.getByTestId('hud').boundingBox())!;
+  expect(hero.y - R, 'the ring would reach above the frame').toBeLessThan(plate.y + plate.height);
+  const shot = await page.screenshot({ path: 'artifacts/realtime-reach-top-edge.png' });
+  // The strip between the HUD plate's bottom and the frame's border (its 6 px above the field left out), across the ring's width.
+  const light = await page.evaluate(async ([b64, box]) => {
+    const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const c = new OffscreenCanvas(img.width, img.height), cx = c.getContext('2d')!;
+    cx.drawImage(img, 0, 0);
+    const d = cx.getImageData(0, 0, img.width, img.height).data;
+    let n = 0;
+    for (let y = Math.ceil(box.y0); y < Math.floor(box.y1); y++) for (let x = Math.max(0, Math.floor(box.x0)); x < Math.min(img.width, Math.ceil(box.x1)); x++) {
+      const i = (y * img.width + x) * 4;
+      if ((d[i] + d[i + 1] + d[i + 2]) / 3 > 45) n++;
+    }
+    return n;
+  }, [shot.toString('base64'), { x0: hero.x - R, x1: hero.x + R, y0: plate.y + plate.height + 2, y1: top.y - 9 }] as const);
+  expect(top.y - 9 - (plate.y + plate.height + 2), 'a strip to look at').toBeGreaterThan(3);
+  expect(light, 'no ring pixels between the HUD and the frame').toBe(0);
+  expect(errors).toEqual([]);
+});
+
 // ---- Stage 3: arenas, buttons, the door, the boar, wolves ----
 
 interface ArenaSnapshot extends ChainSnapshot {
