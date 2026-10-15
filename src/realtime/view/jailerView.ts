@@ -10,7 +10,7 @@
  * - «отрубит» — the plate of the core that the end of the pass takes blinks as an empty lemon ring (no text).
  * Coordinates are arena pixels; sizes marked `px` are screen pixels (the caller passes `1 / scale`).
  */
-import type { Graphics } from 'pixi.js';
+import type { Graphics, GraphicsContext } from 'pixi.js';
 import { ELITE_LEMON, platePipAt, type ArmorShape } from './eliteView';
 
 const NAVY = 0x18232d;
@@ -55,7 +55,7 @@ export function drawFlailChain(g: Graphics, x0: number, y0: number, x1: number, 
  * The weight: a ball of radius `R` in the chain colour `ink` with 8 steel spikes, a navy outline (outer thicker), one shade
  * and a small hard highlight (docs/character-art-style.md: metal — a cold base, one hard shade, a small highlight).
  */
-export function drawWeight(g: Graphics, x: number, y: number, R: number, ink: number, px: number, spin = 0): void {
+export function drawWeight(g: GraphicsContext, x: number, y: number, R: number, ink: number, px: number, spin = 0): void {
   const spikes: number[][] = [];
   for (let i = 0; i < 8; i++) {
     const a = spin + i * Math.PI / 4, c = Math.cos(a), s = Math.sin(a), w = R * 0.26;
@@ -132,10 +132,10 @@ export function drawWhistleMark(g: Graphics, X: number, Y: number, R: number, in
  * «Отрубит»: the core's plate that the end of the pass takes (the last filled pip) blinks as an empty lemon ring. `on` — the
  * blink phase. Returns whether a pip was marked (the core has a plate left).
  */
-export function drawSeverPip(g: Graphics, x: number, y: number, R: number, a: ArmorShape, px: number, on: boolean): boolean {
+export function drawSeverPip(g: Graphics, x: number, y: number, R: number, a: ArmorShape, px: number, on: boolean, below = false): boolean {
   if (a.plates <= 0) return false;
   if (!on) return true;
-  const pip = platePipAt(x, y, R, a, a.plates - 1, px);
+  const pip = platePipAt(x, y, R, a, a.plates - 1, px, below);
   g.roundRect(pip.x - pip.w / 2, pip.y - pip.h / 2, pip.w, pip.h, pip.r).fill({ color: 0x16202a, alpha: 0.95 }).stroke({ color: ELITE_LEMON, width: 2.5 * px });
   return true;
 }
