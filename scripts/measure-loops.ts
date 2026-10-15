@@ -33,18 +33,18 @@
  * The arenas are the run's 12 (pools, «Застава», «Последний рубеж») from their templates, without the phase A rosters.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { arenaTemplate, type ArenaTemplate } from '../src/realtime/sim/arenas';
+import { arenaTemplate } from '../src/realtime/sim/arenas';
 import '../src/realtime/sim/arenasStage3';
 import '../src/realtime/sim/arenasCamera';
-import { NO_PIERCE, canLink, chainAnchor, nextCandidates, nextObjectCandidates, planChain } from '../src/realtime/sim/chain';
+import { NO_PIERCE, canLink, planChain } from '../src/realtime/sim/chain';
 import { enemyArtRadius, kindOf } from '../src/realtime/sim/enemies/kinds';
 import { dist, lineOfSight, type Vec } from '../src/realtime/sim/geometry';
 import type { Params } from '../src/realtime/sim/params';
-import { defaultParams } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
 import { NO_COLOR, type ChainLink, type Enemy, type World } from '../src/realtime/sim/world';
-import { ARENA_POOLS, arenaCandidates, arenaTitle, FINAL_ARENA, HARD_ARENA } from '../src/realtime/run/arenaPools';
-import { rtColorsByRow, rtRunParams } from '../src/realtime/run/rtRun';
+import { ARENA_POOLS, arenaCandidates, arenaTitle } from '../src/realtime/run/arenaPools';
+import { rtColorsByRow } from '../src/realtime/run/rtRun';
+import { RUN_ARENAS, endless, harmlessRunParams, playChain, seedOf } from './loopBot';
 
 const arg = (name: string, fallback: number): number => { const i = process.argv.indexOf(name); return i > 0 ? Number(process.argv[i + 1]) : fallback; };
 const SEEDS = arg('--seeds', 20), SECS = arg('--secs', 40), BASE_S = Math.min(20, SECS / 2);
@@ -53,7 +53,6 @@ const EVERY = Math.max(1, Math.round(arg('--every', 2.5) * 60));
 /** `--walk`: the hero walks a pattern of directions (a new one every second, as the walking bot of the big-arena measure). */
 const WALKING = process.argv.includes('--walk');
 const WALK = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]];
-const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 /** Turn limit of a line (25°). */
 const LINE_COS = 0.906;
 /** Half-width of the corridor ahead of a line. */
@@ -74,35 +73,12 @@ const VARIANTS: Variant[] = [
 const only = process.argv.indexOf('--variants');
 const ACTIVE = only > 0 ? VARIANTS.filter(v => process.argv[only + 1].split(',').includes(v.id)) : VARIANTS;
 
-/** The run's params, harmless: the hero cannot fall. */
+/** The run's params, harmless: the hero cannot fall (scripts/loopBot.ts). */
 function paramsOf(v: Variant): Params {
-  const p = rtRunParams(defaultParams());
-  p.contactDamage = 0; p.heroHp = 999; p.archerDamage = 0; p.sapperDamage = 0; p.boarDamage = 0; p.eliteDamageBonus = 0; p.thornDamage = 0; p.porcupineQuills = 0;
+  const p = harmlessRunParams();
   if (v.mono) p.groupColor = 'mono';
   if (v.r !== null) p.linkRadius = v.r;
   return p;
-}
-const endless = (a: ArenaTemplate): ArenaTemplate => ({ ...a, id: `${a.id}-loops`, killGoal: a.goal === 'kills' ? 100000 : a.killGoal, door: { x: -100, y: -100 } });
-
-/** The greedy chain of the bots of the specs (sliceArenas.spec.ts, realtime-big-arenas.ts). */
-function playChain(sim: Simulation): number {
-  const w = sim.world;
-  if (w.move || w.chain.length || w.status !== 'playing') return 0;
-  const first = nextCandidates(w).sort((a, b) => dist(a, w.hero) - dist(b, w.hero))[0];
-  if (!first) return 0;
-  sim.command({ t: 'begin', x: first.x, y: first.y });
-  for (let k = 0; k < 12 && w.chain.length; k++) {
-    const plan = planChain(w);
-    if (plan.endsOnSurvivor || plan.endsOnObject) break;
-    const from: Vec = chainAnchor(w);
-    const next = [...nextCandidates(w), ...nextObjectCandidates(w).filter(o => o.kind !== 'door')].sort((a, b) => dist(a, from) - dist(b, from))[0];
-    if (!next) break;
-    const before = w.chain.length;
-    sim.command({ t: 'drag', x: next.x, y: next.y, mode: 'full' });
-    if (w.chain.length <= before) break;
-  }
-  sim.command({ t: 'release' });
-  return 1;
 }
 
 // ---- Geometry of a moment ----
@@ -291,7 +267,7 @@ const row = (label: string, t: Tally): string =>
   `| ${label} | ${(t.field / Math.max(1, t.samples)).toFixed(1).replace('.', ',')} | ${pct(t.cycle, t.samples)} | ${pct(t.cycleHero, t.samples)} | ${median(t.cycleIn)} (${mean(t.cycleIn)}) | ${pct(t.arc, t.samples)} | ${median(t.arcIn)} (${mean(t.arcIn)}) | ${pct(t.line, t.samples)} | ${pct(t.lineHit, t.samples)} | ${median(t.lineAhead)} (${mean(t.lineAhead)}) |`;
 const HEAD = '| | тел | (а) 4-цикл | (а) от героя | внутри | (б) дуга на героя | внутри | (в) линия 3+ | с телом впереди | тел впереди |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |';
 
-const ARENAS = [...ARENA_POOLS.map(e => e.arena), HARD_ARENA, FINAL_ARENA];
+const ARENAS = RUN_ARENAS;
 const ROWS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const started = Date.now();
 if (process.argv.includes('--pierce')) {
