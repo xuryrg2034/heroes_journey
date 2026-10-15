@@ -40,6 +40,8 @@ import { linkPoint } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, type FxLevel } from './juice';
+import type { MetaSound } from './metaEnd';
+type MetaSoundKind = MetaSound | 'buy' | 'open';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
@@ -732,6 +734,8 @@ async function boot(): Promise<void> {
     // User request 15.10.2026: the map's «Песочница» — the anchor reloads the page as the sandbox (`hashchange` above); the run's save is kept.
     openSandbox: () => { location.hash = '#sandbox'; },
     firstMeet: meetFirst,
+    // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
+    ...sandbox ? {} : { meta: { sound: (kind: MetaSoundKind) => { if (runSound?.on) audio.meta(kind, runSound.volume); } } },
     // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [
       { id: 'link-depth', label: 'Глубина звена', hint: 'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него.', get: () => renderer.showLinkDepth, set: setLinkDepth },
@@ -790,6 +794,7 @@ async function boot(): Promise<void> {
   toMap.addEventListener('click', finishRunArena);
   if (runView) {
     host.appendChild(runView.el);
+    if (runView.hearth) host.appendChild(runView.hearth.el);
     // A reload in the middle of an arena: the run shows its open battle node, whose arena starts again from the start.
     // A viewer without the key «пролог пройден» gets the prologue instead (started at the end of boot).
     if (prologueDue) runView.el.hidden = true; else runView.open();
