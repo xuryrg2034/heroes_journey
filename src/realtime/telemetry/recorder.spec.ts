@@ -27,8 +27,9 @@ import type { Command } from '../sim/commands';
 import { copyParams, defaultParams } from '../sim/params';
 import { Simulation, replay, type Journal } from '../sim/simulation';
 import type { World } from '../sim/world';
-import { RT_TASK17_OFF, createRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseGift, rtChooseGiftPick, rtEnterNode, rtGiftView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtRunParams, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { RT_TASK17_OFF, createRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseGift, rtChooseGiftPick, rtEnterNode, rtGiftView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtRunParams, rtChooseEventOption, rtChooseTalisman, type RtRunState, type RtRunStep } from '../run/rtRun';
 import { ITEM_KINDS } from '../forest/items';
+import { battleOption, forestEvent } from '../forest/forestEvents';
 import type { ItemKind } from '../forest/types';
 import type { PrologueRecord, RunRecord } from './schema';
 import { closeNode, outcomeOf, quiet, seedOf, takeGift } from '../run/runFight.testkit';
@@ -649,6 +650,41 @@ async function main(): Promise<void> {
       rec.dispose();
     }
     assert(bagRuns >= 2 && craftRuns >= 2, `runs with a bag payout ${bagRuns}, with a craft ${craftRuns}`);
+  });
+
+  await check('an event resolved by its battle option (after the fight, at the reward talisman) is recorded with its own id, not «unknown» (playtest 15.10.2026)', async () => {
+    let found = 0;
+    for (let k = 1; k <= 12 && found < 2; k++) {
+      const local = fake(), seed = seedOf(7400 + k);
+      const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: rtRunParams(quiet()), observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+      let run: RtRunState = takeGift(createRtRun(seed, { gift: 'mini', ...RT_TASK17_OFF }));
+      rec.runStarted(null, run);
+      const feed = (step: RtRunStep): void => { assert(step.ok, step.ok ? '' : step.reason); rec.runStep(run, step); run = step.run; };
+      let eventId: string | undefined;
+      for (let i = 0; i < 200 && !run.result && !eventId; i++) {
+        const pending = run.pending;
+        if (pending?.kind === 'event') {
+          const id = run.picks.find(p => p.nodeId === pending.nodeId)?.eventId, option = id ? battleOption(forestEvent(id)!) : undefined;
+          const step = option ? rtChooseEventOption(run, option.id) : undefined;
+          if (step?.ok && step.run.pending?.kind === 'battle') { feed(step); eventId = id; break; }
+          feed({ ok: true, run: closeNode(run), events: [] });
+        } else if (pending?.kind === 'battle') feed(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, bestChain: 0, damage: 0, time: 1 }));
+        else if (pending) feed({ ok: true, run: closeNode(run), events: [] });
+        else feed(rtEnterNode(run, rtAvailableNodes(run)[0].id));
+      }
+      if (!eventId) { rec.dispose(); continue; }
+      const nodeId = (run.pending as { nodeId: string }).nodeId;
+      feed(resolveArena(run, { nodeId, won: true, hp: run.hp, kills: 0, bestChain: 0, damage: 0, time: 1 }));
+      assert(run.pending?.kind === 'talisman', `the event's reward: ${run.pending?.kind}`);
+      feed(rtChooseTalisman(run, null));
+      await new Promise(r => setTimeout(r, 10));
+      const r = (await rec.buffer.all()).filter((x): x is RunRecord => x.kind === 'run' && x.seed === seed).pop()!;
+      const visit = r.nodes.find(v => v.nodeId === nodeId);
+      assert(visit?.event?.id === eventId && visit.event.option === battleOption(forestEvent(eventId)!)!.id, `seed ${k}: ${JSON.stringify(visit)} (event ${eventId})`);
+      found++;
+      rec.dispose();
+    }
+    assert(found >= 1, `runs with an event fight: ${found}`);
   });
 
   await check('the prologue: the hooks of two playthroughs (first launch, passed with a death and returns; the gear, skipped) give one record each, no fight or run record', async () => {
