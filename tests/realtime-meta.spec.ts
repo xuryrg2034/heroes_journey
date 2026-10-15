@@ -136,8 +136,18 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   // The camp with three NPC; «Два пути» bought.
   await page.getByTestId('run-to-hearth').click();
   await expect(page.locator('.rt-hearth-npc')).toHaveCount(3);
+  // No two names (nor a name and another NPC's figure) overlap (design 15.10.2026).
+  const boxes = await page.locator('.rt-hearth-npc').evaluateAll(els => els.map(e => { const n = e.querySelector('.rt-hearth-name')!.getBoundingClientRect(), f = e.querySelector('.rt-hearth-art')!.getBoundingClientRect(); return { n: [n.left, n.top, n.right, n.bottom], f: [f.left, f.top, f.right, f.bottom] }; }));
+  const cross = (a: number[], b: number[]): boolean => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+  for (let i = 0; i < boxes.length; i++) for (let j = 0; j < boxes.length; j++) if (i !== j) {
+    expect(cross(boxes[i].n, boxes[j].n), `names ${i}/${j}`).toBe(false);
+    expect(cross(boxes[i].n, boxes[j].f), `name ${i} under figure ${j}`).toBe(false);
+  }
   await page.screenshot({ path: 'artifacts/realtime-hearth-three.png' });
   await page.getByTestId('hearth-npc-owl').click();
+  // Level 2 only after level 1: grey and disabled while level 1 is not bought.
+  await expect(page.getByTestId('up-owl-2')).toBeDisabled();
+  await expect(page.getByTestId('up-owl-2')).toHaveAttribute('data-later', 'true');
   await page.getByTestId('up-owl-1').click();
   await expect(page.getByTestId('up-owl-1-bought')).toBeVisible();
   await expect(page.getByTestId('hearth-line')).toHaveText('Два пути. Я видела лес сверху — выбирай, пока я добрая.');
@@ -147,6 +157,8 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   await page.getByTestId('hearth-go').click();
   await expect(page.getByTestId('hearth-maps')).toBeVisible();
   await expect(page.locator('.rt-hearth-map')).toHaveCount(2);
+  await expect(page.locator('.rt-hearth-map').first().locator('.rt-node')).not.toHaveCount(0);
+  await expect(page.locator('.rt-hearth-map').first().locator('.rt-mp-counts span')).toHaveCount(6);
   await page.screenshot({ path: 'artifacts/realtime-hearth-maps.png' });
   await page.getByTestId('hearth-map-1').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();

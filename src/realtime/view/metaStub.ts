@@ -101,7 +101,8 @@ export class MetaStub implements MetaSource {
 
   start(seed: number): { maps?: number[]; items?: ItemKind[] } {
     const s = load(), maps = s.levels.owl >= 1 ? Array.from({ length: s.levels.owl + 1 }, (_, i) => (Math.imul(seed + i * 7919, 2654435761) >>> 0)) : undefined;
-    const items: ItemKind[] | undefined = s.levels.herb >= 2 ? ['healing', 'frost'] : s.levels.herb >= 1 ? ['healing'] : undefined;
+    // Марфа's consumable comes with core (the run's `hearth` flag): the stand-in offers no choice that would do nothing.
+    const items: ItemKind[] | undefined = undefined;
     return { ...maps ? { maps } : {}, ...items ? { items } : {} };
   }
 

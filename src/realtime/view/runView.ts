@@ -392,8 +392,8 @@ export class RunView {
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
     // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
     this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []) });
-    // Task 37 (stand-in until core's `hearth` flag of the run): Марфа's consumable in hand from the start, its kind open.
-    if (camp?.item) { this.run.items[camp.item]++; if (!this.run.openItems.includes(camp.item)) this.run.openItems.push(camp.item); }
+    // Task 37: Марфа's consumable comes with core's `hearth` flag of the run (createRtRun); the view never changes the run (design 15.10.2026).
+    void camp?.item;
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
