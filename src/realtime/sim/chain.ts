@@ -212,7 +212,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const out: LinkPlan[] = [];
   // Phase B: the build layer numbers the enemy links only while a build module acts (otherwise the old plan, exactly).
   const build = buildActive(world), chain = build ? nextChainNo(world) : 0, gain = linkGainOf(world);
-  let index = 0, elites = 0;
+  let index = 0, elites = 0, crystals = 0;
   // Task 29 («Возврат»): the power the dash ends with when it stops on a survivor (the links after it are not struck).
   let stopPower = 0;
   // Casino «Котёл»: the struck enemy links and the crystal links of the plan, for its cheque (only while the cauldron is on).
@@ -222,11 +222,12 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     if (!enemy) {
       // Stage 3a (М4): a burning brazier adds its power to the rest of the chain (the dash adds the same on arrival).
       if (isBrazier(world, link)) power += brazierPowerOf(world);
+      if (build && isCrystal(world, link)) crystals++;
       if (purse && !endsOnSurvivor && isCrystal(world, link)) purse.crystals++;
       out.push({ link, outcome: null });
       continue;
     }
-    const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true } : null;
+    const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals } : null;
     const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy));
     power = outcome.powerAfter;
     // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
@@ -1203,7 +1204,7 @@ function maybeFinisher(world: World): void {
  */
 function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkContext | null; outcome: StrikeOutcome } {
   const b = move.build;
-  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false } : null;
+  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken } : null;
   return { ctx, outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy)) };
 }
 
@@ -1297,7 +1298,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
 function passFallen(world: World, fallen: FallenLink): void {
   const move = world.move!, p = world.params, b = move.build;
   // Phase B: the build's gain (1 without a build module) and, while the layer counts, the modules' power around the link.
-  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy: null, id: fallen.id, elite: !!fallen.elite, elitesBefore: b.elites, power: move.power, plan: false } : null;
+  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy: null, id: fallen.id, elite: !!fallen.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken } : null;
   move.power += ctx ? linkPowerOf(world, ctx) + linkGainOf(world) + afterLinkPowerOf(world, ctx, null) : linkGainOf(world);
   // Stage 3a (М2): a link that fell into a cliff — the hero flies over its point but does not stop there: the point is
   // noted, and if nothing on the ground follows, the hero flies back along the chain (`returnToStop`).

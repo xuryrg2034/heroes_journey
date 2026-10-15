@@ -358,6 +358,17 @@ export interface Params {
    * value plays the old path (the bodies near the path the hero really runs). The sandbox: on; a run forces it off (task 30).
    */
   returnFixed: boolean;
+  /**
+   * Task 29 (design 15.10.2026, «Переделка восьми счётчиков»): the eight counter talismans count within one chain
+   * (sim/talismansRt.ts: «Острие», «Улов», «Призма» +1 power after a crystal or a colour shift, …). Off — the old windows
+   * between chains. A journal without the key plays the old path. The sandbox's toggle; a run plays it off (`RUN_FORCED`).
+   */
+  counterWindow: boolean;
+  /**
+   * «Ударная волна» with `counterWindow`: a chain of at least this many enemy links reached sends the wave (the old window:
+   * 8, a constant). Read only with `counterWindow` on.
+   */
+  shockwaveLinks: number;
   // Look
   dimMode: DimMode;
   dimStrength: number;
@@ -977,6 +988,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Баланс: decision of the user 11.10.2026 (playtest v17) — a chain of 3+ links.
   endBlastMinLinks: 3,
   returnFixed: true,
+  // Task 29: off — the old windows of the counters; the wave of the chain window from 4 links.
+  counterWindow: false,
+  shockwaveLinks: 4,
   dimMode: 'alpha',
   dimStrength: 0.65,
   enemyLook: 'circle',
@@ -1348,6 +1362,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('endBlastMinLinks', 'Талисманы', '«Взрыв на конце»: звеньев от', 1, 6, 1, 5, '', 'Молот срабатывает, если проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются). В походе — 3.'),
   { kind: 'bool', key: 'returnFixed', group: 'Талисманы', label: '«Возврат»: путь и тела при отпускании', stage: 5,
     hint: 'Задача 29. Отпускание фиксирует путь назад и тела второго прохода, как их показала подсветка; ушедшее с пути тело всё равно получает удар. В походе выключено (до задачи 30).' },
+  { kind: 'bool', key: 'counterWindow', group: 'Талисманы', label: 'Счётчики: окно — одна цепь', stage: 5,
+    hint: 'Только песочница (со следующей арены). Восемь талисманов-счётчиков считают внутри одной цепи: «Острие» — 3-е вражеское звено +2 силы; «Улов» — цепь с 3+ убийствами даёт бесплатный прыжок на 5 с; «Призма» — звенья после кристалла или смены цвета +1 силы (без энергии); «Ударная волна» — цепь от N звеньев; «Добивание» — последнее звено самое крепкое и погибло; «Охотник на элит» — и после крепкого; «Длинная рука» — с 3-го звена R ×1,5; «Иней на клинке» — цепь 3+ на выжившем. Выкл. — прежние счётчики между цепями. В походе выключено.' },
+  n('shockwaveLinks', 'Талисманы', '«Ударная волна» (окно — цепь): звеньев от', 2, 12, 1, 5, '', 'Только при «Счётчики: окно — одна цепь». Без него — 8.'),
   { kind: 'choice', key: 'dimMode', group: 'Вид', label: 'Приглушение не того цвета', stage: 2,
     options: [{ value: 'darken', label: 'затемнение' }, { value: 'alpha', label: 'полупрозрачность' }, { value: 'desaturate', label: 'обесцвечивание' }] },
   n('dimStrength', 'Вид', 'Сила приглушения', 0, 1, 0.05, 2),
@@ -1608,9 +1625,9 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * archer's point shot is on. Loop research, step 1: the sandbox palette `colorCount` is 4 (the run's palette by its row comes
  * from `colorsByRow`, `Loadout.colors`). Step 2: the loop is a sandbox experiment — off in a run; step 3, «Прямая», too
  * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
- * panel holds.
+ * panel holds. Task 29: the counters' chain window (`counterWindow`) — a sandbox rule until task 30, off in a run.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, returnFixed: false });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, returnFixed: false, counterWindow: false });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

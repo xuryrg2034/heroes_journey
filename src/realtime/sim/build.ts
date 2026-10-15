@@ -41,6 +41,11 @@ export interface LinkContext {
   power: number;
   /** True in `planChain` (the highlight), false in the dash. Pure hooks must return the same in both. */
   plan: boolean;
+  /**
+   * Task 29 («Призма» with `counterWindow`): crystal links of this chain before this link — the plan counts the crystal links
+   * drawn before it, the dash the crystals it broke (`HeroMove.broken`). Absent — 0.
+   */
+  crystalsBefore?: number;
 }
 
 /** The last enemy link the dash reached: where it was, whether it died, whether it was an elite. */

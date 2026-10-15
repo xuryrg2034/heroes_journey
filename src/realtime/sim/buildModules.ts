@@ -8,3 +8,5 @@ import './hammers';
 import './relics';
 // Task 29: the forms of the field «Звено» (pure hooks only).
 import './forms';
+// Task 29: the sandbox form «Наледь» (after the relics: its frost lies after the hammer's fire in a tick).
+import './frostPass';

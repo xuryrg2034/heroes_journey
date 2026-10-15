@@ -66,6 +66,12 @@ export const RELIC_IDS: readonly RelicId[] = Object.values(RELICS);
 export const OATH_HUNGER = 'oath-hunger';
 
 /**
+ * Task 29 (form of the field «Путь», sandbox only): «Наледь» — the dash's path freezes the enemies that enter it for 2 s
+ * (sim/frostPass.ts). Kept in `Loadout.talismans` / `Kit.talismans`; not in the run's catalogue (`RT_TALISMANS`).
+ */
+export const FROST_PASS = 'frost-pass';
+
+/**
  * Kill sources of the player's build (`KillCause.source`, the `kill` and `enemyHit` events). All are credited to the player
  * (section 2: tools of the player, as a blast of a sapper killed by the chain).
  */
