@@ -389,13 +389,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-wind { display: inline-flex; align-items: center; margin-left: -4px; cursor: help; filter: drop-shadow(0 0 4px #ffd36b66); }
 .rt-run-wind.rt-spent { opacity: 0.35; filter: grayscale(1); }
 
-/* Task 28 «Тюремщик в походе» (bossBar.ts; decision 6): the boss bar — 480 × 14 px at the top centre under the HUD plate (main.ts sets its top and centre). HP cells left (red), plate cells right (lemon, as the elite's pips); the phase line; a lost cell flashes once. */
+/* Task 28 «Тюремщик в походе» (bossBar.ts; decision 6): the boss bar — 480 × 14 px at the top centre under the HUD plate (main.ts sets its top and centre). HP cells left (dark wine — not the hero's HP red nor a red enemy; design 15.10.2026), plate cells right (lemon, as the elite's pips), each with a thin light outline; an empty cell — dark with a dim outline; the phase line; a lost cell flashes once. */
 .rt-boss-bar { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); box-sizing: border-box; background: #121710e6; border: 2px solid #18232d; outline: 1px solid #6a5a3c; pointer-events: none; transition: opacity .1s linear; }
 .rt-boss-cells { display: flex; height: 100%; gap: 2px; padding: 1px; box-sizing: border-box; }
-.rt-boss-cell { flex: 1; transition: background-color .15s; }
-.rt-boss-hp { background: #c0473e; }
+.rt-boss-cell { flex: 1; box-shadow: inset 0 0 0 1px #ead9c2; transition: background-color .15s; }
+.rt-boss-hp { background: #7a2e3e; }
 .rt-boss-plate { background: #ffff66; }
-.rt-boss-cell.rt-boss-empty { background: #2a2e22; }
+.rt-boss-cell.rt-boss-empty { background: #1a1e16; box-shadow: inset 0 0 0 1px #4a4a3c; }
 .rt-boss-cell.rt-boss-lost { animation: rt-boss-lost .35s ease-out; }
 @keyframes rt-boss-lost { 0% { background: #ffffff; box-shadow: 0 0 8px #ffffff; } 100% { box-shadow: none; } }
 .rt-boss-phase { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1.5px; background: #f4efe0; border: 1px solid #18232d; box-sizing: content-box; }

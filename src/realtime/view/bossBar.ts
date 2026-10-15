@@ -4,7 +4,7 @@
  *
  * - Only in a fight with a boss (`Params.bossFrame` on and a core `jailer` on the arena), 480 × 14 px at the top centre, under
  *   the HUD plate (the plate takes the top left; the bar never covers the goal).
- * - One cell per unit of the core: its HP (left, red) and its plates (right, lemon, as the elite's pips). A unit lost empties
+ * - One cell per unit of the core: its HP (left, dark wine — design 15.10.2026: not the hero's HP red) and its plates (right, lemon, as the elite's pips). A unit lost empties
  *   its cell from the right — the plates first, as the hits take them. The cells are the bar's divisions.
  * - The phase line: at the border where the core keeps `PHASE2_PLATES` plates (phase 2 begins there, or after
  *   `PHASE2_TIME` s); it lights when phase 2 comes (event `bossPhase`), whatever the cause.
