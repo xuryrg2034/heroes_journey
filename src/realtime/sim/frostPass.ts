@@ -23,6 +23,7 @@ import { findEnemy, passObject, planChain } from './chain';
 import { kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
 import { findObject, touchDistanceOf, type World } from './world';
+import { hasTalisman } from './kit';
 
 /** Game seconds a frost point lies. */
 export const FROST_PASS_LIFE = 2;
@@ -101,9 +102,10 @@ export function frostPassPath(world: World): Vec[] {
   return path;
 }
 
-/** The highlight: the frost points the drawn chain's dash would lay now (`frostPassPath`, the dash's sampling). Pure. */
+/** The highlight: the frost points the drawn chain's dash would lay now (`frostPassPath`, the dash's sampling); none without «Наледь» in the kit. Pure. */
 export function frostPassPreview(world: World): FrostPoint[] {
   const out: FrostPoint[] = [];
+  if (!hasTalisman(world, FROST_PASS)) return out;
   // A dash that never moves lays nothing (the dash's step hook gets no path).
   const path = frostPassPath(world);
   if (path.length > 1) frostAlong(world, path, 0, out);
