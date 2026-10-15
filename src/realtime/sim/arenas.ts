@@ -171,6 +171,13 @@ export interface ArenaTemplate extends ArenaShape {
    * and whenever the layout is not in play. The seam for the view's mark of the horde as one group (the ui session).
    */
   horde?: { x: number; y: number; r: number };
+  /**
+   * Task 27 «Каркас босса» (sim/arenasBoss.ts; sandbox only): the arena plays the boss frame whatever the given values hold — the
+   * world gets a copy of them with `Params.bossFrame` on (world.ts `createWorld`; the journal keeps that copy). Omitted — the values as given.
+   */
+  bossFrame?: boolean;
+  /** Task 27: the gates of a boss arena — where the Jailer's «Свисток» calls its adds (enemies/jailer.ts). Omitted — none. */
+  gates?: Vec[];
 }
 
 /**

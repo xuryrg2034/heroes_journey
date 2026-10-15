@@ -18,7 +18,7 @@ import type { HammerEventKind } from './buildIds';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
-import { type Params, type Pressure, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
+import { type Params, type Pressure, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
@@ -124,6 +124,11 @@ export interface Enemy {
    * on — plates, their maximum, the open window, the regrowth. Absent on every other enemy (worlds without it hash as before).
    */
   armor?: EliteArmor;
+  /**
+   * Task 27 «Каркас босса» (enemies/jailer.ts): the id of the boss's core this enemy is a part of (the Jailer's weight). Absent
+   * on every other enemy and while `Params.bossFrame` is off (worlds without it hash as before).
+   */
+  partOf?: number;
 }
 
 /**
@@ -458,7 +463,16 @@ export type WorldEvent =
    * `source` — the hit it would have been, `enemyId` — the striker if any. A touch gives one per touching enemy per tick (the view
    * limits the sparks). Never for a dash or a jump. Not hashed (events are not), and nothing else changes.
    */
-  | { type: 'block'; x: number; y: number; source: HitSource; enemyId?: number };
+  | { type: 'block'; x: number; y: number; source: HitSource; enemyId?: number }
+  /**
+   * Task 27 «Каркас босса» (enemies/jailer.ts): a move of the boss whose core is `id` began its windup (`start`) or struck (`hit`);
+   * a part died (`partSevered`: its id and spot; only while its core lives); after the dash the core lost plates to severed parts
+   * (`bossPlate`: plates left) or entered a phase (`bossPhase`). The rules never read them.
+   */
+  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle'; stage: 'start' | 'hit' }
+  | { type: 'partSevered'; id: number; x: number; y: number }
+  | { type: 'bossPlate'; id: number; plates: number }
+  | { type: 'bossPhase'; id: number; phase: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -649,6 +663,8 @@ export interface HeroStart { hp: number; maxHp: number }
 export function createWorld(template: ArenaTemplate, params: Params, seed = 1, start?: HeroStart, loadout?: Loadout): World {
   // Task 12: with `markedGoals` on, a template's goal layout (its enemies, summary and horde) — the world plays it throughout.
   const arena = markedGoalArena(template, params.markedGoals);
+  // Task 27 «Каркас босса»: a boss arena plays the frame — a copy of the values with it on (the given object stays as it is).
+  if (arena.bossFrame && !params.bossFrame) params = { ...copyParams(params), bossFrame: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -1032,9 +1048,12 @@ function touchBase(world: World, e: Enemy): number {
   if (base <= 0 || !touchRaised(world, e)) return base;
   // Package «Урон имеет значение»: the base touch (`contactDamage`) is raised to the elite's / the tough one's; the kind's own
   // part on top of it (the wolf's pack bonus) stays.
-  const p = world.params, raised = e.armor ? p.eliteTouchDamage : p.toughTouchDamage ?? 2;
+  const p = world.params, raised = elitePlated(e) ? p.eliteTouchDamage : p.toughTouchDamage ?? 2;
   return base + Math.max(0, raised - p.contactDamage);
 }
+
+/** An elite's armour (not a boss's plates, task 27): its touch is the elite's and knocks the hero back. */
+const elitePlated = (e: Enemy): boolean => !!e.armor && !e.armor.boss;
 
 /**
  * Package «Урон имеет значение» (docs/realtime-damage.md): the touch of `e` is raised now — an armoured elite (its touch
@@ -1043,7 +1062,7 @@ function touchBase(world: World, e: Enemy): number {
  */
 export function touchRaised(world: World, e: Enemy): boolean {
   if (kindOf(e).immune) return false;
-  if (e.armor) return true;
+  if (elitePlated(e)) return true;
   return !!world.params.toughTouch && (!!e.elite || e.hp >= 2);
 }
 
@@ -1658,7 +1677,7 @@ function contactDamage(world: World, dt: number): void {
   const raisedElite = !!striker.elite && touchRaised(world, striker);
   hurtHero(world, raisedElite ? { id: striker.id } : striker, damage, kindOf(striker).hitSource);
   // An armoured elite's touch knocks the hero back (as the boar's charge, `knockHero`), away from it.
-  const knock = striker.armor ? params.eliteKnockback : 0;
+  const knock = elitePlated(striker) ? params.eliteKnockback : 0;
   if (knock > 0 && world.status === 'playing') {
     const dx = hero.x - striker.x, dy = hero.y - striker.y, d = dhypot(dx, dy);
     if (d > 1e-6) knockHero(world, dx / d, dy / d, knock);

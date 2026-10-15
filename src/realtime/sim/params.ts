@@ -775,6 +775,15 @@ export interface Params {
    * get a feat and the reward are the run's (a run with its flag `feats`). The sandbox has no node feat.
    */
   feats: boolean;
+  // ---- Task 27 «Каркас босса и Тюремщик в песочнице» (sim/enemies/jailer.ts, docs/realtime-elite-behaviors.md, «Каркас босса»). ----
+  /**
+   * The boss frame: a boss is a core and its parts — enemies of the common body (the Jailer: the core `jailer` and its part, the
+   * weight `jailer-weight`); the conductor picks the moves (weights, `eventMax`, `missedMax`, the stream `behavior:jailer`); a
+   * severed part takes one plate off the core after the dash; the boss's state (the core's plates, the phase, the despair)
+   * changes only when no dash runs. Off by default; journals without the key: off (the kinds walk as plain enemies, no new
+   * fields). The sandbox arena «Тюремщик» turns it on for itself (`ArenaTemplate.bossFrame`, world.ts `createWorld`); a run never.
+   */
+  bossFrame: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1142,6 +1151,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   bagReward3: 3,
   // Task 16 «Подвиги» (feat.ts): off by default.
   feats: false,
+  // Task 27 «Каркас босса» (enemies/jailer.ts): off by default; the sandbox arena «Тюремщик» turns it on for itself.
+  bossFrame: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1539,6 +1550,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 16 «Подвиги» (feat.ts, docs/realtime-slice.md).
   { kind: 'bool', key: 'feats', group: 'Подвиги', label: 'Подвиги (поход)', stage: 5,
     hint: 'Только поход: бой узла может нести подвиг — «Набери N очков», «Продержись N с после целей», «Продержись N с на арене»; награда — у двери. Подвиги приходят со второго похода (после первого Тюремщика). В песочнице подвига узла нет — переключатель ничего не меняет.' },
+  // Task 27 «Каркас босса» (enemies/jailer.ts, docs/realtime-elite-behaviors.md).
+  { kind: 'bool', key: 'bossFrame', group: 'Босс', label: 'Каркас босса (Тюремщик)', stage: 5,
+    hint: 'Ядро и части — враги обычного тела. Отрубленная часть снимает пластину ядра после прохода; фаза, пластины и отчаяние меняются только после прохода. Арена «Тюремщик» включает каркас сама. Без каркаса Тюремщик и гиря — обычные враги. В походе нет.' },
 ];
 
 const MAX_PHASES = 8;
