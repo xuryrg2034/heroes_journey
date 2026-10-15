@@ -13,10 +13,10 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, reachOf, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawReturnRoute, drawTwinLine } from './formsView';
-import { enemyArtRadius, enemyArtScale } from '../sim/enemies/kinds';
+import { enemyArtScale } from '../sim/enemies/kinds';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
@@ -2672,20 +2672,13 @@ export class RealtimeRenderer {
       g.stroke({ color: c, width: w, alpha: 0.95, cap: 'round', join: 'round' });
     }
     // Task 33 «Развилка» (design 15.10.2026): the dash runs the links in order, so the line does not show where a fork link was
-    // taken from — a thin pale dashed stroke from that older link (the latest one before the previous that reaches it now).
+    // taken from — a thin pale dashed stroke from that older link (the sim's `forkAnchorOf`, fixed when the link was taken).
     world.chain.forEach((link, i) => {
-      if (!link.fork || i < 2) return;
-      const at = linkPoint(world, link), e = link.kind === 'enemy' ? world.enemies.find(x => x.id === link.id) : undefined;
-      if (!at) return;
-      const reach = reachOf(world, e ? enemyArtRadius(p, e) : OBJECT_RADIUS);
-      for (let j = i - 2; j >= 0; j--) {
-        const from = linkPoint(world, world.chain[j]);
-        if (!from || Math.hypot(from.x - at.x, from.y - at.y) > reach) continue;
-        dashedLine(g, from.x * UNIT, from.y * UNIT, at.x * UNIT, at.y * UNIT, 7, 6);
-        g.stroke({ color: PALE, width: 2, alpha: 0.5, cap: 'round' });
-        fs.forkBranch++;
-        return;
-      }
+      const anchorLink = forkAnchorOf(world, i), at = linkPoint(world, link), from = anchorLink && linkPoint(world, anchorLink);
+      if (!at || !from) return;
+      dashedLine(g, from.x * UNIT, from.y * UNIT, at.x * UNIT, at.y * UNIT, 7, 6);
+      g.stroke({ color: PALE, width: 2, alpha: 0.5, cap: 'round' });
+      fs.forkBranch++;
     });
     // Task 29 «Наледь»: where the dash will leave the cold — faint rings of the consumable's blue.
     if (world.kit?.talismans.includes(FROST_PASS)) for (const f of frostPassPreview(world)) { drawFrostPreview(g, f.x * UNIT, f.y * UNIT, FROST_PASS_RADIUS * UNIT); fs.frostPreview++; }
