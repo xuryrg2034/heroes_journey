@@ -432,16 +432,25 @@ test('task 31 «Огонь от трёх звеньев»: a mouse chain of 2 li
   expect((await fx()).fireFlares).toBe(0);
   // Three links: the edge while drawn; the dash reaches the 3rd — the whole path flares at once, then burns.
   await quiet(page);
-  const three = [await place(page, 9.2, 5, 'basic', 1, 0), await place(page, 10.6, 5, 'basic', 1, 0), await place(page, 12, 5, 'basic', 1, 0)];
+  // The 2nd and the 3rd link stand on both banks of the pond (12.6, 4.6, r 0.95): the dash crosses the water.
+  const three = [await place(page, 9.8, 5.1, 'basic', 1, 0), await place(page, 11.62, 5.1, 'basic', 1, 0), await place(page, 13.42, 5.1, 'basic', 1, 0)];
   await draw(three);
   await expect.poll(async () => ((await buildSnap(page)) as any).chain.length).toBe(3);
   expect((await fx()).fireEdge).toBe(1);
   await expect.poll(() => progressOf(page, 'fire-pass')).toBe('●●●');
+  // The edge follows only the points the dash lays — none in the water
+  // (design 15.10.2026: the highlight is the dash). Fewer points than the path's length would give.
+  const drawn = (await buildSnap(page)) as any, path = [drawn.hero, ...three.map((id: number) => drawn.enemies.find((x: any) => x.id === id))];
+  const length = path.slice(1).reduce((sum: number, p: any, i: number) => sum + Math.hypot(p.x - path[i].x, p.y - path[i].y), 0);
+  const edgePoints = (await fx()).fireEdgePoints;
+  expect(edgePoints).toBeGreaterThan(1);
+  expect(edgePoints).toBeLessThan(Math.floor(length / 0.4) + 1);
   await page.screenshot({ path: 'artifacts/realtime-fire-plan-3.png' });
   await page.mouse.up();
   await expect.poll(async () => (await fx()).fireFlares, { timeout: 3_000, intervals: [16] }).toBe(1);
   await page.screenshot({ path: 'artifacts/realtime-fire-flare.png' });
-  expect((await fx()).flarePoints).toBeGreaterThan(1);
+  // The flare lights the same points the edge promised (the path ends at the 3rd link).
+  expect((await fx()).flarePoints).toBe(edgePoints);
   await expect.poll(async () => (await fx()).fire).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });

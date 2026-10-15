@@ -32,7 +32,7 @@ import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type Enem
 import { shieldFails } from '../sim/guard';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
-import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints, returnRunOf } from '../sim/hammers';
+import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, returnRunOf } from '../sim/hammers';
 import { FROST_PASS, HAMMERS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
@@ -85,8 +85,8 @@ export function hammerFireOf(world: World): { x: number; y: number; k: number; r
 }
 
 /** Phase B: effects of the player's build shown so far (fire and cut trail — in the last frame; tests read them). */
-/** Task 31: `fireEdge` — the drawn chain has the fire's edge this frame (the path will light); `fireFlares` — path flares so far, `flarePoints` — their points. */
-export interface PlayerEffectCounts { waves: number; blasts: number; cuts: number; cutTrail: number; cutFrames: number; fire: number; bombs: number; returns: number; fireEdge: number; fireFlares: number; flarePoints: number }
+/** Task 31: `fireEdge` — the drawn chain has the fire's edge this frame (the path will light), `fireEdgePoints` — the fire points it follows; `fireFlares` — path flares so far, `flarePoints` — their points. */
+export interface PlayerEffectCounts { waves: number; blasts: number; cuts: number; cutTrail: number; cutFrames: number; fire: number; bombs: number; returns: number; fireEdge: number; fireEdgePoints: number; fireFlares: number; flarePoints: number }
 
 /** Input state the view shows (pointer line, jump aim); owned by main.ts. */
 export interface RenderUi {
@@ -547,7 +547,7 @@ export class RealtimeRenderer {
   /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
   spinsShown = 0;
   /** Phase B (Д5): effects of the player's build — waves, blasts, cuts, bombs, return runs so far; fire points and cut trail segments in the last frame, frames with a cut trail so far. */
-  readonly playerEffects: PlayerEffectCounts = { waves: 0, blasts: 0, cuts: 0, cutTrail: 0, cutFrames: 0, fire: 0, bombs: 0, returns: 0, fireEdge: 0, fireFlares: 0, flarePoints: 0 };
+  readonly playerEffects: PlayerEffectCounts = { waves: 0, blasts: 0, cuts: 0, cutTrail: 0, cutFrames: 0, fire: 0, bombs: 0, returns: 0, fireEdge: 0, fireEdgePoints: 0, fireFlares: 0, flarePoints: 0 };
   /** Task 31: the flares of the fire's path (the dash reached the threshold) — a bright stroke along the whole path, fading. */
   private readonly fireFlareFx: { g: Graphics; life: number }[] = [];
   /** Phase B (Д5): the radius R of the circle around the hero in the last frame, in units (`linkRadiusOf`). */
@@ -2547,7 +2547,7 @@ export class RealtimeRenderer {
   private drawChain(world: World, ui: RenderUi): void {
     const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
     this.drawnPlan = null;
-    this.playerEffects.fireEdge = 0;
+    this.playerEffects.fireEdge = 0; this.playerEffects.fireEdgePoints = 0;
     for (const label of this.quillLabels) label.visible = false;
     for (const label of this.plateLabels) label.visible = false;
     for (const label of this.depthLabels) label.visible = false;
@@ -2615,15 +2615,27 @@ export class RealtimeRenderer {
     for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
     // Task 29 «Близнецы»: the pair of the chain's colour counts as one — the line in dashes of both colours.
     const twins = color === null ? null : colorGroups(world)?.find(group => group.includes(color) && group.length > 1) ?? null;
-    // Task 31 «Огненный проход» (`fireMinLinks`): the dash will reach the threshold — the path gets the fire's edge under the
-    // chain line (embers with the pale-blue rim of the player's effects, as the fire itself); short of it — no edge.
-    if (plan.fire?.lit && pts.length > 1) {
+    // Task 31 «Огненный проход» (`fireMinLinks`): the dash will reach the threshold — the fire's edge under the chain line (embers
+    // with the pale-blue rim of the player's effects, as the fire itself), only where the dash lays fire (sim `firePassPreview`:
+    // not in water, not over a cliff — design 15.10.2026, the highlight is the dash). Neighbouring points join in one stroke; a
+    // point alone — a round blot. Short of the threshold — no edge.
+    const firePts = firePassPreview(world);
+    if (firePts.length) {
+      const runs: Vec[][] = [];
+      for (const q of firePts) {
+        const run = runs[runs.length - 1], last = run?.[run.length - 1];
+        if (last && Math.hypot(q.x - last.x, q.y - last.y) <= FIRE_STEP * 1.5) run.push(q); else runs.push([q]);
+      }
       for (const [w, c, a] of [[22, PLAYER_FX, 0.75], [17, EMBER, 0.9], [11, FLAME, 0.55]] as const) {
-        g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
-        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
+        for (const run of runs) {
+          g.moveTo(run[0].x * UNIT, run[0].y * UNIT);
+          if (run.length === 1) g.lineTo(run[0].x * UNIT + 0.01, run[0].y * UNIT);
+          for (let k = 1; k < run.length; k++) g.lineTo(run[k].x * UNIT, run[k].y * UNIT);
+        }
         g.stroke({ color: c, width: w, alpha: a, cap: 'round', join: 'round' });
       }
       this.playerEffects.fireEdge = 1;
+      this.playerEffects.fireEdgePoints = firePts.length;
     }
     if (twins) { drawTwinLine(g, pts.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), chainInk(twins[0]), chainInk(twins[1])); fs.twinLine = 1; }
     else for (const [w, c] of [[9, NAVY], [4.5, ink]] as const) {
