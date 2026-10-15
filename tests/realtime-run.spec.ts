@@ -889,7 +889,7 @@ test('task 38: a run walked in Node to «Предместье» (the forest fina
   const state = await runState(page);
   expect(state.hp).toBe(state.maxHp);
   await expect(page.getByTestId('outskirts-hp')).toHaveText(`HP ${state.maxHp} / ${state.maxHp}`);
-  await expect(page.getByTestId('run-title')).toHaveText('Поход');
+  await expect(page.getByTestId('run-title')).toHaveText('Лес');
   await page.screenshot({ path: 'artifacts/realtime-garrison-outskirts.png' });
   await page.getByTestId('run-garrison').click();
   await expect(page.getByTestId('run-outskirts')).toBeHidden();

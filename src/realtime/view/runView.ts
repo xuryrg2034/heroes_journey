@@ -134,7 +134,7 @@ export interface RunHost {
    * none). `sound` plays the meta's sounds by the run's sound setting.
    */
   meta?: {
-    sound(kind: MetaSound | 'buy' | 'open'): void;
+    sound(kind: MetaSound | 'buy' | 'open' | 'heal'): void;
     /** Telemetry (core's recorder): the meta of an ended or abandoned run — before the next run starts; the camp's map, purchases, clicks. */
     end?(run: RtRunState, end: RtMetaEnd): void;
     map?(run: RtRunState, chosen: number): void;
@@ -214,6 +214,9 @@ export function resourcesWord(n: number): string {
 const RESOURCE_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">'
   + '<path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/>'
   + '<path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+/** Task 38: the run's level by one word — «Лес» and «Гарнизон» for a run that goes on into the garrison; «Поход» for one that does not. */
+const levelWord = (run: RtRunState): string => (rtLevel(run) === 2 ? GARRISON_TITLE : run.garrison ? 'Лес' : 'Поход');
+
 /** Tasks 36–37 «✦ новое» (as on the map): an opened item offered for the first time. */
 const newSign = (fresh: ReadonlySet<string>, id: string): string => fresh.has(id) ? ' <span class="rt-new-sign" data-testid="offer-new">✦ новое</span>' : '';
 
@@ -345,6 +348,8 @@ export class RunView {
    * carry, «В лагерь» / «Новый поход»); the run is out of the save already (its meta is counted: it cannot be played on).
    */
   private abandoned: RtRunState | null = null;
+  /** Task 38: «Предместье» just healed the hero — the bar fills from this HP once (a reload shows it full). */
+  private outskirtsFrom: number | null = null;
   private metaEnd: MetaEndView | null = null;
   readonly hearth: HearthView | null;
   /** Tasks 36–37: the one start of a new run with the camp's choices (the camp's «В поход» and «Новый поход»). */
@@ -490,6 +495,12 @@ export class RunView {
     this.run = step.run;
     this.store.save(this.run);
     this.notice = this.describe(step.events);
+    // Task 38: the forest final's relic taken — «Предместье» heals to full: its bar fills from the HP before (the step's `healed`).
+    if (this.run.pending?.kind === 'outskirts' && before?.pending?.kind !== 'outskirts') {
+      const healed = step.events.find(ev => ev.type === 'healed');
+      this.outskirtsFrom = healed && healed.type === 'healed' ? Math.max(0, this.run.hp - healed.amount) : null;
+      if (this.outskirtsFrom !== null && this.outskirtsFrom < this.run.hp) this.host.meta?.sound('heal');
+    }
     if (this.run.result && !before?.result) {
       this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run) });
       const meta = this.metaEndOf(this.run, true);
@@ -841,6 +852,9 @@ export class RunView {
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
     this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
     this.flyResources(run);
+    // Task 38: «Предместье»'s bar fills to the HP after the heal (once: then it is drawn full).
+    const heal = this.el.querySelector<HTMLElement>('[data-testid="outskirts-bar"] i');
+    if (heal && heal.dataset.to && heal.style.width !== heal.dataset.to) { const to = heal.dataset.to; requestAnimationFrame(() => requestAnimationFrame(() => { heal.style.width = to; })); this.outskirtsFrom = null; }
     // Tasks 36–37: the ended run's meta block keeps its element (and its animation) over redraws.
     const slot = this.el.querySelector('[data-meta-slot]');
     if (slot && this.metaEnd) { slot.replaceWith(this.metaEnd.el); if (!this.el.hidden) this.metaEnd.play(this.pressAt); }
@@ -975,7 +989,8 @@ export class RunView {
     // Task 18: the run's level, small, by the title («Испытание III»; nothing at 0).
     const ash = rtAshTitle(rtAsh(run));
     // Task 38: the garrison's map is headed «Гарнизон».
-    return `<header class="rt-run-head"><b data-testid="run-title">${rtLevel(run) === 2 ? GARRISON_TITLE : 'Поход'}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
+    // Task 38: a run that goes on into the garrison names its level by one word — «Лес», then «Гарнизон»; a run without it — «Поход».
+    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `${resources}${reset}${this.sandboxButton(run)}${this.logsButton()}${this.settingsHtml()}</header>`
@@ -1056,9 +1071,11 @@ export class RunView {
       // B7 К9: the circle's node keeps the event's place on the map; once entered, it shows a die.
       const icon = run.casino?.nodeId === node.id ? CASINO_ICON : shown.icon;
       return `<g class="rt-node rt-${status}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${node.type}" transform="translate(${x(node)},${y(node)})">`
-        + `<circle r="17"/><text dy="6">${icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title></g>`;
+        + `<circle r="17"/><text dy="6">${icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title>`
+        // Task 38: the garrison's exams seen from the start — «Караульня» (row 5) and «Кастелян» (row 10) under their circles.
+        + (rtLevel(run) === 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
     }).join('');
-    return `<svg class="rt-run-map" viewBox="0 0 ${W} ${H}" data-testid="run-map">${edges}${circles}</svg>`;
+    return `<svg class="rt-run-map${rtLevel(run) === 2 ? ' rt-map-garrison' : ''}" viewBox="0 0 ${W} ${H}" data-testid="run-map" data-level="${rtLevel(run)}">${edges}${circles}</svg>`;
   }
 
   /**
@@ -1147,7 +1164,7 @@ export class RunView {
       const facts = rtRunEndLines(run).map(line => `<li data-testid="run-end-${line.id}">${escapeHtml(line.text)}</li>`).join('');
       // Tasks 36–37: the meta block (experience, pack, record, the carry) — its element is put in after the redraw (`draw`).
       const meta = this.metaEndOf(run, false);
-      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${meta ? '<div data-meta-slot></div>' : ''}${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
+      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${run.garrison ? `<p class="rt-run-level-word" data-testid="run-end-level">${levelWord(run)}</p>` : ''}${meta ? '<div data-meta-slot></div>' : ''}${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
         + `<dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
@@ -1217,9 +1234,14 @@ export class RunView {
         + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
     }
     if (pending.kind === 'outskirts') {
-      // Task 38: «Предместье» — a placeholder (the HP bar filling, the cart — the ui session's).
-      return card(`<h2>Предместье</h2><p data-testid="outskirts-hp">HP ${run.hp} / ${run.maxHp}</p>`
-        + `<button class="rt-again" data-action="garrison" data-testid="run-garrison">В гарнизон</button>`, 'run-outskirts');
+      // Task 38 «Предместье» (design 15.10.2026, 1.1): a quiet place without enemies between the levels — its picture
+      // (public/art/camp/outskirts.png; a cold dusk without it), the hero's HP bar filling to full (the heal's sound), «В гарнизон».
+      // No text plate. The cart (step 1б) — later.
+      const from = this.outskirtsFrom ?? run.hp, k = (hp: number): string => `${(100 * hp / Math.max(1, run.maxHp)).toFixed(1)}%`;
+      return `<div class="rt-overlay rt-outskirts" data-testid="run-outskirts" style="background-image:url('${new URL('art/camp/outskirts.png', document.baseURI).href}'), linear-gradient(#1c2430, #10151c)">`
+        + `<div class="rt-outskirts-panel"><h2>Предместье</h2><div class="rt-outskirts-bar" data-testid="outskirts-bar"><i style="width:${k(from)}" data-to="${k(run.hp)}"></i></div>`
+        + `<p class="rt-outskirts-hp" data-testid="outskirts-hp">HP ${run.hp} / ${run.maxHp}</p>`
+        + `<button class="rt-again" data-action="garrison" data-testid="run-garrison">В гарнизон</button></div></div>`;
     }
     if (pending.kind === 'hammer') {
       // Phase B (Т2): the Jailer's first screen — a hammer 3 of 4; one hammer a run, it acts on every later arena.

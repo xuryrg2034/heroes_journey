@@ -48,6 +48,9 @@ import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
+import { CASTELLAN, GUARD, HANDLER, HOUND, castellanMove, houndFrenzied } from '../sim/enemies/garrison';
+import { tetherCrossing } from '../sim/tethers';
+import { castellanMarks, drawFrenzy, drawLeash, drawSnap, guardMarks, handlerMarks, houndMarks } from './garrisonView';
 import { fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
@@ -141,6 +144,8 @@ const COLORLESS = 0x8f8a80;
 /** Task 35, С4: the steel core of «Тяжёлый клинок» on the chain line; the gold notch of «Пятое звено». */
 const HEAVY_CORE = 0x3e4a56;
 const NOTCH_GOLD = 0xffd36b;
+/** Task 38: real seconds a cut tether's snap lasts. */
+const SNAP_LIFE = 0.4;
 /** Task 35, С2: shards in the pool — 60 enemies dying at once at 8 shards each. */
 const SHARD_POOL = 480;
 /**
@@ -385,7 +390,14 @@ export class RealtimeRenderer {
    */
   readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0, clears: 0, waves: 0, colorless: 0, coreRing: 0 };
   /** Task 38: the tethers drawn in the last frame (the placeholder lines) and how many of them red (the drawn chain's cuts). */
-  readonly tetherShown = { lines: 0, cut: 0 };
+  readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0 };
+  /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
+  readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0 };
+  /** Task 38: a frenzied hound's last drawn point (its streaks show its way). */
+  private readonly houndAt = new Map<number, { x: number; y: number }>();
+  /** Task 38: the snaps of cut tethers — the halves recoil and fade (real seconds left). */
+  private snaps: { ax: number; ay: number; bx: number; by: number; px: number; py: number; ink: number; life: number }[] = [];
+  private readonly snapLayer = new Graphics();
   /** Task 28: the core's last point (arena units) — the centre of the crowd's death wave; the waves on screen. */
   private bossCoreAt: { x: number; y: number } | null = null;
   private readonly clearWaves: { g: Graphics; x: number; y: number; t: number; reach: number }[] = [];
@@ -620,7 +632,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.initShards();
     this.heroArt = makePlayer();
@@ -947,6 +959,11 @@ export class RealtimeRenderer {
       if (tough) ctx.circle(0, 0, r - 4).stroke({ color: PALE, width: 2.5, alpha: 0.95 });
       if (kind === 'boar') this.tusks(ctx, r);
     }
+    // Task 38: the garrison's stand-in silhouettes over the disc (the shield, the hat, the ears, the crown) until the art comes.
+    if (kind === GUARD) guardMarks(ctx, r);
+    else if (kind === HANDLER) handlerMarks(ctx, r);
+    else if (kind === HOUND) houndMarks(ctx, r);
+    else if (kind === CASTELLAN) castellanMarks(ctx, r);
     return ctx;
   }
 
@@ -1156,6 +1173,20 @@ export class RealtimeRenderer {
         stripHead(g, e.x * UNIT, e.y * UNIT, lane.dx, lane.dy, len - half * 1.1, half, fade);
       }
     }
+    // Task 38: the Castellan's «Спустить пса» — a lane from the hound to the point towards the hero (fixed at the windup's start),
+    // filling as the boar's: the same strip and head.
+    this.garrisonShown.lunges = 0;
+    for (const e of world.enemies) {
+      if (e.kind !== CASTELLAN) continue;
+      const mv = castellanMove(world, e);
+      if (!mv) continue;
+      const dx = mv.to.x - mv.from.x, dy = mv.to.y - mv.from.y, len = Math.hypot(dx, dy);
+      if (len < 1e-6) continue;
+      const w = mv.width / 2 * UNIT;
+      threatStrip(g, mv.from.x * UNIT, mv.from.y * UNIT, dx / len, dy / len, len * UNIT, w, mv.progress, 1);
+      stripHead(g, mv.from.x * UNIT, mv.from.y * UNIT, dx / len, dy / len, len * UNIT, w, 1);
+      this.garrisonShown.lunges++;
+    }
     for (const e of world.enemies) {
       const rush = wolfRushLine(world, e);
       if (!rush || rush.len <= 0) continue;
@@ -1265,19 +1296,34 @@ export class RealtimeRenderer {
       if (b.bust) bustCircle(b.x, b.y, b.radius, b.timeLeft, b.total);
       else fuse(b.x, b.y, b.timeLeft, b.total);
     }
-    // Task 38 «Гарнизон» (a placeholder until the ui session's leash): every tether a line; red while the drawn chain's dash would
-    // cut it (the plan's `cuts` — the same list the release fixes).
-    this.tetherShown.lines = 0; this.tetherShown.cut = 0;
+    // Task 38 «Гарнизон» (tethers.ts): every tether a leash — a navy rope with links of the holder's colour. Red, thicker and with the
+    // cut mark where the dash crosses it while the drawn chain's dash would cut it (the plan's `cuts` — the list the release fixes;
+    // the mark on the first crossing of the dash's path, the same `tetherCrossing` the sim reads).
+    this.tetherShown.lines = 0; this.tetherShown.cut = 0; this.tetherShown.marks = 0;
     if (world.tethers?.length) {
-      const cuts = world.chain.length && !world.move ? planChain(world).cuts ?? [] : [];
+      const plan = world.chain.length && !world.move ? planChain(world) : null, cuts = plan?.cuts ?? [];
+      const path: Vec[] = [{ x: world.hero.x, y: world.hero.y }];
+      if (plan) for (const l of world.chain.slice(0, plan.links.length)) { const p = linkPoint(world, l); if (p) path.push(p); }
       for (const t of world.tethers) {
         const a = world.enemies.find(e => e.id === t.holder), b = world.enemies.find(e => e.id === t.held);
         if (!a || !b) continue;
         const cut = cuts.includes(t.held);
+        let at: Vec | null = null;
+        if (cut) for (let i = 1; i < path.length && !at; i++) at = tetherCrossing(path[i - 1], path[i], a, b);
+        const ink = colorlessLink(world, a) || a.color === NO_COLOR ? COLORLESS : chainInk(a.color);
+        drawLeash(g, a.x * UNIT, a.y * UNIT, b.x * UNIT, b.y * UNIT, ink, cut, at ? { x: at.x * UNIT, y: at.y * UNIT } : null);
         this.tetherShown.lines++;
-        if (cut) this.tetherShown.cut++;
-        g.moveTo(a.x * UNIT, a.y * UNIT).lineTo(b.x * UNIT, b.y * UNIT).stroke({ color: cut ? 0xff3b30 : 0x8a6a3a, width: cut ? 4 : 2.5, alpha: 0.9, cap: 'round' });
+        if (cut) { this.tetherShown.cut++; if (at) this.tetherShown.marks++; }
       }
+    }
+    // Task 38: the hound's frenzy — a red jagged ring and streaks behind it (its way since the last frame).
+    this.garrisonShown.frenzy = 0;
+    for (const e of world.enemies) {
+      if (!houndFrenzied(e)) { this.houndAt.delete(e.id); continue; }
+      const last = this.houndAt.get(e.id) ?? { x: e.x, y: e.y }, R = enemyDrawRadius(world.params) * UNIT;
+      drawFrenzy(g, e.x * UNIT, e.y * UNIT, R, this.clock, e.x - last.x, e.y - last.y);
+      if (Math.hypot(e.x - last.x, e.y - last.y) > 0.02) this.houndAt.set(e.id, { x: e.x, y: e.y });
+      this.garrisonShown.frenzy++;
     }
     const marks = new Map<number, { x: number; y: number; r: number; progress: number }>();
     for (const e of world.enemies) {
@@ -2274,6 +2320,24 @@ export class RealtimeRenderer {
         if (c) { this.chainBreaks.push({ ...c, until: this.clock + CHAIN_BREAK_LIFE }); this.bossShown.breaks++; }
         continue;
       }
+      // Task 38: a tether cut by the dash snaps — its halves recoil from the cut point and fade (the sound — main.ts).
+      if (ev.type === 'tether') {
+        const a = world.enemies.find(e => e.id === ev.holder), b = world.enemies.find(e => e.id === ev.held);
+        if (ev.action === 'cut' && a && b) {
+          const ink = colorlessLink(world, a) || a.color === NO_COLOR ? COLORLESS : chainInk(a.color);
+          this.snaps.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, px: ev.x, py: ev.y, ink, life: SNAP_LIFE });
+          this.tetherShown.snaps++;
+        }
+        continue;
+      }
+      // Task 38: the Castellan calls the guard — «Караул!» over the core (the formation's markers show where they come).
+      if (ev.type === 'castellanMove') {
+        if (ev.move === 'guard' && ev.stage === 'hit') {
+          const core = world.enemies.find(e => e.id === ev.id);
+          if (core) { const w = this.eliteWord(core.y * UNIT, 20); this.floatText('Караул!', core.x * UNIT, w.y, THREAT, w.dir); this.garrisonShown.calls++; }
+        }
+        continue;
+      }
       if (ev.type === 'bossPlate') {
         const core = world.enemies.find(e => e.id === ev.id);
         if (core) { const w = this.eliteWord(core.y * UNIT); this.floatText(`−1 ${platesWord(1)}`, core.x * UNIT, w.y, ELITE_LEMON, w.dir); this.bossShown.plates++; }
@@ -3241,6 +3305,13 @@ export class RealtimeRenderer {
     this.shardLayer.visible = this.shardsAwake = live > 0;
   }
 
+  /** Task 38: the snaps of cut tethers fade over `SNAP_LIFE` s. */
+  private updateSnaps(dt: number): void {
+    const g = this.snapLayer.clear();
+    this.snaps = this.snaps.filter(s => (s.life -= dt) > 0);
+    for (const s of this.snaps) drawSnap(g, s.ax * UNIT, s.ay * UNIT, s.bx * UNIT, s.by * UNIT, { x: s.px * UNIT, y: s.py * UNIT }, s.life / SNAP_LIFE, s.ink);
+  }
+
   private updateFloating(dt: number): void {
     for (let i = this.floating.length - 1; i >= 0; i--) {
       const f = this.floating[i];
@@ -3258,6 +3329,7 @@ export class RealtimeRenderer {
     this.updateFloating(realDt);
     this.updateBursts(realDt);
     this.updateShards(realDt);
+    this.updateSnaps(realDt);
     this.updateSparks(realDt);
     this.updateDying(realDt);
     this.updateClearWaves(realDt);
@@ -3327,6 +3399,7 @@ export class RealtimeRenderer {
   }
 
   resetEffects(): void {
+    this.snaps = []; this.snapLayer.clear(); this.houndAt.clear();
     this.shakeLeft = 0;
     this.flashLeft = 0;
     this.flashGate.reset();

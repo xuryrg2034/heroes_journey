@@ -43,7 +43,7 @@ import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, type FxLevel } from './juice';
 import type { MetaSound } from './metaEnd';
-type MetaSoundKind = MetaSound | 'buy' | 'open';
+type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
@@ -1254,6 +1254,8 @@ async function boot(): Promise<void> {
         else if (ev.type === 'chainEnd') { if (feel === 'chord' || feel === 'finale') audio.chord(soundVolume()); }
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, soundVolume());
         else if (ev.type === 'finisher') audio.finisher(soundVolume());
+        // Task 38: a tether cut by the dash snaps.
+        else if (ev.type === 'tether' && ev.action === 'cut') audio.snap(soundVolume());
         // Task 22: every hit on the hero (one in 0.3 s at most).
         else if (ev.type === 'hit') { if (soundGate.pass('hurt', now / 1000)) audio.hurt(soundVolume()); }
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, soundVolume());
@@ -1664,6 +1666,8 @@ async function boot(): Promise<void> {
         boss: { ...renderer.bossShown },
         /** Task 38: the sim's tethers and what the view drew of them in the last frame (lines, red ones). */
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
+        /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
+        garrison: { ...renderer.garrisonShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

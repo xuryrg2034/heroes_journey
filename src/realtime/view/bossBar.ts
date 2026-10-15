@@ -13,6 +13,7 @@
  */
 import type { World } from '../sim/world';
 import { JAILER, PHASE2_PLATES, jailerHpOf } from '../sim/enemies/jailer';
+import { CASTELLAN, CASTELLAN_HP } from '../sim/enemies/garrison';
 
 /** Real seconds the bar takes to fade after the core's death. */
 export const BOSS_BAR_FADE = 0.5;
@@ -33,15 +34,22 @@ export interface BossBarState {
   phase2: boolean;
 }
 
-/** The boss bar of `w`: the first core on the arena while the boss frame is on; null otherwise. */
+/**
+ * The boss bar of `w`: the first core on the arena while the boss frame is on (the Jailer; task 38 — the Castellan v0, the same bar);
+ * null otherwise.
+ */
 export function bossBarState(w: World): BossBarState | null {
   if (!w.params.bossFrame) return null;
-  const core = w.enemies.find(e => e.kind === JAILER && e.partOf === undefined);
+  const core = w.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN) && e.partOf === undefined);
   if (!core) return null;
   const platesMax = core.armor?.max ?? 0, plates = Math.max(0, core.armor?.plates ?? 0);
   // An enemy keeps no max HP: the core's HP at its spawn (task 32: `Params.jailerHp`, the boss arenas 5; a core with more — its HP now).
-  const hpMax = Math.max(1, jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
-  return { id: core.id, hpMax, hp, platesMax, plates, phaseAt: hpMax + Math.min(platesMax, PHASE2_PLATES), phase2: core.vars.phase === 2 };
+  const castellan = core.kind === CASTELLAN;
+  const hpMax = Math.max(1, castellan ? CASTELLAN_HP : jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
+  // The phase line: the Jailer's at `PHASE2_PLATES` plates left; the Castellan's phase 2 comes with its first part lost (a plate) —
+  // the border of its last plate cell (or with 35 s: the line lights all the same).
+  const phaseAt = hpMax + (castellan ? Math.max(0, platesMax - 1) : Math.min(platesMax, PHASE2_PLATES));
+  return { id: core.id, hpMax, hp, platesMax, plates, phaseAt, phase2: core.vars.phase === 2 };
 }
 
 /** What the bar shows now (the tests read it through `snapshot().bossBar`). */
@@ -127,7 +135,7 @@ export class BossBar {
 }
 
 /** Task 28: the bosses by their core's kind — the name the goal shows. */
-export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик' };
+export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик', [CASTELLAN]: 'Кастелян' };
 
 /**
  * Task 28 (design 15.10.2026, «одно имя — одно значение»): the goal of a boss fight is the boss itself — the HUD plate and the

@@ -527,3 +527,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-hearth-buy.rt-hearth-later { background: transparent; border-color: #c9b98a; color: #a99c7a; }
 /* Tasks 36–37: the one start of a run (runStart.ts) — its choice windows over the run screen and the camp. */
 .rt-run-start-choice { position: absolute; inset: 0; z-index: 9; }
+/* Task 38 «Гарнизон» (runView.ts): «Предместье» — its picture (a cold dusk without it), the HP bar filling, «В гарнизон»; the garrison's map — cold stone; the exams' names under their circles; the level's word on the run's end. */
+.rt-outskirts { z-index: 6; background: linear-gradient(#1c2430, #10151c) center / cover no-repeat; align-items: flex-end; padding-bottom: 60px; }
+.rt-outskirts-panel { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 34px 22px; background: #0d1218cc; border: 1px solid #5b6b7a; box-shadow: 0 10px 40px #000a; }
+.rt-outskirts-panel h2 { margin: 0; font: 500 36px Georgia, serif; color: #dfe6ec; }
+.rt-outskirts-bar { position: relative; width: 360px; height: 18px; background: #10140e; border: 2px solid #18232d; outline: 1px solid #8fa3b5; }
+.rt-outskirts-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(#e0806e, #b5473a); transition: width 1.1s ease-out; }
+.rt-outskirts-hp { margin: 0; font: 700 15px system-ui, sans-serif; color: #dfe6ec; font-variant-numeric: tabular-nums; }
+.rt-run:has(.rt-map-garrison) { background: radial-gradient(ellipse at 50% 40%, #1d2630, #0b0f14 75%); }
+.rt-map-garrison .rt-edge { stroke: #4b5a68; }
+.rt-map-garrison .rt-node circle { fill: #1c2530; stroke: #52626f; }
+.rt-map-garrison .rt-node text { fill: #9fb0c0; }
+.rt-map-garrison .rt-node.rt-available circle { stroke: #b9d3ea; fill: #24323f; }
+.rt-map-garrison .rt-node.rt-available text { fill: #e2edf6; }
+.rt-node .rt-node-cap { font: 600 14px Georgia, serif; fill: #c9d6e2; }
+.rt-run-level-word { margin: -8px 0 12px; text-align: center; font: 600 14px Georgia, serif; letter-spacing: 2px; text-transform: uppercase; color: #9fb0c0; }
+/* Task 38: the header keeps its numbers and buttons on one line (the garrison's title is longer). */
+.rt-run-hp, .rt-run-head button { white-space: nowrap; }
