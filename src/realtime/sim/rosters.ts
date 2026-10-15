@@ -21,6 +21,9 @@
  */
 import type { ArenaTemplate, NewcomerShare } from './arenas';
 
+/** Task 28: the kind whose shield is the shieldbearer's (the Jailer's core, enemies/jailer.ts `JAILER`; no import: the registry loads after). */
+const SHIELDED_CORE = 'jailer';
+
 /** Roles of the enemies (design 09.10.2026): what a kind does to the player. */
 export type EnemyRole = 'presser' | 'shooter' | 'blocker' | 'punisher' | 'master' | 'diver';
 export const ROLE_TITLES: Readonly<Record<EnemyRole, string>> = {
@@ -177,13 +180,16 @@ function ofAllShares(newcomers: readonly NewcomerShare[]): { kind: string; ofAll
  * `Loadout.withoutKinds`, and a replay applies it again).
  * Task 26 «Расписание леса»: the wolf and the boar come by the pace's shares — with them in `kinds` the shares are 0 before the
  * goals and in every phase (`phaseOverride`). Kits before task 26 never named them (only the porcupine): they hash as before.
+ * Task 28 «Тюремщик в походе»: with the shieldbearer (`shield`) out, the Jailer's core stands without its shield (`shieldless`;
+ * the Jailer is not taken out — its shield is the shieldbearer's lesson).
  */
 export function withoutKinds<T extends ArenaTemplate>(template: T, kinds: readonly string[]): T {
   if (!kinds.length) return template;
   const all = ofAllShares(template.newcomers ?? []), gone = all.filter(entry => kinds.includes(entry.kind)), kept = all.filter(entry => !kinds.includes(entry.kind));
   const extra = gone.reduce((sum, entry) => sum + entry.ofAll, 0) / Math.max(1, kept.length);
   const newcomers = kept.length ? rollShares(kept.map(entry => ({ ...entry, ofAll: entry.ofAll + extra }))) : [];
-  const enemies = template.enemies.map(e => kinds.includes(e.kind ?? 'basic') ? { ...e, kind: 'basic' as const } : e);
+  const bare = kinds.includes('shield');
+  const enemies = template.enemies.map(e => kinds.includes(e.kind ?? 'basic') ? { ...e, kind: 'basic' as const } : bare && e.kind === SHIELDED_CORE ? { ...e, shieldless: true } : e);
   const shares = { ...kinds.includes('wolf') ? { wolfShare: 0 } : {}, ...kinds.includes('boar') ? { boarShare: 0 } : {} };
   return { ...template, newcomers, enemies, ...Object.keys(shares).length ? { phaseOverride: { ...template.phaseOverride, ...shares } } : {} };
 }

@@ -31,9 +31,10 @@ import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman } from './kit';
-import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
+import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
 import { FORMS, HAMMERS } from './buildIds';
 import { returnPowerOf, returnRoute, returnTargets, traceTo } from './returnRun';
+import { endsFight } from './enemies/jailer';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
@@ -146,11 +147,18 @@ export interface ChainPlan {
   pierce?: PiercePreview;
   /**
    * Task 29, item 5 (the hammer «Возврат»): the way back after this chain and the hits of the second pass — on the world as the
-   * first pass leaves it (its links, the pierce's bodies, the seal's strike), with the run's own functions (returnRun.ts) and
+   * first pass leaves it (its links, the pierce's bodies, the seal's strike; with `Params.returnShadowEnd` also the build modules'
+   * end of the dash — «Ударная волна», build.ts `endShadow`), with the run's own functions (returnRun.ts) and
    * `returnStrike`. `hits` empty — the first pass killed everyone near the way (the run is still made). Absent without the
    * hammer, without a way back (the chain ends in the open door, or the hero ends where he started), not the drawn chain.
    */
   back?: ReturnPreview;
+  /**
+   * Task 28 «Тюремщик в походе» (`Params.bossClears`): this chain kills the boss's core and the fight ends there — the links after
+   * the core have no outcome (the dash ends on the core), the crowd is not «убьёт», the pierce is not run, the return run strikes
+   * nobody (enemies/jailer.ts `bossClear`). Absent otherwise.
+   */
+  bossClear?: true;
 }
 
 /**
@@ -217,7 +225,10 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   let stopPower = 0;
   // Casino «Котёл»: the struck enemy links and the crystal links of the plan, for its cheque (only while the cauldron is on).
   const purse = purseOn(world) ? { struck: [] as { enemy: Enemy; outcome: StrikeOutcome }[], crystals: 0 } : null;
+  // Task 28: the chain killed the boss's core — the fight ends on it, the links after it are not reached.
+  let cleared = false;
   for (const link of links) {
+    if (cleared) { out.push({ link, outcome: null }); continue; }
     const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
     if (!enemy) {
       // Stage 3a (М4): a burning brazier adds its power to the rest of the chain (the dash adds the same on arrival).
@@ -239,23 +250,40 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     else if (!outcome.plate) { if (!endsOnSurvivor) stopPower = power; endsOnSurvivor = true; }
     // Task 27: a part this strike kills, with no survivor before it (the dash reaches it), is severed.
     out.push({ link, outcome, ...outcome.killed && !endsOnSurvivor && enemy.partOf !== undefined ? { severs: true as const } : {} });
+    if (outcome.killed && !endsOnSurvivor && endsFight(world, enemy)) cleared = true;
   }
   const last = links[links.length - 1];
   const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
-  const seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
+  let seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
   // Loop research, step 3: the pierce of the drawn chain only (a closed loop — the seal wins).
-  const pierce = options.pierce !== false && links === world.chain && pierceOn(world) && !loopClosed(world) && !endsOnSurvivor
+  // Task 28: no pierce after a chain that ends the fight (the release's pierce is cancelled when the core dies).
+  let pierce = options.pierce !== false && links === world.chain && pierceOn(world) && !loopClosed(world) && !endsOnSurvivor && !cleared
     ? planPierce(world, links, out, power) : null;
+  // Task 28: the pierce's run kills the core — the bodies after it are dead by then (not struck).
+  const pierceEnd = pierce ? pierce.bodies.findIndex(b => b.outcome.killed && endsFight(world, findEnemy(world, b.id)!)) : -1;
+  if (pierce && pierceEnd >= 0) {
+    const bodies = pierce.bodies.slice(0, pierceEnd + 1);
+    pierce = { ...pierce, bodies, kills: bodies.filter(b => b.outcome.killed).length };
+  }
+  const over = cleared || pierceEnd >= 0;
+  // Task 28: the seal strikes at the end of the dash — nobody is left when the fight ended before it.
+  if (seal && over) seal = { ...seal, inside: [] };
   // П3 «Финальная цепь»: the dash enters the door — its last link is the open door and no survivor stops it before.
-  const end = endsOnObject && !endsOnSurvivor && purse && doorFinaleOn(world) ? findObject(world, last.id) : undefined;
+  const end = endsOnObject && !endsOnSurvivor && !cleared && purse && doorFinaleOn(world) ? findObject(world, last.id) : undefined;
   const door = end?.kind === 'door' && doorOpen(world);
   // «Прямая» (design point 9): the pierced bodies' embers go into the cheque as links' do; heat, «Добивание» and П4 unchanged.
   const pierceEmbers = purse && pierce ? pierce.bodies.reduce((sum, b) => sum + linkEmbers(findEnemy(world, b.id)!, b.outcome), 0) : 0;
   const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null, door, pierceEmbers) : null;
   // Task 29, item 5: the return run of the drawn chain (the hammer «Возврат»).
-  const back = options.back !== false && links === world.chain && returnOn(world)
+  let back = options.back !== false && links === world.chain && returnOn(world)
     ? planReturn(world, out, endsOnSurvivor ? stopPower : power, pierce, seal) : null;
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {} };
+  // Task 28: the return run after a chain that ended the fight strikes nobody; one that kills the core — nobody after it.
+  if (back) {
+    const at = over ? -1 : back.hits.findIndex(h => h.outcome.killed && endsFight(world, findEnemy(world, h.id)!));
+    const hits = over ? [] : at >= 0 ? back.hits.slice(0, at + 1) : back.hits;
+    if (hits !== back.hits) back = { ...back, hits, kills: hits.filter(h => h.outcome.killed).length };
+  }
+  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {} };
 }
 
 // ---- Task 29, item 5: the return run of «Возврат» in the highlight (returnRun.ts; the run — hammers.ts) ----
@@ -270,13 +298,21 @@ export const returnFixedOn = (world: World): boolean => !!world.params.returnFix
 export function returnStrike(power: number, e: Enemy): StrikeOutcome { return strike(power, e.hp, 1, 0, platesOf(e)); }
 
 /**
+ * The fight ends before the return run of the planned dash (pure): the dash enters the open door (`door`) — the arena is won,
+ * `onChainEnd` is not called, no run. The only way the fight ends during a dash now: reaching the goals mid-dash opens the door
+ * (world.ts `completeGoals`, the stage `greed`) and the fight goes on — the closed door is no link (`objectRefusal`: `closed`),
+ * so a chain drawn before the goals cannot end in it.
+ */
+function fightEndsBeforeRun(_world: World, door: boolean): boolean { return door; }
+
+/**
  * The return run of the plan `out` (pure): the dash's path as the trace the run would record (the hero takes a killed link's
  * spot and an object's; a plate or a survivor is struck from the touch distance; a survivor sends him back to the last spot;
  * the pierce runs on to its end), the way back from where he ends (pushed out of obstacles, as `finishMove`), and the hits on
  * the world after the first pass. Null — no run: the chain ends in the open door, or the way back is empty.
  */
 function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pierce: PiercePreview | null, seal: SealPreview | null): ReturnPreview | null {
-  let at: Vec = { x: world.hero.x, y: world.hero.y }, stop = at;
+  let at: Vec = { x: world.hero.x, y: world.hero.y }, stop = at, door = false;
   const trace: Vec[] = [{ ...at }], struck = new Map<number, StrikeOutcome>();
   for (const { link, outcome } of out) {
     if (link.kind === 'object') {
@@ -286,17 +322,19 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
       traceTo(trace, at);
       if (passObject(world, link)) continue;
       // A button, the lever or the door ends the dash; the open door wins the arena — no end, no run.
-      if (o.kind === 'door' && doorOpen(world)) return null;
+      door = o.kind === 'door' && doorOpen(world);
       break;
     }
     const e = findEnemy(world, link.id);
     if (!e || !outcome) continue;
+    // The enemy links the dash reaches (`ChainEnd.links`: struck, a plate taken, the survivor it stops on).
     struck.set(e.id, outcome);
     if (outcome.killed) { at = stop = { x: e.x, y: e.y }; traceTo(trace, at); continue; }
     const d = dist(at, e), reach = touchDistanceOf(world.params, e);
     if (d > reach) { at = { x: at.x + (e.x - at.x) / d * (d - reach), y: at.y + (e.y - at.y) / d * (d - reach) }; traceTo(trace, at); }
     if (!outcome.plate) break;
   }
+  if (fightEndsBeforeRun(world, door)) return null;
   if (pierce) { at = stop = { x: pierce.to.x, y: pierce.to.y }; traceTo(trace, at); }
   else if (at !== stop) { at = stop; traceTo(trace, at); }
   const end = { x: stop.x, y: stop.y };
@@ -317,7 +355,10 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
     }
     enemies.push(hp === e.hp && plates === platesOf(e) ? e : { ...e, hp, ...e.armor ? { armor: { ...e.armor, plates } } : {} });
   }
-  const path = [end, ...route], shadow: World = { ...world, enemies }, power = returnPowerOf(endPower);
+  // `returnShadowEnd`: the build modules' end of the same dash, in the order of `onChainEnd` (a wave kills and wounds before the
+  // run). A journal without the key — the old shadow.
+  const after = world.params.returnShadowEnd ? endShadowOf(world, { links: struck.size, at: end }, enemies) : enemies;
+  const path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerOf(endPower);
   const hits: ReturnPreview['hits'] = [];
   let left = power;
   for (const { e, at: touch } of returnTargets(shadow, path, [])) {

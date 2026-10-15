@@ -747,6 +747,11 @@ export interface FightSummary {
     tools: Record<string, number>;
     /** Kills by enemy abilities (not credited to the player). */
     enemies: number;
+    /**
+     * Task 28 «Тюремщик в походе» (from 15.10.2026; absent in older records — `withSummaryDefaults` reads 0): the crowd that died with
+     * the boss (`kill` of the source `boss-clear`, `Params.bossClears`) — neither the chain's, the tools' nor the enemies' abilities'.
+     */
+    bossClear: number;
   };
   /** Fires of each talisman, hammer, relic, oath (`talismanFired`, `hammer`); `active` — constant modifiers without fires. */
   build: { fired: Record<string, number>; active: string[] };
@@ -776,6 +781,12 @@ export interface FightSummary {
    */
   death: FightDeath | null;
   /**
+   * Task 28 «Тюремщик в походе» (from 15.10.2026; absent in older records — `withSummaryDefaults` reads null): the boss of the fight
+   * (a fight with the boss frame on and a Jailer on the arena at the start); null — no boss. The damage of its moves is in
+   * `damage.bySource` (`flail`, `throw`), a death by one in `death`.
+   */
+  boss: BossSummary | null;
+  /**
    * Task 16 telemetry (from 14.10.2026): the viewer's first meetings during the fight (`RtRecorder.firstMeet`), counted by the view —
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
@@ -788,6 +799,13 @@ export interface FightSummary {
  * done), how the fight ended for it (`victory` — through the door, else the fight's end).
  */
 export interface FeatSummary { kind: string; n: number; done: boolean; at: number | null; value: number; missing: number; won: boolean }
+
+/**
+ * Task 28 «Тюремщик в походе» (observe.ts): the boss of a fight — `diedAt` the game second its core died (null — alive at the end),
+ * `severedAt` the game second its weight was severed (null — not severed), `moves` the moves it began by id (`bossMove` `start`:
+ * `flail`, `throw`, `whistle`).
+ */
+export interface BossSummary { diedAt: number | null; severedAt: number | null; moves: Record<string, number> }
 
 /** Task 25: a protection of the hero — the after-chain shield (`chainShield`), «Щит фокуса» (`focusGuarded`), invulnerability. */
 export type DeathGuard = 'chain' | 'focus' | 'invuln';
@@ -1054,7 +1072,7 @@ export function emptyFightSummary(): FightSummary {
       platesBySource: {}, loot: { dropped: 0, picked: 0 },
     },
     slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0, appearTime: null, bustBlasts: 0, bustInside: 0, bustSpared: 0, bustKills: 0, safe: [], triples: 0, bustExits: [] },
-    kills: { chain: 0, tools: {}, enemies: 0 },
+    kills: { chain: 0, tools: {}, enemies: 0, bossClear: 0 },
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
     movement: { path: 0, idle: 0, water: 0, thorns: 0 },
@@ -1066,6 +1084,7 @@ export function emptyFightSummary(): FightSummary {
     bag: { appeared: false, steps: 0, killsAfterGoals: 0, resets: 0, payout: null, kinds: {} },
     feat: null,
     death: null,
+    boss: null,
   };
 }
 

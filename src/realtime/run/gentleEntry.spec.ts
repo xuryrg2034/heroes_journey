@@ -115,9 +115,9 @@ check('tough newcomers: a gentle run keeps 1–2 HP on row 5 and gets 3 HP from 
   assert(top(hps(rowRun(5, false, 1)!)) === 3, 'old row 5: 3');
 });
 
-/** The run row and arena of every arena a run meets, its outcomes faked as victories (the run's own commands, no simulation). */
+/** The run row and arena of every arena a run meets, its outcomes faked as victories (the run's own commands, no simulation); the old run — without the task-17 flags and the Jailer's fight (task 28: its node plays the pool). */
 function arenaRows(seed: number, k: number, gentle: boolean): [number, string][] {
-  let run = createRtRun(seed, { gift: 'mini', ...gentle ? {} : RT_TASK17_OFF });
+  let run = createRtRun(seed, { gift: 'mini', ...gentle ? {} : { ...RT_TASK17_OFF, jailer: false } });
   const out: [number, string][] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;

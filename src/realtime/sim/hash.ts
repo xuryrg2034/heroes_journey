@@ -80,6 +80,8 @@ export function worldState(world: World): unknown {
     ...world.strike ? { strike: world.strike } : {},
     // The prologue, task 13 (goal `shield`): the shield's lamps and window (absent on every other arena).
     ...world.shieldGoal ? { shieldGoal: world.shieldGoal } : {},
+    // Task 28 «Тюремщик в походе» (`Params.bossClears`): the boss died, the fight is over (absent until then — worlds hash as before).
+    ...world.bossCleared ? { bossCleared: true } : {},
   };
 }
 

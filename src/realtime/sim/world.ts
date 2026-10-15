@@ -603,6 +603,11 @@ export interface World {
    * Present only on an arena with that goal (other worlds hash as before).
    */
   shieldGoal?: ShieldGoalState;
+  /**
+   * Task 28 «Тюремщик в походе» (`Params.bossClears`, enemies/jailer.ts): the boss died and the fight is over — every enemy died with
+   * it, nothing spawns, the hero is not hurt any more. Absent until then (worlds without it hash as before).
+   */
+  bossCleared?: true;
 }
 
 /**
@@ -670,6 +675,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   const arena = markedGoalArena(template, params.markedGoals);
   // Task 27 «Каркас босса»: a boss arena plays the frame — a copy of the values with it on (the given object stays as it is).
   if (arena.bossFrame && !params.bossFrame) params = { ...copyParams(params), bossFrame: true };
+  // Task 28: a boss arena's death of the boss ends the fight — on when the values have the key off (absent: an older journal, as it was).
+  if (arena.bossClears && params.bossClears === false) params = { ...copyParams(params), bossClears: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -780,6 +787,8 @@ function placeStartEnemy(world: World, s: StartEnemy): Enemy {
   e.marked = !!s.marked;
   // Task 12: a leader of a goal layout (the field only on it).
   if (s.leader) e.leader = true;
+  // Task 28: a boss core without its shield (the run's viewer has not met the shieldbearer; the var only on it).
+  if (s.shieldless) e.vars.bare = 1;
   // Stage 2, step 3: an elite from the start (arenas 9–10 of step 4).
   if (s.elite) makeElite(world, e);
   pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);
@@ -1247,6 +1256,8 @@ export function hurtHero(world: World, striker: { id: number; elite?: Enemy['eli
   const { hero, params } = world;
   // The prologue: a calm arena never hurts the hero (whatever the source).
   if (damage <= 0 || world.arena.calm) return;
+  // Task 28: the boss died — the fight is over, nothing hurts the hero any more (a blast still lit, the thorns …).
+  if (world.bossCleared) return;
   damage = heroDamage(world, striker, damage);
   const hpBefore = hero.hp;
   hero.hp = Math.max(0, hero.hp - damage);
@@ -1762,8 +1773,11 @@ export function update(world: World, dt: number, realDt = dt): void {
   if (life > 0 && world.objects.some(o => o.kind === 'crystal' && world.time - (o.born ?? 0) >= life)) {
     world.objects = world.objects.filter(o => o.kind !== 'crystal' || world.time - (o.born ?? 0) < life);
   }
-  if (world.params.reaperEnabled && world.greedStart !== null && !world.reaperSpawned && world.time - world.greedStart >= world.params.reaperTime) spawnReaper(world);
-  updateSpawning(world, dt);
+  // Task 28: the boss died — nothing spawns any more (no reaper, no groups; the markers were dropped).
+  if (!world.bossCleared) {
+    if (world.params.reaperEnabled && world.greedStart !== null && !world.reaperSpawned && world.time - world.greedStart >= world.params.reaperTime) spawnReaper(world);
+    updateSpawning(world, dt);
+  }
   stepHeroKnock(world, dt);
   stepHeroWalk(world, dt);
   // Stage 2, step 3: the walking hero picks up the loot he touches.

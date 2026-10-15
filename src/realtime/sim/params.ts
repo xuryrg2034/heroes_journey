@@ -359,6 +359,13 @@ export interface Params {
    */
   returnFixed: boolean;
   /**
+   * The shadow of «Возврат» (chain.ts `planReturn`; the defect closed 15.10.2026, before task 30): the highlight's way back and
+   * second pass see the end of the same dash — the build modules' end (`endShadow`: «Ударная волна» kills and wounds before
+   * the run). With `returnFixed` the release fixes this plan, so the key changes the run; without `returnFixed` only the
+   * highlight. A journal without the key plays the old path (the shadow without the wave). The sandbox and a run: on.
+   */
+  returnShadowEnd: boolean;
+  /**
    * Task 29 (design 15.10.2026, «Переделка восьми счётчиков»): the eight counter talismans count within one chain
    * (sim/talismansRt.ts: «Острие», «Улов», «Призма» +1 power after a crystal or a colour shift, …). Off — the old windows
    * between chains. A journal without the key plays the old path. The sandbox's toggle; a run plays it off (`RUN_FORCED`).
@@ -798,9 +805,26 @@ export interface Params {
    * weight `jailer-weight`); the conductor picks the moves (weights, `eventMax`, `missedMax`, the stream `behavior:jailer`); a
    * severed part takes one plate off the core after the dash; the boss's state (the core's plates, the phase, the despair)
    * changes only when no dash runs. Off by default; journals without the key: off (the kinds walk as plain enemies, no new
-   * fields). The sandbox arena «Тюремщик» turns it on for itself (`ArenaTemplate.bossFrame`, world.ts `createWorld`); a run never.
+   * fields). The boss arenas turn it on for themselves (`ArenaTemplate.bossFrame`, world.ts `createWorld`): the sandbox arena
+   * «Тюремщик» and, task 28, the run's Jailer fight (the same arena, run/rtRun.ts `RtRunState.jailer`).
    */
   bossFrame: boolean;
+  // ---- Task 28 «Тюремщик в походе» (sim/enemies/jailer.ts `bossClear`, docs/realtime-elite-behaviors.md, «Смерть босса кончает бой»). ----
+  /**
+   * The boss's death ends the fight (design 15.10.2026, playtest of task 27): with the frame on, the moment the core dies every
+   * other enemy dies with it (`kill` events of the source `boss-clear`, not the player's: no score, kills, bag, feat, cauldron),
+   * the markers and the queue are dropped, nothing spawns any more, the door opens, the hero is not hurt any more; a dash that
+   * killed the core ends on it (its links after the core are not struck — the highlight shows them without an outcome). Off by
+   * default; journals without the key: off (the old path: the crowd lives on). The boss arenas turn it on for themselves
+   * (`ArenaTemplate.bossClears`, world.ts `createWorld`: only when the given values have it off, so a journal recorded before
+   * the key replays as it was).
+   */
+  bossClears: boolean;
+  /**
+   * Task 28: a part of a boss severed by the player drops its loot as an armoured elite does (elites.ts `armorLoot`, the stream
+   * `loot`). Off by default; journals without the key: off. The run turns it on (run/rtRun.ts `RT_RUN_FORCED`).
+   */
+  bossPartLoot: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -988,6 +1012,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Баланс: decision of the user 11.10.2026 (playtest v17) — a chain of 3+ links.
   endBlastMinLinks: 3,
   returnFixed: true,
+  returnShadowEnd: true,
   // Task 29: off — the old windows of the counters; the wave of the chain window from 4 links.
   counterWindow: false,
   shockwaveLinks: 4,
@@ -1174,6 +1199,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   feats: false,
   // Task 27 «Каркас босса» (enemies/jailer.ts): off by default; the sandbox arena «Тюремщик» turns it on for itself.
   bossFrame: false,
+  // Task 28 «Тюремщик в походе» (enemies/jailer.ts): off by default; the boss arenas turn `bossClears` on for themselves, the run `bossPartLoot`.
+  bossClears: false,
+  bossPartLoot: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1362,6 +1390,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('endBlastMinLinks', 'Талисманы', '«Взрыв на конце»: звеньев от', 1, 6, 1, 5, '', 'Молот срабатывает, если проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются). В походе — 3.'),
   { kind: 'bool', key: 'returnFixed', group: 'Талисманы', label: '«Возврат»: путь и тела при отпускании', stage: 5,
     hint: 'Задача 29. Отпускание фиксирует путь назад и тела второго прохода, как их показала подсветка; ушедшее с пути тело всё равно получает удар. В походе выключено (до задачи 30).' },
+  { kind: 'bool', key: 'returnShadowEnd', group: 'Талисманы', label: '«Возврат»: тень видит конец прохода', stage: 5,
+    hint: 'Подсветка бега «Возврата» учитывает «Ударную волну» той же цепи: тела, которые волна убьёт, бег не бьёт, раненые — с меньшим HP. С «путь и тела при отпускании» меняет и сам бег. Выкл. — прежняя тень.' },
   { kind: 'bool', key: 'counterWindow', group: 'Талисманы', label: 'Счётчики: окно — одна цепь', stage: 5,
     hint: 'Только песочница (со следующей арены). Восемь талисманов-счётчиков считают внутри одной цепи: «Острие» — 3-е вражеское звено +2 силы; «Улов» — цепь с 3+ убийствами даёт бесплатный прыжок на 5 с; «Призма» — звенья после кристалла или смены цвета +1 силы (без энергии); «Ударная волна» — цепь от N звеньев; «Добивание» — последнее звено самое крепкое и погибло; «Охотник на элит» — и после крепкого; «Длинная рука» — с 3-го звена R ×1,5; «Иней на клинке» — цепь 3+ на выжившем. Выкл. — прежние счётчики между цепями. В походе выключено.' },
   n('shockwaveLinks', 'Талисманы', '«Ударная волна» (окно — цепь): звеньев от', 2, 12, 1, 5, '', 'Только при «Счётчики: окно — одна цепь». Без него — 8.'),
@@ -1578,7 +1608,12 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Только поход: бой узла может нести подвиг — «Набери N очков», «Продержись N с после целей», «Продержись N с на арене»; награда — у двери. Подвиги приходят со второго похода (после первого Тюремщика). В песочнице подвига узла нет — переключатель ничего не меняет.' },
   // Task 27 «Каркас босса» (enemies/jailer.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'bossFrame', group: 'Босс', label: 'Каркас босса (Тюремщик)', stage: 5,
-    hint: 'Ядро и части — враги обычного тела. Отрубленная часть снимает пластину ядра после прохода; фаза, пластины и отчаяние меняются только после прохода. Арена «Тюремщик» включает каркас сама. Без каркаса Тюремщик и гиря — обычные враги. В походе нет.' },
+    hint: 'Ядро и части — враги обычного тела. Отрубленная часть снимает пластину ядра после прохода; фаза, пластины и отчаяние меняются только после прохода. Арена «Тюремщик» включает каркас сама (и в песочнице, и в бою Тюремщика в походе). Без каркаса Тюремщик и гиря — обычные враги.' },
+  // Task 28 «Тюремщик в походе» (enemies/jailer.ts, docs/realtime-elite-behaviors.md).
+  { kind: 'bool', key: 'bossClears', group: 'Босс', label: 'Смерть босса кончает бой', stage: 5,
+    hint: 'Ядро босса умерло — вся толпа гибнет без зачёта игроку (очки, убийства, котомка, котёл не растут), метки появления снимаются, новых врагов нет, дверь открыта, герой больше не теряет HP. Проход, убивший ядро, кончается на нём. Арена «Тюремщик» включает правило сама.' },
+  { kind: 'bool', key: 'bossPartLoot', group: 'Босс', label: 'Добыча отрубленной части', stage: 5,
+    hint: 'Часть босса, отрубленная игроком, роняет добычу как элита в броне (расходник открытого вида или ресурсы). Включено в походе.' },
 ];
 
 const MAX_PHASES = 8;

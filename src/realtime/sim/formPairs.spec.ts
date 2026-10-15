@@ -7,12 +7,14 @@
  * the other forms' effects (fire, cuts, the end blast, the seal's strike, the frost) are not outcomes of the plan — a body they
  * hit is left out of the comparison and counted. Every fight replays from its journal to the same hash (checkpoints every 300
  * ticks). The bot's victory or defeat is not asserted. Two hammers never go together (one hammer slot): such pairs are left out.
+ * Besides the pairs (the shadow of «Возврат», 15.10.2026): «Возврат» with the counter «Ударная волна» of the chain window — the
+ * wave's hits on bodies the run then strikes are compared (the plan's marks see the wave, `Params.returnShadowEnd`).
  * `npm run test:realtime-form-pairs`.
  */
 import { registerArena } from './arenas';
 import { nextCandidates, planChain, type ChainPlan, type StrikeOutcome } from './chain';
 import { platesOf } from './elites';
-import { FORMS, FROST_PASS, HAMMERS } from './buildIds';
+import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FROST_PASS, HAMMERS } from './buildIds';
 import { defaultParams, type Params } from './params';
 import { replay, Simulation, type Journal } from './simulation';
 import type { Loadout } from './kit';
@@ -65,11 +67,18 @@ function promised(plan: ChainPlan): Map<number, StrikeOutcome> {
 }
 /** Sources of the plan's own strikes; any other source is a form's effect outside the plan. */
 const PLANNED = new Set(['chain', 'pierce', 'hammer-return']);
-interface PairTally { chains: number; compared: number; side: number; diverged: string[] }
+interface PairTally { chains: number; compared: number; side: number; diverged: string[]; shadowed?: number; waves?: number; marks?: string[] }
+
+/**
+ * Besides the pair (task 29, the shadow of «Возврат»): more talismans of the kit, more params, and `shadowed` — sources of
+ * effects the return run's plan sees (`endShadow`, «Ударная волна»): a body they hit stays compared when the plan's run strikes it.
+ */
+interface FightExtra { talismans?: string[]; params?: Partial<Params>; shadowed?: string[] }
 
 /** One fight of a pair on seed `k`: 6 chains of the bot; the plan against the dash on each. */
-function pairFight(pair: readonly Form[], k: number, moving: boolean, tally: PairTally): void {
-  const sim = new Simulation({ arena: 'form-pairs', params: params(moving), seed: seedOf(k), record: true, loadout: loadoutOf(pair) });
+function pairFight(pair: readonly Form[], k: number, moving: boolean, tally: PairTally, extra: FightExtra = {}): void {
+  const kit = loadoutOf(pair), loadout = { ...kit, talismans: [...kit.talismans ?? [], ...extra.talismans ?? []] } as Loadout;
+  const sim = new Simulation({ arena: 'form-pairs', params: Object.assign(params(moving), extra.params ?? {}), seed: seedOf(k), record: true, loadout });
   sim.command({ t: 'clear', keepMarked: false });
   sim.command({ t: 'teleport', x: 4.5, y: 5 });
   const rnd = lcg(seedOf(k) ^ 0x5bd1e995);
@@ -103,7 +112,17 @@ function pairFight(pair: readonly Form[], k: number, moving: boolean, tally: Pai
     for (let t = 0; t < 1200 && (sim.world.move || t === 0); t++) tick();
     for (let t = 0; t < 20; t++) tick();
     // A body a form's own effect hit (fire, cut, blast, seal, frost) is out of the comparison.
-    const side = new Set(events.flatMap(e => (e.type === 'kill' || e.type === 'enemyHit') && 'source' in e && e.source && !PLANNED.has(e.source as string) ? [(e as { enemyId: number }).enemyId] : []));
+    const backHits = new Set((plan.back?.hits ?? []).map(h => h.id)), seen = new Set(extra.shadowed ?? []);
+    const side = new Set(events.flatMap(e => (e.type === 'kill' || e.type === 'enemyHit') && 'source' in e && e.source && !PLANNED.has(e.source as string)
+      && !(seen.has(e.source as string) && backHits.has((e as { enemyId: number }).enemyId)) ? [(e as { enemyId: number }).enemyId] : []));
+    tally.shadowed = (tally.shadowed ?? 0) + events.filter(e => (e.type === 'kill' || e.type === 'enemyHit') && seen.has(e.source as string) && backHits.has(e.enemyId)).length;
+    tally.waves = (tally.waves ?? 0) + events.filter(e => seen.size && e.type === 'wave').length;
+    if (seen.size) {
+      // The run struck the bodies the plan marked, in its order (a hit, or a plate taken).
+      const struck = events.flatMap(e => ((e.type === 'enemyHit' || (e.type === 'elitePlates' && e.action === 'strip')) && e.source === BUILD_SOURCES.hammerReturn ? [e.enemyId] : []));
+      const marked = (plan.back?.hits ?? []).map(h => h.id);
+      if (struck.join() !== marked.join()) (tally.marks ??= []).push(`${pair.map(f => f.name).join(' + ')} k${k} chain ${c}${moving ? ' (moving)' : ''}: the run struck [${struck.join()}], the plan marked [${marked.join()}]`);
+    }
     tally.chains++;
     const label = `${pair.map(f => f.name).join(' + ')} k${k} chain ${c}${moving ? ' (moving)' : ''}`;
     for (const [id, o] of want) {
@@ -150,6 +169,31 @@ check('the same pairs with walking enemies: with `returnFixed` the plan is the d
   }
   console.log(`   ${chains} chains, ${compared} promised outcomes compared`);
   assert(!failures.length, `the plan differs from the dash:\n${failures.slice(0, 12).join('\n')}${failures.length > 12 ? `\n… ${failures.length} in all` : ''}`);
+});
+
+// Task 29, the shadow of «Возврат» (`returnShadowEnd`, closed 15.10.2026): «Возврат» with «Ударная волна» of the chain window
+// (the pair a run will hold, task 30): the wave at the end of the dash kills and wounds before the run — the plan's run marks
+// see it. Bodies the wave hits and the run strikes stay compared; the wave's own hits elsewhere are left out (not in the plan).
+check('«Возврат» + «Ударная волна» (window — one chain, from 3 links), `returnFixed`: the run strikes the marked bodies with the planned outcomes after the wave (still enemies); the outcomes hold while they walk', () => {
+  const back = FORMS_ALL.find(f => f.hammer === HAMMERS.return)!;
+  const wave: FightExtra = { talismans: [COUNTER_TALISMANS.shockwave], params: { counterWindow: true, shockwaveLinks: 3 }, shadowed: [BUILD_SOURCES.wave] };
+  const runs: { moving: boolean; fixed: boolean; ks: number[] }[] = [
+    { moving: false, fixed: true, ks: [1, 2, 3, 4, 5, 6, 7, 8] }, { moving: true, fixed: true, ks: [5, 6, 7, 8] }, { moving: false, fixed: false, ks: [1, 2, 3, 4, 5, 6, 7, 8] },
+  ];
+  for (const r of runs) {
+    const tally: PairTally = { chains: 0, compared: 0, side: 0, diverged: [] };
+    for (const k of r.ks) pairFight([back], k, r.moving, tally, { ...wave, params: { ...wave.params, returnFixed: r.fixed } });
+    const marks = tally.marks ?? [];
+    console.log(`   ${r.moving ? 'walking' : 'still'}, returnFixed ${r.fixed}: ${tally.chains} chains, ${tally.waves} waves, ${tally.compared} promised outcomes compared, ${tally.shadowed} run hits on bodies the wave hit first; outcomes differ ${tally.diverged.length}, the run's bodies differ from the marks on ${marks.length} chains`);
+    assert((tally.waves ?? 0) > 0 && tally.compared > 0, 'the wave went off');
+    // The old path (no `returnFixed`, a run until task 30): the run reads the real path — counted, not asserted (its known
+    // defect: bodies the overlap pushes apart during the dash; one lone surviving first link the old path still ran from).
+    if (!r.fixed) continue;
+    assert(!tally.diverged.length, `the plan differs from the dash:\n${tally.diverged.slice(0, 12).join('\n')}`);
+    // The wave strikes where the bodies stand at the end of the dash: one that walked into it (or out of it) during the dash is
+    // not foreseen — the marks are asserted on a still scene and counted while the enemies walk (a known limit).
+    if (!r.moving) assert(!marks.length, `the run struck other bodies than the marks:\n${marks.join('\n')}`);
+  }
 });
 
 console.log(`realtime-form-pairs: ${checks} checks passed`);

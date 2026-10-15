@@ -120,6 +120,8 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       if (pending.battle === 'final') walk.atFinal = run;
       if (pending.battle === 'final') { assert(node.type === 'boss' && pending.arena === FINAL_ARENA, `boss: the final arena (${pending.arena})`); walk.finals.push(pending.arena); }
       else if (pending.battle === 'hard') { assert(node.type === 'hard' && pending.arena === HARD_ARENA, `hard: Застава (${pending.arena})`); walk.hards.push(pending.arena); }
+      // Task 28 «Тюремщик в походе»: a new run's Jailer node plays the Jailer's fight (its pool draw spent, not read).
+      else if (node.type === 'checkpoint' && run.jailer) assert(pending.arena === 'jailer' && pending.roster === undefined, `${node.id}: the Jailer's fight (${pending.arena})`);
       else {
         // Design answer 1 to step 4: the pool of the row, or the own arena of a kind not met yet (even outside its rows).
         const before = walk.arenas;
@@ -435,10 +437,10 @@ interface PathArena { row: number; type: string; arena: string }
  * The arenas a run meets in order, its arena outcomes faked as victories (the run's commands only, no simulation): the
  * first button of every screen, the next node by `(k + step)`. For counting what a player meets first. `mix` — the run's
  * roster mix (11.10.2026; off — the choice of arenas before it, the measure of c8df2d4); `gentle` — the gentle entry (task 17;
- * off — the pools before it, the reference measures below).
+ * off — the pools before it, the reference measures below). The Jailer's node plays its pool as before task 28 (`jailer: false`).
  */
 function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { path: PathArena[]; previews: number } {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF });
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false });
   const path: PathArena[] = [];
   let previews = 0;
   for (let step = 0; step < 200 && !run.result; step++) {

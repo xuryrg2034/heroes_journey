@@ -794,7 +794,9 @@ export class RtRecorder {
           const visit = meta.nodes[meta.nodes.length - 1], pending = after.pending;
           if (visit) { visit.arena = ev.arena; if (pending?.kind === 'battle' && pending.roster !== undefined) visit.roster = pending.roster; if (after.schedule) visit.arc = rtFightArc(after) ?? 'practice'; }
         } else if (ev.type === 'event-resolved') {
-          const visit = [...meta.nodes].reverse().find(v => v.nodeId === ev.nodeId), id = before ? rtEventView(before)?.event.id : undefined;
+          // The event's id from the node's pick: an event's battle option resolves after its fight (the reward talisman), when the
+          // event's screen is no longer open (playtest 15.10.2026: such visits were recorded as «unknown»).
+          const visit = [...meta.nodes].reverse().find(v => v.nodeId === ev.nodeId), id = (before ?? after).picks.find(pick => pick.nodeId === ev.nodeId)?.eventId ?? (before ? rtEventView(before)?.event.id : undefined);
           if (visit) visit.event = { id: id ?? 'unknown', option: ev.option, outcome: ev.outcome };
         } else if (ev.type === 'die-shown') {
           (meta.dice ??= []).push({ nodeId: ev.nodeId, cauldron: ev.cauldron, oath: ev.oath, face: ev.face, rolled: null, mult: null, resources: null, base: null });
