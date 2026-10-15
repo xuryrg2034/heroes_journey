@@ -15,10 +15,12 @@ import { runRow } from './arenaPools';
 import { RtDeathWatch } from './rtRunEnd';
 import { createRtProfileStore, type RunStorage } from './rtRunStorage';
 import {
-  createRtRun, parseRtRun, resolveArena, RT_FIRST_ELITE_KINDS, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtEnterNode, rtFightArc, rtNode, rtRunParams, rtScheduleMet,
+  arenaSeed, createRtRun, parseRtRun, resolveArena, RT_FIRST_ELITE_KINDS, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtEnterNode, rtFightArc, rtNode, rtRunParams, rtScheduleMet,
   serializeRtRun, type RtArenaOutcome, type RtRunState,
 } from './rtRun';
-import { affixElement, allowedAffixes, BUST_ARC, SCHEDULE_ELEMENTS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, scheduleSeedHistory } from './schedule';
+import { affixElement, allowedAffixes, BUST_ARC, SCHEDULE_ELEMENTS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, scheduleKindCap, scheduleSeedHistory } from './schedule';
+import { cardRules } from '../view/nodeCard';
+import { arenaPreview, isArenaNode } from './rtRun';
 import { assert, closeNode, ok, same, seedOf, takeGift } from './runFight.testkit';
 import { SCHEDULE_REFERENCE as reference } from './schedule.reference';
 
@@ -91,7 +93,8 @@ check('a new viewer (empty history), 3 runs each, real short fights (4 viewers):
     for (const f of seen) {
       fights++;
       const where = `viewer ${k} run ${f.run} row ${f.row} ${f.arena} (arc ${f.arc}): new ${f.fresh}`;
-      assert(f.fresh.length <= 1, where);
+      // The final «Последний рубеж» may bring its braziers and its pond unmet (a short route; design 15.10.2026 — see the docs).
+      assert(f.fresh.length <= 1 || (f.arena === 'last-stand' && f.fresh.every(id => id === 'brazier' || id === 'water')), where);
       assert(f.types.length <= 1, `${where}: new affix types ${f.types}`);
       if (f.arc) { arcs++; assert(f.fresh.length === 0 || f.fresh.every(id => id === f.arc) || f.arc === BUST_ARC, `${where}: not the arc's own`); }
       if (!eliteMet) assert(f.elites.length === 0 || f.arc === 'elite', `${where}: an elite before the elite arc ${JSON.stringify(f.elites)}`);
@@ -224,6 +227,37 @@ check('the loadout of a scheduled fight: a veteran — rows 6–8 plates 4 and t
   assert((fresh.pending as Battle).arena === 'glade' && same(kit.withoutKinds ?? [], ['wolf', 'boar'].filter(kind => arenaKinds('glade').has(kind)).sort((a, b) => SCHEDULE_KINDS.indexOf(a) - SCHEDULE_KINDS.indexOf(b))), `the first fight: ${(fresh.pending as Battle).arena}, without ${kit.withoutKinds}`);
 });
 
+check('card = fight and В-1 (new viewers and veterans, 60 runs, the run\'s own commands): the card of every available arena node (its preview) and of every open battle has the elite and enemy rules of the fight\'s loadout; no ordinary fight has more special kinds standing than the row\'s cap (2 on rows 1–5, 3 on 6–9)', () => {
+  let cards = 0, fights = 0;
+  for (let k = 1; k <= 60; k++) {
+    quickWalk(createRtRun(seedOf(k + 3000), { gift: 'mini', schedule: k % 2 ? [] : VETERAN }), k, run => {
+      const pending = run.pending;
+      if (pending?.kind === 'battle') {
+        const node = rtNode(run, pending.nodeId)!, kit = rtArenaLoadout(run), rules = cardRules(run, node);
+        const want = { guaranteedElite: !!kit.guaranteedElite, randomElites: !!kit.randomElites, elitePlates: kit.elitePlates, eliteAffixes: kit.eliteAffixes ?? 0, eliteKinds: kit.eliteKinds, withoutKinds: kit.withoutKinds };
+        const got = { guaranteedElite: rules.guaranteedElite, randomElites: rules.randomElites, elitePlates: rules.elitePlates, eliteAffixes: rules.eliteAffixes, eliteKinds: rules.eliteKinds, withoutKinds: rules.withoutKinds };
+        assert(same(want, got), `seed ${k} ${pending.arena}: fight ${JSON.stringify(want)} / card ${JSON.stringify(got)}`);
+        cards++;
+        if (pending.battle === 'battle' || pending.battle === 'event') {
+          const standing = [...arenaKinds(pending.arena, pending.roster)].filter(kind => SCHEDULE_KINDS.includes(kind) && !(kit.withoutKinds ?? []).includes(kind));
+          assert(standing.length <= scheduleKindCap(rowOf(run)), `seed ${k} row ${rowOf(run)} ${pending.arena}[${pending.roster}]: ${standing}`);
+          fights++;
+        }
+      } else if (!pending) for (const node of rtAvailableNodes(run).filter(isArenaNode)) {
+        const pick = arenaPreview(run, node);
+        if (!pick) continue;
+        const preview = structuredClone(run);
+        preview.picks.push({ nodeId: node.id, arena: pick.arena, ...pick.roster !== undefined ? { roster: pick.roster } : {}, ...pick.arc !== undefined ? { arc: pick.arc } : {} });
+        preview.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle: node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : 'battle', ...pick.roster !== undefined ? { roster: pick.roster } : {} };
+        const kit = rtArenaLoadout(preview), rules = cardRules(run, node);
+        assert(rules.elitePlates === kit.elitePlates && rules.eliteAffixes === (kit.eliteAffixes ?? 0) && rules.guaranteedElite === !!kit.guaranteedElite && same(rules.withoutKinds, kit.withoutKinds), `seed ${k} preview ${node.id} ${pick.arena}`);
+        cards++;
+      }
+    });
+  }
+  console.log(`   ${cards} cards against their fights, ${fights} ordinary fights under the cap`);
+});
+
 check('the simulation: with `affixMetKinds` an elite draws only the kit\'s affix types; without the key — any type (as before); `withoutKinds` with the wolf and the boar — no wolf on «Поляна» with the roster «Волки» and no boar with «Натиск» in 60 s (without the list: some)', () => {
   const kinds = (loadout: object, seconds: number, params: Partial<Params> = {}, roster?: string): { kinds: Set<string>; affixes: Set<string> } => {
     const sim = new Simulation({ arena: 'glade', ...roster ? { roster } : {}, params: { ...rtRunParams(harmless()), ...params }, seed: seedOf(3), loadout: { items: { frost: 0, bomb: 0, healing: 0, fire: 0 }, energy: 0, openItems: [], ...loadout } });
@@ -247,10 +281,14 @@ check('the viewer\'s history (profile): the first read starts from the older mem
   const profile = createRtProfileStore(storage);
   assert(same(profile.scheduleHistory(() => ['wolf', 'elite', 'dragon']), ['elite', 'wolf']), 'seeded from the older memory');
   assert(same(profile.scheduleHistory(() => ['boar']), ['elite', 'wolf']), 'read once');
-  profile.meetSchedule(['cliff', 'wolf']);
+  profile.meetSchedule(['cliff', 'wolf'], 5);
   assert(same(profile.scheduleHistory(() => []), ['cliff', 'elite', 'wolf']), 'a fight adds');
-  profile.resetSchedule();
-  assert(same(profile.scheduleHistory(() => ['boar']), []), '«Обучение» empties it for good');
+  profile.resetSchedule(5);
+  profile.meetSchedule(['boar'], 5);
+  assert(same(profile.load().seen, []), 'the run open at «Обучение» goes on but feeds nothing');
+  assert(same(profile.scheduleHistory(() => ['boar']), []) && profile.load().seenMute === undefined, '«Обучение» empties it for good; the next run\'s snapshot lifts the mute');
+  profile.meetSchedule(['boar'], 6);
+  assert(same(profile.load().seen, ['boar']), 'the next run feeds it');
   assert(same(scheduleSeedHistory(['basic', 'wolf', 'lynx'], ['fat'], ['elite', 'goblin-bust', 'bag', 'feat']), ['affix', 'affix:fat', 'bag', 'bust', 'elite', 'lynx', 'wolf']), 'the view\'s stores');
   assert(same(allowedAffixes(new Set(), 1).length, 1) && same(allowedAffixes(new Set(VETERAN), 1), [...AFFIX_IDS]), 'one new affix type at most');
 });

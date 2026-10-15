@@ -1342,7 +1342,7 @@ export function scheduleKit(kit: Loadout, run: RtRunState, node: Pick<ForestMapN
     kit.eliteKinds = ['basic', ...SCHEDULE_KINDS.filter(kind => met.has(kind))];
     kit.elitePlates = rtElitePlates(row, gentle) + numbers;
     const affixes = arc === 'affix' ? 1 : met.has('affix') ? rtEliteAffixes(row, gentle, rtAsh(run)) : 0;
-    if (affixes > 0) { kit.eliteAffixes = affixes; kit.affixKinds = allowedAffixes(met, seed); }
+    if (affixes > 0) { kit.eliteAffixes = affixes; kit.affixKinds = allowedAffixes(met, seed, kit.eliteKinds); }
   }
   const tough = rtToughHp(row, gentle) + numbers;
   if (tough > 2) kit.toughHp = tough; else delete kit.toughHp;

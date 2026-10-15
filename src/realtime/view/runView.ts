@@ -356,7 +356,8 @@ export class RunView {
     const seen = this.host.newSeen;
     if (!seen || !seen.on() || !isArenaNode(node) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return false;
     const arena = arenaPreview(run, node);
-    return !!arena && newKindsOfArena(arena.arena, arena.roster, seen.store).length > 0;
+    // The kinds the fight takes out (`cardRules` — the fight's own `withoutKinds`) are not promised (review of task 26, 15.10.2026).
+    return !!arena && newKindsOfArena(arena.arena, arena.roster, seen.store, cardRules(run, node).withoutKinds).length > 0;
   }
 
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
@@ -384,7 +385,7 @@ export class RunView {
     const notice = this.apply(resolveArena(this.run, { ...outcome, nodeId: pending.nodeId }));
     // Task 26: what a scheduled fight showed joins the viewer's history (a lost fight's too).
     const seen = this.run?.schedule ? this.run.battles.at(-1)?.seen : undefined;
-    if (seen?.length) this.profile.meetSchedule(seen);
+    if (seen?.length && this.run) this.profile.meetSchedule(seen, this.run.seed);
     return notice;
   }
   /** From the arena's result screen to the run screen: the map, or the end of the run. */
@@ -452,7 +453,7 @@ export class RunView {
     if (action === 'sound-volume') return;
     // «Обучение»: the labels' memory starts over and the prologue plays again; the run (map, save) stays as it is.
     // Task 26 (design 15.10.2026): «Обучение» also empties the schedule's history — the run open now stays, the next new run goes the newcomer's path.
-    if (action === 'prologue') { this.host.hints?.store.reset(); this.profile.resetSchedule(); this.settingsOpen = false; this.host.hints?.startPrologue(); return; }
+    if (action === 'prologue') { this.host.hints?.store.reset(); this.profile.resetSchedule(this.run?.seed); this.settingsOpen = false; this.host.hints?.startPrologue(); return; }
     // П5: the summary of «Удача похода» opens and closes the block (the redraw keeps it as it is).
     if (action === 'luck') { event.preventDefault(); this.luckOpen = !this.luckOpen; this.draw(); return; }
     if (action === 'view-toggle') {
@@ -799,7 +800,7 @@ export class RunView {
     const available = rtAvailableNodes(run);
     const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type];
     const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
-    const fresh = arena && status === 'available' && this.hasNewSign(run, node) && this.host.newSeen ? newKindsOfArena(arena.arena, arena.roster, this.host.newSeen.store) : [];
+    const fresh = arena && status === 'available' && this.hasNewSign(run, node) && this.host.newSeen ? newKindsOfArena(arena.arena, arena.roster, this.host.newSeen.store, cardRules(run, node).withoutKinds) : [];
     const body = `<h2>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h2>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh)

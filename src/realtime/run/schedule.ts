@@ -10,7 +10,7 @@
  */
 import { mixSeed } from '../forest/items';
 import { arenaTemplate, markedGoalArena } from '../sim/arenas';
-import { AFFIX_IDS } from '../sim/elites';
+import { AFFIX_IDS, affixAllowed } from '../sim/elites';
 import { FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTERS } from '../sim/rosters';
 import { arenaKinds } from './arenaKinds';
 import { FINAL_ARENA, HARD_ARENA } from './arenaPools';
@@ -128,7 +128,7 @@ export function schedulePlan(ctx: ScheduleContext): SchedulePlan {
   const arc = readyArc(ctx);
   const teach = arc ? SCHEDULE_TEACH[arc] : undefined;
   if (arc && teach) {
-    const roster = teach.roster ?? (teach.partner && !FIXED_ROSTER_ARENAS.includes(teach.arena) ? partnerRoster(teach.arena, ctx.met, ctx.row, roll) : undefined);
+    const roster = teach.roster ?? (teach.partner && !FIXED_ROSTER_ARENAS.includes(teach.arena) ? partnerRoster(teach.arena, ctx.met, ctx.row, roll, arc) : undefined);
     return { arena: teach.arena, ...roster !== undefined ? { roster } : {}, arc };
   }
   return practice(ctx, roll, arc);
@@ -140,22 +140,19 @@ function practice(ctx: ScheduleContext, roll: number, arc: string | null): Sched
   const recent = ctx.recent.slice(-SCHEDULE_REPEAT_WINDOW);
   const fresh = fit.filter(p => !recent.includes(p.arena)), list = fresh.length ? fresh : fit;
   const arena = list[mixSeed(roll, 1) % list.length].arena;
-  const roster = FIXED_ROSTER_ARENAS.includes(arena) ? undefined : partnerRoster(arena, ctx.met, ctx.row, mixSeed(roll, 2));
+  const roster = FIXED_ROSTER_ARENAS.includes(arena) ? undefined : partnerRoster(arena, ctx.met, ctx.row, mixSeed(roll, 2), arc);
   return { arena, ...roster !== undefined ? { roster } : {}, arc };
 }
 
-/** The special kinds an arena is about: its start enemies' and newcomers' kinds (not the wolf and boar shares of its pace). */
-function ownKinds(arena: string): string[] {
-  const t = arenaTemplate(arena);
-  return SCHEDULE_KINDS.filter(kind => t.enemies.some(e => (e.kind ?? 'basic') === kind) || (t.newcomers ?? []).some(n => n.kind === kind && n.share > 0));
-}
 /**
- * A known partner (proposal: «новинка рядом со знакомым»): a met special kind of another role than the arena's own kinds, by
- * the roll — as a pool roster on the pool-roster arenas when one brings just that kind (wolves, onslaught), else its role
- * `+<kind>`. None below the row's cap of kinds or with no such kind met.
+ * A known partner (proposal: «новинка рядом со знакомым»): a met special kind of another role than the kinds that stand on the
+ * arena, by the roll — as a pool roster on the pool-roster arenas when one brings just that kind (wolves, onslaught), else its role
+ * `+<kind>`. None when the kinds that stand already reach the row's cap (В-1) or no such kind is met. The kinds that stand: those
+ * the arena brings (its newcomers, start enemies and the wolf and boar shares of its pace) that are met, or the arc's own (review
+ * 15.10.2026: the shares count — «Двор кнопок» with wolves and boars and one more role made three).
  */
-export function partnerRoster(arena: string, met: ReadonlySet<string>, row: number, roll: number): string | undefined {
-  const own = ownKinds(arena);
+export function partnerRoster(arena: string, met: ReadonlySet<string>, row: number, roll: number, arc: string | null = null): string | undefined {
+  const brought = arenaKinds(arena), own = SCHEDULE_KINDS.filter(kind => brought.has(kind) && (met.has(kind) || kind === arc));
   if (own.length >= scheduleKindCap(row)) return undefined;
   const roles = new Set(own.map(kind => KIND_ROLE[kind]));
   const candidates = SCHEDULE_KINDS.filter(kind => met.has(kind) && !own.includes(kind) && !roles.has(KIND_ROLE[kind]));
@@ -208,9 +205,14 @@ export function unmetKinds(arena: string, roster: string | undefined, met: Reado
   return SCHEDULE_KINDS.filter(kind => kinds.has(kind) && !met.has(kind) && kind !== arc);
 }
 
-/** The affix types an elite of the fight may take: those met, and at most one more (by the node's roll). Sorted as `AFFIX_IDS`. */
-export function allowedAffixes(met: ReadonlySet<string>, seed: number): string[] {
-  const known = AFFIX_IDS.filter(id => met.has(affixElement(id))), unknown = AFFIX_IDS.filter(id => !met.has(affixElement(id)));
+/**
+ * The affix types an elite of the fight may take: those met, and at most one more (by the node's roll) — one every kind the elite may
+ * be (`kinds`) can take (review 15.10.2026: «Стремительный» is not for a fast kind, «Толстый» not for a slow one; the arc's only type
+ * must reach its elite), else any. Sorted as `AFFIX_IDS`.
+ */
+export function allowedAffixes(met: ReadonlySet<string>, seed: number, kinds: readonly string[] = []): string[] {
+  const known = AFFIX_IDS.filter(id => met.has(affixElement(id))), unmet = AFFIX_IDS.filter(id => !met.has(affixElement(id)));
+  const legal = unmet.filter(id => kinds.every(kind => affixAllowed(kind, id))), unknown = legal.length ? legal : unmet;
   const extra = unknown.length ? unknown[mixSeed(mixSeed(seed, SCHEDULE_SALT), 3) % unknown.length] : undefined;
   return AFFIX_IDS.filter(id => known.includes(id) || id === extra);
 }

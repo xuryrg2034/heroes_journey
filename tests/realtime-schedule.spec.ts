@@ -42,7 +42,7 @@ test('task 26: «Обучение» empties the viewer\'s history — the next n
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime.snapshot().prologue.active)).toBe(true);
   await page.getByTestId('prologue-skip').click();
   await expect(page.getByTestId('run')).toBeVisible({ timeout: 10_000 });
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-rt-profile-v1')!).seen)).toEqual([]);
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)!).seen, RT_PROFILE_STORAGE_KEY)).toEqual([]);
   // A new run: the header's «Новый поход», confirmed.
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
