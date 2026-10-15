@@ -878,6 +878,14 @@ export interface Params {
    * the colour by accident). Sandbox and run on; journals without the key: off.
    */
   shiftAtPointer: boolean;
+  // ---- Task 39 «Неподвижный курсор берёт ближайшее» (chain.ts `pickAt`; docs/realtime-prototype.md, «Неподвижный курсор»). ----
+  /**
+   * The held still pointer (`append`, `holdPicks`) picks the nearest body in its press circle among the candidates AND the chain's
+   * links; the nearest a link — nothing happens (no take, no truncation). Without it the held pointer resting on the last link took
+   * a neighbour and the next pointer event stepped back («мерцание»; log analysis 15.10.2026). Sandbox and run on; journals without
+   * the key: off.
+   */
+  holdNearest: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1267,6 +1275,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   forkBranches: 1,
   // Task 34 (chain.ts): another colour on a free chain only at the pointer; the run turns it on too (`RUN_FORCED`).
   shiftAtPointer: true,
+  // Task 39 (chain.ts `pickAt`): the held pointer takes a body only when it is nearer than every link of the chain.
+  holdNearest: true,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1392,6 +1402,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Пока кнопка зажата, враг, подошедший под курсор или вошедший в R, добавляется без движения мыши (только добавление, без обрезки).' },
   { kind: 'bool', key: 'shiftAtPointer', group: 'Цепь', label: 'Смена цвета — только точкой курсора', stage: 5,
     hint: 'Пока цвет цепи свободен («Смена цвета»), тело другого цвета берётся только там, где остановилась мышь (или нажатием). Протяжка и неподвижный курсор берут только цвет цепи, другие цвета пропускают без отказа.' },
+  { kind: 'bool', key: 'holdNearest', group: 'Цепь', label: 'Неподвижный курсор берёт ближайшее', stage: 5,
+    hint: 'Зажатый неподвижный курсор берёт тело, только если оно ближе к курсору, чем любое звено цепи. Курсор на звене цепи ничего не берёт и не обрезает.' },
   { kind: 'bool', key: 'refusalHint', group: 'Цепь', label: 'Подсказка: почему не берётся', stage: 4,
     hint: 'У курсора над врагом или объектом, который нельзя взять следующим звеном: «далеко», «не тот цвет», «нет видимости», «после выжившего»…' },
   n('dashSpeed', 'Цепь', 'Скорость прохода', 2, 40, 0.5, 2, 'ед/с'),
@@ -1742,7 +1754,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — a sandbox rule until task 30, off in a run.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true, holdNearest: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

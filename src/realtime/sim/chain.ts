@@ -1026,20 +1026,17 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
     if (world.params.cancelOnHero || (world.params.chainStepBack && world.chain.length === 1)) { world.chain = []; delete world.chainClosed; }
     return;
   }
-  const plan = planChain(world, world.chain, NO_PIERCE), truncate = mode === 'full';
-  // Task 34: while the colour is free by «Смена цвета», a sweep point or the held pointer takes only the chain's colour (the
-  // colourless core too); another colour joins at the pointer event itself. The highlight and the refusals do not change.
-  const free = truncate ? null : pointerShiftColor(world);
-  const keepsColor = (e: Enemy): boolean => free === null || colorlessLink(world, e) || sameColor(world, e.color, free);
-  const acceptObject = (o: ArenaObject): boolean => (truncate && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan);
-  const target = pick(world, p, e => ((truncate && inChain(world, e) >= 0) || canLink(world, e, plan)) && keepsColor(e), acceptObject);
-  if (free !== null) {
-    // Telemetry: the body the old path would have taken here (the nearest one `canLink` allows).
-    const old = pick(world, p, e => canLink(world, e, plan), acceptObject);
-    if (old?.kind === 'enemy' && (target?.kind !== 'enemy' || target.id !== old.id)) world.events.push({ type: 'shiftSkip', enemyId: old.id, links: world.chain.length });
+  const plan = planChain(world, world.chain, NO_PIERCE), target = pickAt(world, p, mode, plan);
+  if (mode !== 'full' && pointerShiftColor(world) !== null) {
+    // Task 34 telemetry: the body the path without `shiftAtPointer` would have taken here (the nearest one `canLink` allows).
+    const seeLinks = seesLinks(world, mode);
+    const old = pick(world, p, e => (seeLinks && inChain(world, e) >= 0) || canLink(world, e, plan), o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan));
+    if (old?.kind === 'enemy' && linkIndex(world, old) < 0 && (target?.kind !== 'enemy' || target.id !== old.id)) world.events.push({ type: 'shiftSkip', enemyId: old.id, links: world.chain.length });
   }
   if (!target) return;
   const index = linkIndex(world, target);
+  // Task 39: the held pointer nearest to a link of the chain does nothing (it never truncates).
+  if (index >= 0 && mode !== 'full') return;
   if (index >= 0) {
     // Stage H: one step back only — the second-to-last link takes the last one off; an older link does nothing (after a
     // crystal the pointer often crosses old links). A link taken off and taken again does not refresh focus (stage E).
@@ -1056,6 +1053,23 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour (task 33: the pair's next).
   if (joined && join === 'chameleon') adoptChainColor(world, joined, need ?? color);
   refreshFocus(world, target);
+}
+
+/** Task 39 (`Params.holdNearest`): the held still pointer (`append`) sees the chain's links too — the pointer event always does. */
+const seesLinks = (world: World, mode: DragMode): boolean => mode === 'full' || (mode === 'append' && !!world.params.holdNearest);
+
+/**
+ * What a drag point in `mode` picks (`dragChain` acts on it): the nearest body in its press circle among the ones it may take and,
+ * for the pointer event (`full`) and the held pointer with `holdNearest` (task 39), the chain's own links. A link of the chain —
+ * `full` truncates there (the step back), `append` does nothing; null — nothing. Task 34: on a colour free by «Смена цвета» a
+ * sweep point and the held pointer take only the chain's colour. The view's ring «что возьмётся» reads it (no copy of the rule).
+ */
+export function pickAt(world: World, p: Vec, mode: DragMode = 'full', plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): ChainLink | null {
+  const seeLinks = seesLinks(world, mode), free = mode === 'full' ? null : pointerShiftColor(world);
+  const keepsColor = (e: Enemy): boolean => free === null || colorlessLink(world, e) || sameColor(world, e.color, free);
+  return pick(world, p,
+    e => (seeLinks && inChain(world, e) >= 0) || (canLink(world, e, plan) && keepsColor(e)),
+    o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan));
 }
 
 /**

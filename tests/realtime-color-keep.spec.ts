@@ -153,3 +153,40 @@ test('task 34 (user 15.10.2026): in a run, 6 blue free the colour; a quick swipe
   await page.mouse.up();
   expect(errors).toEqual([]);
 });
+
+test('task 39 (log analysis 15.10.2026): the held still pointer resting by the 3rd link next to another enemy takes nothing for 1 s; moved onto the enemy — it joins', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.goto('/?sandbox=1&arena=1&seed=77');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__realtime.params.holdNearest)).toBe(true);
+  const { at, ids, rest } = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['hitstop', false]] as const) rt.setParam(k, v);
+    rt.clear(false);
+    rt.teleport(4.2, 3.6);
+    const spots: [number, number][] = [[5, 3.6], [6, 3.6], [7, 3.6], [7.6, 4.05]];
+    const at = spots.map(([x, y]) => { rt.place(x, y, 0, 0, 'basic'); return rt.toScreen(x, y) as { x: number; y: number }; });
+    // The resting point: off the 3rd link's centre toward the 4th — the link is nearer, the 4th within its press circle.
+    const rest = rt.toScreen(7 + 0.6 * 0.3, 3.6 + 0.45 * 0.3) as { x: number; y: number };
+    return { at, ids: rt.snapshot().enemies.map((e: { id: number }) => e.id) as number[], rest };
+  });
+  const chain = async (): Promise<number[]> => (await snap(page)).chain as number[];
+  await page.mouse.move(at[0].x, at[0].y);
+  await page.mouse.down();
+  for (let i = 1; i < 3; i++) {
+    await page.mouse.move(at[i].x, at[i].y, { steps: 2 });
+    await expect.poll(async () => (await chain()).length).toBe(i + 1);
+  }
+  await page.mouse.move(rest.x, rest.y, { steps: 2 });
+  // Hold still 1 s of real time (the held pointer is re-checked every frame).
+  await page.waitForTimeout(1000);
+  expect(await chain()).toEqual(ids.slice(0, 3));
+  await page.mouse.move(at[3].x, at[3].y, { steps: 2 });
+  await expect.poll(async () => (await chain()).length).toBe(4);
+  expect((await chain()).at(-1)).toBe(ids[3]);
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});

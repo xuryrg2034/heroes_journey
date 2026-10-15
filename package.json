@@ -66,6 +66,7 @@
     "test:realtime-prologue-view": "tsx src/realtime/view/prologueFlow.spec.ts",
     "test:realtime-link-depth": "tsx src/realtime/sim/linkDepth.spec.ts",
     "test:realtime-color-shift": "tsx src/realtime/sim/colorShift.spec.ts",
+    "test:realtime-hold-nearest": "tsx src/realtime/sim/holdNearest.spec.ts",
     "test:realtime-elite-behaviors": "tsx src/realtime/sim/eliteBehaviors.spec.ts",
     "test:realtime-elite-armor": "tsx src/realtime/sim/eliteArmor.spec.ts",
     "test:realtime-loot-opens": "tsx src/realtime/sim/lootOpens.spec.ts",
