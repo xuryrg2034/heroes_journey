@@ -121,3 +121,11 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 Промпты исходного набора — `artifacts/art-prompts/characters.json` и `artifacts/art-prompts/chapter-finale.json`. Иллюстрации персонажей замка и колокола пошаговой игры удалены 30.09.2026; их промпты остаются как история.
 
 Историческая проверка исходного набора из 16 файлов 27 сентября 2026 года (относится к удалённой пошаговой игре, тег `turn-based-final`): Chromium canvas подтвердил прозрачность PNG, четыре угла каждого имеют alpha 0–1. Эти результаты не относятся к текущей версии.
+
+### Лагерь «Очаг» (15.10.2026)
+
+Набор для задачи 37 (`docs/design-notes/tasks-36-37-meta.md`), Codex `image_gen`, промпты — `artifacts/art-prompts/camp-npc.json`. Проверка `check-art.mjs` 15.10.2026: PASS для трёх NPC. Подключение в вид — задача ui (`CHARACTER_ART_IDS`).
+- `public/art/characters/npc-owl.png` — Неясыть, сова-летописица.
+- `public/art/characters/npc-herbalist.png` — Марфа, травница.
+- `public/art/characters/npc-smith.png` — Ерофей, точильщик.
+- `public/art/camp/hearth.png` — фон экрана лагеря, 1280×720, непрозрачный; шесть мест вокруг костра (пни и коврики).
