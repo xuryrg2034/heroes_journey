@@ -297,6 +297,17 @@ export interface RunResources {
   late?: true;
 }
 
+/** Tasks 36–37 (from 15.10.2026): the hero's XP of the run (`RunRecord.xp`) — gained, the total before and after (clipped), the parts. */
+export interface RunXp { gained: number; before: number; after: number; parts: { id: string; xp: number; n?: number }[] }
+/** Task 37: the resources carried to the camp (`RunRecord.carry`): carried, the share (1 or 0.5), the cap, the run's resources at the end. */
+export interface RunCarry { n: number; share: number; cap: number; resources: number }
+/** Task 37: an upgrade bought in the camp after the run (`RunRecord.hearthBuys`). */
+export interface RunHearthBuy { npc: string; level: number; price: number }
+/** Task 37: what the camp gave the run at its start (`RunRecord.hearth`): maps offered and the index chosen, the start consumable, Ерофей's flags. */
+export interface RunHearth { maps?: number; map?: number; startItems?: string[]; jailerRerolls?: number; hammerAll?: true }
+/** Task 37: the run's quest and (once the run ended) whether it was done. */
+export interface RunQuest { npc: string; id: string; done?: boolean }
+
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
   kind: 'run';
@@ -363,6 +374,23 @@ export interface RunRecord extends RtHeader {
   resources?: RunResources;
   /** Task 35, С1 (from 15.10.2026): the level of «Тряска и вспышки» in the run; absent — older records (or not reported). */
   fx?: RunFx;
+  /** Task 36 (from 15.10.2026): the run's XP (`RtMetaEnd.xp`); absent — not applied yet, a seeded run, older records. */
+  xp?: RunXp;
+  /** Task 36: the pack the run opened (its id); absent — none. */
+  pack?: string;
+  /** Task 36: the depth record after the run (run rows) and whether this run beat it. */
+  record?: { row: number; won: boolean; beaten: boolean };
+  /** Task 36: items locked in the run (the snapshot's count; 0 — a meta run with every pack open); absent — not a meta run. */
+  locked?: number;
+  /** Task 37: the carry to the camp and the stock before and after it (the quest's stock included). */
+  carry?: RunCarry;
+  stock?: { before: number; after: number };
+  /** Task 37: upgrades bought in the camp after this run, in order; NPC clicks there by NPC. */
+  hearthBuys?: RunHearthBuy[];
+  npcClicks?: Record<string, number>;
+  /** Task 37: what the camp gave this run at its start; the run's quest. */
+  hearth?: RunHearth;
+  quest?: RunQuest;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -522,6 +550,27 @@ function runResourcesOk(value: unknown): boolean {
   return plain(value) && counts(value.start, 0) && counts(value.end, 0) && book(value.gained) && book(value.spent) && (value.late === undefined || value.late === true);
 }
 
+/** Tasks 36–37: the optional meta fields of a run record are well formed (each absent, or of its shape). */
+function runMetaOk(r: Record<string, unknown>): boolean {
+  const plain = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
+  const whole = (x: unknown, min = 0): boolean => Number.isInteger(x) && (x as number) >= min;
+  const xp = r.xp, record = r.record, carry = r.carry, stock = r.stock, hearth = r.hearth, quest = r.quest;
+  if (xp !== undefined && !(plain(xp) && whole(xp.gained) && whole(xp.before) && whole(xp.after) && Array.isArray(xp.parts)
+    && xp.parts.every(p => plain(p) && typeof p.id === 'string' && whole(p.xp) && (p.n === undefined || whole(p.n))))) return false;
+  if (r.pack !== undefined && !(typeof r.pack === 'string' && r.pack.length > 0)) return false;
+  if (record !== undefined && !(plain(record) && whole(record.row) && typeof record.won === 'boolean' && typeof record.beaten === 'boolean')) return false;
+  if (r.locked !== undefined && !whole(r.locked)) return false;
+  if (carry !== undefined && !(plain(carry) && whole(carry.n) && (carry.share === 1 || carry.share === 0.5) && whole(carry.cap) && whole(carry.resources))) return false;
+  if (stock !== undefined && !(plain(stock) && whole(stock.before) && whole(stock.after))) return false;
+  if (r.hearthBuys !== undefined && !(Array.isArray(r.hearthBuys) && r.hearthBuys.every(b => plain(b) && typeof b.npc === 'string' && whole(b.level, 1) && whole(b.price, 1)))) return false;
+  if (r.npcClicks !== undefined && !(plain(r.npcClicks) && Object.values(r.npcClicks).every(n => whole(n, 1)))) return false;
+  if (hearth !== undefined && !(plain(hearth) && (hearth.maps === undefined || whole(hearth.maps, 2)) && (hearth.map === undefined || whole(hearth.map))
+    && (hearth.startItems === undefined || (Array.isArray(hearth.startItems) && hearth.startItems.every(id => typeof id === 'string')))
+    && (hearth.jailerRerolls === undefined || whole(hearth.jailerRerolls, 1)) && (hearth.hammerAll === undefined || hearth.hammerAll === true))) return false;
+  if (quest !== undefined && !(plain(quest) && typeof quest.npc === 'string' && typeof quest.id === 'string' && (quest.done === undefined || typeof quest.done === 'boolean'))) return false;
+  return true;
+}
+
 /**
  * A shallow check of a record before it is stored or written to a file: the header, the id agreeing with the kind, the
  * fields each kind needs. Returns the first problem or null.
@@ -585,6 +634,8 @@ export function checkRecord(value: unknown): string | null {
       if (!(r.choices as unknown[]).every(c => { const t = (c as Record<string, unknown> | null)?.realSeconds; return t === undefined || (typeof t === 'number' && Number.isFinite(t) && t >= 0); })) return 'run choice realSeconds';
       // Task 20 (14.10.2026): optional — the run's resources.
       if (r.resources !== undefined && !runResourcesOk(r.resources)) return 'run resources';
+      // Tasks 36–37 (15.10.2026): optional — the meta of the run and the camp.
+      if (!runMetaOk(r)) return 'run meta';
       return null;
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';

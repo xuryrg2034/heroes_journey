@@ -24,6 +24,7 @@ import { rtEventView, rtFightArc, rtGiftView, rtNode, rtRestView, rtScheduleMet,
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
+import type { RtMetaEnd } from '../run/rtMeta';
 import { bagPayout } from '../sim/bag';
 import { TelemetryBuffer, telemetryKeys, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type BufferOptions, type BufferStats, type KeyValueStore } from './buffer';
 import { EventCursor } from './observe';
@@ -205,6 +206,8 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       break;
     }
     case 'hammer':
+      // Task 37 «Правка»: a free reroll of the hammer screen is no choice (as the talisman reroll).
+      if (events.some(e => e.type === 'hammer-rerolled')) break;
       choice(pending.nodeId, 'hammer', pending.options.map(String), events.flatMap(e => (e.type === 'hammer-taken' ? [e.id as string] : [])));
       break;
     case 'find':
@@ -301,6 +304,8 @@ interface RunMeta {
   resources?: RunResources;
   /** Task 35, С1: the level of «Тряска и вспышки» in the run (absent — not reported). */
   fx?: RunFx;
+  /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
 }
 
 /**
@@ -680,7 +685,7 @@ export class RtRecorder {
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
-      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, runParams,
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -711,6 +716,14 @@ export class RtRecorder {
       this.meta.resources = { start: { ...run.materials }, gained: {}, spent: {}, end: { ...run.materials } };
       // Task 35, С1: the level the run starts with.
       if (this.fx !== null) this.meta.fx = { start: this.fx, end: this.fx, changes: 0 };
+      // Tasks 36–37: the meta run's locked count, the camp's flags and the quest.
+      if (run.locked) (this.meta.metaTlm ??= {}).locked = run.locked.length;
+      if (run.hearth) {
+        const h = run.hearth, tlm = this.meta.metaTlm ??= {};
+        const hearth = { ...h.maps ? { maps: h.maps } : {}, ...h.startItems ? { startItems: [...h.startItems] } : {}, ...h.jailerRerolls ? { jailerRerolls: h.jailerRerolls } : {}, ...h.hammerAll ? { hammerAll: true as const } : {} };
+        if (Object.keys(hearth).length) tlm.hearth = hearth;
+        if (h.quest) tlm.quest = { npc: h.quest.npc, id: h.quest.id };
+      }
       this.saveMeta();
       this.writeRun(run);
     });
@@ -753,6 +766,51 @@ export class RtRecorder {
       (meta.firsts ??= []).push({ id, fight, row: fight && f!.ctx.row !== undefined ? f!.ctx.row : last?.row ?? 0 });
       this.saveMeta();
       this.writeRun(run);
+    });
+  }
+
+  /**
+   * Task 37: the map chosen of the camp's candidates (`chosen` — its index in `RtHearthStart.maps`, 0 — the base seed); call after
+   * `runStarted` of the run created with it.
+   */
+  hearthMap(run: RtRunState, chosen: number): void {
+    if (!Number.isInteger(chosen) || chosen < 0) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      tlm.hearth = { ...tlm.hearth, map: chosen };
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /**
+   * Tasks 36–37: the run's meta was applied (`RtProfileStore.endRunMeta`) — its XP, pack, record, carry, stock and the quest's result go
+   * into its record (the run whose end screen shows them).
+   */
+  runMetaEnd(run: RtRunState, end: RtMetaEnd): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      tlm.xp = { gained: end.xp.gained, before: end.xp.before, after: end.xp.after, parts: end.xp.parts.map(part => ({ ...part })) };
+      if (end.pack) tlm.pack = end.pack.id;
+      tlm.record = { row: end.record.after.row, won: end.record.after.won, beaten: end.record.beaten };
+      tlm.carry = { ...end.carry };
+      tlm.stock = { ...end.stock };
+      if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /** Task 37: an upgrade bought in the camp (after `run` ended): it goes into that run's record. */
+  hearthBuy(run: RtRunState, npc: string, level: number, price: number): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      (tlm.hearthBuys ??= []).push({ npc, level, price });
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /** Task 37: a click on an NPC in the camp (after `run` ended): the count by NPC goes into that run's record. */
+  hearthClick(run: RtRunState, npc: string): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      tlm.npcClicks = { ...tlm.npcClicks, [npc]: (tlm.npcClicks?.[npc] ?? 0) + 1 };
+      this.saveMeta(); this.writeRun(run);
     });
   }
 

@@ -1,0 +1,149 @@
+/**
+ * Test kit (Node only) of tasks 36–37 (meta.spec.ts, hearth.spec.ts): a whole run walked by the run's own commands — enter, the
+ * arena fed back (`resolveArena` with an outcome as the view builds it, no simulation), every screen chosen (the gift, «Застава»
+ * and its rerolls, the chest, the feat's choice, the Jailer's hammer and oath screens, events with their options and reward
+ * battles, the merchant's goods, the rest's craft, the find, the goblins' circle). Every state the walk passes through is
+ * serialized into a digest (FNV-1a), and every id a screen offered is collected — the pools as the player sees them.
+ * The walk's choices depend only on the seed index and the step, so a run of the same seed and options walks the same way.
+ */
+import { RESOURCE_KINDS } from '../forest/resources';
+import {
+  createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtRerollHammers, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRerollView, rtRerollTalismans, rtRestCraft, rtRestFinish, rtRestHeal,
+  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, type RtArenaOutcome, type RtRunState, type RtRunStep,
+} from './rtRun';
+
+export const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
+export function ok(step: RtRunStep, what: string): RtRunState {
+  if (!step.ok) throw new Error(`${what}: ${step.reason}`);
+  return step.run;
+}
+const fnv = (hash: number, text: string): number => { for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0; return hash; };
+
+export interface WalkOptions {
+  /** The seed index (`seedOf(k)`) and the index the walk's choices turn on. */
+  k: number;
+  create?: Parameters<typeof createRtRun>[1];
+  /** The run's seed (default `seedOf(k)`). */
+  seed?: number;
+  /** Lose the fight of this node (the run ends there); absent — every fight is won. */
+  loseAt?: (run: RtRunState, nodeType: string) => boolean;
+  /** The Jailer's fight severs the weight (default: odd k). */
+  sever?: boolean;
+  /** The goblins' circle may stand (`goblinCircle`; default: k % 3 === 1). */
+  circle?: boolean;
+  /** The free reroll of the Jailer's screens (task 37 «Правка») is used on this screen when offered; absent — not used. */
+  jailerReroll?: 'hammer' | 'oath';
+  /** Resources of each won fight (the loot fed back); absent — 1–3 of one kind by the step. */
+  loot?: number;
+  /** The option taken at an event (`null` — the walk's own pick). */
+  eventChoice?: (eventId: string, open: readonly string[]) => string | null;
+  /** The node entered among the available ones (absent — the walk's own pick). */
+  pickNode?: (run: RtRunState, ids: readonly string[]) => string | null;
+  /** Called with every state the walk passes through (after each step). */
+  each?: (run: RtRunState) => void;
+}
+export interface Walk { run: RtRunState; digest: number; steps: number; offered: Set<string> }
+
+/** Every id the open screen offers now (talismans, relics, oaths, hammers; the merchant's talisman; the gift's talismans). */
+export function offeredNow(run: RtRunState): string[] {
+  const pending = run.pending, out: string[] = [];
+  if (pending?.kind === 'talisman') out.push(...pending.options);
+  if (pending?.kind === 'hammer') out.push(...pending.options);
+  if (pending?.kind === 'shop' && pending.stock.talisman) out.push(pending.stock.talisman);
+  if (pending?.kind === 'gift') {
+    for (const { option } of rtGiftView(run)?.options ?? []) {
+      if (option.kind === 'deal') out.push(...option.reward.kind === 'pick-talisman' ? option.reward.talismans : option.reward.talisman ? [option.reward.talisman] : []);
+      if (option.kind === 'oath' && option.oath) out.push(option.oath);
+    }
+  }
+  return out;
+}
+
+/** The walk: see the file's comment. */
+export function walkRun(options: WalkOptions): Walk {
+  const { k } = options;
+  let run = createRtRun(options.seed ?? seedOf(k), options.create ?? { gift: k % 2 ? 'full' : 'mini' });
+  let digest = fnv(0x811c9dc5, serializeRtRun(run)), steps = 0;
+  const offered = new Set<string>();
+  const seen = (next: RtRunState): RtRunState => {
+    digest = fnv(digest, serializeRtRun(next)); steps++;
+    for (const id of offeredNow(next)) offered.add(id);
+    for (const id of next.talismans) offered.add(id);
+    if (next.hammer) offered.add(next.hammer);
+    for (const pick of next.picks) if (pick.eventId) offered.add(pick.eventId);
+    options.each?.(next);
+    return next;
+  };
+  seen(run);
+  for (let step = 0; step < 400 && !run.result; step++) {
+    const pending = run.pending;
+    if (!pending) {
+      const next = rtAvailableNodes(run), wanted = options.pickNode?.(run, next.map(entry => entry.id)), node = next.find(entry => entry.id === wanted) ?? next[(k * 7 + step) % next.length];
+      run = seen(ok(rtEnterNode(run, node.id, null, { goblinCircle: options.circle ?? k % 3 === 1 }), 'enter'));
+      continue;
+    }
+    switch (pending.kind) {
+      case 'battle': {
+        const type = rtNode(run, pending.nodeId)!.type, lose = options.loseAt?.(run, type) ?? false;
+        const outcome: RtArenaOutcome = {
+          nodeId: pending.nodeId, won: !lose, hp: lose ? 0 : Math.max(1, run.maxHp - (step % 4)), kills: 20 + step % 7, damage: step % 4, time: 60 + step,
+          materials: options.loot !== undefined ? { [RESOURCE_KINDS[(k + step) % RESOURCE_KINDS.length]]: options.loot } : { [RESOURCE_KINDS[(k + step) % RESOURCE_KINDS.length]]: 1 + (step % 3) },
+          ...pending.feat ? { feat: { done: (k + step) % 2 === 0 } } : {},
+          ...pending.battle === 'hard' && k % 3 === 0 ? { chest: true } : {},
+          ...type === 'checkpoint' && (options.sever ?? k % 2 === 1) ? { severed: true } : {},
+        };
+        run = seen(ok(resolveArena(run, outcome), 'resolve'));
+        break;
+      }
+      case 'talisman': {
+        const reroll = rtRerollView(run);
+        if (reroll?.available && (reroll.free ? options.jailerReroll === 'oath' : step % 3 === 0)) { run = seen(ok(rtRerollTalismans(run), 'reroll')); break; }
+        const options2 = (run.pending as typeof pending).options, at = step % (options2.length + 1);
+        run = seen(ok(rtChooseTalisman(run, at < options2.length ? options2[at] : null), 'talisman'));
+        break;
+      }
+      case 'hammer':
+        if (options.jailerReroll === 'hammer' && rtHammerRerollView(run)?.available) { run = seen(ok(rtRerollHammers(run), 'hammer reroll')); break; }
+        run = seen(ok(rtChooseHammer(run, pending.options[step % pending.options.length] ?? null), 'hammer')); break;
+      case 'event': {
+        const view = rtEventView(run)!, open = view.options.filter(option => option.available);
+        const wanted = options.eventChoice?.(view.event.id, open.map(option => option.id)) ?? null;
+        run = seen(ok(rtChooseEventOption(run, open.find(option => option.id === wanted)?.id ?? open[(k + step) % open.length].id), 'event'));
+        break;
+      }
+      case 'shop': {
+        const good = rtShopView(run)!.goods.find(entry => entry.available && entry.good !== 'heal');
+        run = seen(good && step % 2 === 0 ? ok(rtShopBuy(run, good.id), 'buy') : ok(rtShopLeave(run), 'leave'));
+        break;
+      }
+      case 'rest': {
+        const view = rtRestView(run)!, recipe = view.recipes.find(entry => entry.available);
+        if (view.canFinish) run = seen(ok(rtRestFinish(run), 'rest finish'));
+        else run = seen(recipe && step % 2 === 1 ? ok(rtRestCraft(run, recipe.resource), 'craft') : ok(rtRestHeal(run), 'heal'));
+        break;
+      }
+      case 'find': run = seen(ok(rtChooseFind(run, pending.options[step % pending.options.length]), 'find')); break;
+      case 'gift': {
+        const view = rtGiftView(run)!;
+        if (view.chosen !== null) { run = seen(ok(rtChooseGiftPick(run, view.picks[step % view.picks.length]), 'gift pick')); break; }
+        const open = view.options.filter(entry => entry.available);
+        run = seen(ok(rtChooseGift(run, open.length ? open[(k + step) % open.length].index : null), 'gift'));
+        break;
+      }
+      case 'casino': {
+        const table = rtCasinoView(run)!.tables.find(entry => entry.available);
+        run = seen(table && step % 2 === 0 ? ok(rtCasinoPlay(run, table.table), 'casino') : ok(rtCasinoLeave(run), 'casino leave'));
+        break;
+      }
+      default: throw new Error(`seed ${k}: no walk for ${pending.kind}`);
+    }
+  }
+  return { run, digest, steps, offered };
+}
+
+/** The walks of the byte-for-byte reference (meta.reference.ts): 24 seeds, both gifts, feats on every third, the circle on some. */
+export const REFERENCE_WALKS = (): WalkOptions[] => Array.from({ length: 24 }, (_, i) => {
+  const k = i + 1;
+  return { k, create: { gift: k % 2 ? 'full' : 'mini', ...k % 3 === 0 ? { feats: true } : {}, ...k % 4 === 0 ? { schedule: [] } : {} }, ...k % 5 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'checkpoint' } : {} };
+});

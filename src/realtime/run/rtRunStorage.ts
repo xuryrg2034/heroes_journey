@@ -8,6 +8,9 @@
 export interface RunStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 import { isRtAshLevel, parseRtRun, serializeRtRun, type RtAshLevel, type RtRunState } from './rtRun';
 import { isScheduleElement } from './schedule';
+// Tasks 36–37 «Мета» and «Очаг»: the meta the profile keeps (rtMeta.ts computes it; this store reads and writes it).
+import { parseRtMeta, rtApplyMeta, rtHearthBuy, rtHearthStartOf, rtHearthView, rtMetaLocked, rtMetaNewOffer, rtRunKey, type RtHearthBuy, type RtHearthStart, type RtHearthView, type RtMeta, type RtMetaEnd } from './rtMeta';
+import type { RtHearthNpc } from './metaCatalog';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -76,9 +79,13 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  *   The gear's «Обучение» empties it (`resetSchedule`): the next new run goes the newcomer's path. `seenMute` — the seed of the run
  *   open at that moment: its later fights do not feed the history (spec (8): that run goes on, the next new run is a first one);
  *   a new run's snapshot removes it.
+ * Tasks 36–37 «Мета» and «Очаг» (design 15.10.2026; the same version 1, an optional field):
+ * - `meta` — the hero's XP, opened packs and depth record (`heroes.cat`), the camp (`hearth`: stock, levels, NPCs met, lines shown,
+ *   the next quest, the last run), the opened items already offered (`offered`) and the last run applied (`applied`: its key and
+ *   result — the end screen reloaded shows the same). rtMeta.ts. Absent — the meta starts from zero.
  * All are absent until set: a profile without them reads and saves as before.
  */
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -90,7 +97,8 @@ export function parseRtProfile(text: string | null): RtProfile {
     const ash = isRtAshLevel(value.ash) && value.ash >= 1 ? value.ash as Exclude<RtAshLevel, 0> : undefined;
     const seen = Array.isArray(value.seen) ? [...new Set(value.seen.filter(isScheduleElement))].sort() : undefined;
     const mute = seen !== undefined && typeof value.seenMute === 'number' && Number.isInteger(value.seenMute) && value.seenMute >= 0 ? value.seenMute : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {} };
+    const meta = parseRtMeta(value.meta);
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {} };
   } catch { return emptyRtProfile(); }
 }
 
@@ -139,7 +147,31 @@ export interface RtProfileStore {
    * open now: it goes on, its fights do not feed the history.
    */
   resetSchedule(seed?: number): boolean;
+  /**
+   * Task 36 (+ the carry of task 37): the run ended (or is abandoned: no result — «Новый поход» over it) — its XP, pack, record,
+   * carry and quest join the meta once; a second call for the same run returns the same result. Null — a run with a given seed.
+   */
+  endRunMeta(run: RtRunState): RtMetaEnd | null;
+  /** Task 37: the camp as the screen shows it. */
+  hearth(): RtHearthView;
+  /** Task 37: buy an NPC's next level (1 or 2; prices `RT_HEARTH_PRICES`); refused with the price and the stock. */
+  buyHearth(npc: RtHearthNpc, level: number): RtHearthBuy;
+  /** Task 37: a line `npc:key` was shown — its count +1 (the view cycles a key's lines by it). */
+  markLine(id: string): boolean;
+  /** Task 37: what the camp gives the next run of `seed` (the view shows the choices; `rtHearthFlagsWith` makes the run's flags). */
+  hearthStart(seed: number): RtHearthStart;
+  /** Task 36: the items a new meta run keeps locked (`createRtRun(seed, { locked })`). */
+  locked(): string[];
+  /** Task 36: «✦ новое» — the item was opened by a pack and not offered yet. */
+  isNewOffer(id: string): boolean;
+  /** Task 36: these opened items were offered (the sign shows no more). */
+  markOffered(ids: string | readonly string[]): boolean;
 }
+
+/** Task 37: the camp's start for a loaded profile (`rtHearthStartOf` over its meta). */
+export const rtHearthStart = (profile: RtProfile, seed: number): RtHearthStart => rtHearthStartOf(profile.meta, seed);
+/** Task 36: «✦ новое» for a loaded profile. */
+export const rtIsNewOffer = (profile: RtProfile, id: string): boolean => rtMetaNewOffer(profile.meta, id);
 
 export function createRtProfileStore(storage: RunStorage | null = browserStorage()): RtProfileStore {
   const read = (): RtProfile => { try { return parseRtProfile(storage?.getItem(RT_PROFILE_STORAGE_KEY) ?? null); } catch { return emptyRtProfile(); } };
@@ -183,5 +215,33 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       return JSON.stringify(seen) === JSON.stringify(profile.seen) || write({ ...profile, seen });
     },
     resetSchedule: runSeed => { const { seenMute: _mute, ...profile } = read(); return write({ ...profile, seen: [], ...runSeed !== undefined ? { seenMute: runSeed >>> 0 } : {} }); },
+    endRunMeta: run => {
+      if (run.seeded) return null;
+      const profile = read();
+      if (profile.meta?.applied?.key === rtRunKey(run)) return structuredClone(profile.meta.applied.end);
+      const { meta, end } = rtApplyMeta(profile.meta, run);
+      write({ ...profile, meta });
+      return end;
+    },
+    hearth: () => { const profile = read(); return rtHearthView(profile.meta, profile.seen); },
+    buyHearth: (npc, level) => {
+      const profile = read(), { result, meta } = rtHearthBuy(profile.meta, npc, level);
+      if (meta) write({ ...profile, meta });
+      return result;
+    },
+    markLine: id => {
+      if (typeof id !== 'string' || !id) return false;
+      const profile = read(), meta: RtMeta = profile.meta ?? { heroes: {} };
+      if (!meta.hearth) return false;
+      return write({ ...profile, meta: { ...meta, hearth: { ...meta.hearth, lines: { ...meta.hearth.lines, [id]: (meta.hearth.lines[id] ?? 0) + 1 } } } });
+    },
+    hearthStart: seed => rtHearthStartOf(read().meta, seed),
+    locked: () => rtMetaLocked(read().meta),
+    isNewOffer: id => rtMetaNewOffer(read().meta, id),
+    markOffered: ids => {
+      const profile = read(), list = (typeof ids === 'string' ? [ids] : [...ids]).filter(id => rtMetaNewOffer(profile.meta, id));
+      if (!list.length || !profile.meta) return false;
+      return write({ ...profile, meta: { ...profile.meta, offered: [...profile.meta.offered ?? [], ...list] } });
+    },
   };
 }

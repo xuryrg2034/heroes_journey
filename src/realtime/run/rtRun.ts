@@ -52,6 +52,9 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
 import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
+// Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
+import { isRtLockable, isRtQuest, RT_HERO_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
 
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
@@ -372,7 +375,14 @@ export type RtRunPending =
    * Phase B (design answers 1–2): the first won Jailer's row of the run offers a hammer, 3 of 4 by the node's roll (a
    * refusal is possible); the oath or relic choice (`talisman`, source `oath`) follows it.
    */
-  | { kind: 'hammer'; nodeId: string; options: HammerId[] }
+  | {
+    kind: 'hammer'; nodeId: string; options: HammerId[];
+    /**
+     * Task 37 «Правка» (the camp's free reroll of the Jailer's screens): every hammer shown and rerolled away on this screen. Absent
+     * until a reroll (a screen without one saves as before).
+     */
+    rerolled?: HammerId[];
+  }
   /**
    * Casino stage 1, item 4 («Кость у двери»): the won arena's door record waits for «Забрать» or «Бросить» (`rtDieChoose`).
    * `face` (1–6) — the die stream's draw `dieDraws − 1`, fixed when the screen was shown: a reload shows the same screen with
@@ -522,6 +532,18 @@ export interface RtRunState {
    * a run saved before it (or created without it): the pool's arena there, to its end.
    */
   jailer?: true;
+  /**
+   * Task 36 «Опыт героя, открытия» (design 15.10.2026): the items the viewer's meta keeps locked when the run was created (a snapshot,
+   * sorted; may be empty — every pack open) — no pool of the run offers them (`rtIsLocked`). Set only for a run of the meta (no given
+   * seed, `createRtRun(seed, { locked })`); absent — a run saved before it, a seeded run, tests: the pools of before, to its end.
+   */
+  locked?: string[];
+  /** Task 36: the run's hero — only with `locked` (a meta run); absent reads as `cat` (`rtHeroId`). */
+  heroId?: RtHeroId;
+  /** Task 37 «Очаг»: what the camp gave this run (`RtHearthFlags`); only with `locked`. Absent — a run without the camp, as before. */
+  hearth?: RtHearthFlags;
+  /** Task 37 «Правка»: the free rerolls of the Jailer's screens spent (≤ `hearth.jailerRerolls`); absent until the first. */
+  jailerRerolled?: number;
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -618,6 +640,8 @@ export type RtRunEvent =
   | { type: 'talisman-rerolled'; nodeId: string; price: number; paid: Record<ResourceKind, number>; options: RtTalismanOption[] }
   | { type: 'hammer-offered'; nodeId: string; options: HammerId[] }
   | { type: 'hammer-taken'; id: HammerId }
+  /** Task 37 «Правка»: the Jailer's hammer screen was rerolled free (the camp's reroll); `options` — the new offer. */
+  | { type: 'hammer-rerolled'; nodeId: string; options: HammerId[] }
   | { type: 'ward-crumbled'; nodeId: string }
   /** Task 17 «Пологий вход»: the run's second wind stood the hero up on the arena of this node (once a run). */
   | { type: 'second-wind'; nodeId: string }
@@ -728,7 +752,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -748,13 +772,18 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const schedule = options.schedule && ash < RT_ASH_TABLES ? [...new Set(options.schedule.filter(isScheduleElement))].sort() : undefined;
   // Task 28 «Тюремщик в походе» (15.10.2026): its own flag, on unless the option says (false — the pool's arena on the Jailer's node, as before).
   const jailer = options.jailer ?? RT_JAILER_ON;
+  // Tasks 36–37: a run of the meta (no given seed, the viewer's `locked` snapshot) — its locked items and the camp's flags.
+  const locked = !options.seeded && options.locked ? [...new Set(options.locked.filter(isRtLockable))].sort() : undefined;
+  const hearth = locked && options.hearth ? rtCleanHearth(options.hearth) : undefined;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
   // Task 17, P3: a healing potion in hand, its kind open (the prologue's «Зелье» taught it); no draw of any stream.
   if (potion) { run.items.healing = RT_START_POTIONS; run.openItems.push('healing'); }
+  // Task 37 «Склянка в дорогу»: the camp's start consumable joins the run and opens (no draw of any run stream).
+  if (hearth?.startItems) gainItems(run, hearth.startItems, []);
   if (options.gift) {
     // The gift of the turn-based run, rolled the same way (nothing is taken yet: the slice's starting talisman pool).
     run.gift = rollGift(run.seed, options.gift, GIFT_POOL);
@@ -1087,7 +1116,7 @@ export const rtOathText = (id: OathId): string => `${oathDef(id).name} — ${oat
 // ---------- Talismans (step 3) ----------
 
 /** What the run took and what left the pool. */
-const talismanPool = (run: RtRunState) => ({ taken: run.talismans, gone: run.talismansGone });
+const talismanPool = (run: RtRunState) => ({ taken: run.talismans, gone: run.locked?.length ? [...run.talismansGone, ...run.locked] : run.talismansGone });
 /**
  * Баланс (phase B, Т3): the price of the relic «Жернов» — the run's maximum HP this much lower when it is taken (real-time
  * HP; sim/relics.ts has its arena plus). The maximum stays at least 1; HP above the new maximum is cut to it.
@@ -1126,7 +1155,7 @@ export function rtChestOwed(run: Pick<RtRunState, 'battles'>, nodeId: string): b
  * with it. An empty `exclude` is the pool as it is: the offer the screen opened with.
  */
 function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSource, base: number, exclude: readonly RtTalismanId[] = []): RtTalismanOption[] | null {
-  const pool = exclude.length ? { taken: run.talismans, gone: [...run.talismansGone, ...exclude] } : talismanPool(run);
+  const pool = exclude.length ? { taken: run.talismans, gone: [...talismanPool(run).gone, ...exclude] } : talismanPool(run);
   // B6 К7: the chest's commons — the real-time draw of the gift and events (no rare ones).
   if (source === 'chest') return rtEventTalismanOffer(base, RT_CHEST_TALISMANS, pool);
   // Task 16 «Подвиги»: the feat's choice of two — drawn as the chest's.
@@ -1148,7 +1177,7 @@ export const RT_REROLL_PRICE = 1;
  */
 export const RT_REROLL_SOURCES: readonly RtTalismanSource[] = ['hard', 'event', 'chest', 'feat'];
 /** The reroll of the open offer: its price now, the resources in hand, the rerolls made on this screen, why it is off. */
-export interface RtRerollView { price: number; total: number; rerolls: number; available: boolean; reason: string }
+export interface RtRerollView { price: number; total: number; rerolls: number; available: boolean; reason: string; /** Task 37 «Правка»: the Jailer's oath and relic screen rerolls free (the camp's reroll, price 0). */ free?: true }
 /**
  * The reroll of the open talisman offer, or null — no offer, or one that is not rerolled (the Jailer's). Off when the run
  * cannot pay the price (paid as the merchant is paid, `shopPayment`), or when no talisman is left outside those shown on this
@@ -1157,11 +1186,13 @@ export interface RtRerollView { price: number; total: number; rerolls: number; a
  */
 export function rtRerollView(run: RtRunState): RtRerollView | null {
   const pending = run.pending;
-  if (pending?.kind !== 'talisman' || !RT_REROLL_SOURCES.includes(pending.source)) return null;
-  const rerolls = pending.rerolls ?? 0, price = RT_REROLL_PRICE + rerolls, total = stockTotal(run.materials);
+  // Task 37 «Правка»: the Jailer's oath and relic screen rerolls while the camp's free rerolls last (`rtJailerRerollsLeft`).
+  const free = pending?.kind === 'talisman' && pending.source === 'oath' && rtJailerRerollsLeft(run) > 0;
+  if (pending?.kind !== 'talisman' || !(free || RT_REROLL_SOURCES.includes(pending.source))) return null;
+  const rerolls = pending.rerolls ?? 0, price = free ? 0 : RT_REROLL_PRICE + rerolls, total = stockTotal(run.materials);
   const left = (talismanOfferOf(run, pending.nodeId, pending.source, 0, [...pending.rerolled ?? [], ...pending.options]) ?? []).length > 0;
   const reason = !left ? 'Других талисманов не осталось' : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
-  return { price, total, rerolls, available: !reason, reason };
+  return { price, total, rerolls, available: !reason, reason, ...free ? { free: true as const } : {} };
 }
 /**
  * «Перебросить» (design 12.10.2026): pay the price from the most numerous resources (`shopPayment`), take the next draw of
@@ -1175,8 +1206,9 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
   if (!view) return fail('Сейчас нечего перебрасывать.');
   if (!view.available) return fail(view.reason);
   const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'talisman' }>;
-  const paid = shopPayment(run.materials, view.price);
+  const paid = view.free ? emptyMaterials() : shopPayment(run.materials, view.price);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+  if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
   const rerolled = [...pending.rerolled ?? [], ...pending.options];
   const options = talismanOfferOf(run, pending.nodeId, pending.source, draw(run, 'talismans', true), rerolled)!;
   run.pending = { ...pending, options, rerolls: view.rerolls + 1, rerolled };
@@ -1214,8 +1246,29 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
 
 // ---------- The hammer of the Jailer's row (phase B, Т2) ----------
 
-/** The hammers a node offers: 3 of 4 by the node's own roll (the arena seed and the salt «rt-hammer»), no stream spent. */
-export const rtHammerOptions = (run: Pick<RtRunState, 'seed'>, nodeId: string): HammerId[] => rtHammerOffer(mixSeed(arenaSeed(run, nodeId), HAMMER_SALT));
+/**
+ * The hammers a node offers: 3 of 4 by the node's own roll (the arena seed and the salt «rt-hammer»), no stream spent. Task 36: a
+ * meta run's locked hammers are out of the list (3 of 3 left); task 37 «Полный верстак» (`hearth.hammerAll`): every hammer left.
+ * `shown` (task 37 «Правка»): the hammers shown and rerolled away on this screen — the reroll's offer (`rtRerollHammers`).
+ */
+export function rtHammerOptions(run: Pick<RtRunState, 'seed' | 'locked' | 'hearth'>, nodeId: string, shown: readonly HammerId[] = []): HammerId[] {
+  const roll = mixSeed(arenaSeed(run, nodeId), HAMMER_SALT);
+  if (!run.locked && !run.hearth?.hammerAll && !shown.length) return rtHammerOffer(roll);
+  const left = HAMMER_IDS.filter(id => !run.locked?.includes(id)), size = run.hearth?.hammerAll ? left.length : RT_HAMMER_OFFER_SIZE;
+  if (!shown.length) return pickHammers(roll, left, size);
+  // A reroll: the hammers not shown yet first (by the reroll's own roll), the place left filled from those shown.
+  const again = mixSeed(roll, HAMMER_REROLL_SALT + shown.length), fresh = pickHammers(again, left.filter(id => !shown.includes(id)), size);
+  return [...fresh, ...pickHammers(mixSeed(again, 1), left.filter(id => shown.includes(id)), size - fresh.length)];
+}
+/** `size` different hammers of `list` by `roll` (the order of `rtHammerOffer`'s draw). */
+function pickHammers(roll: number, list: readonly HammerId[], size: number): HammerId[] {
+  const left = [...list], out: HammerId[] = [];
+  for (let n = 0; n < size && left.length; n++) out.push(left.splice(mixSeed(roll >>> 0, n) % left.length, 1)[0]);
+  return out;
+}
+/** Task 37: the salt of a hammer reroll's roll (mixed with the node's hammer roll and the count shown so far). */
+const HAMMER_REROLL_SALT = 0x2b7e1516;
+
 /** The won Jailer's row `node` offers a hammer: the first Jailer's row of the run (one hammer a run, section 4). */
 const hammerDue = (run: Pick<RtRunState, 'map' | 'visited'>, node: Pick<ForestMapNode, 'type'>): boolean =>
   node.type === 'checkpoint' && !run.visited.some(id => rtNode(run, id)?.type === 'checkpoint');
@@ -1424,7 +1477,8 @@ const metEvents = (run: RtRunState) => run.picks.flatMap(pick => pick.eventId ? 
 /** Events an event node may get now: in the slice pool, not met in this run, fitting the node's row and branch, their condition holding. */
 export function rtEventCandidates(run: RtRunState, node: Pick<ForestMapNode, 'row' | 'lane'>): string[] {
   const met = metEvents(run), stock = stockTotal(run.materials);
-  return SLICE_EVENTS.filter(id => { const event = forestEvent(id)!; return !met.includes(id) && eventFits(event, node) && stock >= (event.requires?.resources ?? 0); });
+  // Task 36: a meta run's locked events are not in its pool (`rtIsLocked`).
+  return SLICE_EVENTS.filter(id => { const event = forestEvent(id)!; return !met.includes(id) && !rtIsLocked(run, id) && eventFits(event, node) && stock >= (event.requires?.resources ?? 0); });
 }
 
 // ---------- Entering a node ----------
@@ -2286,8 +2340,9 @@ export function giftOptionGap(option: GiftOption): string {
  * price stay the roll's; «обычный на выбор из 2» and «случайный необычный» never give way to a rare one; the oath button —
  * an oath (not a relic). A «−1 к максимуму HP» deal never gives «Крепкая шкура» (as the turn-based roll).
  */
-export function rtGiftOptions(seed: number, gift: Pick<RunGift, 'kind' | 'options'>): GiftOption[] {
-  const empty = { taken: [], gone: [] };
+export function rtGiftOptions(seed: number, gift: Pick<RunGift, 'kind' | 'options'>, locked: readonly string[] = []): GiftOption[] {
+  // Task 36: a meta run's locked talismans are out of the gift's draws (`locked` of the run; none — the draws of before).
+  const empty = { taken: [], gone: locked };
   return gift.options.map(rolled => {
     const option = structuredClone(rolled);
     if (option.kind === 'deal') {
@@ -2302,9 +2357,9 @@ export function rtGiftOptions(seed: number, gift: Pick<RunGift, 'kind' | 'option
   });
 }
 /** The gift is taken: a button chosen, and its own choice made if it has one. */
-export function rtGiftDone(seed: number, gift: RunGift | undefined): boolean {
+export function rtGiftDone(seed: number, gift: RunGift | undefined, locked: readonly string[] = []): boolean {
   if (!gift || gift.chosen === undefined) return false;
-  const option = rtGiftOptions(seed, gift)[gift.chosen];
+  const option = rtGiftOptions(seed, gift, locked)[gift.chosen];
   return !!option && (!giftNeedsPick(option) || gift.pick !== undefined);
 }
 export interface RtGiftView {
@@ -2318,7 +2373,7 @@ export interface RtGiftView {
 /** The open gift: its buttons (those without an analogue off); with none on, it can be passed by. */
 export function rtGiftView(run: RtRunState): RtGiftView | null {
   if (run.pending?.kind !== 'gift' || !run.gift) return null;
-  const all = rtGiftOptions(run.seed, run.gift);
+  const all = rtGiftOptions(run.seed, run.gift, run.locked);
   const options = all.map((option, index) => {
     const gap = giftOptionGap(option);
     // A deal or an oath with nothing left to give cannot be taken (as the turn-based gift).
@@ -2379,6 +2434,64 @@ export function rtChooseGiftPick(current: RtRunState, pick: string): RtRunStep {
   run.gift!.pick = pick as RunGift['pick'];
   applyGift(run, view.options[view.chosen].option, pick, events);
   return { ok: true, run, events };
+}
+
+// ---------- Tasks 36–37 «Мета» and «Очаг» (design 15.10.2026; docs/realtime-slice.md, «Мета: опыт, открытия, лагерь») ----------
+
+/**
+ * Task 37: what the camp gave a run, set when it is created (`createRtRun(seed, { locked, hearth })`; only a meta run):
+ * `maps` — Неясыть's maps offered (2 or 3; the chosen one is the run's seed), `startItems` — Марфа's start consumable (it joins the
+ * run at once), `jailerRerolls` — Ерофей's free rerolls of the Jailer's screens (hammer, oath and relics), `hammerAll` — the
+ * Jailer's hammer screen shows every hammer not locked, `quest` — the NPC's quest of this run (checked after it, rtMeta.ts).
+ */
+export interface RtHearthFlags { maps?: 2 | 3; startItems?: ItemKind[]; jailerRerolls?: number; hammerAll?: true; quest?: RtQuest }
+/** Баланс (task 37): the most free Jailer rerolls a run may carry (v1 gives 1). */
+export const RT_HEARTH_REROLLS_MAX = 3;
+/** The camp's flags as a run keeps them (unknown or malformed parts dropped; nothing — undefined). */
+export function rtCleanHearth(value: unknown): RtHearthFlags | undefined {
+  if (!isRecord(value)) return undefined;
+  const items = isItemList(value.startItems) && value.startItems.length >= 1 && value.startItems.length <= 2 ? [...value.startItems] : undefined;
+  const rerolls = isCount(value.jailerRerolls) && value.jailerRerolls >= 1 && value.jailerRerolls <= RT_HEARTH_REROLLS_MAX ? value.jailerRerolls : undefined;
+  const out: RtHearthFlags = {
+    ...value.maps === 2 || value.maps === 3 ? { maps: value.maps } : {}, ...items ? { startItems: items } : {}, ...rerolls !== undefined ? { jailerRerolls: rerolls } : {},
+    ...value.hammerAll === true ? { hammerAll: true as const } : {}, ...isRtQuest(value.quest) ? { quest: { npc: value.quest.npc, id: value.quest.id } } : {},
+  };
+  return Object.keys(out).length ? out : undefined;
+}
+/** Task 36: the run's hero (absent — `cat`). */
+export const rtHeroId = (run: Pick<RtRunState, 'heroId'>): RtHeroId => run.heroId ?? RT_HERO_ID;
+/**
+ * Task 36: `id` (a talisman, relic, hammer, form or event) is locked in this run — no pool offers it. The one filter of every
+ * pool: the talismans' pool (`talismanPool`: «Застава», the chest, the feat, the event's reward, the merchant, the Jailer's oath
+ * and relic screen, events' talismans, the circle's wheel), the gift's draws (`rtGiftOptions`), the hammers (`rtHammerOptions`),
+ * the events (`rtEventCandidates`). Task 30's forms read it too once their pool is in the run.
+ */
+export const rtIsLocked = (run: Pick<RtRunState, 'locked'>, id: string): boolean => !!run.locked?.includes(id);
+/** Task 37 «Правка»: the free rerolls of the Jailer's screens left in this run. */
+export const rtJailerRerollsLeft = (run: Pick<RtRunState, 'hearth' | 'jailerRerolled'>): number => Math.max(0, (run.hearth?.jailerRerolls ?? 0) - (run.jailerRerolled ?? 0));
+/** Task 37: the free reroll of the open Jailer's hammer screen — the rerolls left, whether one is possible now and why not. */
+export interface RtHammerRerollView { left: number; available: boolean; reason: string }
+/** The hammer screen's reroll, or null — no hammer screen, or no free reroll left (the screen has no reroll then). */
+export function rtHammerRerollView(run: RtRunState): RtHammerRerollView | null {
+  const pending = run.pending, left = rtJailerRerollsLeft(run);
+  if (pending?.kind !== 'hammer' || left <= 0) return null;
+  const shown = [...pending.rerolled ?? [], ...pending.options], fresh = HAMMER_IDS.some(id => !rtIsLocked(run, id) && !shown.includes(id));
+  const reason = fresh ? '' : 'Других молотов нет';
+  return { left, available: !reason, reason };
+}
+/**
+ * «Перебросить» on the Jailer's hammer screen (task 37 «Правка», free): the hammers not shown on this screen come first, the places
+ * left are filled from those shown (`rtHammerOptions` with `shown`; the node's own roll, no stream spent). One free reroll spent.
+ */
+export function rtRerollHammers(current: RtRunState): RtRunStep {
+  const view = rtHammerRerollView(current);
+  if (!view) return fail('Сейчас нечего перебрасывать.');
+  if (!view.available) return fail(view.reason);
+  const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'hammer' }>;
+  const rerolled = [...pending.rerolled ?? [], ...pending.options], options = rtHammerOptions(run, pending.nodeId, rerolled);
+  run.pending = { ...pending, options, rerolled };
+  run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
+  return { ok: true, run, events: [{ type: 'hammer-rerolled', nodeId: pending.nodeId, options: [...options] }] };
 }
 
 // ---------- Views ----------
@@ -2503,6 +2616,13 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.secondWind !== undefined && value.secondWind !== true) return null;
   // Task 28 (15.10.2026): a flag; absent — a save before it, whose Jailer's node plays the pool's arena.
   if (value.jailer !== undefined && value.jailer !== true) return null;
+  // Tasks 36–37: the meta run's snapshot (known lockable ids, sorted, no repeats; never in a seeded run), its hero (only with it),
+  // the camp's flags (only with it, as `createRtRun` keeps them) and the free Jailer rerolls spent (1 … the flags' count).
+  if (value.locked !== undefined && !(Array.isArray(value.locked) && value.locked.every(isRtLockable) && value.seeded === undefined
+    && JSON.stringify([...new Set(value.locked)].sort()) === JSON.stringify(value.locked))) return null;
+  if (value.heroId !== undefined && !(value.heroId === RT_HERO_ID && value.locked !== undefined)) return null;
+  if (value.hearth !== undefined && !(value.locked !== undefined && JSON.stringify(rtCleanHearth(value.hearth)) === JSON.stringify(value.hearth))) return null;
+  if (value.jailerRerolled !== undefined && !(isCount(value.jailerRerolled) && value.jailerRerolled >= 1 && isRecord(value.hearth) && value.jailerRerolled <= (value.hearth.jailerRerolls as number))) return null;
   // Task 26: the viewer's snapshot — sorted known elements, no repeats (may be empty); only below «Испытание II».
   if (value.schedule !== undefined && !(isRecord(value.schedule) && Object.keys(value.schedule).length === 1 && Array.isArray(value.schedule.seen)
     && value.schedule.seen.every(isScheduleElement) && JSON.stringify([...new Set(value.schedule.seen)].sort()) === JSON.stringify(value.schedule.seen)
@@ -2543,7 +2663,9 @@ function checkRun(value: unknown): RtRunState | null {
   if (run.hammer !== undefined) {
     const pendingNode = isRecord(run.pending) && run.pending.kind === 'talisman' && run.pending.source === 'oath' ? run.pending.nodeId : undefined;
     const jailer = run.visited.find(id => map.node(id)!.type === 'checkpoint') ?? pendingNode;
-    if (!isHammerId(run.hammer) || !jailer || !rtHammerOptions(run, jailer).includes(run.hammer)) return null;
+    // Task 37: after a free reroll of the hammer screen any hammer not locked may have been offered.
+    const offered = !jailer ? [] : run.jailerRerolled ? HAMMER_IDS.filter(id => !rtIsLocked(run, id)) : rtHammerOptions(run, jailer);
+    if (!isHammerId(run.hammer) || !jailer || !offered.includes(run.hammer)) return null;
   }
   // Iteration 2.1 (interface): new kinds — known, each once, open; the hint count 1–3; the used flag.
   if (run.itemsNew !== undefined && !(isItemList(run.itemsNew) && run.itemsNew.length && new Set(run.itemsNew).size === run.itemsNew.length && run.itemsNew.every(item => run.openItems.includes(item)))) return null;
@@ -2554,7 +2676,7 @@ function checkRun(value: unknown): RtRunState | null {
   if (run.gift !== undefined) {
     const gift = run.gift as unknown;
     if (!isRecord(gift) || (gift.kind !== 'full' && gift.kind !== 'mini') || Object.keys(gift).some(key => !['kind', 'options', 'chosen', 'pick'].includes(key))) return null;
-    const rolled = rollGift(run.seed, gift.kind, GIFT_POOL), all = rtGiftOptions(run.seed, rolled);
+    const rolled = rollGift(run.seed, gift.kind, GIFT_POOL), all = rtGiftOptions(run.seed, rolled, run.locked);
     if (JSON.stringify(gift.options) !== JSON.stringify(rolled.options)) return null;
     if (gift.chosen !== undefined && !(isCount(gift.chosen) && gift.chosen < all.length && !giftOptionGap(all[gift.chosen]))) return null;
     if (gift.pick !== undefined && !(gift.chosen !== undefined && giftPicks(all[gift.chosen as number]).map(String).includes(gift.pick as string))) return null;
@@ -2565,7 +2687,7 @@ function checkRun(value: unknown): RtRunState | null {
     if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena) && !(run.schedule && SCHEDULE_RUN_ARENAS.includes(pick.arena)) && !(run.jailer && JAILER_RUN_ARENAS.includes(pick.arena))) return null;
     if (pick.arc !== undefined && !(run.schedule && pick.arena !== undefined && typeof pick.arc === 'string')) return null;
     if (pick.roster !== undefined && (!isRoster(pick.roster) || pick.arena === undefined)) return null;
-    if (pick.eventId !== undefined && !forestEvent(pick.eventId)) return null;
+    if (pick.eventId !== undefined && (!forestEvent(pick.eventId) || rtIsLocked(run, pick.eventId))) return null;
     if (pick.find !== undefined && pick.find !== true) return null;
   }
   // Step 4 (review): every arena of the run is chosen again — the k-th arena is the draw k of the pool stream after the
@@ -2634,7 +2756,7 @@ function checkRun(value: unknown): RtRunState | null {
   if (pending === null) return { ...run, streams };
   // An ended run has nothing open.
   if (run.result !== null || !isRecord(pending)) return null;
-  if (pending.kind === 'gift') return run.gift && !rtGiftDone(run.seed, run.gift) && !run.visited.length ? { ...run, streams } : null;
+  if (pending.kind === 'gift') return run.gift && !rtGiftDone(run.seed, run.gift, run.locked) && !run.visited.length ? { ...run, streams } : null;
   if (!known(pending.nodeId)) return null;
   const next = run.currentNodeId === null ? map.starts() : map.node(run.currentNodeId)!.next;
   if (!next.includes(pending.nodeId)) return null;
@@ -2686,7 +2808,9 @@ function checkRun(value: unknown): RtRunState | null {
       const { rerolls, rerolled } = pending as { rerolls?: unknown; rerolled?: unknown };
       if ((rerolls === undefined) !== (rerolled === undefined)) return null;
       if (rerolls !== undefined) {
-        if (!RT_REROLL_SOURCES.includes(source as RtTalismanSource) || !isCount(rerolls) || rerolls < 1 || !isTalismanList(rerolled) || rerolled.length < rerolls) return null;
+        // Task 37 «Правка»: the Jailer's oath screen rerolls only by the camp's free rerolls (counted in `jailerRerolled`).
+        const freeOath = source === 'oath' && isCount(run.jailerRerolled) && isCount(rerolls) && rerolls <= run.jailerRerolled;
+        if (!(RT_REROLL_SOURCES.includes(source as RtTalismanSource) || freeOath) || !isCount(rerolls) || rerolls < 1 || !isTalismanList(rerolled) || rerolled.length < rerolls) return null;
         // Task 16: the feat's first offer is its own draw — its rerolls alone take `talismans` draws.
         if (rerolled.some(id => options.includes(id) || run.talismans.includes(id) || run.talismansGone.includes(id)) || !(streams.talismans >= (source === 'feat' ? 0 : 1) + rerolls)) return null;
       }
@@ -2705,7 +2829,10 @@ function checkRun(value: unknown): RtRunState | null {
       // Phase B: the first Jailer's row of the run, won (its record), its hammers by the node's roll, no hammer taken yet.
       if (node.type !== 'checkpoint' || !hammerDue(run, node) || run.hammer !== undefined) return null;
       if (!run.battles.some(record => record.nodeId === node.id && record.won)) return null;
-      if (JSON.stringify(pending.options) !== JSON.stringify(rtHammerOptions(run, node.id))) return null;
+      // Task 37: a rerolled screen — the hammers shown before (known, each once) and the reroll's offer.
+      const rerolled = (pending as { rerolled?: unknown }).rerolled;
+      if (rerolled !== undefined && !(Array.isArray(rerolled) && rerolled.length >= 1 && rerolled.every(isHammerId) && new Set(rerolled).size === rerolled.length && isCount(run.jailerRerolled))) return null;
+      if (JSON.stringify(pending.options) !== JSON.stringify(rtHammerOptions(run, node.id, (rerolled as HammerId[] | undefined) ?? []))) return null;
       break;
     }
     case 'find': {
@@ -2723,7 +2850,7 @@ function checkRun(value: unknown): RtRunState | null {
       // (a talisman bought at this visit was not taken yet then).
       if (!(streams.merchant >= 1)) return null;
       const boughtTalisman = pending.bought.some(entry => isRecord(entry) && entry.good === 'talisman');
-      const entering = { taken: run.talismans.filter(id => !(boughtTalisman && id === stock.talisman)), gone: run.talismansGone };
+      const entering = { taken: run.talismans.filter(id => !(boughtTalisman && id === stock.talisman)), gone: talismanPool(run).gone };
       if (rtShopTalisman(streamValue(run.seed, 'merchant', streams.merchant - 1), entering) !== stock.talisman) return null;
       const items = stock.items as ItemKind[];
       if (!pending.bought.every(entry => isRecord(entry) && isCount(entry.price) && isMaterials(entry.paid) && (entry.good === 'heal' || entry.good === 'harden'

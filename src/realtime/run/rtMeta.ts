@@ -1,0 +1,338 @@
+/**
+ * Tasks 36 «Опыт героя, открытия, рекорд глубины» and 37 «Лагерь „Очаг“ v1» (design 15.10.2026, docs/design-notes/tasks-36-37-meta.md;
+ * docs/realtime-slice.md, «Мета: опыт, открытия, лагерь»): what a finished run gives the viewer's meta, computed after the run from
+ * its state alone (no chance, no stream of the run moves) — the hero's XP and its parts, the pack it opens (at most one a run), the
+ * depth record, the resources carried to the camp, the camp's quest; and what the camp gives the next run (`rtHearthStart`).
+ * Pure functions over the profile's `meta` (run/rtRunStorage.ts keeps and writes it).
+ *
+ * Meta is for runs without a given seed only (as `RtProfile.won`): a seeded run gives none; the sandbox and the prologue have no run.
+ */
+import { mixSeed, ITEM_KINDS } from '../forest/items';
+import type { ItemKind } from '../forest/types';
+import { stockTotal } from '../forest/merchant';
+import { runRow } from './arenaPools';
+import { rtNode, rtReachedRow, type RtHearthFlags, type RtRunState } from './rtRun';
+import { SCHEDULE_KINDS } from './schedule';
+import {
+  HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtQuest, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_PRICES, RT_HERO_ID, RT_META_PACKS,
+  RT_META_THRESHOLDS, rtLockedAfter, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId,
+} from './metaCatalog';
+
+export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
+
+// ---------- Numbers (design 15.10.2026; starting hypotheses, tuned by telemetry) ----------
+
+/** Баланс (task 36): XP of a won fight by its node — an ordinary battle (an event's reward battle too), «Застава» or the breakthrough, the Jailer, the final. */
+export const RT_XP_BATTLE = 5;
+export const RT_XP_ELITE = 10;
+export const RT_XP_JAILER = 30;
+export const RT_XP_FINAL = 50;
+/** Баланс: a feat done in a won fight; the run won. */
+export const RT_XP_FEAT = 5;
+export const RT_XP_VICTORY = 25;
+/** Баланс: «Испытание» multiplies the run's XP by 1 + this × level (rounded down). */
+export const RT_XP_ASH_STEP = 0.1;
+/** Баланс (task 37): a quest done gives this much XP and stock (the stock outside the carry's cap). */
+export const RT_QUEST_XP = 10;
+export const RT_QUEST_STOCK = 3;
+/** Баланс (task 37): the carry — a defeat or an abandoned run carries this share (rounded down) but not below min(resources, floor). */
+export const RT_CARRY_LOSS_SHARE = 0.5;
+export const RT_CARRY_FLOOR = 6;
+/** Баланс: the carry's cap per level reached (v1 has only the forest: 20). */
+export const RT_CARRY_CAP_PER_LEVEL = 20;
+export const RT_LEVELS_REACHED = 1;
+/** Баланс: an NPC not met comes by itself after this many finished runs since the first camp (or the last arrival). */
+export const RT_HEARTH_FALLBACK_RUNS = 3;
+/** Баланс: the run row of the forest's final (the owl's quest at this record is «Пройди лес»). */
+export const RT_FOREST_LAST_ROW = 10;
+/** The events whose choice brings an NPC (the event's outcome and stream are not touched: the choice is read after the run). */
+export const RT_NPC_EVENTS: Readonly<Record<'herb' | 'smith', { event: string; option: string }>> = {
+  herb: { event: 'wounded-cub', option: 'bandage' },
+  smith: { event: 'wandering-grinder', option: 'grind' },
+};
+
+// ---------- What the profile keeps (`RtProfile.meta`) ----------
+
+export interface RtDepthRecord { row: number; won: boolean; xp: number }
+export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord }
+/** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
+export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';
+/** The previous run as the camp's lines read it. `quest` — true done, false failed, absent — the run had no quest. */
+export interface RtHearthLast { won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true }
+export interface RtHearthMeta {
+  stock: number;
+  levels: Record<RtHearthNpc, RtHearthLevel>;
+  /** Марфа and Ерофей came (the owl is there from the first camp); `self` — came by the fallback path (no event). */
+  met: { herb?: true; smith?: true };
+  self?: { herb?: true; smith?: true };
+  /** Lines shown, by `npc:key` (the view cycles a key's lines by this count). */
+  lines: Record<string, number>;
+  /** The quest of the next run (chosen at the end of the run before). */
+  quest?: RtQuest;
+  /** Finished runs since the first camp or the last arrival (the fallback path). */
+  quiet: number;
+  last?: RtHearthLast;
+}
+export interface RtMeta {
+  heroes: Partial<Record<RtHeroId, RtHeroMeta>>;
+  hearth?: RtHearthMeta;
+  /** Opened items already offered once («✦ новое» shows before that). */
+  offered?: string[];
+  /** The last run applied (its key) and its result: a second call for the same run returns it. */
+  applied?: { key: string; end: RtMetaEnd };
+}
+
+// ---------- The end of a run (the view's contract) ----------
+
+export type RtXpPartId = 'battles' | 'elite' | 'jailer' | 'final' | 'feats' | 'victory' | 'ash' | 'quest';
+export interface RtXpPart { id: RtXpPartId; xp: number; n?: number }
+export interface RtMetaPackView { id: string; title: string; items: RtMetaItem[] }
+export interface RtMetaEnd {
+  hero: RtHeroId;
+  xp: { gained: number; parts: RtXpPart[]; before: number; after: number };
+  thresholds: number[];
+  pack: RtMetaPackView | null;
+  nextPack: { id: string; title: string; at: number; size: number } | null;
+  record: { before: { row: number; won: boolean } | null; after: { row: number; won: boolean }; beaten: boolean };
+  carry: { n: number; share: 1 | 0.5; cap: number; resources: number };
+  stock: { before: number; after: number };
+  quest?: { npc: RtHearthNpc; id: RtQuestId; done: boolean; xp: number; stock: number };
+}
+
+/** The key of a run's end (a second call for it returns the applied result). */
+export const rtRunKey = (run: RtRunState): string => `${run.seed}:${run.result?.outcome ?? 'open'}:${run.result?.nodeId ?? ''}:${run.battles.length}:${run.visited.length}`;
+/** The run row the run reached (0 — none). */
+export const rtRunDepth = (run: RtRunState): number => Math.max(0, runRow(rtReachedRow(run)));
+const won = (run: RtRunState): boolean => run.result?.outcome === 'victory';
+
+/** The run's XP before its quest: the parts and the base (before «Испытание»). */
+export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
+  const count = { battles: 0, elite: 0, jailer: 0, final: 0, feats: 0 };
+  for (const record of run.battles) {
+    if (!record.won) continue;
+    const type = rtNode(run, record.nodeId)?.type;
+    if (type === 'hard' || type === 'breakthrough') count.elite++;
+    else if (type === 'checkpoint') count.jailer++;
+    else if (type === 'boss') count.final++;
+    else count.battles++;
+    if (record.feat?.done) count.feats++;
+  }
+  const parts: RtXpPart[] = [
+    { id: 'battles', xp: count.battles * RT_XP_BATTLE, n: count.battles }, { id: 'elite', xp: count.elite * RT_XP_ELITE, n: count.elite },
+    { id: 'jailer', xp: count.jailer * RT_XP_JAILER, n: count.jailer }, { id: 'final', xp: count.final * RT_XP_FINAL, n: count.final },
+    { id: 'feats', xp: count.feats * RT_XP_FEAT, n: count.feats }, { id: 'victory', xp: won(run) ? RT_XP_VICTORY : 0 },
+  ];
+  const base = parts.reduce((sum, part) => sum + part.xp, 0), level = run.ash ?? 0;
+  // ×(1 + 0.1 × level), rounded down — in whole tenths, no float.
+  const ash = Math.floor(base * (10 + Math.round(RT_XP_ASH_STEP * 10) * level) / 10) - base;
+  if (ash > 0) parts.push({ id: 'ash', xp: ash });
+  return { parts: parts.filter(part => part.xp > 0), total: base + ash };
+}
+
+/** The carry to the camp: a victory 100 %, a defeat or an abandoned run 50 % (down) but not below min(resources, 6); the cap 20 a level. */
+export function rtCarry(run: RtRunState): RtMetaEnd['carry'] {
+  const resources = stockTotal(run.materials), cap = RT_CARRY_CAP_PER_LEVEL * RT_LEVELS_REACHED;
+  if (won(run)) return { n: Math.min(cap, resources), share: 1, cap, resources };
+  return { n: Math.min(cap, Math.max(Math.floor(resources * RT_CARRY_LOSS_SHARE), Math.min(resources, RT_CARRY_FLOOR))), share: 0.5, cap, resources };
+}
+
+/** The quest of the run done (checked after the run by its state; `record` — the depth record before it). */
+export function rtQuestDone(quest: RtQuest, run: RtRunState, record: RtDepthRecord | undefined): boolean {
+  switch (quest.id) {
+    case 'owl-farther': return rtRunDepth(run) > (record?.row ?? 0);
+    case 'owl-forest': return won(run);
+    case 'herb-flasks': return ITEM_KINDS.reduce((sum, kind) => sum + run.items[kind], 0) >= 2;
+    case 'smith-sever': return run.battles.some(entry => entry.severed === true);
+  }
+}
+
+/** The NPCs the run's event choices brought (Марфа: «Перевязать» at «Раненый волчонок»; Ерофей: «Заточка» at «Бродячий точильщик»). */
+export function rtMetByEvents(run: Pick<RtRunState, 'picks' | 'eventChoices'>): ('herb' | 'smith')[] {
+  return (['herb', 'smith'] as const).filter(npc => run.eventChoices.some(choice => choice.option === RT_NPC_EVENTS[npc].option
+    && run.picks.some(pick => pick.nodeId === choice.nodeId && pick.eventId === RT_NPC_EVENTS[npc].event)));
+}
+
+/** The death cause of a lost run for the camp's lines (design 15.10.2026). */
+export function rtDeathCause(run: RtRunState): RtDeathCause | undefined {
+  if (run.result?.outcome !== 'defeat') return undefined;
+  const type = rtNode(run, run.result.nodeId)?.type;
+  if (type === 'checkpoint') return 'jailer';
+  if (type === 'boss') return 'final';
+  const death = [...run.battles].reverse().find(record => record.nodeId === run.result!.nodeId && !record.won)?.death;
+  const source = death?.source;
+  return source === 'fire-trail' ? 'fire' : source === 'touch' || source === 'wolf' || source === 'reaper' ? 'crowd' : source === 'arrow' ? 'archer' : source === 'blast' ? 'sapper' : 'other';
+}
+
+export const emptyHearth = (): RtHearthMeta => ({ stock: 0, levels: { owl: 0, herb: 0, smith: 0 }, met: {}, lines: {}, quiet: 0 });
+const presentNpcs = (hearth: RtHearthMeta): RtHearthNpc[] => RT_HEARTH_NPCS.filter(npc => npc === 'owl' || hearth.met[npc as 'herb' | 'smith']);
+/** The quest the next run gets: one NPC present by the stream `hearth-quest` of the ended run's seed; the owl's by the record. */
+export function rtNextQuest(seed: number, hearth: RtHearthMeta, record: RtDepthRecord | undefined): RtQuest {
+  const npcs = presentNpcs(hearth), npc = npcs[mixSeed(mixSeed(seed >>> 0, HEARTH_QUEST_SALT), 0) % npcs.length];
+  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : (record?.row ?? 0) >= RT_FOREST_LAST_ROW ? 'owl-forest' : 'owl-farther';
+  return { npc, id };
+}
+
+/**
+ * The meta after `run` (a run without a given seed, finished or abandoned): the new `meta` and what the end screen shows. The
+ * caller checks the seed and the applied key (`RtProfileStore.endRunMeta`).
+ */
+export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { meta: RtMeta; end: RtMetaEnd } {
+  const meta: RtMeta = structuredClone(previous ?? { heroes: {} });
+  const heroId = run.heroId ?? RT_HERO_ID, hero: RtHeroMeta = meta.heroes[heroId] ?? { xp: 0, packs: [] };
+  const firstCamp = !meta.hearth, hearth = meta.hearth ?? emptyHearth();
+  // The quest the run carried, checked against the record before the run.
+  const quest = run.hearth?.quest && isRtQuest(run.hearth.quest) ? run.hearth.quest : undefined;
+  const questDone = quest ? rtQuestDone(quest, run, hero.record) : false;
+  const xp = rtRunXp(run), parts = [...xp.parts];
+  if (questDone) parts.push({ id: 'quest', xp: RT_QUEST_XP });
+  const gained = xp.total + (questDone ? RT_QUEST_XP : 0);
+  // At most one pack a run; the rest carried, clipped to the next threshold − 1 (the StS rule).
+  const before = hero.xp, index = hero.packs.length;
+  let after = before + gained, pack: RtMetaPackView | null = null;
+  if (index < RT_META_PACKS.length && after >= RT_META_PACKS[index].at) {
+    const opened = RT_META_PACKS[index];
+    pack = { id: opened.id, title: opened.title, items: opened.items.map(item => ({ ...item })) };
+    hero.packs = [...hero.packs, opened.id];
+    if (index + 1 < RT_META_PACKS.length) after = Math.min(after, RT_META_PACKS[index + 1].at - 1);
+  } else if (index < RT_META_PACKS.length) after = Math.min(after, RT_META_PACKS[index].at - 1);
+  hero.xp = after;
+  const next = RT_META_PACKS[hero.packs.length];
+  // The depth record (run rows; the victory; the best XP of a run).
+  const row = rtRunDepth(run), win = won(run), old = hero.record;
+  const record = { row: Math.max(old?.row ?? 0, row), won: (old?.won ?? false) || win, xp: Math.max(old?.xp ?? 0, gained) };
+  const beaten = old ? row > old.row || (win && !old.won) : row > 0;
+  hero.record = record;
+  meta.heroes[heroId] = hero;
+  // The carry and the quest's stock (outside the cap).
+  const carry = rtCarry(run), stockBefore = hearth.stock;
+  hearth.stock = stockBefore + carry.n + (questDone ? RT_QUEST_STOCK : 0);
+  // Марфа and Ерофей: met by the run's event choice; else the fallback after RT_HEARTH_FALLBACK_RUNS quiet runs since the first camp.
+  const metNow = rtMetByEvents(run).filter(npc => !hearth.met[npc]);
+  for (const npc of metNow) hearth.met[npc] = true;
+  if (!firstCamp) {
+    hearth.quiet = metNow.length ? 0 : hearth.quiet + 1;
+    const unmet = (['herb', 'smith'] as const).find(npc => !hearth.met[npc]);
+    if (unmet && hearth.quiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met[unmet] = true; hearth.self = { ...hearth.self, [unmet]: true }; hearth.quiet = 0; }
+  }
+  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !old?.won ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {} };
+  hearth.quest = rtNextQuest(run.seed, hearth, record);
+  meta.hearth = hearth;
+  const end: RtMetaEnd = {
+    hero: heroId, xp: { gained, parts, before, after }, thresholds: [...RT_META_THRESHOLDS], pack,
+    nextPack: next ? { id: next.id, title: next.title, at: next.at, size: next.items.length } : null,
+    record: { before: old ? { row: old.row, won: old.won } : null, after: { row: record.row, won: record.won }, beaten },
+    carry, stock: { before: stockBefore, after: hearth.stock },
+    ...quest ? { quest: { npc: quest.npc, id: quest.id, done: questDone, xp: questDone ? RT_QUEST_XP : 0, stock: questDone ? RT_QUEST_STOCK : 0 } } : {},
+  };
+  meta.applied = { key: rtRunKey(run), end };
+  return { meta, end };
+}
+
+// ---------- The camp (the view's contract) ----------
+
+export interface RtHearthView {
+  stock: number;
+  levels: Record<RtHearthNpc, RtHearthLevel>;
+  met: { herb: boolean; smith: boolean };
+  /** Came by the fallback path (the view's `first_self` lines). */
+  self: { herb?: true; smith?: true };
+  /** Bestiary: the enemy kinds the viewer met (the task 26 history, `RtProfile.seen`, kinds only). */
+  seen: string[];
+  quest?: RtQuest;
+  last?: RtHearthLast;
+  lines: Record<string, number>;
+}
+export function rtHearthView(meta: RtMeta | undefined, seen: readonly string[] | undefined): RtHearthView {
+  const hearth = meta?.hearth ?? emptyHearth();
+  return {
+    stock: hearth.stock, levels: { ...hearth.levels }, met: { herb: !!hearth.met.herb, smith: !!hearth.met.smith }, self: { ...hearth.self },
+    seen: SCHEDULE_KINDS.filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: { ...hearth.quest } } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
+  };
+}
+/** Why a purchase is refused: too little stock (`need`, `have`), the NPC not in the camp, or the level not the next one (or locked). */
+export type RtHearthBuy = { ok: true } | { ok: false; need: number; have: number; reason?: 'absent' | 'level' };
+export function rtHearthBuy(meta: RtMeta | undefined, npc: RtHearthNpc, level: number): { result: RtHearthBuy; meta?: RtMeta } {
+  const hearth = meta?.hearth ?? emptyHearth(), price = RT_HEARTH_PRICES[level - 1] ?? 0, have = hearth.stock;
+  if (!isRtHearthNpc(npc) || (npc !== 'owl' && !hearth.met[npc])) return { result: { ok: false, need: price, have, reason: 'absent' } };
+  if (!Number.isInteger(level) || level !== hearth.levels[npc] + 1 || level > RT_HEARTH_MAX_LEVEL) return { result: { ok: false, need: price, have, reason: 'level' } };
+  if (have < price) return { result: { ok: false, need: price, have } };
+  const next: RtMeta = structuredClone(meta ?? { heroes: {} });
+  next.hearth = { ...structuredClone(hearth), stock: have - price, levels: { ...hearth.levels, [npc]: level as RtHearthLevel } };
+  return { result: { ok: true }, meta: next };
+}
+
+/** What the camp offers at the start of a run: the map seeds (Неясыть), the start consumables (Марфа), the run's flags. */
+export interface RtHearthStart {
+  /** Seed candidates (the base seed first), 2 or 3; absent — no choice (the base seed). */
+  maps?: number[];
+  /** Марфа: 1 kind (level 1 — no choice) or 2 to choose from (level 2); absent — none. */
+  items?: ItemKind[];
+  /** The flags of the run (`createRtRun(seed, { locked, hearth })`): the maps offered, Ерофей's rerolls and hammers, the quest. */
+  flags: RtHearthFlags;
+}
+/** The map candidates of a base seed: itself, then the draws of the salt `hearth-maps` (no forest output changes for any of them). */
+export function rtHearthMaps(seed: number, count: number): number[] {
+  const out = [seed >>> 0];
+  for (let k = 1; out.length < count && k < 16; k++) { const next = mixSeed(mixSeed(seed >>> 0, HEARTH_MAPS_SALT), k) >>> 0; if (!out.includes(next)) out.push(next); }
+  return out;
+}
+/** Марфа's kinds for a base seed: `count` different consumables by the stream `hearth-herb`. */
+export function rtHearthItems(seed: number, count: number): ItemKind[] {
+  const left = [...ITEM_KINDS], out: ItemKind[] = [];
+  for (let k = 0; k < count && left.length; k++) out.push(left.splice(mixSeed(mixSeed(seed >>> 0, HEARTH_HERB_SALT), k) % left.length, 1)[0]);
+  return out;
+}
+export function rtHearthStartOf(meta: RtMeta | undefined, seed: number): RtHearthStart {
+  const hearth = meta?.hearth;
+  if (!hearth) return { flags: {} };
+  const { owl, herb, smith } = hearth.levels;
+  const maps = owl > 0 ? rtHearthMaps(seed, owl + 1) : undefined, items = herb > 0 && hearth.met.herb ? rtHearthItems(seed, herb) : undefined;
+  const flags: RtHearthFlags = {
+    ...maps ? { maps: maps.length as 2 | 3 } : {}, ...smith >= 1 && hearth.met.smith ? { jailerRerolls: 1 } : {}, ...smith >= 2 && hearth.met.smith ? { hammerAll: true as const } : {},
+    ...hearth.quest ? { quest: { ...hearth.quest } } : {},
+  };
+  return { ...maps ? { maps } : {}, ...items ? { items } : {}, flags };
+}
+/** The run's flags with the chosen start consumable (`item`; one kind offered — that one). */
+export function rtHearthFlagsWith(start: RtHearthStart, item?: ItemKind): RtHearthFlags {
+  const chosen = item && start.items?.includes(item) ? item : start.items?.length === 1 ? start.items[0] : undefined;
+  return { ...start.flags, ...chosen ? { startItems: [chosen] } : {} };
+}
+
+/** The items still locked for a new run of the hero (`createRtRun(seed, { locked })`). */
+export const rtMetaLocked = (meta: RtMeta | undefined, heroId: RtHeroId = RT_HERO_ID): string[] => rtLockedAfter(meta?.heroes[heroId]?.packs ?? []);
+/** «✦ новое»: `id` was opened by a pack and has not been offered yet (`markOffered`). */
+export function rtMetaNewOffer(meta: RtMeta | undefined, id: string, heroId: RtHeroId = RT_HERO_ID): boolean {
+  const packs = meta?.heroes[heroId]?.packs ?? [];
+  return RT_META_PACKS.some(pack => packs.includes(pack.id) && pack.items.some(item => item.id === id)) && !meta?.offered?.includes(id);
+}
+
+// ---------- Reading a stored meta ----------
+
+const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
+const isPlain = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+const level = (value: unknown): RtHearthLevel => (value === 1 || value === 2 ? value : 0);
+/** A stored `meta` as the profile reads it (anything malformed falls back to its empty part; absent — undefined). */
+export function parseRtMeta(value: unknown): RtMeta | undefined {
+  if (!isPlain(value)) return undefined;
+  const heroes: RtMeta['heroes'] = {}, cat = isPlain(value.heroes) ? value.heroes[RT_HERO_ID] : undefined;
+  if (isPlain(cat)) {
+    const packs = Array.isArray(cat.packs) ? RT_META_PACKS.map(pack => pack.id).filter((id, i) => i < (cat.packs as unknown[]).length && (cat.packs as unknown[])[i] === id) : [];
+    const r = cat.record;
+    heroes[RT_HERO_ID] = { xp: isCount(cat.xp) ? cat.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won, xp: r.xp } } : {} };
+  }
+  const h = value.hearth;
+  const hearth: RtHearthMeta | undefined = isPlain(h) ? {
+    stock: isCount(h.stock) ? h.stock : 0,
+    levels: { owl: level(isPlain(h.levels) ? h.levels.owl : 0), herb: level(isPlain(h.levels) ? h.levels.herb : 0), smith: level(isPlain(h.levels) ? h.levels.smith : 0) },
+    met: { ...isPlain(h.met) && h.met.herb === true ? { herb: true as const } : {}, ...isPlain(h.met) && h.met.smith === true ? { smith: true as const } : {} },
+    ...isPlain(h.self) ? { self: { ...h.self.herb === true ? { herb: true as const } : {}, ...h.self.smith === true ? { smith: true as const } : {} } } : {},
+    lines: isPlain(h.lines) ? Object.fromEntries(Object.entries(h.lines).filter(([, n]) => isCount(n))) as Record<string, number> : {},
+    ...isRtQuest(h.quest) ? { quest: { npc: h.quest.npc, id: h.quest.id } } : {},
+    quiet: isCount(h.quiet) ? h.quiet : 0,
+    ...isPlain(h.last) ? { last: structuredClone(h.last) as unknown as RtHearthLast } : {},
+  } : undefined;
+  const offered = Array.isArray(value.offered) ? [...new Set(value.offered.filter((id): id is string => typeof id === 'string'))] : undefined;
+  const applied = isPlain(value.applied) && typeof value.applied.key === 'string' && isPlain(value.applied.end) ? { key: value.applied.key, end: structuredClone(value.applied.end) as unknown as RtMetaEnd } : undefined;
+  return { heroes, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {} };
+}
