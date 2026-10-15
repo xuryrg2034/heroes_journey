@@ -23,18 +23,24 @@ export const plaqueText = (behaviorTitle: string | null | undefined): string => 
 export const platesWord = (n: number): string => n === 1 ? 'пластина' : 'пластины';
 
 /**
+ * Where pip `i` of the row over an enemy at (x, y) with drawing radius `R` stands: its centre, size and corner radius. `below`
+ * — the row under the enemy instead (task 27: the Jailer, whose weight hangs by its head).
+ */
+export function platePipAt(x: number, y: number, R: number, a: ArmorShape, i: number, px: number, below = false): { x: number; y: number; w: number; h: number; r: number; pr: number } {
+  const pr = 7 * px, step = pr * 2.5;
+  return { x: x - (a.max - 1) * step / 2 + i * step, y: below ? y + R + 13 * px : y - R - 13 * px, w: pr * 1.7, h: pr * 2, r: pr * 0.55, pr };
+}
+
+/**
  * The row of plate pips above an elite at (x, y) whose drawing has radius `R` (arena pixels). Filled — plates left; empty —
  * lost; the pip that grows back shows a ring filling with the regrowth (`regrowLeft` of `regrowTotal` game seconds).
  * Returns the pips drawn and how many are filled.
  */
-export function drawPlatePips(g: Graphics, x: number, y: number, R: number, a: ArmorShape, regrowTotal: number, px: number): { pips: number; filled: number } {
-  const pr = 7 * px, step = pr * 2.5, top = y - R - 13 * px;
-  const x0 = x - (a.max - 1) * step / 2;
+export function drawPlatePips(g: Graphics, x: number, y: number, R: number, a: ArmorShape, regrowTotal: number, px: number, below = false): { pips: number; filled: number } {
   for (let i = 0; i < a.max; i++) {
-    const cx = x0 + i * step, filled = i < a.plates;
+    const { x: cx, y: top, w, h, r: round, pr } = platePipAt(x, y, R, a, i, px, below), filled = i < a.plates;
     // A rounded plate (a small shield) rather than a dot: it reads as armour at 11 px.
-    const w = pr * 1.7, h = pr * 2;
-    g.roundRect(cx - w / 2, top - h / 2, w, h, pr * 0.55);
+    g.roundRect(cx - w / 2, top - h / 2, w, h, round);
     if (filled) g.fill({ color: ELITE_LEMON, alpha: 1 }).stroke({ color: NAVY, width: 2 * px });
     else g.fill({ color: 0x16202a, alpha: 0.8 }).stroke({ color: ELITE_LEMON, width: 1.2 * px, alpha: 0.4 });
     if (!filled && i === a.plates && a.open <= 0 && a.regrow > 0 && regrowTotal > 0) {
