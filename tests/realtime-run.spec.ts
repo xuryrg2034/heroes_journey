@@ -1,6 +1,9 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
+import { createRtRun, serializeRtRun } from '../src/realtime/run/rtRun';
+import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
+import { SCHEDULE_PRACTICE, SCHEDULE_RUN_ARENAS } from '../src/realtime/run/schedule';
 
 /**
  * The run of the real-time game in the browser (stage 2, step 1; docs/realtime-slice.md). Runs through
@@ -202,14 +205,27 @@ const ALL_FOUR = ['shield', 'archer', 'sapper', 'porcupine'];
 const ARENA_KINDS: Record<string, string[]> = { shields: ['shield'], archers: ['archer'], powder: ['sapper'], thorns: ['porcupine'], ford: ['archer'], outpost: ALL_FOUR, 'last-stand': ALL_FOUR };
 const OWN_ARENA: Record<string, string> = { shield: 'shields', archer: 'archers', sapper: 'powder', porcupine: 'thorns' };
 
-test('run: two runs walk to the final arena — every arena from its pool or the own arena of a kind not met yet (hard → «Застава», boss → «Последний рубеж», no «временно»); the final victory ends the run, a reload keeps the end', async ({ page }) => {
+/**
+ * Two runs walked to the end (task 26, 15.10.2026: a new run of the page plays the forest schedule — its arenas come from the
+ * viewer's history, not from the row pools). The first — a new run of the page (a new viewer: the schedule); the second — a saved
+ * run without the schedule (a save before task 26; «Испытание» II and up plays the same pools): the pool rules are checked on it.
+ */
+test('run: two runs walk to the final arena — a new run by the schedule (its arenas, hard → «Застава» or a practice stand-in, boss → «Последний рубеж»), a saved run without it from the pools or the own arena of a kind not met yet (hard → «Застава»); no «временно»; the final victory ends the run, a reload keeps the end', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   await openRun(page, errors);
-  const met: { run: number; row: number; arena: string; type: string }[] = [];
+  const met: { run: number; row: number; arena: string; type: string; scheduled: boolean }[] = [];
   // Two runs (seeds spread apart) to the end: battles are won by the test hook, other nodes take their first button.
-  for (const seed of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0]) {
-    await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
+  for (const [n, seed] of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0].entries()) {
+    if (n === 0) await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
+    else {
+      // A save without the schedule (as `?seed=` makes it: the full gift).
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true }))] as const);
+      await page.reload();
+      await expect(page.getByTestId('run')).toBeVisible();
+    }
+    const scheduled = (await page.evaluate(() => !!(window as any).__realtime.run.state().schedule)) as boolean;
+    expect(scheduled, `run ${n + 1}: the schedule`).toBe(n === 0);
     let finalWon = false;
     for (let step = 0; step < 120; step++) {
       const state = await page.evaluate(() => (window as any).__realtime.run.state()) as RunState & { pending: { kind: string; nodeId?: string; arena?: string; battle?: string; standIn?: string } | null };
@@ -219,7 +235,7 @@ test('run: two runs walk to the final arena — every arena from its pool or the
         // Node ids carry the map row (`r6c1`, `den-r11c0`); the run row is the map row less the trunk (4).
         const row = Number(/r(\d+)c/.exec(pending.nodeId!)![1]) - 4;
         expect(pending.standIn, `${pending.nodeId}: no temporary arena`).toBeUndefined();
-        met.push({ run: seed, row, arena: pending.arena!, type: pending.battle! });
+        met.push({ run: seed, row, arena: pending.arena!, type: pending.battle!, scheduled });
         await expect(page.getByTestId('run')).toBeHidden();
         expect((await snapshot(page)).arena).toBe(pending.arena);
         // The map screen named the arena without «временно».
@@ -252,7 +268,15 @@ test('run: two runs walk to the final arena — every arena from its pool or the
     await expect(page.getByTestId('run-result-victory')).toBeVisible();
     expect(await runState(page)).toEqual(ended);
   }
-  for (const [i, { run, row, arena, type }] of met.entries()) {
+  for (const [i, { run, row, arena, type, scheduled }] of met.entries()) {
+    if (scheduled) {
+      // The schedule (docs/realtime-slice.md, section 7): the final — «Последний рубеж»; the hard node — «Застава» once the cliff and the
+      // elite are met, else a practice stand-in; every other fight — an arena of the schedule.
+      if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
+      else if (type === 'hard') expect(arena === 'outpost' || SCHEDULE_PRACTICE.some(p => p.arena === arena), `row ${row}: hard ${arena}`).toBe(true);
+      else expect(SCHEDULE_RUN_ARENAS.includes(arena), `row ${row}: ${arena}`).toBe(true);
+      continue;
+    }
     const seen = new Set(met.slice(0, i).filter(m => m.run === run).flatMap(m => ARENA_KINDS[m.arena] ?? []));
     if (type === 'hard') expect(arena, `row ${row}: hard`).toBe('outpost');
     else if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
@@ -345,7 +369,7 @@ test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the d
   expect(await page.evaluate(() => (window as any).__realtime.run)).toBeNull();
 });
 
-test('the sandbox opens by the anchor too: a changed #sandbox boots it (a published build keeps no query); the run screen shows no dev words — no seed, no sandbox link', async ({ page }) => {
+test('the sandbox opens by the anchor too: a changed #sandbox boots it (a published build keeps no query); the run screen shows no dev words — no seed, no sandbox link (the «Песочница» button of the map — user request 15.10.2026)', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
@@ -357,7 +381,8 @@ test('the sandbox opens by the anchor too: a changed #sandbox boots it (a publis
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.locator('.rt-run-head')).not.toContainText('seed');
-  await expect(page.locator('.rt-run-head')).not.toContainText('Песочница');
+  // User request 15.10.2026 (over «Обучение v1»): the map's header has the «Песочница» button; still no seed, no anchor link.
+  await expect(page.getByTestId('open-sandbox')).toHaveText('Песочница');
   await expect(page.locator('a[href="#sandbox"]')).toHaveCount(0);
   // The anchor itself still boots the sandbox (testers type it).
   await page.evaluate(() => { location.hash = '#sandbox'; });
@@ -446,15 +471,17 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  // Task 17 (Е1): a gentle run's row 1 is «Поляна» alone (no roster); «Двор кнопок» and its rosters come from row 2. The first
-  // battle (r5c0) is won by the run hook; then row 2 of seed 11 offers «Двор кнопок» with «Волки» (r6c0), of seed 1 with «Натиск»
-  // (r6c0) (rtRun.ts, chooseRoster).
-  const toRowTwo = async (seed: number): Promise<void> => {
+  // A new run of the page plays the forest schedule (task 26): its first fight (r5c0) — «Поляна» alone (no roster), the second — the
+  // wolf's arc, «Поляна» with «Волки» (seed 11, r6c0). A saved run without the schedule (a save before task 26; «Испытание» II and up
+  // plays the same pools) keeps the pool rosters: task 17 (Е1) — row 1 «Поляна» alone, row 2 of seed 1 offers «Двор кнопок» with
+  // «Натиск» (r6c0) (rtRun.ts, chooseRoster). The first battle is won by the run hook.
+  const toRowTwo = async (seed: number, saved = false): Promise<void> => {
     await page.goto(`/?seed=${seed}`);
     await page.evaluate(() => localStorage.clear());
+    if (saved) await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true }))] as const);
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
-    await page.getByTestId('run-new').click();
+    if (!saved) await page.getByTestId('run-new').click();
     await page.getByTestId('gift-0').click();
     const pick = page.locator('[data-action="gift-pick"]').first();
     if (await pick.count()) await pick.click();
@@ -472,7 +499,7 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
   await page.getByTestId('node-r6c0').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Волки');
   await expect(page.getByTestId('run-danger-enemies')).toContainText('Враги: обычные, волки');
-  await toRowTwo(1);
+  await toRowTwo(1, true);
   await page.getByTestId('node-r6c0').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Натиск');
   // «Натиск» replaces the newcomers by boars: no wolves of the template's phases.
@@ -712,5 +739,87 @@ test('run (design 12.10.2026, «Смена цвета»): a mouse chain of 6 ene
     return (!s.moving && left === 0) || late ? left : undefined;
   }, ids, 5);
   expect(alive).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('run: the map\'s «Песочница» opens the sandbox (`#sandbox`) and its «Поход» brings back the same map of the same run; no button while a fight is open (user request 15.10.2026)', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await newRun(page);
+  // A fight is open: the arena hides the map — no «Песочница» to lose it by.
+  const nodeId = await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  await expect(page.getByTestId('open-sandbox')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  await page.getByTestId('result-map').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  const before = await runState(page);
+  expect(before.visited).toEqual([nodeId]);
+
+  // The header: «Песочница» left of «Логи», in its style.
+  const sandboxButton = page.getByTestId('open-sandbox'), logs = page.getByTestId('logs-open');
+  await expect(sandboxButton).toHaveText('Песочница');
+  const [a, b] = [await sandboxButton.boundingBox(), await logs.boundingBox()];
+  expect(a && b && a.x + a.width <= b.x && Math.abs(a.y - b.y) < 2, `${JSON.stringify(a)} / ${JSON.stringify(b)}`).toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-run-sandbox-button.png' });
+
+  await sandboxButton.click();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  expect(new URL(page.url()).hash).toBe('#sandbox');
+  // The sandbox opens on its arena menu (it covers the top bar): «← Поход» in the menu's corner; «Поход» by «Арены (M)» too.
+  await expect(page.getByTestId('menu-run')).toHaveText('← Поход');
+  await expect(page.getByTestId('open-run')).toHaveText('Поход');
+  await page.screenshot({ path: 'artifacts/realtime-sandbox-run-button.png' });
+  await page.getByTestId('menu-run').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  await expect(page.getByTestId(`node-${nodeId}`)).toHaveAttribute('data-status', 'current');
+  expect(await runState(page)).toEqual(before);
+  expect(new URL(page.url()).hash).toBe('');
+
+  // In a sandbox fight (the menu closed) «Поход» stands by «Арены (M)», clear of the HUD; it brings back the same map too.
+  await page.getByTestId('open-sandbox').click();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  // The sandbox has booted (its arena buttons answer once the page's hook is up).
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime && (window as any).__realtime.run === null)).toBe(true);
+  await page.getByTestId('arena-1').click();
+  await expect(page.getByTestId('menu')).toBeHidden();
+  const [bar, arenas, hud] = [await page.getByTestId('open-run').boundingBox(), await page.getByTestId('open-menu').boundingBox(), await page.getByTestId('hud').boundingBox()];
+  expect(bar && arenas && hud && bar.x + bar.width <= arenas.x && bar.x >= hud.x + hud.width, `${JSON.stringify(bar)} / ${JSON.stringify(arenas)} / ${JSON.stringify(hud)}`).toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-sandbox-run-bar.png' });
+  await page.getByTestId('open-run').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  expect(await runState(page)).toEqual(before);
+  expect(errors).toEqual([]);
+});
+
+test('run: a sandbox opened by `?sandbox=1` has no «Поход» button (the anchor\'s button only)', async ({ page }) => {
+  await page.goto('/?sandbox=1');
+  await expect(page.getByTestId('menu')).toBeVisible();
+  await expect(page.getByTestId('open-run')).toHaveCount(0);
+  await expect(page.getByTestId('menu-run')).toHaveCount(0);
+});
+
+test('run: in an iframe (the published artifact) «Песочница» and «← Поход» switch by the anchor the same way, the run is kept', async ({ page }) => {
+  const errors: string[] = [];
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  const origin = new URL(page.url()).origin;
+  await page.setContent(`<iframe id="app" src="${origin}/" style="width:1280px;height:720px;border:0"></iframe>`);
+  const frame = page.frameLocator('#app');
+  page.on('pageerror', e => errors.push(e.message));
+  // The app's frame (a reload by the anchor keeps the frame object; its document is new).
+  const app = () => page.frames().find(f => f !== page.mainFrame())!;
+  await expect.poll(() => app()?.evaluate(() => !!(window as any).__realtime?.run).catch(() => false)).toBe(true);
+  await frame.getByTestId('run-new').click();
+  await frame.getByTestId('gift-1').click();
+  await expect(frame.getByTestId('run-map')).toBeVisible();
+  const before = await app().evaluate(() => (window as any).__realtime.run.state());
+  await frame.getByTestId('open-sandbox').click();
+  await expect(frame.getByTestId('menu')).toBeVisible();
+  expect(new URL(app().url()).hash).toBe('#sandbox');
+  await frame.getByTestId('menu-run').click();
+  await expect(frame.getByTestId('run-map')).toBeVisible();
+  expect(await app().evaluate(() => (window as any).__realtime.run.state())).toEqual(before);
   expect(errors).toEqual([]);
 });

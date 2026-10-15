@@ -73,6 +73,8 @@ export interface RunHost {
   runStarted?(previous: RtRunState | null, run: RtRunState, viewerRun?: number, viewerRunApprox?: boolean): void;
   /** Telemetry: the «Логи» panel (absent — no button). */
   openLogs?(): void;
+  /** The «Песочница» button of the map's header (user request 15.10.2026): opens the sandbox (`#sandbox`); the run stays saved. */
+  openSandbox?(): void;
   /**
    * П1: the view settings on the gear of the map header (local to the view, never Params, never the journal): «Глубина
    * звена»; П7 adds «Часы сессии». Absent or empty — no gear.
@@ -475,6 +477,7 @@ export class RunView {
     // Task 18: the level of «Испытание» for the next new run (remembered in the profile at once).
     if (action === 'ash') { const level = Number(target.dataset.level); if (isRtAshLevel(level)) this.profile.chooseAsh(level); this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
+    if (action === 'sandbox') { this.host.openSandbox?.(); return; }
     if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
     if (action === 'hints-toggle') { this.host.hints?.set((target as HTMLInputElement).checked); this.draw(); return; }
     if (action === 'sound-toggle' && this.host.sound) { this.host.sound.set({ ...this.host.sound.get(), on: (target as HTMLInputElement).checked }); this.draw(); return; }
@@ -718,7 +721,7 @@ export class RunView {
     return `<header class="rt-run-head"><b>Поход</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
-      + `${resources}${reset}${this.logsButton()}${this.settingsHtml()}</header>`
+      + `${resources}${reset}${this.sandboxButton(run)}${this.logsButton()}${this.settingsHtml()}</header>`
       + (this.notice ? `<p class="rt-run-notice" data-testid="run-notice">${escapeHtml(this.notice)}</p>` : '')
       + (this.sessionNudge && this.host.session?.on() && !run.result ? `<p class="rt-run-session" data-testid="run-session-nudge">${escapeHtml(this.sessionNudge)}</p>` : '');
   }
@@ -767,6 +770,14 @@ export class RunView {
     const rows = soundRows + hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
     return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки" aria-expanded="${this.settingsOpen}">⚙</button>`
       + (this.settingsOpen ? `<span class="rt-run-settings" data-testid="run-settings-panel">${rows}</span>` : '') + '</span>';
+  }
+
+  /**
+   * User request 15.10.2026: the «Песочница» button left of «Логи», in its style — only on the map: not while a fight is open
+   * (the window «Бой» of a pending battle; the arena hides the map anyway), not on the end of the run.
+   */
+  private sandboxButton(run: RtRunState): string {
+    return this.host.openSandbox && run.pending?.kind !== 'battle' && !run.result ? '<button class="rt-logs-open" data-action="sandbox" data-testid="open-sandbox">Песочница</button>' : '';
   }
 
   /** Telemetry: the «Логи» button (the map's header, the end of the run); none without the panel. */

@@ -246,6 +246,11 @@ export interface HeroMove {
    */
   pierce?: PierceMove;
   /**
+   * Task 29, the rank of the field «Конец»: the pierce ran to its end on this dash (set by its end, read by the dash's end in the
+   * same tick; only while the kit holds «Печать» or «Прямая» as a form, chain.ts `endRankOn`). Absent otherwise.
+   */
+  pierced?: true;
+  /**
    * «Смена цвета» (`colorShiftLinks`, chain.ts `colorShiftIds`): the links of the release that freed the chain's colour (the
    * last link of each colour segment), not reached yet (absent when none: dashes without the rule hash as before).
    */

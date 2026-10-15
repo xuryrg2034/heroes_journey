@@ -1,0 +1,439 @@
+/**
+ * Task 29 «Формы в песочнице», track A (docs/realtime-prototype.md, section 9ф): the forms of the chain's core in the sandbox.
+ * Node only: `npm run test:realtime-forms`. Every check plays journalled commands (place, teleport, begin, drag, release, param)
+ * and looks at what the player meets:
+ * - «Печать» and «Прямая» as forms in the kit (the sandbox toggles off): the ring closes and strikes inside; the pierce runs;
+ *   without the form — the old rules;
+ * - the rank of the field «Конец»: a sealed chain has no pierce and no end blast, a pierce that ran leaves no end blast, a chain
+ *   whose last link survives gets its blast; the toggles alone keep the old path (pierce and blast both);
+ * - «Развилка»: a link is taken within R of a link that is not the last; the dash runs in the order drawn; the hint names the
+ *   anchor; no loop with it; with «Якорь у героя» the hero is an anchor too;
+ * - «Чужак»: one link of another colour a chain (an elite too); the second is refused; the chain keeps its colour;
+ * - «Близнецы»: colours 1 + 3 and 2 + 4 are one colour; an incomplete pair in a row of 3 colours; ranked above «Чужак»;
+ * - «Возврат»: the way back and the second pass in `planChain` before the release equal the run — without `returnFixed` on a
+ *   scene where nobody walks, with it also while the enemies walk; the first pass killed everyone near the way — an empty run;
+ * - the highlight is the dash on random fights of several seeds with the forms (links, pierce, return); every fight replays to
+ *   the same hash (checkpoints every 300 ticks); journals without the new ids and without `returnFixed` play the old world.
+ * Seeds `Math.imul(k, 2654435761) >>> 0`. No bot win or loss is asserted.
+ */
+import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
+import legacyJournals from '../../../tests/fixtures/realtime-legacy-build-journals.json';
+import { registerArena } from './arenas';
+import { FORMS, FORM_FIELD, HAMMERS } from './buildIds';
+import { chainColor, colorGroups, colorJoin, enemyAnchors, enemyRefusal, foreignLeft, hoverRefusal, loopCandidates, nextCandidates, planChain, type ChainPlan, type StrikeOutcome } from './chain';
+import { platesOf } from './elites';
+import { returnRunOf } from './hammers';
+import { worldState } from './hash';
+import { linkDepths } from './linkDepth';
+import { defaultParams, runParams, type Params } from './params';
+import { sealDamage } from './seal';
+import { Simulation, replay, type Journal } from './simulation';
+import type { Loadout } from './kit';
+import type { Enemy, WorldEvent } from './world';
+import type { Vec } from './geometry';
+
+function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
+let checks = 0;
+function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
+const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
+
+registerArena({ goal: 'kills', width: 20, height: 12, heroStart: { x: 4.5, y: 5 }, buttons: [], enemies: [], killGoal: 999, id: 'forms-field', name: 'Поле форм', summary: 'Тест форм', obstacles: [], door: { x: 19.3, y: 6 } });
+
+/** A quiet fight: no newcomers, nobody walks or touches, no hit-stop; the sandbox toggles of the loop and the pierce off. */
+function quiet(extra: Partial<Params> = {}): Params {
+  const p = defaultParams();
+  p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.maxEnemies = 1;
+  p.enemySpeed = 0; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 40; p.hitstop = false; p.survivorKnockback = false;
+  p.loopEnabled = false; p.pierceEnabled = false;
+  return Object.assign(p, extra);
+}
+function fight(talismans: string[], extra: Partial<Params> = {}, loadout: Loadout = {}, k = 1): Simulation {
+  const sim = new Simulation({ arena: 'forms-field', params: quiet(extra), seed: seedOf(k), record: true, loadout: { talismans, ...loadout } });
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.5, y: 5 });
+  return sim;
+}
+const place = (sim: Simulation, at: Vec, opts: { color?: number; hp?: number; elite?: boolean } = {}): number =>
+  sim.command({ t: 'place', x: at.x, y: at.y, color: opts.color ?? 0, hp: opts.hp ?? 0, kind: 'basic', ...opts.elite ? { elite: true } : {} }) as number;
+const enemy = (sim: Simulation, id: number): Enemy | undefined => sim.world.enemies.find(e => e.id === id);
+function draw(sim: Simulation, points: readonly Vec[]): void {
+  sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
+  for (const p of points.slice(1)) sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
+}
+const ids = (sim: Simulation): number[] => sim.world.chain.map(l => l.id);
+/** Ticks until the hero stands (the dash, the pierce, a return run), collecting the events. */
+function settle(sim: Simulation): WorldEvent[] {
+  const out: WorldEvent[] = [];
+  for (let i = 0; i < 1200 && (sim.world.move || i === 0); i++) { sim.tick(); out.push(...sim.world.events); sim.world.events.length = 0; }
+  return out;
+}
+const replays = (sim: Simulation): boolean => replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash();
+const killed = (events: readonly WorldEvent[], id: number, source?: string): boolean => events.some(e => e.type === 'kill' && e.enemyId === id && (!source || e.source === source));
+const hammerKinds = (events: readonly WorldEvent[]): string[] => events.flatMap(e => (e.type === 'hammer' ? [e.kind] : []));
+
+/** What the plan promises at the end of the dash and the return run: the links up to the stop, the pierce, the return hits. */
+function promised(plan: ChainPlan): Map<number, StrikeOutcome> {
+  const out = new Map<number, StrikeOutcome>();
+  for (const l of plan.links) {
+    if (l.link.kind !== 'enemy' || !l.outcome) continue;
+    out.set(l.link.id, l.outcome);
+    if (!l.outcome.killed && !l.outcome.plate) break;
+  }
+  for (const b of plan.pierce?.bodies ?? []) out.set(b.id, b.outcome);
+  for (const h of plan.back?.hits ?? []) out.set(h.id, h.outcome);
+  return out;
+}
+type Snapshot = { id: number; hp: number; plates: number }[];
+const snapshot = (sim: Simulation): Snapshot => sim.world.enemies.map(e => ({ id: e.id, hp: e.hp, plates: platesOf(e) }));
+/** The world after the dash is what the plan said: each promised body killed, its plate or HP as planned; nobody else touched. */
+function assertPlanIsDash(sim: Simulation, plan: ChainPlan, before: Snapshot, label: string): void {
+  const want = promised(plan);
+  for (const [id, o] of want) {
+    const e = enemy(sim, id);
+    if (o.killed) assert(!e, `${label}: ${id} should die`);
+    else if (o.plate) assert(e && platesOf(e) === o.platesAfter, `${label}: ${id} plates ${e ? platesOf(e) : '—'}, planned ${o.platesAfter}`);
+    else assert(e && e.hp === o.hpAfter, `${label}: ${id} HP ${e?.hp}, planned ${o.hpAfter}`);
+  }
+  for (const s of before) {
+    if (want.has(s.id)) continue;
+    const e = enemy(sim, s.id);
+    assert(e && e.hp === s.hp && platesOf(e) === s.plates, `${label}: ${s.id} untouched (HP ${s.hp} → ${e?.hp})`);
+  }
+}
+
+// ---- Old journals ----
+
+check('journals recorded before task 29 replay to their recorded hash (the forms registered, none taken)', () => {
+  const legacy = (legacyJournals as unknown as { cases: { name: string; hash: string; journal: Journal }[] }).cases;
+  const all = [{ name: 'browser', ...(browserJournal as unknown as { journal: Journal; hash: string }) }, ...legacy];
+  for (const f of all) assert(replay(f.journal).hash() === f.hash, `${f.name}: recorded ${f.hash}, now ${replay(f.journal).hash()}`);
+  assert(runParams(defaultParams()).returnFixed === false && defaultParams().returnFixed === true, 'returnFixed: on in the sandbox, off in a run');
+  assert(FORM_FIELD[FORMS.seal] === 'end' && FORM_FIELD[FORMS.pierce] === 'end' && FORM_FIELD[HAMMERS.blast] === 'end'
+    && FORM_FIELD[FORMS.fork] === 'link' && FORM_FIELD[FORMS.alien] === 'link' && FORM_FIELD[FORMS.twins] === 'link'
+    && FORM_FIELD[HAMMERS.return] === 'path' && FORM_FIELD[HAMMERS.fire] === 'path' && FORM_FIELD[HAMMERS.cut] === 'path', 'the fields');
+});
+
+// ---- «Печать» and «Прямая» as forms ----
+
+/** A square of four colour-0 links 1.2 apart around (6.6, 5), a colour-1 body inside. */
+const SQUARE: Vec[] = [{ x: 6, y: 4.4 }, { x: 7.2, y: 4.4 }, { x: 7.2, y: 5.6 }, { x: 6, y: 5.6 }];
+function sealScene(talismans: string[], extra: Partial<Params> = {}, loadout: Loadout = {}) {
+  const sim = fight(talismans, extra, loadout);
+  for (const p of SQUARE) place(sim, p);
+  const inside = place(sim, { x: 6.6, y: 5 }, { color: 1, hp: 1 });
+  draw(sim, [...SQUARE, SQUARE[0]]);
+  return { sim, inside };
+}
+
+check('«Печать» as a form: the pointer on the first link closes the ring, the seal strikes inside; without the form — no ring', () => {
+  const plain = sealScene([]);
+  assert(!plain.sim.world.chainClosed && !planChain(plain.sim.world).seal, 'no form, toggle off: the gesture does not close');
+  const { sim, inside } = sealScene([FORMS.seal]);
+  assert(sim.world.chainClosed === 'first', 'the form closes the ring on the first link');
+  const plan = planChain(sim.world);
+  assert(plan.seal && plan.seal.inside.join() === String(inside) && plan.seal.damage === sealDamage(4), 'the plan shows the body inside and the hit');
+  sim.command({ t: 'release' });
+  const events = settle(sim);
+  assert(killed(events, inside, 'seal') && !enemy(sim, inside), 'the seal killed the body inside');
+  assert(replays(sim), 'replays');
+});
+
+/** Three weak colour-0 links in a line from the hero: the axis +x from (8.4, 5). */
+const LINE: Vec[] = [{ x: 6, y: 5 }, { x: 7.2, y: 5 }, { x: 8.4, y: 5 }];
+
+check('«Прямая» as a form: a straight chain of 3 pierces the body ahead as planned; without the form — the chain ends at its last link', () => {
+  const run = (talismans: string[]) => {
+    const sim = fight(talismans);
+    for (const p of LINE) place(sim, p);
+    const ahead = place(sim, { x: 9.4, y: 5 }, { color: 1, hp: 1 });
+    draw(sim, LINE);
+    const plan = planChain(sim.world), before = snapshot(sim);
+    sim.command({ t: 'release' });
+    const events = settle(sim);
+    return { sim, ahead, plan, before, events };
+  };
+  const plain = run([]);
+  assert(!plain.plan.pierce && enemy(plain.sim, plain.ahead)?.hp === 1, 'without the form: no pierce');
+  const form = run([FORMS.pierce]);
+  assert(form.plan.pierce && form.plan.pierce.bodies.map(b => b.id).join() === String(form.ahead), 'the plan pierces the body ahead');
+  assert(killed(form.events, form.ahead, 'pierce'), 'the run killed it');
+  assertPlanIsDash(form.sim, form.plan, form.before, 'pierce');
+  assert(replays(form.sim), 'replays');
+});
+
+check('rank of «Конец»: a sealed chain — no pierce, no end blast; a pierce — no blast; a survivor at the end — the blast; toggles alone — both', () => {
+  const both = [FORMS.seal, FORMS.pierce];
+  const sealed = sealScene(both, {}, { hammer: HAMMERS.blast });
+  assert(sealed.sim.world.chainClosed && !planChain(sealed.sim.world).pierce, 'the seal shuts the pierce');
+  sealed.sim.command({ t: 'release' });
+  const e1 = settle(sealed.sim);
+  assert(e1.some(e => e.type === 'seal' && e.phase === 'strike') && !hammerKinds(e1).includes('blast'), 'the seal struck, no end blast');
+  const line = (talismans: string[], extra: Partial<Params>, last = 0) => {
+    const sim = fight(talismans, extra, { hammer: HAMMERS.blast });
+    LINE.forEach((p, i) => place(sim, p, { hp: i === 2 ? last : 0 }));
+    place(sim, { x: 9.4, y: 5 }, { color: 1, hp: 1 });
+    draw(sim, LINE);
+    const plan = planChain(sim.world);
+    sim.command({ t: 'release' });
+    return { plan, events: settle(sim), sim };
+  };
+  const pierced = line(both, {});
+  assert(pierced.plan.pierce && pierced.events.some(e => e.type === 'pierce' && e.phase === 'end') && !hammerKinds(pierced.events).includes('blast'), 'the pierce ran, no end blast');
+  const survivor = line(both, {}, 9);
+  assert(!survivor.plan.pierce && hammerKinds(survivor.events).includes('blast'), 'the last link survives: no pierce, the blast');
+  const legacy = line([], { pierceEnabled: true });
+  assert(legacy.events.some(e => e.type === 'pierce' && e.phase === 'end') && hammerKinds(legacy.events).includes('blast'), 'the toggle alone: the pierce and the blast');
+  for (const s of [sealed.sim, pierced.sim, survivor.sim, legacy.sim]) assert(replays(s), 'replays');
+});
+
+// ---- «Развилка» ----
+
+/** A at (5.7, 5), B at (6.9, 5); C straight up from A, just within reach of A and beyond reach of B and the hero. */
+function forkScene(talismans: string[]) {
+  const sim = fight(talismans);
+  const a = place(sim, { x: 5.7, y: 5 }), b = place(sim, { x: 6.9, y: 5 });
+  draw(sim, [{ x: 5.7, y: 5 }, { x: 6.9, y: 5 }]);
+  const reach = sim.world.params.linkRadius + 0.3;
+  const c = place(sim, { x: 5.7, y: 5 - reach }, { hp: 1 });
+  return { sim, a, b, c, at: { x: 5.7, y: 5 - reach } };
+}
+
+check('«Развилка»: a link within R of the first link (not the last) joins; the hint names that anchor; the dash runs in the order drawn', () => {
+  const plain = forkScene([]);
+  assert(enemyRefusal(plain.sim.world, enemy(plain.sim, plain.c)!) === 'far', 'without the form: too far from the last link');
+  plain.sim.command({ t: 'drag', x: plain.at.x, y: plain.at.y, mode: 'full' });
+  assert(ids(plain.sim).length === 2, 'without the form the chain stays at 2');
+  const { sim, a, b, c, at } = forkScene([FORMS.fork]);
+  const anchors = enemyAnchors(sim.world, enemy(sim, c)!);
+  assert(anchors.length === 1 && anchors[0].link?.id === a, `the anchor of the candidate is the first link (${anchors.map(x => x.link?.id ?? 'hero').join()})`);
+  assert(linkDepths(sim.world).some(d => d.id === c), 'П1 sees the candidate too');
+  sim.command({ t: 'drag', x: at.x, y: at.y, mode: 'full' });
+  assert(ids(sim).join() === [a, b, c].join(), 'the chain takes it as the third link');
+  const plan = planChain(sim.world), before = snapshot(sim);
+  sim.command({ t: 'release' });
+  const events = settle(sim);
+  const order = events.flatMap(e => (e.type === 'chainHit' ? [e.enemyId] : []));
+  assert(order.join() === [a, b, c].join(), `the dash in the order drawn (${order.join()})`);
+  assertPlanIsDash(sim, plan, before, 'fork');
+  assert(replays(sim), 'replays');
+});
+
+check('«Развилка»: no loop with it (even with «Печать»); with «Якорь у героя» the hero is an anchor as well', () => {
+  const { sim } = sealScene([FORMS.fork, FORMS.seal]);
+  assert(!sim.world.chainClosed && !loopCandidates(sim.world).length && !planChain(sim.world).seal, 'the ring does not close');
+  const anchor = fight([FORMS.fork, 'hero-anchor']);
+  place(anchor, { x: 5.7, y: 5 }); place(anchor, { x: 6.9, y: 5 });
+  draw(anchor, [{ x: 5.7, y: 5 }, { x: 6.9, y: 5 }]);
+  const near = place(anchor, { x: 3.8, y: 5 });
+  const list = enemyAnchors(anchor.world, enemy(anchor, near)!);
+  assert(list.some(x => !x.link) && list.some(x => x.link), 'reachable from the hero and from the first link');
+  anchor.command({ t: 'drag', x: 3.8, y: 5, mode: 'full' });
+  assert(ids(anchor).length === 3, 'it joins');
+});
+
+// ---- «Чужак» ----
+
+check('«Чужак»: one link of another colour (an elite too) joins once; the second is refused; the chain keeps its colour', () => {
+  const run = (talismans: string[], elite: boolean) => {
+    const sim = fight(talismans);
+    const a = place(sim, { x: 5.7, y: 5 }), b = place(sim, { x: 6.9, y: 5 }, { color: 1, elite });
+    const c = place(sim, { x: 8.1, y: 5 }, { color: 2 }), d = place(sim, { x: 6.9, y: 6.2 });
+    draw(sim, [{ x: 5.7, y: 5 }, { x: 6.9, y: 5 }]);
+    return { sim, a, b, c, d };
+  };
+  const plain = run([], false);
+  assert(ids(plain.sim).join() === String(plain.a) && hoverRefusal(plain.sim.world, { x: 6.9, y: 5 }) === 'color', 'without the form: «не тот цвет»');
+  for (const elite of [false, true]) {
+    const { sim, a, b, c, d } = run([FORMS.alien], elite);
+    assert(ids(sim).join() === [a, b].join(), `the foreign link joins (elite ${elite})`);
+    assert(foreignLeft(sim.world) === 0 && chainColor(sim.world) === 0, 'spent; the chain is still colour 0');
+    assert(colorJoin(sim.world, enemy(sim, c)!) === null && hoverRefusal(sim.world, { x: 8.1, y: 5 }) === 'color', 'a second foreign link is refused');
+    sim.command({ t: 'drag', x: 8.1, y: 5, mode: 'full' });
+    sim.command({ t: 'drag', x: 6.9, y: 6.2, mode: 'full' });
+    assert(ids(sim).join() === [a, b, d].join(), 'the next link is of the chain colour again');
+    const plan = planChain(sim.world), before = snapshot(sim);
+    sim.command({ t: 'release' });
+    settle(sim);
+    assertPlanIsDash(sim, plan, before, `alien elite ${elite}`);
+    assert(replays(sim), 'replays');
+  }
+  // Before the first link nothing is foreign: the candidate of another colour is just the chain's first.
+  const fresh = fight([FORMS.alien]);
+  const x = place(fresh, { x: 5.7, y: 5 }, { color: 3 });
+  assert(foreignLeft(fresh.world) === 1 && colorJoin(fresh.world, enemy(fresh, x)!) === 'chain', 'the first link sets the colour');
+});
+
+// ---- «Близнецы» ----
+
+check('«Близнецы»: colours 1 + 3 and 2 + 4 are one colour; a row of 3 colours keeps an incomplete pair; ranked above «Чужак»', () => {
+  const run = (talismans: string[], first: number, loadout: Loadout = {}) => {
+    const sim = fight(talismans, {}, loadout);
+    place(sim, { x: 5.7, y: 5 }, { color: first });
+    const others = [0, 1, 2, 3].map(c => place(sim, { x: 6.9, y: 3.2 + 1.2 * c }, { color: c }));
+    sim.command({ t: 'begin', x: 5.7, y: 5 });
+    return { sim, ok: nextCandidates(sim.world).map(e => e.color).sort().join() , others };
+  };
+  assert(run([], 0).ok === '0', 'without the form: only colour 0');
+  assert(run([FORMS.twins], 0).ok === '0,2' && run([FORMS.twins], 1).ok === '1,3' && run([FORMS.twins], 2).ok === '0,2', 'the pairs');
+  const twins = run([FORMS.twins], 0);
+  assert(colorGroups(twins.sim.world)?.map(g => g.join('+')).join(' ') === '0+2 1+3', 'the groups of 4 colours');
+  const three = fight([FORMS.twins], {}, { colors: 3 });
+  assert(colorGroups(three.world)?.map(g => g.join('+')).join(' ') === '0+2 1', 'a row of 3: a pair and a single colour');
+  const ranked = run([FORMS.alien, FORMS.twins], 0);
+  assert(ranked.ok === '0,2' && foreignLeft(ranked.sim.world) === null, '«Близнецы» act, «Чужак» does not');
+  // The pair joins by a real drag; the plan is the dash.
+  const { sim, others } = twins;
+  sim.command({ t: 'drag', x: 6.9, y: 3.2 + 2.4, mode: 'full' });
+  assert(ids(sim).length === 2 && ids(sim)[1] === others[2], 'colour 2 joins a chain of colour 0');
+  const plan = planChain(sim.world), before = snapshot(sim);
+  sim.command({ t: 'release' });
+  settle(sim);
+  assertPlanIsDash(sim, plan, before, 'twins');
+  assert(replays(sim), 'replays');
+});
+
+// ---- «Возврат» in the highlight ----
+
+/** Five weak links in a row from (4, 6) and bodies of other colours near the way back. */
+function returnScene(extra: Partial<Params>, k = 1) {
+  const sim = fight([], { killGoal: 999, ...extra }, { hammer: HAMMERS.return }, k);
+  sim.command({ t: 'teleport', x: 4, y: 6 });
+  const links = [1, 2, 3, 4, 5].map(i => ({ x: 4 + 1.2 * i, y: 6 }));
+  for (const p of links) place(sim, p);
+  const off = [place(sim, { x: 6.6, y: 6.7 }, { color: 1, hp: 1 }), place(sim, { x: 5.4, y: 5.3 }, { color: 2, hp: 3 }), place(sim, { x: 4.5, y: 6.7 }, { color: 3, hp: 0 })];
+  draw(sim, links);
+  return { sim, links, off };
+}
+
+check('«Возврат»: the way back and the second pass are in the plan before the release and equal the run (no key: a still scene)', () => {
+  const { sim, off } = returnScene({ returnFixed: false });
+  const plan = planChain(sim.world), back = plan.back!;
+  assert(back && back.power === 2 && back.hits.map(h => h.id).join() === [off[0], off[1]].join(), `the plan: power 2, hits ${back?.hits.map(h => h.id).join()}`);
+  assert(back.hits[0].outcome.killed && back.hits[1].outcome.hpAfter === 2 && back.route[back.route.length - 1].x === 4, 'the outcomes and the route to the start');
+  const before = snapshot(sim);
+  sim.command({ t: 'release' });
+  assert(returnRunOf(sim.world) === null, 'no fixation without the key');
+  const events = settle(sim);
+  assert(hammerKinds(events).includes('return'), 'the run happened');
+  assertPlanIsDash(sim, plan, before, 'return, no key');
+  assert(replays(sim), 'replays');
+});
+
+check('«Возврат» with `returnFixed`: the release fixes the way and the bodies; the plan equals the run while the enemies walk', () => {
+  let moved = 0, struck = 0;
+  for (let k = 1; k <= 4; k++) {
+    const { sim } = returnScene({ returnFixed: true, enemySpeed: defaultParams().enemySpeed, speedSpread: 0 }, k);
+    const plan = planChain(sim.world), before = snapshot(sim);
+    const at = new Map(sim.world.enemies.map(e => [e.id, { x: e.x, y: e.y }]));
+    sim.command({ t: 'release' });
+    const fixed = returnRunOf(sim.world);
+    assert(fixed && fixed.bodies.join() === plan.back!.hits.map(h => h.id).join(), 'the release fixed the planned bodies');
+    const events = settle(sim);
+    assert(hammerKinds(events).includes('return'), 'the run happened');
+    for (const e of sim.world.enemies) { const p = at.get(e.id); if (p && (p.x !== e.x || p.y !== e.y)) moved++; }
+    struck += plan.back!.hits.length;
+    assertPlanIsDash(sim, plan, before, `return fixed k${k}`);
+    assert(sim.world.build === undefined, 'no state left');
+    assert(replays(sim), 'replays');
+  }
+  assert(moved > 0 && struck > 0, `the enemies walked (${moved}) and the run struck (${struck})`);
+});
+
+check('«Возврат»: the first pass killed everyone near the way — an empty run (no marks); a first link that survives — no run', () => {
+  for (const fixed of [false, true]) {
+    const sim = fight([], { returnFixed: fixed }, { hammer: HAMMERS.return });
+    sim.command({ t: 'teleport', x: 4, y: 6 });
+    const links = [1, 2, 3].map(i => ({ x: 4 + 1.2 * i, y: 6 }));
+    for (const p of links) place(sim, p);
+    draw(sim, links);
+    const plan = planChain(sim.world);
+    assert(plan.back && plan.back.route.length >= 2 && plan.back.hits.length === 0, 'an empty run in the plan');
+    sim.command({ t: 'release' });
+    const events = settle(sim);
+    assert(hammerKinds(events).includes('return') && !events.some(e => e.type === 'kill' && e.source === 'hammer-return'), 'the run is made, nobody struck');
+    const lone = fight([], { returnFixed: fixed }, { hammer: HAMMERS.return });
+    const s = place(lone, { x: 5.7, y: 5 }, { hp: 9 });
+    draw(lone, [{ x: 5.7, y: 5 }]);
+    assert(!planChain(lone.world).back, 'a survivor first: no way back in the plan');
+    lone.command({ t: 'release' });
+    assert(!hammerKinds(settle(lone)).includes('return') && enemy(lone, s)?.hp === 8, 'and no run');
+  }
+});
+
+check('a journal without `returnFixed` plays the old path: the same world as the key off', () => {
+  const play = (journal: Journal) => { const { params: _, ...rest } = worldState(replay(journal).world) as Record<string, unknown>; return JSON.stringify(rest); };
+  const { sim } = returnScene({ returnFixed: false, enemySpeed: defaultParams().enemySpeed }, 2);
+  sim.command({ t: 'release' });
+  settle(sim);
+  const journal = JSON.parse(JSON.stringify(sim.exportJournal())) as Journal;
+  const stripped = JSON.parse(JSON.stringify(journal)) as Journal;
+  delete (stripped.params as Partial<Params>).returnFixed;
+  assert(play(journal) === play(stripped), 'the same world');
+});
+
+// ---- Random fights: the highlight is the dash ----
+
+/** A small LCG for the test's own scene (the simulation's streams are not touched). */
+function lcg(seed: number): () => number { let s = seed >>> 0; return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296); }
+
+/** The bot's next link: the candidate that turns the chain least (straight tails give the pierce a chance). */
+function straightest(sim: Simulation): Enemy | undefined {
+  const w = sim.world, pts = w.chain.flatMap(l => { const e = enemy(sim, l.id); return e ? [e] : []; });
+  const last = pts[pts.length - 1], prev = pts[pts.length - 2] ?? w.hero;
+  if (!last) return nextCandidates(w)[0];
+  const dx = last.x - prev.x, dy = last.y - prev.y;
+  const score = (e: Enemy): number => { const vx = e.x - last.x, vy = e.y - last.y; return (dx * vx + dy * vy) / ((Math.hypot(dx, dy) * Math.hypot(vx, vy)) || 1); };
+  return [...nextCandidates(w)].sort((a, b) => score(b) - score(a))[0];
+}
+
+check('random fights of 4 seeds with the forms: every chain\'s plan (links, pierce, return) is the dash; replays with checkpoints', () => {
+  const kits: { talismans: string[]; extra: Partial<Params>; hammer?: typeof HAMMERS.return }[] = [
+    { talismans: [FORMS.fork, FORMS.alien, FORMS.pierce], extra: {}, hammer: HAMMERS.return },
+    { talismans: [FORMS.twins, FORMS.pierce], extra: {}, hammer: HAMMERS.return },
+    { talismans: [FORMS.fork, FORMS.twins], extra: {} },
+    // The old path of «Возврат» (no fixation): its run reads the real path — counted, not asserted (a run's known defect until task 30).
+    { talismans: [FORMS.alien], extra: { returnFixed: false }, hammer: HAMMERS.return },
+  ];
+  let chains = 0, backHits = 0, pierced = 0, oldChains = 0, oldDiverged = 0;
+  const hashes = new Set<string>();
+  for (let k = 1; k <= 4; k++) {
+    for (const kit of kits) {
+      const sim = fight(kit.talismans, { enemySpeed: defaultParams().enemySpeed, speedSpread: 0.2, ...kit.extra }, kit.hammer ? { hammer: kit.hammer } : {}, k);
+      const rnd = lcg(seedOf(k));
+      for (let i = 0; i < 16; i++) place(sim, { x: 5 + rnd() * 9, y: 2 + rnd() * 8 }, { color: Math.floor(rnd() * 4), hp: Math.floor(rnd() * 3) });
+      // A straight row from the hero and a body ahead of it: a pierce for the first chain (the rest is random).
+      const y = 4 + rnd() * 2;
+      for (let i = 1; i <= 3; i++) place(sim, { x: 4.5 + 1.2 * i, y: y + (i - 2) * 0.05 }, { color: 3 });
+      place(sim, { x: 9.3, y }, { color: 1, hp: 1 });
+      const checkpoints: string[] = [];
+      const tick = (): void => { sim.tick(); sim.world.events.length = 0; if (sim.world.tick % 300 === 0) checkpoints.push(sim.hash()); };
+      for (let c = 0; c < 6 && sim.world.enemies.length; c++) {
+        const first = [...nextCandidates(sim.world)].sort((a, b) => Math.hypot(a.x - sim.world.hero.x, a.y - sim.world.hero.y) - Math.hypot(b.x - sim.world.hero.x, b.y - sim.world.hero.y))[0];
+        if (!first) { for (let t = 0; t < 30; t++) tick(); continue; }
+        sim.command({ t: 'begin', x: first.x, y: first.y });
+        for (let n = 1; n < 5; n++) {
+          const next = straightest(sim);
+          if (!next) break;
+          sim.command({ t: 'drag', x: next.x, y: next.y, mode: 'full' });
+        }
+        if (!sim.world.chain.length) continue;
+        const plan = planChain(sim.world), before = snapshot(sim);
+        sim.command({ t: 'release' });
+        for (let t = 0; t < 1200 && (sim.world.move || t === 0); t++) tick();
+        // Without the key the return run reads the real path: equal only while nobody walks — the plan is checked with the key.
+        const label = `k${k} ${kit.talismans.join('+')} chain ${c}`;
+        if (kit.extra.returnFixed === false) { oldChains++; try { assertPlanIsDash(sim, plan, before, label); } catch { oldDiverged++; } }
+        else { assertPlanIsDash(sim, plan, before, label); chains++; backHits += plan.back?.hits.length ?? 0; pierced += plan.pierce?.bodies.length ?? 0; }
+        for (let t = 0; t < 20; t++) tick();
+      }
+      const again: string[] = [];
+      const copy = replay(JSON.parse(JSON.stringify(sim.exportJournal())) as Journal, step => { step.world.events.length = 0; if (step.world.tick % 300 === 0) again.push(step.hash()); });
+      assert(copy.hash() === sim.hash() && again.join() === checkpoints.join(), `k${k}: replay to the same hash and checkpoints`);
+      hashes.add(sim.hash());
+    }
+  }
+  assert(chains >= 30 && hashes.size === 16 && backHits > 0 && pierced > 0, `chains ${chains}, return hits ${backHits}, pierced ${pierced}, distinct fights ${hashes.size}`);
+  console.log(`  chains ${chains} (plan = dash), return hits ${backHits}, pierced bodies ${pierced}; old path of «Возврат» while walking: ${oldDiverged} of ${oldChains} chains differ from the plan`);
+});
+
+console.log(`realtime-forms: ${checks} checks passed`);

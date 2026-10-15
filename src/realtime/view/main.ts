@@ -289,12 +289,19 @@ async function boot(): Promise<void> {
   };
   const openButton = button('rt-open', '⚙ Отладка', 'open-panel');
   const menuButton = button('rt-menu-open', 'Арены (M)', 'open-menu');
+  // User request 15.10.2026: back from the sandbox opened by the map's button (`#sandbox`) — «Поход» drops the anchor, the page
+  // reloads as the run and goes on from its map. Two places: the top bar by «Арены (M)» (in a fight) and the corner of the arena
+  // menu (it covers the bar; the sandbox opens on it). A sandbox opened by `?sandbox=1` (the tests, a link) has neither.
+  const backToRun = sandbox && urlParams.get('sandbox') !== '1';
+  const runButton = backToRun ? button('rt-run-open', 'Поход', 'open-run') : null;
+  const menuRunButton = backToRun ? button('rt-menu-run', '← Поход', 'menu-run') : null;
+  for (const b of [runButton, menuRunButton]) b?.addEventListener('click', () => { location.hash = ''; });
 
   // Arena menu: before the first fight and after a result (keys 1–9 and 0).
   const menu = el('div', 'rt-overlay rt-menu');
   menu.setAttribute('data-testid', 'menu');
   const menuCard = el('div', 'rt-card rt-menu-card');
-  menuCard.append(el('h2', '', 'Выбери арену'));
+  menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
   const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length;
@@ -369,7 +376,7 @@ async function boot(): Promise<void> {
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
   host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar.el, help, pausedBadge, hint, purseHint, shiftHint, result, noteFlash);
-  if (sandbox) host.append(openButton, menuButton, menu);
+  if (sandbox) host.append(openButton, menuButton, ...runButton ? [runButton] : [], menu);
   if (logsPanel) host.append(logsPanel.el);
 
   await loadCharacterArt();
@@ -665,6 +672,8 @@ async function boot(): Promise<void> {
       mapChoice: (run, choice) => recorder?.mapChoice(run, choice),
     } : {},
     ...logsPanel ? { openLogs: () => logsPanel.show() } : {},
+    // User request 15.10.2026: the map's «Песочница» — the anchor reloads the page as the sandbox (`hashchange` above); the run's save is kept.
+    openSandbox: () => { location.hash = '#sandbox'; },
     firstMeet: meetFirst,
     // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [

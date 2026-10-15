@@ -63,6 +63,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-other:hover { border-color: #c8a56b; }
 .rt-menu-open { position: absolute; top: 14px; right: 118px; padding: 7px 12px; background: #20241b; border: 1px solid #444837; color: #c9c5a8; }
 .rt-menu-open:hover { border-color: #a39364; }
+/* User request 15.10.2026: «Поход» — back to the run from the sandbox opened by the map's «Песочница» (main.ts `runButton`). */
+.rt-run-open { position: absolute; top: 14px; right: 228px; padding: 7px 12px; background: #20241b; border: 1px solid #444837; color: #c9c5a8; }
+.rt-run-open:hover { border-color: #a39364; }
+.rt-menu-card { position: relative; }
+.rt-menu-run { position: absolute; top: 14px; left: 16px; padding: 6px 11px; background: #20241b; border: 1px solid #444837; color: #c9c5a8; }
+.rt-menu-run:hover { border-color: #a39364; }
 .rt-kills.rt-door-open { color: #fff2c4; }
 
 .rt-panel { position: absolute; top: 0; right: 0; bottom: 0; width: var(--rt-panel-w); overflow-y: auto; background: var(--rt-panel); border-left: 1px solid var(--rt-line); padding: 10px 14px 24px; font-size: 12px; z-index: 6; }
