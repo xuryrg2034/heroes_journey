@@ -309,6 +309,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-build-tip span { display: block; }
 .rt-build-tip em { display: block; font-style: normal; font-weight: 700; color: #f0a08c; }
 .rt-build-flash .rt-build-icon { animation: rt-build-flash 0.6s ease-out; }
+/* Task 29: a drawn form icon fills its circle; a taken item's icon flies from the hero to its row (buildColumn.ts `arrive`). */
+.rt-build-icon-svg svg { display: block; }
+.rt-build-arrive { position: fixed; z-index: 9; width: 48px; height: 48px; margin: 0; grid-row: auto; pointer-events: none; transform-origin: 50% 50%; box-shadow: 0 0 0 3px #bfe3ff, 0 0 18px #bfe3ff; }
+.rt-build-compact .rt-build-icon-svg svg { width: 16px; height: 16px; }
 @keyframes rt-build-flash { 0% { background: #ffffff; color: #10150f; box-shadow: 0 0 0 3px #bfe3ff, 0 0 14px #bfe3ff; transform: scale(1.25); } 100% { box-shadow: none; transform: scale(1); } }
 
 /* Telemetry (track ТA, docs/realtime-telemetry.md): the «Логи» panel and the flash of the N note. */

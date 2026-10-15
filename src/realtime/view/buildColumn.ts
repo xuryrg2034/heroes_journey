@@ -25,6 +25,8 @@ interface Label {
   title: string;
   /** A relic's price, short («−3 HP»). */
   price?: string;
+  /** Task 29: a drawn icon (inline SVG, view/formIcons.ts) in place of the glyph. */
+  svg?: string;
 }
 
 /** Short labels of the build (view table; names after docs/realtime-phase-b.md, sections 3–5а). */
@@ -139,6 +141,13 @@ export function buildEntries(world: World): BuildEntry[] {
 
 /** Seconds an icon flashes when its item fires (design answer 23). */
 export const FLASH_TIME = 0.6;
+/**
+ * Task 29 (design 15.10.2026): a taken item's icon shows large over the hero (`ARRIVE_HOLD` s), then flies to its row
+ * (`ARRIVE_FLY` s) and the row flashes — the eye follows it to the column (no text plate). Real seconds.
+ */
+export const ARRIVE_HOLD = 0.4;
+export const ARRIVE_FLY = 0.6;
+const ARRIVE_SIZE = 48;
 
 interface Row { id: string; kind: BuildKind; el: HTMLElement; progress: HTMLElement; flash: number }
 
@@ -161,6 +170,9 @@ export class BuildColumn {
   private fitted = '';
   /** Flashes started so far (tests read it). */
   flashes = 0;
+  /** Task 29: icon flights started so far, and the ids of those flying now (tests read them). */
+  arrivals = 0;
+  readonly flying = new Set<string>();
 
   constructor() {
     this.el = document.createElement('div');
@@ -213,6 +225,42 @@ export class BuildColumn {
     void el.offsetWidth;
     el.classList.add('rt-build-flash');
     this.flashes++;
+    return true;
+  }
+
+  /**
+   * Task 29: item `id` was taken — its icon (the row's, enlarged) appears over the page point `from` (the hero on screen), holds
+   * `ARRIVE_HOLD`, flies to its row (a folded one — to «+N») in `ARRIVE_FLY` and the row flashes. Returns false when the column
+   * has no such row or is hidden.
+   */
+  arrive(id: string, from: { x: number; y: number }): boolean {
+    const row = this.rows.find(r => r.id === id);
+    if (!row || this.el.hidden) return false;
+    const target = (row.el.hidden && this.more ? this.more : row.el).querySelector('.rt-build-icon') as HTMLElement | null;
+    const source = row.el.querySelector('.rt-build-icon') as HTMLElement | null;
+    if (!target || !source) return false;
+    const ghost = source.cloneNode(true) as HTMLElement;
+    ghost.classList.add('rt-build-arrive');
+    ghost.setAttribute('data-testid', `build-arrive-${id}`);
+    const svg = ghost.querySelector('svg');
+    if (svg) { svg.setAttribute('width', String(ARRIVE_SIZE - 8)); svg.setAttribute('height', String(ARRIVE_SIZE - 8)); }
+    ghost.style.left = `${Math.round(from.x - ARRIVE_SIZE / 2)}px`;
+    ghost.style.top = `${Math.round(from.y - ARRIVE_SIZE / 2)}px`;
+    document.body.appendChild(ghost);
+    this.arrivals++;
+    this.flying.add(id);
+    const box = target.getBoundingClientRect(), k = box.width / ARRIVE_SIZE;
+    const dx = box.left + box.width / 2 - from.x, dy = box.top + box.height / 2 - from.y, total = (ARRIVE_HOLD + ARRIVE_FLY) * 1000;
+    const done = (): void => { ghost.remove(); this.flying.delete(id); this.flash(id); };
+    if (typeof ghost.animate !== 'function') { done(); return true; }
+    const flight = ghost.animate([
+      { transform: 'translate(0, 0) scale(0.6)', opacity: 0 },
+      { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0.12 },
+      { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: ARRIVE_HOLD * 1000 / total },
+      { transform: `translate(${dx}px, ${dy}px) scale(${k})`, opacity: 1 },
+    ], { duration: total, easing: 'ease-in-out', fill: 'forwards' });
+    flight.onfinish = done;
+    flight.oncancel = done;
     return true;
   }
 
@@ -269,7 +317,7 @@ export class BuildColumn {
       el.dataset.kind = kind;
       const icon = document.createElement('i');
       icon.className = 'rt-build-icon';
-      icon.textContent = label.glyph;
+      if (label.svg) { icon.innerHTML = label.svg; icon.classList.add('rt-build-icon-svg'); } else icon.textContent = label.glyph;
       const name = document.createElement('b');
       name.textContent = label.short;
       const progress = document.createElement('span');
