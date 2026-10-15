@@ -670,7 +670,7 @@ async function boot(): Promise<void> {
     viewToggles: [
       { id: 'link-depth', label: 'Глубина звена', hint: 'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него.', get: () => renderer.showLinkDepth, set: setLinkDepth },
       { id: 'session-clock', label: 'Часы сессии', hint: 'Время в игре на экране конца похода и одна тихая строка на карте после 90 минут игры.', get: () => sessionClockOn, set: on => { sessionClockOn = on; saveSessionClock(on); } },
-      { id: 'new-on-map', label: 'Новое на карте', hint: 'Знак «✦ новое» у арены с ещё не встреченным врагом и одна подпись на бой при первой встрече врага или свойства элиты.', get: () => newOnMap, set: on => { newOnMap = on; saveNewOnMap(on); } },
+      { id: 'new-on-map', label: 'Новое на карте', hint: 'Знак «✦ новое» у арены с ещё не встреченным врагом или местностью и одна подпись на бой при первой встрече врага или свойства элиты.', get: () => newOnMap, set: on => { newOnMap = on; saveNewOnMap(on); } },
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},

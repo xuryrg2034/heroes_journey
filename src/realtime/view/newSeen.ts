@@ -78,7 +78,7 @@ export class NewSeenStore {
  * The captioned kinds of an arena (as a run plays it) that `store` has not met yet, in the order of `KIND_CAPTIONS`. `without` — the
  * kinds the fight takes out (`Loadout.withoutKinds`: the schedule, task 26; a gentle final, task 17): never promised (review 15.10.2026).
  */
-export function newKindsOfArena(arena: string, roster: string | undefined, store: NewSeenStore, without: readonly string[] = []): string[] {
+export function newKindsOfArena(arena: string, roster: string | undefined, store: Pick<NewSeenStore, 'hasKind'>, without: readonly string[] = []): string[] {
   const kinds = arenaKinds(arena, roster);
   return Object.keys(KIND_CAPTIONS).filter(kind => kinds.has(kind) && !without.includes(kind) && !store.hasKind(kind));
 }

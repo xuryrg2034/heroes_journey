@@ -66,6 +66,21 @@ check('the new kinds of the viewer are marked on the enemies line', () => {
 });
 
 /**
+ * Design 15.10.2026 (after task 26): the terrain line gets «✦» when the arena's terrain (the schedule's elements: river → water,
+ * cliff, thorns) is not among the met ones; a small pond (r < 2, «Поляна») never does; no `met` — no sign.
+ */
+check('the terrain line is marked new while the schedule history has not met that terrain (a small pond — never)', () => {
+  const terrain = (arena: string, met?: string[]) => nodeDangers({ arena, row: 4, guaranteedElite: false, ...met ? { met: new Set(met) } : {} }).find(l => l.id === 'terrain')!;
+  assert(terrain('thorns', []).newTerrain?.join() === 'thorns', `thorns, nothing met: ${terrain('thorns', []).newTerrain}`);
+  assert(terrain('thorns', ['thorns', 'buttons']).newTerrain === undefined, 'thorns met — no mark');
+  assert(terrain('ford', ['cliff']).newTerrain?.join() === 'water', `the river is water: ${terrain('ford', ['cliff']).newTerrain}`);
+  assert(terrain('ford', ['water']).newTerrain === undefined, 'water met — no mark');
+  assert(terrain('p-cliff', ['water', 'thorns']).newTerrain?.join() === 'cliff', `the cliff: ${terrain('p-cliff', ['water', 'thorns']).newTerrain}`);
+  assert(terrain('glade', []).newTerrain === undefined, 'a small pond is not the schedule water: no mark');
+  assert(terrain('thorns').newTerrain === undefined, 'no history given (no schedule, the toggle off) — no mark');
+});
+
+/**
  * Task 17 (core review 14.10.2026, «подсказка ≠ исполнение»): a gentle run's node card said the old tables — row 3 «1 элита ·
  * броня 2», row 5 «броня 3 · особое свойство» — while the fight played none and 2 plates. Every available battle node of a run,
  * walked by its own commands on 12 seeds: the card's rules (`cardRules`) are the rules `rtArenaLoadout` gives the fight once the
